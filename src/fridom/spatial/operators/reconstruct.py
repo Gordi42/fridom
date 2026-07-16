@@ -34,9 +34,11 @@ live here, with the identical alignment calculus.
 #    Wave 4: WenoReconstruction
 from __future__ import annotations
 
+from fractions import Fraction
 from typing import TYPE_CHECKING, ClassVar, final
 
 import jax.numpy as jnp
+import numpy as np
 
 from fridom.spatial.errors import SpaceMismatchError
 from fridom.spatial.operators.base import (
@@ -54,10 +56,12 @@ from fridom.spatial.operators.spectral import (
 )
 from fridom.spatial.operators.staggering import (
     first_node_offset,
+    require_local_axis,
 )
 from fridom.spatial.operators.stencil_kernels import (
     apply_stencil,
     linear_interp,
+    one_sided_weights,
 )
 from fridom.spatial.scalars import Scalars
 from fridom.spatial.spaces.average import CellAvg, FaceAvg
@@ -76,6 +80,9 @@ if TYPE_CHECKING:  # pragma: no cover
 
 _RECON_SIZE = 2
 _DECONV_SIZE = 1
+#: one-sided wall stencil size of the CellAvg -> Outer variant: two
+#: cell averages reproduce a linear profile exactly (design order 2)
+_ONE_SIDED_POINTS = 2
 
 
 def factor_codomain(
@@ -271,6 +278,195 @@ def apply_fv_staggered(
 
 
 # ================================================================
+#  One-sided wall reconstruction (the CellAvg -> Outer variant, R2)
+# ================================================================
+def _geometric_value_weights(
+    offsets: tuple[float, ...],
+) -> tuple[float, ...]:
+    """
+    Value-reconstruction weights at arbitrary (mapped) offsets.
+
+    Description
+    -----------
+    The float sibling of :func:`stencil_kernels.one_sided_weights` for
+    a **stretched** axis, where the cell-center offsets are not exact
+    rationals: solves the same value-moment system
+    ``sum_j w_j x_j^m = [m == 0]`` (``x_j`` the physical offset of cell
+    ``j`` from the wall face) so the stencil reproduces polynomials up
+    to degree ``len(offsets) - 1`` at the wall. On a uniform axis the
+    offsets are exact and the rational solver is used instead, so this
+    path is reached only for a coordinate-mapped mesh.
+
+    Parameters
+    ----------
+    offsets : tuple[float, ...]
+        Physical positions of the cells relative to the wall face.
+
+    Returns
+    -------
+    tuple[float, ...]
+        One weight per offset (static Python floats).
+    """
+    p = len(offsets)
+    matrix = np.array(
+        [[off ** row for off in offsets] for row in range(p)],
+        dtype=float)
+    rhs = np.zeros(p, dtype=float)
+    rhs[0] = 1.0
+    return tuple(float(w) for w in np.linalg.solve(matrix, rhs))
+
+
+def _wall_face_weights(
+    mesh: object, n: int, points: int, cell0: int, face_index: int,
+) -> tuple[float, ...]:
+    r"""
+    One-sided value weights of one Outer wall face (geometry-derived).
+
+    Description
+    -----------
+    The wall face at Outer node ``face_index`` is reconstructed from
+    the ``points`` interior cell averages ``cell0 .. cell0 + points -
+    1`` by linear extrapolation of the piecewise-polynomial
+    reconstruction — a purely interior stencil that reads **no
+    exterior value** (R2, boundary_plan.md 2d). The weights depend on
+    the cell **geometry**: on a uniform axis the cell centers sit at
+    ``cell0 + j + 1/2`` cell widths and the face at the integer
+    ``face_index`` (exact half-integer offsets, solved over the
+    rationals — bitwise the ``(3 c0 - c1) / 2`` closure at second
+    order); on a coordinate-mapped axis the offsets are the physical
+    cell-center-to-face distances (the cell widths differ), solved in
+    floats.
+
+    Parameters
+    ----------
+    mesh : object
+        The bounded 1D mesh (``coordinate_map`` seam).
+    n : int
+        The primal cell count.
+    points : int
+        The one-sided stencil size.
+    cell0 : int
+        The first (wall-nearest) cell of the window.
+    face_index : int
+        The Outer node index of the reconstructed wall face.
+
+    Returns
+    -------
+    tuple[float, ...]
+        One weight per cell of the window (static Python floats).
+    """
+    coord = getattr(mesh, "coordinate_map", None)
+    if coord is None:
+        # cell-width units: Outer node k is at k cell widths from
+        # x_min, cell center (cell0 + j) at (cell0 + j) + 1/2
+        offsets = tuple(
+            Fraction(2 * (cell0 + j) + 1, 2) - face_index
+            for j in range(points))
+        return one_sided_weights(offsets, 0)
+    # coordinate-mapped: physical positions, host-evaluated once
+    x_face = float(coord(jnp.asarray(face_index / n)))
+    offsets = tuple(
+        float(coord(jnp.asarray((cell0 + j + 0.5) / n))) - x_face
+        for j in range(points))
+    return _geometric_value_weights(offsets)
+
+
+def patch_fv_outer_walls(
+    f: FieldLike,
+    result: FieldLike,
+    axis: str,
+    *,
+    size: int,
+    points: int,
+) -> FieldLike:
+    """
+    Overwrite the two Outer wall faces with one-sided reconstructions.
+
+    Description
+    -----------
+    The explicit one-sided closure of the bounded
+    ``CellAvg -> Outer`` reconstruction (R2, boundary_plan.md 2d):
+    the standard symmetric two-point mean has already filled the
+    ``n - 1`` interior faces (Outer slots ``1 .. n - 1``, bitwise the
+    ``CellAvg -> Inner`` reconstruction) and zero-filled the two wall
+    slots; here each wall face is recomputed from the ``points``
+    wall-side cell averages by :func:`_wall_face_weights` (geometry-
+    derived, reading no exterior value). The patches write static
+    physical-edge indices, so the axis must be undistributed
+    (``layout="local"``, guarded by the caller).
+
+    Parameters
+    ----------
+    f : FieldLike
+        The operand field (storage-shaped ``_data``, on ``CellAvg``).
+    result : FieldLike
+        The symmetric reconstruction's result field (on ``Outer``).
+    axis : str
+        The resolved coordinate axis (bounded).
+    size : int
+        The symmetric window size (fixes the per-side patch counts).
+    points : int
+        The one-sided wall stencil size.
+
+    Returns
+    -------
+    FieldLike
+        ``result`` with its two wall faces replaced (metadata and
+        halo-validity claim carried over).
+    """
+    bare = f.function_space.bare
+    domain_factor = bare.factor(axis)
+    codomain_factor = result.function_space.bare.factor(axis)
+    mesh = domain_factor.mesh
+    n = domain_factor.shape[0]
+    n_out = codomain_factor.shape[0]
+    if n < points:
+        raise NotImplementedError(
+            f"the one-sided CellAvg -> Outer wall patch needs {points} "
+            f"cells along {axis!r}, got {n}")
+    # per-side patched-slot counts (the window-alignment calculus of
+    # apply_fv_staggered: CellAvg -> Outer aligns at m0 = 1)
+    delta = (fv_node_offset(codomain_factor)
+             - fv_node_offset(domain_factor))
+    m0 = -int(delta - (size - 1) / 2)
+    left_count = max(0, m0)
+    right_count = max(0, (n_out - n) + size - 1 - m0)
+
+    axis_index = bare.names.index(axis)
+    # the interior reconstruction already ran (halo = 1 required), so
+    # the operand axis always carries its negotiated halo here
+    width = f.grid.decomposition.halo[axis]
+    storage = f._data  # noqa: SLF001 — documented storage seam
+    out = result._data  # noqa: SLF001 — documented storage seam
+
+    def take(arr: Array, index: int) -> Array:
+        slices: list[object] = [slice(None)] * arr.ndim
+        slices[axis_index] = index
+        return arr[tuple(slices)]
+
+    def put(arr: Array, index: int, value: Array) -> Array:
+        slices: list[object] = [slice(None)] * arr.ndim
+        slices[axis_index] = index
+        return arr.at[tuple(slices)].set(value)
+
+    def patch_side(cell0: int, face_index: int) -> None:
+        nonlocal out
+        weights = _wall_face_weights(mesh, n, points, cell0, face_index)
+        value = sum(
+            w * take(storage, width + cell0 + j)
+            for j, w in enumerate(weights))
+        out = put(out, width + face_index, value)
+
+    for t in range(left_count):
+        patch_side(0, t)
+    for t in range(right_count):
+        patch_side(n - points, n_out - 1 - t)
+
+    return type(result)(result.grid, result.function_space, out,
+                        result.metadata, halo_valid=result.halo_valid)
+
+
+# ================================================================
 #  LinearReconstruction
 # ================================================================
 @final
@@ -287,42 +483,122 @@ class LinearReconstruction(SeparableOperator):
     via the ``target=`` constructor knob. The bounded ``CellAvg ->
     Outer`` variant is un-grounded under the R1 legality rule
     (boundary_plan.md): its wall faces need exterior values, which
-    the (always BC-free) average spaces do not define — a one-sided
-    reconstruction variant is designed-for and arrives when a
-    concrete model needs it. ``eigenvalues`` is the retagging
-    ``one_hat`` averaging diagonal ``cos(k dx/2)`` (with the
-    inter-origin phase), diagonalizing ``Fourier(CellAvg) ->
-    Fourier(Right)`` — and the other two-point conversions — on a
-    periodic uniform mesh; at second order the deconvolution ``sinc``
-    correction vanishes, so it is bitwise the nodal ``LinearInterp``
-    numbers. The ``target=`` variant, bounded, and mapped meshes
-    raise ``EigenbasisError``.
+    the (always BC-free) average spaces do not define. The explicit
+    escape is the ``boundary="one_sided"`` opt-in (R2, boundary_plan.md
+    2d): the interior faces keep the symmetric two-point mean (bitwise
+    the ``CellAvg -> Inner`` reconstruction) and the two wall faces get
+    a one-sided linear extrapolation of the piecewise reconstruction
+    from interior cell averages only — at second order ``(3 c0 - c1) /
+    2`` on a uniform axis, and the geometry-weighted generalization on
+    a coordinate-mapped one. Both are per-instance and never a default
+    row. ``eigenvalues`` is the retagging ``one_hat`` averaging
+    diagonal ``cos(k dx/2)`` (with the inter-origin phase),
+    diagonalizing ``Fourier(CellAvg) -> Fourier(Right)`` — and the
+    other two-point conversions — on a periodic uniform mesh; at second
+    order the deconvolution ``sinc`` correction vanishes, so it is
+    bitwise the nodal ``LinearInterp`` numbers. The ``target=`` variant,
+    bounded, and mapped meshes raise ``EigenbasisError``.
 
     Parameters
     ----------
     target : NodeSet | None, optional
         Explicit target node set overriding the default table;
         iteration 1 grounds ``NodeSet.OUTER`` only (default: None).
+    boundary : str, optional
+        ``"closed"`` (default): bounded signatures follow the R1
+        legality rule. ``"one_sided"``: the explicit opt-in closure
+        (boundary_plan.md 2d) — the bounded ``CellAvg -> Outer`` wall
+        faces become legal, patched by one-sided interior-only
+        extrapolation (design-order accurate); demands the applied
+        axis undistributed (``layout="local"``).
     """
 
     dispatch_kind: ClassVar[str | None] = "reconstruct"
 
-    def __init__(self, target: NodeSet | None = None) -> None:
-        """Create the kernel; ``target`` overrides the codomain."""
+    def __init__(self, target: NodeSet | None = None,
+                 boundary: str = "closed") -> None:
+        """Create the kernel; ``target``/``boundary`` set the codomain."""
         if target is not None and not isinstance(target, NodeSet):
             raise TypeError(
                 f"target must be a NodeSet member or None, got "
                 f"{target!r}")
+        if boundary not in ("closed", "one_sided"):
+            raise ValueError(
+                f"boundary must be 'closed' or 'one_sided', got "
+                f"{boundary!r}")
         self._target: NodeSet | None = target
+        self._boundary: str = boundary
 
     def _intern_key(self) -> tuple:
-        """Structural key: the explicit target node set (D6)."""
-        return (self._target,)
+        """Structural key: the target and boundary mode (D6)."""
+        return (self._target, self._boundary)
 
     @property
     def target(self) -> NodeSet | None:
         """Explicit target node set, or None for the default table."""
         return self._target
+
+    @property
+    def boundary(self) -> str:
+        """The bounded-boundary closure mode."""
+        return self._boundary
+
+    @property
+    def _is_one_sided_outer(self) -> bool:
+        """Whether this is the grounded one-sided Outer variant."""
+        return (self._target is NodeSet.OUTER
+                and self._boundary == "one_sided")
+
+    def _target_codomain(
+        self, domain: FunctionSpace, mesh: object,
+    ) -> FunctionSpace:
+        """
+        Resolve the ``target=`` variant's codomain.
+
+        Description
+        -----------
+        Iteration 1 grounds bounded ``CellAvg -> Outer`` only, and only
+        under the ``boundary="one_sided"`` opt-in (R2): the wall faces
+        are patched by interior-only extrapolation, so the BC-free Outer
+        signature is legal. Without the opt-in the R1 legality rule
+        keeps it un-grounded (its wall faces would need exterior
+        values); any other target raises.
+
+        Parameters
+        ----------
+        domain : FunctionSpace
+            The bare 1D factor space.
+        mesh : object
+            The domain factor's mesh.
+
+        Returns
+        -------
+        FunctionSpace
+            The Outer codomain factor (scalars preserved).
+        """
+        if (self._target is NodeSet.OUTER and not mesh.periodic
+                and isinstance(domain, CellAvg)):
+            if self._boundary != "one_sided":
+                # R1 (boundary_plan.md 2c): the Outer wall faces need
+                # exterior values, which the (always BC-free) CellAvg
+                # does not define; grounded only under the explicit
+                # one-sided opt-in (R2)
+                raise SpaceMismatchError(
+                    f"no reconstruct signature on {domain!r}: the "
+                    "CellAvg -> Outer wall faces need exterior values, "
+                    "which a BC-free bounded space does not define "
+                    "(R1, boundary_plan.md); opt into the one-sided "
+                    "closure LinearReconstruction(target=NodeSet.OUTER, "
+                    "boundary='one_sided')",
+                    left=domain, operation="reconstruct")
+            codomain = mesh.outer
+            if domain.scalars is Scalars.COMPLEX:
+                codomain = codomain.as_complex()
+            return codomain
+        raise SpaceMismatchError(
+            "the target= variant grounds bounded CellAvg -> Outer only "
+            f"in iteration 1; got target={self._target} on {domain!r}",
+            left=domain, operation="reconstruct")
 
     def codomain(self, domain: FunctionSpace) -> FunctionSpace:
         """
@@ -351,25 +627,7 @@ class LinearReconstruction(SeparableOperator):
                 origin=self.codomain(domain.origin))
         mesh = domain.mesh
         if self._target is not None:
-            if (self._target is NodeSet.OUTER and not mesh.periodic
-                    and isinstance(domain, CellAvg)):
-                # R1 (boundary_plan.md 2c): the Outer wall faces
-                # need exterior values, which the (always BC-free)
-                # CellAvg does not define; a one-sided
-                # reconstruction variant is designed-for
-                raise SpaceMismatchError(
-                    f"no reconstruct signature on {domain!r}: the "
-                    "CellAvg -> Outer wall faces need exterior "
-                    "values, which a BC-free bounded space does "
-                    "not define (R1, boundary_plan.md); a "
-                    "one-sided reconstruction variant arrives when "
-                    "a concrete model needs it",
-                    left=domain, operation="reconstruct")
-            raise SpaceMismatchError(
-                "the target= variant grounds bounded "
-                "CellAvg -> Outer only in iteration 1; got "
-                f"target={self._target} on {domain!r}",
-                left=domain, operation="reconstruct")
+            return self._target_codomain(domain, mesh)
         if isinstance(domain, CellAvg):
             result = "right" if mesh.periodic else "inner"
         elif isinstance(domain, FaceAvg):
@@ -407,7 +665,14 @@ class LinearReconstruction(SeparableOperator):
         domain: FunctionSpace,  # noqa: ARG002 — fixed two-point halo
     ) -> OperatorRequirements:
         """
-        Declare halo = 1, layout "any".
+        Declare halo = 1; layout "local" for the one-sided variant.
+
+        Description
+        -----------
+        The two-point interior kernel needs one halo layer. The
+        one-sided ``CellAvg -> Outer`` closure additionally patches
+        static physical-edge indices, so negotiation must keep the
+        applied axis undistributed (``layout="local"``).
 
         Parameters
         ----------
@@ -419,6 +684,8 @@ class LinearReconstruction(SeparableOperator):
         OperatorRequirements
             The per-factor requirements record.
         """
+        if self._is_one_sided_outer:
+            return OperatorRequirements(halo=1, layout="local")
         return OperatorRequirements(halo=1)
 
     def eigenvalues(
@@ -470,6 +737,15 @@ class LinearReconstruction(SeparableOperator):
         """
         Convert along ``axis`` (window-aligned two-point mean).
 
+        Description
+        -----------
+        The symmetric two-point mean over the halo-extended storage;
+        for the one-sided ``CellAvg -> Outer`` variant the two wall
+        faces are then overwritten by :func:`patch_fv_outer_walls`
+        (interior-only extrapolation, R2). On a periodic axis the
+        Outer variant never resolves (``codomain`` grounds it on
+        bounded meshes only), so the patch is bounded-only.
+
         Parameters
         ----------
         f : FieldLike
@@ -482,8 +758,16 @@ class LinearReconstruction(SeparableOperator):
         FieldLike
             The converted field (metadata kept: same quantity).
         """
-        return apply_fv_staggered(self, f, axis, _RECON_SIZE,
-                                  linear_interp, metadata=f.metadata)
+        result = apply_fv_staggered(self, f, axis, _RECON_SIZE,
+                                    linear_interp, metadata=f.metadata)
+        factor = f.function_space.bare.factor(axis)
+        if (self._is_one_sided_outer and isinstance(factor, CellAvg)
+                and not factor.mesh.periodic):
+            require_local_axis(f, axis)
+            result = patch_fv_outer_walls(
+                f, result, axis, size=_RECON_SIZE,
+                points=_ONE_SIDED_POINTS)
+        return result
 
 
 # ================================================================
