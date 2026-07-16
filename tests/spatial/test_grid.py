@@ -637,6 +637,149 @@ def test_init_coeff_assigns_at_the_wavenumbers(grid1d, mx):
 
 
 # ================================================================
+#  create_field — init path (per-cell quadrature on averages, G8)
+# ================================================================
+def _cell_average(power, edges):
+    """Exact per-cell average of ``x**power`` from the edge array."""
+    p1 = power + 1
+    return (edges[1:] ** p1 - edges[:-1] ** p1) / (
+        p1 * (edges[1:] - edges[:-1]))
+
+
+def test_quadrature_default_is_bitwise_midpoint_sampling(grid, mx,
+                                                         my):
+    # the semantics pin: the average-space default (order=None) is
+    # exactly the current midpoint collocation — a plain sample of
+    # init at the cell_avg evaluation nodes, bitwise
+    def init(x, y):
+        return jnp.exp(jnp.sin(x)) + y**2
+
+    f = grid.create_field(mx.cell_avg * my.cell_avg, init=init)
+    xnodes = (jnp.arange(8) + 0.5) * 0.125
+    ynodes = (jnp.arange(4) + 0.5) * 0.5
+    midpoint = init(xnodes[:, None], ynodes[None, :])
+    assert jnp.array_equal(f.data, midpoint)
+    # order=1 is the same one-point rule, also bitwise identical
+    one = grid.create_field(mx.cell_avg * my.cell_avg, init=init,
+                            order=1)
+    assert jnp.array_equal(one.data, f.data)
+
+
+def test_quadrature_order_is_validated(grid, mx):
+    for bad in (0, -3, 2.0, True):
+        with pytest.raises(ValueError, match="order="):
+            grid.create_field(mx.cell_avg, init=lambda x: x, order=bad)
+
+
+def test_quadrature_is_exact_for_polynomials_to_degree_2n_minus_1(
+        grid1d, mx):
+    # n-point Gauss is exact for per-cell averages of polynomials up
+    # to degree 2n-1: order 2 -> cubic, order 3 -> quintic
+    edges = jnp.arange(9) * 0.125
+    cubic = grid1d.create_field(mx.cell_avg, init=lambda x: x**3,
+                                order=2)
+    assert jnp.allclose(cubic.data, _cell_average(3, edges),
+                        atol=1e-14)
+    quintic = grid1d.create_field(mx.cell_avg, init=lambda x: x**5,
+                                  order=3)
+    assert jnp.allclose(quintic.data, _cell_average(5, edges),
+                        atol=1e-14)
+    # one point short: order 2 is NOT exact for the quartic
+    quartic = grid1d.create_field(mx.cell_avg, init=lambda x: x**4,
+                                  order=2)
+    assert not jnp.allclose(quartic.data, _cell_average(4, edges),
+                            atol=1e-10)
+
+
+def test_quadrature_converges_in_order_at_fixed_mesh(mx):
+    # a smooth non-polynomial: the per-cell-average error against an
+    # ultra-high-order reference falls by orders of magnitude per
+    # added point (robust ratio assertions, not a fitted rate)
+    grid = Grid((mx,))
+
+    def init(x):
+        return jnp.exp(jnp.sin(2.0 * jnp.pi * x))
+
+    ref = grid.create_field(mx.cell_avg, init=init, order=12).data
+
+    def err(order):
+        got = grid.create_field(mx.cell_avg, init=init, order=order)
+        return float(jnp.max(jnp.abs(got.data - ref)))
+
+    e1, e2, e3 = err(1), err(2), err(3)
+    assert e2 < e1 / 100.0
+    assert e3 < e2 / 100.0
+
+
+def test_quadrature_averages_only_the_average_axes(grid, mx, my):
+    # the FV velocity pattern Right(x) (x) CellAvg(y): a point value
+    # along x, a quadrature average along y
+    f = grid.create_field(mx.right * my.cell_avg,
+                          init=lambda x, y: x + y**3, order=3)
+    xr = (jnp.arange(8) + 1.0) * 0.125
+    yedges = jnp.arange(5) * 0.5
+    expected = xr[:, None] + _cell_average(3, yedges)[None, :]
+    assert jnp.allclose(f.data, expected, atol=1e-14)
+
+
+def test_quadrature_skips_constant_factors(grid, mx, my):
+    # a constant x-factor drops out of the quadrature exactly as it
+    # drops out of the collocation signature
+    f = grid.create_field(mx.constant * my.cell_avg,
+                          init=lambda y: y**3, order=3)
+    yedges = jnp.arange(5) * 0.5
+    assert f.shape == (1, 4)
+    assert jnp.allclose(f.data, _cell_average(3, yedges)[None, :],
+                        atol=1e-14)
+
+
+def test_quadrature_order_is_a_noop_without_average_factors(grid):
+    # order= only bites average factors; a pure-nodal space samples
+    # its nodes whatever the order (bitwise the collocation default)
+    plain = grid.create_field(init=lambda x, y: x**2 + 3.0 * y)
+    high = grid.create_field(init=lambda x, y: x**2 + 3.0 * y,
+                             order=4)
+    assert jnp.array_equal(high.data, plain.data)
+
+
+def test_quadrature_on_a_stretched_bounded_axis(mzm):
+    # per-cell Gauss nodes scale with each cell's own physical width
+    # (from the mapped edges): order 2 is exact for the cubic average
+    grid = Grid((mzm,))
+    edges = tanh_map(_s_faces())
+    cubic = grid.create_field(mzm.cell_avg, init=lambda z: z**3,
+                              order=2)
+    assert jnp.allclose(cubic.data, _cell_average(3, edges),
+                        atol=1e-14)
+
+
+def test_quadrature_face_avg_is_guarded(grid1d, mx):
+    # FaceAvg dual-cell quadrature is designed-for, not built; the
+    # midpoint default still works, only order>=2 is refused
+    with pytest.raises(NotImplementedError, match="FaceAvg"):
+        grid1d.create_field(mx.face_avg, init=lambda x: x**2,
+                            order=2)
+
+
+def test_quadrature_rides_through_to_an_average_origin(grid1d, mx):
+    # discretize = transform o discretize-on-origin: order= reaches
+    # the CellAvg origin discretize before the Fourier forward
+    coeff = mx.fourier(origin=mx.cell_avg)
+
+    def init(x):
+        return jnp.exp(jnp.sin(2.0 * jnp.pi * x))
+
+    f = grid1d.create_field(coeff, init=init, order=4)
+    transform = grid1d.dispatch.resolve("transform", mx.cell_avg)
+    reference = transform.forward(grid1d.create_field(
+        mx.cell_avg, init=init, order=4))
+    assert jnp.allclose(f.data, reference.data, atol=1e-14)
+    # and it differs from the midpoint default (a real high-order lift)
+    default = grid1d.create_field(coeff, init=init)
+    assert not jnp.allclose(f.data, default.data, atol=1e-8)
+
+
+# ================================================================
 #  evaluation_nodes
 # ================================================================
 def test_nodes_center(grid1d, mx):
