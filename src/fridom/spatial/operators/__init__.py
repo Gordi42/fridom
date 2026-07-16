@@ -22,6 +22,7 @@ if TYPE_CHECKING:  # pragma: no cover
         chebyshev,
         combinators,
         composed,
+        cumulative,
         dealias,
         distributed_solve,
         finite_difference,
@@ -78,6 +79,7 @@ if TYPE_CHECKING:  # pragma: no cover
         RaiseIndex,
         VarianceRetag,
     )
+    from .cumulative import CumulativeIntegral
     from .distributed_solve import resolve_distributed_solve
     from .finite_difference import FiniteDifference
     from .flux_diff import (
@@ -106,7 +108,13 @@ if TYPE_CHECKING:  # pragma: no cover
     from .spectral_solve import SpectralSolve
     from .symbol import Symbol
     from .trig import Cosine, Sine
-    from .verbs import diff, integrate, interpolate, physical_diff
+    from .verbs import (
+        cumint,
+        diff,
+        integrate,
+        interpolate,
+        physical_diff,
+    )
     from .weno import WenoReconstruction
 
 # ================================================================
@@ -130,6 +138,7 @@ all_modules_by_origin = {
         "weno",
         "select",
         "flux_diff",
+        "cumulative",
         "spectral",
         "transform",
         "mixed",
@@ -219,7 +228,8 @@ all_imports_by_origin = {
         "VarianceRetag",
     ],
     f"{base}.movement": ["Reshard", "Sync"],
-    f"{base}.verbs": ["diff", "interpolate", "integrate",
+    f"{base}.cumulative": ["CumulativeIntegral"],
+    f"{base}.verbs": ["diff", "interpolate", "integrate", "cumint",
                       "physical_diff"],
 }
 

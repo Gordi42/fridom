@@ -26,6 +26,12 @@ interpolate = Dispatched("interpolate")
 #: (the default ``Integral`` rows land in Wave 3)
 integrate = Dispatched("integrate")
 
+#: running-integral verb: resolves ``("cumint", factor)`` — the
+#: staggered partial integral along a bounded axis (stage H1). The
+#: seeded ``CumulativeIntegral`` rows land the bottom-up face form;
+#: the top-down / co-located variants are constructed explicitly.
+cumint = Dispatched("cumint")
+
 #: constant-physical-coordinate derivative verb on mapped grids:
 #: resolves the ``"physical_diff"`` builder the grid seeds when a
 #: ``CoordinateMapping`` couples coordinates (stage C1)

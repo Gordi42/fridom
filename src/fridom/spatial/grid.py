@@ -72,6 +72,7 @@ from fridom.spatial.operators.composed import (
     MetricLaplacian,
     RaiseIndex,
 )
+from fridom.spatial.operators.cumulative import CumulativeIntegral
 from fridom.spatial.operators.finite_difference import (
     FiniteDifference,
 )
@@ -2082,7 +2083,9 @@ def _default_registry(
     ``merge({})`` (the iteration-1 assembly moment; module override
     merging happens later through ``grid.merge_overrides``);
     ``("integrate", nodal/average/tagged)`` -> one shared
-    ``Integral()``;
+    ``Integral()``; ``("cumint", Center/CellAvg)`` -> one shared
+    ``CumulativeIntegral()`` (the running-integral rows, stage H1,
+    on the center-valued integrand families only);
     the elementwise ``multiply``/``divide``/``power``/``select``/
     ``abs`` rows on nodal, average *and* BC-tagged trig-origin
     factors (one shared instance per kind — the registry's form-2
@@ -2129,14 +2132,13 @@ def _default_registry(
     """
     chart = (mapping.chart_coords
              if mapping is not None else None)
-    fd = FiniteDifference(order=2)
-    interp = LinearInterp()
     flux_ops = (FluxDifference(), DualFluxDifference(),
                 FaceDifference())
     reconstruct = LinearReconstruction()
     deconvolve = LinearDeconvolution()
     fv_derivative = FVDerivative()
     integral = Integral(jacobian=chart)
+    cumint = CumulativeIntegral(jacobian=chart)
     multiply = CollocationProduct()
     divide = Divide()
     power = Power()
@@ -2154,7 +2156,9 @@ def _default_registry(
         # the Neumann-tagged CellAvg origin of the walled FV pressure
         # DCT-II (F4); empty on periodic meshes
         tagged_avg = _tagged_average_origins(mesh)
-        _seed_signature_rows(entries, nodal + tagged, (fd, interp))
+        _seed_signature_rows(
+            entries, nodal + tagged,
+            (FiniteDifference(order=2), LinearInterp()))
         # reconstruct rows, plus (G4) the average family under the
         # "interpolate" kind for the composed metric machinery; the
         # tagged average origins mirror the untagged CellAvg rows, and
@@ -2187,6 +2191,7 @@ def _default_registry(
             entries, nodal + average + tagged + tagged_avg,
             fv_derivative,
             (integral, multiply, divide, power, select, abs_op))
+        _seed_cumint_rows(entries, mesh, cumint)
         resolver = _declared_space_resolver(mesh)
         if resolver is not None:
             entries[("declared_space", mesh)] = resolver
@@ -2689,6 +2694,40 @@ def _seed_signature_rows(
             except (SpaceMismatchError, ValueError):
                 continue  # no per-factor signature on this space
             entries[(op.dispatch_kind, space)] = op
+
+
+def _seed_cumint_rows(
+    entries: dict[DispatchKey, Operator],
+    mesh: Mesh,
+    cumint: Operator,
+) -> None:
+    """
+    Seed the running-integral rows on the center-valued families.
+
+    Description
+    -----------
+    The ``("cumint", ...)`` rows (stage H1) live on the center-valued
+    integrand families only — nodal ``Center`` and FV ``CellAvg`` (and
+    their complex variants) — carrying one shared
+    ``CumulativeIntegral`` (the bottom-up face default; top-down /
+    co-located variants are constructed explicitly). A periodic mesh
+    gets the row too, so ``f.cumint`` there raises the taught
+    bounded-axis error rather than a bare ``DispatchError``.
+
+    Parameters
+    ----------
+    entries : dict[DispatchKey, Operator]
+        The entry table being built (mutated in place).
+    mesh : Mesh
+        The 1D mesh whose center/cell-average families to seed.
+    cumint : Operator
+        The shared ``CumulativeIntegral`` (Jacobian-tagged on charts).
+    """
+    # ``_family_spaces`` skips the families a mesh does not carry
+    # (a ``PointMesh`` has no Center, a ``ChebyshevMesh`` no CellAvg)
+    for space in _family_spaces(mesh, ("center", "cell_avg")):
+        for variant in (space, space.as_complex()):
+            entries[("cumint", variant)] = cumint
 
 
 def _seed_reconstruct_rows(
