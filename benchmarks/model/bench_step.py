@@ -242,7 +242,11 @@ def nh_flat_walled(n):
 
     On multiple devices the distributed transform declines the mixed
     (trig) plan and the solve falls back to the replicated composite;
-    this case prices that fallback.
+    this case prices that fallback. Since the 2026-07-16 walled auto
+    flip this default-family case runs the **FV** C-grid (DCT-II on the
+    Neumann ``CellAvg`` column); ``nh_flat_walled_nodal`` prices its
+    nodal sibling. The committed baseline predates the flip and is
+    re-recorded on the next GPU campaign.
     """
     model = _nh_model(n, mapped=False, periodic_z=False)
     return _stepping_case(model, float(n) ** 3)
@@ -258,9 +262,45 @@ def nh_flat_walled_x(n):
     dimension. Here the wall is on x, and after the shard-axis-selection
     merge the decomposition shards y for this case (x's staggering cost
     demotes it): this prices the distributed walled-SHARDED-axis solve,
-    the path the indivisible-shard campaign fixed.
+    the path the indivisible-shard campaign fixed. Since the 2026-07-16
+    walled auto flip this default-family case runs the **FV** C-grid;
+    ``nh_flat_walled_x_nodal`` prices its nodal sibling. The committed
+    baseline predates the flip and is re-recorded on the next GPU
+    campaign.
     """
     model = _nh_model(n, mapped=False, periodic_x=False, periodic_z=True)
+    return _stepping_case(model, float(n) ** 3)
+
+
+@benchmark_case(params={"n": SIZES_NH_WALLED}, reps=5, warmup=0,
+                measure_compile=False)
+def nh_flat_walled_nodal(n):
+    """Price the nodal (FD) sibling of ``nh_flat_walled``.
+
+    Since the 2026-07-16 walled auto flip the walled flat cases run the
+    FV C-grid (DCT-II on the Neumann ``CellAvg`` column); this pins
+    ``family="nodal"`` so FV-vs-FD step parity on the walled column is a
+    standing comparison. The unconstrained tendency and constrain are
+    bitwise-identical eagerly and ≤1.2e-14 jitted (an XLA fusion-order
+    artifact of the mixed Fourier x Cosine solve), so any timing gap is
+    a compiler artifact to hunt, not physics.
+    """
+    model = _nh_model(n, mapped=False, periodic_z=False, family="nodal")
+    return _stepping_case(model, float(n) ** 3)
+
+
+@benchmark_case(params={"n": SIZES_NH_WALLED}, reps=5, warmup=0,
+                measure_compile=False)
+def nh_flat_walled_x_nodal(n):
+    """Price the nodal (FD) sibling of ``nh_flat_walled_x``.
+
+    The walled-x geometry shards a periodic axis and keeps the trig
+    axis local (see ``nh_flat_walled_x``); FV-vs-FD parity on the
+    walled-sharded-axis path is priced here as well as on the
+    walled-column case.
+    """
+    model = _nh_model(n, mapped=False, periodic_x=False, periodic_z=True,
+                      family="nodal")
     return _stepping_case(model, float(n) ** 3)
 
 
