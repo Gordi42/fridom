@@ -22,11 +22,13 @@ from fridom.spatial.operators.spectral import (
     finite_difference_symbol,
     fourier_wavenumbers,
     fv_fourier_partner,
+    fv_trig_interp_codomain,
     linear_interp_symbol,
     trig_partner,
 )
 from fridom.spatial.operators.symbol import Symbol
 from fridom.spatial.operators.trig import Cosine, Sine
+from fridom.spatial.spaces.average import CellAvg
 from fridom.spatial.spaces.nodal import NodeSet
 
 TWO_PI = 2.0 * jnp.pi
@@ -714,3 +716,28 @@ def test_fv_fourier_partner_raises_off_the_periodic_uniform_family():
     sine = bounded.sine(bounded.nodal(NodeSet.CENTER, bc=BC.DIRICHLET))
     with pytest.raises(EigenbasisError, match="sine/cosine"):
         fv_fourier_partner(sine, "T")
+
+
+def test_fv_trig_interp_codomain_stagger_the_dirichlet_cellavg_pair():
+    # the walled FV reconstruction (F5) keeps the sine family and
+    # staggers the origin between the Dirichlet cell average (DST-II,
+    # buoyancy) and the Dirichlet interior face (DST-I, the w face)
+    mesh = IntervalMesh(8, (0.0, 1.0), periodic=False, name="z")
+    cell = mesh.sine(mesh.average(CellAvg, bc=BC.DIRICHLET))
+    face = mesh.sine(mesh.nodal(NodeSet.INNER, bc=BC.DIRICHLET))
+    # cell -> face (b reconstructed onto the w faces) and the reverse
+    assert fv_trig_interp_codomain(cell) is face
+    assert fv_trig_interp_codomain(face) is cell
+    # the Neumann CellAvg cosine (DCT-II pressure interp) lands on
+    # cosine at the interior faces — the eigen-layer skip signal
+    cos = mesh.cosine(mesh.average(CellAvg, bc=BC.NEUMANN))
+    with pytest.raises(EigenbasisError, match="skip"):
+        fv_trig_interp_codomain(cos)
+    # any other trig factor carries no FV reconstruction diagonal: the
+    # nodal Center DST-II (a nodal, not FV, interp domain) and the
+    # Neumann Outer cosine both take the taught else-branch
+    center = mesh.sine(mesh.nodal(NodeSet.CENTER, bc=BC.DIRICHLET))
+    outer = mesh.cosine(mesh.nodal(NodeSet.OUTER, bc=BC.NEUMANN))
+    for factor in (center, outer):
+        with pytest.raises(EigenbasisError, match="no FV staggering"):
+            fv_trig_interp_codomain(factor)

@@ -2153,8 +2153,10 @@ def _default_registry(
         # codomain), so a walled grid dispatches diff/interpolate
         # on Dirichlet/Neumann fields out of the box (C3)
         tagged = _tagged_trig_origins(mesh)
-        # the Neumann-tagged CellAvg origin of the walled FV pressure
-        # DCT-II (F4); empty on periodic meshes
+        # the BC-tagged CellAvg origins of the walled FV C-grid: the
+        # Neumann DCT-II pressure (F4) and the Dirichlet DST-II
+        # buoyancy (F5, the eigenmode analysis origin); empty on
+        # periodic meshes
         tagged_avg = _tagged_average_origins(mesh)
         _seed_signature_rows(
             entries, nodal + tagged,
@@ -2448,15 +2450,21 @@ def _tagged_trig_origins(mesh: Mesh) -> tuple[FunctionSpace, ...]:
 
 def _tagged_average_origins(mesh: Mesh) -> tuple[FunctionSpace, ...]:
     """
-    Collect the BC-tagged average trig origins one mesh grounds (F4).
+    Collect the BC-tagged average trig origins one mesh grounds (F4/F5).
 
     Description
     -----------
-    The walled FV C-grid closure (stage F4): the Neumann-tagged
-    ``CellAvg`` origin of the DCT-II pressure transform. Empty on
-    periodic meshes and wherever the ``CellAvg`` family is absent (a
-    ``ChebyshevMesh``). Only the Neumann variant is grounded — the
-    Dirichlet ``CellAvg`` (DST-II) has no walled FV consumer.
+    The walled FV C-grid closure: the Neumann-tagged ``CellAvg``
+    origin of the DCT-II pressure transform (F4) **and** the
+    Dirichlet-tagged ``CellAvg`` origin of the DST-II buoyancy
+    transform (F5). Both sample on the cell-midpoint grid, so
+    ``CellAvg`` maps to the type-II kernels exactly as ``Center``
+    does (Neumann ``CellAvg`` → DCT-II, Dirichlet ``CellAvg`` →
+    DST-II). The Dirichlet variant is the analysis origin of the
+    walled-vertical FV eigenmode kit (``nh.eigenmodes`` on a bounded
+    ``b``); F4 grounded only the Neumann sibling because the pressure
+    solve was the sole consumer then. Empty on periodic meshes and
+    wherever the ``CellAvg`` family is absent (a ``ChebyshevMesh``).
 
     Parameters
     ----------
@@ -2466,13 +2474,16 @@ def _tagged_average_origins(mesh: Mesh) -> tuple[FunctionSpace, ...]:
     Returns
     -------
     tuple[FunctionSpace, ...]
-        The (real) Neumann ``CellAvg`` origin, or empty.
+        The (real) Neumann and Dirichlet ``CellAvg`` origins, or
+        empty.
     """
     if getattr(mesh, "periodic", False):
         return ()
-    origin = _probe(
-        lambda m=mesh: m.average(CellAvg, bc=BC.NEUMANN))
-    return () if origin is None else (origin,)
+    return tuple(
+        origin for kind in (BC.NEUMANN, BC.DIRICHLET)
+        if (origin := _probe(
+            lambda m=mesh, k=kind: m.average(CellAvg, bc=k)))
+        is not None)
 
 
 def _seed_transform_rows(
@@ -2563,9 +2574,14 @@ def _transform_origins(
     trig_origins = [
         (family, _probe(lambda f=factory, m=mesh: f(m)))
         for family, factory in _TRIG_ORIGIN_CANDIDATES]
-    # the Neumann CellAvg DCT-II origin of the walled FV pressure (F4)
+    # the tagged CellAvg trig origins of the walled FV C-grid: the
+    # Neumann DCT-II pressure (F4) and the Dirichlet DST-II buoyancy
+    # (F5) — the family follows the tag, exactly as for the nodal
+    # Center origins (all-Dirichlet -> Sine/DST, else Cosine/DCT)
     trig_origins += [
-        (Cosine, origin) for origin in _tagged_average_origins(mesh)]
+        (Sine if all(c is BC.DIRICHLET for c in origin.bc.components)
+         else Cosine, origin)
+        for origin in _tagged_average_origins(mesh)]
     for family, origin in trig_origins:
         if origin is None or _probe(
                 lambda o=origin, m=mesh:

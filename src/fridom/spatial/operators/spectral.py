@@ -1173,6 +1173,72 @@ def fv_trig_diff_codomain(
     return target
 
 
+def fv_trig_interp_codomain(
+    domain: SineSpace | CosineSpace,
+) -> SineSpace | CosineSpace:
+    r"""
+    Coefficient-side ``interpolate`` codomain of an FV reconstruct.
+
+    Description
+    -----------
+    The average-family sibling of :func:`trig_interp_codomain` for the
+    walled FV C-grid staggering reconstruction (``LinearReconstruction``,
+    stage F5): the two-point mean **keeps** the trig family (sine stays
+    sine) and staggers the *origin* between the primal cell average and
+    the interior face — ``CellAvg <-> Inner`` — exactly as the nodal
+    interp staggers ``Center <-> Inner``. The two grounded rows are the
+    Dirichlet sine pair of the walled-vertical eigenmode kit: the
+    face -> cell reconstruction ``Sine-I(Inner, DIR) -> Sine-II(CellAvg,
+    DIR)`` (the ``ab[z]`` symbol, ``w`` averaged onto the buoyancy cells)
+    and the cell -> face reconstruction ``Sine-II(CellAvg, DIR) ->
+    Sine-I(Inner, DIR)`` (buoyancy reconstructed onto the ``w`` faces).
+    Because the FV stencil is bitwise the nodal ``Center <-> Inner`` one
+    at second order, the diagonal is the same ``cos(k dz/2)`` two-point
+    mean (no ``sinc``, the correction-1 pattern).
+
+    The Neumann ``CellAvg`` cosine (DCT-II, the ``a[z]`` pressure interp)
+    would land on cosine values at the interior faces — not a grounded
+    coefficient family — so it raises ``EigenbasisError`` and the eigen
+    layer must skip that factor, mirroring the nodal DCT-II case.
+
+    Parameters
+    ----------
+    domain : SineSpace | CosineSpace
+        The bare trig coefficient factor (average- or nodal-face
+        origin).
+
+    Returns
+    -------
+    SineSpace | CosineSpace
+        The same-family, origin-staggered codomain factor.
+    """
+    mesh = domain.mesh
+    origin = domain.origin
+    if isinstance(domain, CosineSpace) and isinstance(origin, CellAvg):
+        raise EigenbasisError(
+            "interpolate on the FV DCT-II family (Neumann CellAvg "
+            "origin) lands on cosine values at the interior faces — "
+            "not a grounded coefficient family; the eigen layer must "
+            "skip this factor")
+    if isinstance(domain, SineSpace) and isinstance(origin, CellAvg):
+        target: SineSpace | CosineSpace = mesh.sine(
+            mesh.nodal(NodeSet.INNER, bc=BC.DIRICHLET))
+    elif (isinstance(domain, SineSpace)
+          and isinstance(origin, NodalSpace)
+          and origin.node_set is NodeSet.INNER):
+        target = mesh.sine(mesh.average(CellAvg, bc=BC.DIRICHLET))
+    else:
+        raise EigenbasisError(
+            f"no FV staggering-interp (sine/cosine) pairing on "
+            f"{domain!r}: the walled FV C-grid reconstruction pairs the "
+            "Dirichlet CellAvg sine (DST-II, buoyancy) with the "
+            "Dirichlet Inner sine (DST-I, the w face) only; other trig "
+            "factors carry no FV reconstruction diagonal")
+    if origin.scalars is Scalars.COMPLEX:  # pragma: no cover
+        target = target.as_complex()
+    return target
+
+
 def trig_interp_codomain(
     domain: SineSpace | CosineSpace,
 ) -> SineSpace | CosineSpace:
