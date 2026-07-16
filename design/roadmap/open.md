@@ -222,8 +222,9 @@ Deform a model between two operator configurations — a *reference*
 system `L(0)` and a *target* system `L(1)`,
 `L(s) = (1-rho(s)) L_ref + rho(s) L_target` — with shared terms never
 computed twice and all four propagator legs (ref↔target x
-forward/backward in time). `OptimalBalance` becomes a subclass
-contributing only balancing policy; the paper draft *Fast-slow
+forward/backward in time). `OptimalBalance` is rebuilt *on*
+`AdiabaticRamping` legs (composition), contributing only balancing
+policy; the paper draft *Fast-slow
 splittings for geophysical flows via the adiabatic theorem* (Rosenau
 et al.) is the driving consumer (Coriolis ramp
 `f(y,t) = f0 + beta rho(t/tau) y`, staggered double-ramp protocol,

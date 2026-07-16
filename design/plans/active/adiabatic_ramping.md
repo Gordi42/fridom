@@ -88,7 +88,12 @@ entry). Coriolis wires in first (`p_ref = f0`,
 `f(y,t) = f0 + beta*rho(t/tau)*y`; the static-parameter path is kept
 bit-identical to today's assembly. Stratification (`csqr`) and
 topography blends become plain consumers of the same declaration
-(§7) — no further mechanism.
+(§7) — no further mechanism. Surface ruling (owner, 2026-07-16):
+`FieldBlend` is **module-author declaration machinery** in R2 — end
+users ramp scalars they already know (`beta`, `f0`,
+`scaling.rossby`); a user-facing parameter-value form
+(`Module(param=FieldBlend(ref, target))` with an auto-published blend
+weight) is a later constructor-level addition (§7).
 
 **AR-D3 — The blend lives in the model's clock-aware tendency, driven
 by `ctx.params`; the transform algebra stays clock-free.** The
@@ -100,17 +105,30 @@ model variant (`Propagator(updates={param: Ramp(...)})`,
 time inside the schedule. No new tendency-loop machinery.
 
 **AR-D4 — `AdiabaticRamping(StateTransform)` is the named base
-surface; parameters only; `OptimalBalance` becomes a subclass carrying
-only balancing policy.** Constructor takes the model, a deformation
-dict `{param_key: (v_ref, v_target)}`, `ramp_period`, `curve`, and
-builds the internal `Propagator`. Two orthogonal involutions give the
-four legs: `.reversed` swaps the endpoints (lambda path 1→0),
-`.backward` retraces the same lambda path with `dt < 0`
-(`params.TIME_STEP` sign flip + `Ramp.reversed()`, both shipped:
-`propagator.py:84`, `src/fridom/model/time_dependent.py:281`).
-`FixedPoint` stays optimal-balance policy, not base machinery (idea
-record's open question — resolved as *policy*). Per the C4 precedent,
-`MovingGeometry` is *not* a consumer: parameters only.
+surface; parameters only; `OptimalBalance` is *built on* it —
+composition, not subclass.** (Owner rulings 2026-07-16, API review.)
+The constructor always describes the **up** leg (reference→target,
+`dt > 0`): it takes the model, a deformation dict
+`ramps={param_key: (v_ref, v_target) | TimeDependent}` — tuples are
+sugar for `Ramp(v_ref, v_target, period=ramp_period, curve=curve)`,
+explicit `Ramp`s are taken verbatim (that is the AR-D5 window form) —
+plus `ramp_period`, `curve`, and `steps`/`term_filter`/`updates`/
+`name` mirroring `Propagator`. Two orthogonal accessors give the four
+legs, each returning a new transform: `.down` swaps the endpoints
+(lambda path 1→0, `dt > 0`); `.backward` retraces the same lambda
+path with `dt < 0` (`params.TIME_STEP` sign flip + `Ramp.reversed()`,
+both shipped: `propagator.py:84`,
+`src/fridom/model/time_dependent.py:281`). The spelling avoids
+overloading "reversed", which already means window reflection at the
+`Ramp` layer. Documented warning: `(ramp, ramp.backward)` are mutual
+near-inverses; `(ramp, ramp.down)` are **not** (phase evolution — the
+AR-D8 argument). `OptimalBalance` stays a plain `StateTransform`
+owning `forward = AdiabaticRamping(...)` and
+`backward = forward.backward`; a subclass would inherit meaningless
+leg accessors on a fixed-point cycle (the idea record's "subclass"
+wording is amended to "built on"). `FixedPoint` stays optimal-balance
+policy, not base machinery. Per the C4 precedent, `MovingGeometry` is
+*not* a consumer: parameters only.
 
 **AR-D5 — Staggered protocols: composed legs AND interleaved windows
 are both documented surfaces.** (Owner ruling 2026-07-16.) The default
@@ -160,7 +178,12 @@ further. Running the away-leg backward in time and the return-leg
 forward cancels the phase evolution exactly (up to diabatic leakage):
 `P_adiab = up @ P_ref @ up.backward` on
 `model.variant(term_filter=fr.terms.linear)` — the same cycle shape as
-OB's `forward @ base @ backward`. Consequences: the AR-D6 guard
+OB's `forward @ base @ backward`. The constructor takes the **built
+leg** plus the reference projector —
+`AdiabaticProjection(lin_up, P_ref)` — keeping the
+linearize-and-filter step visible in user code, and validates the
+leg's model with `require_linear_operator`
+(`term_predicates.py:404`). Consequences: the AR-D6 guard
 applies to the backward leg (a linearized model may still carry
 *linear* dissipation, e.g. diffusion — it must be filtered out of the
 legs or the taught error fires); `P_adiab` is *approximately*
@@ -237,7 +260,7 @@ lin = sw.variant(term_filter=fr.terms.linear)
 lin_up = fr.transforms.AdiabaticRamping(
     lin, ramps={"coriolis.beta": (0.0, beta)},
     ramp_period=tau_f, curve="exp")
-lin_down = lin_up.reversed          # target -> reference, dt > 0
+lin_down = lin_up.down              # target -> reference, dt > 0
 
 # nonlinear ramp at fixed beta — the optimal-balance special case
 nl_up = fr.transforms.AdiabaticRamping(
@@ -246,7 +269,7 @@ nl_up = fr.transforms.AdiabaticRamping(
 
 # staggered double ramp (paper fig. 4); rightmost applies first
 free = fr.Propagator(sw, runlen=t_diag)
-double_ramp = lin_down @ nl_up.reversed @ free @ nl_up @ lin_up
+double_ramp = lin_down @ nl_up.down @ free @ nl_up @ lin_up
 # alternative single-leg form (AR-D5): staggered t0 windows in one
 # updates dict — no stepper restarts, implicit phase boundaries
 
@@ -260,10 +283,12 @@ P_adiab = fr.transforms.AdiabaticProjection(lin_up, P_slow)
 ob = fr.OptimalBalance(sw, base_projection=P_adiab, ramp_period=tau_n)
 ```
 
-`OptimalBalance(AdiabaticRamping)` keeps its constructor and behaviour;
-its up-leg is `AdiabaticRamping(model,
-ramps={SCALING_ROSSBY: (0.0, nominal)}, ...)`, its down-leg
-`up.reversed.backward`, and it contributes the base-point exchange,
+`OptimalBalance` keeps its constructor and behaviour; it owns
+`forward = AdiabaticRamping(model,
+ramps={SCALING_ROSSBY: (0.0, nominal)}, ...)` and
+`backward = forward.backward` (composition per AR-D4 — note the
+backward leg *retraces* the up-path with `dt < 0`; it is `up.backward`,
+not `up.down.backward`), and it contributes the base-point exchange,
 `FixedPoint`, and divergence policy only.
 
 New modules and mirrored tests:
@@ -283,7 +308,7 @@ New modules and mirrored tests:
 | **R1** | Time-dependent scalar parameters: stubs first (declaration-path signatures + taught-error skeletons + tests), then route declared scalar defaults through `resolve_at`; provides-constancy bookkeeping for `coriolis.f0`; AR-D7 taught error in ETDRK4 assembly. | M (2–3 d) | `FPlaneCoriolis(f0=Ramp(...))` advances under AB and matches a hand-stepped oracle; ETDRK4 raises the taught error; static-path assembly bit-identical; mirrored tests + one model smoke file; ruff clean. |
 | **R2** | `FieldBlend` (AR-D2): stubs first (declaration contract + toy-module tests), then the generic two-endpoint blend machinery; Coriolis family wired as first consumer (`BetaPlaneCoriolis`, sw2's conserving rotation); static-parameter fast path untouched. | M–L (3–4 d) | Declaration contract unit-tested on a toy module independent of Coriolis. Static params: bit-identical tendencies vs `dev`. Ramped beta on the linear channel: leakage `eta` decays ~exponentially in `tau` on a small grid (quantitative tolerance, both ramp directions); forced-4 multi-device pass. |
 | **R3** | `AdiabaticRamping`: stubs (class skeleton, docstrings, lazypimp exports, `test_init` rows) → implementation: ramps dict → Ramp-valued `updates`, step snapping, `.reversed`/`.backward`, staggered-window form, cost/info reporting, AR-D6 guard. | M (2–3 d) | Endpoint exactness (params at leg ends equal declared endpoints); 4-leg matrix unit-tested (lambda path x dt sign); window form: per-parameter endpoint exactness + composition-vs-window equivalence within stepper-restart tolerance; linear up-then-down round trip ≈ identity within stated tolerance; dissipative-term guard raises; OB tests still green (pre-refactor). |
-| **R4** | `OptimalBalance(AdiabaticRamping)` refactor: legs re-homed, policy retained (AR-D9). | S–M (1–2 d) | `tests/model/transforms/test_optimal_balance.py` passes **unmodified**; cost accounting unchanged; `bench_balance.py` numbers move only within noise. |
+| **R4** | `OptimalBalance` rebuilt on `AdiabaticRamping` legs (composition, AR-D4): legs re-homed, policy retained (AR-D9). | S–M (1–2 d) | `tests/model/transforms/test_optimal_balance.py` passes **unmodified**; cost accounting unchanged; `bench_balance.py` numbers move only within noise. |
 | **R5** | `AdiabaticProjection` + `relative_imbalance`; appendix-B protocol wiring. | M (2–3 d) | On the beta-channel: `P_adiab` matches the direct labeled-eigenmode projection (in-tree oracle) with error decreasing in `tau`; approximate idempotency within documented tolerance; OB with `base_projection=P_adiab` converges on a midlatitude case. |
 | **R6** | Double-ramp example (equatorial beta-plane, paper fig. 4 protocol) + docs page for the ramping family (both protocol surfaces and when to prefer each). | M (2–3 d) | Owner-reviewed privately per AGENTS.md docs flow (local `docs/<topic>` branch, projected working-tree review, zero `REVIEW:` markers + explicit approval); example fits the sphinx-gallery time budget. |
 | **R7** | Hygiene: this plan → `plans/done/` with outcome-vs-gates; roadmap 3.8 entry moved to `done.md`; time-dependent-fields entry trimmed to what stays open. | S (0.5 d) | `open.md` holds only open work. |
@@ -365,3 +390,14 @@ missing conformance point: the AR-D6 dissipation guard.
 - **Time-averaged reference projectors (OBTA)** as `P_ref` inside
   `AdiabaticProjection`: composes naturally with the shipped
   `TimeAverage`; verify, don't build.
+- **User-facing `FieldBlend` parameter values**
+  (`Module(param=FieldBlend(ref, target))` with auto-published blend
+  weight): constructor-level addition once an ad-hoc blend consumer
+  (e.g. arbitrary stratification profiles) appears (AR-D2 surface
+  ruling).
+- **A `DoubleRamp` convenience factory**: the protocol is five lines
+  of composition (R6 example); add a factory only if user scripts
+  show real boilerplate.
+- **An `AdiabaticProjection.from_model(...)` convenience
+  classmethod**: the ctor takes a built leg (AR-D8); add the one-call
+  form later if usage demands.
