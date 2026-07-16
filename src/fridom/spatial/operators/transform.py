@@ -47,6 +47,7 @@ from fridom.spatial.operators.base import (
 )
 from fridom.spatial.operators.dealias import PadFactor
 from fridom.spatial.scalars import Scalars
+from fridom.spatial.spaces.average import CellAvg, FaceAvg
 from fridom.spatial.spaces.coefficient import (
     CoefficientSpace,
     FourierSpace,
@@ -1053,8 +1054,8 @@ class Transform(UnaryOperator, ABC):
                 f"padded forward along {axis!r} takes the refined "
                 f"mesh's finer nodal space (on {fine!r}), got "
                 f"{factor!r}", left=factor, operation="forward")
-        return _sibling_nodal(factor, fine.refined_from,
-                              operation="forward")
+        return _sibling_origin(factor, fine.refined_from,
+                               operation="forward")
 
     def _target_origin(self, coeff: CoefficientSpace,
                        axis: str) -> FunctionSpace:
@@ -1070,8 +1071,8 @@ class Transform(UnaryOperator, ABC):
         origin = coeff.origin
         if self._pad is None:
             return origin
-        return _sibling_nodal(origin, self._fine_meshes[axis],
-                              operation="backward")
+        return _sibling_origin(origin, self._fine_meshes[axis],
+                               operation="backward")
 
     def _deliver(self, f: FieldLike, data: jax.Array,
                  codomain: SpaceLike) -> FieldLike:
@@ -1128,24 +1129,47 @@ def _rebuild(bare: SpaceLike,
     return TensorProductSpace.of(*factors)
 
 
-def _sibling_nodal(origin: FunctionSpace, mesh: Mesh,
-                   operation: str) -> FunctionSpace:
+def _sibling_origin(origin: FunctionSpace, mesh: Mesh,
+                    operation: str) -> FunctionSpace:
     """
-    Rebuild a nodal origin on a sibling (refined/parent) mesh.
+    Rebuild a nodal or average origin on a sibling mesh.
 
     Description
     -----------
-    Padded transforms of **nodal** origins only in iteration 1:
-    average origins carry a width-dependent ``sinc`` relation to
-    their nodal siblings, so zero-padding their spectra onto a finer
-    average space is not the exact refinement.
+    Padded transforms carry a physical-space origin from the coarse
+    mesh to its refined sibling (or back). Nodal origins keep their
+    node set and BC structure; average origins (``CellAvg`` /
+    ``FaceAvg``, Fourier only) keep their cell family. The average
+    families carry a **width-dependent** ``sinc(k dx / 2)`` factor
+    that differs between the two meshes, so the padded Fourier
+    kernels rescale by the ``sinc`` ratio; here we only name the
+    sibling space (the numerics live in ``operators.fourier``).
+
+    Parameters
+    ----------
+    origin : FunctionSpace
+        The (bare) nodal or average origin on the source mesh.
+    mesh : Mesh
+        The sibling (refined or parent) mesh.
+    operation : str
+        The calling direction, for the error message.
+
+    Returns
+    -------
+    FunctionSpace
+        The same origin rebuilt on ``mesh`` (scalars preserved).
     """
-    if not isinstance(origin, NodalSpace):
+    if isinstance(origin, NodalSpace):
+        sibling: FunctionSpace = mesh.nodal(
+            origin.node_set, bc=origin.bc)
+    elif isinstance(origin, CellAvg):
+        sibling = mesh.cell_avg
+    elif isinstance(origin, FaceAvg):
+        sibling = mesh.face_avg
+    else:
         raise NotImplementedError(
-            f"padded {operation} is defined for nodal origins in "
-            f"iteration 1, got {origin!r} (average origins change "
-            "their sinc factor under refinement)")
-    sibling = mesh.nodal(origin.node_set, bc=origin.bc)
+            f"padded {operation} is defined for nodal and average "
+            f"origins, got {origin!r}")
     if origin.scalars is Scalars.COMPLEX:
         sibling = sibling.as_complex()
     return sibling
