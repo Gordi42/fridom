@@ -50,7 +50,10 @@ def test_preset_equals_explicit_assembly_treedef():
             hy.HydrostaticCore(csqr=3.0, rossby_number=0.2),
             hy.FPlaneCoriolis(f0=1.3),
             hy.ConstantStratification(n2=2.0),
-            hy.ExplicitFreeSurface()),
+            hy.ExplicitFreeSurface(),
+            # the factory default is advection=True -> CenteredAdvection,
+            # appended after the free surface (H2b)
+            fr.model.modules.CenteredAdvection()),
         time_stepper=fr.model.time_steppers.AdamBashforth(1e-3, order=3))
     assert (jax.tree_util.tree_structure(preset._carry)
             == jax.tree_util.tree_structure(explicit._carry))
@@ -99,18 +102,27 @@ def test_a_named_coriolis_is_installed():
 
 
 # ================================================================
-#  Advection is a taught NotImplementedError (stage-H2 limitation)
+#  Advection is installed (stage H2b); False keeps the linear model
 # ================================================================
 @pytest.mark.parametrize(
     "advection",
     [
         pytest.param(True, id="bool-true"),
-        pytest.param(fr.model.modules.CenteredAdvection(), id="module"),
+        pytest.param(fr.model.modules.CenteredAdvection(), id="centered"),
+        pytest.param(fr.model.modules.UpwindAdvection(order=3),
+                     id="upwind"),
     ],
 )
-def test_advection_is_taught_not_implemented(advection):
-    with pytest.raises(NotImplementedError, match="advection"):
-        hy.Model(grid=make_grid(), csqr=1.0, advection=advection)
+def test_advection_is_installed(advection):
+    model = hy.Model(grid=make_grid(), csqr=1.0, advection=advection)
+    assert any("Advection" in type(m).__name__
+               for m in model._carry.modules)
+
+
+def test_advection_false_installs_no_advection_module():
+    model = hy.Model(grid=make_grid(), csqr=1.0, advection=False)
+    assert not any("Advection" in type(m).__name__
+                   for m in model._carry.modules)
 
 
 # ================================================================
