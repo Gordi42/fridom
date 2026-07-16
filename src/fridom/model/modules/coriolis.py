@@ -100,6 +100,7 @@ from fridom.model.module import Module
 from fridom.model.parameters import ParameterDeclaration, leaf
 from fridom.model.params import CORIOLIS_BETA, CORIOLIS_F0
 from fridom.model.terms import term
+from fridom.model.time_dependent import TimeDependent, resolve_at
 from fridom.spatial.decomposition.halo import HaloSpec
 from fridom.spatial.space_patterns import Profile
 
@@ -111,7 +112,10 @@ _U_HINT = ("velocities are declared by a dynamical-core module, "
 
 
 def linear_rotation(
-    state: object, *, metric_weight: str | None = None,
+    state: object,
+    *,
+    metric_weight: str | None = None,
+    f_override: object = None,
 ) -> dict:
     r"""
     Return the linear staggered rotation ``f v`` / ``-f u`` (flat).
@@ -135,14 +139,24 @@ def linear_rotation(
     metric_weight : str | None, optional
         Name of the velocity energy-metric weight field ``w``;
         ``None`` is the unweighted form (default: None).
+    f_override : object, optional
+        A **constant-in-space** stage-time scalar to use in place of
+        the ``f_coriolis`` field — the f-plane time-dependent path
+        (AR-D7 / R1): when a ``TimeDependent`` ``f0`` drives the
+        rotation, the term reads ``f0(t)`` at stage time rather than
+        the assembly-frozen field. ``None`` keeps the field path, so
+        the static (plain-float) case is bit-identical (default:
+        None).
 
     Returns
     -------
     dict
         The ``u`` / ``v`` increments.
     """
-    u, v, f = state["u"], state["v"], state["f_coriolis"]
-    f_u = f.to(u)
+    u, v = state["u"], state["v"]
+    # a scalar override is already constant in space (the f-plane), so
+    # the field lift ``.to(u)`` is a no-op broadcast and is skipped
+    f_u = state["f_coriolis"].to(u) if f_override is None else f_override
     if metric_weight is None:
         return {
             "u": f_u * v.to(u),
@@ -215,7 +229,7 @@ def chart_rotation(
 
 
 @term(advances=("u", "v"), linear=True, name="coriolis")
-def _coriolis(self, state, ctx) -> dict:  # noqa: ANN001, ARG001
+def _coriolis(self, state, ctx) -> dict:  # noqa: ANN001
     r"""``du/dt = f v``; ``dv/dt = -f u`` as pure field arithmetic.
 
     The **energy-conserving** staggered form of the v1 framework:
@@ -248,8 +262,19 @@ def _coriolis(self, state, ctx) -> dict:  # noqa: ANN001, ARG001
 
     The expression itself lives in `linear_rotation` (one owner: the
     shallow-water energy-correction module subtracts exactly this).
+
+    When the module carries a **time-dependent** constant-in-space
+    ``f0`` (the f-plane R1 path), ``_stage_scalar_f`` returns the
+    stage-time value ``f0(t)`` and the term reads it instead of the
+    assembly-frozen field; a plain-float ``f0`` (and every beta-plane
+    profile) leaves ``f_override`` ``None`` and the field path runs
+    bit-identically.
     """
-    return linear_rotation(state, metric_weight=self._metric_weight)
+    stage_f = getattr(self, "_stage_scalar_f", None)
+    f_override = stage_f(ctx) if stage_f is not None else None
+    return linear_rotation(
+        state, metric_weight=self._metric_weight,
+        f_override=f_override)
 
 
 _WEIGHT_HINT = ("the velocity energy-metric weight field (e.g. the "
@@ -290,6 +315,28 @@ def _rotation_vector(omega: object) -> jnp.ndarray:
             "embedding space: three components, e.g. "
             f"omega=(0.0, 0.0, 7.292e-5); got {omega!r}")
     return vector
+
+
+def _reject_time_dependent_profile(**values: object) -> None:
+    """Refuse a time-dependent parameter that drives an ``f(y)`` field.
+
+    The beta-plane ``f(y) = f0 + beta*y`` is a spatial *field*, so a
+    time-dependent ``f0``/``beta`` is a field-valued blend
+    (``FieldBlend``, roadmap stage R2), not the R1 scalar path. Better
+    a taught error than the bare ``Ramp``-times-array failure the
+    materializer would raise.
+    """
+    for name, value in values.items():
+        if isinstance(value, TimeDependent):
+            raise TypeError(
+                f"BetaPlaneCoriolis {name}={value!r} is time-dependent, "
+                "but its Coriolis parameter is the spatially varying "
+                "field f(y) = f0 + beta*y; ramping it is a field-valued "
+                "blend (a FieldBlend of two profiles), not yet available "
+                "(roadmap 'Generalized adiabatic ramping', stage R2). "
+                "On the f-plane a time-dependent f0 IS supported: "
+                "fr.model.modules.FPlaneCoriolis(f0=Ramp(...)); or ramp "
+                "the nonlinear scaling scaling.rossby instead")
 
 
 def _reject_chart_grid(module: Module, table: object) -> None:
@@ -377,14 +424,56 @@ class FPlaneCoriolis(Module):
     def _f_default(self, grid: object, space: object) -> ScalarField:
         """Owner-method default: fill the profile with ``f0``.
 
+        A time-dependent ``f0`` (an ``fr.Ramp``) is materialized at
+        ``t = 0`` (``resolve_at(self.f0, 0.0)``) so the AUXILIARY
+        field keeps a valid static treedef; the rotation term then
+        overrides it with the stage-time value ``f0(t)`` per step
+        (``_stage_scalar_f``), so the frozen field value is never read
+        on the time-dependent path. A plain-float ``f0`` is
+        ``resolve_at``-identity, so this line is bit-identical to the
+        static case.
+
         No ``grid.sync`` pre-syncing: the GAP-B fix records the
         consumption-side exchange in an external identity cache, so a
         carry-resident AUXILIARY field keeps a stable scan treedef
         without being pre-synced to full halo.
         """
         return grid.create_field(
-            space, data=jnp.full(space.shape, self.f0),
+            space, data=jnp.full(space.shape, resolve_at(self.f0, 0.0)),
             name="f_coriolis")
+
+    def _stage_scalar_f(self, ctx: object) -> object | None:
+        """Return the stage-time scalar ``f0(t)`` when ``f0`` is ramped.
+
+        Description
+        -----------
+        The f-plane ``f`` is constant in space, so a time-dependent
+        ``f0`` needs no field rewrite (AR-D2 is R2): the rotation term
+        reads the provided ``coriolis.f0`` from ``ctx.params``, which
+        the binding table has already resolved at the stage clock time
+        (``eval_params`` applies ``resolve_at`` — the same seam the
+        ``scaling.rossby`` ramp rides), so the value is correct in the
+        assembly dry run, ``model.tendency`` and every stepper stage
+        alike. Returns ``None`` for a plain-float ``f0`` (the field
+        path stays bit-identical); the static branch never touches
+        ``ctx`` (host-side dispatch on the leaf type), so the term is
+        still callable with ``ctx=None``.
+        """
+        if isinstance(self.f0, TimeDependent):
+            return ctx.params[CORIOLIS_F0]
+        return None
+
+    def time_dependent_linear_parameters(self) -> tuple[str, ...]:
+        """Report a ramped ``coriolis.f0`` feeding the linear rotation.
+
+        A time-dependent ``f0`` lives inside this module's
+        ``linear=True`` rotation term, so a frozen-``L`` (exponential)
+        stepper must refuse it (AR-D7); a plain-float ``f0`` reports
+        nothing.
+        """
+        if isinstance(self.f0, TimeDependent):
+            return (str(CORIOLIS_F0),)
+        return ()
 
     def bind(self, table) -> None:  # noqa: ANN001
         """Reject chart-coupled grids (metric-blind rotation).
@@ -435,7 +524,18 @@ class BetaPlaneCoriolis(Module):
         self, f0: float = 1.0, beta: float = 0.0,
         *, meridional: str = "y", metric_weight: str | None = None,
     ) -> None:
-        """Store the leaves and the meridional coordinate name."""
+        r"""Store the leaves and the meridional coordinate name.
+
+        Raises
+        ------
+        TypeError
+            If ``f0`` or ``beta`` is time-dependent: the beta-plane
+            Coriolis parameter is the spatially varying field
+            :math:`f(y) = f_0 + \beta y`, so ramping it is a
+            field-valued blend (``FieldBlend``, roadmap stage R2), not
+            a scalar parameter (R1).
+        """
+        _reject_time_dependent_profile(f0=f0, beta=beta)
         self.f0 = leaf(f0)
         self.beta = leaf(beta)
         self._meridional = meridional

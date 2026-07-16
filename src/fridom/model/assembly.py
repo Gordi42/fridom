@@ -43,6 +43,7 @@ from fridom.model.errors import (
     AssemblyError,
     MissingParameterError,
     ParameterCollisionError,
+    TimeDependentLinearOperatorError,
 )
 from fridom.model.field_table import FieldRecord, FieldTable
 from fridom.model.module import BindParameterView
@@ -107,6 +108,41 @@ def _module_label(slot: int, module: object) -> str:
 def _stepper_label(stepper: object) -> str:
     """Attribution label of the time stepper."""
     return f"the time stepper ({type(stepper).__name__})"
+
+
+def _check_frozen_linear_operator(
+    modules: tuple, stepper: object,
+) -> None:
+    """
+    Refuse a frozen-``L`` stepper whose ``L`` is time-dependent (AR-D7).
+
+    Description
+    -----------
+    An exponential (ETD) stepper integrates the LINEAR operator from a
+    frozen eigenbasis snapshot (``TimeStepper.freezes_linear_operator``),
+    so a time-dependent parameter inside a ``linear=True`` term would
+    be silently frozen. Each module reports such couplings through
+    ``Module.time_dependent_linear_parameters`` (the author knows the
+    term/parameter link, so no tracing is needed); a non-empty union
+    under a frozen-``L`` stepper raises the taught error. Every other
+    stepper re-reads the tendency each step and is unaffected — the
+    guard is a no-op there.
+    """
+    if not getattr(stepper, "freezes_linear_operator", False):
+        return
+    offenders = tuple(
+        (type(module).__name__, str(name))
+        for module in modules
+        for name in _time_dependent_linear_params(module))
+    if offenders:
+        raise TimeDependentLinearOperatorError(
+            offenders, stepper=type(stepper).__name__)
+
+
+def _time_dependent_linear_params(module: object) -> tuple[str, ...]:
+    """Read a module's time-dependent-``L`` parameter report (duck)."""
+    hook = getattr(module, "time_dependent_linear_parameters", None)
+    return tuple(hook()) if callable(hook) else ()
 
 
 # ================================================================
@@ -1653,6 +1689,7 @@ def assemble(
     # -- step 2: parameters --------------------------------------
     binding_table = ParameterBindingTable.build(modules,
                                                 time_stepper)
+    _check_frozen_linear_operator(modules, time_stepper)
 
     # -- step 3: dispatch merge (before bind/dry-run/negotiate) --
     overrides = _collect_dispatch_overrides(modules, grid)

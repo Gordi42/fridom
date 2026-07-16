@@ -23,7 +23,10 @@ import pytest
 import fridom as fr
 import fridom.shallowwater2 as sw
 from fridom.model import term_predicates as terms
-from fridom.model.errors import LinearTermInTendencyError
+from fridom.model.errors import (
+    LinearTermInTendencyError,
+    TimeDependentLinearOperatorError,
+)
 from fridom.model.time_steppers.exponential import (
     ETDRK4,
     phi_functions,
@@ -285,3 +288,42 @@ def test_fourth_order_through_a_ramped_parameter(grid, basis, state0):
     # halving dt must cut the error by ~2^4
     order = np.log2(errors[0] / errors[1])
     assert order > 3.0
+
+
+# ================================================================
+#  AR-D7: a time-dependent linear operator is refused
+# ================================================================
+def test_time_dependent_f0_in_the_linear_operator_is_refused(grid, basis):
+    """A Ramp on coriolis.f0 lives in L, which ETDRK4 freezes: taught.
+
+    The rotation is a linear=True term, so a ramped f0 makes L(t)
+    time-dependent; exp(L dt) from the frozen eigenbasis would silently
+    integrate a stale operator. The guard fires at ASSEMBLY of the
+    ETDRK4 model (the basis it is handed is irrelevant to the check).
+    """
+    ramp = fr.model.Ramp(0.5, 1.5, period=1.0, curve="exp")
+    with pytest.raises(TimeDependentLinearOperatorError,
+                       match=r"coriolis\.f0 \(FPlaneCoriolis\)") as ex:
+        sw.Model(grid=grid, csqr=1.0, rossby_number=0.2,
+                 coriolis=sw.modules.FPlaneCoriolis(f0=ramp),
+                 advection=True, time_stepper=ETDRK4(AB3_DT, basis),
+                 term_filter=~terms.linear)
+    # the taught error points at the AB fallback and the design record
+    assert "AdamBashforth" in str(ex.value)
+    assert "exponential_stepper.md" in str(ex.value)
+
+
+def test_time_dependent_rossby_in_N_is_allowed(grid, basis, state0):
+    """AR-D7 discriminates N from L: a Ramp on scaling.rossby is fine.
+
+    scaling.rossby scales only the nonlinear advection (N), which the
+    RK stages evaluate at their own clock times, so the frozen L is
+    untouched and the ETDRK4 model must assemble. (The order through
+    such a ramp is the fourth-order test above; this pins the
+    assembly-time gate, the exact regression AR-D7 must not break.)
+    """
+    ramp = fr.model.Ramp(0.0, 0.2, period=1.0)
+    # assembling with the ramp in N must NOT raise (the AR-D7 gate),
+    # and the model must run
+    model = _model(grid, ETDRK4(AB3_DT, basis), ramp, filtered=True)
+    assert np.isfinite(_norm(_run(model, state0, 1)))

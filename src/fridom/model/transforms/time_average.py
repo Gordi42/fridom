@@ -26,6 +26,7 @@ import numpy as np
 
 from fridom.model import params
 from fridom.model import term_predicates as terms
+from fridom.model.time_dependent import TimeDependent
 from fridom.model.transforms.base import StateTransform
 from fridom.model.transforms.info import TransformCost, TransformInfo
 from fridom.model.transforms.signature import StateSignature
@@ -121,7 +122,14 @@ class TimeAverage(StateTransform):
                 "period=None reads the inertial period 2*pi/f0, but "
                 f"this model provides no {f0_name!r} parameter; pass "
                 "period=<seconds> explicitly")
-        f0 = abs(float(parameters[f0_name]))
+        f0_value = parameters[f0_name]
+        if isinstance(f0_value, TimeDependent):
+            raise ValueError(  # noqa: TRY004 — a period=None config error, the sibling raises above are ValueError
+                "period=None reads the inertial period 2*pi/f0, but "
+                "coriolis.f0 is time-dependent (an fr.Ramp), so the "
+                "inertial period is not a single constant; pass "
+                "period=<seconds> explicitly")
+        f0 = abs(float(f0_value))
         if f0 == 0.0:
             raise ValueError(
                 "period=None reads the inertial period 2*pi/f0, but "

@@ -52,6 +52,7 @@ __all__ = [
     "RunTargetError",
     "SnapshotMismatchError",
     "TermEvaluationError",
+    "TimeDependentLinearOperatorError",
     "TimeDependentParameterError",
 ]
 
@@ -190,6 +191,59 @@ class LinearTermInTendencyError(AssemblyError):
             "and build `basis` from the UNFILTERED model "
             "(sw.eigenbasis(full_model)), so exp(L dt) is the "
             "operator those terms describe.")
+
+
+class TimeDependentLinearOperatorError(AssemblyError):
+
+    """
+    Raised when a frozen-``L`` stepper meets a time-dependent ``L``.
+
+    Description
+    -----------
+    An exponential (ETD) stepper diagonalizes the LINEAR operator
+    ``L`` once, host-side, and integrates it as ``exp(L dt)`` from a
+    frozen eigenbasis snapshot. If a ``linear=True`` term consumes a
+    time-dependent parameter (an ``fr.Ramp`` on ``coriolis.f0``, say),
+    then ``L`` is really ``L(t)`` — and ``L(t_1)`` and ``L(t_2)`` do
+    not commute, so ``exp(L dt)`` stops being the propagator and the
+    scheme silently integrates a stale operator. Raised host-side at
+    assembly (never in the science), so it fires on the first build.
+
+    The fix is either the ``AdamBashforth`` fallback (which re-reads
+    the tendency, hence every parameter, at each stage clock time), or
+    the measured split: keep the stiff, time-INDEPENDENT part in the
+    eigenbasis and leave the time-dependent term in the tendency (see
+    ``design/research/exponential_stepper.md`` section 5).
+
+    Parameters
+    ----------
+    offenders : tuple[tuple[str, str], ...]
+        The offending ``(module type name, parameter name)`` pairs.
+    stepper : str
+        The exponential stepper's class name (named in the message).
+    """
+
+    def __init__(
+        self, offenders: tuple[tuple[str, str], ...], stepper: str,
+    ) -> None:
+        """Compose the taught time-dependent-``L`` message."""
+        self.offenders = tuple(offenders)
+        self.stepper = stepper
+        listed = ", ".join(
+            f"{param} ({module})" for module, param in self.offenders)
+        super().__init__(
+            f"{stepper} freezes the linear operator L in an eigenbasis "
+            "(it integrates exp(L dt) from a snapshot), but these "
+            "time-dependent parameters feed linear=True terms that L "
+            f"integrates: {listed}. L(t1) and L(t2) do not commute, so "
+            "exp(L dt) is no longer the propagator and the ramp would "
+            "be silently frozen. Either step with "
+            "fr.model.time_steppers.AdamBashforth (it re-reads the "
+            "tendency, hence every parameter, at each stage clock "
+            "time), or keep the stiff time-INDEPENDENT part in the "
+            "eigenbasis and leave the time-dependent term in the "
+            "tendency (the measured split) — see "
+            "design/research/exponential_stepper.md section 5.")
 
 
 class LinearOperatorGapError(ValueError):

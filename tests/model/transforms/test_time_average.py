@@ -9,6 +9,7 @@ the Tier-2 trace guard.
 import jax
 import pytest
 
+import fridom as fr
 from fridom.model import term_predicates as terms
 from fridom.model.transforms.errors import TraceError
 from fridom.model.transforms.norms import _l2_norm
@@ -111,6 +112,24 @@ def test_period_none_without_coriolis_errors():
 def test_period_none_with_zero_f0_errors():
     model = make_model(modules=(Coriolis(), F0Provider(f0=0.0)))
     with pytest.raises(ValueError, match=r"coriolis\.f0 is zero"):
+        TimeAverage(model, n_ave=1)
+
+
+class _RampedF0Provider(F0Provider):
+
+    """F0Provider that keeps a time-dependent (Ramp) f0 leaf."""
+
+    def __init__(self, f0):
+        # F0Provider coerces to an array; keep the Ramp pytree as-is
+        self.f0 = f0
+
+
+def test_period_none_with_time_dependent_f0_errors():
+    # the inertial period 2*pi/f0 is not a single constant for a ramped
+    # f0 -- a taught error, not a bare float(Ramp) TypeError
+    ramp = fr.model.Ramp(1.0, 2.0, period=1.0)
+    model = make_model(modules=(Coriolis(), _RampedF0Provider(ramp)))
+    with pytest.raises(ValueError, match="time-dependent"):
         TimeAverage(model, n_ave=1)
 
 

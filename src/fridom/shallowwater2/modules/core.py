@@ -83,6 +83,7 @@ import jax.numpy as jnp
 
 import fridom as fr
 from fridom.framework.utils import jaxify
+from fridom.model.time_dependent import TimeDependent
 from fridom.shallowwater2 import params as sw_params
 from fridom.shallowwater2.diagnostics import DIAGNOSTICS
 from fridom.shallowwater2.state import State
@@ -155,7 +156,18 @@ class DynamicalCore(fr.model.Module):
         coords: tuple[str, str] = ("x", "y"),
         meridional: str | None = None,
     ) -> None:
-        """Store the leaves; a callable ``csqr`` stays static."""
+        """Store the leaves; a callable ``csqr`` stays static.
+
+        Raises
+        ------
+        TypeError
+            On invalid ``coords``, or a time-dependent ``csqr`` — the
+            phase speed is the AUXILIARY ``csqr`` FIELD, read by
+            several terms, so ramping it is a field-valued blend (R2),
+            not the R1 scalar path (and an ``fr.Ramp`` is callable, so
+            it would otherwise be silently taken as a ``c^2(y)``
+            profile).
+        """
         coords = tuple(coords)
         if (len(coords) != 2  # noqa: PLR2004 — zonal + meridional
                 or not all(isinstance(c, str) for c in coords)
@@ -163,6 +175,21 @@ class DynamicalCore(fr.model.Module):
             raise TypeError(
                 "coords names the (zonal, meridional) coordinates: "
                 f"two distinct strings, got {coords!r}")
+        # a Ramp is callable, so this MUST precede the callable(csqr)
+        # profile branch below or it would be read as a c^2(y) profile
+        if isinstance(csqr, TimeDependent):
+            raise TypeError(
+                f"csqr={csqr!r} is time-dependent, but c^2 is "
+                "materialized as the AUXILIARY csqr FIELD and read as a "
+                "field by several terms (the gravity flux divergence "
+                "with c^2 inside the divergence, the Sadourny "
+                "advection, and the thickness-weighted rotation), so a "
+                "time-dependent c^2 is a field-valued blend (FieldBlend, "
+                "roadmap 'Generalized adiabatic ramping', stage R2), not "
+                "the R1 scalar path. Pass a constant c^2 (float) or a "
+                "profile c^2(y) (callable of the meridional coordinate); "
+                "ramp scaling.rossby or coriolis.f0 for a "
+                "time-dependent run")
         self._csqr_fn = csqr if callable(csqr) else None
         self.csqr = None if callable(csqr) else fr.model.leaf(csqr)
         self.rossby_number = fr.model.leaf(rossby_number)

@@ -306,6 +306,12 @@ def test_base_module_bind_is_noop_but_freezes():
         module.anything = 1
 
 
+def test_base_module_reports_no_time_dependent_linear_parameters():
+    # the AR-D7 honesty seam is opt-in: a module reports a ramped
+    # parameter in its linear term only by overriding this hook
+    assert Module().time_dependent_linear_parameters() == ()
+
+
 # ================================================================
 #  The bind-time parameter read gate
 # ================================================================

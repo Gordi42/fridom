@@ -113,6 +113,16 @@ class TimeStepper(abc.ABC):
 
     supported_treatments: ClassVar[frozenset[Treatment]]
 
+    #: Whether the stepper integrates the LINEAR operator ``L`` from a
+    #: FROZEN eigenbasis snapshot (``exp(L dt)``) rather than from the
+    #: tendency each step. The exponential (ETD) family sets it; every
+    #: other stepper re-reads the tendency, hence every parameter, at
+    #: each stage clock time, so a time-dependent ``L`` is correct
+    #: there. Assembly refuses a frozen-``L`` stepper whose ``L``
+    #: carries a time-dependent parameter (AR-D7,
+    #: :class:`~fridom.model.errors.TimeDependentLinearOperatorError`).
+    freezes_linear_operator: ClassVar[bool] = False
+
     def __init__(self, dt: float | np.timedelta64) -> None:
         """Convert dt once onto the dynamic leaf; see class doc."""
         if isinstance(dt, np.timedelta64):
