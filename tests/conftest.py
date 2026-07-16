@@ -15,7 +15,41 @@ os.environ.setdefault("XLA_PYTHON_CLIENT_PREALLOCATE", "false")
 import jax
 import pytest
 
-import fridom.framework as fr
+# ================================================================
+#  Persistent compilation cache
+# ================================================================
+# The suite is dominated by many small jit compilations. A persistent,
+# on-disk cache turns these into cache hits, roughly halving warm-run
+# wall time on both cpu and gpu. The cache is keyed on the HLO, jaxlib
+# version, and backend, so it stays correct across code changes.
+# Override the location with FRIDOM_TEST_JAX_CACHE_DIR; set it empty to
+# disable caching. Configured here BEFORE fridom is imported below so
+# that fridom's own import-time default cache (fridom/_compile_cache.py)
+# sees the dir already set and no-ops on it.
+_jax_cache_dir = os.environ.get(
+    "FRIDOM_TEST_JAX_CACHE_DIR",
+    str(Path(__file__).resolve().parent.parent / ".jax_cache"))
+# Give each pytest-xdist worker its own cache subdirectory. jax's local
+# cache is not written atomically, so a shared directory lets one worker
+# read a half-written entry (a truncated-zlib error that, under the
+# filterwarnings=error policy, fails the test). Per-worker directories
+# avoid the race entirely; warm reruns still hit because --dist loadfile
+# keeps the file->worker assignment stable.
+_worker = os.environ.get("PYTEST_XDIST_WORKER")
+if _jax_cache_dir and _worker:
+    _jax_cache_dir = str(Path(_jax_cache_dir) / _worker)
+jax.config.update("jax_compilation_cache_dir", _jax_cache_dir or None)
+# the defaults skip sub-second / small compilations, which is exactly
+# what the test suite consists of; cache everything instead
+jax.config.update("jax_persistent_cache_min_compile_time_secs", 0.0)
+jax.config.update("jax_persistent_cache_min_entry_size_bytes", 0)
+if not _jax_cache_dir:
+    # cache deliberately disabled: keep fridom's default cache (enabled
+    # at import) from silently re-enabling it. setdefault so an explicit
+    # FRIDOM_DISABLE_COMPILE_CACHE override still wins.
+    os.environ.setdefault("FRIDOM_DISABLE_COMPILE_CACHE", "1")
+
+import fridom.framework as fr  # noqa: E402 — after the cache config above
 
 # ================================================================
 #  Compile counter / forced devices
@@ -37,34 +71,6 @@ TRACE_EVENT = "/jax/core/compile/jaxpr_trace_duration"
 # when the forcing did not take effect; the repo-wide
 # multi_device/single_device markers are handled below.
 FORCED_DEVICES_ENV = "FRIDOM_TEST_FORCED_DEVICES"
-
-# ================================================================
-#  Persistent compilation cache
-# ================================================================
-# The suite is dominated by many small jit compilations. A persistent,
-# on-disk cache turns these into cache hits, roughly halving warm-run
-# wall time on both cpu and gpu. The cache is keyed on the HLO, jaxlib
-# version, and backend, so it stays correct across code changes.
-# Override the location with FRIDOM_TEST_JAX_CACHE_DIR; set it empty to
-# disable caching.
-_jax_cache_dir = os.environ.get(
-    "FRIDOM_TEST_JAX_CACHE_DIR",
-    str(Path(__file__).resolve().parent.parent / ".jax_cache"))
-# Give each pytest-xdist worker its own cache subdirectory. jax's local
-# cache is not written atomically, so a shared directory lets one worker
-# read a half-written entry (a truncated-zlib error that, under the
-# filterwarnings=error policy, fails the test). Per-worker directories
-# avoid the race entirely; warm reruns still hit because --dist loadfile
-# keeps the file->worker assignment stable.
-_worker = os.environ.get("PYTEST_XDIST_WORKER")
-if _jax_cache_dir and _worker:
-    _jax_cache_dir = str(Path(_jax_cache_dir) / _worker)
-jax.config.update("jax_compilation_cache_dir", _jax_cache_dir or None)
-# the defaults skip sub-second / small compilations, which is exactly
-# what the test suite consists of; cache everything instead
-jax.config.update("jax_persistent_cache_min_compile_time_secs", 0.0)
-jax.config.update("jax_persistent_cache_min_entry_size_bytes", 0)
-
 
 # ================================================================
 #  Bounded compilation cache (evict at file boundaries)
