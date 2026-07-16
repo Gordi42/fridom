@@ -364,7 +364,14 @@ def test_walled_biased_projected_tendency_stays_divergence_free(
     tau = model.tendency(state, constraints=True)
     div = Divergence()(VectorField(
         {c: tau[c] for c in ("u", "v", "w")}))
-    assert float(np.abs(np.asarray(div.data)).max()) < 1e-13
+    # the projection zeroes the divergence to the FP roundoff of the
+    # walled (DCT-II) solve, which scales with the tendency magnitude
+    # (~30 here on channel-and-lid) and drifts by ULPs across FFT code
+    # paths (rfft/Makhoul, 55b0b866): bound it relative to the
+    # tendency, not absolutely (measured <= ~5e-15 relative)
+    tau_scale = max(float(np.abs(np.asarray(tau[c].data)).max())
+                    for c in ("u", "v", "w"))
+    assert float(np.abs(np.asarray(div.data)).max()) < 1e-13 * tau_scale
 
 
 @pytest.mark.parametrize(("cls", "order"), BIASED)
