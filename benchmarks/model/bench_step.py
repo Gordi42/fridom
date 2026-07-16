@@ -113,7 +113,8 @@ def _depth(x):
     return 1.0 + 0.2 * jnp.sin(x)
 
 
-def _nh_model(n: int, *, mapped: bool, periodic_z: bool = False,
+def _nh_model(n: int, *, mapped: bool, periodic_x: bool = True,
+              periodic_z: bool = False,
               iters: int = 30, advection: bool = False):
     """Nonhydrostatic f-plane model with a jet-like IC.
 
@@ -122,8 +123,8 @@ def _nh_model(n: int, *, mapped: bool, periodic_z: bool = False,
     dissipation, so the linear cases' fixed ``dt = 0.02`` goes
     non-finite at 512^3 and the model panics mid-timing.
     """
-    mx = fr.spatial.meshes.IntervalMesh(n, (0.0, TWO_PI), periodic=True,
-                                        name="x")
+    mx = fr.spatial.meshes.IntervalMesh(n, (0.0, TWO_PI),
+                                        periodic=periodic_x, name="x")
     my = fr.spatial.meshes.IntervalMesh(n, (0.0, TWO_PI), periodic=True,
                                         name="y")
     mz = fr.spatial.meshes.IntervalMesh(n, (0.0, 1.0),
@@ -140,11 +141,22 @@ def _nh_model(n: int, *, mapped: bool, periodic_z: bool = False,
     model = nh.Model(grid=grid, dt=dt, advection=advection,
                      coriolis=nh.FPlaneCoriolis(f0=1.0), dsqr=0.25,
                      pressure_iterations=iters, chunk_size=STEPS)
-    hor = (np.arange(n) + 0.5) * (TWO_PI / n)
-    ver = (np.arange(n) + 0.5) / n
-    x, y, z = np.meshgrid(hor, hor, ver, indexing="ij")
-    model.set_fields(u=np.sin(x) * np.cos(y), v=0.3 * np.cos(x),
-                     b=0.01 * np.cos(np.pi * z))
+    if periodic_x:
+        hor = (np.arange(n) + 0.5) * (TWO_PI / n)
+        ver = (np.arange(n) + 0.5) / n
+        x, y, z = np.meshgrid(hor, hor, ver, indexing="ij")
+        model.set_fields(u=np.sin(x) * np.cos(y), v=0.3 * np.cos(x),
+                         b=0.01 * np.cos(np.pi * z))
+    else:
+        # A walled x staggers u onto n-1 x-faces, so the flat meshgrid
+        # (n points on every axis) no longer matches u's true shape;
+        # evaluate the same ICs on each field's own coordinates instead.
+        # init= callables must name every coordinate (x, y, z) even
+        # where a component does not depend on all three.
+        model.set_fields(
+            u=lambda x, y, z: jnp.sin(x) * jnp.cos(y),  # noqa: ARG005
+            v=lambda x, y, z: 0.3 * jnp.cos(x),  # noqa: ARG005
+            b=lambda x, y, z: 0.01 * jnp.cos(jnp.pi * z))  # noqa: ARG005
     return model
 
 
@@ -202,6 +214,22 @@ def nh_flat_walled(n):
     this case prices that fallback.
     """
     model = _nh_model(n, mapped=False, periodic_z=False)
+    return _stepping_case(model, float(n) ** 3)
+
+
+@benchmark_case(params={"n": SIZES_NH_WALLED}, reps=5, warmup=0,
+                measure_compile=False)
+def nh_flat_walled_x(n):
+    """Linear step with walls in x (trig transform on the sharded axis).
+
+    The sibling of ``nh_flat_walled``, which walls z -- off the default
+    sharded axis, so it never exercises a trig transform on the split
+    dimension. Here the wall is on x, and after the shard-axis-selection
+    merge the decomposition shards y for this case (x's staggering cost
+    demotes it): this prices the distributed walled-SHARDED-axis solve,
+    the path the indivisible-shard campaign fixed.
+    """
+    model = _nh_model(n, mapped=False, periodic_x=False, periodic_z=True)
     return _stepping_case(model, float(n) ** 3)
 
 
