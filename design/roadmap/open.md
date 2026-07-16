@@ -114,22 +114,26 @@ loudly instead of in the HLO verifier. Evidence, provenance probes, and
 corrections:
 [`../research/multidevice_test_faults.md`](../research/multidevice_test_faults.md).
 
-## Finite-volume nonhydro — walls, mapped, hygiene (F4–F6)
+## Finite-volume nonhydro — mapped FV, default flip, validation (F5)
 
-Stages F0–F3 shipped: the periodic nonhydro model is FV by default
-(decision FV-D2 option A; entry in [`done.md`](done.md)). Walled and
-mapped grids stay nodal by default — explicit `family="fv"` there is a
-taught error until the stages below land. Open:
+Stages F0–F4 and F6 shipped (F4 walls + F6 hygiene entries in
+[`done.md`](done.md)): walled grids serve explicit `family="fv"` at
+parity with the nodal model; only mapped/immersed grids remain
+nodal-only (taught error). Open:
 
-- **F4** walls (FV-D4) — plus the F2-found blocker: BC-tagged face →
-  `CellAvg` reconstruction is unseeded, so a *walled stratified* mixed
-  model does not assemble.
-- **F5** mapped/chart FV.
-- **F6** hygiene (G7 dealiasing on average origins, G8 quadrature
-  `discretize`, G9 one-sided wall reconstruct).
+- **F5** mapped/chart FV — the metric-aware rows on averages (C1/C2
+  chain) and `MappedPressureSolver` (hard-wired nodal). Handoff notes
+  from F4 in the scoping §11 (measure-weighted wall reconstruction,
+  the single remaining `_require_fv_capable` gate).
+- **Walled auto-default flip — owner decision.** The walled FV model
+  is eager-bitwise with nodal (jitted runs ≤1.2e-14, an XLA
+  fusion-ordering artifact in the mixed trig solve, scoping §11), so
+  flipping the walled *default* from nodal to FV costs no accuracy;
+  it awaits Silvano's call.
 - **Validate the FV default on 4 GPUs** — the distributed solve on
-  average origins ran only 1-GPU so far, and the gpu4 step baseline
-  predates the nodal sibling cases.
+  average origins ran only 1-GPU so far (forced-4 CPU now asserts the
+  walled FV fast paths, F4), and the gpu4 step baseline predates the
+  nodal sibling cases.
 
 [`../plans/active/fv_nonhydro_scoping.md`](../plans/active/fv_nonhydro_scoping.md)
 

@@ -16,8 +16,11 @@ current-state seams with evidence, records the decisions, and stages
 the work. The staged plan of §6 is the entry point; ROADMAP 3.5
 points here. **Update 2026-07-16: stages F0–F3 are implemented and
 merged — the periodic nonhydro model is FV by default; see §10 for
-the implementation record and the corrections it surfaced.** F4–F6
-remain open exactly as staged.
+the implementation record and the corrections it surfaced. Later the
+same day F4 (walls, FV-D4 — §11) and F6 (hygiene G7/G8/G9 — §12)
+shipped: walled grids serve explicit `family="fv"` at parity with the
+nodal model.** F5 (mapped/chart FV) remains open as staged; the
+walled *auto*-default flip is a pending owner decision (§11).
 
 ## 1. Headline
 
@@ -271,11 +274,13 @@ stencils are bitwise identical (§1) the whole existing model —
 pressure chain included — then works unchanged. Keep the collocated
 `FVDerivative` as the default for a *collocated* FV grid.
 
-### FV-D4 — walls *(open; deferred)*
+### FV-D4 — walls *(DECIDED 2026-07-16; design and record in §11)*
 
-G6 has no answer yet. Do not let the FV switch regress the working
-walled nodal model: **until FV-D4 is answered, FV is periodic-only.**
-Scope it separately (stage F4).
+BC tags extend to the average family as **wall-value claims** (the
+boundary principle unchanged); the walled FV pressure solve runs on
+BC-tagged average origins (Neumann `CellAvg` → DCT-II) while the face
+legs stay nodal-tagged (FV-D2 option A). Alternatives, the point-by-
+point design, gates, and implementation corrections: §11.
 
 ## 6. Stages and gates
 
@@ -409,8 +414,9 @@ and nonlinear periodic runs **bit-identical** to the nodal model over
 pre-FV baseline (flipped cases −1.2%..+0.1%), FV/FD = 0.997..1.003
 at 32³..512³ (1× A100; see `benchmarks/RESULTS.md`).
 
-**Gap ledger now:** G1, G3, G4, G5 closed. G2 stays a dead-end by
-decision (FV-D2). G6 open (F4). G7, G8, G9 open (F6).
+**Gap ledger now (post F4/F6, 2026-07-16):** G1, G3, G4, G5 closed
+here; G6 closed by F4 (§11); G7, G8, G9 closed by F6 (§12). G2 stays
+a dead-end by decision (FV-D2) — the only open gap, by choice.
 
 **Corrections to this study, found during implementation:**
 
@@ -455,3 +461,153 @@ decision (FV-D2). G6 open (F4). G7, G8, G9 open (F6).
 6. **Multi-device.** All F0–F3 gates ran on cpu and 1 GPU; the
    distributed solve on average origins and the 4-GPU step baseline
    are still to be validated (next 4-GPU campaign).
+
+## 11. FV-D4 — walls on FV (decided + shipped 2026-07-16; F4 record)
+
+**Decision: BC tags extend to the average family as wall-value
+claims; the walled FV solve runs on BC-tagged average origins with
+trig rows keyed on them — the nodal tagged-origin closure (the C3
+seeding block, `grid.py`) reproduced for averages.** The rejected
+alternative — a solve-internal family-retag of the `CellAvg`
+divergence onto the nodal `Center(NEUMANN)` sibling — is
+bitwise-equivalent at 2nd order but bypasses the type discipline
+exactly where the codebase invests in it, leaves the walled
+eigenmode/transform stack dark on FV, and hands F5 nothing.
+
+The design, point by point:
+
+1. **What a tag means on an average space.** The same thing it means
+   on a nodal space: a wall-value claim about the *represented
+   function* (boundary principle, `boundary_plan.md`). It was never a
+   claim about a stored DOF — Neumann on `Center` drops no DOF
+   either. `CellAvg` keeps shape `(n,)` under every tag (the nodal
+   shape law degenerates: no boundary DOF is in the set); the tag's
+   operational content is (i) selecting trig-transform origins and
+   (ii) licensing claim-consuming rows. Average spaces stay BC-free
+   by *default*; the walled machinery mints tagged siblings where it
+   needs them (`mesh.average(kind, bc=...)`, mirroring `nodal()`).
+   `FaceAvg` stays untaggable (dead-end by FV-D2): taught error.
+2. **Trig origins.** `Cosine`/`Sine` accept tagged `CellAvg` origins;
+   cell-average samples live on the cell-midpoint grid, so `CellAvg`
+   maps to the **type-II kernels** exactly as `Center` does (Neumann
+   `CellAvg` → DCT-II — the walled FV pressure basis; Dirichlet
+   `CellAvg` → DST-II, mechanical, no consumer, unseeded). The
+   coefficient layer needed nothing: `CoefficientSpace` inherits
+   `origin.bc` and interns per origin identity.
+3. **Symbols.** `FaceDifference`/`FluxDifference` carry the trig
+   branch of the `FiniteDifference` precedent. The partners are
+   **inter-family** (the face side stays nodal under FV-D2 option A,
+   `fv_trig_diff_codomain`): grad leg `Cosine(CellAvg(N)) →
+   Sine(Inner(D))`, symbol `−2 sin(k dz/2)/dz`; div leg the reverse,
+   `+2 sin(k dz/2)/dz`; composed Laplacian the real `−k̂_z²`. **No
+   sinc at 2nd order** (correction-1 pattern: the FV stencils are
+   bitwise the nodal ones and the trig basis diagonalizes them
+   exactly). Symbols match the analytic values to 0.0 and the
+   composed field operator to <1e-12.
+4. **The solve.** `_neumann_sibling` maps bounded factors of *both*
+   families to their `BC.NEUMANN` siblings; `_dirichlet_mid`
+   unchanged (the FV mid legs carry a nodal face factor);
+   `_bc_siblings` extended to average siblings so the retag-in/out
+   seam works across the family.
+5. **The stratified blocker (§10 correction 5).**
+   `("average", Inner(DIRICHLET))` seeded as a claim-consuming row:
+   the Dirichlet tag claims the wall-face value (homogeneous: 0), the
+   face→cell Gauss average consumes it at wall cells (zero-pad + the
+   two-point mean), interior cells **bitwise** the BC-free row.
+   Neumann-tagged face domains stay unseeded with a taught hint (a
+   Neumann tag claims no wall value).
+6. **Model gates.** Explicit `family="fv"` served on walled unmapped,
+   unimmersed grids; mapped/immersed stay a taught error (F5). **The
+   walled auto-default stays nodal — flipping it is a pending owner
+   decision** (parity is eager-bitwise, so the flip costs no number;
+   see the jit caveat below).
+7. **The F4→F5 seam.** Walls enter FV chains only through (i) tagged
+   average origins for transforms and (ii) nodal face factors
+   carrying claims plus structural Inner-codomain Gauss closures. The
+   mapped solver consumes (ii) unchanged.
+
+**Shipped** (merge `7449c15f`; spatial/nonhydro2/tests commits
+`2ad2c7b4`, `af8cfd8a`, `f75cc0a4`; import follow-up `ab90e4bb` after
+the advection rehome landed mid-flight). Gates: walled manufactured
+Poisson <1e-12; walled-z/x/y FV projection drives the discrete
+divergence to machine zero; the solver runs on the Neumann *average*
+sibling and the periodic path never retags; stratified walled FV
+assembles (`w.to(b)` resolves) and conserves total buoyancy ~1e-18;
+forced-4 FV siblings of the distributed walled-z/walled-x fast paths
+assert plan resolution, wall-axis locality, and device-count
+invariance; the nodal walled suite untouched (805 passed on the
+branch, re-verified on `dev` post-merge).
+
+**Corrections found during implementation:**
+
+1. **Bitwise parity is exact eagerly, not under jit.** The
+   unconstrained tendency and `constrain` are **exactly**
+   bit-identical to nodal under `jax.disable_jit()` (0.0 — the
+   stencil-identity claim, pinned as a test). The jitted 12-step
+   walled run differs by ≤1.2e-14: XLA fuses the mixed
+   `Fourier ⊗ Cosine` solve with a different float ordering than the
+   nodal HLO. Periodic stays bit-identical (all-Fourier → identical
+   HLO). The jitted gate is therefore a tight tolerance (<1e-12),
+   not equality.
+2. **`FluxDifference.codomain` must accept `Inner(DIRICHLET)`**: the
+   *physical* divergence applies it to the walled velocity directly
+   (not only through seeded rows); the homogeneous no-normal-flow
+   claim is exactly the zero wall flux the Inner branch imposes.
+   Neumann-tagged: taught error.
+3. **`fv_cgrid_overrides` must key the tagged origins too** —
+   `CellAvg(NEUMANN) → FaceDifference` and `Inner(DIRICHLET) →
+   FluxDifference` — else the base seeding leaves the tagged
+   `CellAvg` on the collocated `FVDerivative`.
+4. `fv_trig_diff_codomain` raises `EigenbasisError` (not
+   `SpaceMismatchError`) on non-FV trig factors, keeping the
+   `eigenvalues` contract.
+5. Only Neumann `CellAvg` is seeded (per the design); the DST-II
+   Dirichlet variant exists mechanically behind the shared kernel
+   path.
+
+**F4 → F5 handoff notes:** the metric-aware rows on averages (C1/C2
+chain) are still absent; `_reconstruct_walled_face` uses a uniform
+zero-pad + two-point mean — the mapped variant needs measure
+weighting (mirror `FluxDifference`'s mapped Inner branch); the
+`_require_fv_capable` mapped/immersed taught error is the single
+remaining capability gate.
+
+## 12. F6 — hygiene record (shipped 2026-07-16)
+
+- **G7 — dealiased padded transforms on average origins** (merge
+  `d778e7c8`). The padded Fourier kernels bracket the embed/trim with
+  the cell-averaging `sinc(k dx/2)` diagonal: deconvolve on the
+  source spectrum, refine (zero-embed with the inter-origin phase),
+  reconvolve on the target spectrum — `sinc ≥ 2/π` on the stored
+  band, so every division is exact; `_sibling_origin` names the
+  refined average sibling. `FaceAvg` falls out free (Fourier is
+  periodic-only, dual width = dx). Round-trips ~1e-16, analytic
+  cell-average refinement ~1e-15, alias-free products exact. Note:
+  **no model-level 2/3-rule consumer exists today** (no spectral
+  advection scheme instantiates a padded transform) — G7 is the
+  operator-level capability, smoke-tested on an FV-default grid.
+- **G8 — per-cell quadrature `discretize`** (merge `d9fd2d58`).
+  `create_field(order=)` sets the per-cell Gauss–Legendre point count
+  on average factors; `None`/`1` remain the midpoint shortcut
+  **bitwise** (midpoint *is* 1-point Gauss, so the F2/F3 parity gates
+  are untouched); `order >= 2` is genuine per-cell quadrature — exact
+  to degree `2·order − 1`, per-cell edges honor `coordinate_map`
+  (stretched axes quadrature each cell on its own width), mixed
+  spaces average only their average axes. Semantics on chart-mapped
+  grids are the **chart**-cell average (Jacobian-weighted physical
+  volumes are F5 territory, documented); `FaceAvg` higher-order is
+  guarded (the dual-cell edge seam does not exist).
+- **G9 — one-sided `CellAvg → Outer` wall reconstruction** (merge
+  `5687d5c3`). `LinearReconstruction(target=NodeSet.OUTER,
+  boundary="one_sided")` — a per-instance opt-in on the nodal
+  `LinearInterp` one-sided precedent, never a default row (the
+  `("reconstruct", CellAvg)` kind keeps its staggering codomain).
+  Interior faces stay bitwise the `CellAvg → Inner` mean; wall faces
+  get geometry-derived one-sided weights (exact-rational
+  `(3c₀ − c₁)/2` on uniform axes, value-moment solve on mapped ones);
+  `layout="local"` required on the applied axis; R1 remains for the
+  closed default. Subtlety recorded for F5: the interior symmetric
+  mean is computational-uniform (degree-0-exact on stretched axes)
+  while the patched walls are degree-1-exact — both 2nd-order
+  convergent; making the interior geometry-aware would be a separate
+  change to the symmetric kernel.

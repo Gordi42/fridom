@@ -151,6 +151,34 @@ Implementation record:
   F4–F6 and the 4-GPU validation stay in [`open.md`](open.md). Record:
   [`../plans/active/fv_nonhydro_scoping.md`](../plans/active/fv_nonhydro_scoping.md).
 
+- **FV nonhydro stage F4 — walls on FV** (2026-07-16) — decision
+  **FV-D4**: BC tags extend to the average family as wall-value
+  claims (no DOF change); Neumann `CellAvg` is the DCT-II origin of
+  the walled FV pressure solve; `_neumann_sibling` covers both
+  families; the claim-consuming `("average", Inner(DIRICHLET))` row
+  closes the F2 stratified blocker (`w.to(b)`); explicit
+  `family="fv"` served on walled unmapped grids (the auto default
+  stays nodal — owner flip pending, [`open.md`](open.md)). Gates:
+  manufactured walled Poisson <1e-12; machine-zero walled FV
+  projection (z, x, y cases); **eager-bitwise parity** with the
+  walled nodal model (jitted 12-step ≤1.2e-14, an XLA fusion-ordering
+  artifact); stratified buoyancy conservation ~1e-18; symbols exact
+  against composed operators; forced-4 FV fast-path siblings. Design
+  and implementation corrections:
+  [`../plans/active/fv_nonhydro_scoping.md`](../plans/active/fv_nonhydro_scoping.md) §11.
+
+- **FV nonhydro stage F6 — hygiene G7/G8/G9** (2026-07-16) —
+  dealiased padded transforms on average origins (sinc-bracketed
+  embed/trim; `FaceAvg` included; no model-level 2/3-rule consumer
+  exists yet); per-cell Gauss–Legendre quadrature `discretize` behind
+  `create_field(order=)` (default bitwise the midpoint rule = 1-point
+  Gauss; exact to degree 2·order−1; chart-cell semantics on mapped
+  meshes); one-sided `CellAvg → Outer` wall reconstruction
+  (`LinearReconstruction(target=OUTER, boundary="one_sided")`,
+  geometry-derived weights, per-instance opt-in on the nodal
+  precedent, R1 kept for the closed default). Records:
+  [`../plans/active/fv_nonhydro_scoping.md`](../plans/active/fv_nonhydro_scoping.md) §12.
+
 - **The mapped-Jacobian spike** (2026-07-16) — the 1D throwaway
   experiment (no production edits) that was the stated blocker of the
   high-order-mapped plan. Answer: the divisor for option (i) is the
