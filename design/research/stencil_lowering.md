@@ -396,15 +396,34 @@ and the HaloTracer delegation.
 
 ## 8. Open questions
 
-- **Productionizing weno selected-input:** the measurement
-  monkeypatch covers the periodic uniform-halo path only. The real
-  change (a `_face_value`-level selected-window mode of
-  `_BiasedFaceReconstruction`) must handle walled/mapped grids and
-  multi-device, thread the sign field through the operator
-  machinery, and carry the dual-staggering `_wall_shift` in the
-  union alignment (§6 caution). Gate with the CPU oracle
-  (`phase3_prep/validate_spellings.py`) + a machine-precision
-  step-parity test + the step suite on 1 and 4 GPUs.
+- **Productionizing weno selected-input — DONE 2026-07-16 on
+  `perf/weno-selected-input`.** Shipped as a module-private
+  `_SelectedFaceReconstruction` operator
+  (`nonhydro2/modules/advection.py`): it takes two operands (the sign
+  carrier and `q`), does the tap `where`s on the order+1 union window
+  and ONE left `weno_reconstruct`, and delegates the signature / the
+  halo-negotiation trace / the codomain plumbing to the interned left
+  `_BiasedFaceReconstruction` (the union frame *is* that
+  reconstruction's, so the `order//2+1` halo is unchanged and the
+  dual-staggering `_wall_shift` rides in for free). Walled axes keep
+  the interior tap-select and restore the K wall faces per side from
+  both graded ladders under the same sign select (byte-identical wall
+  faces); periodic axes do no ladder work. `WENOAdvection._face_value`
+  uses it; the linear `UpwindAdvection` path stays on both-then-select
+  (byte-identical). Production A/B on the shipped code (A100, matched
+  config): **weno5 −39.3% @256³ (25.65→15.57 ms/step), −45.9% @512³
+  (239.80→129.78)** — reproduces this section's monkeypatch numbers.
+  Parity over 20 steps ≤1.9e-13 (weno5) / bitwise (weno3); linear
+  upwind5 chunk HLO byte-identical. Gates: the mirrored shard
+  `tests/nonhydro2/test_advection_selected.py` (Where(left,right)
+  parity on both C-grid directions, both orders, periodic + z-walled,
+  the v=0 tie), the existing weno/advection suites, and the A/B record
+  [`stencil_lowering/microbench/phase3/IMPLEMENTATION_AB.md`](stencil_lowering/microbench/phase3/IMPLEMENTATION_AB.md).
+  Still open: multi-host (`srun -n P`) confirmation of the walled path,
+  re-running the Oceananigans comparison, and the forced-4 knife-edge
+  divergence test that the kernel-shape roundoff now also tips for
+  `weno5` (report, do not retune — a pre-existing `upwind5` knife-edge
+  fails identically on the parent).
 - The single-pass flux-recompute trade (lever 7) — worth a probe
   when attacking transient memory.
 - Whether a per-point sign-branched Pallas kernel could beat the
