@@ -346,8 +346,9 @@ designed-for / deferred.
 
 ## 10.9 Generalized adiabatic ramping (deformations)
 
-Ruled 2026-07-16 (decisions AR-D1..D9), **not yet implemented**;
-stages and gates in
+Ruled 2026-07-16 (decisions AR-D1..D9); **implemented 2026-07-17**
+(plan stages R1–R5 on `dev`; reader-facing docs pending owner
+review); stages, gates, and landing record in
 [`../../plans/active/adiabatic_ramping.md`](../../plans/active/adiabatic_ramping.md).
 Driving consumer: the adiabatic fast–slow splittings paper (Rosenau
 et al., JFM draft). Everything here composes with §10.1–10.5
