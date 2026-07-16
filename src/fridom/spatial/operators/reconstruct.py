@@ -54,7 +54,11 @@ from fridom.spatial.operators.base import (
 from fridom.spatial.operators.interned import interned
 from fridom.spatial.operators.spectral import (
     fv_fourier_partner,
+    fv_trig_interp_codomain,
+    in_trig_family,
     linear_interp_symbol,
+    trig_linear_interp_symbol,
+    trig_partner,
 )
 from fridom.spatial.operators.staggering import (
     first_node_offset,
@@ -67,7 +71,11 @@ from fridom.spatial.operators.stencil_kernels import (
 )
 from fridom.spatial.scalars import Scalars
 from fridom.spatial.spaces.average import CellAvg, FaceAvg
-from fridom.spatial.spaces.coefficient import FourierSpace
+from fridom.spatial.spaces.coefficient import (
+    CosineSpace,
+    FourierSpace,
+    SineSpace,
+)
 from fridom.spatial.spaces.function_space import FunctionSpace
 from fridom.spatial.spaces.nodal import NodalSpace, NodeSet
 
@@ -524,8 +532,13 @@ class LinearReconstruction(SeparableOperator):
     diagonalizing ``Fourier(CellAvg) -> Fourier(Right)`` — and the
     other two-point conversions — on a periodic uniform mesh; at second
     order the deconvolution ``sinc`` correction vanishes, so it is
-    bitwise the nodal ``LinearInterp`` numbers. The ``target=`` variant,
-    bounded, and mapped meshes raise ``EigenbasisError``.
+    bitwise the nodal ``LinearInterp`` numbers. On a **walled** mesh
+    (stage F5) it diagonalizes in the sine/cosine basis instead — the
+    Dirichlet ``CellAvg <-> Inner`` sine pair of the walled-vertical
+    eigenmode kit, the real ``cos(k dz/2)`` derived shift (again bitwise
+    the nodal ``LinearInterp``); the Neumann ``CellAvg`` DCT-II pressure
+    interp raises the eigen-layer skip. The ``target=`` variant and
+    mapped meshes raise ``EigenbasisError``.
 
     Parameters
     ----------
@@ -653,6 +666,39 @@ class LinearReconstruction(SeparableOperator):
             # factor through the reconstructed average/nodal origin
             return domain.mesh.fourier(
                 origin=self.codomain(domain.origin))
+        if isinstance(domain, SineSpace | CosineSpace):
+            # walled trig coefficient (F5): the FV staggering
+            # reconstruction keeps the trig family and staggers the
+            # origin between the cell average and the interior face
+            # (the interp analogue of fv_trig_diff_codomain)
+            return fv_trig_interp_codomain(domain)
+        return self._physical_codomain(domain)
+
+    def _physical_codomain(
+        self, domain: FunctionSpace,
+    ) -> FunctionSpace:
+        """
+        Resolve the physical (average / nodal) reconstruction codomain.
+
+        Description
+        -----------
+        The physical-space arm of :meth:`codomain` (the coefficient
+        arms — Fourier and the walled trig families — return before
+        here): reconstruct ``CellAvg -> Right`` (periodic) / ``Inner``
+        (bounded), ``Right/Outer/Inner -> CellAvg``, ``FaceAvg <->
+        Center``, the ``target=`` ``CellAvg -> Outer`` variant, and the
+        F4 claim-consuming ``Inner(DIRICHLET) -> CellAvg`` row.
+
+        Parameters
+        ----------
+        domain : FunctionSpace
+            The bare 1D average or BC-free nodal factor space.
+
+        Returns
+        -------
+        FunctionSpace
+            The converted codomain factor (scalars preserved).
+        """
         mesh = domain.mesh
         if self._target is not None:
             return self._target_codomain(domain, mesh)
@@ -745,9 +791,20 @@ class LinearReconstruction(SeparableOperator):
         two-point mean, bitwise the nodal ``LinearInterp`` numbers.
         At second order the exact cell-average deconvolution (which
         would *divide* by ``sinc(k dx/2)``) collapses to the plain
-        average, so this row carries no ``sinc`` correction. The
-        ``target=`` variant has no diagonalizing symbol, and bounded
-        or mapped meshes raise ``EigenbasisError``.
+        average, so this row carries no ``sinc`` correction.
+
+        On a **walled** (bounded) mesh (stage F5) the FV reconstruction
+        diagonalizes in the sine/cosine basis instead: the Dirichlet
+        ``CellAvg <-> Inner`` sine pair of the walled-vertical eigenmode
+        kit keeps the trig family and staggers the origin
+        (:func:`fv_trig_interp_codomain`), giving the real ``cos(k
+        dz/2)`` two-point mean — the **same** derived-shift diagonal as
+        the nodal ``LinearInterp`` (no ``sinc``, the correction-1
+        pattern), on a ``CellAvg`` origin tag. The Neumann ``CellAvg``
+        DCT-II (the pressure interp) lands on cosine at the interior
+        faces and raises ``EigenbasisError`` so the eigen layer skips
+        it. The ``target=`` variant has no diagonalizing symbol, and
+        mapped meshes raise ``EigenbasisError``.
 
         Parameters
         ----------
@@ -769,6 +826,17 @@ class LinearReconstruction(SeparableOperator):
         bare = space.bare
         axis = _resolve_axis(self, bare)
         factor = bare.factor(axis)
+        if in_trig_family(factor):
+            # walled (F5): the FV reconstruction diagonalizes in the
+            # sine/cosine basis. The Dirichlet Inner-face (w) <->
+            # CellAvg (b) sine pair keeps the family and staggers the
+            # origin through ``self.codomain`` (fv_trig_interp_codomain),
+            # giving the real cos(k dz/2) two-point mean — bitwise the
+            # nodal LinearInterp trig value (no sinc). The Neumann
+            # CellAvg DCT-II pressure interp raises the skip signal.
+            coeff, _origin = trig_partner(factor, "LinearReconstruction")
+            return trig_linear_interp_symbol(
+                bare, axis, coeff, self.codomain(coeff))
         src, origin = fv_fourier_partner(factor, "LinearReconstruction")
         return linear_interp_symbol(
             bare, axis, src, origin, self.codomain(origin))

@@ -256,9 +256,10 @@ def make_channel_model(*, walled="y", beta=None, device_ids=None,
     """Build the linear nonhydro channel with one bounded axis.
 
     ``family=None`` follows the grid default (walled auto-flips to FV
-    since the 2026-07-16 ruling); pass ``family="nodal"`` for the
-    analytic walled-vertical eigenmode kit, which is not yet wired for
-    FV (a taught gap — see ``test_eigenbasis_topology_gates``).
+    since the 2026-07-16 ruling); pass ``family="nodal"`` to pin the
+    point-value C-grid. Since stage F5 the analytic walled-vertical
+    eigenmode kit runs on both families (see
+    ``test_eigenbasis_topology_gates``).
     """
     meshes = tuple(
         IntervalMesh(n, (0.0, 1.0 if name == walled else 2 * np.pi),
@@ -471,16 +472,19 @@ def test_kelvin_projection_needs_horizontal_walls():
 def test_eigenbasis_topology_gates():
     with pytest.raises(ValueError, match="fully periodic"):
         nh.eigenbasis(_model())
-    walled_z = make_channel_model(walled="z", family="nodal")
-    with pytest.raises(ValueError, match="walled-vertical"):
-        nh.eigenbasis(walled_z)
-    # the analytic walled-vertical path is untouched by the dispatch.
-    # family="nodal" is explicit: a walled grid auto-flips to FV since
-    # the 2026-07-16 ruling, but the analytic walled-vertical kit is a
-    # taught gap on FV (BC-tagged CellAvg spaces; pinned in
-    # test_fv_default) — the nodal walled-vertical kit stays supported.
-    em = nh.eigenmodes.from_model(walled_z)
-    assert isinstance(em, nh.eigenmodes.Eigenmodes)
+    # the analytic walled-vertical path is untouched by the dispatch:
+    # nh.eigenbasis rejects it (rotation about the vertical keeps the
+    # trigonometric basis, so it is analytic, not the numeric channel),
+    # and nh.eigenmodes.from_model serves it — on BOTH C-grid families
+    # since stage F5 (the FV kit mints its own BC-tagged CellAvg
+    # analysis spaces; the earlier taught gap is closed, see
+    # test_fv_default::test_walled_fv_eigenmodes_build).
+    for family in ("nodal", "fv"):
+        walled_z = make_channel_model(walled="z", family=family)
+        with pytest.raises(ValueError, match="walled-vertical"):
+            nh.eigenbasis(walled_z)
+        em = nh.eigenmodes.from_model(walled_z)
+        assert isinstance(em, nh.eigenmodes.Eigenmodes)
 
 
 def test_multiwalled_grids_are_rejected():
