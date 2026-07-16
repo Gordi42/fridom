@@ -252,8 +252,14 @@ def test_projection_rest_zero_completes_a_passive_tracer():
 #  The channel (engine) path: labeled family projections
 # ================================================================
 def make_channel_model(*, walled="y", beta=None, device_ids=None,
-                       n=N):
-    """Build the linear nonhydro channel with one bounded axis."""
+                       n=N, family=None):
+    """Build the linear nonhydro channel with one bounded axis.
+
+    ``family=None`` follows the grid default (walled auto-flips to FV
+    since the 2026-07-16 ruling); pass ``family="nodal"`` for the
+    analytic walled-vertical eigenmode kit, which is not yet wired for
+    FV (a taught gap — see ``test_eigenbasis_topology_gates``).
+    """
     meshes = tuple(
         IntervalMesh(n, (0.0, 1.0 if name == walled else 2 * np.pi),
                      periodic=(name != walled), name=name)
@@ -262,7 +268,7 @@ def make_channel_model(*, walled="y", beta=None, device_ids=None,
                 else nh.BetaPlaneCoriolis(f0=F0, beta=beta))
     return nh.Model(
         grid=Grid(meshes, device_ids=device_ids), advection=False,
-        dsqr=DSQR, coriolis=coriolis,
+        dsqr=DSQR, coriolis=coriolis, family=family,
         stratification=nh.ConstantStratification(n2=N2),
         time_stepper=fr.model.time_steppers.AdamBashforth(5e-3, order=3))
 
@@ -465,10 +471,14 @@ def test_kelvin_projection_needs_horizontal_walls():
 def test_eigenbasis_topology_gates():
     with pytest.raises(ValueError, match="fully periodic"):
         nh.eigenbasis(_model())
-    walled_z = make_channel_model(walled="z")
+    walled_z = make_channel_model(walled="z", family="nodal")
     with pytest.raises(ValueError, match="walled-vertical"):
         nh.eigenbasis(walled_z)
-    # the analytic walled-vertical path is untouched by the dispatch
+    # the analytic walled-vertical path is untouched by the dispatch.
+    # family="nodal" is explicit: a walled grid auto-flips to FV since
+    # the 2026-07-16 ruling, but the analytic walled-vertical kit is a
+    # taught gap on FV (BC-tagged CellAvg spaces; pinned in
+    # test_fv_default) — the nodal walled-vertical kit stays supported.
     em = nh.eigenmodes.from_model(walled_z)
     assert isinstance(em, nh.eigenmodes.Eigenmodes)
 

@@ -89,7 +89,10 @@ def test_walled_projection_resolves_the_distributed_solve(
     # partner, so a Fourier axis stays local for the rfft half
     # spectrum), so the production projection lands on the distributed
     # fast path instead of the replicated composite it used to keep.
-    model = _make_model(periodic_z=False)
+    # family="nodal" is explicit: since the 2026-07-16 ruling a walled
+    # grid auto-flips to FV (that path has its own twin below), so this
+    # nodal walled distributed gate is pinned by an explicit family.
+    model = _make_model(periodic_z=False, family="nodal")
     model.advance(1)
     assert resolutions, (
         "the projection never consulted the distributed resolution")
@@ -182,12 +185,14 @@ def test_walled_x_projection_dodges_the_wall_and_distributes(
     # y, never the walled x, so the deficit face leg stays off the
     # storage-shard axis. The production projection still lands on the
     # distributed fast path (a periodic Fourier axis is sharded, the
-    # trig axis is kept local).
+    # trig axis is kept local). family="nodal" is explicit (the FV twin
+    # is above): a walled grid auto-flips to FV since the 2026-07-16
+    # ruling, so this nodal walled-x gate is pinned by family.
     grid = Grid(tuple(
         IntervalMesh(N, (0.0, LENGTH), periodic=periodic, name=name)
         for name, periodic in (("x", False), ("y", True), ("z", True))))
     model = nh.Model(grid=grid, dt=0.02, advection=False,
-                     coriolis=FPlaneCoriolis(f0=1.0))
+                     coriolis=FPlaneCoriolis(f0=1.0), family="nodal")
     default = grid.decomposition.default_layout
     assert default.is_local("x")       # the walled axis is dodged
     assert not default.is_local("y")   # a periodic axis is sharded
@@ -206,6 +211,8 @@ def test_walled_x_step_is_device_count_invariant():
     # (sharding periodic y, x trig local) vs the 1-device replicated step
     # drift within the step gate over 20 steps -- the consistency check
     # that reordering the default off the walled axis is exact.
+    # family="nodal" is explicit (the FV twin is above): a walled grid
+    # auto-flips to FV since the 2026-07-16 ruling.
     def build(device_ids):
         grid = Grid(tuple(
             IntervalMesh(N, (0.0, LENGTH), periodic=periodic, name=name)
@@ -213,7 +220,7 @@ def test_walled_x_step_is_device_count_invariant():
                                    ("z", True))),
             device_ids=device_ids)
         return nh.Model(grid=grid, dt=0.02, advection=False,
-                        coriolis=FPlaneCoriolis(f0=1.0))
+                        coriolis=FPlaneCoriolis(f0=1.0), family="nodal")
 
     one = build((0,))
     rng = np.random.default_rng(0)

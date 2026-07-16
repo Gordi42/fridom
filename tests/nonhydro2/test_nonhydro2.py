@@ -743,7 +743,12 @@ def make_walled_model(**kwargs):
 
 def test_walled_grid_derives_the_wall_spaces():
     grid, (_, _, mz) = make_walled_grid()
-    model = nh.Model(coriolis=fplane(), grid=grid, dt=DT, advection=False)
+    # family="nodal" is explicit: this pins the point-value C-grid wall
+    # spaces (Center / Inner). Since the 2026-07-16 ruling a walled grid
+    # auto-flips to FV (scalars on CellAvg), so the nodal wall-space
+    # derivation is now pinned by an explicit family, not by the default.
+    model = nh.Model(coriolis=fplane(), grid=grid, dt=DT, advection=False,
+                     family="nodal")
     # w: Dirichlet on its own bounded component axis (impermeability)
     w_z = model.state["w"].function_space.bare.factor("z")
     assert w_z is mz.nodal(NodeSet.INNER, bc=BC.DIRICHLET)
@@ -914,10 +919,15 @@ def test_nodal_family_keeps_b_on_the_center_cell():
 
 def test_meridional_stratification_fv_family_puts_b_on_cellavg():
     # the varying twin also honors family="fv"; the n2(y) profile
-    # itself stays a nodal Profile (its .to(b) broadcast is unaffected)
+    # itself stays a nodal Profile (its .to(b) broadcast is unaffected).
+    # family="nodal" pins the model (and grid default) nodal so this is
+    # the mixed corner -- explicit-fv b on an otherwise nodal model --
+    # that the test targets: since the 2026-07-16 ruling a walled grid
+    # auto-flips to FV, which would carry the family=None n2 Profile
+    # onto CellAvg too (a uniform-FV model), not the mixed corner here.
     model = nh.Model(
         coriolis=fplane(), grid=make_walled_y_grid(), dt=DT,
-        advection=False,
+        advection=False, family="nodal",
         stratification=MeridionalStratification(
             n2=lambda y: 1.0 + y * y, family="fv"))
     factors = model.state["b"].function_space.bare.factors

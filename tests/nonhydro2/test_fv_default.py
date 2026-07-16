@@ -132,9 +132,12 @@ def test_projection_drives_divergence_to_machine_zero_on_fv():
 # ================================================================
 #  The auto flip and the family resolution
 # ================================================================
-def test_auto_flips_periodic_to_fv_and_keeps_walled_nodal():
+def test_auto_flips_periodic_and_walled_to_fv_keeps_mapped_nodal():
+    # owner ruling 2026-07-16: the auto default is FV on any unmapped,
+    # unimmersed grid — periodic AND walled (bounded). Only a mapped or
+    # immersed grid stays nodal by default (mapped / cut-cell FV is F5).
     assert resolve_model_family(None, periodic_grid()) == "fv"
-    assert resolve_model_family(None, walled_grid()) == "nodal"
+    assert resolve_model_family(None, walled_grid()) == "fv"
     assert resolve_model_family(None, mapped_grid()) == "nodal"
 
 
@@ -171,9 +174,10 @@ def test_explicit_fv_on_mapped_grid_is_a_taught_error():
 
 def test_explicit_fv_on_walled_grid_is_now_served():
     # F4: explicit family="fv" on a walled (bounded, unmapped,
-    # unimmersed) grid is allowed -- the pressure DCT-II runs on the
-    # Neumann CellAvg origin. The AUTO default still stays nodal on a
-    # walled grid (the flip is periodic-only, tested above).
+    # unimmersed) grid is served -- the pressure DCT-II runs on the
+    # Neumann CellAvg origin. Since the 2026-07-16 owner ruling the
+    # AUTO default also resolves FV on a walled grid (tested above);
+    # this pins that an explicit "fv" agrees.
     assert resolve_model_family("fv", walled_grid()) == "fv"
     model = nh.Model(coriolis=FPlaneCoriolis(f0=1.0), grid=walled_grid(),
                      dt=DT, advection=False, family="fv")
@@ -181,9 +185,26 @@ def test_explicit_fv_on_walled_grid_is_now_served():
                for f in model.state["b"].function_space.bare.factors)
 
 
+def test_walled_fv_eigenmodes_are_a_taught_gap():
+    # the auto flip makes a walled model FV, but the analytic
+    # walled-vertical eigenmode kit (Eigenmodes / from_model with a
+    # bounded vertical) is not yet wired for the FV family: it builds
+    # BC-tagged CellAvg analysis spaces, which the declared-space
+    # resolver rejects — average factors are BC-free (C8). So
+    # from_model on a walled FV model is a taught error until the
+    # walled-FV transform stack lands (F5-adjacent); walled *nodal*
+    # eigenmodes stay fully supported (build with family="nodal").
+    model = nh.Model(coriolis=FPlaneCoriolis(f0=1.0), grid=walled_grid(),
+                     dt=DT, advection=False)  # auto -> fv
+    with pytest.raises(ValueError, match="boundary structure"):
+        nh.eigenmodes.from_model(model)
+
+
 def test_fv_capable_flags():
+    # the auto predicate is now True on any unmapped, unimmersed grid
+    # (periodic or walled); mapped / immersed stay non-capable
     assert _fv_capable(periodic_grid())
-    assert not _fv_capable(walled_grid())
+    assert _fv_capable(walled_grid())
     assert not _fv_capable(mapped_grid())
 
 
@@ -300,12 +321,15 @@ def test_explicit_assembly_fv_core_gets_the_profile_and_runs():
 
 def test_two_nodal_models_share_a_grid():
     # a second nodal model on a frozen grid re-assembles with no
-    # dispatch overrides at all (the frozen, override-free branch)
-    grid = walled_grid()  # walled -> nodal, no FV profile
+    # dispatch overrides at all (the frozen, override-free branch).
+    # family="nodal" is now explicit: since the 2026-07-16 ruling a
+    # walled grid auto-flips to FV, so the nodal frozen-grid branch is
+    # pinned by an explicit family, not by the walled default.
+    grid = walled_grid()
     nh.Model(coriolis=FPlaneCoriolis(f0=1.0), grid=grid, dt=DT,
-             advection=False)
+             advection=False, family="nodal")
     second = nh.Model(coriolis=FPlaneCoriolis(f0=1.0), grid=grid, dt=DT,
-                      advection=False)
+                      advection=False, family="nodal")
     assert not any(
         isinstance(f, CellAvg)
         for f in second.state["b"].function_space.bare.factors)

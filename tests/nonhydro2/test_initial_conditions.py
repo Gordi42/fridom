@@ -23,7 +23,7 @@ DT = 1e-3
 COMPONENTS = ("u", "v", "w", "b")
 
 
-def make_model(*, periodic_y=True, periodic_z=True):
+def make_model(*, periodic_y=True, periodic_z=True, family=None):
     """Build a small linear nonhydro model (walls as requested)."""
     mx = fr.spatial.meshes.IntervalMesh(N, (0.0, 2 * np.pi),
                                      periodic=True, name="x")
@@ -32,13 +32,14 @@ def make_model(*, periodic_y=True, periodic_z=True):
     mz = fr.spatial.meshes.IntervalMesh(N, (0.0, 2 * np.pi),
                                      periodic=periodic_z, name="z")
     grid = fr.spatial.Grid((mx, my, mz))
-    # the model family flows through the grid default (F3): a fully
-    # periodic grid is finite-volume by default and a walled one is
-    # nodal, so the family=None b of the stratification follows the
-    # model uniformly (no mixed nodal-b-on-FV-velocities corner) and
-    # the eigenmode-sourced initial states set_state cleanly
+    # family=None follows the grid default: since the 2026-07-16 ruling
+    # a periodic OR walled grid is finite-volume by default (only mapped
+    # / immersed stay nodal), so the family=None b of the stratification
+    # follows the model uniformly (no mixed nodal-b-on-FV-velocities
+    # corner). The analytic walled-vertical eigenmode kit is a taught
+    # gap on FV, so the walled-vertical fixture passes family="nodal".
     return nh.Model(
-        grid=grid, advection=False,
+        grid=grid, advection=False, family=family,
         dsqr=DSQR, coriolis=nh.FPlaneCoriolis(f0=F0),
         stratification=nh.ConstantStratification(n2=N2),
         time_stepper=fr.model.time_steppers.AdamBashforth(DT, order=3))
@@ -53,8 +54,14 @@ def periodic():
 
 @pytest.fixture(scope="module")
 def walled():
-    """One rigid-lid (walled z) analytic eigenmode set (shared)."""
-    return nh.eigenmodes.from_model(make_model(periodic_z=False))
+    """One rigid-lid (walled z) analytic eigenmode set (shared).
+
+    Pinned family="nodal": the analytic walled-vertical eigenmode kit
+    is not yet wired for the FV family a walled grid now auto-selects
+    (a taught gap — see test_fv_default); the nodal path is validated.
+    """
+    return nh.eigenmodes.from_model(
+        make_model(periodic_z=False, family="nodal"))
 
 
 @pytest.fixture(scope="module")
