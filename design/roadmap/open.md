@@ -62,7 +62,7 @@ Still open, and the next work:
    pushes the production pressure solve off the distributed path would
    pass the suite and quietly cost ~2x at 512³.
 3. The optimizations do not yet **reach inside** the mapped PCG solve —
-   see the section below.
+   *resolved, see the update below.*
 
 *Update (2026-07-16): item 1's stated prerequisite — a reproducible A/B
 harness — now exists. `benchmarks/model/bench_step.py` records
@@ -72,9 +72,18 @@ indivisible-shard campaign added the `nh_flat_prime` / `nh_flat_walled_x`
 guard cases. What is still open is wiring it as a **gate**: the CI
 benchmark job still only smoke-runs ("No timing assertions",
 `.github/workflows/tests.yml`), so a silent regression on the untimed CI
-path stays green. Item 2 is only partially met — the walled
-distributed-projection test flipped from asserting the fallback to
-asserting the fast path, but most fast paths remain unasserted.*
+path stays green. Item 2 is only partially met —
+`tests/nonhydro2/test_distributed_projection.py` now asserts the
+distributed fast path for all four solve geometries (periodic, walled-z,
+walled-x, prime), but the other fast paths (storage-frame arithmetic
+aside, which the halo-claim assertions guard) remain unasserted. Item 3
+is **closed**: the geometry-merge stage 3 pass (2026-07-14/15) took the
+optimizations inside the CG loop — `Grid.measure` memoized, the f32
+preconditioner on mapped grids, and the mixed distributed transform
+distributing the preconditioner inside the scan — and priced what
+remains as the algorithm itself, not unreached optimization
+([`plans/active/perf_geometry_merge_plan.md`](../plans/active/perf_geometry_merge_plan.md)
+§4b; closure entry in [`done.md`](done.md)).*
 
 ## Gain targets from the Oceananigans reference comparison (2026-07-16)
 
@@ -115,8 +124,10 @@ measurably trails the reference:
    2.83 s, per-step unchanged). Remaining: the async two-tier patch
    (optional, interactive UX); HLO-volume reduction in the step body
    (~O(ops^1.35) compile scaling) is the only cold-start lever for
-   weno5; fix the comparison suite's metric to report compile
-   separately (`_CHUNK_COMPILE_LOG`).
+   weno5 — and for the mapped solve's 16–18 s cold compile (vs 2–3 s
+   flat, 2026-07-13), the same HLO-volume problem in the CG body; fix
+   the comparison suite's metric to report compile separately
+   (`_CHUNK_COMPILE_LOG`).
 3. **Advection-kernel throughput.** The single-GPU edge collapses from
    1.86× (linear, solve-bound) to 1.05× (upwind5: 131 vs 137 ms/step)
    and 1.10× (weno5: 187 vs 205) — the biased-reconstruction kernels are
@@ -131,149 +142,37 @@ measurably trails the reference:
 The indivisible-extent sharding hole itself is **fixed** (2026-07-16,
 all four phases; outcomes and merges in
 [`../plans/done/indivisible_shard_plan.md`](../plans/done/indivisible_shard_plan.md);
-entry in [`done.md`](done.md)). What remains open:
+entry in [`done.md`](done.md)). A same-day follow-up sweep closed
+three of the four residual items: **multi-host validation** passed (a
+real `srun -n 4` launch, one process per GPU, of the walled-x and
+prime guard configs matches single-process runs to ≤ 3.3e-14 of the
+state scale — resolution in the plan's "Open questions"), the
+**forced-4 test sensitivities** were triaged (`test/forced4-triage`,
+merge `0d139fc5`: `single_device` marks where the old-stack reference
+is not device-count invariant, the backend-aware `invariant` pattern
+on the bitwise asserts; the ninth case was never a forced-4
+sensitivity and got its relative bound independently in `cbfc032a` —
+with the eigenmode test deselected, the whole-dir `tests/nonhydro2`
+forced-4 run is a green gate again), and the **surplus staggered leg**
+moved to "Sized, deferred" below. What remains open:
 
 - **Channel eigenmodes are broken on multi-device** — two independent
-  pre-existing faults: a jax-0.10.2 `sort`-lowering **segfault** on
-  forced-CPU meshes (blocks even testing), and a genuine fridom-side
-  **c64/c128 dtype mix** in `_eigenbasis._contract_planes` →
-  `Fourier._forward_fused_kernel` that kills the projection on real
-  multi-GPU. The single-device path is fine. Evidence + repro:
+  pre-existing faults, both now attributed **upstream** (jax/jaxlib
+  0.10.2; the earlier "fridom-side c64/c128 dtype mix" reading is
+  refuted — the traced jaxpr carries zero complex64 on either path):
+  a `sort`-lowering **segfault** on forced-CPU meshes (blocks even
+  testing; re-verified exit 139 on dev), and an **XLA:GPU/GSPMD
+  lowering fault** that synthesizes a c64 FFT-norm constant against
+  the c128 cuFFT output inside the large sharded projection module,
+  so the HLO verifier kills the projection on real multi-GPU (not
+  covered by the `multi_output_fusion` workaround). The single-device
+  path is fine. Work: minimal upstream repros for both faults (ready
+  to file with jax — filing needs the owner's go-ahead), plus a
+  fridom-side mitigation (e.g. keep the FFT norm scaling outside the
+  fused sharded kernel) or a taught multi-device skip on the channel
+  eigenbasis so the projection fails loudly instead of in the HLO
+  verifier. Evidence, provenance probes, and corrections:
   [`../research/multidevice_test_faults.md`](../research/multidevice_test_faults.md).
-  Fix the dtype bug; file the segfault upstream with a minimal repro
-  and add a fridom-side mitigation or CPU-multi-device skip.
-- **Forced-4 test-suite sensitivities** — 8 advection tests (old-stack
-  parity under forced devices; bitwise on forced-CPU) plus the known
-  WENO one fail on dev under forced-4; triage each with a
-  `single_device` mark or the backend-aware `invariant` helper (same
-  research note). Until then the whole-dir `tests/nonhydro2` forced-4
-  run is a delta-vs-dev check, not a green gate.
-- **Multi-host validation** — the campaign's fixes are validated
-  single-controller (forced-4 + real 4-GPU, one process); confirm the
-  padded transpose and the reblock plans under a real `srun -n P`
-  launch (they never host-fetch a true-extent global array by
-  construction, but verify).
-- **Surplus staggered leg (`n = n_cells + 1`)** — deliberately still on
-  the global reblock path (no hot-loop consumer; needs a
-  `P*(cells+1)` frame + one permute). Revisit only if a Neumann-outer
-  field ever enters a hot loop.
-
-## Multi-device compile and execution cost
-
-*Note (2026-07-14, found verifying the gather-free writer): eager
-field ops on the `Auto` mesh returned **fully replicated** results —
-`state.rel_vort.to(center)` came back `PartitionSpec()`, i.e. jax
-assembled the interpolated field on every device: an implicit
-all-gather plus P× device memory on every derived-output evaluation at
-write cadence.*
-*Resolved (2026-07-15, `fix/eager-operator-sharding`): the operator
-template (`operators/base._kernel_apply`) now runs the stencil kernel
-under one `jax.jit` trace whenever it is applied **eagerly** on a
-multi-device operand. GSPMD then partitions the whole slice/pad graph
-together, sees the reach fits the synced halo, and keeps the result
-sharded — bit-for-bit the same values, the same sharding the jitted
-step produces. The guard is a no-op under an enclosing trace (the
-operand is a tracer → the kernel folds into that one program, no
-nested jit) and on a single device, so the model loop is unchanged.
-Eager `.to` / `.diff` / reconstruct / average on a sharded field
-therefore stay sharded, and derived writer outputs no longer
-all-gather.*
-*Regression + fix (2026-07-15, `fix/traced-measure-cache`): the
-kernel jit broke every eager cold-cache integral on multi-device —
-`Integral._apply` queries `Grid.measure` as a side effect, so the
-first query landed inside the kernel-jit trace and the per-grid memo
-cached that trace's tracer; `mean`'s eager normalization query then
-used the leaked tracer (`UnexpectedTracerError`; first surfaced as
-the mapped model failing to construct on 4 GPUs). `Grid.measure` now
-skips the memo when the stored weights are a tracer — traced queries
-re-derive (an XLA constant), the concrete memo contract is
-unchanged.*
-
-*Post-merge note (2026-07-13): the optimization line has landed, and the
-audit found three reasons this solve does not benefit from it — the CG
-loop tears its iterates down to the true shape every iteration (6
-full-array pad/unpad round trips x 30), `Grid.measure` is not memoized so
-every mapped operator application emits its own halo exchange, and the
-preconditioner is a full spectral solve (an FFT pair) per iteration. The
-last one is the distributed-transform code, so this section and the
-performance line are now the same piece of work. Ordered levers:
-[`plans/active/perf_geometry_merge_plan.md`](../plans/active/perf_geometry_merge_plan.md)
-§6.*
-
-The mapped pressure solve is correct under decomposition but
-disproportionately expensive there. Measured 2026-07-13 (forced-4 host
-devices on cpu, 16x16 mapped solve, 12 iterations):
-
-| | 1 device | forced 4 |
-|---|---|---|
-| jit compile | 0.7 s | 9.1 s |
-| jitted per call | 0.28 ms | 194 ms (**694x**) |
-| HLO lines | 4 750 | 52 200 |
-
-The `lax.scan` conversion (3.6) removed the O(iterations) blowup, so this
-is *not* the unrolled-loop cost: it is what SPMD partitioning of the
-sharded metric-scaled stencil chains and the CG's cross-shard
-dot-product reductions cost per iteration.
-
-### Measured on real devices (2026-07-13, 4x A100-80GB)
-
-**The 694x was almost entirely a harness artifact**, as this section
-suspected. On real GPUs the mapped solve *scales*: 4 GPUs are **1.22x
-faster** than 1, not 694x slower. The forced-4-cpu figure was measuring
-four "devices" contending for one cpu with collectives over no
-interconnect, on a 16x16 toy.
-
-The real cost is not multi-device at all — it is the **per-iteration cost
-of the CG loop**, and it is the same on 1 and 4 GPUs:
-
-| nonhydro, ms/step | flat (walled z) | mapped, 30 it | mapped, 12 it |
-|---|---|---|---|
-| 128^3, 1 GPU | 1.33 | 28.6 (21.6x) | 12.3 (9.3x) |
-| 256^3, 1 GPU | 8.72 | 216.2 (24.8x) | 93.0 (10.7x) |
-| 128^3, 4 GPU | 1.45 | 37.6 (26.0x) | 16.4 (11.3x) |
-| 256^3, 4 GPU | 6.40 | 177.1 (27.7x) | 75.8 (11.8x) |
-
-Differencing the 30- and 12-iteration runs prices one CG iteration at
-**6.85 ms (1 GPU) / 5.63 ms (4 GPU) at 256^3** — against **8.72 ms for an
-entire flat timestep**. *One CG iteration costs roughly one whole flat
-model step.* Extrapolating to zero iterations leaves ~10.8 ms, i.e. the
-metric/measure machinery itself accounts for only ~25% over flat; **the
-other ~95% of the mapped step is the CG loop**. At the shipped default of
-30 iterations that is a 25x model.
-
-Compile cost is also real, though secondary: 16-18 s vs 2-3 s flat.
-
-So the levers are unchanged but their ordering is now measured: the
-preconditioner (a full FFT pair *per iteration*), the 6 pad/unpad round
-trips per iteration, the 3 global reductions per iteration, and the
-iteration count itself (30 is a trace-era default; the tests converge at
-12). Batching the reductions cannot matter much — this is not
-communication-bound. See
-[`../plans/active/perf_geometry_merge_plan.md`](../plans/active/perf_geometry_merge_plan.md)
-§6.
-
-**Side finding — walled flat grids do not scale.** `flat_walled` gets only
-1.36x from 4 GPUs where `flat_periodic` gets 2.11x (256^3), because the
-distributed transform path bails on walled (trig) grids and falls back to
-the *replicated* solve. That fallback also caps what the mapped
-preconditioner can ever get from multi-GPU. It is a documented extension
-point, and it is now the top multi-device item after the CG loop.
-
-*Update (2026-07-15): the transform-side half of this shipped — the
-mixed distributed transform now distributes walled/trig solves (see
-`distributed_transform_plan.md`). Re-measuring exposed that the real
-residual cost is **not** the solve at all but indivisible-extent
-sharding of the state fields (a walled sharded axis, or an indivisible
-domain size) — see the "Indivisible-extent sharding" item above, now
-the top multi-device item.*
-
-Method: `AdamBashforth(3)`, linear (advection off), f64, one chunk of 50
-steps (`_chunk_size = steps` — `advance(N)` with `N < chunk_size` runs N
-chunks of length 1 and reads 2-3x worse), `block_until_ready`, best of 3.
-4-GPU runs need `XLA_FLAGS=--xla_disable_hlo_passes=multi_output_fusion`
-(jax-ml/jax#39100). Prior numbers and the toy-solve method:
-[`../plans/done/krylov_scan_plan.md`](../plans/done/krylov_scan_plan.md).
-Gates the credibility of 3.3.
 
 ## Grid follow-ups — the ergonomics half
 
@@ -469,6 +368,41 @@ All that remains is the lift itself, on the recorded route
 §3, numbers in
 [`../research/mapped_jacobian_spike.md`](../research/mapped_jacobian_spike.md)).
 
+## Mapped-solve residual levers — measured, none currently worth taking
+
+*The "multi-device compile and execution cost" line (formerly 3.9)
+closed 2026-07-16 (entry in [done.md](done.md)): on real hardware the
+mapped solve scales, the walled/mapped solves distribute, and the CG
+loop's remaining premium is priced as the algorithm itself. What
+survives is a short list of measured, deliberately-not-taken levers —
+promote one only when its trigger appears:*
+
+- **Multigrid with vertical line smoothing** — the only preconditioner
+  family that could beat the spectral solve (coefficient-robust *and*
+  mesh-independent). A real project (staggered mapped-grid
+  restriction/prolongation, smoothers, coarse solve, all under a static
+  trace); justified only if steep bathymetry (4.5× depth ratio, 45
+  iterations) becomes a real workload. Every cheaper alternative was
+  measured and rejected — read
+  [`perf_geometry_merge_plan.md`](../plans/active/perf_geometry_merge_plan.md)
+  §4b lever 1 before re-proposing one.
+- **Single-precision distributed solve** — `single_precision_solve` is
+  a no-op on multi-device walled/mapped grids (the full-precision
+  distributed solve takes precedence; documented at
+  `spectral_solve.py`). Worth roughly the single-device −10% if a
+  multi-device user ever asks.
+- **Distributed-transform planner size floor** — small problems pay
+  unamortized collective latency (32³ walled/mapped +5.5%); a size
+  floor on the planner is the lever if toy-size multi-device runs ever
+  matter
+  ([`distributed_transform_plan.md`](../plans/active/distributed_transform_plan.md)).
+- **Surplus staggered reblock leg (`n = n_cells + 1`)** — deliberately
+  still on the global reblock path (needs a `P*(cells+1)` frame plus
+  one realigning collective-permute; gate documented in
+  `decomposition/tensor.py`). No hot-loop consumer exists — the Neumann
+  pressure sibling keeps the pressure-space shape. Revisit only if a
+  Neumann-outer field enters a hot loop.
+
 ---
 
 # Long-term goals
@@ -478,7 +412,7 @@ All that remains is the lift itself, on the recorded route
 | 3.1 | **Hydrostatic model** | Dropped from the cutover (2026-07-08, executed 2026-07-11): the old `hydrostatic` package is removed and this is a greenfield future feature, not a cutover gate. Scope when picked up: linear tendency, hydrostatic pressure solver, advection wiring, eigenvectors. Implicit vertical mixing (and an optional split-explicit free surface) build on 2.5. |
 | 3.7 | **Spherical nonhydro** | The 3D spherical chart (`X(lon, lat, h)`, so the metric comes out diagonal and `w = dh/dt` is already physical) needs the C2 chart metrics and the C3 elliptic machinery to meet: the pressure operator becomes the Laplace–Beltrami on the chart — still SPD under the sqrt(g)-weighted product, so the PCG structure carries over, but the operator assembly must be written. Not the first 3D-spherical consumer: a hydrostatic model needs no pressure solve and is the likelier first use (3.1). |
 | 3.2 | **Coupled models — design** | `jax.distributed`, field exchange between models on different meshes/devices/processes, a `Coupler` module plus regridding operators, a synchronization schedule. **Pre-designed** in [`../specs/model/09_coupling_designfor.md`](../specs/model/09_coupling_designfor.md) (precedent survey + adversarial walk + architecture; the class specs carry its CS-1..18 constraints, so 3.2 stays a pure addition). |
-| 3.3 | **Coupled models — implementation** | Same-process multi-device, then multi-host. Depends on 3.2 — and on 3.9/3.10: decomposed runs must be affordable before coupling them is credible. |
+| 3.3 | **Coupled models — implementation** | Same-process multi-device, then multi-host. Depends on 3.2. Its old cost prerequisite (3.9/3.10 — "decomposed runs must be affordable before coupling them is credible") is met: the multi-device execution-cost line closed 2026-07-16 ([`done.md`](done.md)). |
 
 ---
 

@@ -97,3 +97,55 @@ start with an empty `.jax_cache`; share it via
 `FRIDOM_TEST_JAX_CACHE_DIR`) amplified all of the above into
 hour-scale, crash-riddled suite runs before the mechanisms were
 separated.
+
+## Corrections and resolutions (2026-07-16, follow-up sweep)
+
+Both item-1 faults were re-verified on the dev tip the same day (the
+segfault: exit 139 in 56 s; the GPU error: identical HLO-verifier
+message). Two findings amend the record above:
+
+- **Item 1, GPU mechanism — re-attributed upstream.** The "genuine
+  fridom-side c64/c128 dtype bug" reading above is refuted by three
+  probes on dev (4x A100): (i) operand dtypes on the failing
+  multi-device path are identical to the passing single-device path
+  (state float64; the crashing forward is the z-axis `rfftn`,
+  in=float64 / out=complex128 on both paths; the sharded axis is 0,
+  the transform axis 2); (ii) `jax.make_jaxpr` of the projection
+  contains **zero** complex64 nodes on either path (1091- vs 631-line
+  jaxprs) — no fridom array, eigenvector constant, or metric is c64;
+  (iii) an isolated `rfftn` over the same sharding lowers and runs
+  cleanly, eager and jitted. The offending `c64[]` is the FFT norm
+  scale constant (jax `_fft_core`'s `1/prod(s)`), synthesized at
+  **XLA:GPU/GSPMD HLO lowering** of the large sharded projection
+  module while the cuFFT custom-call output stays c128; the HLO
+  verifier then rejects the mixed multiply. An upstream XLA:GPU
+  lowering fault in the same family as jax#39100 — and **not**
+  covered by the `multi_output_fusion` workaround, which was active
+  in every repro run. Consequence: both item-1 mechanisms (CPU `sort`
+  segfault, GPU c64 constant) are jax/XLA-side; the fridom work is a
+  minimal upstream repro for each, plus a mitigation (e.g. keeping
+  the norm scaling outside the fused sharded FFT) or a taught
+  multi-device skip on the channel eigenbasis.
+- **Item 2, path correction:** the WENO invariance test lives at
+  `tests/spatial/operators/test_weno.py`, not
+  `tests/nonhydro2/test_weno.py`.
+- **Item 2 — resolved** (2026-07-16, `test/forced4-triage`, merged
+  `0d139fc5`): `single_device` marks on the six old-stack-parity
+  tests (the failures are O(0.1) divergence of the old-stack
+  *reference* under forced devices, not FP noise), and the
+  backend-aware `invariant` helper from the decomposition suite
+  (duplicated locally per the self-contained-test-file convention) on
+  the two bitwise asserts. The ninth case — the walled
+  divergence-free gate — turned out **not to be a forced-4
+  sensitivity at all**: the 1.066e-13 overshoot reproduces bit-for-bit
+  on single-device CPU (the 8³ walled grid is too small to shard, so
+  forced-4 runs the same single-device program; the overshoot is
+  CPU-backend FP reassociation, also seen as 1.42e-13 on CI after the
+  native-DCT landing) and was fixed independently the same day by
+  bounding the residual relative to the tendency (`cbfc032a`). Gates
+  on the four files: forced-4 CPU 281 passed / 6 skipped / 0 failed;
+  single-device 287 passed, the marked tests running. With item 1's
+  test deselected, the whole-dir `tests/nonhydro2` forced-4 run is
+  green again and usable as a gate: 583 passed / 6 skipped /
+  1 deselected / 0 failed on the merged dev (`0d139fc5`), consistent
+  with the 581 / 8 record above (six marked tests skip, two pass).
