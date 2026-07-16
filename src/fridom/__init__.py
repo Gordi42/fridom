@@ -19,6 +19,8 @@ from typing import TYPE_CHECKING
 
 from lazypimp import setup
 
+from fridom._compile_cache import configure as _configure_compile_cache
+
 # ================================================================
 #  Disable lazy loading for type checking
 # ================================================================
@@ -48,5 +50,10 @@ all_modules_by_origin = {
 }
 
 all_imports_by_origin = {}
+
+# Enable the persistent JAX compilation cache before any lazy import can
+# trigger a compile (see fridom/_compile_cache.py); a no-op when already
+# configured or disabled via FRIDOM_DISABLE_COMPILE_CACHE.
+_configure_compile_cache()
 
 setup(__name__, all_modules_by_origin, all_imports_by_origin)
