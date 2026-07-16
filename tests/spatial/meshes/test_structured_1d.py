@@ -151,6 +151,41 @@ def test_averages_are_not_nodal(periodic):
     assert periodic.cell_avg != periodic.center
 
 
+def test_average_general_factory_and_sugar(periodic, bounded):
+    # the general average(kind, bc=...) factory; the BC-free properties
+    # are sugar for it (interned identity)
+    assert periodic.cell_avg is periodic.average(CellAvg)
+    assert bounded.face_avg is bounded.average(FaceAvg)
+
+
+def test_average_bc_tagged_cell_avg(bounded):
+    # a Neumann-tagged CellAvg keeps shape (n,) (averages have no
+    # boundary DOF) and interns per BC structure (F4)
+    neu = bounded.average(CellAvg, bc=BC.NEUMANN)
+    assert type(neu) is CellAvg
+    assert neu.shape == bounded.cell_avg.shape
+    assert neu is not bounded.cell_avg
+    assert all(c is BC.NEUMANN for c in neu.bc.components)
+    assert neu is bounded.average(CellAvg, bc=BC.NEUMANN)  # interned
+
+
+def test_average_rejects_non_average_kind(bounded):
+    with pytest.raises(TypeError, match="AverageSpace subclass"):
+        bounded.average(object)
+
+
+def test_face_avg_is_untaggable(bounded):
+    # FV-D2: the dual-cell average family is a dead-end -- a non-NONE
+    # bc on FaceAvg is a taught error
+    with pytest.raises(ValueError, match="FaceAvg is untaggable"):
+        bounded.average(FaceAvg, bc=BC.NEUMANN)
+
+
+def test_average_periodic_rejects_bc(periodic):
+    with pytest.raises(ValueError, match="no boundary to constrain"):
+        periodic.average(CellAvg, bc=BC.NEUMANN)
+
+
 # ================================================================
 #  Coefficient factories
 # ================================================================

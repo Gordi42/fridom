@@ -846,6 +846,21 @@ def test_retag_between_bc_siblings_preserves_data(mx, my, f):
     assert jnp.array_equal(g.data, f.data)
 
 
+def test_retag_between_average_bc_siblings(mx, my, grid):
+    # F4: average factors now carry retaggable BC tags -- a CellAvg and
+    # its Neumann sibling agree on class/mesh/shape/scalars, so
+    # div.retag(neumann_sibling) in the walled FV pressure solve is a
+    # pure BC-tag swap (data preserved)
+    from fridom.spatial.spaces.average import CellAvg  # noqa: PLC0415
+    space = mx.cell_avg * my.cell_avg
+    p = grid.create_field(space, data=jnp.arange(32.0).reshape(8, 4))
+    tagged = space.replace(y=my.average(CellAvg, bc=BC.NEUMANN))
+    g = p.retag(tagged)
+    assert g.function_space.bare is tagged
+    assert jnp.array_equal(g.data, p.data)
+    assert jnp.array_equal(g.retag(p.function_space).data, p.data)
+
+
 def test_retag_full_product_target_and_round_trip(mx, my, f):
     tagged = mx.center * my.nodal(NodeSet.CENTER, bc=BC.DIRICHLET)
     g = f.retag(tagged)

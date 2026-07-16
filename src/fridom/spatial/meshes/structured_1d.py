@@ -377,23 +377,68 @@ class StructuredMesh1D(Mesh):
     # ================================================================
     @cached_property
     def cell_avg(self) -> CellAvg:
-        """Primal-cell averages (n DOFs)."""
-        return self._average(CellAvg)
+        """Primal-cell averages (n DOFs); BC-free sugar for ``average``."""
+        return self.average(CellAvg)
 
     @cached_property
     def face_avg(self) -> FaceAvg:
         """Dual-cell averages (n periodic / n - 1 bounded DOFs)."""
-        return self._average(FaceAvg)
+        return self.average(FaceAvg)
 
-    def _average(self, cls: type[AverageSpace]) -> AverageSpace:
-        """Intern the BC-free average space of the given class."""
+    def average(self, kind: type[AverageSpace], *,
+                bc: BC | BCStructure | tuple[BC, ...] = BC.NONE,
+                ) -> AverageSpace:
+        """
+        General average factory with BC structure.
+
+        Description
+        -----------
+        The zero-argument ``cell_avg`` / ``face_avg`` properties are
+        sugar for ``bc=BC.NONE``. The average class is the topological
+        discriminator — there is no ``AverageSet`` enum, the two
+        average classes *are* the vocabulary — mirroring
+        :meth:`nodal`'s ``node_set`` argument. A BC tag on an average
+        origin is the same wall-value claim about the represented
+        function as on a nodal one and changes no DOF count
+        (``CellAvg`` keeps shape ``(n,)`` under every tag: averages
+        have no boundary DOF in the set), so a tagged ``CellAvg``
+        origin carries the walled DCT/DST transforms (Neumann
+        ``CellAvg`` → DCT-II, Dirichlet ``CellAvg`` → DST-II).
+        ``FaceAvg`` stays untaggable (FV-D2: the dual-cell average
+        family is a dead-end with no diff / flux_diff rows), so a
+        non-NONE bc on it is a taught error.
+
+        Parameters
+        ----------
+        kind : type[AverageSpace]
+            The average space class (``CellAvg`` or ``FaceAvg``).
+        bc : BC | BCStructure | tuple[BC, ...], optional
+            The homogeneous BC structure; a single kind applies to
+            every boundary component (default: BC.NONE).
+
+        Returns
+        -------
+        AverageSpace
+            The interned average space.
+        """
+        if not (isinstance(kind, type)
+                and issubclass(kind, AverageSpace)):
+            raise TypeError(
+                "kind must be an AverageSpace subclass (CellAvg or "
+                f"FaceAvg), got {kind!r}")
         self._validate_average()
-        structure = self._free_bc
-        key = space_key(cls, structure, Scalars.REAL)
+        structure = self._normalize_bc(bc)
+        if issubclass(kind, FaceAvg) and not structure.is_free:
+            raise ValueError(
+                "FaceAvg is untaggable (FV-D2): the dual-cell average "
+                "family is a dead-end (no diff / flux_diff rows), so a "
+                f"non-NONE bc on it has no consumer, got bc={bc}; tag "
+                "the primal CellAvg instead")
+        key = space_key(kind, structure, Scalars.REAL)
         return self._intern(
             key,
-            lambda: cls(self, Scalars.REAL, structure,
-                        _token=_FACTORY_TOKEN))
+            lambda: kind(self, Scalars.REAL, structure,
+                         _token=_FACTORY_TOKEN))
 
     def _validate_average(self) -> None:
         """Reject averages on meshes without a cell family.
