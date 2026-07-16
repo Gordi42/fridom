@@ -92,6 +92,7 @@ if TYPE_CHECKING:  # pragma: no cover
         term,
     )
     from .time_dependent import Ramp, TimeDependent, resolve_at
+    from .transforms.adiabatic_projection import AdiabaticProjection
     from .transforms.adiabatic_ramping import AdiabaticRamping
     from .transforms.base import StateTransform
     from .transforms.optimal_balance import OptimalBalance
@@ -141,6 +142,7 @@ all_imports_by_origin = {
     f"{base}.transforms.propagator": ["Propagator"],
     f"{base}.transforms.time_average": ["TimeAverage"],
     f"{base}.transforms.adiabatic_ramping": ["AdiabaticRamping"],
+    f"{base}.transforms.adiabatic_projection": ["AdiabaticProjection"],
     f"{base}.transforms.optimal_balance": ["OptimalBalance"],
     f"{base}.results": [
         "RunStatus", "AdvanceResult", "RunResult", "PanicError",
