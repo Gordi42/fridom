@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import logging
 import math
+import os
 import time
 from collections.abc import Mapping
 from functools import partial
@@ -303,6 +304,14 @@ class ModelState:
 # ================================================================
 #  Carry canonicalization (the wave-4.1 sharding discipline)
 # ================================================================
+#: leaves at/above this size are the carry's big cubes — the only
+#: ones donated into :func:`_canonicalize` (the memory win). Smaller
+#: leaves are copied first so a caller-held handle (a module's
+#: parameter scalar, fed straight into the construction carry) is
+#: never invalidated by the donation.
+_DONATE_MIN_BYTES: Final[int] = 1 << 20  # 1 MiB
+
+
 def _strengthen(leaf: object) -> jax.Array:
     """Coerce one leaf to a strongly-typed array of its own dtype."""
     array = jnp.asarray(leaf)
@@ -311,7 +320,56 @@ def _strengthen(leaf: object) -> jax.Array:
     return array.astype(array.dtype)
 
 
-@jax.jit
+@partial(jax.jit, donate_argnums=0)
+def _canonicalize_donating(tree: Any) -> Any:
+    """Strengthen every leaf under a jit that DONATES its argument."""
+    return jax.tree_util.tree_map(_strengthen, tree)
+
+
+def _prepare_for_donation(tree: Any) -> Any:
+    """
+    Copy the leaves that cannot be donated as-is; pass the rest.
+
+    Description
+    -----------
+    :func:`_canonicalize` donates its argument, so two leaf classes
+    must be handed a private buffer first:
+
+    - **Aliased buffers.** ``AdamBashforth.init`` builds its history
+      ring as ``(zeros,) * (order - 1)`` — the SAME device buffers in
+      every ring slot — so a freshly warmed carry (construction and
+      every re-warm ``_commit``) holds each ring buffer more than
+      once. jax 0.10.2 raises ``INVALID_ARGUMENT: Attempt to donate
+      the same buffer twice`` on such a tree; copying the second and
+      later occurrences gives donation a distinct buffer per slot.
+    - **Small leaves.** A module's parameter leaves (0-d strong
+      arrays) are fed straight into the construction carry (assembly
+      does not clone modules), and jax donates 0-d scalars too — a
+      caller that keeps a module handle would otherwise see its buffer
+      deleted. Copying every sub-:data:`_DONATE_MIN_BYTES` leaf keeps
+      such handles valid at negligible cost; the win rides on the big
+      cubes, which are unique and pass through to be donated.
+
+    Non-array leaves (clock floats, ints, ``None``) pass through
+    untouched — the jitted :func:`_strengthen` coerces them and they
+    are never donated.
+    """
+    seen: set[int] = set()
+
+    def prepare(leaf: object) -> object:
+        if not isinstance(leaf, jax.Array):
+            return leaf
+        key = id(leaf)
+        if key in seen or leaf.nbytes < _DONATE_MIN_BYTES:
+            # aliased (would donate twice) or small (a caller may still
+            # hold it): hand donation a fresh, privately owned buffer
+            return jnp.copy(leaf)
+        seen.add(key)
+        return leaf
+
+    return jax.tree_util.tree_map(prepare, tree)
+
+
 def _canonicalize(tree: Any) -> Any:
     """
     Normalize a carry's leaves to the canonical jit-output form.
@@ -321,15 +379,41 @@ def _canonicalize(tree: Any) -> Any:
     Host-born leaves (``grid.create_field`` products, ``asarray``
     scalars) may carry same-layout-but-differently-spelled shardings
     and weakly-typed avals; jit outputs are the canonical form. One
-    pass through this jitted identity commits every leaf, so every
+    pass through the jitted identity commits every leaf, so every
     carry the model holds keys the SAME compiled-chunk cache entry.
+
+    Donation contract
+    -----------------
+    The argument is DONATED: its big device buffers are consumed to
+    build the output, so the whole-carry copy no longer transiently
+    doubles the ~carry-sized footprint. Callers must drop every
+    reference to the input carry and its leaves after the call — the
+    model does (it rebinds ``self._carry`` to the return).
+    :func:`_prepare_for_donation` first copies the leaves that cannot
+    be donated safely (aliased ring buffers, small parameter scalars a
+    caller might still hold), so only large model-internal buffers are
+    actually donated.
     """
-    return jax.tree_util.tree_map(_strengthen, tree)
+    return _canonicalize_donating(_prepare_for_donation(tree))
 
 
 def _copy_leaves(tree: Any) -> Any:
     """Deep-copy a pytree's array leaves (the debug_nan copy)."""
     return jax.tree_util.tree_map(jnp.copy, tree)
+
+
+# ================================================================
+#  Carry defragmentation (the one-time pre-chunk pool re-coalesce)
+# ================================================================
+#: leaves at/above this size are repacked by the defragmenter (the
+#: same big-cube threshold the donation uses)
+_DEFRAG_MIN_BYTES: Final[int] = 1 << 20  # 1 MiB
+
+
+def _defrag_enabled() -> bool:
+    """Whether the defrag kill switch is unset (read at call time)."""
+    # mirrors the env-knob style of src/fridom/_compile_cache.py
+    return os.environ.get("FRIDOM_DISABLE_DEFRAG") != "1"
 
 
 def _template_builder(
@@ -1073,6 +1157,9 @@ class Model:
             stepper_state=stepper_state, clock=Clock(),
             panic=_fresh_panic())
         self._carry = _canonicalize(carry)
+        # armed once per fresh/committed carry: the first advance
+        # defragments the pool before dispatching a chunk (GPU only)
+        self._defrag_pending = True
         # host mirrors (cheap reads; no device sync)
         self._panicked = False
         self._panic_it: int | None = None
@@ -1110,8 +1197,70 @@ class Model:
         return state_type(fields)
 
     def _commit(self, carry: ModelState) -> None:
-        """Canonicalize and swap in a host-built carry."""
+        """Canonicalize and swap in a host-built carry; re-arm defrag."""
         self._carry = _canonicalize(carry)
+        # the new carry re-fragments the pool (fresh buffers + the
+        # donated old ones freed): re-arm the one-time pre-chunk defrag
+        self._defrag_pending = True
+
+    def _should_defragment(self) -> bool:
+        """
+        Whether the one-time carry defrag applies (GPU, not disabled).
+
+        Description
+        -----------
+        The predicate half of the defrag, split from
+        :meth:`_defragment_carry` so a test can force the repack on a
+        non-GPU backend by monkeypatching it. The kill switch
+        ``FRIDOM_DISABLE_DEFRAG`` is read at call time; the backend
+        gate keeps the repack off cpu/tpu, where the pool is not the
+        contiguous-arena BFC that motivates it.
+        """
+        if not _defrag_enabled():
+            return False
+        return jax.default_backend() == "gpu"
+
+    def _defragment_carry(self) -> None:
+        """
+        Sequentially repack the carry's big device buffers (one-time).
+
+        Description
+        -----------
+        The advective chunk allocates its XLA temp workspace as a
+        SINGLE CONTIGUOUS arena (tens of GiB at production sizes); BFC
+        cannot place that arena in a pool fragmented by the
+        construction / ``set_fields`` churn even when the free bytes
+        suffice. Copying each big leaf in turn — ``jnp.copy`` ->
+        ``block_until_ready`` -> ``delete`` the original — migrates the
+        live cubes into the small holes and coalesces the freed
+        high-address stretch into one region large enough for the
+        arena. The sequential copy-then-free is load-bearing: a bulk
+        ``tree_map`` copy allocates the whole second set before freeing
+        any original and so does NOT defragment. ``jnp.copy`` preserves
+        each leaf's sharding, so the repack is value- and layout-
+        preserving; small / scalar / non-array leaves are left as-is.
+        """
+        leaves, treedef = jax.tree_util.tree_flatten(self._carry)
+        # id-seen guard: an aliased leaf is copied once and its buffer
+        # freed once (never delete()d twice)
+        copied: dict[int, jax.Array] = {}
+        repacked: list[object] = []
+        for leaf in leaves:
+            if not isinstance(leaf, jax.Array) or \
+                    leaf.nbytes < _DEFRAG_MIN_BYTES:
+                repacked.append(leaf)
+                continue
+            key = id(leaf)
+            seen = copied.get(key)
+            if seen is not None:
+                repacked.append(seen)
+                continue
+            new = jnp.copy(leaf)
+            new.block_until_ready()
+            leaf.delete()
+            copied[key] = new
+            repacked.append(new)
+        self._carry = jax.tree_util.tree_unflatten(treedef, repacked)
 
     @property
     def _binding_table(self) -> Any:
@@ -1642,6 +1791,12 @@ class Model:
         if not debug_nan:
             self._debug_carry = None
             self._debug_steps = 0
+        # one-time pre-chunk defragmentation: re-coalesce the pool so
+        # XLA's single contiguous chunk temp arena can be placed
+        if steps > 0 and self._defrag_pending \
+                and self._should_defragment():
+            self._defragment_carry()
+            self._defrag_pending = False
         started = time.perf_counter()
         record = self._artifacts.record
         host_dt = float(self._stepper.dt)
