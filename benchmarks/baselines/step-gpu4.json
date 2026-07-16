@@ -1,17 +1,17 @@
 {
   "format_version": 1,
   "metadata": {
-    "commit": "22694f5c2413a01098232863e9770e8d50ed9b5c",
+    "commit": "9f5b18b6ebf3e8428b20a2d5a34c64de6940066e",
     "dirty": false,
-    "branch": "dev",
+    "branch": "perf/rerecord-indivisible-baselines",
     "fridom_version": "0.0.5",
     "jax_version": "0.10.2",
     "python_version": "3.12.11",
     "backend": "gpu",
     "device_kind": "NVIDIA A100-SXM4-80GB",
     "device_count": 4,
-    "hostname": "l50051.lvt.dkrz.de",
-    "timestamp": "2026-07-15T19:26:24.079431+00:00"
+    "hostname": "l50060.lvt.dkrz.de",
+    "timestamp": "2026-07-16T05:23:09.497934+00:00"
   },
   "results": [
     {
@@ -20,92 +20,11 @@
         "n": 32
       },
       "wall_times": [
-        0.03846291100489907,
-        0.03825115101062693,
-        0.0379454699868802,
-        0.03693615802330896,
-        0.03706645799684338
-      ],
-      "trace_time": null,
-      "compile_time": null,
-      "temp_bytes": null,
-      "argument_bytes": null,
-      "output_bytes": null,
-      "code_bytes": null,
-      "flops": null,
-      "peak_bytes": 4179968,
-      "extras": {
-        "points": 32768.0,
-        "steps": 50.0,
-        "first_advance_s": 2.650220598006854
-      },
-      "error": null
-    },
-    {
-      "name": "nh_flat_periodic",
-      "params": {
-        "n": 256
-      },
-      "wall_times": [
-        0.16357040900038555,
-        0.16364256900851615,
-        0.16365998901892453,
-        0.16325786800007336,
-        0.1631462180230301
-      ],
-      "trace_time": null,
-      "compile_time": null,
-      "temp_bytes": null,
-      "argument_bytes": null,
-      "output_bytes": null,
-      "code_bytes": null,
-      "flops": null,
-      "peak_bytes": 1148966400,
-      "extras": {
-        "points": 16777216.0,
-        "steps": 50.0,
-        "first_advance_s": 2.644123814010527
-      },
-      "error": null
-    },
-    {
-      "name": "nh_flat_periodic",
-      "params": {
-        "n": 512
-      },
-      "wall_times": [
-        0.9101641429879237,
-        0.9099643419904169,
-        0.9099863930023275,
-        0.9097190219908953,
-        0.9097890419943724
-      ],
-      "trace_time": null,
-      "compile_time": null,
-      "temp_bytes": null,
-      "argument_bytes": null,
-      "output_bytes": null,
-      "code_bytes": null,
-      "flops": null,
-      "peak_bytes": 8345269504,
-      "extras": {
-        "points": 134217728.0,
-        "steps": 50.0,
-        "first_advance_s": 3.2985188479942735
-      },
-      "error": null
-    },
-    {
-      "name": "nh_flat_advective",
-      "params": {
-        "n": 32
-      },
-      "wall_times": [
-        0.04694141197251156,
-        0.046584449999500066,
-        0.04623540997272357,
-        0.04492585701518692,
-        0.04403951499261893
+        0.03822516300715506,
+        0.037984780967235565,
+        0.0376340210204944,
+        0.03725745901465416,
+        0.03698381700087339
       ],
       "trace_time": null,
       "compile_time": null,
@@ -118,7 +37,142 @@
       "extras": {
         "points": 32768.0,
         "steps": 50.0,
-        "first_advance_s": 3.4357655640051235
+        "first_advance_s": 2.482034515007399
+      },
+      "error": null
+    },
+    {
+      "name": "nh_flat_periodic",
+      "params": {
+        "n": 256
+      },
+      "wall_times": [
+        0.1649531690054573,
+        0.1647869879961945,
+        0.16430008597671986,
+        0.16453072696458548,
+        0.1641922760172747
+      ],
+      "trace_time": null,
+      "compile_time": null,
+      "temp_bytes": null,
+      "argument_bytes": null,
+      "output_bytes": null,
+      "code_bytes": null,
+      "flops": null,
+      "peak_bytes": 1148966400,
+      "extras": {
+        "points": 16777216.0,
+        "steps": 50.0,
+        "first_advance_s": 2.4539957430097274
+      },
+      "error": null
+    },
+    {
+      "name": "nh_flat_periodic",
+      "params": {
+        "n": 512
+      },
+      "wall_times": [
+        0.9169397429795936,
+        0.9164366209879518,
+        0.9167089919792488,
+        0.9170331829809584,
+        0.9163159700110555
+      ],
+      "trace_time": null,
+      "compile_time": null,
+      "temp_bytes": null,
+      "argument_bytes": null,
+      "output_bytes": null,
+      "code_bytes": null,
+      "flops": null,
+      "peak_bytes": 8345269504,
+      "extras": {
+        "points": 134217728.0,
+        "steps": 50.0,
+        "first_advance_s": 3.90854777302593
+      },
+      "error": null
+    },
+    {
+      "name": "nh_flat_prime",
+      "params": {
+        "n": 31
+      },
+      "wall_times": [
+        0.039373259991407394,
+        0.03908991802018136,
+        0.03889207902830094,
+        0.038746418023947626,
+        0.038270765042398125
+      ],
+      "trace_time": null,
+      "compile_time": null,
+      "temp_bytes": null,
+      "argument_bytes": null,
+      "output_bytes": null,
+      "code_bytes": null,
+      "flops": null,
+      "peak_bytes": 4138240,
+      "extras": {
+        "points": 29791.0,
+        "steps": 50.0,
+        "first_advance_s": 2.52423457801342
+      },
+      "error": null
+    },
+    {
+      "name": "nh_flat_prime",
+      "params": {
+        "n": 257
+      },
+      "wall_times": [
+        0.20167323999339715,
+        0.2012896279920824,
+        0.20116415800293908,
+        0.20102418604074046,
+        0.20092204702086747
+      ],
+      "trace_time": null,
+      "compile_time": null,
+      "temp_bytes": null,
+      "argument_bytes": null,
+      "output_bytes": null,
+      "code_bytes": null,
+      "flops": null,
+      "peak_bytes": 1268965888,
+      "extras": {
+        "points": 16974593.0,
+        "steps": 50.0,
+        "first_advance_s": 4.126823052007239
+      },
+      "error": null
+    },
+    {
+      "name": "nh_flat_advective",
+      "params": {
+        "n": 32
+      },
+      "wall_times": [
+        0.04662003996782005,
+        0.04607536701951176,
+        0.045807556016370654,
+        0.045307563967071474,
+        0.04506833298364654
+      ],
+      "trace_time": null,
+      "compile_time": null,
+      "temp_bytes": null,
+      "argument_bytes": null,
+      "output_bytes": null,
+      "code_bytes": null,
+      "flops": null,
+      "peak_bytes": 4376320,
+      "extras": {
+        "points": 32768.0,
+        "steps": 50.0,
+        "first_advance_s": 3.1907892280141823
       },
       "error": null
     },
@@ -128,11 +182,11 @@
         "n": 256
       },
       "wall_times": [
-        0.1973542890045792,
-        0.19702429801691324,
-        0.19673939800122753,
-        0.19670610700268298,
-        0.19650341698434204
+        0.1991067189956084,
+        0.199330169998575,
+        0.19876322703203186,
+        0.19899934803834185,
+        0.19895564898615703
       ],
       "trace_time": null,
       "compile_time": null,
@@ -141,11 +195,11 @@
       "output_bytes": null,
       "code_bytes": null,
       "flops": null,
-      "peak_bytes": 1234121216,
+      "peak_bytes": 1227974656,
       "extras": {
         "points": 16777216.0,
         "steps": 50.0,
-        "first_advance_s": 3.4363534759904724
+        "first_advance_s": 3.3044912710320204
       },
       "error": null
     },
@@ -155,11 +209,11 @@
         "n": 512
       },
       "wall_times": [
-        1.1612004789931234,
-        1.1606565580004826,
-        1.1610907189897262,
-        1.1605867379985284,
-        1.1611252189904917
+        1.1785194700350985,
+        1.1793633330380544,
+        1.1790501719806343,
+        1.1788836909690872,
+        1.1788567110197619
       ],
       "trace_time": null,
       "compile_time": null,
@@ -168,11 +222,11 @@
       "output_bytes": null,
       "code_bytes": null,
       "flops": null,
-      "peak_bytes": 8767328256,
+      "peak_bytes": 9060256512,
       "extras": {
         "points": 134217728.0,
         "steps": 50.0,
-        "first_advance_s": 4.302543893980328
+        "first_advance_s": 4.152183405007236
       },
       "error": null
     },
@@ -182,11 +236,11 @@
         "n": 32
       },
       "wall_times": [
-        0.03785659998538904,
-        0.037356838991399854,
-        0.03739788898383267,
-        0.037255008006468415,
-        0.03653546699206345
+        0.038155814982019365,
+        0.03783008398022503,
+        0.03753511200193316,
+        0.03723666095174849,
+        0.03685579000739381
       ],
       "trace_time": null,
       "compile_time": null,
@@ -195,11 +249,11 @@
       "output_bytes": null,
       "code_bytes": null,
       "flops": null,
-      "peak_bytes": 19461376,
+      "peak_bytes": 19513600,
       "extras": {
         "points": 32768.0,
         "steps": 50.0,
-        "first_advance_s": 2.853292390005663
+        "first_advance_s": 2.574831154954154
       },
       "error": null
     },
@@ -209,11 +263,11 @@
         "n": 256
       },
       "wall_times": [
-        0.16443167001125403,
-        0.1642539109743666,
-        0.16414957999950275,
-        0.1648433409864083,
-        0.16434310100157745
+        0.16564665298210457,
+        0.1650643909815699,
+        0.1652814910048619,
+        0.16501025098841637,
+        0.16502086102264002
       ],
       "trace_time": null,
       "compile_time": null,
@@ -226,7 +280,61 @@
       "extras": {
         "points": 16777216.0,
         "steps": 50.0,
-        "first_advance_s": 2.888334073999431
+        "first_advance_s": 2.7904284310061485
+      },
+      "error": null
+    },
+    {
+      "name": "nh_flat_walled_x",
+      "params": {
+        "n": 32
+      },
+      "wall_times": [
+        0.038069265021476895,
+        0.03752069198526442,
+        0.037431062024552375,
+        0.03713962098117918,
+        0.03714363096514717
+      ],
+      "trace_time": null,
+      "compile_time": null,
+      "temp_bytes": null,
+      "argument_bytes": null,
+      "output_bytes": null,
+      "code_bytes": null,
+      "flops": null,
+      "peak_bytes": 4398336,
+      "extras": {
+        "points": 32768.0,
+        "steps": 50.0,
+        "first_advance_s": 2.698723257984966
+      },
+      "error": null
+    },
+    {
+      "name": "nh_flat_walled_x",
+      "params": {
+        "n": 256
+      },
+      "wall_times": [
+        0.1694927790085785,
+        0.1685970249818638,
+        0.168233284028247,
+        0.16751903103431687,
+        0.16790442203637213
+      ],
+      "trace_time": null,
+      "compile_time": null,
+      "temp_bytes": null,
+      "argument_bytes": null,
+      "output_bytes": null,
+      "code_bytes": null,
+      "flops": null,
+      "peak_bytes": 1218184704,
+      "extras": {
+        "points": 16777216.0,
+        "steps": 50.0,
+        "first_advance_s": 2.814996559987776
       },
       "error": null
     },
@@ -237,11 +345,11 @@
         "iters": 30
       },
       "wall_times": [
-        0.8709078090032563,
-        0.8717112919839565,
-        0.8706604190228973,
-        0.8705819889728446,
-        0.8698292470071465
+        0.8641487850109115,
+        0.8632016520132311,
+        0.862976650998462,
+        0.8625541389919817,
+        0.8624418289982714
       ],
       "trace_time": null,
       "compile_time": null,
@@ -250,11 +358,11 @@
       "output_bytes": null,
       "code_bytes": null,
       "flops": null,
-      "peak_bytes": 52217856,
+      "peak_bytes": 52341248,
       "extras": {
         "points": 32768.0,
         "steps": 50.0,
-        "first_advance_s": 11.589887070993427
+        "first_advance_s": 11.439670121995732
       },
       "error": null
     },
@@ -265,11 +373,11 @@
         "iters": 12
       },
       "wall_times": [
-        0.3816537770035211,
-        0.38047699397429824,
-        0.38000248299795203,
-        0.38005844299914315,
-        0.3798230630054604
+        0.3824282959685661,
+        0.3826222369680181,
+        0.380969779973384,
+        0.38221308501670137,
+        0.3802588870166801
       ],
       "trace_time": null,
       "compile_time": null,
@@ -278,11 +386,11 @@
       "output_bytes": null,
       "code_bytes": null,
       "flops": null,
-      "peak_bytes": 52160000,
+      "peak_bytes": 52216320,
       "extras": {
         "points": 32768.0,
         "steps": 50.0,
-        "first_advance_s": 10.929177960992092
+        "first_advance_s": 10.974781989993062
       },
       "error": null
     },
@@ -293,11 +401,11 @@
         "iters": 30
       },
       "wall_times": [
-        1.4342708280018996,
-        1.4300709480012301,
-        1.4350674099987373,
-        1.4336507269763388,
-        1.4337821270164568
+        1.431537714030128,
+        1.4396249169949442,
+        1.436909796029795,
+        1.4390070140361786,
+        1.4369169260025956
       ],
       "trace_time": null,
       "compile_time": null,
@@ -306,11 +414,11 @@
       "output_bytes": null,
       "code_bytes": null,
       "flops": null,
-      "peak_bytes": 207566592,
+      "peak_bytes": 204335616,
       "extras": {
         "points": 2097152.0,
         "steps": 50.0,
-        "first_advance_s": 12.127161056996556
+        "first_advance_s": 11.487851487006992
       },
       "error": null
     },
@@ -321,11 +429,11 @@
         "iters": 12
       },
       "wall_times": [
-        0.6365788630209863,
-        0.6393710800039116,
-        0.6381228070240468,
-        0.6390965979953762,
-        0.6380706260097213
+        0.6355999460211024,
+        0.6357292260508984,
+        0.6355326650082134,
+        0.6348966130171902,
+        0.6354923250037245
       ],
       "trace_time": null,
       "compile_time": null,
@@ -334,11 +442,11 @@
       "output_bytes": null,
       "code_bytes": null,
       "flops": null,
-      "peak_bytes": 196003328,
+      "peak_bytes": 195979264,
       "extras": {
         "points": 2097152.0,
         "steps": 50.0,
-        "first_advance_s": 11.355461169994669
+        "first_advance_s": 10.963131583004724
       },
       "error": null
     },
@@ -349,11 +457,11 @@
         "iters": 30
       },
       "wall_times": [
-        4.368293589999666,
-        4.3780880339909345,
-        4.377348431007704,
-        4.380204688990489,
-        4.379502647003392
+        4.35278204997303,
+        4.364611127995886,
+        4.3666586260078475,
+        4.360561491979752,
+        4.362123328028247
       ],
       "trace_time": null,
       "compile_time": null,
@@ -362,11 +470,11 @@
       "output_bytes": null,
       "code_bytes": null,
       "flops": null,
-      "peak_bytes": 1521051904,
+      "peak_bytes": 1521056768,
       "extras": {
         "points": 16777216.0,
         "steps": 50.0,
-        "first_advance_s": 14.634232225012966
+        "first_advance_s": 14.7669186249841
       },
       "error": null
     },
@@ -377,11 +485,11 @@
         "iters": 12
       },
       "wall_times": [
-        1.9025752120069228,
-        1.9033238029805943,
-        1.902771583001595,
-        1.9012647890194785,
-        1.9010043879970908
+        1.9065598890301771,
+        1.9053094849805348,
+        1.9062022780417465,
+        1.9039487590198405,
+        1.905484084971249
       ],
       "trace_time": null,
       "compile_time": null,
@@ -390,11 +498,11 @@
       "output_bytes": null,
       "code_bytes": null,
       "flops": null,
-      "peak_bytes": 1521047552,
+      "peak_bytes": 1521052160,
       "extras": {
         "points": 16777216.0,
         "steps": 50.0,
-        "first_advance_s": 12.41745045100106
+        "first_advance_s": 12.07283349899808
       },
       "error": null
     },
@@ -404,11 +512,11 @@
         "n": 64
       },
       "wall_times": [
-        0.020992629986722022,
-        0.02070244899368845,
-        0.02058322902303189,
-        0.02066322902101092,
-        0.02038221899420023
+        0.021137386036571115,
+        0.020699854008853436,
+        0.020645093987695873,
+        0.02067066397285089,
+        0.020498203055467457
       ],
       "trace_time": null,
       "compile_time": null,
@@ -417,11 +525,11 @@
       "output_bytes": null,
       "code_bytes": null,
       "flops": null,
-      "peak_bytes": 346368,
+      "peak_bytes": 341504,
       "extras": {
         "points": 4096.0,
         "steps": 50.0,
-        "first_advance_s": 1.8561724910105113
+        "first_advance_s": 1.6863124749506824
       },
       "error": null
     },
@@ -431,11 +539,11 @@
         "n": 1024
       },
       "wall_times": [
-        0.0339551099750679,
-        0.03344108001329005,
-        0.03352183901006356,
-        0.033221349003724754,
-        0.03305118897696957
+        0.03436519898241386,
+        0.0338654579827562,
+        0.03363847604487091,
+        0.033508204971440136,
+        0.03333320497768
       ],
       "trace_time": null,
       "compile_time": null,
@@ -448,7 +556,7 @@
       "extras": {
         "points": 1048576.0,
         "steps": 50.0,
-        "first_advance_s": 1.834025518008275
+        "first_advance_s": 1.7567606719676405
       },
       "error": null
     },
@@ -458,11 +566,11 @@
         "n": 2048
       },
       "wall_times": [
-        0.05176645400933921,
-        0.05087402102071792,
-        0.049690308020217344,
-        0.04866545498953201,
-        0.0483293550205417
+        0.05247057299129665,
+        0.05151472904253751,
+        0.050792495952919126,
+        0.04790154501097277,
+        0.04791792400646955
       ],
       "trace_time": null,
       "compile_time": null,
@@ -475,7 +583,7 @@
       "extras": {
         "points": 4194304.0,
         "steps": 50.0,
-        "first_advance_s": 1.8797075570037123
+        "first_advance_s": 1.7480468060239218
       },
       "error": null
     },
@@ -485,11 +593,11 @@
         "n": 64
       },
       "wall_times": [
-        0.04316934201051481,
-        0.04236675100401044,
-        0.041813329997239634,
-        0.04129938900587149,
-        0.03997184400213882
+        0.04363073699641973,
+        0.04337368597043678,
+        0.042969584988895804,
+        0.04209610202815384,
+        0.04122803796781227
       ],
       "trace_time": null,
       "compile_time": null,
@@ -498,11 +606,11 @@
       "output_bytes": null,
       "code_bytes": null,
       "flops": null,
-      "peak_bytes": 17063936,
+      "peak_bytes": 17062912,
       "extras": {
         "points": 4096.0,
         "steps": 50.0,
-        "first_advance_s": 6.140393563982798
+        "first_advance_s": 6.123430227977224
       },
       "error": null
     },
@@ -512,11 +620,11 @@
         "n": 1024
       },
       "wall_times": [
-        0.07685214202501811,
-        0.07548264900106005,
-        0.07358327499241568,
-        0.0698449769988656,
-        0.06978914598585106
+        0.07562399696325883,
+        0.07224562298506498,
+        0.06963468296453357,
+        0.0693901419872418,
+        0.06927733100019395
       ],
       "trace_time": null,
       "compile_time": null,
@@ -529,7 +637,7 @@
       "extras": {
         "points": 1048576.0,
         "steps": 50.0,
-        "first_advance_s": 6.525136858021142
+        "first_advance_s": 6.083859417005442
       },
       "error": null
     },
@@ -539,11 +647,11 @@
         "n": 2048
       },
       "wall_times": [
-        0.12505277700256556,
-        0.11849676200654358,
-        0.11786387002211995,
-        0.11774504001368769,
-        0.11774280900135636
+        0.12494989699916914,
+        0.1172152460203506,
+        0.11702241603052244,
+        0.11692636500811204,
+        0.11691589502152056
       ],
       "trace_time": null,
       "compile_time": null,
@@ -556,7 +664,7 @@
       "extras": {
         "points": 4194304.0,
         "steps": 50.0,
-        "first_advance_s": 6.285291587992106
+        "first_advance_s": 6.634245982975699
       },
       "error": null
     }
