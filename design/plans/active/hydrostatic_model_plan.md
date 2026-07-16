@@ -23,7 +23,8 @@ pattern [`../done/coordinate_systems_plan.md`](../done/coordinate_systems_plan.m
 [`../done/coriolis_energy_correction.md`](../done/coriolis_energy_correction.md);
 external-model numerics survey: §6 below.
 
-## 1. Decisions (proposed — need owner sign-off)
+## 1. Decisions (all seven signed off by owner, 2026-07-16 — the
+recommended option in each case)
 
 - **HY-D1 — package name `fridom.hydrostatic`.** The old
   `hydrostatic` package was removed 2026-07-11 (roadmap 3.1 note), so
