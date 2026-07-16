@@ -84,6 +84,10 @@ def fplane(f0=1.0):
 #  D4 preset test: preset == explicit assembly (identical treedef)
 # ================================================================
 def test_preset_equals_explicit_assembly_treedef():
+    # the preset auto-flips the grid default to "fv" on a periodic grid
+    # (F3), so every family=None field of the explicit model built on
+    # the same grid follows uniformly — identical treedefs (the modules
+    # carry family=None on both sides)
     grid = make_grid()
     preset = nh.Model(coriolis=fplane(), grid=grid, dt=DT)
     explicit = FrModel(
@@ -887,12 +891,21 @@ def test_constant_stratification_fv_family_puts_b_on_cellavg():
     assert all(isinstance(f, CellAvg) for f in factors)
 
 
-def test_constant_stratification_default_family_keeps_b_nodal():
-    # family=None defers to the grid default: b stays collocated with
-    # the pressure cell (nodal Center)
-    model = nh.Model(
-        coriolis=fplane(), grid=make_grid(), dt=DT,
-        stratification=ConstantStratification(family=None))
+def test_default_periodic_model_puts_b_on_cellavg():
+    # the F3 flip: a plain periodic nonhydro model is finite-volume by
+    # default, so the factory-built stratification declares b on
+    # CellAvg^3 (uniform FV — the whole default state is finite-volume)
+    model = nh.Model(coriolis=fplane(), grid=make_grid(), dt=DT)
+    factors = model.state["b"].function_space.bare.factors
+    assert all(isinstance(f, CellAvg) for f in factors)
+
+
+def test_nodal_family_keeps_b_on_the_center_cell():
+    # family="nodal" is the point-value C-grid (the pre-F3 default):
+    # b stays collocated with the nodal pressure cell. Nodal coverage
+    # is now pinned by an explicit family, not by the default.
+    model = nh.Model(coriolis=fplane(), grid=make_grid(), dt=DT,
+                     family="nodal")
     factors = model.state["b"].function_space.bare.factors
     assert not any(isinstance(f, CellAvg) for f in factors)
     assert model.state["b"].function_space.bare.factor(

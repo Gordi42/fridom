@@ -31,8 +31,14 @@ def make_model(*, periodic_y=True, periodic_z=True):
                                      periodic=periodic_y, name="y")
     mz = fr.spatial.meshes.IntervalMesh(N, (0.0, 2 * np.pi),
                                      periodic=periodic_z, name="z")
+    grid = fr.spatial.Grid((mx, my, mz))
+    # the model family flows through the grid default (F3): a fully
+    # periodic grid is finite-volume by default and a walled one is
+    # nodal, so the family=None b of the stratification follows the
+    # model uniformly (no mixed nodal-b-on-FV-velocities corner) and
+    # the eigenmode-sourced initial states set_state cleanly
     return nh.Model(
-        grid=fr.spatial.Grid((mx, my, mz)), advection=False,
+        grid=grid, advection=False,
         dsqr=DSQR, coriolis=nh.FPlaneCoriolis(f0=F0),
         stratification=nh.ConstantStratification(n2=N2),
         time_stepper=fr.model.time_steppers.AdamBashforth(DT, order=3))
