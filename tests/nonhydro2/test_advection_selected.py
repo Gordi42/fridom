@@ -5,10 +5,15 @@ The load-bearing check of nonhydro2's one-pass WENO upwind face value
 reconstruction of the sign-selected union window reproduces the
 "reconstruct BOTH biases, then ``Where``-select" face value to
 reversed-summation ulps (bitwise where the face velocity is positive),
-on both C-grid flux directions (tracer ``Center -> Right`` and the dual
-velocity self-advection ``Right -> Center``, the ``_wall_shift`` case),
-both grounded orders, and periodic and z-walled grids. The ``v == 0``
-tie takes the right-biased side (old-stack parity).
+across BOTH reconstruction families and every C-grid flux direction —
+the nodal tracer ``Center -> Right``, the dual velocity self-advection
+``Right -> Center`` (the ``_wall_shift`` case), and the average-family
+``CellAvg -> Right | Inner`` FV tracer (the primal cell frame, shift 0,
+no dual direction) — both grounded orders, and periodic and z-walled
+grids. The ``v == 0`` tie takes the right-biased side (old-stack
+parity). The FV union alignment is the nodal primal one, validated at
+machine precision here and in the CPU oracle
+(``design/research/stencil_lowering/microbench/phase3_prep/``).
 
 Self-contained per the oversized-module test convention (the
 ``test_advection*`` shards share nothing): the small grid/field
@@ -24,6 +29,7 @@ from fridom.model.time_steppers.adam_bashforth import AdamBashforth
 from fridom.nonhydro2.modules.advection import (
     WENOAdvection,
     _BiasedFaceReconstruction,
+    _FVBiasedReconstruction,
     _SelectedFaceReconstruction,
 )
 from fridom.nonhydro2.modules.core import DynamicalCore
@@ -35,6 +41,7 @@ from fridom.spatial.decomposition.halo import HaloSpec
 from fridom.spatial.grid import Grid
 from fridom.spatial.meshes.interval import IntervalMesh
 from fridom.spatial.operators.select import Where
+from fridom.spatial.spaces.average import AverageSpace
 from fridom.spatial.spaces.nodal import NodeSet
 from fridom.spatial.spaces.tensor_product import TensorProductSpace
 
@@ -111,11 +118,43 @@ def _walled_velocity(order):
     return grid, q, "z", "graded"
 
 
+def _periodic_fv_tracer(order):
+    """CellAvg -> Right along x (shift 0, FV tracer), periodic."""
+    mx = IntervalMesh(NR, (0.0, L), name="x")
+    my = IntervalMesh(NT, (0.0, L), name="y")
+    mz = IntervalMesh(NT, (0.0, L), name="z")
+    grid = Grid((mx, my, mz), device_ids=(0,))
+    grid.negotiate(halo=HaloSpec({"x": order // 2 + 1}))
+    domain = TensorProductSpace.of(mx.cell_avg, my.center, mz.center)
+    q = grid.create_field(
+        domain,
+        init=lambda x, y, z: np.sin(x) + 0.3 * np.cos(2 * x)
+        + 0.1 * np.sin(y) + 0.1 * np.cos(z))
+    return grid, q, "x", "none"
+
+
+def _walled_fv_tracer(order):
+    """CellAvg -> Inner along z (shift 0, FV tracer), z-walled."""
+    mx = IntervalMesh(NT, (0.0, L), name="x")
+    my = IntervalMesh(NT, (0.0, L), name="y")
+    mz = IntervalMesh(NR, (0.0, 1.0), periodic=False, name="z")
+    grid = Grid((mx, my, mz), device_ids=(0,))
+    grid.negotiate(halo=HaloSpec({"z": order // 2 + 1}))
+    domain = TensorProductSpace.of(mx.center, my.center, mz.cell_avg)
+    q = grid.create_field(
+        domain,
+        init=lambda x, y, z: np.cos(np.pi * z) + 0.2 * np.sin(2 * z)
+        + 0.1 * np.sin(x) + 0.1 * np.cos(y))
+    return grid, q, "z", "graded"
+
+
 CASES = [
     pytest.param(_periodic_tracer, id="periodic-tracer"),
     pytest.param(_periodic_velocity, id="periodic-velocity"),
     pytest.param(_walled_tracer, id="walled-tracer"),
     pytest.param(_walled_velocity, id="walled-velocity"),
+    pytest.param(_periodic_fv_tracer, id="periodic-fv-tracer"),
+    pytest.param(_walled_fv_tracer, id="walled-fv-tracer"),
 ]
 
 
@@ -134,11 +173,19 @@ def _apply(build, order, sign):
 
     ``sign`` is a per-face recon-axis profile of the face velocity.
     Returns ``(new, ref, left, right, axis_index)`` as host arrays.
+    The reconstruction family follows ``q``'s space along ``axis``: an
+    average (``CellAvg``) factor selects the FV pair and the FV variant
+    of the selected kernel, a nodal factor the nodal pair.
     """
     grid, q, axis, boundary = build(order)
-    left = _BiasedFaceReconstruction(order, "left", "weno", boundary)
-    right = _BiasedFaceReconstruction(order, "right", "weno", boundary)
-    selected = _SelectedFaceReconstruction(order, boundary)
+    average = isinstance(q.function_space.bare.factor(axis),
+                         AverageSpace)
+    recon_cls = (_FVBiasedReconstruction if average
+                 else _BiasedFaceReconstruction)
+    left = recon_cls(order, "left", "weno", boundary)
+    right = recon_cls(order, "right", "weno", boundary)
+    selected = _SelectedFaceReconstruction(
+        order, boundary, family=("fv" if average else "nodal"))
     codomain = left[axis](q).function_space
     axis_index = codomain.bare.names.index(axis)
     v = grid.create_field(
@@ -223,17 +270,26 @@ def test_selected_operator_properties_and_interning():
     op = _SelectedFaceReconstruction(5, "graded", "centered2")
     assert (op.order, op.boundary, op.wall) == (5, "graded",
                                                 "centered2")
+    assert op._family == "nodal"
     # D6 interning: structurally-equal requests are the same object
     assert op is _SelectedFaceReconstruction(5, "graded", "centered2")
     assert op is not _SelectedFaceReconstruction(3, "graded",
                                                  "centered2")
     assert op is not _SelectedFaceReconstruction(5, "none",
                                                  "centered2")
+    # the average-family (FV) twin interns distinctly on the key
+    fv = _SelectedFaceReconstruction(5, "graded", "centered2",
+                                     family="fv")
+    assert fv._family == "fv"
+    assert fv is not op
+    assert fv is _SelectedFaceReconstruction(5, "graded", "centered2",
+                                             family="fv")
 
 
 def test_selected_operator_delegates_signature_to_left_recon():
     # the union window's frame is the left reconstruction's, so the
-    # codomain and the halo demand are exactly that kernel's
+    # codomain and the halo demand are exactly that kernel's — per
+    # family (nodal Center/Right, and the FV CellAvg twin)
     mx = IntervalMesh(8, (0.0, 1.0), name="x")
     for order, halo in ((3, 2), (5, 3)):
         op = _SelectedFaceReconstruction(order)
@@ -241,6 +297,10 @@ def test_selected_operator_delegates_signature_to_left_recon():
         assert op.codomain(mx.center) is ref.codomain(mx.center)
         assert op.codomain(mx.right) is ref.codomain(mx.right)
         assert op.requirements(mx.center).halo == halo
+        fv = _SelectedFaceReconstruction(order, family="fv")
+        fvref = _FVBiasedReconstruction(order, "left", "weno")
+        assert fv.codomain(mx.cell_avg) is fvref.codomain(mx.cell_avg)
+        assert fv.requirements(mx.cell_avg).halo == halo
 
 
 # ================================================================
@@ -279,6 +339,10 @@ def test_weno_model_installs_the_selected_kernel_periodic(order):
     model, advection = _weno_model(order)
     assert advection._selected.order == order
     assert advection._selected.boundary == "none"
+    # the average-family twin is installed alongside, same structure
+    assert advection._fv_selected.order == order
+    assert advection._fv_selected.boundary == "none"
+    assert advection._fv_selected._family == "fv"
     # constancy preservation exercises the real _face_value path
     ones = np.ones((NR, NT, NT))
     model.set_fields(u=1.5 * ones, v=-0.5 * ones, w=0.25 * ones,
@@ -294,6 +358,8 @@ def test_weno_model_installs_the_graded_selected_kernel_walled():
     model, advection = _weno_model(5, walled=True)
     assert advection._selected.boundary == "graded"
     assert advection._selected.wall == advection.wall
+    assert advection._fv_selected.boundary == "graded"
+    assert advection._fv_selected.wall == advection.wall
     assert advection._walled == ("z",)
     ones = np.ones((NT, NT, NR))
     zc = (np.arange(NR) + 0.5) / NR
@@ -303,3 +369,28 @@ def test_weno_model_installs_the_graded_selected_kernel_walled():
     tau = _advection_tendency(model)
     for name in ("u", "v", "w", "b"):
         assert np.isfinite(np.asarray(tau[name].data)).all()
+
+
+def test_face_value_dispatches_selected_kernel_by_family():
+    # `_face_value` mirrors the base `_biased_pair` routing: a CellAvg
+    # tracer runs through the FV selected kernel, a nodal field through
+    # the nodal one — pinned bitwise against the kernels themselves
+    _, advection = _weno_model(3)
+    assert advection._fv_selected is not advection._selected
+    cases = ((_periodic_tracer, _BiasedFaceReconstruction,
+              advection._selected),
+             (_periodic_fv_tracer, _FVBiasedReconstruction,
+              advection._fv_selected))
+    for build, recon_cls, kernel in cases:
+        grid, q, axis, _ = build(3)
+        left = recon_cls(3, "left", "weno")
+        flux_space = left[axis](q).function_space
+        axis_index = flux_space.bare.names.index(axis)
+        v = grid.create_field(
+            flux_space,
+            data=_broadcast(_mixed_sign(flux_space.shape[axis_index]),
+                            flux_space.shape, axis_index))
+        got = advection._face_value(q, v, axis, flux_space)
+        want = kernel(v + abs(v), q, axis, flux_space)
+        assert np.array_equal(np.asarray(got.data),
+                              np.asarray(want.data))
