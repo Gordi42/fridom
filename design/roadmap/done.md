@@ -68,6 +68,29 @@ Implementation record:
 
 ## Landed since, outside the numbered tasks
 
+- **Indivisible-extent sharding fixed** (2026-07-16) — the owner-flagged
+  multi-device hole (4 GPUs 2–5× *slower* than 1 whenever the sharded
+  axis carried a `P`-indivisible extent: walled staggered legs, prime
+  domain sizes). Four phases in one campaign: the reblock gate admits
+  the divisible staggered-deficit leg to the fast padded-even plan
+  (x-walled 256³ collapses 15.6 → 3.5 ms/step onto the periodic
+  scaling); the distributed solve accepts indivisible split axes via a
+  padded balanced all-to-all with local pad/trim (prime 257³
+  9.18 → 4.02 ms/step, 4-GPU now 2.14× faster than 1-GPU, no
+  replicated cube); stepper scaling helpers spelled on the storage
+  frame (bitwise-identical, **1-GPU nh_flat −11..−17% and
+  shallowwater −9..−23%/step** as a bonus); shard-axis selection
+  ranks periodic-divisible axes first
+  (walled-x default now shards y: 3.56 → 3.36 ms/step). Divisible
+  programs stayed byte-identical throughout; baselines re-recorded
+  with new `nh_flat_prime` and `nh_flat_walled_x` guard cases.
+  Records:
+  [`../plans/done/indivisible_shard_plan.md`](../plans/done/indivisible_shard_plan.md),
+  probe evidence in
+  [`../research/indivisible_shard_probes.md`](../research/indivisible_shard_probes.md),
+  pre-existing faults surfaced along the way in
+  [`../research/multidevice_test_faults.md`](../research/multidevice_test_faults.md).
+
 - **Grid setup ergonomics — the fast assemble** (2026-07-15) — building
   a spherical grid was a 9-line copy-from-the-docstring incantation. Now
   `fr.spatial.spherical.Grid((nlon, nlat), radius=a,

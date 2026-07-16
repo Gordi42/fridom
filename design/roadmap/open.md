@@ -64,44 +64,37 @@ Still open, and the next work:
 3. The optimizations do not yet **reach inside** the mapped PCG solve —
    see the section below.
 
-## Indivisible-extent sharding — **fix now** (owner-flagged 2026-07-15)
+## Multi-device follow-ups from the indivisible-shard campaign
 
-An **important active case**, escalated by the owner. When a field's
-extent along the **sharded** axis is not divisible by the device count
-`P`, the whole step pays collectives on nearly every operation —
-measured **2.8×–4.8× slower** at nh 256³ on 4×A100. Two triggers, one
-root cause (`n % P ≠ 0` on the sharded axis):
+The indivisible-extent sharding hole itself is **fixed** (2026-07-16,
+all four phases; outcomes and merges in
+[`../plans/done/indivisible_shard_plan.md`](../plans/done/indivisible_shard_plan.md);
+entry in [`done.md`](done.md)). What remains open:
 
-- **Walled sharded axis** — the face-staggered velocity leg becomes
-  `n_cells−1` (e.g. 255), mismatches the cell block layout, and the
-  reblock machinery explodes (all-to-all 10→245, +20 all-gather per
-  step). The decomposition *defaults* to sharding axis 0, so this is
-  the default whenever axis 0 is walled. The 4-GPU wall sweep is
-  bimodal purely on whether x is walled (x/xy/xz/xyz ~15.7–16.8 ms;
-  none/y/z/yz ~3.3–4.8 ms); the 1-GPU control has no such asymmetry.
-- **Indivisible domain size** — any `n` with `n % P ≠ 0`, e.g. a prime.
-  Triple-periodic N=257 is 2.8× slower than N=256 (the distributed
-  solve declines and all-gathers the cube); N=260=4·65 is fast, so it
-  is divisibility by `P`, not powers of two. A `(p, p, p)` prime domain
-  has no divisible axis, so **no choice of sharding escapes it**.
-
-The pressure solve is *not* the bottleneck (byte-identical 2
-all-to-alls across all wall configs; the earlier "communication-bound
-fully-walled solve" reading was wrong and is corrected).
-
-**Root-caused and probe-validated 2026-07-15** (HLO forensics +
-monkeypatch A/B; evidence frozen in
-[`../research/indivisible_shard_probes.md`](../research/indivisible_shard_probes.md)):
-the walled explosion is hot-loop true-frame excursions (AB3
-`_weighted`, coriolis lifts) hitting the reblock gate at
-`tensor.py:525`, which excludes the staggered ±1 legs from the fast
-padded-even plan; the prime slowdown is the transform planner's
-divisibility decline. Phased fix plan — (1) reblock gate (collapses
-x-walled to the periodic baseline exactly in the A/B), (2) padded
-all-to-all transpose for indivisible split axes (validated spelling:
-local pad/slice, zero extra collectives, ~2× over replicating), (3)
-optional excursion/axis-selection hygiene — with tests and A100 gates:
-[`../plans/active/indivisible_shard_plan.md`](../plans/active/indivisible_shard_plan.md).
+- **Channel eigenmodes are broken on multi-device** — two independent
+  pre-existing faults: a jax-0.10.2 `sort`-lowering **segfault** on
+  forced-CPU meshes (blocks even testing), and a genuine fridom-side
+  **c64/c128 dtype mix** in `_eigenbasis._contract_planes` →
+  `Fourier._forward_fused_kernel` that kills the projection on real
+  multi-GPU. The single-device path is fine. Evidence + repro:
+  [`../research/multidevice_test_faults.md`](../research/multidevice_test_faults.md).
+  Fix the dtype bug; file the segfault upstream with a minimal repro
+  and add a fridom-side mitigation or CPU-multi-device skip.
+- **Forced-4 test-suite sensitivities** — 8 advection tests (old-stack
+  parity under forced devices; bitwise on forced-CPU) plus the known
+  WENO one fail on dev under forced-4; triage each with a
+  `single_device` mark or the backend-aware `invariant` helper (same
+  research note). Until then the whole-dir `tests/nonhydro2` forced-4
+  run is a delta-vs-dev check, not a green gate.
+- **Multi-host validation** — the campaign's fixes are validated
+  single-controller (forced-4 + real 4-GPU, one process); confirm the
+  padded transpose and the reblock plans under a real `srun -n P`
+  launch (they never host-fetch a true-extent global array by
+  construction, but verify).
+- **Surplus staggered leg (`n = n_cells + 1`)** — deliberately still on
+  the global reblock path (no hot-loop consumer; needs a
+  `P*(cells+1)` frame + one permute). Revisit only if a Neumann-outer
+  field ever enters a hot loop.
 
 ## Multi-device compile and execution cost
 

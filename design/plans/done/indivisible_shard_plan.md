@@ -1,9 +1,28 @@
 ---
-status: active
-date: 2026-07-15
+status: done
+date: 2026-07-16
 ---
 
 # Indivisible-extent sharding — the multi-device performance hole
+
+> **Shipped 2026-07-16.** All four phases landed on `dev` the day
+> after the plan was written (merges `b6a5cc47` Phase 1, `1114b5ab`
+> Phase 2, `aa7d0a40` Phase 3 stepper spelling, `2adae87b` Phase 3
+> shard-axis ordering, plus the baseline re-record). Measured
+> outcomes (4×A100, nh 256³ linear, ms/step): **x-walled 15.62 →
+> 3.36** (was 2.3× slower than 1 GPU, now ~2× faster, incl. the
+> shard-axis reorder), **xyz-walled 16.69 → 4.34**, **prime 257³
+> 9.18 → 4.02** (4-GPU now 2.14× faster than 1-GPU, vs 2.8× *slower
+> than 256³* before; residual vs divisible = cuFFT Bluestein, paid on
+> one device too). Bonus from the excursion hygiene: **1-GPU nh_flat
+> 11–17% faster** across 256³/512³, bitwise-identical. Phase
+> sections below record what was *planned*; deviations are flagged
+> inline. Follow-ups that outlived the plan: the surplus (`n+1`) leg
+> stays on the global reblock path (no hot-loop consumer; documented
+> at the gate), multi-host validation is still open (roadmap), and
+> the validation campaign surfaced **pre-existing** multi-device
+> faults catalogued in
+> [`../../research/multidevice_test_faults.md`](../../research/multidevice_test_faults.md).
 
 **One line.** When a field's extent along the **sharded** axis is not
 divisible by the device count `P`, the step pays collectives on almost

@@ -6,7 +6,7 @@ date: 2026-07-15
 # Indivisible-extent sharding — probe evidence
 
 Research report (see [`README.md`](README.md) for status); feeds
-[`../plans/active/indivisible_shard_plan.md`](../plans/active/indivisible_shard_plan.md).
+[`../plans/done/indivisible_shard_plan.md`](../plans/done/indivisible_shard_plan.md).
 
 Four probes, run 2026-07-15 on the 4×A100 node (jax 0.10.2, x64) and
 forced-4 CPU (`XLA_FLAGS=--xla_force_host_platform_device_count=4`;
