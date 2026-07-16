@@ -183,12 +183,19 @@ class Eigenmodes:
         (FV-D3, stage F3): ``"fv"`` builds the analysis spaces on the
         finite-volume C-grid (scalars on ``CellAvg``, velocities on
         the faces), matching an FV nonhydro model; ``"nodal"`` the
-        point-value C-grid. ``None`` defers to the grid default. On an
-        FV grid the ``GridSymbols`` kit resolves ``diff`` / ``interp``
-        through the grid's FV C-grid profile (``FaceDifference`` /
-        ``FluxDifference``), whose symbols are bit-identical to the
-        nodal ones (scoping study §1) — so ``from_model`` on an FV
-        model builds FV-consistent eigenmodes without new numerics
+        point-value C-grid. ``None`` defers to the grid default. On a
+        **periodic** FV grid the ``GridSymbols`` kit resolves ``diff``
+        / ``interp`` through the grid's FV C-grid profile
+        (``FaceDifference`` / ``FluxDifference``), whose symbols are
+        bit-identical to the nodal ones (scoping study §1) — so
+        ``from_model`` on a periodic FV model builds FV-consistent
+        eigenmodes without new numerics. On a **walled** FV grid the
+        analytic kit is not yet wired: it builds BC-tagged ``CellAvg``
+        analysis spaces, which the resolver rejects (average factors
+        are BC-free, C8), so ``from_model`` on a walled FV model is a
+        taught error until the walled-FV transform stack lands
+        (F5-adjacent). Walled *nodal* eigenmodes are unaffected — build
+        the model ``family="nodal"`` for the validated walled path
         (default: None).
     """
 
