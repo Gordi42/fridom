@@ -194,6 +194,13 @@ so `FPlaneCoriolis(f0=Ramp(...))` raises a bare `TypeError` from
    right is the design question; the coverage lint and the halo/GAP-B
    rules both bear on it.
 
+Level 1 and the *affine-blend* subset of level 2 (a field that moves
+along an affine path in declared scalars, e.g.
+`f(y,t) = f0(t) + beta(t) * y`) are scheduled as stages R1/R2 of
+[`../plans/active/adiabatic_ramping.md`](../plans/active/adiabatic_ramping.md)
+(2026-07-16). What stays open **here** is the general case: profiles
+with non-affine time dependence.
+
 **Interaction with the exponential stepper** (the reason this surfaced):
 `ETDRK4` freezes `L` in an eigenbasis snapshot. Anything time-dependent
 that lives in `N` is already correct (the `Ramp` on `scaling.rossby`
@@ -211,14 +218,18 @@ eigenanalysis is itself undefined in that regime.
 
 ## Generalized adiabatic ramping
 
-An `AdiabaticRamping` base transform that ramps declared parameters from a
-start to an end value over a ramp period (continuous stage-time `Ramp`
-evaluation; curves `"linear"` / `"cosine"` / `"exp"` or a callable), with
-**`OptimalBalance` as a subclass** contributing only the balancing policy.
-Also buys adiabatic spin-up and parameter continuation. Its dependency
-(2.8) has shipped, and `Propagator(updates={param: Ramp(...)})` already
-covers much of the mechanism — so this is largely an ergonomics/factoring
-task, not new capability.
+Deform a model between two operator configurations — a *reference*
+system `L(0)` and a *target* system `L(1)`,
+`L(s) = (1-rho(s)) L_ref + rho(s) L_target` — with shared terms never
+computed twice and all four propagator legs (ref↔target x
+forward/backward in time). `OptimalBalance` becomes a subclass
+contributing only balancing policy; the paper draft *Fast-slow
+splittings for geophysical flows via the adiabatic theorem* (Rosenau
+et al.) is the driving consumer (Coriolis ramp
+`f(y,t) = f0 + beta rho(t/tau) y`, staggered double-ramp protocol,
+adiabatic projector). Staged plan activated 2026-07-16 (stages R0–R7:
+time-dependent scalars → blended Coriolis field → `AdiabaticRamping` →
+OB refactor → `AdiabaticProjection` → example/docs):
 [`../plans/active/adiabatic_ramping.md`](../plans/active/adiabatic_ramping.md)
 
 ---
