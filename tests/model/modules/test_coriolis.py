@@ -525,3 +525,174 @@ def test_chart_rotation_is_the_module_term(weight):
     for name in ("u", "v"):
         assert np.array_equal(np.asarray(got[name].data),
                               np.asarray(term[name].data))
+
+
+# ================================================================
+#  R1: time-dependent scalar f0 on the f-plane
+# ================================================================
+# The f-plane f is constant in space, so a Ramp-valued f0 is a
+# SCALAR parameter (R1), not a field blend (R2): the AUXILIARY field
+# is materialized at t=0 for a stable treedef, and the rotation term
+# reads f0(t) from ctx.params (resolved at the stage clock, the same
+# seam scaling.rossby rides) each step. The static (plain-float) path
+# is untouched -- see test_linear_rotation_is_the_module_term above.
+RAMP_DT = 5e-3
+
+
+def _r1_grid():
+    """Return a small periodic-x / walled-y channel (R1 fixture grid)."""
+    mx = fr.spatial.meshes.IntervalMesh(N, (0.0, 1.0), periodic=True,
+                                        name="x")
+    my = fr.spatial.meshes.IntervalMesh(N, (0.0, 1.0), periodic=False,
+                                        name="y")
+    return fr.spatial.Grid((mx, my))
+
+
+def _r1_channel(grid, f0, order=3):
+    """Return a linear sw channel with the given (float or Ramp) f0."""
+    return sw.Model(
+        grid=grid, csqr=1.0, rossby_number=0.2,
+        coriolis=FPlaneCoriolis(f0=f0), advection=False,
+        time_stepper=fr.model.time_steppers.AdamBashforth(
+            RAMP_DT, order=order))
+
+
+def test_fplane_ramped_f0_materializes_the_field_at_t0():
+    """A Ramp f0 fills f_coriolis with f0(0): no jnp.full TypeError."""
+    grid = _r1_grid()
+    ramp = fr.model.Ramp(0.6, 1.4, period=1.0, curve="cosine")
+    model = _r1_channel(grid, ramp, order=1)
+    field = np.asarray(model.state["f_coriolis"].data)
+    np.testing.assert_allclose(field, float(ramp.at_time(0.0)))
+
+
+@pytest.mark.parametrize("t", [0.0, 0.017, 0.05, 0.2])
+def test_fplane_ramped_f0_tendency_equals_constant_model_at_stage_time(t):
+    """ramped.tendency(z, t) == const-f0-model.tendency(z), bitwise.
+
+    This is the 'per-step constant f resolved from the Ramp' claim:
+    the term reads f0(t) at the stage clock, so its tendency equals a
+    plain-float model built with f0 = ramp(t). The constant-in-space
+    override and the field path agree bit-for-bit for a constant f.
+    """
+    grid = _r1_grid()
+    ramp = fr.model.Ramp(0.6, 1.4, period=0.05, curve="exp")
+    ramped = _r1_channel(grid, ramp, order=1)
+    z = random_state(ramped, seed=5)
+    got = ramped.tendency(z, t=t)
+
+    const = _r1_channel(grid, float(ramp.at_time(t)), order=1)
+    const.set_fields(**{c: np.asarray(z[c].data) for c in ("u", "v", "p")})
+    z_const = sw.State({c: const.state[c] for c in ("u", "v", "p")})
+    want = const.tendency(z_const)
+    for c in ("u", "v", "p"):
+        assert np.array_equal(np.asarray(got[c].data),
+                              np.asarray(want[c].data))
+
+
+def test_fplane_ramped_f0_matches_a_hand_stepped_ab3_oracle():
+    """f0=Ramp advances under AB3 and matches a hand-stepped oracle.
+
+    'Correct stage time' for AdamBashforth: the tendency is evaluated
+    at the PRE-TICK clock (adam_bashforth.py step()), so step n (from
+    a reset clock of 0) reads f0 at t_n = n*dt. The oracle rebuilds,
+    per step, a CONSTANT-f0 model with f0 = ramp(t_n) and drives the
+    identical AB3 warm-up combination by hand -- the AB weights do not
+    depend on f0, so the whole discrepancy is the per-step f the term
+    reads.
+    """
+    grid = _r1_grid()
+    ramp = fr.model.Ramp(0.6, 1.4, period=8 * RAMP_DT, curve="exp")
+    order, steps = 3, 4
+    comps = ("u", "v", "p")
+
+    ramped = _r1_channel(grid, ramp, order=order)
+    state0 = random_state(ramped, seed=11)
+    init = {c: np.asarray(state0[c].data).copy() for c in comps}
+    ramped.reset()
+    ramped.set_state(state0)
+    ramped.advance(steps)
+    got = {c: np.asarray(ramped.state[c].data) for c in comps}
+
+    # AB warm-up rows for order 3 (_warmup_table, eps=None): row r is
+    # the AB(r+1) coefficient row zero-padded; warmup = min(n, 2).
+    table = ((1.0, 0.0, 0.0), (1.5, -0.5, 0.0), (23 / 12, -4 / 3, 5 / 12))
+    ring = [{c: np.zeros_like(init[c]) for c in comps}
+            for _ in range(order - 1)]
+    state = {c: init[c].copy() for c in comps}
+    for n in range(steps):
+        const = _r1_channel(grid, float(ramp.at_time(n * RAMP_DT)),
+                            order=order)
+        const.set_fields(**{c: state[c] for c in comps})
+        z = sw.State({c: const.state[c] for c in comps})
+        tend = const.tendency(z)
+        f_n = {c: np.asarray(tend[c].data) for c in comps}
+        levels = (f_n, *ring)
+        weights = table[min(n, order - 1)]
+        for c in comps:
+            state[c] = state[c] + RAMP_DT * sum(
+                weights[j] * levels[j][c] for j in range(order))
+        ring = (f_n, *ring)[:order - 1]
+
+    for c in comps:
+        np.testing.assert_allclose(got[c], state[c], rtol=1e-11,
+                                   atol=1e-13)
+
+
+def test_fplane_ramped_f0_actually_changes_the_answer():
+    """Sanity: the ramp matters -- a ramped run differs from frozen f0."""
+    grid = _r1_grid()
+    ramp = fr.model.Ramp(0.3, 2.0, period=6 * RAMP_DT, curve="cosine")
+    comps = ("u", "v", "p")
+
+    ramped = _r1_channel(grid, ramp, order=3)
+    state0 = random_state(ramped, seed=2)
+    init = {c: np.asarray(state0[c].data).copy() for c in comps}
+    ramped.reset()
+    ramped.set_state(state0)
+    ramped.advance(6)
+    ramped_out = {c: np.asarray(ramped.state[c].data) for c in comps}
+
+    frozen = _r1_channel(grid, float(ramp.at_time(0.0)), order=3)
+    frozen.set_fields(**init)
+    frozen.reset()
+    frozen.set_state(sw.State({c: frozen.state[c] for c in comps}))
+    frozen.advance(6)
+    frozen_out = {c: np.asarray(frozen.state[c].data) for c in comps}
+
+    assert any(not np.allclose(ramped_out[c], frozen_out[c])
+               for c in comps)
+
+
+def test_time_dependent_linear_parameters_reports_only_a_ramped_f0():
+    """The AR-D7 hook: () for a float f0, (coriolis.f0,) for a Ramp."""
+    assert FPlaneCoriolis(f0=F0).time_dependent_linear_parameters() == ()
+    ramped = FPlaneCoriolis(f0=fr.model.Ramp(0.0, 1.0, period=1.0))
+    assert ramped.time_dependent_linear_parameters() == (str(CORIOLIS_F0),)
+
+
+def test_static_f0_never_touches_ctx_and_reports_nothing():
+    """Gate (c): a plain-float f0 keeps the field path (ctx untouched)."""
+    module = FPlaneCoriolis(f0=F0)
+    # None override => the field path; the static branch dispatches on
+    # the leaf type host-side and never dereferences ctx (ctx=None ok)
+    assert module._stage_scalar_f(None) is None
+    assert module.time_dependent_linear_parameters() == ()
+
+
+def test_static_config_assembly_fingerprint_is_deterministic():
+    """Gate (c): the float-f0 assembly fingerprint is stable."""
+    digest1 = _r1_channel(_r1_grid(), F0, order=3).fingerprint.digest
+    digest2 = _r1_channel(_r1_grid(), F0, order=3).fingerprint.digest
+    assert digest1 == digest2
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [pytest.param({"f0": fr.model.Ramp(0.0, 1.0, period=1.0)}, id="f0"),
+     pytest.param({"beta": fr.model.Ramp(0.0, 1.0, period=1.0)},
+                  id="beta")])
+def test_beta_plane_rejects_time_dependent_parameters(kwargs):
+    """Beta-plane f(y) is a field blend (R2): ramping f0/beta is taught."""
+    with pytest.raises(TypeError, match="field-valued blend"):
+        BetaPlaneCoriolis(**kwargs)

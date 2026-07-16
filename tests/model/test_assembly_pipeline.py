@@ -29,6 +29,7 @@ from fridom.model.errors import (
     DispatchCollisionError,
     FieldCollisionError,
     MissingFieldError,
+    TimeDependentLinearOperatorError,
     TimeDependentParameterError,
 )
 from fridom.model.module import Module
@@ -478,3 +479,60 @@ def test_step_fn_runs_over_a_zero_state(grid):
     new_state, sums = body(state, (Core(), Background()), ctx)
     assert set(new_state.component_names) == {"u", "b", "bg"}
     assert set(sums.explicit.component_names) == {"u", "b"}
+
+
+# ================================================================
+#  AR-D7: a frozen-L stepper refuses a time-dependent L
+# ================================================================
+class FrozenLStepper(Stepper):
+
+    """A stepper that integrates L from a FROZEN eigenbasis snapshot."""
+
+    freezes_linear_operator = True
+
+
+@partial(jaxify, dynamic=("f0",))
+class RampedLinear(Module):
+
+    """Reports a time-dependent parameter feeding its linear term."""
+
+    def __init__(self, f0=1.0):
+        self.f0 = f0 if isinstance(f0, Ramp) else jnp.asarray(f0)
+
+    parameter_declarations = (
+        ParameterDeclaration("toy.f0", attr="f0", units="1"),)
+
+    def time_dependent_linear_parameters(self):
+        return ("toy.f0",) if isinstance(self.f0, Ramp) else ()
+
+
+def test_frozen_l_stepper_refuses_a_time_dependent_linear_parameter(grid):
+    ramp = Ramp(0.0, 1.0, period=1.0)
+    with pytest.raises(TimeDependentLinearOperatorError,
+                       match=r"toy\.f0 \(RampedLinear\)") as excinfo:
+        assemble(grid=grid, modules=(Core(), RampedLinear(f0=ramp)),
+                 time_stepper=FrozenLStepper())
+    # the taught error points at the AB fallback and the design record
+    assert "AdamBashforth" in str(excinfo.value)
+    assert "exponential_stepper.md" in str(excinfo.value)
+
+
+def test_frozen_l_stepper_accepts_a_static_linear_parameter(grid):
+    # a plain-float f0 reports nothing, so the frozen-L stepper is fine
+    arts = make_artifacts(grid, modules=(Core(), RampedLinear(f0=1.0)),
+                          stepper=FrozenLStepper())
+    assert "toy.f0" in arts.binding_table
+
+
+def test_non_frozen_stepper_ignores_a_time_dependent_linear_parameter(
+        grid):
+    # a stepper that re-reads the tendency each step handles L(t) fine
+    ramp = Ramp(0.0, 1.0, period=1.0)
+    arts = make_artifacts(grid, modules=(Core(), RampedLinear(f0=ramp)),
+                          stepper=Stepper())
+    assert "toy.f0" in arts.binding_table
+
+
+def test_base_module_reports_no_time_dependent_linear_parameters():
+    # the honesty seam is opt-in: an ordinary module reports nothing
+    assert Core().time_dependent_linear_parameters() == ()

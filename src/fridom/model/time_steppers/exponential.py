@@ -225,6 +225,11 @@ class ETDRK4(TimeStepper):
     supported_treatments: ClassVar[frozenset[Treatment]] = (
         frozenset({Treatment.EXPLICIT}))
 
+    #: The eigenbasis is a snapshot: ``L`` is frozen at build time, so
+    #: assembly refuses a model whose ``L`` carries a time-dependent
+    #: parameter (AR-D7 — the class docstring's "time-dependent L").
+    freezes_linear_operator: ClassVar[bool] = True
+
     def __init__(
         self, dt: float | np.timedelta64, eigenbasis: object,
     ) -> None:

@@ -149,3 +149,10 @@ def test_time_discretization_effect_base_raises():
 
 def test_repr_smoke():
     assert "DummyStepper" in repr(DummyStepper(60.0))
+
+
+def test_base_stepper_does_not_freeze_the_linear_operator():
+    # the AR-D7 capability flag: the base (and every ordinary stepper)
+    # re-reads the tendency each step, so a time-dependent L is fine
+    assert DummyStepper.freezes_linear_operator is False
+    assert DummyStepper(1.0).freezes_linear_operator is False

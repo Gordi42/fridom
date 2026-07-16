@@ -193,3 +193,17 @@ def test_default_time_stepper_is_adam_bashforth():
     model = sw.Model(grid=make_grid())
     assert isinstance(model._stepper,
                       fr.model.time_steppers.AdamBashforth)
+
+
+def test_time_dependent_csqr_is_taught():
+    # a Ramp is callable, so without the guard it would be silently
+    # taken as a c^2(y) profile; c^2 is the AUXILIARY csqr FIELD read
+    # by several terms, so a time-dependent c^2 is a field blend (R2)
+    # -- a taught error at construction, both direct and via the preset
+    ramp = fr.model.Ramp(1.0, 2.0, period=1.0)
+    with pytest.raises(TypeError, match="field-valued blend"):
+        sw.modules.DynamicalCore(csqr=ramp)
+    with pytest.raises(TypeError, match="field-valued blend"):
+        sw.Model(
+            grid=make_grid(), csqr=ramp,
+            time_stepper=fr.model.time_steppers.AdamBashforth(5e-3))

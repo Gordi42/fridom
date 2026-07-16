@@ -402,6 +402,37 @@ class Module:
     instance-level override is permitted and enters the aux, where
     class objects compare by identity — interned by nature."""
 
+    def time_dependent_linear_parameters(self) -> tuple[str, ...]:
+        """
+        Dotted names of time-dependent parameters feeding ``L``.
+
+        Description
+        -----------
+        The honesty seam for a frozen-``L`` (exponential) stepper
+        (AR-D7): a module that carries a ``linear=True`` term and
+        currently reads a **time-dependent** scalar parameter in it
+        (an ``fr.Ramp`` on ``coriolis.f0``, say) reports that
+        parameter's dotted name here — the module author is the one
+        who knows the term/parameter coupling, so the check needs no
+        tracing. Assembly refuses such a model under a stepper that
+        freezes ``L`` in an eigenbasis
+        (``TimeStepper.freezes_linear_operator``), because
+        ``exp(L dt)`` would integrate a stale operator; every other
+        stepper re-reads the tendency each step and is unaffected.
+        Default: no such coupling.
+
+        A parameter that lives only in a ``linear=False`` term (the
+        nonlinear scaling ``scaling.rossby``) is **not** reported —
+        it lives in ``N``, where an exponential stepper handles time
+        dependence correctly.
+
+        Returns
+        -------
+        tuple[str, ...]
+            The offending dotted parameter names, or ``()``.
+        """
+        return ()
+
     # ================================================================
     #  Assembly hook (host-side, runs once — step 4)
     # ================================================================
