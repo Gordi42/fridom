@@ -100,6 +100,51 @@ if TYPE_CHECKING:  # pragma: no cover
     from fridom.spatial.spaces.tensor_product import SpaceLike
 
 
+def _fv_tagged_vertical(
+    space: SpaceLike, vertical: str, bc: BC,
+) -> SpaceLike:
+    r"""Mint the BC-tagged average sibling of an FV analysis space.
+
+    Description
+    -----------
+    The walled-vertical FV eigenmode kit needs BC-tagged vertical
+    factors for its trig transforms, but C8 forbids a ``wall_bc`` on an
+    FV collocated (average) declaration — average factors are BC-free,
+    so the declared-space resolver rejects the pattern. Instead the kit
+    resolves the pattern **BC-free** and swaps the bounded vertical
+    factor for its tagged sibling here, through the same
+    ``mesh.average(kind, bc=...)`` factory the walled FV pressure solve
+    uses (``modules.pressure._neumann_sibling``, F4). Applied only to a
+    resolved **average** vertical factor of a **bounded** mesh: a
+    periodic vertical (a fully periodic FV grid) is BC-free and passes
+    through untouched (the kit spaces stay the F3 periodic ones), and
+    the ``w`` face leg (``Inner``, Dirichlet) rides its STAGGERED
+    coordinate through the pattern resolver and never reaches here.
+
+    Parameters
+    ----------
+    space : SpaceLike
+        The BC-free resolved analysis space (a bare product).
+    vertical : str
+        The vertical coordinate name.
+    bc : BC
+        The physics-fixed vertical wall-value claim (Neumann for
+        ``u``/``v``/``p``, Dirichlet for ``b``).
+
+    Returns
+    -------
+    SpaceLike
+        ``space`` with its bounded-average vertical factor BC-tagged;
+        ``space`` unchanged on a periodic / nodal vertical.
+    """
+    factor = space.factor(vertical)
+    if (isinstance(factor, AverageSpace)
+            and not getattr(factor.mesh, "periodic", False)):
+        return space.replace(
+            **{vertical: factor.mesh.average(type(factor), bc=bc)})
+    return space
+
+
 class _LazySymbols(Mapping):
 
     """
@@ -190,12 +235,18 @@ class Eigenmodes:
         bit-identical to the nodal ones (scoping study §1) — so
         ``from_model`` on a periodic FV model builds FV-consistent
         eigenmodes without new numerics. On a **walled** FV grid the
-        analytic kit is not yet wired: it builds BC-tagged ``CellAvg``
-        analysis spaces, which the resolver rejects (average factors
-        are BC-free, C8), so ``from_model`` on a walled FV model is a
-        taught error until the walled-FV transform stack lands
-        (F5-adjacent). Walled *nodal* eigenmodes are unaffected — build
-        the model ``family="nodal"`` for the validated walled path
+        analytic kit builds its BC-tagged analysis spaces by minting
+        the tagged vertical siblings itself (``_fv_tagged_vertical``,
+        the pressure solver's ``mesh.average(kind, bc=...)`` seam) —
+        C8 keeps the *declaration* layer BC-free, so no
+        ``Collocated(wall_bc=..., family="fv")`` pattern is used. The
+        vertical trig symbols are the FV C-grid staggering diagonals
+        (``FaceDifference`` / ``FluxDifference`` for the derivatives,
+        ``LinearReconstruction`` for the interpolations), which at
+        second order are **bitwise** the nodal ``Center``-family ones
+        (the FV stencils are the nodal ones), so the walled FV
+        eigenbasis is bit-identical to the walled nodal one. Build the
+        model ``family="nodal"`` for the point-value C-grid instead
         (default: None).
     """
 
@@ -231,19 +282,43 @@ class Eigenmodes:
         # (impermeable w -> Dirichlet, free-slip u/v and pressure ->
         # Neumann, buoyancy -> Dirichlet); wall_bc entries are
         # ignored on periodic factors, so a periodic grid resolves
-        # to the exact BC-free spaces.
-        spaces = {
-            "u": fr.spatial.Staggered(
-                x, wall_bc={z: BC.NEUMANN}, family=family).resolve(grid),
-            "v": fr.spatial.Staggered(
-                y, wall_bc={z: BC.NEUMANN}, family=family).resolve(grid),
-            "w": fr.spatial.Staggered(
-                z, wall_bc={z: BC.DIRICHLET}, family=family).resolve(grid),
-            "b": fr.spatial.Collocated(
-                wall_bc={z: BC.DIRICHLET}, family=family).resolve(grid),
-            "p": fr.spatial.Collocated(
-                wall_bc={z: BC.NEUMANN}, family=family).resolve(grid),
-        }
+        # to the exact BC-free spaces. On the **FV** family the
+        # C8 rule forbids a wall_bc on the collocated (average) u/v/b/p
+        # declarations (average factors are BC-free); the kit instead
+        # mints the BC-tagged CellAvg siblings after a BC-free resolve
+        # (_fv_tagged_vertical, the pressure solver's mesh.average(kind,
+        # bc=...) precedent). w's Dirichlet rides its STAGGERED z
+        # coordinate onto the Inner face, so its leg resolves through
+        # the pattern unchanged on both families.
+        eff_family = (family if family is not None
+                      else getattr(grid, "default_family", "nodal"))
+        if eff_family == "fv":
+            spaces = {
+                "u": _fv_tagged_vertical(fr.spatial.Staggered(
+                    x, family=family).resolve(grid), z, BC.NEUMANN),
+                "v": _fv_tagged_vertical(fr.spatial.Staggered(
+                    y, family=family).resolve(grid), z, BC.NEUMANN),
+                "w": fr.spatial.Staggered(
+                    z, wall_bc={z: BC.DIRICHLET},
+                    family=family).resolve(grid),
+                "b": _fv_tagged_vertical(fr.spatial.Collocated(
+                    family=family).resolve(grid), z, BC.DIRICHLET),
+                "p": _fv_tagged_vertical(fr.spatial.Collocated(
+                    family=family).resolve(grid), z, BC.NEUMANN),
+            }
+        else:
+            spaces = {
+                "u": fr.spatial.Staggered(
+                    x, wall_bc={z: BC.NEUMANN}, family=family).resolve(grid),
+                "v": fr.spatial.Staggered(
+                    y, wall_bc={z: BC.NEUMANN}, family=family).resolve(grid),
+                "w": fr.spatial.Staggered(
+                    z, wall_bc={z: BC.DIRICHLET}, family=family).resolve(grid),
+                "b": fr.spatial.Collocated(
+                    wall_bc={z: BC.DIRICHLET}, family=family).resolve(grid),
+                "p": fr.spatial.Collocated(
+                    wall_bc={z: BC.NEUMANN}, family=family).resolve(grid),
+            }
         # the model-facing physical spaces (u, v, b BC-free; w's
         # Dirichlet wall tag matches the Velocity declaration) —
         # identical to the kit spaces on a periodic grid
