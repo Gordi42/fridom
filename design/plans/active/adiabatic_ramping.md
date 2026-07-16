@@ -44,8 +44,10 @@ arbitrary time-dependent fields stay open there);
 
 Owner rulings 2026-07-16: **AR-D2** — generic `FieldBlend` (generality
 over the minimal Coriolis-only path); **AR-D5** — both protocol
-surfaces documented; **AR-D6**, **AR-D7** — confirmed as proposed. The
-remaining decisions were presented the same day and stand unopposed.
+surfaces documented; **AR-D6**, **AR-D7** — confirmed as proposed;
+**AR-D8** — corrected to backward–forward legs (a forward–forward
+cycle is not phase-neutral, hence not a projection). The remaining
+decisions were presented the same day and stand unopposed.
 
 **AR-D1 — Contract: smooth operator path, convex combination when
 affine.** The framework guarantees a smooth path `L(lambda)` with
@@ -145,16 +147,26 @@ extends the shipped precedent `EnergyMetric`/eigenmodes already use
 (`at_time=` freezing, `src/fridom/model/energy.py:261`).
 
 **AR-D8 — `AdiabaticProjection` composes ramped *linear* legs around a
-reference-end projector; forward-in-time legs.** Paper appendix B: to
-project where no spectral decomposition exists, ramp the linearized
-system to the reference configuration, project there, ramp back —
-`P_adiab = up_leg @ P_ref @ down_leg` on
-`model.variant(term_filter=fr.terms.linear)`. Linear legs need no
-backward integration (the leakage bound is time-symmetric), so both
-legs run `dt > 0` with mirrored ramps. `P_adiab` is only
-*approximately* idempotent (exponentially small in `tau`); the
-idempotency tolerance is part of its documented contract, and it is
-`traceable=False` like every Propagator-bearing transform.
+reference-end projector; backward–forward, phase-neutral.** (Owner
+correction 2026-07-16: an earlier draft used two forward-in-time legs;
+that is wrong for a *projector*.) Paper appendix B: to project where
+no spectral decomposition exists, ramp the linearized system to the
+reference configuration, project there, ramp back. A propagator leg
+advances mode phases; with two forward legs the composite returns the
+projected state evolved by ~2 tau of linear dynamics (slow modes at
+the target end are not stationary — equatorial Rossby modes have
+nonzero frequency), so it is not a projection and `P∘P` drifts
+further. Running the away-leg backward in time and the return-leg
+forward cancels the phase evolution exactly (up to diabatic leakage):
+`P_adiab = up @ P_ref @ up.backward` on
+`model.variant(term_filter=fr.terms.linear)` — the same cycle shape as
+OB's `forward @ base @ backward`. Consequences: the AR-D6 guard
+applies to the backward leg (a linearized model may still carry
+*linear* dissipation, e.g. diffusion — it must be filtered out of the
+legs or the taught error fires); `P_adiab` is *approximately*
+idempotent (error exponentially small in `tau`) with the tolerance
+part of its documented contract; `traceable=False` like every
+Propagator-bearing transform.
 
 **AR-D9 — Refactoring `OptimalBalance` must not perturb shipped
 behaviour.** Base-point exchange, cost accounting, divergence policy,
@@ -242,7 +254,8 @@ double_ramp = lin_down @ nl_up.reversed @ free @ nl_up @ lin_up
 P_slow = sw.transforms.projection(...)   # from labeled eigenmodes
 eta = fr.transforms.relative_imbalance(double_ramp(z0), P_slow, metric)
 
-# optimal balance with an adiabatically obtained projector (app. B)
+# optimal balance with an adiabatically obtained projector (app. B);
+# internal cycle: lin_up @ P_slow @ lin_up.backward (phase-neutral)
 P_adiab = fr.transforms.AdiabaticProjection(lin_up, P_slow)
 ob = fr.OptimalBalance(sw, base_projection=P_adiab, ramp_period=tau_n)
 ```
