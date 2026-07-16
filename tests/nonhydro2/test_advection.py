@@ -197,6 +197,10 @@ def test_old_stack_coefficient_parity():
             rtol=0, atol=1e-14)
 
 
+# the old stack shards axis 0 over all visible devices, so its
+# reference tendency is not device-count invariant; pin this parity
+# check to a single device where the reference is meaningful.
+@pytest.mark.single_device
 @pytest.mark.parametrize("order", [3, 5])
 @pytest.mark.parametrize(
     ("scheme", "cls"),
