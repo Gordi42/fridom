@@ -778,11 +778,28 @@ def test_to_codomain_disagreement_raises():
 
 def test_to_nodal_to_average_resolves_the_average_rows(grid1d, mx):
     a = grid1d.create_field(mx.right)
+    # Right -> CellAvg is the shifted evaluate-to-average ("average")
     assert a.to(mx.cell_avg).function_space.bare is mx.cell_avg
-    # the registered Center row lands on FaceAvg, not CellAvg
+    # Center -> FaceAvg is the shifted dual "average" kind
     b = grid1d.create_field(mx.center)
-    with pytest.raises(SpaceMismatchError, match="lands on"):
-        b.to(mx.cell_avg)
+    assert b.to(mx.face_avg).function_space.bare is mx.face_avg
+
+
+def test_to_colocated_average_nodal_is_the_deconvolution(grid1d, mx):
+    # Center <-> CellAvg is co-located (both at the cell midpoint): the
+    # 2nd-order deconvolution (G3), a distinct kind from the shifted
+    # "average"/"reconstruct" rows, resolving through .to in both
+    # directions with the data unchanged (an identity retag)
+    b = grid1d.create_field(mx.center, data=jnp.arange(8.0))
+    to_avg = b.to(mx.cell_avg)
+    assert to_avg.function_space.bare is mx.cell_avg
+    assert jnp.array_equal(to_avg.data, b.data)
+    p = grid1d.create_field(mx.cell_avg, data=jnp.arange(8.0))
+    to_nod = p.to(mx.center)
+    assert to_nod.function_space.bare is mx.center
+    assert jnp.array_equal(to_nod.data, p.data)
+    # round trip is exact
+    assert jnp.array_equal(p.to(mx.center).to(mx.cell_avg).data, p.data)
 
 
 def test_to_between_coefficient_origins_is_unregistered(grid1d, mx):

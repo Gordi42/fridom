@@ -36,6 +36,10 @@ from fridom.spatial.operators.finite_difference import (
 from fridom.spatial.operators.integrate import Integral
 from fridom.spatial.operators.interp import LinearInterp
 from fridom.spatial.operators.mapped import MappedDerivative
+from fridom.spatial.operators.reconstruct import (
+    LinearDeconvolution,
+    LinearReconstruction,
+)
 from fridom.spatial.operators.registry import (
     DispatchError,
     OperatorRegistry,
@@ -141,6 +145,35 @@ def test_seeded_registry_covers_the_default_rows(grid, mx, my):
     registry.resolve("abs", mx.cell_avg)  # abs is pointwise on averages
     with pytest.raises(DispatchError, match="diff"):
         registry.resolve("diff", my.right)  # no bounded Right row
+
+
+def test_seeded_registry_covers_the_deconvolve_rows(grid, mx, my):
+    # G3: the co-located CellAvg <-> Center deconvolution is seeded on
+    # both members of the primal pair, periodic and bounded, sharing
+    # one LinearDeconvolution instance; nothing else grounds it
+    registry = grid.dispatch
+    deconv = registry.resolve("deconvolve", mx.cell_avg)
+    assert isinstance(deconv, LinearDeconvolution)
+    assert deconv is registry.resolve("deconvolve", mx.center)
+    assert deconv is registry.resolve("deconvolve", my.cell_avg)
+    assert deconv is registry.resolve("deconvolve", my.center)
+    for absent in (mx.right, my.inner, mx.face_avg):
+        with pytest.raises(DispatchError, match="deconvolve"):
+            registry.resolve("deconvolve", absent)
+
+
+def test_seeded_registry_covers_the_average_interpolate_rows(
+        grid, mx, my):
+    # G4: the average family under the interpolate kind reuses the
+    # reconstruct instance (the staggering hop the composed metric
+    # machinery needs); FaceAvg falls out of the identical path free
+    registry = grid.dispatch
+    recon = registry.resolve("reconstruct", mx.cell_avg)
+    assert isinstance(recon, LinearReconstruction)
+    assert registry.resolve("interpolate", mx.cell_avg) is recon
+    assert registry.resolve("interpolate", mx.face_avg) is recon
+    assert registry.resolve("interpolate", my.cell_avg) is recon
+    assert registry.resolve("interpolate", my.face_avg) is recon
 
 
 def test_seeded_registry_covers_the_bc_tagged_trig_origins(grid, my):

@@ -49,10 +49,10 @@ from fridom.spatial.operators.base import (
 )
 from fridom.spatial.operators.registry import DispatchError
 from fridom.spatial.scalars import Scalars
-from fridom.spatial.spaces.average import AverageSpace
+from fridom.spatial.spaces.average import AverageSpace, CellAvg
 from fridom.spatial.spaces.coefficient import CoefficientSpace
 from fridom.spatial.spaces.constant import ConstantSpace
-from fridom.spatial.spaces.nodal import NodalSpace
+from fridom.spatial.spaces.nodal import NodalSpace, NodeSet
 from fridom.spatial.spaces.tensor_product import (
     TensorProductSpace,
     join,
@@ -1285,6 +1285,8 @@ def _conversion_kind(
             ".forward/.backward", left=src, right=dst, operation="to")
     if src_coeff:
         return "interpolate"  # exact inter-origin shift (3.2)
+    if _colocated_avg_nodal(src, dst):
+        return "deconvolve"  # same-location CellAvg <-> Center (3.9)
     if isinstance(src, AverageSpace):
         return "reconstruct"
     if isinstance(src, NodalSpace):
@@ -1295,6 +1297,43 @@ def _conversion_kind(
     raise SpaceMismatchError(
         f"no .to conversion is defined from {src!r} to {dst!r}",
         left=src, right=dst, operation="to")
+
+
+def _colocated_avg_nodal(
+    src: FunctionSpace, dst: FunctionSpace,
+) -> bool:
+    """
+    Whether ``src``/``dst`` are the co-located ``CellAvg <-> Center`` pair.
+
+    Description
+    -----------
+    The routing predicate of the ``"deconvolve"`` kind (rules 3.9): a
+    cell average and the point value at the *same* location (the cell
+    midpoint) on one mesh — either order. It is exactly this pair the
+    staggering ``"reconstruct"``/``"average"`` kinds cannot reach (they
+    are committed to the half-cell ``CellAvg -> Right`` / ``Center ->
+    FaceAvg`` shifts, and a registry key resolves one codomain). The
+    dual ``FaceAvg <-> Right`` pair is designed-for and deliberately
+    not matched (FV-D2 option A never instantiates ``FaceAvg``).
+
+    Parameters
+    ----------
+    src : FunctionSpace
+        The source factor space.
+    dst : FunctionSpace
+        The requested target factor space.
+
+    Returns
+    -------
+    bool
+        True iff one factor is a ``CellAvg`` and the other its
+        co-located ``Center`` on the same mesh.
+    """
+    avg, nod = (src, dst) if isinstance(src, AverageSpace) else (dst, src)
+    return (isinstance(avg, CellAvg)
+            and isinstance(nod, NodalSpace)
+            and nod.node_set is NodeSet.CENTER
+            and avg.mesh is nod.mesh)
 
 
 def _target_space(
