@@ -14,7 +14,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import fridom as fr
-from fridom.nonhydro2.modules.advection import CenteredAdvection
+from fridom.model.modules.advection import CenteredAdvection
 from fridom.nonhydro2.modules.core import (
     DynamicalCore,
     resolve_model_family,

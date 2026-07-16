@@ -3,7 +3,7 @@
 ``operators.graded`` owns the ladder arithmetic, the wall-window
 builder and the ``patch_physical_ends`` seam that both graded families
 drive: the average-family ``Fallback`` (``shift = 0``) and the nodal
-C-grid biased kernels of ``nonhydro2.modules.advection``
+C-grid biased kernels of ``model.modules.advection``
 (``shift = 0`` on ``Center -> Inner``, ``shift = 1`` on the dual
 ``Inner -> Center``).
 

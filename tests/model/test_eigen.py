@@ -24,6 +24,7 @@ from fridom.model.eigen import (
     numeric_eigenpairs,
 )
 from fridom.model.model import Model
+from fridom.model.modules.advection import CenteredAdvection
 from fridom.model.modules.coriolis import (
     BetaPlaneCoriolis,
     FPlaneCoriolis,
@@ -31,7 +32,6 @@ from fridom.model.modules.coriolis import (
 from fridom.model.time_steppers.adam_bashforth import (
     AdamBashforth,
 )
-from fridom.nonhydro2.modules.advection import CenteredAdvection
 from fridom.nonhydro2.modules.core import DynamicalCore
 from fridom.nonhydro2.modules.stratification import (
     ConstantStratification,

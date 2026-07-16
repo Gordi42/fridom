@@ -12,7 +12,7 @@ value at all**. This module owns the pieces every graded operator
 shares — the ladder arithmetic, the wall-window builder, and the
 multi-device ``patch_physical_ends`` seam — so the FV
 (:mod:`~fridom.spatial.operators.fallback`) and the nodal C-grid
-(``nonhydro2.modules.advection``) families use one implementation.
+(``model.modules.advection``) families use one implementation.
 
 The cell frame
 --------------

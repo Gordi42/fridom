@@ -24,7 +24,7 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from fridom.nonhydro2.modules.advection import (
+from fridom.model.modules.advection import (
     _BiasedFaceReconstruction,
 )
 from fridom.spatial.bc import BC

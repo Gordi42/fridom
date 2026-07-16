@@ -20,8 +20,11 @@ from lazypimp import setup
 if TYPE_CHECKING:  # pragma: no cover
     from fridom.model.modules import (
         BetaPlaneCoriolis,
+        CenteredAdvection,
         FPlaneCoriolis,
         RotationCoriolis,
+        UpwindAdvection,
+        WENOAdvection,
     )
 
     from . import (
@@ -47,11 +50,6 @@ if TYPE_CHECKING:  # pragma: no cover
         wave_package,
     )
     from .model import Model
-    from .modules.advection import (
-        CenteredAdvection,
-        UpwindAdvection,
-        WENOAdvection,
-    )
     from .modules.core import DynamicalCore
     from .modules.gaussian_wave_maker import GaussianWaveMaker
     from .modules.polarized_wave_maker import PolarizedWaveMaker
@@ -80,13 +78,13 @@ all_imports_by_origin = {
     f"{base}.model": ["Model"],
     f"{base}.state": ["State"],
     f"{base}.modules.core": ["DynamicalCore"],
-    # the Coriolis family is the shared framework module library
+    # the Coriolis and flux-form advection families are the shared
+    # framework module library (advection rehomed under HY-D5)
     "fridom.model.modules": [
-        "FPlaneCoriolis", "BetaPlaneCoriolis", "RotationCoriolis"],
+        "FPlaneCoriolis", "BetaPlaneCoriolis", "RotationCoriolis",
+        "CenteredAdvection", "UpwindAdvection", "WENOAdvection"],
     f"{base}.modules.stratification": [
         "ConstantStratification", "MeridionalStratification"],
-    f"{base}.modules.advection": [
-        "CenteredAdvection", "UpwindAdvection", "WENOAdvection"],
     f"{base}.modules.gaussian_wave_maker": ["GaussianWaveMaker"],
     f"{base}.modules.polarized_wave_maker": ["PolarizedWaveMaker"],
     f"{base}.modules.smagorinsky_lilly": ["SmagorinskyLilly"],

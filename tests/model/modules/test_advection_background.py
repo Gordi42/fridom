@@ -9,14 +9,14 @@ import fridom.framework as frold
 import fridom.nonhydro as nhold
 from fridom.model.eigen import numeric_eigenpairs
 from fridom.model.model import Model as FrModel
-from fridom.model.modules.coriolis import FPlaneCoriolis
-from fridom.model.time_steppers.adam_bashforth import (
-    AdamBashforth,
-)
-from fridom.nonhydro2.modules.advection import (
+from fridom.model.modules.advection import (
     CenteredAdvection,
     UpwindAdvection,
     WENOAdvection,
+)
+from fridom.model.modules.coriolis import FPlaneCoriolis
+from fridom.model.time_steppers.adam_bashforth import (
+    AdamBashforth,
 )
 from fridom.nonhydro2.modules.core import DynamicalCore
 from fridom.nonhydro2.modules.stratification import (

@@ -14,16 +14,14 @@ from lazypimp import setup
 if TYPE_CHECKING:  # pragma: no cover
     from fridom.model.modules import (
         BetaPlaneCoriolis,
+        CenteredAdvection,
         FPlaneCoriolis,
         Relaxation,
         RotationCoriolis,
-    )
-
-    from .advection import (
-        CenteredAdvection,
         UpwindAdvection,
         WENOAdvection,
     )
+
     from .core import DynamicalCore
     from .gaussian_wave_maker import GaussianWaveMaker
     from .mapped_pressure import MappedPressureSolver
@@ -39,19 +37,19 @@ base = "fridom.nonhydro2.modules"
 
 all_modules_by_origin: dict[str, list[str]] = {}
 
-# The Coriolis family and the generic relaxation are the shared
-# framework module library (fr.modules), re-exported here so
-# nh.modules.FPlaneCoriolis / nh.modules.Relaxation keep working
-# after the wave-6 consolidation.
+# The Coriolis family, the flux-form advection family (rehomed under
+# HY-D5), and the generic relaxation are the shared framework module
+# library (fr.modules), re-exported here so nh.modules.FPlaneCoriolis
+# / nh.modules.CenteredAdvection / nh.modules.Relaxation keep working
+# after the consolidation.
 all_imports_by_origin = {
     "fridom.model.modules": [
         "FPlaneCoriolis", "BetaPlaneCoriolis",
-        "RotationCoriolis", "Relaxation"],
+        "RotationCoriolis", "Relaxation",
+        "CenteredAdvection", "UpwindAdvection", "WENOAdvection"],
     f"{base}.core": ["DynamicalCore"],
     f"{base}.stratification": [
         "ConstantStratification", "MeridionalStratification"],
-    f"{base}.advection": [
-        "CenteredAdvection", "UpwindAdvection", "WENOAdvection"],
     f"{base}.pressure": ["SpectralPressureSolver"],
     f"{base}.mapped_pressure": ["MappedPressureSolver"],
     f"{base}.gaussian_wave_maker": ["GaussianWaveMaker"],

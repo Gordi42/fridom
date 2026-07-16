@@ -25,13 +25,13 @@ import pytest
 
 import fridom as fr
 from fridom.model.model import Model as FrModel
-from fridom.model.time_steppers.adam_bashforth import AdamBashforth
-from fridom.nonhydro2.modules.advection import (
+from fridom.model.modules.advection import (
     WENOAdvection,
     _BiasedFaceReconstruction,
     _FVBiasedReconstruction,
     _SelectedFaceReconstruction,
 )
+from fridom.model.time_steppers.adam_bashforth import AdamBashforth
 from fridom.nonhydro2.modules.core import DynamicalCore
 from fridom.nonhydro2.modules.stratification import (
     ConstantStratification,

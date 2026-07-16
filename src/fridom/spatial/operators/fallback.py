@@ -54,7 +54,7 @@ follows.
 
 The ladder arithmetic, the wall-window builder and the multi-device
 ``patch_physical_ends`` seam are shared with the nodal C-grid graded
-closure (``nonhydro2.modules.advection``) and live in
+closure (``model.modules.advection``) and live in
 :mod:`~fridom.spatial.operators.graded`; the average family is that
 module's ``shift = 0`` cell frame (the cells *are* the operand's true
 DOFs, so a BC-free bounded ``CellAvg`` offers nothing outside them --
