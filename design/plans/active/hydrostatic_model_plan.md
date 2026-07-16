@@ -295,3 +295,86 @@ chart (3.7 names the hydrostatic model as its likely first
 consumer); IMEX-RK x split-explicit (assembly error per spec §5.4);
 a Veros-style superbee limiter in the shared advection family;
 `SpectralDiagonal` (unneeded under HY-D4).
+
+## 8. Implementation record
+
+*(H0/H1 entries land above this line when they ship; H2 below.)*
+
+### H2 — package + kinematics + explicit free surface (2026-07-16)
+
+Shipped `fridom.hydrostatic` (`import fridom.hydrostatic as hy`):
+`params`, `state` (`u,v,w,b,ps` accessors + `rel_vort_z` /
+`hor_divergence`), `energy`, `diagnostics` (`ekin`/`epot`),
+`initial_conditions` (`single_wave`, `jet`), the `Model` factory,
+lazypimp `__init__`s, root export; and modules `HydrostaticCore`
+(declares `u,v,w,p_hyd`, owns the two DIAGNOSE stages + the linear
+pressure-gradient term, publishes `hydrostatic.csqr` / `scaling.rossby`),
+`ConstantStratification` (`b` + the single `-N^2 w` restoring), and
+`ExplicitFreeSurface` (`ps` on `Profile("x","y")` + `-c^2 div(u_bar)`).
+
+**Discrete DIAGNOSE choices.** `w = -CumulativeIntegral("up","face")`
+of `(d_x u + d_y v)` — the bottom-up FACE form, so
+`d_z w == -(d_x u + d_y v)` machine-exactly (measured FT residual
+1e-14). `p_hyd = -CumulativeIntegral("down","center")` of `b` — the
+top-down half-cell CENTER form; the top-cell value is exactly
+`-(dz/2) b_top`, which is what cancels the surface boundary term and
+makes the KE<->PE conversion exactly energy-conserving.
+
+**Verified gates.** Linear energy skew `<X, M dX/dt>` over the full
+system (baroclinic + barotropic + f-plane Coriolis) = 4e-16 with
+`M=diag(1,1,1/N^2,1/c^2)` and **ps integrated over the 3D volume**
+(the depth factor `H` that makes `-grad ps` and `-c^2 div(u_bar)` an
+exact adjoint pair). Manufactured `w`/`p_hyd` exact. Geostrophic
+null-eigenvector state steady to 1e-15/step. Barotropic Poincaré
+dispersion vs `omega^2=f^2+c^2 k_disc^2` (discrete C-grid symbol) to
+8e-5 via the reduced linear operator; hydrostatic internal-wave
+`m_disc^2 = N^2 kh_disc^2/(omega^2-f^2)` identical across two `kh`
+(the discrete `omega^2=f^2+N^2 kh^2/m^2`) and within 0.6% of the
+continuous `(pi/H)^2`.
+
+**Deviations from §3 (two).**
+1. **`w` lives on `Outer(z)` (a `SpaceRule`), not `Staggered("z")`.**
+   `Staggered` resolves to `Inner` (interior faces) on a bounded axis,
+   but the face-form running integral lands on `Outer` (both boundary
+   faces), and the surface DOF `w(0)` — the barotropic column
+   divergence, non-zero under a free surface — is load-bearing: with
+   `w` on `Inner` the machine-exact FT and the machine-exact linear
+   energy conservation both break (measured skew 0.17 vs 6e-17). `w`
+   keeps `Lifecycle.DIAGNOSTIC` + `Velocity("z")` (V-H2) but is
+   declared through the `SpaceRule` escape hatch (no `Dof` tag
+   resolves to `Outer`).
+2. **Nonlinear advection is not yet wired; the factory default is a
+   linear model (`advection=False`), and a truthy `advection` raises a
+   taught error.** The shared flux-form advection transports a
+   cell-centred tracer through the *interior* vertical faces (`Inner`)
+   and interpolates the advecting velocity there (`w.to(Inner)`); with
+   `w` on `Outer` there is no registered vertical interpolation between
+   `Outer` and `Inner` (only `Center->Inner` and `Outer->Center`
+   exist), so the vertical leg cannot consume the diagnosed `w`
+   (`table.velocity()` DOES pick `w` up — the V-H2 role query works;
+   the gap is purely spatial-layer interpolation). Unblocking needs a
+   vertical `Center<->Outer` / `Outer->Inner` interpolation (or a
+   shared-advection enhancement restricting an `Outer` velocity to the
+   interior flux faces) — a small follow-up. All H2 dispersion /
+   geostrophic / energy gates are on the linear model and are
+   unaffected.
+
+**Gates (all green).** `tests/hydrostatic/` = **73 passed** (serial);
+`ruff check src tests` clean; **100% coverage** of the hydrostatic
+source (231 stmts / 22 branches); the `tests/nonhydro/test_linear_model.py`
+framework smoke unaffected by the root `__init__` export.
+
+**Other notes.** The barotropic divergence uses `Integral()["z"]`
+applied to the *collocated* `d_x u + d_y v` (the halo tracer has no
+`.mean`/`.integrate` sugar, and `Integral` on the staggered `u` hit a
+measure-halo mismatch; reducing the collocated divergence — which the
+z-reduction and horizontal derivative commute through — sidesteps
+both and keeps the adjoint pairing exact). `ExplicitFreeSurface.bind`
+reads the depth `H` from the mesh **extent** (not a materialized
+`grid.measure(...).data`), because the latter re-fetches a
+halo-shaped array against the frozen decomposition when a second model
+is assembled on the same grid — the shared-grid reuse the canonical D4
+preset test (identical full-`_carry` treedef) depends on; extent-`H`
+is telescoping-exact, so energy conservation stays at `4e-16`. Package
+param name is `hydrostatic.csqr` (matching the `shallowwater.csqr` /
+`nonhydro.dsqr` package-namespace convention).
