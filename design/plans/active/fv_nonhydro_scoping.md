@@ -13,9 +13,11 @@ change?*
 
 This is a scoping study, not an implementation plan: it reports the
 current-state seams with evidence, records the decisions, and stages
-the work. **No FV code has been written yet** — `nonhydro2` names no
-average space anywhere (verified 2026-07-13). The staged plan of §6 is
-the entry point; ROADMAP 3.5 points here.
+the work. The staged plan of §6 is the entry point; ROADMAP 3.5
+points here. **Update 2026-07-16: stages F0–F3 are implemented and
+merged — the periodic nonhydro model is FV by default; see §10 for
+the implementation record and the corrections it surfaced.** F4–F6
+remain open exactly as staged.
 
 ## 1. Headline
 
@@ -388,3 +390,68 @@ validated walled + mapped model for a type-level guarantee that, at
 - FV shallow water (`shallowwater2`) — the same machinery applies;
   Sadourny's energy-conserving forms would need their own FV story.
 - The old stack (`framework/`, `nonhydro/`) — untouched.
+
+## 10. Implementation record — F0–F3 shipped (2026-07-16)
+
+Four merges on `dev` (each gated on mirrored tests + ruff, reviewed
+by the orchestrating session): `feat/fv-symbols` (F0),
+`feat/fv-conversion-rows` (F1), `feat/fv-tracer` (F2),
+`feat/fv-cgrid-default` (F3), plus `perf/fv-step-parity` (the FV/FD
+step-parity guard). Gates as staged: symbols match their composed
+operators to ~1e-14 and `SpectralSolve` drives the FV divergence to
+machine zero (F0); `p.to(center)` works and the diagnostics land
+**bitwise** on nodal values under the C-grid overrides (F1); exact
+tracer-mass conservation to machine zero on periodic *and* walled
+axes, FV advection tendencies bitwise nodal on periodic (F2); linear
+and nonlinear periodic runs **bit-identical** to the nodal model over
+12 steps, `tests/nonhydro2` green under the new default,
+`shallowwater2` untouched (F3). Perf: step-suite clean vs the
+pre-FV baseline (flipped cases −1.2%..+0.1%), FV/FD = 0.997..1.003
+at 32³..512³ (1× A100; see `benchmarks/RESULTS.md`).
+
+**Gap ledger now:** G1, G3, G4, G5 closed. G2 stays a dead-end by
+decision (FV-D2). G6 open (F4). G7, G8, G9 open (F6).
+
+**Corrections to this study, found during implementation:**
+
+1. **§3 G1 symbol table (F0).** The table lists magnitudes only; the
+   exact symbols carry the inter-origin half-cell phase
+   `e^{i k δ dx}` (δ = first-node-offset difference), and at 2nd
+   order `LinearReconstruction` is the plain two-point mean
+   (`cos(k dx/2)`) — **no** `1/sinc` deconvolution factor (that is a
+   higher-order member). The FV Laplacian's phases cancel to the
+   real `−k̂²`.
+2. **§3 G3 / §4 (F1).** `diagnostics.py` was *not* blocked only on
+   G3: `ekin`/`epot` already worked through pre-existing rows, and
+   `linear_pot_vort` needs the **G5** staggered-diff overrides (F3),
+   not the deconvolution. The same-location conversion also needed
+   its own dispatch kind (`"deconvolve"`) — `"reconstruct"` on
+   `CellAvg` is load-bearing for the staggering hop (FVDerivative,
+   C-grid `u.to(v)`), and a registry kind resolves one codomain.
+3. **§5 FV-D3 "two rows" is incomplete (F3).** The pressure chain
+   needs only the two `diff` overrides, but the **symbol kit** also
+   needs the face→cell staggering interpolation on average-family
+   fields. That cannot be a global `("interpolate", Right)` override
+   (it would break nodal `.to` on mixed grids); it is inferred
+   per-field in `GridSymbols._axis_symbol` (an average-family field
+   routes a nodal-face `interpolate` through the `"average"` kind).
+4. **§8 flip mechanism (F3).** "Selecting the resolver row" at grid
+   build does not fit a passed-in bare grid: the flip is a
+   **pre-freeze grid-default mutation** (`Grid.set_default_family`)
+   applied by the `nh.Model` factory after `resolve_model_family`
+   (auto = FV iff fully periodic, unmapped, unimmersed), and the
+   C-grid diff overrides ride a new assembly hook
+   (`module.grid_dispatch_overrides(grid)`). A second model on a
+   grid frozen by a different-family model is a taught
+   `AssemblyError` (latent re-assembly gap, closed in F3).
+5. **New F4 input (F2).** Walled FV *stratified* coupling has a
+   concrete blocker beyond FV-D4: `w.to(b)` from a BC-tagged
+   `Inner(DIRICHLET)` face onto `CellAvg` does not resolve —
+   `("average", tagged-face)` is unseeded and `LinearReconstruction`
+   rejects BC-tagged domains (pinned deliberately). Walled tracer
+   *advection* works (adopt-then-strip of the velocity's tag around
+   the BC-free `flux_diff`); the walled mixed stratified model does
+   not assemble until F4 seeds the tagged rows.
+6. **Multi-device.** All F0–F3 gates ran on cpu and 1 GPU; the
+   distributed solve on average origins and the 4-GPU step baseline
+   are still to be validated (next 4-GPU campaign).

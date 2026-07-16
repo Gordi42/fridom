@@ -205,13 +205,23 @@ first; it blocks nothing.
 
 Move the nonhydro model to the average family (`CellAvg` scalars,
 face-normal velocities — decision FV-D2 **option A**, owner 2026-07-12).
-**No FV code is written yet**; all nine operator gaps are open. Staged:
-the four FV symbol rows (the long pole — they block `SpectralSolve` and
-hence the pressure solve), the missing conversion rows, an FV tracer slice
-— which is where the payoff lands: **exact tracer-mass conservation and
-the cut-cell path** — then the C-grid profile with **bitwise parity** as
-the gate. Do **not** flip the default wholesale first: walls and mapped
-grids work today and would regress.
+**Stages F0–F3 SHIPPED 2026-07-16**: the four FV symbol rows, the
+conversion rows (a new `"deconvolve"` kind), `family=` declarations
+(FV-D1b) + the FV tracer slice (exact tracer-mass conservation to
+machine zero, periodic *and* walled), and the C-grid profile — **the
+periodic nonhydro model is now FV by default**, gated on bitwise
+parity with nodal and on a clean step-suite run (FV/FD step time
+0.997–1.003 at every size, 1× A100). Walled/mapped grids stay nodal
+by default; explicit `family="fv"` there is a taught error.
+
+Open: **F4** walls (FV-D4 — plus the F2-found blocker: BC-tagged
+face → `CellAvg` reconstruction is unseeded, so a *walled stratified*
+mixed model does not assemble), **F5** mapped/chart FV, **F6**
+hygiene (G7 dealiasing on average origins, G8 quadrature
+`discretize`, G9 one-sided wall reconstruct). Also pending: validate
+the FV default on 4 GPUs (distributed solve on average origins ran
+only 1-GPU so far; the gpu4 step baseline predates the nodal sibling
+cases).
 [`../plans/active/fv_nonhydro_scoping.md`](../plans/active/fv_nonhydro_scoping.md)
 
 ## Docs & examples rebuild
