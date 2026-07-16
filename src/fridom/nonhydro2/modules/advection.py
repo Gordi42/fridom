@@ -127,6 +127,30 @@ consistent but drop to 2nd order (measured: upwind-5 and weno-5 both
 silently under-deliver — a mapped-aware high-order reconstruction is
 future work.
 
+**Finite-volume (average-family) tracers (FV-D2 option A)**: an
+``ADVECTED`` component declared ``family="fv"`` resolves to the
+``CellAvg`` cell-average family and is transported in genuinely
+conservative FV flux form — a per-component branch, so one module
+carries a mixed nodal-plus-FV advected set (nodal ``u``/``v``/``w``
+self-advection beside a ``CellAvg`` buoyancy). Three things change
+for a ``CellAvg`` tracer ``q``: the flux sits on the reconstructed
+face (``CellAvg -> Right`` periodic / ``Inner`` bounded) rather than
+the nodal ``diff`` codomain; the face value is the average-family
+reconstruction (the registered ``LinearReconstruction`` for
+``CenteredAdvection``, the module-private ``_FVBiasedReconstruction``
+— reusing ``spatial.operators.weno`` and the same ``graded`` closure
+``Fallback`` wraps — for the biased schemes); and the divergence is
+the **exact** ``spatial.operators.flux_diff`` (``Right | Inner ->
+CellAvg``, the discrete Gauss theorem) instead of ``diff`` + retag.
+Because ``flux_diff`` telescopes to the boundary fluxes — zero on a
+periodic wrap, zero at a wall (the ``Inner`` variant pads exact-zero
+boundary fluxes) — ``integrate(q)`` is conserved to machine zero over
+a run, on periodic and walled axes alike. At second order the FV and
+nodal C-grid stencils are the same numbers, so an FV tracer's tendency
+is bitwise the nodal one on a periodic box (a retag). Mapped FV is
+rejected at bind (stage F5); the FV pressure C-grid is stage F3 (the
+projection here never touches a tracer).
+
 **Walled grids**: all three schemes support bounded mesh factors.
 ``CenteredAdvection`` does so structurally (next paragraph); the
 biased schemes add the **graded near-wall closure** on top of exactly
@@ -228,6 +252,7 @@ from fridom.spatial.operators.weno import (
     weno_tables,
 )
 from fridom.spatial.scalars import Scalars
+from fridom.spatial.spaces.average import AverageSpace, CellAvg
 from fridom.spatial.spaces.constant import ConstantSpace
 from fridom.spatial.spaces.nodal import NodalSpace, NodeSet
 
@@ -1114,6 +1139,253 @@ class _BiasedFaceReconstruction(SeparableOperator):
         return apply_graded_walls(f, axis, interior, rungs, shift)
 
 
+@final
+@interned
+class _FVBiasedReconstruction(SeparableOperator):
+
+    """
+    Upwind/WENO reconstruction of a cell average onto its faces.
+
+    Description
+    -----------
+    The average-family twin of `_BiasedFaceReconstruction`: a
+    ``CellAvg`` tracer is reconstructed onto its right faces
+    (``CellAvg -> Right`` periodic, ``CellAvg -> Inner`` bounded), the
+    face value the FV flux form multiplies by the face-normal
+    velocity. Because ``CellAvg`` sits at the primal-cell midpoints
+    (``fv_node_offset`` 0.5, exactly like ``Center``), the window
+    alignment, the halo, and the graded near-wall ladder are the
+    *same numbers* as the nodal primal ``Center -> Right`` / ``Center
+    -> Inner`` direction (the FV/nodal stencil identity of the scoping
+    study) — so this reuses the module's shared kernels
+    (`_biased_kernel`, `_rung_kernel`), ``spatial.operators.weno``
+    (the array reconstruction), and the ``spatial.operators.graded``
+    ladder (`biased_specs` / `apply_graded_walls`, the same closure
+    ``Fallback`` wraps). The cell frame is always the primal one
+    (``shift = 0``): the tracer is the cell average, never a
+    face-staggered quantity, so there is no dual direction here.
+
+    ``boundary="graded"`` reads **no exterior value** (R1,
+    ``boundary_plan.md``): ``CellAvg`` is BC-free and the ladder stays
+    inside its true DOFs; on a periodic factor it returns the interior
+    pass untouched (bitwise the ``boundary="none"`` kernel). Held
+    directly by the advection modules as a left/right pair (the sign
+    selection is the module's ``Where`` select); never registered
+    under a dispatch kind. Uniform-mesh only (the biased advection
+    modules reject stretched meshes at bind).
+
+    Parameters
+    ----------
+    order : int
+        The odd formal order; the framework tables ground 3 and 5.
+    bias : Literal["left", "right"]
+        The upwind bias side of the reconstruction.
+    weighting : Literal["linear", "weno"]
+        "linear" applies the full optimal-weight upwind row; "weno"
+        applies the nonlinear WENO-JS weighting of the same window.
+    boundary : Literal["none", "graded"], optional
+        "none" is the periodic-only kernel; "graded" grows the
+        bounded ``CellAvg -> Inner`` signature with the near-wall
+        ladder (default: "none").
+    wall : Literal["upwind1", "centered2"], optional
+        The ladder's bottom rung under ``boundary="graded"``; inert
+        on the plain kernel (default: "upwind1").
+    """
+
+    dispatch_kind: ClassVar[str | None] = None
+
+    def __init__(
+        self,
+        order: int,
+        bias: Literal["left", "right"],
+        weighting: Literal["linear", "weno"],
+        boundary: Literal["none", "graded"] = "none",
+        wall: Literal["upwind1", "centered2"] = "upwind1",
+    ) -> None:
+        """Validate through the framework tables and store."""
+        if weighting not in _WEIGHTINGS:
+            raise ValueError(
+                f"weighting must be one of {_WEIGHTINGS}, got "
+                f"{weighting!r}")
+        if boundary not in _BOUNDARY_MODES:
+            raise ValueError(
+                f"boundary must be one of {_BOUNDARY_MODES}, got "
+                f"{boundary!r}")
+        if wall not in WALL_RUNGS:
+            raise ValueError(
+                f"wall must be one of {WALL_RUNGS}, got {wall!r}")
+        weno_tables(order, bias)  # validates order and bias
+        self._order = order
+        self._bias = bias
+        self._weighting = weighting
+        self._boundary = boundary
+        self._wall = wall
+
+    def _intern_key(self) -> tuple:
+        """Structural key: order, bias, weighting, boundary, wall (D6)."""
+        return (self._order, self._bias, self._weighting,
+                self._boundary, self._wall)
+
+    # ------------------------------------------------------------
+    #  Properties
+    # ------------------------------------------------------------
+    @property
+    def order(self) -> int:
+        """Formal order of the biased reconstruction."""
+        return self._order
+
+    @property
+    def bias(self) -> Literal["left", "right"]:
+        """Upwind bias side of the reconstruction."""
+        return self._bias
+
+    @property
+    def weighting(self) -> Literal["linear", "weno"]:
+        """The stencil weighting: "linear" or "weno"."""
+        return self._weighting
+
+    @property
+    def boundary(self) -> Literal["none", "graded"]:
+        """The boundary variant: "none" or "graded"."""
+        return self._boundary
+
+    @property
+    def wall(self) -> Literal["upwind1", "centered2"]:
+        """The ladder's bottom rung: "upwind1" or "centered2"."""
+        return self._wall
+
+    # ------------------------------------------------------------
+    #  Signature and requirements
+    # ------------------------------------------------------------
+    def codomain(self, domain: FunctionSpace) -> FunctionSpace:
+        """
+        Resolve the FV face codomain: CellAvg -> Right | Inner.
+
+        Description
+        -----------
+        ``CellAvg -> Right`` on a periodic uniform mesh; the bounded
+        ``CellAvg -> Inner`` variant is grounded only under
+        ``boundary="graded"`` (the near-wall closure). Average spaces,
+        stretched axes, and complex scalars raise.
+
+        Parameters
+        ----------
+        domain : FunctionSpace
+            The bare 1D factor space.
+
+        Returns
+        -------
+        FunctionSpace
+            The flux-position codomain factor.
+        """
+        if (not isinstance(domain, CellAvg)
+                or domain.scalars is Scalars.COMPLEX):
+            raise SpaceMismatchError(
+                f"{type(self).__name__} reconstructs a real CellAvg "
+                f"tracer onto its faces, got {domain!r}",
+                left=domain, operation="reconstruct")
+        if mapped_factor(domain):
+            raise SpaceMismatchError(
+                f"{type(self).__name__} is uniform-mesh only (the "
+                "biased advection modules reject stretched meshes at "
+                "bind) — "
+                + mapped_order_hint(
+                    "the biased FV reconstruction rows")
+                + f", got {domain!r}",
+                left=domain, operation="reconstruct")
+        mesh = domain.mesh
+        if mesh.periodic:
+            return mesh.right
+        if self._boundary != "graded":
+            raise SpaceMismatchError(
+                f"{type(self).__name__} is periodic-only in its "
+                "boundary='none' variant; the bounded signature is "
+                "the graded near-wall closure (boundary='graded'), "
+                f"got {domain!r}",
+                left=domain, operation="reconstruct")
+        return mesh.inner
+
+    def requirements(
+        self,
+        domain: FunctionSpace,  # noqa: ARG002 — fixed by the order
+    ) -> OperatorRequirements:
+        """
+        Declare halo = order // 2 + 1, layout "any".
+
+        Parameters
+        ----------
+        domain : FunctionSpace
+            The factor space the operator is applied on.
+
+        Returns
+        -------
+        OperatorRequirements
+            The per-factor requirements record.
+        """
+        return OperatorRequirements(halo=self._order // 2 + 1)
+
+    # ------------------------------------------------------------
+    #  Kernel application (biased window alignment, primal frame)
+    # ------------------------------------------------------------
+    def _apply_factor(self, f: FieldLike, axis: str) -> FieldLike:
+        """
+        Reconstruct along ``axis`` (biased window-aligned kernel).
+
+        Description
+        -----------
+        The primal cell frame (``shift = 0``): the WENO window
+        alignment lands the kernel output on the right face of window
+        cell ``order // 2`` (left bias) / ``order // 2 - 1`` (right
+        bias). On a bounded axis the graded variant overwrites the
+        ``K`` wall faces per side from the ladder, which reads
+        interior DOFs only (``CellAvg`` is BC-free).
+
+        Parameters
+        ----------
+        f : FieldLike
+            The operand field (storage-shaped ``_data``).
+        axis : str
+            The resolved coordinate axis.
+
+        Returns
+        -------
+        FieldLike
+            The reconstructed field (metadata kept: same quantity).
+        """
+        order = self._order
+        bias = self._bias
+        weighting = self._weighting
+        m0 = biased_offset(order, bias)  # primal frame, shift 0
+        kernel = _biased_kernel(order, bias, weighting)
+        interior = apply_fv_staggered(self, f, axis, order, kernel,
+                                      metadata=f.metadata, align=m0)
+        domain = f.function_space.bare.factor(axis)
+        if self._boundary == "none" or domain.mesh.periodic:
+            return interior
+        rungs = tuple(
+            Rung(spec.width, spec_offset(spec, bias),
+                 _rung_kernel(spec, bias, weighting))
+            for spec in biased_specs(order, 0, self._wall))
+        return apply_graded_walls(f, axis, interior, rungs, 0)
+
+
+def _is_average_space(space: object) -> bool:
+    """Whether a (laid-out) space carries any average-family factor.
+
+    Description
+    -----------
+    The per-component family switch of the flux-form modules: an
+    ``ADVECTED`` tracer declared ``family="fv"`` resolves to the
+    ``CellAvg`` average family, and its flux mechanics differ from the
+    nodal C-grid (the flux lands on the reconstructed face and the
+    divergence is the exact ``flux_diff``, not ``diff`` + retag). The
+    tracer slice puts a tracer fully on ``CellAvg`` or fully nodal, so
+    any average factor marks the FV path.
+    """
+    return any(isinstance(factor, AverageSpace)
+               for factor in space.bare.factors)
+
+
 # ================================================================
 #  The shared flux-form scaffolding (module-private)
 # ================================================================
@@ -1253,11 +1525,44 @@ class _FluxFormAdvection(fr.model.Module):
         self._walled = walled
         self._bind_mapping(table.grid)
         self._advected = table.select(fr.model.roles.ADVECTED)
+        self._reject_mapped_average(table)
         selector = table.velocity()
         # selector.labels pairs each velocity name with its axis
         self._axis_velocity = tuple(
             (axis, name) for name, axis in selector.labels)
         self._bind_background(table)
+
+    def _reject_mapped_average(self, table: object) -> None:
+        """Refuse average-family tracers on a mapped grid (stage F5).
+
+        Description
+        -----------
+        FV flux-form transport of a ``CellAvg`` tracer is grounded on
+        the flat (and walled) grid only: the flux divergence is the
+        computational-coordinate ``flux_diff``, not the J-weighted
+        physical flux divergence a mapped column needs (mapped FV is
+        stage F5). The biased schemes already refuse any mapped grid
+        (`_supports_mapped`); this additionally guards the
+        mapped-capable `CenteredAdvection` against an FV tracer.
+
+        Raises
+        ------
+        NotImplementedError
+            If a mapped column is declared and any advected component
+            resolves to the average family.
+        """
+        if self._column is None:
+            return
+        average = tuple(
+            name for name in self._advected
+            if _is_average_space(table[name].space))
+        if average:
+            raise NotImplementedError(
+                f"{type(self).__name__} cannot transport the "
+                f"average-family (CellAvg) tracer(s) {average} on a "
+                "mapped grid: FV flux-form advection is flat/walled "
+                "only in the tracer slice (mapped FV is stage F5). "
+                "Use a flat grid, or declare the tracer family='nodal'")
 
     def _bind_mapping(self, grid: object) -> None:
         """Freeze the mapped-column coupling table (stage C4).
@@ -1478,6 +1783,28 @@ class _FluxFormAdvection(fr.model.Module):
         FunctionSpace
             The flux space (layout preserved).
         """
+        q_factor = q.function_space.bare.factor(axis)
+        if isinstance(q_factor, AverageSpace):
+            # FV: the flux sits on the reconstructed face of the cell
+            # average (CellAvg -> Right | Inner), transverse averages
+            # untouched. On a walled axis the face adopts the
+            # wall-normal velocity's Dirichlet tag (the same BC-sibling
+            # substitution as the nodal path), so v.to(flux_space) is
+            # the identity on the flux axis (the .to family matrix has
+            # no same-node-set BC retag); _flux_divergence then strips
+            # the tag before the flux_diff, whose Inner variant imposes
+            # the exact-zero wall flux itself. On periodic axes the
+            # face and the velocity share the interned BC-free factor,
+            # so the substitution never fires (bitwise unchanged).
+            recon = q.grid.dispatch.resolve("reconstruct", q_factor)
+            space = q.function_space.replace(
+                **{axis: recon.codomain(q_factor)})
+            v_factor = v.function_space.bare.factor(axis)
+            factor = space.bare.factor(axis)
+            if factor is not v_factor and _bc_siblings(factor,
+                                                       v_factor):
+                space = space.replace(**{axis: v_factor})
+            return space
         space = q.diff(axis).function_space
         v_factor = v.function_space.bare.factor(axis)
         factor = space.bare.factor(axis)
@@ -1536,6 +1863,28 @@ class _FluxFormAdvection(fr.model.Module):
         ScalarField
             The flux divergence on ``q``'s (wall-tagged) space.
         """
+        if isinstance(q.function_space.bare.factor(axis), AverageSpace):
+            # FV: the exact discrete Gauss theorem. flux_diff maps the
+            # face flux back onto the cell average (Right | Inner ->
+            # CellAvg), telescoping to the boundary fluxes — zero on a
+            # periodic wrap, zero at a wall (the Inner variant pads
+            # exact-zero boundary fluxes). integrate(flux_diff(F)) is
+            # therefore machine zero, so the tracer mass is conserved
+            # by construction. On a walled axis the flux carries the
+            # velocity's adopted Dirichlet tag; strip it first (the
+            # flux_diff Inner variant is BC-free — it imposes the zero
+            # wall flux itself, the wall-face DOFs are never read). The
+            # data is unchanged by the retag, so conservation holds.
+            # The result already lands on q's space (no retag). Mapped
+            # FV is rejected at bind (stage F5).
+            flux_factor = flux.function_space.bare.factor(axis)
+            if not flux_factor.bc.is_free:
+                bcfree = flux_factor.mesh.inner
+                flux = flux.retag(
+                    flux.function_space.replace(**{axis: bcfree}))
+                flux_factor = bcfree
+            return q.grid.dispatch.resolve(
+                "flux_diff", flux_factor)[axis](flux)
         if self._column is None:
             return flux.diff(axis).retag(q)
         mapped, base = self._column
@@ -2018,6 +2367,21 @@ class UpwindAdvection(_FluxFormAdvection):
                                                     "linear", boundary,
                                                     wall)
         self._interp = _CenteredFaceInterpolation(order - 1, boundary)
+        # the average-family twins, for a CellAvg tracer in the same
+        # (possibly mixed) model: CellAvg -> Right | Inner, the same
+        # kernels and graded closure on the primal cell frame
+        self._fv_left = _FVBiasedReconstruction(order, "left",
+                                                weighting, boundary,
+                                                wall)
+        self._fv_right = _FVBiasedReconstruction(order, "right",
+                                                 weighting, boundary,
+                                                 wall)
+        self._fv_lin_left = _FVBiasedReconstruction(order, "left",
+                                                    "linear", boundary,
+                                                    wall)
+        self._fv_lin_right = _FVBiasedReconstruction(order, "right",
+                                                     "linear", boundary,
+                                                     wall)
 
     def bind(self, table: object) -> None:
         """Install the walled kernels, then widen the provisional halo.
@@ -2141,6 +2505,15 @@ class UpwindAdvection(_FluxFormAdvection):
         ScalarField
             ``v`` on the flux space.
         """
+        if _is_average_space(flux_space):
+            # FV flux face: the velocity hops onto the reconstructed
+            # face (identity on the flux axis — the face adopted the
+            # velocity's tag) and deconvolves transverse Center ->
+            # CellAvg (a co-located 2nd-order pass-through). The tracer
+            # reconstruction carries the scheme's order; the velocity
+            # interpolation is the registered centered conversion, the
+            # FV-D2 face-normal-velocity convention.
+            return v.to(flux_space)
         result = v
         bare = flux_space.bare
         for axis in bare.names:
@@ -2187,10 +2560,45 @@ class UpwindAdvection(_FluxFormAdvection):
         ScalarField
             The upwind-biased face value of ``q``.
         """
+        left, right = self._biased_pair(q, axis)
         positive = v_face + abs(v_face)
         return Where()(positive,
-                       self._left[axis](q).retag(flux_space),
-                       self._right[axis](q).retag(flux_space))
+                       left(q).retag(flux_space),
+                       right(q).retag(flux_space))
+
+    def _biased_pair(
+        self, q: ScalarField, axis: str,
+    ) -> tuple[object, object]:
+        """Return the biased reconstruction pair bound to ``axis``.
+
+        Description
+        -----------
+        Selects the average-family reconstruction pair
+        (`_FVBiasedReconstruction`) for a ``CellAvg`` tracer and the
+        nodal pair (`_BiasedFaceReconstruction`) otherwise, so one
+        module transports a mixed nodal-plus-FV advected set with the
+        family-correct reconstruction per component.
+        """
+        if isinstance(q.function_space.bare.factor(axis),
+                      AverageSpace):
+            return self._fv_left[axis], self._fv_right[axis]
+        return self._left[axis], self._right[axis]
+
+    def _linear_pair(
+        self, q: ScalarField, axis: str,
+    ) -> tuple[object, object]:
+        """Return the linear-weight pair bound to ``axis``.
+
+        Description
+        -----------
+        The optimal-weight (smooth-limit) twin of `_biased_pair` for
+        the linear background transport: the average-family pair for a
+        ``CellAvg`` tracer, the nodal pair otherwise.
+        """
+        if isinstance(q.function_space.bare.factor(axis),
+                      AverageSpace):
+            return self._fv_lin_left[axis], self._fv_lin_right[axis]
+        return self._lin_left[axis], self._lin_right[axis]
 
     def _linear_face_value(
         self,
@@ -2228,10 +2636,11 @@ class UpwindAdvection(_FluxFormAdvection):
         ScalarField
             The linear upwind-biased face value of ``q``.
         """
+        left, right = self._linear_pair(q, axis)
         positive = v_face + abs(v_face)
         return Where()(positive,
-                       self._lin_left[axis](q).retag(flux_space),
-                       self._lin_right[axis](q).retag(flux_space))
+                       left(q).retag(flux_space),
+                       right(q).retag(flux_space))
 
 
 class WENOAdvection(UpwindAdvection):

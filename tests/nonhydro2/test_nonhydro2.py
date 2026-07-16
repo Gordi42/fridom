@@ -47,6 +47,7 @@ from fridom.spatial.fields.vector_field import VectorField
 from fridom.spatial.grid import Grid
 from fridom.spatial.meshes.interval import IntervalMesh
 from fridom.spatial.operators.composed import Divergence
+from fridom.spatial.spaces.average import CellAvg
 from fridom.spatial.spaces.nodal import NodeSet
 
 N = 8
@@ -871,6 +872,45 @@ def test_meridional_constant_profile_tendency_matches_constant():
         np.testing.assert_allclose(
             np.asarray(tv[c].data), np.asarray(tc[c].data),
             rtol=0.0, atol=0.0)
+
+
+# ================================================================
+#  The buoyancy tracer family (FV-D1b): CellAvg vs nodal ``b``
+# ================================================================
+def test_constant_stratification_fv_family_puts_b_on_cellavg():
+    # family="fv" declares b on the average family (CellAvg^3); the
+    # default advection (CenteredAdvection) transports it in flux form
+    model = nh.Model(
+        coriolis=fplane(), grid=make_grid(), dt=DT,
+        stratification=ConstantStratification(n2=1.0, family="fv"))
+    factors = model.state["b"].function_space.bare.factors
+    assert all(isinstance(f, CellAvg) for f in factors)
+
+
+def test_constant_stratification_default_family_keeps_b_nodal():
+    # family=None defers to the grid default: b stays collocated with
+    # the pressure cell (nodal Center)
+    model = nh.Model(
+        coriolis=fplane(), grid=make_grid(), dt=DT,
+        stratification=ConstantStratification(family=None))
+    factors = model.state["b"].function_space.bare.factors
+    assert not any(isinstance(f, CellAvg) for f in factors)
+    assert model.state["b"].function_space.bare.factor(
+        "z").node_set is NodeSet.CENTER
+
+
+def test_meridional_stratification_fv_family_puts_b_on_cellavg():
+    # the varying twin also honors family="fv"; the n2(y) profile
+    # itself stays a nodal Profile (its .to(b) broadcast is unaffected)
+    model = nh.Model(
+        coriolis=fplane(), grid=make_walled_y_grid(), dt=DT,
+        advection=False,
+        stratification=MeridionalStratification(
+            n2=lambda y: 1.0 + y * y, family="fv"))
+    factors = model.state["b"].function_space.bare.factors
+    assert all(isinstance(f, CellAvg) for f in factors)
+    n2_factors = model.state["n2"].function_space.bare.factors
+    assert not any(isinstance(f, CellAvg) for f in n2_factors)
 
 
 # ================================================================

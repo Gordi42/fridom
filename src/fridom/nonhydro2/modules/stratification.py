@@ -54,24 +54,45 @@ if TYPE_CHECKING:  # pragma: no cover
 @partial(jaxify, dynamic=("n2",))
 class ConstantStratification(fr.model.Module):
 
-    """Registers ``b``; contributes both linear coupling terms.
+    r"""Registers ``b``; contributes both linear coupling terms.
 
     Parameters
     ----------
     n2 : float | fr.model.Ramp, optional
         The constant squared buoyancy frequency ``N^2`` (default: 1.0);
         may be an ``fr.model.Ramp`` for a spun-up stratification.
+    family : str | None, optional
+        The discretization family of the buoyancy tracer ``b``
+        (FV-D1b): ``"fv"`` declares it on the average family
+        (``CellAvg^3``), so its flux-form advection conserves total
+        buoyancy to machine zero while the nodal velocity/pressure
+        state is untouched; ``"nodal"`` keeps it collocated with the
+        pressure cell. None defers to the grid-level default (the
+        rest of the model), so on today's nodal grids ``b`` stays
+        nodal unless asked otherwise (default: None).
     """
 
-    def __init__(self, n2: float | fr.model.Ramp = 1.0) -> None:
-        """Store the stratification leaf."""
+    def __init__(
+        self,
+        n2: float | fr.model.Ramp = 1.0,
+        *,
+        family: str | None = None,
+    ) -> None:
+        """Store the stratification leaf and the ``b`` family."""
         self.n2 = fr.model.leaf(n2)
+        self._family = family
 
-    field_declarations = (
-        fr.model.FieldDeclaration.tracer(
-            "b", space=fr.spatial.Collocated(),
-            long_name="Buoyancy", units="m/s^2"),
-    )
+    @property
+    def field_declarations(
+        self,
+    ) -> tuple[fr.model.FieldDeclaration, ...]:
+        """The buoyancy tracer ``b`` on the requested family."""
+        return (
+            fr.model.FieldDeclaration.tracer(
+                "b", space=fr.spatial.Collocated(family=self._family),
+                long_name="Buoyancy", units="m/s^2"),
+        )
+
     field_references = (
         fr.model.FieldReference(
             "w", hint="buoyancy couples to vertical velocity, "
@@ -123,12 +144,19 @@ class MeridionalStratification(fr.model.Module):
         the energy metric.
     meridional : str, optional
         The meridional coordinate name (default: ``"y"``).
+    family : str | None, optional
+        The discretization family of the buoyancy tracer ``b``
+        (FV-D1b); ``"fv"`` declares it on ``CellAvg^3``. The ``n2``
+        profile stays a nodal ``Profile`` (its ``.to(b)`` broadcast
+        onto the shared meridional nodes is unaffected). None defers
+        to the grid-level default (default: None).
     """
 
     def __init__(
         self, n2: Callable, *, meridional: str = "y",
+        family: str | None = None,
     ) -> None:
-        """Store the profile callable and the coordinate name."""
+        """Store the profile callable, coordinate name, and family."""
         if not callable(n2):
             raise TypeError(
                 "MeridionalStratification carries a varying "
@@ -136,6 +164,7 @@ class MeridionalStratification(fr.model.Module):
                 "constant N^2 is nh.ConstantStratification(n2=...)")
         self._n2_fn = n2
         self._meridional = meridional
+        self._family = family
 
     field_references = (
         fr.model.FieldReference(
@@ -151,7 +180,7 @@ class MeridionalStratification(fr.model.Module):
         """The ``b`` tracer and the ``n2(y)`` meridional profile."""
         return (
             fr.model.FieldDeclaration.tracer(
-                "b", space=fr.spatial.Collocated(),
+                "b", space=fr.spatial.Collocated(family=self._family),
                 long_name="Buoyancy", units="m/s^2"),
             fr.model.FieldDeclaration(
                 "n2", space=fr.spatial.Profile(self._meridional),
