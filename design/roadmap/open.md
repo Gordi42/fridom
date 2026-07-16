@@ -76,6 +76,44 @@ path stays green. Item 2 is only partially met — the walled
 distributed-projection test flipped from asserting the fallback to
 asserting the fast path, but most fast paths remain unasserted.*
 
+## Gain targets from the Oceananigans reference comparison (2026-07-16)
+
+A matched-protocol comparison against Oceananigans.jl 0.105.3 (nonhydro,
+(P,P,walled-z), f-plane, float64, four advection schemes, 64³→max size,
+1/2/4×A100-80GB; suite and full report live in the untracked
+`benchmarks/comparison` — out-of-tree by design, see its README) confirms
+the new stack wins where it is pressure-solve-bound (1.86× at 512³
+linear; 4.5–14× on 2–4 GPUs, where Oceananigans' distributed transpose
+solve does not scale at all) and identifies three places where fridom
+measurably trails the reference:
+
+1. **Transient-allocation memory ceiling.** At 512³ the steady peak is
+   33–42 GB, yet 1024×512×512 (2× cells) OOMs for **every** scheme on an
+   80-GB A100 — killed by transient spikes (`jit_copy` at ~62 GB
+   resident, compile-time rematerialization), not the working set.
+   Oceananigans fits that case in ~40 GB whole-GPU. Same signature on
+   4 GPUs: 1024×1024×512 fits (~31 GiB/GPU steady), 1024×1024×768 dies
+   *in compile* (remat). Work: find and kill the transient copies in the
+   `advance` chunk boundary (buffer donation/aliasing of the state
+   carry, allocator/remat tuning). Target: fit 1024×512×512 on one GPU —
+   doubling reachable size — and 1024×1024×768+ on four.
+2. **Time-to-first-step.** fridom pays 11–71 s of trace+compile at 512³
+   (worst: weno5, 71 s; grows with scheme complexity and size);
+   Oceananigans reaches its first step in ~2.2 s at every size and
+   scheme. Work: persistent compilation cache for production runs (the
+   test suite already ships one — `.jax_cache/`, keyed on HLO), and
+   compile-cost reduction for the unrolled-scan step (weno5's kernel
+   duplication is the outlier). Target: warm-start seconds, cold-start
+   well under 30 s at 512³.
+3. **Advection-kernel throughput.** The single-GPU edge collapses from
+   1.86× (linear, solve-bound) to 1.05× (upwind5: 131 vs 137 ms/step)
+   and 1.10× (weno5: 187 vs 205) — the biased-reconstruction kernels are
+   only at parity with Oceananigans' KernelAbstractions kernels, unlike
+   every other part of the step. Headroom likely in the
+   reconstruct/select pipeline (face-velocity `Where` selects, WENO
+   weight evaluation, fusion across the three flux axes). Profile
+   against a roofline before optimizing.
+
 ## Multi-device follow-ups from the indivisible-shard campaign
 
 The indivisible-extent sharding hole itself is **fixed** (2026-07-16,
