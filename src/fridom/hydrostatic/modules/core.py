@@ -35,14 +35,22 @@ half-cell hydrostatic pressure co-located with ``b``, so its
 horizontal gradient reaches the ``u``/``v`` faces through the ordinary
 ``diff``.
 
-The linear pressure-gradient term reads ``p_hyd + ps`` (the surface
-pressure lifts from its constant-along-z ``Profile("x", "y")`` onto
-the 3D pressure cell through the ConstantSpace broadcast in ``.to``):
+The linear pressure-gradient term reads the **baroclinic** pressure
+``p_hyd`` only:
 
 .. math::
 
-    \partial_t u = -\partial_x (p_{hyd} + p_s), \qquad
-    \partial_t v = -\partial_y (p_{hyd} + p_s).
+    \partial_t u = -\partial_x p_{hyd}, \qquad
+    \partial_t v = -\partial_y p_{hyd}.
+
+The barotropic ``-\nabla_h p_s`` momentum coupling is **owned by the
+free-surface variant** (H3): each variant owns both sides of its
+coupling — ``ExplicitFreeSurface`` carries ``-\nabla_h p_s`` as a
+linear term (the adjoint of its ``-c^2\nabla_h\cdot\bar u`` gravity
+term), while ``ImplicitFreeSurface`` applies the force inside its
+CONSTRAINT-stage 2D projection. The core never reads ``ps``, so an
+implicit variant's barotropic force cannot double-count with the
+constraint's own velocity correction.
 """
 from __future__ import annotations
 
@@ -197,10 +205,6 @@ class HydrostaticCore(fr.model.Module):
             "b", hint="the hydrostatic pressure integrates buoyancy; "
                       "add a stratification module "
                       "(hy.ConstantStratification)"),
-        fr.model.FieldReference(
-            "ps", hint="the pressure gradient reads the surface "
-                       "pressure; add a free-surface module "
-                       "(hy.ExplicitFreeSurface)"),
     )
 
     # ================================================================
@@ -271,19 +275,21 @@ class HydrostaticCore(fr.model.Module):
     # ================================================================
     @fr.model.term(advances=("u", "v"), linear=True)
     def pressure_gradient(self, state, ctx) -> dict:  # noqa: ANN001, ARG002
-        r"""``d_t u = -d_x(p_hyd + ps)``, ``d_t v = -d_y(p_hyd + ps)``.
+        r"""``d_t u = -d_x p_hyd``, ``d_t v = -d_y p_hyd``.
 
-        The surface pressure ``ps`` (constant along z) lifts onto the
-        3D pressure cell via the ConstantSpace broadcast in ``.to``,
-        so the total pressure gradient is a single staggered
-        difference reaching the velocity faces. Retagged onto the
-        velocities (identity on periodic axes; adopts the wall-normal
-        Dirichlet tag on a walled axis).
+        The **baroclinic** pressure gradient only: a single staggered
+        difference of the diagnosed hydrostatic pressure reaching the
+        velocity faces, retagged onto the velocities (identity on
+        periodic axes; adopts the wall-normal Dirichlet tag on a
+        walled axis). The barotropic ``-d_x ps`` / ``-d_y ps`` force
+        is owned by the free-surface variant (H3): a linear term in
+        ``ExplicitFreeSurface``, the CONSTRAINT-stage projection in
+        ``ImplicitFreeSurface``.
         """
         zonal, meridional = self._horizontal
         u, v = state["u"], state["v"]
-        p_total = state["p_hyd"] + state["ps"].to(state["p_hyd"])
+        p_hyd = state["p_hyd"]
         return {
-            "u": (-p_total.diff(zonal)).retag(u),
-            "v": (-p_total.diff(meridional)).retag(v),
+            "u": (-p_hyd.diff(zonal)).retag(u),
+            "v": (-p_hyd.diff(meridional)).retag(v),
         }

@@ -21,7 +21,7 @@ if TYPE_CHECKING:  # pragma: no cover
     )
 
     from .core import HydrostaticCore
-    from .free_surface import ExplicitFreeSurface
+    from .free_surface import ExplicitFreeSurface, ImplicitFreeSurface
     from .stratification import ConstantStratification
 
 base = "fridom.hydrostatic.modules"
@@ -36,7 +36,8 @@ all_imports_by_origin = {
         "FPlaneCoriolis", "BetaPlaneCoriolis", "RotationCoriolis"],
     f"{base}.core": ["HydrostaticCore"],
     f"{base}.stratification": ["ConstantStratification"],
-    f"{base}.free_surface": ["ExplicitFreeSurface"],
+    f"{base}.free_surface": [
+        "ExplicitFreeSurface", "ImplicitFreeSurface"],
 }
 
 setup(__name__, all_modules_by_origin, all_imports_by_origin)

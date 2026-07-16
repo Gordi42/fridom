@@ -37,7 +37,10 @@ if TYPE_CHECKING:  # pragma: no cover
     from .initial_conditions import jet, single_wave
     from .model import Model
     from .modules.core import HydrostaticCore
-    from .modules.free_surface import ExplicitFreeSurface
+    from .modules.free_surface import (
+        ExplicitFreeSurface,
+        ImplicitFreeSurface,
+    )
     from .modules.stratification import ConstantStratification
     from .state import State
 
@@ -54,7 +57,8 @@ all_imports_by_origin = {
     f"{base}.state": ["State"],
     f"{base}.modules.core": ["HydrostaticCore"],
     f"{base}.modules.stratification": ["ConstantStratification"],
-    f"{base}.modules.free_surface": ["ExplicitFreeSurface"],
+    f"{base}.modules.free_surface": [
+        "ExplicitFreeSurface", "ImplicitFreeSurface"],
     # the Coriolis family is the shared framework module library
     "fridom.model.modules": [
         "FPlaneCoriolis", "BetaPlaneCoriolis", "RotationCoriolis"],

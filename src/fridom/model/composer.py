@@ -583,21 +583,34 @@ class TendencyComposer:
     def _coverage_lint(
         self, writes: dict[ScheduleEntry, frozenset[str]],
     ) -> None:
-        """Every PROGNOSTIC field must be advanced (D1.4 lint)."""
+        """Every PROGNOSTIC field must be advanced (D1.4 lint).
+
+        Description
+        -----------
+        A PROGNOSTIC field is "advanced" iff a term writes it, an
+        ADVANCE stage claims it (the barotropic subcycle — spec §5.4
+        amendment), **or** a CONSTRAINT stage replaces it: a
+        surface-pressure ``ps`` whose whole evolution is a
+        CONSTRAINT-stage projection (the implicit free surface, HY-D4)
+        carries no tendency term yet is genuinely integrated forward
+        every step, so the projection covers it.
+        """
         advanced: set[str] = set()
         for entry, observed in writes.items():
             if entry.is_term:
                 advanced |= observed
             elif entry.kind is StageKind.ADVANCE:
                 advanced |= set(entry.advances or ())
+            elif entry.kind is StageKind.CONSTRAINT:
+                advanced |= observed
         uncovered = tuple(name for name in self._prognostic
                           if name not in advanced)
         if not uncovered:
             return
         message = (
             f"PROGNOSTIC fields {uncovered} are advanced by no "
-            "term and claimed by no ADVANCE stage (coverage lint, "
-            "D1.4)")
+            "term, claimed by no ADVANCE stage, and replaced by no "
+            "CONSTRAINT stage (coverage lint, D1.4)")
         if self._term_filter is not None:
             # info downgrade under a variant filter (08 10.4)
             warnings.warn(message, stacklevel=3)
@@ -716,6 +729,14 @@ def _implicit_groups(
     two of them touching one field is an ``ImplicitCollisionError``
     naming both terms.
 
+    A non-mergeable custom operator whose fields overlap a mergeable
+    **family** group is the same footgun (the driver solves the two
+    groups independently and ``updates.update(...)``s each, so the
+    second solve silently clobbers the first on the shared field): it
+    is a taught ``ImplicitCollisionError`` naming both parties and the
+    reason, in either declaration order. Two *different* mergeable
+    families overlapping is out of this lint's scope (unchanged).
+
     Parameters
     ----------
     entries : tuple[ScheduleEntry, ...]
@@ -730,10 +751,12 @@ def _implicit_groups(
     Raises
     ------
     ImplicitCollisionError
-        On a second non-mergeable operator per field.
+        On a second non-mergeable operator per field, or a custom
+        operator overlapping a mergeable family's field.
     """
     groups: dict[Any, list] = {}
     custom_by_field: dict[str, str] = {}
+    family_by_field: dict[str, str] = {}
     for entry in entries:
         op = entry.implicit
         if op is None:
@@ -748,13 +771,60 @@ def _implicit_groups(
                         f"{custom_by_field[field]} and {entry.key}; "
                         "at most one custom implicit operator per "
                         "field (mergeable families sum instead)")
+                if field in family_by_field:
+                    raise _custom_family_collision(
+                        field, entry.key, family_by_field[field])
                 custom_by_field[field] = entry.key
             groups[("custom", entry.key, entry.index)] = [
                 (entry.key, entry.slot, op)]
         else:
+            for field in op.fields:
+                if field in custom_by_field:
+                    raise _custom_family_collision(
+                        field, custom_by_field[field], entry.key)
+                family_by_field.setdefault(field, entry.key)
             groups.setdefault(("family", merge_key), []).append(
                 (entry.key, entry.slot, op))
     return tuple(tuple(group) for group in groups.values())
+
+
+def _custom_family_collision(
+    field: str, custom_key: str, family_key: str,
+) -> ImplicitCollisionError:
+    """Build the taught custom-overlaps-family collision error.
+
+    Description
+    -----------
+    A non-mergeable custom implicit operator and a mergeable family
+    both advancing ``field`` become two separate merge groups; the
+    IMEX driver solves each independently from the raw rhs and
+    ``updates.update(...)``s the result, so the second solve clobbers
+    the first on the shared field (the latent footgun, spec §2). The
+    message names both parties and the reason.
+
+    Parameters
+    ----------
+    field : str
+        The clobbered PROGNOSTIC field.
+    custom_key : str
+        The custom (non-mergeable) operator's attribution key.
+    family_key : str
+        A constituent of the mergeable family group.
+
+    Returns
+    -------
+    ImplicitCollisionError
+        The taught error (raise it at the call site).
+    """
+    return ImplicitCollisionError(
+        f"the custom implicit operator {custom_key} and the mergeable "
+        f"implicit family {family_key} both advance {field!r}: the "
+        "driver solves the merged family and the custom operator "
+        "independently and overwrites each result, so one solve would "
+        "silently clobber the other on the shared field. A custom "
+        "implicit operator may not overlap a mergeable family's "
+        "fields; treat the coupling in one operator (or move it to a "
+        "CONSTRAINT stage that runs after the merged solve)")
 
 
 def _merge_groups(groups: tuple) -> tuple:

@@ -416,3 +416,51 @@ energy gate is the semi-discrete skew, not a time-integrated dt-slope.
 test_restrict.py`, extended `test_grid.py` / `test_scalar_field.py`;
 advection regression `test_advection*.py` 200 passed (unchanged);
 `ruff` clean.
+### H3 — implicit free surface + taught IMEX assembly error (2026-07-17)
+
+**Coupling-ownership refactor (load-bearing).** Each free-surface
+variant now owns BOTH sides of its barotropic coupling: the core's
+linear term reads `p_hyd` only, and `ExplicitFreeSurface` gained the
+`-\nabla_h ps` momentum term (the adjoint of its `-c^2\nabla_h·ū`
+term; `ps.diff().to(u).retag(u)` is bitwise-identical to the old
+`ps.to(p_hyd).diff()`). The H2 energy skew stays `<1e-12` (structural,
+independent of grouping) and all H2 gates remain green (`tests/hydrostatic`
+= 103 passed).
+
+**`ImplicitFreeSurface(epsilon=1.0)`** (`modules/free_surface.py`): a
+CONSTRAINT stage (write set `{u, v, ps}`) solving
+`(ε − dt'² Div∘Diag(c^2)∘Grad) ps = ε ps_old − dt' c^2 ∇h·ū*` then
+`u ← u − dt' ∇h ps`. The operator is the honest C-grid `Div∘Grad`
+(built via `Gradient`/`Divergence`/`Diag`, `-dt'^2 c^2` folded into the
+diagonal so its own eigenvalue symbol is `dt'^2 c^2 k_disc^2`), plus the
+static `ε` identity, inverted by `SpectralSolve` on the 2D `Profile`
+space (the transform drops the ConstantSpace-z factor — a natural 2D
+solve, verified). `ε>0`: `ps` PROGNOSTIC, symbol `1+c^2 dt'^2 k_disc^2`
+non-singular; `ε=0`: `ps` DIAGNOSTIC (the rigid lid), pure Poisson with
+the `where_zero` mean gauge. `epsilon` is a **static** constructor arg
+(it selects the lifecycle) — not sweepable. Declares `linear_operator_gap`
+(HY-D7) and `extra_halo` (exempts the spectral solve, V-N2 precedent).
+
+**Model-layer additions (two, additive).** (1) The D1.4 coverage lint
+now counts a CONSTRAINT-stage write as covering a PROGNOSTIC field —
+`ps` is advanced only by the projection, genuinely integrated forward.
+(2) `composer._implicit_groups`: a non-mergeable custom implicit operator
+overlapping a mergeable family's fields is a taught `ImplicitCollisionError`
+(the §2 latent footgun — the driver's independent solves clobber), both
+declaration orders, naming both parties. No shipped model exercises the
+overlap, so behavior is unchanged elsewhere.
+
+**Gates (all green, CPU).** Backward-Euler factor `|G|=1/√(1+ω_disc²dt'²)`
+and phase `arctan(ω_disc dt')` (ω_disc from the discrete symbol) matched
+to 5e-16 via the constraint's restricted eigenmap. Small-dt convergence
+implicit-vs-explicit-oracle first-order (slopes 0.91→0.98). Rigid lid:
+post-constraint depth-mean divergence 4.7e-15 (rel to |u|), reducing a
+pre-divergence of 62 to machine zero; `ps` matches an independent numpy
+C-grid FFT Poisson solve to 4e-16. Stable at `√(c^2)dt/dx=50`, 200 steps
+(energy bounded/decaying, finite). Geostrophic null-eigenvector steady to
+1e-15 under both variants. `require_linear_operator` refuses the implicit
+(and rigid-lid) config, passes the explicit. Stepper smokes: `AB2(eps=0.1)`
+(pyOM), `AB3`, `LowStorageRK3`; and CNAB2 + an in-test `VerticalDiffusion`
+consumer (the 2.5 reference consumer is test-only) + `ImplicitFreeSurface`
+(mixing solve then surface constraint) — treedef stable. `ruff` clean;
+100% coverage of the hydrostatic source, new composer branches covered.
