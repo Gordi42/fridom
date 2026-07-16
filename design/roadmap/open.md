@@ -124,12 +124,14 @@ loudly instead of in the HLO verifier. Evidence, provenance probes, and
 corrections:
 [`../research/multidevice_test_faults.md`](../research/multidevice_test_faults.md).
 
-## Finite-volume nonhydro — mapped FV, eigenmode gap, validation (F5)
+## Finite-volume nonhydro — mapped FV, biased advection, validation (F5)
 
-Stages F0–F4 and F6 shipped, and the model is **FV by default on
+Stages F0–F4 and F6 shipped, the model is **FV by default on
 every unmapped, unimmersed grid** — periodic and walled (owner ruling
-2026-07-16; entries in [`done.md`](done.md)). Only mapped/immersed
-grids remain nodal-only (taught error). Open:
+2026-07-16) — and the **walled-FV analytic eigenmodes shipped**
+2026-07-17 (bitwise the nodal eigenbasis; entries in
+[`done.md`](done.md)). Only mapped/immersed grids remain nodal-only
+(taught error). Open:
 
 - **Blocker: biased advection does not assemble on the FV default**
   (found 2026-07-16 by the upwind5 benchmark campaign, re-verified at
@@ -153,17 +155,12 @@ grids remain nodal-only (taught error). Open:
   chain) and `MappedPressureSolver` (hard-wired nodal). Handoff notes
   from F4 in the scoping §11 (measure-weighted wall reconstruction,
   the single remaining `_require_fv_capable` gate).
-- **Walled-FV analytic eigenmodes — taught gap** (found by the
-  default flip; scoping §11 addendum). `Eigenmodes`/`from_model` with
-  a bounded vertical needs the walled-FV transform stack (BC-tagged
-  average analysis spaces, the DST-II Dirichlet-`CellAvg` row, trig
-  reconstruction/interp eigenvalues on tagged average origins) —
-  F5-adjacent, pinned as a taught error; the numeric channel
-  eigenbasis works on FV. Follow-ups: a bespoke `from_model` guard
-  naming the deferral; owner flag on whether
-  `MeridionalStratification`'s `n2` Profile should pin nodal
-  independent of family (it currently follows the grid default onto
-  `CellAvg`, which assembles and passes).
+- **Owner flag:** should `MeridionalStratification`'s `n2` Profile
+  pin nodal independent of family? It currently follows the grid
+  default onto `CellAvg` (assembles and passes; it never reaches the
+  analytic eigenmode kit — the module deliberately provides no
+  constant `n2`, so `from_model` routes elsewhere). A declaration
+  question about that module, nothing blocks on it.
 - **Validate the FV default on 4 GPUs** — the distributed solve on
   average origins ran only 1-GPU so far (forced-4 CPU asserts the
   walled FV fast paths, F4), the gpu4 step baseline predates the

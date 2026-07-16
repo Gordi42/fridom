@@ -206,8 +206,27 @@ Implementation record:
   `family="nodal"` where the nodal path is the test's purpose, the
   F3-flip precedent) and nodal siblings for the walled step-benchmark
   cases (baselines re-record next GPU campaign). The flip surfaced
-  the walled-FV analytic-eigenmode taught gap — recorded in
-  [`open.md`](open.md) and the scoping §11 addendum.
+  the walled-FV analytic-eigenmode taught gap — closed the next day
+  (next entry).
+
+- **Walled-FV analytic eigenmodes** (2026-07-17) — the gap the
+  default flip surfaced, closed as an early F5 slice: the kit mints
+  its BC-tagged `CellAvg` analysis origins itself
+  (`_fv_tagged_vertical`, the pressure solver's `mesh.average(kind,
+  bc=...)` seam — the declaration layer stays BC-free, C8 intact);
+  the DST-II Dirichlet-`CellAvg` origin is seeded (updating the F4
+  "no consumer" stance); `LinearReconstruction` carries the interp
+  trig eigenvalues (`fv_trig_interp_codomain`, `cos(k dz/2)` —
+  bitwise the nodal `LinearInterp` values). Gates: the **FV walled
+  eigenbasis is bit-identical to the nodal one** (frequencies,
+  eigenvector data, m=0/m=N edge blocks — max diff exactly 0.0);
+  strong eigenrelation `L q = −iω q` through the composed FV field
+  operators ~1e-16; round-trip completeness <1e-13 including a
+  globally-uniform buoyancy (wave projection structurally 0.0); the
+  walled battery parametrized over both families. Physics note
+  pinned during gating: a z-constant `b` with *horizontal* structure
+  legitimately excites waves (`∂w/∂t = b`) — the ω=0 claim holds at
+  `kh=0` only. Record: scoping §11 second addendum.
 
 - **FV nonhydro stage F6 — hygiene G7/G8/G9** (2026-07-16) —
   dealiased padded transforms on average origins (sinc-bracketed

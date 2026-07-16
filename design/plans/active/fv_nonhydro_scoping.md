@@ -648,3 +648,56 @@ families). F5-adjacent; the numeric channel eigenbasis
 carries no `family=` and follows the grid default onto `CellAvg` on
 walled-FV models (assembles and passes; whether `n2` should pin nodal
 independent of family is an open owner flag).
+
+### §11 second addendum — walled-FV analytic eigenmodes (2026-07-17)
+
+The taught gap the default flip surfaced is **closed** (merge
+`a98a6a1f`, an early F5 slice). The three missing pieces, as built:
+
+1. **Declared-space story: none needed.** The kit mints its BC-tagged
+   `CellAvg` analysis origins itself (`_fv_tagged_vertical` in
+   `eigenmodes.py`): resolve the pattern BC-free, swap the bounded
+   average vertical factor for its tagged sibling via
+   `mesh.average(kind, bc=...)` — the pressure solver's
+   `_neumann_sibling` seam. C8 stands: the declaration layer stays
+   BC-free, `Collocated(wall_bc=..., family="fv")` still raises, and
+   the nodal kit branch is byte-for-byte untouched. `w` needs nothing:
+   its Dirichlet rides the STAGGERED z coordinate onto the nodal
+   `Inner` face through the ordinary pattern resolver.
+2. **DST-II seeded.** `_tagged_average_origins` now yields Dirichlet
+   `CellAvg` alongside F4's Neumann (this supersedes §11 correction 5's
+   "no consumer, unseeded" — the kit is the consumer);
+   `_transform_origins` picks Sine (DST-II) for all-Dirichlet tags.
+3. **Interp trig symbols.** Only `LinearReconstruction` needed them:
+   `fv_trig_interp_codomain` staggers the Dirichlet pair
+   `Sine(CellAvg, DST-II) ↔ Sine(Inner, DST-I)` with the
+   `cos(k dz/2)` two-point-mean diagonal — bitwise the nodal
+   `LinearInterp` trig values; the Neumann DCT-II hop raises the same
+   eigen-layer skip as its nodal sibling. `LinearDeconvolution` is
+   never touched by the kit (the average-family staggering hops route
+   through the "average"/reconstruct kinds, §10 correction 3).
+
+**Gates:** the walled FV eigenbasis is **bit-identical** to the nodal
+one — frequencies, eigenvector data, and the m=0 / m=N edge blocks all
+at max diff exactly 0.0 (the discrete operators are the same numbers,
+and now the whole symbol chain is too); strong eigenrelation
+`L q = −iω q` through the composed FV field operators ~1e-16;
+projector round-trip completeness <1e-13; the walled battery
+parametrized over both families; the flip-era nodal pins in
+`test_transforms.py` / `test_initial_conditions.py` dual-covered.
+
+**Physics note pinned during gating** (corrects the naive reading of
+the design discussion): a z-constant buoyancy with *horizontal*
+structure excites waves — it forces `∂w/∂t = b` — so it does NOT
+project to ω=0 (identically so on the nodal kit, since the bases are
+bitwise equal). The structural ω=0 claim holds at `kh = 0`: a
+globally-uniform `b` round-trips exactly through the complete DST-II
+cell basis (nonzero at the lids — completeness, not parity, is what
+matters discretely) and its wave projection is exactly 0.0. The test
+asserts both.
+
+**Also settled:** `MeridionalStratification`'s `n2` Profile never
+reaches the analytic kit (the module deliberately provides no constant
+`n2`, so `from_model` routes to the channel engine / a taught error);
+whether it should pin nodal independent of family stays an open
+declaration question on that module ([`../../roadmap/open.md`](../../roadmap/open.md)).
