@@ -28,6 +28,7 @@ from typing import TYPE_CHECKING
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 
 from fridom.framework.utils import dtype_real
 from fridom.spatial.bc import BC, BCStructure
@@ -708,6 +709,7 @@ class Grid:
         init: Callable[..., jax.Array] | None = None,
         init_coeff: Callable[..., jax.Array] | None = None,
         data: jax.Array | None = None,
+        order: int | None = None,
         name: str | None = None,
         units: str | None = None,
         metadata: FieldMetadata | None = None,
@@ -721,7 +723,14 @@ class Grid:
         discretizes a function of physical coordinates
         (keyword-matched to coordinate names, collocation default);
         on coefficient spaces it composes with the forward transform
-        (discretize = transform o discretize-on-origin).
+        (discretize = transform o discretize-on-origin). ``order=``
+        selects the per-cell Gauss-Legendre quadrature used on
+        average factors (rules section 3.10 table): ``None`` (the
+        default) and ``1`` are the midpoint shortcut — the single
+        evaluation-node sample, bitwise-identical to plain
+        collocation; ``order >= 2`` is the genuine ``order``-point
+        rule, exact for per-cell polynomial averages up to degree
+        ``2 * order - 1``.
         ``init_coeff=`` assigns coefficients directly, evaluated at
         ``grid.wavenumbers(space)`` and keyword-matched to the
         wavenumber names (``k<coordinate>``). ``data=`` takes a
@@ -745,6 +754,11 @@ class Grid:
         data : jax.Array | None, optional
             True-shape array companion; ``init`` / ``init_coeff`` /
             ``data`` are pairwise exclusive (default: None).
+        order : int | None, optional
+            Per-cell Gauss-Legendre quadrature point count for
+            ``init=`` on average factors; ``None``/``1`` keep the
+            midpoint shortcut, ``>= 2`` the high-order rule (default:
+            None).
         name : str | None, optional
             Metadata name sugar (default: None).
         units : str | None, optional
@@ -763,6 +777,7 @@ class Grid:
             raise ValueError(
                 "init=, init_coeff= and data= are pairwise "
                 "exclusive")
+        _check_order(order)
         if metadata is not None and (name is not None
                                      or units is not None):
             raise ValueError(
@@ -778,7 +793,8 @@ class Grid:
         if init is not None and any(
                 isinstance(factor, CoefficientSpace)
                 for factor in space.factors):
-            return self._transform_discretize(space, init, metadata)
+            return self._transform_discretize(
+                space, init, order, metadata)
         dtype = storage_dtype(space)
         if data is not None:
             arr = jnp.asarray(data)
@@ -794,7 +810,7 @@ class Grid:
                     f"storage of {space!r}")
             arr = hermitian_project(arr.astype(dtype), space)
         elif init is not None:
-            arr = self._discretize(space, init).astype(dtype)
+            arr = self._discretize(space, init, order).astype(dtype)
         elif init_coeff is not None:
             arr = hermitian_project(
                 self._assign_coeff(space, init_coeff).astype(dtype),
@@ -1172,28 +1188,27 @@ class Grid:
         self,
         space: SpaceLike,
         init: Callable[..., jax.Array],
+        order: int | None = None,
     ) -> jax.Array:
         """
-        Collocation default of the ``("discretize", space)`` row.
+        Default of the ``("discretize", space)`` row (rules 3.10).
 
         Description
         -----------
         Inline iteration-1 default (the registry row proper lands
         with the operators merge): keyword-match ``init`` against
         the non-constant coordinate names, broadcast the per-factor
-        node coordinates transiently, and sample.
+        node coordinates transiently, and sample. ``order >= 2`` on a
+        space that carries an average factor switches to per-cell
+        Gauss-Legendre quadrature (``_quadrature_discretize``); the
+        midpoint default (``order`` ``None``/``1``, or any pure-nodal
+        space) is the plain node-set collocation of this method.
         """
-        required: list[str] = []
-        for factor in space.factors:
-            if isinstance(factor, ConstantSpace):
-                continue
-            required.extend(factor.names)
-        params = tuple(inspect.signature(init).parameters)
-        if set(params) != set(required):
-            raise TypeError(
-                "init= callables must name exactly the "
-                f"non-constant coordinate names {tuple(required)}, "
-                f"got {params}")
+        _check_init_names(space, init)
+        if (order is not None and order >= _QUADRATURE_MIN
+                and any(isinstance(factor, AverageSpace)
+                        for factor in space.factors)):
+            return self._quadrature_discretize(space, init, order)
         coords: dict[str, jax.Array] = {}
         ndim = len(space.shape)
         for factor, axis in factor_axes(space):
@@ -1206,10 +1221,88 @@ class Grid:
         values = jnp.asarray(init(**coords))
         return jnp.broadcast_to(values, space.shape)
 
+    def _quadrature_discretize(
+        self,
+        space: SpaceLike,
+        init: Callable[..., jax.Array],
+        order: int,
+    ) -> jax.Array:
+        r"""
+        Per-cell Gauss-Legendre quadrature on average factors.
+
+        Description
+        -----------
+        The genuine per-cell quadrature of the average-family
+        ``("discretize", space)`` row (rules section 3.10 table);
+        ``order`` is the point count of the tensor-product
+        Gauss-Legendre rule, exact for per-cell polynomial averages
+        up to degree ``2 * order - 1``. Each non-constant factor
+        contributes its own reference rule: an ``AverageSpace``
+        factor an ``order``-point rule placed inside every cell by
+        the cell's own physical edges (so it scales with each cell's
+        width on a stretched axis), a nodal factor the single
+        evaluation-node sample (weight 1) — the mixed
+        ``Right(x) ⊗ CellAvg(y)`` field therefore stays a point
+        value along ``x`` and becomes a quadrature average along
+        ``y``. The within-cell reference nodes/weights are static
+        host data (there are more of them than DOFs, concepts
+        section 2.2); only the per-cell edge positions are traced
+        (lazy) mesh arrays.
+
+        The cell edges come from each axis's own 1D geometry
+        (``mesh.coordinate_map``): on a chart-mapped grid this is the
+        **chart** cell average, not the Jacobian-weighted physical-
+        volume average (designed-for, stage F5). ``FaceAvg`` factors
+        are guarded (their dual cells need the center-to-center edge
+        seam, with periodic wrap and bounded half-width wall cells);
+        their midpoint default still works.
+
+        Parameters
+        ----------
+        space : SpaceLike
+            The laid-out target space (>= 1 average factor).
+        init : Callable[..., jax.Array]
+            Function of the physical coordinates (name-matched).
+        order : int
+            The Gauss-Legendre point count per cell (``>= 2``).
+
+        Returns
+        -------
+        jax.Array
+            The true-shape per-cell averages.
+        """
+        ref_nodes, ref_weights = _gauss_legendre_unit(order)
+        ndim = len(space.shape)
+        movers = [(factor, axis)
+                  for factor, axis in factor_axes(space)
+                  if not isinstance(factor, ConstantSpace)]
+        n_quad_axes = len(movers)
+        coords: dict[str, jax.Array] = {}
+        weight = jnp.ones((), dtype=dtype_real())
+        for q, (factor, axis) in enumerate(movers):
+            if isinstance(factor, AverageSpace):
+                nodes, weights = _cell_quadrature(
+                    factor, ref_nodes, ref_weights)
+            else:
+                nodes = _node_vector(factor)[:, None]
+                weights = jnp.ones(1, dtype=dtype_real())
+            node_shape = [1] * (ndim + n_quad_axes)
+            node_shape[axis] = nodes.shape[0]
+            node_shape[ndim + q] = nodes.shape[1]
+            coords[factor.names[0]] = nodes.reshape(node_shape)
+            weight_shape = [1] * (ndim + n_quad_axes)
+            weight_shape[ndim + q] = weights.shape[0]
+            weight = weight * weights.reshape(weight_shape)
+        values = jnp.asarray(init(**coords)) * weight
+        reduced = jnp.sum(
+            values, axis=tuple(range(ndim, ndim + n_quad_axes)))
+        return jnp.broadcast_to(reduced, space.shape)
+
     def _transform_discretize(
         self,
         space: SpaceLike,
         init: Callable[..., jax.Array],
+        order: int | None,
         metadata: FieldMetadata | None,
     ) -> ScalarField:
         """
@@ -1225,7 +1318,10 @@ class Grid:
         represented function is real, so the collocation runs on the
         real origins (the rfftn schedule then reproduces the
         requested factor mix); a requested mix the planner cannot
-        produce raises ``SpaceMismatchError``.
+        produce raises ``SpaceMismatchError``. ``order`` rides
+        through to the origin discretize, so a high-order rule on an
+        average origin (``Fourier(x, origin=CellAvg)``) quadratures
+        the origin cell averages before the transform.
 
         Parameters
         ----------
@@ -1233,6 +1329,9 @@ class Grid:
             The laid-out target space (>= 1 coefficient factor).
         init : Callable[..., jax.Array]
             Function of the physical coordinates.
+        order : int | None
+            Per-cell quadrature point count forwarded to the origin
+            discretize (average origins only).
         metadata : FieldMetadata | None
             Annotation metadata of the result.
 
@@ -1265,7 +1364,7 @@ class Grid:
         # `space` went through _laid_out, so its layout is never None
         origin_space = origin_space.with_layout(space.layout)
         field = self.create_field(origin_space, init=init,
-                                  metadata=metadata)
+                                  order=order, metadata=metadata)
         for family, axes in groups.items():
             field = family(self, axes=tuple(axes)).forward(field)
         if field.function_space.bare is not bare:
@@ -1594,6 +1693,145 @@ def _node_vector(factor: FunctionSpace) -> jax.Array:
         if membership[1] and right is BC.DIRICHLET:
             stop -= 1
     return nodes[start:stop]
+
+
+# ================================================================
+#  Per-cell quadrature (the average-family discretize, rules 3.10)
+# ================================================================
+# the smallest point count that leaves the midpoint shortcut: one
+# point IS the midpoint rule, realized as the node-set sample so the
+# default stays bitwise-identical to plain collocation
+_QUADRATURE_MIN = 2
+
+
+def _check_order(order: int | None) -> None:
+    """
+    Verify ``order=`` is None or a positive integer.
+
+    Parameters
+    ----------
+    order : int | None
+        The per-cell quadrature point count.
+    """
+    if order is not None and (
+            isinstance(order, bool) or not isinstance(order, int)
+            or order < 1):
+        raise ValueError(
+            "order= is the per-cell quadrature point count: a "
+            f"positive integer or None, got {order!r}")
+
+
+def _check_init_names(
+    space: SpaceLike,
+    init: Callable[..., jax.Array],
+) -> None:
+    """
+    Verify ``init`` names exactly the non-constant coordinates.
+
+    Parameters
+    ----------
+    space : SpaceLike
+        The (laid-out) target space.
+    init : Callable[..., jax.Array]
+        The physical-coordinate callable.
+    """
+    required: list[str] = []
+    for factor in space.factors:
+        if isinstance(factor, ConstantSpace):
+            continue
+        required.extend(factor.names)
+    params = tuple(inspect.signature(init).parameters)
+    if set(params) != set(required):
+        raise TypeError(
+            "init= callables must name exactly the "
+            f"non-constant coordinate names {tuple(required)}, "
+            f"got {params}")
+
+
+def _gauss_legendre_unit(order: int) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Build the ``order``-point Gauss-Legendre unit-interval rule.
+
+    Description
+    -----------
+    Static host reference data (concepts section 2.2): the
+    ``[-1, 1]`` Legendre nodes/weights mapped to ``[0, 1]`` and
+    renormalized so the weights sum to 1 — the rule is an **average**
+    over the cell, not an integral. Exact for polynomials up to
+    degree ``2 * order - 1``.
+
+    Parameters
+    ----------
+    order : int
+        The point count per cell.
+
+    Returns
+    -------
+    tuple[np.ndarray, np.ndarray]
+        The unit-interval nodes and (unit-sum) weights.
+    """
+    nodes, weights = np.polynomial.legendre.leggauss(order)
+    return 0.5 * (nodes + 1.0), 0.5 * weights
+
+
+def _cell_quadrature(
+    factor: AverageSpace,
+    ref_nodes: np.ndarray,
+    ref_weights: jax.Array | np.ndarray,
+) -> tuple[jax.Array, jax.Array]:
+    """
+    Place the reference rule inside each cell of an average factor.
+
+    Description
+    -----------
+    The per-cell node positions and weights of the average-family
+    per-cell quadrature. The cell edges come from the factor's own
+    1D geometry (uniform ``extent``/``dx`` or the mesh
+    ``coordinate_map``, mirroring ``_node_vector``); every reference
+    node ``xi`` lands at ``edge_left + xi * width`` with the cell's
+    **own** physical width, so a stretched axis quadratures each cell
+    on its own scale. ``FaceAvg`` is guarded: its dual cells span
+    center-to-center (periodic wrap, bounded half-width wall cells) —
+    a separate edge seam that the midpoint default does not need.
+
+    Parameters
+    ----------
+    factor : AverageSpace
+        A ``CellAvg`` factor of a structured 1D mesh.
+    ref_nodes : np.ndarray
+        The unit-interval reference nodes (shape ``(order,)``).
+    ref_weights : jax.Array | np.ndarray
+        The matching unit-sum reference weights.
+
+    Returns
+    -------
+    tuple[jax.Array, jax.Array]
+        The per-cell node positions (shape ``(n_cells, order)``) and
+        the (unit-sum) weights (shape ``(order,)``).
+    """
+    mesh = factor.mesh
+    if not isinstance(mesh, StructuredMesh1D):
+        raise NotImplementedError(
+            f"per-cell quadrature on {type(mesh).__name__} is not "
+            "defined: the cell edges need the structured 1D "
+            "geometry seam (coordinate_map)")
+    if not isinstance(factor, CellAvg):
+        raise NotImplementedError(
+            f"per-cell quadrature on {factor!r} is designed-for, "
+            "not built: FaceAvg dual-cell edges (center-to-center, "
+            "with periodic wrap and bounded half-width wall cells) "
+            "need their own edge seam; use order=None/1 (the "
+            "midpoint default) on FaceAvg")
+    n = mesh.n_cells
+    steps = jnp.arange(n + 1, dtype=dtype_real())
+    mapping = mesh.coordinate_map
+    edges = (mesh.extent[0] + steps * mesh.dx if mapping is None
+             else jnp.asarray(mapping(steps / n)).astype(dtype_real()))
+    left = edges[:-1]
+    width = edges[1:] - edges[:-1]
+    nodes = (left[:, None]
+             + jnp.asarray(ref_nodes)[None, :] * width[:, None])
+    return nodes, jnp.asarray(ref_weights)
 
 
 def _measure_vector(factor: FunctionSpace) -> jax.Array:
