@@ -1,0 +1,95 @@
+HloModule jit_laplacian_composed_barrier, is_scheduled=true, entry_computation_layout={(f64[258,258,258]{2,1,0})->f64[256,256,256]{2,1,0}}, allow_spmd_sharding_propagation_to_parameters={true}, allow_spmd_sharding_propagation_to_output={true}, frontend_attributes={fingerprint_before_lhs="e1214ed1d15f02c5e4cbce1e5445f92a"}
+
+FileNames
+1 "/work/uo0780/u301533/fridom/fridom-dev/.claude/worktrees/perf+stencil-lowering/design/research/stencil_lowering/microbench/driver.py"
+2 "/work/uo0780/u301533/fridom/fridom-dev/.claude/worktrees/perf+stencil-lowering/design/research/stencil_lowering/microbench/common.py"
+3 "/work/uo0780/u301533/fridom/fridom-dev/.claude/worktrees/perf+stencil-lowering/design/research/stencil_lowering/microbench/stencils.py"
+
+FunctionNames
+1 "<module>"
+2 "main"
+3 "cmd_e2"
+4 "run_case"
+5 "analyze"
+6 "laplacian_composed_barrier"
+7 "diff1"
+8 "sl"
+
+FileLocations
+1 {file_name_id=1 function_name_id=1 line=297 end_line=297 column=4 end_column=10}
+2 {file_name_id=1 function_name_id=2 line=293 end_line=293 column=4 end_column=24}
+3 {file_name_id=1 function_name_id=3 line=173 end_line=173 column=23 end_column=77}
+4 {file_name_id=2 function_name_id=4 line=179 end_line=179 column=29 end_column=46}
+5 {file_name_id=2 function_name_id=5 line=137 end_line=137 column=14 end_column=33}
+6 {file_name_id=3 function_name_id=6 line=182 end_line=182 column=12 end_column=27}
+7 {file_name_id=3 function_name_id=7 line=139 end_line=139 column=11 end_column=33}
+8 {file_name_id=3 function_name_id=7 line=139 end_line=139 column=36 end_column=54}
+9 {file_name_id=2 function_name_id=8 line=39 end_line=39 column=11 end_column=26}
+10 {file_name_id=3 function_name_id=6 line=188 end_line=188 column=39 end_column=49}
+11 {file_name_id=3 function_name_id=6 line=187 end_line=187 column=23 end_column=64}
+12 {file_name_id=3 function_name_id=6 line=184 end_line=184 column=15 end_column=29}
+
+StackFrames
+1 {file_location_id=1 parent_frame_id=1}
+2 {file_location_id=2 parent_frame_id=2}
+3 {file_location_id=3 parent_frame_id=3}
+4 {file_location_id=4 parent_frame_id=4}
+5 {file_location_id=5 parent_frame_id=5}
+6 {file_location_id=6 parent_frame_id=6}
+7 {file_location_id=7 parent_frame_id=7}
+8 {file_location_id=8 parent_frame_id=7}
+9 {file_location_id=9 parent_frame_id=9}
+10 {file_location_id=9 parent_frame_id=8}
+11 {file_location_id=10 parent_frame_id=6}
+12 {file_location_id=11 parent_frame_id=6}
+13 {file_location_id=9 parent_frame_id=13}
+14 {file_location_id=12 parent_frame_id=6}
+15 {file_location_id=7 parent_frame_id=15}
+16 {file_location_id=8 parent_frame_id=15}
+17 {file_location_id=9 parent_frame_id=17}
+18 {file_location_id=9 parent_frame_id=16}
+
+
+%fused_subtract (param_0.9: f64[258,258,258]) -> (f64[258,257,258], f64[257,258,258], f64[258,258,257]) {
+  %param_0.9 = f64[258,258,258]{2,1,0} parameter(0)
+  %slice.24.1 = f64[258,257,258]{2,1,0} slice(%param_0.9), slice={[0:258], [1:258], [0:258]}, metadata={op_name="jit(laplacian_composed_barrier)/slice" stack_frame_id=10}
+  %slice.25.1 = f64[258,257,258]{2,1,0} slice(%param_0.9), slice={[0:258], [0:257], [0:258]}, metadata={op_name="jit(laplacian_composed_barrier)/slice" stack_frame_id=9}
+  %sub.8.1 = f64[258,257,258]{2,1,0} subtract(%slice.24.1, %slice.25.1), metadata={op_name="jit(laplacian_composed_barrier)/sub" stack_frame_id=7}
+  %slice.18.1.clone.1 = f64[257,258,258]{2,1,0} slice(%param_0.9), slice={[1:258], [0:258], [0:258]}, metadata={op_name="jit(laplacian_composed_barrier)/slice" stack_frame_id=10}
+  %slice.19.1.clone.1 = f64[257,258,258]{2,1,0} slice(%param_0.9), slice={[0:257], [0:258], [0:258]}, metadata={op_name="jit(laplacian_composed_barrier)/slice" stack_frame_id=9}
+  %sub.6.1.clone.1 = f64[257,258,258]{2,1,0} subtract(%slice.18.1.clone.1, %slice.19.1.clone.1), metadata={op_name="jit(laplacian_composed_barrier)/sub" stack_frame_id=7}
+  %slice.30.1.clone.1 = f64[258,258,257]{2,1,0} slice(%param_0.9), slice={[0:258], [0:258], [1:258]}, metadata={op_name="jit(laplacian_composed_barrier)/slice" stack_frame_id=10}
+  %slice.31.1.clone.1 = f64[258,258,257]{2,1,0} slice(%param_0.9), slice={[0:258], [0:258], [0:257]}, metadata={op_name="jit(laplacian_composed_barrier)/slice" stack_frame_id=9}
+  %sub.10.1.clone.1 = f64[258,258,257]{2,1,0} subtract(%slice.30.1.clone.1, %slice.31.1.clone.1), metadata={op_name="jit(laplacian_composed_barrier)/sub" stack_frame_id=7}
+  ROOT %tuple.1 = (f64[258,257,258]{2,1,0}, f64[257,258,258]{2,1,0}, f64[258,258,257]{2,1,0}) tuple(%sub.8.1, %sub.6.1.clone.1, %sub.10.1.clone.1)
+}
+
+%fused_add (param_0.23: f64[257,258,258], param_1.21: f64[258,257,258], param_2.11: f64[258,258,257]) -> f64[256,256,256] {
+  %param_0.23 = f64[257,258,258]{2,1,0} parameter(0)
+  %slice.20.5 = f64[256,258,258]{2,1,0} slice(%param_0.23), slice={[1:257], [0:258], [0:258]}, metadata={op_name="jit(laplacian_composed_barrier)/slice" stack_frame_id=18}
+  %slice.21.5 = f64[256,258,258]{2,1,0} slice(%param_0.23), slice={[0:256], [0:258], [0:258]}, metadata={op_name="jit(laplacian_composed_barrier)/slice" stack_frame_id=17}
+  %sub.7.5 = f64[256,258,258]{2,1,0} subtract(%slice.20.5, %slice.21.5), metadata={op_name="jit(laplacian_composed_barrier)/sub" stack_frame_id=15}
+  %slice.23.5 = f64[256,256,256]{2,1,0} slice(%sub.7.5), slice={[0:256], [1:257], [1:257]}, metadata={op_name="jit(laplacian_composed_barrier)/slice" stack_frame_id=13}
+  %param_1.21 = f64[258,257,258]{2,1,0} parameter(1)
+  %slice.26.3 = f64[258,256,258]{2,1,0} slice(%param_1.21), slice={[0:258], [1:257], [0:258]}, metadata={op_name="jit(laplacian_composed_barrier)/slice" stack_frame_id=18}
+  %slice.27.3 = f64[258,256,258]{2,1,0} slice(%param_1.21), slice={[0:258], [0:256], [0:258]}, metadata={op_name="jit(laplacian_composed_barrier)/slice" stack_frame_id=17}
+  %sub.9.3 = f64[258,256,258]{2,1,0} subtract(%slice.26.3, %slice.27.3), metadata={op_name="jit(laplacian_composed_barrier)/sub" stack_frame_id=15}
+  %slice.29.3 = f64[256,256,256]{2,1,0} slice(%sub.9.3), slice={[1:257], [0:256], [1:257]}, metadata={op_name="jit(laplacian_composed_barrier)/slice" stack_frame_id=13}
+  %add.2.3 = f64[256,256,256]{2,1,0} add(%slice.23.5, %slice.29.3), metadata={op_name="jit(laplacian_composed_barrier)/add" stack_frame_id=11}
+  %param_2.11 = f64[258,258,257]{2,1,0} parameter(2)
+  %slice.32.3 = f64[258,258,256]{2,1,0} slice(%param_2.11), slice={[0:258], [0:258], [1:257]}, metadata={op_name="jit(laplacian_composed_barrier)/slice" stack_frame_id=18}
+  %slice.33.3 = f64[258,258,256]{2,1,0} slice(%param_2.11), slice={[0:258], [0:258], [0:256]}, metadata={op_name="jit(laplacian_composed_barrier)/slice" stack_frame_id=17}
+  %sub.11.3 = f64[258,258,256]{2,1,0} subtract(%slice.32.3, %slice.33.3), metadata={op_name="jit(laplacian_composed_barrier)/sub" stack_frame_id=15}
+  %slice.35.3 = f64[256,256,256]{2,1,0} slice(%sub.11.3), slice={[1:257], [1:257], [0:256]}, metadata={op_name="jit(laplacian_composed_barrier)/slice" stack_frame_id=13}
+  ROOT %add.3.1 = f64[256,256,256]{2,1,0} add(%add.2.3, %slice.35.3), metadata={op_name="jit(laplacian_composed_barrier)/add" stack_frame_id=11}
+}
+
+ENTRY %main.1 (fp.1: f64[258,258,258]) -> f64[256,256,256] {
+  %fp.1 = f64[258,258,258]{2,1,0} parameter(0), metadata={op_name="fp"}
+  %loop_subtract_fusion = (f64[258,257,258]{2,1,0}, f64[257,258,258]{2,1,0}, f64[258,258,257]{2,1,0}) fusion(%fp.1), kind=kLoop, calls=%fused_subtract, metadata={op_name="jit(laplacian_composed_barrier)/sub" stack_frame_id=7}, backend_config={"device_type":"DEVICE_TYPE_INVALID","force_earliest_schedule":false,"native_emitter_backend_config":{"type":"NATIVE_EMITTER_TYPE_INVALID","unroll_factor":0},"operation_queue_id":"0","reification_cost":[]}
+  %get-tuple-element.2 = f64[258,258,257]{2,1,0} get-tuple-element(%loop_subtract_fusion), index=2, metadata={op_name="jit(laplacian_composed_barrier)/sub" stack_frame_id=7}
+  %get-tuple-element.1 = f64[257,258,258]{2,1,0} get-tuple-element(%loop_subtract_fusion), index=1, metadata={op_name="jit(laplacian_composed_barrier)/sub" stack_frame_id=7}
+  %get-tuple-element = f64[258,257,258]{2,1,0} get-tuple-element(%loop_subtract_fusion), index=0, metadata={op_name="jit(laplacian_composed_barrier)/sub" stack_frame_id=7}
+  ROOT %loop_add_fusion = f64[256,256,256]{2,1,0} fusion(%get-tuple-element.1, %get-tuple-element, %get-tuple-element.2), kind=kLoop, calls=%fused_add, metadata={op_name="jit(laplacian_composed_barrier)/add" stack_frame_id=11}, backend_config={"device_type":"DEVICE_TYPE_INVALID","force_earliest_schedule":false,"native_emitter_backend_config":{"type":"NATIVE_EMITTER_TYPE_INVALID","unroll_factor":0},"operation_queue_id":"0","reification_cost":[]}
+}
+

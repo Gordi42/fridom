@@ -1,0 +1,108 @@
+HloModule jit_biharmonic_composed_barrier, is_scheduled=true, entry_computation_layout={(f64[260,260,260]{2,1,0})->f64[256,256,256]{2,1,0}}, allow_spmd_sharding_propagation_to_parameters={true}, allow_spmd_sharding_propagation_to_output={true}, frontend_attributes={fingerprint_before_lhs="6e9d51f5a031ccc589282a601ce260cd"}
+
+FileNames
+1 "/work/uo0780/u301533/fridom/fridom-dev/.claude/worktrees/perf+stencil-lowering/design/research/stencil_lowering/microbench/driver.py"
+2 "/work/uo0780/u301533/fridom/fridom-dev/.claude/worktrees/perf+stencil-lowering/design/research/stencil_lowering/microbench/common.py"
+3 "/work/uo0780/u301533/fridom/fridom-dev/.claude/worktrees/perf+stencil-lowering/design/research/stencil_lowering/microbench/stencils.py"
+
+FunctionNames
+1 "<module>"
+2 "main"
+3 "cmd_e2"
+4 "run_case"
+5 "analyze"
+6 "biharmonic_composed_barrier"
+7 "laplacian_fused"
+
+FileLocations
+1 {file_name_id=1 function_name_id=1 line=297 end_line=297 column=4 end_column=10}
+2 {file_name_id=1 function_name_id=2 line=293 end_line=293 column=4 end_column=24}
+3 {file_name_id=1 function_name_id=3 line=179 end_line=179 column=23 end_column=77}
+4 {file_name_id=2 function_name_id=4 line=179 end_line=179 column=29 end_column=46}
+5 {file_name_id=2 function_name_id=5 line=137 end_line=137 column=14 end_column=33}
+6 {file_name_id=3 function_name_id=6 line=219 end_line=219 column=11 end_column=30}
+7 {file_name_id=3 function_name_id=7 line=205 end_line=205 column=11 end_column=18}
+8 {file_name_id=3 function_name_id=7 line=205 end_line=205 column=41 end_column=48}
+9 {file_name_id=3 function_name_id=7 line=198 end_line=198 column=8 end_column=40}
+10 {file_name_id=3 function_name_id=7 line=204 end_line=204 column=9 end_column=41}
+11 {file_name_id=3 function_name_id=7 line=203 end_line=203 column=9 end_column=37}
+12 {file_name_id=3 function_name_id=7 line=202 end_line=202 column=9 end_column=41}
+13 {file_name_id=3 function_name_id=7 line=201 end_line=201 column=9 end_column=37}
+14 {file_name_id=3 function_name_id=7 line=200 end_line=200 column=9 end_column=41}
+15 {file_name_id=3 function_name_id=7 line=199 end_line=199 column=9 end_column=37}
+16 {file_name_id=3 function_name_id=6 line=221 end_line=221 column=11 end_column=32}
+
+StackFrames
+1 {file_location_id=1 parent_frame_id=1}
+2 {file_location_id=2 parent_frame_id=2}
+3 {file_location_id=3 parent_frame_id=3}
+4 {file_location_id=4 parent_frame_id=4}
+5 {file_location_id=5 parent_frame_id=5}
+6 {file_location_id=6 parent_frame_id=6}
+7 {file_location_id=7 parent_frame_id=7}
+8 {file_location_id=8 parent_frame_id=7}
+9 {file_location_id=9 parent_frame_id=7}
+10 {file_location_id=10 parent_frame_id=7}
+11 {file_location_id=11 parent_frame_id=7}
+12 {file_location_id=12 parent_frame_id=7}
+13 {file_location_id=13 parent_frame_id=7}
+14 {file_location_id=14 parent_frame_id=7}
+15 {file_location_id=15 parent_frame_id=7}
+16 {file_location_id=16 parent_frame_id=6}
+17 {file_location_id=7 parent_frame_id=17}
+18 {file_location_id=10 parent_frame_id=17}
+19 {file_location_id=11 parent_frame_id=17}
+20 {file_location_id=12 parent_frame_id=17}
+21 {file_location_id=13 parent_frame_id=17}
+22 {file_location_id=14 parent_frame_id=17}
+23 {file_location_id=15 parent_frame_id=17}
+24 {file_location_id=8 parent_frame_id=17}
+25 {file_location_id=9 parent_frame_id=17}
+
+
+%fused_subtract (param_0.34: f64[260,260,260]) -> f64[258,258,258] {
+  %param_0.34 = f64[260,260,260]{2,1,0} parameter(0)
+  %slice.15.3 = f64[258,258,258]{2,1,0} slice(%param_0.34), slice={[0:258], [1:259], [1:259]}, metadata={op_name="jit(biharmonic_composed_barrier)/slice" stack_frame_id=15}
+  %slice.16.3 = f64[258,258,258]{2,1,0} slice(%param_0.34), slice={[2:260], [1:259], [1:259]}, metadata={op_name="jit(biharmonic_composed_barrier)/slice" stack_frame_id=14}
+  %add.10.5 = f64[258,258,258]{2,1,0} add(%slice.15.3, %slice.16.3), metadata={op_name="jit(biharmonic_composed_barrier)/add" stack_frame_id=7}
+  %slice.17.3 = f64[258,258,258]{2,1,0} slice(%param_0.34), slice={[1:259], [0:258], [1:259]}, metadata={op_name="jit(biharmonic_composed_barrier)/slice" stack_frame_id=13}
+  %add.11.5 = f64[258,258,258]{2,1,0} add(%add.10.5, %slice.17.3), metadata={op_name="jit(biharmonic_composed_barrier)/add" stack_frame_id=7}
+  %slice.18.5 = f64[258,258,258]{2,1,0} slice(%param_0.34), slice={[1:259], [2:260], [1:259]}, metadata={op_name="jit(biharmonic_composed_barrier)/slice" stack_frame_id=12}
+  %add.12.5 = f64[258,258,258]{2,1,0} add(%add.11.5, %slice.18.5), metadata={op_name="jit(biharmonic_composed_barrier)/add" stack_frame_id=7}
+  %slice.19.3 = f64[258,258,258]{2,1,0} slice(%param_0.34), slice={[1:259], [1:259], [0:258]}, metadata={op_name="jit(biharmonic_composed_barrier)/slice" stack_frame_id=11}
+  %add.13.3 = f64[258,258,258]{2,1,0} add(%add.12.5, %slice.19.3), metadata={op_name="jit(biharmonic_composed_barrier)/add" stack_frame_id=7}
+  %slice.20.3 = f64[258,258,258]{2,1,0} slice(%param_0.34), slice={[1:259], [1:259], [2:260]}, metadata={op_name="jit(biharmonic_composed_barrier)/slice" stack_frame_id=10}
+  %add.14.3 = f64[258,258,258]{2,1,0} add(%add.13.3, %slice.20.3), metadata={op_name="jit(biharmonic_composed_barrier)/add" stack_frame_id=7}
+  %slice.14.1 = f64[258,258,258]{2,1,0} slice(%param_0.34), slice={[1:259], [1:259], [1:259]}, metadata={op_name="jit(biharmonic_composed_barrier)/slice" stack_frame_id=9}
+  %constant_3_1 = f64[] constant(6)
+  %mul.5.1 = f64[258,258,258]{2,1,0} broadcast(%constant_3_1), dimensions={}, metadata={op_name="jit(biharmonic_composed_barrier)/mul" stack_frame_id=8}
+  %mul.6.1 = f64[258,258,258]{2,1,0} multiply(%slice.14.1, %mul.5.1), metadata={op_name="jit(biharmonic_composed_barrier)/mul" stack_frame_id=8}
+  ROOT %sub.2.1 = f64[258,258,258]{2,1,0} subtract(%add.14.3, %mul.6.1), metadata={op_name="jit(biharmonic_composed_barrier)/sub" stack_frame_id=7}
+}
+
+%fused_subtract.1 (param_0.33: f64[258,258,258]) -> f64[256,256,256] {
+  %param_0.33 = f64[258,258,258]{2,1,0} parameter(0)
+  %slice.22.11 = f64[256,256,256]{2,1,0} slice(%param_0.33), slice={[0:256], [1:257], [1:257]}, metadata={op_name="jit(biharmonic_composed_barrier)/slice" stack_frame_id=23}
+  %slice.23.11 = f64[256,256,256]{2,1,0} slice(%param_0.33), slice={[2:258], [1:257], [1:257]}, metadata={op_name="jit(biharmonic_composed_barrier)/slice" stack_frame_id=22}
+  %add.15.11 = f64[256,256,256]{2,1,0} add(%slice.22.11, %slice.23.11), metadata={op_name="jit(biharmonic_composed_barrier)/add" stack_frame_id=17}
+  %slice.24.9 = f64[256,256,256]{2,1,0} slice(%param_0.33), slice={[1:257], [0:256], [1:257]}, metadata={op_name="jit(biharmonic_composed_barrier)/slice" stack_frame_id=21}
+  %add.16.9 = f64[256,256,256]{2,1,0} add(%add.15.11, %slice.24.9), metadata={op_name="jit(biharmonic_composed_barrier)/add" stack_frame_id=17}
+  %slice.25.7 = f64[256,256,256]{2,1,0} slice(%param_0.33), slice={[1:257], [2:258], [1:257]}, metadata={op_name="jit(biharmonic_composed_barrier)/slice" stack_frame_id=20}
+  %add.17.7 = f64[256,256,256]{2,1,0} add(%add.16.9, %slice.25.7), metadata={op_name="jit(biharmonic_composed_barrier)/add" stack_frame_id=17}
+  %slice.26.5 = f64[256,256,256]{2,1,0} slice(%param_0.33), slice={[1:257], [1:257], [0:256]}, metadata={op_name="jit(biharmonic_composed_barrier)/slice" stack_frame_id=19}
+  %add.18.5 = f64[256,256,256]{2,1,0} add(%add.17.7, %slice.26.5), metadata={op_name="jit(biharmonic_composed_barrier)/add" stack_frame_id=17}
+  %slice.27.3 = f64[256,256,256]{2,1,0} slice(%param_0.33), slice={[1:257], [1:257], [2:258]}, metadata={op_name="jit(biharmonic_composed_barrier)/slice" stack_frame_id=18}
+  %add.19.3 = f64[256,256,256]{2,1,0} add(%add.18.5, %slice.27.3), metadata={op_name="jit(biharmonic_composed_barrier)/add" stack_frame_id=17}
+  %slice.21.3 = f64[256,256,256]{2,1,0} slice(%param_0.33), slice={[1:257], [1:257], [1:257]}, metadata={op_name="jit(biharmonic_composed_barrier)/slice" stack_frame_id=25}
+  %constant_3_2 = f64[] constant(6)
+  %mul.4.3 = f64[256,256,256]{2,1,0} broadcast(%constant_3_2), dimensions={}, metadata={op_name="jit(biharmonic_composed_barrier)/mul" stack_frame_id=24}
+  %mul.7.3 = f64[256,256,256]{2,1,0} multiply(%slice.21.3, %mul.4.3), metadata={op_name="jit(biharmonic_composed_barrier)/mul" stack_frame_id=24}
+  ROOT %sub.3.1 = f64[256,256,256]{2,1,0} subtract(%add.19.3, %mul.7.3), metadata={op_name="jit(biharmonic_composed_barrier)/sub" stack_frame_id=17}
+}
+
+ENTRY %main.1 (fp.1: f64[260,260,260]) -> f64[256,256,256] {
+  %fp.1 = f64[260,260,260]{2,1,0} parameter(0), metadata={op_name="fp"}
+  %loop_subtract_fusion = f64[258,258,258]{2,1,0} fusion(%fp.1), kind=kLoop, calls=%fused_subtract, metadata={op_name="jit(biharmonic_composed_barrier)/sub" stack_frame_id=7}, backend_config={"device_type":"DEVICE_TYPE_INVALID","force_earliest_schedule":false,"native_emitter_backend_config":{"type":"NATIVE_EMITTER_TYPE_INVALID","unroll_factor":0},"operation_queue_id":"0","reification_cost":[]}
+  ROOT %loop_subtract_fusion.1 = f64[256,256,256]{2,1,0} fusion(%loop_subtract_fusion), kind=kLoop, calls=%fused_subtract.1, metadata={op_name="jit(biharmonic_composed_barrier)/sub" stack_frame_id=17}, backend_config={"device_type":"DEVICE_TYPE_INVALID","force_earliest_schedule":false,"native_emitter_backend_config":{"type":"NATIVE_EMITTER_TYPE_INVALID","unroll_factor":0},"operation_queue_id":"0","reification_cost":[]}
+}
+

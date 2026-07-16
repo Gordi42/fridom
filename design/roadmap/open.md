@@ -134,14 +134,28 @@ measurably trails the reference:
    flat, 2026-07-13), the same HLO-volume problem in the CG body; fix
    the comparison suite's metric to report compile separately
    (`_CHUNK_COMPILE_LOG`).
-3. **Advection-kernel throughput.** The single-GPU edge collapses from
-   1.86× (linear, solve-bound) to 1.05× (upwind5: 131 vs 137 ms/step)
-   and 1.10× (weno5: 187 vs 205) — the biased-reconstruction kernels are
-   only at parity with Oceananigans' KernelAbstractions kernels, unlike
-   every other part of the step. Headroom likely in the
-   reconstruct/select pipeline (face-velocity `Where` selects, WENO
-   weight evaluation, fusion across the three flux axes). Profile
-   against a roofline before optimizing.
+3. **Advection-kernel throughput — RESEARCHED 2026-07-16, implement
+   the winner.** The stencil-lowering study
+   ([`../research/stencil_lowering.md`](../research/stencil_lowering.md))
+   attributed the collapse (1.86× linear → 1.05/1.10× upwind5/weno5):
+   the slice-window kernels already lower optimally (one fused kernel,
+   zero temps) and composition is free; WENO is divide/instruction-
+   bound and pays its nonlinear weights TWICE (both biased
+   reconstructions computed, then `Where`-selected — Oceananigans
+   selects stencil *indices* and evaluates once). Measured on the real
+   step, exact to ~1e-13, temp flat: **weno5 selected-input
+   reconstruction −39% @256³ (25.5→15.5 ms/step), −46% @512³
+   (239.8→128.5)**. Implementation task: a selected-window mode of
+   `_BiasedFaceReconstruction` (tap `where`s on the union window, one
+   LEFT `weno_reconstruct`; mind the dual-staggering `_wall_shift` in
+   the union alignment), walled/mapped + multi-device coverage, gates =
+   CPU oracle (`stencil_lowering/microbench/phase3_prep/`) +
+   machine-precision step parity + step suite on 1 and 4 GPUs; then
+   re-run the Oceananigans comparison (projected weno5 edge ~1.8×).
+   Negative results (do not revisit): single-divide weights (real-step
+   temp blowup, 512³ OOM), f32-weights (superseded; net loss stacked on
+   selected-input), linear-upwind one-path spellings (micro win
+   reverses to +4–6% real), conv/tap-loop/per-point-kernel rewrites.
 
 ## Multi-device follow-ups from the indivisible-shard campaign
 
