@@ -113,6 +113,65 @@ def test_repeated_resolution_is_interned(grid):
 
 
 # ================================================================
+#  The fv (average) family (FV-D1b / FV-D2 option A)
+# ================================================================
+def test_grid_default_family_is_nodal(grid):
+    assert grid.default_family == "nodal"
+
+
+def test_fv_collocated_resolves_to_cell_averages(grid, meshes):
+    x, z = meshes
+    space = Collocated(family="fv").resolve(grid)
+    assert space.factors == (x.cell_avg, z.cell_avg)
+
+
+def test_fv_staggered_stays_the_nodal_face(grid, meshes):
+    # FV-D2 option A: a staggered coordinate keeps the point-value
+    # face (Right periodic / Inner bounded); the collocated
+    # coordinates land on CellAvg
+    x, z = meshes
+    assert Staggered("x", family="fv").resolve(grid).factors == (
+        x.right, z.cell_avg)
+    assert Staggered("z", family="fv").resolve(grid).factors == (
+        x.cell_avg, z.inner)
+
+
+def test_fv_profile_mixes_constant_and_cell_average(grid, meshes):
+    x, z = meshes
+    assert Profile("z", family="fv").resolve(grid).factors == (
+        x.constant, z.cell_avg)
+
+
+def test_grid_level_fv_default_resolves_cell_averages(meshes):
+    x, z = meshes
+    fv_grid = Grid(meshes, family="fv")
+    assert fv_grid.default_family == "fv"
+    assert Collocated().resolve(fv_grid).factors == (
+        x.cell_avg, z.cell_avg)
+    # a per-field family= override wins over the grid default
+    assert Collocated(family="nodal").resolve(fv_grid).factors == (
+        x.center, z.center)
+
+
+def test_fv_collocated_bc_is_a_taught_error(grid):
+    with pytest.raises(ValueError, match="BC on a family='fv'"):
+        Collocated(bc={"x": BC.DIRICHLET},
+                   family="fv").resolve(grid)
+
+
+def test_fv_on_chebyshev_is_a_taught_error(cheb_grid):
+    with pytest.raises(ValueError, match="ChebyshevMesh has no "
+                       "cell averages"):
+        Collocated(family="fv").resolve(cheb_grid)
+
+
+def test_grid_level_family_validation(meshes):
+    with pytest.raises(ValueError,
+                       match="grid-level default family must be one"):
+        Grid(meshes, family="bogus")
+
+
+# ================================================================
 #  ChebyshevMesh: the restricted (outer/Lobatto) family
 # ================================================================
 def test_chebyshev_collocated_resolves_to_lobatto(cheb_grid):

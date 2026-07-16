@@ -95,6 +95,20 @@ def test_identity_equality_and_hash(mx, my):
     assert hash(a) == id(a)
 
 
+def test_default_family_defaults_to_nodal(grid):
+    assert grid.default_family == "nodal"
+
+
+def test_default_family_is_settable(mx, my):
+    assert Grid((mx, my), family="fv").default_family == "fv"
+
+
+def test_default_family_validated(mx, my):
+    with pytest.raises(ValueError,
+                       match="grid-level default family must be one"):
+        Grid((mx, my), family="bogus")
+
+
 def test_dispatch_defaults_to_seeded_registry_and_is_settable(mx):
     registry = Grid((mx,)).dispatch
     assert isinstance(registry, OperatorRegistry)

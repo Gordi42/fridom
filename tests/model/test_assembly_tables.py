@@ -373,7 +373,7 @@ def test_host_view_missing_name_is_hinted():
 # ================================================================
 def _seed_resolver(grid, mesh):
     """Register a ('declared_space', mesh) row (grid-level seam)."""
-    def resolver(tag, bc):
+    def resolver(tag, bc, family="nodal"):  # noqa: ARG001
         node_set = {Dof.COLLOCATED: NodeSet.CENTER,
                     Dof.STAGGERED: NodeSet.RIGHT}[tag]
         if bc is None:

@@ -29,7 +29,7 @@ from fridom.spatial.spaces.tensor_product import (
 # ================================================================
 def _seed_resolver(grid, mesh):
     """Register a ('declared_space', mesh) row (grid-level seam)."""
-    def resolver(tag, bc):
+    def resolver(tag, bc, family="nodal"):  # noqa: ARG001
         node_set = {Dof.COLLOCATED: NodeSet.CENTER,
                     Dof.STAGGERED: NodeSet.RIGHT}[tag]
         if bc is None:
@@ -37,6 +37,15 @@ def _seed_resolver(grid, mesh):
         return mesh.nodal(node_set, bc=bc)
     grid.dispatch[("declared_space", mesh)] = resolver
     return resolver
+
+
+def _spy_resolver(grid, mesh, captured):
+    """Seed a resolver that records the family arg it is called with."""
+    def resolver(tag, bc, family="nodal"):  # noqa: ARG001
+        captured.append(family)
+        return mesh.nodal(NodeSet.CENTER,
+                          bc=BC.NONE if bc is None else bc)
+    grid.dispatch[("declared_space", mesh)] = resolver
 
 
 @pytest.fixture(scope="module")
@@ -137,6 +146,71 @@ def test_repr_round_trips():
                     Collocated(require=("x",),
                                scalars=Scalars.COMPLEX)):
         assert eval(repr(pattern), namespace) == pattern  # noqa: S307
+
+
+# ================================================================
+#  family: discretization family (FV-D1b)
+# ================================================================
+def test_family_defaults_to_none():
+    assert Collocated().family is None
+    assert SpacePattern().family is None
+
+
+def test_family_is_stored():
+    assert SpacePattern(family="fv").family == "fv"
+    assert SpacePattern(family="nodal").family == "nodal"
+
+
+def test_family_enters_value_semantics():
+    assert Collocated(family="fv") != Collocated()
+    assert hash(Collocated(family="fv")) != hash(Collocated())
+    # a family override is a distinct dispatch-merge key
+    rows = {Collocated(): "nodal-row", Collocated(family="fv"): "fv"}
+    assert len(rows) == 2
+    assert rows[Collocated(family="fv")] == "fv"
+
+
+def test_family_validation():
+    with pytest.raises(ValueError, match="family must be one of"):
+        SpacePattern(family="bogus")
+
+
+def test_family_repr_round_trips():
+    namespace = {"SpacePattern": SpacePattern, "Dof": Dof,
+                 "BC": BC, "Scalars": Scalars}
+    pattern = Collocated(family="fv")
+    assert repr(pattern) == "SpacePattern(family='fv')"
+    assert eval(repr(pattern), namespace) == pattern  # noqa: S307
+
+
+def test_create_forwards_family():
+    assert SpacePattern.create(family="fv").family == "fv"
+
+
+def test_sugar_constructors_forward_family():
+    assert Collocated(family="fv").family == "fv"
+    assert Staggered("x", family="fv").family == "fv"
+    assert Profile("z", family="fv").family == "fv"
+
+
+def test_resolve_passes_grid_default_family(meshes):
+    # a pattern with family=None resolves the grid-level default
+    captured = []
+    grid = Grid(meshes, family="fv")
+    for mesh in meshes:
+        _spy_resolver(grid, mesh, captured)
+    Collocated().resolve(grid)
+    assert captured == ["fv", "fv"]
+
+
+def test_resolve_pattern_family_overrides_grid_default(meshes):
+    # an explicit family= wins over the grid default, either way
+    captured = []
+    grid = Grid(meshes, family="fv")
+    for mesh in meshes:
+        _spy_resolver(grid, mesh, captured)
+    Collocated(family="nodal").resolve(grid)
+    assert captured == ["nodal", "nodal"]
 
 
 # ================================================================
