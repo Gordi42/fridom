@@ -19,8 +19,10 @@ merged — the periodic nonhydro model is FV by default; see §10 for
 the implementation record and the corrections it surfaced. Later the
 same day F4 (walls, FV-D4 — §11) and F6 (hygiene G7/G8/G9 — §12)
 shipped: walled grids serve explicit `family="fv"` at parity with the
-nodal model.** F5 (mapped/chart FV) remains open as staged; the
-walled *auto*-default flip is a pending owner decision (§11).
+nodal model, and (owner ruling, same day) **walled grids are FV by
+default** — auto = FV iff unmapped and unimmersed.** F5 (mapped/chart
+FV) remains open as staged; the walled-FV *analytic vertical
+eigenmode* stack is a recorded taught gap (§11 addendum).
 
 ## 1. Headline
 
@@ -517,10 +519,10 @@ The design, point by point:
    Neumann-tagged face domains stay unseeded with a taught hint (a
    Neumann tag claims no wall value).
 6. **Model gates.** Explicit `family="fv"` served on walled unmapped,
-   unimmersed grids; mapped/immersed stay a taught error (F5). **The
-   walled auto-default stays nodal — flipping it is a pending owner
-   decision** (parity is eager-bitwise, so the flip costs no number;
-   see the jit caveat below).
+   unimmersed grids; mapped/immersed stay a taught error (F5). The
+   walled auto-default initially stayed nodal pending the owner's
+   call; **ruled the same day — see the addendum below: auto = FV iff
+   unmapped and unimmersed.**
 7. **The F4→F5 seam.** Walls enter FV chains only through (i) tagged
    average origins for transforms and (ii) nodal face factors
    carrying claims plus structural Inner-codomain Gauss closures. The
@@ -611,3 +613,38 @@ remaining capability gate.
   while the patched walls are degree-1-exact — both 2nd-order
   convergent; making the interior geometry-aware would be a separate
   change to the symmetric kernel.
+
+### §11 addendum — the walled auto-default flip (owner ruling 2026-07-16)
+
+Ruled by Silvano the same day F4 shipped: **the auto family default is
+FV on every grid that can carry it — periodic and walled; only mapped
+and immersed grids stay nodal** (`_fv_capable` = unmapped ∧
+unimmersed, exactly the complement of `_require_fv_capable`'s
+rejection). Shipped as the `feat/fv-walled-default` merge: the gate,
+the docstring sweep (`core.py`, `model.py`, `eigenmodes.py`), the
+walled test sweep (nodal coverage pinned `family="nodal"` where the
+nodal path is the test's purpose — the F3-flip precedent), and
+explicit nodal siblings for the walled step-benchmark cases
+(`nh_flat_walled_nodal` / `nh_flat_walled_x_nodal`; committed
+baselines untouched — re-record on the next GPU campaign).
+
+**Discovery pinned during the flip — the walled-FV analytic
+eigenmode gap.** Under a walled-FV default, the analytic
+walled-vertical eigenmode kit (`Eigenmodes` / `from_model` with a
+bounded vertical) fails at kit construction: it declares BC-tagged
+collocated analysis spaces, and the FV declared-space resolver
+rejects a BC on a collocated coordinate (`ValueError`, "average
+factors carry no boundary structure, C8" — fires naturally, pinned in
+`test_fv_default.py::test_walled_fv_eigenmodes_are_a_taught_gap`).
+Probing showed the gap is the whole walled-FV transform stack, not a
+row: missing are (a) a declared-space story for BC-tagged average
+analysis spaces, (b) the DST-II `Dirichlet CellAvg` transform row
+(unseeded by design, §11.2), and (c) the reconstruction/interp trig
+eigenvalues on tagged average origins (the kit's `a`/`ab` symbol
+families). F5-adjacent; the numeric channel eigenbasis
+(`ChannelEigenmodes`) is family-agnostic and works on FV. A bespoke
+`from_model` guard naming the deferral would improve the UX
+(follow-up). Also flagged: `MeridionalStratification`'s `n2` Profile
+carries no `family=` and follows the grid default onto `CellAvg` on
+walled-FV models (assembles and passes; whether `n2` should pin nodal
+independent of family is an open owner flag).

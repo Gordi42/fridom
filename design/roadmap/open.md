@@ -114,26 +114,34 @@ loudly instead of in the HLO verifier. Evidence, provenance probes, and
 corrections:
 [`../research/multidevice_test_faults.md`](../research/multidevice_test_faults.md).
 
-## Finite-volume nonhydro — mapped FV, default flip, validation (F5)
+## Finite-volume nonhydro — mapped FV, eigenmode gap, validation (F5)
 
-Stages F0–F4 and F6 shipped (F4 walls + F6 hygiene entries in
-[`done.md`](done.md)): walled grids serve explicit `family="fv"` at
-parity with the nodal model; only mapped/immersed grids remain
-nodal-only (taught error). Open:
+Stages F0–F4 and F6 shipped, and the model is **FV by default on
+every unmapped, unimmersed grid** — periodic and walled (owner ruling
+2026-07-16; entries in [`done.md`](done.md)). Only mapped/immersed
+grids remain nodal-only (taught error). Open:
 
 - **F5** mapped/chart FV — the metric-aware rows on averages (C1/C2
   chain) and `MappedPressureSolver` (hard-wired nodal). Handoff notes
   from F4 in the scoping §11 (measure-weighted wall reconstruction,
   the single remaining `_require_fv_capable` gate).
-- **Walled auto-default flip — owner decision.** The walled FV model
-  is eager-bitwise with nodal (jitted runs ≤1.2e-14, an XLA
-  fusion-ordering artifact in the mixed trig solve, scoping §11), so
-  flipping the walled *default* from nodal to FV costs no accuracy;
-  it awaits Silvano's call.
+- **Walled-FV analytic eigenmodes — taught gap** (found by the
+  default flip; scoping §11 addendum). `Eigenmodes`/`from_model` with
+  a bounded vertical needs the walled-FV transform stack (BC-tagged
+  average analysis spaces, the DST-II Dirichlet-`CellAvg` row, trig
+  reconstruction/interp eigenvalues on tagged average origins) —
+  F5-adjacent, pinned as a taught error; the numeric channel
+  eigenbasis works on FV. Follow-ups: a bespoke `from_model` guard
+  naming the deferral; owner flag on whether
+  `MeridionalStratification`'s `n2` Profile should pin nodal
+  independent of family (it currently follows the grid default onto
+  `CellAvg`, which assembles and passes).
 - **Validate the FV default on 4 GPUs** — the distributed solve on
-  average origins ran only 1-GPU so far (forced-4 CPU now asserts the
-  walled FV fast paths, F4), and the gpu4 step baseline predates the
-  nodal sibling cases.
+  average origins ran only 1-GPU so far (forced-4 CPU asserts the
+  walled FV fast paths, F4), the gpu4 step baseline predates the
+  nodal sibling cases, and the walled step baselines predate the
+  FV default flip (nodal sibling cases exist; re-record both on the
+  next GPU campaign).
 
 [`../plans/active/fv_nonhydro_scoping.md`](../plans/active/fv_nonhydro_scoping.md)
 

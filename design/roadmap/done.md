@@ -158,7 +158,7 @@ Implementation record:
   families; the claim-consuming `("average", Inner(DIRICHLET))` row
   closes the F2 stratified blocker (`w.to(b)`); explicit
   `family="fv"` served on walled unmapped grids (the auto default
-  stays nodal — owner flip pending, [`open.md`](open.md)). Gates:
+  flipped to FV the same day — next entry). Gates:
   manufactured walled Poisson <1e-12; machine-zero walled FV
   projection (z, x, y cases); **eager-bitwise parity** with the
   walled nodal model (jitted 12-step ≤1.2e-14, an XLA fusion-ordering
@@ -166,6 +166,17 @@ Implementation record:
   against composed operators; forced-4 FV fast-path siblings. Design
   and implementation corrections:
   [`../plans/active/fv_nonhydro_scoping.md`](../plans/active/fv_nonhydro_scoping.md) §11.
+
+- **FV nonhydro — walled auto-default flip** (owner ruling
+  2026-07-16) — the auto family default is FV on every grid that can
+  carry it: `_fv_capable` = unmapped ∧ unimmersed (periodic **and**
+  walled), the exact complement of the explicit-fv taught error.
+  Shipped with the walled test sweep (nodal coverage pinned
+  `family="nodal"` where the nodal path is the test's purpose, the
+  F3-flip precedent) and nodal siblings for the walled step-benchmark
+  cases (baselines re-record next GPU campaign). The flip surfaced
+  the walled-FV analytic-eigenmode taught gap — recorded in
+  [`open.md`](open.md) and the scoping §11 addendum.
 
 - **FV nonhydro stage F6 — hygiene G7/G8/G9** (2026-07-16) —
   dealiased padded transforms on average origins (sinc-bracketed
