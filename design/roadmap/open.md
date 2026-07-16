@@ -64,6 +64,18 @@ Still open, and the next work:
 3. The optimizations do not yet **reach inside** the mapped PCG solve —
    see the section below.
 
+*Update (2026-07-16): item 1's stated prerequisite — a reproducible A/B
+harness — now exists. `benchmarks/model/bench_step.py` records
+**committed** baselines (`benchmarks/baselines/step-gpu{1,4}.json`, no
+longer gitignored) and runs them `--fail-on-regression`; the
+indivisible-shard campaign added the `nh_flat_prime` / `nh_flat_walled_x`
+guard cases. What is still open is wiring it as a **gate**: the CI
+benchmark job still only smoke-runs ("No timing assertions",
+`.github/workflows/tests.yml`), so a silent regression on the untimed CI
+path stays green. Item 2 is only partially met — the walled
+distributed-projection test flipped from asserting the fallback to
+asserting the fast path, but most fast paths remain unasserted.*
+
 ## Multi-device follow-ups from the indivisible-shard campaign
 
 The indivisible-extent sharding hole itself is **fixed** (2026-07-16,

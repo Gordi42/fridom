@@ -1,5 +1,18 @@
 # Multi-host writer plan
 
+> **Shipped 2026-07-15** (`dev` merge `8b6642bf feat/multihost-writer`,
+> commits `d445dd6f` writer coordination + `c0f9cbb2` `export_layout`
+> label gather). Both gaps closed exactly as designed below: the
+> `_process_index`/`_process_count`/`_barrier` seams and the
+> rank-0-owns-metadata / per-rank-disjoint-shard write path landed in
+> `writer.py`, and `_host_labels` (the conditional `process_allgather`)
+> landed in `export.py`. `async_writes` falls back to blocking under
+> `process_count() > 1` (v1); async multi-host stays a follow-up.
+> Single-process output is bit-identical (the whole existing
+> `test_writer.py` suite stays green, plus the new monkeypatched
+> multi-process seam tests and the registered `multi_process` marker).
+> The `srun -n 4` hardware recipe is in AGENTS.md.
+
 Make `fr.io.Writer` (`src/fridom/model/io/writer.py`) correct under a
 real multi-process run (`srun -n N` + `jax.distributed.initialize()`,
 one device per process). Today it works only single-controller (one

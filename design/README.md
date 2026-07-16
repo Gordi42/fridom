@@ -157,6 +157,7 @@ spellings:
 
 | File | Status | Description |
 |------|--------|-------------|
+| [`multihost_writer_plan.md`](plans/done/multihost_writer_plan.md) | done | Multi-host writer — `fr.io.Writer` correct under a real `srun -n N` multi-process run: rank-0-owns-metadata + per-rank disjoint shard writes + conditional `process_allgather` of the coordinate labels. Shipped 2026-07-15 (`8b6642bf`); async falls back to blocking under multi-process (v1). |
 | [`grid_ergonomics_plan.md`](plans/done/grid_ergonomics_plan.md) | done | Grid setup ergonomics — the fast assemble: `fr.spatial.spherical.Grid` (required `lat_extent`, optional `lon_extent` → closed zonal walls) over the `charts.lonlat_sphere` primitive, plus the sibling `cartesian.Grid`. Landed 2026-07-15. |
 | [`chart_ergonomics_plan.md`](plans/done/chart_ergonomics_plan.md) | done | Chart / sphere setup ergonomics (E1–E5) — closed 2026-07-15 by `orthogonal=True` on `CoordinateMapping` (seeds the diagonal index moves) plus a taught-error safety net; auto-detect rejected (numeric metric → tolerance → silent-wrong-physics risk). |
 | [`krylov_scan_plan.md`](plans/done/krylov_scan_plan.md) | done | Krylov scan (roadmap 3.6) — O(1) trace for the mapped pressure CG; HLO is now flat in the iteration count. Shipped 2026-07-13. |
