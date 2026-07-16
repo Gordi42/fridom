@@ -44,6 +44,7 @@ __all__ = [
     "ImmutableParameterError",
     "ImmutableStateError",
     "ImplicitCollisionError",
+    "IrreversibleTermError",
     "LinearTermInTendencyError",
     "MissingFieldError",
     "MissingParameterError",
@@ -269,6 +270,52 @@ class LinearOperatorGapError(ValueError):
     raises this rather than silently handing out a rotation-free
     operator.
     """
+
+
+class IrreversibleTermError(ValueError):
+
+    """
+    Raised when a backward ramp leg retains an irreversible term.
+
+    Description
+    -----------
+    The AR-D6 guard (``design/specs/model/08_state_transforms.md``
+    §10.9 law 3). A backward ramp leg integrates the model with a
+    negated ``fr.params.TIME_STEP``; backward diffusion is ill-posed,
+    so an :class:`AdiabaticRamping` ``dt < 0`` leg refuses to build
+    while its variant still carries terms matching
+    ``fr.terms.owned_by(fr.closures.ClosureBase) | fr.terms.implicit``
+    (dissipative closures and implicitly treated terms). Raised
+    host-side at leg construction (never in the science), naming the
+    offending terms; the fix is an explicit ``term_filter`` that drops
+    them from the backward leg. Sign-reversed ramped dissipation is
+    out of scope (a first-class ``reversible`` term tag may later
+    replace the predicate heuristic).
+
+    Parameters
+    ----------
+    terms : tuple[str, ...]
+        The offending ``"Module/term"`` attribution keys.
+    """
+
+    def __init__(self, terms: tuple[str, ...]) -> None:
+        """Compose the taught backward-irreversibility message."""
+        self.terms = tuple(terms)
+        listed = ", ".join(self.terms)
+        super().__init__(
+            f"a backward ramp leg (dt < 0) still carries irreversible "
+            f"terms ({listed}): dissipative closures "
+            "(fr.terms.owned_by(fr.closures.ClosureBase)) and "
+            "implicitly treated terms (fr.terms.implicit) are "
+            "ill-posed integrated backward in time. Drop them from "
+            "the leg with an explicit term_filter, e.g.\n"
+            "    from fridom.model import term_predicates as terms\n"
+            "    leg = fr.transforms.AdiabaticRamping(\n"
+            "        model, ramps=..., ramp_period=...,\n"
+            "        term_filter=~terms.owned_by(fr.closures.ClosureBase)"
+            " & ~terms.implicit)\n"
+            "and take its .backward; sign-reversed ramped dissipation "
+            "is out of scope.")
 
 
 class TermEvaluationError(RuntimeError):

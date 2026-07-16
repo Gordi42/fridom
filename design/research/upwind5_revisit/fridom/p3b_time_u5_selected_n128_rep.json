@@ -1,0 +1,32 @@
+{
+  "variant": "u5_selected",
+  "scheme": "upwind5",
+  "n": 128,
+  "steps": 50,
+  "n_timed_chunks": 6,
+  "first_chunk_compile_s": 1.9152852540137246,
+  "ms_per_step_median": 22.712821629975224,
+  "ms_per_step_min": 22.64217063988326,
+  "ms_per_step_all": [
+    22.64217063988326,
+    22.676447840058245,
+    22.69036037992919,
+    22.74374225991778,
+    22.73528288002126,
+    22.77977939986158
+  ],
+  "finite": true,
+  "patch_trace_calls": 24,
+  "chunk": {
+    "divides": {
+      "total": 15,
+      "f64": 13,
+      "f32": 0,
+      "c128": 2
+    },
+    "hlo_path": "/tmp/claude-1000/-home-silvano-Projects-fridom/84ef5624-971a-4abb-a5b0-6cbecbfad680/scratchpad/fridom_bench/results/hlo/p3b_u5_selected_n128.txt",
+    "temp_bytes": 418634656,
+    "peak_bytes": 0
+  },
+  "fridom_file": "/home/silvano/Projects/fridom/src/fridom/__init__.py"
+}
