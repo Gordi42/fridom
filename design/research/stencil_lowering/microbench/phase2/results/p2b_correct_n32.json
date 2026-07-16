@@ -1,0 +1,59 @@
+{
+  "n": 32,
+  "steps": 20,
+  "variants": {
+    "singlediv": {
+      "diffs": {
+        "u": {
+          "max_abs": 1.3022916078853086e-13,
+          "max_rel": 1.0599544069100025e-12,
+          "finite": true
+        },
+        "v": {
+          "max_abs": 1.6719958750854857e-13,
+          "max_rel": 1.255973137291863e-12,
+          "finite": true
+        },
+        "w": {
+          "max_abs": 2.192690473634684e-15,
+          "max_rel": 917.7003217243284,
+          "finite": true
+        },
+        "b": {
+          "max_abs": 4.1123788402375183e-16,
+          "max_rel": 5.011535722544377e-13,
+          "finite": true
+        }
+      },
+      "patch_trace_calls": 48,
+      "chunk_divides": null
+    },
+    "f32w": {
+      "diffs": {
+        "u": {
+          "max_abs": 1.2125361992243455e-08,
+          "max_rel": 1.0686351658955989e-06,
+          "finite": true
+        },
+        "v": {
+          "max_abs": 3.4207353394322126e-08,
+          "max_rel": 8.41513495024986e-06,
+          "finite": true
+        },
+        "w": {
+          "max_abs": 9.221906432932414e-10,
+          "max_rel": 43150.65694912743,
+          "finite": true
+        },
+        "b": {
+          "max_abs": 3.4321889514493664e-11,
+          "max_rel": 3.9724026291659345e-08,
+          "finite": true
+        }
+      },
+      "patch_trace_calls": 48,
+      "chunk_divides": null
+    }
+  },
+  "baseline_chunk_divides": null
+}

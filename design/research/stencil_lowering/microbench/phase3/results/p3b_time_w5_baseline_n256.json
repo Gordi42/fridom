@@ -1,0 +1,32 @@
+{
+  "variant": "w5_baseline",
+  "scheme": "weno5",
+  "n": 256,
+  "steps": 50,
+  "n_timed_chunks": 6,
+  "first_chunk_compile_s": 2.383360849926248,
+  "ms_per_step_median": 25.542969240341336,
+  "ms_per_step_min": 25.537527620326728,
+  "ms_per_step_all": [
+    25.548930859658867,
+    25.54196303943172,
+    25.549148661084473,
+    25.54397544125095,
+    25.54001781856641,
+    25.537527620326728
+  ],
+  "finite": true,
+  "patch_trace_calls": 0,
+  "chunk": {
+    "divides": {
+      "total": 495,
+      "f64": 493,
+      "f32": 0,
+      "c128": 2
+    },
+    "hlo_path": "/work/uo0780/u301533/fridom/fridom-dev/.claude/worktrees/perf+stencil-lowering/design/research/stencil_lowering/microbench/phase3/results/hlo/p3b_w5_baseline_n256.txt",
+    "temp_bytes": 2932033440,
+    "peak_bytes": 0
+  },
+  "fridom_file": "/work/uo0780/u301533/fridom/fridom-dev/.claude/worktrees/perf+stencil-lowering/src/fridom/__init__.py"
+}

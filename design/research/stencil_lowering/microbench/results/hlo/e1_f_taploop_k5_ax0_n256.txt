@@ -1,0 +1,122 @@
+HloModule jit_f, is_scheduled=true, entry_computation_layout={(f64[260,256,256]{2,1,0})->f64[256,256,256]{2,1,0}}, allow_spmd_sharding_propagation_to_parameters={true}, allow_spmd_sharding_propagation_to_output={true}, frontend_attributes={fingerprint_before_lhs="960919a809f20bfe588264d506992a1e"}
+
+FileNames
+1 "/work/uo0780/u301533/fridom/fridom-dev/.claude/worktrees/perf+stencil-lowering/design/research/stencil_lowering/microbench/driver.py"
+2 "/work/uo0780/u301533/fridom/fridom-dev/.claude/worktrees/perf+stencil-lowering/design/research/stencil_lowering/microbench/common.py"
+3 "/work/uo0780/u301533/fridom/fridom-dev/.claude/worktrees/perf+stencil-lowering/design/research/stencil_lowering/microbench/stencils.py"
+
+FunctionNames
+1 "<module>"
+2 "main"
+3 "cmd_e1"
+4 "run_case"
+5 "analyze"
+6 "cmd_e1.<locals>.f"
+7 "tap_loop"
+8 "tap_loop.<locals>.body"
+
+FileLocations
+1 {file_name_id=1 function_name_id=1 line=297 end_line=297 column=4 end_column=10}
+2 {file_name_id=1 function_name_id=2 line=293 end_line=293 column=4 end_column=24}
+3 {file_name_id=1 function_name_id=3 line=114 end_line=114 column=31 end_column=68}
+4 {file_name_id=2 function_name_id=4 line=179 end_line=179 column=29 end_column=46}
+5 {file_name_id=2 function_name_id=5 line=137 end_line=137 column=14 end_column=33}
+6 {file_name_id=1 function_name_id=6 line=113 end_line=113 column=27 end_column=44}
+7 {file_name_id=3 function_name_id=7 line=98 end_line=98 column=11 end_column=74}
+8 {file_name_id=3 function_name_id=8 line=96 end_line=96 column=15 end_column=35}
+9 {file_name_id=3 function_name_id=8 line=96 end_line=96 column=21 end_column=26}
+10 {file_name_id=3 function_name_id=8 line=95 end_line=95 column=17 end_column=51}
+11 {file_name_id=3 function_name_id=7 line=98 end_line=98 column=37 end_column=73}
+
+StackFrames
+1 {file_location_id=1 parent_frame_id=1}
+2 {file_location_id=2 parent_frame_id=2}
+3 {file_location_id=3 parent_frame_id=3}
+4 {file_location_id=4 parent_frame_id=4}
+5 {file_location_id=5 parent_frame_id=5}
+6 {file_location_id=6 parent_frame_id=6}
+7 {file_location_id=7 parent_frame_id=7}
+8 {file_location_id=6 parent_frame_id=8}
+9 {file_location_id=7 parent_frame_id=9}
+10 {file_location_id=6 parent_frame_id=10}
+11 {file_location_id=7 parent_frame_id=11}
+12 {file_location_id=8 parent_frame_id=12}
+13 {file_location_id=9 parent_frame_id=12}
+14 {file_location_id=10 parent_frame_id=12}
+15 {file_location_id=11 parent_frame_id=7}
+
+
+%fused_add (param_0.7: f64[256,256,256], param_1.8: f64[260,256,256], param_2.9: f64[1], param_3.8: s64[]) -> f64[256,256,256] {
+  %param_0.7 = f64[256,256,256]{2,1,0} parameter(0)
+  %param_2.9 = f64[1]{0} parameter(2)
+  %bitcast.6 = f64[] bitcast(%param_2.9), metadata={op_name="jit(f)/while/body/closed_call/dynamic_slice" stack_frame_id=13}
+  %mul.10.5 = f64[256,256,256]{2,1,0} broadcast(%bitcast.6), dimensions={}, metadata={op_name="jit(f)/while/body/closed_call/mul" stack_frame_id=13}
+  %param_1.8 = f64[260,256,256]{2,1,0} parameter(1)
+  %param_3.8 = s64[] parameter(3)
+  %constant_34_2 = s64[] constant(0), metadata={op_name="jit(f)/while/body/closed_call" stack_frame_id=11}
+  %lt.12.2 = pred[] compare(%param_3.8, %constant_34_2), direction=LT, metadata={op_name="jit(f)/while/body/closed_call/lt" stack_frame_id=13}
+  %constant_36_1 = s64[] constant(260), metadata={op_name="jit(f)/while/body/closed_call" stack_frame_id=11}
+  %add.30.1 = s64[] add(%param_3.8, %constant_36_1), metadata={op_name="jit(f)/while/body/closed_call/add" stack_frame_id=14}
+  %select_n.11.1 = s64[] select(%lt.12.2, %add.30.1, %param_3.8), metadata={op_name="jit(f)/while/body/closed_call/select_n" stack_frame_id=14}
+  %dynamic_slice.11.3 = f64[256,256,256]{2,1,0} dynamic-slice(%param_1.8, %select_n.11.1, %constant_34_2, %constant_34_2), dynamic_slice_sizes={256,256,256}, metadata={op_name="jit(f)/while/body/closed_call/dynamic_slice" stack_frame_id=14}, backend_config={"device_type":"DEVICE_TYPE_INVALID","dynamic_slice_config":{"byte_offset":"0","byte_stride":"524288","loop_index":"0"},"force_earliest_schedule":false,"operation_queue_id":"0","reification_cost":[]}
+  %mul.11.3 = f64[256,256,256]{2,1,0} multiply(%mul.10.5, %dynamic_slice.11.3), metadata={op_name="jit(f)/while/body/closed_call/mul" stack_frame_id=13}
+  ROOT %add.31.1 = f64[256,256,256]{2,1,0} add(%param_0.7, %mul.11.3), metadata={op_name="jit(f)/while/body/closed_call/add" stack_frame_id=12}
+}
+
+%fused_dynamic_slice (param_0.9: f64[5], param_1.11: s64[]) -> f64[1] {
+  %param_0.9 = f64[5]{0} parameter(0)
+  %param_1.11 = s64[] parameter(1)
+  %constant_34_1 = s64[] constant(0), metadata={op_name="jit(f)/while/body/closed_call" stack_frame_id=11}
+  %lt.12.1 = pred[] compare(%param_1.11, %constant_34_1), direction=LT, metadata={op_name="jit(f)/while/body/closed_call/lt" stack_frame_id=13}
+  %constant_35_1 = s64[] constant(5), metadata={op_name="jit(f)/while/body/closed_call" stack_frame_id=11}
+  %add.29.1 = s64[] add(%param_1.11, %constant_35_1), metadata={op_name="jit(f)/while/body/closed_call/add" stack_frame_id=13}
+  %select_n.10.1 = s64[] select(%lt.12.1, %add.29.1, %param_1.11), metadata={op_name="jit(f)/while/body/closed_call/select_n" stack_frame_id=13}
+  %dynamic_slice.10.1 = f64[1]{0} dynamic-slice(%param_0.9, %select_n.10.1), dynamic_slice_sizes={1}, metadata={op_name="jit(f)/while/body/closed_call/dynamic_slice" stack_frame_id=13}, backend_config={"device_type":"DEVICE_TYPE_INVALID","dynamic_slice_config":{"byte_offset":"0","byte_stride":"8","loop_index":"0"},"force_earliest_schedule":false,"operation_queue_id":"0","reification_cost":[]}
+  ROOT %copy.8 = f64[1]{0} copy(%dynamic_slice.10.1)
+}
+
+%fused_add.1 (param_0.10: s64[]) -> s64[] {
+  %param_0.10 = s64[] parameter(0)
+  %constant_32_1 = s64[] constant(1)
+  ROOT %add.28.1 = s64[] add(%param_0.10, %constant_32_1), metadata={op_name="jit(f)/while/body/add" stack_frame_id=11}
+}
+
+%region_0.2.clone.clone.sunk.clone (arg_tuple.7: (s64[], f64[256,256,256], f64[260,256,256])) -> (s64[], f64[256,256,256], f64[260,256,256]) {
+  %arg_tuple.7 = (s64[], f64[256,256,256]{2,1,0}, f64[260,256,256]{2,1,0}) parameter(0)
+  %get-tuple-element.56 = s64[] get-tuple-element(%arg_tuple.7), index=0
+  %get-tuple-element.61 = f64[260,256,256]{2,1,0} get-tuple-element(%arg_tuple.7), index=2
+  %get-tuple-element.57 = f64[256,256,256]{2,1,0} get-tuple-element(%arg_tuple.7), index=1
+  %constant_33_0 = f64[5]{0} constant({0.3, 0.7, 1.3, 1.9, 2.3})
+  %loop_dynamic_slice_fusion = f64[1]{0} fusion(%constant_33_0, %get-tuple-element.56), kind=kCustom, calls=%fused_dynamic_slice, metadata={op_name="jit(f)/while/body/closed_call/dynamic_slice" stack_frame_id=13}, backend_config={"device_type":"DEVICE_TYPE_INVALID","force_earliest_schedule":false,"fusion_backend_config":{"custom_fusion_config":{"kernel_index":0,"name":"dynamic_slice_fusion"},"kind":"__custom_fusion"},"operation_queue_id":"0","reification_cost":[]}
+  %loop_add_fusion = f64[256,256,256]{2,1,0} fusion(%get-tuple-element.57, %get-tuple-element.61, %loop_dynamic_slice_fusion, %get-tuple-element.56), kind=kLoop, calls=%fused_add, metadata={op_name="jit(f)/while/body/closed_call/add" stack_frame_id=12}, backend_config={"device_type":"DEVICE_TYPE_INVALID","force_earliest_schedule":false,"native_emitter_backend_config":{"type":"NATIVE_EMITTER_TYPE_INVALID","unroll_factor":0},"operation_queue_id":"0","reification_cost":[]}
+  %loop_add_fusion.1 = s64[] fusion(%get-tuple-element.56), kind=kLoop, calls=%fused_add.1, control-predecessors={%loop_dynamic_slice_fusion, %loop_add_fusion}, metadata={op_name="jit(f)/while/body/add" stack_frame_id=11}, backend_config={"device_type":"DEVICE_TYPE_INVALID","force_earliest_schedule":false,"native_emitter_backend_config":{"type":"NATIVE_EMITTER_TYPE_INVALID","unroll_factor":0},"operation_queue_id":"0","reification_cost":[]}
+  ROOT %tuple.15 = (s64[], f64[256,256,256]{2,1,0}, f64[260,256,256]{2,1,0}) tuple(%loop_add_fusion.1, %loop_add_fusion, %get-tuple-element.61)
+}
+
+%fused_compare (param_0: s64[]) -> pred[] {
+  %param_0 = s64[] parameter(0)
+  %constant_31_1 = s64[] constant(5)
+  ROOT %lt.11.1 = pred[] compare(%param_0, %constant_31_1), direction=LT, metadata={op_name="jit(f)/while/cond/lt" stack_frame_id=11}
+}
+
+%region_1.3.clone.clone (arg_tuple.6: (s64[], f64[256,256,256], f64[260,256,256])) -> pred[] {
+  %arg_tuple.6 = (s64[], f64[256,256,256]{2,1,0}, f64[260,256,256]{2,1,0}) parameter(0)
+  %get-tuple-element.45.0 = s64[] get-tuple-element(%arg_tuple.6), index=0
+  ROOT %loop_compare_fusion = pred[] fusion(%get-tuple-element.45.0), kind=kLoop, calls=%fused_compare, metadata={op_name="jit(f)/while/cond/lt" stack_frame_id=11}, backend_config={"device_type":"DEVICE_TYPE_INVALID","force_earliest_schedule":false,"native_emitter_backend_config":{"type":"NATIVE_EMITTER_TYPE_INVALID","unroll_factor":0},"operation_queue_id":"0","reification_cost":[]}
+}
+
+%fused_broadcast () -> f64[256,256,256] {
+  %constant_17_1 = f64[] constant(0)
+  ROOT %broadcast_in_dim.1.1 = f64[256,256,256]{2,1,0} broadcast(%constant_17_1), dimensions={}, metadata={op_name="jit(f)/broadcast_in_dim" stack_frame_id=15}
+}
+
+ENTRY %main.4 (x.1: f64[260,256,256]) -> f64[256,256,256] {
+  %constant_16_0 = s64[] constant(0)
+  %copy.7 = s64[] copy(%constant_16_0)
+  %x.1 = f64[260,256,256]{2,1,0} parameter(0), metadata={op_name="x"}
+  %loop_broadcast_fusion = f64[256,256,256]{2,1,0} fusion(), kind=kLoop, calls=%fused_broadcast, metadata={op_name="jit(f)/broadcast_in_dim" stack_frame_id=15}, backend_config={"device_type":"DEVICE_TYPE_INVALID","force_earliest_schedule":false,"native_emitter_backend_config":{"type":"NATIVE_EMITTER_TYPE_INVALID","unroll_factor":0},"operation_queue_id":"0","reification_cost":[]}
+  %tuple.13 = (s64[], f64[256,256,256]{2,1,0}, f64[260,256,256]{2,1,0}) tuple(%copy.7, %loop_broadcast_fusion, %x.1)
+  %while.1 = (s64[], f64[256,256,256]{2,1,0}, f64[260,256,256]{2,1,0}) while(%tuple.13), condition=%region_1.3.clone.clone, body=%region_0.2.clone.clone.sunk.clone, metadata={op_name="jit(f)/while" stack_frame_id=9}, backend_config={"dynamic_variables":[],"known_induction_variable":{"tuple_index":"0"},"known_init_step":{"init":"0","step":"1"},"known_trip_count":{"n":"5"}}
+  ROOT %while.9.0 = f64[256,256,256]{2,1,0} get-tuple-element(%while.1), index=1, metadata={op_name="jit(f)/while" stack_frame_id=9}
+}
+

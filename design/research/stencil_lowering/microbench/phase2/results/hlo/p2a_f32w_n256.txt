@@ -1,0 +1,844 @@
+HloModule jit_f, is_scheduled=true, entry_computation_layout={(f64[264,264,264]{2,1,0}, f64[264,264,264]{2,1,0}, f64[264,264,264]{2,1,0}, f64[264,264,264]{2,1,0})->f64[256,256,256]{2,1,0}}, allow_spmd_sharding_propagation_to_parameters={true,true,true,true}, allow_spmd_sharding_propagation_to_output={true}, frontend_attributes={fingerprint_before_lhs="143dd6ae68168b3ac8dfe249455d8ff1"}
+
+FileNames
+1 "/work/uo0780/u301533/fridom/fridom-dev/.claude/worktrees/perf+stencil-lowering/design/research/stencil_lowering/microbench/phase2/p2a_micro.py"
+2 "/work/uo0780/u301533/fridom/fridom-dev/.claude/worktrees/perf+stencil-lowering/design/research/stencil_lowering/microbench/common.py"
+3 "/work/uo0780/u301533/fridom/fridom-dev/.claude/worktrees/perf+stencil-lowering/design/research/stencil_lowering/microbench/e3.py"
+4 "/work/uo0780/u301533/fridom/fridom-dev/.claude/worktrees/perf+stencil-lowering/design/research/stencil_lowering/microbench/phase2/weno_variants.py"
+
+FunctionNames
+1 "<module>"
+2 "main"
+3 "run_variant"
+4 "analyze"
+5 "tendency_fn.<locals>.f"
+6 "tendency_composed"
+7 "_make_recon.<locals>.recon"
+8 "_weno_js_f32w"
+9 "_candidates"
+10 "face_win"
+11 "interp_vel"
+12 "_betas"
+13 "diff_along"
+
+FileLocations
+1 {file_name_id=1 function_name_id=1 line=257 end_line=257 column=4 end_column=10}
+2 {file_name_id=1 function_name_id=2 line=210 end_line=210 column=12 end_column=55}
+3 {file_name_id=1 function_name_id=3 line=143 end_line=143 column=29 end_column=47}
+4 {file_name_id=2 function_name_id=4 line=137 end_line=137 column=14 end_column=33}
+5 {file_name_id=1 function_name_id=5 line=135 end_line=135 column=15 end_column=56}
+6 {file_name_id=3 function_name_id=6 line=125 end_line=125 column=15 end_column=23}
+7 {file_name_id=3 function_name_id=6 line=124 end_line=124 column=13 end_column=33}
+8 {file_name_id=4 function_name_id=7 line=143 end_line=143 column=15 end_column=48}
+9 {file_name_id=4 function_name_id=7 line=142 end_line=142 column=16 end_column=41}
+10 {file_name_id=4 function_name_id=8 line=100 end_line=100 column=11 end_column=18}
+11 {file_name_id=4 function_name_id=8 line=100 end_line=100 column=31 end_column=38}
+12 {file_name_id=4 function_name_id=8 line=86 end_line=86 column=17 end_column=52}
+13 {file_name_id=4 function_name_id=9 line=39 end_line=39 column=9 end_column=43}
+14 {file_name_id=4 function_name_id=9 line=39 end_line=39 column=10 end_column=18}
+15 {file_name_id=4 function_name_id=8 line=99 end_line=99 column=9 end_column=31}
+16 {file_name_id=4 function_name_id=8 line=100 end_line=100 column=21 end_column=28}
+17 {file_name_id=4 function_name_id=9 line=38 end_line=38 column=9 end_column=44}
+18 {file_name_id=4 function_name_id=9 line=38 end_line=38 column=10 end_column=14}
+19 {file_name_id=4 function_name_id=7 line=139 end_line=139 column=13 end_column=36}
+20 {file_name_id=3 function_name_id=10 line=23 end_line=23 column=11 end_column=25}
+21 {file_name_id=4 function_name_id=8 line=98 end_line=98 column=9 end_column=31}
+22 {file_name_id=4 function_name_id=7 line=141 end_line=141 column=15 end_column=41}
+23 {file_name_id=4 function_name_id=7 line=136 end_line=136 column=14 end_column=38}
+24 {file_name_id=4 function_name_id=9 line=37 end_line=37 column=9 end_column=50}
+25 {file_name_id=4 function_name_id=9 line=37 end_line=37 column=10 end_column=19}
+26 {file_name_id=4 function_name_id=9 line=37 end_line=37 column=22 end_column=31}
+27 {file_name_id=4 function_name_id=8 line=97 end_line=97 column=9 end_column=31}
+28 {file_name_id=4 function_name_id=9 line=37 end_line=37 column=34 end_column=43}
+29 {file_name_id=4 function_name_id=7 line=137 end_line=137 column=13 end_column=36}
+30 {file_name_id=4 function_name_id=9 line=39 end_line=39 column=21 end_column=30}
+31 {file_name_id=4 function_name_id=9 line=38 end_line=38 column=17 end_column=25}
+32 {file_name_id=4 function_name_id=7 line=140 end_line=140 column=13 end_column=36}
+33 {file_name_id=4 function_name_id=9 line=38 end_line=38 column=28 end_column=37}
+34 {file_name_id=4 function_name_id=7 line=138 end_line=138 column=13 end_column=36}
+35 {file_name_id=4 function_name_id=7 line=135 end_line=135 column=14 end_column=38}
+36 {file_name_id=4 function_name_id=7 line=143 end_line=143 column=25 end_column=34}
+37 {file_name_id=3 function_name_id=6 line=123 end_line=123 column=14 end_column=39}
+38 {file_name_id=3 function_name_id=11 line=41 end_line=41 column=11 end_column=68}
+39 {file_name_id=3 function_name_id=11 line=41 end_line=41 column=18 end_column=41}
+40 {file_name_id=3 function_name_id=11 line=41 end_line=41 column=44 end_column=67}
+41 {file_name_id=4 function_name_id=8 line=99 end_line=99 column=10 end_column=18}
+42 {file_name_id=4 function_name_id=8 line=98 end_line=98 column=10 end_column=18}
+43 {file_name_id=4 function_name_id=8 line=97 end_line=97 column=10 end_column=18}
+44 {file_name_id=4 function_name_id=8 line=96 end_line=96 column=10 end_column=35}
+45 {file_name_id=4 function_name_id=8 line=96 end_line=96 column=22 end_column=29}
+46 {file_name_id=4 function_name_id=8 line=93 end_line=93 column=9 end_column=38}
+47 {file_name_id=4 function_name_id=8 line=93 end_line=93 column=20 end_column=38}
+48 {file_name_id=4 function_name_id=8 line=93 end_line=93 column=21 end_column=32}
+49 {file_name_id=4 function_name_id=8 line=91 end_line=91 column=26 end_column=54}
+50 {file_name_id=4 function_name_id=12 line=45 end_line=45 column=12 end_column=45}
+51 {file_name_id=4 function_name_id=12 line=46 end_line=46 column=10 end_column=50}
+52 {file_name_id=4 function_name_id=12 line=46 end_line=46 column=17 end_column=50}
+53 {file_name_id=4 function_name_id=12 line=46 end_line=46 column=18 end_column=33}
+54 {file_name_id=4 function_name_id=12 line=46 end_line=46 column=24 end_column=33}
+55 {file_name_id=4 function_name_id=12 line=45 end_line=45 column=18 end_column=45}
+56 {file_name_id=4 function_name_id=12 line=45 end_line=45 column=19 end_column=34}
+57 {file_name_id=4 function_name_id=12 line=45 end_line=45 column=25 end_column=34}
+58 {file_name_id=4 function_name_id=8 line=95 end_line=95 column=9 end_column=38}
+59 {file_name_id=4 function_name_id=8 line=95 end_line=95 column=20 end_column=38}
+60 {file_name_id=4 function_name_id=8 line=95 end_line=95 column=21 end_column=32}
+61 {file_name_id=4 function_name_id=12 line=49 end_line=49 column=12 end_column=45}
+62 {file_name_id=4 function_name_id=12 line=50 end_line=50 column=10 end_column=50}
+63 {file_name_id=4 function_name_id=12 line=50 end_line=50 column=17 end_column=50}
+64 {file_name_id=4 function_name_id=12 line=50 end_line=50 column=18 end_column=26}
+65 {file_name_id=4 function_name_id=12 line=50 end_line=50 column=29 end_column=38}
+66 {file_name_id=4 function_name_id=12 line=49 end_line=49 column=18 end_column=45}
+67 {file_name_id=4 function_name_id=12 line=49 end_line=49 column=19 end_column=33}
+68 {file_name_id=4 function_name_id=12 line=46 end_line=46 column=36 end_column=44}
+69 {file_name_id=4 function_name_id=8 line=94 end_line=94 column=9 end_column=38}
+70 {file_name_id=4 function_name_id=8 line=94 end_line=94 column=20 end_column=38}
+71 {file_name_id=4 function_name_id=8 line=94 end_line=94 column=21 end_column=32}
+72 {file_name_id=4 function_name_id=12 line=47 end_line=47 column=12 end_column=45}
+73 {file_name_id=4 function_name_id=12 line=48 end_line=48 column=10 end_column=33}
+74 {file_name_id=4 function_name_id=12 line=48 end_line=48 column=17 end_column=33}
+75 {file_name_id=4 function_name_id=12 line=48 end_line=48 column=18 end_column=27}
+76 {file_name_id=4 function_name_id=12 line=47 end_line=47 column=18 end_column=45}
+77 {file_name_id=4 function_name_id=12 line=47 end_line=47 column=19 end_column=33}
+78 {file_name_id=4 function_name_id=12 line=49 end_line=49 column=24 end_column=33}
+79 {file_name_id=4 function_name_id=12 line=47 end_line=47 column=25 end_column=33}
+80 {file_name_id=3 function_name_id=6 line=127 end_line=127 column=41 end_column=52}
+81 {file_name_id=3 function_name_id=6 line=126 end_line=126 column=15 end_column=35}
+82 {file_name_id=3 function_name_id=6 line=126 end_line=126 column=16 end_column=35}
+83 {file_name_id=3 function_name_id=13 line=32 end_line=32 column=11 end_column=26}
+84 {file_name_id=3 function_name_id=13 line=32 end_line=32 column=29 end_column=44}
+85 {file_name_id=4 function_name_id=8 line=88 end_line=88 column=28 end_column=43}
+
+StackFrames
+1 {file_location_id=1 parent_frame_id=1}
+2 {file_location_id=2 parent_frame_id=2}
+3 {file_location_id=3 parent_frame_id=3}
+4 {file_location_id=4 parent_frame_id=4}
+5 {file_location_id=5 parent_frame_id=5}
+6 {file_location_id=6 parent_frame_id=6}
+7 {file_location_id=7 parent_frame_id=6}
+8 {file_location_id=8 parent_frame_id=8}
+9 {file_location_id=9 parent_frame_id=8}
+10 {file_location_id=10 parent_frame_id=10}
+11 {file_location_id=11 parent_frame_id=10}
+12 {file_location_id=12 parent_frame_id=10}
+13 {file_location_id=13 parent_frame_id=13}
+14 {file_location_id=14 parent_frame_id=13}
+15 {file_location_id=15 parent_frame_id=10}
+16 {file_location_id=16 parent_frame_id=10}
+17 {file_location_id=17 parent_frame_id=13}
+18 {file_location_id=18 parent_frame_id=13}
+19 {file_location_id=19 parent_frame_id=8}
+20 {file_location_id=20 parent_frame_id=20}
+21 {file_location_id=21 parent_frame_id=10}
+22 {file_location_id=22 parent_frame_id=8}
+23 {file_location_id=10 parent_frame_id=23}
+24 {file_location_id=11 parent_frame_id=23}
+25 {file_location_id=12 parent_frame_id=23}
+26 {file_location_id=13 parent_frame_id=26}
+27 {file_location_id=14 parent_frame_id=26}
+28 {file_location_id=16 parent_frame_id=23}
+29 {file_location_id=17 parent_frame_id=26}
+30 {file_location_id=18 parent_frame_id=26}
+31 {file_location_id=23 parent_frame_id=8}
+32 {file_location_id=20 parent_frame_id=32}
+33 {file_location_id=21 parent_frame_id=23}
+34 {file_location_id=15 parent_frame_id=23}
+35 {file_location_id=24 parent_frame_id=13}
+36 {file_location_id=25 parent_frame_id=13}
+37 {file_location_id=26 parent_frame_id=13}
+38 {file_location_id=27 parent_frame_id=10}
+39 {file_location_id=24 parent_frame_id=26}
+40 {file_location_id=25 parent_frame_id=26}
+41 {file_location_id=26 parent_frame_id=26}
+42 {file_location_id=27 parent_frame_id=23}
+43 {file_location_id=28 parent_frame_id=13}
+44 {file_location_id=28 parent_frame_id=26}
+45 {file_location_id=29 parent_frame_id=8}
+46 {file_location_id=20 parent_frame_id=46}
+47 {file_location_id=30 parent_frame_id=26}
+48 {file_location_id=31 parent_frame_id=26}
+49 {file_location_id=32 parent_frame_id=8}
+50 {file_location_id=20 parent_frame_id=50}
+51 {file_location_id=33 parent_frame_id=26}
+52 {file_location_id=34 parent_frame_id=8}
+53 {file_location_id=20 parent_frame_id=53}
+54 {file_location_id=35 parent_frame_id=8}
+55 {file_location_id=20 parent_frame_id=55}
+56 {file_location_id=36 parent_frame_id=8}
+57 {file_location_id=37 parent_frame_id=6}
+58 {file_location_id=38 parent_frame_id=58}
+59 {file_location_id=39 parent_frame_id=58}
+60 {file_location_id=40 parent_frame_id=58}
+61 {file_location_id=20 parent_frame_id=61}
+62 {file_location_id=20 parent_frame_id=60}
+63 {file_location_id=41 parent_frame_id=10}
+64 {file_location_id=42 parent_frame_id=10}
+65 {file_location_id=43 parent_frame_id=10}
+66 {file_location_id=44 parent_frame_id=10}
+67 {file_location_id=45 parent_frame_id=10}
+68 {file_location_id=46 parent_frame_id=10}
+69 {file_location_id=47 parent_frame_id=10}
+70 {file_location_id=48 parent_frame_id=10}
+71 {file_location_id=49 parent_frame_id=10}
+72 {file_location_id=50 parent_frame_id=72}
+73 {file_location_id=51 parent_frame_id=72}
+74 {file_location_id=52 parent_frame_id=72}
+75 {file_location_id=53 parent_frame_id=72}
+76 {file_location_id=54 parent_frame_id=72}
+77 {file_location_id=55 parent_frame_id=72}
+78 {file_location_id=56 parent_frame_id=72}
+79 {file_location_id=57 parent_frame_id=72}
+80 {file_location_id=58 parent_frame_id=10}
+81 {file_location_id=59 parent_frame_id=10}
+82 {file_location_id=60 parent_frame_id=10}
+83 {file_location_id=61 parent_frame_id=72}
+84 {file_location_id=62 parent_frame_id=72}
+85 {file_location_id=63 parent_frame_id=72}
+86 {file_location_id=64 parent_frame_id=72}
+87 {file_location_id=65 parent_frame_id=72}
+88 {file_location_id=66 parent_frame_id=72}
+89 {file_location_id=67 parent_frame_id=72}
+90 {file_location_id=68 parent_frame_id=72}
+91 {file_location_id=69 parent_frame_id=10}
+92 {file_location_id=70 parent_frame_id=10}
+93 {file_location_id=71 parent_frame_id=10}
+94 {file_location_id=72 parent_frame_id=72}
+95 {file_location_id=73 parent_frame_id=72}
+96 {file_location_id=74 parent_frame_id=72}
+97 {file_location_id=75 parent_frame_id=72}
+98 {file_location_id=76 parent_frame_id=72}
+99 {file_location_id=77 parent_frame_id=72}
+100 {file_location_id=41 parent_frame_id=23}
+101 {file_location_id=42 parent_frame_id=23}
+102 {file_location_id=43 parent_frame_id=23}
+103 {file_location_id=44 parent_frame_id=23}
+104 {file_location_id=45 parent_frame_id=23}
+105 {file_location_id=58 parent_frame_id=23}
+106 {file_location_id=59 parent_frame_id=23}
+107 {file_location_id=60 parent_frame_id=23}
+108 {file_location_id=49 parent_frame_id=23}
+109 {file_location_id=61 parent_frame_id=109}
+110 {file_location_id=62 parent_frame_id=109}
+111 {file_location_id=63 parent_frame_id=109}
+112 {file_location_id=64 parent_frame_id=109}
+113 {file_location_id=65 parent_frame_id=109}
+114 {file_location_id=66 parent_frame_id=109}
+115 {file_location_id=67 parent_frame_id=109}
+116 {file_location_id=78 parent_frame_id=109}
+117 {file_location_id=69 parent_frame_id=23}
+118 {file_location_id=70 parent_frame_id=23}
+119 {file_location_id=71 parent_frame_id=23}
+120 {file_location_id=72 parent_frame_id=109}
+121 {file_location_id=73 parent_frame_id=109}
+122 {file_location_id=74 parent_frame_id=109}
+123 {file_location_id=75 parent_frame_id=109}
+124 {file_location_id=76 parent_frame_id=109}
+125 {file_location_id=77 parent_frame_id=109}
+126 {file_location_id=79 parent_frame_id=109}
+127 {file_location_id=46 parent_frame_id=23}
+128 {file_location_id=47 parent_frame_id=23}
+129 {file_location_id=48 parent_frame_id=23}
+130 {file_location_id=50 parent_frame_id=109}
+131 {file_location_id=51 parent_frame_id=109}
+132 {file_location_id=52 parent_frame_id=109}
+133 {file_location_id=53 parent_frame_id=109}
+134 {file_location_id=68 parent_frame_id=109}
+135 {file_location_id=54 parent_frame_id=109}
+136 {file_location_id=55 parent_frame_id=109}
+137 {file_location_id=56 parent_frame_id=109}
+138 {file_location_id=57 parent_frame_id=109}
+139 {file_location_id=80 parent_frame_id=6}
+140 {file_location_id=81 parent_frame_id=6}
+141 {file_location_id=82 parent_frame_id=6}
+142 {file_location_id=83 parent_frame_id=142}
+143 {file_location_id=84 parent_frame_id=142}
+144 {file_location_id=85 parent_frame_id=23}
+
+
+%fused_multiply (param_0.911: f64[264,264,264], param_1.1235: f64[264,264,264], param_2.617: f32[264,264,264], param_3.492: f64[264,264,264], param_4.401: f64[264,264,264]) -> (f64[256,257,256], f64[257,256,256], f64[256,256,257]) {
+  %param_1.1235 = f64[264,264,264]{2,1,0} parameter(1)
+  %slice.40.3 = f64[256,257,256]{2,1,0} slice(%param_1.1235), slice={[4:260], [4:261], [4:260]}, metadata={op_name="jit(f)/slice" stack_frame_id=62}
+  %slice.41.5 = f64[256,257,256]{2,1,0} slice(%param_1.1235), slice={[4:260], [5:262], [4:260]}, metadata={op_name="jit(f)/slice" stack_frame_id=61}
+  %add.158.5 = f64[256,257,256]{2,1,0} add(%slice.40.3, %slice.41.5), metadata={op_name="jit(f)/add" stack_frame_id=59}
+  %constant_101_2 = f64[] constant(0.5)
+  %mul.166.3 = f64[256,257,256]{2,1,0} broadcast(%constant_101_2), dimensions={}, metadata={op_name="jit(f)/mul" stack_frame_id=58}
+  %mul.222.3 = f64[256,257,256]{2,1,0} multiply(%add.158.5, %mul.166.3), metadata={op_name="jit(f)/mul" stack_frame_id=58}
+  %constant_85_2 = f64[] constant(0)
+  %gt.7.3 = f64[256,257,256]{2,1,0} broadcast(%constant_85_2), dimensions={}, metadata={op_name="jit(f)/gt" stack_frame_id=56}
+  %gt.10.3 = pred[256,257,256]{2,1,0} compare(%mul.222.3, %gt.7.3), direction=GT, metadata={op_name="jit(f)/gt" stack_frame_id=56}
+  %constant_89_2 = f32[] constant(0.1)
+  %broadcast.63.6 = f32[256,257,256]{2,1,0} broadcast(%constant_89_2), dimensions={}
+  %param_2.617 = f32[264,264,264]{2,1,0} parameter(2)
+  %slice.10.16 = f32[256,257,256]{2,1,0} slice(%param_2.617), slice={[4:260], [2:259], [4:260]}, metadata={op_name="jit(f)/slice" stack_frame_id=55}
+  %slice.11.9 = f32[256,257,256]{2,1,0} slice(%param_2.617), slice={[4:260], [3:260], [4:260]}, metadata={op_name="jit(f)/slice" stack_frame_id=32}
+  %constant_95_2 = f32[] constant(2)
+  %broadcast.69.28 = f32[256,257,256]{2,1,0} broadcast(%constant_95_2), dimensions={}
+  %mul.230.7 = f32[256,257,256]{2,1,0} multiply(%slice.11.9, %broadcast.69.28), metadata={op_name="jit(f)/mul" stack_frame_id=138}
+  %sub.70.7 = f32[256,257,256]{2,1,0} subtract(%slice.10.16, %mul.230.7), metadata={op_name="jit(f)/sub" stack_frame_id=137}
+  %slice.13.20 = f32[256,257,256]{2,1,0} slice(%param_2.617), slice={[4:260], [4:261], [4:260]}, metadata={op_name="jit(f)/slice" stack_frame_id=46}
+  %add.163.5 = f32[256,257,256]{2,1,0} add(%sub.70.7, %slice.13.20), metadata={op_name="jit(f)/add" stack_frame_id=137}
+  %integer_pow.72.7 = f32[256,257,256]{2,1,0} multiply(%add.163.5, %add.163.5), metadata={op_name="jit(f)/integer_pow" stack_frame_id=136}
+  %constant_94_1 = f32[] constant(1.08333337)
+  %broadcast.68.42 = f32[256,257,256]{2,1,0} broadcast(%constant_94_1), dimensions={}
+  %mul.231.7 = f32[256,257,256]{2,1,0} multiply(%integer_pow.72.7, %broadcast.68.42), metadata={op_name="jit(f)/mul" stack_frame_id=130}
+  %constant_93_1 = f32[] constant(4)
+  %broadcast.67.22 = f32[256,257,256]{2,1,0} broadcast(%constant_93_1), dimensions={}
+  %mul.232.5 = f32[256,257,256]{2,1,0} multiply(%slice.11.9, %broadcast.67.22), metadata={op_name="jit(f)/mul" stack_frame_id=135}
+  %sub.71.9 = f32[256,257,256]{2,1,0} subtract(%slice.10.16, %mul.232.5), metadata={op_name="jit(f)/sub" stack_frame_id=133}
+  %constant_92_2 = f32[] constant(3)
+  %broadcast.66.14 = f32[256,257,256]{2,1,0} broadcast(%constant_92_2), dimensions={}
+  %mul.233.11 = f32[256,257,256]{2,1,0} multiply(%slice.13.20, %broadcast.66.14), metadata={op_name="jit(f)/mul" stack_frame_id=134}
+  %add.164.7 = f32[256,257,256]{2,1,0} add(%sub.71.9, %mul.233.11), metadata={op_name="jit(f)/add" stack_frame_id=133}
+  %integer_pow.73.7 = f32[256,257,256]{2,1,0} multiply(%add.164.7, %add.164.7), metadata={op_name="jit(f)/integer_pow" stack_frame_id=132}
+  %constant_91_1 = f32[] constant(0.25)
+  %broadcast.65.42 = f32[256,257,256]{2,1,0} broadcast(%constant_91_1), dimensions={}
+  %mul.234.7 = f32[256,257,256]{2,1,0} multiply(%integer_pow.73.7, %broadcast.65.42), metadata={op_name="jit(f)/mul" stack_frame_id=131}
+  %add.165.5 = f32[256,257,256]{2,1,0} add(%mul.231.7, %mul.234.7), metadata={op_name="jit(f)/add" stack_frame_id=130}
+  %constant_90_1 = f32[] constant(1e-06)
+  %broadcast.64.30 = f32[256,257,256]{2,1,0} broadcast(%constant_90_1), dimensions={}
+  %add.171.5 = f32[256,257,256]{2,1,0} add(%add.165.5, %broadcast.64.30), metadata={op_name="jit(f)/add" stack_frame_id=129}
+  %integer_pow.78.3 = f32[256,257,256]{2,1,0} multiply(%add.171.5, %add.171.5), metadata={op_name="jit(f)/integer_pow" stack_frame_id=128}
+  %div.59.3 = f32[256,257,256]{2,1,0} divide(%broadcast.63.6, %integer_pow.78.3), metadata={op_name="jit(f)/div" stack_frame_id=127}
+  %constant_86_2 = f32[] constant(1)
+  %broadcast.60.6 = f32[256,257,256]{2,1,0} broadcast(%constant_86_2), dimensions={}
+  %constant_88_2 = f32[] constant(0.6)
+  %broadcast.62.6 = f32[256,257,256]{2,1,0} broadcast(%constant_88_2), dimensions={}
+  %mul.235.13 = f32[256,257,256]{2,1,0} multiply(%slice.13.20, %broadcast.69.28), metadata={op_name="jit(f)/mul" stack_frame_id=126}
+  %sub.72.7 = f32[256,257,256]{2,1,0} subtract(%slice.11.9, %mul.235.13), metadata={op_name="jit(f)/sub" stack_frame_id=125}
+  %slice.15.39 = f32[256,257,256]{2,1,0} slice(%param_2.617), slice={[4:260], [5:262], [4:260]}, metadata={op_name="jit(f)/slice" stack_frame_id=53}
+  %add.166.5 = f32[256,257,256]{2,1,0} add(%sub.72.7, %slice.15.39), metadata={op_name="jit(f)/add" stack_frame_id=125}
+  %integer_pow.74.7 = f32[256,257,256]{2,1,0} multiply(%add.166.5, %add.166.5), metadata={op_name="jit(f)/integer_pow" stack_frame_id=124}
+  %mul.236.7 = f32[256,257,256]{2,1,0} multiply(%integer_pow.74.7, %broadcast.68.42), metadata={op_name="jit(f)/mul" stack_frame_id=120}
+  %sub.73.7 = f32[256,257,256]{2,1,0} subtract(%slice.11.9, %slice.15.39), metadata={op_name="jit(f)/sub" stack_frame_id=123}
+  %integer_pow.75.7 = f32[256,257,256]{2,1,0} multiply(%sub.73.7, %sub.73.7), metadata={op_name="jit(f)/integer_pow" stack_frame_id=122}
+  %mul.237.7 = f32[256,257,256]{2,1,0} multiply(%integer_pow.75.7, %broadcast.65.42), metadata={op_name="jit(f)/mul" stack_frame_id=121}
+  %add.167.5 = f32[256,257,256]{2,1,0} add(%mul.236.7, %mul.237.7), metadata={op_name="jit(f)/add" stack_frame_id=120}
+  %add.172.5 = f32[256,257,256]{2,1,0} add(%add.167.5, %broadcast.64.30), metadata={op_name="jit(f)/add" stack_frame_id=119}
+  %integer_pow.79.3 = f32[256,257,256]{2,1,0} multiply(%add.172.5, %add.172.5), metadata={op_name="jit(f)/integer_pow" stack_frame_id=118}
+  %div.60.3 = f32[256,257,256]{2,1,0} divide(%broadcast.62.6, %integer_pow.79.3), metadata={op_name="jit(f)/div" stack_frame_id=117}
+  %add.174.1 = f32[256,257,256]{2,1,0} add(%div.59.3, %div.60.3), metadata={op_name="jit(f)/add" stack_frame_id=104}
+  %constant_87_2 = f32[] constant(0.3)
+  %broadcast.61.6 = f32[256,257,256]{2,1,0} broadcast(%constant_87_2), dimensions={}
+  %mul.238.3 = f32[256,257,256]{2,1,0} multiply(%slice.15.39, %broadcast.69.28), metadata={op_name="jit(f)/mul" stack_frame_id=116}
+  %sub.74.5 = f32[256,257,256]{2,1,0} subtract(%slice.13.20, %mul.238.3), metadata={op_name="jit(f)/sub" stack_frame_id=115}
+  %slice.17.34 = f32[256,257,256]{2,1,0} slice(%param_2.617), slice={[4:260], [6:263], [4:260]}, metadata={op_name="jit(f)/slice" stack_frame_id=20}
+  %add.168.5 = f32[256,257,256]{2,1,0} add(%sub.74.5, %slice.17.34), metadata={op_name="jit(f)/add" stack_frame_id=115}
+  %integer_pow.76.7 = f32[256,257,256]{2,1,0} multiply(%add.168.5, %add.168.5), metadata={op_name="jit(f)/integer_pow" stack_frame_id=114}
+  %mul.239.7 = f32[256,257,256]{2,1,0} multiply(%integer_pow.76.7, %broadcast.68.42), metadata={op_name="jit(f)/mul" stack_frame_id=109}
+  %mul.241.5 = f32[256,257,256]{2,1,0} multiply(%slice.15.39, %broadcast.67.22), metadata={op_name="jit(f)/mul" stack_frame_id=113}
+  %sub.75.5 = f32[256,257,256]{2,1,0} subtract(%mul.233.11, %mul.241.5), metadata={op_name="jit(f)/sub" stack_frame_id=112}
+  %add.169.7 = f32[256,257,256]{2,1,0} add(%sub.75.5, %slice.17.34), metadata={op_name="jit(f)/add" stack_frame_id=112}
+  %integer_pow.77.7 = f32[256,257,256]{2,1,0} multiply(%add.169.7, %add.169.7), metadata={op_name="jit(f)/integer_pow" stack_frame_id=111}
+  %mul.242.7 = f32[256,257,256]{2,1,0} multiply(%integer_pow.77.7, %broadcast.65.42), metadata={op_name="jit(f)/mul" stack_frame_id=110}
+  %add.170.5 = f32[256,257,256]{2,1,0} add(%mul.239.7, %mul.242.7), metadata={op_name="jit(f)/add" stack_frame_id=109}
+  %add.173.5 = f32[256,257,256]{2,1,0} add(%add.170.5, %broadcast.64.30), metadata={op_name="jit(f)/add" stack_frame_id=107}
+  %integer_pow.80.3 = f32[256,257,256]{2,1,0} multiply(%add.173.5, %add.173.5), metadata={op_name="jit(f)/integer_pow" stack_frame_id=106}
+  %div.61.3 = f32[256,257,256]{2,1,0} divide(%broadcast.61.6, %integer_pow.80.3), metadata={op_name="jit(f)/div" stack_frame_id=105}
+  %add.175.1 = f32[256,257,256]{2,1,0} add(%add.174.1, %div.61.3), metadata={op_name="jit(f)/add" stack_frame_id=104}
+  %div.62.3 = f32[256,257,256]{2,1,0} divide(%broadcast.60.6, %add.175.1), metadata={op_name="jit(f)/div" stack_frame_id=103}
+  %mul.243.1 = f32[256,257,256]{2,1,0} multiply(%div.59.3, %div.62.3), metadata={op_name="jit(f)/mul" stack_frame_id=102}
+  %convert_element_type.69.1 = f64[256,257,256]{2,1,0} convert(%mul.243.1), metadata={op_name="jit(f)/convert_element_type" stack_frame_id=42}
+  %param_0.911 = f64[264,264,264]{2,1,0} parameter(0)
+  %slice.42.3 = f64[256,257,256]{2,1,0} slice(%param_0.911), slice={[4:260], [2:259], [4:260]}, metadata={op_name="jit(f)/slice" stack_frame_id=55}
+  %constant_100_2 = f64[] constant(2)
+  %broadcast.74.12 = f64[256,257,256]{2,1,0} broadcast(%constant_100_2), dimensions={}
+  %mul.223.3 = f64[256,257,256]{2,1,0} multiply(%slice.42.3, %broadcast.74.12), metadata={op_name="jit(f)/mul" stack_frame_id=40}
+  %slice.43.22 = f64[256,257,256]{2,1,0} slice(%param_0.911), slice={[4:260], [3:260], [4:260]}, metadata={op_name="jit(f)/slice" stack_frame_id=32}
+  %constant_99_2 = f64[] constant(7)
+  %broadcast.73.22 = f64[256,257,256]{2,1,0} broadcast(%constant_99_2), dimensions={}
+  %mul.224.11 = f64[256,257,256]{2,1,0} multiply(%slice.43.22, %broadcast.73.22), metadata={op_name="jit(f)/mul" stack_frame_id=41}
+  %sub.68.9 = f64[256,257,256]{2,1,0} subtract(%mul.223.3, %mul.224.11), metadata={op_name="jit(f)/sub" stack_frame_id=40}
+  %slice.44.5 = f64[256,257,256]{2,1,0} slice(%param_0.911), slice={[4:260], [4:261], [4:260]}, metadata={op_name="jit(f)/slice" stack_frame_id=46}
+  %constant_98_2 = f64[] constant(11)
+  %broadcast.72.6 = f64[256,257,256]{2,1,0} broadcast(%constant_98_2), dimensions={}
+  %mul.225.3 = f64[256,257,256]{2,1,0} multiply(%slice.44.5, %broadcast.72.6), metadata={op_name="jit(f)/mul" stack_frame_id=44}
+  %add.159.7 = f64[256,257,256]{2,1,0} add(%sub.68.9, %mul.225.3), metadata={op_name="jit(f)/add" stack_frame_id=40}
+  %constant_396 = f64[] constant(0.16666666666666666)
+  %broadcast.6.40 = f64[256,257,256]{2,1,0} broadcast(%constant_396), dimensions={}
+  %multiply.6.5 = f64[256,257,256]{2,1,0} multiply(%add.159.7, %broadcast.6.40), metadata={op_name="jit(f)/div" stack_frame_id=39}
+  %mul.246.3 = f64[256,257,256]{2,1,0} multiply(%convert_element_type.69.1, %multiply.6.5), metadata={op_name="jit(f)/mul" stack_frame_id=23}
+  %mul.244.1 = f32[256,257,256]{2,1,0} multiply(%div.60.3, %div.62.3), metadata={op_name="jit(f)/mul" stack_frame_id=101}
+  %convert_element_type.70.3 = f64[256,257,256]{2,1,0} convert(%mul.244.1), metadata={op_name="jit(f)/convert_element_type" stack_frame_id=33}
+  %neg.0.74 = f64[264,264,264]{2,1,0} negate(%param_0.911), metadata={op_name="jit(f)/neg" stack_frame_id=30}
+  %slice.62.13 = f64[256,257,256]{2,1,0} slice(%neg.0.74), slice={[4:260], [3:260], [4:260]}, metadata={op_name="jit(f)/slice" stack_frame_id=32}
+  %constant_96_2 = f64[] constant(5)
+  %broadcast.70.6 = f64[256,257,256]{2,1,0} broadcast(%constant_96_2), dimensions={}
+  %mul.226.3 = f64[256,257,256]{2,1,0} multiply(%slice.44.5, %broadcast.70.6), metadata={op_name="jit(f)/mul" stack_frame_id=48}
+  %add.160.11 = f64[256,257,256]{2,1,0} add(%slice.62.13, %mul.226.3), metadata={op_name="jit(f)/add" stack_frame_id=30}
+  %slice.45.9 = f64[256,257,256]{2,1,0} slice(%param_0.911), slice={[4:260], [5:262], [4:260]}, metadata={op_name="jit(f)/slice" stack_frame_id=53}
+  %mul.227.3 = f64[256,257,256]{2,1,0} multiply(%slice.45.9, %broadcast.74.12), metadata={op_name="jit(f)/mul" stack_frame_id=51}
+  %add.161.9 = f64[256,257,256]{2,1,0} add(%add.160.11, %mul.227.3), metadata={op_name="jit(f)/add" stack_frame_id=30}
+  %multiply.7.7 = f64[256,257,256]{2,1,0} multiply(%add.161.9, %broadcast.6.40), metadata={op_name="jit(f)/div" stack_frame_id=29}
+  %mul.247.5 = f64[256,257,256]{2,1,0} multiply(%convert_element_type.70.3, %multiply.7.7), metadata={op_name="jit(f)/mul" stack_frame_id=28}
+  %add.176.3 = f64[256,257,256]{2,1,0} add(%mul.246.3, %mul.247.5), metadata={op_name="jit(f)/add" stack_frame_id=23}
+  %mul.245.1 = f32[256,257,256]{2,1,0} multiply(%div.61.3, %div.62.3), metadata={op_name="jit(f)/mul" stack_frame_id=100}
+  %convert_element_type.71.1 = f64[256,257,256]{2,1,0} convert(%mul.245.1), metadata={op_name="jit(f)/convert_element_type" stack_frame_id=34}
+  %mul.228.3 = f64[256,257,256]{2,1,0} multiply(%slice.44.5, %broadcast.74.12), metadata={op_name="jit(f)/mul" stack_frame_id=27}
+  %mul.229.3 = f64[256,257,256]{2,1,0} multiply(%slice.45.9, %broadcast.70.6), metadata={op_name="jit(f)/mul" stack_frame_id=47}
+  %add.162.3 = f64[256,257,256]{2,1,0} add(%mul.228.3, %mul.229.3), metadata={op_name="jit(f)/add" stack_frame_id=27}
+  %slice.46.18 = f64[256,257,256]{2,1,0} slice(%param_0.911), slice={[4:260], [6:263], [4:260]}, metadata={op_name="jit(f)/slice" stack_frame_id=20}
+  %sub.69.9 = f64[256,257,256]{2,1,0} subtract(%add.162.3, %slice.46.18), metadata={op_name="jit(f)/sub" stack_frame_id=27}
+  %multiply.8.7 = f64[256,257,256]{2,1,0} multiply(%sub.69.9, %broadcast.6.40), metadata={op_name="jit(f)/div" stack_frame_id=26}
+  %mul.248.5 = f64[256,257,256]{2,1,0} multiply(%convert_element_type.71.1, %multiply.8.7), metadata={op_name="jit(f)/mul" stack_frame_id=24}
+  %add.177.3 = f64[256,257,256]{2,1,0} add(%add.176.3, %mul.248.5), metadata={op_name="jit(f)/add" stack_frame_id=23}
+  %slice.19.12 = f32[256,257,256]{2,1,0} slice(%param_2.617), slice={[4:260], [7:264], [4:260]}, metadata={op_name="jit(f)/slice" stack_frame_id=50}
+  %mul.256.5 = f32[256,257,256]{2,1,0} multiply(%slice.17.34, %broadcast.69.28), metadata={op_name="jit(f)/mul" stack_frame_id=79}
+  %sub.78.5 = f32[256,257,256]{2,1,0} subtract(%slice.19.12, %mul.256.5), metadata={op_name="jit(f)/sub" stack_frame_id=78}
+  %add.182.7 = f32[256,257,256]{2,1,0} add(%sub.78.5, %slice.15.39), metadata={op_name="jit(f)/add" stack_frame_id=78}
+  %integer_pow.81.7 = f32[256,257,256]{2,1,0} multiply(%add.182.7, %add.182.7), metadata={op_name="jit(f)/integer_pow" stack_frame_id=77}
+  %mul.257.7 = f32[256,257,256]{2,1,0} multiply(%integer_pow.81.7, %broadcast.68.42), metadata={op_name="jit(f)/mul" stack_frame_id=72}
+  %mul.258.5 = f32[256,257,256]{2,1,0} multiply(%slice.17.34, %broadcast.67.22), metadata={op_name="jit(f)/mul" stack_frame_id=76}
+  %sub.79.7 = f32[256,257,256]{2,1,0} subtract(%slice.19.12, %mul.258.5), metadata={op_name="jit(f)/sub" stack_frame_id=75}
+  %mul.259.3 = f32[256,257,256]{2,1,0} multiply(%slice.15.39, %broadcast.66.14), metadata={op_name="jit(f)/mul" stack_frame_id=90}
+  %add.183.5 = f32[256,257,256]{2,1,0} add(%sub.79.7, %mul.259.3), metadata={op_name="jit(f)/add" stack_frame_id=75}
+  %integer_pow.82.7 = f32[256,257,256]{2,1,0} multiply(%add.183.5, %add.183.5), metadata={op_name="jit(f)/integer_pow" stack_frame_id=74}
+  %mul.260.7 = f32[256,257,256]{2,1,0} multiply(%integer_pow.82.7, %broadcast.65.42), metadata={op_name="jit(f)/mul" stack_frame_id=73}
+  %add.184.5 = f32[256,257,256]{2,1,0} add(%mul.257.7, %mul.260.7), metadata={op_name="jit(f)/add" stack_frame_id=72}
+  %add.190.5 = f32[256,257,256]{2,1,0} add(%add.184.5, %broadcast.64.30), metadata={op_name="jit(f)/add" stack_frame_id=70}
+  %integer_pow.87.3 = f32[256,257,256]{2,1,0} multiply(%add.190.5, %add.190.5), metadata={op_name="jit(f)/integer_pow" stack_frame_id=69}
+  %div.66.3 = f32[256,257,256]{2,1,0} divide(%broadcast.63.6, %integer_pow.87.3), metadata={op_name="jit(f)/div" stack_frame_id=68}
+  %sub.80.5 = f32[256,257,256]{2,1,0} subtract(%slice.17.34, %mul.238.3), metadata={op_name="jit(f)/sub" stack_frame_id=99}
+  %add.185.5 = f32[256,257,256]{2,1,0} add(%sub.80.5, %slice.13.20), metadata={op_name="jit(f)/add" stack_frame_id=99}
+  %integer_pow.83.7 = f32[256,257,256]{2,1,0} multiply(%add.185.5, %add.185.5), metadata={op_name="jit(f)/integer_pow" stack_frame_id=98}
+  %mul.262.7 = f32[256,257,256]{2,1,0} multiply(%integer_pow.83.7, %broadcast.68.42), metadata={op_name="jit(f)/mul" stack_frame_id=94}
+  %sub.81.7 = f32[256,257,256]{2,1,0} subtract(%slice.17.34, %slice.13.20), metadata={op_name="jit(f)/sub" stack_frame_id=97}
+  %integer_pow.84.7 = f32[256,257,256]{2,1,0} multiply(%sub.81.7, %sub.81.7), metadata={op_name="jit(f)/integer_pow" stack_frame_id=96}
+  %mul.263.7 = f32[256,257,256]{2,1,0} multiply(%integer_pow.84.7, %broadcast.65.42), metadata={op_name="jit(f)/mul" stack_frame_id=95}
+  %add.186.5 = f32[256,257,256]{2,1,0} add(%mul.262.7, %mul.263.7), metadata={op_name="jit(f)/add" stack_frame_id=94}
+  %add.191.5 = f32[256,257,256]{2,1,0} add(%add.186.5, %broadcast.64.30), metadata={op_name="jit(f)/add" stack_frame_id=93}
+  %integer_pow.88.3 = f32[256,257,256]{2,1,0} multiply(%add.191.5, %add.191.5), metadata={op_name="jit(f)/integer_pow" stack_frame_id=92}
+  %div.67.3 = f32[256,257,256]{2,1,0} divide(%broadcast.62.6, %integer_pow.88.3), metadata={op_name="jit(f)/div" stack_frame_id=91}
+  %add.193.1 = f32[256,257,256]{2,1,0} add(%div.66.3, %div.67.3), metadata={op_name="jit(f)/add" stack_frame_id=67}
+  %sub.82.9 = f32[256,257,256]{2,1,0} subtract(%slice.15.39, %mul.235.13), metadata={op_name="jit(f)/sub" stack_frame_id=89}
+  %add.187.7 = f32[256,257,256]{2,1,0} add(%sub.82.9, %slice.11.9), metadata={op_name="jit(f)/add" stack_frame_id=89}
+  %integer_pow.85.7 = f32[256,257,256]{2,1,0} multiply(%add.187.7, %add.187.7), metadata={op_name="jit(f)/integer_pow" stack_frame_id=88}
+  %mul.265.7 = f32[256,257,256]{2,1,0} multiply(%integer_pow.85.7, %broadcast.68.42), metadata={op_name="jit(f)/mul" stack_frame_id=83}
+  %mul.267.7 = f32[256,257,256]{2,1,0} multiply(%slice.13.20, %broadcast.67.22), metadata={op_name="jit(f)/mul" stack_frame_id=87}
+  %sub.83.5 = f32[256,257,256]{2,1,0} subtract(%mul.259.3, %mul.267.7), metadata={op_name="jit(f)/sub" stack_frame_id=86}
+  %add.188.5 = f32[256,257,256]{2,1,0} add(%sub.83.5, %slice.11.9), metadata={op_name="jit(f)/add" stack_frame_id=86}
+  %integer_pow.86.7 = f32[256,257,256]{2,1,0} multiply(%add.188.5, %add.188.5), metadata={op_name="jit(f)/integer_pow" stack_frame_id=85}
+  %mul.268.7 = f32[256,257,256]{2,1,0} multiply(%integer_pow.86.7, %broadcast.65.42), metadata={op_name="jit(f)/mul" stack_frame_id=84}
+  %add.189.5 = f32[256,257,256]{2,1,0} add(%mul.265.7, %mul.268.7), metadata={op_name="jit(f)/add" stack_frame_id=83}
+  %add.192.5 = f32[256,257,256]{2,1,0} add(%add.189.5, %broadcast.64.30), metadata={op_name="jit(f)/add" stack_frame_id=82}
+  %integer_pow.89.3 = f32[256,257,256]{2,1,0} multiply(%add.192.5, %add.192.5), metadata={op_name="jit(f)/integer_pow" stack_frame_id=81}
+  %div.68.3 = f32[256,257,256]{2,1,0} divide(%broadcast.61.6, %integer_pow.89.3), metadata={op_name="jit(f)/div" stack_frame_id=80}
+  %add.194.1 = f32[256,257,256]{2,1,0} add(%add.193.1, %div.68.3), metadata={op_name="jit(f)/add" stack_frame_id=67}
+  %div.69.3 = f32[256,257,256]{2,1,0} divide(%broadcast.60.6, %add.194.1), metadata={op_name="jit(f)/div" stack_frame_id=66}
+  %mul.269.1 = f32[256,257,256]{2,1,0} multiply(%div.66.3, %div.69.3), metadata={op_name="jit(f)/mul" stack_frame_id=65}
+  %convert_element_type.77.3 = f64[256,257,256]{2,1,0} convert(%mul.269.1), metadata={op_name="jit(f)/convert_element_type" stack_frame_id=38}
+  %slice.47.3 = f64[256,257,256]{2,1,0} slice(%param_0.911), slice={[4:260], [7:264], [4:260]}, metadata={op_name="jit(f)/slice" stack_frame_id=50}
+  %mul.249.3 = f64[256,257,256]{2,1,0} multiply(%slice.47.3, %broadcast.74.12), metadata={op_name="jit(f)/mul" stack_frame_id=36}
+  %mul.250.11 = f64[256,257,256]{2,1,0} multiply(%slice.46.18, %broadcast.73.22), metadata={op_name="jit(f)/mul" stack_frame_id=37}
+  %sub.76.9 = f64[256,257,256]{2,1,0} subtract(%mul.249.3, %mul.250.11), metadata={op_name="jit(f)/sub" stack_frame_id=36}
+  %mul.251.3 = f64[256,257,256]{2,1,0} multiply(%slice.45.9, %broadcast.72.6), metadata={op_name="jit(f)/mul" stack_frame_id=43}
+  %add.178.7 = f64[256,257,256]{2,1,0} add(%sub.76.9, %mul.251.3), metadata={op_name="jit(f)/add" stack_frame_id=36}
+  %multiply.9.5 = f64[256,257,256]{2,1,0} multiply(%add.178.7, %broadcast.6.40), metadata={op_name="jit(f)/div" stack_frame_id=35}
+  %mul.272.3 = f64[256,257,256]{2,1,0} multiply(%convert_element_type.77.3, %multiply.9.5), metadata={op_name="jit(f)/mul" stack_frame_id=10}
+  %mul.270.1 = f32[256,257,256]{2,1,0} multiply(%div.67.3, %div.69.3), metadata={op_name="jit(f)/mul" stack_frame_id=64}
+  %convert_element_type.78.3 = f64[256,257,256]{2,1,0} convert(%mul.270.1), metadata={op_name="jit(f)/convert_element_type" stack_frame_id=21}
+  %slice.63.13 = f64[256,257,256]{2,1,0} slice(%neg.0.74), slice={[4:260], [6:263], [4:260]}, metadata={op_name="jit(f)/slice" stack_frame_id=20}
+  %add.179.11 = f64[256,257,256]{2,1,0} add(%slice.63.13, %mul.229.3), metadata={op_name="jit(f)/add" stack_frame_id=18}
+  %add.180.9 = f64[256,257,256]{2,1,0} add(%add.179.11, %mul.228.3), metadata={op_name="jit(f)/add" stack_frame_id=18}
+  %multiply.10.7 = f64[256,257,256]{2,1,0} multiply(%add.180.9, %broadcast.6.40), metadata={op_name="jit(f)/div" stack_frame_id=17}
+  %mul.273.5 = f64[256,257,256]{2,1,0} multiply(%convert_element_type.78.3, %multiply.10.7), metadata={op_name="jit(f)/mul" stack_frame_id=16}
+  %add.195.3 = f64[256,257,256]{2,1,0} add(%mul.272.3, %mul.273.5), metadata={op_name="jit(f)/add" stack_frame_id=10}
+  %mul.271.1 = f32[256,257,256]{2,1,0} multiply(%div.68.3, %div.69.3), metadata={op_name="jit(f)/mul" stack_frame_id=63}
+  %convert_element_type.79.1 = f64[256,257,256]{2,1,0} convert(%mul.271.1), metadata={op_name="jit(f)/convert_element_type" stack_frame_id=15}
+  %add.181.1 = f64[256,257,256]{2,1,0} add(%mul.227.3, %mul.226.3), metadata={op_name="jit(f)/add" stack_frame_id=14}
+  %sub.77.11 = f64[256,257,256]{2,1,0} subtract(%add.181.1, %slice.43.22), metadata={op_name="jit(f)/sub" stack_frame_id=14}
+  %multiply.11.9 = f64[256,257,256]{2,1,0} multiply(%sub.77.11, %broadcast.6.40), metadata={op_name="jit(f)/div" stack_frame_id=13}
+  %mul.274.7 = f64[256,257,256]{2,1,0} multiply(%convert_element_type.79.1, %multiply.11.9), metadata={op_name="jit(f)/mul" stack_frame_id=11}
+  %add.196.5 = f64[256,257,256]{2,1,0} add(%add.195.3, %mul.274.7), metadata={op_name="jit(f)/add" stack_frame_id=10}
+  %select_n.2.3 = f64[256,257,256]{2,1,0} select(%gt.10.3, %add.177.3, %add.196.5), metadata={op_name="jit(f)/jit(_where)/select_n" stack_frame_id=8}
+  %mul.275.1 = f64[256,257,256]{2,1,0} multiply(%mul.222.3, %select_n.2.3), metadata={op_name="jit(f)/mul" stack_frame_id=6}
+  %param_3.492 = f64[264,264,264]{2,1,0} parameter(3)
+  %slice.30.3.clone.1 = f64[257,256,256]{2,1,0} slice(%param_3.492), slice={[4:261], [4:260], [4:260]}, metadata={op_name="jit(f)/slice" stack_frame_id=62}
+  %slice.31.5.clone.1 = f64[257,256,256]{2,1,0} slice(%param_3.492), slice={[5:262], [4:260], [4:260]}, metadata={op_name="jit(f)/slice" stack_frame_id=61}
+  %add.119.5.clone.1 = f64[257,256,256]{2,1,0} add(%slice.30.3.clone.1, %slice.31.5.clone.1), metadata={op_name="jit(f)/add" stack_frame_id=59}
+  %mul.167.3.clone.1 = f64[257,256,256]{2,1,0} broadcast(%constant_101_2), dimensions={}, metadata={op_name="jit(f)/mul" stack_frame_id=58}
+  %mul.168.3.clone.1 = f64[257,256,256]{2,1,0} multiply(%add.119.5.clone.1, %mul.167.3.clone.1), metadata={op_name="jit(f)/mul" stack_frame_id=58}
+  %gt.8.3.clone.1 = f64[257,256,256]{2,1,0} broadcast(%constant_85_2), dimensions={}, metadata={op_name="jit(f)/gt" stack_frame_id=56}
+  %gt.9.3.clone.1 = pred[257,256,256]{2,1,0} compare(%mul.168.3.clone.1, %gt.8.3.clone.1), direction=GT, metadata={op_name="jit(f)/gt" stack_frame_id=56}
+  %broadcast.78.6.clone.1 = f32[257,256,256]{2,1,0} broadcast(%constant_89_2), dimensions={}
+  %slice.0.16.clone.1 = f32[257,256,256]{2,1,0} slice(%param_2.617), slice={[2:259], [4:260], [4:260]}, metadata={op_name="jit(f)/slice" stack_frame_id=55}
+  %slice.1.9.clone.1 = f32[257,256,256]{2,1,0} slice(%param_2.617), slice={[3:260], [4:260], [4:260]}, metadata={op_name="jit(f)/slice" stack_frame_id=32}
+  %broadcast.84.28.clone.1 = f32[257,256,256]{2,1,0} broadcast(%constant_95_2), dimensions={}
+  %mul.176.7.clone.1 = f32[257,256,256]{2,1,0} multiply(%slice.1.9.clone.1, %broadcast.84.28.clone.1), metadata={op_name="jit(f)/mul" stack_frame_id=138}
+  %sub.53.7.clone.1 = f32[257,256,256]{2,1,0} subtract(%slice.0.16.clone.1, %mul.176.7.clone.1), metadata={op_name="jit(f)/sub" stack_frame_id=137}
+  %slice.3.20.clone.1 = f32[257,256,256]{2,1,0} slice(%param_2.617), slice={[4:261], [4:260], [4:260]}, metadata={op_name="jit(f)/slice" stack_frame_id=46}
+  %add.124.5.clone.1 = f32[257,256,256]{2,1,0} add(%sub.53.7.clone.1, %slice.3.20.clone.1), metadata={op_name="jit(f)/add" stack_frame_id=137}
+  %integer_pow.54.7.clone.1 = f32[257,256,256]{2,1,0} multiply(%add.124.5.clone.1, %add.124.5.clone.1), metadata={op_name="jit(f)/integer_pow" stack_frame_id=136}
+  %broadcast.83.42.clone.1 = f32[257,256,256]{2,1,0} broadcast(%constant_94_1), dimensions={}
+  %mul.177.7.clone.1 = f32[257,256,256]{2,1,0} multiply(%integer_pow.54.7.clone.1, %broadcast.83.42.clone.1), metadata={op_name="jit(f)/mul" stack_frame_id=130}
+  %broadcast.82.22.clone.1 = f32[257,256,256]{2,1,0} broadcast(%constant_93_1), dimensions={}
+  %mul.178.5.clone.1 = f32[257,256,256]{2,1,0} multiply(%slice.1.9.clone.1, %broadcast.82.22.clone.1), metadata={op_name="jit(f)/mul" stack_frame_id=135}
+  %sub.54.9.clone.1 = f32[257,256,256]{2,1,0} subtract(%slice.0.16.clone.1, %mul.178.5.clone.1), metadata={op_name="jit(f)/sub" stack_frame_id=133}
+  %broadcast.81.14.clone.1 = f32[257,256,256]{2,1,0} broadcast(%constant_92_2), dimensions={}
+  %mul.179.11.clone.1 = f32[257,256,256]{2,1,0} multiply(%slice.3.20.clone.1, %broadcast.81.14.clone.1), metadata={op_name="jit(f)/mul" stack_frame_id=134}
+  %add.125.7.clone.1 = f32[257,256,256]{2,1,0} add(%sub.54.9.clone.1, %mul.179.11.clone.1), metadata={op_name="jit(f)/add" stack_frame_id=133}
+  %integer_pow.55.7.clone.1 = f32[257,256,256]{2,1,0} multiply(%add.125.7.clone.1, %add.125.7.clone.1), metadata={op_name="jit(f)/integer_pow" stack_frame_id=132}
+  %broadcast.80.42.clone.1 = f32[257,256,256]{2,1,0} broadcast(%constant_91_1), dimensions={}
+  %mul.180.7.clone.1 = f32[257,256,256]{2,1,0} multiply(%integer_pow.55.7.clone.1, %broadcast.80.42.clone.1), metadata={op_name="jit(f)/mul" stack_frame_id=131}
+  %add.126.5.clone.1 = f32[257,256,256]{2,1,0} add(%mul.177.7.clone.1, %mul.180.7.clone.1), metadata={op_name="jit(f)/add" stack_frame_id=130}
+  %broadcast.79.30.clone.1 = f32[257,256,256]{2,1,0} broadcast(%constant_90_1), dimensions={}
+  %add.132.5.clone.1 = f32[257,256,256]{2,1,0} add(%add.126.5.clone.1, %broadcast.79.30.clone.1), metadata={op_name="jit(f)/add" stack_frame_id=129}
+  %integer_pow.60.3.clone.1 = f32[257,256,256]{2,1,0} multiply(%add.132.5.clone.1, %add.132.5.clone.1), metadata={op_name="jit(f)/integer_pow" stack_frame_id=128}
+  %div.45.3.clone.1 = f32[257,256,256]{2,1,0} divide(%broadcast.78.6.clone.1, %integer_pow.60.3.clone.1), metadata={op_name="jit(f)/div" stack_frame_id=127}
+  %broadcast.75.6.clone.1 = f32[257,256,256]{2,1,0} broadcast(%constant_86_2), dimensions={}
+  %broadcast.77.6.clone.1 = f32[257,256,256]{2,1,0} broadcast(%constant_88_2), dimensions={}
+  %mul.181.13.clone.1 = f32[257,256,256]{2,1,0} multiply(%slice.3.20.clone.1, %broadcast.84.28.clone.1), metadata={op_name="jit(f)/mul" stack_frame_id=126}
+  %sub.55.7.clone.1 = f32[257,256,256]{2,1,0} subtract(%slice.1.9.clone.1, %mul.181.13.clone.1), metadata={op_name="jit(f)/sub" stack_frame_id=125}
+  %slice.5.39.clone.1 = f32[257,256,256]{2,1,0} slice(%param_2.617), slice={[5:262], [4:260], [4:260]}, metadata={op_name="jit(f)/slice" stack_frame_id=53}
+  %add.127.5.clone.1 = f32[257,256,256]{2,1,0} add(%sub.55.7.clone.1, %slice.5.39.clone.1), metadata={op_name="jit(f)/add" stack_frame_id=125}
+  %integer_pow.56.7.clone.1 = f32[257,256,256]{2,1,0} multiply(%add.127.5.clone.1, %add.127.5.clone.1), metadata={op_name="jit(f)/integer_pow" stack_frame_id=124}
+  %mul.182.7.clone.1 = f32[257,256,256]{2,1,0} multiply(%integer_pow.56.7.clone.1, %broadcast.83.42.clone.1), metadata={op_name="jit(f)/mul" stack_frame_id=120}
+  %sub.56.7.clone.1 = f32[257,256,256]{2,1,0} subtract(%slice.1.9.clone.1, %slice.5.39.clone.1), metadata={op_name="jit(f)/sub" stack_frame_id=123}
+  %integer_pow.57.7.clone.1 = f32[257,256,256]{2,1,0} multiply(%sub.56.7.clone.1, %sub.56.7.clone.1), metadata={op_name="jit(f)/integer_pow" stack_frame_id=122}
+  %mul.183.7.clone.1 = f32[257,256,256]{2,1,0} multiply(%integer_pow.57.7.clone.1, %broadcast.80.42.clone.1), metadata={op_name="jit(f)/mul" stack_frame_id=121}
+  %add.128.5.clone.1 = f32[257,256,256]{2,1,0} add(%mul.182.7.clone.1, %mul.183.7.clone.1), metadata={op_name="jit(f)/add" stack_frame_id=120}
+  %add.133.5.clone.1 = f32[257,256,256]{2,1,0} add(%add.128.5.clone.1, %broadcast.79.30.clone.1), metadata={op_name="jit(f)/add" stack_frame_id=119}
+  %integer_pow.61.3.clone.1 = f32[257,256,256]{2,1,0} multiply(%add.133.5.clone.1, %add.133.5.clone.1), metadata={op_name="jit(f)/integer_pow" stack_frame_id=118}
+  %div.46.3.clone.1 = f32[257,256,256]{2,1,0} divide(%broadcast.77.6.clone.1, %integer_pow.61.3.clone.1), metadata={op_name="jit(f)/div" stack_frame_id=117}
+  %add.135.1.clone.1 = f32[257,256,256]{2,1,0} add(%div.45.3.clone.1, %div.46.3.clone.1), metadata={op_name="jit(f)/add" stack_frame_id=104}
+  %broadcast.76.6.clone.1 = f32[257,256,256]{2,1,0} broadcast(%constant_87_2), dimensions={}
+  %mul.184.3.clone.1 = f32[257,256,256]{2,1,0} multiply(%slice.5.39.clone.1, %broadcast.84.28.clone.1), metadata={op_name="jit(f)/mul" stack_frame_id=116}
+  %sub.57.5.clone.1 = f32[257,256,256]{2,1,0} subtract(%slice.3.20.clone.1, %mul.184.3.clone.1), metadata={op_name="jit(f)/sub" stack_frame_id=115}
+  %slice.7.34.clone.1 = f32[257,256,256]{2,1,0} slice(%param_2.617), slice={[6:263], [4:260], [4:260]}, metadata={op_name="jit(f)/slice" stack_frame_id=20}
+  %add.129.5.clone.1 = f32[257,256,256]{2,1,0} add(%sub.57.5.clone.1, %slice.7.34.clone.1), metadata={op_name="jit(f)/add" stack_frame_id=115}
+  %integer_pow.58.7.clone.1 = f32[257,256,256]{2,1,0} multiply(%add.129.5.clone.1, %add.129.5.clone.1), metadata={op_name="jit(f)/integer_pow" stack_frame_id=114}
+  %mul.185.7.clone.1 = f32[257,256,256]{2,1,0} multiply(%integer_pow.58.7.clone.1, %broadcast.83.42.clone.1), metadata={op_name="jit(f)/mul" stack_frame_id=109}
+  %mul.187.5.clone.1 = f32[257,256,256]{2,1,0} multiply(%slice.5.39.clone.1, %broadcast.82.22.clone.1), metadata={op_name="jit(f)/mul" stack_frame_id=113}
+  %sub.58.5.clone.1 = f32[257,256,256]{2,1,0} subtract(%mul.179.11.clone.1, %mul.187.5.clone.1), metadata={op_name="jit(f)/sub" stack_frame_id=112}
+  %add.130.7.clone.1 = f32[257,256,256]{2,1,0} add(%sub.58.5.clone.1, %slice.7.34.clone.1), metadata={op_name="jit(f)/add" stack_frame_id=112}
+  %integer_pow.59.7.clone.1 = f32[257,256,256]{2,1,0} multiply(%add.130.7.clone.1, %add.130.7.clone.1), metadata={op_name="jit(f)/integer_pow" stack_frame_id=111}
+  %mul.188.7.clone.1 = f32[257,256,256]{2,1,0} multiply(%integer_pow.59.7.clone.1, %broadcast.80.42.clone.1), metadata={op_name="jit(f)/mul" stack_frame_id=110}
+  %add.131.5.clone.1 = f32[257,256,256]{2,1,0} add(%mul.185.7.clone.1, %mul.188.7.clone.1), metadata={op_name="jit(f)/add" stack_frame_id=109}
+  %add.134.5.clone.1 = f32[257,256,256]{2,1,0} add(%add.131.5.clone.1, %broadcast.79.30.clone.1), metadata={op_name="jit(f)/add" stack_frame_id=107}
+  %integer_pow.62.3.clone.1 = f32[257,256,256]{2,1,0} multiply(%add.134.5.clone.1, %add.134.5.clone.1), metadata={op_name="jit(f)/integer_pow" stack_frame_id=106}
+  %div.47.3.clone.1 = f32[257,256,256]{2,1,0} divide(%broadcast.76.6.clone.1, %integer_pow.62.3.clone.1), metadata={op_name="jit(f)/div" stack_frame_id=105}
+  %add.136.1.clone.1 = f32[257,256,256]{2,1,0} add(%add.135.1.clone.1, %div.47.3.clone.1), metadata={op_name="jit(f)/add" stack_frame_id=104}
+  %div.48.3.clone.1 = f32[257,256,256]{2,1,0} divide(%broadcast.75.6.clone.1, %add.136.1.clone.1), metadata={op_name="jit(f)/div" stack_frame_id=103}
+  %mul.189.1.clone.1 = f32[257,256,256]{2,1,0} multiply(%div.45.3.clone.1, %div.48.3.clone.1), metadata={op_name="jit(f)/mul" stack_frame_id=102}
+  %convert_element_type.53.1.clone.1 = f64[257,256,256]{2,1,0} convert(%mul.189.1.clone.1), metadata={op_name="jit(f)/convert_element_type" stack_frame_id=42}
+  %slice.32.3.clone.1 = f64[257,256,256]{2,1,0} slice(%param_0.911), slice={[2:259], [4:260], [4:260]}, metadata={op_name="jit(f)/slice" stack_frame_id=55}
+  %broadcast.89.12.clone.1 = f64[257,256,256]{2,1,0} broadcast(%constant_100_2), dimensions={}
+  %mul.169.3.clone.1 = f64[257,256,256]{2,1,0} multiply(%slice.32.3.clone.1, %broadcast.89.12.clone.1), metadata={op_name="jit(f)/mul" stack_frame_id=40}
+  %slice.33.22.clone.1 = f64[257,256,256]{2,1,0} slice(%param_0.911), slice={[3:260], [4:260], [4:260]}, metadata={op_name="jit(f)/slice" stack_frame_id=32}
+  %broadcast.88.22.clone.1 = f64[257,256,256]{2,1,0} broadcast(%constant_99_2), dimensions={}
+  %mul.170.11.clone.1 = f64[257,256,256]{2,1,0} multiply(%slice.33.22.clone.1, %broadcast.88.22.clone.1), metadata={op_name="jit(f)/mul" stack_frame_id=41}
+  %sub.51.9.clone.1 = f64[257,256,256]{2,1,0} subtract(%mul.169.3.clone.1, %mul.170.11.clone.1), metadata={op_name="jit(f)/sub" stack_frame_id=40}
+  %slice.34.5.clone.1 = f64[257,256,256]{2,1,0} slice(%param_0.911), slice={[4:261], [4:260], [4:260]}, metadata={op_name="jit(f)/slice" stack_frame_id=46}
+  %broadcast.87.6.clone.1 = f64[257,256,256]{2,1,0} broadcast(%constant_98_2), dimensions={}
+  %mul.171.3.clone.1 = f64[257,256,256]{2,1,0} multiply(%slice.34.5.clone.1, %broadcast.87.6.clone.1), metadata={op_name="jit(f)/mul" stack_frame_id=44}
+  %add.120.7.clone.1 = f64[257,256,256]{2,1,0} add(%sub.51.9.clone.1, %mul.171.3.clone.1), metadata={op_name="jit(f)/add" stack_frame_id=40}
+  %broadcast.103.clone.1 = f64[257,256,256]{2,1,0} broadcast(%constant_396), dimensions={}
+  %multiply.23.clone.1 = f64[257,256,256]{2,1,0} multiply(%add.120.7.clone.1, %broadcast.103.clone.1), metadata={op_name="jit(f)/div" stack_frame_id=39}
+  %mul.192.3.clone.1 = f64[257,256,256]{2,1,0} multiply(%convert_element_type.53.1.clone.1, %multiply.23.clone.1), metadata={op_name="jit(f)/mul" stack_frame_id=23}
+  %mul.190.1.clone.1 = f32[257,256,256]{2,1,0} multiply(%div.46.3.clone.1, %div.48.3.clone.1), metadata={op_name="jit(f)/mul" stack_frame_id=101}
+  %convert_element_type.54.3.clone.1 = f64[257,256,256]{2,1,0} convert(%mul.190.1.clone.1), metadata={op_name="jit(f)/convert_element_type" stack_frame_id=33}
+  %slice.60.13.clone.1 = f64[257,256,256]{2,1,0} slice(%neg.0.74), slice={[3:260], [4:260], [4:260]}, metadata={op_name="jit(f)/slice" stack_frame_id=32}
+  %broadcast.85.6.clone.1 = f64[257,256,256]{2,1,0} broadcast(%constant_96_2), dimensions={}
+  %mul.172.3.clone.1 = f64[257,256,256]{2,1,0} multiply(%slice.34.5.clone.1, %broadcast.85.6.clone.1), metadata={op_name="jit(f)/mul" stack_frame_id=48}
+  %add.121.11.clone.1 = f64[257,256,256]{2,1,0} add(%slice.60.13.clone.1, %mul.172.3.clone.1), metadata={op_name="jit(f)/add" stack_frame_id=30}
+  %slice.35.9.clone.1 = f64[257,256,256]{2,1,0} slice(%param_0.911), slice={[5:262], [4:260], [4:260]}, metadata={op_name="jit(f)/slice" stack_frame_id=53}
+  %mul.173.3.clone.1 = f64[257,256,256]{2,1,0} multiply(%slice.35.9.clone.1, %broadcast.89.12.clone.1), metadata={op_name="jit(f)/mul" stack_frame_id=51}
+  %add.122.9.clone.1 = f64[257,256,256]{2,1,0} add(%add.121.11.clone.1, %mul.173.3.clone.1), metadata={op_name="jit(f)/add" stack_frame_id=30}
+  %multiply.1.7.clone.1 = f64[257,256,256]{2,1,0} multiply(%add.122.9.clone.1, %broadcast.103.clone.1), metadata={op_name="jit(f)/div" stack_frame_id=29}
+  %mul.193.5.clone.1 = f64[257,256,256]{2,1,0} multiply(%convert_element_type.54.3.clone.1, %multiply.1.7.clone.1), metadata={op_name="jit(f)/mul" stack_frame_id=28}
+  %add.137.3.clone.1 = f64[257,256,256]{2,1,0} add(%mul.192.3.clone.1, %mul.193.5.clone.1), metadata={op_name="jit(f)/add" stack_frame_id=23}
+  %mul.191.1.clone.1 = f32[257,256,256]{2,1,0} multiply(%div.47.3.clone.1, %div.48.3.clone.1), metadata={op_name="jit(f)/mul" stack_frame_id=100}
+  %convert_element_type.55.1.clone.1 = f64[257,256,256]{2,1,0} convert(%mul.191.1.clone.1), metadata={op_name="jit(f)/convert_element_type" stack_frame_id=34}
+  %mul.174.3.clone.1 = f64[257,256,256]{2,1,0} multiply(%slice.34.5.clone.1, %broadcast.89.12.clone.1), metadata={op_name="jit(f)/mul" stack_frame_id=27}
+  %mul.175.3.clone.1 = f64[257,256,256]{2,1,0} multiply(%slice.35.9.clone.1, %broadcast.85.6.clone.1), metadata={op_name="jit(f)/mul" stack_frame_id=47}
+  %add.123.3.clone.1 = f64[257,256,256]{2,1,0} add(%mul.174.3.clone.1, %mul.175.3.clone.1), metadata={op_name="jit(f)/add" stack_frame_id=27}
+  %slice.36.18.clone.1 = f64[257,256,256]{2,1,0} slice(%param_0.911), slice={[6:263], [4:260], [4:260]}, metadata={op_name="jit(f)/slice" stack_frame_id=20}
+  %sub.52.9.clone.1 = f64[257,256,256]{2,1,0} subtract(%add.123.3.clone.1, %slice.36.18.clone.1), metadata={op_name="jit(f)/sub" stack_frame_id=27}
+  %multiply.2.7.clone.1 = f64[257,256,256]{2,1,0} multiply(%sub.52.9.clone.1, %broadcast.103.clone.1), metadata={op_name="jit(f)/div" stack_frame_id=26}
+  %mul.194.5.clone.1 = f64[257,256,256]{2,1,0} multiply(%convert_element_type.55.1.clone.1, %multiply.2.7.clone.1), metadata={op_name="jit(f)/mul" stack_frame_id=24}
+  %add.138.3.clone.1 = f64[257,256,256]{2,1,0} add(%add.137.3.clone.1, %mul.194.5.clone.1), metadata={op_name="jit(f)/add" stack_frame_id=23}
+  %slice.9.12.clone.1 = f32[257,256,256]{2,1,0} slice(%param_2.617), slice={[7:264], [4:260], [4:260]}, metadata={op_name="jit(f)/slice" stack_frame_id=50}
+  %mul.202.5.clone.1 = f32[257,256,256]{2,1,0} multiply(%slice.7.34.clone.1, %broadcast.84.28.clone.1), metadata={op_name="jit(f)/mul" stack_frame_id=79}
+  %sub.61.5.clone.1 = f32[257,256,256]{2,1,0} subtract(%slice.9.12.clone.1, %mul.202.5.clone.1), metadata={op_name="jit(f)/sub" stack_frame_id=78}
+  %add.143.7.clone.1 = f32[257,256,256]{2,1,0} add(%sub.61.5.clone.1, %slice.5.39.clone.1), metadata={op_name="jit(f)/add" stack_frame_id=78}
+  %integer_pow.63.7.clone.1 = f32[257,256,256]{2,1,0} multiply(%add.143.7.clone.1, %add.143.7.clone.1), metadata={op_name="jit(f)/integer_pow" stack_frame_id=77}
+  %mul.203.7.clone.1 = f32[257,256,256]{2,1,0} multiply(%integer_pow.63.7.clone.1, %broadcast.83.42.clone.1), metadata={op_name="jit(f)/mul" stack_frame_id=72}
+  %mul.204.5.clone.1 = f32[257,256,256]{2,1,0} multiply(%slice.7.34.clone.1, %broadcast.82.22.clone.1), metadata={op_name="jit(f)/mul" stack_frame_id=76}
+  %sub.62.7.clone.1 = f32[257,256,256]{2,1,0} subtract(%slice.9.12.clone.1, %mul.204.5.clone.1), metadata={op_name="jit(f)/sub" stack_frame_id=75}
+  %mul.205.3.clone.1 = f32[257,256,256]{2,1,0} multiply(%slice.5.39.clone.1, %broadcast.81.14.clone.1), metadata={op_name="jit(f)/mul" stack_frame_id=90}
+  %add.144.5.clone.1 = f32[257,256,256]{2,1,0} add(%sub.62.7.clone.1, %mul.205.3.clone.1), metadata={op_name="jit(f)/add" stack_frame_id=75}
+  %integer_pow.64.7.clone.1 = f32[257,256,256]{2,1,0} multiply(%add.144.5.clone.1, %add.144.5.clone.1), metadata={op_name="jit(f)/integer_pow" stack_frame_id=74}
+  %mul.206.7.clone.1 = f32[257,256,256]{2,1,0} multiply(%integer_pow.64.7.clone.1, %broadcast.80.42.clone.1), metadata={op_name="jit(f)/mul" stack_frame_id=73}
+  %add.145.5.clone.1 = f32[257,256,256]{2,1,0} add(%mul.203.7.clone.1, %mul.206.7.clone.1), metadata={op_name="jit(f)/add" stack_frame_id=72}
+  %add.151.5.clone.1 = f32[257,256,256]{2,1,0} add(%add.145.5.clone.1, %broadcast.79.30.clone.1), metadata={op_name="jit(f)/add" stack_frame_id=70}
+  %integer_pow.69.3.clone.1 = f32[257,256,256]{2,1,0} multiply(%add.151.5.clone.1, %add.151.5.clone.1), metadata={op_name="jit(f)/integer_pow" stack_frame_id=69}
+  %div.52.3.clone.1 = f32[257,256,256]{2,1,0} divide(%broadcast.78.6.clone.1, %integer_pow.69.3.clone.1), metadata={op_name="jit(f)/div" stack_frame_id=68}
+  %sub.63.5.clone.1 = f32[257,256,256]{2,1,0} subtract(%slice.7.34.clone.1, %mul.184.3.clone.1), metadata={op_name="jit(f)/sub" stack_frame_id=99}
+  %add.146.5.clone.1 = f32[257,256,256]{2,1,0} add(%sub.63.5.clone.1, %slice.3.20.clone.1), metadata={op_name="jit(f)/add" stack_frame_id=99}
+  %integer_pow.65.7.clone.1 = f32[257,256,256]{2,1,0} multiply(%add.146.5.clone.1, %add.146.5.clone.1), metadata={op_name="jit(f)/integer_pow" stack_frame_id=98}
+  %mul.208.7.clone.1 = f32[257,256,256]{2,1,0} multiply(%integer_pow.65.7.clone.1, %broadcast.83.42.clone.1), metadata={op_name="jit(f)/mul" stack_frame_id=94}
+  %sub.64.7.clone.1 = f32[257,256,256]{2,1,0} subtract(%slice.7.34.clone.1, %slice.3.20.clone.1), metadata={op_name="jit(f)/sub" stack_frame_id=97}
+  %integer_pow.66.7.clone.1 = f32[257,256,256]{2,1,0} multiply(%sub.64.7.clone.1, %sub.64.7.clone.1), metadata={op_name="jit(f)/integer_pow" stack_frame_id=96}
+  %mul.209.7.clone.1 = f32[257,256,256]{2,1,0} multiply(%integer_pow.66.7.clone.1, %broadcast.80.42.clone.1), metadata={op_name="jit(f)/mul" stack_frame_id=95}
+  %add.147.5.clone.1 = f32[257,256,256]{2,1,0} add(%mul.208.7.clone.1, %mul.209.7.clone.1), metadata={op_name="jit(f)/add" stack_frame_id=94}
+  %add.152.5.clone.1 = f32[257,256,256]{2,1,0} add(%add.147.5.clone.1, %broadcast.79.30.clone.1), metadata={op_name="jit(f)/add" stack_frame_id=93}
+  %integer_pow.70.3.clone.1 = f32[257,256,256]{2,1,0} multiply(%add.152.5.clone.1, %add.152.5.clone.1), metadata={op_name="jit(f)/integer_pow" stack_frame_id=92}
+  %div.53.3.clone.1 = f32[257,256,256]{2,1,0} divide(%broadcast.77.6.clone.1, %integer_pow.70.3.clone.1), metadata={op_name="jit(f)/div" stack_frame_id=91}
+  %add.154.1.clone.1 = f32[257,256,256]{2,1,0} add(%div.52.3.clone.1, %div.53.3.clone.1), metadata={op_name="jit(f)/add" stack_frame_id=67}
+  %sub.65.9.clone.1 = f32[257,256,256]{2,1,0} subtract(%slice.5.39.clone.1, %mul.181.13.clone.1), metadata={op_name="jit(f)/sub" stack_frame_id=89}
+  %add.148.7.clone.1 = f32[257,256,256]{2,1,0} add(%sub.65.9.clone.1, %slice.1.9.clone.1), metadata={op_name="jit(f)/add" stack_frame_id=89}
+  %integer_pow.67.7.clone.1 = f32[257,256,256]{2,1,0} multiply(%add.148.7.clone.1, %add.148.7.clone.1), metadata={op_name="jit(f)/integer_pow" stack_frame_id=88}
+  %mul.211.7.clone.1 = f32[257,256,256]{2,1,0} multiply(%integer_pow.67.7.clone.1, %broadcast.83.42.clone.1), metadata={op_name="jit(f)/mul" stack_frame_id=83}
+  %mul.213.7.clone.1 = f32[257,256,256]{2,1,0} multiply(%slice.3.20.clone.1, %broadcast.82.22.clone.1), metadata={op_name="jit(f)/mul" stack_frame_id=87}
+  %sub.66.5.clone.1 = f32[257,256,256]{2,1,0} subtract(%mul.205.3.clone.1, %mul.213.7.clone.1), metadata={op_name="jit(f)/sub" stack_frame_id=86}
+  %add.149.5.clone.1 = f32[257,256,256]{2,1,0} add(%sub.66.5.clone.1, %slice.1.9.clone.1), metadata={op_name="jit(f)/add" stack_frame_id=86}
+  %integer_pow.68.7.clone.1 = f32[257,256,256]{2,1,0} multiply(%add.149.5.clone.1, %add.149.5.clone.1), metadata={op_name="jit(f)/integer_pow" stack_frame_id=85}
+  %mul.214.7.clone.1 = f32[257,256,256]{2,1,0} multiply(%integer_pow.68.7.clone.1, %broadcast.80.42.clone.1), metadata={op_name="jit(f)/mul" stack_frame_id=84}
+  %add.150.5.clone.1 = f32[257,256,256]{2,1,0} add(%mul.211.7.clone.1, %mul.214.7.clone.1), metadata={op_name="jit(f)/add" stack_frame_id=83}
+  %add.153.5.clone.1 = f32[257,256,256]{2,1,0} add(%add.150.5.clone.1, %broadcast.79.30.clone.1), metadata={op_name="jit(f)/add" stack_frame_id=82}
+  %integer_pow.71.3.clone.1 = f32[257,256,256]{2,1,0} multiply(%add.153.5.clone.1, %add.153.5.clone.1), metadata={op_name="jit(f)/integer_pow" stack_frame_id=81}
+  %div.54.3.clone.1 = f32[257,256,256]{2,1,0} divide(%broadcast.76.6.clone.1, %integer_pow.71.3.clone.1), metadata={op_name="jit(f)/div" stack_frame_id=80}
+  %add.155.1.clone.1 = f32[257,256,256]{2,1,0} add(%add.154.1.clone.1, %div.54.3.clone.1), metadata={op_name="jit(f)/add" stack_frame_id=67}
+  %div.55.3.clone.1 = f32[257,256,256]{2,1,0} divide(%broadcast.75.6.clone.1, %add.155.1.clone.1), metadata={op_name="jit(f)/div" stack_frame_id=66}
+  %mul.215.1.clone.1 = f32[257,256,256]{2,1,0} multiply(%div.52.3.clone.1, %div.55.3.clone.1), metadata={op_name="jit(f)/mul" stack_frame_id=65}
+  %convert_element_type.61.3.clone.1 = f64[257,256,256]{2,1,0} convert(%mul.215.1.clone.1), metadata={op_name="jit(f)/convert_element_type" stack_frame_id=38}
+  %slice.37.3.clone.1 = f64[257,256,256]{2,1,0} slice(%param_0.911), slice={[7:264], [4:260], [4:260]}, metadata={op_name="jit(f)/slice" stack_frame_id=50}
+  %mul.195.3.clone.1 = f64[257,256,256]{2,1,0} multiply(%slice.37.3.clone.1, %broadcast.89.12.clone.1), metadata={op_name="jit(f)/mul" stack_frame_id=36}
+  %mul.196.11.clone.1 = f64[257,256,256]{2,1,0} multiply(%slice.36.18.clone.1, %broadcast.88.22.clone.1), metadata={op_name="jit(f)/mul" stack_frame_id=37}
+  %sub.59.9.clone.1 = f64[257,256,256]{2,1,0} subtract(%mul.195.3.clone.1, %mul.196.11.clone.1), metadata={op_name="jit(f)/sub" stack_frame_id=36}
+  %mul.197.3.clone.1 = f64[257,256,256]{2,1,0} multiply(%slice.35.9.clone.1, %broadcast.87.6.clone.1), metadata={op_name="jit(f)/mul" stack_frame_id=43}
+  %add.139.7.clone.1 = f64[257,256,256]{2,1,0} add(%sub.59.9.clone.1, %mul.197.3.clone.1), metadata={op_name="jit(f)/add" stack_frame_id=36}
+  %multiply.3.5.clone.1 = f64[257,256,256]{2,1,0} multiply(%add.139.7.clone.1, %broadcast.103.clone.1), metadata={op_name="jit(f)/div" stack_frame_id=35}
+  %mul.218.3.clone.1 = f64[257,256,256]{2,1,0} multiply(%convert_element_type.61.3.clone.1, %multiply.3.5.clone.1), metadata={op_name="jit(f)/mul" stack_frame_id=10}
+  %mul.216.1.clone.1 = f32[257,256,256]{2,1,0} multiply(%div.53.3.clone.1, %div.55.3.clone.1), metadata={op_name="jit(f)/mul" stack_frame_id=64}
+  %convert_element_type.62.3.clone.1 = f64[257,256,256]{2,1,0} convert(%mul.216.1.clone.1), metadata={op_name="jit(f)/convert_element_type" stack_frame_id=21}
+  %slice.61.13.clone.1 = f64[257,256,256]{2,1,0} slice(%neg.0.74), slice={[6:263], [4:260], [4:260]}, metadata={op_name="jit(f)/slice" stack_frame_id=20}
+  %add.140.11.clone.1 = f64[257,256,256]{2,1,0} add(%slice.61.13.clone.1, %mul.175.3.clone.1), metadata={op_name="jit(f)/add" stack_frame_id=18}
+  %add.141.9.clone.1 = f64[257,256,256]{2,1,0} add(%add.140.11.clone.1, %mul.174.3.clone.1), metadata={op_name="jit(f)/add" stack_frame_id=18}
+  %multiply.4.7.clone.1 = f64[257,256,256]{2,1,0} multiply(%add.141.9.clone.1, %broadcast.103.clone.1), metadata={op_name="jit(f)/div" stack_frame_id=17}
+  %mul.219.5.clone.1 = f64[257,256,256]{2,1,0} multiply(%convert_element_type.62.3.clone.1, %multiply.4.7.clone.1), metadata={op_name="jit(f)/mul" stack_frame_id=16}
+  %add.156.3.clone.1 = f64[257,256,256]{2,1,0} add(%mul.218.3.clone.1, %mul.219.5.clone.1), metadata={op_name="jit(f)/add" stack_frame_id=10}
+  %mul.217.1.clone.1 = f32[257,256,256]{2,1,0} multiply(%div.54.3.clone.1, %div.55.3.clone.1), metadata={op_name="jit(f)/mul" stack_frame_id=63}
+  %convert_element_type.63.1.clone.1 = f64[257,256,256]{2,1,0} convert(%mul.217.1.clone.1), metadata={op_name="jit(f)/convert_element_type" stack_frame_id=15}
+  %add.142.1.clone.1 = f64[257,256,256]{2,1,0} add(%mul.173.3.clone.1, %mul.172.3.clone.1), metadata={op_name="jit(f)/add" stack_frame_id=14}
+  %sub.60.11.clone.1 = f64[257,256,256]{2,1,0} subtract(%add.142.1.clone.1, %slice.33.22.clone.1), metadata={op_name="jit(f)/sub" stack_frame_id=14}
+  %multiply.5.9.clone.1 = f64[257,256,256]{2,1,0} multiply(%sub.60.11.clone.1, %broadcast.103.clone.1), metadata={op_name="jit(f)/div" stack_frame_id=13}
+  %mul.220.7.clone.1 = f64[257,256,256]{2,1,0} multiply(%convert_element_type.63.1.clone.1, %multiply.5.9.clone.1), metadata={op_name="jit(f)/mul" stack_frame_id=11}
+  %add.157.5.clone.1 = f64[257,256,256]{2,1,0} add(%add.156.3.clone.1, %mul.220.7.clone.1), metadata={op_name="jit(f)/add" stack_frame_id=10}
+  %select_n.0.3.clone.1 = f64[257,256,256]{2,1,0} select(%gt.9.3.clone.1, %add.138.3.clone.1, %add.157.5.clone.1), metadata={op_name="jit(f)/jit(_where)/select_n" stack_frame_id=8}
+  %mul.221.1.clone.1 = f64[257,256,256]{2,1,0} multiply(%mul.168.3.clone.1, %select_n.0.3.clone.1), metadata={op_name="jit(f)/mul" stack_frame_id=6}
+  %param_4.401 = f64[264,264,264]{2,1,0} parameter(4)
+  %slice.50.3.clone.1 = f64[256,256,257]{2,1,0} slice(%param_4.401), slice={[4:260], [4:260], [4:261]}, metadata={op_name="jit(f)/slice" stack_frame_id=62}
+  %slice.51.5.clone.1 = f64[256,256,257]{2,1,0} slice(%param_4.401), slice={[4:260], [4:260], [5:262]}, metadata={op_name="jit(f)/slice" stack_frame_id=61}
+  %add.198.5.clone.1 = f64[256,256,257]{2,1,0} add(%slice.50.3.clone.1, %slice.51.5.clone.1), metadata={op_name="jit(f)/add" stack_frame_id=59}
+  %mul.165.3.clone.1 = f64[256,256,257]{2,1,0} broadcast(%constant_101_2), dimensions={}, metadata={op_name="jit(f)/mul" stack_frame_id=58}
+  %mul.276.3.clone.1 = f64[256,256,257]{2,1,0} multiply(%add.198.5.clone.1, %mul.165.3.clone.1), metadata={op_name="jit(f)/mul" stack_frame_id=58}
+  %gt.6.3.clone.1 = f64[256,256,257]{2,1,0} broadcast(%constant_85_2), dimensions={}, metadata={op_name="jit(f)/gt" stack_frame_id=56}
+  %gt.11.3.clone.1 = pred[256,256,257]{2,1,0} compare(%mul.276.3.clone.1, %gt.6.3.clone.1), direction=GT, metadata={op_name="jit(f)/gt" stack_frame_id=56}
+  %broadcast.48.6.clone.1 = f32[256,256,257]{2,1,0} broadcast(%constant_89_2), dimensions={}
+  %slice.20.16.clone.1 = f32[256,256,257]{2,1,0} slice(%param_2.617), slice={[4:260], [4:260], [2:259]}, metadata={op_name="jit(f)/slice" stack_frame_id=55}
+  %slice.21.9.clone.1 = f32[256,256,257]{2,1,0} slice(%param_2.617), slice={[4:260], [4:260], [3:260]}, metadata={op_name="jit(f)/slice" stack_frame_id=32}
+  %broadcast.54.28.clone.1 = f32[256,256,257]{2,1,0} broadcast(%constant_95_2), dimensions={}
+  %mul.284.7.clone.1 = f32[256,256,257]{2,1,0} multiply(%slice.21.9.clone.1, %broadcast.54.28.clone.1), metadata={op_name="jit(f)/mul" stack_frame_id=138}
+  %sub.87.7.clone.1 = f32[256,256,257]{2,1,0} subtract(%slice.20.16.clone.1, %mul.284.7.clone.1), metadata={op_name="jit(f)/sub" stack_frame_id=137}
+  %slice.23.20.clone.1 = f32[256,256,257]{2,1,0} slice(%param_2.617), slice={[4:260], [4:260], [4:261]}, metadata={op_name="jit(f)/slice" stack_frame_id=46}
+  %add.203.5.clone.1 = f32[256,256,257]{2,1,0} add(%sub.87.7.clone.1, %slice.23.20.clone.1), metadata={op_name="jit(f)/add" stack_frame_id=137}
+  %integer_pow.90.7.clone.1 = f32[256,256,257]{2,1,0} multiply(%add.203.5.clone.1, %add.203.5.clone.1), metadata={op_name="jit(f)/integer_pow" stack_frame_id=136}
+  %broadcast.53.42.clone.1 = f32[256,256,257]{2,1,0} broadcast(%constant_94_1), dimensions={}
+  %mul.285.7.clone.1 = f32[256,256,257]{2,1,0} multiply(%integer_pow.90.7.clone.1, %broadcast.53.42.clone.1), metadata={op_name="jit(f)/mul" stack_frame_id=130}
+  %broadcast.52.22.clone.1 = f32[256,256,257]{2,1,0} broadcast(%constant_93_1), dimensions={}
+  %mul.286.5.clone.1 = f32[256,256,257]{2,1,0} multiply(%slice.21.9.clone.1, %broadcast.52.22.clone.1), metadata={op_name="jit(f)/mul" stack_frame_id=135}
+  %sub.88.9.clone.1 = f32[256,256,257]{2,1,0} subtract(%slice.20.16.clone.1, %mul.286.5.clone.1), metadata={op_name="jit(f)/sub" stack_frame_id=133}
+  %broadcast.51.14.clone.1 = f32[256,256,257]{2,1,0} broadcast(%constant_92_2), dimensions={}
+  %mul.287.11.clone.1 = f32[256,256,257]{2,1,0} multiply(%slice.23.20.clone.1, %broadcast.51.14.clone.1), metadata={op_name="jit(f)/mul" stack_frame_id=134}
+  %add.204.7.clone.1 = f32[256,256,257]{2,1,0} add(%sub.88.9.clone.1, %mul.287.11.clone.1), metadata={op_name="jit(f)/add" stack_frame_id=133}
+  %integer_pow.91.7.clone.1 = f32[256,256,257]{2,1,0} multiply(%add.204.7.clone.1, %add.204.7.clone.1), metadata={op_name="jit(f)/integer_pow" stack_frame_id=132}
+  %broadcast.50.42.clone.1 = f32[256,256,257]{2,1,0} broadcast(%constant_91_1), dimensions={}
+  %mul.288.7.clone.1 = f32[256,256,257]{2,1,0} multiply(%integer_pow.91.7.clone.1, %broadcast.50.42.clone.1), metadata={op_name="jit(f)/mul" stack_frame_id=131}
+  %add.205.5.clone.1 = f32[256,256,257]{2,1,0} add(%mul.285.7.clone.1, %mul.288.7.clone.1), metadata={op_name="jit(f)/add" stack_frame_id=130}
+  %broadcast.49.30.clone.1 = f32[256,256,257]{2,1,0} broadcast(%constant_90_1), dimensions={}
+  %add.211.5.clone.1 = f32[256,256,257]{2,1,0} add(%add.205.5.clone.1, %broadcast.49.30.clone.1), metadata={op_name="jit(f)/add" stack_frame_id=129}
+  %integer_pow.96.3.clone.1 = f32[256,256,257]{2,1,0} multiply(%add.211.5.clone.1, %add.211.5.clone.1), metadata={op_name="jit(f)/integer_pow" stack_frame_id=128}
+  %div.73.3.clone.1 = f32[256,256,257]{2,1,0} divide(%broadcast.48.6.clone.1, %integer_pow.96.3.clone.1), metadata={op_name="jit(f)/div" stack_frame_id=127}
+  %broadcast.45.6.clone.1 = f32[256,256,257]{2,1,0} broadcast(%constant_86_2), dimensions={}
+  %broadcast.47.6.clone.1 = f32[256,256,257]{2,1,0} broadcast(%constant_88_2), dimensions={}
+  %mul.289.13.clone.1 = f32[256,256,257]{2,1,0} multiply(%slice.23.20.clone.1, %broadcast.54.28.clone.1), metadata={op_name="jit(f)/mul" stack_frame_id=126}
+  %sub.89.7.clone.1 = f32[256,256,257]{2,1,0} subtract(%slice.21.9.clone.1, %mul.289.13.clone.1), metadata={op_name="jit(f)/sub" stack_frame_id=125}
+  %slice.25.39.clone.1 = f32[256,256,257]{2,1,0} slice(%param_2.617), slice={[4:260], [4:260], [5:262]}, metadata={op_name="jit(f)/slice" stack_frame_id=53}
+  %add.206.5.clone.1 = f32[256,256,257]{2,1,0} add(%sub.89.7.clone.1, %slice.25.39.clone.1), metadata={op_name="jit(f)/add" stack_frame_id=125}
+  %integer_pow.92.7.clone.1 = f32[256,256,257]{2,1,0} multiply(%add.206.5.clone.1, %add.206.5.clone.1), metadata={op_name="jit(f)/integer_pow" stack_frame_id=124}
+  %mul.290.7.clone.1 = f32[256,256,257]{2,1,0} multiply(%integer_pow.92.7.clone.1, %broadcast.53.42.clone.1), metadata={op_name="jit(f)/mul" stack_frame_id=120}
+  %sub.90.7.clone.1 = f32[256,256,257]{2,1,0} subtract(%slice.21.9.clone.1, %slice.25.39.clone.1), metadata={op_name="jit(f)/sub" stack_frame_id=123}
+  %integer_pow.93.7.clone.1 = f32[256,256,257]{2,1,0} multiply(%sub.90.7.clone.1, %sub.90.7.clone.1), metadata={op_name="jit(f)/integer_pow" stack_frame_id=122}
+  %mul.291.7.clone.1 = f32[256,256,257]{2,1,0} multiply(%integer_pow.93.7.clone.1, %broadcast.50.42.clone.1), metadata={op_name="jit(f)/mul" stack_frame_id=121}
+  %add.207.5.clone.1 = f32[256,256,257]{2,1,0} add(%mul.290.7.clone.1, %mul.291.7.clone.1), metadata={op_name="jit(f)/add" stack_frame_id=120}
+  %add.212.5.clone.1 = f32[256,256,257]{2,1,0} add(%add.207.5.clone.1, %broadcast.49.30.clone.1), metadata={op_name="jit(f)/add" stack_frame_id=119}
+  %integer_pow.97.3.clone.1 = f32[256,256,257]{2,1,0} multiply(%add.212.5.clone.1, %add.212.5.clone.1), metadata={op_name="jit(f)/integer_pow" stack_frame_id=118}
+  %div.74.3.clone.1 = f32[256,256,257]{2,1,0} divide(%broadcast.47.6.clone.1, %integer_pow.97.3.clone.1), metadata={op_name="jit(f)/div" stack_frame_id=117}
+  %add.214.1.clone.1 = f32[256,256,257]{2,1,0} add(%div.73.3.clone.1, %div.74.3.clone.1), metadata={op_name="jit(f)/add" stack_frame_id=104}
+  %broadcast.46.6.clone.1 = f32[256,256,257]{2,1,0} broadcast(%constant_87_2), dimensions={}
+  %mul.292.3.clone.1 = f32[256,256,257]{2,1,0} multiply(%slice.25.39.clone.1, %broadcast.54.28.clone.1), metadata={op_name="jit(f)/mul" stack_frame_id=116}
+  %sub.91.5.clone.1 = f32[256,256,257]{2,1,0} subtract(%slice.23.20.clone.1, %mul.292.3.clone.1), metadata={op_name="jit(f)/sub" stack_frame_id=115}
+  %slice.27.34.clone.1 = f32[256,256,257]{2,1,0} slice(%param_2.617), slice={[4:260], [4:260], [6:263]}, metadata={op_name="jit(f)/slice" stack_frame_id=20}
+  %add.208.5.clone.1 = f32[256,256,257]{2,1,0} add(%sub.91.5.clone.1, %slice.27.34.clone.1), metadata={op_name="jit(f)/add" stack_frame_id=115}
+  %integer_pow.94.7.clone.1 = f32[256,256,257]{2,1,0} multiply(%add.208.5.clone.1, %add.208.5.clone.1), metadata={op_name="jit(f)/integer_pow" stack_frame_id=114}
+  %mul.293.7.clone.1 = f32[256,256,257]{2,1,0} multiply(%integer_pow.94.7.clone.1, %broadcast.53.42.clone.1), metadata={op_name="jit(f)/mul" stack_frame_id=109}
+  %mul.295.5.clone.1 = f32[256,256,257]{2,1,0} multiply(%slice.25.39.clone.1, %broadcast.52.22.clone.1), metadata={op_name="jit(f)/mul" stack_frame_id=113}
+  %sub.92.5.clone.1 = f32[256,256,257]{2,1,0} subtract(%mul.287.11.clone.1, %mul.295.5.clone.1), metadata={op_name="jit(f)/sub" stack_frame_id=112}
+  %add.209.7.clone.1 = f32[256,256,257]{2,1,0} add(%sub.92.5.clone.1, %slice.27.34.clone.1), metadata={op_name="jit(f)/add" stack_frame_id=112}
+  %integer_pow.95.7.clone.1 = f32[256,256,257]{2,1,0} multiply(%add.209.7.clone.1, %add.209.7.clone.1), metadata={op_name="jit(f)/integer_pow" stack_frame_id=111}
+  %mul.296.7.clone.1 = f32[256,256,257]{2,1,0} multiply(%integer_pow.95.7.clone.1, %broadcast.50.42.clone.1), metadata={op_name="jit(f)/mul" stack_frame_id=110}
+  %add.210.5.clone.1 = f32[256,256,257]{2,1,0} add(%mul.293.7.clone.1, %mul.296.7.clone.1), metadata={op_name="jit(f)/add" stack_frame_id=109}
+  %add.213.5.clone.1 = f32[256,256,257]{2,1,0} add(%add.210.5.clone.1, %broadcast.49.30.clone.1), metadata={op_name="jit(f)/add" stack_frame_id=107}
+  %integer_pow.98.3.clone.1 = f32[256,256,257]{2,1,0} multiply(%add.213.5.clone.1, %add.213.5.clone.1), metadata={op_name="jit(f)/integer_pow" stack_frame_id=106}
+  %div.75.3.clone.1 = f32[256,256,257]{2,1,0} divide(%broadcast.46.6.clone.1, %integer_pow.98.3.clone.1), metadata={op_name="jit(f)/div" stack_frame_id=105}
+  %add.215.1.clone.1 = f32[256,256,257]{2,1,0} add(%add.214.1.clone.1, %div.75.3.clone.1), metadata={op_name="jit(f)/add" stack_frame_id=104}
+  %div.76.3.clone.1 = f32[256,256,257]{2,1,0} divide(%broadcast.45.6.clone.1, %add.215.1.clone.1), metadata={op_name="jit(f)/div" stack_frame_id=103}
+  %mul.297.1.clone.1 = f32[256,256,257]{2,1,0} multiply(%div.73.3.clone.1, %div.76.3.clone.1), metadata={op_name="jit(f)/mul" stack_frame_id=102}
+  %convert_element_type.85.1.clone.1 = f64[256,256,257]{2,1,0} convert(%mul.297.1.clone.1), metadata={op_name="jit(f)/convert_element_type" stack_frame_id=42}
+  %slice.52.3.clone.1 = f64[256,256,257]{2,1,0} slice(%param_0.911), slice={[4:260], [4:260], [2:259]}, metadata={op_name="jit(f)/slice" stack_frame_id=55}
+  %broadcast.59.12.clone.1 = f64[256,256,257]{2,1,0} broadcast(%constant_100_2), dimensions={}
+  %mul.277.3.clone.1 = f64[256,256,257]{2,1,0} multiply(%slice.52.3.clone.1, %broadcast.59.12.clone.1), metadata={op_name="jit(f)/mul" stack_frame_id=40}
+  %slice.53.22.clone.1 = f64[256,256,257]{2,1,0} slice(%param_0.911), slice={[4:260], [4:260], [3:260]}, metadata={op_name="jit(f)/slice" stack_frame_id=32}
+  %broadcast.58.22.clone.1 = f64[256,256,257]{2,1,0} broadcast(%constant_99_2), dimensions={}
+  %mul.278.11.clone.1 = f64[256,256,257]{2,1,0} multiply(%slice.53.22.clone.1, %broadcast.58.22.clone.1), metadata={op_name="jit(f)/mul" stack_frame_id=41}
+  %sub.85.9.clone.1 = f64[256,256,257]{2,1,0} subtract(%mul.277.3.clone.1, %mul.278.11.clone.1), metadata={op_name="jit(f)/sub" stack_frame_id=40}
+  %slice.54.5.clone.1 = f64[256,256,257]{2,1,0} slice(%param_0.911), slice={[4:260], [4:260], [4:261]}, metadata={op_name="jit(f)/slice" stack_frame_id=46}
+  %broadcast.57.6.clone.1 = f64[256,256,257]{2,1,0} broadcast(%constant_98_2), dimensions={}
+  %mul.279.3.clone.1 = f64[256,256,257]{2,1,0} multiply(%slice.54.5.clone.1, %broadcast.57.6.clone.1), metadata={op_name="jit(f)/mul" stack_frame_id=44}
+  %add.199.7.clone.1 = f64[256,256,257]{2,1,0} add(%sub.85.9.clone.1, %mul.279.3.clone.1), metadata={op_name="jit(f)/add" stack_frame_id=40}
+  %broadcast.12.40.clone.1 = f64[256,256,257]{2,1,0} broadcast(%constant_396), dimensions={}
+  %multiply.12.5.clone.1 = f64[256,256,257]{2,1,0} multiply(%add.199.7.clone.1, %broadcast.12.40.clone.1), metadata={op_name="jit(f)/div" stack_frame_id=39}
+  %mul.300.3.clone.1 = f64[256,256,257]{2,1,0} multiply(%convert_element_type.85.1.clone.1, %multiply.12.5.clone.1), metadata={op_name="jit(f)/mul" stack_frame_id=23}
+  %mul.298.1.clone.1 = f32[256,256,257]{2,1,0} multiply(%div.74.3.clone.1, %div.76.3.clone.1), metadata={op_name="jit(f)/mul" stack_frame_id=101}
+  %convert_element_type.86.3.clone.1 = f64[256,256,257]{2,1,0} convert(%mul.298.1.clone.1), metadata={op_name="jit(f)/convert_element_type" stack_frame_id=33}
+  %slice.64.13.clone.1 = f64[256,256,257]{2,1,0} slice(%neg.0.74), slice={[4:260], [4:260], [3:260]}, metadata={op_name="jit(f)/slice" stack_frame_id=32}
+  %broadcast.55.6.clone.1 = f64[256,256,257]{2,1,0} broadcast(%constant_96_2), dimensions={}
+  %mul.280.3.clone.1 = f64[256,256,257]{2,1,0} multiply(%slice.54.5.clone.1, %broadcast.55.6.clone.1), metadata={op_name="jit(f)/mul" stack_frame_id=48}
+  %add.200.11.clone.1 = f64[256,256,257]{2,1,0} add(%slice.64.13.clone.1, %mul.280.3.clone.1), metadata={op_name="jit(f)/add" stack_frame_id=30}
+  %slice.55.9.clone.1 = f64[256,256,257]{2,1,0} slice(%param_0.911), slice={[4:260], [4:260], [5:262]}, metadata={op_name="jit(f)/slice" stack_frame_id=53}
+  %mul.281.3.clone.1 = f64[256,256,257]{2,1,0} multiply(%slice.55.9.clone.1, %broadcast.59.12.clone.1), metadata={op_name="jit(f)/mul" stack_frame_id=51}
+  %add.201.9.clone.1 = f64[256,256,257]{2,1,0} add(%add.200.11.clone.1, %mul.281.3.clone.1), metadata={op_name="jit(f)/add" stack_frame_id=30}
+  %multiply.13.7.clone.1 = f64[256,256,257]{2,1,0} multiply(%add.201.9.clone.1, %broadcast.12.40.clone.1), metadata={op_name="jit(f)/div" stack_frame_id=29}
+  %mul.301.5.clone.1 = f64[256,256,257]{2,1,0} multiply(%convert_element_type.86.3.clone.1, %multiply.13.7.clone.1), metadata={op_name="jit(f)/mul" stack_frame_id=28}
+  %add.216.3.clone.1 = f64[256,256,257]{2,1,0} add(%mul.300.3.clone.1, %mul.301.5.clone.1), metadata={op_name="jit(f)/add" stack_frame_id=23}
+  %mul.299.1.clone.1 = f32[256,256,257]{2,1,0} multiply(%div.75.3.clone.1, %div.76.3.clone.1), metadata={op_name="jit(f)/mul" stack_frame_id=100}
+  %convert_element_type.87.1.clone.1 = f64[256,256,257]{2,1,0} convert(%mul.299.1.clone.1), metadata={op_name="jit(f)/convert_element_type" stack_frame_id=34}
+  %mul.282.3.clone.1 = f64[256,256,257]{2,1,0} multiply(%slice.54.5.clone.1, %broadcast.59.12.clone.1), metadata={op_name="jit(f)/mul" stack_frame_id=27}
+  %mul.283.3.clone.1 = f64[256,256,257]{2,1,0} multiply(%slice.55.9.clone.1, %broadcast.55.6.clone.1), metadata={op_name="jit(f)/mul" stack_frame_id=47}
+  %add.202.3.clone.1 = f64[256,256,257]{2,1,0} add(%mul.282.3.clone.1, %mul.283.3.clone.1), metadata={op_name="jit(f)/add" stack_frame_id=27}
+  %slice.56.18.clone.1 = f64[256,256,257]{2,1,0} slice(%param_0.911), slice={[4:260], [4:260], [6:263]}, metadata={op_name="jit(f)/slice" stack_frame_id=20}
+  %sub.86.9.clone.1 = f64[256,256,257]{2,1,0} subtract(%add.202.3.clone.1, %slice.56.18.clone.1), metadata={op_name="jit(f)/sub" stack_frame_id=27}
+  %multiply.14.7.clone.1 = f64[256,256,257]{2,1,0} multiply(%sub.86.9.clone.1, %broadcast.12.40.clone.1), metadata={op_name="jit(f)/div" stack_frame_id=26}
+  %mul.302.5.clone.1 = f64[256,256,257]{2,1,0} multiply(%convert_element_type.87.1.clone.1, %multiply.14.7.clone.1), metadata={op_name="jit(f)/mul" stack_frame_id=24}
+  %add.217.3.clone.1 = f64[256,256,257]{2,1,0} add(%add.216.3.clone.1, %mul.302.5.clone.1), metadata={op_name="jit(f)/add" stack_frame_id=23}
+  %slice.29.12.clone.1 = f32[256,256,257]{2,1,0} slice(%param_2.617), slice={[4:260], [4:260], [7:264]}, metadata={op_name="jit(f)/slice" stack_frame_id=50}
+  %mul.310.5.clone.1 = f32[256,256,257]{2,1,0} multiply(%slice.27.34.clone.1, %broadcast.54.28.clone.1), metadata={op_name="jit(f)/mul" stack_frame_id=79}
+  %sub.95.5.clone.1 = f32[256,256,257]{2,1,0} subtract(%slice.29.12.clone.1, %mul.310.5.clone.1), metadata={op_name="jit(f)/sub" stack_frame_id=78}
+  %add.222.7.clone.1 = f32[256,256,257]{2,1,0} add(%sub.95.5.clone.1, %slice.25.39.clone.1), metadata={op_name="jit(f)/add" stack_frame_id=78}
+  %integer_pow.99.7.clone.1 = f32[256,256,257]{2,1,0} multiply(%add.222.7.clone.1, %add.222.7.clone.1), metadata={op_name="jit(f)/integer_pow" stack_frame_id=77}
+  %mul.311.7.clone.1 = f32[256,256,257]{2,1,0} multiply(%integer_pow.99.7.clone.1, %broadcast.53.42.clone.1), metadata={op_name="jit(f)/mul" stack_frame_id=72}
+  %mul.312.5.clone.1 = f32[256,256,257]{2,1,0} multiply(%slice.27.34.clone.1, %broadcast.52.22.clone.1), metadata={op_name="jit(f)/mul" stack_frame_id=76}
+  %sub.96.7.clone.1 = f32[256,256,257]{2,1,0} subtract(%slice.29.12.clone.1, %mul.312.5.clone.1), metadata={op_name="jit(f)/sub" stack_frame_id=75}
+  %mul.313.3.clone.1 = f32[256,256,257]{2,1,0} multiply(%slice.25.39.clone.1, %broadcast.51.14.clone.1), metadata={op_name="jit(f)/mul" stack_frame_id=90}
+  %add.223.5.clone.1 = f32[256,256,257]{2,1,0} add(%sub.96.7.clone.1, %mul.313.3.clone.1), metadata={op_name="jit(f)/add" stack_frame_id=75}
+  %integer_pow.100.7.clone.1 = f32[256,256,257]{2,1,0} multiply(%add.223.5.clone.1, %add.223.5.clone.1), metadata={op_name="jit(f)/integer_pow" stack_frame_id=74}
+  %mul.314.7.clone.1 = f32[256,256,257]{2,1,0} multiply(%integer_pow.100.7.clone.1, %broadcast.50.42.clone.1), metadata={op_name="jit(f)/mul" stack_frame_id=73}
+  %add.224.5.clone.1 = f32[256,256,257]{2,1,0} add(%mul.311.7.clone.1, %mul.314.7.clone.1), metadata={op_name="jit(f)/add" stack_frame_id=72}
+  %add.230.5.clone.1 = f32[256,256,257]{2,1,0} add(%add.224.5.clone.1, %broadcast.49.30.clone.1), metadata={op_name="jit(f)/add" stack_frame_id=70}
+  %integer_pow.105.3.clone.1 = f32[256,256,257]{2,1,0} multiply(%add.230.5.clone.1, %add.230.5.clone.1), metadata={op_name="jit(f)/integer_pow" stack_frame_id=69}
+  %div.80.3.clone.1 = f32[256,256,257]{2,1,0} divide(%broadcast.48.6.clone.1, %integer_pow.105.3.clone.1), metadata={op_name="jit(f)/div" stack_frame_id=68}
+  %sub.97.5.clone.1 = f32[256,256,257]{2,1,0} subtract(%slice.27.34.clone.1, %mul.292.3.clone.1), metadata={op_name="jit(f)/sub" stack_frame_id=99}
+  %add.225.5.clone.1 = f32[256,256,257]{2,1,0} add(%sub.97.5.clone.1, %slice.23.20.clone.1), metadata={op_name="jit(f)/add" stack_frame_id=99}
+  %integer_pow.101.7.clone.1 = f32[256,256,257]{2,1,0} multiply(%add.225.5.clone.1, %add.225.5.clone.1), metadata={op_name="jit(f)/integer_pow" stack_frame_id=98}
+  %mul.316.7.clone.1 = f32[256,256,257]{2,1,0} multiply(%integer_pow.101.7.clone.1, %broadcast.53.42.clone.1), metadata={op_name="jit(f)/mul" stack_frame_id=94}
+  %sub.98.7.clone.1 = f32[256,256,257]{2,1,0} subtract(%slice.27.34.clone.1, %slice.23.20.clone.1), metadata={op_name="jit(f)/sub" stack_frame_id=97}
+  %integer_pow.102.7.clone.1 = f32[256,256,257]{2,1,0} multiply(%sub.98.7.clone.1, %sub.98.7.clone.1), metadata={op_name="jit(f)/integer_pow" stack_frame_id=96}
+  %mul.317.7.clone.1 = f32[256,256,257]{2,1,0} multiply(%integer_pow.102.7.clone.1, %broadcast.50.42.clone.1), metadata={op_name="jit(f)/mul" stack_frame_id=95}
+  %add.226.5.clone.1 = f32[256,256,257]{2,1,0} add(%mul.316.7.clone.1, %mul.317.7.clone.1), metadata={op_name="jit(f)/add" stack_frame_id=94}
+  %add.231.5.clone.1 = f32[256,256,257]{2,1,0} add(%add.226.5.clone.1, %broadcast.49.30.clone.1), metadata={op_name="jit(f)/add" stack_frame_id=93}
+  %integer_pow.106.3.clone.1 = f32[256,256,257]{2,1,0} multiply(%add.231.5.clone.1, %add.231.5.clone.1), metadata={op_name="jit(f)/integer_pow" stack_frame_id=92}
+  %div.81.3.clone.1 = f32[256,256,257]{2,1,0} divide(%broadcast.47.6.clone.1, %integer_pow.106.3.clone.1), metadata={op_name="jit(f)/div" stack_frame_id=91}
+  %add.233.1.clone.1 = f32[256,256,257]{2,1,0} add(%div.80.3.clone.1, %div.81.3.clone.1), metadata={op_name="jit(f)/add" stack_frame_id=67}
+  %sub.99.9.clone.1 = f32[256,256,257]{2,1,0} subtract(%slice.25.39.clone.1, %mul.289.13.clone.1), metadata={op_name="jit(f)/sub" stack_frame_id=89}
+  %add.227.7.clone.1 = f32[256,256,257]{2,1,0} add(%sub.99.9.clone.1, %slice.21.9.clone.1), metadata={op_name="jit(f)/add" stack_frame_id=89}
+  %integer_pow.103.7.clone.1 = f32[256,256,257]{2,1,0} multiply(%add.227.7.clone.1, %add.227.7.clone.1), metadata={op_name="jit(f)/integer_pow" stack_frame_id=88}
+  %mul.319.7.clone.1 = f32[256,256,257]{2,1,0} multiply(%integer_pow.103.7.clone.1, %broadcast.53.42.clone.1), metadata={op_name="jit(f)/mul" stack_frame_id=83}
+  %mul.321.7.clone.1 = f32[256,256,257]{2,1,0} multiply(%slice.23.20.clone.1, %broadcast.52.22.clone.1), metadata={op_name="jit(f)/mul" stack_frame_id=87}
+  %sub.100.5.clone.1 = f32[256,256,257]{2,1,0} subtract(%mul.313.3.clone.1, %mul.321.7.clone.1), metadata={op_name="jit(f)/sub" stack_frame_id=86}
+  %add.228.5.clone.1 = f32[256,256,257]{2,1,0} add(%sub.100.5.clone.1, %slice.21.9.clone.1), metadata={op_name="jit(f)/add" stack_frame_id=86}
+  %integer_pow.104.7.clone.1 = f32[256,256,257]{2,1,0} multiply(%add.228.5.clone.1, %add.228.5.clone.1), metadata={op_name="jit(f)/integer_pow" stack_frame_id=85}
+  %mul.322.7.clone.1 = f32[256,256,257]{2,1,0} multiply(%integer_pow.104.7.clone.1, %broadcast.50.42.clone.1), metadata={op_name="jit(f)/mul" stack_frame_id=84}
+  %add.229.5.clone.1 = f32[256,256,257]{2,1,0} add(%mul.319.7.clone.1, %mul.322.7.clone.1), metadata={op_name="jit(f)/add" stack_frame_id=83}
+  %add.232.5.clone.1 = f32[256,256,257]{2,1,0} add(%add.229.5.clone.1, %broadcast.49.30.clone.1), metadata={op_name="jit(f)/add" stack_frame_id=82}
+  %integer_pow.107.3.clone.1 = f32[256,256,257]{2,1,0} multiply(%add.232.5.clone.1, %add.232.5.clone.1), metadata={op_name="jit(f)/integer_pow" stack_frame_id=81}
+  %div.82.3.clone.1 = f32[256,256,257]{2,1,0} divide(%broadcast.46.6.clone.1, %integer_pow.107.3.clone.1), metadata={op_name="jit(f)/div" stack_frame_id=80}
+  %add.234.1.clone.1 = f32[256,256,257]{2,1,0} add(%add.233.1.clone.1, %div.82.3.clone.1), metadata={op_name="jit(f)/add" stack_frame_id=67}
+  %div.83.3.clone.1 = f32[256,256,257]{2,1,0} divide(%broadcast.45.6.clone.1, %add.234.1.clone.1), metadata={op_name="jit(f)/div" stack_frame_id=66}
+  %mul.323.1.clone.1 = f32[256,256,257]{2,1,0} multiply(%div.80.3.clone.1, %div.83.3.clone.1), metadata={op_name="jit(f)/mul" stack_frame_id=65}
+  %convert_element_type.93.3.clone.1 = f64[256,256,257]{2,1,0} convert(%mul.323.1.clone.1), metadata={op_name="jit(f)/convert_element_type" stack_frame_id=38}
+  %slice.57.3.clone.1 = f64[256,256,257]{2,1,0} slice(%param_0.911), slice={[4:260], [4:260], [7:264]}, metadata={op_name="jit(f)/slice" stack_frame_id=50}
+  %mul.303.3.clone.1 = f64[256,256,257]{2,1,0} multiply(%slice.57.3.clone.1, %broadcast.59.12.clone.1), metadata={op_name="jit(f)/mul" stack_frame_id=36}
+  %mul.304.11.clone.1 = f64[256,256,257]{2,1,0} multiply(%slice.56.18.clone.1, %broadcast.58.22.clone.1), metadata={op_name="jit(f)/mul" stack_frame_id=37}
+  %sub.93.9.clone.1 = f64[256,256,257]{2,1,0} subtract(%mul.303.3.clone.1, %mul.304.11.clone.1), metadata={op_name="jit(f)/sub" stack_frame_id=36}
+  %mul.305.3.clone.1 = f64[256,256,257]{2,1,0} multiply(%slice.55.9.clone.1, %broadcast.57.6.clone.1), metadata={op_name="jit(f)/mul" stack_frame_id=43}
+  %add.218.7.clone.1 = f64[256,256,257]{2,1,0} add(%sub.93.9.clone.1, %mul.305.3.clone.1), metadata={op_name="jit(f)/add" stack_frame_id=36}
+  %multiply.15.5.clone.1 = f64[256,256,257]{2,1,0} multiply(%add.218.7.clone.1, %broadcast.12.40.clone.1), metadata={op_name="jit(f)/div" stack_frame_id=35}
+  %mul.326.3.clone.1 = f64[256,256,257]{2,1,0} multiply(%convert_element_type.93.3.clone.1, %multiply.15.5.clone.1), metadata={op_name="jit(f)/mul" stack_frame_id=10}
+  %mul.324.1.clone.1 = f32[256,256,257]{2,1,0} multiply(%div.81.3.clone.1, %div.83.3.clone.1), metadata={op_name="jit(f)/mul" stack_frame_id=64}
+  %convert_element_type.94.3.clone.1 = f64[256,256,257]{2,1,0} convert(%mul.324.1.clone.1), metadata={op_name="jit(f)/convert_element_type" stack_frame_id=21}
+  %slice.65.13.clone.1 = f64[256,256,257]{2,1,0} slice(%neg.0.74), slice={[4:260], [4:260], [6:263]}, metadata={op_name="jit(f)/slice" stack_frame_id=20}
+  %add.219.11.clone.1 = f64[256,256,257]{2,1,0} add(%slice.65.13.clone.1, %mul.283.3.clone.1), metadata={op_name="jit(f)/add" stack_frame_id=18}
+  %add.220.9.clone.1 = f64[256,256,257]{2,1,0} add(%add.219.11.clone.1, %mul.282.3.clone.1), metadata={op_name="jit(f)/add" stack_frame_id=18}
+  %multiply.16.7.clone.1 = f64[256,256,257]{2,1,0} multiply(%add.220.9.clone.1, %broadcast.12.40.clone.1), metadata={op_name="jit(f)/div" stack_frame_id=17}
+  %mul.327.5.clone.1 = f64[256,256,257]{2,1,0} multiply(%convert_element_type.94.3.clone.1, %multiply.16.7.clone.1), metadata={op_name="jit(f)/mul" stack_frame_id=16}
+  %add.235.3.clone.1 = f64[256,256,257]{2,1,0} add(%mul.326.3.clone.1, %mul.327.5.clone.1), metadata={op_name="jit(f)/add" stack_frame_id=10}
+  %mul.325.1.clone.1 = f32[256,256,257]{2,1,0} multiply(%div.82.3.clone.1, %div.83.3.clone.1), metadata={op_name="jit(f)/mul" stack_frame_id=63}
+  %convert_element_type.95.1.clone.1 = f64[256,256,257]{2,1,0} convert(%mul.325.1.clone.1), metadata={op_name="jit(f)/convert_element_type" stack_frame_id=15}
+  %add.221.1.clone.1 = f64[256,256,257]{2,1,0} add(%mul.281.3.clone.1, %mul.280.3.clone.1), metadata={op_name="jit(f)/add" stack_frame_id=14}
+  %sub.94.11.clone.1 = f64[256,256,257]{2,1,0} subtract(%add.221.1.clone.1, %slice.53.22.clone.1), metadata={op_name="jit(f)/sub" stack_frame_id=14}
+  %multiply.17.9.clone.1 = f64[256,256,257]{2,1,0} multiply(%sub.94.11.clone.1, %broadcast.12.40.clone.1), metadata={op_name="jit(f)/div" stack_frame_id=13}
+  %mul.328.7.clone.1 = f64[256,256,257]{2,1,0} multiply(%convert_element_type.95.1.clone.1, %multiply.17.9.clone.1), metadata={op_name="jit(f)/mul" stack_frame_id=11}
+  %add.236.5.clone.1 = f64[256,256,257]{2,1,0} add(%add.235.3.clone.1, %mul.328.7.clone.1), metadata={op_name="jit(f)/add" stack_frame_id=10}
+  %select_n.4.3.clone.1 = f64[256,256,257]{2,1,0} select(%gt.11.3.clone.1, %add.217.3.clone.1, %add.236.5.clone.1), metadata={op_name="jit(f)/jit(_where)/select_n" stack_frame_id=8}
+  %mul.329.1.clone.1 = f64[256,256,257]{2,1,0} multiply(%mul.276.3.clone.1, %select_n.4.3.clone.1), metadata={op_name="jit(f)/mul" stack_frame_id=6}
+  ROOT %tuple.1 = (f64[256,257,256]{2,1,0}, f64[257,256,256]{2,1,0}, f64[256,256,257]{2,1,0}) tuple(%mul.275.1, %mul.221.1.clone.1, %mul.329.1.clone.1)
+}
+
+%fused_add (param_0.427: f64[257,256,256], param_1.644: f64[256,257,256], param_2.305: f64[256,256,257]) -> f64[256,256,256] {
+  %param_0.427 = f64[257,256,256]{2,1,0} parameter(0)
+  %slice.38.7 = f64[256,256,256]{2,1,0} slice(%param_0.427), slice={[1:257], [0:256], [0:256]}, metadata={op_name="jit(f)/slice" stack_frame_id=142}
+  %slice.39.7 = f64[256,256,256]{2,1,0} slice(%param_0.427), slice={[0:256], [0:256], [0:256]}, metadata={op_name="jit(f)/slice" stack_frame_id=143}
+  %sub.67.7 = f64[256,256,256]{2,1,0} subtract(%slice.38.7, %slice.39.7), metadata={op_name="jit(f)/sub" stack_frame_id=142}
+  %neg.11.5 = f64[256,256,256]{2,1,0} negate(%sub.67.7), metadata={op_name="jit(f)/neg" stack_frame_id=140}
+  %param_1.644 = f64[256,257,256]{2,1,0} parameter(1)
+  %slice.48.5 = f64[256,256,256]{2,1,0} slice(%param_1.644), slice={[0:256], [1:257], [0:256]}, metadata={op_name="jit(f)/slice" stack_frame_id=142}
+  %slice.49.5 = f64[256,256,256]{2,1,0} slice(%param_1.644), slice={[0:256], [0:256], [0:256]}, metadata={op_name="jit(f)/slice" stack_frame_id=143}
+  %sub.84.5 = f64[256,256,256]{2,1,0} subtract(%slice.48.5, %slice.49.5), metadata={op_name="jit(f)/sub" stack_frame_id=142}
+  %neg.14.3 = f64[256,256,256]{2,1,0} negate(%sub.84.5), metadata={op_name="jit(f)/neg" stack_frame_id=140}
+  %add.197.3 = f64[256,256,256]{2,1,0} add(%neg.11.5, %neg.14.3), metadata={op_name="jit(f)/add" stack_frame_id=139}
+  %param_2.305 = f64[256,256,257]{2,1,0} parameter(2)
+  %slice.58.3 = f64[256,256,256]{2,1,0} slice(%param_2.305), slice={[0:256], [0:256], [1:257]}, metadata={op_name="jit(f)/slice" stack_frame_id=142}
+  %slice.59.3 = f64[256,256,256]{2,1,0} slice(%param_2.305), slice={[0:256], [0:256], [0:256]}, metadata={op_name="jit(f)/slice" stack_frame_id=143}
+  %sub.101.3 = f64[256,256,256]{2,1,0} subtract(%slice.58.3, %slice.59.3), metadata={op_name="jit(f)/sub" stack_frame_id=142}
+  %neg.17.1 = f64[256,256,256]{2,1,0} negate(%sub.101.3), metadata={op_name="jit(f)/neg" stack_frame_id=140}
+  ROOT %add.237.1 = f64[256,256,256]{2,1,0} add(%add.197.3, %neg.17.1), metadata={op_name="jit(f)/add" stack_frame_id=139}
+}
+
+%wrapped_convert_computation (param_0.912: f64[264,264,264]) -> f32[264,264,264] {
+  %param_0.912 = f64[264,264,264]{2,1,0} parameter(0)
+  ROOT %convert_element_type.0.1 = f32[264,264,264]{2,1,0} convert(%param_0.912), metadata={op_name="jit(f)/convert_element_type" stack_frame_id=144}
+}
+
+ENTRY %main.4 (u.1: f64[264,264,264], v.1: f64[264,264,264], w.1: f64[264,264,264], b.1: f64[264,264,264]) -> f64[256,256,256] {
+  %b.1 = f64[264,264,264]{2,1,0} parameter(3), metadata={op_name="b"}
+  %w.1 = f64[264,264,264]{2,1,0} parameter(2), metadata={op_name="w"}
+  %v.1 = f64[264,264,264]{2,1,0} parameter(1), metadata={op_name="v"}
+  %u.1 = f64[264,264,264]{2,1,0} parameter(0), metadata={op_name="u"}
+  %wrapped_convert = f32[264,264,264]{2,1,0} fusion(%b.1), kind=kLoop, calls=%wrapped_convert_computation, metadata={op_name="jit(f)/convert_element_type" stack_frame_id=144}, backend_config={"device_type":"DEVICE_TYPE_INVALID","force_earliest_schedule":false,"native_emitter_backend_config":{"type":"NATIVE_EMITTER_TYPE_INVALID","unroll_factor":0},"operation_queue_id":"0","reification_cost":[]}
+  %loop_multiply_fusion = (f64[256,257,256]{2,1,0}, f64[257,256,256]{2,1,0}, f64[256,256,257]{2,1,0}) fusion(%b.1, %v.1, %wrapped_convert, %u.1, %w.1), kind=kLoop, calls=%fused_multiply, metadata={op_name="jit(f)/mul" stack_frame_id=6}, backend_config={"device_type":"DEVICE_TYPE_INVALID","force_earliest_schedule":false,"native_emitter_backend_config":{"type":"NATIVE_EMITTER_TYPE_INVALID","unroll_factor":0},"operation_queue_id":"0","reification_cost":[]}
+  %get-tuple-element.2 = f64[256,256,257]{2,1,0} get-tuple-element(%loop_multiply_fusion), index=2, metadata={op_name="jit(f)/mul" stack_frame_id=6}
+  %get-tuple-element.1 = f64[257,256,256]{2,1,0} get-tuple-element(%loop_multiply_fusion), index=1, metadata={op_name="jit(f)/mul" stack_frame_id=6}
+  %get-tuple-element = f64[256,257,256]{2,1,0} get-tuple-element(%loop_multiply_fusion), index=0, metadata={op_name="jit(f)/mul" stack_frame_id=6}
+  ROOT %loop_add_fusion = f64[256,256,256]{2,1,0} fusion(%get-tuple-element.1, %get-tuple-element, %get-tuple-element.2), kind=kLoop, calls=%fused_add, metadata={op_name="jit(f)/add" stack_frame_id=139}, backend_config={"device_type":"DEVICE_TYPE_INVALID","force_earliest_schedule":false,"native_emitter_backend_config":{"type":"NATIVE_EMITTER_TYPE_INVALID","unroll_factor":0},"operation_queue_id":"0","reification_cost":[]}
+}
+

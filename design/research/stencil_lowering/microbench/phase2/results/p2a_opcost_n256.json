@@ -1,0 +1,20 @@
+{
+  "n": 256,
+  "single_div_f64_ms": 0.3214459866285324,
+  "single_div_f64_gbs": 1252.6309263438147,
+  "single_mul_f64_ms": 0.3223259700462222,
+  "single_mul_f64_gbs": 1249.2111136507515,
+  "single_div_f32_ms": 0.20255055278539658,
+  "single_div_f32_gbs": 993.957257738549,
+  "chain_div_f64_ms": 1.3951949658803642,
+  "chain_mul_f64_ms": 0.4890515119768679,
+  "chain_div_perop_ns_f64": 43599.84268376138,
+  "chain_mul_perop_ns_f64": 15282.859749277122,
+  "chain_div_over_mul_f64": 2.8528589150877766,
+  "chain_div_f32_ms": 0.5340870120562613,
+  "chain_mul_f32_ms": 0.28916599694639444,
+  "chain_div_perop_ns_f32": 16690.219126758166,
+  "chain_mul_perop_ns_f32": 9036.437404574826,
+  "chain_div_over_mul_f32": 1.846991062905886,
+  "K": 32
+}

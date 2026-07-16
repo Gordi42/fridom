@@ -1,0 +1,32 @@
+{
+  "variant": "u5_dissipation",
+  "scheme": "upwind5",
+  "n": 256,
+  "steps": 50,
+  "n_timed_chunks": 6,
+  "first_chunk_compile_s": 3.7834967540111393,
+  "ms_per_step_median": 14.275318661238998,
+  "ms_per_step_min": 14.271808760240674,
+  "ms_per_step_all": [
+    14.28991022054106,
+    14.274016178678721,
+    14.277399580460042,
+    14.276387561112642,
+    14.271808760240674,
+    14.274249761365354
+  ],
+  "finite": true,
+  "patch_trace_calls": 24,
+  "chunk": {
+    "divides": {
+      "total": 15,
+      "f64": 13,
+      "f32": 0,
+      "c128": 2
+    },
+    "hlo_path": "/work/uo0780/u301533/fridom/fridom-dev/.claude/worktrees/perf+stencil-lowering/design/research/stencil_lowering/microbench/phase3/results/hlo/p3b_u5_dissipation_n256.txt",
+    "temp_bytes": 3074775200,
+    "peak_bytes": 4988340749
+  },
+  "fridom_file": "/work/uo0780/u301533/fridom/fridom-dev/.claude/worktrees/perf+stencil-lowering/src/fridom/__init__.py"
+}

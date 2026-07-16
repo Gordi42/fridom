@@ -1,0 +1,63 @@
+HloModule jit_f, is_scheduled=true, entry_computation_layout={(f64[256,256,258]{2,1,0})->f64[256,256,256]{2,1,0}}, allow_spmd_sharding_propagation_to_parameters={true}, allow_spmd_sharding_propagation_to_output={true}, frontend_attributes={fingerprint_before_lhs="abb658de1788791724e79cd27dfb17aa"}
+
+FileNames
+1 "/work/uo0780/u301533/fridom/fridom-dev/.claude/worktrees/perf+stencil-lowering/design/research/stencil_lowering/microbench/driver.py"
+2 "/work/uo0780/u301533/fridom/fridom-dev/.claude/worktrees/perf+stencil-lowering/design/research/stencil_lowering/microbench/common.py"
+3 "/work/uo0780/u301533/fridom/fridom-dev/.claude/worktrees/perf+stencil-lowering/design/research/stencil_lowering/microbench/stencils.py"
+
+FunctionNames
+1 "<module>"
+2 "main"
+3 "cmd_e2"
+4 "run_case"
+5 "analyze"
+6 "cmd_e2.<locals>.f"
+7 "second_deriv_direct"
+8 "sl"
+
+FileLocations
+1 {file_name_id=1 function_name_id=1 line=297 end_line=297 column=4 end_column=10}
+2 {file_name_id=1 function_name_id=2 line=293 end_line=293 column=4 end_column=24}
+3 {file_name_id=1 function_name_id=3 line=167 end_line=167 column=27 end_column=64}
+4 {file_name_id=2 function_name_id=4 line=179 end_line=179 column=29 end_column=46}
+5 {file_name_id=2 function_name_id=5 line=137 end_line=137 column=14 end_column=33}
+6 {file_name_id=1 function_name_id=6 line=166 end_line=166 column=23 end_column=32}
+7 {file_name_id=3 function_name_id=7 line=157 end_line=157 column=12 end_column=34}
+8 {file_name_id=3 function_name_id=7 line=159 end_line=159 column=14 end_column=32}
+9 {file_name_id=2 function_name_id=8 line=39 end_line=39 column=11 end_column=26}
+10 {file_name_id=3 function_name_id=7 line=158 end_line=158 column=14 end_column=42}
+11 {file_name_id=3 function_name_id=7 line=158 end_line=158 column=20 end_column=42}
+
+StackFrames
+1 {file_location_id=1 parent_frame_id=1}
+2 {file_location_id=2 parent_frame_id=2}
+3 {file_location_id=3 parent_frame_id=3}
+4 {file_location_id=4 parent_frame_id=4}
+5 {file_location_id=5 parent_frame_id=5}
+6 {file_location_id=6 parent_frame_id=6}
+7 {file_location_id=7 parent_frame_id=7}
+8 {file_location_id=8 parent_frame_id=7}
+9 {file_location_id=9 parent_frame_id=9}
+10 {file_location_id=9 parent_frame_id=8}
+11 {file_location_id=10 parent_frame_id=7}
+12 {file_location_id=11 parent_frame_id=7}
+13 {file_location_id=9 parent_frame_id=13}
+
+
+%fused_add (param_0.6: f64[256,256,258]) -> f64[256,256,256] {
+  %param_0.6 = f64[256,256,258]{2,1,0} parameter(0)
+  %slice.3.3 = f64[256,256,256]{2,1,0} slice(%param_0.6), slice={[0:256], [0:256], [2:258]}, metadata={op_name="jit(f)/slice" stack_frame_id=10}
+  %slice.4.3 = f64[256,256,256]{2,1,0} slice(%param_0.6), slice={[0:256], [0:256], [1:257]}, metadata={op_name="jit(f)/slice" stack_frame_id=13}
+  %constant_1_1 = f64[] constant(2)
+  %mul.2.3 = f64[256,256,256]{2,1,0} broadcast(%constant_1_1), dimensions={}, metadata={op_name="jit(f)/mul" stack_frame_id=11}
+  %mul.3.3 = f64[256,256,256]{2,1,0} multiply(%slice.4.3, %mul.2.3), metadata={op_name="jit(f)/mul" stack_frame_id=11}
+  %sub.1.3 = f64[256,256,256]{2,1,0} subtract(%slice.3.3, %mul.3.3), metadata={op_name="jit(f)/sub" stack_frame_id=7}
+  %slice.5.1 = f64[256,256,256]{2,1,0} slice(%param_0.6), slice={[0:256], [0:256], [0:256]}, metadata={op_name="jit(f)/slice" stack_frame_id=9}
+  ROOT %add.1.1 = f64[256,256,256]{2,1,0} add(%sub.1.3, %slice.5.1), metadata={op_name="jit(f)/add" stack_frame_id=7}
+}
+
+ENTRY %main.1 (x.1: f64[256,256,258]) -> f64[256,256,256] {
+  %x.1 = f64[256,256,258]{2,1,0} parameter(0), metadata={op_name="x"}
+  ROOT %loop_add_fusion = f64[256,256,256]{2,1,0} fusion(%x.1), kind=kLoop, calls=%fused_add, metadata={op_name="jit(f)/add" stack_frame_id=7}, backend_config={"device_type":"DEVICE_TYPE_INVALID","force_earliest_schedule":false,"native_emitter_backend_config":{"type":"NATIVE_EMITTER_TYPE_INVALID","unroll_factor":0},"operation_queue_id":"0","reification_cost":[]}
+}
+

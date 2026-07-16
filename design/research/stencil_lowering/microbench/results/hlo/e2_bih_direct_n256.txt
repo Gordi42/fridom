@@ -1,0 +1,172 @@
+HloModule jit_biharmonic_direct, is_scheduled=true, entry_computation_layout={(f64[260,260,260]{2,1,0})->f64[256,256,256]{2,1,0}}, allow_spmd_sharding_propagation_to_parameters={true}, allow_spmd_sharding_propagation_to_output={true}, frontend_attributes={fingerprint_before_lhs="502a6acadf829563d5a01a40758c5553"}
+
+FileNames
+1 "/work/uo0780/u301533/fridom/fridom-dev/.claude/worktrees/perf+stencil-lowering/design/research/stencil_lowering/microbench/driver.py"
+2 "/work/uo0780/u301533/fridom/fridom-dev/.claude/worktrees/perf+stencil-lowering/design/research/stencil_lowering/microbench/common.py"
+3 "/work/uo0780/u301533/fridom/fridom-dev/.claude/worktrees/perf+stencil-lowering/design/research/stencil_lowering/microbench/stencils.py"
+
+FunctionNames
+1 "<module>"
+2 "main"
+3 "cmd_e2"
+4 "run_case"
+5 "analyze"
+6 "biharmonic_direct"
+7 "biharmonic_direct.<locals>.win"
+
+FileLocations
+1 {file_name_id=1 function_name_id=1 line=297 end_line=297 column=4 end_column=10}
+2 {file_name_id=1 function_name_id=2 line=293 end_line=293 column=4 end_column=24}
+3 {file_name_id=1 function_name_id=3 line=179 end_line=179 column=23 end_column=77}
+4 {file_name_id=2 function_name_id=4 line=179 end_line=179 column=29 end_column=46}
+5 {file_name_id=2 function_name_id=5 line=137 end_line=137 column=14 end_column=33}
+6 {file_name_id=3 function_name_id=6 line=257 end_line=257 column=11 end_column=27}
+7 {file_name_id=3 function_name_id=6 line=244 end_line=244 column=37 end_column=46}
+8 {file_name_id=3 function_name_id=6 line=242 end_line=242 column=16 end_column=29}
+9 {file_name_id=3 function_name_id=6 line=243 end_line=243 column=40 end_column=53}
+10 {file_name_id=3 function_name_id=7 line=233 end_line=233 column=15 end_column=53}
+11 {file_name_id=3 function_name_id=6 line=242 end_line=242 column=54 end_column=73}
+12 {file_name_id=3 function_name_id=6 line=242 end_line=242 column=60 end_column=73}
+13 {file_name_id=3 function_name_id=6 line=257 end_line=257 column=16 end_column=27}
+14 {file_name_id=3 function_name_id=6 line=256 end_line=256 column=42 end_column=53}
+15 {file_name_id=3 function_name_id=6 line=255 end_line=255 column=22 end_column=45}
+16 {file_name_id=3 function_name_id=6 line=255 end_line=255 column=38 end_column=45}
+17 {file_name_id=3 function_name_id=6 line=257 end_line=257 column=30 end_column=37}
+18 {file_name_id=3 function_name_id=6 line=255 end_line=255 column=28 end_column=45}
+19 {file_name_id=3 function_name_id=6 line=243 end_line=243 column=18 end_column=37}
+20 {file_name_id=3 function_name_id=6 line=243 end_line=243 column=24 end_column=37}
+21 {file_name_id=3 function_name_id=6 line=242 end_line=242 column=32 end_column=51}
+22 {file_name_id=3 function_name_id=6 line=242 end_line=242 column=38 end_column=51}
+
+StackFrames
+1 {file_location_id=1 parent_frame_id=1}
+2 {file_location_id=2 parent_frame_id=2}
+3 {file_location_id=3 parent_frame_id=3}
+4 {file_location_id=4 parent_frame_id=4}
+5 {file_location_id=5 parent_frame_id=5}
+6 {file_location_id=6 parent_frame_id=6}
+7 {file_location_id=7 parent_frame_id=6}
+8 {file_location_id=8 parent_frame_id=6}
+9 {file_location_id=9 parent_frame_id=6}
+10 {file_location_id=10 parent_frame_id=10}
+11 {file_location_id=10 parent_frame_id=9}
+12 {file_location_id=11 parent_frame_id=6}
+13 {file_location_id=12 parent_frame_id=6}
+14 {file_location_id=10 parent_frame_id=14}
+15 {file_location_id=13 parent_frame_id=6}
+16 {file_location_id=14 parent_frame_id=6}
+17 {file_location_id=15 parent_frame_id=6}
+18 {file_location_id=16 parent_frame_id=6}
+19 {file_location_id=10 parent_frame_id=19}
+20 {file_location_id=17 parent_frame_id=6}
+21 {file_location_id=18 parent_frame_id=6}
+22 {file_location_id=19 parent_frame_id=6}
+23 {file_location_id=20 parent_frame_id=6}
+24 {file_location_id=10 parent_frame_id=24}
+25 {file_location_id=21 parent_frame_id=6}
+26 {file_location_id=22 parent_frame_id=6}
+27 {file_location_id=10 parent_frame_id=27}
+
+
+%fused_add (param_0.149: f64[260,260,260]) -> f64[256,256,256] {
+  %param_0.149 = f64[260,260,260]{2,1,0} parameter(0)
+  %slice.44.15 = f64[256,256,256]{2,1,0} slice(%param_0.149), slice={[0:256], [2:258], [2:258]}, metadata={op_name="jit(biharmonic_direct)/slice" stack_frame_id=11}
+  %slice.45.6 = f64[256,256,256]{2,1,0} slice(%param_0.149), slice={[1:257], [2:258], [2:258]}, metadata={op_name="jit(biharmonic_direct)/slice" stack_frame_id=27}
+  %constant_9_1 = f64[] constant(4)
+  %broadcast.5.21 = f64[256,256,256]{2,1,0} broadcast(%constant_9_1), dimensions={}
+  %mul.30.3 = f64[256,256,256]{2,1,0} multiply(%slice.45.6, %broadcast.5.21), metadata={op_name="jit(biharmonic_direct)/mul" stack_frame_id=25}
+  %sub.6.15 = f64[256,256,256]{2,1,0} subtract(%slice.44.15, %mul.30.3), metadata={op_name="jit(biharmonic_direct)/sub" stack_frame_id=8}
+  %slice.46.5 = f64[256,256,256]{2,1,0} slice(%param_0.149), slice={[2:258], [2:258], [2:258]}, metadata={op_name="jit(biharmonic_direct)/slice" stack_frame_id=14}
+  %constant_8_1 = f64[] constant(6)
+  %broadcast.4.3 = f64[256,256,256]{2,1,0} broadcast(%constant_8_1), dimensions={}
+  %mul.31.3 = f64[256,256,256]{2,1,0} multiply(%slice.46.5, %broadcast.4.3), metadata={op_name="jit(biharmonic_direct)/mul" stack_frame_id=12}
+  %add.36.13 = f64[256,256,256]{2,1,0} add(%sub.6.15, %mul.31.3), metadata={op_name="jit(biharmonic_direct)/add" stack_frame_id=8}
+  %slice.47.6 = f64[256,256,256]{2,1,0} slice(%param_0.149), slice={[3:259], [2:258], [2:258]}, metadata={op_name="jit(biharmonic_direct)/slice" stack_frame_id=24}
+  %mul.32.3 = f64[256,256,256]{2,1,0} multiply(%slice.47.6, %broadcast.5.21), metadata={op_name="jit(biharmonic_direct)/mul" stack_frame_id=22}
+  %sub.7.11 = f64[256,256,256]{2,1,0} subtract(%add.36.13, %mul.32.3), metadata={op_name="jit(biharmonic_direct)/sub" stack_frame_id=8}
+  %slice.48.9 = f64[256,256,256]{2,1,0} slice(%param_0.149), slice={[4:260], [2:258], [2:258]}, metadata={op_name="jit(biharmonic_direct)/slice" stack_frame_id=10}
+  %add.37.9 = f64[256,256,256]{2,1,0} add(%sub.7.11, %slice.48.9), metadata={op_name="jit(biharmonic_direct)/add" stack_frame_id=8}
+  %slice.49.7 = f64[256,256,256]{2,1,0} slice(%param_0.149), slice={[2:258], [0:256], [2:258]}, metadata={op_name="jit(biharmonic_direct)/slice" stack_frame_id=11}
+  %slice.50.6 = f64[256,256,256]{2,1,0} slice(%param_0.149), slice={[2:258], [1:257], [2:258]}, metadata={op_name="jit(biharmonic_direct)/slice" stack_frame_id=27}
+  %mul.33.3 = f64[256,256,256]{2,1,0} multiply(%slice.50.6, %broadcast.5.21), metadata={op_name="jit(biharmonic_direct)/mul" stack_frame_id=25}
+  %sub.8.7 = f64[256,256,256]{2,1,0} subtract(%slice.49.7, %mul.33.3), metadata={op_name="jit(biharmonic_direct)/sub" stack_frame_id=8}
+  %add.38.5 = f64[256,256,256]{2,1,0} add(%sub.8.7, %mul.31.3), metadata={op_name="jit(biharmonic_direct)/add" stack_frame_id=8}
+  %slice.52.6 = f64[256,256,256]{2,1,0} slice(%param_0.149), slice={[2:258], [3:259], [2:258]}, metadata={op_name="jit(biharmonic_direct)/slice" stack_frame_id=24}
+  %mul.35.3 = f64[256,256,256]{2,1,0} multiply(%slice.52.6, %broadcast.5.21), metadata={op_name="jit(biharmonic_direct)/mul" stack_frame_id=22}
+  %sub.9.3 = f64[256,256,256]{2,1,0} subtract(%add.38.5, %mul.35.3), metadata={op_name="jit(biharmonic_direct)/sub" stack_frame_id=8}
+  %slice.53.3 = f64[256,256,256]{2,1,0} slice(%param_0.149), slice={[2:258], [4:260], [2:258]}, metadata={op_name="jit(biharmonic_direct)/slice" stack_frame_id=10}
+  %add.39.3 = f64[256,256,256]{2,1,0} add(%sub.9.3, %slice.53.3), metadata={op_name="jit(biharmonic_direct)/add" stack_frame_id=8}
+  %add.40.7 = f64[256,256,256]{2,1,0} add(%add.37.9, %add.39.3), metadata={op_name="jit(biharmonic_direct)/add" stack_frame_id=7}
+  %slice.54.9 = f64[256,256,256]{2,1,0} slice(%param_0.149), slice={[2:258], [2:258], [0:256]}, metadata={op_name="jit(biharmonic_direct)/slice" stack_frame_id=11}
+  %slice.55.6 = f64[256,256,256]{2,1,0} slice(%param_0.149), slice={[2:258], [2:258], [1:257]}, metadata={op_name="jit(biharmonic_direct)/slice" stack_frame_id=27}
+  %mul.36.3 = f64[256,256,256]{2,1,0} multiply(%slice.55.6, %broadcast.5.21), metadata={op_name="jit(biharmonic_direct)/mul" stack_frame_id=25}
+  %sub.10.9 = f64[256,256,256]{2,1,0} subtract(%slice.54.9, %mul.36.3), metadata={op_name="jit(biharmonic_direct)/sub" stack_frame_id=8}
+  %add.41.7 = f64[256,256,256]{2,1,0} add(%sub.10.9, %mul.31.3), metadata={op_name="jit(biharmonic_direct)/add" stack_frame_id=8}
+  %slice.57.6 = f64[256,256,256]{2,1,0} slice(%param_0.149), slice={[2:258], [2:258], [3:259]}, metadata={op_name="jit(biharmonic_direct)/slice" stack_frame_id=24}
+  %mul.38.3 = f64[256,256,256]{2,1,0} multiply(%slice.57.6, %broadcast.5.21), metadata={op_name="jit(biharmonic_direct)/mul" stack_frame_id=22}
+  %sub.11.5 = f64[256,256,256]{2,1,0} subtract(%add.41.7, %mul.38.3), metadata={op_name="jit(biharmonic_direct)/sub" stack_frame_id=8}
+  %slice.58.3 = f64[256,256,256]{2,1,0} slice(%param_0.149), slice={[2:258], [2:258], [4:260]}, metadata={op_name="jit(biharmonic_direct)/slice" stack_frame_id=10}
+  %add.42.3 = f64[256,256,256]{2,1,0} add(%sub.11.5, %slice.58.3), metadata={op_name="jit(biharmonic_direct)/add" stack_frame_id=8}
+  %add.43.5 = f64[256,256,256]{2,1,0} add(%add.40.7, %add.42.3), metadata={op_name="jit(biharmonic_direct)/add" stack_frame_id=7}
+  %slice.59.21 = f64[256,256,256]{2,1,0} slice(%param_0.149), slice={[1:257], [1:257], [2:258]}, metadata={op_name="jit(biharmonic_direct)/slice" stack_frame_id=19}
+  %constant_7_1 = f64[] constant(-2)
+  %broadcast.3.18 = f64[256,256,256]{2,1,0} broadcast(%constant_7_1), dimensions={}
+  %mul.39.3 = f64[256,256,256]{2,1,0} multiply(%slice.45.6, %broadcast.3.18), metadata={op_name="jit(biharmonic_direct)/mul" stack_frame_id=21}
+  %add.44.21 = f64[256,256,256]{2,1,0} add(%slice.59.21, %mul.39.3), metadata={op_name="jit(biharmonic_direct)/add" stack_frame_id=17}
+  %slice.61.19 = f64[256,256,256]{2,1,0} slice(%param_0.149), slice={[1:257], [3:259], [2:258]}, metadata={op_name="jit(biharmonic_direct)/slice" stack_frame_id=19}
+  %add.45.19 = f64[256,256,256]{2,1,0} add(%add.44.21, %slice.61.19), metadata={op_name="jit(biharmonic_direct)/add" stack_frame_id=17}
+  %mul.40.3 = f64[256,256,256]{2,1,0} multiply(%slice.50.6, %broadcast.3.18), metadata={op_name="jit(biharmonic_direct)/mul" stack_frame_id=21}
+  %add.46.17 = f64[256,256,256]{2,1,0} add(%add.45.19, %mul.40.3), metadata={op_name="jit(biharmonic_direct)/add" stack_frame_id=17}
+  %mul.41.3 = f64[256,256,256]{2,1,0} multiply(%slice.46.5, %broadcast.5.21), metadata={op_name="jit(biharmonic_direct)/mul" stack_frame_id=21}
+  %add.47.15 = f64[256,256,256]{2,1,0} add(%add.46.17, %mul.41.3), metadata={op_name="jit(biharmonic_direct)/add" stack_frame_id=17}
+  %mul.42.3 = f64[256,256,256]{2,1,0} multiply(%slice.52.6, %broadcast.3.18), metadata={op_name="jit(biharmonic_direct)/mul" stack_frame_id=21}
+  %add.48.13 = f64[256,256,256]{2,1,0} add(%add.47.15, %mul.42.3), metadata={op_name="jit(biharmonic_direct)/add" stack_frame_id=17}
+  %slice.65.11 = f64[256,256,256]{2,1,0} slice(%param_0.149), slice={[3:259], [1:257], [2:258]}, metadata={op_name="jit(biharmonic_direct)/slice" stack_frame_id=19}
+  %add.49.11 = f64[256,256,256]{2,1,0} add(%add.48.13, %slice.65.11), metadata={op_name="jit(biharmonic_direct)/add" stack_frame_id=17}
+  %mul.43.3 = f64[256,256,256]{2,1,0} multiply(%slice.47.6, %broadcast.3.18), metadata={op_name="jit(biharmonic_direct)/mul" stack_frame_id=21}
+  %add.50.9 = f64[256,256,256]{2,1,0} add(%add.49.11, %mul.43.3), metadata={op_name="jit(biharmonic_direct)/add" stack_frame_id=17}
+  %slice.67.7 = f64[256,256,256]{2,1,0} slice(%param_0.149), slice={[3:259], [3:259], [2:258]}, metadata={op_name="jit(biharmonic_direct)/slice" stack_frame_id=19}
+  %add.51.7 = f64[256,256,256]{2,1,0} add(%add.50.9, %slice.67.7), metadata={op_name="jit(biharmonic_direct)/add" stack_frame_id=17}
+  %slice.68.11 = f64[256,256,256]{2,1,0} slice(%param_0.149), slice={[1:257], [2:258], [1:257]}, metadata={op_name="jit(biharmonic_direct)/slice" stack_frame_id=19}
+  %add.52.11 = f64[256,256,256]{2,1,0} add(%slice.68.11, %mul.39.3), metadata={op_name="jit(biharmonic_direct)/add" stack_frame_id=17}
+  %slice.70.9 = f64[256,256,256]{2,1,0} slice(%param_0.149), slice={[1:257], [2:258], [3:259]}, metadata={op_name="jit(biharmonic_direct)/slice" stack_frame_id=19}
+  %add.53.9 = f64[256,256,256]{2,1,0} add(%add.52.11, %slice.70.9), metadata={op_name="jit(biharmonic_direct)/add" stack_frame_id=17}
+  %mul.45.3 = f64[256,256,256]{2,1,0} multiply(%slice.55.6, %broadcast.3.18), metadata={op_name="jit(biharmonic_direct)/mul" stack_frame_id=21}
+  %add.54.7 = f64[256,256,256]{2,1,0} add(%add.53.9, %mul.45.3), metadata={op_name="jit(biharmonic_direct)/add" stack_frame_id=17}
+  %add.55.5 = f64[256,256,256]{2,1,0} add(%add.54.7, %mul.41.3), metadata={op_name="jit(biharmonic_direct)/add" stack_frame_id=17}
+  %mul.47.3 = f64[256,256,256]{2,1,0} multiply(%slice.57.6, %broadcast.3.18), metadata={op_name="jit(biharmonic_direct)/mul" stack_frame_id=21}
+  %add.56.3 = f64[256,256,256]{2,1,0} add(%add.55.5, %mul.47.3), metadata={op_name="jit(biharmonic_direct)/add" stack_frame_id=17}
+  %slice.74.3 = f64[256,256,256]{2,1,0} slice(%param_0.149), slice={[3:259], [2:258], [1:257]}, metadata={op_name="jit(biharmonic_direct)/slice" stack_frame_id=19}
+  %add.57.3 = f64[256,256,256]{2,1,0} add(%add.56.3, %slice.74.3), metadata={op_name="jit(biharmonic_direct)/add" stack_frame_id=17}
+  %add.58.1 = f64[256,256,256]{2,1,0} add(%add.57.3, %mul.43.3), metadata={op_name="jit(biharmonic_direct)/add" stack_frame_id=17}
+  %slice.76.3 = f64[256,256,256]{2,1,0} slice(%param_0.149), slice={[3:259], [2:258], [3:259]}, metadata={op_name="jit(biharmonic_direct)/slice" stack_frame_id=19}
+  %add.59.3 = f64[256,256,256]{2,1,0} add(%add.58.1, %slice.76.3), metadata={op_name="jit(biharmonic_direct)/add" stack_frame_id=17}
+  %add.60.5 = f64[256,256,256]{2,1,0} add(%add.51.7, %add.59.3), metadata={op_name="jit(biharmonic_direct)/add" stack_frame_id=16}
+  %slice.77.13 = f64[256,256,256]{2,1,0} slice(%param_0.149), slice={[2:258], [1:257], [1:257]}, metadata={op_name="jit(biharmonic_direct)/slice" stack_frame_id=19}
+  %add.61.13 = f64[256,256,256]{2,1,0} add(%slice.77.13, %mul.40.3), metadata={op_name="jit(biharmonic_direct)/add" stack_frame_id=17}
+  %slice.79.11 = f64[256,256,256]{2,1,0} slice(%param_0.149), slice={[2:258], [1:257], [3:259]}, metadata={op_name="jit(biharmonic_direct)/slice" stack_frame_id=19}
+  %add.62.11 = f64[256,256,256]{2,1,0} add(%add.61.13, %slice.79.11), metadata={op_name="jit(biharmonic_direct)/add" stack_frame_id=17}
+  %add.63.9 = f64[256,256,256]{2,1,0} add(%add.62.11, %mul.45.3), metadata={op_name="jit(biharmonic_direct)/add" stack_frame_id=17}
+  %add.64.7 = f64[256,256,256]{2,1,0} add(%add.63.9, %mul.41.3), metadata={op_name="jit(biharmonic_direct)/add" stack_frame_id=17}
+  %add.65.5 = f64[256,256,256]{2,1,0} add(%add.64.7, %mul.47.3), metadata={op_name="jit(biharmonic_direct)/add" stack_frame_id=17}
+  %slice.83.3 = f64[256,256,256]{2,1,0} slice(%param_0.149), slice={[2:258], [3:259], [1:257]}, metadata={op_name="jit(biharmonic_direct)/slice" stack_frame_id=19}
+  %add.66.3 = f64[256,256,256]{2,1,0} add(%add.65.5, %slice.83.3), metadata={op_name="jit(biharmonic_direct)/add" stack_frame_id=17}
+  %add.67.1 = f64[256,256,256]{2,1,0} add(%add.66.3, %mul.42.3), metadata={op_name="jit(biharmonic_direct)/add" stack_frame_id=17}
+  %slice.85.3 = f64[256,256,256]{2,1,0} slice(%param_0.149), slice={[2:258], [3:259], [3:259]}, metadata={op_name="jit(biharmonic_direct)/slice" stack_frame_id=19}
+  %add.68.3 = f64[256,256,256]{2,1,0} add(%add.67.1, %slice.85.3), metadata={op_name="jit(biharmonic_direct)/add" stack_frame_id=17}
+  %add.69.3 = f64[256,256,256]{2,1,0} add(%add.60.5, %add.68.3), metadata={op_name="jit(biharmonic_direct)/add" stack_frame_id=16}
+  %constant_6_1 = f64[] constant(2)
+  %mul.29.3 = f64[256,256,256]{2,1,0} broadcast(%constant_6_1), dimensions={}, metadata={op_name="jit(biharmonic_direct)/mul" stack_frame_id=15}
+  %mul.54.3 = f64[256,256,256]{2,1,0} multiply(%add.69.3, %mul.29.3), metadata={op_name="jit(biharmonic_direct)/mul" stack_frame_id=15}
+  %add.70.3 = f64[256,256,256]{2,1,0} add(%add.43.5, %mul.54.3), metadata={op_name="jit(biharmonic_direct)/add" stack_frame_id=6}
+  %constant_5_1 = f64[] constant(0)
+  %mul.28.3 = f64[256,256,256]{2,1,0} broadcast(%constant_5_1), dimensions={}, metadata={op_name="jit(biharmonic_direct)/mul" stack_frame_id=20}
+  %mul.55.3 = f64[256,256,256]{2,1,0} multiply(%slice.46.5, %mul.28.3), metadata={op_name="jit(biharmonic_direct)/mul" stack_frame_id=20}
+  ROOT %add.71.1 = f64[256,256,256]{2,1,0} add(%add.70.3, %mul.55.3), metadata={op_name="jit(biharmonic_direct)/add" stack_frame_id=6}
+}
+
+ENTRY %main.1 (fp.1: f64[260,260,260]) -> f64[256,256,256] {
+  %fp.1 = f64[260,260,260]{2,1,0} parameter(0), metadata={op_name="fp"}
+  ROOT %loop_add_fusion = f64[256,256,256]{2,1,0} fusion(%fp.1), kind=kLoop, calls=%fused_add, metadata={op_name="jit(biharmonic_direct)/add" stack_frame_id=6}, backend_config={"device_type":"DEVICE_TYPE_INVALID","force_earliest_schedule":false,"native_emitter_backend_config":{"type":"NATIVE_EMITTER_TYPE_INVALID","unroll_factor":0},"operation_queue_id":"0","reification_cost":[]}
+}
+

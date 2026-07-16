@@ -1,0 +1,267 @@
+{
+  "variants": [
+    {
+      "compile_s": 0.6049362069461495,
+      "temp_bytes": 404226304,
+      "arg_bytes": 588791808,
+      "out_bytes": 134217728,
+      "peak_bytes": 1127235584,
+      "gen_code_bytes": 0,
+      "flops": 6569705984.0,
+      "bytes_accessed": 4724756480.0,
+      "jaxpr_lines": 592,
+      "hlo_chars": 82257,
+      "hlo_instrs": 500,
+      "ideal_bytes": 723009536,
+      "ops": {
+        "fusion": 2,
+        "slice": 36,
+        "concatenate": 0,
+        "dynamic-slice": 0,
+        "dynamic-update-slice": 0,
+        "pad": 0,
+        "transpose": 0,
+        "reduce": 0,
+        "reduce-window": 0,
+        "convolution": 0,
+        "custom-call": 0,
+        "copy": 0,
+        "bitcast": 0,
+        "broadcast": 45,
+        "add": 119,
+        "multiply": 186,
+        "select": 3
+      },
+      "ms_single": 3.254675481002778,
+      "gbs_single": 222.1448928534153,
+      "divides": {
+        "total": 24,
+        "f64": 24,
+        "f32": 0,
+        "other": 0,
+        "total_all": 24
+      },
+      "name": "baseline",
+      "hlo_path": "/work/uo0780/u301533/fridom/fridom-dev/.claude/worktrees/perf+stencil-lowering/design/research/stencil_lowering/microbench/phase2/results/hlo/p2a_baseline_n256.txt"
+    },
+    {
+      "compile_s": 0.6598960449919105,
+      "temp_bytes": 404226304,
+      "arg_bytes": 588791808,
+      "out_bytes": 134217728,
+      "peak_bytes": 1127235584,
+      "gen_code_bytes": 0,
+      "flops": 6872875520.0,
+      "bytes_accessed": 4724756480.0,
+      "jaxpr_lines": 610,
+      "hlo_chars": 85230,
+      "hlo_instrs": 518,
+      "ideal_bytes": 723009536,
+      "ops": {
+        "fusion": 2,
+        "slice": 36,
+        "concatenate": 0,
+        "dynamic-slice": 0,
+        "dynamic-update-slice": 0,
+        "pad": 0,
+        "transpose": 0,
+        "reduce": 0,
+        "reduce-window": 0,
+        "convolution": 0,
+        "custom-call": 0,
+        "copy": 0,
+        "bitcast": 0,
+        "broadcast": 45,
+        "add": 119,
+        "multiply": 222,
+        "select": 3
+      },
+      "ms_single": 2.0268569933250546,
+      "gbs_single": 356.7146268242163,
+      "divides": {
+        "total": 6,
+        "f64": 6,
+        "f32": 0,
+        "other": 0,
+        "total_all": 6
+      },
+      "name": "singlediv",
+      "hlo_path": "/work/uo0780/u301533/fridom/fridom-dev/.claude/worktrees/perf+stencil-lowering/design/research/stencil_lowering/microbench/phase2/results/hlo/p2a_singlediv_n256.txt"
+    },
+    {
+      "compile_s": 0.63321101909969,
+      "temp_bytes": 404226304,
+      "arg_bytes": 588791808,
+      "out_bytes": 134217728,
+      "peak_bytes": 1127235584,
+      "gen_code_bytes": 0,
+      "flops": 7295501312.0,
+      "bytes_accessed": 6158231552.0,
+      "jaxpr_lines": 802,
+      "hlo_chars": 94234,
+      "hlo_instrs": 571,
+      "ideal_bytes": 723009536,
+      "ops": {
+        "fusion": 3,
+        "slice": 54,
+        "concatenate": 0,
+        "dynamic-slice": 0,
+        "dynamic-update-slice": 0,
+        "pad": 0,
+        "transpose": 0,
+        "reduce": 0,
+        "reduce-window": 0,
+        "convolution": 0,
+        "custom-call": 0,
+        "copy": 0,
+        "bitcast": 0,
+        "broadcast": 51,
+        "add": 119,
+        "multiply": 210,
+        "select": 3
+      },
+      "ms_single": 1.685389957856387,
+      "gbs_single": 428.9864981274607,
+      "divides": {
+        "total": 24,
+        "f64": 0,
+        "f32": 24,
+        "other": 0,
+        "total_all": 24
+      },
+      "name": "f32w",
+      "hlo_path": "/work/uo0780/u301533/fridom/fridom-dev/.claude/worktrees/perf+stencil-lowering/design/research/stencil_lowering/microbench/phase2/results/hlo/p2a_f32w_n256.txt"
+    },
+    {
+      "compile_s": 0.60539191798307,
+      "temp_bytes": 404226304,
+      "arg_bytes": 588791808,
+      "out_bytes": 134217728,
+      "peak_bytes": 1127235584,
+      "gen_code_bytes": 0,
+      "flops": 7598670848.0,
+      "bytes_accessed": 6158231552.0,
+      "jaxpr_lines": 820,
+      "hlo_chars": 97334,
+      "hlo_instrs": 589,
+      "ideal_bytes": 723009536,
+      "ops": {
+        "fusion": 3,
+        "slice": 54,
+        "concatenate": 0,
+        "dynamic-slice": 0,
+        "dynamic-update-slice": 0,
+        "pad": 0,
+        "transpose": 0,
+        "reduce": 0,
+        "reduce-window": 0,
+        "convolution": 0,
+        "custom-call": 0,
+        "copy": 0,
+        "bitcast": 0,
+        "broadcast": 51,
+        "add": 119,
+        "multiply": 246,
+        "select": 3
+      },
+      "ms_single": 1.8031260115094483,
+      "gbs_single": 400.97560092028624,
+      "divides": {
+        "total": 6,
+        "f64": 0,
+        "f32": 6,
+        "other": 0,
+        "total_all": 6
+      },
+      "name": "combined",
+      "hlo_path": "/work/uo0780/u301533/fridom/fridom-dev/.claude/worktrees/perf+stencil-lowering/design/research/stencil_lowering/microbench/phase2/results/hlo/p2a_combined_n256.txt"
+    },
+    {
+      "compile_s": 0.645812739036046,
+      "temp_bytes": 202113280,
+      "arg_bytes": 294395904,
+      "out_bytes": 67108864,
+      "peak_bytes": 563617792,
+      "gen_code_bytes": 0,
+      "flops": 6569705984.0,
+      "bytes_accessed": 2362378240.0,
+      "jaxpr_lines": 592,
+      "hlo_chars": 82262,
+      "hlo_instrs": 500,
+      "ideal_bytes": 361504768,
+      "ops": {
+        "fusion": 2,
+        "slice": 36,
+        "concatenate": 0,
+        "dynamic-slice": 0,
+        "dynamic-update-slice": 0,
+        "pad": 0,
+        "transpose": 0,
+        "reduce": 0,
+        "reduce-window": 0,
+        "convolution": 0,
+        "custom-call": 0,
+        "copy": 0,
+        "bitcast": 0,
+        "broadcast": 45,
+        "add": 119,
+        "multiply": 186,
+        "select": 3
+      },
+      "ms_single": 1.1890839086845517,
+      "gbs_single": 304.0195610753172,
+      "divides": {
+        "total": 24,
+        "f64": 0,
+        "f32": 24,
+        "other": 0,
+        "total_all": 24
+      },
+      "name": "full_f32",
+      "hlo_path": "/work/uo0780/u301533/fridom/fridom-dev/.claude/worktrees/perf+stencil-lowering/design/research/stencil_lowering/microbench/phase2/results/hlo/p2a_full_f32_n256.txt"
+    }
+  ],
+  "loops": [
+    {
+      "loop_ms": 206.09575003618374,
+      "periter_ms": 4.121915000723675,
+      "T": 50,
+      "name": "baseline"
+    },
+    {
+      "loop_ms": 114.02461602119729,
+      "periter_ms": 2.280492320423946,
+      "T": 50,
+      "name": "singlediv"
+    },
+    {
+      "loop_ms": 86.26563049620017,
+      "periter_ms": 1.7253126099240035,
+      "T": 50,
+      "name": "f32w"
+    },
+    {
+      "loop_ms": 67.63972499174997,
+      "periter_ms": 1.3527944998349994,
+      "T": 50,
+      "name": "combined"
+    }
+  ],
+  "validation": {
+    "singlediv": {
+      "max_abs": 5.329070518200751e-15,
+      "max_rel": 1.2034509490295644e-09,
+      "finite": true
+    },
+    "f32w": {
+      "max_abs": 1.8086637645353676e-06,
+      "max_rel": 0.30263782512885457,
+      "finite": true
+    },
+    "combined": {
+      "max_abs": 1.7793728366299888e-06,
+      "max_rel": 0.4082483160381289,
+      "finite": true
+    }
+  }
+}

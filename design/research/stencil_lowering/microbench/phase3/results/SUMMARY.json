@@ -1,0 +1,60 @@
+{
+  "device": "A100-SXM4-80GB, 1 GPU, JAX_PLATFORMS=cuda, f64",
+  "config": "periodic, 10000x10000x100, f0=1e-4, N2=(50 f0)^2, dt=20, AB3, chunk_size=50, smooth jet IC",
+  "M1_micro_256_ms_single": {
+    "upwind5_baseline": 1.979,
+    "upwind5_selected": 1.425,
+    "upwind5_dissipation": 1.627,
+    "weno5_baseline": 3.106,
+    "weno5_selected": 1.886,
+    "weno5_selected_f32w": 1.191
+  },
+  "M1_micro_256_loop_periter_ms": {
+    "upwind5_baseline": 1.232,
+    "upwind5_selected": 1.080,
+    "upwind5_dissipation": 1.283,
+    "weno5_baseline": 4.121,
+    "weno5_selected": 2.021,
+    "weno5_selected_f32w": 0.872
+  },
+  "M1_micro_256_temp_MB_all": 404,
+  "M2_model_256_ms_per_step": {
+    "centered": 7.509,
+    "upwind5_baseline": 13.699,
+    "upwind5_selected": 14.496,
+    "upwind5_dissipation": 14.275,
+    "weno5_baseline": 25.543,
+    "weno5_selected": 15.479,
+    "weno5_selected_f32w": 16.084
+  },
+  "M2_model_512_ms_per_step": {
+    "upwind5_baseline": 127.174,
+    "weno5_baseline": 239.830,
+    "weno5_selected": 128.493,
+    "weno5_selected_f32w": 134.263
+  },
+  "M2_temp_MB": {
+    "256": {"centered": 2103, "upwind5_baseline": 3076, "upwind5_selected": 3075,
+            "upwind5_dissipation": 3075, "weno5_baseline": 2932,
+            "weno5_selected": 3075, "weno5_selected_f32w": 3075},
+    "512": {"upwind5_baseline": 23562, "weno5_baseline": 22450,
+            "weno5_selected": 24665, "weno5_selected_f32w": 24665}
+  },
+  "M2_step_chunk_divides_f64": {
+    "centered": 13, "upwind5_baseline": 13, "weno5_baseline": 493,
+    "weno5_selected": 253, "weno5_selected_f32w": 13
+  },
+  "M2_step_chunk_divides_f32": {"weno5_selected_f32w": 240},
+  "M2_correctness_256_20steps_max_abs": {
+    "upwind5_selected": {"u": 2.52e-13, "v": 7.47e-13, "b": 6.76e-16},
+    "upwind5_dissipation": {"u": 2.90e-13, "v": 7.45e-13, "b": 7.06e-16},
+    "weno5_selected": {"u": 3.67e-13, "v": 7.45e-13, "b": 7.41e-16},
+    "weno5_selected_f32w": {"u": 5.75e-9, "v": 1.28e-8, "b": 1.11e-11}
+  },
+  "verdict": {
+    "weno5_selected_input": "SHIP: -39% @256, -46% @512, exact (1e-13), temp flat (+5%/+10%); beats P2b f32w (-23%/-24%, ~1e-8). Do not stack f32w on top (slower).",
+    "upwind5_selected_input": "DON'T SHIP: micro -28% reverses to real +5.8% (no divides to remove).",
+    "upwind5_dissipation": "DON'T SHIP: micro -18% reverses to real +4.2%.",
+    "vs_P2_single_divide": "selected-input does NOT backfire: it removes a reconstruction pass (halved divides+weights) instead of adding intermediates, so temp stays flat and the micro win translates to the real step."
+  }
+}

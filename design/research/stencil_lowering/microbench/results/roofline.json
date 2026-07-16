@@ -1,0 +1,32 @@
+{
+  "dispatch_us": 66.90551526844501,
+  "rooflines": [
+    {
+      "n": 256,
+      "dtype": "float64",
+      "field_bytes": 134217728,
+      "identity_ms": 0.23698099539615214,
+      "identity_gbs": 1132.72988642514,
+      "triad_ms": 0.3165114903822541,
+      "triad_gbs": 1272.1597674501852
+    },
+    {
+      "n": 512,
+      "dtype": "float64",
+      "field_bytes": 1073741824,
+      "identity_ms": 1.3091645087115467,
+      "identity_gbs": 1640.3466743178901,
+      "triad_ms": 1.9188615260645747,
+      "triad_gbs": 1678.7170039343407
+    },
+    {
+      "n": 256,
+      "dtype": "float32",
+      "field_bytes": 67108864,
+      "identity_ms": 0.15999050810933113,
+      "identity_gbs": 838.9105677961905,
+      "triad_ms": 0.1975910272449255,
+      "triad_gbs": 1018.9055384101225
+    }
+  ]
+}

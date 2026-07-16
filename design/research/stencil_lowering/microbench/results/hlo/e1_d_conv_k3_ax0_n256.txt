@@ -1,0 +1,46 @@
+HloModule jit_f, is_scheduled=true, entry_computation_layout={(f64[258,256,256]{2,1,0})->f64[256,256,256]{2,1,0}}, allow_spmd_sharding_propagation_to_parameters={true}, allow_spmd_sharding_propagation_to_output={true}, frontend_attributes={fingerprint_before_lhs="12ccf66150fc4a83c9e16445f5d6f274"}
+
+FileNames
+1 "/work/uo0780/u301533/fridom/fridom-dev/.claude/worktrees/perf+stencil-lowering/design/research/stencil_lowering/microbench/driver.py"
+2 "/work/uo0780/u301533/fridom/fridom-dev/.claude/worktrees/perf+stencil-lowering/design/research/stencil_lowering/microbench/common.py"
+3 "/work/uo0780/u301533/fridom/fridom-dev/.claude/worktrees/perf+stencil-lowering/design/research/stencil_lowering/microbench/stencils.py"
+
+FunctionNames
+1 "<module>"
+2 "main"
+3 "cmd_e1"
+4 "run_case"
+5 "analyze"
+6 "cmd_e1.<locals>.f"
+7 "conv_stencil"
+
+FileLocations
+1 {file_name_id=1 function_name_id=1 line=297 end_line=297 column=4 end_column=10}
+2 {file_name_id=1 function_name_id=2 line=293 end_line=293 column=4 end_column=24}
+3 {file_name_id=1 function_name_id=3 line=114 end_line=114 column=31 end_column=68}
+4 {file_name_id=2 function_name_id=4 line=179 end_line=179 column=29 end_column=46}
+5 {file_name_id=2 function_name_id=5 line=137 end_line=137 column=14 end_column=33}
+6 {file_name_id=1 function_name_id=6 line=113 end_line=113 column=27 end_column=44}
+7 {file_name_id=3 function_name_id=7 line=68 end_line=68 column=17 end_column=48}
+8 {file_name_id=3 function_name_id=7 line=69 end_line=71 column=10 end_column=5}
+
+StackFrames
+1 {file_location_id=1 parent_frame_id=1}
+2 {file_location_id=2 parent_frame_id=2}
+3 {file_location_id=3 parent_frame_id=3}
+4 {file_location_id=4 parent_frame_id=4}
+5 {file_location_id=5 parent_frame_id=5}
+6 {file_location_id=6 parent_frame_id=6}
+7 {file_location_id=7 parent_frame_id=7}
+8 {file_location_id=8 parent_frame_id=7}
+
+
+ENTRY %main.4 (x.1: f64[258,256,256]) -> f64[256,256,256] {
+  %constant_164_0 = f64[1,1,3,1,1]{4,3,2,1,0} constant({ { /*i0=0*/ { /*i1=0*/ { /*i2=0*/ {0.3} }, { /*i2=1*/ {0.7} }, { /*i2=2*/ {1.3} } } } }), metadata={op_name="jit(f)/scatter" stack_frame_id=7}
+  %x.1 = f64[258,256,256]{2,1,0} parameter(0), metadata={op_name="x"}
+  %bitcast.11 = f64[1,1,258,256,256]{4,3,2,1,0} bitcast(%x.1), metadata={op_name="x"}
+  %cudnn-conv = (f64[1,1,256,256,256]{4,3,2,1,0}, u8[0]{0}) custom-call(%bitcast.11, %constant_164_0), window={size=3x1x1}, dim_labels=bf012_oi012->bf012, custom_call_target="__cudnn$convForward", metadata={op_name="jit(f)/conv_general_dilated" stack_frame_id=8}, backend_config={"cudnn_conv_backend_config":{"activation_mode":"kNone","algorithm":{"algo_id":"0","is_cudnn_frontend":false,"math_type":"DEFAULT_MATH","tuning_knobs":{},"workspace_size":"0"},"conv_result_scale":1,"leakyrelu_alpha":0,"side_input_scale":0},"device_type":"DEVICE_TYPE_INVALID","force_earliest_schedule":false,"operation_queue_id":"0","reification_cost":[]}
+  %get-tuple-element.36.0 = f64[1,1,256,256,256]{4,3,2,1,0} get-tuple-element(%cudnn-conv), index=0, metadata={op_name="jit(f)/conv_general_dilated" stack_frame_id=8}
+  ROOT %bitcast.1.0 = f64[256,256,256]{2,1,0} bitcast(%get-tuple-element.36.0), metadata={op_name="jit(f)/conv_general_dilated" stack_frame_id=8}
+}
+

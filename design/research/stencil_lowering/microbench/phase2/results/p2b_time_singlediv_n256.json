@@ -1,0 +1,32 @@
+{
+  "variant": "singlediv",
+  "n": 256,
+  "steps": 50,
+  "n_timed_chunks": 7,
+  "first_chunk_compile_s": 2.99735254899133,
+  "ms_per_step_median": 36.63447177968919,
+  "ms_per_step_min": 36.628949779551476,
+  "ms_per_step_all": [
+    36.63447177968919,
+    36.628949779551476,
+    36.639221620280296,
+    36.637060600332916,
+    36.63197598187253,
+    36.63207180099562,
+    36.64266502019018
+  ],
+  "finite": true,
+  "patch_trace_calls": 48,
+  "chunk": {
+    "divides": {
+      "total": 135,
+      "f64": 133,
+      "f32": 0,
+      "c128": 2,
+      "c64": 0
+    },
+    "temp_bytes": 6553446304,
+    "peak_bytes": 0
+  },
+  "fridom_file": "/work/uo0780/u301533/fridom/fridom-dev/.claude/worktrees/perf+stencil-lowering/src/fridom/__init__.py"
+}

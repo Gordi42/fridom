@@ -1,0 +1,40 @@
+[
+  {
+    "compile_s": 0.7144431759952568,
+    "temp_bytes": 3227517184,
+    "arg_bytes": 4499456000,
+    "out_bytes": 1073741824,
+    "peak_bytes": 8800714752,
+    "gen_code_bytes": 0,
+    "flops": 52451180544.0,
+    "bytes_accessed": 37688709120.0,
+    "jaxpr_lines": 592,
+    "hlo_chars": 82046,
+    "hlo_instrs": 500,
+    "ideal_bytes": 5573197824,
+    "ops": {
+      "fusion": 2,
+      "slice": 36,
+      "concatenate": 0,
+      "dynamic-slice": 0,
+      "dynamic-update-slice": 0,
+      "pad": 0,
+      "transpose": 0,
+      "reduce": 0,
+      "reduce-window": 0,
+      "convolution": 0,
+      "custom-call": 0,
+      "copy": 0,
+      "bitcast": 0,
+      "broadcast": 45,
+      "add": 119,
+      "multiply": 186,
+      "select": 3
+    },
+    "ms_single": 21.231791499303654,
+    "gbs_single": 262.4930554815775,
+    "name": "e3_weno5_composed_n512",
+    "hlo_path": "/work/uo0780/u301533/fridom/fridom-dev/.claude/worktrees/perf+stencil-lowering/design/research/stencil_lowering/microbench/results/hlo/e3_weno5_composed_n512.txt",
+    "hlo_head": ""
+  }
+]
