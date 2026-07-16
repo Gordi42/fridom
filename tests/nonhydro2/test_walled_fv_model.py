@@ -22,7 +22,7 @@ import pytest
 
 import fridom as fr
 import fridom.nonhydro2 as nh
-from fridom.nonhydro2.modules.advection import CenteredAdvection
+from fridom.nonhydro2.modules import CenteredAdvection
 from fridom.spatial.bc import BC
 from fridom.spatial.fields.vector_field import VectorField
 from fridom.spatial.grid import Grid
