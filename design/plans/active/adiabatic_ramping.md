@@ -40,7 +40,12 @@ arbitrary time-dependent fields stay open there);
 [`../research/d5_2_variants.md`](../research/d5_2_variants.md)
 (term predicates).
 
-## 1. Decisions (proposed — need owner sign-off)
+## 1. Decisions (owner-reviewed 2026-07-16)
+
+Owner rulings 2026-07-16: **AR-D2** — generic `FieldBlend` (generality
+over the minimal Coriolis-only path); **AR-D5** — both protocol
+surfaces documented; **AR-D6**, **AR-D7** — confirmed as proposed. The
+remaining decisions were presented the same day and stand unopposed.
 
 **AR-D1 — Contract: smooth operator path, convex combination when
 affine.** The framework guarantees a smooth path `L(lambda)` with
@@ -59,23 +64,29 @@ topography). Three blend mechanisms, by cost:
 | one-sided (e.g. `rho * N(z)`) | stage-time scaling parameter on the term (the shipped `scaling.rossby` pattern, `src/fridom/shallowwater2/modules/sadourny.py:603`) | one multiply of that term's output |
 | non-affine or structurally disjoint | two term instances weighted `lambda`, `1-lambda` | that term twice — never the full operator |
 
-**AR-D2 — Field blends are stage-time affine combinations of
-assembly-materialized profiles; the Coriolis family is the first
-instance.** Today `f_coriolis` is an AUXILIARY field frozen at assembly
-(`src/fridom/model/modules/coriolis.py:386`
+**AR-D2 — Field blends are a generic declaration-level mechanism
+(`FieldBlend`); the Coriolis family is the first consumer.** (Owner
+ruling 2026-07-16: generality over the minimal Coriolis-only
+recompute, anticipating the stratification/topography deformations of
+the paper's §6 outlook.) Today `f_coriolis` is an AUXILIARY field
+frozen at assembly (`src/fridom/model/modules/coriolis.py:386`
 `jnp.full(space.shape, self.f0)`), so `FPlaneCoriolis(f0=Ramp(...))`
-raises a bare `TypeError`. We do **not** build general time-dependent
-fields (no SELF_UPDATE rewrite, no `(coords, t)` recompute contract —
-those stay with the open roadmap entry). Instead: when a Coriolis
-parameter is `TimeDependent`, the module declares the *static*
-ingredient profiles at assembly (a `Profile("y")` holding `y`) and the
-rotation term computes `f = f0(t) + beta(t) * y` in-term from
-stage-time scalars (`ctx.params`). AUXILIARY treedefs stay scan-stable,
-no halo traffic is added (pointwise, no stencil), lambda-sweeps never
-recompile (`Ramp` leaves are dynamic). The static-parameter path is
-kept bit-identical to today's assembly. This *is* the paper's
-`f(y,t) = f0 + beta*rho(t/tau)*y`, and the same contract extends later
-to stratification/topography blends (§7).
+raises a bare `TypeError`. The fix: a field-valued parameter may be
+declared as a **blend of two assembly-materialized endpoint profiles**
+with a scalar weight read at stage time,
+`p(lambda) = p_ref + lambda * (p_target - p_ref)`. Endpoints are
+static AUXILIARY ingredients — treedefs stay scan-stable, halos are
+exchanged once at assembly, the pointwise blend adds no halo traffic —
+and the weight is a declared scalar parameter, so any `TimeDependent`
+drives it and lambda-sweeps never recompile. We still do **not** build
+general time-dependent fields (no SELF_UPDATE rewrite, no
+`(coords, t)` recompute contract — those stay with the open roadmap
+entry). Coriolis wires in first (`p_ref = f0`,
+`p_target - p_ref = beta * y`), reproducing the paper's
+`f(y,t) = f0 + beta*rho(t/tau)*y`; the static-parameter path is kept
+bit-identical to today's assembly. Stratification (`csqr`) and
+topography blends become plain consumers of the same declaration
+(§7) — no further mechanism.
 
 **AR-D3 — The blend lives in the model's clock-aware tendency, driven
 by `ctx.params`; the transform algebra stays clock-free.** The
@@ -99,14 +110,19 @@ four legs: `.reversed` swaps the endpoints (lambda path 1→0),
 record's open question — resolved as *policy*). Per the C4 precedent,
 `MovingGeometry` is *not* a consumer: parameters only.
 
-**AR-D5 — Staggered protocols are transform composition, not
-interleaved update windows.** The double ramp is
+**AR-D5 — Staggered protocols: composed legs AND interleaved windows
+are both documented surfaces.** (Owner ruling 2026-07-16.) The default
+idiom is composition —
 `lin_down @ nl_down @ free @ nl_up @ lin_up` — five legs, each its own
-`AdiabaticRamping`/`Propagator` with its own step count and a stepper
-re-warm at every leg boundary (matches the paper: chained ramps are
-"easier to test and reason about" than interleaved ones). Staggered
-`t0` windows inside one leg remain possible via the `updates` dict but
-are not the documented surface.
+`AdiabaticRamping`/`Propagator` with its own step count, static
+pinning of phase-inactive terms, per-phase cost/diagnostics, and a
+stepper re-warm at every boundary (the paper's preference: chained
+ramps are "easier to test and reason about"). The second documented
+surface is a single leg with staggered `t0` windows in one `updates`
+dict — no stepper restarts (better multistep continuity over long
+protocols), one jit region, at the price of implicit phase boundaries
+and no static pinning. Docs state this trade-off; R3 tests cover both
+forms.
 
 **AR-D6 — Backward legs refuse irreversible terms unless filtered.**
 Backward diffusion is ill-posed; the literature either disables
@@ -166,10 +182,10 @@ Missing (the actual new work):
   (`coriolis.py:386`); declared defaults must route through
   `resolve_at`, with provides-constancy bookkeeping (`coriolis.f0`
   claims constancy, `coriolis.py:331`) and the AR-D7 taught error.
-- **Blended Coriolis field** (AR-D2): the in-term
-  `f0(t) + beta(t)*y` path for both `BetaPlaneCoriolis`
-  (`coriolis.py:403`) and shallowwater2's conserving rotation
-  (`src/fridom/shallowwater2/modules/coriolis.py`).
+- **`FieldBlend`** (AR-D2): the declaration-level two-endpoint blend
+  mechanism, plus the Coriolis family as first consumer —
+  `BetaPlaneCoriolis` (`coriolis.py:403`) and shallowwater2's
+  conserving rotation (`src/fridom/shallowwater2/modules/coriolis.py`).
 - **`AdiabaticRamping`** itself — nothing by that name exists; OB's
   leg construction (`optimal_balance.py:107-152`) is the code to
   re-home. OB also hard-rejects a time-dependent nominal Rossby
@@ -219,6 +235,8 @@ nl_up = fr.transforms.AdiabaticRamping(
 # staggered double ramp (paper fig. 4); rightmost applies first
 free = fr.Propagator(sw, runlen=t_diag)
 double_ramp = lin_down @ nl_up.reversed @ free @ nl_up @ lin_up
+# alternative single-leg form (AR-D5): staggered t0 windows in one
+# updates dict — no stepper restarts, implicit phase boundaries
 
 # reference-end slow projector (vortical + stationary Kelvin) and eta
 P_slow = sw.transforms.projection(...)   # from labeled eigenmodes
@@ -242,19 +260,19 @@ New modules and mirrored tests:
 | `src/fridom/model/transforms/adiabatic_ramping.py` | `tests/model/transforms/test_adiabatic_ramping.py` |
 | `src/fridom/model/transforms/adiabatic_projection.py` | `tests/model/transforms/test_adiabatic_projection.py` |
 | `relative_imbalance` in `src/fridom/model/transforms/norms.py` | `tests/model/transforms/test_norms.py` |
-| touched: `parameters`/assembly (R1), `modules/coriolis.py` + sw2 rotation (R2), `optimal_balance.py` (R4) | their mirrored test files |
+| touched: `parameters`/assembly (R1), `FieldBlend` home (declaration layer, settled at R2 stubs) + `modules/coriolis.py` + sw2 rotation (R2), `optimal_balance.py` (R4) | their mirrored test files |
 
 ## 4. Stages
 
 | Stage | Work | Effort | Gate |
 |---|---|---|---|
-| **R0** | Sign off AR-D1..D9; extend spec 08 §10 with the deformation contract (smooth path, affinity ⇒ exact convex combination, four legs, blend-cost table); this record flips `idea → active`. | S (0.5 d) | Owner approval of the decision block. |
+| **R0** | Decisions ruled 2026-07-16 (§1); extend spec 08 §10 with the deformation contract (smooth path, affinity ⇒ exact convex combination, four legs, blend-cost table, both protocol surfaces); this record flipped `idea → active`. | S (0.5 d) | Spec section lands on `dev`. |
 | **R1** | Time-dependent scalar parameters: stubs first (declaration-path signatures + taught-error skeletons + tests), then route declared scalar defaults through `resolve_at`; provides-constancy bookkeeping for `coriolis.f0`; AR-D7 taught error in ETDRK4 assembly. | M (2–3 d) | `FPlaneCoriolis(f0=Ramp(...))` advances under AB and matches a hand-stepped oracle; ETDRK4 raises the taught error; static-path assembly bit-identical; mirrored tests + one model smoke file; ruff clean. |
-| **R2** | Blended Coriolis field (AR-D2): in-term `f0(t) + beta(t)*y` path in `BetaPlaneCoriolis` and sw2's conserving rotation; static `y` ingredient profile; static-parameter fast path untouched. | M (2–3 d) | Static params: bit-identical tendencies vs `dev`. Ramped beta on the linear channel: leakage `eta` decays ~exponentially in `tau` on a small grid (quantitative tolerance, both ramp directions); forced-4 multi-device pass. |
-| **R3** | `AdiabaticRamping`: stubs (class skeleton, docstrings, lazypimp exports, `test_init` rows) → implementation: ramps dict → Ramp-valued `updates`, step snapping, `.reversed`/`.backward`, cost/info reporting, AR-D6 guard. | M (2–3 d) | Endpoint exactness (params at leg ends equal declared endpoints); 4-leg matrix unit-tested (lambda path x dt sign); linear up-then-down round trip ≈ identity within stated tolerance; dissipative-term guard raises; OB tests still green (pre-refactor). |
+| **R2** | `FieldBlend` (AR-D2): stubs first (declaration contract + toy-module tests), then the generic two-endpoint blend machinery; Coriolis family wired as first consumer (`BetaPlaneCoriolis`, sw2's conserving rotation); static-parameter fast path untouched. | M–L (3–4 d) | Declaration contract unit-tested on a toy module independent of Coriolis. Static params: bit-identical tendencies vs `dev`. Ramped beta on the linear channel: leakage `eta` decays ~exponentially in `tau` on a small grid (quantitative tolerance, both ramp directions); forced-4 multi-device pass. |
+| **R3** | `AdiabaticRamping`: stubs (class skeleton, docstrings, lazypimp exports, `test_init` rows) → implementation: ramps dict → Ramp-valued `updates`, step snapping, `.reversed`/`.backward`, staggered-window form, cost/info reporting, AR-D6 guard. | M (2–3 d) | Endpoint exactness (params at leg ends equal declared endpoints); 4-leg matrix unit-tested (lambda path x dt sign); window form: per-parameter endpoint exactness + composition-vs-window equivalence within stepper-restart tolerance; linear up-then-down round trip ≈ identity within stated tolerance; dissipative-term guard raises; OB tests still green (pre-refactor). |
 | **R4** | `OptimalBalance(AdiabaticRamping)` refactor: legs re-homed, policy retained (AR-D9). | S–M (1–2 d) | `tests/model/transforms/test_optimal_balance.py` passes **unmodified**; cost accounting unchanged; `bench_balance.py` numbers move only within noise. |
 | **R5** | `AdiabaticProjection` + `relative_imbalance`; appendix-B protocol wiring. | M (2–3 d) | On the beta-channel: `P_adiab` matches the direct labeled-eigenmode projection (in-tree oracle) with error decreasing in `tau`; approximate idempotency within documented tolerance; OB with `base_projection=P_adiab` converges on a midlatitude case. |
-| **R6** | Double-ramp example (equatorial beta-plane, paper fig. 4 protocol) + docs page for the ramping family. | M (2–3 d) | Owner-reviewed privately per AGENTS.md docs flow (local `docs/<topic>` branch, projected working-tree review, zero `REVIEW:` markers + explicit approval); example fits the sphinx-gallery time budget. |
+| **R6** | Double-ramp example (equatorial beta-plane, paper fig. 4 protocol) + docs page for the ramping family (both protocol surfaces and when to prefer each). | M (2–3 d) | Owner-reviewed privately per AGENTS.md docs flow (local `docs/<topic>` branch, projected working-tree review, zero `REVIEW:` markers + explicit approval); example fits the sphinx-gallery time budget. |
 | **R7** | Hygiene: this plan → `plans/done/` with outcome-vs-gates; roadmap 3.8 entry moved to `done.md`; time-dependent-fields entry trimmed to what stays open. | S (0.5 d) | `open.md` holds only open work. |
 
 Every stage lands on its own `<type>/<topic>` branch with mirrored
@@ -319,19 +337,18 @@ missing conformance point: the AR-D6 dissipation guard.
 
 - **General time-dependent fields** (`f(y,t)` beyond affine paths,
   evolving topography): stays on the roadmap's time-dependent-fields
-  entry; the AR-D2 contract is forward-compatible (ingredient profiles
-  + stage-time scalars generalize to more ingredients).
+  entry; `FieldBlend` is its affine subcase, and the declaration shape
+  (materialized ingredients + stage-time scalars) is
+  forward-compatible.
 - **Ramp-scaled, sign-reversed dissipation on backward legs** (Masur &
   Oliver 2020 §4.1): the AR-D6 guard leaves the door open; add if a
   consumer needs viscous ramping.
 - **Damped nudging update / ramp-period annealing** (quasi-convergence
   paper §6): optional OB robustness knobs; add behind the existing
   `FixedPoint` policy surface if needed.
-- **Interleaved (non-staggered) multi-parameter ramps**: possible today
-  via `updates` windows; not documented surface (AR-D5).
 - **Stratification / topography deformations and 3-D vertical-mode
-  ramps** (paper §6 outlook): same affine-blend contract; schedule when
-  a consumer appears.
+  ramps** (paper §6 outlook): plain `FieldBlend` consumers once R2
+  ships — scheduling them is a roadmap decision, not new mechanism.
 - **Time-averaged reference projectors (OBTA)** as `P_ref` inside
   `AdiabaticProjection`: composes naturally with the shipped
   `TimeAverage`; verify, don't build.

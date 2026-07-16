@@ -227,9 +227,10 @@ contributing only balancing policy; the paper draft *Fast-slow
 splittings for geophysical flows via the adiabatic theorem* (Rosenau
 et al.) is the driving consumer (Coriolis ramp
 `f(y,t) = f0 + beta rho(t/tau) y`, staggered double-ramp protocol,
-adiabatic projector). Staged plan activated 2026-07-16 (stages R0–R7:
-time-dependent scalars → blended Coriolis field → `AdiabaticRamping` →
-OB refactor → `AdiabaticProjection` → example/docs):
+adiabatic projector). Staged plan activated 2026-07-16, decisions
+ruled the same day (stages R0–R7: time-dependent scalars → generic
+field blends (`FieldBlend`) → `AdiabaticRamping` → OB refactor →
+`AdiabaticProjection` → example/docs):
 [`../plans/active/adiabatic_ramping.md`](../plans/active/adiabatic_ramping.md)
 
 ---
