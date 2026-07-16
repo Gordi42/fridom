@@ -97,14 +97,23 @@ measurably trails the reference:
    `advance` chunk boundary (buffer donation/aliasing of the state
    carry, allocator/remat tuning). Target: fit 1024×512×512 on one GPU —
    doubling reachable size — and 1024×1024×768+ on four.
-2. **Time-to-first-step.** fridom pays 11–71 s of trace+compile at 512³
-   (worst: weno5, 71 s; grows with scheme complexity and size);
-   Oceananigans reaches its first step in ~2.2 s at every size and
-   scheme. Work: persistent compilation cache for production runs (the
-   test suite already ships one — `.jax_cache/`, keyed on HLO), and
-   compile-cost reduction for the unrolled-scan step (weno5's kernel
-   duplication is the outlier). Target: warm-start seconds, cold-start
-   well under 30 s at 512³.
+2. **Time-to-first-step.** Attributed 2026-07-16
+   ([`../research/time_to_first_step.md`](../research/time_to_first_step.md)):
+   the report's "11–71 s" conflated compile with executing the whole
+   first chunk — honest compile is size-independent at ~2 s (centered)
+   to ~8.5–10 s (weno5) plus ~3 s of throwaway eager compiles from the
+   `dry_run` validation pass. Three fixes are prototyped and measured
+   (patches preserved, nothing merged): `dry_run` under
+   `jax.eval_shape` (construction compiles 111→12, build −85%,
+   bitwise-identical steps — brings centered total compile to ~1.75 s,
+   meeting the <2 s goal), a persistent compilation cache with
+   `min_compile_time_secs=0` (warm TTFS −48%; jax's default threshold
+   silently skips the 113 small compiles), and a default-off two-tier
+   async chunk compile (first advance −24..31%, steady state
+   bitwise-unchanged). Remaining: land the three fixes; HLO-volume
+   reduction in the step body (~O(ops^1.35) compile scaling) is the
+   only cold-start lever for weno5; fix the comparison suite's metric
+   to report compile separately (`_CHUNK_COMPILE_LOG`).
 3. **Advection-kernel throughput.** The single-GPU edge collapses from
    1.86× (linear, solve-bound) to 1.05× (upwind5: 131 vs 137 ms/step)
    and 1.10× (weno5: 187 vs 205) — the biased-reconstruction kernels are
