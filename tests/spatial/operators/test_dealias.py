@@ -183,3 +183,118 @@ def test_full_spectrum_padded_synthesis_hits_the_fine_nodes():
         mesh.refined(Fraction(3, 2)).center).data
     assert jnp.allclose(fine.data, jnp.exp(1j * TWO_PI * x_fine),
                         atol=1e-14)
+
+
+# ================================================================
+#  Average origins (G7): the sinc-bracketed padded path
+# ================================================================
+def _cell_avg(kappa, n):
+    r"""Exact cell averages of ``sin(2 pi kappa x)`` on ``[0, 1]``.
+
+    ``(1/dx) int sin`` over primal cell ``i`` is
+    ``sin(2 pi kappa x_c) sinc(kappa dx)`` at the midpoint ``x_c``.
+    """
+    xc = (jnp.arange(n) + 0.5) / n
+    return jnp.sin(TWO_PI * kappa * xc) * jnp.sinc(kappa / n)
+
+
+def _face_avg(kappa, n):
+    r"""Exact dual-cell (FaceAvg) averages of ``sin(2 pi kappa x)``.
+
+    The periodic dual cell has width ``dx`` and midpoint on the face
+    ``x_f = (i + 1) / n``.
+    """
+    xf = (jnp.arange(n) + 1.0) / n
+    return jnp.sin(TWO_PI * kappa * xf) * jnp.sinc(kappa / n)
+
+
+def test_padded_backward_refines_cell_averages_analytically():
+    # a resolved single mode: the padded synthesis of the coarse cell
+    # averages lands on the *fine* mesh's cell averages of the SAME
+    # function (not point values) — the sinc factor is what makes this
+    # the exact refinement.
+    grid, mesh = _grid(8)
+    f = grid.create_field(mesh.cell_avg, data=_cell_avg(3, 8))
+    coeff = Fourier(grid).forward(f)
+    fine = Fourier(grid, pad=degree(2)).backward(coeff)
+    fine_mesh = mesh.refined(Fraction(3, 2))
+    assert fine.function_space.bare is fine_mesh.cell_avg
+    assert fine.shape == (12,)
+    assert jnp.allclose(fine.data, _cell_avg(3, 12), atol=1e-13)
+
+
+@pytest.mark.parametrize(("n", "p"), [
+    pytest.param(8, 2, id="even-n-3/2"),
+    pytest.param(9, 3, id="odd-n-2"),
+    pytest.param(8, 3, id="even-n-2"),
+])
+def test_pad_then_trim_is_the_identity_on_cell_averages(n, p):
+    grid, mesh = _grid(n)
+    f = grid.random.normal(mesh.cell_avg, seed=11)
+    coeff = Fourier(grid).forward(f)
+    padded = Fourier(grid, pad=degree(p))
+    round_trip = padded.forward(padded.backward(coeff))
+    assert round_trip.function_space is coeff.function_space
+    assert jnp.allclose(round_trip.data, coeff.data, atol=1e-14)
+
+
+def test_pad_then_trim_is_the_identity_on_face_averages():
+    # FaceAvg is periodic-only in the Fourier path (dual width == dx),
+    # so the same sinc-bracketed refinement applies (offset 1.0).
+    grid, mesh = _grid(8)
+    f = grid.create_field(mesh.face_avg, data=_face_avg(3, 8))
+    coeff = Fourier(grid).forward(f)
+    padded = Fourier(grid, pad=degree(2))
+    fine = padded.backward(coeff)
+    assert fine.function_space.bare is mesh.refined(
+        Fraction(3, 2)).face_avg
+    assert jnp.allclose(fine.data, _face_avg(3, 12), atol=1e-13)
+    round_trip = padded.forward(fine)
+    assert round_trip.function_space is coeff.function_space
+    assert jnp.allclose(round_trip.data, coeff.data, atol=1e-14)
+
+
+def test_pad_then_trim_is_the_identity_on_complex_cell_averages():
+    # a complex CellAvg origin exercises the full-spectrum embed/trim
+    # pair with the sinc factor (the fftfreq branch of _avg_sinc)
+    grid, mesh = _grid(8)
+    space = mesh.cell_avg.as_complex()
+    f = grid.random.normal(space, seed=5)
+    coeff = Fourier(grid).forward(f)
+    assert coeff.shape == (8,)
+    padded = Fourier(grid, pad=degree(2))
+    fine = padded.backward(coeff)
+    assert fine.function_space.bare is mesh.refined(
+        Fraction(3, 2)).cell_avg.as_complex()
+    round_trip = padded.forward(fine)
+    assert round_trip.function_space is coeff.function_space
+    assert jnp.allclose(round_trip.data, coeff.data, atol=1e-14)
+
+
+def test_quadratic_product_dealiasing_on_cell_averages():
+    # u = sin(2 pi 3 x) as cell averages: the sinc-bracketed padded
+    # path removes the alias exactly as the nodal path does. On the
+    # coarse grid the unresolved mode-6 content folds onto mode 2; the
+    # 3/2 rule kills it, leaving only the (rescaled) mean.
+    n = 8
+    grid, mesh = _grid(n)
+    u = grid.create_field(mesh.cell_avg, data=_cell_avg(3, n))
+    fourier = Fourier(grid)
+    padded = Fourier(grid, pad=degree(2))
+
+    # aliased path: collocation product on the coarse cell averages —
+    # the fold populates mode 2 (the spurious alias)
+    aliased = fourier.forward(u * u)
+    assert jnp.abs(aliased.data[2]) > 0.1
+
+    # dealiased path: only the mean survives, and it is exactly the
+    # square of the coarse averaging amplitude, sinc(1/4)^2 / 2
+    fine_mesh = mesh.refined(Fraction(3, 2))
+    grid.dispatch[("multiply", fine_mesh.cell_avg)] = (
+        CollocationProduct())
+    u_fine = padded.backward(fourier.forward(u))
+    dealiased = padded.forward(u_fine * u_fine)
+    assert dealiased.function_space is aliased.function_space
+    expected = jnp.zeros(n // 2 + 1, dtype=dealiased.dtype)
+    expected = expected.at[0].set(jnp.sinc(0.25) ** 2 / 2)
+    assert jnp.allclose(dealiased.data, expected, atol=1e-14)

@@ -18,6 +18,7 @@ from fridom.spatial.operators.transform import (
     TransformPlan,
     TransformStage,
     _paddable,
+    _sibling_origin,
 )
 from fridom.spatial.operators.trig import Cosine, Sine
 from fridom.spatial.scalars import Scalars
@@ -225,15 +226,30 @@ def test_padded_transform_builds_refined_meshes_once():
     assert fine1.mesh.n_cells == 12
 
 
-def test_padded_average_origins_raise():
+def test_padded_average_origins_land_on_finer_average_spaces():
+    # G7: the padded path now names the refined-mesh average sibling
+    # (backward) and rebuilds the coarse origin (forward), for both
+    # cell and dual (FaceAvg) families.
     mx = IntervalMesh(8, (0.0, 1.0), name="x")
     grid = Grid((mx,))
-    f = grid.create_field(mx.cell_avg,
-                          init=lambda x: jnp.sin(TWO_PI * x))
-    coeff = Fourier(grid).forward(f)
+    fine_mesh = mx.refined(degree(2).factor)
     padded = Fourier(grid, pad=degree(2))
-    with pytest.raises(NotImplementedError, match="average"):
-        padded.backward(coeff)
+    for coarse_origin, fine_origin in (
+            (mx.cell_avg, fine_mesh.cell_avg),
+            (mx.face_avg, fine_mesh.face_avg)):
+        coeff = mx.fourier(origin=coarse_origin)
+        assert padded.backward_space(coeff) is fine_origin
+        assert padded.codomain(fine_origin) is coeff
+
+
+def test_sibling_origin_rejects_non_nodal_non_average():
+    # the coefficient families (Fourier/trig) are neither nodal nor
+    # average origins, so the padded sibling map declines them
+    mx = IntervalMesh(8, (0.0, 1.0), name="x")
+    coeff = mx.fourier(origin=mx.center)
+    with pytest.raises(NotImplementedError, match="nodal and average"):
+        _sibling_origin(coeff, mx.refined(degree(2).factor),
+                        operation="backward")
 
 
 def test_backward_plan_is_memoized(grid2d, field2d):

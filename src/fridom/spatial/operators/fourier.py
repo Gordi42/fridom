@@ -18,7 +18,13 @@ Padding (section 3.12): the padded ``backward`` zero-embeds the
 spectrum onto the refined mesh's mode set (splitting the
 self-conjugate Nyquist coefficient of even-length spectra) and the
 padded ``forward`` trims back, folding the fine ``+/-N/2`` modes onto
-the coarse Nyquist slot — so pad-then-trim is exact.
+the coarse Nyquist slot — so pad-then-trim is exact. On **average**
+origins (``CellAvg`` / ``FaceAvg``) the embed/trim is bracketed by the
+cell-averaging ``sinc(k dx / 2)`` diagonal (``_avg_sinc``): the coarse
+averages deconvolve to the underlying Fourier coefficients, refine,
+then reconvolve to the fine mesh's cell averages of the same function
+(and back). ``sinc`` never vanishes on the stored band, so the
+deconvolution is exact and pad-then-trim stays the identity.
 """
 # Wave 3: Fourier
 from __future__ import annotations
@@ -37,6 +43,11 @@ from fridom.spatial.operators.transform import (
     axis_concat,
     axis_slice,
     axis_zeros,
+)
+from fridom.spatial.spaces.average import (
+    AverageSpace,
+    CellAvg,
+    FaceAvg,
 )
 from fridom.spatial.spaces.coefficient import FourierSpace
 from fridom.spatial.spaces.nodal import NodeSet
@@ -145,37 +156,74 @@ class Fourier(Transform):
 
     def _forward_kernel(self, data: jax.Array,
                         stage: TransformStage) -> jax.Array:
-        """(r)fft one axis; trim to the coarse spectrum if padded."""
+        """(r)fft one axis; trim to the coarse spectrum if padded.
+
+        On average origins the trim is bracketed by the ``sinc``
+        deconvolution (divide by the *fine* diagonal) and
+        reconvolution (multiply by the *coarse* diagonal), so the
+        fine cell averages map back to the coarse cell averages.
+        """
         axis = stage.index
         n = stage.coeff.origin.shape[0]
         m = stage.nodal.shape[0]
+        avg = isinstance(stage.coeff.origin, AverageSpace)
         if stage.half:
             c = jnp.fft.rfft(data, axis=axis, norm="forward")
             if m == n:
                 return c
             c = c * _origin_phase(stage, data.ndim, sign=-1)
-            return _trim_half(c, axis, n)
+            if avg:
+                c = c / _avg_sinc(m, data.ndim, axis, half=True)
+            c = _trim_half(c, axis, n)
+            if avg:
+                c = c * _avg_sinc(n, data.ndim, axis, half=True)
+            return c
         c = jnp.fft.fft(data, axis=axis, norm="forward")
         if m == n:
             return c
         c = c * _origin_phase(stage, data.ndim, sign=-1)
-        return _trim_full(c, axis, n, m)
+        if avg:
+            c = c / _avg_sinc(m, data.ndim, axis, half=False)
+        c = _trim_full(c, axis, n, m)
+        if avg:
+            c = c * _avg_sinc(n, data.ndim, axis, half=False)
+        return c
 
     def _backward_kernel(self, data: jax.Array,
                          stage: TransformStage) -> jax.Array:
-        """Zero-embed the spectrum if padded; inverse (r)fft."""
+        """Zero-embed the spectrum if padded; inverse (r)fft.
+
+        On average origins the embed is bracketed by the ``sinc``
+        deconvolution (divide by the *coarse* diagonal) and
+        reconvolution (multiply by the *fine* diagonal), so the coarse
+        cell averages refine to the fine mesh's cell averages of the
+        same function.
+        """
         axis = stage.index
         n = stage.coeff.origin.shape[0]
         m = stage.nodal.shape[0]
+        avg = isinstance(stage.coeff.origin, AverageSpace)
         if stage.half:
             if m != n:
+                if avg:
+                    data = data / _avg_sinc(
+                        n, data.ndim, axis, half=True)
                 data = (_pad_half(data, axis, n, m)
                         * _origin_phase(stage, data.ndim, sign=1))
+                if avg:
+                    data = data * _avg_sinc(
+                        m, data.ndim, axis, half=True)
             return jnp.fft.irfft(data, n=m, axis=axis,
                                  norm="forward")
         if m != n:
+            if avg:
+                data = data / _avg_sinc(
+                    n, data.ndim, axis, half=False)
             data = (_pad_full(data, axis, n, m)
                     * _origin_phase(stage, data.ndim, sign=1))
+            if avg:
+                data = data * _avg_sinc(
+                    m, data.ndim, axis, half=False)
         return jnp.fft.ifft(data, axis=axis, norm="forward")
 
     def _forward_fused_kernel(
@@ -274,6 +322,83 @@ _NODE_OFFSETS = {
 }
 
 
+def _origin_offset(origin: FunctionSpace) -> float:
+    """
+    First-DOF offset of a nodal or average origin, in cell widths.
+
+    Description
+    -----------
+    Average origins enter at their quadrature point: ``CellAvg`` at
+    the primal-cell midpoints (0.5, like ``Center``), ``FaceAvg`` at
+    the faces (1.0, like ``Right``). Nodal origins read the node-set
+    table. The offset drives the inter-resolution phase, which shifts
+    with the cell width exactly as the nodal case.
+
+    Parameters
+    ----------
+    origin : FunctionSpace
+        The (bare) periodic nodal or average origin.
+
+    Returns
+    -------
+    float
+        Distance of the first DOF from ``x_min`` in cell widths.
+    """
+    if isinstance(origin, CellAvg):
+        return 0.5
+    if isinstance(origin, FaceAvg):
+        return 1.0
+    return _NODE_OFFSETS[origin.node_set]
+
+
+def _avg_sinc(count: int, ndim: int, axis: int, *,
+              half: bool) -> jax.Array:
+    r"""
+    Return the cell-averaging ``sinc(k dx / 2)`` diagonal.
+
+    Description
+    -----------
+    An average-origin coefficient carries ``sinc(k dx / 2)`` relative
+    to the underlying function's Fourier coefficient (top-hat
+    convolution, ``operators.spectral.SincShift``). In mode-index
+    form ``k dx / 2 = pi j / count`` for mode ``j`` on a ``count``-cell
+    periodic mesh, so the factor is ``jnp.sinc(j / count)`` —
+    resolution-dependent through ``count``, and strictly positive on
+    the stored band (``count // 2`` gives ``sinc(1/2) = 2/pi``). The
+    padded kernels **divide** by the source spectrum's diagonal
+    (deconvolution to the underlying coefficients) and **multiply** by
+    the target spectrum's diagonal (reconvolution to the target
+    resolution's cell averages).
+
+    Parameters
+    ----------
+    count : int
+        The cell count of the spectrum's mesh (mode axis extent
+        driver).
+    ndim : int
+        Rank of the array the diagonal multiplies.
+    axis : int
+        The array axis of the mode dimension.
+    half : bool
+        Whether this is the Hermitian half spectrum (``0..count//2``)
+        or the full fft spectrum.
+
+    Returns
+    -------
+    jax.Array
+        The broadcastable ``sinc`` diagonal along ``axis``.
+    """
+    if half:
+        modes = jnp.arange(count // 2 + 1, dtype=dtype_real())
+    else:
+        modes = jnp.fft.fftfreq(
+            count, 1.0 / count).astype(dtype_real())
+    sinc = jnp.sinc(modes / count)
+    shape = [1] * ndim
+    shape[axis] = sinc.shape[0]
+    return sinc.reshape(shape)
+
+
 def _origin_phase(stage: TransformStage, ndim: int,
                   sign: int) -> jax.Array:
     r"""
@@ -309,7 +434,7 @@ def _origin_phase(stage: TransformStage, ndim: int,
     n = origin.shape[0]
     m = stage.nodal.shape[0]
     length = mesh.extent[1] - mesh.extent[0]
-    offset = _NODE_OFFSETS[origin.node_set]
+    offset = _origin_offset(origin)
     shift = offset * (length / m - length / n)
     if stage.half:
         modes = jnp.arange(m // 2 + 1, dtype=dtype_real())
