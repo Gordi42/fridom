@@ -36,11 +36,16 @@ from fridom.spatial.operators.base import (
     FieldLike,
     OperatorRequirements,
     SeparableOperator,
+    _resolve_axis,
 )
 from fridom.spatial.operators.interned import interned
 from fridom.spatial.operators.reconstruct import (
     apply_fv_staggered,
     factor_codomain,
+)
+from fridom.spatial.operators.spectral import (
+    finite_difference_symbol,
+    fv_fourier_partner,
 )
 from fridom.spatial.operators.staggering import (
     divide_by_codomain_measure,
@@ -52,6 +57,7 @@ from fridom.spatial.operators.stencil_kernels import (
 )
 from fridom.spatial.scalars import Scalars
 from fridom.spatial.spaces.average import CellAvg
+from fridom.spatial.spaces.coefficient import FourierSpace
 from fridom.spatial.spaces.nodal import NodalSpace, NodeSet
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -61,9 +67,11 @@ if TYPE_CHECKING:  # pragma: no cover
         Operator,
         SeparableComposite,
     )
+    from fridom.spatial.operators.symbol import Symbol
     from fridom.spatial.spaces.function_space import (
         FunctionSpace,
     )
+    from fridom.spatial.spaces.tensor_product import SpaceLike
 
 _DIFF_SIZE = 2
 
@@ -128,6 +136,47 @@ def _windowed_diff(
     return result
 
 
+def _fv_diff_eigenvalues(
+    op: SeparableOperator, space: SpaceLike, who: str,
+) -> Symbol:
+    r"""
+    Retagging ``i k_hat`` diagonal of an FV flux/face difference.
+
+    Description
+    -----------
+    The shared ``eigenvalues`` body of ``FluxDifference`` /
+    ``DualFluxDifference`` / ``FaceDifference``: on a periodic,
+    uniform mesh a two-point staggered difference diagonalizes in the
+    Fourier basis of its origin. :func:`fv_fourier_partner` resolves
+    the source Fourier factor and the periodic nodal/average origin
+    (raising ``EigenbasisError`` on bounded/mapped/non-Fourier
+    factors), and the order-2 staggered-FD symbol builder threads the
+    codomain origin through the inter-origin phase — the same
+    ``i k_hat = i k sinc(k dx / 2)`` numbers as the nodal
+    ``FiniteDifference``, retagged onto the average family.
+
+    Parameters
+    ----------
+    op : SeparableOperator
+        The (bound) FV difference kernel.
+    space : SpaceLike
+        The coefficient factor (or product) space threaded.
+    who : str
+        The operator name, for the ``EigenbasisError`` message.
+
+    Returns
+    -------
+    Symbol
+        The retagging ``i k_hat`` diagonal on the coefficient factor.
+    """
+    bare = space.bare
+    axis = _resolve_axis(op, bare)
+    factor = bare.factor(axis)
+    src, origin = fv_fourier_partner(factor, who)
+    return finite_difference_symbol(
+        bare, axis, src, origin, op.codomain(origin))
+
+
 @final
 @interned
 class FluxDifference(SeparableOperator):
@@ -145,8 +194,11 @@ class FluxDifference(SeparableOperator):
     BC-free extrapolation ghosts); inhomogeneous boundary fluxes
     occupy the boundary DOFs of an ``Outer``-space flux field. The
     ``Right -> CellAvg`` row is explicitly periodic-only.
-    ``eigenvalues`` (``i k sinc(k dx / 2)``) is designed-for until
-    the ``Symbol`` cluster lands (Wave 3B).
+    ``eigenvalues`` is the retagging ``i k_hat`` diagonal
+    (``i k sinc(k dx / 2)`` with the ``Right``-origin phase),
+    diagonalizing ``Fourier(Right) -> Fourier(CellAvg)`` on a
+    periodic uniform mesh — bitwise the nodal ``Right -> Center``
+    numbers; bounded and mapped meshes raise ``EigenbasisError``.
     """
 
     dispatch_kind: ClassVar[str | None] = "flux_diff"
@@ -174,6 +226,11 @@ class FluxDifference(SeparableOperator):
         FunctionSpace
             The ``CellAvg`` factor (scalars preserved).
         """
+        if isinstance(domain, FourierSpace):
+            # layout-faithful eigenvalue threading: retag the Fourier
+            # factor through the staggered average origin
+            return domain.mesh.fourier(
+                origin=self.codomain(domain.origin))
         supported = (
             isinstance(domain, NodalSpace) and domain.bc.is_free
             and (domain.node_set in {NodeSet.OUTER, NodeSet.INNER}
@@ -215,6 +272,40 @@ class FluxDifference(SeparableOperator):
             The per-factor requirements record.
         """
         return OperatorRequirements(halo=1)
+
+    def eigenvalues(
+        self,
+        grid: object,  # noqa: ARG002 — the factor carries the mesh
+        space: SpaceLike,
+    ) -> Symbol:
+        r"""
+        Return the ``i k_hat`` ``Right -> CellAvg`` diagonal.
+
+        Description
+        -----------
+        The retagging ``Fourier(Right) -> Fourier(CellAvg)`` diagonal
+        ``i k_hat = 2i sin(k dx/2)/dx`` (``= i k sinc(k dx/2)``)
+        composed with the ``Right``-origin half-cell phase — the
+        exact symbol of the periodic ``(u_i - u_{i-1}) / dx``
+        divergence, bitwise the nodal ``Right -> Center`` numbers on a
+        ``CellAvg`` codomain tag. Bounded (``Outer``/``Inner``) and
+        mapped meshes carry no diagonalizing basis and raise
+        ``EigenbasisError``.
+
+        Parameters
+        ----------
+        grid : object
+            The grid (unused: the Fourier factor carries the mesh).
+        space : SpaceLike
+            The coefficient factor (or product) space.
+
+        Returns
+        -------
+        Symbol
+            The retagging ``i k_hat`` diagonal on the coefficient
+            factor.
+        """
+        return _fv_diff_eigenvalues(self, space, "FluxDifference")
 
     def _apply_factor(self, f: FieldLike, axis: str) -> FieldLike:
         """
@@ -278,8 +369,11 @@ class DualFluxDifference(SeparableOperator):
     ``CellAvg -> FaceAvg`` row carries the declared O(dx^2)
     identification of cell averages with midpoint values. Registered
     under the same ``"flux_diff"`` kind, keyed by the center domains.
-    ``eigenvalues`` (``i k sinc(k w / 2)`` on the dual mesh) is
-    designed-for until the ``Symbol`` cluster lands (Wave 3B).
+    ``eigenvalues`` is the retagging ``i k_hat`` diagonal
+    (``i k sinc(k w / 2)`` on the dual mesh, ``w = dx`` uniform),
+    diagonalizing ``Fourier(Center) -> Fourier(FaceAvg)`` on a
+    periodic uniform mesh — bitwise the nodal ``Center -> Right``
+    numbers; bounded and mapped meshes raise ``EigenbasisError``.
     """
 
     dispatch_kind: ClassVar[str | None] = "flux_diff"
@@ -307,6 +401,11 @@ class DualFluxDifference(SeparableOperator):
         FunctionSpace
             The ``FaceAvg`` factor (scalars preserved).
         """
+        if isinstance(domain, FourierSpace):
+            # layout-faithful eigenvalue threading: retag the Fourier
+            # factor through the dual-cell average origin
+            return domain.mesh.fourier(
+                origin=self.codomain(domain.origin))
         supported = (
             isinstance(domain, CellAvg)
             or (isinstance(domain, NodalSpace) and domain.bc.is_free
@@ -337,6 +436,39 @@ class DualFluxDifference(SeparableOperator):
             The per-factor requirements record.
         """
         return OperatorRequirements(halo=1)
+
+    def eigenvalues(
+        self,
+        grid: object,  # noqa: ARG002 — the factor carries the mesh
+        space: SpaceLike,
+    ) -> Symbol:
+        r"""
+        Return the ``i k_hat`` ``Center/CellAvg -> FaceAvg`` diagonal.
+
+        Description
+        -----------
+        The retagging ``Fourier(Center) -> Fourier(FaceAvg)`` (and
+        ``Fourier(CellAvg) -> Fourier(FaceAvg)``) diagonal ``i k_hat``
+        composed with the dual-cell half-cell phase — the exact symbol
+        of the periodic ``(q_{i+1} - q_i) / dx`` dual difference,
+        bitwise the nodal ``Center -> Right`` numbers on a ``FaceAvg``
+        codomain tag. Bounded and mapped meshes raise
+        ``EigenbasisError``.
+
+        Parameters
+        ----------
+        grid : object
+            The grid (unused: the Fourier factor carries the mesh).
+        space : SpaceLike
+            The coefficient factor (or product) space.
+
+        Returns
+        -------
+        Symbol
+            The retagging ``i k_hat`` diagonal on the coefficient
+            factor.
+        """
+        return _fv_diff_eigenvalues(self, space, "DualFluxDifference")
 
     def _apply_factor(self, f: FieldLike, axis: str) -> FieldLike:
         """
@@ -370,8 +502,13 @@ class FaceDifference(SeparableOperator):
     spacing as denominator, landing on the point-value face space
     where the C-grid momentum DOFs live. A dedicated ``"face_diff"``
     kind: ``("diff", CellAvg)`` is the normative ``FVDerivative``
-    composition (``CellAvg -> CellAvg``). ``eigenvalues`` is
-    designed-for until the ``Symbol`` cluster lands (Wave 3B).
+    composition (``CellAvg -> CellAvg``). ``eigenvalues`` is the
+    retagging ``i k_hat`` diagonal (``2i sin(k dx/2)/dx`` with the
+    ``CellAvg``-origin phase), diagonalizing
+    ``Fourier(CellAvg) -> Fourier(Right)`` on a periodic uniform mesh
+    — bitwise the nodal ``Center -> Right`` numbers; composed with
+    ``FluxDifference`` it forms the real ``-k_hat^2`` FV pressure
+    Laplacian. Bounded and mapped meshes raise ``EigenbasisError``.
     """
 
     dispatch_kind: ClassVar[str | None] = "face_diff"
@@ -394,6 +531,11 @@ class FaceDifference(SeparableOperator):
         FunctionSpace
             The face point-value factor (scalars preserved).
         """
+        if isinstance(domain, FourierSpace):
+            # layout-faithful eigenvalue threading: retag the Fourier
+            # factor through the staggered face origin
+            return domain.mesh.fourier(
+                origin=self.codomain(domain.origin))
         if not isinstance(domain, CellAvg):
             raise SpaceMismatchError(
                 f"no face_diff signature on {domain!r}: "
@@ -420,6 +562,41 @@ class FaceDifference(SeparableOperator):
             The per-factor requirements record.
         """
         return OperatorRequirements(halo=1)
+
+    def eigenvalues(
+        self,
+        grid: object,  # noqa: ARG002 — the factor carries the mesh
+        space: SpaceLike,
+    ) -> Symbol:
+        r"""
+        Return the ``i k_hat`` ``CellAvg -> Right`` diagonal.
+
+        Description
+        -----------
+        The retagging ``Fourier(CellAvg) -> Fourier(Right)`` diagonal
+        ``i k_hat`` composed with the ``CellAvg``-origin half-cell
+        phase — the exact symbol of the periodic
+        ``(p_{i+1} - p_i) / dx`` face gradient, bitwise the nodal
+        ``Center -> Right`` numbers on a ``CellAvg`` domain tag.
+        ``FluxDifference @ FaceDifference`` then composes to the real
+        ``-k_hat^2`` FV pressure Laplacian (the phases cancel), which
+        ``SpectralSolve`` inverts. Bounded and mapped meshes raise
+        ``EigenbasisError``.
+
+        Parameters
+        ----------
+        grid : object
+            The grid (unused: the Fourier factor carries the mesh).
+        space : SpaceLike
+            The coefficient factor (or product) space.
+
+        Returns
+        -------
+        Symbol
+            The retagging ``i k_hat`` diagonal on the coefficient
+            factor.
+        """
+        return _fv_diff_eigenvalues(self, space, "FaceDifference")
 
     def _apply_factor(self, f: FieldLike, axis: str) -> FieldLike:
         """
