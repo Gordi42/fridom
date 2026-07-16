@@ -36,6 +36,7 @@ if TYPE_CHECKING:  # pragma: no cover
         realized,
         reconstruct,
         registry,
+        restrict,
         select,
         spectral,
         spectral_solve,
@@ -103,6 +104,7 @@ if TYPE_CHECKING:  # pragma: no cover
     )
     from .reconstruct import LinearDeconvolution, LinearReconstruction
     from .registry import DispatchError, DispatchKey, OperatorRegistry
+    from .restrict import Restriction
     from .select import Where
     from .spectral import PhaseShift, SpectralDerivative
     from .spectral_solve import SpectralSolve
@@ -136,6 +138,7 @@ all_modules_by_origin = {
         "krylov",
         "reconstruct",
         "weno",
+        "restrict",
         "select",
         "flux_diff",
         "cumulative",
@@ -187,6 +190,7 @@ all_imports_by_origin = {
     f"{base}.reconstruct": [
         "LinearDeconvolution", "LinearReconstruction"],
     f"{base}.weno": ["WenoReconstruction"],
+    f"{base}.restrict": ["Restriction"],
     f"{base}.select": ["Where"],
     f"{base}.distributed_solve": ["resolve_distributed_solve"],
     f"{base}.spectral_solve": ["SpectralSolve"],

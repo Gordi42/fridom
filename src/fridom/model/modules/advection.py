@@ -1637,6 +1637,26 @@ def _is_average_space(space: object) -> bool:
                for factor in space.bare.factors)
 
 
+def _outer_to_inner(src: object, dst: object) -> bool:
+    """Whether ``src -> dst`` is the ``Outer -> Inner`` restriction.
+
+    Description
+    -----------
+    The hydrostatic diagnosed vertical velocity ``w`` lives on the
+    both-boundary ``Outer`` faces, while its vertical flux leg lands on
+    the interior ``Inner`` faces. The pair signals the exact restriction
+    (``fr.operators.Restriction``): the advecting velocity already sits
+    on the flux faces' superset, and dropping its two boundary values is
+    the zero-boundary-flux closure. Fires for no existing model — every
+    other advecting velocity is on ``Center`` or a face sibling of the
+    flux space — so the flux-space and velocity-face branches it gates
+    are additive.
+    """
+    return (isinstance(src, NodalSpace) and isinstance(dst, NodalSpace)
+            and src.node_set is NodeSet.OUTER
+            and dst.node_set is NodeSet.INNER)
+
+
 # ================================================================
 #  The shared flux-form scaffolding (module-private)
 # ================================================================
@@ -2061,6 +2081,19 @@ class _FluxFormAdvection(fr.model.Module):
         factor = space.bare.factor(axis)
         if factor is not v_factor and _bc_siblings(factor, v_factor):
             space = space.replace(**{axis: v_factor})
+        elif _outer_to_inner(v_factor, factor):
+            # the advecting velocity is the diagnosed w on the
+            # both-boundary Outer faces (hy.HydrostaticCore): restricting
+            # it to the interior Inner flux faces drops its two boundary
+            # values, so the advective flux through the top/bottom faces
+            # is a structural zero (the fixed-domain closure under a
+            # linear free surface). Tag the flux homogeneous-Dirichlet on
+            # this axis — the same zero-wall-flux claim the wall-normal
+            # velocity's Dirichlet Inner carries above — so its divergence
+            # closes on it (and the transported tracer's mass is
+            # conserved to roundoff).
+            space = space.replace(**{axis: factor.mesh.nodal(
+                NodeSet.INNER, bc=BC.DIRICHLET)})
         return space
 
     def _geometry_params(self, state: object) -> dict | None:
@@ -2768,9 +2801,19 @@ class UpwindAdvection(_FluxFormAdvection):
         result = v
         bare = flux_space.bare
         for axis in bare.names:
-            if result.function_space.bare.factor(axis) is not (
-                    bare.factor(axis)):
-                result = self._interp[axis](result)
+            src = result.function_space.bare.factor(axis)
+            dst = bare.factor(axis)
+            if src is dst:
+                continue
+            if _outer_to_inner(src, dst):
+                # the diagnosed w already lives on the flux faces'
+                # superset (Outer ⊃ Inner): the exact restriction, not
+                # the order-coupled symmetric interpolation — there is
+                # nothing to interpolate, the interior faces are shared
+                # nodes (hydrostatic vertical leg).
+                result = result.to(dst)
+                continue
+            result = self._interp[axis](result)
         return result.retag(flux_space)
 
     def _face_value(

@@ -102,6 +102,7 @@ from fridom.spatial.operators.registry import (
     OperatorRegistry,
     check_override_key,
 )
+from fridom.spatial.operators.restrict import Restriction
 from fridom.spatial.operators.select import Where
 from fridom.spatial.operators.spectral import (
     PhaseShift,
@@ -2160,7 +2161,7 @@ def _default_registry(
         tagged_avg = _tagged_average_origins(mesh)
         _seed_signature_rows(
             entries, nodal + tagged,
-            (FiniteDifference(order=2), LinearInterp()))
+            (FiniteDifference(order=2), LinearInterp(), Restriction()))
         # reconstruct rows, plus (G4) the average family under the
         # "interpolate" kind for the composed metric machinery; the
         # tagged average origins mirror the untagged CellAvg rows, and

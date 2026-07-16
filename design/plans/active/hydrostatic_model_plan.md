@@ -378,3 +378,41 @@ preset test (identical full-`_carry` treedef) depends on; extent-`H`
 is telescoping-exact, so energy conservation stays at `4e-16`. Package
 param name is `hydrostatic.csqr` (matching the `shallowwater.csqr` /
 `nonhydro.dsqr` package-namespace convention).
+
+### H2b — nonlinear advection wired (2026-07-17)
+
+Resolves H2 deviation #2. New spatial row `fr.operators.Restriction`
+(kind `"restrict"`, `restrict.py`): the exact `Outer -> Inner`
+face-set restriction — `Outer ⊃ Inner`, so it drops the two boundary
+faces as a size-1 identity staggering (`Inner[m] == Outer[m+1]`),
+halo-0, metric-free (exact on stretched meshes), complex preserved.
+Seeded on every bounded factor's `Outer` (periodic has none; a
+`ChebyshevMesh` `Outer` un-seeds — no `Inner`). `ScalarField.to` routes
+`Outer -> Inner` to the new kind (`_conversion_kind`), leaving the
+distinct `Outer -> Center` interpolate (`w.to(b)`, stratification)
+untouched. The shared advection needed one additive dispatch-level
+touch (`advection.py`, fires only for an `Outer` velocity, so existing
+models are bitwise unchanged): `_flux_space` tags the tracer flux
+homogeneous-Dirichlet `Inner` on the restriction axis (the zero-wall-
+flux claim its divergence closes on, the wall-normal-velocity
+substitution's `Outer` twin), and the biased `_velocity_face` uses the
+exact `.to` restriction rather than the order-coupled interpolation on
+that axis. `hy.Model` default is now `CenteredAdvection()`;
+`advection=False` keeps the linear model; `UpwindAdvection` /
+`WENOAdvection` accepted. **Closure & conservation.** Dropping `w(0)`
+is the fixed-domain linear-free-surface treatment — **zero advective
+flux through the boundary faces**: tracer mass conserved to roundoff
+(measured `~1e-14`, all three schemes). The advection is energy-
+orthogonal in the M metric (`<q, M A(q)>` at machine zero, vertical leg
+active) so the semi-discrete H2 energy skew is unchanged by advection;
+the one exception is exactly localized — `A(b=const)` is machine-zero in
+every interior cell and non-zero only in the surface cell, the dropped-
+`w(0)` term the `ps` equation (not advection) carries. **Note:** a
+time-integrated inviscid run on a coarse grid is nonlinearly unstable
+(a resolution property of centered advection, not the scheme), so the
+energy gate is the semi-discrete skew, not a time-integrated dt-slope.
+**Gates.** `tests/hydrostatic/` 91 passed; new
+`tests/hydrostatic/test_advection.py`, `tests/spatial/operators/
+test_restrict.py`, extended `test_grid.py` / `test_scalar_field.py`;
+advection regression `test_advection*.py` 200 passed (unchanged);
+`ruff` clean.
