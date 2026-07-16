@@ -81,6 +81,7 @@ from fridom.nonhydro2.params import DSQR
 from fridom.nonhydro2.state import State
 from fridom.spatial.bc import BC
 from fridom.spatial.operators.symbol import Symbol
+from fridom.spatial.spaces.average import AverageSpace
 from fridom.spatial.symbols import (
     GridSymbols,
     ModeChart,
@@ -177,11 +178,23 @@ class Eigenmodes:
         The squared aspect ratio.
     vertical : str, optional
         The vertical coordinate name (default: ``"z"``).
+    family : str | None, optional
+        The discretization family the component spaces resolve into
+        (FV-D3, stage F3): ``"fv"`` builds the analysis spaces on the
+        finite-volume C-grid (scalars on ``CellAvg``, velocities on
+        the faces), matching an FV nonhydro model; ``"nodal"`` the
+        point-value C-grid. ``None`` defers to the grid default. On an
+        FV grid the ``GridSymbols`` kit resolves ``diff`` / ``interp``
+        through the grid's FV C-grid profile (``FaceDifference`` /
+        ``FluxDifference``), whose symbols are bit-identical to the
+        nodal ones (scoping study §1) — so ``from_model`` on an FV
+        model builds FV-consistent eigenmodes without new numerics
+        (default: None).
     """
 
     def __init__(
         self, grid: Grid, *, f0: float, n2: float, dsqr: float,
-        vertical: str = "z",
+        vertical: str = "z", family: str | None = None,
     ) -> None:
         """Build the symbol kit and the per-axis operator diagonals."""
         if float(f0) == 0.0 and float(n2) == 0.0:
@@ -214,24 +227,24 @@ class Eigenmodes:
         # to the exact BC-free spaces.
         spaces = {
             "u": fr.spatial.Staggered(
-                x, wall_bc={z: BC.NEUMANN}).resolve(grid),
+                x, wall_bc={z: BC.NEUMANN}, family=family).resolve(grid),
             "v": fr.spatial.Staggered(
-                y, wall_bc={z: BC.NEUMANN}).resolve(grid),
+                y, wall_bc={z: BC.NEUMANN}, family=family).resolve(grid),
             "w": fr.spatial.Staggered(
-                z, wall_bc={z: BC.DIRICHLET}).resolve(grid),
+                z, wall_bc={z: BC.DIRICHLET}, family=family).resolve(grid),
             "b": fr.spatial.Collocated(
-                wall_bc={z: BC.DIRICHLET}).resolve(grid),
+                wall_bc={z: BC.DIRICHLET}, family=family).resolve(grid),
             "p": fr.spatial.Collocated(
-                wall_bc={z: BC.NEUMANN}).resolve(grid),
+                wall_bc={z: BC.NEUMANN}, family=family).resolve(grid),
         }
         # the model-facing physical spaces (u, v, b BC-free; w's
         # Dirichlet wall tag matches the Velocity declaration) —
         # identical to the kit spaces on a periodic grid
         self._physical: dict[str, SpaceLike] = {
-            "u": fr.spatial.Staggered(x).resolve(grid),
-            "v": fr.spatial.Staggered(y).resolve(grid),
+            "u": fr.spatial.Staggered(x, family=family).resolve(grid),
+            "v": fr.spatial.Staggered(y, family=family).resolve(grid),
             "w": spaces["w"],
-            "b": fr.spatial.Collocated().resolve(grid),
+            "b": fr.spatial.Collocated(family=family).resolve(grid),
         }
         kit = GridSymbols(grid, spaces)
         self._kit: GridSymbols = kit
@@ -1072,4 +1085,34 @@ def from_model(
         model.grid,
         f0=_read(fr.model.params.CORIOLIS_F0),
         n2=_read(fr.model.params.STRATIFICATION_N2),
-        dsqr=_read(DSQR))
+        dsqr=_read(DSQR),
+        family=_model_family(model))
+
+
+def _model_family(model: Model) -> str:
+    """
+    Read the discretization family off a model's velocity space.
+
+    Description
+    -----------
+    The eigenmode analysis spaces must match the model's own family
+    (FV-D3, stage F3): an FV nonhydro model carries its C-grid
+    velocities on ``CellAvg`` transverse factors, so a single
+    ``AverageSpace`` factor on the vertical velocity identifies the
+    finite-volume family. A nodal model has none.
+
+    Parameters
+    ----------
+    model : fr.model.Model
+        The assembled nonhydrostatic model.
+
+    Returns
+    -------
+    str
+        ``"fv"`` when the velocity carries an average factor, else
+        ``"nodal"``.
+    """
+    space = model.state["w"].function_space.bare
+    is_fv = any(isinstance(factor, AverageSpace)
+                for factor in space.factors)
+    return "fv" if is_fv else "nodal"

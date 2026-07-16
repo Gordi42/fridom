@@ -40,9 +40,210 @@ from fridom.spatial.operators.composed import (
     Divergence,
     Gradient,
 )
+from fridom.spatial.operators.flux_diff import (
+    FaceDifference,
+    FluxDifference,
+)
+from fridom.spatial.space_patterns import FAMILIES
 
 if TYPE_CHECKING:  # pragma: no cover
+    from collections.abc import Mapping
+
     from fridom.model.context import StepContext
+    from fridom.spatial.grid import Grid
+    from fridom.spatial.operators.base import Operator
+    from fridom.spatial.operators.registry import DispatchKey
+
+
+# ================================================================
+#  The FV C-grid family choice (FV-D3 / stage F3)
+# ================================================================
+def _fv_capable(grid: Grid) -> bool:
+    """
+    Whether ``grid`` can carry the periodic FV C-grid (FV-D2 A).
+
+    Description
+    -----------
+    The finite-volume nonhydro model is periodic-only at 2nd order
+    (scoping study §5, FV-D4/F5): every mesh factor must be periodic
+    (walls are the open FV-D4 design, stage F4) and the grid must be
+    unmapped and unimmersed (mapped/cut-cell FV is stage F5). A grid
+    meeting all three seeds the FV C-grid diff profile; anything else
+    stays on the validated nodal path.
+
+    Parameters
+    ----------
+    grid : Grid
+        The assembled grid.
+
+    Returns
+    -------
+    bool
+        True iff the grid is fully periodic, unmapped, unimmersed.
+    """
+    if getattr(grid, "mapping", None) is not None:
+        return False
+    if getattr(grid, "immersed", None) is not None:
+        return False
+    return all(getattr(mesh, "periodic", False)
+               for mesh in grid.factors)
+
+
+def _require_fv_capable(grid: Grid) -> None:
+    """
+    Raise the FV-deferral taught error on a non-capable grid.
+
+    Description
+    -----------
+    Explicit ``family="fv"`` (or a ``Grid(family="fv")`` default) on a
+    grid the FV C-grid cannot yet serve is a taught error, never a
+    silent fallback to nodal (the scoping study's FV-D4/F5 deferral).
+
+    Parameters
+    ----------
+    grid : Grid
+        The assembled grid.
+
+    Raises
+    ------
+    NotImplementedError
+        If the grid is walled, mapped, or immersed.
+    """
+    if _fv_capable(grid):
+        return
+    reasons = []
+    if any(not getattr(mesh, "periodic", False)
+           for mesh in grid.factors):
+        reasons.append(
+            "it has bounded (walled) axes — walled FV is stage F4 "
+            "(FV-D4, an open boundary-condition design)")
+    if getattr(grid, "mapping", None) is not None:
+        reasons.append(
+            "it carries a coordinate mapping — mapped / terrain-"
+            "following FV is stage F5")
+    if getattr(grid, "immersed", None) is not None:
+        reasons.append(
+            "it carries an immersed domain — cut-cell FV is stage F5")
+    raise NotImplementedError(
+        "family='fv' is the finite-volume nonhydro model (FV-D2 "
+        "option A: scalars on CellAvg, velocities on the C-grid "
+        "faces), which currently serves a fully periodic, unmapped, "
+        "unimmersed grid only. This grid cannot: "
+        + "; ".join(reasons)
+        + ". Keep this model family='nodal' (the validated walled / "
+        "mapped path), which at 2nd order is bit-identical on the "
+        "periodic interior anyway (scoping study §1).")
+
+
+def fv_cgrid_overrides(
+    meshes: tuple,
+) -> dict[DispatchKey, Operator]:
+    r"""
+    Build the FV C-grid ``diff`` override profile (FV-D3, stage F3).
+
+    Description
+    -----------
+    Re-points the vector-calculus ``("diff", factor)`` resolution so
+    that ``grad`` / ``div`` / ``laplacian`` stagger on the average
+    family exactly as the nodal C-grid does on the point-value family
+    (scoping study §5 FV-D3): the cell-average pressure gradient
+    staggers onto the face (``("diff", CellAvg) -> FaceDifference``,
+    ``CellAvg -> Right``) and the face-flux divergence lands back on
+    the cell (``("diff", Right) -> FluxDifference``, ``Right ->
+    CellAvg``). Because the two 2nd-order stencils are bit-identical
+    to the nodal ``Center -> Right`` / ``Right -> Center`` numbers
+    (scoping study §1), the whole family-agnostic model — the
+    ``Div @ Diag @ Grad`` pressure chain included — then runs on the
+    FV C-grid unchanged, at bitwise parity with the nodal model.
+
+    The complementary *interpolation* staggering is not overridden
+    here: ``("interpolate", CellAvg) -> Right`` is already the seeded
+    reconstruct row (G4), and the face-to-cell leg the symbol kit
+    needs (``Right -> CellAvg``) is inferred per field by
+    ``GridSymbols`` (an average-family field routes an interpolate on
+    a nodal-face factor through the ``"average"`` reconstruct kind), so
+    the global ``("interpolate", Right)`` row stays the nodal
+    ``Right -> Center`` — which the mixed corner (a nodal scalar on an
+    FV grid) still relies on for ``.to``.
+
+    The overrides key the periodic face (``Right``); an FV C-grid is
+    periodic-only at 2nd order (:func:`_require_fv_capable`), so no
+    bounded ``Inner`` row is produced. The nodal ``("diff", Right) ->
+    Center`` chain is deliberately *not* touched — it is overridden
+    only on the FV-family grid, so a nodal model keeps its resolution.
+
+    Parameters
+    ----------
+    meshes : tuple
+        The grid's mesh factors (``grid.factors``).
+
+    Returns
+    -------
+    dict[DispatchKey, Operator]
+        The ``{("diff", cell_avg): FaceDifference(),
+        ("diff", right): FluxDifference()}`` profile, per mesh factor.
+    """
+    face_diff = FaceDifference()
+    flux_diff = FluxDifference()
+    overrides: dict[DispatchKey, Operator] = {}
+    for mesh in meshes:
+        try:
+            cell_avg = mesh.cell_avg
+            face = mesh.right
+        except (AttributeError, ValueError, NotImplementedError):
+            continue  # a mesh without the FV / periodic-face family
+        overrides[("diff", cell_avg)] = face_diff
+        overrides[("diff", face)] = flux_diff
+    return overrides
+
+
+def resolve_model_family(family: str | None, grid: Grid) -> str:
+    r"""
+    Resolve a model-assembly family choice against the grid (F3).
+
+    Description
+    -----------
+    The nonhydro model-assembly family (``nh.Model(family=...)`` /
+    ``DynamicalCore(family=...)``, scoping study §8): ``None`` is the
+    **auto** default — it follows the grid's own ``default_family``,
+    and *promotes* the ``"nodal"`` grid default to ``"fv"`` whenever
+    the grid can carry the periodic FV C-grid (:func:`_fv_capable`).
+    This is the flip: a plain periodic nonhydro model is finite-volume
+    by default, safe because the 2nd-order stencils are bit-identical
+    to nodal (scoping study §1). A walled or mapped grid stays
+    ``"nodal"`` (the validated path). An explicit ``"fv"`` on a
+    non-capable grid is a taught error, never a silent fallback.
+
+    Parameters
+    ----------
+    family : str | None
+        The requested family, or None for the auto default.
+    grid : Grid
+        The assembled grid the model runs on.
+
+    Returns
+    -------
+    str
+        The resolved concrete family (``"nodal"`` or ``"fv"``).
+
+    Raises
+    ------
+    ValueError
+        If ``family`` is neither None nor a known family name.
+    NotImplementedError
+        If the resolved family is ``"fv"`` on a non-capable grid.
+    """
+    if family is None:
+        family = getattr(grid, "default_family", "nodal")
+        if family == "nodal" and _fv_capable(grid):
+            family = "fv"
+    if family not in FAMILIES:
+        raise ValueError(
+            f"the model family must be one of {FAMILIES} or None "
+            f"(auto), got {family!r}")
+    if family == "fv":
+        _require_fv_capable(grid)
+    return family
 
 
 @partial(jaxify, dynamic=("dsqr", "rossby"))
@@ -82,6 +283,18 @@ class DynamicalCore(fr.model.Module):
         (CS-D2); consumed only on a grid whose coordinate mapping
         declares a mapped column — the flat spectral solve is exact
         and iterates nothing (default: 30).
+    family : str | None, optional
+        The discretization family of the whole core state (FV-D3,
+        stage F3): ``"fv"`` declares ``u, v, w, p`` on the
+        finite-volume C-grid (scalars on ``CellAvg``, velocities on
+        the point-value faces — FV-D2 option A) and seeds the FV
+        C-grid ``diff`` profile so the pressure chain staggers on the
+        average family; ``"nodal"`` is the point-value C-grid. ``None``
+        defers to the grid-level default (``grid.default_family``), so
+        an explicitly assembled core follows the grid. The
+        ``nh.Model`` factory resolves the flip (a periodic grid
+        promotes ``None`` to ``"fv"``); an explicit ``"fv"`` on a
+        walled or mapped grid is a taught error (default: None).
     """
 
     state_type = State
@@ -96,33 +309,100 @@ class DynamicalCore(fr.model.Module):
         coords: tuple[str, ...] = ("x", "y", "z"),
         single_precision_solve: bool = False,
         pressure_iterations: int = 30,
+        family: str | None = None,
     ) -> None:
         """Store the core parameter leaves and the geometry names."""
+        if family is not None and family not in FAMILIES:
+            raise ValueError(
+                f"family must be one of {FAMILIES} or None, got "
+                f"{family!r}")
         self.dsqr = fr.model.leaf(dsqr)
         self.rossby = fr.model.leaf(rossby_number)
         self._vertical = vertical
         self._coords = coords
         self._single_precision_solve = bool(single_precision_solve)
         self._pressure_iterations = pressure_iterations
+        self._family = family
 
     # ================================================================
     #  Field declarations
     # ================================================================
-    field_declarations = (
-        fr.model.FieldDeclaration.velocity(
-            "u", "x", space=fr.spatial.Staggered("x"),
-            long_name="Zonal velocity", units="m/s"),
-        fr.model.FieldDeclaration.velocity(
-            "v", "y", space=fr.spatial.Staggered("y"),
-            long_name="Meridional velocity", units="m/s"),
-        fr.model.FieldDeclaration.velocity(
-            "w", "z", space=fr.spatial.Staggered("z"),
-            long_name="Vertical velocity", units="m/s"),
-        fr.model.FieldDeclaration(
-            "p", space=fr.spatial.Collocated(),
-            lifecycle=fr.model.Lifecycle.DIAGNOSTIC,
-            long_name="Pressure", units="m^2/s^2"),
-    )
+    @property
+    def field_declarations(
+        self,
+    ) -> tuple[fr.model.FieldDeclaration, ...]:
+        """Declare ``u, v, w, p`` on the requested family (FV-D3).
+
+        Description
+        -----------
+        The velocity trio stays on the C-grid faces on both families
+        (``Staggered`` -> ``Right`` under nodal and FV alike, FV-D2
+        option A); ``p`` is the collocated cell scalar (``Center``
+        nodal, ``CellAvg`` under ``family="fv"``). ``self._family`` is
+        None (defer to the grid default) unless the factory / user
+        pinned it.
+        """
+        family = self._family
+        return (
+            fr.model.FieldDeclaration.velocity(
+                "u", "x", space=fr.spatial.Staggered("x", family=family),
+                long_name="Zonal velocity", units="m/s"),
+            fr.model.FieldDeclaration.velocity(
+                "v", "y", space=fr.spatial.Staggered("y", family=family),
+                long_name="Meridional velocity", units="m/s"),
+            fr.model.FieldDeclaration.velocity(
+                "w", "z", space=fr.spatial.Staggered("z", family=family),
+                long_name="Vertical velocity", units="m/s"),
+            fr.model.FieldDeclaration(
+                "p", space=fr.spatial.Collocated(family=family),
+                lifecycle=fr.model.Lifecycle.DIAGNOSTIC,
+                long_name="Pressure", units="m^2/s^2"),
+        )
+
+    # ================================================================
+    #  The FV C-grid diff profile (grid-aware dispatch hook, F3)
+    # ================================================================
+    def grid_dispatch_overrides(
+        self, grid: Grid,
+    ) -> Mapping[DispatchKey, Operator]:
+        r"""
+        Contribute the FV C-grid ``diff`` profile when family='fv'.
+
+        Description
+        -----------
+        The grid-aware twin of the static ``dispatch`` attribute
+        (consumed at assembly step 3, so it applies to preset *and*
+        explicit assembly): when the resolved family is ``"fv"`` it
+        merges the per-mesh-factor ``("diff", CellAvg) ->
+        FaceDifference`` / ``("diff", Right) -> FluxDifference``
+        overrides (:func:`fv_cgrid_diff_overrides`), so ``grad`` /
+        ``div`` / ``laplacian`` — the pressure chain — stagger on the
+        average family. Keyed on per-factor spaces (which a
+        ``SpacePattern`` cannot express), it needs the grid; the
+        static ``dispatch`` attribute cannot build it.
+
+        The family resolves as the declarations do —
+        ``self._family`` or the grid default — so the profile is on
+        exactly the grids whose ``u, v, w, p`` landed on ``CellAvg``.
+        An FV family on a non-capable (walled / mapped / immersed)
+        grid is a taught error here, never a silent nodal fallback.
+
+        Parameters
+        ----------
+        grid : Grid
+            The assembled grid the model runs on.
+
+        Returns
+        -------
+        Mapping[DispatchKey, Operator]
+            The FV C-grid diff overrides (empty on a nodal model).
+        """
+        family = (self._family if self._family is not None
+                  else getattr(grid, "default_family", "nodal"))
+        if family != "fv":
+            return {}
+        _require_fv_capable(grid)
+        return fv_cgrid_overrides(grid.factors)
 
     # ================================================================
     #  Parameters -- dsqr and the Rossby number live on the core

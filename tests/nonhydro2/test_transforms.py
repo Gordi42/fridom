@@ -163,7 +163,10 @@ def test_projections_carry_the_staggered_signature():
     assert sig.names == COMPONENTS
     assert proj.modes == (0,)
     # each component on its OWN physical space: u/v/w face-staggered,
-    # b collocated (bare spaces are interned, == is identity)
+    # b collocated (bare spaces are interned, == is identity). The
+    # default periodic model is finite-volume (F3): the factory flips
+    # the grid default to "fv", so a bare Staggered/Collocated pattern
+    # resolves to the FV C-grid spaces the eigenmodes carry
     grid = model.grid
     spaces = dict(sig.components)
     assert spaces["u"] == fr.spatial.Staggered("x").resolve(grid).bare

@@ -32,10 +32,12 @@ from fridom.spatial.operators.base import Identity
 from fridom.spatial.operators.mixed import resolve_transform
 from fridom.spatial.operators.realized import BoundTransform
 from fridom.spatial.operators.symbol import _reindex
+from fridom.spatial.spaces.average import AverageSpace
 from fridom.spatial.spaces.coefficient import (
     CosineSpace,
     SineSpace,
 )
+from fridom.spatial.spaces.nodal import NodalSpace
 
 if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Mapping
@@ -229,9 +231,32 @@ class GridSymbols:
         return name
 
     def _axis_symbol(self, kind: str, axis: str, on: str) -> Symbol:
-        """Resolve ``kind`` on the factor, query on the coeff space."""
+        """Resolve ``kind`` on the factor, query on the coeff space.
+
+        Description
+        -----------
+        FV C-grid staggering (FV-D3, stage F3): an ``"interpolate"``
+        along a **nodal face** factor of an **average-family** field
+        (a C-grid velocity, ``CellAvg`` transverse ⊗ ``Right`` normal)
+        must land on the cell average (``Right -> CellAvg``), matching
+        the ``FluxDifference`` diff leg — so the symbol composes with
+        the average-origin cell symbols. That is the ``"average"``
+        reconstruct kind, not the nodal ``("interpolate", Right) ->
+        Center`` row (which the global registry keeps, since a nodal
+        scalar's ``.to`` on the same grid still needs it). The
+        redirect is inferred per field, so no grid override is
+        required and the mixed corner is untouched. Nodal fields (no
+        average factor) and average-origin factors (the ``G4``
+        ``("interpolate", CellAvg) -> Right`` row) are unaffected.
+        """
         grid = self._grid
-        factor = self._spaces[self._known(on)].factor(axis)
+        space = self._spaces[self._known(on)]
+        factor = space.factor(axis)
+        if (kind == "interpolate"
+                and isinstance(factor, NodalSpace)
+                and any(isinstance(fac, AverageSpace)
+                        for fac in space.factors)):
+            kind = "average"
         op = grid.dispatch.resolve(kind, factor)
         return op[axis].eigenvalues(grid, self.coeff(on))
 

@@ -73,6 +73,7 @@ from fridom.model.time_dependent import (
 from fridom.spatial.decomposition.halo import HaloSpec
 from fridom.spatial.fields.scalar_field import ScalarField
 from fridom.spatial.fields.vector_field import VectorField
+from fridom.spatial.operators.registry import check_override_key
 from fridom.spatial.space_patterns import (
     SpacePattern,
     SpaceRule,
@@ -1655,12 +1656,20 @@ def assemble(
 
     # -- step 3: dispatch merge (before bind/dry-run/negotiate) --
     overrides = _collect_dispatch_overrides(modules, grid)
-    if overrides:
+    if not frozen_before:
+        # the exactly-once merge moment: empty overrides still bakes
+        # the Dispatched holes against the defaults; non-empty layers
+        # the module / grid-aware profiles on top
         grid.merge_overrides(overrides)
-    elif not frozen_before:
-        # the exactly-once merge moment of a first, override-free
-        # model (bakes Dispatched holes against the defaults)
-        grid.merge_overrides({})
+    elif overrides:
+        # a second model on an already-frozen grid cannot re-merge
+        # (merge_overrides is assembly-phase only). The first assembly
+        # baked the profile; verify the frozen registry already
+        # carries every override this model demands, else it would run
+        # on the wrong dispatch (e.g. an FV model on a grid frozen
+        # nodal by an earlier model — assemble the most demanding /
+        # same-family model first, or give each model its own grid)
+        _verify_frozen_overrides(grid, overrides)
 
     # -- step 4: bind, module order ------------------------------
     bind_table = _BindTable(table, BindParameterView({
@@ -1790,22 +1799,81 @@ def _collect_dispatch_overrides(
     -----------
     Builds the per-module form ``{module label: {key: op}}`` that
     ``grid.merge_overrides`` consumes (same resolved key from two
-    modules raises ``DispatchCollisionError`` naming both).
+    modules raises ``DispatchCollisionError`` naming both). Two
+    sources per module: the static ``dispatch`` attribute, whose
     ``(kind, SpacePattern)`` keys are resolved through the step-1
-    ``("declared_space", mesh)`` resolvers into ``(kind, space)``;
-    a ``SpaceRule`` key is rejected (rules are identity-hashed
-    behavior, never dispatch keys).
+    ``("declared_space", mesh)`` resolvers into ``(kind, space)``
+    (a ``SpaceRule`` key is rejected — rules are identity-hashed
+    behavior, never dispatch keys); and the optional grid-aware
+    ``grid_dispatch_overrides(grid)`` hook, whose entries are already
+    keyed on concrete factor spaces (a per-mesh-factor profile a
+    ``SpacePattern`` cannot express — e.g. the FV C-grid ``diff``
+    rows). A key contributed by both sources of one module collides.
     """
     collected: dict[str, dict] = {}
     for slot, module in enumerate(modules):
-        entries = getattr(module, "dispatch", None)
-        if not entries:
-            continue
         label = _module_label(slot, module)
-        collected[label] = {
-            _resolve_dispatch_key(key, grid, label): op
-            for key, op in entries.items()}
+        entries: dict = {}
+        for key, op in (getattr(module, "dispatch", None) or {}).items():
+            entries[_resolve_dispatch_key(key, grid, label)] = op
+        builder = getattr(module, "grid_dispatch_overrides", None)
+        if callable(builder):
+            for key, op in dict(builder(grid)).items():
+                nkey = _resolve_dispatch_key(key, grid, label)
+                if nkey in entries:
+                    raise AssemblyError(
+                        f"{label}: dispatch key {nkey!r} is "
+                        "contributed by both the dispatch attribute "
+                        "and grid_dispatch_overrides")
+                entries[nkey] = op
+        if entries:
+            collected[label] = entries
     return collected
+
+
+def _verify_frozen_overrides(
+    grid: Grid,
+    overrides: dict[str, dict],
+) -> None:
+    """
+    Verify a frozen grid already carries the demanded overrides.
+
+    Description
+    -----------
+    ``merge_overrides`` is assembly-phase only, so a second model on
+    an already-frozen grid cannot re-merge its dispatch profile. This
+    checks that the frozen registry resolves every demanded override
+    key to the *same* operator the first assembly baked (operators are
+    interned, so identity is the exact test); a missing or differing
+    entry means the frozen grid was built by a model with different
+    dispatch needs (e.g. a nodal model on a grid a later FV model
+    would demand the FV C-grid profile from), which would otherwise
+    run silently on the wrong stencils.
+
+    Parameters
+    ----------
+    grid : Grid
+        The already-frozen grid.
+    overrides : dict[str, dict]
+        The per-module overrides this model demands.
+
+    Raises
+    ------
+    AssemblyError
+        If the frozen grid lacks a demanded override.
+    """
+    problems: list[str] = []
+    for label, entries in overrides.items():
+        for key, op in entries.items():
+            nkey = check_override_key(key)
+            if nkey not in grid.dispatch or grid.dispatch[nkey] is not op:
+                problems.append(f"{label}: {nkey!r}")
+    if problems:
+        raise AssemblyError(
+            "the frozen grid does not carry the dispatch overrides "
+            "this model demands (assemble the most demanding / "
+            "same-family model first, or give each model its own "
+            "grid):\n  " + "\n  ".join(problems))
 
 
 def _resolve_dispatch_key(

@@ -15,7 +15,10 @@ from typing import TYPE_CHECKING
 
 import fridom as fr
 from fridom.nonhydro2.modules.advection import CenteredAdvection
-from fridom.nonhydro2.modules.core import DynamicalCore
+from fridom.nonhydro2.modules.core import (
+    DynamicalCore,
+    resolve_model_family,
+)
 from fridom.nonhydro2.modules.stratification import (
     ConstantStratification,
 )
@@ -41,6 +44,7 @@ def Model(  # noqa: N802 — a factory that mirrors fr.model.Model's surface
     time_stepper: TimeStepper | None = None,
     dt: float = 1.0,
     single_precision_solve: bool = False,
+    family: str | None = None,
     name: str | None = None,
     **kwargs: object,
 ) -> _Model:
@@ -94,6 +98,19 @@ def Model(  # noqa: N802 — a factory that mirrors fr.model.Model's surface
         forwarded to ``DynamicalCore`` (see its
         ``single_precision_solve`` doc). Off by default
         (default: False).
+    family : str | None, optional
+        The discretization family of the whole model (FV-D3, stage
+        F3): ``"fv"`` is the finite-volume C-grid (scalars on
+        ``CellAvg``, velocities on the faces — FV-D2 option A),
+        ``"nodal"`` the point-value C-grid. ``None`` is the auto
+        default: **``"fv"`` on a fully periodic, unmapped, unimmersed
+        grid, ``"nodal"`` otherwise** — so a plain periodic nonhydro
+        model is finite-volume by default, at bitwise parity with the
+        nodal model (scoping study §1). The family threads to every
+        field (``u, v, w, p`` and the default stratification's ``b``)
+        and seeds the FV C-grid ``diff`` profile. An explicit
+        ``"fv"`` on a walled or mapped grid is a taught error (walled
+        FV is stage F4, mapped FV stage F5) (default: None).
     name : str | None, optional
         Model name (default: None).
     **kwargs : object
@@ -104,6 +121,15 @@ def Model(  # noqa: N802 — a factory that mirrors fr.model.Model's surface
     fr.model.Model
         The assembled model.
     """
+    # resolve the model family against the grid and adopt it as the
+    # grid's default (auto-flip: a periodic / unmapped / unimmersed
+    # grid promotes None -> "fv"). Every family=None field of the
+    # model — u/v/w/p, the default b, and any user tracer — then
+    # follows uniformly, so an FV model has no accidental nodal field
+    # (only an explicit family="nodal" is the documented mixed corner).
+    # An explicit "fv" on a walled / mapped grid is a taught error.
+    resolved = resolve_model_family(family, grid)
+    grid.set_default_family(resolved)
     if stratification is None:
         stratification = ConstantStratification(n2=1.0)
     if advection is True:

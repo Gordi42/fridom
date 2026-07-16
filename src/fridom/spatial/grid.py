@@ -342,6 +342,49 @@ class Grid:
         """
         return self._default_family
 
+    def set_default_family(self, family: str) -> None:
+        """
+        Set the grid-level default family (assembly phase; FV-D3).
+
+        Description
+        -----------
+        The pre-freeze mutation a model assembly uses to make the
+        grid's declared patterns resolve into a chosen family (stage
+        F3): the nonhydro model factory flips a periodic grid to
+        ``"fv"`` here, so every ``family=None`` field of the model
+        (velocities, pressure, tracers) follows uniformly — an FV
+        model has no accidental nodal field. Parallel to
+        ``merge_overrides`` (both are assembly-phase grid mutations);
+        on a frozen grid it is a no-op when the family is unchanged
+        and raises otherwise (the family was fixed by an earlier
+        model).
+
+        Parameters
+        ----------
+        family : str
+            The family to adopt (``"nodal"`` or ``"fv"``).
+
+        Raises
+        ------
+        ValueError
+            If ``family`` is not a known family name.
+        GridFrozenError
+            If the grid is frozen and ``family`` differs from the
+            recorded default.
+        """
+        if family not in FAMILIES:
+            raise ValueError(
+                f"the grid-level default family must be one of "
+                f"{FAMILIES}, got {family!r}")
+        if self._frozen:
+            if family == self._default_family:
+                return
+            raise GridFrozenError(
+                "the grid is frozen; set_default_family is legal in "
+                "the assembly phase only (an earlier model fixed the "
+                f"family to {self._default_family!r})")
+        self._default_family = family
+
     # ================================================================
     #  Operator dispatch (seam: registry class owned by the
     #  operators cluster; the grid owns the instance)
