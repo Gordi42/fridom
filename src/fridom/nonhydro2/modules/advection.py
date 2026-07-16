@@ -186,6 +186,7 @@ import inspect
 from functools import cache
 from typing import TYPE_CHECKING, ClassVar, Literal, final
 
+import jax.numpy as jnp
 import numpy as np
 
 import fridom as fr
@@ -197,8 +198,13 @@ from fridom.spatial.fields.scalar_field import (
     _bc_siblings,  # the BC-sibling seam of retag/.to
 )
 from fridom.spatial.operators.base import (
+    Operator,
     OperatorRequirements,
     SeparableOperator,
+    _ensure_valid,
+    _finalize,
+    _required_halo,
+    resolve_codomain,
 )
 from fridom.spatial.operators.graded import (
     WALL_RUNGS,
@@ -224,6 +230,8 @@ from fridom.spatial.operators.staggering import (
 )
 from fridom.spatial.operators.weno import (
     _shu_row,  # the exact-rational coefficient seam
+    _weno_combine,  # the shared nonlinear-weight reduction
+    _window_views,  # the union-window slicer of the selected kernel
     weno_reconstruct,
     weno_tables,
 )
@@ -1112,6 +1120,238 @@ class _BiasedFaceReconstruction(SeparableOperator):
                  _rung_kernel(spec, bias, weighting))
             for spec in biased_specs(order, shift, self._wall))
         return apply_graded_walls(f, axis, interior, rungs, shift)
+
+
+@final
+@interned
+class _SelectedFaceReconstruction(Operator):
+
+    """
+    WENO selected-input upwind face reconstruction (module-private).
+
+    Description
+    -----------
+    The one-pass reformulation of the WENO upwind flux value that
+    `WENOAdvection._face_value` installs in place of "reconstruct BOTH
+    biases, then ``Where``-select the results" (design
+    ``research/stencil_lowering.md`` §6). It reads two operands — the
+    sign carrier ``positive = v_face + |v_face|`` (on the flux face
+    space) and the advected quantity ``q`` (on the cell frame) — and
+    runs a SINGLE left-biased WENO reconstruction of the sign-selected
+    union window.
+
+    The mirror identity ``recon_right(U) == recon_left(reversed U)``
+    (exact for the WENO tables, ``operators.weno``) moves the per-face
+    upwind choice to the stencil *inputs*: over the ``order + 1`` cell
+    union window ``U`` straddling each output face, tap ``i`` is
+    ``where(v_face > 0, U[i], U[order - i])`` for ``i = 0 .. order -
+    1`` (ties at ``v_face == 0`` take the right-biased side, old-stack
+    parity), and one left reconstruction of the taps is the upwind
+    value. The nonlinear-weight arithmetic (smoothness indicators,
+    ``order // 2 + 1`` divides per candidate) then runs ONCE, not once
+    per bias — measured -39% at 256^3 / -46% at 512^3, exact to
+    reversed-summation ulps. The LINEAR upwind path is left on the
+    both-then-select spelling (no divides to save; measured slower
+    one-path, §6), so this is a WENO-only override.
+
+    The union window's per-side reach equals the biased pair's, so the
+    halo demand is unchanged (``order // 2 + 1``): the operator holds
+    the interned left `_BiasedFaceReconstruction` and delegates the
+    signature, the halo-negotiation trace and the codomain plumbing to
+    it (the union kernel's frame *is* that reconstruction's). On a
+    bounded (walled) axis only the interior faces take the tap-select;
+    the ``K`` faces adjacent to each wall keep the exact both-ladders
+    ``Where`` selection (the ladders are ``O(halo)`` slivers, so no
+    reconstruction pass is saved there and the byte-identical spelling
+    is the cheapest correct one). On a periodic axis no ladder runs —
+    the fast path is bitwise the interior tap-select.
+
+    Purity: static structure only (order / boundary / wall; the
+    weighting is implicitly ``"weno"``), no Python-side state, and the
+    sole ``where`` on the sign is smooth arithmetic — safe in the
+    jit-compiled ``mset.tendencies`` container.
+
+    Parameters
+    ----------
+    order : int
+        The odd formal WENO order (the framework tables ground 3, 5).
+    boundary : Literal["none", "graded"], optional
+        "none" is the periodic-only kernel; "graded" adds the bounded
+        near-wall ladder selection (default: "none").
+    wall : Literal["upwind1", "centered2"], optional
+        The ladder's bottom rung under ``boundary="graded"`` (default:
+        "upwind1"; inert on the periodic kernel).
+    """
+
+    dispatch_kind: ClassVar[str | None] = None
+
+    def __init__(
+        self,
+        order: int,
+        boundary: Literal["none", "graded"] = "none",
+        wall: Literal["upwind1", "centered2"] = "upwind1",
+    ) -> None:
+        """Hold the interned left WENO reconstruction of the same frame."""
+        self._recon = _BiasedFaceReconstruction(
+            order, "left", "weno", boundary, wall)
+        self._order = order
+        self._boundary = boundary
+        self._wall = wall
+
+    def _intern_key(self) -> tuple:
+        """Structural key: order, boundary, wall (weighting is weno; D6)."""
+        return (self._order, self._boundary, self._wall)
+
+    # ------------------------------------------------------------
+    #  Properties
+    # ------------------------------------------------------------
+    @property
+    def order(self) -> int:
+        """Formal order of the selected-input reconstruction."""
+        return self._order
+
+    @property
+    def boundary(self) -> Literal["none", "graded"]:
+        """The boundary variant: "none" or "graded"."""
+        return self._boundary
+
+    @property
+    def wall(self) -> Literal["upwind1", "centered2"]:
+        """The ladder's bottom rung: "upwind1" or "centered2"."""
+        return self._wall
+
+    # ------------------------------------------------------------
+    #  Signature and requirements (delegated to the left kernel)
+    # ------------------------------------------------------------
+    def codomain(self, domain: FunctionSpace) -> FunctionSpace:
+        """Resolve the C-grid face codomain (the left kernel's).
+
+        Parameters
+        ----------
+        domain : FunctionSpace
+            The bare 1D factor space of the advected quantity.
+
+        Returns
+        -------
+        FunctionSpace
+            The flux-position codomain factor.
+        """
+        return self._recon.codomain(domain)
+
+    def requirements(
+        self, domain: FunctionSpace,
+    ) -> OperatorRequirements:
+        """Declare halo = order // 2 + 1 (the union window's reach).
+
+        Parameters
+        ----------
+        domain : FunctionSpace
+            The factor space the operator is applied on.
+
+        Returns
+        -------
+        OperatorRequirements
+            The per-factor requirements record (the left kernel's).
+        """
+        return self._recon.requirements(domain)
+
+    # ------------------------------------------------------------
+    #  Kernel application (union-window tap select)
+    # ------------------------------------------------------------
+    def __call__(
+        self,
+        positive: FieldLike,
+        q: FieldLike,
+        axis: str,
+        flux_space: object,
+    ) -> FieldLike:
+        """
+        Selected-input reconstruction of ``q`` (sign carrier ``positive``).
+
+        Description
+        -----------
+        The halo-negotiation trace (``HaloTracer`` operands, no
+        ``_data``) delegates to the left reconstruction: the union
+        window's per-side reach equals it, so the recorded demand and
+        the returned codomain tracer are exactly the biased left
+        kernel's (faithful, unchanged width). Real operands run the
+        union tap-select interior pass through the SAME
+        ``apply_fv_staggered`` plumbing as the reconstruction (its
+        codomain, alignment ``m0 = order // 2 + shift`` and halo
+        accounting), then, on a bounded axis, restore the ``K`` wall
+        faces per side from the two graded ladders under the same sign
+        select.
+
+        Parameters
+        ----------
+        positive : FieldLike
+            The sign carrier ``v_face + |v_face|`` on ``flux_space``
+            (nonzero exactly where the face velocity is positive).
+        q : FieldLike
+            The advected quantity, on the cell frame.
+        axis : str
+            The advection axis.
+        flux_space : object
+            The flux (control-volume face) space the result adopts.
+
+        Returns
+        -------
+        FieldLike
+            The upwind-biased WENO face value of ``q``, on
+            ``flux_space``.
+        """
+        left_op = self._recon[axis]
+        if (getattr(q, "_trace_apply", None) is not None
+                or getattr(positive, "_trace_apply", None)
+                is not None):
+            return left_op(q).retag(flux_space)
+        order = self._order
+        u_size = order + 1
+        domain = q.function_space.bare.factor(axis)
+        shift = _wall_shift(domain)
+        m0 = biased_offset(order, "left") + shift
+        tables = weno_tables(order, "left")
+        pos_data = positive._data  # noqa: SLF001 — storage seam
+
+        def kernel(storage: Array, axis_index: int) -> Array:
+            wins = _window_views(storage, axis_index, u_size)
+            length = wins[0].shape[axis_index]
+            index = [slice(None)] * pos_data.ndim
+            index[axis_index] = slice(m0, m0 + length)
+            pos = pos_data[tuple(index)]
+            taps = tuple(
+                jnp.where(pos, wins[i], wins[order - i])
+                for i in range(order))
+            return _weno_combine(taps, tables)
+
+        codomain = resolve_codomain(left_op, q.function_space)
+        q = _ensure_valid(
+            q, _required_halo(left_op, q.function_space))
+        interior = apply_fv_staggered(
+            left_op, q, axis, u_size, kernel,
+            metadata=q.metadata, align=m0)
+        interior = _finalize(q, interior, codomain)
+        if self._boundary == "none" or domain.mesh.periodic:
+            return interior.retag(flux_space)
+        left_walls = apply_graded_walls(
+            q, axis, interior, self._rungs(order, shift, "left"),
+            shift)
+        right_walls = apply_graded_walls(
+            q, axis, interior, self._rungs(order, shift, "right"),
+            shift)
+        return Where()(positive,
+                       left_walls.retag(flux_space),
+                       right_walls.retag(flux_space))
+
+    def _rungs(
+        self, order: int, shift: int,
+        bias: Literal["left", "right"],
+    ) -> tuple[Rung, ...]:
+        """Build one wall side's biased graded ladder (WENO rungs)."""
+        return tuple(
+            Rung(spec.width, spec_offset(spec, bias),
+                 _rung_kernel(spec, bias, "weno"))
+            for spec in biased_specs(order, shift, self._wall))
 
 
 # ================================================================
@@ -2293,3 +2533,73 @@ class WENOAdvection(UpwindAdvection):
     """
 
     _weighting: ClassVar[Literal["linear", "weno"]] = "weno"
+
+    def _install_kernels(
+        self, boundary: Literal["none", "graded"],
+    ) -> None:
+        """Build the biased pair, then the selected-input reconstruction.
+
+        Description
+        -----------
+        Extends `UpwindAdvection._install_kernels` with the WENO
+        one-pass kernel `_SelectedFaceReconstruction` (order / boundary
+        / wall matched to the biased `_left` pair it supersedes in
+        `_face_value`); the linear background pair (`_lin_left` /
+        `_lin_right`) and the velocity interpolation stay as the base
+        builds them, so the linear paths are byte-identical.
+
+        Parameters
+        ----------
+        boundary : Literal["none", "graded"]
+            The variant to install (see the base method).
+        """
+        super()._install_kernels(boundary)
+        wall = self._wall if boundary == "graded" else "upwind1"
+        self._selected = _SelectedFaceReconstruction(
+            self._order, boundary, wall)
+
+    def _face_value(
+        self,
+        q: ScalarField,
+        v_face: ScalarField,
+        axis: str,
+        flux_space: object,
+    ) -> ScalarField:
+        """
+        WENO upwind face value via the selected-input reconstruction.
+
+        Description
+        -----------
+        The one-pass override of `UpwindAdvection._face_value` (design
+        ``research/stencil_lowering.md`` §6): ``positive = v_face +
+        |v_face|`` is nonzero exactly where the face velocity is
+        positive (ties at zero take the right-biased side, old-stack
+        parity), and `_SelectedFaceReconstruction` selects the union
+        window taps on that sign before ONE left WENO reconstruction —
+        exact to reversed-summation ulps against the both-then-select
+        pair, and roughly -40% on the WENO step (the nonlinear weights
+        run once, not once per bias). Only WENO overrides here: the
+        linear `UpwindAdvection._face_value` keeps the both-then-select
+        spelling (no divides to save, measured slower one-path), and
+        the linear background `_linear_face_value` is inherited
+        unchanged.
+
+        Parameters
+        ----------
+        q : ScalarField
+            The advected quantity.
+        v_face : ScalarField
+            The advecting velocity component on the flux space.
+        axis : str
+            The advection axis.
+        flux_space : object
+            The flux (control-volume face) space of ``q`` along
+            ``axis``.
+
+        Returns
+        -------
+        ScalarField
+            The WENO upwind-biased face value of ``q``.
+        """
+        positive = v_face + abs(v_face)
+        return self._selected(positive, q, axis, flux_space)
