@@ -1231,13 +1231,15 @@ def _bc_siblings(src: FunctionSpace, dst: FunctionSpace) -> bool:
 
     Description
     -----------
-    The sibling relation of the retag seam: identical node-set
-    class, mesh, shape, and scalars. Under mesh interning two
-    *distinct* bare nodal factors agreeing on all of these can only
-    differ in their BC structure, so no explicit ``bc`` comparison
-    is needed. Restricted to nodal factors — only nodal spaces
-    carry retaggable BC tags (a coefficient factor's BC lives in
-    its origin).
+    The sibling relation of the retag seam: identical space class,
+    mesh, shape, and scalars. Under mesh interning two *distinct*
+    bare factors agreeing on all of these can only differ in their
+    BC structure, so no explicit ``bc`` comparison is needed.
+    Restricted to nodal **and average** factors — both now carry
+    retaggable BC tags (a Neumann/Dirichlet ``CellAvg`` origin keeps
+    shape ``(n,)``, so ``div.retag(neumann_cellavg_sibling)`` in the
+    walled FV pressure solve is a pure BC-tag swap), while a
+    coefficient factor's BC lives in its origin and is not retagged.
 
     Parameters
     ----------
@@ -1251,7 +1253,7 @@ def _bc_siblings(src: FunctionSpace, dst: FunctionSpace) -> bool:
     bool
         True iff the factors are BC-siblings.
     """
-    return (isinstance(src, NodalSpace)
+    return (isinstance(src, NodalSpace | AverageSpace)
             and type(src) is type(dst)
             and src.mesh is dst.mesh
             and src.shape == dst.shape

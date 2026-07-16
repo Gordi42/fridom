@@ -25,14 +25,14 @@ LENGTH = 5.0
 N = 16
 
 
-def _make_model(*, periodic_z):
+def _make_model(*, periodic_z, family=None):
     grid = Grid(tuple(
         IntervalMesh(N, (0.0, LENGTH), periodic=periodic, name=name)
         for name, periodic in (("x", True), ("y", True),
                                ("z", periodic_z))))
     model = nh.Model(grid=grid, dt=0.02, advection=False,
-                     coriolis=FPlaneCoriolis(f0=1.0))
-    model.set_fields(u=np.ones((N, N, N)))
+                     coriolis=FPlaneCoriolis(f0=1.0), family=family)
+    model.set_fields(u=np.ones(model.state["u"].data.shape))
     return model
 
 
@@ -98,6 +98,80 @@ def test_walled_projection_resolves_the_distributed_solve(
         "replicated composite — the mixed distributed path regressed")
     assert all(isinstance(s, SlabSolve)
                for s in resolutions if s is not None)
+
+
+@pytest.mark.multi_device
+def test_walled_fv_projection_resolves_the_distributed_solve(
+        resolutions):
+    # F4: the walled FV pressure solve (DCT-II on the Neumann CellAvg
+    # origin) distributes through the same joint ComposedTransform plan
+    # as the nodal walled solve -- the trig axis is the transpose
+    # partner, a Fourier axis stays local -- so an explicit family="fv"
+    # walled model lands on the distributed fast path too
+    model = _make_model(periodic_z=False, family="fv")
+    model.advance(1)
+    assert resolutions, (
+        "the FV projection never consulted the distributed resolution")
+    slabs = [s for s in resolutions if s is not None]
+    assert slabs, (
+        "the walled FV multi-device pressure solve fell back to the "
+        "replicated composite -- the mixed distributed path regressed")
+    assert all(isinstance(s, SlabSolve) for s in slabs)
+
+
+@pytest.mark.multi_device
+def test_walled_x_fv_projection_dodges_the_wall_and_distributes(
+        resolutions):
+    # the walled-x FV twin: the staggering-aware default shards the
+    # periodic y and keeps the walled x local, so the FV projection
+    # stays on the distributed fast path (a Fourier axis sharded, the
+    # trig axis local)
+    grid = Grid(tuple(
+        IntervalMesh(N, (0.0, LENGTH), periodic=periodic, name=name)
+        for name, periodic in (("x", False), ("y", True), ("z", True))))
+    model = nh.Model(grid=grid, dt=0.02, advection=False,
+                     coriolis=FPlaneCoriolis(f0=1.0), family="fv")
+    default = grid.decomposition.default_layout
+    assert default.is_local("x")       # the walled axis is dodged
+    assert not default.is_local("y")   # a periodic axis is sharded
+    model.set_fields(u=np.ones(model.state["u"].data.shape))
+    model.advance(1)
+    slabs = [s for s in resolutions if s is not None]
+    assert slabs, (
+        "the walled-x FV multi-device pressure solve fell back to the "
+        "replicated composite -- the FV distributed path regressed")
+    assert all(isinstance(s, SlabSolve) for s in slabs)
+
+
+def test_walled_x_fv_step_is_device_count_invariant():
+    # the FV twin of the walled-x parity gate: the 4-device FV step
+    # (sharding periodic y, x trig local) vs the 1-device replicated FV
+    # step agree within the step gate over 20 steps
+    def build(device_ids):
+        grid = Grid(tuple(
+            IntervalMesh(N, (0.0, LENGTH), periodic=periodic, name=name)
+            for name, periodic in (("x", False), ("y", True),
+                                   ("z", True))),
+            device_ids=device_ids)
+        return nh.Model(grid=grid, dt=0.02, advection=False,
+                        coriolis=FPlaneCoriolis(f0=1.0), family="fv")
+
+    one = build((0,))
+    rng = np.random.default_rng(0)
+    ic = {name: rng.standard_normal(one.state[name].data.shape)
+          for name in ("u", "v", "w", "b")}
+
+    def run(model):
+        model.set_fields(**ic)
+        model.advance(20)
+        return {name: np.asarray(model.state[name].data)
+                for name in ("u", "v", "w", "b")}
+
+    ref = run(one)
+    many = run(build(None))
+    for name, r in ref.items():
+        assert np.allclose(many[name], r, rtol=1e-10, atol=1e-11), (
+            name, np.abs(many[name] - r).max())
 
 
 @pytest.mark.multi_device

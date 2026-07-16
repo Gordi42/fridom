@@ -171,6 +171,36 @@ def test_codomain_bounded(recon, my):
     assert recon.codomain(my.face_avg) is my.center
 
 
+def test_codomain_walled_dirichlet_inner(recon, my):
+    # F4 claim-consuming tagged-face reconstruction: a Dirichlet
+    # interior-face domain lands on the bare BC-free CellAvg
+    inner_dir = my.nodal(NodeSet.INNER, bc=BC.DIRICHLET)
+    assert recon.codomain(inner_dir) is my.cell_avg
+
+
+def test_codomain_rejects_neumann_inner(recon, my):
+    # a Neumann tag claims no wall value, so the face -> CellAvg average
+    # cannot close at the walls
+    inner_neu = my.nodal(NodeSet.INNER, bc=BC.NEUMANN)
+    with pytest.raises(SpaceMismatchError, match="Neumann"):
+        recon.codomain(inner_neu)
+
+
+def test_apply_walled_dirichlet_inner_consumes_the_claim(recon, my):
+    # the interior cells are bitwise the two-point mean; the wall cells
+    # use the homogeneous Dirichlet zero
+    grid = Grid((my,))
+    inner_dir = my.nodal(NodeSet.INNER, bc=BC.DIRICHLET)
+    f = grid.random.normal(inner_dir, seed=8)
+    out = recon["y"]._apply_factor(f, "y")
+    assert out.function_space.bare is my.cell_avg
+    faces = np.asarray(f.data)
+    got = np.asarray(out.data)
+    np.testing.assert_array_equal(got[1:-1], 0.5 * (faces[:-1] + faces[1:]))
+    np.testing.assert_array_equal(got[0], 0.5 * faces[0])
+    np.testing.assert_array_equal(got[-1], 0.5 * faces[-1])
+
+
 def test_codomain_outer_variant(my, mx):
     outer = LinearReconstruction(target=NodeSet.OUTER)
     # the Outer wall faces need exterior values, which the (always

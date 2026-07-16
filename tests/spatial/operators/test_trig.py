@@ -182,6 +182,36 @@ def test_dct2_round_trip(bounded):
     assert jnp.allclose(back.data, f.data, atol=1e-13)
 
 
+def test_dct2_on_neumann_cellavg_origin_round_trips(bounded):
+    # F4: a Neumann-tagged CellAvg origin takes the type-II (DCT-II)
+    # kernel exactly like Neumann Center (cell averages sample on the
+    # cell-midpoint grid), so the walled FV pressure transform round
+    # trips to machine precision
+    from fridom.spatial.spaces.average import CellAvg  # noqa: PLC0415
+    grid, mesh = bounded
+    space = mesh.average(CellAvg, bc=BC.NEUMANN)
+    f = grid.random.normal(space, seed=21)
+    op = Cosine(grid)
+    coeff = op.forward(f)
+    assert coeff.function_space.bare.origin is space
+    back = op.backward(coeff)
+    assert back.function_space is f.function_space
+    assert jnp.allclose(back.data, f.data, atol=1e-13)
+
+
+def test_dst2_on_dirichlet_cellavg_origin_round_trips(bounded):
+    # the DST-II Dirichlet CellAvg variant exists mechanically (shared
+    # type-II kernel path) even though the walled FV pressure only
+    # consumes the Neumann (cosine) one
+    from fridom.spatial.spaces.average import CellAvg  # noqa: PLC0415
+    grid, mesh = bounded
+    space = mesh.average(CellAvg, bc=BC.DIRICHLET)
+    f = grid.random.normal(space, seed=22)
+    op = Sine(grid)
+    back = op.backward(op.forward(f))
+    assert jnp.allclose(back.data, f.data, atol=1e-13)
+
+
 def test_dct2_complex_data(bounded):
     # complex input takes the Makhoul pack forward and the length-2n
     # backward; the analysis is complex-linear, so a single mode keeps

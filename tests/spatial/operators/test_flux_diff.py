@@ -28,6 +28,7 @@ from fridom.spatial.operators.reconstruct import (
 )
 from fridom.spatial.operators.spectral import fourier_wavenumbers
 from fridom.spatial.operators.spectral_solve import SpectralSolve
+from fridom.spatial.spaces.average import CellAvg
 from fridom.spatial.spaces.nodal import NodeSet
 
 
@@ -82,6 +83,20 @@ def test_flux_codomains(flux, mx, my):
 def test_flux_right_is_periodic_only(flux, my):
     with pytest.raises(SpaceMismatchError, match="periodic-only"):
         flux.codomain(my.right)
+
+
+def test_flux_accepts_dirichlet_inner_walled(flux, my):
+    # F4: a Dirichlet-tagged interior face closes the flux divergence
+    # with the exact-zero wall value; the codomain is the BC-free CellAvg
+    inner_dir = my.nodal(NodeSet.INNER, bc=BC.DIRICHLET)
+    assert flux.codomain(inner_dir) is my.cell_avg
+
+
+def test_flux_rejects_neumann_inner_walled(flux, my):
+    # a Neumann tag claims no wall value, so the divergence cannot close
+    inner_neu = my.nodal(NodeSet.INNER, bc=BC.NEUMANN)
+    with pytest.raises(SpaceMismatchError, match="Neumann"):
+        flux.codomain(inner_neu)
 
 
 def test_flux_rejects_center_domains(flux, mx):
@@ -254,6 +269,66 @@ def test_fv_laplacian_symbol_is_the_real_neg_khat2(mx):
     khat2 = -2.0 * (1.0 - jnp.cos(k * dx)) / dx ** 2
     assert float(jnp.max(jnp.abs(sym.data.imag))) < 1e-12
     assert jnp.allclose(sym.data.real, khat2)
+
+
+def test_walled_fv_grad_div_trig_symbols(face, flux, my):
+    # F4: on a walled axis the FV pressure gradient / flux divergence
+    # diagonalize in the sine/cosine basis. The grad leg (Neumann
+    # CellAvg cosine -> Dirichlet Inner sine) is -2 sin(k dz/2)/dz; the
+    # div leg (Dirichlet Inner sine -> Neumann CellAvg cosine) is +2
+    # sin(k dz/2)/dz -- the same magnitude, no sinc (bitwise the nodal
+    # Center<->Inner numbers), with the family-flip sign
+    grid = Grid((my,))
+    n = my.n_cells
+    dz = (my.extent[1] - my.extent[0]) / n
+    cos = my.cosine(my.average(CellAvg, bc=BC.NEUMANN))  # DCT-II domain
+    sin = my.sine(my.nodal(NodeSet.INNER, bc=BC.DIRICHLET))  # DST-I
+    grad = face["y"].eigenvalues(grid, cos)
+    div = flux["y"].eigenvalues(grid, sin)
+    # cross-family codomains
+    assert face["y"].codomain(cos) is sin
+    assert flux["y"].codomain(sin) is cos
+    length = my.extent[1] - my.extent[0]
+
+    def khat(m):
+        return 2.0 * jnp.sin(m * jnp.pi * dz / (2 * length)) / dz
+
+    grad_expect = jnp.array([-khat(m) for m in range(1, n)])  # sine 1..n-1
+    div_expect = jnp.array([khat(m) for m in range(n)])       # cosine 0..n-1
+    assert float(jnp.abs(grad.data - grad_expect).max()) < 1e-13
+    assert float(jnp.abs(div.data - div_expect).max()) < 1e-13
+
+
+def test_walled_fv_laplacian_symbol_matches_composed_operator(my):
+    # gate 6 (F0 pattern): the composed FV walled Laplacian symbol
+    # FluxDifference @ FaceDifference is the real -k_hat**2, and it
+    # matches the composed FIELD operator (grad, Dirichlet-mid retag,
+    # div) applied to the cosine cell-average eigenmodes to ~1e-14
+    grid = Grid((my,))
+    n = my.n_cells
+    length = my.extent[1] - my.extent[0]
+    dz = length / n
+    cos = my.cosine(my.average(CellAvg, bc=BC.NEUMANN))
+    sym = (FluxDifference() @ FaceDifference())["y"].eigenvalues(grid, cos)
+    assert float(jnp.abs(sym.data.imag).max()) < 1e-13
+    khat = jnp.array([2.0 * jnp.sin(m * jnp.pi * dz / (2 * length)) / dz
+                      for m in range(n)])
+    assert float(jnp.abs(sym.data.real - (-khat ** 2)).max()) < 1e-12
+    # the field operator on each cosine eigenmode: lap p_m = -khat_m^2 p_m
+    inner_dir = my.nodal(NodeSet.INNER, bc=BC.DIRICHLET)
+
+    def cosine_mode(m):
+        def init(y):
+            return jnp.cos(m * jnp.pi * y / length)
+        return init
+
+    for m in range(1, n):  # the non-constant modes
+        p = grid.create_field(
+            my.average(CellAvg, bc=BC.NEUMANN), init=cosine_mode(m))
+        gp = FaceDifference()["y"](p).retag(inner_dir)
+        lap = FluxDifference()["y"](gp)
+        target = -float(khat[m]) ** 2 * jnp.asarray(p.data)
+        assert float(jnp.abs(lap.data - target).max()) < 1e-12
 
 
 def test_fv_derivative_symbol_is_the_wide_centered_difference(mx):

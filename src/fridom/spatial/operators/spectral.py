@@ -1119,6 +1119,60 @@ def trig_diff_codomain(
     return _trig_pairing(domain, _TRIG_DIFF_PAIRING, "diff")
 
 
+def fv_trig_diff_codomain(
+    domain: SineSpace | CosineSpace,
+) -> SineSpace | CosineSpace:
+    r"""
+    Coefficient-side ``diff`` codomain of an FV flux/face trig factor.
+
+    Description
+    -----------
+    The FV-D2 option-A inter-family staggering partner of the walled FV
+    C-grid (stage F4): the cell-average pressure gradient
+    (``FaceDifference``) pairs the Neumann ``CellAvg`` cosine (DCT-II)
+    with the nodal-face Dirichlet ``Inner`` sine (DST-I), and the
+    face-flux divergence (``FluxDifference``) pairs the reverse. Unlike
+    the nodal :func:`trig_diff_codomain` (whose origins stay in the
+    nodal family), the origin **crosses families** — ``CellAvg <->
+    Inner`` — because the FV pressure lives on cell averages while the
+    velocity lives on the point-value faces (FV-D2). The BC kind and
+    the basis flip with it (Neumann cosine <-> Dirichlet sine), and at
+    second order the FV stencil is bitwise the nodal ``Center <->
+    Inner`` one, so the diagonal is the same ``+-2 sin(k dz/2)/dz``
+    derived shift (no ``sinc``, the correction-1 pattern).
+
+    Parameters
+    ----------
+    domain : SineSpace | CosineSpace
+        The bare trig coefficient factor (average- or nodal-face
+        origin).
+
+    Returns
+    -------
+    SineSpace | CosineSpace
+        The flipped-family, family-crossing codomain factor.
+    """
+    mesh = domain.mesh
+    origin = domain.origin
+    if isinstance(domain, CosineSpace) and isinstance(origin, CellAvg):
+        target: SineSpace | CosineSpace = mesh.sine(
+            mesh.nodal(NodeSet.INNER, bc=BC.DIRICHLET))
+    elif (isinstance(domain, SineSpace)
+          and isinstance(origin, NodalSpace)
+          and origin.node_set is NodeSet.INNER):
+        target = mesh.cosine(mesh.average(CellAvg, bc=BC.NEUMANN))
+    else:
+        raise EigenbasisError(
+            f"no FV staggering-diff (sine/cosine) pairing on {domain!r}: "
+            "the walled FV C-grid pairs the Neumann CellAvg cosine "
+            "(DCT-II, the pressure gradient) with the Dirichlet Inner "
+            "sine (DST-I, the flux divergence) only; other trig factors "
+            "carry no FV staggering diagonal")
+    if origin.scalars is Scalars.COMPLEX:  # pragma: no cover
+        target = target.as_complex()
+    return target
+
+
 def trig_interp_codomain(
     domain: SineSpace | CosineSpace,
 ) -> SineSpace | CosineSpace:

@@ -54,6 +54,7 @@ from fridom.spatial.operators.transform import (
     axis_zeros,
     embed_tail,
 )
+from fridom.spatial.spaces.average import CellAvg
 from fridom.spatial.spaces.coefficient import (
     CosineSpace,
     SineSpace,
@@ -68,11 +69,44 @@ if TYPE_CHECKING:  # pragma: no cover
     )
 
 
+def _is_type_two(origin: FunctionSpace) -> bool:
+    """
+    Whether an origin takes the type-II (cell-midpoint) kernel.
+
+    Description
+    -----------
+    ``Center`` nodal and ``CellAvg`` origins both sample on the
+    cell-midpoint grid, so they take the DST-II / DCT-II kernels; the
+    ``Inner`` (DST-I) and ``Outer`` (DCT-I) nodal origins take the
+    type-I kernels. A ``CellAvg`` cell average is identified with its
+    midpoint value at second order (the FV correction-1 pattern), so
+    the trig basis diagonalizes it exactly, with no separate ``sinc``.
+
+    Parameters
+    ----------
+    origin : FunctionSpace
+        The coefficient factor's origin space.
+
+    Returns
+    -------
+    bool
+        True for ``Center`` and ``CellAvg`` origins.
+    """
+    if isinstance(origin, CellAvg):
+        return True
+    return (isinstance(origin, NodalSpace)
+            and origin.node_set is NodeSet.CENTER)
+
+
 def _validated_origin(origin: FunctionSpace, node_sets: tuple,
                       family: str, kinds: str) -> None:
     """Reject origins outside the iteration-1 DST/DCT families."""
     if (isinstance(origin, NodalSpace)
             and origin.node_set in node_sets):
+        return
+    if isinstance(origin, CellAvg) and NodeSet.CENTER in node_sets:
+        # cell averages sample on the midpoint grid -> the type-II
+        # kernel (Neumann CellAvg -> DCT-II, Dirichlet CellAvg -> DST-II)
         return
     raise SpaceMismatchError(
         f"no {family} signature on {origin!r}: iteration 1 covers "
@@ -113,8 +147,8 @@ class Sine(Transform):
         """Per-origin sine factor: ``mesh.sine(origin)``."""
         _validated_origin(
             origin, (NodeSet.CENTER, NodeSet.INNER), "DST",
-            "Dirichlet Center (DST-II) and Dirichlet Inner (DST-I) "
-            "origins")
+            "Dirichlet Center / CellAvg (DST-II) and Dirichlet Inner "
+            "(DST-I) origins")
         try:
             return origin.mesh.sine(origin)
         except (AttributeError, TypeError, ValueError) as exc:
@@ -127,7 +161,7 @@ class Sine(Transform):
         """Analyze one axis; trim to the coarse modes if padded."""
         axis = stage.index
         modes = stage.coeff.shape[0]
-        if stage.coeff.origin.node_set is NodeSet.CENTER:
+        if _is_type_two(stage.coeff.origin):
             b = _dst2_forward(data, axis)
         else:
             b = _dst1_forward(data, axis)
@@ -141,7 +175,7 @@ class Sine(Transform):
         axis = stage.index
         points = stage.nodal.shape[0]
         data = embed_tail(data, axis, points)
-        if stage.coeff.origin.node_set is NodeSet.CENTER:
+        if _is_type_two(stage.coeff.origin):
             return _dst2_backward(data, axis)
         return _dst1_backward(data, axis)
 
@@ -180,8 +214,8 @@ class Cosine(Transform):
         """Per-origin cosine factor: ``mesh.cosine(origin)``."""
         _validated_origin(
             origin, (NodeSet.CENTER, NodeSet.OUTER), "DCT",
-            "Neumann Center (DCT-II) and Neumann Outer (DCT-I) "
-            "origins")
+            "Neumann Center / CellAvg (DCT-II) and Neumann Outer "
+            "(DCT-I) origins")
         try:
             return origin.mesh.cosine(origin)
         except (AttributeError, TypeError, ValueError) as exc:
@@ -194,7 +228,7 @@ class Cosine(Transform):
         """Analyze one axis; trim to the coarse modes if padded."""
         axis = stage.index
         modes = stage.coeff.shape[0]
-        if stage.coeff.origin.node_set is NodeSet.CENTER:
+        if _is_type_two(stage.coeff.origin):
             a = _dct2_forward(data, axis)
         else:
             a = _dct1_forward(data, axis)
@@ -208,7 +242,7 @@ class Cosine(Transform):
         axis = stage.index
         points = stage.nodal.shape[0]
         data = embed_tail(data, axis, points)
-        if stage.coeff.origin.node_set is NodeSet.CENTER:
+        if _is_type_two(stage.coeff.origin):
             return _dct2_backward(data, axis)
         return _dct1_backward(data, axis)
 

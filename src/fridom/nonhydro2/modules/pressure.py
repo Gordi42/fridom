@@ -47,6 +47,7 @@ from fridom.spatial.operators.composed import (
     Gradient,
 )
 from fridom.spatial.operators.spectral_solve import SpectralSolve
+from fridom.spatial.spaces.average import AverageSpace
 from fridom.spatial.spaces.nodal import NodalSpace
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -63,19 +64,21 @@ def _neumann_sibling(space: SpaceLike) -> SpaceLike:
     Description
     -----------
     The trig transform rows of a walled grid are keyed on the
-    BC-tagged nodal origins, and the pressure parity at rigid lids
-    is Neumann (the parity-even ``Div @ Diag @ Grad`` chain on the
-    cell centers: the DCT-II / Cosine-II origin). Every nodal factor
-    on a bounded mesh is swapped for its ``BC.NEUMANN`` sibling —
-    same mesh, node set, and shape (a Neumann tag drops no DOF) —
-    while periodic factors pass through, so on a fully periodic grid
-    the sibling *is* the space itself (interned identity, the
-    no-retag fast path).
+    BC-tagged origins, and the pressure parity at rigid lids is
+    Neumann (the parity-even ``Div @ Diag @ Grad`` chain on the cell
+    scalars: the DCT-II / Cosine-II origin). Every bounded solve
+    factor is swapped for its ``BC.NEUMANN`` sibling — same mesh,
+    node set / average class, and shape (a Neumann tag drops no DOF)
+    — on **both** families: the nodal ``Center`` (nodal model) and
+    the ``CellAvg`` cell average (FV model, whose Neumann-tagged
+    origin carries the same walled DCT-II, F4). Periodic factors pass
+    through, so on a fully periodic grid the sibling *is* the space
+    itself (interned identity, the no-retag fast path).
 
     Parameters
     ----------
     space : SpaceLike
-        The bare (cell-centered) solve space.
+        The bare (cell-centered / cell-average) solve space.
 
     Returns
     -------
@@ -83,13 +86,16 @@ def _neumann_sibling(space: SpaceLike) -> SpaceLike:
         The interned sibling (``space`` itself when no factor is
         bounded).
     """
-    replacements = {
-        factor.names[0]: factor.mesh.nodal(
-            factor.node_set, bc=BC.NEUMANN)
-        for factor in space.factors
-        if isinstance(factor, NodalSpace)
-        and not getattr(factor.mesh, "periodic", True)
-    }
+    replacements = {}
+    for factor in space.factors:
+        if getattr(factor.mesh, "periodic", True):
+            continue
+        if isinstance(factor, NodalSpace):
+            replacements[factor.names[0]] = factor.mesh.nodal(
+                factor.node_set, bc=BC.NEUMANN)
+        elif isinstance(factor, AverageSpace):
+            replacements[factor.names[0]] = factor.mesh.average(
+                type(factor), bc=BC.NEUMANN)
     if not replacements:
         return space
     return space.replace(**replacements)

@@ -29,6 +29,7 @@ from typing import TYPE_CHECKING, ClassVar, final
 
 import jax.numpy as jnp
 
+from fridom.spatial.bc import BC
 from fridom.spatial.errors import SpaceMismatchError
 from fridom.spatial.fields.storage import store
 from fridom.spatial.operators.base import (
@@ -46,6 +47,10 @@ from fridom.spatial.operators.reconstruct import (
 from fridom.spatial.operators.spectral import (
     finite_difference_symbol,
     fv_fourier_partner,
+    fv_trig_diff_codomain,
+    in_trig_family,
+    trig_finite_difference_symbol,
+    trig_partner,
 )
 from fridom.spatial.operators.staggering import (
     divide_by_codomain_measure,
@@ -57,7 +62,11 @@ from fridom.spatial.operators.stencil_kernels import (
 )
 from fridom.spatial.scalars import Scalars
 from fridom.spatial.spaces.average import CellAvg
-from fridom.spatial.spaces.coefficient import FourierSpace
+from fridom.spatial.spaces.coefficient import (
+    CosineSpace,
+    FourierSpace,
+    SineSpace,
+)
 from fridom.spatial.spaces.nodal import NodalSpace, NodeSet
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -172,6 +181,17 @@ def _fv_diff_eigenvalues(
     bare = space.bare
     axis = _resolve_axis(op, bare)
     factor = bare.factor(axis)
+    if in_trig_family(factor):
+        # walled (F4): the FV staggering difference diagonalizes in
+        # the sine/cosine basis. The average-origin cosine (pressure
+        # gradient) and nodal-face sine (flux divergence) pairs cross
+        # families through ``op.codomain`` (``fv_trig_diff_codomain``),
+        # giving the real +-2 sin(k dz/2)/dz derived shift — the same
+        # magnitude as the periodic ``i k_hat``, with no sinc (the
+        # 2nd-order FV stencil is bitwise the nodal one).
+        coeff, _origin = trig_partner(factor, who)
+        return trig_finite_difference_symbol(
+            bare, axis, coeff, op.codomain(coeff))
     src, origin = fv_fourier_partner(factor, who)
     return finite_difference_symbol(
         bare, axis, src, origin, op.codomain(origin))
@@ -231,6 +251,28 @@ class FluxDifference(SeparableOperator):
             # factor through the staggered average origin
             return domain.mesh.fourier(
                 origin=self.codomain(domain.origin))
+        if isinstance(domain, SineSpace | CosineSpace):
+            # walled trig coefficient (F4): the Dirichlet Inner sine of
+            # the FV flux divergence pairs with the Neumann CellAvg
+            # cosine (average) partner
+            return fv_trig_diff_codomain(domain)
+        if (isinstance(domain, NodalSpace)
+                and domain.node_set is NodeSet.INNER
+                and not domain.bc.is_free):
+            # walled velocity (F4): a Dirichlet-tagged interior face
+            # claims the homogeneous zero wall value -- exactly the
+            # exact-zero boundary flux the Inner branch imposes -- so
+            # the divergence closes at the walls. A Neumann tag claims
+            # no wall value and cannot close (a taught error).
+            if not all(c is BC.DIRICHLET for c in domain.bc.components):
+                raise SpaceMismatchError(
+                    f"no flux_diff signature on {domain!r}: a Neumann "
+                    "tag on the interior faces claims no wall value, so "
+                    "the flux divergence cannot close at the walls; the "
+                    "walled FV divergence reads a Dirichlet "
+                    "(no-normal-flow) face", left=domain,
+                    operation="flux_diff")
+            return _mesh_space(domain, "cell_avg", "flux_diff")
         supported = (
             isinstance(domain, NodalSpace) and domain.bc.is_free
             and (domain.node_set in {NodeSet.OUTER, NodeSet.INNER}
@@ -536,6 +578,11 @@ class FaceDifference(SeparableOperator):
             # factor through the staggered face origin
             return domain.mesh.fourier(
                 origin=self.codomain(domain.origin))
+        if isinstance(domain, SineSpace | CosineSpace):
+            # walled trig coefficient (F4): the Neumann CellAvg cosine
+            # of the FV pressure gradient pairs with the Dirichlet
+            # Inner sine (nodal-face) partner
+            return fv_trig_diff_codomain(domain)
         if not isinstance(domain, CellAvg):
             raise SpaceMismatchError(
                 f"no face_diff signature on {domain!r}: "

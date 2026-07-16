@@ -2151,15 +2151,23 @@ def _default_registry(
         # codomain), so a walled grid dispatches diff/interpolate
         # on Dirichlet/Neumann fields out of the box (C3)
         tagged = _tagged_trig_origins(mesh)
+        # the Neumann-tagged CellAvg origin of the walled FV pressure
+        # DCT-II (F4); empty on periodic meshes
+        tagged_avg = _tagged_average_origins(mesh)
         _seed_signature_rows(entries, nodal + tagged, (fd, interp))
         # reconstruct rows, plus (G4) the average family under the
-        # "interpolate" kind for the composed metric machinery
-        _seed_reconstruct_rows(entries, nodal + average, reconstruct)
+        # "interpolate" kind for the composed metric machinery; the
+        # tagged average origins mirror the untagged CellAvg rows, and
+        # the tagged Inner (Dirichlet) origin picks up the
+        # claim-consuming ("average", Inner) row of the walled
+        # stratified w.to(b) seam (F4, scoping §10 correction 5)
+        _seed_reconstruct_rows(
+            entries, nodal + average + tagged_avg + tagged, reconstruct)
         # flux/face-diff rows, and (G3) the co-located CellAvg <->
         # Center deconvolution (a 2nd-order identity), each seeded via
         # its own dispatch kind where the per-factor signature applies
         _seed_signature_rows(
-            entries, nodal + average, (*flux_ops, deconvolve))
+            entries, nodal + average + tagged_avg, (*flux_ops, deconvolve))
         # The elementwise + integrate rows are seeded on the tagged
         # origins too, so walled-grid fields interoperate (e.g. the
         # flux form ``csqr.to(v) * v`` on a Dirichlet face space).
@@ -2175,16 +2183,10 @@ def _default_registry(
         # A parity-aware product codomain is deliberately NOT added:
         # an even (Neumann) claim carries no wall value at all and
         # would lose the exact zero.
-        for space in nodal + average + tagged:
-            if isinstance(space, CellAvg):
-                entries[("diff", space)] = fv_derivative
-            for variant in (space, space.as_complex()):
-                entries[("integrate", variant)] = integral
-                entries[("multiply", variant)] = multiply
-                entries[("divide", variant)] = divide
-                entries[("power", variant)] = power
-                entries[("select", variant)] = select
-                entries[("abs", variant)] = abs_op
+        _seed_elementwise_rows(
+            entries, nodal + average + tagged + tagged_avg,
+            fv_derivative,
+            (integral, multiply, divide, power, select, abs_op))
         resolver = _declared_space_resolver(mesh)
         if resolver is not None:
             entries[("declared_space", mesh)] = resolver
@@ -2439,6 +2441,35 @@ def _tagged_trig_origins(mesh: Mesh) -> tuple[FunctionSpace, ...]:
         is not None)
 
 
+def _tagged_average_origins(mesh: Mesh) -> tuple[FunctionSpace, ...]:
+    """
+    Collect the BC-tagged average trig origins one mesh grounds (F4).
+
+    Description
+    -----------
+    The walled FV C-grid closure (stage F4): the Neumann-tagged
+    ``CellAvg`` origin of the DCT-II pressure transform. Empty on
+    periodic meshes and wherever the ``CellAvg`` family is absent (a
+    ``ChebyshevMesh``). Only the Neumann variant is grounded — the
+    Dirichlet ``CellAvg`` (DST-II) has no walled FV consumer.
+
+    Parameters
+    ----------
+    mesh : Mesh
+        One grid mesh factor.
+
+    Returns
+    -------
+    tuple[FunctionSpace, ...]
+        The (real) Neumann ``CellAvg`` origin, or empty.
+    """
+    if getattr(mesh, "periodic", False):
+        return ()
+    origin = _probe(
+        lambda m=mesh: m.average(CellAvg, bc=BC.NEUMANN))
+    return () if origin is None else (origin,)
+
+
 def _seed_transform_rows(
     grid: Grid,
     meshes: tuple[Mesh, ...],
@@ -2524,8 +2555,13 @@ def _transform_origins(
                 continue  # family or Fourier signature absent
             pairs.append((Fourier, origin))
         return tuple(pairs)
-    for family, factory in _TRIG_ORIGIN_CANDIDATES:
-        origin = _probe(lambda f=factory, m=mesh: f(m))
+    trig_origins = [
+        (family, _probe(lambda f=factory, m=mesh: f(m)))
+        for family, factory in _TRIG_ORIGIN_CANDIDATES]
+    # the Neumann CellAvg DCT-II origin of the walled FV pressure (F4)
+    trig_origins += [
+        (Cosine, origin) for origin in _tagged_average_origins(mesh)]
+    for family, origin in trig_origins:
         if origin is None or _probe(
                 lambda o=origin, m=mesh:
                 _coefficient_space(m, o)) is None:
@@ -2583,6 +2619,50 @@ def _seed_coefficient_rows(
         entries[("interpolate", coeff)] = sinc_shift
     elif origin.node_set is not NodeSet.CENTER:
         entries[("interpolate", coeff)] = phase_shift
+
+
+def _seed_elementwise_rows(
+    entries: dict[DispatchKey, Operator],
+    spaces: tuple[FunctionSpace, ...],
+    fv_derivative: Operator,
+    elementwise: tuple[Operator, ...],
+) -> None:
+    """
+    Seed the FV ``diff`` and the shared elementwise/integrate rows.
+
+    Description
+    -----------
+    ``("diff", CellAvg)`` -> the collocated ``FVDerivative`` (the FV
+    C-grid profile re-points it to ``FaceDifference`` later), and the
+    shared ``integrate``/``multiply``/``divide``/``power``/``select``/
+    ``abs`` rows on every space and its complex variant. Seeded on the
+    BC-tagged origins too (nodal *and* average), so walled-grid fields
+    interoperate — the product keeps the common operand tag (a
+    wall-value claim, not a parity statement).
+
+    Parameters
+    ----------
+    entries : dict[DispatchKey, Operator]
+        The entry table being built (mutated in place).
+    spaces : tuple[FunctionSpace, ...]
+        The candidate factor spaces (nodal, average, tagged).
+    fv_derivative : Operator
+        The shared ``FVDerivative`` chain (``("diff", CellAvg)``).
+    elementwise : tuple[Operator, ...]
+        The shared ``(integral, multiply, divide, power, select,
+        abs)`` instances, in that order.
+    """
+    integral, multiply, divide, power, select, abs_op = elementwise
+    for space in spaces:
+        if isinstance(space, CellAvg):
+            entries[("diff", space)] = fv_derivative
+        for variant in (space, space.as_complex()):
+            entries[("integrate", variant)] = integral
+            entries[("multiply", variant)] = multiply
+            entries[("divide", variant)] = divide
+            entries[("power", variant)] = power
+            entries[("select", variant)] = select
+            entries[("abs", variant)] = abs_op
 
 
 def _seed_signature_rows(
