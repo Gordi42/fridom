@@ -279,3 +279,25 @@ settings (2 inertial periods per leg, max_it = 2, fixed-point error
 ~2e-4) lands between orders 1 and 2; the literature's "order ~4
 comparable to OB" refers to converged OB — cranking `--ob-ramp` /
 `--ob-max-it` buys more.
+
+# FV default flip: step parity + no-regression (2026-07-16, 1x A100)
+
+The F3 merge makes the periodic nonhydro model finite-volume by
+default (bitwise-identical trajectories to nodal). Step-suite run on
+one A100 (`benchmarks/results/step-fv-gpu1.json`, re-recorded as the
+`step-gpu1.json` baseline):
+
+- **No regression vs the pre-FV baseline** (`compare
+  --fail-on-regression` clean): the flipped periodic cases moved
+  -1.2%..+0.1% wall; every other case within noise; sw_flat[n=64]
+  "faster" (noise band of the tiny cases).
+- **FV == FD step time.** New standing sibling cases
+  (`nh_flat_periodic_nodal`, `nh_flat_advective_nodal`) pin
+  `family="nodal"`; same-run ratios FV/FD = 0.997..1.000 at 256^3 and
+  512^3. Warmed interleaved probes (kernel-launch-dominated sizes):
+  FV/FD = 0.988..1.003 at 32/48/64/96/128^3 — no systematic gap at
+  any size. (Cold suite numbers at n=32 swing +-3..9% run-to-run;
+  use interleaved warmed probes before believing a small-case delta.)
+- The 4-GPU baseline (`step-gpu4.json`) predates the sibling cases
+  and was not re-recorded (single-GPU allocation); re-record it on
+  the next 4-GPU campaign.

@@ -115,7 +115,8 @@ def _depth(x):
 
 def _nh_model(n: int, *, mapped: bool, periodic_x: bool = True,
               periodic_z: bool = False,
-              iters: int = 30, advection: bool = False):
+              iters: int = 30, advection: bool = False,
+              family: str | None = None):
     """Nonhydrostatic f-plane model with a jet-like IC.
 
     ``advection`` switches the momentum/buoyancy advection on. It also
@@ -140,7 +141,8 @@ def _nh_model(n: int, *, mapped: bool, periodic_x: bool = True,
     dt = 0.25 * TWO_PI / n if advection else 0.02
     model = nh.Model(grid=grid, dt=dt, advection=advection,
                      coriolis=nh.FPlaneCoriolis(f0=1.0), dsqr=0.25,
-                     pressure_iterations=iters, chunk_size=STEPS)
+                     pressure_iterations=iters, chunk_size=STEPS,
+                     family=family)
     if periodic_x:
         hor = (np.arange(n) + 0.5) * (TWO_PI / n)
         ver = (np.arange(n) + 0.5) / n
@@ -201,6 +203,35 @@ def nh_flat_advective(n):
     the linear cases.
     """
     model = _nh_model(n, mapped=False, periodic_z=True, advection=True)
+    return _stepping_case(model, float(n) ** 3)
+
+
+@benchmark_case(params={"n": SIZES_NH_FLAT}, reps=5, warmup=0,
+                measure_compile=False)
+def nh_flat_periodic_nodal(n):
+    """Price the nodal (FD) sibling of ``nh_flat_periodic``.
+
+    Since the F3 default flip the periodic flat cases run the FV
+    C-grid; this pins ``family="nodal"`` so FV-vs-FD step parity is a
+    standing, mechanical comparison (the two are bitwise-identical
+    trajectories, so any timing gap is a compiler/fusion artifact to
+    hunt, not physics).
+    """
+    model = _nh_model(n, mapped=False, periodic_z=True, family="nodal")
+    return _stepping_case(model, float(n) ** 3)
+
+
+@benchmark_case(params={"n": SIZES_NH_FLAT}, reps=5, warmup=0,
+                measure_compile=False)
+def nh_flat_advective_nodal(n):
+    """Price the nodal (FD) sibling of ``nh_flat_advective``.
+
+    The advective step has its own fusion structure (see
+    ``nh_flat_advective``), so FV-vs-FD parity must be priced here
+    too, not only on the linear case.
+    """
+    model = _nh_model(n, mapped=False, periodic_z=True, advection=True,
+                      family="nodal")
     return _stepping_case(model, float(n) ** 3)
 
 
