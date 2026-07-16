@@ -34,6 +34,7 @@ from fridom.nonhydro2.modules.mapped_pressure import (
 from fridom.nonhydro2.modules.pressure import SpectralPressureSolver
 from fridom.nonhydro2.params import DSQR, ROSSBY
 from fridom.nonhydro2.state import State
+from fridom.spatial.bc import BC
 from fridom.spatial.decomposition.halo import HaloSpec
 from fridom.spatial.fields.vector_field import VectorField
 from fridom.spatial.operators.composed import (
@@ -45,6 +46,8 @@ from fridom.spatial.operators.flux_diff import (
     FluxDifference,
 )
 from fridom.spatial.space_patterns import FAMILIES
+from fridom.spatial.spaces.average import CellAvg
+from fridom.spatial.spaces.nodal import NodeSet
 
 if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Mapping
@@ -91,13 +94,17 @@ def _fv_capable(grid: Grid) -> bool:
 
 def _require_fv_capable(grid: Grid) -> None:
     """
-    Raise the FV-deferral taught error on a non-capable grid.
+    Raise the FV-deferral taught error on a mapped/immersed grid.
 
     Description
     -----------
     Explicit ``family="fv"`` (or a ``Grid(family="fv")`` default) on a
     grid the FV C-grid cannot yet serve is a taught error, never a
-    silent fallback to nodal (the scoping study's FV-D4/F5 deferral).
+    silent fallback to nodal. Walled (bounded) grids are now served
+    (stage F4): the pressure DCT-II runs on the Neumann-tagged
+    ``CellAvg`` origin exactly as the nodal model runs on Neumann
+    ``Center``. Only **mapped** (terrain-following) and **immersed**
+    (cut-cell) grids remain deferred to stage F5.
 
     Parameters
     ----------
@@ -107,16 +114,9 @@ def _require_fv_capable(grid: Grid) -> None:
     Raises
     ------
     NotImplementedError
-        If the grid is walled, mapped, or immersed.
+        If the grid is mapped or immersed.
     """
-    if _fv_capable(grid):
-        return
     reasons = []
-    if any(not getattr(mesh, "periodic", False)
-           for mesh in grid.factors):
-        reasons.append(
-            "it has bounded (walled) axes — walled FV is stage F4 "
-            "(FV-D4, an open boundary-condition design)")
     if getattr(grid, "mapping", None) is not None:
         reasons.append(
             "it carries a coordinate mapping — mapped / terrain-"
@@ -124,15 +124,16 @@ def _require_fv_capable(grid: Grid) -> None:
     if getattr(grid, "immersed", None) is not None:
         reasons.append(
             "it carries an immersed domain — cut-cell FV is stage F5")
+    if not reasons:
+        return
     raise NotImplementedError(
         "family='fv' is the finite-volume nonhydro model (FV-D2 "
         "option A: scalars on CellAvg, velocities on the C-grid "
-        "faces), which currently serves a fully periodic, unmapped, "
-        "unimmersed grid only. This grid cannot: "
+        "faces), which serves periodic and walled grids but not "
+        "mapped or immersed ones yet. This grid cannot: "
         + "; ".join(reasons)
-        + ". Keep this model family='nodal' (the validated walled / "
-        "mapped path), which at 2nd order is bit-identical on the "
-        "periodic interior anyway (scoping study §1).")
+        + ". Keep this model family='nodal' (the validated mapped / "
+        "immersed path).")
 
 
 def fv_cgrid_overrides(
@@ -166,11 +167,19 @@ def fv_cgrid_overrides(
     ``Right -> Center`` — which the mixed corner (a nodal scalar on an
     FV grid) still relies on for ``.to``.
 
-    The overrides key the periodic face (``Right``); an FV C-grid is
-    periodic-only at 2nd order (:func:`_require_fv_capable`), so no
-    bounded ``Inner`` row is produced. The nodal ``("diff", Right) ->
-    Center`` chain is deliberately *not* touched — it is overridden
-    only on the FV-family grid, so a nodal model keeps its resolution.
+    On a **periodic** mesh factor the overrides key the periodic face
+    (``Right``). On a **walled** (bounded) mesh factor (stage F4) the
+    face family is ``Inner`` and the pressure / velocity carry the
+    walled parity tags: the pressure gradient staggers the
+    Neumann-tagged ``CellAvg`` (the solve space's DCT-II origin) onto
+    the interior faces, and the flux divergence staggers the
+    Dirichlet-tagged interior faces (the wall-normal velocity's
+    no-normal-flow parity) back onto the cells — so both the
+    ``Div @ Diag @ Grad`` pressure chain (on the tagged origins) and
+    the physical divergence / gradient (on the BC-free faces) resolve.
+    The nodal ``("diff", ...) -> Center`` chains are deliberately
+    *not* touched — the overrides ride only the FV-family grid, so a
+    nodal model keeps its resolution.
 
     Parameters
     ----------
@@ -180,8 +189,10 @@ def fv_cgrid_overrides(
     Returns
     -------
     dict[DispatchKey, Operator]
-        The ``{("diff", cell_avg): FaceDifference(),
-        ("diff", right): FluxDifference()}`` profile, per mesh factor.
+        The per-mesh-factor ``diff`` profile: ``CellAvg -> face``
+        (``FaceDifference``) and ``face -> CellAvg``
+        (``FluxDifference``), on the BC-free and (walled) tagged
+        origins alike.
     """
     face_diff = FaceDifference()
     flux_diff = FluxDifference()
@@ -189,11 +200,19 @@ def fv_cgrid_overrides(
     for mesh in meshes:
         try:
             cell_avg = mesh.cell_avg
-            face = mesh.right
         except (AttributeError, ValueError, NotImplementedError):
-            continue  # a mesh without the FV / periodic-face family
+            continue  # a mesh without the FV / cell-average family
         overrides[("diff", cell_avg)] = face_diff
-        overrides[("diff", face)] = flux_diff
+        if getattr(mesh, "periodic", False):
+            overrides[("diff", mesh.right)] = flux_diff
+        else:
+            # walled (F4): the tagged pressure / velocity origins plus
+            # the BC-free interior face
+            overrides[("diff", mesh.average(CellAvg, bc=BC.NEUMANN))] = (
+                face_diff)
+            overrides[("diff", mesh.inner)] = flux_diff
+            overrides[("diff", mesh.nodal(
+                NodeSet.INNER, bc=BC.DIRICHLET))] = flux_diff
     return overrides
 
 
@@ -210,9 +229,11 @@ def resolve_model_family(family: str | None, grid: Grid) -> str:
     the grid can carry the periodic FV C-grid (:func:`_fv_capable`).
     This is the flip: a plain periodic nonhydro model is finite-volume
     by default, safe because the 2nd-order stencils are bit-identical
-    to nodal (scoping study §1). A walled or mapped grid stays
-    ``"nodal"`` (the validated path). An explicit ``"fv"`` on a
-    non-capable grid is a taught error, never a silent fallback.
+    to nodal (scoping study §1). The auto default stays ``"nodal"`` on
+    a walled or mapped grid (the flip is periodic-only, an owner
+    decision). An **explicit** ``"fv"`` is served on periodic and
+    walled grids (stage F4); on a mapped or immersed grid it is a
+    taught error, never a silent fallback (stage F5).
 
     Parameters
     ----------

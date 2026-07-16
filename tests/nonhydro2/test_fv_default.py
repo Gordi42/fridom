@@ -159,16 +159,26 @@ def test_invalid_family_is_rejected():
         DynamicalCore(family="bogus")
 
 
-@pytest.mark.parametrize(
-    ("grid_fn", "reason"),
-    [pytest.param(walled_grid, "bounded", id="walled"),
-     pytest.param(mapped_grid, "coordinate mapping", id="mapped")])
-def test_explicit_fv_on_non_capable_grid_is_a_taught_error(grid_fn, reason):
-    with pytest.raises(NotImplementedError, match=reason):
-        resolve_model_family("fv", grid_fn())
+def test_explicit_fv_on_mapped_grid_is_a_taught_error():
+    # mapped / terrain-following FV is stage F5, still deferred; a
+    # walled grid, by contrast, is now served (F4, below)
+    with pytest.raises(NotImplementedError, match="coordinate mapping"):
+        resolve_model_family("fv", mapped_grid())
     with pytest.raises(NotImplementedError, match="finite-volume"):
-        nh.Model(coriolis=FPlaneCoriolis(f0=1.0), grid=grid_fn(),
+        nh.Model(coriolis=FPlaneCoriolis(f0=1.0), grid=mapped_grid(),
                  dt=DT, advection=False, family="fv")
+
+
+def test_explicit_fv_on_walled_grid_is_now_served():
+    # F4: explicit family="fv" on a walled (bounded, unmapped,
+    # unimmersed) grid is allowed -- the pressure DCT-II runs on the
+    # Neumann CellAvg origin. The AUTO default still stays nodal on a
+    # walled grid (the flip is periodic-only, tested above).
+    assert resolve_model_family("fv", walled_grid()) == "fv"
+    model = nh.Model(coriolis=FPlaneCoriolis(f0=1.0), grid=walled_grid(),
+                     dt=DT, advection=False, family="fv")
+    assert all(isinstance(f, CellAvg)
+               for f in model.state["b"].function_space.bare.factors)
 
 
 def test_fv_capable_flags():
@@ -213,6 +223,28 @@ def test_fv_cgrid_overrides_repoints_the_diff_rows():
                           FaceDifference)
         assert isinstance(overrides[("diff", mesh.right)],
                           FluxDifference)
+
+
+def test_fv_cgrid_overrides_repoints_the_walled_diff_rows():
+    # F4: on a walled mesh factor the profile re-points the BC-free
+    # CellAvg / Inner faces AND the tagged pressure (Neumann CellAvg)
+    # and velocity (Dirichlet Inner) origins
+    from fridom.spatial.bc import BC  # noqa: PLC0415
+    from fridom.spatial.spaces.average import CellAvg  # noqa: PLC0415
+    from fridom.spatial.spaces.nodal import NodeSet  # noqa: PLC0415
+    meshes = walled_grid().factors
+    overrides = fv_cgrid_overrides(meshes)
+    mz = meshes[2]  # the bounded z factor
+    assert isinstance(overrides[("diff", mz.cell_avg)], FaceDifference)
+    assert isinstance(
+        overrides[("diff", mz.average(CellAvg, bc=BC.NEUMANN))],
+        FaceDifference)
+    assert isinstance(overrides[("diff", mz.inner)], FluxDifference)
+    assert isinstance(
+        overrides[("diff", mz.nodal(NodeSet.INNER, bc=BC.DIRICHLET))],
+        FluxDifference)
+    # the periodic x factor keeps the Right-face divergence
+    assert isinstance(overrides[("diff", meshes[0].right)], FluxDifference)
 
 
 def test_fv_cgrid_overrides_skips_a_mesh_without_cell_avg():

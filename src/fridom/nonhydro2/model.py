@@ -109,8 +109,13 @@ def Model(  # noqa: N802 — a factory that mirrors fr.model.Model's surface
         nodal model (scoping study §1). The family threads to every
         field (``u, v, w, p`` and the default stratification's ``b``)
         and seeds the FV C-grid ``diff`` profile. An explicit
-        ``"fv"`` on a walled or mapped grid is a taught error (walled
-        FV is stage F4, mapped FV stage F5) (default: None).
+        ``"fv"`` is now also served on a **walled** (bounded) grid
+        (stage F4: the pressure DCT-II runs on the Neumann ``CellAvg``
+        origin); the auto default still stays ``"nodal"`` on a walled
+        grid (the flip is periodic-only, an owner decision). An
+        explicit ``"fv"`` on a mapped or immersed grid remains a
+        taught error (mapped / cut-cell FV is stage F5) (default:
+        None).
     name : str | None, optional
         Model name (default: None).
     **kwargs : object
@@ -127,7 +132,8 @@ def Model(  # noqa: N802 — a factory that mirrors fr.model.Model's surface
     # model — u/v/w/p, the default b, and any user tracer — then
     # follows uniformly, so an FV model has no accidental nodal field
     # (only an explicit family="nodal" is the documented mixed corner).
-    # An explicit "fv" on a walled / mapped grid is a taught error.
+    # Explicit "fv" is served on periodic and walled grids (F4); only a
+    # mapped / immersed grid is a taught error (F5).
     resolved = resolve_model_family(family, grid)
     grid.set_default_family(resolved)
     if stratification is None:
