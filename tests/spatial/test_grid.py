@@ -44,6 +44,7 @@ from fridom.spatial.operators.registry import (
     DispatchError,
     OperatorRegistry,
 )
+from fridom.spatial.operators.restrict import Restriction
 from fridom.spatial.spaces.nodal import NodeSet
 
 
@@ -186,6 +187,25 @@ def test_seeded_registry_covers_the_default_rows(grid, mx, my):
     registry.resolve("abs", mx.cell_avg)  # abs is pointwise on averages
     with pytest.raises(DispatchError, match="diff"):
         registry.resolve("diff", my.right)  # no bounded Right row
+
+
+def test_seeded_registry_covers_the_restrict_row(grid, mx, my):
+    # the Outer -> Inner restriction (H2b): the exact interior-face
+    # selection the hydrostatic advection resolves for w-on-Outer. It
+    # is seeded only on a bounded factor's Outer space (a periodic
+    # factor has no Outer); no other node set grounds it, and the
+    # separate Outer -> Center interpolate row is untouched.
+    registry = grid.dispatch
+    restrict = registry.resolve("restrict", my.outer)
+    assert isinstance(restrict, Restriction)
+    assert restrict.codomain(my.outer) is my.inner
+    # Outer -> Center stays the (distinct) interpolate row
+    assert isinstance(registry.resolve("interpolate", my.outer),
+                      LinearInterp)
+    # no restrict row on the other node sets or on a periodic factor
+    for space in (my.center, my.inner, mx.center):
+        with pytest.raises(DispatchError, match="restrict"):
+            registry.resolve("restrict", space)
 
 
 def test_seeded_registry_covers_the_deconvolve_rows(grid, mx, my):

@@ -612,6 +612,20 @@ def test_to_field_target_and_round_trip_space(f, mx):
     assert back.function_space is f.function_space
 
 
+def test_to_routes_outer_to_inner_through_the_restrict_kind(grid, mx, my):
+    # the bounded Outer -> Inner conversion is the exact restriction
+    # (drops the two boundary faces), a distinct kind from the
+    # Outer -> Center interpolate: .to reads "restrict" off the family
+    # matrix and the seeded row selects the interior faces.
+    w = grid.create_field(mx.center * my.outer,
+                          init=lambda x, y: y**2 + 0.0 * x)
+    r = w.to(mx.center * my.inner)
+    assert r.function_space.bare is mx.center * my.inner
+    assert jnp.allclose(r.data, w.data[:, 1:-1])
+    # Outer -> Center stays the (distinct) two-point interpolate
+    assert w.to(my.center).function_space.bare is mx.center * my.center
+
+
 def test_to_single_factor_shorthand_on_lone_factor(grid1d, mx):
     a = grid1d.create_field(mx.center)
     assert a.to(mx.center) is a
