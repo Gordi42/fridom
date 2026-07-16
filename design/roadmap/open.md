@@ -87,16 +87,22 @@ linear; 4.5–14× on 2–4 GPUs, where Oceananigans' distributed transpose
 solve does not scale at all) and identifies three places where fridom
 measurably trails the reference:
 
-1. **Transient-allocation memory ceiling.** At 512³ the steady peak is
-   33–42 GB, yet 1024×512×512 (2× cells) OOMs for **every** scheme on an
-   80-GB A100 — killed by transient spikes (`jit_copy` at ~62 GB
-   resident, compile-time rematerialization), not the working set.
-   Oceananigans fits that case in ~40 GB whole-GPU. Same signature on
-   4 GPUs: 1024×1024×512 fits (~31 GiB/GPU steady), 1024×1024×768 dies
-   *in compile* (remat). Work: find and kill the transient copies in the
-   `advance` chunk boundary (buffer donation/aliasing of the state
-   carry, allocator/remat tuning). Target: fit 1024×512×512 on one GPU —
-   doubling reachable size — and 1024×1024×768+ on four.
+1. **Transient-allocation memory ceiling.** *Single-GPU part RESOLVED
+   2026-07-16* ([`../research/gpu_memory_ceiling.md`](../research/gpu_memory_ceiling.md)):
+   the OOM was BFC *fragmentation*, not capacity — the chunk's
+   transients are ONE contiguous 30.55 GiB XLA temp arena, and the
+   non-donating `_canonicalize` full-carry copies (the `jit_copy` at
+   ~62 GB resident) shredded the pool before the first step. Fixed on
+   dev: `_canonicalize` donates its carry (setup peaks 44.9/59.2 →
+   26.5/36.7 GiB) plus a one-time pre-chunk carry defragmentation
+   (`FRIDOM_DISABLE_DEFRAG=1` opts out). 1024×512×512 advective now
+   runs on one A100 at `MEM_FRACTION=0.92` (153 ms/step, unroll=3,
+   bitwise-identical physics, per-step perf unchanged at all sizes);
+   `XLA_PYTHON_CLIENT_ALLOCATOR=cuda_async` is a validated env-only
+   alternative (VMM defeats fragmentation; multi-GPU unvalidated).
+   Still open: the 4-GPU signature — 1024×1024×512 fits (~31 GiB/GPU
+   steady), 1024×1024×768 dies *in compile* (remat) — needs its own
+   attribution (per-device arena + fragmentation vs genuine remat).
 2. **Time-to-first-step.** Attributed 2026-07-16
    ([`../research/time_to_first_step.md`](../research/time_to_first_step.md)):
    the report's "11–71 s" conflated compile with executing the whole
