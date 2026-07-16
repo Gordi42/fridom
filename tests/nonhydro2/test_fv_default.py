@@ -185,19 +185,25 @@ def test_explicit_fv_on_walled_grid_is_now_served():
                for f in model.state["b"].function_space.bare.factors)
 
 
-def test_walled_fv_eigenmodes_are_a_taught_gap():
-    # the auto flip makes a walled model FV, but the analytic
-    # walled-vertical eigenmode kit (Eigenmodes / from_model with a
-    # bounded vertical) is not yet wired for the FV family: it builds
-    # BC-tagged CellAvg analysis spaces, which the declared-space
-    # resolver rejects — average factors are BC-free (C8). So
-    # from_model on a walled FV model is a taught error until the
-    # walled-FV transform stack lands (F5-adjacent); walled *nodal*
-    # eigenmodes stay fully supported (build with family="nodal").
+def test_walled_fv_eigenmodes_build():
+    # since stage F5 the analytic walled-vertical eigenmode kit IS
+    # wired for the FV family: the kit mints its BC-tagged CellAvg
+    # analysis siblings itself (C8 keeps the *declaration* layer
+    # BC-free — no Collocated(wall_bc=..., family="fv") pattern), so
+    # from_model on the auto-FV walled model builds. The FV eigenbasis
+    # is bitwise the nodal one; the parity + round-trip battery lives
+    # in test_walled_eigenmodes.py.
+    from fridom.spatial.bc import BC  # noqa: PLC0415
     model = nh.Model(coriolis=FPlaneCoriolis(f0=1.0), grid=walled_grid(),
                      dt=DT, advection=False)  # auto -> fv
-    with pytest.raises(ValueError, match="boundary structure"):
-        nh.eigenmodes.from_model(model)
+    assert all(isinstance(f, CellAvg)
+               for f in model.state["b"].function_space.bare.factors)
+    em = nh.eigenmodes.from_model(model)
+    # it really resolved the FV family: b's vertical analysis origin is
+    # a (Dirichlet-tagged) CellAvg cell average, not a nodal center
+    origin = em.kit.coeff("b").factor("z").origin
+    assert isinstance(origin, CellAvg)
+    assert all(c is BC.DIRICHLET for c in origin.bc.components)
 
 
 def test_fv_capable_flags():

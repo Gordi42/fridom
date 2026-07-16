@@ -34,11 +34,12 @@ from fridom.spatial.operators.finite_difference import (
     FiniteDifference,
 )
 from fridom.spatial.operators.interp import LinearInterp
+from fridom.spatial.spaces.average import CellAvg
 from fridom.spatial.spaces.coefficient import (
     CosineSpace,
     SineSpace,
 )
-from fridom.spatial.spaces.nodal import NodeSet
+from fridom.spatial.spaces.nodal import NodalSpace, NodeSet
 from fridom.spatial.symbols import ModeChart, rayleigh_dual
 
 N = 8
@@ -52,25 +53,33 @@ WEIGHTS = {"u": 1.0, "v": 1.0, "w": DSQR, "b": 1.0 / N2}
 # ================================================================
 #  Shared walled setup (module-scoped: compile once per worker)
 # ================================================================
-@pytest.fixture(scope="module")
-def walled():
+@pytest.fixture(scope="module", params=["nodal", "fv"])
+def walled(request):
+    # The walled-vertical eigenmode battery runs on BOTH C-grid
+    # families: the validated point-value ("nodal") path and the
+    # finite-volume ("fv") path (stage F5). On the FV family the kit
+    # mints its BC-tagged CellAvg analysis siblings itself (C8 keeps
+    # the *declaration* layer BC-free), and the vertical trig symbols
+    # are bitwise the nodal ones (the 2nd-order FV stencils are the
+    # nodal ones), so the FV eigenbasis is bit-identical to the nodal
+    # one — asserted directly by
+    # test_walled_fv_eigenbasis_is_bitwise_nodal.
     grid = Grid((
         IntervalMesh(N, (0.0, 2 * np.pi), periodic=True, name="x"),
         IntervalMesh(N, (0.0, 2 * np.pi), periodic=True, name="y"),
         IntervalMesh(N, (0.0, LZ), periodic=False, name="z")))
-    # family="nodal" is explicit: since the 2026-07-16 owner ruling a
-    # walled grid auto-flips to FV, but the analytic walled-vertical
-    # eigenmode kit is not yet wired for the FV family (it builds
-    # BC-tagged CellAvg analysis spaces, which the resolver rejects —
-    # average factors are BC-free, C8; from_model on a walled FV model
-    # is a taught error, pinned in test_fv_default). This battery is
-    # the validated nodal walled eigenmode path, which stays supported.
     model = nh.Model(
         grid=grid, dt=DT, advection=False, dsqr=DSQR,
         coriolis=FPlaneCoriolis(f0=F0),
-        stratification=ConstantStratification(n2=N2), family="nodal")
+        stratification=ConstantStratification(n2=N2),
+        family=request.param)
     em = nh.eigenmodes.from_model(model)
     return grid, model, em
+
+
+def _is_fv(em):
+    """Whether an eigenmode kit resolved the FV (average) family."""
+    return isinstance(em.kit.coeff("b").factor("z").origin, CellAvg)
 
 
 @pytest.fixture(scope="module")
@@ -128,18 +137,29 @@ def _dual_data(q):
 #  Stage A: kit spaces and the lazy symbol families
 # ================================================================
 def test_walled_kit_spaces_carry_the_parity_tags(walled):
-    # physics-fixed z-parities: w Sine-I (Inner, Dirichlet), b
-    # Sine-II (Center, Dirichlet), u/v/p Cosine-II (Center, Neumann)
+    # physics-fixed z-parities: w Sine-I (Inner, Dirichlet), b Sine-II
+    # (Dirichlet), u/v/p Cosine-II (Neumann). The center-like origin
+    # is nodal Center on the nodal family and CellAvg on the FV family;
+    # the trig family and the BC tag are identical either way (the FV
+    # eigenbasis IS the nodal one), only the origin family names the
+    # discretization. w is on the Inner face on both.
     _, _, em = walled
-    rows = (("u", CosineSpace, NodeSet.CENTER, BC.NEUMANN),
-            ("v", CosineSpace, NodeSet.CENTER, BC.NEUMANN),
-            ("p", CosineSpace, NodeSet.CENTER, BC.NEUMANN),
-            ("w", SineSpace, NodeSet.INNER, BC.DIRICHLET),
-            ("b", SineSpace, NodeSet.CENTER, BC.DIRICHLET))
-    for name, family, node_set, kind in rows:
+    fv = _is_fv(em)
+    #: the collocated (center-like) origin of the family
+    center = CellAvg if fv else NodalSpace
+    rows = (("u", CosineSpace, center, BC.NEUMANN),
+            ("v", CosineSpace, center, BC.NEUMANN),
+            ("p", CosineSpace, center, BC.NEUMANN),
+            ("w", SineSpace, NodalSpace, BC.DIRICHLET),
+            ("b", SineSpace, center, BC.DIRICHLET))
+    for name, trig, origin_cls, kind in rows:
         factor = em.kit.coeff(name).factor("z")
-        assert isinstance(factor, family)
-        assert factor.origin.node_set is node_set
+        assert isinstance(factor, trig)
+        assert isinstance(factor.origin, origin_cls)
+        if isinstance(factor.origin, NodalSpace):
+            # w on Inner (both families); u/v/p/b Center on nodal
+            expect = NodeSet.INNER if name == "w" else NodeSet.CENTER
+            assert factor.origin.node_set is expect
         assert all(c is kind for c in factor.origin.bc.components)
 
 
@@ -572,6 +592,17 @@ def test_exponential_boundary_mode_is_projector_invariant(
     # b from the discrete thermal wind), is invariant under the
     # vortical projection and invisible to the wave projection.
     grid, _, em = walled
+    if _is_fv(em):
+        # the balanced state is hand-built from the *nodal* discrete
+        # operators (FiniteDifference / LinearInterp), which do not
+        # dispatch on the FV average family. The property under test —
+        # a geostrophically balanced cross-mode state is vortical-
+        # projector-invariant and wave-invisible — is a bitwise
+        # corollary on FV: the FV eigenbasis and the projector data
+        # path are bit-identical to the nodal one (asserted by
+        # test_walled_fv_eigenbasis_is_bitwise_nodal), so the nodal
+        # coverage carries it.
+        pytest.skip("nodal-operator construction; FV parity is bitwise")
     lin, prog, base0, constrain = linearized
     kit = em.kit
     chart = ModeChart(grid)
@@ -703,3 +734,131 @@ def test_walled_function_structural_zero_guard(walled):
     with pytest.raises(ValueError, match=r"s=0"):
         em.function(lambda om: 1.0 / (1j * om), 0)
     assert callable(em.function(lambda om: 1.0 / (1j * om), (1, -1)))
+
+
+# ================================================================
+#  Gate: the walled FV eigenbasis is bitwise the walled nodal one
+# ================================================================
+def _walled_from_model(family):
+    """Build a fresh walled model + its from_model eigenmodes."""
+    grid = Grid((
+        IntervalMesh(N, (0.0, 2 * np.pi), periodic=True, name="x"),
+        IntervalMesh(N, (0.0, 2 * np.pi), periodic=True, name="y"),
+        IntervalMesh(N, (0.0, LZ), periodic=False, name="z")))
+    model = nh.Model(
+        grid=grid, dt=DT, advection=False, dsqr=DSQR,
+        coriolis=FPlaneCoriolis(f0=F0),
+        stratification=ConstantStratification(n2=N2), family=family)
+    return model, nh.eigenmodes.from_model(model)
+
+
+def test_walled_fv_eigenbasis_is_bitwise_nodal():
+    # the 2nd-order FV C-grid stencils are bitwise the nodal ones and
+    # the trig basis diagonalizes them exactly, so the walled-vertical
+    # FV eigenbasis is bit-identical to the walled nodal one on the
+    # same grid geometry: frequencies AND eigenvector coefficient data
+    # agree to exactly 0.0 across every (kx, ky, m) mode of the
+    # half-spectrum layout.
+    _, en = _walled_from_model("nodal")
+    _, ef = _walled_from_model("fv")
+    # sanity: the two kits really are the two different families
+    assert not _is_fv(en)
+    assert _is_fv(ef)
+    for s in (0, 1, -1):
+        assert np.array_equal(np.asarray(en.omega(s).data),
+                              np.asarray(ef.omega(s).data))
+        qn, qf = en.q(s), ef.q(s)
+        for c in COMPONENTS:
+            # the coefficient LAYOUTS coincide (DST-II CellAvg and
+            # DST-II Center share mode_offset + shape), so a straight
+            # array compare is well-defined and exact
+            assert np.asarray(qn[c].data).shape \
+                == np.asarray(qf[c].data).shape
+            assert np.array_equal(np.asarray(qn[c].data),
+                                  np.asarray(qf[c].data))
+    # the mode-indexed physical states through the union-lattice
+    # machinery — the re-referenced geostrophic edge blocks m = 0
+    # (barotropic, u/v/p only) and m = N (buoyancy-top, b only), and
+    # the interior wave modes — are bitwise equal too (same coeffs,
+    # same DST/DCT synthesis at the cell midpoints = the centers)
+    for s, iz in ((1, 3), (-1, 2), (0, 0), (0, N), (0, N // 2)):
+        wn, zn = en.mode(s, {"x": 2, "y": 1, "z": iz})
+        wf, zf = ef.mode(s, {"x": 2, "y": 1, "z": iz})
+        assert wn == wf
+        for c in COMPONENTS:
+            assert np.array_equal(np.asarray(zn[c].data),
+                                  np.asarray(zf[c].data))
+
+
+# ================================================================
+#  Gate: round-trip completeness + the z-constant buoyancy case
+# ================================================================
+def test_walled_fv_roundtrip_completeness():
+    # an arbitrary random FV state, projected to the constrained
+    # (represented) subspace, round-trips through the eigenmode
+    # projectors to the identity: sum_s P^s reproduces the coefficient
+    # state to machine zero on the represented set (the only strata the
+    # walls leave unrepresented are the kh = 0 inertial u/v modes).
+    model, em = _walled_from_model("fv")
+    kit = em.kit
+    lin = fr.model.linearize(model)
+    prog, base0 = _rest_background(lin, 0.0)
+    constrain = _constrain_fn(lin, base0, prog)
+    rng = np.random.default_rng(7)
+    fields = {c: base0[c].with_data(jnp.asarray(
+        rng.standard_normal(base0[c].data.shape))) for c in COMPONENTS}
+    state = constrain(base0.replace(**fields))
+    zeta = State({c: kit.forward(c)(state[c].retag(kit.forward(c).domain))
+                  for c in COMPONENTS})
+    total = None
+    for s in (0, 1, -1):
+        part = em.projector(s)(zeta)
+        total = part if total is None else State(
+            {c: total[c] + part[c] for c in COMPONENTS})
+    scale = max(np.abs(np.asarray(zeta[c].data)).max() for c in COMPONENTS)
+    for c in COMPONENTS:
+        r = (np.asarray(total[c].data) - np.asarray(zeta[c].data)) / scale
+        if c in ("u", "v"):
+            r[0, 0, :] = 0.0  # the unrepresented kh = 0 inertial modes
+        assert np.abs(r).max() < 1e-13
+
+
+def test_walled_fv_zconstant_buoyancy_is_pure_vortical():
+    # a z-constant (globally uniform) buoyancy anomaly with u = v =
+    # w = 0. It is NONZERO at the rigid lids, yet the Dirichlet DST-II
+    # cell basis is complete on the n-cell lattice, so it round-trips
+    # exactly (sines are complete); and being horizontally uniform
+    # (kh = 0) it lives entirely in the omega = 0 vortical subspace —
+    # every wave column is a structural zero there, so the wave
+    # projection is EXACTLY zero, not merely small.
+    model, em = _walled_from_model("fv")
+    grid, kit = model.grid, em.kit
+    _, base0 = _rest_background(fr.model.linearize(model), 0.0)
+    bf = grid.create_field(model.state["b"].function_space,
+                           init=lambda x, y, z: (x + y + z) * 0.0 + 1.0)
+    phys = base0.replace(b=base0["b"].with_data(bf.data))
+    zeta = State({c: kit.forward(c)(phys[c].retag(kit.forward(c).domain))
+                  for c in COMPONENTS})
+    # (1) completeness: the DST-II cell transform round-trips a field
+    # that does not vanish at the walls
+    back = kit.backward("b")(zeta["b"])
+    assert np.abs(np.asarray(back.data)
+                  - np.asarray(phys["b"].data)).max() < 1e-13
+    # (2) round-trip through the eigenmode projectors is exact
+    parts = {s: em.projector(s)(zeta) for s in (0, 1, -1)}
+    total = State({c: parts[0][c] + parts[1][c] + parts[-1][c]
+                   for c in COMPONENTS})
+    scale = max(np.abs(np.asarray(zeta[c].data)).max() for c in COMPONENTS)
+    for c in COMPONENTS:
+        assert (np.abs(np.asarray(total[c].data)
+                       - np.asarray(zeta[c].data)).max() / scale < 1e-13)
+    # (3) the wave projections are EXACTLY zero; the vortical one is not
+    for s in (1, -1):
+        assert max(float(np.abs(np.asarray(parts[s][c].data)).max())
+                   for c in COMPONENTS) == 0.0
+    assert max(float(np.abs(np.asarray(parts[0][c].data)).max())
+               for c in COMPONENTS) > 0.0
+    # (4) and nh.transforms sees it as pure vortical
+    wave = nh.transforms.WaveProjection(em)(phys)
+    assert max(float(np.abs(np.asarray(wave[c].data)).max())
+               for c in COMPONENTS) < 1e-13

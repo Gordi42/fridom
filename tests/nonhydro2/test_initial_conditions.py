@@ -36,8 +36,8 @@ def make_model(*, periodic_y=True, periodic_z=True, family=None):
     # a periodic OR walled grid is finite-volume by default (only mapped
     # / immersed stay nodal), so the family=None b of the stratification
     # follows the model uniformly (no mixed nodal-b-on-FV-velocities
-    # corner). The analytic walled-vertical eigenmode kit is a taught
-    # gap on FV, so the walled-vertical fixture passes family="nodal".
+    # corner). Since stage F5 the analytic walled-vertical eigenmode kit
+    # runs on both families, so the walled-vertical fixture covers both.
     return nh.Model(
         grid=grid, advection=False, family=family,
         dsqr=DSQR, coriolis=nh.FPlaneCoriolis(f0=F0),
@@ -52,16 +52,16 @@ def periodic():
     return model, nh.eigenmodes.from_model(model)
 
 
-@pytest.fixture(scope="module")
-def walled():
+@pytest.fixture(scope="module", params=["nodal", "fv"])
+def walled(request):
     """One rigid-lid (walled z) analytic eigenmode set (shared).
 
-    Pinned family="nodal": the analytic walled-vertical eigenmode kit
-    is not yet wired for the FV family a walled grid now auto-selects
-    (a taught gap — see test_fv_default); the nodal path is validated.
+    Since stage F5 the analytic walled-vertical eigenmode kit runs on
+    both C-grid families (the FV kit mints its own BC-tagged CellAvg
+    analysis spaces; test_fv_default::test_walled_fv_eigenmodes_build).
     """
     return nh.eigenmodes.from_model(
-        make_model(periodic_z=False, family="nodal"))
+        make_model(periodic_z=False, family=request.param))
 
 
 @pytest.fixture(scope="module")
