@@ -25,6 +25,7 @@ from lazypimp import setup
 if TYPE_CHECKING:  # pragma: no cover
     # import all modules
     from . import (
+        adiabatic_ramping,
         algebra,
         balance_expansion,
         base,
@@ -42,6 +43,7 @@ if TYPE_CHECKING:  # pragma: no cover
     )
 
     # import all classes
+    from .adiabatic_ramping import AdiabaticRamping
     from .algebra import Compose, Power, Scaled, Sum
     from .balance_expansion import BalanceExpansion
     from .base import StateTransform
@@ -86,6 +88,7 @@ all_modules_by_origin = {
         "norms",
         "propagator",
         "time_average",
+        "adiabatic_ramping",
         "optimal_balance",
         "projection",
         "balance_expansion",
@@ -107,6 +110,7 @@ all_imports_by_origin = {
     f"{pkg}.norms": ["relative_l2", "assert_idempotent"],
     f"{pkg}.propagator": ["Propagator"],
     f"{pkg}.time_average": ["TimeAverage"],
+    f"{pkg}.adiabatic_ramping": ["AdiabaticRamping"],
     f"{pkg}.optimal_balance": ["OptimalBalance"],
     f"{pkg}.projection": [
         "EigenFunction", "EigenProjection", "ProjectionFactory"],
