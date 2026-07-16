@@ -19,9 +19,9 @@ date: 2026-07-16
 > sections below record what was *planned*; deviations are flagged
 > inline. Follow-ups that outlived the plan: the surplus (`n+1`) leg
 > stays on the global reblock path (no hot-loop consumer; documented
-> at the gate), multi-host validation is still open (roadmap), and
-> the validation campaign surfaced **pre-existing** multi-device
-> faults catalogued in
+> at the gate), multi-host validation closed 2026-07-16 (see Open
+> questions), and the validation campaign surfaced **pre-existing**
+> multi-device faults catalogued in
 > [`../../research/multidevice_test_faults.md`](../../research/multidevice_test_faults.md).
 
 **One line.** When a field's extent along the **sharded** axis is not
@@ -242,10 +242,24 @@ the padded transpose belongs in the plan lowering, not as a bypass.
 
 ## Open questions
 
-- **Multi-host** (real `srun -n P`): confirm Phase 1+2 behaviour under
-  a genuine multi-process launch — forced-4 is single-controller, and
-  the padded transpose + reblock plans must not host-fetch true-extent
-  arrays (they don't by construction, but verify).
+- **Multi-host — RESOLVED (2026-07-16).** Validated under a genuine
+  multi-process launch on the A100 node (`srun --overlap -n 4
+  --gpu-bind=none`, one GPU per process,
+  `jax.distributed.initialize()` before importing fridom, the
+  jax#39100 fusion workaround exported to every rank). The two guard
+  configs from `benchmarks/model/bench_step.py` — walled-x (n=64,
+  shards y per the staggering-aware axis order) and triply-periodic
+  prime (n=127, padded distributed solve) — ran 10 linear steps,
+  gathered the final state via `process_allgather(tiled=True)` (no
+  "non-addressable devices" fetch, no hang, no rank crash), and match
+  a single-process 1-GPU run of the same config to machine precision:
+  max abs diff 3.5e-15 (walled-x) / 2.7e-14 (prime), ≤ 3.3e-14
+  normalized to the state scale — far under the 1e-11 device-count
+  drift gate. This also empirically supports the pad-lane question
+  below: a wall/BC write into a transpose pad lane could not survive
+  machine-precision agreement on the walled-x case (the
+  by-construction audit with the P2 pad-lane-leak check remains
+  unrun).
 - The `n_cells ≡ 1 (mod P)` deficit residue keeps ≤1
   collective-permute per reblock (neighbour shift). Accepted; Phase 3's
   excursion audit reduces how often it is paid.
