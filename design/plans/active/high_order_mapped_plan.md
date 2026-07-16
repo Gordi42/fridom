@@ -5,9 +5,10 @@ date: 2026-07-13
 
 # High-order stencils on mapped grids
 
-> **Sized 2026-07-13. The SPIKE is a next step (~1 day, throwaway script,
-> no production edits); the FULL LIFT is deferred (medium, 1-2 weeks) —
-> held back on payoff, not difficulty.** The corrected payoff is
+> **Sized 2026-07-13. The SPIKE ran 2026-07-16 and is answered — the
+> divisor is the same-row discrete Jacobian (§3); the FULL LIFT is
+> deferred (medium, 1-2 weeks) — held back on payoff, not
+> difficulty.** The corrected payoff is
 > ENO/dispersion quality on stretched meshes plus honest order for
 > standalone `WenoReconstruction` and `FiniteDifference` order > 2 — *not*
 > asymptotic order for the advection modules, whose C-grid tendency is 2nd
@@ -21,8 +22,8 @@ date: 2026-07-13
 > follow-up if a shock case shows ENO damage, not a fallback if the spike
 > fails.
 
-Not started; **unblocked**. The obstacle, the options, and the route for
-lifting the mapped-mesh refusals recorded in
+Spike done, full lift not started. The obstacle, the options, and the
+route for lifting the mapped-mesh refusals recorded in
 [`../../specs/grid/classes/operators_stencils.md`](../../specs/grid/classes/operators_stencils.md)
 ("Amendment (2026-07-12, stages C0–C4): mapped-mesh grounding"). Opened
 by the coordinate-systems work
@@ -85,32 +86,46 @@ available if a real shock problem on a strongly stretched mesh shows
 that computational-space reconstruction damages the ENO property; it
 is a follow-up, not a prerequisite.
 
-## 3. Next step: the Jacobian spike (still open, blocking)
+## 3. The Jacobian spike — **answered 2026-07-16**
 
-**Which Jacobian?** Two candidates:
+Full numbers and the inlined spike constructions:
+[`../../research/mapped_jacobian_spike.md`](../../research/mapped_jacobian_spike.md).
 
-- the **wide staggered difference of the node coordinates** (the same
-  row as the flux operator: metric identity by construction), or
-- the **analytic `grid.metric` Jacobian** (exact, but *not* the
-  discrete inverse of the wide row; `spatial/coordinate_mapping.py`
-  derives it by autodiff and it is already reachable from every
-  operator).
+**The divisor is the same-row discrete Jacobian** — the wide linear
+row applied to the (seam-unwrapped) node coordinates, staggered
+difference for the flux form, collocated row for `FiniteDifference`.
+What the spike measured (wavy-stretched mesh, constant velocity,
+semi-discrete tendency error):
 
-They differ at O(h^p), and the choice decides whether **free-stream
-preservation** survives — a constant state must produce exactly zero
-tendency, and only the first candidate guarantees it discretely. The
-analytic Jacobian is the more obvious API and is the one that will
-silently break the invariant.
+- Both candidates restore design order — upwind-3 3.00, upwind-5
+  4.99, weno-5 (masked) 5.00, FD-4/6 3.99/5.97 — and are numerically
+  indistinguishable at truncation level; the current measure divisor
+  reproduces the trap (order 2 across the board). Convergence alone
+  cannot choose.
+- The **metric identity chooses**: the same-row divisor satisfies the
+  discrete linear-preservation identity *exactly* (residual 0.0 at
+  every order and resolution, by construction); the analytic Jacobian
+  misses it at O(h^p) — the silent invariant break §2 predicted. The
+  1D free-stream residual itself is trivially zero for every divisor
+  (constant reconstructions are exact), confirming the de-risking
+  argument that only multi-D can show that failure.
+- Two structural findings for the lift: the widths are **static**
+  (a weno-5 flux over a *linear-row* width still converges at 5 with
+  free-stream exact, so no nonlinear coupling — one data-independent
+  field per (space, order, bias), materialized like the measure
+  fields); and `grid.metric` is not even reachable from a stretched
+  `MappedIntervalMesh` (it needs a `CoordinateMapping`), so the
+  analytic route would also have needed new plumbing.
+- Upwind selection detail for the lift: with sign-varying velocity the
+  width must be **branch-consistent** — reconstruct the coordinate
+  with both biases (two static face fields) and `Where`-select with
+  the same predicate as the flux before differencing; the identity
+  then holds per cell with purely static inputs.
 
-**Do this next, before scoping any stage:** a **1D spike** — stretched
-1D advection of (a) a constant state and (b) a smooth wave, run with
-both divisors, measuring the free-stream residual and the convergence
-order at orders 3 and 5. Nothing below is scoped in earnest until the
-spike answers it.
-
-Then: mapped divisor (option (i)) for the biased reconstructions ->
-retire the `FiniteDifference` order > 2 and one-sided deferrals with
-the same divisor -> (ii) only if a shock case demands it.
+Route unchanged: mapped same-row divisor (option (i)) for the biased
+reconstructions -> retire the `FiniteDifference` order > 2 and
+one-sided deferrals with the same divisor -> (ii) only if a shock case
+demands it.
 
 ## 4. Prerequisite: walled closure — **paid**
 

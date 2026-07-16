@@ -309,26 +309,6 @@ the gate. Do **not** flip the default wholesale first: walls and mapped
 grids work today and would regress.
 [`../plans/active/fv_nonhydro_scoping.md`](../plans/active/fv_nonhydro_scoping.md)
 
-## High-order stencils on mapped grids — **the spike only**
-
-*Spike: small (~1 day, a throwaway script, no production edits).* The
-plan's own stated blocker, and it collapses most of the uncertainty:
-1D stretched advection, constant state plus a smooth wave, run with both
-candidate divisors — the analytic `grid.metric` Jacobian vs a wide
-discrete Jacobian — measuring the free-stream residual and the order at
-3 and 5.
-
-Sizing also turned up a **de-risking argument**: the refusals key on
-`MappedIntervalMesh`, a per-axis monotone self-map, so the Jacobian is
-diagonal and separable — there are no cross-derivative metric terms, which
-is where multi-D curvilinear free-stream preservation actually bites. The
-identity reduces to the 1D case the spike tests, so the wide discrete
-Jacobian should preserve it nearly by construction.
-
-**The full lift is medium (1-2 weeks) — decide it on the spike's
-numbers**, and see the payoff caveat under "sized, deferred" below.
-[`../plans/active/high_order_mapped_plan.md`](../plans/active/high_order_mapped_plan.md)
-
 ## Docs & examples rebuild
 
 The CI skeleton and one executed pilot example landed. What remains is the
@@ -466,7 +446,7 @@ basis and Clenshaw–Curtis measures, neither of which is built. Only the
 FD/nodal-vertical variant is actually in reach.
 [`../plans/active/projection_eigenmode_roadmap.md`](../plans/active/projection_eigenmode_roadmap.md)
 
-## High-order mapped stencils — the full lift (after the spike)
+## High-order mapped stencils — the full lift (spike answered)
 
 *Medium (1-2 weeks).* Held back from "next steps" on payoff, not
 difficulty. The plan was corrected: the C-grid biased advection tendency
@@ -477,7 +457,17 @@ behaviour restored on stretched meshes (the reason those schemes exist),
 honest design order for standalone `WenoReconstruction` and
 `FiniteDifference` order > 2, and mapped one-sided FD. That is quality on
 stretched meshes, not a new capability headline — worth doing, not urgent.
-Run the spike (next steps) and decide on its numbers.
+
+**The Jacobian spike ran 2026-07-16 and answered the plan's blocker**:
+the divisor is the **same-row discrete Jacobian** (wide linear row on
+the seam-unwrapped node coordinates) — it restores design order
+(3/5/5, FD 4/6) *and* satisfies the discrete metric identity exactly,
+where the analytic Jacobian restores the same order but misses the
+identity at O(h^p); the widths are static, data-independent fields.
+All that remains is the lift itself, on the recorded route
+([`../plans/active/high_order_mapped_plan.md`](../plans/active/high_order_mapped_plan.md)
+§3, numbers in
+[`../research/mapped_jacobian_spike.md`](../research/mapped_jacobian_spike.md)).
 
 ---
 
