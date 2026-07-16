@@ -37,7 +37,7 @@ which vanishes identically for :math:`v' = 0`. A constant advecting
 velocity is therefore the only regime in which the design order is
 observable (and the only one a design-order test can use); with a
 varying velocity upwind-3, upwind-5 and weno-5 all measure rate 2
-(pinned in ``tests/nonhydro2/test_advection.py``). What the biased
+(pinned in ``tests/model/modules/test_advection.py``). What the biased
 schemes are FOR is what they do deliver: dispersion control and the
 ENO / non-oscillatory property at fronts — not asymptotic order.
 

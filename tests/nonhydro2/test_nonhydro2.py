@@ -20,6 +20,7 @@ from fridom.model.eigen import (
 )
 from fridom.model.errors import AssemblyError
 from fridom.model.model import Model as FrModel
+from fridom.model.modules.advection import CenteredAdvection
 from fridom.model.modules.coriolis import (
     BetaPlaneCoriolis,
     FPlaneCoriolis,
@@ -33,7 +34,6 @@ from fridom.model.roles import ADVECTED, TRACER, Velocity
 from fridom.model.time_steppers.adam_bashforth import (
     AdamBashforth,
 )
-from fridom.nonhydro2.modules.advection import CenteredAdvection
 from fridom.nonhydro2.modules.core import DynamicalCore
 from fridom.nonhydro2.modules.stratification import (
     ConstantStratification,

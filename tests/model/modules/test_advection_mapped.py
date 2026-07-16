@@ -6,16 +6,16 @@ import pytest
 
 import fridom as fr
 from fridom.model.model import Model as FrModel
-from fridom.model.modules.moving_geometry import MovingGeometry
-from fridom.model.time_steppers.adam_bashforth import (
-    AdamBashforth,
-)
-from fridom.nonhydro2.modules.advection import (
+from fridom.model.modules.advection import (
     CenteredAdvection,
     UpwindAdvection,
     WENOAdvection,
     _BiasedFaceReconstruction,
     _CenteredFaceInterpolation,
+)
+from fridom.model.modules.moving_geometry import MovingGeometry
+from fridom.model.time_steppers.adam_bashforth import (
+    AdamBashforth,
 )
 from fridom.nonhydro2.modules.core import DynamicalCore
 from fridom.nonhydro2.modules.stratification import (
