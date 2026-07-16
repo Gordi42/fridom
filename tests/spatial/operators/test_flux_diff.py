@@ -2,6 +2,7 @@
 import jax.numpy as jnp
 import pytest
 
+from fridom.spatial.bc import BC
 from fridom.spatial.errors import SpaceMismatchError
 from fridom.spatial.grid import Grid
 from fridom.spatial.meshes.interval import IntervalMesh
@@ -13,6 +14,9 @@ from fridom.spatial.operators.base import (
     EigenbasisError,
     SeparableComposite,
 )
+from fridom.spatial.operators.finite_difference import (
+    FiniteDifference,
+)
 from fridom.spatial.operators.flux_diff import (
     DualFluxDifference,
     FaceDifference,
@@ -22,6 +26,9 @@ from fridom.spatial.operators.flux_diff import (
 from fridom.spatial.operators.reconstruct import (
     LinearReconstruction,
 )
+from fridom.spatial.operators.spectral import fourier_wavenumbers
+from fridom.spatial.operators.spectral_solve import SpectralSolve
+from fridom.spatial.spaces.nodal import NodeSet
 
 
 @pytest.fixture
@@ -62,11 +69,6 @@ def test_requirements(flux, dual, face, mx):
     for op in (flux, dual, face):
         assert op.requirements(mx.cell_avg).halo == 1
         assert op.requirements(mx.cell_avg).layout == "any"
-
-
-def test_eigenvalues_designed_for(flux, mx):
-    with pytest.raises(EigenbasisError):
-        flux.eigenvalues(None, mx.right)
 
 
 def test_flux_codomains(flux, mx, my):
@@ -110,6 +112,206 @@ def test_face_diff_rejects_nodal_domains(face, mx):
     with pytest.raises(SpaceMismatchError,
                        match="no face_diff signature"):
         face.codomain(mx.center)
+
+
+# ================================================================
+#  Fourier symbols (eigenvalues) — scoping study gap G1
+# ================================================================
+def _symbol_matches_operator(op, mesh, dom_space, seed=5):
+    """Symbol in coeff space == coeff image of the physical output."""
+    grid = Grid((mesh,))
+    axis = mesh.names[0]
+    f = grid.random.normal(dom_space, seed=seed)
+    t_in = grid.dispatch.resolve("transform", dom_space)
+    t_out = grid.dispatch.resolve("transform", op.codomain(dom_space))
+    fhat = t_in.forward(f)
+    sym = op[axis].eigenvalues(grid, fhat.function_space.bare)
+    got = sym(fhat).data
+    want = t_out.forward(op[axis](f)).data
+    return float(jnp.abs(got - want).max())
+
+
+@pytest.mark.parametrize("n", [8, 9, 16, 17])
+def test_flux_diff_symbol_matches_operator(flux, n):
+    # the divergence leg on periodic uniform meshes, both parities
+    mesh = IntervalMesh(n, (0.0, 1.3), name="x")
+    assert _symbol_matches_operator(flux, mesh, mesh.right) < 1e-12
+
+
+@pytest.mark.parametrize("n", [8, 9, 16, 17])
+def test_face_diff_symbol_matches_operator(face, n):
+    mesh = IntervalMesh(n, (0.0, 1.3), name="x")
+    assert _symbol_matches_operator(face, mesh, mesh.cell_avg) < 1e-12
+
+
+@pytest.mark.parametrize("n", [8, 9])
+@pytest.mark.parametrize("dom", ["center", "cell_avg"])
+def test_dual_flux_diff_symbol_matches_operator(dual, n, dom):
+    mesh = IntervalMesh(n, (0.0, 1.3), name="x")
+    assert _symbol_matches_operator(
+        dual, mesh, getattr(mesh, dom)) < 1e-12
+
+
+def test_flux_diff_symbol_is_the_ik_hat_retagging_symbol(flux, mx):
+    grid = Grid((mx,))
+    sym = flux["x"].eigenvalues(grid, mx.fourier(origin=mx.right))
+    # retags Fourier(Right) -> Fourier(CellAvg)
+    assert sym.space.origin is mx.right
+    assert sym.codomain.origin is mx.cell_avg
+    k = fourier_wavenumbers(mx.fourier(origin=mx.right))
+    dx = mx.dx
+    # i k_hat with the Right-origin half-cell phase e^{-i k dx/2}
+    expected = (1j * 2.0 * jnp.sin(k * dx / 2.0) / dx
+                * jnp.exp(-1j * k * 0.5 * dx))
+    assert jnp.allclose(sym.data, expected)
+    # the Nyquist leaf is kept and snapped real: i k_hat e^{-iπ/2} =
+    # 2/dx (representable, matching staggered_diff — so the pressure
+    # projection reaches machine zero at Nyquist too)
+    assert sym.data.ravel()[-1] == 2.0 / dx
+    assert sym.data.ravel()[-1].imag == 0.0
+
+
+def test_fv_legs_match_the_nodal_stencil_numbers(flux, face, mx):
+    # scoping study §1: the FV divergence/gradient legs are bitwise the
+    # nodal FiniteDifference numbers, differing only in the codomain tag
+    grid = Grid((mx,))
+    fd = FiniteDifference()
+    div_fv = flux["x"].eigenvalues(grid, mx.fourier(origin=mx.right))
+    div_nod = fd["x"].eigenvalues(grid, mx.fourier(origin=mx.right))
+    assert jnp.array_equal(div_fv.data, div_nod.data)
+    assert div_fv.codomain.origin is mx.cell_avg  # not Center
+    grad_fv = face["x"].eigenvalues(grid, mx.fourier(origin=mx.cell_avg))
+    grad_nod = fd["x"].eigenvalues(grid, mx.fourier(origin=mx.center))
+    assert jnp.array_equal(grad_fv.data, grad_nod.data)
+
+
+def test_eigenvalues_thread_bare_or_fourier_factor(flux, face, mx):
+    # layout-faithful threading: a bare periodic origin (nodal for
+    # flux, average for face) yields the same symbol as its Fourier
+    # coefficient factor (fv_fourier_partner resolves both)
+    grid = Grid((mx,))
+    for op, origin in ((flux, mx.right), (face, mx.cell_avg)):
+        bare = op["x"].eigenvalues(grid, origin)
+        coeff = op["x"].eigenvalues(grid, mx.fourier(origin=origin))
+        assert coeff.space is bare.space
+        assert coeff.codomain is bare.codomain
+        assert jnp.array_equal(coeff.data, bare.data)
+
+
+def test_codomain_retags_a_fourier_factor(flux, dual, face, mx):
+    # the eigenvalue chain resolves codomains on Fourier factors
+    assert flux.codomain(mx.fourier(origin=mx.right)) is (
+        mx.fourier(origin=mx.cell_avg))
+    assert dual.codomain(mx.fourier(origin=mx.center)) is (
+        mx.fourier(origin=mx.face_avg))
+    assert dual.codomain(mx.fourier(origin=mx.cell_avg)) is (
+        mx.fourier(origin=mx.face_avg))
+    assert face.codomain(mx.fourier(origin=mx.cell_avg)) is (
+        mx.fourier(origin=mx.right))
+
+
+def test_eigenvalues_raise_on_bounded(flux, dual, face, my):
+    # average families have no diagonalizing basis on a walled mesh
+    grid = Grid((my,))
+    with pytest.raises(EigenbasisError, match="periodic"):
+        flux["y"].eigenvalues(grid, my.outer)
+    with pytest.raises(EigenbasisError, match="periodic"):
+        dual["y"].eigenvalues(grid, my.center)
+    with pytest.raises(EigenbasisError, match="periodic"):
+        face["y"].eigenvalues(grid, my.cell_avg)
+
+
+def test_eigenvalues_raise_on_mapped(flux, face, mapped_periodic):
+    # a stretched mesh's non-constant metric breaks translation
+    # invariance: no diagonal symbol (scoping study G5/F5)
+    mesh = mapped_periodic
+    grid = Grid((mesh,))
+    with pytest.raises(EigenbasisError, match="periodic"):
+        flux["w"].eigenvalues(grid, mesh.right)
+    with pytest.raises(EigenbasisError, match="periodic"):
+        face["w"].eigenvalues(grid, mesh.cell_avg)
+
+
+def test_eigenvalues_raise_on_non_fourier_coefficient(face, my):
+    # a trig coefficient factor is not a periodic Fourier basis
+    grid = Grid((my,))
+    sine = my.sine(my.nodal(NodeSet.CENTER, bc=BC.DIRICHLET))
+    with pytest.raises(EigenbasisError, match="sine/cosine"):
+        face["y"].eigenvalues(grid, sine)
+
+
+def test_fv_laplacian_symbol_is_the_real_neg_khat2(mx):
+    # FluxDifference @ FaceDifference: the CellAvg pressure Laplacian —
+    # real -k_hat**2, the honest discrete div @ grad (Nyquist kept)
+    grid = Grid((mx,))
+    lap = FluxDifference() @ FaceDifference()
+    coeff = mx.fourier(origin=mx.cell_avg)
+    sym = lap["x"].eigenvalues(grid, coeff)
+    assert sym.space.origin is mx.cell_avg
+    assert sym.codomain.origin is mx.cell_avg
+    k = fourier_wavenumbers(coeff)
+    dx = mx.dx
+    khat2 = -2.0 * (1.0 - jnp.cos(k * dx)) / dx ** 2
+    assert float(jnp.max(jnp.abs(sym.data.imag))) < 1e-12
+    assert jnp.allclose(sym.data.real, khat2)
+
+
+def test_fv_derivative_symbol_is_the_wide_centered_difference(mx):
+    # FVDerivative = flux_diff @ reconstruct (CellAvg -> CellAvg): the
+    # collocated wide difference i sin(k dx)/dx (the phases cancel)
+    grid = Grid((mx,))
+    sym = FVDerivative(LinearReconstruction())["x"].eigenvalues(
+        grid, mx.fourier(origin=mx.cell_avg))
+    k = fourier_wavenumbers(mx.fourier(origin=mx.cell_avg))
+    dx = mx.dx
+    assert jnp.allclose(sym.data, 1j * jnp.sin(k * dx) / dx)
+
+
+# ================================================================
+#  The FV pressure solve (SpectralSolve gate, plan stage F0)
+# ================================================================
+@pytest.mark.parametrize("n", [16, 17])
+def test_spectral_solve_drives_1d_divergence_to_machine_zero(n):
+    # the FV pressure operator (flux_diff of the face-difference
+    # gradient) solves a Poisson problem so the discrete divergence
+    # after projection is machine zero on a periodic box
+    mesh = IntervalMesh(n, (0.0, 1.0), name="x")
+    grid = Grid((mesh,))
+    u = grid.random.normal(mesh.right, seed=4)   # face-normal velocity
+    flux = FluxDifference()["x"]
+    face = FaceDifference()["x"]
+    lap = FluxDifference() @ FaceDifference()    # CellAvg -> CellAvg
+    div = flux(u)
+    solve = SpectralSolve(lap, grid, div.function_space)
+    p = solve(div)
+    assert p.function_space.bare is mesh.cell_avg
+    corrected_div = flux(u - face(p))
+    assert float(jnp.abs(div.data).max()) > 1.0     # non-trivial start
+    assert float(jnp.abs(corrected_div.data).max()) < 1e-11
+
+
+@pytest.mark.parametrize("n", [12, 16])
+def test_spectral_solve_projects_a_2d_box_divergence_free(n):
+    mx = IntervalMesh(n, (0.0, 1.0), name="x")
+    my = IntervalMesh(n, (0.0, 2.0), name="y")
+    grid = Grid((mx, my))
+    cell = mx.cell_avg * my.cell_avg
+    ux = grid.random.normal(mx.right * my.cell_avg, seed=1)
+    uy = grid.random.normal(mx.cell_avg * my.right, seed=2)
+    fx, fy = FluxDifference()["x"], FluxDifference()["y"]
+    gx, gy = FaceDifference()["x"], FaceDifference()["y"]
+    div = fx(ux) + fy(uy)
+    lap = ((FluxDifference() @ FaceDifference())["x"]
+           + (FluxDifference() @ FaceDifference())["y"])
+    solve = SpectralSolve(lap, grid, cell)
+    p = solve(div)
+    corrected = fx(ux - gx(p)) + fy(uy - gy(p))
+    assert float(jnp.abs(div.data).max()) > 1.0
+    assert float(jnp.abs(corrected.data).max()) < 1e-11
+    # residual: the Laplacian recovers the mean-free divergence
+    lap_p = ((FluxDifference() @ FaceDifference())["x"](p)
+             + (FluxDifference() @ FaceDifference())["y"](p))
+    assert float(jnp.abs((lap_p - (div - div.mean())).data).max()) < 1e-11
 
 
 # ================================================================
