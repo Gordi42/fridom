@@ -134,28 +134,42 @@ measurably trails the reference:
    flat, 2026-07-13), the same HLO-volume problem in the CG body; fix
    the comparison suite's metric to report compile separately
    (`_CHUNK_COMPILE_LOG`).
-3. **Advection-kernel throughput — RESEARCHED 2026-07-16, implement
-   the winner.** The stencil-lowering study
+3. **Advection-kernel throughput — WENO selected-input LANDED on dev
+   2026-07-16 (merge of `perf/weno-selected-input`).** The
+   stencil-lowering study
    ([`../research/stencil_lowering.md`](../research/stencil_lowering.md))
    attributed the collapse (1.86× linear → 1.05/1.10× upwind5/weno5):
    the slice-window kernels already lower optimally (one fused kernel,
    zero temps) and composition is free; WENO is divide/instruction-
-   bound and pays its nonlinear weights TWICE (both biased
+   bound and paid its nonlinear weights TWICE (both biased
    reconstructions computed, then `Where`-selected — Oceananigans
-   selects stencil *indices* and evaluates once). Measured on the real
-   step, exact to ~1e-13, temp flat: **weno5 selected-input
-   reconstruction −39% @256³ (25.5→15.5 ms/step), −46% @512³
-   (239.8→128.5)**. Implementation task: a selected-window mode of
-   `_BiasedFaceReconstruction` (tap `where`s on the union window, one
-   LEFT `weno_reconstruct`; mind the dual-staggering `_wall_shift` in
-   the union alignment), walled/mapped + multi-device coverage, gates =
-   CPU oracle (`stencil_lowering/microbench/phase3_prep/`) +
-   machine-precision step parity + step suite on 1 and 4 GPUs; then
-   re-run the Oceananigans comparison (projected weno5 edge ~1.8×).
-   Negative results (do not revisit): single-divide weights (real-step
-   temp blowup, 512³ OOM), f32-weights (superseded; net loss stacked on
-   selected-input), linear-upwind one-path spellings (micro win
-   reverses to +4–6% real), conv/tap-loop/per-point-kernel rewrites.
+   selects stencil *indices* and evaluates once). Shipped fix: a new
+   module-private `_SelectedFaceReconstruction` operator
+   (`nonhydro2/modules/advection.py`) — tap `where`s on the order+1
+   union window, ONE left `weno_reconstruct` of the taps — that
+   `WENOAdvection._face_value` uses in place of both-then-select
+   (linear `UpwindAdvection` kept on both-then-select, byte-identical).
+   Production A/B on the shipped code (A100, matched config, fresh
+   process): **weno5 −39.3% @256³ (25.65→15.57 ms/step), −45.9% @512³
+   (239.80→129.78)**, reproducing the research monkeypatch. 20-step
+   branch-vs-parent parity ≤1.9e-13 (weno5) / **bitwise** (weno3);
+   linear upwind5 step unchanged with **byte-identical chunk HLO**. A/B
+   record:
+   [`../research/stencil_lowering/microbench/phase3/IMPLEMENTATION_AB.md`](../research/stencil_lowering/microbench/phase3/IMPLEMENTATION_AB.md).
+   The merge with the FV C-grid default (F3) extended the selected
+   kernel to the average family (``family="fv"``: the
+   `_FVBiasedReconstruction` frame), so a ``CellAvg`` tracer takes the
+   same one-pass spelling and the FV/nodal bitwise tendency identity
+   holds. **Still open:** re-run the Oceananigans comparison suite
+   (projected weno5 edge ~1.8×); multi-host (`srun -n P`) confirmation of the
+   walled selected path (single-controller forced-4 exercised, real
+   multi-process not); and the pre-existing forced-4 knife-edge
+   divergence test now also tips `weno5` (the kernel-shape roundoff
+   flip, reported below). Negative results (do not revisit):
+   single-divide weights (real-step temp blowup, 512³ OOM), f32-weights
+   (superseded; net loss stacked on selected-input), linear-upwind
+   one-path spellings (micro win reverses to +4–6% real),
+   conv/tap-loop/per-point-kernel rewrites.
 
 ## Multi-device follow-ups from the indivisible-shard campaign
 

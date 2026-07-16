@@ -446,6 +446,45 @@ def _alpha_candidates(
     return tuple(alphas), tuple(candidates)
 
 
+def _weno_combine(
+    windows: tuple[Array, ...], tables: WenoTables,
+) -> Array:
+    """
+    Nonlinear-weight the candidate stencils of a window family.
+
+    Description
+    -----------
+    The shared reduction tail of the biased WENO kernel: normalize
+    the WENO-JS weights ``alpha_m`` and combine the candidate
+    reconstructions ``q_m``. Consumes a ready ``size``-window family
+    directly, so both the array entry point (:func:`weno_reconstruct`,
+    which slices the windows off a halo-extended storage) and the
+    selected-input advection kernel (which builds the windows by a
+    per-tap upwind ``where``) run the *same* nonlinear machinery once.
+
+    Parameters
+    ----------
+    windows : tuple[Array, ...]
+        The full-size window family (`_window_views`, or the selected
+        taps): one array per stencil cell, equal shapes.
+    tables : WenoTables
+        The static tables of the biased kernel.
+
+    Returns
+    -------
+    Array
+        The reconstructed face values.
+    """
+    alphas, candidates = _alpha_candidates(windows, tables)
+    total = alphas[0]
+    combined = alphas[0] * candidates[0]
+    for alpha, candidate in zip(alphas[1:], candidates[1:],
+                                strict=True):
+        total = total + alpha
+        combined = combined + alpha * candidate
+    return combined / total
+
+
 def weno_reconstruct(
     arr: Array,
     axis: int,
@@ -487,14 +526,7 @@ def weno_reconstruct(
     """
     tables = weno_tables(order, bias)
     windows = _window_views(arr, axis, tables.size)
-    alphas, candidates = _alpha_candidates(windows, tables)
-    total = alphas[0]
-    combined = alphas[0] * candidates[0]
-    for alpha, candidate in zip(alphas[1:], candidates[1:],
-                                strict=True):
-        total = total + alpha
-        combined = combined + alpha * candidate
-    return combined / total
+    return _weno_combine(windows, tables)
 
 
 def weno_weights(
