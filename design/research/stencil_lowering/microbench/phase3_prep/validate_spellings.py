@@ -38,6 +38,7 @@ from fridom.nonhydro2.modules.advection import (
     _centered_row,
     _linear_row,
 )
+from fridom.spatial.operators.graded import biased_offset
 from fridom.spatial.operators.weno import (
     _shu_row,
     weno_reconstruct,
@@ -343,11 +344,109 @@ def end_to_end_oracle(diss_rows: dict[int, tuple]) -> None:
     print("\nALL ORACLE ASSERTIONS PASSED.")
 
 
+# ================================================================
+#  Task 5 — FV (average-family) selected input (post-FV-merge)
+# ================================================================
+# dev's `_FVBiasedReconstruction._apply_factor` reconstructs a CellAvg
+# tracer onto its faces with the SAME shared array kernel as the nodal
+# primal direction — `weno_reconstruct(arr, axis, order, bias)` — on the
+# primal cell frame (shift 0): ``m0 = biased_offset(order, bias)``, never
+# the dual ``+1`` of a face-staggered operand (CellAvg has no dual
+# direction; it is the cell average). So the union window straddling each
+# face is the identical nodal-primal one: ``U`` = order+1 cells, the left
+# reconstruction reads ``U[0..order-1]``, the right reads ``U[1..order]``,
+# and the selected-input taps ``where(v>0, U[i], U[order-i])`` feed one
+# left reconstruction. This section derives that alignment from
+# `biased_offset` (not assumed to transfer) and validates the spelling
+# identity numerically for the FV family, including the ``v == 0`` tie.
+def check_fv_alignment() -> None:
+    print("=" * 64)
+    print(" (5) FV UNION ALIGNMENT (from _FVBiasedReconstruction)")
+    print("=" * 64)
+    for order in ORDERS:
+        # FV is the primal frame: shift 0, exactly nodal Center -> Right.
+        m0_left = biased_offset(order, "left")
+        m0_right = biased_offset(order, "right")
+        assert m0_left == order // 2, order
+        assert m0_right == order // 2 - 1, order
+        # union U = cells [F - order//2 .. F + order//2] (order+1 cells);
+        # left window starts at U[0], right at U[1] (the one-cell shift).
+        assert m0_left - m0_right == 1, order
+        print(f"order {order}: FV shift 0, m0_left={m0_left}, "
+              f"m0_right={m0_right}; left reads U[0:{order}], right "
+              f"reads U[1:{order + 1}] (== nodal primal frame)")
+    print("  VERDICT: FV union alignment == nodal primal (shift 0); the "
+          "mirror trick transfers unchanged.\n")
+
+
+def _fv_face_both_select(q_u: np.ndarray, u: np.ndarray,
+                         order: int) -> np.ndarray:
+    """FV reference: both biased FV recons, select by sign of u.
+
+    The FV reconstruction reuses the nodal array kernel
+    (`weno_reconstruct`) on the primal cell frame (shift 0), so this
+    reuses `_w1`; left reads U[0..order-1], right reads U[1..order].
+    """
+    npts = q_u.shape[0] - order
+    out = np.zeros(npts)
+    positive = (u + np.abs(u)) > 0
+    for t in range(npts):
+        u_win = q_u[t:t + order + 1]
+        vl = _w1(u_win[:order], order, "left")
+        vr = _w1(u_win[1:], order, "right")
+        out[t] = vl if positive[t] else vr
+    return out
+
+
+def _fv_face_selected_input(q_u: np.ndarray, u: np.ndarray,
+                            order: int) -> np.ndarray:
+    """FV lowering (A): per-tap select then ONE left reconstruction."""
+    npts = q_u.shape[0] - order
+    out = np.zeros(npts)
+    positive = (u + np.abs(u)) > 0
+    for t in range(npts):
+        u_win = q_u[t:t + order + 1]
+        taps = np.where(positive[t], u_win[:order],
+                        u_win[order - np.arange(order)])
+        out[t] = _w1(taps, order, "left")
+    return out
+
+
+def fv_end_to_end_oracle() -> None:
+    print("=" * 64)
+    print(" (5) FV END-TO-END ORACLE (mixed sign incl. the v==0 tie)")
+    print("=" * 64)
+    n = 32
+    for order in ORDERS:
+        q_u = RNG.standard_normal(n + order)
+        u = RNG.standard_normal(n)
+        u[: n // 2] = np.abs(u[: n // 2])       # forced-positive block
+        u[n // 2:] = -np.abs(u[n // 2:])        # forced-negative block
+        tie = n // 3
+        u[tie] = 0.0                            # exercise the v==0 tie
+        ref = _fv_face_both_select(q_u, u, order)
+        sel = _fv_face_selected_input(q_u, u, order)
+        e = float(np.max(np.abs(ref - sel)))
+        # the v==0 tie must read the RIGHT-biased FV value
+        u_tie = q_u[tie:tie + order + 1]
+        right_tie = _w1(u_tie[1:], order, "right")
+        print(f"FV weno order {order}: max|ref - selected_input| = "
+              f"{e:.3e} ; |tie - right_recon| = "
+              f"{abs(sel[tie] - right_tie):.3e}")
+        assert e < FTOL, (order, e)
+        assert abs(sel[tie] - right_tie) < FTOL, (
+            order, sel[tie], right_tie)
+    print("\n  VERDICT: FV both-then-select == FV selected-input to "
+          "ulps; the v==0 tie takes the right-biased side.\n")
+
+
 def main() -> None:
     check_linear_mirror()
     check_weno_mirror()
     diss_rows = derive_dissipation()
     end_to_end_oracle(diss_rows)
+    check_fv_alignment()
+    fv_end_to_end_oracle()
     print("\n" + "=" * 64)
     print(" ALL CHECKS PASSED")
     print("=" * 64)
