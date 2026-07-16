@@ -448,9 +448,19 @@ scalars modules already publish (`coriolis.beta`, `coriolis.f0`,
 `scaling.rossby`); a user-facing parameter-value form is
 designed-for. First consumer: the Coriolis family,
 `f(t) = f0(t) * 1 + beta(t) * y`; the static-parameter path stays
-bit-identical. A ramped `f0` must drop the `coriolis.f0`
-provides-constancy claim; frozen-snapshot consumers use the D2.4
-`at_time=` rule. Exponential steppers (`ETDRK4`) raise a taught
+bit-identical. A ramped `f0` **keeps** the `coriolis.f0` provide —
+the claim is *spatial* constancy (per time slice), which still
+holds; the *time*-constancy assumption moves to the consumers:
+frozen-snapshot consumers use the D2.4 `at_time=` rule, and
+consumers that cannot freeze raise taught errors (audited at R1:
+eigenmodes/`EnergyMetric` freeze; `TimeAverage(period=None)`
+teaches). *(Amended 2026-07-16 at R1 — the earlier "drop the
+provide" wording would have broken exactly the `at_time=` freezing
+this clause mandates.)* AR-D7 detection is declarative: modules
+report ramped linear-operator parameters via
+`Module.time_dependent_linear_parameters()`; frozen-`L` steppers
+set `freezes_linear_operator` and assembly raises the taught error
+on a non-empty union. Exponential steppers (`ETDRK4`) raise a taught
 error when a time-dependent parameter reaches a `linear=True` term
 (AR-D7; fallback recorded in
 [`../../research/exponential_stepper.md`](../../research/exponential_stepper.md) §5).
