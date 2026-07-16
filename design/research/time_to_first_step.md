@@ -96,7 +96,14 @@ the chunk compile is only ~2.3×-threaded.
 ## 3. Validated fixes (prototyped, measured; patches preserved)
 
 Patches: `~/work/fridom/compile-investigation-2026-07-16/{dryrun,
-async_compile}.patch` (worktrees cleaned up; nothing merged).
+async_compile}.patch`. **Update, same day: 3a and 3b are LANDED on dev**
+(merge `7842242b`: `model: validate dry_run by abstract evaluation`,
+`fridom: enable the persistent compilation cache by default` — the
+cache lives in `src/fridom/_compile_cache.py`, env knobs
+`FRIDOM_DISABLE_COMPILE_CACHE` / `FRIDOM_JAX_CACHE_DIR`, per-rank
+subdirs under an initialized `jax.distributed`, and the test suite's
+conftest keeps precedence). Post-merge 64³ GPU: cold TTFS 7.5→5.05 s,
+warm 2.83 s, per-step unchanged. 3c remains a patch only.
 
 ### 3a. dry_run under `jax.eval_shape` — kills bucket 1 (~3 s → ~0.1 s)
 

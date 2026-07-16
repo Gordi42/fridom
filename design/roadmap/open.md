@@ -110,10 +110,13 @@ measurably trails the reference:
    `min_compile_time_secs=0` (warm TTFS −48%; jax's default threshold
    silently skips the 113 small compiles), and a default-off two-tier
    async chunk compile (first advance −24..31%, steady state
-   bitwise-unchanged). Remaining: land the three fixes; HLO-volume
-   reduction in the step body (~O(ops^1.35) compile scaling) is the
-   only cold-start lever for weno5; fix the comparison suite's metric
-   to report compile separately (`_CHUNK_COMPILE_LOG`).
+   bitwise-unchanged). **The first two LANDED on dev 2026-07-16**
+   (merge `7842242b`; post-merge 64³ GPU: cold TTFS 7.5→5.05 s, warm
+   2.83 s, per-step unchanged). Remaining: the async two-tier patch
+   (optional, interactive UX); HLO-volume reduction in the step body
+   (~O(ops^1.35) compile scaling) is the only cold-start lever for
+   weno5; fix the comparison suite's metric to report compile
+   separately (`_CHUNK_COMPILE_LOG`).
 3. **Advection-kernel throughput.** The single-GPU edge collapses from
    1.86× (linear, solve-bound) to 1.05× (upwind5: 131 vs 137 ms/step)
    and 1.10× (weno5: 187 vs 205) — the biased-reconstruction kernels are
