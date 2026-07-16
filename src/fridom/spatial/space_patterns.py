@@ -38,6 +38,14 @@ if TYPE_CHECKING:  # pragma: no cover
         SpaceLike,
     )
 
+#: the discretization families a declaration can resolve into
+#: (FV-D1b): ``"nodal"`` (the ``Center`` / face point-value family)
+#: and ``"fv"`` (the average family — ``CellAvg`` cell means). The
+#: grid-level default and every per-field ``family=`` override name
+#: one of these.
+FAMILIES: tuple[str, ...] = ("nodal", "fv")
+
+
 class Dof(Enum):
 
     """
@@ -102,6 +110,16 @@ class SpacePattern:
         Requested Körper of the resolved space (``REAL`` /
         ``COMPLEX``, no width axis — CS-17 is global-precision
         only); None keeps the resolvers' choice (default: None).
+    family : str | None, optional
+        The discretization family the tags resolve into (FV-D1b):
+        ``"nodal"`` (``Center`` / face point values) or ``"fv"``
+        (the average family — ``COLLOCATED`` lands on ``CellAvg``,
+        ``STAGGERED`` stays the nodal face). ``None`` defers to the
+        grid-level default (``grid.default_family``), so a mixed
+        model overrides the family per field while the rest of the
+        grid follows the default. It stays part of the frozen,
+        value-hashable data, so two patterns differing only in
+        ``family`` are distinct dispatch-merge keys (default: None).
     """
 
     default: Dof = Dof.COLLOCATED
@@ -110,12 +128,17 @@ class SpacePattern:
     wall_bc: tuple[tuple[str, BC | BCStructure], ...] = ()
     require: tuple[str, ...] = ()
     scalars: Scalars | None = None
+    family: str | None = None
 
     def __post_init__(self) -> None:
         """Canonicalize and validate the field values."""
         if not isinstance(self.default, Dof):
             raise TypeError(
                 f"default must be a Dof member, got {self.default!r}")
+        if self.family is not None and self.family not in FAMILIES:
+            raise ValueError(
+                f"family must be one of {FAMILIES} or None, got "
+                f"{self.family!r}")
         object.__setattr__(
             self, "tags", _normalize_pairs(
                 self.tags, _check_dof, label="tags"))
@@ -150,6 +173,7 @@ class SpacePattern:
         wall_bc: Mapping[str, BC | BCStructure] | None = None,
         require: Iterable[str] = (),
         scalars: Scalars | None = None,
+        family: str | None = None,
     ) -> SpacePattern:
         """
         Build a pattern from mappings (canonical tuple form).
@@ -170,6 +194,9 @@ class SpacePattern:
             Names that must match a mesh factor (default: ()).
         scalars : Scalars | None, optional
             Requested Körper of the resolved space (default: None).
+        family : str | None, optional
+            The discretization family the tags resolve into; None
+            defers to the grid-level default (default: None).
 
         Returns
         -------
@@ -183,7 +210,8 @@ class SpacePattern:
             wall_bc=(() if wall_bc is None
                      else tuple(wall_bc.items())),
             require=tuple(require),
-            scalars=scalars)
+            scalars=scalars,
+            family=family)
 
     # ================================================================
     #  Resolution (model assembly step 1)
@@ -197,16 +225,19 @@ class SpacePattern:
         Per mesh factor: pick the tag (``default`` when no
         coordinate name of the mesh matches) and the BC, and call
         the grid-level resolver row
-        ``grid.dispatch[("declared_space", mesh)](tag, bc)``.
-        A ``wall_bc`` entry substitutes for an absent ``bc`` entry
-        only where the matched mesh is bounded (topology-driven
-        walls, C8); on periodic factors it is ignored, so periodic
-        grids resolve to the identical interned spaces as without
-        it. ``Dof.CONSTANT`` resolves directly to the universal
-        ``mesh.constant`` (no resolver row consulted). The result is
-        the flat interned product — bare, pre-layout. Pure: spaces
-        are interned, so repeated resolution returns the identical
-        object.
+        ``grid.dispatch[("declared_space", mesh)](tag, bc, family)``.
+        The ``family`` is this pattern's ``family`` when set, else the
+        grid-level default ``grid.default_family`` (FV-D1b): a mixed
+        model overrides the family per field while the rest of the
+        grid follows the default. A ``wall_bc`` entry substitutes for
+        an absent ``bc`` entry only where the matched mesh is bounded
+        (topology-driven walls, C8); on periodic factors it is
+        ignored, so periodic grids resolve to the identical interned
+        spaces as without it. ``Dof.CONSTANT`` resolves directly to
+        the universal ``mesh.constant`` (no resolver row consulted;
+        family-agnostic). The result is the flat interned product —
+        bare, pre-layout. Pure: spaces are interned, so repeated
+        resolution returns the identical object.
 
         Parameters
         ----------
@@ -233,6 +264,8 @@ class SpacePattern:
         tags = dict(self.tags)
         bcs = dict(self.bc)
         walls = dict(self.wall_bc)
+        family = (self.family if self.family is not None
+                  else getattr(grid, "default_family", "nodal"))
         factors = []
         for mesh in grid.factors:
             tag = _match(mesh, tags, self.default)
@@ -250,7 +283,7 @@ class SpacePattern:
                         "carry no BC structure")
                 factors.append(mesh.constant)
                 continue
-            factors.append(_resolver_row(grid, mesh)(tag, bc))
+            factors.append(_resolver_row(grid, mesh)(tag, bc, family))
         space = TensorProductSpace.of(*factors)
         return self._request_scalars(space)
 
@@ -298,6 +331,7 @@ def Collocated(  # noqa: N802 — constructor-like factory (spec)
     wall_bc: Mapping[str, BC | BCStructure] | None = None,
     require: Iterable[str] = (),
     scalars: Scalars | None = None,
+    family: str | None = None,
 ) -> SpacePattern:
     """
     Collocated everywhere: ``SpacePattern()``.
@@ -313,6 +347,10 @@ def Collocated(  # noqa: N802 — constructor-like factory (spec)
         Names that must match a mesh factor (default: ()).
     scalars : Scalars | None, optional
         Requested Körper of the resolved space (default: None).
+    family : str | None, optional
+        The discretization family; ``"fv"`` lands the collocated
+        coordinates on ``CellAvg`` (FV-D1b). None defers to the
+        grid-level default (default: None).
 
     Returns
     -------
@@ -320,7 +358,8 @@ def Collocated(  # noqa: N802 — constructor-like factory (spec)
         The all-collocated pattern.
     """
     return SpacePattern.create(bc=bc, wall_bc=wall_bc,
-                               require=require, scalars=scalars)
+                               require=require, scalars=scalars,
+                               family=family)
 
 
 def Staggered(  # noqa: N802 — constructor-like factory (spec)
@@ -329,6 +368,7 @@ def Staggered(  # noqa: N802 — constructor-like factory (spec)
     wall_bc: Mapping[str, BC | BCStructure] | None = None,
     require: Iterable[str] = (),
     scalars: Scalars | None = None,
+    family: str | None = None,
 ) -> SpacePattern:
     """
     Staggered along the named coordinates, collocated elsewhere.
@@ -354,6 +394,11 @@ def Staggered(  # noqa: N802 — constructor-like factory (spec)
         Names that must match a mesh factor (default: ()).
     scalars : Scalars | None, optional
         Requested Körper of the resolved space (default: None).
+    family : str | None, optional
+        The discretization family; under ``"fv"`` a staggered
+        coordinate still resolves to the nodal face (FV-D2 option A),
+        while collocated coordinates land on ``CellAvg``. None defers
+        to the grid-level default (default: None).
 
     Returns
     -------
@@ -366,7 +411,8 @@ def Staggered(  # noqa: N802 — constructor-like factory (spec)
             "'collocated everywhere' is spelled Collocated()")
     return SpacePattern.create(
         tags=dict.fromkeys(names, Dof.STAGGERED),
-        bc=bc, wall_bc=wall_bc, require=require, scalars=scalars)
+        bc=bc, wall_bc=wall_bc, require=require, scalars=scalars,
+        family=family)
 
 
 def Profile(  # noqa: N802 — constructor-like factory (spec)
@@ -375,6 +421,7 @@ def Profile(  # noqa: N802 — constructor-like factory (spec)
     wall_bc: Mapping[str, BC | BCStructure] | None = None,
     require: Iterable[str] = (),
     scalars: Scalars | None = None,
+    family: str | None = None,
 ) -> SpacePattern:
     """
     ConstantSpace on all axes except the named ones (old ``topo``).
@@ -399,6 +446,10 @@ def Profile(  # noqa: N802 — constructor-like factory (spec)
         Names that must match a mesh factor (default: ()).
     scalars : Scalars | None, optional
         Requested Körper of the resolved space (default: None).
+    family : str | None, optional
+        The discretization family the named (varying) coordinates
+        resolve into; ``"fv"`` lands them on ``CellAvg``. None defers
+        to the grid-level default (default: None).
 
     Returns
     -------
@@ -408,7 +459,8 @@ def Profile(  # noqa: N802 — constructor-like factory (spec)
     return SpacePattern.create(
         default=Dof.CONSTANT,
         tags=dict.fromkeys(names, Dof.COLLOCATED),
-        bc=bc, wall_bc=wall_bc, require=require, scalars=scalars)
+        bc=bc, wall_bc=wall_bc, require=require, scalars=scalars,
+        family=family)
 
 
 # ================================================================
@@ -614,7 +666,7 @@ def _match(
 
 def _resolver_row(
     grid: Grid, mesh: Mesh,
-) -> Callable[[Dof, BC | BCStructure | None], object]:
+) -> Callable[[Dof, BC | BCStructure | None, str], object]:
     """
     Look up the mesh's ``("declared_space", mesh)`` resolver row.
 
@@ -628,7 +680,7 @@ def _resolver_row(
     Returns
     -------
     Callable
-        The resolver ``(tag, bc) -> factor space``.
+        The resolver ``(tag, bc, family) -> factor space``.
 
     Raises
     ------

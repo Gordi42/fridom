@@ -117,7 +117,7 @@ from fridom.spatial.scalars import Scalars
 # resolver rows (model D1.2); the model layer resolves declared
 # patterns through the rows seeded below, so the grid must speak the
 # tag enum (a same-layer spatial import of pure vocabulary)
-from fridom.spatial.space_patterns import Dof
+from fridom.spatial.space_patterns import FAMILIES, Dof
 from fridom.spatial.spaces.average import (
     AverageSpace,
     CellAvg,
@@ -225,6 +225,15 @@ class Grid:
         Indices into ``jax.devices()``; None lets negotiation use
         every available device, falling back to one when nothing is
         shardable (default: None).
+    family : str, optional
+        The default discretization family the declared-space
+        patterns resolve into when they name none (FV-D1b):
+        ``"nodal"`` (the ``Center`` / face point-value family) or
+        ``"fv"`` (the average family — ``COLLOCATED`` lands on
+        ``CellAvg``). A per-field ``SpacePattern(family=...)``
+        overrides it, so a mixed model keeps most fields nodal while
+        a tracer is FV. The default stays ``"nodal"``; flipping it to
+        ``"fv"`` per periodic grid is stage F3 (default: "nodal").
     """
 
     def __init__(
@@ -235,11 +244,17 @@ class Grid:
         mapping: CoordinateMapping | None = None,
         immersed: ImmersedDomain | None = None,
         device_ids: tuple[int, ...] | None = None,
+        family: str = "nodal",
     ) -> None:
         """Assemble a grid from pre-built, pre-named mesh factors."""
         meshes = tuple(meshes)
         if not meshes:
             raise ValueError("a grid needs at least one mesh factor")
+        if family not in FAMILIES:
+            raise ValueError(
+                f"the grid-level default family must be one of "
+                f"{FAMILIES}, got {family!r}")
+        self._default_family: str = family
         names: list[str] = []
         duplicates: list[str] = []
         for mesh in meshes:
@@ -312,6 +327,20 @@ class Grid:
     def names(self) -> tuple[str, ...]:
         """All coordinate names, collected from the meshes in order."""
         return self._names
+
+    @property
+    def default_family(self) -> str:
+        """
+        The default discretization family for declared patterns.
+
+        Description
+        -----------
+        The grid-level default (FV-D1b) a ``SpacePattern`` with no
+        ``family=`` of its own resolves through: ``"nodal"`` (the
+        ``Center`` / face point-value family) or ``"fv"`` (the
+        average family). A per-field ``family=`` overrides it.
+        """
+        return self._default_family
 
     # ================================================================
     #  Operator dispatch (seam: registry class owned by the
@@ -1961,7 +1990,7 @@ def _seed_column_closure(
 
 def _declared_space_resolver(
     mesh: Mesh,
-) -> Callable[[Dof, BC | BCStructure | None], FunctionSpace] | None:
+) -> Callable[[Dof, BC | BCStructure | None, str], FunctionSpace] | None:
     """
     Build the default ``("declared_space", mesh)`` resolver row.
 
@@ -1970,18 +1999,28 @@ def _declared_space_resolver(
     Seeded per mesh factor at grid construction (model D1.2), so
     declared space patterns (``Collocated()`` / ``Staggered(...)`` /
     ``Profile(...)``) resolve on a bare grid without manual seeding.
-    The default mapping over each mesh's space vocabulary:
-    ``Dof.COLLOCATED`` -> the center/nodal family (``ChebyshevMesh``,
-    whose restricted family carries no cell centers, uses its
-    outer/Lobatto family instead); ``Dof.STAGGERED`` -> the face
-    family: ``Right`` on a periodic mesh, ``Inner`` on a bounded
-    one — a C-grid wall-normal velocity carries interior faces
-    only, the wall value is a boundary condition, not a DOF (an
-    error on ``ChebyshevMesh`` — no face spaces exist there).
-    ``Dof.CONSTANT`` never reaches a resolver:
-    patterns route it to ``mesh.constant`` directly. Meshes without
-    a nodal factory (``PointMesh``) get no default row and keep the
-    hinted ``DispatchError``.
+    The resolver is family-aware (FV-D1b): its third argument is the
+    effective discretization family the pattern resolved to (its own
+    ``family=`` or the grid default).
+
+    Under ``"nodal"`` (the default), ``Dof.COLLOCATED`` -> the
+    center/nodal family (``ChebyshevMesh``, whose restricted family
+    carries no cell centers, uses its outer/Lobatto family instead);
+    ``Dof.STAGGERED`` -> the face family: ``Right`` on a periodic
+    mesh, ``Inner`` on a bounded one — a C-grid wall-normal velocity
+    carries interior faces only, the wall value is a boundary
+    condition, not a DOF (an error on ``ChebyshevMesh`` — no face
+    spaces exist there).
+
+    Under ``"fv"`` (FV-D2 option A), ``Dof.COLLOCATED`` -> the
+    ``CellAvg`` cell-average family (a taught error where it does not
+    exist, e.g. a ``ChebyshevMesh``); ``Dof.STAGGERED`` stays the
+    nodal face (``Right``/``Inner``), so an FV C-grid keeps
+    face-normal velocities on the point-value faces. ``Dof.CONSTANT``
+    never reaches a resolver (patterns route it to ``mesh.constant``
+    directly; family-agnostic). Meshes without a nodal factory
+    (``PointMesh``) get no default row and keep the hinted
+    ``DispatchError``.
 
     Parameters
     ----------
@@ -1991,8 +2030,8 @@ def _declared_space_resolver(
     Returns
     -------
     Callable | None
-        The ``(tag, bc) -> factor space`` resolver, or None when
-        the mesh type has no default mapping.
+        The ``(tag, bc, family) -> factor space`` resolver, or None
+        when the mesh type has no default mapping.
     """
     if isinstance(mesh, ChebyshevMesh):
         node_sets: dict[Dof, NodeSet | None] = {
@@ -2011,8 +2050,11 @@ def _declared_space_resolver(
     def resolver(
         tag: Dof,
         bc: BC | BCStructure | None,
+        family: str = "nodal",
     ) -> FunctionSpace:
-        """Resolve one (tag, bc) pair to this mesh's factor space."""
+        """Resolve one (tag, bc, family) triple to a factor space."""
+        if family == "fv":
+            return _fv_factor_space(mesh, tag, bc)
         node_set = node_sets.get(tag)
         if node_set is None:
             raise ValueError(
@@ -2024,6 +2066,64 @@ def _declared_space_resolver(
                           bc=BC.NONE if bc is None else bc)
 
     return resolver
+
+
+def _fv_factor_space(
+    mesh: Mesh,
+    tag: Dof,
+    bc: BC | BCStructure | None,
+) -> FunctionSpace:
+    """
+    Resolve one declared tag to this mesh's FV factor space.
+
+    Description
+    -----------
+    The FV branch of the default resolver row (FV-D1b / FV-D2 option
+    A): ``Dof.COLLOCATED`` -> the ``CellAvg`` cell-average family (a
+    BC-free space — average factors carry no boundary structure);
+    ``Dof.STAGGERED`` -> the nodal face (``Right`` periodic /
+    ``Inner`` bounded), so the FV C-grid keeps face-normal velocities
+    on the point-value faces. A taught error where the family cannot
+    be produced (a mesh without a ``cell_avg`` factory, e.g. a
+    ``ChebyshevMesh``; a BC pinned on the BC-free cell average).
+
+    Parameters
+    ----------
+    mesh : Mesh
+        The mesh factor being resolved.
+    tag : Dof
+        The declaration tag (``COLLOCATED`` or ``STAGGERED``).
+    bc : BC | BCStructure | None
+        The matched BC (only meaningful for the staggered face).
+
+    Returns
+    -------
+    FunctionSpace
+        The FV factor space (the cell average or the nodal face).
+    """
+    if tag is Dof.STAGGERED:
+        node_set = NodeSet.RIGHT if mesh.periodic else NodeSet.INNER
+        return mesh.nodal(node_set, bc=BC.NONE if bc is None else bc)
+    if tag is Dof.COLLOCATED:
+        if bc is not None:
+            raise ValueError(
+                f"pattern pins a BC on a family='fv' collocated "
+                f"coordinate of {mesh!r}, which resolves to the "
+                "BC-free CellAvg cell average; average factors carry "
+                "no boundary structure (topology-driven walls, C8)")
+        try:
+            return mesh.cell_avg
+        except (AttributeError, ValueError, NotImplementedError) as exc:
+            raise ValueError(
+                f"family='fv' maps a collocated coordinate to the "
+                f"CellAvg cell-average family, which {mesh!r} does "
+                "not provide (a ChebyshevMesh has no cell averages); "
+                "seed a custom grid-level resolver row or keep this "
+                "coordinate family='nodal'") from exc
+    raise ValueError(  # pragma: no cover — CONSTANT never reaches here
+        f"the family='fv' resolver row of {mesh!r} maps no "
+        f"{getattr(tag, 'name', tag)!s} representation; seed a "
+        "custom grid-level resolver row for it")
 
 
 def _probe(factory: Callable[[], object]) -> object | None:
