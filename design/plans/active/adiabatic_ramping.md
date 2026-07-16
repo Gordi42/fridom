@@ -313,6 +313,22 @@ New modules and mirrored tests:
 | **R6** | Double-ramp example (equatorial beta-plane, paper fig. 4 protocol) + docs page for the ramping family (both protocol surfaces and when to prefer each). | M (2–3 d) | Owner-reviewed privately per AGENTS.md docs flow (local `docs/<topic>` branch, projected working-tree review, zero `REVIEW:` markers + explicit approval); example fits the sphinx-gallery time budget. |
 | **R7** | Hygiene: this plan → `plans/done/` with outcome-vs-gates; roadmap 3.8 entry moved to `done.md`; time-dependent-fields entry trimmed to what stays open. | S (0.5 d) | `open.md` holds only open work. |
 
+**Landed (2026-07-17):** R0 `ee836386`+`cf633de1`, R1 `b7a8ac56`,
+R2 `20bd375e`, R3 `bc634e9d`, R4 `9618eeeb`, R5 `09c7721c` — every
+gate met (measured numbers live in the stage test files; highlights:
+static paths bit-identical, ramped-beta leakage decays with `tau`
+both directions, near-inverse 1.7e-11 vs phase-law 0.63, OB
+bit-identical to 16 digits, forward–forward counter-example pinned
+at 10^3–10^4 separation, dt-halving ratio ~1.00). Remaining: R6
+(prepared on local `docs/adiabatic-ramping`, awaiting owner review)
+and R7. Follow-ups recorded at landing, not blocking: `dsqr`'s
+AR-D7 report is cross-module (owned by `DynamicalCore`, consumed by
+`ConstantStratification.buoyancy_force`) — documented, not wired;
+`f_coriolis` IO shows the t=0 snapshot during ramped runs (fresh-f
+IO needs the general time-dependent-field mechanism, §7); the R5
+idempotency/phase tolerances are leg-dependent constants (grid, tau,
+dt) and documented as such in the tests.
+
 Every stage lands on its own `<type>/<topic>` branch with mirrored
 tests (95% branch coverage) and `ruff` clean, per AGENTS.md — suggested
 names: `feat/time-dependent-scalar-params` (R1),

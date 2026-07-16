@@ -115,6 +115,7 @@ from fridom.model.modules.coriolis import (
 from fridom.model.parameters import Param
 from fridom.model.params import SCALING_ROSSBY
 from fridom.model.terms import term
+from fridom.model.time_dependent import TimeDependent
 from fridom.spatial.decomposition.halo import HaloSpec
 from fridom.spatial.fields.vector_field import VectorField
 from fridom.spatial.scalars import Variance
@@ -250,6 +251,7 @@ def check_rotation_modules(modules: object) -> None:
 
 def conserving_rotation(
     state: object, *, coords: tuple[str, str], rossby: object,
+    f_field: object = None,
 ) -> dict:
     r"""
     Return the exactly-conserving discrete Coriolis tendency.
@@ -274,6 +276,13 @@ def conserving_rotation(
     rossby : object
         The Rossby scaling (a traced ``ctx.params`` scalar), needed
         for the thickness ``h = c^2 + Ro p``.
+    f_field : object, optional
+        A **stage-time f(y) field** to use in place of the
+        assembly-frozen ``f_coriolis`` field — the ramped beta-plane
+        ``FieldBlend`` path (AR-D2 / R2): the conserving rotation
+        consumes the fresh :math:`f(y,t) = f_0(t) + \beta(t)\,y`
+        blend exactly like the frozen profile. ``None`` keeps the
+        frozen field, so the static path is unchanged (default: None).
 
     Returns
     -------
@@ -281,7 +290,8 @@ def conserving_rotation(
         The ``u`` / ``v`` increments.
     """
     u, v, p = state["u"], state["v"], state["p"]
-    c, f = state["csqr"], state["f_coriolis"]
+    c = state["csqr"]
+    f = state["f_coriolis"] if f_field is None else f_field
     meridional = coords[1]
 
     # full geopotential thickness at the centre — the same h the
@@ -504,6 +514,19 @@ class CoriolisEnergyCorrection(Module):
         check_rotation_modules(modules)
         linear = [module for module in modules
                   if carries_linear_rotation(module)]
+        if getattr(linear[0], "_blend_active", False):
+            raise ValueError(
+                "CoriolisEnergyCorrection is paired with a Coriolis "
+                "module carrying a ramped f(y) FieldBlend (a "
+                "time-dependent f0/beta), but the correction subtracts "
+                "the frozen f_coriolis snapshot, so route A would "
+                "double-count the ramp and break the energy identity. "
+                "For a ramped conserving run use route B "
+                "(sw.modules.NonlinearBetaPlaneCoriolis(beta=Ramp(...))), "
+                "which carries the whole conserving rotation on the "
+                "stage-time blend; the route-A correction under a ramped "
+                "f is a FieldBlend follow-up (roadmap 'Generalized "
+                "adiabatic ramping')")
         weight = linear[0].metric_weight
         if weight not in (None, _WEIGHT):
             raise ValueError(
@@ -626,6 +649,19 @@ class _ConservingRotation:
         check_rotation_modules(table.modules)
         super().bind(table)
 
+    def time_dependent_linear_parameters(self) -> tuple[str, ...]:
+        """Report nothing: the conserving rotation is ``linear=False``.
+
+        A ramped ``f0``/``beta`` on a route-B module feeds the
+        **nonlinear** ``(f/h_bar)(h v)_bar`` term (part of ``N``), not a
+        ``linear=True`` term, so a frozen-``L`` stepper handles its time
+        dependence correctly (AR-D7) — exactly as ``scaling.rossby``
+        does. (Such a model is already refused by every ``L``-consumer
+        through the ``linear_operator_gap``, but the honesty seam must
+        still report nothing here.)
+        """
+        return ()
+
     @term(advances=("u", "v"), linear=False, name="coriolis")
     def coriolis(self, state, ctx) -> dict:  # noqa: ANN001
         r"""``du = (f/h_bar) (h v)_bar``; ``dv = -(f/h_bar) (h u)_bar``.
@@ -637,10 +673,21 @@ class _ConservingRotation:
         the Sadourny corner, with the metric on a chart grid.
         Declared ``linear=False`` — it *is* nonlinear in ``h``, and
         the declaration is what keeps the model honest about ``L``.
+
+        A ramped beta-plane (``NonlinearBetaPlaneCoriolis`` with a
+        ``FieldBlend``-active ``f0``/``beta``) reads the fresh stage-time
+        blend ``f(y,t)`` instead of the frozen field, so the conserving
+        channel supports a ramped ``beta`` end to end (AR-D2 / R2). The
+        static path (and the f-plane / chart route-B modules, which
+        carry no field blend) leaves ``f_field`` ``None`` and reads the
+        frozen ``f_coriolis`` unchanged.
         """
+        stage_blend = getattr(self, "_stage_blend_f", None)
+        f_field = (stage_blend(state, ctx)
+                   if stage_blend is not None else None)
         return conserving_rotation(
             state, coords=self._coords,
-            rossby=ctx.params[SCALING_ROSSBY])
+            rossby=ctx.params[SCALING_ROSSBY], f_field=f_field)
 
 
 class NonlinearFPlaneCoriolis(_ConservingRotation, FPlaneCoriolis):
@@ -678,7 +725,29 @@ class NonlinearFPlaneCoriolis(_ConservingRotation, FPlaneCoriolis):
         self, f0: float = 1.0, *,
         coords: tuple[str, str] = ("x", "y"),
     ) -> None:
-        """Store the Coriolis parameter and the coordinate names."""
+        """Store the Coriolis parameter and the coordinate names.
+
+        Raises
+        ------
+        TypeError
+            If ``f0`` is time-dependent: the conserving f-plane rotation
+            carries no field blend (unlike the beta-plane), so its
+            ``(f/h_bar)(h v)_bar`` term would silently read the frozen
+            ``f0(0)`` snapshot. A ramped f-plane rotation belongs on the
+            *linear* module (``sw.modules.FPlaneCoriolis(f0=Ramp(...))``,
+            R1); a conserving ramped f0 is a ``FieldBlend`` follow-up.
+        """
+        if isinstance(f0, TimeDependent):
+            raise TypeError(
+                f"NonlinearFPlaneCoriolis f0={f0!r} is time-dependent, "
+                "but the conserving f-plane rotation carries the whole "
+                "(f/h_bar)(h v)_bar term with no field blend, so it "
+                "would silently freeze f0 at t=0. Ramp f0 on the linear "
+                "sw.modules.FPlaneCoriolis(f0=Ramp(...)) instead (R1), "
+                "or use the conserving beta-plane "
+                "sw.modules.NonlinearBetaPlaneCoriolis for a ramped "
+                "rotation via its FieldBlend (roadmap 'Generalized "
+                "adiabatic ramping')")
         FPlaneCoriolis.__init__(self, f0)
         self._coords = _coord_names(coords)
 

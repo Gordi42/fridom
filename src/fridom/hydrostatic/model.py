@@ -8,26 +8,29 @@ tuple and delegates to a plain ``fr.model.Model``. Preset assembly and
 explicit assembly produce identical carry treedefs (the D4 preset
 test). The default stepper is ``AdamBashforth(dt, order=3)``.
 
-**Advection (stage-H2 limitation).** The diagnosed vertical velocity
-``w`` lives on the both-boundary vertical face set ``Outer`` (required
-for the machine-exact continuity fundamental theorem and the
-machine-exact linear energy conservation — see
-``hy.modules.HydrostaticCore``). The shared flux-form advection
-family (``fr.model.modules.CenteredAdvection`` et al.) transports a
-cell-centred tracer through the **interior** vertical faces
-(``Inner``) and interpolates the advecting velocity there
-(``w.to(Inner)``); there is no registered interpolation between the
-``Outer`` and ``Inner`` vertical face sets, so the shared advection's
-vertical leg cannot consume a ``w``-on-``Outer`` velocity. This is a
-spatial-layer gap (a vertical ``Center``<->``Outer`` /
-``Outer``->``Inner`` interpolation, or a shared-advection enhancement
-restricting an ``Outer`` velocity to the interior flux faces) tracked
-for a follow-up. Until then the factory default is a **linear**
-hydrostatic model (``advection=False``); requesting advection raises a
-taught error rather than the cryptic dispatch failure it would hit
-deep in the flux chain. The linear model is exactly what the
-dispersion, geostrophic-balance and energy-conservation gates
-validate.
+**Advection (stage H2b).** The diagnosed vertical velocity ``w`` lives
+on the both-boundary vertical face set ``Outer`` (required for the
+machine-exact continuity fundamental theorem and the machine-exact
+linear energy conservation — see ``hy.modules.HydrostaticCore``). The
+shared flux-form advection family (``fr.model.modules.CenteredAdvection``
+et al.) transports a cell-centred tracer through the **interior**
+vertical faces (``Inner``) and resolves the advecting velocity there
+(``w.to(Inner)``). Stage H2b seeds the spatial-layer
+``fr.operators.Restriction`` row for that hop: ``Outer ⊃ Inner`` on a
+bounded mesh, so ``Outer -> Inner`` is the exact drop of the two
+boundary faces — physically the standard fixed-domain closure, **zero
+advective flux through the top and bottom boundary faces** under a
+linear free surface (the surface volume flux is carried by the ``ps``
+equation, not by advection). The surface velocity ``w(0)`` therefore
+never enters an advective flux, so a transported tracer's mass is
+conserved to roundoff.
+
+The factory default is now ``CenteredAdvection()`` (the common-
+denominator scheme); ``advection=False`` recovers the linear model
+(what the dispersion, geostrophic-balance and energy-conservation
+gates validate), and ``UpwindAdvection`` / ``WENOAdvection`` are
+accepted on the uniform unmapped grids the hydrostatic preset targets
+(the biased schemes self-reject stretched / mapped geometry at bind).
 """
 from __future__ import annotations
 
@@ -39,6 +42,7 @@ from fridom.hydrostatic.modules.free_surface import ExplicitFreeSurface
 from fridom.hydrostatic.modules.stratification import (
     ConstantStratification,
 )
+from fridom.model.modules.advection import CenteredAdvection
 
 if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Sequence
@@ -57,7 +61,7 @@ def Model(  # noqa: N802 — a factory that mirrors fr.model.Model's surface
     rossby_number: float | fr.model.Ramp = 1.0,
     coriolis: fr.model.Module | None = None,
     stratification: fr.model.Module | None = None,
-    advection: fr.model.Module | bool = False,
+    advection: fr.model.Module | bool = True,
     time_stepper: TimeStepper | None = None,
     modules_extra: Sequence[fr.model.Module] = (),
     name: str | None = None,
@@ -93,11 +97,14 @@ def Model(  # noqa: N802 — a factory that mirrors fr.model.Model's surface
         The stratification module
         (default: ``ConstantStratification(n2=1.0)``).
     advection : fr.model.Module | bool, optional
-        Nonlinear advection. **Currently only ``False`` (a linear
-        model) is supported** — the shared flux-form advection cannot
-        consume the diagnosed ``w`` on the ``Outer`` vertical faces
-        (see the module docstring). A truthy value raises
-        ``NotImplementedError`` (default: False).
+        Nonlinear advection of ``u``/``v``/``b``. ``True`` (the
+        default) installs ``CenteredAdvection()``; ``False`` omits
+        advection (the linear hydrostatic model); a module instance
+        (``UpwindAdvection`` / ``WENOAdvection`` / a configured
+        ``CenteredAdvection``) is installed as given. The vertical leg
+        consumes the diagnosed ``w`` on the ``Outer`` faces through the
+        seeded ``Outer -> Inner`` restriction (module docstring); the
+        boundary-face flux is a structural zero (default: True).
     time_stepper : TimeStepper | None, optional
         Override the default ``AdamBashforth(dt, order=3)``.
     modules_extra : Sequence[fr.model.Module], optional
@@ -111,27 +118,13 @@ def Model(  # noqa: N802 — a factory that mirrors fr.model.Model's surface
     -------
     fr.model.Model
         The assembled model.
-
-    Raises
-    ------
-    NotImplementedError
-        If ``advection`` is truthy (the stage-H2 vertical-advection
-        limitation).
     """
-    if advection is not False and advection is not None:
-        raise NotImplementedError(
-            "hy.Model does not yet support nonlinear advection: the "
-            "diagnosed vertical velocity w lives on the both-boundary "
-            "vertical face set (Outer), and the shared flux-form "
-            "advection cannot interpolate it onto the interior flux "
-            "faces (no Outer<->Inner vertical interpolation is "
-            "registered). Use advection=False (the linear hydrostatic "
-            "model); the advective path awaits a spatial-layer "
-            "vertical-interpolation follow-up (stage H2 record).")
     if free_surface is None:
         free_surface = ExplicitFreeSurface()
     if stratification is None:
         stratification = ConstantStratification(n2=1.0)
+    if advection is True:
+        advection = CenteredAdvection()
     if time_stepper is None:
         time_stepper = fr.model.time_steppers.AdamBashforth(dt, order=3)
 
@@ -143,6 +136,8 @@ def Model(  # noqa: N802 — a factory that mirrors fr.model.Model's surface
         modules.append(coriolis)
     modules.append(stratification)
     modules.append(free_surface)
+    if advection is not False:
+        modules.append(advection)
     modules.extend(modules_extra)
 
     return fr.model.Model(grid=grid, modules=tuple(modules),

@@ -1295,6 +1295,12 @@ def _conversion_kind(
         if isinstance(dst, AverageSpace):
             return "average"  # quadrature projection (later)
         if isinstance(dst, NodalSpace):
+            if (src.node_set is NodeSet.OUTER
+                    and dst.node_set is NodeSet.INNER):
+                # the both-boundary face set restricts onto its shared
+                # interior faces (Outer ⊃ Inner): an exact node drop,
+                # not the half-cell average the interpolate kind owns
+                return "restrict"
             return "interpolate"
     raise SpaceMismatchError(
         f"no .to conversion is defined from {src!r} to {dst!r}",

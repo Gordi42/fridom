@@ -25,6 +25,7 @@ from lazypimp import setup
 if TYPE_CHECKING:  # pragma: no cover
     # import all modules
     from . import (
+        adiabatic_projection,
         adiabatic_ramping,
         algebra,
         balance_expansion,
@@ -43,6 +44,7 @@ if TYPE_CHECKING:  # pragma: no cover
     )
 
     # import all classes
+    from .adiabatic_projection import AdiabaticProjection
     from .adiabatic_ramping import AdiabaticRamping
     from .algebra import Compose, Power, Scaled, Sum
     from .balance_expansion import BalanceExpansion
@@ -55,7 +57,7 @@ if TYPE_CHECKING:  # pragma: no cover
     from .fixed_point import FixedPoint
     from .identity import Identity
     from .info import TransformCost, TransformInfo, TransformProgress
-    from .norms import assert_idempotent, relative_l2
+    from .norms import assert_idempotent, relative_imbalance, relative_l2
     from .optimal_balance import OptimalBalance
     from .projection import (
         EigenFunction,
@@ -89,6 +91,7 @@ all_modules_by_origin = {
         "propagator",
         "time_average",
         "adiabatic_ramping",
+        "adiabatic_projection",
         "optimal_balance",
         "projection",
         "balance_expansion",
@@ -107,10 +110,12 @@ all_imports_by_origin = {
     f"{pkg}.identity": ["Identity"],
     f"{pkg}.shift": ["Shift"],
     f"{pkg}.fixed_point": ["FixedPoint"],
-    f"{pkg}.norms": ["relative_l2", "assert_idempotent"],
+    f"{pkg}.norms": [
+        "relative_l2", "relative_imbalance", "assert_idempotent"],
     f"{pkg}.propagator": ["Propagator"],
     f"{pkg}.time_average": ["TimeAverage"],
     f"{pkg}.adiabatic_ramping": ["AdiabaticRamping"],
+    f"{pkg}.adiabatic_projection": ["AdiabaticProjection"],
     f"{pkg}.optimal_balance": ["OptimalBalance"],
     f"{pkg}.projection": [
         "EigenFunction", "EigenProjection", "ProjectionFactory"],
