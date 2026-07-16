@@ -40,7 +40,9 @@ from typing import TYPE_CHECKING, ClassVar, final
 import jax.numpy as jnp
 import numpy as np
 
+from fridom.spatial.bc import BC
 from fridom.spatial.errors import SpaceMismatchError
+from fridom.spatial.fields.storage import store
 from fridom.spatial.operators.base import (
     EigenbasisError,
     FieldLike,
@@ -80,6 +82,32 @@ if TYPE_CHECKING:  # pragma: no cover
 
 _RECON_SIZE = 2
 _DECONV_SIZE = 1
+
+
+def _require_dirichlet_face(domain: FunctionSpace) -> None:
+    """
+    Reject a non-Dirichlet tagged face domain (the F4 wall claim).
+
+    Description
+    -----------
+    The claim-consuming ``Inner(DIRICHLET) -> CellAvg`` reconstruction
+    reads the wall value the tag claims: a homogeneous Dirichlet tag
+    claims 0 (no-normal-flow), which closes the Gauss average at the
+    wall cells. A Neumann tag claims **no** wall value at all, so it
+    cannot close — a taught error naming the reason.
+
+    Parameters
+    ----------
+    domain : FunctionSpace
+        The tagged interior-face domain factor.
+    """
+    if not all(c is BC.DIRICHLET for c in domain.bc.components):
+        raise SpaceMismatchError(
+            f"no reconstruct signature on {domain!r}: a Neumann tag on "
+            "the interior faces claims no wall value, so the face -> "
+            "CellAvg average cannot close at the walls; the walled FV "
+            "reconstruction reads a Dirichlet (homogeneous 0) wall face",
+            left=domain, operation="reconstruct")
 #: one-sided wall stencil size of the CellAvg -> Outer variant: two
 #: cell averages reproduce a linear profile exactly (design order 2)
 _ONE_SIDED_POINTS = 2
@@ -644,6 +672,18 @@ class LinearReconstruction(SeparableOperator):
                     "(nodal -> nodal conversions are the "
                     "'interpolate' kind)", left=domain,
                     operation="reconstruct")
+        elif (isinstance(domain, NodalSpace)
+              and domain.node_set is NodeSet.INNER
+              and not mesh.periodic):
+            # F4 claim-consuming tagged-face reconstruction (the
+            # stratified w.to(b) seam): a homogeneous DIRICHLET tag on
+            # the interior faces claims the wall value (0), so the
+            # face -> CellAvg Gauss average closes at the wall cells;
+            # interior cells stay bitwise the BC-free two-point mean.
+            # The codomain is the bare BC-free CellAvg. A NEUMANN tag
+            # claims no wall value and stays ungrounded.
+            _require_dirichlet_face(domain)
+            result = "cell_avg"
         else:
             raise SpaceMismatchError(
                 "LinearReconstruction covers the average family and "
@@ -758,9 +798,15 @@ class LinearReconstruction(SeparableOperator):
         FieldLike
             The converted field (metadata kept: same quantity).
         """
+        factor = f.function_space.bare.factor(axis)
+        if (isinstance(factor, NodalSpace)
+                and factor.node_set is NodeSet.INNER
+                and not factor.bc.is_free
+                and not factor.mesh.periodic):
+            # F4 claim-consuming tagged-face reconstruction (w.to(b))
+            return self._reconstruct_walled_face(f, axis)
         result = apply_fv_staggered(self, f, axis, _RECON_SIZE,
                                     linear_interp, metadata=f.metadata)
-        factor = f.function_space.bare.factor(axis)
         if (self._is_one_sided_outer and isinstance(factor, CellAvg)
                 and not factor.mesh.periodic):
             require_local_axis(f, axis)
@@ -768,6 +814,46 @@ class LinearReconstruction(SeparableOperator):
                 f, result, axis, size=_RECON_SIZE,
                 points=_ONE_SIDED_POINTS)
         return result
+
+    def _reconstruct_walled_face(
+        self, f: FieldLike, axis: str,
+    ) -> FieldLike:
+        """
+        Claim-consuming ``Inner(DIRICHLET) -> CellAvg`` reconstruction.
+
+        Description
+        -----------
+        The homogeneous Dirichlet tag claims the wall value 0, so the
+        ``n - 1`` interior faces are padded with an exact zero at each
+        wall (the ``n + 1`` Outer-like face column) and the two-point
+        Gauss mean lands the ``n`` cell averages. Interior cells read
+        only interior faces, so they are **bitwise** the BC-free
+        two-point mean; the two wall cells use the claimed zero. This
+        mirrors ``FluxDifference``'s Inner branch — the exact-zero wall
+        value is imposed here, never read from the BC-free ghost
+        extrapolation.
+
+        Parameters
+        ----------
+        f : FieldLike
+            The operand field on a Dirichlet-tagged ``Inner`` factor.
+        axis : str
+            The resolved (bounded) coordinate axis.
+
+        Returns
+        -------
+        FieldLike
+            The reconstructed field on the bare BC-free ``CellAvg``.
+        """
+        bare = f.function_space.bare
+        codomain = factor_codomain(self, f.function_space, axis)
+        axis_index = bare.names.index(axis)
+        pads = [(0, 0)] * len(bare.shape)
+        pads[axis_index] = (1, 1)
+        faces = jnp.pad(f.data, pads)  # homogeneous Dirichlet: 0 walls
+        data = linear_interp(faces, axis_index)
+        stored = store(f.grid.decomposition, codomain, data)
+        return type(f)(f.grid, codomain, stored, f.metadata)
 
 
 # ================================================================
