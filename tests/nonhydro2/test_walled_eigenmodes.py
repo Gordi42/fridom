@@ -58,10 +58,17 @@ def walled():
         IntervalMesh(N, (0.0, 2 * np.pi), periodic=True, name="x"),
         IntervalMesh(N, (0.0, 2 * np.pi), periodic=True, name="y"),
         IntervalMesh(N, (0.0, LZ), periodic=False, name="z")))
+    # family="nodal" is explicit: since the 2026-07-16 owner ruling a
+    # walled grid auto-flips to FV, but the analytic walled-vertical
+    # eigenmode kit is not yet wired for the FV family (it builds
+    # BC-tagged CellAvg analysis spaces, which the resolver rejects —
+    # average factors are BC-free, C8; from_model on a walled FV model
+    # is a taught error, pinned in test_fv_default). This battery is
+    # the validated nodal walled eigenmode path, which stays supported.
     model = nh.Model(
         grid=grid, dt=DT, advection=False, dsqr=DSQR,
         coriolis=FPlaneCoriolis(f0=F0),
-        stratification=ConstantStratification(n2=N2))
+        stratification=ConstantStratification(n2=N2), family="nodal")
     em = nh.eigenmodes.from_model(model)
     return grid, model, em
 

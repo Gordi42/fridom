@@ -63,16 +63,20 @@ if TYPE_CHECKING:  # pragma: no cover
 # ================================================================
 def _fv_capable(grid: Grid) -> bool:
     """
-    Whether ``grid`` can carry the periodic FV C-grid (FV-D2 A).
+    Whether ``grid`` can carry the FV C-grid auto default (FV-D2 A).
 
     Description
     -----------
-    The finite-volume nonhydro model is periodic-only at 2nd order
-    (scoping study §5, FV-D4/F5): every mesh factor must be periodic
-    (walls are the open FV-D4 design, stage F4) and the grid must be
-    unmapped and unimmersed (mapped/cut-cell FV is stage F5). A grid
-    meeting all three seeds the FV C-grid diff profile; anything else
-    stays on the validated nodal path.
+    The finite-volume nonhydro model serves both periodic and walled
+    (bounded) grids at 2nd order (scoping study §5 FV-D3, §11 FV-D4):
+    periodic axes stagger on the ``Right`` face, walled axes on the
+    Neumann-``CellAvg`` / Dirichlet-``Inner`` origins (stage F4). Only
+    a **mapped** (terrain-following) or **immersed** (cut-cell) grid
+    stays on the validated nodal path (mapped/cut-cell FV is stage F5).
+    So the auto default flips to FV on any unmapped, unimmersed grid —
+    exactly the grids on which an explicit ``family="fv"`` is served
+    (:func:`_require_fv_capable` raises on precisely the complement),
+    which is the owner ruling of 2026-07-16.
 
     Parameters
     ----------
@@ -82,14 +86,12 @@ def _fv_capable(grid: Grid) -> bool:
     Returns
     -------
     bool
-        True iff the grid is fully periodic, unmapped, unimmersed.
+        True iff the grid is unmapped and unimmersed (periodic or
+        walled).
     """
     if getattr(grid, "mapping", None) is not None:
         return False
-    if getattr(grid, "immersed", None) is not None:
-        return False
-    return all(getattr(mesh, "periodic", False)
-               for mesh in grid.factors)
+    return getattr(grid, "immersed", None) is None
 
 
 def _require_fv_capable(grid: Grid) -> None:
@@ -226,14 +228,16 @@ def resolve_model_family(family: str | None, grid: Grid) -> str:
     ``DynamicalCore(family=...)``, scoping study §8): ``None`` is the
     **auto** default — it follows the grid's own ``default_family``,
     and *promotes* the ``"nodal"`` grid default to ``"fv"`` whenever
-    the grid can carry the periodic FV C-grid (:func:`_fv_capable`).
-    This is the flip: a plain periodic nonhydro model is finite-volume
-    by default, safe because the 2nd-order stencils are bit-identical
-    to nodal (scoping study §1). The auto default stays ``"nodal"`` on
-    a walled or mapped grid (the flip is periodic-only, an owner
-    decision). An **explicit** ``"fv"`` is served on periodic and
-    walled grids (stage F4); on a mapped or immersed grid it is a
-    taught error, never a silent fallback (stage F5).
+    the grid can carry the FV C-grid (:func:`_fv_capable`). This is
+    the flip: a plain periodic **or walled** nonhydro model is
+    finite-volume by default, safe because the 2nd-order stencils are
+    bit-identical to nodal (scoping study §1; the walled solve is
+    eager-bitwise, ≤1.2e-14 jitted, §11). The auto default stays
+    ``"nodal"`` only on a **mapped** or **immersed** grid (owner ruling
+    2026-07-16: FV auto iff unmapped and unimmersed). An **explicit**
+    ``"fv"`` is served on periodic and walled grids (stage F4); on a
+    mapped or immersed grid it is a taught error, never a silent
+    fallback (stage F5).
 
     Parameters
     ----------
@@ -313,9 +317,10 @@ class DynamicalCore(fr.model.Module):
         average family; ``"nodal"`` is the point-value C-grid. ``None``
         defers to the grid-level default (``grid.default_family``), so
         an explicitly assembled core follows the grid. The
-        ``nh.Model`` factory resolves the flip (a periodic grid
-        promotes ``None`` to ``"fv"``); an explicit ``"fv"`` on a
-        walled or mapped grid is a taught error (default: None).
+        ``nh.Model`` factory resolves the flip (any unmapped,
+        unimmersed grid — periodic or walled — promotes ``None`` to
+        ``"fv"``); an explicit ``"fv"`` on a mapped or immersed grid
+        is a taught error (default: None).
     """
 
     state_type = State

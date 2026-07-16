@@ -103,19 +103,18 @@ def Model(  # noqa: N802 — a factory that mirrors fr.model.Model's surface
         F3): ``"fv"`` is the finite-volume C-grid (scalars on
         ``CellAvg``, velocities on the faces — FV-D2 option A),
         ``"nodal"`` the point-value C-grid. ``None`` is the auto
-        default: **``"fv"`` on a fully periodic, unmapped, unimmersed
-        grid, ``"nodal"`` otherwise** — so a plain periodic nonhydro
-        model is finite-volume by default, at bitwise parity with the
-        nodal model (scoping study §1). The family threads to every
-        field (``u, v, w, p`` and the default stratification's ``b``)
-        and seeds the FV C-grid ``diff`` profile. An explicit
-        ``"fv"`` is now also served on a **walled** (bounded) grid
-        (stage F4: the pressure DCT-II runs on the Neumann ``CellAvg``
-        origin); the auto default still stays ``"nodal"`` on a walled
-        grid (the flip is periodic-only, an owner decision). An
-        explicit ``"fv"`` on a mapped or immersed grid remains a
-        taught error (mapped / cut-cell FV is stage F5) (default:
-        None).
+        default: **``"fv"`` on any unmapped, unimmersed grid (periodic
+        or walled), ``"nodal"`` otherwise** — so a plain periodic or
+        walled nonhydro model is finite-volume by default, at bitwise
+        parity with the nodal model (scoping study §1; the walled
+        solve is eager-bitwise, ≤1.2e-14 jitted, §11). The family
+        threads to every field (``u, v, w, p`` and the default
+        stratification's ``b``) and seeds the FV C-grid ``diff``
+        profile — on a walled grid the pressure DCT-II runs on the
+        Neumann ``CellAvg`` origin (stage F4). Only a mapped or
+        immersed grid stays nodal by default and rejects an explicit
+        ``"fv"`` as a taught error (mapped / cut-cell FV is stage F5)
+        (owner ruling 2026-07-16) (default: None).
     name : str | None, optional
         Model name (default: None).
     **kwargs : object
@@ -127,13 +126,14 @@ def Model(  # noqa: N802 — a factory that mirrors fr.model.Model's surface
         The assembled model.
     """
     # resolve the model family against the grid and adopt it as the
-    # grid's default (auto-flip: a periodic / unmapped / unimmersed
-    # grid promotes None -> "fv"). Every family=None field of the
-    # model — u/v/w/p, the default b, and any user tracer — then
-    # follows uniformly, so an FV model has no accidental nodal field
-    # (only an explicit family="nodal" is the documented mixed corner).
-    # Explicit "fv" is served on periodic and walled grids (F4); only a
-    # mapped / immersed grid is a taught error (F5).
+    # grid's default (auto-flip: any unmapped, unimmersed grid —
+    # periodic or walled — promotes None -> "fv"; owner ruling
+    # 2026-07-16). Every family=None field of the model — u/v/w/p, the
+    # default b, and any user tracer — then follows uniformly, so an FV
+    # model has no accidental nodal field (only an explicit
+    # family="nodal" is the documented mixed corner). Explicit "fv" is
+    # served on periodic and walled grids (F4); only a mapped /
+    # immersed grid is a taught error (F5).
     resolved = resolve_model_family(family, grid)
     grid.set_default_family(resolved)
     if stratification is None:
