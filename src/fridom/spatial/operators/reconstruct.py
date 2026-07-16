@@ -1,16 +1,27 @@
 """
-``LinearReconstruction``: average <-> point-value conversions.
+``LinearReconstruction`` / ``LinearDeconvolution``: average <-> point.
 
 Description
 -----------
 Owning class doc: ``design/specs/grid/classes/operators_stencils.md``.
-Second-order conversions inside the average family — the default
-``("reconstruct", ...)`` entry, also seeded under ``("average", ...)``
-for the nodal -> average direction that ``f.to`` resolves. At second
-order both directions (average-to-point Shu mean and
-evaluate-to-average trapezoid mean) collapse to two-point means, but
-they are distinct signatures; higher-order members
-(``WenoReconstruction``, Wave 4) genuinely differ per direction.
+Second-order conversions inside the average family. Two members:
+
+- ``LinearReconstruction`` — the *staggering* conversion (the default
+  ``("reconstruct", ...)`` entry, also seeded under ``("average", ...)``
+  for the nodal -> average direction that ``f.to`` resolves):
+  ``CellAvg -> Right`` and its evaluate-to-average inverse, half a cell
+  over. At second order both directions (average-to-point Shu mean and
+  evaluate-to-average trapezoid mean) collapse to two-point means, but
+  they are distinct signatures; higher-order members
+  (``WenoReconstruction``, Wave 4) genuinely differ per direction.
+- ``LinearDeconvolution`` — the *co-located* conversion (the
+  ``("deconvolve", ...)`` entry): ``CellAvg <-> Center`` at the same
+  location. At second order this is the identity (the cell mean and the
+  midpoint value differ only at ``O(dx^2)``), so it is a one-point
+  pass-through retag — a distinct dispatch kind because a registry key
+  resolves one codomain and ``"reconstruct"`` is committed to the
+  staggering ``Right`` target (rules 3.4, fields.md "one target per
+  kind").
 
 This module also owns the FV generalization of the staggered window
 alignment (``fv_node_offset`` / ``apply_fv_staggered``): the Wave-2C
@@ -29,20 +40,28 @@ import jax.numpy as jnp
 
 from fridom.spatial.errors import SpaceMismatchError
 from fridom.spatial.operators.base import (
+    EigenbasisError,
     FieldLike,
     Operator,
     OperatorRequirements,
     SeparableOperator,
+    _resolve_axis,
 )
 from fridom.spatial.operators.interned import interned
+from fridom.spatial.operators.spectral import (
+    fv_fourier_partner,
+    linear_interp_symbol,
+)
 from fridom.spatial.operators.staggering import (
     first_node_offset,
 )
 from fridom.spatial.operators.stencil_kernels import (
+    apply_stencil,
     linear_interp,
 )
 from fridom.spatial.scalars import Scalars
 from fridom.spatial.spaces.average import CellAvg, FaceAvg
+from fridom.spatial.spaces.coefficient import FourierSpace
 from fridom.spatial.spaces.function_space import FunctionSpace
 from fridom.spatial.spaces.nodal import NodalSpace, NodeSet
 
@@ -52,9 +71,11 @@ if TYPE_CHECKING:  # pragma: no cover
     from jax import Array
 
     from fridom.spatial.fields.metadata import FieldMetadata
+    from fridom.spatial.operators.symbol import Symbol
     from fridom.spatial.spaces.tensor_product import SpaceLike
 
 _RECON_SIZE = 2
+_DECONV_SIZE = 1
 
 
 def factor_codomain(
@@ -268,9 +289,14 @@ class LinearReconstruction(SeparableOperator):
     (boundary_plan.md): its wall faces need exterior values, which
     the (always BC-free) average spaces do not define — a one-sided
     reconstruction variant is designed-for and arrives when a
-    concrete model needs it. ``eigenvalues`` (the sinc-corrected
-    averaging symbol) is designed-for and inherits the raising base
-    until the ``Symbol`` cluster lands (Wave 3B).
+    concrete model needs it. ``eigenvalues`` is the retagging
+    ``one_hat`` averaging diagonal ``cos(k dx/2)`` (with the
+    inter-origin phase), diagonalizing ``Fourier(CellAvg) ->
+    Fourier(Right)`` — and the other two-point conversions — on a
+    periodic uniform mesh; at second order the deconvolution ``sinc``
+    correction vanishes, so it is bitwise the nodal ``LinearInterp``
+    numbers. The ``target=`` variant, bounded, and mapped meshes
+    raise ``EigenbasisError``.
 
     Parameters
     ----------
@@ -318,6 +344,11 @@ class LinearReconstruction(SeparableOperator):
         FunctionSpace
             The converted codomain factor (scalars preserved).
         """
+        if isinstance(domain, FourierSpace):
+            # layout-faithful eigenvalue threading: retag the Fourier
+            # factor through the reconstructed average/nodal origin
+            return domain.mesh.fourier(
+                origin=self.codomain(domain.origin))
         mesh = domain.mesh
         if self._target is not None:
             if (self._target is NodeSet.OUTER and not mesh.periodic
@@ -390,6 +421,51 @@ class LinearReconstruction(SeparableOperator):
         """
         return OperatorRequirements(halo=1)
 
+    def eigenvalues(
+        self,
+        grid: object,  # noqa: ARG002 — the factor carries the mesh
+        space: SpaceLike,
+    ) -> Symbol:
+        r"""
+        Return the ``one_hat`` averaging diagonal ``cos(k dx/2)``.
+
+        Description
+        -----------
+        The retagging ``Fourier(CellAvg) -> Fourier(Right)`` (and the
+        other two-point conversions the codomain table grounds)
+        diagonal ``cos(k dx/2)`` composed with the inter-origin phase
+        — the exact symbol of the periodic ``(p_i + p_{i+1}) / 2``
+        two-point mean, bitwise the nodal ``LinearInterp`` numbers.
+        At second order the exact cell-average deconvolution (which
+        would *divide* by ``sinc(k dx/2)``) collapses to the plain
+        average, so this row carries no ``sinc`` correction. The
+        ``target=`` variant has no diagonalizing symbol, and bounded
+        or mapped meshes raise ``EigenbasisError``.
+
+        Parameters
+        ----------
+        grid : object
+            The grid (unused: the Fourier factor carries the mesh).
+        space : SpaceLike
+            The coefficient factor (or product) space.
+
+        Returns
+        -------
+        Symbol
+            The retagging ``one_hat`` diagonal on the coefficient
+            factor.
+        """
+        if self._target is not None:
+            raise EigenbasisError(
+                "the target= LinearReconstruction variant has no "
+                "diagonalizing symbol in iteration 1")
+        bare = space.bare
+        axis = _resolve_axis(self, bare)
+        factor = bare.factor(axis)
+        src, origin = fv_fourier_partner(factor, "LinearReconstruction")
+        return linear_interp_symbol(
+            bare, axis, src, origin, self.codomain(origin))
+
     def _apply_factor(self, f: FieldLike, axis: str) -> FieldLike:
         """
         Convert along ``axis`` (window-aligned two-point mean).
@@ -408,3 +484,157 @@ class LinearReconstruction(SeparableOperator):
         """
         return apply_fv_staggered(self, f, axis, _RECON_SIZE,
                                   linear_interp, metadata=f.metadata)
+
+
+# ================================================================
+#  LinearDeconvolution (co-located CellAvg <-> Center)
+# ================================================================
+def _identity_kernel(arr: Array, axis: int) -> Array:
+    """
+    One-point pass-through kernel (the co-located 2nd-order identity).
+
+    Description
+    -----------
+    A degenerate ``size = 1`` stencil with the single weight ``1`` — the
+    slice-based no-op that keeps ``apply_fv_staggered`` on its one
+    kernel path (window alignment ``m0 = 0``, no axis shrink), so the
+    co-located conversion reuses the same halo/frame accounting as the
+    two-point family.
+
+    Parameters
+    ----------
+    arr : Array
+        The input array (halo-extended by the caller as needed).
+    axis : int
+        The stencil axis; may be negative.
+
+    Returns
+    -------
+    Array
+        ``arr`` unchanged (the axis length is preserved).
+    """
+    return apply_stencil(arr, axis, (1.0,))
+
+
+@final
+@interned
+class LinearDeconvolution(SeparableOperator):
+
+    """
+    2nd-order co-located average <-> point-value conversion (FV).
+
+    Description
+    -----------
+    The same-location member of the FV conversion family: it maps a
+    cell average to the point value at the *same* location (the cell
+    midpoint) and back — ``CellAvg <-> Center`` — unlike the staggering
+    ``LinearReconstruction`` (``CellAvg -> Right``, half a cell over).
+    At the family's standing second order the two functionals differ
+    only at ``O(dx^2)`` (the cell mean is the midpoint value plus
+    ``(dx^2/24) f''``), so the consistent conversion is the **identity**:
+    a one-point pass-through that retags the data without moving it
+    (spaces.md — "identifying it with the center value is a
+    second-order approximation"; rules 3.9; operators_stencils.md's
+    "declared ``O(dx^2)`` identification of cell averages with midpoint
+    values"). The higher-order member (a genuine ``sinc``-deconvolution)
+    is designed-for.
+
+    A distinct dispatch kind (``"deconvolve"``) from ``"reconstruct"``:
+    the reconstruct kind is committed to the staggering
+    ``CellAvg -> Right/Inner`` (the FV derivative's reconstruction and
+    the C-grid Coriolis ``u.to(v)``), and a registry key resolves one
+    codomain (rules 3.4, fields.md "one target per kind"). ``f.to``
+    reads the ``"deconvolve"`` kind for a co-located average<->nodal
+    pair. Grounded on periodic and bounded axes alike: the co-located
+    conversion needs no exterior values, so the R1 wall-face
+    restriction (boundary_plan.md) does not bite. ``FaceAvg <-> Right``
+    (the dual co-located pair) is designed-for and left ungrounded —
+    FV-D2 option A never instantiates ``FaceAvg``. ``eigenvalues``
+    (the reciprocal-``sinc`` deconvolution symbol) inherits the raising
+    base until the ``Symbol`` cluster lands.
+    """
+
+    dispatch_kind: ClassVar[str | None] = "deconvolve"
+
+    def _intern_key(self) -> tuple:
+        """Structural key: the operator is parameterless (D6)."""
+        return ()
+
+    def codomain(self, domain: FunctionSpace) -> FunctionSpace:
+        """
+        Resolve the co-located conversion codomain.
+
+        Description
+        -----------
+        deconvolve: CellAvg -> Center, Center -> CellAvg (the
+        same-location primal pair). FaceAvg and the dual pair are
+        designed-for and raise (the staggering conversions are the
+        ``"reconstruct"`` kind).
+
+        Parameters
+        ----------
+        domain : FunctionSpace
+            The bare 1D factor space (CellAvg or a BC-free Center).
+
+        Returns
+        -------
+        FunctionSpace
+            The co-located codomain factor (scalars preserved).
+        """
+        if isinstance(domain, CellAvg):
+            result = "center"
+        elif (isinstance(domain, NodalSpace) and domain.bc.is_free
+                and domain.node_set is NodeSet.CENTER):
+            result = "cell_avg"
+        else:
+            raise SpaceMismatchError(
+                "the co-located deconvolution grounds CellAvg <-> "
+                f"Center only, got {domain!r} (the staggering "
+                "conversions are the 'reconstruct' kind)",
+                left=domain, operation="deconvolve")
+        # the co-located primal pair always coexists (both live only on
+        # a StructuredMesh1D, which carries both), so — unlike the
+        # staggering reconstruct, whose Outer domain reaches a mesh
+        # without cell_avg — no missing-family guard is reachable here
+        codomain: FunctionSpace = getattr(domain.mesh, result)
+        if domain.scalars is Scalars.COMPLEX:
+            codomain = codomain.as_complex()
+        return codomain
+
+    def requirements(
+        self,
+        domain: FunctionSpace,  # noqa: ARG002 — halo-free identity
+    ) -> OperatorRequirements:
+        """
+        Declare halo = 0, layout "any" (a pass-through identity).
+
+        Parameters
+        ----------
+        domain : FunctionSpace
+            The factor space the operator is applied on.
+
+        Returns
+        -------
+        OperatorRequirements
+            The per-factor requirements record.
+        """
+        return OperatorRequirements(halo=0)
+
+    def _apply_factor(self, f: FieldLike, axis: str) -> FieldLike:
+        """
+        Convert along ``axis`` (co-located one-point identity).
+
+        Parameters
+        ----------
+        f : FieldLike
+            The operand field.
+        axis : str
+            The resolved coordinate axis.
+
+        Returns
+        -------
+        FieldLike
+            The retagged field (metadata kept: same quantity).
+        """
+        return apply_fv_staggered(self, f, axis, _DECONV_SIZE,
+                                  _identity_kernel, metadata=f.metadata)

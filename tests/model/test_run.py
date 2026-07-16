@@ -233,8 +233,13 @@ def test_second_run_path_adds_zero_compiles(compile_counter):
     grid = make_grid()
     warm = make_model(grid=grid, chunk_size=4)
     warm.run(steps=11, progress=False)           # warm every length
+    # re-assembly may trace (dry_run validates under one compile-free
+    # jax.eval_shape trace; budget pinned in test_composer.py) but must
+    # never compile more than that
     compile_counter.reset()
     other = make_model(grid=grid, chunk_size=4)  # identical re-assembly
+    assert compile_counter.count <= 2
+    compile_counter.reset()
     other.run(steps=11, progress=False)
     assert compile_counter.count == 0
 
@@ -244,11 +249,13 @@ def test_adding_a_stream_never_recompiles_physics(compile_counter):
     warm = make_model(grid=grid, chunk_size=4)
     warm.run(steps=8, progress=False)            # boundaries [4, 8]
     reference = chunk_cache_size()
-    compile_counter.reset()
     # a stream firing only at step 0 (every(steps=100) > n_steps) keeps
-    # the chunk boundaries [4, 8] identical -> no new chunk program
+    # the chunk boundaries [4, 8] identical -> no new chunk program.
+    # Assemble before the measured window: dry_run's compile-free
+    # jax.eval_shape validation trace is assembly cost, not a recompile
     stream = FakeStream(triggers.every(steps=100))
     other = make_model(grid=grid, chunk_size=4)
+    compile_counter.reset()
     other.run(steps=8, outputs=(stream,), progress=False)
     assert stream.writes == [0]                  # step-0 initial output
     assert chunk_cache_size() == reference

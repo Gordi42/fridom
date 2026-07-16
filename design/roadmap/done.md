@@ -68,6 +68,49 @@ Implementation record:
 
 ## Landed since, outside the numbered tasks
 
+- **The mapped-Jacobian spike** (2026-07-16) — the 1D throwaway
+  experiment (no production edits) that was the stated blocker of the
+  high-order-mapped plan. Answer: the divisor for option (i) is the
+  **same-row discrete Jacobian** — it restores design order (upwind-3
+  3.00, upwind-5 4.99, weno-5 masked 5.00, FD-4/6 3.99/5.97) *and*
+  satisfies the discrete metric identity exactly, while the analytic
+  Jacobian restores the same order but misses the identity at O(h^p)
+  and the current measure divisor caps everything at 2 (reproducing
+  the documented 5→2 trap). The widths are static per
+  (space, order, bias) — a weno flux over a linear-row width keeps
+  order 5. The full lift stays deferred on payoff (see
+  [`open.md`](open.md)). Records:
+  [`../research/mapped_jacobian_spike.md`](../research/mapped_jacobian_spike.md),
+  [`../plans/active/high_order_mapped_plan.md`](../plans/active/high_order_mapped_plan.md) §3.
+
+- **Multi-device execution cost — measured, optimized, closed**
+  (2026-07-16; formerly roadmap 3.9) — the krylov-era scare figure
+  ("mapped solve 694× slower on 4 forced-cpu devices") was a harness
+  artifact: on real A100s the mapped solve *scales*. The line closed
+  in three waves: eager field ops on a multi-device operand no longer
+  replicate (the operator template runs its stencil kernel under one
+  jit trace — `fix/eager-operator-sharding`, plus the
+  `fix/traced-measure-cache` follow-up so traced measure queries stay
+  uncached); the mixed distributed transform distributes walled (trig)
+  and mapped solves (`40dd4ea5`: walled 256³ −52%/chunk, scaling
+  0.96×→2.02×; mapped 256³ −48%, 1.21×→2.34× on 4×A100), retiring the
+  "walled flat grids do not scale" finding; and indivisible-extent
+  sharding was fixed (own entry below). What remains of the
+  mapped-step premium is the CG loop itself, now priced and accepted:
+  one CG iteration ≈ one flat timestep (6.15 ms marginal at 256³; the
+  preconditioner is 58% of it and is the *right algorithm* — every
+  cheaper alternative measured and rejected), and
+  `pressure_iterations=30` stays (not a trace-era default: steep
+  terrain needs it, and the budget is resolution-independent). The
+  reach levers landed (`Grid.measure` memo, the f32 mapped
+  preconditioner, halo gating); the storage-frame CG carry was
+  reverted by measurement (re-attempt gate in the krylov docstring).
+  The deferred residual levers live in [`open.md`](open.md)
+  ("Mapped-solve residual levers"). Records:
+  [`../plans/active/perf_geometry_merge_plan.md`](../plans/active/perf_geometry_merge_plan.md)
+  §§4a–4b,
+  [`../plans/active/distributed_transform_plan.md`](../plans/active/distributed_transform_plan.md).
+
 - **Indivisible-extent sharding fixed** (2026-07-16) — the owner-flagged
   multi-device hole (4 GPUs 2–5× *slower* than 1 whenever the sharded
   axis carried a `P`-indivisible extent: walled staggered legs, prime
@@ -84,6 +127,15 @@ Implementation record:
   (walled-x default now shards y: 3.56 → 3.36 ms/step). Divisible
   programs stayed byte-identical throughout; baselines re-recorded
   with new `nh_flat_prime` and `nh_flat_walled_x` guard cases.
+  Multi-host validation closed 2026-07-16: a real `srun -n 4` launch
+  (one process per GPU, `jax.distributed.initialize()`) of the
+  walled-x and prime guard configs matches single-process runs to
+  ≤ 3.3e-14 of the state scale, with no host fetch of a global array
+  (resolution in the plan's "Open questions"). The forced-4 test
+  sensitivities the campaign surfaced were triaged the same day
+  (`test/forced4-triage`, merge `0d139fc5`; corrections and
+  resolutions appended to the faults note); the channel-eigenmode
+  multi-device faults remain open (re-attributed upstream — roadmap).
   Records:
   [`../plans/done/indivisible_shard_plan.md`](../plans/done/indivisible_shard_plan.md),
   probe evidence in

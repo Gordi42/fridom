@@ -91,6 +91,7 @@ from fridom.spatial.operators.products import (
     Power,
 )
 from fridom.spatial.operators.reconstruct import (
+    LinearDeconvolution,
     LinearReconstruction,
 )
 from fridom.spatial.operators.registry import (
@@ -1757,7 +1758,12 @@ def _default_registry(
     BC-free siblings); the FV/average family —
     ``("reconstruct", ...)`` -> ``LinearReconstruction()`` (its
     nodal -> average rows additionally seeded under ``("average",
-    ...)``, the kind ``f.to`` resolves for that direction),
+    ...)``, the kind ``f.to`` resolves for that direction, and its
+    ``CellAvg``/``FaceAvg`` rows also under ``("interpolate", ...)``
+    so the composed metric machinery can hop an average component onto
+    the face — G4), the co-located ``("deconvolve", CellAvg/Center)``
+    -> ``LinearDeconvolution()`` (the 2nd-order identity ``f.to``
+    resolves for a same-location average<->nodal pair — G3),
     ``("flux_diff", face)`` -> ``FluxDifference()``,
     ``("flux_diff", Center/CellAvg)`` -> ``DualFluxDifference()``,
     ``("face_diff", CellAvg)`` -> ``FaceDifference()``, and
@@ -1818,6 +1824,7 @@ def _default_registry(
     flux_ops = (FluxDifference(), DualFluxDifference(),
                 FaceDifference())
     reconstruct = LinearReconstruction()
+    deconvolve = LinearDeconvolution()
     fv_derivative = FVDerivative()
     integral = Integral(jacobian=chart)
     multiply = CollocationProduct()
@@ -1835,8 +1842,14 @@ def _default_registry(
         # on Dirichlet/Neumann fields out of the box (C3)
         tagged = _tagged_trig_origins(mesh)
         _seed_signature_rows(entries, nodal + tagged, (fd, interp))
+        # reconstruct rows, plus (G4) the average family under the
+        # "interpolate" kind for the composed metric machinery
         _seed_reconstruct_rows(entries, nodal + average, reconstruct)
-        _seed_signature_rows(entries, nodal + average, flux_ops)
+        # flux/face-diff rows, and (G3) the co-located CellAvg <->
+        # Center deconvolution (a 2nd-order identity), each seeded via
+        # its own dispatch kind where the per-factor signature applies
+        _seed_signature_rows(
+            entries, nodal + average, (*flux_ops, deconvolve))
         # The elementwise + integrate rows are seeded on the tagged
         # origins too, so walled-grid fields interoperate (e.g. the
         # flux form ``csqr.to(v) * v`` on a Dirichlet face space).
@@ -2233,6 +2246,17 @@ def _seed_reconstruct_rows(
     ``f.to`` resolves for that direction (fields.md family matrix),
     realized at second order by the same trapezoid two-point mean.
 
+    The average factors are **also** seeded under the ``"interpolate"``
+    kind (G4): ``registry.resolve("interpolate", CellAvg)`` is the key
+    the composed vector-calculus machinery hard-codes to move a
+    component one staggering hop onto a target component's space
+    (``composed._interp_onto``), and the reconstruct instance is that
+    hop — landing ``CellAvg -> Right`` (periodic) / ``Inner`` (bounded).
+    ``FaceAvg -> Center`` falls out of the identical path for free (the
+    decision record invests nothing in ``FaceAvg`` beyond that).
+    ``.to`` never reads this kind for an average source (it resolves
+    ``"reconstruct"``/``"deconvolve"``), so the row is additive.
+
     Parameters
     ----------
     entries : dict[DispatchKey, Operator]
@@ -2250,3 +2274,5 @@ def _seed_reconstruct_rows(
         entries[("reconstruct", space)] = reconstruct
         if isinstance(codomain, AverageSpace):
             entries[("average", space)] = reconstruct
+        if isinstance(space, AverageSpace):
+            entries[("interpolate", space)] = reconstruct  # G4

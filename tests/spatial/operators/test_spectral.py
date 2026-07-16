@@ -8,6 +8,9 @@ from fridom.spatial.errors import SpaceMismatchError
 from fridom.spatial.grid import Grid
 from fridom.spatial.meshes.chebyshev import ChebyshevMesh
 from fridom.spatial.meshes.interval import IntervalMesh
+from fridom.spatial.meshes.mapped_interval import (
+    MappedIntervalMesh,
+)
 from fridom.spatial.operators.base import EigenbasisError
 from fridom.spatial.operators.chebyshev import Chebyshev
 from fridom.spatial.operators.fourier import Fourier
@@ -15,8 +18,10 @@ from fridom.spatial.operators.spectral import (
     PhaseShift,
     SincShift,
     SpectralDerivative,
+    _first_node_offset,
     finite_difference_symbol,
     fourier_wavenumbers,
+    fv_fourier_partner,
     linear_interp_symbol,
     trig_partner,
 )
@@ -661,3 +666,51 @@ def test_trig_partner_raises_off_the_table(periodic, bounded):
     cheb = ChebyshevMesh(8, (-1.0, 1.0), name="z")
     with pytest.raises(EigenbasisError, match="Chebyshev"):
         trig_partner(cheb.chebyshev(cheb.lobatto), "T")
+
+
+# ================================================================
+#  FV (average-family) origin offsets and Fourier partners
+# ================================================================
+def test_first_node_offset_covers_the_average_family(periodic):
+    _, mesh = periodic
+    # CellAvg at the primal-cell midpoints (0.5, like Center),
+    # FaceAvg at the faces (1.0, like Right); nodal via the table
+    assert _first_node_offset(mesh.cell_avg) == 0.5
+    assert _first_node_offset(mesh.face_avg) == 1.0
+    assert _first_node_offset(mesh.center) == 0.5
+    assert _first_node_offset(mesh.right) == 1.0
+    assert _first_node_offset(mesh.left) == 0.0
+
+
+def test_fv_fourier_partner_resolves_fourier_and_bare_origins(periodic):
+    _, mesh = periodic
+    # a bare average origin builds its Fourier factor
+    src, origin = fv_fourier_partner(mesh.cell_avg, "T")
+    assert origin is mesh.cell_avg
+    assert src is mesh.fourier(origin=mesh.cell_avg)
+    # a bare nodal origin likewise
+    src, origin = fv_fourier_partner(mesh.right, "T")
+    assert (src, origin) == (mesh.fourier(origin=mesh.right), mesh.right)
+    # a Fourier coefficient factor passes through, keeping its layout
+    coeff = mesh.fourier(origin=mesh.cell_avg)
+    src, origin = fv_fourier_partner(coeff, "T")
+    assert src is coeff
+    assert origin is mesh.cell_avg
+
+
+def test_fv_fourier_partner_raises_off_the_periodic_uniform_family():
+    bounded = IntervalMesh(8, (0.0, 1.0), periodic=False, name="y")
+    mapped = MappedIntervalMesh(
+        8, (0.0, 1.0),
+        lambda s: s + 0.1 * jnp.sin(2 * jnp.pi * s) / (2 * jnp.pi),
+        periodic=True, name="w")
+    # bounded (walled) average families: no diagonalizing basis
+    with pytest.raises(EigenbasisError, match="periodic"):
+        fv_fourier_partner(bounded.cell_avg, "T")
+    # mapped/stretched: non-constant metric breaks invariance
+    with pytest.raises(EigenbasisError, match="periodic"):
+        fv_fourier_partner(mapped.cell_avg, "T")
+    # a non-Fourier coefficient factor is not a periodic Fourier basis
+    sine = bounded.sine(bounded.nodal(NodeSet.CENTER, bc=BC.DIRICHLET))
+    with pytest.raises(EigenbasisError, match="sine/cosine"):
+        fv_fourier_partner(sine, "T")

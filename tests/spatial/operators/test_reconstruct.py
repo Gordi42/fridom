@@ -1,17 +1,24 @@
 """Tests for fridom.spatial.operators.reconstruct."""
 import jax.numpy as jnp
+import numpy as np
 import pytest
 
 from fridom.spatial.bc import BC
 from fridom.spatial.errors import SpaceMismatchError
 from fridom.spatial.grid import Grid
 from fridom.spatial.meshes.interval import IntervalMesh
+from fridom.spatial.meshes.mapped_interval import (
+    MappedIntervalMesh,
+)
 from fridom.spatial.operators.base import EigenbasisError
+from fridom.spatial.operators.interp import LinearInterp
 from fridom.spatial.operators.reconstruct import (
+    LinearDeconvolution,
     LinearReconstruction,
     fv_node_offset,
 )
 from fridom.spatial.operators.registry import OperatorRegistry
+from fridom.spatial.operators.spectral import fourier_wavenumbers
 from fridom.spatial.spaces.nodal import NodeSet
 
 
@@ -50,9 +57,90 @@ def test_requirements(recon, mx):
     assert recon.requirements(mx.cell_avg).layout == "any"
 
 
-def test_eigenvalues_designed_for(recon, mx):
-    with pytest.raises(EigenbasisError):
-        recon.eigenvalues(None, mx.cell_avg)
+# ================================================================
+#  Fourier symbols (eigenvalues) — scoping study gap G1
+# ================================================================
+def _symbol_matches_operator(op, mesh, dom_space, seed=5):
+    """Symbol in coeff space == coeff image of the physical output."""
+    grid = Grid((mesh,))
+    axis = mesh.names[0]
+    f = grid.random.normal(dom_space, seed=seed)
+    t_in = grid.dispatch.resolve("transform", dom_space)
+    t_out = grid.dispatch.resolve("transform", op.codomain(dom_space))
+    fhat = t_in.forward(f)
+    sym = op[axis].eigenvalues(grid, fhat.function_space.bare)
+    got = sym(fhat).data
+    want = t_out.forward(op[axis](f)).data
+    return float(jnp.abs(got - want).max())
+
+
+@pytest.mark.parametrize("n", [8, 9, 16, 17])
+@pytest.mark.parametrize("dom", ["cell_avg", "right", "center",
+                                 "face_avg"])
+def test_symbol_matches_operator(recon, n, dom):
+    # every second-order two-point conversion is a cos(k dx/2) diagonal
+    mesh = IntervalMesh(n, (0.0, 1.3), name="x")
+    assert _symbol_matches_operator(
+        recon, mesh, getattr(mesh, dom)) < 1e-12
+
+
+def test_symbol_is_the_one_hat_retagging_symbol(recon, mx):
+    grid = Grid((mx,))
+    sym = recon["x"].eigenvalues(grid, mx.fourier(origin=mx.cell_avg))
+    # retags Fourier(CellAvg) -> Fourier(Right)
+    assert sym.space.origin is mx.cell_avg
+    assert sym.codomain.origin is mx.right
+    k = fourier_wavenumbers(mx.fourier(origin=mx.cell_avg))
+    dx = mx.dx
+    # cos(k dx/2) with the half-cell phase; NO sinc correction at O(2)
+    expected = jnp.cos(k * dx / 2.0) * jnp.exp(1j * k * 0.5 * dx)
+    assert jnp.allclose(sym.data, expected)
+    # the Nyquist leaf is a structural zero (cos(π/2) = 0 exactly)
+    assert sym.data.ravel()[-1] == 0.0
+
+
+def test_symbol_matches_the_nodal_interp_numbers(recon, mx):
+    # scoping study §1: at 2nd order the FV reconstruction is bitwise
+    # the nodal LinearInterp two-point mean
+    grid = Grid((mx,))
+    fv = recon["x"].eigenvalues(grid, mx.fourier(origin=mx.cell_avg))
+    nodal = LinearInterp()["x"].eigenvalues(
+        grid, mx.fourier(origin=mx.center))
+    assert jnp.array_equal(fv.data, nodal.data)
+    assert fv.codomain.origin is mx.right
+
+
+def test_eigenvalues_thread_bare_or_fourier_factor(recon, mx):
+    grid = Grid((mx,))
+    bare = recon["x"].eigenvalues(grid, mx.cell_avg)
+    coeff = recon["x"].eigenvalues(grid, mx.fourier(origin=mx.cell_avg))
+    assert coeff.space is bare.space
+    assert coeff.codomain is bare.codomain
+    assert jnp.array_equal(coeff.data, bare.data)
+
+
+def test_codomain_retags_a_fourier_factor(recon, mx):
+    assert recon.codomain(mx.fourier(origin=mx.cell_avg)) is (
+        mx.fourier(origin=mx.right))
+    assert recon.codomain(mx.fourier(origin=mx.center)) is (
+        mx.fourier(origin=mx.face_avg))
+
+
+def test_eigenvalues_raise_on_the_target_variant(mx):
+    outer = LinearReconstruction(target=NodeSet.OUTER)
+    with pytest.raises(EigenbasisError, match="target="):
+        outer["x"].eigenvalues(Grid((mx,)), mx.cell_avg)
+
+
+def test_eigenvalues_raise_on_bounded_and_mapped(recon, my):
+    with pytest.raises(EigenbasisError, match="periodic"):
+        recon["y"].eigenvalues(Grid((my,)), my.cell_avg)
+    mapped = MappedIntervalMesh(
+        8, (0.0, 1.0),
+        lambda s: s + 0.1 * jnp.sin(2 * jnp.pi * s) / (2 * jnp.pi),
+        periodic=True, name="w")
+    with pytest.raises(EigenbasisError, match="periodic"):
+        recon["w"].eigenvalues(Grid((mapped,)), mapped.cell_avg)
 
 
 # ================================================================
@@ -215,3 +303,155 @@ def test_to_rejects_dual_family_transfer(mx):
     f = grid.create_field(mx.cell_avg)
     with pytest.raises(SpaceMismatchError, match="lands on"):
         f.to(mx.face_avg)
+
+
+def test_average_under_interpolate_kind(mx, my):
+    # G4: the reconstruct instance is seeded under the interpolate kind
+    # for the average family so composed._interp_onto can hop a
+    # CellAvg/FaceAvg component; codomain is the staggering face
+    grid = Grid((mx, my))
+    op = grid.dispatch.resolve("interpolate", mx.cell_avg)
+    assert isinstance(op, LinearReconstruction)
+    assert op.codomain(mx.cell_avg) is mx.right  # periodic
+    assert op.codomain(my.cell_avg) is my.inner  # bounded interior
+    assert op.codomain(mx.face_avg) is mx.center  # FaceAvg free
+
+
+def test_average_interpolate_kind_converges():
+    # G4 accuracy: the CellAvg -> face staggering hop is 2nd order on
+    # periodic and bounded axes alike (the family's standing order).
+    # A periodic seam needs a periodic field; the bounded interior
+    # faces (Inner) take any smooth field (no wall stencil).
+    def make_field(periodic):
+        def field(x):
+            base = jnp.sin(2 * jnp.pi * x)
+            return base if periodic else base + 0.5 * x
+        return field
+
+    for periodic in (True, False):
+        field = make_field(periodic)
+        errors = []
+        for n in (16, 32, 64):
+            mesh = IntervalMesh(n, (0.0, 1.0), periodic=periodic,
+                                name="x")
+            grid = Grid((mesh,))
+            f = grid.create_field(mesh.cell_avg, init=field)
+            op = grid.dispatch.resolve("interpolate", mesh.cell_avg)
+            g = op["x"](f)
+            face = mesh.right if periodic else mesh.inner
+            assert g.function_space.bare is face
+            xf = grid.evaluation_nodes(face).data
+            errors.append(float(jnp.abs(g.data - field(xf)).max()))
+        rates = [np.log2(errors[i] / errors[i + 1])
+                 for i in range(len(errors) - 1)]
+        assert min(rates) > 1.9  # second order
+
+
+# ================================================================
+#  LinearDeconvolution — co-located CellAvg <-> Center (G3)
+# ================================================================
+@pytest.fixture
+def deconv():
+    return LinearDeconvolution()
+
+
+def test_deconvolution_dispatch_kind(deconv):
+    assert deconv.dispatch_kind == "deconvolve"
+    assert deconv is LinearDeconvolution()  # interned singleton
+
+
+def test_deconvolution_requirements(deconv, mx):
+    # a pass-through identity needs no halo
+    assert deconv.requirements(mx.cell_avg).halo == 0
+    assert deconv.requirements(mx.cell_avg).layout == "any"
+
+
+def test_deconvolution_eigenvalues_designed_for(deconv, mx):
+    with pytest.raises(EigenbasisError):
+        deconv.eigenvalues(None, mx.cell_avg)
+
+
+def test_deconvolution_codomain(deconv, mx, my):
+    # the co-located primal pair, periodic and bounded (no shift, so no
+    # exterior values — grounded on bounded axes too)
+    assert deconv.codomain(mx.cell_avg) is mx.center
+    assert deconv.codomain(mx.center) is mx.cell_avg
+    assert deconv.codomain(my.cell_avg) is my.center
+    assert deconv.codomain(my.center) is my.cell_avg
+
+
+def test_deconvolution_preserves_scalars(deconv, mx):
+    assert deconv.codomain(mx.cell_avg.as_complex()) is (
+        mx.center.as_complex())
+
+
+def test_deconvolution_rejects_shifted_and_dual(deconv, mx, my):
+    # FaceAvg and the shifted nodal faces are the reconstruct kind's
+    # job (or designed-for); the deconvolution grounds CellAvg<->Center
+    for space in (mx.right, mx.face_avg, mx.left, my.inner, my.outer):
+        with pytest.raises(SpaceMismatchError, match="CellAvg <-> "):
+            deconv.codomain(space)
+
+
+def test_deconvolution_rejects_bc_structured_center(deconv, my):
+    space = my.nodal(NodeSet.CENTER, bc=BC.DIRICHLET)
+    with pytest.raises(SpaceMismatchError, match="CellAvg <-> "):
+        deconv.codomain(space)
+
+
+def test_deconvolution_is_identity_retag(deconv, mx):
+    # the data is untouched (a 2nd-order identity) on both directions
+    grid = Grid((mx,))
+    f = grid.create_field(mx.cell_avg, data=jnp.arange(8.0), name="q")
+    g = deconv["x"](f)
+    assert g.function_space.bare is mx.center
+    assert jnp.array_equal(g.data, f.data)
+    assert g.name == "q"  # same quantity
+    back = deconv["x"](g)
+    assert back.function_space.bare is mx.cell_avg
+    assert jnp.array_equal(back.data, f.data)
+
+
+def test_deconvolution_works_on_bounded_axis(deconv, my):
+    # co-located conversion needs no exterior values (R1 does not bite)
+    grid = Grid((my,))
+    f = grid.create_field(my.cell_avg, data=jnp.arange(8.0))
+    g = deconv["y"](f)
+    assert g.function_space.bare is my.center
+    assert jnp.array_equal(g.data, f.data)
+
+
+def test_deconvolution_is_second_order_vs_midpoint():
+    # the honest FV claim: a *true* cell average deconvolves to the
+    # midpoint value at O(dx^2). Feed analytic cell averages (not the
+    # collocation shortcut) and compare against the analytic midpoint.
+    deconv = LinearDeconvolution()
+    errors = []
+    for n in (16, 32, 64, 128):
+        mesh = IntervalMesh(n, (0.0, 1.0), name="x")
+        grid = Grid((mesh,))
+        dx = 1.0 / n
+        xl = np.arange(n) * dx
+        # (1/dx) int_cell sin(2 pi x) dx
+        cell_avg = -(np.cos(2 * np.pi * (xl + dx))
+                     - np.cos(2 * np.pi * xl)) / (2 * np.pi) / dx
+        f = grid.create_field(mesh.cell_avg,
+                              data=jnp.asarray(cell_avg))
+        g = deconv["x"](f)
+        xm = grid.evaluation_nodes(mesh.center).data
+        errors.append(float(jnp.abs(
+            g.data - jnp.sin(2 * jnp.pi * xm)).max()))
+    rates = [np.log2(errors[i] / errors[i + 1])
+             for i in range(len(errors) - 1)]
+    assert min(rates) > 1.9  # second order
+
+
+def test_to_colocated_deconvolution_round_trips(mx):
+    # .to reads the "deconvolve" kind for a co-located average<->nodal
+    # pair (G3); the round trip is an exact identity
+    grid = Grid((mx,))
+    p = grid.create_field(mx.cell_avg, data=jnp.arange(8.0))
+    center = p.to(mx.center)
+    assert center.function_space.bare is mx.center
+    assert jnp.array_equal(center.data, p.data)
+    assert jnp.array_equal(center.to(mx.cell_avg).data, p.data)

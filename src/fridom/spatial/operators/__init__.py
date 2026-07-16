@@ -99,7 +99,7 @@ if TYPE_CHECKING:  # pragma: no cover
         RealizedMap,
         RealizedSum,
     )
-    from .reconstruct import LinearReconstruction
+    from .reconstruct import LinearDeconvolution, LinearReconstruction
     from .registry import DispatchError, DispatchKey, OperatorRegistry
     from .select import Where
     from .spectral import PhaseShift, SpectralDerivative
@@ -175,7 +175,8 @@ all_imports_by_origin = {
     f"{base}.finite_difference": ["FiniteDifference"],
     f"{base}.interp": ["LinearInterp"],
     f"{base}.krylov": ["ConjugateGradient"],
-    f"{base}.reconstruct": ["LinearReconstruction"],
+    f"{base}.reconstruct": [
+        "LinearDeconvolution", "LinearReconstruction"],
     f"{base}.weno": ["WenoReconstruction"],
     f"{base}.select": ["Where"],
     f"{base}.distributed_solve": ["resolve_distributed_solve"],
