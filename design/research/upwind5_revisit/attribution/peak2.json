@@ -1,0 +1,916 @@
+{
+ "centered_n128": {
+  "temp_MB": 274.5,
+  "peak_MB": 274.5,
+  "peak_t": 294,
+  "missed_values": 0,
+  "n_live_ge4MB": 15,
+  "bucket_MB": {
+   "add": 165.60000000000002,
+   "advection": 55.199999999999996,
+   "dynamic_update_slice": 18.4,
+   "coriolis": 18.26,
+   "projection/FFT": 17.04
+  },
+  "live": [
+   {
+    "offset": 1792,
+    "MB": 18.4,
+    "shape": "f64[132,132,132]",
+    "bucket": "add",
+    "leaf": "add",
+    "op_name": "jit(_chunk_body)/while/body/closed_call/add",
+    "name": "loop_add_fusion.2"
+   },
+   {
+    "offset": 18401536,
+    "MB": 18.4,
+    "shape": "f64[132,132,132]",
+    "bucket": "add",
+    "leaf": "add",
+    "op_name": "jit(_chunk_body)/while/body/closed_call/add",
+    "name": "loop_add_fusion.2"
+   },
+   {
+    "offset": 36801280,
+    "MB": 18.4,
+    "shape": "f64[132,132,132]",
+    "bucket": "add",
+    "leaf": "add",
+    "op_name": "jit(_chunk_body)/while/body/closed_call/add",
+    "name": "loop_add_fusion.2"
+   },
+   {
+    "offset": 55201024,
+    "MB": 18.4,
+    "shape": "f64[132,132,132]",
+    "bucket": "add",
+    "leaf": "add",
+    "op_name": "jit(_chunk_body)/while/body/closed_call/add",
+    "name": "loop_add_fusion.2"
+   },
+   {
+    "offset": 183999232,
+    "MB": 18.4,
+    "shape": "f64[132,132,132]",
+    "bucket": "dynamic_update_slice",
+    "leaf": "dynamic_update_slice",
+    "op_name": "jit(_chunk_body)/while/body/closed_call/dynamic_update_slice",
+    "name": "loop_dynamic_update_slice_fusion.31"
+   },
+   {
+    "offset": 128800000,
+    "MB": 18.4,
+    "shape": "f64[132,132,132]",
+    "bucket": "advection",
+    "leaf": "mul",
+    "op_name": "jit(_chunk_body)/while/body/closed_call/CenteredAdvection/advection/mul",
+    "name": "loop_multiply_fusion"
+   },
+   {
+    "offset": 147199744,
+    "MB": 18.4,
+    "shape": "f64[132,132,132]",
+    "bucket": "advection",
+    "leaf": "mul",
+    "op_name": "jit(_chunk_body)/while/body/closed_call/CenteredAdvection/advection/mul",
+    "name": "loop_multiply_fusion"
+   },
+   {
+    "offset": 165599488,
+    "MB": 18.4,
+    "shape": "f64[132,132,132]",
+    "bucket": "advection",
+    "leaf": "mul",
+    "op_name": "jit(_chunk_body)/while/body/closed_call/CenteredAdvection/advection/mul",
+    "name": "loop_multiply_fusion"
+   },
+   {
+    "offset": 73600768,
+    "MB": 18.4,
+    "shape": "f64[132,132,132]",
+    "bucket": "add",
+    "leaf": "add",
+    "op_name": "jit(_chunk_body)/while/body/closed_call/add",
+    "name": "loop_add_fusion"
+   },
+   {
+    "offset": 92000512,
+    "MB": 18.4,
+    "shape": "f64[132,132,132]",
+    "bucket": "add",
+    "leaf": "add",
+    "op_name": "jit(_chunk_body)/while/body/closed_call/add",
+    "name": "loop_add_fusion"
+   },
+   {
+    "offset": 202398976,
+    "MB": 18.4,
+    "shape": "f64[132,132,132]",
+    "bucket": "add",
+    "leaf": "add",
+    "op_name": "jit(_chunk_body)/while/body/closed_call/add",
+    "name": "loop_add_fusion"
+   },
+   {
+    "offset": 220798720,
+    "MB": 18.4,
+    "shape": "f64[132,132,132]",
+    "bucket": "add",
+    "leaf": "add",
+    "op_name": "jit(_chunk_body)/while/body/closed_call/add",
+    "name": "loop_add_fusion"
+   },
+   {
+    "offset": 110400256,
+    "MB": 18.4,
+    "shape": "f64[132,132,132]",
+    "bucket": "add",
+    "leaf": "add",
+    "op_name": "jit(_chunk_body)/while/body/closed_call/add",
+    "name": "loop_add_fusion"
+   },
+   {
+    "offset": 239198464,
+    "MB": 18.26,
+    "shape": "f64[132,132,131]",
+    "bucket": "coriolis",
+    "leaf": "add",
+    "op_name": "jit(_chunk_body)/while/body/closed_call/FPlaneCoriolis/coriolis/add",
+    "name": "loop_multiply_fusion.5"
+   },
+   {
+    "offset": 257458944,
+    "MB": 17.04,
+    "shape": "c128[128,128,65]",
+    "bucket": "projection/FFT",
+    "leaf": "fft",
+    "op_name": "jit(_chunk_body)/while/body/closed_call/DynamicalCore/projection/jit(fft)/fft",
+    "name": "input_select_transpose_fusion"
+   }
+  ]
+ },
+ "centered_n192": {
+  "temp_MB": 900.2,
+  "peak_MB": 900.2,
+  "peak_t": 294,
+  "missed_values": 0,
+  "n_live_ge4MB": 15,
+  "bucket_MB": {
+   "add": 542.16,
+   "advection": 180.72,
+   "dynamic_update_slice": 60.24,
+   "coriolis": 59.93,
+   "projection/FFT": 57.21
+  },
+  "live": [
+   {
+    "offset": 1792,
+    "MB": 60.24,
+    "shape": "f64[196,196,196]",
+    "bucket": "add",
+    "leaf": "add",
+    "op_name": "jit(_chunk_body)/while/body/closed_call/add",
+    "name": "loop_add_fusion.2"
+   },
+   {
+    "offset": 60238080,
+    "MB": 60.24,
+    "shape": "f64[196,196,196]",
+    "bucket": "add",
+    "leaf": "add",
+    "op_name": "jit(_chunk_body)/while/body/closed_call/add",
+    "name": "loop_add_fusion.2"
+   },
+   {
+    "offset": 120474368,
+    "MB": 60.24,
+    "shape": "f64[196,196,196]",
+    "bucket": "add",
+    "leaf": "add",
+    "op_name": "jit(_chunk_body)/while/body/closed_call/add",
+    "name": "loop_add_fusion.2"
+   },
+   {
+    "offset": 180710656,
+    "MB": 60.24,
+    "shape": "f64[196,196,196]",
+    "bucket": "add",
+    "leaf": "add",
+    "op_name": "jit(_chunk_body)/while/body/closed_call/add",
+    "name": "loop_add_fusion.2"
+   },
+   {
+    "offset": 602364672,
+    "MB": 60.24,
+    "shape": "f64[196,196,196]",
+    "bucket": "dynamic_update_slice",
+    "leaf": "dynamic_update_slice",
+    "op_name": "jit(_chunk_body)/while/body/closed_call/dynamic_update_slice",
+    "name": "loop_dynamic_update_slice_fusion.31"
+   },
+   {
+    "offset": 421655808,
+    "MB": 60.24,
+    "shape": "f64[196,196,196]",
+    "bucket": "advection",
+    "leaf": "mul",
+    "op_name": "jit(_chunk_body)/while/body/closed_call/CenteredAdvection/advection/mul",
+    "name": "loop_multiply_fusion"
+   },
+   {
+    "offset": 481892096,
+    "MB": 60.24,
+    "shape": "f64[196,196,196]",
+    "bucket": "advection",
+    "leaf": "mul",
+    "op_name": "jit(_chunk_body)/while/body/closed_call/CenteredAdvection/advection/mul",
+    "name": "loop_multiply_fusion"
+   },
+   {
+    "offset": 542128384,
+    "MB": 60.24,
+    "shape": "f64[196,196,196]",
+    "bucket": "advection",
+    "leaf": "mul",
+    "op_name": "jit(_chunk_body)/while/body/closed_call/CenteredAdvection/advection/mul",
+    "name": "loop_multiply_fusion"
+   },
+   {
+    "offset": 240946944,
+    "MB": 60.24,
+    "shape": "f64[196,196,196]",
+    "bucket": "add",
+    "leaf": "add",
+    "op_name": "jit(_chunk_body)/while/body/closed_call/add",
+    "name": "loop_add_fusion"
+   },
+   {
+    "offset": 301183232,
+    "MB": 60.24,
+    "shape": "f64[196,196,196]",
+    "bucket": "add",
+    "leaf": "add",
+    "op_name": "jit(_chunk_body)/while/body/closed_call/add",
+    "name": "loop_add_fusion"
+   },
+   {
+    "offset": 662600960,
+    "MB": 60.24,
+    "shape": "f64[196,196,196]",
+    "bucket": "add",
+    "leaf": "add",
+    "op_name": "jit(_chunk_body)/while/body/closed_call/add",
+    "name": "loop_add_fusion"
+   },
+   {
+    "offset": 722837248,
+    "MB": 60.24,
+    "shape": "f64[196,196,196]",
+    "bucket": "add",
+    "leaf": "add",
+    "op_name": "jit(_chunk_body)/while/body/closed_call/add",
+    "name": "loop_add_fusion"
+   },
+   {
+    "offset": 361419520,
+    "MB": 60.24,
+    "shape": "f64[196,196,196]",
+    "bucket": "add",
+    "leaf": "add",
+    "op_name": "jit(_chunk_body)/while/body/closed_call/add",
+    "name": "loop_add_fusion"
+   },
+   {
+    "offset": 783073536,
+    "MB": 59.93,
+    "shape": "f64[196,196,195]",
+    "bucket": "coriolis",
+    "leaf": "add",
+    "op_name": "jit(_chunk_body)/while/body/closed_call/FPlaneCoriolis/coriolis/add",
+    "name": "loop_multiply_fusion.5"
+   },
+   {
+    "offset": 843002624,
+    "MB": 57.21,
+    "shape": "c128[192,192,97]",
+    "bucket": "projection/FFT",
+    "leaf": "fft",
+    "op_name": "jit(_chunk_body)/while/body/closed_call/DynamicalCore/projection/jit(fft)/fft",
+    "name": "input_select_transpose_fusion"
+   }
+  ]
+ },
+ "u5_baseline_n128": {
+  "temp_MB": 418.6,
+  "peak_MB": 416.8,
+  "peak_t": 327,
+  "missed_values": 0,
+  "n_live_ge4MB": 21,
+  "bucket_MB": {
+   "advection": 299.16,
+   "add": 80.48,
+   "dynamic_update_slice": 20.12,
+   "projection/FFT": 17.04
+  },
+  "live": [
+   {
+    "offset": 6144,
+    "MB": 20.12,
+    "shape": "f64[136,136,136]",
+    "bucket": "add",
+    "leaf": "add",
+    "op_name": "jit(_chunk_body)/while/body/closed_call/add",
+    "name": "loop_add_fusion.2"
+   },
+   {
+    "offset": 20129792,
+    "MB": 20.12,
+    "shape": "f64[136,136,136]",
+    "bucket": "add",
+    "leaf": "add",
+    "op_name": "jit(_chunk_body)/while/body/closed_call/add",
+    "name": "loop_add_fusion.2"
+   },
+   {
+    "offset": 40253440,
+    "MB": 20.12,
+    "shape": "f64[136,136,136]",
+    "bucket": "add",
+    "leaf": "add",
+    "op_name": "jit(_chunk_body)/while/body/closed_call/add",
+    "name": "loop_add_fusion.2"
+   },
+   {
+    "offset": 60377088,
+    "MB": 20.12,
+    "shape": "f64[136,136,136]",
+    "bucket": "add",
+    "leaf": "add",
+    "op_name": "jit(_chunk_body)/while/body/closed_call/add",
+    "name": "loop_add_fusion.2"
+   },
+   {
+    "offset": 321984512,
+    "MB": 20.12,
+    "shape": "f64[136,136,136]",
+    "bucket": "dynamic_update_slice",
+    "leaf": "dynamic_update_slice",
+    "op_name": "jit(_chunk_body)/while/body/closed_call/dynamic_update_slice",
+    "name": "loop_dynamic_update_slice_fusion.34"
+   },
+   {
+    "offset": 140871680,
+    "MB": 20.12,
+    "shape": "f64[136,136,136]",
+    "bucket": "advection",
+    "leaf": "mul",
+    "op_name": "jit(_chunk_body)/while/body/closed_call/UpwindAdvection/advection/mul",
+    "name": "loop_multiply_fusion"
+   },
+   {
+    "offset": 160995328,
+    "MB": 20.12,
+    "shape": "f64[136,136,136]",
+    "bucket": "advection",
+    "leaf": "mul",
+    "op_name": "jit(_chunk_body)/while/body/closed_call/UpwindAdvection/advection/mul",
+    "name": "loop_multiply_fusion"
+   },
+   {
+    "offset": 181118976,
+    "MB": 20.12,
+    "shape": "f64[136,136,136]",
+    "bucket": "advection",
+    "leaf": "mul",
+    "op_name": "jit(_chunk_body)/while/body/closed_call/UpwindAdvection/advection/mul",
+    "name": "loop_multiply_fusion"
+   },
+   {
+    "offset": 201242624,
+    "MB": 20.12,
+    "shape": "f64[136,136,136]",
+    "bucket": "advection",
+    "leaf": "mul",
+    "op_name": "jit(_chunk_body)/while/body/closed_call/UpwindAdvection/advection/mul",
+    "name": "loop_multiply_fusion"
+   },
+   {
+    "offset": 221366272,
+    "MB": 20.12,
+    "shape": "f64[136,136,136]",
+    "bucket": "advection",
+    "leaf": "mul",
+    "op_name": "jit(_chunk_body)/while/body/closed_call/UpwindAdvection/advection/mul",
+    "name": "loop_multiply_fusion"
+   },
+   {
+    "offset": 241489920,
+    "MB": 20.12,
+    "shape": "f64[136,136,136]",
+    "bucket": "advection",
+    "leaf": "mul",
+    "op_name": "jit(_chunk_body)/while/body/closed_call/UpwindAdvection/advection/mul",
+    "name": "loop_multiply_fusion"
+   },
+   {
+    "offset": 261613568,
+    "MB": 20.12,
+    "shape": "f64[136,136,136]",
+    "bucket": "advection",
+    "leaf": "mul",
+    "op_name": "jit(_chunk_body)/while/body/closed_call/UpwindAdvection/advection/mul",
+    "name": "loop_multiply_fusion"
+   },
+   {
+    "offset": 281737216,
+    "MB": 20.12,
+    "shape": "f64[136,136,136]",
+    "bucket": "advection",
+    "leaf": "mul",
+    "op_name": "jit(_chunk_body)/while/body/closed_call/UpwindAdvection/advection/mul",
+    "name": "loop_multiply_fusion"
+   },
+   {
+    "offset": 301860864,
+    "MB": 20.12,
+    "shape": "f64[136,136,136]",
+    "bucket": "advection",
+    "leaf": "mul",
+    "op_name": "jit(_chunk_body)/while/body/closed_call/UpwindAdvection/advection/mul",
+    "name": "loop_multiply_fusion"
+   },
+   {
+    "offset": 342108160,
+    "MB": 19.68,
+    "shape": "f64[133,136,136]",
+    "bucket": "advection",
+    "leaf": "add",
+    "op_name": "jit(_chunk_body)/while/body/closed_call/UpwindAdvection/advection/add",
+    "name": "loop_add_fusion.5"
+   },
+   {
+    "offset": 361787904,
+    "MB": 19.68,
+    "shape": "f64[136,133,136]",
+    "bucket": "advection",
+    "leaf": "add",
+    "op_name": "jit(_chunk_body)/while/body/closed_call/UpwindAdvection/advection/add",
+    "name": "loop_add_fusion.5"
+   },
+   {
+    "offset": 381467648,
+    "MB": 19.68,
+    "shape": "f64[136,136,133]",
+    "bucket": "advection",
+    "leaf": "add",
+    "op_name": "jit(_chunk_body)/while/body/closed_call/UpwindAdvection/advection/add",
+    "name": "loop_add_fusion.5"
+   },
+   {
+    "offset": 80500736,
+    "MB": 19.68,
+    "shape": "f64[133,136,136]",
+    "bucket": "advection",
+    "leaf": "add",
+    "op_name": "jit(_chunk_body)/while/body/closed_call/UpwindAdvection/advection/add",
+    "name": "loop_add_fusion.4"
+   },
+   {
+    "offset": 100180480,
+    "MB": 19.68,
+    "shape": "f64[136,133,136]",
+    "bucket": "advection",
+    "leaf": "add",
+    "op_name": "jit(_chunk_body)/while/body/closed_call/UpwindAdvection/advection/add",
+    "name": "loop_add_fusion.4"
+   },
+   {
+    "offset": 119860224,
+    "MB": 19.68,
+    "shape": "f64[136,136,133]",
+    "bucket": "advection",
+    "leaf": "add",
+    "op_name": "jit(_chunk_body)/while/body/closed_call/UpwindAdvection/advection/add",
+    "name": "loop_add_fusion.4"
+   },
+   {
+    "offset": 401591296,
+    "MB": 17.04,
+    "shape": "c128[128,128,65]",
+    "bucket": "projection/FFT",
+    "leaf": "fft",
+    "op_name": "jit(_chunk_body)/while/body/closed_call/DynamicalCore/projection/jit(fft)/fft",
+    "name": "input_select_transpose_fusion"
+   }
+  ]
+ },
+ "u5_baseline_n192": {
+  "temp_MB": 1335.3,
+  "peak_MB": 1331.5,
+  "peak_t": 327,
+  "missed_values": 0,
+  "n_live_ge4MB": 21,
+  "bucket_MB": {
+   "advection": 954.2399999999998,
+   "add": 256.0,
+   "dynamic_update_slice": 64.0,
+   "projection/FFT": 57.21
+  },
+  "live": [
+   {
+    "offset": 6144,
+    "MB": 64.0,
+    "shape": "f64[200,200,200]",
+    "bucket": "add",
+    "leaf": "add",
+    "op_name": "jit(_chunk_body)/while/body/closed_call/add",
+    "name": "loop_add_fusion.2"
+   },
+   {
+    "offset": 64006144,
+    "MB": 64.0,
+    "shape": "f64[200,200,200]",
+    "bucket": "add",
+    "leaf": "add",
+    "op_name": "jit(_chunk_body)/while/body/closed_call/add",
+    "name": "loop_add_fusion.2"
+   },
+   {
+    "offset": 128006144,
+    "MB": 64.0,
+    "shape": "f64[200,200,200]",
+    "bucket": "add",
+    "leaf": "add",
+    "op_name": "jit(_chunk_body)/while/body/closed_call/add",
+    "name": "loop_add_fusion.2"
+   },
+   {
+    "offset": 192006144,
+    "MB": 64.0,
+    "shape": "f64[200,200,200]",
+    "bucket": "add",
+    "leaf": "add",
+    "op_name": "jit(_chunk_body)/while/body/closed_call/add",
+    "name": "loop_add_fusion.2"
+   },
+   {
+    "offset": 1024006144,
+    "MB": 64.0,
+    "shape": "f64[200,200,200]",
+    "bucket": "dynamic_update_slice",
+    "leaf": "dynamic_update_slice",
+    "op_name": "jit(_chunk_body)/while/body/closed_call/dynamic_update_slice",
+    "name": "loop_dynamic_update_slice_fusion.34"
+   },
+   {
+    "offset": 448006144,
+    "MB": 64.0,
+    "shape": "f64[200,200,200]",
+    "bucket": "advection",
+    "leaf": "mul",
+    "op_name": "jit(_chunk_body)/while/body/closed_call/UpwindAdvection/advection/mul",
+    "name": "loop_multiply_fusion"
+   },
+   {
+    "offset": 512006144,
+    "MB": 64.0,
+    "shape": "f64[200,200,200]",
+    "bucket": "advection",
+    "leaf": "mul",
+    "op_name": "jit(_chunk_body)/while/body/closed_call/UpwindAdvection/advection/mul",
+    "name": "loop_multiply_fusion"
+   },
+   {
+    "offset": 576006144,
+    "MB": 64.0,
+    "shape": "f64[200,200,200]",
+    "bucket": "advection",
+    "leaf": "mul",
+    "op_name": "jit(_chunk_body)/while/body/closed_call/UpwindAdvection/advection/mul",
+    "name": "loop_multiply_fusion"
+   },
+   {
+    "offset": 640006144,
+    "MB": 64.0,
+    "shape": "f64[200,200,200]",
+    "bucket": "advection",
+    "leaf": "mul",
+    "op_name": "jit(_chunk_body)/while/body/closed_call/UpwindAdvection/advection/mul",
+    "name": "loop_multiply_fusion"
+   },
+   {
+    "offset": 704006144,
+    "MB": 64.0,
+    "shape": "f64[200,200,200]",
+    "bucket": "advection",
+    "leaf": "mul",
+    "op_name": "jit(_chunk_body)/while/body/closed_call/UpwindAdvection/advection/mul",
+    "name": "loop_multiply_fusion"
+   },
+   {
+    "offset": 768006144,
+    "MB": 64.0,
+    "shape": "f64[200,200,200]",
+    "bucket": "advection",
+    "leaf": "mul",
+    "op_name": "jit(_chunk_body)/while/body/closed_call/UpwindAdvection/advection/mul",
+    "name": "loop_multiply_fusion"
+   },
+   {
+    "offset": 832006144,
+    "MB": 64.0,
+    "shape": "f64[200,200,200]",
+    "bucket": "advection",
+    "leaf": "mul",
+    "op_name": "jit(_chunk_body)/while/body/closed_call/UpwindAdvection/advection/mul",
+    "name": "loop_multiply_fusion"
+   },
+   {
+    "offset": 896006144,
+    "MB": 64.0,
+    "shape": "f64[200,200,200]",
+    "bucket": "advection",
+    "leaf": "mul",
+    "op_name": "jit(_chunk_body)/while/body/closed_call/UpwindAdvection/advection/mul",
+    "name": "loop_multiply_fusion"
+   },
+   {
+    "offset": 960006144,
+    "MB": 64.0,
+    "shape": "f64[200,200,200]",
+    "bucket": "advection",
+    "leaf": "mul",
+    "op_name": "jit(_chunk_body)/while/body/closed_call/UpwindAdvection/advection/mul",
+    "name": "loop_multiply_fusion"
+   },
+   {
+    "offset": 1088006144,
+    "MB": 63.04,
+    "shape": "f64[200,197,200]",
+    "bucket": "advection",
+    "leaf": "add",
+    "op_name": "jit(_chunk_body)/while/body/closed_call/UpwindAdvection/advection/add",
+    "name": "loop_add_fusion.9"
+   },
+   {
+    "offset": 1151046144,
+    "MB": 63.04,
+    "shape": "f64[200,200,197]",
+    "bucket": "advection",
+    "leaf": "add",
+    "op_name": "jit(_chunk_body)/while/body/closed_call/UpwindAdvection/advection/add",
+    "name": "loop_add_fusion.9"
+   },
+   {
+    "offset": 1214086144,
+    "MB": 63.04,
+    "shape": "f64[197,200,200]",
+    "bucket": "advection",
+    "leaf": "add",
+    "op_name": "jit(_chunk_body)/while/body/closed_call/UpwindAdvection/advection/add",
+    "name": "loop_add_fusion.9"
+   },
+   {
+    "offset": 256006144,
+    "MB": 63.04,
+    "shape": "f64[197,200,200]",
+    "bucket": "advection",
+    "leaf": "add",
+    "op_name": "jit(_chunk_body)/while/body/closed_call/UpwindAdvection/advection/add",
+    "name": "loop_add_fusion.3"
+   },
+   {
+    "offset": 319046144,
+    "MB": 63.04,
+    "shape": "f64[200,197,200]",
+    "bucket": "advection",
+    "leaf": "add",
+    "op_name": "jit(_chunk_body)/while/body/closed_call/UpwindAdvection/advection/add",
+    "name": "loop_add_fusion.3"
+   },
+   {
+    "offset": 382086144,
+    "MB": 63.04,
+    "shape": "f64[200,200,197]",
+    "bucket": "advection",
+    "leaf": "add",
+    "op_name": "jit(_chunk_body)/while/body/closed_call/UpwindAdvection/advection/add",
+    "name": "loop_add_fusion.3"
+   },
+   {
+    "offset": 1278086144,
+    "MB": 57.21,
+    "shape": "c128[192,192,97]",
+    "bucket": "projection/FFT",
+    "leaf": "fft",
+    "op_name": "jit(_chunk_body)/while/body/closed_call/DynamicalCore/projection/jit(fft)/fft",
+    "name": "input_select_transpose_fusion"
+   }
+  ]
+ },
+ "u5_selected_n128": {
+  "temp_MB": 418.6,
+  "peak_MB": 416.8,
+  "peak_t": 327,
+  "missed_values": 0,
+  "n_live_ge4MB": 21,
+  "bucket_MB": {
+   "advection": 299.16,
+   "add": 80.48,
+   "dynamic_update_slice": 20.12,
+   "projection/FFT": 17.04
+  },
+  "live": [
+   {
+    "offset": 6144,
+    "MB": 20.12,
+    "shape": "f64[136,136,136]",
+    "bucket": "add",
+    "leaf": "add",
+    "op_name": "jit(_chunk_body)/while/body/closed_call/add",
+    "name": "loop_add_fusion.2"
+   },
+   {
+    "offset": 20129792,
+    "MB": 20.12,
+    "shape": "f64[136,136,136]",
+    "bucket": "add",
+    "leaf": "add",
+    "op_name": "jit(_chunk_body)/while/body/closed_call/add",
+    "name": "loop_add_fusion.2"
+   },
+   {
+    "offset": 40253440,
+    "MB": 20.12,
+    "shape": "f64[136,136,136]",
+    "bucket": "add",
+    "leaf": "add",
+    "op_name": "jit(_chunk_body)/while/body/closed_call/add",
+    "name": "loop_add_fusion.2"
+   },
+   {
+    "offset": 60377088,
+    "MB": 20.12,
+    "shape": "f64[136,136,136]",
+    "bucket": "add",
+    "leaf": "add",
+    "op_name": "jit(_chunk_body)/while/body/closed_call/add",
+    "name": "loop_add_fusion.2"
+   },
+   {
+    "offset": 321984512,
+    "MB": 20.12,
+    "shape": "f64[136,136,136]",
+    "bucket": "dynamic_update_slice",
+    "leaf": "dynamic_update_slice",
+    "op_name": "jit(_chunk_body)/while/body/closed_call/dynamic_update_slice",
+    "name": "loop_dynamic_update_slice_fusion.31"
+   },
+   {
+    "offset": 140871680,
+    "MB": 20.12,
+    "shape": "f64[136,136,136]",
+    "bucket": "advection",
+    "leaf": "mul",
+    "op_name": "jit(_chunk_body)/while/body/closed_call/UpwindAdvection/advection/mul",
+    "name": "loop_multiply_fusion"
+   },
+   {
+    "offset": 160995328,
+    "MB": 20.12,
+    "shape": "f64[136,136,136]",
+    "bucket": "advection",
+    "leaf": "mul",
+    "op_name": "jit(_chunk_body)/while/body/closed_call/UpwindAdvection/advection/mul",
+    "name": "loop_multiply_fusion"
+   },
+   {
+    "offset": 181118976,
+    "MB": 20.12,
+    "shape": "f64[136,136,136]",
+    "bucket": "advection",
+    "leaf": "mul",
+    "op_name": "jit(_chunk_body)/while/body/closed_call/UpwindAdvection/advection/mul",
+    "name": "loop_multiply_fusion"
+   },
+   {
+    "offset": 201242624,
+    "MB": 20.12,
+    "shape": "f64[136,136,136]",
+    "bucket": "advection",
+    "leaf": "mul",
+    "op_name": "jit(_chunk_body)/while/body/closed_call/UpwindAdvection/advection/mul",
+    "name": "loop_multiply_fusion"
+   },
+   {
+    "offset": 221366272,
+    "MB": 20.12,
+    "shape": "f64[136,136,136]",
+    "bucket": "advection",
+    "leaf": "mul",
+    "op_name": "jit(_chunk_body)/while/body/closed_call/UpwindAdvection/advection/mul",
+    "name": "loop_multiply_fusion"
+   },
+   {
+    "offset": 241489920,
+    "MB": 20.12,
+    "shape": "f64[136,136,136]",
+    "bucket": "advection",
+    "leaf": "mul",
+    "op_name": "jit(_chunk_body)/while/body/closed_call/UpwindAdvection/advection/mul",
+    "name": "loop_multiply_fusion"
+   },
+   {
+    "offset": 261613568,
+    "MB": 20.12,
+    "shape": "f64[136,136,136]",
+    "bucket": "advection",
+    "leaf": "mul",
+    "op_name": "jit(_chunk_body)/while/body/closed_call/UpwindAdvection/advection/mul",
+    "name": "loop_multiply_fusion"
+   },
+   {
+    "offset": 281737216,
+    "MB": 20.12,
+    "shape": "f64[136,136,136]",
+    "bucket": "advection",
+    "leaf": "mul",
+    "op_name": "jit(_chunk_body)/while/body/closed_call/UpwindAdvection/advection/mul",
+    "name": "loop_multiply_fusion"
+   },
+   {
+    "offset": 301860864,
+    "MB": 20.12,
+    "shape": "f64[136,136,136]",
+    "bucket": "advection",
+    "leaf": "mul",
+    "op_name": "jit(_chunk_body)/while/body/closed_call/UpwindAdvection/advection/mul",
+    "name": "loop_multiply_fusion"
+   },
+   {
+    "offset": 80500736,
+    "MB": 19.68,
+    "shape": "f64[136,133,136]",
+    "bucket": "advection",
+    "leaf": "add",
+    "op_name": "jit(_chunk_body)/while/body/closed_call/UpwindAdvection/advection/add",
+    "name": "loop_add_fusion.9"
+   },
+   {
+    "offset": 100180480,
+    "MB": 19.68,
+    "shape": "f64[133,136,136]",
+    "bucket": "advection",
+    "leaf": "add",
+    "op_name": "jit(_chunk_body)/while/body/closed_call/UpwindAdvection/advection/add",
+    "name": "loop_add_fusion.9"
+   },
+   {
+    "offset": 119860224,
+    "MB": 19.68,
+    "shape": "f64[136,136,133]",
+    "bucket": "advection",
+    "leaf": "add",
+    "op_name": "jit(_chunk_body)/while/body/closed_call/UpwindAdvection/advection/add",
+    "name": "loop_add_fusion.9"
+   },
+   {
+    "offset": 342108160,
+    "MB": 19.68,
+    "shape": "f64[133,136,136]",
+    "bucket": "advection",
+    "leaf": "add",
+    "op_name": "jit(_chunk_body)/while/body/closed_call/UpwindAdvection/advection/add",
+    "name": "loop_add_fusion.3"
+   },
+   {
+    "offset": 361787904,
+    "MB": 19.68,
+    "shape": "f64[136,136,133]",
+    "bucket": "advection",
+    "leaf": "add",
+    "op_name": "jit(_chunk_body)/while/body/closed_call/UpwindAdvection/advection/add",
+    "name": "loop_add_fusion.3"
+   },
+   {
+    "offset": 381467648,
+    "MB": 19.68,
+    "shape": "f64[136,133,136]",
+    "bucket": "advection",
+    "leaf": "add",
+    "op_name": "jit(_chunk_body)/while/body/closed_call/UpwindAdvection/advection/add",
+    "name": "loop_add_fusion.3"
+   },
+   {
+    "offset": 401591296,
+    "MB": 17.04,
+    "shape": "c128[128,128,65]",
+    "bucket": "projection/FFT",
+    "leaf": "fft",
+    "op_name": "jit(_chunk_body)/while/body/closed_call/DynamicalCore/projection/jit(fft)/fft",
+    "name": "input_select_transpose_fusion"
+   }
+  ]
+ }
+}

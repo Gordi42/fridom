@@ -1,0 +1,18 @@
+{
+  "dt": 20.0,
+  "finite": true,
+  "first_chunk_compile_s": 3.504970433,
+  "ms_per_step_all": [
+    31.673680960000002,
+    31.817962,
+    31.82134654,
+    31.85046088,
+    31.96030698,
+    31.96929426
+  ],
+  "ms_per_step_median": 31.83590371,
+  "ms_per_step_min": 31.673680960000002,
+  "n": 160,
+  "oceananigans_version": "0.105.3",
+  "scheme": "centered"
+}

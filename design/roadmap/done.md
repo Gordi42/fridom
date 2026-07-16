@@ -73,6 +73,37 @@ Implementation record:
 
 ## Landed since, outside the numbered tasks
 
+- **Upwind5 advection — revisited, attributed, closed at the XLA
+  ceiling** (2026-07-17) — the owner's charge to re-research the
+  "cannot do better" verdict on new hardware (RTX 3060 Laptop, f64
+  1/64-rate — the opposite regime from the A100). Independent matched
+  re-baseline against Oceananigans 0.105.3: edges centered 1.26×,
+  upwind5 1.01–1.06×, weno5 1.56× — same shape as the A100, and
+  fridom's upwind5/centered ratio is 1.82 on BOTH machines despite the
+  63× f64-FMA gap, proving the overhead is memory, not arithmetic.
+  Byte-level attribution (buffer assignment + live ranges): the +82%
+  over centered = ~⅓ extra HBM traffic (XLA materializes 6 wide
+  face-reconstruction arrays + more live flux products; `n+8` halo
+  pad) + ~⅔ wide-stencil fusion efficiency (141 vs 201 GB/s, no SMEM
+  tiling in XLA's loop emitter) + ~0 arithmetic; the one-path
+  spellings are byte-identical in the compiled step (the second
+  reconstruction was never materialized), which is the mechanism
+  behind every failed probe on both machines. Negatives, all
+  measured: one-path re-replication (+2.4/+5.2% at 160/192³;
+  small-n win reverses exactly at production sizes), a 9-flagset
+  bracketed XLA sweep (null ±0.2%; `multi_output_fusion` disable is a
+  memory-only knob, u5 scratch 790→266 MB), and the deferred
+  Pallas/Triton hand kernel (+34–54% slower on sm_86, bitwise-correct
+  — the pow2 constraint forces 2× reconstruction arithmetic in an
+  arithmetic-bound regime; GSPMD-incompatible besides). Upwind5
+  ties/beats Oceananigans absolutely on both machines; the missing
+  relative edge is structural to the XLA lowering. Do-not-revisit
+  list extended with mechanisms; residuals (storage-halo width n+8
+  vs n+6, axis-0 layout, Pallas-for-WENO on A100) stay in
+  [`open.md`](open.md). Side finding: the FV biased-advection
+  assembly blocker (tracked in the FV entry of `open.md`). Record:
+  [`../research/upwind5_revisit.md`](../research/upwind5_revisit.md).
+
 - **Single-GPU transient-memory ceiling resolved** (2026-07-16) — gap 1
   of the Oceananigans reference comparison. The 1024×512×512 OOM was
   BFC *fragmentation*, not capacity: the chunk's transients are ONE
