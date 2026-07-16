@@ -68,6 +68,21 @@ Implementation record:
 
 ## Landed since, outside the numbered tasks
 
+- **The mapped-Jacobian spike** (2026-07-16) — the 1D throwaway
+  experiment (no production edits) that was the stated blocker of the
+  high-order-mapped plan. Answer: the divisor for option (i) is the
+  **same-row discrete Jacobian** — it restores design order (upwind-3
+  3.00, upwind-5 4.99, weno-5 masked 5.00, FD-4/6 3.99/5.97) *and*
+  satisfies the discrete metric identity exactly, while the analytic
+  Jacobian restores the same order but misses the identity at O(h^p)
+  and the current measure divisor caps everything at 2 (reproducing
+  the documented 5→2 trap). The widths are static per
+  (space, order, bias) — a weno flux over a linear-row width keeps
+  order 5. The full lift stays deferred on payoff (see
+  [`open.md`](open.md)). Records:
+  [`../research/mapped_jacobian_spike.md`](../research/mapped_jacobian_spike.md),
+  [`../plans/active/high_order_mapped_plan.md`](../plans/active/high_order_mapped_plan.md) §3.
+
 - **Indivisible-extent sharding fixed** (2026-07-16) — the owner-flagged
   multi-device hole (4 GPUs 2–5× *slower* than 1 whenever the sharded
   axis carried a `P`-indivisible extent: walled staggered legs, prime
