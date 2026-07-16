@@ -6,12 +6,17 @@ from fridom.spatial.bc import BC
 from fridom.spatial.errors import SpaceMismatchError
 from fridom.spatial.grid import Grid
 from fridom.spatial.meshes.interval import IntervalMesh
+from fridom.spatial.meshes.mapped_interval import (
+    MappedIntervalMesh,
+)
 from fridom.spatial.operators.base import EigenbasisError
+from fridom.spatial.operators.interp import LinearInterp
 from fridom.spatial.operators.reconstruct import (
     LinearReconstruction,
     fv_node_offset,
 )
 from fridom.spatial.operators.registry import OperatorRegistry
+from fridom.spatial.operators.spectral import fourier_wavenumbers
 from fridom.spatial.spaces.nodal import NodeSet
 
 
@@ -50,9 +55,90 @@ def test_requirements(recon, mx):
     assert recon.requirements(mx.cell_avg).layout == "any"
 
 
-def test_eigenvalues_designed_for(recon, mx):
-    with pytest.raises(EigenbasisError):
-        recon.eigenvalues(None, mx.cell_avg)
+# ================================================================
+#  Fourier symbols (eigenvalues) — scoping study gap G1
+# ================================================================
+def _symbol_matches_operator(op, mesh, dom_space, seed=5):
+    """Symbol in coeff space == coeff image of the physical output."""
+    grid = Grid((mesh,))
+    axis = mesh.names[0]
+    f = grid.random.normal(dom_space, seed=seed)
+    t_in = grid.dispatch.resolve("transform", dom_space)
+    t_out = grid.dispatch.resolve("transform", op.codomain(dom_space))
+    fhat = t_in.forward(f)
+    sym = op[axis].eigenvalues(grid, fhat.function_space.bare)
+    got = sym(fhat).data
+    want = t_out.forward(op[axis](f)).data
+    return float(jnp.abs(got - want).max())
+
+
+@pytest.mark.parametrize("n", [8, 9, 16, 17])
+@pytest.mark.parametrize("dom", ["cell_avg", "right", "center",
+                                 "face_avg"])
+def test_symbol_matches_operator(recon, n, dom):
+    # every second-order two-point conversion is a cos(k dx/2) diagonal
+    mesh = IntervalMesh(n, (0.0, 1.3), name="x")
+    assert _symbol_matches_operator(
+        recon, mesh, getattr(mesh, dom)) < 1e-12
+
+
+def test_symbol_is_the_one_hat_retagging_symbol(recon, mx):
+    grid = Grid((mx,))
+    sym = recon["x"].eigenvalues(grid, mx.fourier(origin=mx.cell_avg))
+    # retags Fourier(CellAvg) -> Fourier(Right)
+    assert sym.space.origin is mx.cell_avg
+    assert sym.codomain.origin is mx.right
+    k = fourier_wavenumbers(mx.fourier(origin=mx.cell_avg))
+    dx = mx.dx
+    # cos(k dx/2) with the half-cell phase; NO sinc correction at O(2)
+    expected = jnp.cos(k * dx / 2.0) * jnp.exp(1j * k * 0.5 * dx)
+    assert jnp.allclose(sym.data, expected)
+    # the Nyquist leaf is a structural zero (cos(π/2) = 0 exactly)
+    assert sym.data.ravel()[-1] == 0.0
+
+
+def test_symbol_matches_the_nodal_interp_numbers(recon, mx):
+    # scoping study §1: at 2nd order the FV reconstruction is bitwise
+    # the nodal LinearInterp two-point mean
+    grid = Grid((mx,))
+    fv = recon["x"].eigenvalues(grid, mx.fourier(origin=mx.cell_avg))
+    nodal = LinearInterp()["x"].eigenvalues(
+        grid, mx.fourier(origin=mx.center))
+    assert jnp.array_equal(fv.data, nodal.data)
+    assert fv.codomain.origin is mx.right
+
+
+def test_eigenvalues_thread_bare_or_fourier_factor(recon, mx):
+    grid = Grid((mx,))
+    bare = recon["x"].eigenvalues(grid, mx.cell_avg)
+    coeff = recon["x"].eigenvalues(grid, mx.fourier(origin=mx.cell_avg))
+    assert coeff.space is bare.space
+    assert coeff.codomain is bare.codomain
+    assert jnp.array_equal(coeff.data, bare.data)
+
+
+def test_codomain_retags_a_fourier_factor(recon, mx):
+    assert recon.codomain(mx.fourier(origin=mx.cell_avg)) is (
+        mx.fourier(origin=mx.right))
+    assert recon.codomain(mx.fourier(origin=mx.center)) is (
+        mx.fourier(origin=mx.face_avg))
+
+
+def test_eigenvalues_raise_on_the_target_variant(mx):
+    outer = LinearReconstruction(target=NodeSet.OUTER)
+    with pytest.raises(EigenbasisError, match="target="):
+        outer["x"].eigenvalues(Grid((mx,)), mx.cell_avg)
+
+
+def test_eigenvalues_raise_on_bounded_and_mapped(recon, my):
+    with pytest.raises(EigenbasisError, match="periodic"):
+        recon["y"].eigenvalues(Grid((my,)), my.cell_avg)
+    mapped = MappedIntervalMesh(
+        8, (0.0, 1.0),
+        lambda s: s + 0.1 * jnp.sin(2 * jnp.pi * s) / (2 * jnp.pi),
+        periodic=True, name="w")
+    with pytest.raises(EigenbasisError, match="periodic"):
+        recon["w"].eigenvalues(Grid((mapped,)), mapped.cell_avg)
 
 
 # ================================================================

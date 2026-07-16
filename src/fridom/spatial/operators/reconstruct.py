@@ -29,12 +29,18 @@ import jax.numpy as jnp
 
 from fridom.spatial.errors import SpaceMismatchError
 from fridom.spatial.operators.base import (
+    EigenbasisError,
     FieldLike,
     Operator,
     OperatorRequirements,
     SeparableOperator,
+    _resolve_axis,
 )
 from fridom.spatial.operators.interned import interned
+from fridom.spatial.operators.spectral import (
+    fv_fourier_partner,
+    linear_interp_symbol,
+)
 from fridom.spatial.operators.staggering import (
     first_node_offset,
 )
@@ -43,6 +49,7 @@ from fridom.spatial.operators.stencil_kernels import (
 )
 from fridom.spatial.scalars import Scalars
 from fridom.spatial.spaces.average import CellAvg, FaceAvg
+from fridom.spatial.spaces.coefficient import FourierSpace
 from fridom.spatial.spaces.function_space import FunctionSpace
 from fridom.spatial.spaces.nodal import NodalSpace, NodeSet
 
@@ -52,6 +59,7 @@ if TYPE_CHECKING:  # pragma: no cover
     from jax import Array
 
     from fridom.spatial.fields.metadata import FieldMetadata
+    from fridom.spatial.operators.symbol import Symbol
     from fridom.spatial.spaces.tensor_product import SpaceLike
 
 _RECON_SIZE = 2
@@ -268,9 +276,14 @@ class LinearReconstruction(SeparableOperator):
     (boundary_plan.md): its wall faces need exterior values, which
     the (always BC-free) average spaces do not define — a one-sided
     reconstruction variant is designed-for and arrives when a
-    concrete model needs it. ``eigenvalues`` (the sinc-corrected
-    averaging symbol) is designed-for and inherits the raising base
-    until the ``Symbol`` cluster lands (Wave 3B).
+    concrete model needs it. ``eigenvalues`` is the retagging
+    ``one_hat`` averaging diagonal ``cos(k dx/2)`` (with the
+    inter-origin phase), diagonalizing ``Fourier(CellAvg) ->
+    Fourier(Right)`` — and the other two-point conversions — on a
+    periodic uniform mesh; at second order the deconvolution ``sinc``
+    correction vanishes, so it is bitwise the nodal ``LinearInterp``
+    numbers. The ``target=`` variant, bounded, and mapped meshes
+    raise ``EigenbasisError``.
 
     Parameters
     ----------
@@ -318,6 +331,11 @@ class LinearReconstruction(SeparableOperator):
         FunctionSpace
             The converted codomain factor (scalars preserved).
         """
+        if isinstance(domain, FourierSpace):
+            # layout-faithful eigenvalue threading: retag the Fourier
+            # factor through the reconstructed average/nodal origin
+            return domain.mesh.fourier(
+                origin=self.codomain(domain.origin))
         mesh = domain.mesh
         if self._target is not None:
             if (self._target is NodeSet.OUTER and not mesh.periodic
@@ -389,6 +407,51 @@ class LinearReconstruction(SeparableOperator):
             The per-factor requirements record.
         """
         return OperatorRequirements(halo=1)
+
+    def eigenvalues(
+        self,
+        grid: object,  # noqa: ARG002 — the factor carries the mesh
+        space: SpaceLike,
+    ) -> Symbol:
+        r"""
+        Return the ``one_hat`` averaging diagonal ``cos(k dx/2)``.
+
+        Description
+        -----------
+        The retagging ``Fourier(CellAvg) -> Fourier(Right)`` (and the
+        other two-point conversions the codomain table grounds)
+        diagonal ``cos(k dx/2)`` composed with the inter-origin phase
+        — the exact symbol of the periodic ``(p_i + p_{i+1}) / 2``
+        two-point mean, bitwise the nodal ``LinearInterp`` numbers.
+        At second order the exact cell-average deconvolution (which
+        would *divide* by ``sinc(k dx/2)``) collapses to the plain
+        average, so this row carries no ``sinc`` correction. The
+        ``target=`` variant has no diagonalizing symbol, and bounded
+        or mapped meshes raise ``EigenbasisError``.
+
+        Parameters
+        ----------
+        grid : object
+            The grid (unused: the Fourier factor carries the mesh).
+        space : SpaceLike
+            The coefficient factor (or product) space.
+
+        Returns
+        -------
+        Symbol
+            The retagging ``one_hat`` diagonal on the coefficient
+            factor.
+        """
+        if self._target is not None:
+            raise EigenbasisError(
+                "the target= LinearReconstruction variant has no "
+                "diagonalizing symbol in iteration 1")
+        bare = space.bare
+        axis = _resolve_axis(self, bare)
+        factor = bare.factor(axis)
+        src, origin = fv_fourier_partner(factor, "LinearReconstruction")
+        return linear_interp_symbol(
+            bare, axis, src, origin, self.codomain(origin))
 
     def _apply_factor(self, f: FieldLike, axis: str) -> FieldLike:
         """

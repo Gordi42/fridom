@@ -49,6 +49,7 @@ from fridom.spatial.scalars import Scalars
 from fridom.spatial.spaces.average import (
     AverageSpace,
     CellAvg,
+    FaceAvg,
 )
 from fridom.spatial.spaces.coefficient import (
     ChebyshevSpace,
@@ -73,6 +74,37 @@ _NODE_OFFSETS: dict[NodeSet, float] = {
     NodeSet.LEFT: 0.0,
     NodeSet.RIGHT: 1.0,
 }
+
+
+def _first_node_offset(origin: FunctionSpace) -> float:
+    """
+    First-node offset of a nodal or average origin, in cell widths.
+
+    Description
+    -----------
+    The average family enters the periodic staggering-symbol calculus
+    at its quadrature point: ``CellAvg`` at the primal-cell midpoints
+    (0.5, like ``Center``), ``FaceAvg`` at the dual-cell midpoints —
+    the faces (1.0, like ``Right``). Nodal origins read the
+    ``Center`` / ``Left`` / ``Right`` offset table. This is the
+    symbol-layer twin of ``operators.reconstruct.fv_node_offset``
+    (kept local so ``operators.spectral`` stays reconstruct-free).
+
+    Parameters
+    ----------
+    origin : FunctionSpace
+        The (bare) periodic nodal or average origin.
+
+    Returns
+    -------
+    float
+        Distance of the first true DOF from ``x_min`` in cell widths.
+    """
+    if isinstance(origin, CellAvg):
+        return 0.5
+    if isinstance(origin, FaceAvg):
+        return 1.0
+    return _NODE_OFFSETS[origin.node_set]
 
 
 # ================================================================
@@ -878,6 +910,67 @@ def fourier_partner(
     return periodic_fourier_factor(factor, who), factor
 
 
+def fv_fourier_partner(
+    factor: FunctionSpace, who: str,
+) -> tuple[FourierSpace, FunctionSpace]:
+    r"""
+    Resolve the source Fourier factor and its periodic FV origin.
+
+    Description
+    -----------
+    The average-family sibling of :func:`fourier_partner`: the FV
+    flux/face/reconstruct stencils diagonalize only on a **periodic,
+    uniform** mesh, in the Fourier basis of their nodal *or average*
+    origin. The eigenvalue query may thread the ``Fourier(origin)``
+    coefficient factor itself (the spectral solve) or the bare
+    periodic origin (the eigenmode path); either way this returns the
+    source Fourier factor — whose scalars fix the per-axis mode count
+    ``fourier_wavenumbers`` reads — and the origin (nodal or average,
+    carrying the measure). Bounded (walled) meshes, mapped/stretched
+    meshes (whose non-constant metric breaks translation invariance,
+    so no diagonal symbol exists), and non-Fourier coefficient factors
+    (sine/cosine/Chebyshev) raise ``EigenbasisError``: FV symbols are
+    periodic-and-uniform-only in this iteration (the walled FV
+    diagonalizing basis is deferred, scoping study G6 / stage F4).
+
+    Parameters
+    ----------
+    factor : FunctionSpace
+        The threaded coefficient factor (Fourier) or bare periodic
+        nodal/average origin.
+    who : str
+        The querying operator name, for the error message.
+
+    Returns
+    -------
+    tuple[FourierSpace, FunctionSpace]
+        ``(src_fourier, origin)``.
+    """
+    if isinstance(factor, FourierSpace):
+        origin = factor.origin
+        src: FourierSpace | None = factor
+    elif isinstance(factor, NodalSpace | AverageSpace):
+        origin = factor
+        src = None
+    else:
+        raise EigenbasisError(
+            f"{who} has a Fourier symbol only on periodic Fourier "
+            f"factors and their nodal/average origins, got {factor!r}: "
+            "the FV stencils have no diagonalizing basis on "
+            "sine/cosine/Chebyshev factors")
+    mesh = origin.mesh
+    if (not getattr(mesh, "periodic", False)
+            or getattr(mesh, "coordinate_map", None) is not None):
+        raise EigenbasisError(
+            f"{who} has a Fourier symbol only on periodic, uniform "
+            f"meshes, got {origin!r}: bounded (walled) and "
+            "mapped/stretched average families carry no diagonalizing "
+            "basis in iteration 1 (scoping study G6, stage F4/F5)")
+    if src is None:
+        src = mesh.fourier(origin=origin)
+    return src, origin
+
+
 # ================================================================
 #  Staggering (bounded trig) partners and codomain pairing
 # ================================================================
@@ -1231,30 +1324,38 @@ def trig_linear_interp_symbol(
 
 
 def _match_scalars(
-    nodal: FunctionSpace, src: FourierSpace,
+    origin: FunctionSpace, src: FourierSpace,
 ) -> FunctionSpace:
-    """Return ``nodal`` in ``src``'s Körper (the codomain origin)."""
+    """Return ``origin`` in ``src``'s Körper (the codomain origin)."""
     if src.scalars is Scalars.COMPLEX:
-        return nodal.as_complex()
-    return nodal
+        return origin.as_complex()
+    return origin
 
 
 def _staggering_symbol(
     bare: SpaceLike, axis: str, src: FourierSpace,
-    nodal_origin: FunctionSpace, codomain_nodal: FunctionSpace,
+    src_origin: FunctionSpace, codomain_origin: FunctionSpace,
     magnitude: object, nyquist: object,
 ) -> Symbol:
     r"""
-    Fourier diagonal of a periodic-nodal staggering stencil.
+    Fourier diagonal of a periodic-nodal/average staggering stencil.
 
     Description
     -----------
-    The shared body of ``FiniteDifference``/``LinearInterp``
-    ``eigenvalues``: the retagging ``Fourier(src origin) ->
-    Fourier(codomain origin)`` diagonal ``magnitude(k, dx) *
-    e^{i k delta dx}``. ``src`` fixes the layout — its scalars select
-    the half/full spectrum (decision 3) — and the codomain Fourier
-    factor inherits ``src``'s Körper.
+    The shared body of the periodic staggering ``eigenvalues`` —
+    ``FiniteDifference`` / ``LinearInterp`` (nodal) and the FV
+    ``FluxDifference`` / ``DualFluxDifference`` / ``FaceDifference`` /
+    ``LinearReconstruction`` (average family): the retagging
+    ``Fourier(src origin) -> Fourier(codomain origin)`` diagonal
+    ``magnitude(k, dx) * e^{i k delta dx}``. The two origins are
+    nodal or average — ``delta`` is their first-node offset
+    difference (:func:`_first_node_offset`), and the average family
+    carries no extra factor at second order (a ``CellAvg`` divergence
+    coefficient relates to the ``Right``-flux coefficient by exactly
+    the ``i k_hat`` staggering diagonal, no separate sinc — the
+    ``sinc`` lives inside ``k_hat = k sinc(k dx / 2)``). ``src`` fixes
+    the layout — its scalars select the half/full spectrum (decision
+    3) — and the codomain Fourier factor inherits ``src``'s Körper.
 
     Unlike the pure phase shift (``PhaseShift``/``SincShift``, where a
     half-cell shift of a real even-n Nyquist has no valid rfft layout
@@ -1276,13 +1377,13 @@ def _staggering_symbol(
     mode: index ``-1`` on the real half spectrum, ``n // 2`` on the
     complex fft layout (matching ``_zero_nyquist``).
     """
-    dst = src.mesh.fourier(origin=_match_scalars(codomain_nodal, src))
-    dx = _length(nodal_origin) / nodal_origin.shape[0]
+    dst = src.mesh.fourier(origin=_match_scalars(codomain_origin, src))
+    dx = _length(src_origin) / src_origin.shape[0]
     k = fourier_wavenumbers(src)
-    delta = (_NODE_OFFSETS[codomain_nodal.node_set]
-             - _NODE_OFFSETS[nodal_origin.node_set])
+    delta = (_first_node_offset(codomain_origin)
+             - _first_node_offset(src_origin))
     leaf = magnitude(k, dx) * jnp.exp(1j * k * (delta * dx))
-    n = nodal_origin.shape[0]
+    n = src_origin.shape[0]
     if n % 2 == 0:  # only even-n factors have a Nyquist mode
         index = n // 2 if src.scalars is Scalars.COMPLEX else -1
         leaf = leaf.at[index].set(nyquist(leaf[index]))
@@ -1291,10 +1392,23 @@ def _staggering_symbol(
 
 def finite_difference_symbol(
     bare: SpaceLike, axis: str, src: FourierSpace,
-    nodal_origin: FunctionSpace, codomain_nodal: FunctionSpace,
+    src_origin: FunctionSpace, codomain_origin: FunctionSpace,
 ) -> Symbol:
     r"""
     Order-2 staggered-FD Fourier diagonal ``2i sin(k dx/2)/dx`` (phase).
+
+    Description
+    -----------
+    The retagging ``i k_hat`` diagonal, shared by the nodal staggered
+    derivative (``FiniteDifference``) and the FV flux/face
+    differences (``FluxDifference`` / ``DualFluxDifference`` /
+    ``FaceDifference``): the origins are nodal or average, and the
+    inter-origin phase (``delta = codomain - src`` first-node offset)
+    picks the direction. At second order the FV difference of a
+    ``Right`` flux onto a ``CellAvg`` divergence (or ``Center`` onto
+    ``FaceAvg``) carries the identical ``i k_hat`` numbers as the
+    nodal ``Right -> Center`` / ``Center -> Right`` stencil, differing
+    only in the codomain tag.
 
     Parameters
     ----------
@@ -1304,10 +1418,11 @@ def finite_difference_symbol(
         The coordinate the derivative acts along.
     src : FourierSpace
         The source Fourier factor (fixing the coefficient layout).
-    nodal_origin : FunctionSpace
-        The periodic nodal origin of ``src`` (measure / node offset).
-    codomain_nodal : FunctionSpace
-        The staggered codomain nodal factor.
+    src_origin : FunctionSpace
+        The periodic nodal/average origin of ``src`` (measure / node
+        offset).
+    codomain_origin : FunctionSpace
+        The staggered codomain nodal/average factor.
 
     Returns
     -------
@@ -1316,17 +1431,28 @@ def finite_difference_symbol(
     """
     # the Nyquist leaf is exactly real: 2i sin(±π/2)/dx · e^{±iπδ}
     return _staggering_symbol(
-        bare, axis, src, nodal_origin, codomain_nodal,
+        bare, axis, src, src_origin, codomain_origin,
         lambda k, dx: 1j * (2.0 * jnp.sin(k * dx / 2.0) / dx),
         jnp.real)
 
 
 def linear_interp_symbol(
     bare: SpaceLike, axis: str, src: FourierSpace,
-    nodal_origin: FunctionSpace, codomain_nodal: FunctionSpace,
+    src_origin: FunctionSpace, codomain_origin: FunctionSpace,
 ) -> Symbol:
     r"""
     Two-point averaging Fourier diagonal ``cos(k dx/2)`` (one_hat).
+
+    Description
+    -----------
+    The retagging ``one_hat`` diagonal, shared by the nodal two-point
+    mean (``LinearInterp``) and the FV ``LinearReconstruction``: the
+    origins are nodal or average, and the inter-origin phase picks the
+    direction. At second order the FV cell-average <-> face-value
+    reconstruction is the same two-point mean as the nodal
+    interpolation — the deconvolution ``sinc`` correction is a
+    higher-order effect (this row carries none), so the symbol is the
+    plain ``cos(k dx/2)`` averaging diagonal.
 
     Parameters
     ----------
@@ -1336,10 +1462,11 @@ def linear_interp_symbol(
         The coordinate the interpolation acts along.
     src : FourierSpace
         The source Fourier factor (fixing the coefficient layout).
-    nodal_origin : FunctionSpace
-        The periodic nodal origin of ``src`` (measure / node offset).
-    codomain_nodal : FunctionSpace
-        The staggered codomain nodal factor.
+    src_origin : FunctionSpace
+        The periodic nodal/average origin of ``src`` (measure / node
+        offset).
+    codomain_origin : FunctionSpace
+        The staggered codomain nodal/average factor.
 
     Returns
     -------
@@ -1348,6 +1475,6 @@ def linear_interp_symbol(
     """
     # the Nyquist leaf is a structural zero: cos(π/2) = 0 exactly
     return _staggering_symbol(
-        bare, axis, src, nodal_origin, codomain_nodal,
+        bare, axis, src, src_origin, codomain_origin,
         lambda k, dx: jnp.cos(k * dx / 2.0),
         jnp.zeros_like)
