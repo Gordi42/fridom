@@ -109,6 +109,33 @@ def test_default_family_validated(mx, my):
         Grid((mx, my), family="bogus")
 
 
+def test_set_default_family_flips_pre_freeze(mx, my):
+    # the assembly-phase mutation (F3): a model factory adopts a family
+    grid = Grid((mx, my))
+    grid.set_default_family("fv")
+    assert grid.default_family == "fv"
+
+
+def test_set_default_family_validates(mx, my):
+    with pytest.raises(ValueError,
+                       match="grid-level default family must be one"):
+        Grid((mx, my)).set_default_family("bogus")
+
+
+def test_set_default_family_frozen_is_a_noop_when_unchanged(mx, my):
+    grid = Grid((mx, my), family="fv")
+    grid.freeze()
+    grid.set_default_family("fv")  # unchanged: no-op on a frozen grid
+    assert grid.default_family == "fv"
+
+
+def test_set_default_family_frozen_rejects_a_change(mx, my):
+    grid = Grid((mx, my))
+    grid.freeze()
+    with pytest.raises(GridFrozenError, match="the grid is frozen"):
+        grid.set_default_family("fv")
+
+
 def test_dispatch_defaults_to_seeded_registry_and_is_settable(mx):
     registry = Grid((mx,)).dispatch
     assert isinstance(registry, OperatorRegistry)
