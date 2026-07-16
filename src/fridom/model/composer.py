@@ -33,6 +33,7 @@ import warnings
 from itertools import combinations
 from typing import TYPE_CHECKING, Any
 
+import jax
 import jax.numpy as jnp
 
 from fridom.model.context import StepContext
@@ -295,6 +296,25 @@ class TendencyComposer:
         sets feed the same-kind overlap lint and the PROGNOSTIC
         coverage lint.
 
+        The whole hook pass runs under a single zero-argument
+        ``jax.eval_shape`` trace: it is abstract-evaluated, with no
+        device execution and no XLA compiles. This is sound because
+        (a) the dry pass consumes only component *names* and
+        function-space *metadata* — the ``frozenset(result)`` keys,
+        the ``function_space.bare`` space comparisons, the
+        ``advances`` string-set check — and never array *values*;
+        (b) every hook is already trace-safe by construction, since
+        ``compose()`` is jitted into the chunk executable, so
+        tracing here surfaces the same errors eager execution did
+        (a hook branching on a traced value raises the same
+        ``TracerBoolConversionError`` it would raise inside the
+        jitted step); and (c) the closure is deliberately
+        ZERO-ARGUMENT so grid-derived materializations (e.g. the
+        spectral eigenvalue table, which depends on grid metadata,
+        not on the traced state) are captured abstractly too instead
+        of compiling eagerly. The two Python-side lints run on the
+        collected write sets, outside the traced closure.
+
         ``params`` carries the assembly-time evaluated parameters
         (assembly passes ``binding_table.eval_params(modules,
         stepper, 0.0)``): a term reading ``ctx.params["stepper.dt"]``
@@ -317,21 +337,37 @@ class TendencyComposer:
             When a hook itself raises (original exception chained).
         """
         schedule = self._schedule
-        state = self._zero_state()
         param_map: Any = {} if params is None else params
-        ctx = StepContext(params=param_map, clock=jnp.asarray(0.0),
-                          dt=jnp.asarray(1.0),
-                          stage_dt=jnp.asarray(1.0))
         writes: dict[ScheduleEntry, frozenset[str]] = {}
-        for kind in _PRE_TENDENCY:
-            state = self._dry_stages(kind, state, ctx, writes)
-        sums = self._dry_terms(state, ctx, writes)
-        ctx = StepContext(params=param_map, clock=jnp.asarray(0.0),
-                          dt=jnp.asarray(1.0),
-                          stage_dt=jnp.asarray(1.0),
-                          tendency_sums=sums)
-        for kind in _POST_TENDENCY:
-            state = self._dry_stages(kind, state, ctx, writes)
+
+        # Run every hook under ONE zero-argument abstract-evaluation
+        # trace instead of eager execution. Under the jax.eval_shape
+        # dynamic trace, find_top_trace routes every jnp primitive to
+        # the trace regardless of operand concreteness, so the whole
+        # dry pass — the zero-state build, every term/stage hook, and
+        # the grid-derived eigenvalue table build — is traced into one
+        # jaxpr and NOTHING is compiled or run on device. All the
+        # Python-side composition/shape/dtype validation still executes
+        # and raises: writes[] records the contribution KEYS (concrete
+        # strings even when the values are tracers) and the
+        # gate/advances/space checks compare metadata, not values (see
+        # the docstring for the correctness rationale).
+        def _evaluate() -> None:
+            state = self._zero_state()
+            ctx = StepContext(params=param_map, clock=jnp.asarray(0.0),
+                              dt=jnp.asarray(1.0),
+                              stage_dt=jnp.asarray(1.0))
+            for kind in _PRE_TENDENCY:
+                state = self._dry_stages(kind, state, ctx, writes)
+            sums = self._dry_terms(state, ctx, writes)
+            ctx = StepContext(params=param_map, clock=jnp.asarray(0.0),
+                              dt=jnp.asarray(1.0),
+                              stage_dt=jnp.asarray(1.0),
+                              tendency_sums=sums)
+            for kind in _POST_TENDENCY:
+                state = self._dry_stages(kind, state, ctx, writes)
+
+        jax.eval_shape(_evaluate)
         _overlap_lint(schedule, writes)
         self._coverage_lint(writes)
 

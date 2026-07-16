@@ -698,6 +698,23 @@ def test_empty_filter_result_is_build_error(field_table):
 
 
 # ================================================================
+#  Abstract evaluation: dry_run fires no eager compiles
+# ================================================================
+def test_dry_run_does_not_eagerly_compile(field_table,
+                                          compile_counter):
+    # the whole hook pass runs under a single jax.eval_shape trace, so
+    # no term/stage hook dispatches its own one-shot eager compile;
+    # before the fix each traced eager op counted (>100 for a real
+    # model), now the abstract-evaluation trace itself is the only
+    # event. Build the composer first, then reset immediately before
+    # the measured dry_run (eager ops also trace on first occurrence).
+    composer = make_composer(field_table)
+    compile_counter.reset()
+    composer.dry_run()
+    assert compile_counter.count <= 2
+
+
+# ================================================================
 #  Kind ordering
 # ================================================================
 def test_schedule_kind_order_self_update_first(field_table):
