@@ -1,6 +1,6 @@
 ---
 status: normative
-date: 2026-07-13
+date: 2026-07-16
 ---
 
 # Model layer redesign — The state-transform algebra
@@ -23,6 +23,12 @@ Requirement (raised at D4 sign-off): first-class composable
 `State -> State` objects — projections, time-averaging, ramped
 propagation — with an algebra mirroring the operator algebra, e.g.
 `optimal_balance_cycle = forward @ vortical @ backward`.
+
+**Extension (§10.9, ruled 2026-07-16, not yet implemented):**
+generalized adiabatic ramping — deformations between two operator
+configurations, `AdiabaticRamping`, `AdiabaticProjection`,
+`relative_imbalance`. Decisions AR-D1..D9 and stages in
+[`../../plans/active/adiabatic_ramping.md`](../../plans/active/adiabatic_ramping.md).
 
 ---
 
@@ -325,12 +331,163 @@ Signed off 2026-07-08: the `rest="zero"` default, the
 Smagorinsky parity delta all stand; NNMD is descoped (§10.5).
 Remaining, picked up where noted: the backward-dissipation warning
 question (old kept closures active backward — warn when closures
-survive onto a backward variant? decide at the OB port, 2.7); the
-blessed Ramp endpoint-reversal spelling (`Ramp.reversed()`? — API
-sketch item); the JVP linear-tag lint priority (2.5 — `linearize`
+survive onto a backward variant? decide at the OB port, 2.7)
+(**resolved 2026-07-16**: taught error, not warning — §10.9, AR-D6);
+the blessed Ramp endpoint-reversal spelling (`Ramp.reversed()`? — API
+sketch item) (**settled**: `Ramp.reversed()` shipped at the Ramp
+layer; the transform layer deliberately spells its legs `.down` /
+`.backward` instead — §10.9); the JVP linear-tag lint priority (2.5 — `linearize`
 now consumes the tag); OB memory (2 carries; the
 shared-internal-model alternative conflicts with independent leg
 Propagators — revisit if it bites); `fr.terms.where(fn, token=)`,
 stage filtering, `OnComponents`, `Transform.resync()`, batched
 Tier-2 ensembles, traceable FixedPoint, `em.omega_field` — all
 designed-for / deferred.
+
+## 10.9 Generalized adiabatic ramping (deformations)
+
+Ruled 2026-07-16 (decisions AR-D1..D9), **not yet implemented**;
+stages and gates in
+[`../../plans/active/adiabatic_ramping.md`](../../plans/active/adiabatic_ramping.md).
+Driving consumer: the adiabatic fast–slow splittings paper (Rosenau
+et al., JFM draft). Everything here composes with §10.1–10.5
+unchanged; `OptimalBalance` is re-homed **onto** this surface
+(composition — see the reconciliation at the end).
+
+**The deformation contract (AR-D1, normative).** A *deformation* is a
+pair of endpoint parameter assignments on one assembly: a *reference*
+configuration at `lambda = 0` and a *target* configuration at
+`lambda = 1`. The induced operator path `L(lambda)` is smooth, with
+`L(0) = L_ref`, `L(1) = L_target`; a leg drives
+`lambda(t) = rho((t - t0)/tau)`, and endpoint-flat derivatives of the
+ramp transfer to `L(t)` by the chain rule — which is all the
+adiabatic theorem requires. Wherever every lambda-coupling is affine
+(Coriolis `f`, `scaling.rossby`, `csqr`), the path equals the convex
+combination `(1-lambda) L_ref + lambda L_target` **exactly**. The
+convex combination is never implemented by evaluating two operators;
+blend mechanisms by term relation:
+
+| term relation across endpoints | mechanism | extra cost |
+|---|---|---|
+| identical | none — term untouched | zero |
+| affine in a parameter | blended parameter read at stage time | zero (scalar) / one FMA on a profile (field) |
+| one-sided (e.g. `rho * N(z)`) | stage-time scaling parameter on the term (`scaling.rossby` pattern) | one multiply of that term's output |
+| non-affine / structurally disjoint | two term instances weighted `lambda`, `1-lambda` | that term twice — never the full operator |
+
+**`fr.transforms.AdiabaticRamping`** (Tier 2):
+
+```python
+AdiabaticRamping(
+    model,                     # assembly spec (never stored — law 3)
+    *,
+    ramps: dict,               # {param_key: (v_ref, v_target) | TimeDependent}
+    ramp_period,               # seconds | np.timedelta64
+    curve="exp",               # {"linear","cosine","exp"} | callable
+    steps=None,                # overrides max(1, round(period/|dt|))
+    term_filter=None, updates=None, name=None,
+)
+```
+
+The constructor always describes the **up** leg (reference→target,
+`dt > 0`). Tuple values are sugar for
+`Ramp(v_ref, v_target, period=ramp_period, curve=curve)`; an explicit
+`TimeDependent` is taken verbatim — per-parameter `t0`/`period`
+windows are thereby the *interleaved* protocol form (below). Two
+accessors derive the other legs, each returning a **new** transform
+(fresh internal variant; reflected `Ramp`s / negated `TIME_STEP`):
+
+| leg | expression | lambda | dt | maps |
+|---|---|---|---|---|
+| up | `ramp` | 0→1 | + | ref-side → target-side |
+| down | `ramp.down` | 1→0 | + | target-side → ref-side |
+| up retraced | `ramp.backward` | 1→0 | − | target-side → ref-side |
+| down retraced | `ramp.down.backward` | 0→1 | − | ref-side → target-side |
+
+`ramp.replace(**overrides)` is the frozen-config copy-with (OB's
+backward leg needs a different `term_filter`:
+`forward.replace(term_filter=backward_filter).backward`).
+
+Laws (normative, tested):
+
+1. **Endpoint exactness.** At a leg's temporal endpoints every ramped
+   parameter equals its declared endpoint value exactly.
+2. **Near-inverse pairs.** `(ramp, ramp.backward)` and
+   `(ramp.down, ramp.down.backward)` are mutual inverses up to
+   diabatic leakage and time-stepper error. `(ramp, ramp.down)` are
+   **not** inverses: slow modes at the target end are non-stationary,
+   so `ramp.down @ ramp` advances phases by ~`2 tau` — it is the
+   double-ramp *diagnostic* (norm-preserving on adiabatically
+   invariant subspaces, phase-scrambled), not a round trip.
+3. **Irreversibility guard (AR-D6).** Constructing any `dt < 0` leg
+   whose variant retains terms matching
+   `fr.terms.owned_by(fr.closures.ClosureBase) | fr.terms.implicit`
+   raises a taught error naming the terms; the fix is an explicit
+   `term_filter`. No silent dropping, no sign-flipped viscosity (the
+   latter is designed-for, §10.8-style). A first-class `reversible`
+   term tag may later replace the predicate heuristic.
+
+**Protocols (AR-D5) — both surfaces documented.** Default:
+composition of legs,
+`lin_down @ nl_down @ free @ nl_up @ lin_up` — static pinning of
+phase-inactive terms, per-phase cost/info, stepper re-warm at each
+boundary. Alternative: one leg with staggered per-parameter `Ramp`
+windows — no restarts, one jit region, implicit phase boundaries.
+Docs state the trade-off; equivalence within stepper-restart
+tolerance is a gate (plan R3).
+
+**`FieldBlend` (AR-D2, declaration layer — normative home is the
+parameter/declaration spec; contract recorded here).** A field-valued
+parameter may be declared as an affine combination of
+assembly-materialized ingredient profiles with stage-time scalar
+weights, `p(t) = sum_i w_i(t) * P_i`; the two-endpoint blend is
+ingredients `{p_ref, p_target - p_ref}` with weights `{1, lambda(t)}`.
+Ingredients are static AUXILIARY (scan-stable treedefs, halos
+exchanged once at assembly; the pointwise blend is halo-neutral).
+**Module-author machinery only** in the first cut — users ramp the
+scalars modules already publish (`coriolis.beta`, `coriolis.f0`,
+`scaling.rossby`); a user-facing parameter-value form is
+designed-for. First consumer: the Coriolis family,
+`f(t) = f0(t) * 1 + beta(t) * y`; the static-parameter path stays
+bit-identical. A ramped `f0` must drop the `coriolis.f0`
+provides-constancy claim; frozen-snapshot consumers use the D2.4
+`at_time=` rule. Exponential steppers (`ETDRK4`) raise a taught
+error when a time-dependent parameter reaches a `linear=True` term
+(AR-D7; fallback recorded in
+[`../../research/exponential_stepper.md`](../../research/exponential_stepper.md) §5).
+
+**`fr.transforms.AdiabaticProjection`** (Tier 2):
+
+```python
+AdiabaticProjection(leg: AdiabaticRamping,
+                    reference_projection: StateTransform, *, name=None)
+# __call__ = leg @ reference_projection @ leg.backward
+```
+
+The constructor takes a **built** leg (linearize-and-filter stays
+visible in user code) and validates its model with
+`require_linear_operator(..., consumer="AdiabaticProjection")`.
+**Phase neutrality (AR-D8, normative):** the away-leg runs backward
+in time and the return-leg forward, so mode phases cancel up to
+leakage — a forward–forward cycle is a propagator, not a projector
+(law 2 above). Declares `idempotent=True` (projection by contract);
+exactness only up to diabatic leakage, so `assert_idempotent` and the
+`P @ P` lint use a leg-dependent documented tolerance
+(`O(exp(-c gap^{3/2} sqrt(tau)))`), and `complement` (for imbalance)
+is available. Cost: two linear-model integrations per application,
+visible via `cost()`/`repr`.
+
+**`fr.transforms.relative_imbalance(z, projection, *, metric=None)
+-> float`** — `norm((Identity - projection)(z)) / norm(z)` (paper
+eq. 5.2); default norm is the volume-weighted l2 underlying
+`relative_l2`; pass an `EnergyMetric` for the energy norm.
+
+**Reconciliation with §10.5.** The OB entry remains behaviorally
+normative (AR-D9: the refactor is bit-for-bit; existing tests pass
+unmodified). What changes is homing: OB's leg construction moves into
+`AdiabaticRamping`, and OB *owns* `forward = AdiabaticRamping(model,
+ramps={fr.params.SCALING_ROSSBY: (0.0, nominal)}, ...)` and
+`backward = forward.replace(term_filter=backward_filter).backward` —
+composition, **not** subclass (a fixed-point cycle must not inherit
+leg accessors); the roadmap's earlier "subclass" wording is amended.
+`ob.ramp_cycle = forward @ base @ backward` and the
+FixedPoint-factory base-point exchange are unchanged.
