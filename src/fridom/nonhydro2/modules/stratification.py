@@ -108,6 +108,23 @@ class ConstantStratification(fr.model.Module):
         fr.model.ParameterReference(DSQR, hint="declared by nh.DynamicalCore"),
     )
 
+    def time_dependent_linear_parameters(self) -> tuple[str, ...]:
+        """Report a ramped ``n2`` feeding the linear restoring term.
+
+        A time-dependent ``n2`` (a spun-up stratification, ``fr.Ramp``)
+        is a **scalar** parameter read at stage time through
+        ``ctx.params`` — it advances correctly under ``AdamBashforth``
+        and every re-reading stepper. But it lives inside this module's
+        ``linear=True`` restoring term, so a frozen-``L`` (exponential)
+        stepper must refuse it (AR-D7), exactly as R1 does for a ramped
+        ``coriolis.f0``; a plain-float ``n2`` reports nothing. (``dsqr``
+        is provided by the core and also feeds a ``linear=True`` term
+        here; its ramped-``L`` report is a cross-module follow-up.)
+        """
+        if isinstance(self.n2, fr.model.TimeDependent):
+            return (str(fr.model.params.STRATIFICATION_N2),)
+        return ()
+
     @fr.model.term(advances=("w",), linear=True)
     def buoyancy_force(self, state, ctx) -> dict:  # noqa: ANN001
         """``dw/dt += b / dsqr`` (buoyancy interpolated onto the w face)."""

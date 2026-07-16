@@ -18,12 +18,14 @@ the weighted flux form ``v -= (w_u f_u u).to(v) / w_v`` is exactly
 M-skew for any f and any positive w profile (the linearized
 Sadourny/Arakawa pairing). For a constant weight both forms coincide.
 """
+import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
 
 import fridom as fr
 import fridom.shallowwater2 as sw
+from fridom.model import term_predicates as terms
 from fridom.model.energy import EnergyMetric
 from fridom.model.modules.coriolis import (
     BetaPlaneCoriolis,
@@ -32,7 +34,7 @@ from fridom.model.modules.coriolis import (
     chart_rotation,
     linear_rotation,
 )
-from fridom.model.params import CORIOLIS_F0
+from fridom.model.params import CORIOLIS_BETA, CORIOLIS_F0
 
 N = 8
 F0 = 1.3
@@ -687,12 +689,185 @@ def test_static_config_assembly_fingerprint_is_deterministic():
     assert digest1 == digest2
 
 
+# ================================================================
+#  R2: the beta-plane field blend f(y,t) = f0(t)*1 + beta(t)*y (AR-D2)
+# ================================================================
+# A ramped f0/beta makes the Coriolis parameter a spatial FIELD, so it
+# is a FieldBlend of two assembly-materialized profiles (the constant
+# unit and the meridional coordinate) weighted by f0(t)/beta(t) read at
+# the stage clock. The static (plain-float) path is untouched.
+def _beta_channel(grid, f0=F0, beta=0.0, order=3):
+    """Return a linear sw channel with the given (float/Ramp) f0/beta."""
+    return sw.Model(
+        grid=grid, csqr=1.0, rossby_number=0.2,
+        coriolis=BetaPlaneCoriolis(f0=f0, beta=beta), advection=False,
+        time_stepper=fr.model.time_steppers.AdamBashforth(
+            RAMP_DT, order=order))
+
+
+def test_beta_plane_static_declares_only_f_coriolis():
+    """A plain-float beta-plane declares the single f_coriolis field."""
+    model = _beta_channel(_r1_grid(), beta=2.0)
+    assert "f_coriolis" in model.state
+    assert "f_coriolis_const" not in model.state
+    assert "f_coriolis_grad" not in model.state
+    assert not model.module(BetaPlaneCoriolis)._blend_active
+
+
 @pytest.mark.parametrize(
     "kwargs",
-    [pytest.param({"f0": fr.model.Ramp(0.0, 1.0, period=1.0)}, id="f0"),
-     pytest.param({"beta": fr.model.Ramp(0.0, 1.0, period=1.0)},
+    [pytest.param({"f0": fr.model.Ramp(0.6, 1.4, period=1.0)}, id="f0"),
+     pytest.param({"beta": fr.model.Ramp(0.0, 2.0, period=1.0)},
                   id="beta")])
-def test_beta_plane_rejects_time_dependent_parameters(kwargs):
-    """Beta-plane f(y) is a field blend (R2): ramping f0/beta is taught."""
-    with pytest.raises(TypeError, match="field-valued blend"):
-        BetaPlaneCoriolis(**kwargs)
+def test_beta_plane_ramped_declares_the_blend_ingredients(kwargs):
+    """A ramped f0/beta declares the two FieldBlend ingredient fields."""
+    model = _beta_channel(_r1_grid(), **kwargs)
+    for name in ("f_coriolis", "f_coriolis_const", "f_coriolis_grad"):
+        assert name in model.state
+    assert model.module(BetaPlaneCoriolis)._blend_active
+
+
+@pytest.mark.parametrize("t", [0.0, 0.017, 0.05, 0.2])
+def test_beta_plane_ramped_tendency_equals_static_at_stage_time(t):
+    """ramped.tendency(z, t) == static-beta(t) model, bitwise.
+
+    The beta-plane counterpart of the f-plane R1 oracle: the rotation
+    term reads the stage-time blend f(y,t) = f0 + beta(t)*y, so its
+    tendency equals a plain-float model built with beta = ramp(t).
+    """
+    grid = _r1_grid()
+    ramp = fr.model.Ramp(0.0, 2.0, period=0.05, curve="exp")
+    ramped = _beta_channel(grid, f0=1.3, beta=ramp, order=1)
+    z = random_state(ramped, seed=5)
+    got = ramped.tendency(z, t=t)
+
+    const = _beta_channel(grid, f0=1.3, beta=float(ramp.at_time(t)),
+                          order=1)
+    const.set_fields(**{c: np.asarray(z[c].data)
+                        for c in ("u", "v", "p")})
+    z_const = sw.State({c: const.state[c] for c in ("u", "v", "p")})
+    want = const.tendency(z_const)
+    for c in ("u", "v", "p"):
+        assert np.array_equal(np.asarray(got[c].data),
+                              np.asarray(want[c].data))
+
+
+def test_beta_plane_ramped_f0_and_beta_together():
+    """Both f0 and beta ramped: f(y,t) = f0(t) + beta(t)*y at stage.
+
+    The oracle evaluates the ramp curves host-side (``at_time``) and
+    the blend evaluates them traced, so a cosine curve can differ by a
+    last-ulp (XLA vs eager transcendental rounding, not the blend); the
+    tolerance is tight. The bit-exact claim is the single-ramp test.
+    """
+    grid = _r1_grid()
+    r_f0 = fr.model.Ramp(0.6, 1.4, period=0.05, curve="cosine")
+    r_beta = fr.model.Ramp(0.0, 2.0, period=0.05, curve="exp")
+    ramped = _beta_channel(grid, f0=r_f0, beta=r_beta, order=1)
+    z = random_state(ramped, seed=6)
+    for t in (0.0, 0.03, 0.05):
+        got = ramped.tendency(z, t=t)
+        const = _beta_channel(grid, f0=float(r_f0.at_time(t)),
+                              beta=float(r_beta.at_time(t)), order=1)
+        const.set_fields(**{c: np.asarray(z[c].data)
+                            for c in ("u", "v", "p")})
+        z_const = sw.State({c: const.state[c] for c in ("u", "v", "p")})
+        want = const.tendency(z_const)
+        for c in ("u", "v", "p"):
+            np.testing.assert_allclose(
+                np.asarray(got[c].data), np.asarray(want[c].data),
+                rtol=1e-13, atol=1e-14)
+
+
+def test_beta_plane_ramped_actually_changes_the_answer():
+    """Sanity: a ramped beta run differs from the frozen-beta run."""
+    grid = _r1_grid()
+    ramp = fr.model.Ramp(0.0, 3.0, period=6 * RAMP_DT, curve="cosine")
+    comps = ("u", "v", "p")
+    ramped = _beta_channel(grid, beta=ramp, order=3)
+    state0 = random_state(ramped, seed=2)
+    init = {c: np.asarray(state0[c].data).copy() for c in comps}
+    ramped.advance(6)
+    ramped_out = {c: np.asarray(ramped.state[c].data) for c in comps}
+
+    frozen = _beta_channel(grid, beta=float(ramp.at_time(0.0)), order=3)
+    frozen.set_fields(**init)
+    frozen.advance(6)
+    assert any(not np.allclose(
+        ramped_out[c], np.asarray(frozen.state[c].data)) for c in comps)
+
+
+def test_beta_plane_time_dependent_linear_parameters():
+    """The AR-D7 hook: reports ramped f0/beta feeding the linear term."""
+    assert BetaPlaneCoriolis(
+        f0=F0, beta=2.0).time_dependent_linear_parameters() == ()
+    ramp = fr.model.Ramp(0.0, 1.0, period=1.0)
+    assert BetaPlaneCoriolis(
+        f0=ramp).time_dependent_linear_parameters() == (str(CORIOLIS_F0),)
+    assert BetaPlaneCoriolis(
+        beta=ramp).time_dependent_linear_parameters() == (
+        str(CORIOLIS_BETA),)
+    both = BetaPlaneCoriolis(f0=ramp, beta=ramp)
+    assert both.time_dependent_linear_parameters() == (
+        str(CORIOLIS_F0), str(CORIOLIS_BETA))
+
+
+def test_beta_plane_etdrk4_refuses_a_ramped_beta():
+    """AR-D7: a frozen-L (ETDRK4) stepper refuses a ramped beta."""
+    grid = _r1_grid()
+    static = sw.Model(
+        grid=grid, csqr=1.0, rossby_number=0.2,
+        coriolis=BetaPlaneCoriolis(f0=1.0, beta=2.0), advection=True,
+        time_stepper=fr.model.time_steppers.AdamBashforth(RAMP_DT))
+    basis = sw.eigenbasis(static)
+    ramp = fr.model.Ramp(0.0, 2.0, period=1.0)
+    with pytest.raises(
+            fr.model.errors.TimeDependentLinearOperatorError,
+            match=r"coriolis\.beta"):
+        sw.Model(
+            grid=grid, csqr=1.0, rossby_number=0.2,
+            coriolis=BetaPlaneCoriolis(f0=1.0, beta=ramp),
+            advection=True,
+            time_stepper=fr.model.time_steppers.ETDRK4(RAMP_DT, basis),
+            term_filter=~terms.linear)
+
+
+def test_beta_plane_static_config_fingerprint_is_stable():
+    """The float-beta assembly fingerprint is deterministic."""
+    d1 = _beta_channel(_r1_grid(), beta=2.0).fingerprint.digest
+    d2 = _beta_channel(_r1_grid(), beta=2.0).fingerprint.digest
+    assert d1 == d2
+
+
+@pytest.mark.multi_device
+def test_beta_plane_blend_is_device_count_invariant(forced_devices):
+    """Gate (d): the pointwise f(y) blend is halo-neutral (forced-4)."""
+    if forced_devices is not None:
+        assert jax.device_count() == forced_devices
+    ramp = fr.model.Ramp(0.0, 2.0, period=5e-2, curve="exp")
+
+    def build(device_ids):
+        mx = fr.spatial.meshes.IntervalMesh(N, (0.0, 1.0),
+                                            periodic=True, name="x")
+        my = fr.spatial.meshes.IntervalMesh(N, (0.0, 1.0),
+                                            periodic=False, name="y")
+        return _beta_channel(
+            fr.spatial.Grid((mx, my), device_ids=device_ids),
+            f0=1.0, beta=ramp, order=3)
+
+    rng = np.random.default_rng(4)
+    fields = {"u": rng.standard_normal((N, N)),
+              "v": rng.standard_normal((N, N - 1)),
+              "p": rng.standard_normal((N, N))}
+    results = {}
+    for tag, device_ids in (("many", None), ("one", (0,))):
+        model = build(device_ids)
+        model.set_fields(**fields)
+        model.advance(5)
+        results[tag] = {c: np.asarray(model.state[c].data)
+                        for c in ("u", "v", "p")}
+        if tag == "many":
+            assert model.state["u"]._data.sharding.spec[0] == "devices"
+    assert max(
+        float(np.abs(results["many"][c] - results["one"][c]).max())
+        for c in ("u", "v", "p")) < 1e-11
