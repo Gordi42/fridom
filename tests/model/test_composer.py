@@ -634,6 +634,53 @@ def test_mergeable_family_groups_instead_of_colliding(field_table):
     assert len(groups[0]) == 2
 
 
+def test_implicit_collision_family_then_custom(field_table):
+    # a custom (non-mergeable) operator overlapping a mergeable family
+    # is the same clobber footgun (spec 2): the driver's independent
+    # solves would overwrite each other on the shared field
+    family = FakeImplicitOp(fields=("u",), key=("family", "z"))
+    custom = FakeImplicitOp(fields=("u", "b"))
+    terms = (
+        (0, TendencyTerm(name="mix", treatment=Treatment.IMPLICIT,
+                         implicit=family)),
+        (1, TendencyTerm(name="surf", treatment=Treatment.IMPLICIT,
+                         implicit=custom)),
+    )
+    with pytest.raises(ImplicitCollisionError, match="'u'"):
+        make_composer(field_table, terms=terms)
+
+
+def test_implicit_collision_custom_then_family(field_table):
+    # the reverse declaration order is caught too, naming both parties
+    custom = FakeImplicitOp(fields=("u",))
+    family = FakeImplicitOp(fields=("u",), key=("family", "z"))
+    terms = (
+        (0, TendencyTerm(name="surf", treatment=Treatment.IMPLICIT,
+                         implicit=custom)),
+        (1, TendencyTerm(name="mix", treatment=Treatment.IMPLICIT,
+                         implicit=family)),
+    )
+    with pytest.raises(ImplicitCollisionError,
+                       match="mergeable implicit family"):
+        make_composer(field_table, terms=terms)
+
+
+def test_custom_and_family_on_disjoint_fields_do_not_collide(
+        field_table):
+    # a custom operator and a family that share NO field are two
+    # independent groups (no clobber): assembles cleanly
+    custom = FakeImplicitOp(fields=("u",))
+    family = FakeImplicitOp(fields=("b",), key=("family", "z"))
+    terms = (
+        (0, TendencyTerm(name="surf", treatment=Treatment.IMPLICIT,
+                         implicit=custom)),
+        (1, TendencyTerm(name="mix", treatment=Treatment.IMPLICIT,
+                         implicit=family)),
+    )
+    composer = make_composer(field_table, terms=terms)
+    assert len(composer.schedule.implicit_groups) == 2
+
+
 def test_bad_slot_rejected(field_table):
     terms = ((7, TendencyTerm(name="du", fn=Core.du)),)
     with pytest.raises(AssemblyError, match="slot"):
@@ -675,6 +722,22 @@ def test_coverage_lint_satisfied_by_advance_claim(field_table):
                   name="adv", advances=("b",))
     composer = make_composer(field_table,
                              modules=(Core(), Subcycle()),
+                             terms=terms, stages=((1, stage),))
+    composer.dry_run()
+
+
+def test_coverage_lint_satisfied_by_constraint_stage(field_table):
+    # a PROGNOSTIC field whose whole evolution is a CONSTRAINT-stage
+    # projection (the implicit free surface's ps, HY-D4) is covered:
+    # replaced every step, it is genuinely advanced
+    class Project:
+        def project(self, state, _ctx):
+            return {"b": state["b"] * 0.5}
+
+    terms = ((0, TendencyTerm(name="du", fn=Core.du)),)
+    stage = Stage(kind=StageKind.CONSTRAINT, fn=Project.project,
+                  name="project")
+    composer = make_composer(field_table, modules=(Core(), Project()),
                              terms=terms, stages=((1, stage),))
     composer.dry_run()
 
