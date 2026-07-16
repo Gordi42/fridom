@@ -45,6 +45,12 @@ spellings:
 4. Decision records are immutable. When landed code overtakes one, it
    gets a `superseded_by:` pointer and a header note — the ruling itself
    is never rewritten.
+5. The roadmap follows the same hygiene: `roadmap/open.md` holds only
+   open work. When an item ships, its record moves to
+   `roadmap/done.md` — in the same change that reports it shipped —
+   and the open entry is trimmed to what actually remains. Status
+   narrative ("shipped", "landed", "resolved") never accumulates in
+   `open.md`.
 
 ## `specs/` — living, normative design specs
 
@@ -146,10 +152,10 @@ spellings:
 | [`boundary_plan.md`](plans/active/boundary_plan.md) | active | Boundary closures: R1, the one-sided rows and `BC.ROBIN` structure landed 2026-07-11; open is stage 2e (the Robin dynamic `(α, g)` ghost-fill path) and the optional 2f halo-claim refinement. |
 | [`projection_eigenmode_roadmap.md`](plans/active/projection_eigenmode_roadmap.md) | active | Projection / eigenmode build order: phases A–H landed; tracks only the unscheduled phase-I `Banded` / mixed-representation tier. |
 | [`phase2_grid_followups.md`](plans/active/phase2_grid_followups.md) | active | Grid follow-ups from the Phase-2 reconciliation: every model-layer blocker landed; the `cartesian.Grid` constructor (R15) and the API shims (`.data` `ImmutableStateError`, transform/`NodeSet` re-exports, `Grid.dispatch` typing) landed 2026-07-15, leaving one deferred item (coefficient-space product/power rows — a semantics decision). |
-| [`fv_nonhydro_scoping.md`](plans/active/fv_nonhydro_scoping.md) | active | Finite-volume nonhydro scoping (roadmap 3.5): the nine open operator gaps, decisions FV-D1..D4 (D2 = option A), the staged F0–F6 plan. No FV code written yet. |
+| [`fv_nonhydro_scoping.md`](plans/active/fv_nonhydro_scoping.md) | active | Finite-volume nonhydro (roadmap 3.5): decisions FV-D1..D4 (D2 = option A), the staged F0–F6 plan. F0–F3 shipped 2026-07-16 (the periodic model is FV by default); open are F4 walls, F5 mapped, F6 hygiene, and the 4-GPU validation. |
 | [`high_order_mapped_plan.md`](plans/active/high_order_mapped_plan.md) | draft | High-order stencils on mapped grids: the four standing mapped refusals, the metric-identity obstacle, the option table. Walled prerequisite paid; Jacobian spike answered 2026-07-16 (same-row discrete divisor, [`research/mapped_jacobian_spike.md`](research/mapped_jacobian_spike.md)); the full lift stays deferred on payoff. |
 | [`adiabatic_ramping.md`](plans/active/adiabatic_ramping.md) | idea | Generalized adiabatic ramping (roadmap 3.8) — an `AdiabaticRamping` base transform with `OptimalBalance` as a subclass. Planned, not scheduled; its dependency (2.8) has shipped. |
-| [`perf_geometry_merge_plan.md`](plans/active/perf_geometry_merge_plan.md) | active | Reconciling the performance line with the geometry line: stage 1 (the merge) landed; open are the perf-guard harness (none exists) and the optimization pass on the mapped PCG solve. |
+| [`perf_geometry_merge_plan.md`](plans/active/perf_geometry_merge_plan.md) | active | Reconciling the performance line with the geometry line: the merge, the geometry stages and the mapped-PCG interior pass (§§4a–4b) landed; the A/B step harness exists with committed baselines — open is wiring it as a CI gate plus the unasserted fast paths (roadmap). |
 | [`distributed_transform_reconciliation.md`](plans/active/distributed_transform_reconciliation.md) | active | Reconcile the distributed spectral solve with the §5.1 layout-in-space design. Stages 1–4 landed (the transform planner); closes the push gate. |
 | [`distributed_transform_plan.md`](plans/active/distributed_transform_plan.md) | active | The distributed transform planner: layout-annotated stages, the fused `shard_map` lowering, and the A100 gate results. |
 

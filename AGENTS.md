@@ -23,7 +23,11 @@ which the modern code (e.g. `framework/modules/module.py`,
 - `docs/` — Sphinx docs (sphinx-book-theme + sphinx-gallery).
 - `examples/` — sphinx-gallery example scripts.
 - `design/` — internal design records (specs, decisions, plans, research;
-  see `design/README.md`).
+  see `design/README.md`). `design/roadmap/open.md` tracks **open work
+  only**: when something ships, move its record to
+  `design/roadmap/done.md` in the same change and trim the open entry
+  to what remains — never leave "shipped/landed/resolved" narrative in
+  `open.md`.
 - `assets/` — project assets (logo).
 
 ## Commands

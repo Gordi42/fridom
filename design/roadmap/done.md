@@ -1,6 +1,6 @@
 ---
 status: done
-date: 2026-07-13
+date: 2026-07-16
 ---
 
 # Roadmap — shipped
@@ -9,6 +9,11 @@ The completed half of the FRIDOM roadmap, kept as a record. Open work
 lives in [`open.md`](open.md). Task numbers are stable: other records
 cite them ("ROADMAP 3.6"), so rows keep their original numbering even
 after moving here.
+
+**Hygiene rule (binding):** an item's record moves here the moment it
+ships — in the same change that reports it shipped — and the `open.md`
+entry is trimmed to what actually remains. `open.md` never accumulates
+"shipped/landed/resolved" narrative; this file is where it lives.
 
 ## Phase 0 — Foundations
 
@@ -67,6 +72,84 @@ Implementation record:
 | 3.6 | **CG compile cost: `lax.scan` the Krylov loop** (2026-07-13) | The mapped pressure CG was an unrolled fixed-iteration loop, so tracing and XLA compilation were O(iterations). Converted to `lax.scan` (not `fori_loop`: `jax.grad` must keep working) by carrying raw arrays plus a static space and rebuilding fields inside the body, sidestepping the `ScalarField.halo_valid` treedef-stability obstacle. HLO is now flat in the iteration count (468 lines at 12, 60 and 300 iterations, against 2102/5198/10358 unrolled). One loose end, carried to [`open.md`](open.md): the jitted forced-4 multi-device solve was never re-measured. Record: [`../plans/done/krylov_scan_plan.md`](../plans/done/krylov_scan_plan.md). |
 
 ## Landed since, outside the numbered tasks
+
+- **Single-GPU transient-memory ceiling resolved** (2026-07-16) — gap 1
+  of the Oceananigans reference comparison. The 1024×512×512 OOM was
+  BFC *fragmentation*, not capacity: the chunk's transients are ONE
+  contiguous 30.55 GiB XLA temp arena, and the non-donating
+  `_canonicalize` full-carry copies (the `jit_copy` at ~62 GB resident)
+  shredded the pool before the first step. Fixed on dev (`b6b24644`):
+  `_canonicalize` donates its carry (setup peaks 44.9/59.2 →
+  26.5/36.7 GiB) plus a one-time pre-chunk carry defragmentation
+  (`FRIDOM_DISABLE_DEFRAG=1` opts out). 1024×512×512 advective now
+  runs on one A100 at `MEM_FRACTION=0.92` (153 ms/step, unroll=3,
+  bitwise-identical physics, per-step perf unchanged at all sizes);
+  `XLA_PYTHON_CLIENT_ALLOCATOR=cuda_async` is a validated env-only
+  alternative (VMM defeats fragmentation; multi-GPU unvalidated). The
+  4-GPU memory signature still needs its own attribution
+  ([`open.md`](open.md)). Record:
+  [`../research/gpu_memory_ceiling.md`](../research/gpu_memory_ceiling.md).
+
+- **Time-to-first-step attributed; the two main fixes landed**
+  (2026-07-16, merge `7842242b`) — gap 2 of the Oceananigans reference
+  comparison. The report's "11–71 s" conflated compile with executing
+  the whole first chunk — honest compile is size-independent at ~2 s
+  (centered) to ~8.5–10 s (weno5), plus ~3 s of throwaway eager
+  compiles from the `dry_run` validation pass. Landed: `dry_run` under
+  `jax.eval_shape` (construction compiles 111→12, build −85%,
+  bitwise-identical steps — centered total compile ~1.75 s, meeting
+  the <2 s goal) and a persistent compilation cache with
+  `min_compile_time_secs=0` (warm TTFS −48%; jax's default threshold
+  silently skips the 113 small compiles). Post-merge 64³ GPU: cold
+  TTFS 7.5→5.05 s, warm 2.83 s, per-step unchanged. Remainders (the
+  default-off async two-tier chunk-compile patch, HLO-volume
+  reduction, the comparison-suite metric fix) stay in
+  [`open.md`](open.md). Record:
+  [`../research/time_to_first_step.md`](../research/time_to_first_step.md).
+
+- **WENO selected-input one-pass reconstruction** (2026-07-16, merge of
+  `perf/weno-selected-input`) — gap 3 of the Oceananigans reference
+  comparison. The stencil-lowering study attributed the advection
+  collapse (1.86× linear → 1.05/1.10× upwind5/weno5): the slice-window
+  kernels already lower optimally (one fused kernel, zero temps) and
+  composition is free; WENO is divide/instruction-bound and paid its
+  nonlinear weights TWICE (both biased reconstructions computed, then
+  `Where`-selected — Oceananigans selects stencil *indices* and
+  evaluates once). Shipped: a module-private
+  `_SelectedFaceReconstruction` operator
+  (`nonhydro2/modules/advection.py`) — tap `where`s on the order+1
+  union window, ONE left `weno_reconstruct` of the taps — used by
+  `WENOAdvection._face_value` in place of both-then-select (linear
+  `UpwindAdvection` kept on both-then-select, byte-identical chunk
+  HLO). Production A/B (A100, matched config, fresh process): **weno5
+  −39.3% @256³ (25.65→15.57 ms/step), −45.9% @512³ (239.80→129.78)**;
+  20-step branch-vs-parent parity ≤1.9e-13 (weno5) / bitwise (weno3).
+  The FV C-grid merge extended the selected kernel to the average
+  family (`family="fv"`: the `_FVBiasedReconstruction` frame), so a
+  `CellAvg` tracer takes the same one-pass spelling and the FV/nodal
+  bitwise tendency identity holds. Negative results (do not revisit):
+  single-divide weights (real-step temp blowup, 512³ OOM), f32 weights
+  (net loss stacked on selected-input), linear-upwind one-path
+  spellings (micro win reverses to +4–6% real), and the
+  conv/tap-loop/per-point-kernel rewrites. Follow-ups (comparison
+  re-run, multi-host confirmation, the forced-4 knife-edge test) stay
+  in [`open.md`](open.md). Records:
+  [`../research/stencil_lowering.md`](../research/stencil_lowering.md),
+  A/B in
+  [`../research/stencil_lowering/microbench/phase3/IMPLEMENTATION_AB.md`](../research/stencil_lowering/microbench/phase3/IMPLEMENTATION_AB.md).
+
+- **FV nonhydro stages F0–F3 — the periodic model is FV by default**
+  (2026-07-16) — the average-family move (`CellAvg` scalars,
+  face-normal velocities; decision FV-D2 **option A**, owner
+  2026-07-12), first four stages: the four FV symbol rows, the
+  conversion rows (a new `"deconvolve"` kind), `family=` declarations
+  (FV-D1b) plus the FV tracer slice (exact tracer-mass conservation to
+  machine zero, periodic *and* walled), and the C-grid profile. Gated
+  on bitwise parity with nodal and a clean step-suite run (FV/FD step
+  time 0.997–1.003 at every size, 1× A100). Walled/mapped grids stay
+  nodal by default; explicit `family="fv"` there is a taught error.
+  F4–F6 and the 4-GPU validation stay in [`open.md`](open.md). Record:
+  [`../plans/active/fv_nonhydro_scoping.md`](../plans/active/fv_nonhydro_scoping.md).
 
 - **The mapped-Jacobian spike** (2026-07-16) — the 1D throwaway
   experiment (no production edits) that was the stated blocker of the
@@ -154,8 +237,13 @@ Implementation record:
   hemisphere; an optional `lon_extent` closes the zonal walls (a
   longitude sector — still orthogonal, so the diagonal index moves
   assemble across it). The sibling `fr.spatial.cartesian.Grid`
-  (`shape=`/`extent=`/`periodic=`) landed alongside it, closing the last
-  open item of the Phase-2 grid follow-ups. Record:
+  (`shape=`/`extent=`/`periodic=`) landed alongside it, together with
+  the API shims (`ImmutableStateError` on `.data` assignment — a
+  raising setter guiding to `with_data` — the transform classes
+  re-exported at `fr.spatial.operators.*`, `NodeSet` at
+  `fr.spatial.*`, and `Grid.dispatch` typed), closing the Phase-2 grid
+  follow-ups up to one deferred semantics item (coefficient-space
+  product/power rows — [`open.md`](open.md)). Record:
   [`../plans/done/grid_ergonomics_plan.md`](../plans/done/grid_ergonomics_plan.md).
 - **Chart / sphere setup ergonomics** (2026-07-15) — the E1–E5
   follow-ups to coordinate systems (3.4). The last, E2: a chart with a
@@ -178,6 +266,28 @@ Implementation record:
   storage padding (halo ghosts, stagger reserve, cell padding) never
   reaches the file. Independent of divisibility. Record:
   [`../plans/done/gather_free_output_plan.md`](../plans/done/gather_free_output_plan.md).
+- **The performance-optimization line merged** (2026-07-13) — the
+  optimization wave developed in a parallel checkout, merged onto dev:
+  shard-local re-blocking (multi-device pad/unpad without collectives),
+  the distributed transform planner (the reshard/pencil stages that
+  work around the XLA SPMD FFT fault), a fused `rfftn` fast path,
+  storage-frame field arithmetic with ghost-claim propagation, scan
+  unroll by stepper ring period, past-only tendency rings, and general
+  non-divisible ghost sharding. The reproducible A/B harness it lacked
+  followed on 2026-07-16: `benchmarks/model/bench_step.py` records
+  **committed** baselines (`benchmarks/baselines/step-gpu{1,4}.json`,
+  no longer gitignored) and runs them `--fail-on-regression`, with the
+  `nh_flat_prime` / `nh_flat_walled_x` guard cases from the
+  indivisible-shard campaign. Open remainders (wiring the harness as a
+  CI gate; the unasserted fast paths) stay in [`open.md`](open.md).
+  Record:
+  [`../plans/active/perf_geometry_merge_plan.md`](../plans/active/perf_geometry_merge_plan.md).
+- **Docs & examples rebuild — CI skeleton + pilot** — the
+  executable-examples CI skeleton and one executed pilot port
+  (`shallowwater/barotropic_instability.py`) landed; the 12 remaining
+  example ports and the whole prose page tree stay in
+  [`open.md`](open.md). Record:
+  [`../plans/active/docs_examples_plan.md`](../plans/active/docs_examples_plan.md).
 - **Boundary closures** (2026-07-11, merge `9a95202a`) — the R1 flip
   (exterior reads on a BC-free bounded axis raise; the extrapolation
   fill is gone), `BC.ROBIN` structure, and one-sided opt-in rows. The
