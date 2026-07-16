@@ -28,6 +28,7 @@ if TYPE_CHECKING:  # pragma: no cover
     from . import (
         benchmarking,
         framework,
+        hydrostatic,
         model,
         nonhydro,
         shallowwater,
@@ -42,6 +43,7 @@ all_modules_by_origin = {
     "fridom": [
         "benchmarking",
         "framework",
+        "hydrostatic",
         "model",
         "nonhydro",
         "shallowwater",
