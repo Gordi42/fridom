@@ -455,3 +455,192 @@ def test_to_colocated_deconvolution_round_trips(mx):
     assert center.function_space.bare is mx.center
     assert jnp.array_equal(center.data, p.data)
     assert jnp.array_equal(center.to(mx.cell_avg).data, p.data)
+
+
+# ================================================================
+#  One-sided CellAvg -> Outer reconstruction (G9, R2)
+# ================================================================
+@pytest.fixture
+def outer():
+    return LinearReconstruction(target=NodeSet.OUTER,
+                                boundary="one_sided")
+
+
+@pytest.fixture
+def mw():
+    # a smoothly stretched (non-uniform) bounded axis: the cell widths
+    # genuinely differ, so the wall weights must be geometry-derived
+    return MappedIntervalMesh(
+        16, (0.0, 1.0),
+        lambda s: s + 0.15 * jnp.sin(2 * jnp.pi * s) / (2 * jnp.pi),
+        periodic=False, name="y")
+
+
+def test_one_sided_boundary_knob(recon):
+    assert recon.boundary == "closed"
+    outer = LinearReconstruction(target=NodeSet.OUTER,
+                                 boundary="one_sided")
+    assert outer.boundary == "one_sided"
+    # interned on (target, boundary): distinct knobs, distinct object
+    assert outer is LinearReconstruction(
+        target=NodeSet.OUTER, boundary="one_sided")
+    assert outer is not LinearReconstruction(target=NodeSet.OUTER)
+    with pytest.raises(ValueError, match="one_sided"):
+        LinearReconstruction(boundary="extrapolate")
+
+
+def test_one_sided_codomain_grounds_outer(outer, my, mw):
+    # the opt-in reopens the BC-free bounded CellAvg -> Outer signature
+    # on uniform and stretched axes alike (R2, boundary_plan.md 2d)
+    assert outer.codomain(my.cell_avg) is my.outer
+    assert outer.codomain(mw.cell_avg) is mw.outer
+    assert outer.codomain(my.cell_avg.as_complex()) is (
+        my.outer.as_complex())
+
+
+def test_one_sided_codomain_still_rejects_off_target(outer, mx, my):
+    # only bounded CellAvg -> Outer is grounded; periodic and non-CellAvg
+    # domains raise the target= message even under the opt-in
+    with pytest.raises(SpaceMismatchError, match="target="):
+        outer.codomain(mx.cell_avg)  # periodic
+    with pytest.raises(SpaceMismatchError, match="target="):
+        outer.codomain(my.center)  # not CellAvg
+
+
+def test_closed_outer_variant_hint_names_the_opt_in(my):
+    # the default (closed) variant stays ungrounded under R1 but now
+    # points the user at the one-sided opt-in
+    closed = LinearReconstruction(target=NodeSet.OUTER)
+    with pytest.raises(SpaceMismatchError, match="one_sided"):
+        closed.codomain(my.cell_avg)
+
+
+def test_one_sided_requirements_demand_a_local_axis(outer, recon, my):
+    # the wall patches write static physical-edge indices
+    req = outer.requirements(my.cell_avg)
+    assert req.layout == "local"
+    assert req.halo == 1
+    assert recon.requirements(my.cell_avg).layout == "any"
+
+
+def test_one_sided_outer_is_exact_on_constants_and_linears(outer, my):
+    # every face (interior AND both walls) reproduces a linear exactly
+    # at machine precision on a uniform bounded axis
+    grid = Grid((my,))
+    for poly in (lambda y: 3.0 + 0.0 * y, lambda y: 2.0 * y - 1.0):
+        f = grid.create_field(my.cell_avg, init=poly)
+        g = outer["y"](f)
+        assert g.function_space.bare is my.outer
+        assert g.data.shape[0] == my.cell_avg.shape[0] + 1  # n + 1
+        y_o = grid.evaluation_nodes(my.outer).data
+        assert float(jnp.abs(g.data - poly(y_o)).max()) < 1e-13
+
+
+def test_one_sided_wall_faces_are_linear_extrapolation(outer, my):
+    # the two wall faces are the one-sided (3 c0 - c1) / 2 closure of
+    # the two nearest interior cell averages (uniform axis)
+    grid = Grid((my,))
+    f = grid.create_field(my.cell_avg,
+                          init=lambda y: jnp.sin(1.3 * y) + 0.2 * y)
+    g = outer["y"](f)
+    c = f.data
+    assert jnp.allclose(g.data[0], (3.0 * c[0] - c[1]) / 2.0)
+    assert jnp.allclose(g.data[-1], (3.0 * c[-1] - c[-2]) / 2.0)
+
+
+def test_one_sided_interior_matches_inner_bitwise(outer, recon, my):
+    # the interior faces of the Outer result are the standard symmetric
+    # CellAvg -> Inner reconstruction, bit for bit (consistency gate)
+    grid = Grid((my,))
+    f = grid.create_field(my.cell_avg,
+                          init=lambda y: jnp.sin(1.3 * y) + 0.2 * y)
+    g = outer["y"](f)
+    inner = recon["y"](f)
+    assert inner.function_space.bare is my.inner
+    assert jnp.array_equal(g.data[1:-1], inner.data)
+
+
+def test_one_sided_outer_wall_converges(outer):
+    # wall-face error converges at the design order (2) for a smooth
+    # non-polynomial function on a uniform bounded axis
+    errors = []
+    for n in (16, 32, 64, 128):
+        mesh = IntervalMesh(n, (0.0, 1.0), periodic=False, name="y")
+        grid = Grid((mesh,))
+        f = grid.create_field(mesh.cell_avg,
+                              init=lambda y: jnp.exp(jnp.sin(3.0 * y)))
+        g = outer["y"](f)
+        y_o = grid.evaluation_nodes(mesh.outer).data
+        exact = jnp.exp(jnp.sin(3.0 * y_o))
+        errors.append(max(float(jnp.abs(g.data[0] - exact[0])),
+                          float(jnp.abs(g.data[-1] - exact[-1]))))
+    rates = [np.log2(errors[i] / errors[i + 1])
+             for i in range(len(errors) - 1)]
+    assert min(rates) > 1.9
+
+
+def test_one_sided_outer_on_a_stretched_axis(outer, recon, mw):
+    # non-uniform geometry: the wall weights come from the cell widths,
+    # so the walls stay exact on linears (constants exact everywhere);
+    # the interior keeps the symmetric mean (bitwise vs CellAvg -> Inner)
+    grid = Grid((mw,))
+    y_o = grid.evaluation_nodes(mw.outer).data
+    const = grid.create_field(mw.cell_avg, init=lambda y: 5.0 + 0.0 * y)
+    g_c = outer["y"](const)
+    assert g_c.function_space.bare is mw.outer
+    assert float(jnp.abs(g_c.data - 5.0).max()) < 1e-13  # exact all faces
+    lin = grid.create_field(mw.cell_avg, init=lambda y: 2.0 * y - 1.0)
+    g_l = outer["y"](lin)
+    exact = 2.0 * y_o - 1.0
+    # geometry-derived wall weights reproduce the linear at both walls
+    assert float(jnp.abs(g_l.data[0] - exact[0])) < 1e-12
+    assert float(jnp.abs(g_l.data[-1] - exact[-1])) < 1e-12
+    # interior faces are the standard symmetric mean, bit for bit
+    inner = recon["y"](lin)
+    assert jnp.array_equal(g_l.data[1:-1], inner.data)
+
+
+def test_one_sided_outer_stretched_wall_converges(outer):
+    # design-order convergence at the walls on a stretched axis
+    def mapping(s):
+        return s + 0.15 * jnp.sin(2 * jnp.pi * s) / (2 * jnp.pi)
+    errors = []
+    for n in (16, 32, 64, 128):
+        mesh = MappedIntervalMesh(n, (0.0, 1.0), mapping,
+                                  periodic=False, name="y")
+        grid = Grid((mesh,))
+        f = grid.create_field(mesh.cell_avg,
+                              init=lambda y: jnp.exp(jnp.sin(3.0 * y)))
+        g = outer["y"](f)
+        y_o = grid.evaluation_nodes(mesh.outer).data
+        exact = jnp.exp(jnp.sin(3.0 * y_o))
+        errors.append(max(float(jnp.abs(g.data[0] - exact[0])),
+                          float(jnp.abs(g.data[-1] - exact[-1]))))
+    rates = [np.log2(errors[i] / errors[i + 1])
+             for i in range(len(errors) - 1)]
+    assert min(rates) > 1.9
+
+
+def test_one_sided_outer_needs_enough_cells(outer):
+    # the two-point wall stencil needs at least two cells
+    mesh = IntervalMesh(1, (0.0, 1.0), periodic=False, name="y")
+    grid = Grid((mesh,))
+    f = grid.create_field(mesh.cell_avg, init=lambda y: y)
+    with pytest.raises(NotImplementedError, match="needs 2 cells"):
+        outer["y"](f)
+
+
+def test_one_sided_metadata_is_kept(outer, my):
+    grid = Grid((my,))
+    f = grid.create_field(my.cell_avg, name="q", units="kg")
+    assert outer["y"](f).name == "q"  # same quantity
+
+
+def test_outer_variant_is_not_a_default_to_row(my):
+    # the Outer codomain is reached per-instance (opt-in), never a
+    # seeded row: .to(outer) resolves the default reconstruct (-> Inner)
+    # and mismatches, exactly like the nodal target=OUTER interp
+    grid = Grid((my,))
+    f = grid.create_field(my.cell_avg, init=lambda y: y)
+    with pytest.raises(SpaceMismatchError, match="lands on"):
+        f.to(my.outer)
