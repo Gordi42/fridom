@@ -24,6 +24,7 @@ if TYPE_CHECKING:  # pragma: no cover
         UpwindAdvection,
         WENOAdvection,
     )
+    from .boundary_flux import BoundaryFlux
     from .coriolis import (
         BetaPlaneCoriolis,
         FPlaneCoriolis,
@@ -46,6 +47,7 @@ all_modules_by_origin: dict[str, list[str]] = {}
 all_imports_by_origin = {
     f"{base}.advection": ["CenteredAdvection", "UpwindAdvection",
                           "WENOAdvection"],
+    f"{base}.boundary_flux": ["BoundaryFlux"],
     f"{base}.coriolis": ["FPlaneCoriolis", "BetaPlaneCoriolis",
                           "RotationCoriolis", "linear_rotation",
                           "chart_rotation"],

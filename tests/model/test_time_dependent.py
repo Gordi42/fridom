@@ -9,6 +9,8 @@ import pytest
 from fridom.model.time_dependent import (
     Ramp,
     TimeDependent,
+    TimeFunction,
+    TimeSeries,
     resolve_at,
 )
 
@@ -284,4 +286,196 @@ def test_ramp_in_scan_carry(compile_counter):
     compile_counter.reset()
     integrate(Ramp(0.0, 5.0, period=2.0, t0=-3.0, curve="cosine"),
               ts).block_until_ready()
+    assert compile_counter.count == 0
+
+
+# ================================================================
+#  TimeFunction (an arbitrary law fn(t, *params))
+# ================================================================
+def test_time_function_evaluates_the_law():
+    curve = TimeFunction(lambda t, w: jnp.sin(w * t), (2.0,))
+    assert isinstance(curve, TimeDependent)
+    for t in (-1.0, 0.0, 0.7, 3.0):
+        np.testing.assert_allclose(curve(t), math.sin(2.0 * t),
+                                   atol=1e-14)
+
+
+def test_time_function_without_params():
+    curve = TimeFunction(lambda t: t**2)
+    for t in (-2.0, 0.0, 1.5, 4.0):
+        np.testing.assert_allclose(curve(t), t**2, atol=1e-14)
+
+
+def test_time_function_at_time_matches_call():
+    curve = TimeFunction(lambda t, a: a * t, (3.0,))
+    np.testing.assert_allclose(curve.at_time(2.0), curve(2.0))
+
+
+def test_time_function_rejects_a_non_callable():
+    with pytest.raises(TypeError, match="fn must be callable"):
+        TimeFunction(3.0)
+
+
+def test_time_function_repr_names_the_law():
+    text = repr(TimeFunction(_named_law, (2.0, 0.5)))
+    assert text == "TimeFunction(_named_law, params=(2.0, 0.5))"
+
+
+def test_time_function_affine_composition():
+    base = TimeFunction(lambda t, w: jnp.sin(w * t), (2.0,))
+    derived = 2.0 * base + 1.0
+    assert isinstance(derived, TimeDependent)
+    for t in (-1.0, 0.4, 2.2):
+        np.testing.assert_allclose(
+            derived(t), 2.0 * math.sin(2.0 * t) + 1.0, rtol=1e-12)
+
+
+def test_time_function_param_sweep_does_not_recompile(compile_counter):
+    law = lambda t, w: jnp.sin(w * t)  # noqa: E731 — reused identity
+
+    @jax.jit
+    def evaluate(curve, t):
+        return curve(t)
+
+    t = jnp.asarray(1.0)
+    evaluate(TimeFunction(law, (1.0,)), t).block_until_ready()
+
+    compile_counter.reset()
+    for w in (2.0, 3.5, 0.5):
+        evaluate(TimeFunction(law, (w,)), t).block_until_ready()
+    assert compile_counter.count == 0
+
+
+def test_time_function_law_change_recompiles_once(compile_counter):
+    @jax.jit
+    def evaluate(curve, t):
+        return curve(t)
+
+    t = jnp.asarray(1.0)
+    evaluate(TimeFunction(jnp.sin), t).block_until_ready()
+
+    compile_counter.reset()
+    evaluate(TimeFunction(jnp.cos), t).block_until_ready()
+    assert compile_counter.count == 1
+
+
+def test_time_function_grad_flows_through_params():
+    # d/da [a * t**2] at t = 2 is t**2 = 4 (grad through the pytree)
+    curve = TimeFunction(lambda t, a: a * t**2, (3.0,))
+    grad = jax.grad(lambda c: c(2.0))(curve)
+    np.testing.assert_allclose(grad.params[0], 4.0, rtol=1e-12)
+
+
+def _named_law(t, a, b):
+    """Return a named law so the repr shows a stable ``__name__``."""
+    return a * jnp.cos(b * t)
+
+
+# ================================================================
+#  TimeSeries (tabulated data, branch-free jnp.interp)
+# ================================================================
+def test_time_series_hits_the_sample_points():
+    times = [0.0, 1.0, 3.0, 6.0]
+    values = [2.0, 5.0, -1.0, 4.0]
+    series = TimeSeries(times, values)
+    assert isinstance(series, TimeDependent)
+    for t, v in zip(times, values, strict=True):
+        np.testing.assert_allclose(series(t), v, atol=1e-14)
+
+
+def test_time_series_interpolates_linearly_between_knots():
+    series = TimeSeries([0.0, 2.0], [10.0, 20.0])
+    np.testing.assert_allclose(series(0.5), 12.5, atol=1e-14)
+    np.testing.assert_allclose(series(1.0), 15.0, atol=1e-14)
+
+
+def test_time_series_end_clamps_outside_the_range():
+    series = TimeSeries([1.0, 2.0, 3.0], [4.0, 6.0, 5.0])
+    np.testing.assert_allclose(series(-10.0), 4.0)   # before first
+    np.testing.assert_allclose(series(100.0), 5.0)   # after last
+
+
+def test_time_series_repr_shows_the_knots():
+    text = repr(TimeSeries([0.0, 1.0], [2.0, 3.0]))
+    assert text == "TimeSeries(times=[0.0, 1.0], values=[2.0, 3.0])"
+
+
+def test_time_series_repr_survives_tracing():
+    # under a trace the knots are tracers: the repr falls back cleanly
+    series = TimeSeries([0.0, 1.0], [2.0, 3.0])
+    captured = {}
+
+    @jax.jit
+    def sample(s, t):
+        captured["text"] = repr(s)
+        return s(t)
+
+    sample(series, jnp.asarray(0.5))
+    assert captured["text"].startswith("TimeSeries(")
+
+
+@pytest.mark.parametrize(("times", "values", "match"), [
+    ([[0.0, 1.0]], [1.0, 2.0], "1-D arrays"),
+    ([0.0, 1.0, 2.0], [1.0, 2.0], "equal length"),
+    ([0.0], [1.0], "at least two samples"),
+    ([0.0, 0.0], [1.0, 2.0], "strictly increasing"),
+    ([1.0, 0.0], [1.0, 2.0], "strictly increasing"),
+])
+def test_time_series_validation_errors(times, values, match):
+    with pytest.raises(ValueError, match=match):
+        TimeSeries(times, values)
+
+
+def test_time_series_affine_composition():
+    base = TimeSeries([0.0, 1.0, 2.0], [0.0, 1.0, 4.0])
+    derived = 3.0 * base - 1.0
+    assert isinstance(derived, TimeDependent)
+    for t in (-1.0, 0.5, 1.5, 5.0):
+        np.testing.assert_allclose(
+            derived(t), 3.0 * float(base(t)) - 1.0, rtol=1e-12)
+
+
+def test_time_series_retabulation_does_not_recompile(compile_counter):
+    @jax.jit
+    def evaluate(series, t):
+        return series(t)
+
+    t = jnp.asarray(1.3)
+    evaluate(TimeSeries([0.0, 1.0, 2.0], [0.0, 1.0, 2.0]),
+             t).block_until_ready()
+
+    # same-length re-tabulation: the knots are dynamic leaves
+    compile_counter.reset()
+    evaluate(TimeSeries([0.0, 1.5, 4.0], [3.0, -1.0, 2.0]),
+             t).block_until_ready()
+    evaluate(TimeSeries([-2.0, 0.0, 9.0], [1.0, 1.0, 1.0]),
+             t).block_until_ready()
+    assert compile_counter.count == 0
+
+
+def test_time_series_grad_flows_through_values():
+    # interp at t = 0.5 is 0.5*values[0] + 0.5*values[1] on [0, 1]
+    series = TimeSeries([0.0, 1.0, 2.0], [0.0, 10.0, 20.0])
+    grad = jax.grad(lambda c: c(0.5))(series)
+    np.testing.assert_allclose(grad.values[1], 0.5, rtol=1e-12)
+
+
+def test_time_series_in_scan_carry(compile_counter):
+    ts = jnp.linspace(-1.0, 5.0, 25)
+    series = TimeSeries([0.0, 2.0, 4.0], [1.0, 3.0, -1.0])
+
+    @jax.jit
+    def sample(series, ts):
+        def body(carry, t):
+            return carry, carry(t)
+        _, out = jax.lax.scan(body, series, ts)
+        return out
+
+    got = sample(series, ts)
+    expected = np.interp(np.asarray(ts), [0.0, 2.0, 4.0], [1.0, 3.0, -1.0])
+    np.testing.assert_allclose(got, expected, rtol=1e-12)
+
+    compile_counter.reset()
+    sample(TimeSeries([1.0, 2.0, 8.0], [0.0, 0.0, 5.0]),
+           ts).block_until_ready()
     assert compile_counter.count == 0

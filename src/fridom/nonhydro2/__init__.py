@@ -58,6 +58,7 @@ if TYPE_CHECKING:  # pragma: no cover
         ConstantStratification,
         MeridionalStratification,
     )
+    from .modules.surface_forcing import SurfaceBuoyancyFlux, WindStress
     from .state import State
 
 base = "fridom.nonhydro2"
@@ -88,6 +89,8 @@ all_imports_by_origin = {
     f"{base}.modules.gaussian_wave_maker": ["GaussianWaveMaker"],
     f"{base}.modules.polarized_wave_maker": ["PolarizedWaveMaker"],
     f"{base}.modules.smagorinsky_lilly": ["SmagorinskyLilly"],
+    f"{base}.modules.surface_forcing": [
+        "WindStress", "SurfaceBuoyancyFlux"],
 }
 
 setup(__name__, all_modules_by_origin, all_imports_by_origin)
