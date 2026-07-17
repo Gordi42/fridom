@@ -76,7 +76,14 @@ JAX_PLATFORMS=cuda srun -n 4 --gpu-bind=none .venv/bin/python your_script.py
   `jax.distributed.initialize()` (called before importing fridom, which
   touches the backend) assigns one GPU per local rank. Guard a run under
   `timeout` — a rank that dies leaves the others blocked at the
-  coordination barrier until the heartbeat times out.
+  coordination barrier until the heartbeat times out. Caveat
+  (2026-07-17, jax 0.10.2): bare `initialize()` SLURM auto-detect can
+  segfault binding the coordinator to `[::]` (IPv6). If it does,
+  initialize explicitly — still before importing fridom:
+  `coordinator_address="localhost:<free port>"`,
+  `num_processes=int(os.environ["SLURM_NTASKS"])`,
+  `process_id=int(os.environ["SLURM_PROCID"])`,
+  `local_device_ids=[int(os.environ["SLURM_LOCALID"])]`.
 
 - For full-suite runs use pytest-xdist with `--dist loadfile`: tests in the
   same file share jit-compilation caches, so grouping by file minimizes
