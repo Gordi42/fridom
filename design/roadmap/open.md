@@ -70,11 +70,6 @@ memory ceiling, time-to-first-step, WENO throughput (entries in
 - **Re-run the comparison suite** on post-fix dev (projected weno5
   edge ~1.8x), and fix its chunk metric to report compile separately
   (`_CHUNK_COMPILE_LOG`).
-- **4-GPU memory signature.** 1024x1024x512 fits (~31 GiB/GPU steady),
-  1024x1024x768 dies *in compile* (remat) — needs its own attribution
-  (per-device arena + fragmentation vs genuine remat). The single-GPU
-  ceiling is resolved
-  ([`../research/gpu_memory_ceiling.md`](../research/gpu_memory_ceiling.md)).
 - **Cold-compile HLO volume.** Step-body compile scales ~O(ops^1.35);
   HLO-volume reduction is the only cold-start lever for weno5
   (~8.5–10 s honest compile) and for the mapped solve's 16–18 s cold
