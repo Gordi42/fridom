@@ -46,12 +46,19 @@ def make_grid(mapped=True):
 
 
 def make_model(*modules, mapped=True):
-    """Zero-physics linear nh model (geometry terms isolated)."""
+    """Zero-physics linear nh model (geometry terms isolated).
+
+    family="nodal" is explicit: moving geometry (the C4 machinery
+    these tests exercise) is a nodal-only feature — the ALE
+    correction is nodal-only — so the 2026-07-17 mapped auto flip
+    keeps a moving-geometry model on the nodal path. Pinning here
+    states that and keeps these tests on the validated path.
+    """
     return nh.Model(
         grid=make_grid(mapped=mapped), dt=DT, advection=False,
         coriolis=nh.FPlaneCoriolis(f0=0.0),
         stratification=nh.ConstantStratification(n2=0.0),
-        modules_extra=modules)
+        modules_extra=modules, family="nodal")
 
 
 def moving():
@@ -146,7 +153,8 @@ def test_time_only_schedule_lives_on_a_one_dof_profile():
         coriolis=nh.FPlaneCoriolis(f0=0.0),
         stratification=nh.ConstantStratification(n2=0.0),
         modules_extra=(MovingGeometry(
-            {"H": lambda t: H0 + RATE * t}),))
+            {"H": lambda t: H0 + RATE * t}),),
+        family="nodal")  # moving geometry is nodal-only (C4)
     assert model.state["H"].data.size == 1
     np.testing.assert_allclose(
         float(model.state["H"].data.ravel()[0]), H0)

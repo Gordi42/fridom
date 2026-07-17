@@ -54,7 +54,16 @@ def depth(x):
 # ================================================================
 def make_terrain_model(*modules, n=N, init=depth, advection=True,
                        device_ids=None):
-    """Terrain-following model ``zp = z * H(x)`` (z in [0, 1])."""
+    """Terrain-following model ``zp = z * H(x)`` (z in [0, 1]).
+
+    family="nodal" is explicit: dynamic geometry (stage C4) is a
+    nodal-only feature — the ALE mesh-velocity correction is
+    nodal-only — so the 2026-07-17 mapped auto flip keeps a
+    moving-geometry model on the nodal path. Pinning nodal here keeps
+    the static reference (no MovingGeometry, which would otherwise
+    auto-flip to FV) and the moving models like-for-like, so the
+    frozen-motion bitwise gate compares nodal against nodal.
+    """
     mapping = CoordinateMapping(
         maps={"zp": lambda z, H: z * H}, params={"H": init})
     grid = Grid((
@@ -62,7 +71,7 @@ def make_terrain_model(*modules, n=N, init=depth, advection=True,
         IntervalMesh(n, (0.0, TWO_PI), periodic=True, name="y"),
         IntervalMesh(n, (0.0, 1.0), periodic=False, name="z"),
     ), mapping=mapping, device_ids=device_ids)
-    return nh.Model(grid=grid, dt=DT, dsqr=DSQR,
+    return nh.Model(grid=grid, dt=DT, dsqr=DSQR, family="nodal",
                     coriolis=nh.FPlaneCoriolis(f0=1.0),
                     advection=advection, modules_extra=modules,
                     pressure_iterations=ITERATIONS)
@@ -135,7 +144,7 @@ def make_ale_model(n, *modules):
         IntervalMesh(n, (0.0, 1.0), periodic=False, name="z"),
     ), mapping=mapping)
     return nh.Model(
-        grid=grid, dt=DT, advection=False,
+        grid=grid, dt=DT, advection=False, family="nodal",
         pressure_iterations=ITERATIONS,
         coriolis=nh.FPlaneCoriolis(f0=0.0),
         stratification=nh.ConstantStratification(n2=0.0),
@@ -229,7 +238,7 @@ def make_channel_model(*modules, n=N):
         IntervalMesh(n, (0.0, 1.0), periodic=False, name="z"),
     ), mapping=mapping)
     return nh.Model(
-        grid=grid, dt=DT, dsqr=DSQR,
+        grid=grid, dt=DT, dsqr=DSQR, family="nodal",
         coriolis=nh.FPlaneCoriolis(f0=1.0),
         pressure_iterations=ITERATIONS,
         modules_extra=(

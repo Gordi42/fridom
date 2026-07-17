@@ -1064,8 +1064,14 @@ def _make_terrain_model(init, *modules):
         IntervalMesh(N, (0.0, 2 * np.pi), periodic=True, name="y"),
         IntervalMesh(N, (0.0, 1.0), periodic=False, name="z"),
     ), mapping=mapping)
+    # family="nodal" is explicit: dynamic geometry (the MovingGeometry
+    # seam these tests exercise) is a nodal-only feature — the ALE
+    # correction is nodal-only, so the 2026-07-17 mapped auto flip keeps
+    # a moving-geometry model on the nodal path. Pinning nodal here
+    # makes the static reference and the moving model like-for-like
+    # (both nodal) and states that C4 is a nodal-path feature.
     return nh.Model(coriolis=fplane(), grid=grid, dt=DT, advection=False,
-                    modules_extra=modules)
+                    modules_extra=modules, family="nodal")
 
 
 def test_projection_reads_the_current_mapping_parameters():
