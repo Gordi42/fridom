@@ -464,3 +464,104 @@ C-grid FFT Poisson solve to 4e-16. Stable at `√(c^2)dt/dx=50`, 200 steps
 consumer (the 2.5 reference consumer is test-only) + `ImplicitFreeSurface`
 (mixing solve then surface constraint) — treedef stable. `ruff` clean;
 100% coverage of the hydrostatic source, new composer branches covered.
+
+### H5 — comparison preset + physics-validation suite (2026-07-17)
+
+**Delivered (in-tree).** The HY-D6 common-denominator config as a
+documented factory `hy.comparison_model(grid, dt, ...)`
+(`comparison.py`, own module; lazypimp-exported): pins
+`AdamBashforth(order=2, eps=0.1)` (pyOM quasi-AB2),
+`ImplicitFreeSurface(epsilon=1)` (backward-Euler linear free surface),
+`CenteredAdvection()` (centered-2 flux form on momentum *and* the `b`
+tracer), `FPlaneCoriolis`, `ConstantStratification`, explicit `csqr`.
+Only the physical parameters (`csqr`, `coriolis_f0`, `n2`,
+`rossby_number`) and the two comparison knobs (`epsilon`, `eps`) are
+exposed; the docstring carries the reference-model map (pyOM `AB_eps` /
+`enable_free_surface`; Oceananigans `QuasiAdamsBashforth2` /
+`ImplicitFreeSurface`-FFT / `Centered(order=2)`; the Veros rigid-lid
+axis via `epsilon=0`). Physics-validation suite
+`tests/hydrostatic/test_comparison.py`; a runnable baseline
+`examples/hydrostatic/comparison_baseline.py` (the geostrophic-
+adjustment problem; owner-reviewed on `docs/hydrostatic-example`).
+
+**Geostrophic (Rossby) adjustment (validated).** A released single-mode
+`ps` step, `n2=0` (barotropic subsystem, `epsilon=1`): the implicit
+free surface damps the inertia-gravity waves while the zero-frequency
+geostrophic mode is steady, so the state settles to the geostrophically
+adjusted mode. The retained pressure amplitude AND energy fraction both
+equal the **discrete-deformation-radius** prediction
+
+    ps_g/ps_i = E_g/E_i = gamma^2 / (gamma^2 + kd^2 Ld^2),
+    Ld^2 = c^2/f^2,  gamma = prod_a cos(k_a dx_a/2),
+
+where `gamma` is the energy-conserving C-grid Coriolis interpolation
+symbol (`v.to(u)`) — i.e. the discrete deformation radius is
+`Ld_disc = Ld/gamma`. Measured on the preset (nonlinear advection at
+amplitude 1e-3, negligible): retained = 0.15962 (nx=16) / 0.16626
+(nx=32), matching the `gamma` formula to **3e-5** (energy and amplitude
+alike); the balanced field is the input mode (correlation > 0.9999) and
+steady (drift < 1e-4/50 steps). The discrete fraction converges to the
+continuous Rossby fraction `1/(1+k^2 Ld^2)` at second order (error
+8.9e-3 -> 2.2e-3 across nx=16->32; the nx=64 slope check rides behind
+`FRIDOM_TEST_COMPARISON_SLOW`).
+
+**Wave-packet dispersion (validated).** A localized internal-wave packet
+(gravest baroclinic vertical mode; `epsilon=0` rigid lid so there is no
+barotropic branch to contaminate it) launched from the linear
+operator's exact discrete eigenvector propagates at the discrete
+**group** velocity `c_g = (omega^2-f^2)/(kh omega) cos(kh dx/2)`,
+distinct from the phase speed. Measured envelope-centroid speed 0.137 vs
+`c_g` 0.143 (4.4%), and `|meas - c_g|` 6.3e-3 << `|c_p - c_g|` 5.9e-2 —
+unambiguously the group velocity, in a genuinely dispersive regime
+(`c_g/c_p = 0.71`). The dispersion is a linear-core property, so the
+operator is probed on an `advection=False` twin while the packet runs on
+the preset.
+
+**Eady baroclinic instability — DEFERRED (STOP), by design.** The Eady
+problem needs a thermal-wind-balanced mean state: a vertical shear
+`U(z)=Lambda z` AND a mean meridional buoyancy gradient
+`d_y B = -f Lambda`, whose conversion term `v' d_y B` in the buoyancy
+equation is the baroclinic energy source. The shared advection
+`background=` **does** compose with the hydrostatic model (verified: it
+assembles, runs, adds `background_u` as an AUXILIARY field, and
+contributes the mean-flow Doppler advection `U d_x(.)` — a `b`-mode gets
+`db/dt = 1.089`), but it keys **only** velocity components (`u/v/w`), so
+it supplies no mean *buoyancy* gradient; and the doubly-periodic
+y-domain cannot carry the non-periodic `d_y B = -f Lambda` as a state
+field. There is no module for a background horizontal buoyancy gradient
+(`MeridionalStratification` supplies only `N^2(y)`, the vertical
+restoring). Consequently the config has no `v' d_y B` term at all: a
+v-only, divergence-free state (w exactly zero) gives `db/dt == 0.0`
+(pinned in `test_eady_baroclinic_conversion_term_is_absent`), so the
+configuration cannot sustain an Eady instability and a growth-rate
+measurement is not achievable here. Unblocking needs a new
+background-buoyancy-gradient module (a `-M^2 v` restoring on `b`, the
+thermal-wind twin of `ConstantStratification`) plus the momentum-tilting
+`w' d_z U` term — a follow-up (candidate: a `ThermalWindShear` module
+supplying both, sampled as AUXILIARY profiles like the background flow).
+
+**External legs — PENDING (out of tree, this machine).** The
+out-of-tree `benchmarks/comparison` harness named in the §4 H5 gate is
+**not present** on this machine, and pyOM3 source access is pending owner
+input (§5). The cross-model *execution* legs are therefore recorded as
+pending, to be run against this exact preset once the harness and source
+land:
+- **Oceananigans** (`HydrostaticFreeSurfaceModel`, local): match with
+  `ImplicitFreeSurface()` (FFT), `momentum_advection = Centered(order=2)`,
+  `tracer_advection = Centered(order=2)`, `QuasiAdamsBashforth2`
+  (default), `FPlane(f=coriolis_f0)`, `BuoyancyTracer()` with `N^2 = n2`.
+- **Veros**: rigid-lid streamfunction on the doubly-periodic box =
+  `comparison_model(..., epsilon=0)`; centered-2 tracer/momentum;
+  quasi-AB2.
+- **pyOM2/3**: `enable_free_surface` (backward-Euler, `eps=1`) for
+  `epsilon=1` / the rigid-lid Poisson for `epsilon=0`; `AB_eps=0.1`;
+  centered-2 flux form (always).
+  The comparison metric is HY-D6: bit-level only in the shared limit,
+  otherwise convergence + the physical diagnostics above.
+
+**Gates (all green, CPU).** `tests/hydrostatic/` = **139 passed, 1
+skipped** (the slow refinement); `ruff check src tests` clean;
+`comparison.py` is branchless (a single `return Model(...)`) and covered
+by construction across the pin tests (`epsilon` 1/0, custom `eps`/`csqr`/
+`f0`/`n2`/`rossby`/`name`) — the local `--cov` run aborts silently (known
+issue). The example runs end-to-end under a non-interactive backend.

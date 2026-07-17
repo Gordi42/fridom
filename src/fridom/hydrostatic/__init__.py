@@ -28,12 +28,14 @@ if TYPE_CHECKING:  # pragma: no cover
     )
 
     from . import (
+        comparison,
         diagnostics,
         energy,
         initial_conditions,
         modules,
         params,
     )
+    from .comparison import comparison_model
     from .initial_conditions import jet, single_wave
     from .model import Model
     from .modules.core import HydrostaticCore
@@ -48,11 +50,12 @@ base = "fridom.hydrostatic"
 
 all_modules_by_origin = {
     base: ["modules", "diagnostics", "energy", "params",
-           "initial_conditions"],
+           "initial_conditions", "comparison"],
 }
 
 all_imports_by_origin = {
     f"{base}.initial_conditions": ["single_wave", "jet"],
+    f"{base}.comparison": ["comparison_model"],
     f"{base}.model": ["Model"],
     f"{base}.state": ["State"],
     f"{base}.modules.core": ["HydrostaticCore"],
