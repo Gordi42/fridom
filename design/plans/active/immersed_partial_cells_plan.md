@@ -390,6 +390,32 @@ plan risk 1 confirmed — multigrid stays the recorded fallback);
 `MaskState` must be halo-trace exempt, sort after the projection, and
 capture the immersed descriptor at bind.
 
+**I4 shipped 2026-07-17** (merge `a5aec29d`; branch
+`feat/immersed-shallowwater`). Fraction-weighted linear core
+(`_gravity_immersed`: `∂_t p = −(1/θ)∇·(α c² u)`, masked pressure
+gradient), masked Sadourny (`_advect_immersed`: fraction-weighted
+thickness transport, boolean-masked corner PV and momentum
+tendencies), `MaskState` wiring, eigenmode taught gates; all local to
+`shallowwater2` (a package-local `immersed_weighting.py` mirrors the
+I2 idioms; no shared-file changes). Gates: mass `Σ θ V p` 2.2e-16
+over a nonlinear masked run; staircase channel vs the walled model
+~2.8e-17 over 12 steps; all-wet ≡ unimmersed ~5.6e-17; genuine
+lateral partials stable with mass diff 4.2e-17; dry-DOF hygiene
+exactly 0; 100% coverage on changed files; forced-4 invariance.
+Corrections: (1) the staircase channel reproduces the **free-slip**
+walled Sadourny under the default `NO_SLIP` mask — the AND-combined
+corner mask zeroes wall-corner `ζ`, exactly the walled `ζ = 0`
+closure, while tangential `u` sits unmasked at cell centers; (2) the
+Sadourny **thickness transport is genuinely fraction-weighted** (not
+merely boolean-masked as IP-D10's wording suggested) — that is what
+conserves mass to machine zero on genuine partials with advection
+active; the boolean qualifier applies to the momentum machinery only;
+(3) all-wet parity is near-bitwise (~6e-17), not bitwise: the
+immersed path is halo-trace exempt (halo 2 vs auto-1), so XLA fuses
+differently — within the plan's tolerance; (4) shallowwater2 has no
+`family=` concept, so IP-D7's nodal gate has no sw2 analogue — the
+grid-default nodal C-grid carries the masked paths directly.
+
 ## 7. Out of scope (designed-for, not precluded)
 
 Direct face-area quadrature (shaved-cell faces); ghost-cell
