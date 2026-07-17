@@ -130,10 +130,20 @@ velocity before concluding "gradient broken"; the preset scalar
 `csqr` is inert (the dynamics read the `csqr` *field*), so its grad
 is a legitimate 0.
 
-## Fixes (branches, not merged)
+## Fixes (all merged to dev, 2026-07-17)
 
-1. `fix/sadourny-grad-safe-pv-division` @ `4f6e86b6`
-   (worktree `~/Projects/fridom-wt/sadourny-grad`).
+Landed as merges `a7de0701` (1), `8d6eb07b` (2), and `f2e3ca56` (3).
+(3) also added a fourth guard — the immersed PV division
+(`_advect_immersed`, which landed with I4 after this investigation
+and reintroduced the flat-path hazard; pre-guard, reverse mode NaN'd
+144/144 entries of the IC gradient; post-guard both immersed models
+FD-match to 1e-10..1e-12) — plus the systematic autodiff regression
+shards (`tests/model/test_model_autodiff.py`,
+`tests/nonhydro2/test_nonhydro2_autodiff.py`, ~29 s cold / ~12 s warm
+total) and the binding **Differentiability policy** in `AGENTS.md`
+(one small grad-vs-FD test per new step-path feature).
+
+1. `fix/sadourny-grad-safe-pv-division` @ `4f6e86b6`.
    `_potential_vorticity(zeta, thickness)` helper guards the
    denominator (`jnp.where(storage == 0, 1, storage)`) preserving
    `halo_valid`, applied to both the flat and chart PV divisions.
@@ -143,8 +153,7 @@ is a legitimate 0.
    FD-matched). Perf: official `benchmarks/model` step guard,
    `sw_flat`/`sw_sphere` deltas within the base-vs-base noise band
    (`compare --fail-on-regression` exit 0).
-2. `fix/sqrt-zero-grad-guards` @ `686cc016`
-   (worktree `~/Projects/fridom-wt/sqrt-grad-guards`).
+2. `fix/sqrt-zero-grad-guards` @ `686cc016`.
    Biharmonic: `_biharmonic_root` double-where guard around the
    `kh/kv ** 0.5` split (plain `** 0.5` kept for the halo trace's
    demoted Python scalars). Convention: the gradient at exactly
