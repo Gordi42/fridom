@@ -16,6 +16,7 @@ import numpy as np
 import pytest
 
 import fridom as fr
+import fridom.hydrostatic as hy
 import fridom.nonhydro2 as nh
 import fridom.shallowwater2 as sw
 from fridom.model import eigen_channel
@@ -755,3 +756,33 @@ def test_label_with_rejects_a_wrong_shape(basis):
 def test_label_with_rejects_a_non_integer_labeler(basis):
     with pytest.raises(ValueError, match="small integers"):
         basis.label_with(lambda b: jnp.zeros_like(b.omega))
+
+
+# ================================================================
+#  _bounded_measure: the ps constant-factor branch (hydrostatic)
+# ================================================================
+def test_bounded_measure_constant_factor():
+    # a hydrostatic channel: ps is a fr.Profile (constant along the
+    # bounded z axis), so _bounded_measure gives it the FULL depth H as
+    # its measure -> metric[ps] = H/csqr; a genuine nodal component (u)
+    # defers to ScalarField.measure -> the per-cell width dz = H/nz.
+    nz, depth, csqr = 8, 1.0, 10.0
+    grid = fr.spatial.Grid((
+        fr.spatial.meshes.IntervalMesh(4, (0.0, 1.0), periodic=True,
+                                       name="x"),
+        fr.spatial.meshes.IntervalMesh(4, (0.0, 1.0), periodic=True,
+                                       name="y"),
+        fr.spatial.meshes.IntervalMesh(nz, (0.0, depth), periodic=False,
+                                       name="z")))
+    model = hy.Model(
+        grid=grid, dt=0.02, csqr=csqr, advection=False,
+        coriolis=hy.FPlaneCoriolis(f0=0.0),
+        stratification=hy.ConstantStratification(n2=1.0))
+    basis = channel_eigenpairs(model)
+    metric = np.asarray(basis.metric)
+    ps_entry = metric[basis.slices["ps"]]
+    assert ps_entry.shape == (1,)  # ps is a single depth-integrated DOF
+    assert float(ps_entry[0]) == pytest.approx(depth / csqr)
+    # a nodal u entry is the uniform dual-cell width dz = H/nz
+    assert float(metric[basis.slices["u"]][0]) == pytest.approx(
+        depth / nz)

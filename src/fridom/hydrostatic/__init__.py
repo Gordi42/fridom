@@ -14,13 +14,15 @@ The public surface mirrors the sibling packages:
 and the concrete modules (``hy.HydrostaticCore``,
 ``hy.ConstantStratification``, ``hy.ExplicitFreeSurface``,
 ``hy.FPlaneCoriolis``, ...). ``hy.eigenmodes`` / ``hy.transforms``
-are the H4 deliverable and are not built yet.
+are the numeric eigenbasis and its vortical / wave / barotropic /
+baroclinic projections (HY-D7, stage H4).
 """
 from typing import TYPE_CHECKING
 
 from lazypimp import setup
 
 if TYPE_CHECKING:  # pragma: no cover
+    from fridom.model.closures import VerticalMixing
     from fridom.model.modules import (
         BetaPlaneCoriolis,
         FPlaneCoriolis,
@@ -30,10 +32,12 @@ if TYPE_CHECKING:  # pragma: no cover
     from . import (
         comparison,
         diagnostics,
+        eigenmodes,
         energy,
         initial_conditions,
         modules,
         params,
+        transforms,
     )
     from .comparison import comparison_model
     from .initial_conditions import jet, single_wave
@@ -50,7 +54,8 @@ base = "fridom.hydrostatic"
 
 all_modules_by_origin = {
     base: ["modules", "diagnostics", "energy", "params",
-           "initial_conditions", "comparison"],
+           "initial_conditions", "comparison", "eigenmodes",
+           "transforms"],
 }
 
 all_imports_by_origin = {
@@ -62,9 +67,11 @@ all_imports_by_origin = {
     f"{base}.modules.stratification": ["ConstantStratification"],
     f"{base}.modules.free_surface": [
         "ExplicitFreeSurface", "ImplicitFreeSurface"],
-    # the Coriolis family is the shared framework module library
+    # the Coriolis family and the implicit vertical mixing closure are
+    # shared framework module libraries, re-exported here
     "fridom.model.modules": [
         "FPlaneCoriolis", "BetaPlaneCoriolis", "RotationCoriolis"],
+    "fridom.model.closures": ["VerticalMixing"],
 }
 
 setup(__name__, all_modules_by_origin, all_imports_by_origin)

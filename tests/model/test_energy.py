@@ -14,6 +14,7 @@ import numpy as np
 import pytest
 
 import fridom as fr
+import fridom.hydrostatic as hy
 import fridom.nonhydro2 as nh
 import fridom.shallowwater2 as sw
 from fridom.model.energy import (
@@ -501,3 +502,40 @@ def test_inner_rejects_mixed_space():
     state = sw.State({"u": mixed, "v": mixed, "p": mixed})
     with pytest.raises(NotImplementedError, match="mixed"):
         metric.inner(state, state)
+
+
+# ================================================================
+#  Hydrostatic weights: diag(1, 1, 1/N^2, 1/c^2) on (u, v, b, ps)
+# ================================================================
+def hydro_grid(nx=4, nz=8, depth=1.0):
+    return Grid((
+        IntervalMesh(nx, (0.0, 1.0), periodic=True, name="x"),
+        IntervalMesh(nx, (0.0, 1.0), periodic=True, name="y"),
+        IntervalMesh(nz, (0.0, depth), periodic=False, name="z")))
+
+
+def test_from_model_hydrostatic_weights():
+    model = hy.Model(
+        grid=hydro_grid(), dt=DT, csqr=10.0, advection=False,
+        coriolis=hy.FPlaneCoriolis(f0=1.0),
+        stratification=hy.ConstantStratification(n2=4.0),
+        time_stepper=fr.model.time_steppers.CNAB2(DT))
+    metric = EnergyMetric.from_model(model)
+    assert metric.component_names == ("u", "v", "b", "ps")
+    assert dict(metric.weights) == {
+        "u": 1.0, "v": 1.0, "b": pytest.approx(0.25),
+        "ps": pytest.approx(0.1)}
+
+
+def test_from_model_hydrostatic_rejects_zero_phase_speed():
+    params = {CORIOLIS_F0: 1.0, "hydrostatic.csqr": 0.0,
+              STRATIFICATION_N2: 1.0}
+    with pytest.raises(ValueError, match="1/c"):
+        EnergyMetric.from_model(SimpleNamespace(parameters=params))
+
+
+def test_from_model_hydrostatic_rejects_zero_stratification():
+    params = {CORIOLIS_F0: 1.0, "hydrostatic.csqr": 10.0,
+              STRATIFICATION_N2: 0.0}
+    with pytest.raises(ValueError, match="1/N"):
+        EnergyMetric.from_model(SimpleNamespace(parameters=params))

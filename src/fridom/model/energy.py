@@ -85,6 +85,7 @@ if TYPE_CHECKING:  # pragma: no cover
 # ----------------------------------------------------------------
 _DSQR = "nonhydro.dsqr"
 _CSQR = "shallowwater.csqr"
+_HYDRO_CSQR = "hydrostatic.csqr"
 
 # A component weight is a scalar; ScalarField widens it to a
 # (profile) field, sampled per component through ``.to``.
@@ -337,6 +338,8 @@ class EnergyMetric:
                     "the shallow-water energy weight 1/c^2 needs a "
                     "nonzero phase speed 'shallowwater.csqr'")
             weights = {"u": 1.0, "v": 1.0, "p": 1.0 / csqr}
+        elif _HYDRO_CSQR in params:
+            weights = _hydrostatic_weights(params, at_time)
         elif _state_field(model, "csqr") is not None:
             csqr_field = _profile_field(
                 model, "csqr", _CSQR, allowed=allow_field_weights)
@@ -368,6 +371,35 @@ class EnergyMetric:
                 "spectral axes plus quadrature on the rest is "
                 "roadmap Phase I)")
         return coefficient
+
+
+def _hydrostatic_weights(
+    params: Mapping[str, object], at_time: float,
+) -> dict[str, Weight | ScalarField]:
+    r"""Assemble ``diag(1, 1, 1/N^2, 1/c^2)`` on ``(u, v, b, ps)``.
+
+    Description
+    -----------
+    The hydrostatic energy metric: unit weight on the horizontal
+    velocities, ``1/N^2`` on the buoyancy tracer and ``1/c^2`` on the
+    surface pressure ``ps`` (the barotropic phase speed
+    ``hydrostatic.csqr``). The ``ps`` weight is depth-integrated to
+    ``H/c^2`` where the metric is applied (the ``ps`` node's
+    bounded-axis measure is the full depth), the factor that pairs
+    ``-grad ps`` with the depth-mean divergence into a skew-adjoint
+    operator.
+    """
+    csqr = _read_scalar(params, _HYDRO_CSQR, at_time)
+    if csqr == 0.0:
+        raise ValueError(
+            "the hydrostatic energy weight 1/c^2 needs a nonzero "
+            "barotropic phase speed 'hydrostatic.csqr'")
+    n2 = _read_scalar(params, STRATIFICATION_N2, at_time)
+    if n2 == 0.0:
+        raise ValueError(
+            "the hydrostatic energy weight 1/N^2 needs a nonzero "
+            "stratification 'stratification.n2'")
+    return {"u": 1.0, "v": 1.0, "b": 1.0 / n2, "ps": 1.0 / csqr}
 
 
 def _weigh(

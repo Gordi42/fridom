@@ -465,6 +465,57 @@ consumer (the 2.5 reference consumer is test-only) + `ImplicitFreeSurface`
 (mixing solve then surface constraint) — treedef stable. `ruff` clean;
 100% coverage of the hydrostatic source, new composer branches covered.
 
+### H4 — vertical mixing + eigenmodes / transforms (HY-D7) (2026-07-17)
+
+**(a) Implicit vertical mixing.** New shared model-layer module
+`fr.closures.VerticalMixing(kv=..., kb=..., treatment=fr.model.IMPLICIT)`
+(re-exported `hy.modules.VerticalMixing`): one mergeable
+`VerticalDiffusion(axis="z")` term per leg (velocity viscosity `kv` /
+buoyancy diffusivity `kb`, PROGNOSTIC role targets resolved at bind;
+the diagnosed `w` is not a target), the two legs merging into one
+tridiagonal solve set. Treatment is author-declared (§5.1); `EXPLICIT`
+is the write-once `op.apply` path and declares an (empty) `extra_halo`
+so the raw-`.data` column solve is halo-trace exempt (V-N2), validated
+in the real-field dry run. Gates: CNAB2/SBDF2 1D column decay vs the
+*discrete* eigen-decay 1.2e-5 / 7.3e-5 (the tridiagonal is exact for the
+discrete operator — residual is pure time-discretization); stiff
+`kappa dt/dz^2 ~ 640` bounded/decaying; EXPLICIT tendency `== L@b` to
+3.5e-16; CNAB2 + `ImplicitFreeSurface` composes (mixing S3, surface S4,
+treedef stable); friction+mixing legs merge to one implicit operator on
+`(u,v,b)`.
+
+**(b) Eigenmodes / energy / transforms.** Design decision (documented
+in `eigenmodes.py`): the free surface couples the depth-mean divergence
+to `ps` through a rank-1 barotropic term, and although the staggered
+cumint pair is an exact transpose pair (`C_p = M^T`, so the vertical
+operator `V = N^2 M^T M + c^2 Pi` is symmetric and the modes separate
+cleanly with real dispersion), the constant vector is NOT an eigenvector
+of `M^T M` — the barotropic mode is z-constant only to `O(N^2/c^2)`, so
+there is no exact analytic z-constant eigenvector (the exactly-z-constant
+Poincaré triplet with `omega^2=f^2+c^2 k_disc^2` is the barotropic
+*restriction*, the H2 oracle to ~1e-3). So `hy.eigenmodes` /
+`hy.transforms` reuse the shared dense-column engine
+(`fr.model.eigen_channel.channel_eigenpairs`, bounded axis `z`): the
+**exact numeric eigenbasis** of the assembled linear operator under the
+hydrostatic energy metric `diag(1,1,1/N^2,1/c^2)` (`ps` depth-weighted
+`H/c^2` — the `EnergyMetric.from_model` hydrostatic branch + the
+`_bounded_measure` ConstantSpace fix, both model-layer). Because the
+engine `linearize`s first, the implicit/rigid-lid variants (which
+declare `linear_operator_gap`) are refused by `require_linear_operator`.
+`HydrostaticEigenmodes` labels the `3nz+1` columns/plane into six
+families (barotropic/baroclinic × geostrophic/wave±): the geostrophic
+zero space split by a depth-mean/`ps` barotropic-overlap rotation (one
+barotropic column/plane), the waves by surface-pressure energy.
+`hy.transforms.{Vortical,Wave,Barotropic,Baroclinic}Projection`
+(`ProjectionFactory`, dual-source). Gates (all machine precision):
+biorthogonality (hermiticity 1.7e-16, M-orthonormality 3e-15); round-trip
+`Vortical+Wave == Barotropic+Baroclinic == identity` 1.5e-15; idempotency
+1.3e-15; orthogonality 8.7e-16; baroclinic `m_disc^2` identical across
+`kx` 5e-15; barotropic dispersion vs `f^2+c^2 k_disc^2` 1.6e-3 (the
+z-constant tolerance); implicit/rigid-lid refused. Model-layer touches
+(`model:`): `EnergyMetric.from_model` hydrostatic branch,
+`eigen_channel._bounded_measure`, `closures.VerticalMixing` — sibling
+channel-eigenmode suites unaffected (118 passed).
 ### H5 — comparison preset + physics-validation suite (2026-07-17)
 
 **Delivered (in-tree).** The HY-D6 common-denominator config as a
