@@ -57,12 +57,15 @@ from __future__ import annotations
 from functools import partial
 from typing import TYPE_CHECKING
 
+import jax.numpy as jnp
+
 import fridom as fr
-from fridom.framework.utils import jaxify
+from fridom.framework.utils import jaxify, modify_array
 from fridom.hydrostatic.diagnostics import DIAGNOSTICS
 from fridom.hydrostatic.params import CSQR, ROSSBY
 from fridom.hydrostatic.state import State
 from fridom.model.roles import Velocity
+from fridom.spatial.decomposition.halo import HaloSpec
 from fridom.spatial.operators.cumulative import CumulativeIntegral
 from fridom.spatial.spaces.tensor_product import TensorProductSpace
 
@@ -158,6 +161,43 @@ class HydrostaticCore(fr.model.Module):
         self.rossby = fr.model.leaf(rossby_number)
         self._vertical = vertical
         self._horizontal = horizontal
+        # captured at bind: the immersed descriptor (None off a cut-cell
+        # grid) and the grid coordinate names. On an immersed grid the
+        # DIAGNOSE stages weight the horizontal transport by concrete
+        # face-fraction fields, which the HaloTracer cannot follow and
+        # which materialize at the full storage halo — so the masked
+        # core is halo-trace exempt (extra_halo), reading full-halo
+        # fields that align with the fractions (the advection / MaskState
+        # precedent). The unimmersed core stays fully traced (None).
+        self._immersed: object | None = None
+        self._coords: tuple[str, ...] = ()
+
+    def bind(self, table: object) -> None:
+        """Capture the immersed descriptor and coordinate names (IP-D9)."""
+        grid = table.grid
+        self._immersed = getattr(grid, "immersed", None)
+        self._coords = tuple(grid.names)
+
+    @property
+    def extra_halo(self) -> HaloSpec | None:
+        """Exempt the masked DIAGNOSE stages from the halo trace.
+
+        Description
+        -----------
+        Only on an immersed grid: the fraction-weighted continuity and
+        the fraction lookups run concrete field arithmetic the tracer
+        cannot follow, and the materialized fractions carry the grid's
+        provisional (per-operator-max) storage halo, so the stages read
+        full-halo fields that align with the fractions. Two cells per
+        coordinate matches that provisional halo (and the shared FV
+        advection / nonhydro2 core), keeping the frozen storage halo
+        equal to the fraction cache's halo. Off an immersed grid this is
+        ``None`` — the unimmersed DIAGNOSE stages stay fully halo-
+        traced, bitwise unchanged.
+        """
+        if self._immersed is None:
+            return None
+        return HaloSpec(dict.fromkeys(self._coords, 2))
 
     # ================================================================
     #  Field declarations
@@ -248,12 +288,79 @@ class HydrostaticCore(fr.model.Module):
         ``w(z) = -\int_{-H}^{z} (\partial_x u + \partial_y v) dz'`` on
         the both-boundary face set ``Outer``: seeded ``w = 0`` at the
         flat bottom, ``d_z w == -(d_x u + d_y v)`` machine-exactly.
+
+        On an immersed (cut-cell) grid this becomes **masked
+        continuity** (IP-D9): the horizontal transport divergence is
+        fraction-weighted (``(alpha_x u).diff(x) + (alpha_y v).diff(y)``
+        with the min-rule face fractions of I0), the running integral
+        yields the barotropic **transport** ``alpha_z w`` (with
+        ``alpha_z`` on the vertical ``Outer`` faces), and ``w`` is the
+        guarded division ``alpha_z w / alpha_z`` (``alpha_z == 0 -> w ==
+        0``). The vertical-flux telescoping of the running sum then
+        makes the full masked divergence
+        ``(alpha_x u).diff(x) + (alpha_y v).diff(y) + (alpha_z w).diff(z)``
+        machine-zero on every wet cell (min-rule wet faces read two wet
+        cells, so no dry value enters with nonzero weight). On an
+        all-wet immersed grid ``alpha == 1`` and the result is byte-
+        identical to the unimmersed diagnosis.
         """
         zonal, meridional = self._horizontal
-        div_h = (state["u"].diff(zonal) + state["v"].diff(meridional))
-        w = -CumulativeIntegral(
-            direction="up", target="face")[self._vertical](div_h)
-        return {"w": w}
+        u, v = state["u"], state["v"]
+        cumint = CumulativeIntegral(
+            direction="up", target="face")[self._vertical]
+        immersed = getattr(u.grid, "immersed", None)
+        if immersed is None:
+            div_h = u.diff(zonal) + v.diff(meridional)
+            return {"w": -cumint(div_h)}
+        alpha_x = immersed.fraction(u.function_space)
+        alpha_y = immersed.fraction(v.function_space)
+        div_h = (alpha_x * u).diff(zonal) + (alpha_y * v).diff(meridional)
+        transport = -cumint(div_h)  # the barotropic transport alpha_z*w
+        alpha_z = self._masked_w_faces(immersed, state)
+        az = alpha_z.data
+        wet = az > 0.0
+        w = jnp.where(wet, transport.data / jnp.where(wet, az, 1.0), 0.0)
+        return {"w": transport.with_data(w)}
+
+    def _masked_w_faces(
+        self, immersed: object, state: State,
+    ) -> object:
+        r"""Return ``alpha_z`` on the ``w`` faces (surface = cell fraction).
+
+        Description
+        -----------
+        The min-rule face fraction on the vertical ``Outer`` faces
+        treats the exterior beyond a **physical** boundary as dry, which
+        would zero the surface (top) face and destroy the barotropic
+        surface DOF ``w(0)`` (the column-divergence carrier under a free
+        surface). The physical top boundary is not an immersed dry
+        region, so its face fraction is the adjacent (surface) cell
+        fraction — the mirror-exterior convention. The physical bottom
+        face needs no override: the running sum seeds ``transport == 0``
+        there, so ``w`` is zero irrespective of ``alpha_z``.
+
+        Parameters
+        ----------
+        immersed : object
+            The grid's immersed descriptor.
+        state : State
+            The current state (supplies the ``w`` and cell spaces).
+
+        Returns
+        -------
+        object
+            The ``alpha_z`` field with the surface face overridden.
+        """
+        w_space = state["w"].function_space
+        alpha_z = immersed.fraction(w_space)
+        theta_cell = immersed.fraction(state["p_hyd"].function_space)
+        z_axis = next(
+            i for i, f in enumerate(w_space.bare.factors)
+            if self._vertical in f.names)
+        az = jnp.moveaxis(alpha_z.data, z_axis, 0)
+        tc = jnp.moveaxis(theta_cell.data, z_axis, 0)
+        az = modify_array(az, -1, tc[-1])  # surface face = surface cell
+        return alpha_z.with_data(jnp.moveaxis(az, 0, z_axis))
 
     def _diagnose_p_hyd(
         self, state: State, ctx: StepContext,  # noqa: ARG002
@@ -264,6 +371,17 @@ class HydrostaticCore(fr.model.Module):
         (co-located with ``b``): the pyOM half-cell form, seeded
         ``p_hyd = 0`` at the surface. The negative sign is the
         integral taken from the upper limit.
+
+        On an immersed grid the cumulative sum is **unweighted** (the
+        top-down hydrostatic integral of the masked buoyancy, which is
+        zero on dry cells through ``MaskState``): the diagnosed
+        ``p_hyd`` under the topography is dead, and it never reaches a
+        wet momentum tendency because the plain two-point pressure
+        gradient on a wet face reads two wet cells (min-rule) while a
+        wet/dry face is a closed (``alpha == 0``) face whose spurious
+        gradient ``MaskState`` zeros. The partial-bottom-cell pressure-
+        gradient refinement (Pacanowski & Gnanadesikan) is designed-for
+        (immersed-partial-cells plan §7), not built here.
         """
         p_hyd = -CumulativeIntegral(
             direction="down", target="center")[self._vertical](

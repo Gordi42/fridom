@@ -83,9 +83,10 @@ from fridom.hydrostatic.params import CSQR
 from fridom.model.errors import AssemblyError
 from fridom.model.terms import Treatment
 from fridom.spatial.decomposition.halo import HaloSpec
-from fridom.spatial.operators.base import Identity
+from fridom.spatial.operators.base import Identity, resolve_codomain
 from fridom.spatial.operators.composed import Diag, Divergence, Gradient
 from fridom.spatial.operators.integrate import Integral
+from fridom.spatial.operators.krylov import ConjugateGradient
 from fridom.spatial.operators.spectral_solve import SpectralSolve
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -161,6 +162,13 @@ class _FreeSurfaceBase(fr.model.Module):
         # of ScalarField.mean, frozen at bind (host constant, not
         # traced) so the depth mean stays tracer-compatible
         self._inv_depth: float = 1.0
+        # the immersed descriptor (None off a cut-cell grid), captured
+        # at bind: an id-hashable static aux (like MaskState's), read to
+        # switch the barotropic reductions onto their masked forms. The
+        # per-column transport depths are materialized in-trace from it
+        # (memoized concrete-only, like grid._measures) — a jax array
+        # cannot ride a dynamic=() pytree's static aux
+        self._immersed: object | None = None
 
     def bind(self, table: object) -> None:
         """Freeze the reciprocal depth ``1/H`` (the depth-mean divisor).
@@ -189,6 +197,7 @@ class _FreeSurfaceBase(fr.model.Module):
             If the grid has no vertical coordinate.
         """
         grid = table.grid
+        self._immersed = getattr(grid, "immersed", None)
         for mesh in grid.factors:
             if self._vertical in mesh.names:
                 lo, hi = mesh.extent
@@ -239,6 +248,20 @@ class _FreeSurfaceBase(fr.model.Module):
         exactly adjoint to the ``-\nabla_h p_s`` momentum forcing under
         the depth-integrated energy metric.
 
+        On an immersed grid this is the **transport-divergence** form
+        (IP-D9): the horizontal fluxes are fraction-weighted before the
+        vertical integral, so the quantity is
+        ``(1/H)[d_x\!\int\alpha_x u\,dz + d_y\!\int\alpha_y v\,dz]`` —
+        the volume-conserving barotropic divergence ``(1/H)\nabla\cdot U``
+        with ``U`` the wet transport and ``H`` the **reference** depth
+        (the mesh extent, still the scalar ``self._inv_depth``). The
+        variable *column* depth enters the implicit operator's
+        coefficient, not here (the mass-leak trap is the wet-depth-mean
+        ``\nabla\cdot(U/H_{col})``, which is **not** volume-conserving —
+        avoided). With ``\alpha == 1`` the multiply is the identity, so
+        an all-wet immersed grid is byte-identical to the unimmersed
+        form.
+
         Parameters
         ----------
         state : object
@@ -250,8 +273,71 @@ class _FreeSurfaceBase(fr.model.Module):
             The depth-mean divergence on the ``Profile`` cell.
         """
         zonal, meridional = self._horizontal
-        div_h = state["u"].diff(zonal) + state["v"].diff(meridional)
+        u, v = state["u"], state["v"]
+        if self._immersed is None:
+            div_h = u.diff(zonal) + v.diff(meridional)
+            return Integral()[self._vertical](div_h) * self._inv_depth
+        alpha_x = self._immersed.fraction(u.function_space)
+        alpha_y = self._immersed.fraction(v.function_space)
+        div_h = ((alpha_x * u).diff(zonal)
+                 + (alpha_y * v).diff(meridional))
         return Integral()[self._vertical](div_h) * self._inv_depth
+
+    # ================================================================
+    #  Immersed barotropic reductions (IP-D9; no-ops off a cut cell)
+    # ================================================================
+    def _transport_depth(self, field: ScalarField) -> ScalarField:
+        r"""Return the wet transport depth ``H = \int\alpha\,dz`` on a face.
+
+        Description
+        -----------
+        The per-column wet transport depth of a velocity component: the
+        vertical integral of its **face** fraction (``alpha_x`` for
+        ``u``, ``alpha_y`` for ``v`` — NOT the cell fraction ``theta``:
+        transport-depth consistency is the mass-leak trap). Lands on the
+        component's ``Profile`` face (constant along z). On an all-wet
+        grid it is the reference depth ``H``; on a land column it is 0.
+        """
+        alpha = self._immersed.fraction(field.function_space)
+        return Integral()[self._vertical](alpha)
+
+    @staticmethod
+    def _guarded_inverse(depth: ScalarField) -> ScalarField:
+        """Return ``1/depth`` (a land column ``depth == 0`` maps to 0)."""
+        d = depth.data
+        wet = d > 0.0
+        return depth.with_data(jnp.where(wet, 1.0 / jnp.where(wet, d, 1.0),
+                                         0.0))
+
+    def _wet_depth_mean(self, field: ScalarField) -> ScalarField:
+        r"""Return the wet-depth mean ``(1/H)\int\alpha\,q\,dz`` of a face.
+
+        Description
+        -----------
+        The barotropic velocity of a velocity component: the wet
+        transport ``\int\alpha q\,dz`` divided by the per-column wet
+        depth ``H`` (guarded on land columns). Off an immersed grid this
+        is the ordinary ``field.mean(z)``.
+        """
+        if self._immersed is None:
+            return field.mean(self._vertical)
+        alpha = self._immersed.fraction(field.function_space)
+        transport = Integral()[self._vertical](alpha * field)
+        return transport * self._guarded_inverse(
+            self._transport_depth(field))
+
+    def _face_wet_mask(self, field: ScalarField) -> ScalarField:
+        r"""Return the boolean open-face mask ``alpha > 0`` of a velocity face.
+
+        The slip-independent correction gate (plan §2): a barotropic
+        pressure-gradient correction never enters a closed
+        (``alpha == 0``) face. A concrete ``{0, 1}`` field multiplied
+        onto the z-uniform correction — field arithmetic (not ``.data``)
+        so it survives the halo trace of the ``linear=True`` explicit
+        term as well as the halo-exempt implicit CONSTRAINT.
+        """
+        alpha = self._immersed.fraction(field.function_space)
+        return alpha.with_data((alpha.data > 0.0).astype(dtype_real()))
 
 
 @partial(jaxify, dynamic=())
@@ -317,14 +403,22 @@ class ExplicitFreeSurface(_FreeSurfaceBase):
         the velocity's vertical layout through the ConstantSpace
         broadcast in ``.to`` and retagged onto the velocity (identity
         on periodic axes; adopts the wall-normal Dirichlet tag on a
-        walled axis). The adjoint of the ``gravity`` term.
+        walled axis). The adjoint of the ``gravity`` term. On an
+        immersed grid the force is gated by the boolean open-face mask
+        ``alpha > 0`` (IP-D9), so no barotropic force enters a closed
+        face (a no-op when ``alpha == 1`` everywhere).
         """
         zonal, meridional = self._horizontal
         u, v = state["u"], state["v"]
         ps = state["ps"]
+        grad_u = ps.diff(zonal).to(u)
+        grad_v = ps.diff(meridional).to(v)
+        if self._immersed is not None:
+            grad_u = grad_u * self._face_wet_mask(u)
+            grad_v = grad_v * self._face_wet_mask(v)
         return {
-            "u": (-ps.diff(zonal).to(u)).retag(u),
-            "v": (-ps.diff(meridional).to(v)).retag(v),
+            "u": (-grad_u).retag(u),
+            "v": (-grad_v).retag(v),
         }
 
 
@@ -357,6 +451,17 @@ class ImplicitFreeSurface(_FreeSurfaceBase):
     optimal balance, IMEX-by-linearity) refuses this model and points
     at ``hy.ExplicitFreeSurface``.
 
+    **Immersed grids (IP-D9).** On a grid carrying an immersed domain
+    the depth-varying operator ``eps eta - dt'^2 div(c^2 H_tilde grad)``
+    (with the per-column normalized transport depth ``H_tilde``) is no
+    longer separable, so the solve flips from the flat
+    :class:`SpectralSolve` to a fixed-iteration
+    :class:`ConjugateGradient` (:meth:`_solve_immersed`): the SPD
+    flux-form operator, the flat mean-depth spectral inverse masked onto
+    the wet columns as preconditioner, and the V-orthogonal wet-column
+    projection for the rigid lid. The unimmersed path is unchanged
+    (:meth:`_solve`).
+
     Parameters
     ----------
     epsilon : float, optional
@@ -365,6 +470,11 @@ class ImplicitFreeSurface(_FreeSurfaceBase):
         ``1 + c^2 dt'^2 k_disc^2``, non-singular); ``0.0`` is the rigid
         lid (the singular Poisson, ``where_zero`` mean gauge). Must be
         ``>= 0`` (default: 1.0).
+    pressure_iterations : int, optional
+        The fixed PCG iteration budget of the immersed barotropic solve
+        (mirrors ``nh.Model(pressure_iterations=...)``); consumed only
+        on an immersed grid — the flat spectral solve is exact and
+        iterates nothing. Must be ``>= 1`` (default: 30).
     vertical : str, optional
         The vertical coordinate name the depth mean reduces over
         (default: ``"z"``).
@@ -394,6 +504,7 @@ class ImplicitFreeSurface(_FreeSurfaceBase):
         self,
         *,
         epsilon: float = 1.0,
+        pressure_iterations: int = 30,
         vertical: str = "z",
         horizontal: tuple[str, str] = ("x", "y"),
     ) -> None:
@@ -406,7 +517,15 @@ class ImplicitFreeSurface(_FreeSurfaceBase):
                 "epsilon is the pyOM free-surface knob: a non-negative "
                 f"real (1.0 free surface, 0.0 rigid lid), got "
                 f"{epsilon!r}")
+        if (isinstance(pressure_iterations, bool)
+                or not isinstance(pressure_iterations, int)
+                or pressure_iterations < 1):
+            raise ValueError(
+                "pressure_iterations is the fixed PCG budget of the "
+                "immersed barotropic solve (a positive int, consumed "
+                f"only on an immersed grid), got {pressure_iterations!r}")
         self._epsilon = float(epsilon)
+        self._pressure_iterations = int(pressure_iterations)
 
     # ================================================================
     #  Properties
@@ -415,6 +534,11 @@ class ImplicitFreeSurface(_FreeSurfaceBase):
     def epsilon(self) -> float:
         """The static free-surface knob (``0`` rigid lid, ``>0`` free)."""
         return self._epsilon
+
+    @property
+    def pressure_iterations(self) -> int:
+        """The fixed PCG budget of the immersed barotropic solve."""
+        return self._pressure_iterations
 
     # ================================================================
     #  Field declarations (lifecycle depends on epsilon)
@@ -511,19 +635,56 @@ class ImplicitFreeSurface(_FreeSurfaceBase):
         dt = ctx.stage_dt
         zonal, meridional = self._horizontal
         u, v = state["u"], state["v"]
-        div_bar = self._depth_mean_div(state)
+        div_bar = self._depth_mean_div(state)  # masked on a cut cell
         # RHS: eps * ps_old - dt' * c^2 * div(ubar*)  (eps=0 drops ps)
         rhs = self._epsilon * state["ps"] - dt * csqr * div_bar
-        ps_new = self._solve(rhs, csqr=csqr, dt=dt)
+        if self._immersed is None:
+            ps_new = self._solve(rhs, csqr=csqr, dt=dt)
+        else:
+            ps_new = self._solve_immersed(rhs, state, csqr=csqr, dt=dt)
         # z-uniform correction: broadcast the ConstantSpace ps gradient
-        # onto the velocity faces (the same C-grid diff the solve uses)
-        grad_x = ps_new.diff(zonal).to(u).retag(u)
-        grad_y = ps_new.diff(meridional).to(v).retag(v)
+        # onto the velocity faces (the same C-grid diff the solve uses).
+        # On an immersed grid the boolean open-face mask keeps the
+        # correction out of closed faces (alpha m = alpha, so the
+        # corrected wet transport still matches the operator solve).
+        grad_x = ps_new.diff(zonal).to(u)
+        grad_y = ps_new.diff(meridional).to(v)
+        if self._immersed is not None:
+            grad_x = grad_x * self._face_wet_mask(u)
+            grad_y = grad_y * self._face_wet_mask(v)
         return {
-            "u": u - dt * grad_x,
-            "v": v - dt * grad_y,
+            "u": u - dt * grad_x.retag(u),
+            "v": v - dt * grad_y.retag(v),
             "ps": ps_new,
         }
+
+    def _flat_spectral(
+        self, solve_space: SpaceLike, grid: Grid, *,
+        csqr: object, dt: object,
+    ) -> SpectralSolve:
+        r"""Build the flat (mean-depth) ``(eps - dt'^2 div(c^2 grad))`` solve.
+
+        Description
+        -----------
+        The honest discrete C-grid ``Div @ Diag @ Grad`` pair on the 2D
+        ``Profile`` solve space (the ConstantSpace z is dropped by the
+        transform), with ``-dt'^2 c^2`` folded into the diagonal so the
+        operator's own symbol is ``dt'^2 c^2 k_disc^2``, plus the static
+        ``epsilon`` identity, inverted through :class:`SpectralSolve`.
+        On an unimmersed grid it is the whole solve; on an immersed grid
+        it is the constant-coefficient (``H_tilde == 1``) preconditioner
+        of the variable-coefficient PCG.
+        """
+        axes = solve_space.active_axis_names
+        neg = -(dt**2) * csqr
+        grad_block = Gradient().expand(solve_space, grid)
+        mid = grad_block.codomains(solve_space)
+        div_block = Divergence().expand(mid, grid)
+        diag = Diag(dict.fromkeys(axes, neg), axes=axes)
+        laplacian = (div_block @ diag @ grad_block).scalar()
+        # + epsilon * I: 1 (Helmholtz, non-singular) or 0 (Poisson)
+        helmholtz = laplacian + Identity() * float(self._epsilon)
+        return SpectralSolve(helmholtz, grid, solve_space, where_zero=0.0)
 
     def _solve(
         self, rhs: ScalarField, *, csqr: object, dt: object,
@@ -532,15 +693,11 @@ class ImplicitFreeSurface(_FreeSurfaceBase):
 
         Description
         -----------
-        Builds the honest discrete C-grid ``Div @ Diag @ Grad`` pair on
-        the 2D ``Profile`` solve space (the ConstantSpace z is dropped
-        by the transform), folds the traced ``-dt'^2 c^2`` into the
-        diagonal so the operator's own eigenvalue symbol is
-        ``dt'^2 c^2 k_disc^2``, adds the static ``epsilon`` identity,
-        and inverts through :class:`SpectralSolve`. For ``epsilon > 0``
-        the symbol ``epsilon + dt'^2 c^2 k_disc^2`` is non-singular; for
-        ``epsilon == 0`` the sole structural zero at ``k = 0`` is the
-        Poisson null space, gauged by ``where_zero`` (the mean gauge).
+        The flat spectral solve (:meth:`_flat_spectral`): for
+        ``epsilon > 0`` the symbol ``epsilon + dt'^2 c^2 k_disc^2`` is
+        non-singular; for ``epsilon == 0`` the sole structural zero at
+        ``k = 0`` is the Poisson null space, gauged by ``where_zero``
+        (the mean gauge). The unimmersed constant-depth path.
 
         Parameters
         ----------
@@ -556,22 +713,104 @@ class ImplicitFreeSurface(_FreeSurfaceBase):
         ScalarField
             The surface pressure ``ps^{n+1}`` on ``rhs``'s space.
         """
+        solve_space: SpaceLike = rhs.function_space.bare
+        return self._flat_spectral(
+            solve_space, rhs.grid, csqr=csqr, dt=dt).solve(rhs)
+
+    def _solve_immersed(
+        self, rhs: ScalarField, state: object, *,
+        csqr: object, dt: object,
+    ) -> ScalarField:
+        r"""Invert the variable-coefficient barotropic Helmholtz (IP-D9).
+
+        Description
+        -----------
+        On an immersed grid the depth-varying operator is
+        ``eps eta - dt'^2 div(c^2 H_tilde grad eta)`` with the
+        normalized transport depth ``H_tilde_a = H_a / H`` on the
+        a-face (``H_a = int alpha_a dz`` the wet transport depth, ``H``
+        the reference depth) — derived from the discrete barotropic
+        continuity + momentum so that the ``u^{n+1} = u* - dt' grad ps``
+        correction is exactly volume-consistent, and identical to
+        :meth:`_solve` when ``H_tilde == 1``. The variable coefficient
+        breaks separability, so it flips to the CS-D2 / IP-D6 route: the
+        SPD flux-form operator built by explicit field arithmetic, a
+        fixed-iteration :class:`ConjugateGradient`, the flat mean-depth
+        spectral inverse (:meth:`_flat_spectral`) **masked onto the wet
+        columns** as the preconditioner, and — for ``epsilon == 0`` (the
+        singular rigid lid) — the V-orthogonal wet-column-mean nullspace
+        projection. ``epsilon > 0`` is non-singular (no projection). On
+        an all-wet grid the preconditioner is the exact inverse and the
+        PCG converges in ~1 iteration.
+
+        Parameters
+        ----------
+        rhs : ScalarField
+            The masked barotropic right-hand side on the ``ps`` cell.
+        state : object
+            The current state (supplies the velocity face fractions and
+            the cell fractions for the wet-column indicator).
+        csqr : object
+            The live squared-phase-speed leaf ``c^2``.
+        dt : object
+            The stage increment ``dt' = ctx.stage_dt``.
+
+        Returns
+        -------
+        ScalarField
+            The wet-column surface pressure ``ps^{n+1}``.
+        """
         grid: Grid = rhs.grid
         solve_space: SpaceLike = rhs.function_space.bare
         axes = solve_space.active_axis_names
-        # fold -dt'^2 c^2 into the metric between grad and div, so the
-        # honest discrete symbol of Div @ Diag @ Grad is +dt'^2 c^2 k^2
-        neg = -(dt**2) * csqr
-        grad_block = Gradient().expand(solve_space, grid)
-        mid = grad_block.codomains(solve_space)
-        div_block = Divergence().expand(mid, grid)
-        diag = Diag(dict.fromkeys(axes, neg), axes=axes)
-        laplacian = (div_block @ diag @ grad_block).scalar()
-        # + epsilon * I: 1 (Helmholtz, non-singular) or 0 (Poisson)
-        helmholtz = laplacian + Identity() * float(self._epsilon)
-        solve = SpectralSolve(helmholtz, grid, solve_space,
-                              where_zero=0.0)
-        return solve.solve(rhs)
+        registry = grid.dispatch
+        zonal, meridional = self._horizontal
+        vel = {zonal: state["u"], meridional: state["v"]}
+        # per-axis gradient/divergence legs (doubly-periodic horizontal:
+        # no wall Dirichlet tags) and the per-column coefficient
+        # c^2 H_tilde_a = c^2 (1/H) H_a on the a-face
+        grad: dict[str, object] = {}
+        div: dict[str, object] = {}
+        coeff: dict[str, ScalarField] = {}
+        for a in axes:
+            g = registry.resolve("diff", solve_space.factor(a))[a]
+            face = resolve_codomain(g, solve_space)
+            grad[a] = g
+            div[a] = registry.resolve("diff", face.factor(a))[a]
+            coeff[a] = self._transport_depth(vel[a]) * (
+                csqr * self._inv_depth)
+
+        def apply(ps: ScalarField) -> ScalarField:
+            out = self._epsilon * ps
+            for a in axes:
+                flux = coeff[a] * grad[a](ps)
+                out = out - (dt**2) * div[a](flux)
+            return out
+
+        spectral = self._flat_spectral(
+            solve_space, grid, csqr=csqr, dt=dt)
+        theta_col = Integral()[self._vertical](
+            self._immersed.fraction(state["p_hyd"].function_space))
+        cell_mask = (theta_col.data > 0.0).astype(dtype_real())
+        wet = rhs.with_data(cell_mask)
+        wet_measure = jnp.sum(wet.integrate().data)
+
+        def precondition(r: ScalarField) -> ScalarField:
+            z = spectral.solve(r)
+            return z.with_data(z.data * cell_mask)
+
+        def wet_projection(f: ScalarField) -> ScalarField:
+            mean = jnp.sum((wet * f).integrate().data) / wet_measure
+            return f - wet * mean
+
+        # eps > 0 is non-singular (no projection); eps == 0 (rigid lid)
+        # removes the V-orthogonal wet-column-constant nullspace
+        projection = wet_projection if self._epsilon == 0.0 else None
+        cg = ConjugateGradient(
+            apply, preconditioner=precondition,
+            iterations=self._pressure_iterations, projection=projection)
+        ps_new = cg(rhs)
+        return ps_new.with_data(ps_new.data * cell_mask)
 
 
 # ================================================================
@@ -995,12 +1234,13 @@ class SplitExplicitFreeSurface(_FreeSurfaceBase):
         ``ubar_prev = \bar u`` / ``vbar_prev = \bar v`` — the V-H4
         increment reference, read at S3'. SELF_UPDATE runs first in the
         substage (S1), so the snapshot is the depth mean **before** the
-        primary advance touches ``u, v``.
+        primary advance touches ``u, v``. On an immersed grid the mean
+        is the wet-depth mean ``(1/H_col)\int\alpha q\,dz`` (IP-D9), so
+        the increment forcing stays transport-depth consistent.
         """
-        vertical = self._vertical
         return {
-            "ubar_prev": state["u"].mean(vertical),
-            "vbar_prev": state["v"].mean(vertical),
+            "ubar_prev": self._wet_depth_mean(state["u"]),
+            "vbar_prev": self._wet_depth_mean(state["v"]),
         }
 
     def _barotropic_subcycle(
@@ -1020,12 +1260,30 @@ class SplitExplicitFreeSurface(_FreeSurfaceBase):
         """
         csqr = ctx.params[CSQR]
         dt = ctx.stage_dt
-        inv_h = self._inv_depth
         zonal, meridional = self._horizontal
         g_u, g_v = self._slow_forcing(state, ctx, dt)
         ps0 = state["ps"]
-        ubar0 = state["U"] * inv_h
-        vbar0 = state["V"] * inv_h
+        immersed = self._immersed is not None
+        if immersed:
+            # per-column transport depths H_u, H_v on the U/V faces; the
+            # barotropic velocity is U/H_col, the transport U = H_col ubar
+            # (transport-depth consistent), and the ps forward step is the
+            # volume-conserving transport divergence (1/H) div(H ubar).
+            # A land-column face (H == 0) is closed (open-face gate).
+            depth_u = self._transport_depth(state["u"])
+            depth_v = self._transport_depth(state["v"])
+            inv_u = self._guarded_inverse(depth_u)
+            inv_v = self._guarded_inverse(depth_v)
+            fmask_u = depth_u.with_data(
+                (depth_u.data > 0.0).astype(dtype_real()))
+            fmask_v = depth_v.with_data(
+                (depth_v.data > 0.0).astype(dtype_real()))
+            ubar0 = state["U"] * inv_u
+            vbar0 = state["V"] * inv_v
+        else:
+            inv_h = self._inv_depth
+            ubar0 = state["U"] * inv_h
+            vbar0 = state["V"] * inv_h
         dtau = 2.0 * dt / self._substeps
         weights = jnp.asarray(self._weights, dtype=dtype_real())
 
@@ -1034,13 +1292,21 @@ class SplitExplicitFreeSurface(_FreeSurfaceBase):
         ) -> tuple[tuple, None]:
             ps_c, ub_c, vb_c, aps, au, av = carry
             # forward: ps from the OLD barotropic-velocity divergence
-            div = ub_c.diff(zonal) + vb_c.diff(meridional)
+            if immersed:
+                div = self._inv_depth * (
+                    (depth_u * ub_c).diff(zonal)
+                    + (depth_v * vb_c).diff(meridional))
+            else:
+                div = ub_c.diff(zonal) + vb_c.diff(meridional)
             ps_n = ps_c - dtau * csqr * div
             # backward: velocity from the NEW ps + the slow forcing
-            ub_n = (ub_c - dtau * ps_n.diff(zonal).retag(ub_c)
-                    + dtau * g_u)
-            vb_n = (vb_c - dtau * ps_n.diff(meridional).retag(vb_c)
-                    + dtau * g_v)
+            grad_u = ps_n.diff(zonal).retag(ub_c)
+            grad_v = ps_n.diff(meridional).retag(vb_c)
+            if immersed:
+                grad_u = grad_u * fmask_u
+                grad_v = grad_v * fmask_v
+            ub_n = ub_c - dtau * grad_u + dtau * g_u
+            vb_n = vb_c - dtau * grad_v + dtau * g_v
             return ((ps_n, ub_n, vb_n, aps + weight * ps_n,
                      au + weight * ub_n, av + weight * vb_n), None)
 
@@ -1048,6 +1314,10 @@ class SplitExplicitFreeSurface(_FreeSurfaceBase):
                 _barotropic_zero(ubar0), _barotropic_zero(vbar0))
         (_ps, _ub, _vb, ps_avg, ubar_avg, vbar_avg), _ = jax.lax.scan(
             body, init, weights)
+        if immersed:
+            return {"ps": ps_avg, "U": ubar_avg * depth_u,
+                    "V": vbar_avg * depth_v}
+        inv_h = self._inv_depth
         return {"ps": ps_avg, "U": ubar_avg / inv_h,
                 "V": vbar_avg / inv_h}
 
@@ -1063,10 +1333,11 @@ class SplitExplicitFreeSurface(_FreeSurfaceBase):
         summed tendencies from ``ctx`` (EXPLICIT plus IMPLICIT where the
         scheme populated the forward apply) and takes their depth mean.
         """
-        vertical = self._vertical
         if self._forcing == "increment":
-            g_u = (state["u"].mean(vertical) - state["ubar_prev"]) / dt
-            g_v = (state["v"].mean(vertical) - state["vbar_prev"]) / dt
+            g_u = (self._wet_depth_mean(state["u"])
+                   - state["ubar_prev"]) / dt
+            g_v = (self._wet_depth_mean(state["v"])
+                   - state["vbar_prev"]) / dt
             return g_u, g_v
         sums = ctx.tendency_sums
         du = sums[Treatment.EXPLICIT]["u"]
@@ -1078,7 +1349,7 @@ class SplitExplicitFreeSurface(_FreeSurfaceBase):
         if implicit is not None:
             du = du + implicit["u"]
             dv = dv + implicit["v"]
-        return du.mean(vertical), dv.mean(vertical)
+        return self._wet_depth_mean(du), self._wet_depth_mean(dv)
 
     def _correct_depth_mean(
         self, state: object, ctx: StepContext,  # noqa: ARG002
@@ -1091,9 +1362,22 @@ class SplitExplicitFreeSurface(_FreeSurfaceBase):
         so the corrected depth mean is exactly ``U/H`` while the
         baroclinic shear is untouched.
         """
-        vertical = self._vertical
-        inv_h = self._inv_depth
         u, v = state["u"], state["v"]
-        du = (u.mean(vertical) - state["U"] * inv_h).to(u).retag(u)
-        dv = (v.mean(vertical) - state["V"] * inv_h).to(v).retag(v)
-        return {"u": u - du, "v": v - dv}
+        if self._immersed is None:
+            vertical = self._vertical
+            inv_h = self._inv_depth
+            du = (u.mean(vertical) - state["U"] * inv_h).to(u).retag(u)
+            dv = (v.mean(vertical) - state["V"] * inv_h).to(v).retag(v)
+            return {"u": u - du, "v": v - dv}
+        # immersed: set the wet-depth mean to the barotropic velocity
+        # U/H_col (per-column, transport-depth consistent); the z-uniform
+        # correction is gated to the open faces so it never enters a
+        # closed face (a land column stays 0: H == 0 -> U/H == 0).
+        inv_u = self._guarded_inverse(self._transport_depth(u))
+        inv_v = self._guarded_inverse(self._transport_depth(v))
+        du = (self._wet_depth_mean(u) - state["U"] * inv_u).to(u).retag(u)
+        dv = (self._wet_depth_mean(v) - state["V"] * inv_v).to(v).retag(v)
+        return {
+            "u": u - du * self._face_wet_mask(u),
+            "v": v - dv * self._face_wet_mask(v),
+        }

@@ -373,6 +373,7 @@ class HydrostaticEigenmodes(ChannelEigenmodesBase):
         barotropic_tol: float = 0.5,
     ) -> None:
         """Solve the dense eigenproblem and label the families."""
+        _reject_immersed(model)
 
         def labeler(basis: ChannelEigenbasis) -> jax.Array:
             """Run the hydrostatic family labeler."""
@@ -387,6 +388,42 @@ class HydrostaticEigenmodes(ChannelEigenmodesBase):
 # ================================================================
 #  The user surface
 # ================================================================
+def _reject_immersed(model: Model) -> None:
+    """Refuse an immersed grid: the masked eigenbasis is not tensor (IP-D9).
+
+    Description
+    -----------
+    The analytic eigenmode kit builds the flat-grid tensor eigenbasis of
+    the linear operator. On an immersed (cut-cell) grid the cut-cell
+    fractions make the masked barotropic/baroclinic operator couple
+    wavenumbers, so its eigenbasis is **not** the tensor product of the
+    flat-grid modes — probing on the tensor basis would silently ignore
+    the mask. The masked eigenmode/transform kit is a designed-for
+    refinement (immersed-partial-cells plan §7), so both
+    :class:`HydrostaticEigenmodes` and :func:`from_model` reject an
+    immersed grid rather than return an unmasked answer.
+
+    Parameters
+    ----------
+    model : Model
+        The assembled model.
+
+    Raises
+    ------
+    NotImplementedError
+        If the model's grid carries an immersed domain.
+    """
+    if getattr(getattr(model, "grid", None), "immersed", None) is not None:
+        raise NotImplementedError(
+            "hy.eigenmodes on an immersed (cut-cell) grid is not "
+            "supported: the eigenbasis of the masked hydrostatic "
+            "operator is not the flat-grid tensor basis (the cut-cell "
+            "fractions couple wavenumbers), so probing on the tensor "
+            "basis would ignore the mask. The masked eigenmode/transform "
+            "kit is a designed-for refinement (immersed-partial-cells "
+            "plan §7); drop the immersed domain for these diagnostics.")
+
+
 def from_model(
     model: Model, *, at_time: float = 0.0, chunk: int | None = None,
 ) -> HydrostaticEigenmodes:
