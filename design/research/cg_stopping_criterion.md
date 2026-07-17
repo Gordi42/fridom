@@ -217,8 +217,10 @@ the fixed budget, and the mapped-divergence-to-solver-residual gates —
 now pass `tolerance=None` / `pressure_tolerance=None` explicitly
 (`# fixed-iteration mode: pinned for determinism`). The dedicated
 tolerance regressions and the immersed tolerance-autodiff regression
-are unchanged. The mapped reverse-mode NaN (below) is untouched by the
-flip — it NaNs identically for `None` and for a firing tolerance.
+are unchanged. The mapped reverse-mode NaN (the "T4 floor trap"
+corollary above; localized to the `velocity_correction` jacobian divide
+by the multigrid B5 work — see the open-roadmap entry) is untouched by
+the flip: it NaNs identically for `None` and for a firing tolerance.
 
 GPU re-measure. Still open and running separately; its numbers will be
 appended when in (the open-roadmap "GPU re-measure" entry is owned by

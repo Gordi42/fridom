@@ -42,6 +42,8 @@ def Model(  # noqa: N802 — a factory that mirrors fr.model.Model's surface
     advection: fr.model.Module | bool = True,
     pressure_iterations: int = 30,
     pressure_tolerance: float | None = 1e-8,
+    pressure_preconditioner: str = "spectral",
+    multigrid_levels: int = 5,
     modules_extra: Sequence[fr.model.Module] = (),
     time_stepper: TimeStepper | None = None,
     dt: float = 1.0,
@@ -94,6 +96,17 @@ def Model(  # noqa: N802 — a factory that mirrors fr.model.Model's surface
         :class:`ConjugateGradient`). The default ``1e-8`` makes
         ``pressure_iterations`` the maximum budget; ``None`` is the
         opt-out that runs the fixed count (default: 1e-8).
+    pressure_preconditioner : str, optional
+        The PCG preconditioner of the fixed-iteration pressure solve
+        (B4), forwarded to the dynamical core: ``"spectral"`` (the flat
+        separable spectral inverse) or ``"multigrid"`` (the
+        semicoarsened geometric-multigrid V-cycle). Consumed on a mapped
+        or immersed grid; a flat grid uses the exact spectral solve and
+        ignores it (default: ``"spectral"``).
+    multigrid_levels : int, optional
+        The maximum multigrid level count when
+        ``pressure_preconditioner="multigrid"`` (floored on small
+        grids); ignored otherwise (default: 5).
     modules_extra : Sequence[fr.model.Module], optional
         Additional modules (tracers, closures) (default: ()).
     time_stepper : TimeStepper | None, optional
@@ -182,7 +195,9 @@ def Model(  # noqa: N802 — a factory that mirrors fr.model.Model's surface
         DynamicalCore(dsqr=dsqr, rossby_number=rossby_number,
                       single_precision_solve=single_precision_solve,
                       pressure_iterations=pressure_iterations,
-                      pressure_tolerance=pressure_tolerance),
+                      pressure_tolerance=pressure_tolerance,
+                      pressure_preconditioner=pressure_preconditioner,
+                      multigrid_levels=multigrid_levels),
     ]
     # rotation is opt-in: coriolis=None installs no module at all
     if coriolis is not None:

@@ -85,19 +85,78 @@ import jax
 import jax.numpy as jnp
 
 from fridom.framework.utils import dtype_real
+from fridom.nonhydro2.modules.multigrid_hierarchy import coarsen_levels
 from fridom.nonhydro2.modules.pressure import (
     _dirichlet_mid,
     build_flat_spectral_solve,
 )
+from fridom.spatial.fields.storage import factor_axes
 from fridom.spatial.operators.base import resolve_codomain
 from fridom.spatial.operators.krylov import ConjugateGradient
+from fridom.spatial.operators.multigrid import (
+    MultigridLevel,
+    MultigridVCycle,
+    VerticalBands,
+    VerticalLineJacobi,
+)
+from fridom.spatial.operators.staggering import uniform_spacing
 
 if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Callable, Mapping
 
+    import jax
+
     from fridom.spatial.fields.scalar_field import ScalarField
     from fridom.spatial.operators.base import Operator
     from fridom.spatial.spaces.tensor_product import SpaceLike
+
+#: the accepted ``preconditioner=`` choices (B3/B4)
+_PRECONDITIONERS = ("spectral", "multigrid")
+#: the vertical-line smoother damping of the multigrid V-cycle (B0
+#: spike optimum; omega = 1 diverges)
+_LINE_OMEGA = 0.8
+
+
+# ================================================================
+#  Diagonal / band assembly helper (measure-free; storage frame)
+# ================================================================
+def _adjacent_face_sum(
+    data: jax.Array, axis: int, *, periodic: bool,
+) -> jax.Array:
+    r"""
+    Sum the two face fractions adjacent to each cell along ``axis``.
+
+    Description
+    -----------
+    The ``alpha_{f-} + alpha_{f+}`` cell field of a flux leg: a
+    periodic axis wraps (``roll`` — the ``GridTransfer`` neighbor-access
+    pattern, GSPMD-lowered), a bounded axis drops the wall faces by
+    zero-padding the ``Inner`` face array to the cell count (the
+    Neumann boundary rows). ``face c`` lies at ``c + 1/2`` (the right
+    face of cell ``c``, the left face of cell ``c + 1``).
+
+    Parameters
+    ----------
+    data : jax.Array
+        The face-fraction array (storage frame).
+    axis : int
+        The storage-frame axis of the differenced coordinate.
+    periodic : bool
+        Whether the axis wraps.
+
+    Returns
+    -------
+    jax.Array
+        The adjacent-face sum on the cell axis (length ``n_cells``).
+    """
+    if periodic:
+        return data + jnp.roll(data, 1, axis=axis)
+    edge = list(data.shape)
+    edge[axis] = 1
+    zeros = jnp.zeros(edge, dtype=data.dtype)
+    right = jnp.concatenate([data, zeros], axis=axis)
+    left = jnp.concatenate([zeros, data], axis=axis)
+    return right + left
 
 
 class ImmersedPressureSolver:
@@ -140,11 +199,26 @@ class ImmersedPressureSolver:
         CG iterates, the operator and the inner products stay
         ``float64`` (mixed-precision PCG); forwarded to
         :func:`build_flat_spectral_solve` (default: False).
+    preconditioner : str, optional
+        The PCG preconditioner (B3/B4): ``"spectral"`` (the wet-masked
+        flat spectral inverse) or ``"multigrid"`` (the geometric-
+        multigrid V-cycle assembled by :meth:`_build_vcycle`,
+        semicoarsening the horizontal axes with vertical line smoothing
+        and the per-level wet-mean projection). Any other value raises
+        ``ValueError`` (default: ``"spectral"``).
+    multigrid_levels : int, optional
+        The **maximum** number of multigrid levels when
+        ``preconditioner="multigrid"``; the builder floors every
+        horizontal axis at four cells and stops at indivisibility, so
+        the realized count is smaller on a small grid (a grid too small
+        for any coarsening degrades to a one-level, smoothing-only
+        cycle). Ignored for the spectral preconditioner (default: 5).
 
     Raises
     ------
     ValueError
-        If the grid carries no immersed domain.
+        If the grid carries no immersed domain, or ``preconditioner``
+        is not a known choice.
     NotImplementedError
         If the grid also declares a mapped column (mapped + immersed
         is a designed-for composition, plan §6).
@@ -160,8 +234,16 @@ class ImmersedPressureSolver:
         iterations: int,
         tolerance: float | None = 1e-8,
         single_precision: bool = False,
+        preconditioner: str = "spectral",
+        multigrid_levels: int = 5,
     ) -> None:
         """Resolve the flux rows and fetch the fraction fields."""
+        if preconditioner not in _PRECONDITIONERS:
+            raise ValueError(
+                f"preconditioner must be one of {_PRECONDITIONERS}, got "
+                f"{preconditioner!r}")
+        self._preconditioner_kind = preconditioner
+        self._multigrid_levels = multigrid_levels
         immersed = getattr(grid, "immersed", None)
         if immersed is None:
             raise ValueError(
@@ -254,6 +336,21 @@ class ImmersedPressureSolver:
     def tolerance(self) -> float | None:
         """The optional PCG convergence break (None = fixed count)."""
         return self._tolerance
+
+    @property
+    def projection(self) -> Callable[[ScalarField], ScalarField]:
+        r"""
+        The wet-region-constant nullspace projection (V-orthogonal).
+
+        Description
+        -----------
+        The bound :meth:`_projection` — ``f - (int_wet V f / int_wet V)
+        e`` with ``e = (theta > 0)`` — exposed so the multigrid V-cycle
+        can install **this level's own** wet-mean on the restricted
+        residual (each coarse level re-derives its ``e`` from the coarse
+        fractions, MG-D6).
+        """
+        return self._projection
 
     # ================================================================
     #  The operator, its right-hand side, and the velocity update
@@ -364,6 +461,100 @@ class ImmersedPressureSolver:
             for a in self._axes}
 
     # ================================================================
+    #  Smoothing surfaces (multigrid, B1)
+    # ================================================================
+    def _axis_storage(self) -> dict[str, int]:
+        """Map each coordinate name to its storage-frame array axis."""
+        return {factor.names[0]: axis
+                for factor, axis in factor_axes(self._space)}
+
+    def diagonal(self) -> ScalarField:
+        r"""
+        Return the exact diagonal of ``apply`` on the pressure space.
+
+        Description
+        -----------
+        The masked cut-cell operator has no cross terms, so its
+        diagonal is exactly ``-sum_a (alpha_{f-} + alpha_{f+})/h_a^2``
+        (the vertical leg scaled ``1/dsqr``), derived from the open-area
+        face fractions ``_alpha`` (:func:`_adjacent_face_sum`, wall
+        drops on bounded axes). Dry cells fall out as an exact zero
+        diagonal (a face touching a dry cell has ``alpha = 0`` under the
+        min rule) — **not** special-cased here; the smoothers guard the
+        zero (module docstring, plan §B1).
+
+        Returns
+        -------
+        ScalarField
+            The diagonal field on the pressure space.
+        """
+        storage = self._axis_storage()
+        diagonal: jax.Array | None = None
+        for a in self._axes:
+            h = uniform_spacing(self._space.factor(a))
+            periodic = bool(getattr(
+                self._space.factor(a).mesh, "periodic", False))
+            weight = (1.0 / self._dsqr) if a == self._vertical else 1.0
+            leg = -weight * _adjacent_face_sum(
+                self._alpha[a].data, storage[a],
+                periodic=periodic) / (h * h)
+            diagonal = leg if diagonal is None else diagonal + leg
+        template = self._grid.create_field(self._space)
+        return template.with_data(
+            jnp.broadcast_to(diagonal, template.data.shape))
+
+    def vertical_bands(self) -> VerticalBands:
+        r"""
+        Return the per-column tridiagonal ``T`` for line relaxation.
+
+        Description
+        -----------
+        The symmetric tridiagonal of the vertical-line smoother: ``diag``
+        is the full operator diagonal (:meth:`diagonal`), and — with no
+        cross terms — the off-diagonals are the **exact** vertical flux
+        leg ``+alpha_{z-face}/(dsqr dz^2)`` with the Neumann ends zeroed
+        (``lower[c]`` couples cell ``c`` to ``c-1``, ``upper[c]`` to
+        ``c+1``; symmetric by ``lower[c] == upper[c-1]``). Dry columns
+        carry a zero diagonal and zero bands; the smoother substitutes
+        ``diag -> 1`` there.
+
+        Returns
+        -------
+        VerticalBands
+            The ``(lower, diag, upper, axis)`` bands on the pressure
+            space.
+
+        Raises
+        ------
+        NotImplementedError
+            If the vertical axis is periodic (line smoothing needs a
+            bounded, non-cyclic column).
+        """
+        vertical = self._vertical
+        mesh = self._space.factor(vertical).mesh
+        if getattr(mesh, "periodic", False):
+            raise NotImplementedError(
+                "vertical-line bands need a bounded (Neumann) vertical "
+                f"column; the {vertical!r} axis is periodic")
+        storage = self._axis_storage()
+        z_axis = storage[vertical]
+        dz = uniform_spacing(self._space.factor(vertical))
+        alpha_z = self._alpha[vertical].data
+        scale = 1.0 / (self._dsqr * dz * dz)
+        edge = list(alpha_z.shape)
+        edge[z_axis] = 1
+        zeros = jnp.zeros(edge, dtype=alpha_z.dtype)
+        lower_data = jnp.concatenate(
+            [zeros, alpha_z], axis=z_axis) * scale
+        upper_data = jnp.concatenate(
+            [alpha_z, zeros], axis=z_axis) * scale
+        diag = self.diagonal()
+        shape = diag.data.shape
+        lower = diag.with_data(jnp.broadcast_to(lower_data, shape))
+        upper = diag.with_data(jnp.broadcast_to(upper_data, shape))
+        return VerticalBands(lower, diag, upper, z_axis)
+
+    # ================================================================
     #  The preconditioned, wet-mean-projected solve
     # ================================================================
     def _projection(self, f: ScalarField) -> ScalarField:
@@ -414,11 +605,52 @@ class ImmersedPressureSolver:
 
         return masked
 
+    def _build_vcycle(self) -> MultigridVCycle:
+        r"""
+        Assemble the semicoarsened multigrid V-cycle preconditioner.
+
+        Description
+        -----------
+        The ``preconditioner="multigrid"`` seam (B3, MG-D4/D6/D8): the
+        horizontal axes semicoarsen (never the bounded ``vertical``
+        column), each level re-instantiates this solver class on its
+        coarse grid so the cut-cell fractions **re-derive** on the
+        coarse spaces (MG-D6 re-quadrature), the transfers are the
+        order-2 ``GridTransfer`` pair, the smoother is vertical-line
+        Jacobi at :data:`_LINE_OMEGA`, and every level projects out its
+        **own** wet-region constant (the V-orthogonal wet-mean computed
+        from that level's re-derived fractions). The finest level
+        re-uses ``self``.
+
+        Returns
+        -------
+        MultigridVCycle
+            The V-cycle callable for the ``preconditioner=`` seam.
+        """
+        chain = coarsen_levels(
+            self._grid, self._space, vertical=self._vertical,
+            max_levels=self._multigrid_levels)
+        levels: list[MultigridLevel] = []
+        for index, (grid, space, transfer) in enumerate(chain):
+            solver = self if index == 0 else ImmersedPressureSolver(
+                grid, space, vertical=self._vertical, dsqr=self._dsqr,
+                iterations=self._iterations,
+                single_precision=self._single_precision)
+            smoother = VerticalLineJacobi(
+                solver.vertical_bands(), omega=_LINE_OMEGA)
+            levels.append(MultigridLevel(
+                solver.apply, smoother, solver.projection, transfer))
+        return MultigridVCycle(tuple(levels))
+
     def krylov(self) -> ConjugateGradient:
         """Build the configured PCG solver (public for diagnostics)."""
+        if self._preconditioner_kind == "multigrid":
+            preconditioner = self._build_vcycle()
+        else:
+            preconditioner = self._preconditioner()
         return ConjugateGradient(
             self.apply,
-            preconditioner=self._preconditioner(),
+            preconditioner=preconditioner,
             iterations=self._iterations,
             tolerance=self._tolerance,
             projection=self._projection)
