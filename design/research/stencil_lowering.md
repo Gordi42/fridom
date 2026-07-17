@@ -419,11 +419,57 @@ and the HaloTracer delegation.
   parity on both C-grid directions, both orders, periodic + z-walled,
   the v=0 tie), the existing weno/advection suites, and the A/B record
   [`stencil_lowering/microbench/phase3/IMPLEMENTATION_AB.md`](stencil_lowering/microbench/phase3/IMPLEMENTATION_AB.md).
-  Still open: multi-host (`srun -n P`) confirmation of the walled path,
+  **Multi-host validation closed 2026-07-17** (see below). Still open:
   re-running the Oceananigans comparison, and the forced-4 knife-edge
   divergence test that the kernel-shape roundoff now also tips for
   `weno5` (report, do not retune — a pre-existing `upwind5` knife-edge
   fails identically on the parent).
+
+  **Multi-host (`srun -n 4`) confirmation of the walled selected path
+  — 2026-07-17, dev `361c3133`, 4× A100-SXM4-80GB (DKRZ).** The
+  selected-input walled reconstruction had only ever run under
+  single-controller forced-4 GSPMD; this closes the real multi-process
+  gap (4 OS processes, 1 GPU each). Config: nonhydro2, `dsqr=0.25`,
+  f-plane, `WENOAdvection(order=5)`, `pressure_iterations=30`, smooth
+  C-∞ IC (`u=sin x cos y`, vanishing at the x-walls; no fronts, so off
+  the kernel-shape knife edge), 30 steps. Grid `64×66×66`: x **walled**
+  and `64%4==0` (rank-1 shardable); y,z periodic but `66%4!=0`
+  (rank-2), so the staggering-cost order demotes them and the default
+  layout shards the **walled x axis** — the strongest test, the graded
+  near-wall ladder's halo now crossing process boundaries. Each rank
+  asserted the path active: `WENOAdvection` order 5, `_walled==("x",)`,
+  `_selected` is `_SelectedFaceReconstruction` with `boundary=="graded"`,
+  and `default_layout` shards `x`. Launch (worktree root):
+
+      JAX_PLATFORMS=cuda XLA_FLAGS=--xla_disable_hlo_passes=multi_output_fusion \
+        timeout 900 srun -l -n 4 --gpu-bind=none .venv/bin/python driver.py multi out.npz
+
+  (`jax.distributed.initialize()` runs before importing fridom; the
+  bare SLURM auto-detect coordinator segfaulted binding `[::]` on this
+  node, so init is explicit — `coordinator_address="localhost:<port>"`,
+  `num_processes`/`process_id`/`local_device_ids` from SLURM, one GPU
+  per local rank). Reference: the same config single-process on **one
+  device** (`CUDA_VISIBLE_DEVICES=0`, no sharding). Clean completion:
+  exit 0, all 4 ranks stepped, all fields finite, no hang/crash (the
+  trailing `WatchTasksAsync CANCELLED` lines are benign coordination-
+  service teardown after every rank printed DONE). State gathered per
+  rank via `process_allgather(field.data, tiled=True)`; rank 0 saved
+  the npz. Multi-process vs 1-device reference, allclose(rtol=1e-9,
+  atol=1e-11) passes every prognostic field:
+
+  | field | shape        | max abs   | max abs / field scale |
+  |-------|--------------|-----------|-----------------------|
+  | u     | (63, 66, 66) | 1.44e-15  | 2.6e-15               |
+  | v     | (64, 66, 66) | 2.33e-15  | 2.9e-15               |
+  | w     | (64, 66, 66) | 1.03e-15  | 3.7e-15               |
+  | b     | (64, 66, 66) | 5.90e-16  | 5.2e-15               |
+
+  Machine-precision agreement (worst 2.3e-15): pure sharded-vs-serial
+  reduction-order roundoff over 30 steps including the CG pressure
+  solve — WENO's nonlinear weights did **not** amplify it away from the
+  f64 floor on the smooth IC, as the knife-edge note warned they could
+  on a sharp one. The distributed walled selected-input path is
+  correct.
 - The single-pass flux-recompute trade (lever 7) — worth a probe
   when attacking transient memory.
 - Whether a per-point sign-branched Pallas kernel could beat the

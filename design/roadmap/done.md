@@ -358,9 +358,14 @@ Implementation record:
   single-divide weights (real-step temp blowup, 512³ OOM), f32 weights
   (net loss stacked on selected-input), linear-upwind one-path
   spellings (micro win reverses to +4–6% real), and the
-  conv/tap-loop/per-point-kernel rewrites. Follow-ups (comparison
-  re-run, multi-host confirmation, the forced-4 knife-edge test) stay
-  in [`open.md`](open.md). Records:
+  conv/tap-loop/per-point-kernel rewrites. Multi-host validation closed
+  2026-07-17: a real `srun -n 4 --gpu-bind=none` launch (walled-**and**-
+  sharded x, weno5, 30 steps, fusion workaround set) matched the
+  single-device serial reference to machine precision (max abs 2.3e-15,
+  ≤5.2e-15 of field scale — sharded-vs-serial reduction roundoff), with
+  the selected-input walled path asserted active on the sharded axis.
+  Remaining follow-ups (comparison re-run, the forced-4 knife-edge test)
+  stay in [`open.md`](open.md). Records:
   [`../research/stencil_lowering.md`](../research/stencil_lowering.md),
   A/B in
   [`../research/stencil_lowering/microbench/phase3/IMPLEMENTATION_AB.md`](../research/stencil_lowering/microbench/phase3/IMPLEMENTATION_AB.md).
