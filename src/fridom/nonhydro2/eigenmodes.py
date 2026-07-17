@@ -1137,6 +1137,14 @@ def from_model(
         or the labeled channel eigenmodes (one bounded horizontal
         axis).
     """
+    if getattr(model.grid, "immersed", None) is not None:
+        raise NotImplementedError(
+            "nonhydro eigenmodes do not serve immersed (cut-cell) "
+            "grids: the eigenbasis of the masked cut-cell operator is "
+            "not the tensor-product basis the analytic / channel "
+            "engines diagonalize (immersed-partial-cells plan, IP-D8) "
+            "— the masked spectrum is designed-for. Use an unimmersed "
+            "grid for eigenmode analysis and from_model transforms.")
     bounded = _bounded_names(model.grid)
     if len(bounded) > 1:
         raise ValueError(

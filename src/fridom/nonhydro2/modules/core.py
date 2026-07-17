@@ -28,6 +28,9 @@ import fridom as fr
 from fridom.framework.utils import jaxify
 from fridom.model.modules.moving_geometry import mapping_params
 from fridom.nonhydro2.diagnostics import DIAGNOSTICS
+from fridom.nonhydro2.modules.immersed_pressure import (
+    ImmersedPressureSolver,
+)
 from fridom.nonhydro2.modules.mapped_pressure import (
     MappedPressureSolver,
 )
@@ -67,21 +70,22 @@ def _fv_capable(grid: Grid) -> bool:
 
     Description
     -----------
-    The finite-volume nonhydro model serves periodic, walled *and*
-    (stage F5) mapped terrain-following grids at 2nd order (scoping
-    study §5 FV-D3, §11 FV-D4, §4 mapped_pressure): periodic axes
-    stagger on the ``Right`` face, walled axes on the Neumann-
-    ``CellAvg`` / Dirichlet-``Inner`` origins, and a mapped column runs
-    the family-aware :class:`MappedPressureSolver`. The **auto** default
-    nonetheless stays nodal on a mapped grid: on a genuine terrain the
-    FV and nodal discretizations are *different numbers* (no bitwise
-    parity, unlike the flat/walled retag), so flipping the mapped
-    default is an owner decision, not something a capability predicate
-    takes. ``_fv_capable`` therefore excludes mapped (auto = FV iff
-    unmapped and unimmersed, the 2026-07-16 ruling) even though explicit
-    ``family="fv"`` is now served there (:func:`_require_fv_capable`
-    rejects **immersed only**). Cut-cell (immersed) FV remains out of
-    scope by decision (scoping §9).
+    The finite-volume nonhydro model serves periodic, walled, mapped
+    terrain-following *and* (stage I2, IP-D7) immersed cut-cell grids at
+    2nd order: periodic axes stagger on the ``Right`` face, walled axes
+    on the Neumann-``CellAvg`` / Dirichlet-``Inner`` origins, a mapped
+    column runs the family-aware :class:`MappedPressureSolver`, and an
+    immersed grid runs the masked :class:`ImmersedPressureSolver`
+    (fractions as volume/area weights — immersed physics *is*
+    finite-volume). The **auto** default nonetheless stays nodal on a
+    mapped grid: on a genuine terrain the FV and nodal discretizations
+    are *different numbers* (no bitwise parity, unlike the flat/walled
+    retag), so flipping the mapped default is an owner decision, not
+    something a capability predicate takes. ``_fv_capable`` therefore
+    excludes only mapped grids (auto = FV iff unmapped, the IP-D7
+    ruling), while an **immersed** grid *does* auto-flip to FV — the
+    nodal path silently ignores the mask, so nodal is the wrong default
+    there.
 
     Parameters
     ----------
@@ -91,31 +95,25 @@ def _fv_capable(grid: Grid) -> bool:
     Returns
     -------
     bool
-        True iff the grid is unmapped and unimmersed (periodic or
-        walled) — the grids whose FV C-grid is bitwise the nodal one.
+        True iff the grid is unmapped (periodic, walled or immersed) —
+        the grids whose FV C-grid auto default is safe.
     """
-    if getattr(grid, "mapping", None) is not None:
-        return False
-    return getattr(grid, "immersed", None) is None
+    return getattr(grid, "mapping", None) is None
 
 
 def _require_fv_capable(grid: Grid) -> None:
     """
-    Raise the FV-deferral taught error on a mapped/immersed grid.
+    Raise the FV-deferral taught error on a mapped + immersed grid.
 
     Description
     -----------
-    Explicit ``family="fv"`` (or a ``Grid(family="fv")`` default) on a
-    grid the FV C-grid cannot serve is a taught error, never a silent
-    fallback to nodal. Walled (bounded) grids are served (stage F4):
-    the pressure DCT-II runs on the Neumann-tagged ``CellAvg`` origin
-    exactly as the nodal model runs on Neumann ``Center``. Mapped
-    (terrain-following) grids are served (stage F5): the projection
-    routes to the family-aware :class:`MappedPressureSolver` and
-    ``CenteredAdvection`` transports a ``CellAvg`` tracer in
-    conservative J-weighted flux form. Only **immersed** (cut-cell)
-    grids remain out of scope — cut-cell FV is a deliberate
-    non-goal (scoping §9), not a deferral.
+    Explicit ``family="fv"`` (or a ``Grid(family="fv")`` default) is
+    served on periodic, walled (stage F4), mapped terrain-following
+    (stage F5) *and* immersed cut-cell (stage I2) grids — the FV C-grid
+    covers every geometry iteration 2 supports. The one combination it
+    does not is a grid that declares **both** a mapped column and an
+    immersed domain (plan §6, a designed-for composition): a taught
+    error, never a silent unmasked or unmapped run.
 
     Parameters
     ----------
@@ -125,18 +123,54 @@ def _require_fv_capable(grid: Grid) -> None:
     Raises
     ------
     NotImplementedError
-        If the grid is immersed.
+        If the grid declares both a mapped column and an immersed
+        domain.
+    """
+    mapping = getattr(grid, "mapping", None)
+    mapped_column = mapping is not None and bool(
+        getattr(mapping, "column_corrections", None))
+    if mapped_column and getattr(grid, "immersed", None) is not None:
+        raise NotImplementedError(
+            "family='fv' on a grid that declares both a terrain-"
+            "following mapped column and an immersed domain is a "
+            "designed-for composition (immersed-partial-cells plan §6): "
+            "the mapped PCG and the masked PCG are not yet composed. "
+            "Use one geometry or the other.")
+
+
+def _require_nodal_capable(grid: Grid) -> None:
+    """
+    Raise the nodal-deferral taught error on an immersed grid (IP-D7).
+
+    Description
+    -----------
+    Immersed physics is finite-volume: the cut-cell fractions are the
+    volume/area weights of the masked divergence, operator and flux
+    forms, and the nodal (point-value) path never consults them — a
+    nodal immersed run is silently **unmasked**. So explicit
+    ``family="nodal"`` on an immersed grid is a taught error (strictly
+    better than the pre-I2 silent unmasked nodal run), never a fallback.
+
+    Parameters
+    ----------
+    grid : Grid
+        The assembled grid.
+
+    Raises
+    ------
+    NotImplementedError
+        If the grid carries an immersed domain.
     """
     if getattr(grid, "immersed", None) is None:
         return
     raise NotImplementedError(
-        "family='fv' is the finite-volume nonhydro model (FV-D2 "
-        "option A: scalars on CellAvg, velocities on the C-grid "
-        "faces), which serves periodic, walled and mapped terrain-"
-        "following grids but not immersed (cut-cell) ones: this grid "
-        "carries an immersed domain, and cut-cell FV is out of scope "
-        "by decision (scoping study §9). Keep this model "
-        "family='nodal' (the validated immersed path).")
+        "family='nodal' on an immersed grid ignores the mask: immersed "
+        "physics is finite-volume — the cut-cell fractions are the "
+        "volume/area weights of the masked pressure solve and the "
+        "flux-form advection, which the nodal path never consults, so a "
+        "nodal immersed run is silently unmasked. Use family='fv' (the "
+        "auto default on an immersed grid, stage I2) or drop the "
+        "immersed domain.")
 
 
 def fv_cgrid_overrides(
@@ -234,13 +268,19 @@ def resolve_model_family(family: str | None, grid: Grid) -> str:
     finite-volume by default, safe because the 2nd-order stencils are
     bit-identical to nodal (scoping study §1; the walled solve is
     eager-bitwise, ≤1.2e-14 jitted, §11). The auto default stays
-    ``"nodal"`` on a **mapped** or **immersed** grid (owner ruling
-    2026-07-16: FV auto iff unmapped and unimmersed) — on a genuine
-    terrain FV and nodal are different numbers, so the mapped default
-    flip is an owner decision, not an auto promotion. An **explicit**
-    ``"fv"`` is served on periodic, walled and mapped terrain-following
-    grids (stages F4, F5); only an **immersed** grid rejects it, a
-    taught error (cut-cell FV is out of scope, scoping §9).
+    ``"nodal"`` only on a **mapped** grid (owner ruling 2026-07-16:
+    FV auto iff unmapped) — on a genuine terrain FV and nodal are
+    different numbers, so the mapped default flip is an owner
+    decision, not an auto promotion. An **immersed** grid *does*
+    auto-flip to FV (stage I2): immersed physics is finite-volume and
+    the nodal path silently ignores the mask, so FV is the right
+    default there. An **explicit** ``"fv"`` is served on periodic,
+    walled, mapped terrain-following *and* immersed cut-cell grids
+    (stages F4, F5, I2); only a grid that declares **both** a mapped
+    column and an immersed domain rejects it (the mapped and masked
+    PCGs are not yet composed, plan §6). An explicit ``"nodal"`` on
+    an immersed grid is likewise a taught error (the mask is FV-only,
+    IP-D7).
 
     Parameters
     ----------
@@ -271,6 +311,8 @@ def resolve_model_family(family: str | None, grid: Grid) -> str:
             f"(auto), got {family!r}")
     if family == "fv":
         _require_fv_capable(grid)
+    else:
+        _require_nodal_capable(grid)
     return family
 
 
@@ -307,10 +349,11 @@ class DynamicalCore(fr.model.Module):
         carries the reduced round-off of the affected pipeline, an
         opt-in accuracy trade (default: False).
     pressure_iterations : int, optional
-        The fixed PCG iteration budget of the mapped pressure solve
-        (CS-D2); consumed only on a grid whose coordinate mapping
-        declares a mapped column — the flat spectral solve is exact
-        and iterates nothing (default: 30).
+        The fixed PCG iteration budget of the fixed-iteration pressure
+        solve (CS-D2); consumed on a grid whose coordinate mapping
+        declares a mapped column *and* on an immersed (cut-cell) grid
+        — both run the fixed-iteration PCG. The flat spectral solve is
+        exact and iterates nothing (default: 30).
     family : str | None, optional
         The discretization family of the whole core state (FV-D3,
         stage F3): ``"fv"`` declares ``u, v, w, p`` on the
@@ -320,10 +363,11 @@ class DynamicalCore(fr.model.Module):
         average family; ``"nodal"`` is the point-value C-grid. ``None``
         defers to the grid-level default (``grid.default_family``), so
         an explicitly assembled core follows the grid. The
-        ``nh.Model`` factory resolves the flip (any unmapped,
-        unimmersed grid — periodic or walled — promotes ``None`` to
-        ``"fv"``); an explicit ``"fv"`` on a mapped or immersed grid
-        is a taught error (default: None).
+        ``nh.Model`` factory resolves the flip (any unmapped grid —
+        periodic, walled or immersed — promotes ``None`` to ``"fv"``);
+        an explicit ``"fv"`` on a grid with both a mapped column and
+        an immersed domain, or an explicit ``"nodal"`` on an immersed
+        grid, is a taught error (default: None).
     """
 
     state_type = State
@@ -413,8 +457,9 @@ class DynamicalCore(fr.model.Module):
         The family resolves as the declarations do —
         ``self._family`` or the grid default — so the profile is on
         exactly the grids whose ``u, v, w, p`` landed on ``CellAvg``.
-        An FV family on a non-capable (walled / mapped / immersed)
-        grid is a taught error here, never a silent nodal fallback.
+        An FV family on a non-capable grid — one that declares both a
+        mapped column and an immersed domain — is a taught error here,
+        never a silent nodal fallback.
 
         Parameters
         ----------
@@ -493,14 +538,17 @@ class DynamicalCore(fr.model.Module):
 
         On a grid whose coordinate mapping declares a mapped column
         (terrain-following / boundary-fitted, stage C3) the whole
-        stage routes to :meth:`_project_mapped`; a flat/unmapped
-        grid takes exactly the code path below (zero behavior
-        change).
+        stage routes to :meth:`_project_mapped`; on an immersed
+        (cut-cell) grid it routes to :meth:`_project_immersed` (stage
+        I2); a flat/unmapped/unimmersed grid takes exactly the code
+        path below (zero behavior change).
         """
         grid = state["u"].grid
         mapping = getattr(grid, "mapping", None)
         if mapping is not None and mapping.column_corrections:
             return self._project_mapped(state, ctx)
+        if getattr(grid, "immersed", None) is not None:
+            return self._project_immersed(state, ctx)
         dsqr = ctx.params[DSQR]
         vel = VectorField({
             "u": state["u"], "v": state["v"], "w": state["w"]})
@@ -570,6 +618,50 @@ class DynamicalCore(fr.model.Module):
         # solve and correction share the solver's per-solve memo (it
         # dies with the call, so the next step re-derives at the new
         # geometry — MappedPressureSolver.project)
+        p, corr = solver.project(vel)
+        return {
+            "u": state["u"] - corr["x"].retag(state["u"]),
+            "v": state["v"] - corr["y"].retag(state["v"]),
+            "w": state["w"] - corr[self._vertical].retag(state["w"]),
+            "p": p / ctx.stage_dt,
+        }
+
+    def _project_immersed(
+        self, state: State, ctx: StepContext,
+    ) -> dict[str, object]:
+        r"""Project on an immersed (cut-cell) grid (stage I2, IP-D6).
+
+        Description
+        -----------
+        The masked twin of :meth:`_project`: the divergence, the
+        cut-cell elliptic operator, and the gradient subtraction all
+        come from one :class:`ImmersedPressureSolver` — the
+        full-volume-scaled masked divergence, the SPD open-area-weighted
+        Poisson operator solved by fixed-iteration PCG (the wet-masked
+        flat spectral inverse preconditions, projected onto the
+        wet-region-constant nullspace), and the boolean-masked velocity
+        corrections, so the projection removes exactly the masked
+        divergence the operator measures (to the CG residual). The
+        stored diagnostic keeps the ``p = phi / ctx.stage_dt``
+        normalization and is masked to zero under the topography; the
+        vertical weight ``1/dsqr`` rides the solver's own vertical leg.
+        A ``MaskState`` CONSTRAINT stage (added by the factory) keeps
+        the dry velocity DOFs dead against the other tendency modules.
+        """
+        dsqr = ctx.params[DSQR]
+        grid = state["u"].grid
+        vel = {
+            "x": state["u"],
+            "y": state["v"],
+            self._vertical: state["w"],
+        }
+        solver = ImmersedPressureSolver(
+            grid,
+            state["p"].function_space,
+            vertical=self._vertical,
+            dsqr=dsqr,
+            iterations=self._pressure_iterations,
+            single_precision=self._single_precision_solve)
         p, corr = solver.project(vel)
         return {
             "u": state["u"] - corr["x"].retag(state["u"]),

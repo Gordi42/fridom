@@ -80,10 +80,11 @@ def Model(  # noqa: N802 — a factory that mirrors fr.model.Model's surface
         ``CenteredAdvection()``, ``False`` omits advection (a linear
         model), and a module instance is used as given (default: True).
     pressure_iterations : int, optional
-        The fixed PCG iteration budget of the mapped pressure solve,
-        forwarded to the dynamical core; consumed only on a
-        coordinate-mapped grid (the flat spectral solve is exact and
-        iterates nothing) (default: 30).
+        The fixed PCG iteration budget of the fixed-iteration pressure
+        solve, forwarded to the dynamical core; consumed on a
+        coordinate-mapped grid *and* on an immersed (cut-cell) grid
+        (both run the fixed-iteration PCG). The flat spectral solve is
+        exact and iterates nothing (default: 30).
     modules_extra : Sequence[fr.model.Module], optional
         Additional modules (tracers, closures) (default: ()).
     time_stepper : TimeStepper | None, optional
@@ -103,18 +104,21 @@ def Model(  # noqa: N802 — a factory that mirrors fr.model.Model's surface
         F3): ``"fv"`` is the finite-volume C-grid (scalars on
         ``CellAvg``, velocities on the faces — FV-D2 option A),
         ``"nodal"`` the point-value C-grid. ``None`` is the auto
-        default: **``"fv"`` on any unmapped, unimmersed grid (periodic
-        or walled), ``"nodal"`` otherwise** — so a plain periodic or
-        walled nonhydro model is finite-volume by default, at bitwise
-        parity with the nodal model (scoping study §1; the walled
-        solve is eager-bitwise, ≤1.2e-14 jitted, §11). The family
+        default: **``"fv"`` on any unmapped grid (periodic, walled or
+        immersed), ``"nodal"`` on a mapped grid** — so a plain
+        periodic or walled nonhydro model is finite-volume by default,
+        at bitwise parity with the nodal model (scoping study §1; the
+        walled solve is eager-bitwise, ≤1.2e-14 jitted, §11), and an
+        immersed grid runs the masked FV path (stage I2). The family
         threads to every field (``u, v, w, p`` and the default
         stratification's ``b``) and seeds the FV C-grid ``diff``
         profile — on a walled grid the pressure DCT-II runs on the
-        Neumann ``CellAvg`` origin (stage F4). Only a mapped or
-        immersed grid stays nodal by default and rejects an explicit
-        ``"fv"`` as a taught error (mapped / cut-cell FV is stage F5)
-        (owner ruling 2026-07-16) (default: None).
+        Neumann ``CellAvg`` origin (stage F4). Only a mapped grid
+        stays nodal by default; an immersed grid auto-flips to FV and
+        rejects an explicit ``"nodal"`` (the mask is FV-only, IP-D7),
+        while a grid with both a mapped column and an immersed domain
+        rejects an explicit ``"fv"`` (owner ruling 2026-07-16)
+        (default: None).
     name : str | None, optional
         Model name (default: None).
     **kwargs : object
@@ -126,14 +130,16 @@ def Model(  # noqa: N802 — a factory that mirrors fr.model.Model's surface
         The assembled model.
     """
     # resolve the model family against the grid and adopt it as the
-    # grid's default (auto-flip: any unmapped, unimmersed grid —
-    # periodic or walled — promotes None -> "fv"; owner ruling
-    # 2026-07-16). Every family=None field of the model — u/v/w/p, the
-    # default b, and any user tracer — then follows uniformly, so an FV
-    # model has no accidental nodal field (only an explicit
-    # family="nodal" is the documented mixed corner). Explicit "fv" is
-    # served on periodic and walled grids (F4); only a mapped /
-    # immersed grid is a taught error (F5).
+    # grid's default (auto-flip: any unmapped grid — periodic, walled
+    # or immersed — promotes None -> "fv"; owner ruling 2026-07-16).
+    # Every family=None field of the model — u/v/w/p, the default b,
+    # and any user tracer — then follows uniformly, so an FV model has
+    # no accidental nodal field (only an explicit family="nodal" is the
+    # documented mixed corner). Explicit "fv" is served on periodic,
+    # walled (F4) and immersed (I2) grids; only a grid with both a
+    # mapped column and an immersed domain is a taught error. Explicit
+    # "nodal" on an immersed grid is a taught error too (mask is
+    # FV-only, IP-D7).
     resolved = resolve_model_family(family, grid)
     grid.set_default_family(resolved)
     if stratification is None:
@@ -155,6 +161,14 @@ def Model(  # noqa: N802 — a factory that mirrors fr.model.Model's surface
     if advection is not False:
         modules.append(advection)
     modules.extend(modules_extra)
+    # immersed (cut-cell) grid: one shared CONSTRAINT-stage MaskState
+    # keeps every prognostic's dry DOFs dead against the modules that
+    # do not consult the mask (Coriolis, wave makers, pressure-gradient
+    # tendencies) — the masked pressure solve and the fraction-weighted
+    # advection handle the wet region themselves (IP-D5). Appended last
+    # so its masking runs after the physics stages of the step.
+    if getattr(grid, "immersed", None) is not None:
+        modules.append(fr.model.modules.MaskState())
 
     return fr.model.Model(grid=grid, modules=tuple(modules),
                           time_stepper=time_stepper, name=name, **kwargs)
