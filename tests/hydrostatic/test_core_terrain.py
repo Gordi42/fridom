@@ -329,18 +329,20 @@ def test_immersed_plus_terrain_is_a_taught_error():
 # ================================================================
 #  Differentiability policy: grad through a short terrain run
 # ================================================================
-def test_grad_wrt_initial_buoyancy_is_finite_and_matches_fd():
-    # the linear terrain step path (advection=False): the differentiated
-    # data crosses the two guarded terrain singularities -- the slope
-    # coefficient Z/J of the baroclinic pressure gradient (core) and the
-    # reciprocal physical depth 1/H of the free-surface depth mean, both
-    # sealed on the never-valid padding by the double-`where`. (Nonlinear
-    # advection on a terrain grid is forward-finite but NOT yet reverse-
-    # safe: the shared nodal mapped divergence divides Z/J unguarded --
-    # a gap in the shared advection module, out of scope here.)
+@pytest.mark.parametrize("advection", [False, True],
+                         ids=["linear", "advective"])
+def test_grad_wrt_initial_buoyancy_is_finite_and_matches_fd(advection):
+    # the terrain step path crosses the guarded terrain singularities:
+    # the slope coefficient Z/J of the baroclinic pressure gradient
+    # (core) and the reciprocal physical depth 1/H of the free-surface
+    # depth mean, both sealed on the never-valid padding by the double-
+    # `where`. With advection=True the differentiated data additionally
+    # crosses the shared nodal mapped divergence's Z/J slope factor,
+    # sealed by advection._safe_ratio -- unguarded it is forward-finite
+    # but reverse-NaN-poisons the whole gradient here.
     grid = _terrain_grid(8)
     model = _model(grid, coriolis=hy.FPlaneCoriolis(f0=1.0),
-                   advection=False, dt=1e-2)
+                   advection=advection, dt=1e-2)
     rng = np.random.default_rng(11)
     model.set_fields(
         u=0.1 * rng.standard_normal(model.state["u"].shape),
