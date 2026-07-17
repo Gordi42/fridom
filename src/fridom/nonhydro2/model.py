@@ -42,7 +42,7 @@ def Model(  # noqa: N802 — a factory that mirrors fr.model.Model's surface
     advection: fr.model.Module | bool = True,
     pressure_iterations: int = 30,
     pressure_preconditioner: str = "spectral",
-    multigrid_levels: int = 3,
+    multigrid_levels: int = 5,
     modules_extra: Sequence[fr.model.Module] = (),
     time_stepper: TimeStepper | None = None,
     dt: float = 1.0,
@@ -98,7 +98,7 @@ def Model(  # noqa: N802 — a factory that mirrors fr.model.Model's surface
     multigrid_levels : int, optional
         The maximum multigrid level count when
         ``pressure_preconditioner="multigrid"`` (floored on small
-        grids); ignored otherwise (default: 3).
+        grids); ignored otherwise (default: 5).
     modules_extra : Sequence[fr.model.Module], optional
         Additional modules (tracers, closures) (default: ()).
     time_stepper : TimeStepper | None, optional

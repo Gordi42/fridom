@@ -185,9 +185,9 @@ def test_pressure_preconditioner_plumbs_through_the_preset():
                          multigrid_levels=5)
     assert core._pressure_preconditioner == "multigrid"
     assert core._multigrid_levels == 5
-    # defaults: the spectral preconditioner, three levels
+    # defaults: the spectral preconditioner, five levels
     assert DynamicalCore()._pressure_preconditioner == "spectral"
-    assert DynamicalCore()._multigrid_levels == 3
+    assert DynamicalCore()._multigrid_levels == 5
     # the nh.Model factory forwards both knobs to the dynamical core
     model = nh.Model(coriolis=fplane(), grid=make_grid(), advection=False,
                      pressure_preconditioner="multigrid",
@@ -206,9 +206,9 @@ def test_pressure_preconditioner_is_static_treedef_aux():
     multigrid = jax.tree_util.tree_structure(
         DynamicalCore(pressure_preconditioner="multigrid"))
     assert spectral != multigrid
-    levels5 = jax.tree_util.tree_structure(
-        DynamicalCore(multigrid_levels=5))
-    assert spectral != levels5
+    levels3 = jax.tree_util.tree_structure(
+        DynamicalCore(multigrid_levels=3))
+    assert spectral != levels3
 
 
 def test_second_advance_with_both_options_compiles_nothing(

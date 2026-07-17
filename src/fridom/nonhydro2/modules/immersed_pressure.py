@@ -204,7 +204,7 @@ class ImmersedPressureSolver:
         horizontal axis at four cells and stops at indivisibility, so
         the realized count is smaller on a small grid (a grid too small
         for any coarsening degrades to a one-level, smoothing-only
-        cycle). Ignored for the spectral preconditioner (default: 3).
+        cycle). Ignored for the spectral preconditioner (default: 5).
 
     Raises
     ------
@@ -226,7 +226,7 @@ class ImmersedPressureSolver:
         iterations: int,
         single_precision: bool = False,
         preconditioner: str = "spectral",
-        multigrid_levels: int = 3,
+        multigrid_levels: int = 5,
     ) -> None:
         """Resolve the flux rows and fetch the fraction fields."""
         if preconditioner not in _PRECONDITIONERS:

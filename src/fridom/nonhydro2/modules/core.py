@@ -412,7 +412,7 @@ class DynamicalCore(fr.model.Module):
         The maximum multigrid level count when
         ``pressure_preconditioner="multigrid"`` (the builder floors on
         small grids); ignored otherwise. Static in the fingerprint
-        (default: 3).
+        (default: 5).
     family : str | None, optional
         The discretization family of the whole core state (FV-D3,
         stage F3): ``"fv"`` declares ``u, v, w, p`` on the
@@ -443,7 +443,7 @@ class DynamicalCore(fr.model.Module):
         single_precision_solve: bool = False,
         pressure_iterations: int = 30,
         pressure_preconditioner: str = "spectral",
-        multigrid_levels: int = 3,
+        multigrid_levels: int = 5,
         family: str | None = None,
     ) -> None:
         """Store the core parameter leaves and the geometry names."""
