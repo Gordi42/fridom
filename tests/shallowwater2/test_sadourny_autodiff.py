@@ -19,6 +19,9 @@ import fridom as fr
 import fridom.shallowwater2 as sw
 from fridom.model.model import _chunk_body
 from fridom.shallowwater2.modules.sadourny import _potential_vorticity
+from fridom.spatial.grid import Grid
+from fridom.spatial.immersed_domain import ImmersedDomain
+from fridom.spatial.meshes.interval import IntervalMesh
 
 from .conftest import gaussian_bump, make_grid
 
@@ -143,3 +146,63 @@ def test_advected_run_stays_finite():
                         model._carry, model._stepper).state
     for name in ("u", "v", "p"):
         assert bool(np.all(np.isfinite(np.asarray(state[name].data))))
+
+
+# ================================================================
+#  Immersed (cut-cell) path: the same masked PV division, guarded
+# ================================================================
+# ``_advect_immersed`` divides ``zeta / p_full`` before applying the
+# boolean wet mask. Masking *after* the bare quotient leaves not only
+# the never-valid padding but every immersed **interior dry cell**
+# (``p_full == 0`` there) as a live ``0/0`` whose reverse-mode VJP
+# (``-zeta/h^2``, ``h = 0``) is NaN — even worse than the flat path,
+# where only padding is at risk. Routing through ``_potential_vorticity``
+# guards the denominator before the mask. Closures (HarmonicFriction)
+# are a taught error on immersed grids, so the differentiation variable
+# is the initial condition (a genuine data path through the guard).
+def immersed_advecting_model():
+    """Return a tiny immersed (cut-cell) nonlinear SW model.
+
+    A dry box carves an interior wet region on a periodic grid, so the
+    wet-region boundary carries the immersed masks the guard must
+    survive.
+    """
+    box = lambda x, y: (  # noqa: E731
+        (x > 2) & (x < 10) & (y > 2) & (y < 10)).astype(float)
+    grid = Grid(
+        (IntervalMesh(12, (0.0, 12.0), periodic=True, name="x"),
+         IntervalMesh(12, (0.0, 12.0), periodic=True, name="y")),
+        immersed=ImmersedDomain(box))
+    model = sw.Model(
+        grid=grid, csqr=0.8, rossby_number=0.3,
+        coriolis=sw.modules.FPlaneCoriolis(f0=1.0), advection=True,
+        time_stepper=fr.model.time_steppers.AdamBashforth(0.01, order=3))
+    rng = np.random.default_rng(0)
+    mask = np.asarray(
+        grid.immersed.mask(model.state["p"].function_space).data)
+    model.set_fields(
+        p=0.1 * rng.standard_normal(model.state["p"].data.shape) * mask,
+        u=0.1 * rng.standard_normal(model.state["u"].data.shape),
+        v=0.1 * rng.standard_normal(model.state["v"].data.shape))
+    return model
+
+
+def test_immersed_reverse_grad_wrt_ic_is_finite_and_matches_fd():
+    """Grad through the immersed run w.r.t. the IC: finite, FD-matched."""
+    model = immersed_advecting_model()
+    p_leaf = model._carry.state["p"].storage
+    loss = leaf_loss(model, p_leaf, n_steps=10)
+
+    grad = np.asarray(jax.grad(loss)(p_leaf))
+    # the pre-fix bug NaNed every entry with a data path; the guard
+    # keeps them all finite
+    assert bool(np.all(np.isfinite(grad)))
+
+    rng = np.random.default_rng(3)
+    direction = jnp.asarray(rng.standard_normal(p_leaf.shape),
+                            dtype=p_leaf.dtype)
+    directional = float(jnp.vdot(jnp.asarray(grad), direction))
+    eps = 1e-4
+    fd = (float(loss(p_leaf + eps * direction))
+          - float(loss(p_leaf - eps * direction))) / (2.0 * eps)
+    assert directional == pytest.approx(fd, rel=1e-4)

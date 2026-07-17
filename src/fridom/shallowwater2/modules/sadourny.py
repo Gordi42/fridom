@@ -741,8 +741,16 @@ class SadournyAdvection(fr.model.Module):
         zeta = (v.diff(zonal).retag(corner)
                 - u.diff(meridional).retag(corner))
         # zero the corner PV where it touches a dry cell (immersed
-        # free-slip: no vorticity from dry velocities)
-        q = mask_field(immersed, zeta / p_full.to(zeta))
+        # free-slip: no vorticity from dry velocities). The division is
+        # routed through the guarded helper *before* the mask: masking
+        # after the bare quotient leaves the immersed interior dry cells
+        # (p_full == 0 there, not only the never-valid padding) as live
+        # 0/0 candidates whose reverse-mode VJP (-zeta/h^2, h=0) is NaN
+        # — the same masked-singularity that poisons the flat/chart PV
+        # divisions (see _potential_vorticity). Guarding first keeps the
+        # forward mask bitwise identical while the gradient stays finite.
+        q = mask_field(
+            immersed, _potential_vorticity(zeta, p_full.to(zeta)))
         fu = (u * p_full.to(u)).to(zeta)           # mass flux, NE
         fv = (v * p_full.to(v)).to(zeta)
         ekin = 0.5 * ((u * u).to(p) + (v * v).to(p))  # centre
