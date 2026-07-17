@@ -476,11 +476,12 @@ class ImplicitFreeSurface(_FreeSurfaceBase):
         on an immersed grid — the flat spectral solve is exact and
         iterates nothing. Must be ``>= 1`` (default: 30).
     pressure_tolerance : float | None, optional
-        An optional PCG convergence break forwarded to the immersed
+        The PCG convergence break forwarded to the immersed
         barotropic :class:`ConjugateGradient` (the measure-weighted
         true relative residual; masked scan, exact gradient — see its
-        docstring). ``pressure_iterations`` becomes the maximum budget;
-        ``None`` runs the fixed count (default: None).
+        docstring). The default ``1e-8`` makes ``pressure_iterations``
+        the maximum budget; ``None`` is the opt-out that runs the fixed
+        count (default: 1e-8).
     vertical : str, optional
         The vertical coordinate name the depth mean reduces over
         (default: ``"z"``).
@@ -511,7 +512,7 @@ class ImplicitFreeSurface(_FreeSurfaceBase):
         *,
         epsilon: float = 1.0,
         pressure_iterations: int = 30,
-        pressure_tolerance: float | None = None,
+        pressure_tolerance: float | None = 1e-8,
         vertical: str = "z",
         horizontal: tuple[str, str] = ("x", "y"),
     ) -> None:
