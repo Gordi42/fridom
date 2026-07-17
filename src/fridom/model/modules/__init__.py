@@ -31,6 +31,7 @@ if TYPE_CHECKING:  # pragma: no cover
         chart_rotation,
         linear_rotation,
     )
+    from .immersed import MaskState
     from .moving_geometry import (
         MeshVelocityCorrection,
         MovingGeometry,
@@ -48,6 +49,7 @@ all_imports_by_origin = {
     f"{base}.coriolis": ["FPlaneCoriolis", "BetaPlaneCoriolis",
                           "RotationCoriolis", "linear_rotation",
                           "chart_rotation"],
+    f"{base}.immersed": ["MaskState"],
     f"{base}.moving_geometry": ["MovingGeometry",
                                 "MeshVelocityCorrection",
                                 "mapping_params"],
