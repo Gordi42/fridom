@@ -127,26 +127,12 @@ corrections:
 ## Finite-volume nonhydro — decisions and validation
 
 All FV stages (F0–F6) are shipped — every non-immersed grid serves
-`family="fv"`, unmapped/unimmersed grids are FV by *default*, and the
-FV nonhydro is feature-complete against nodal except cut cells (out
-of scope by decision; entries in [`done.md`](done.md), records in
+`family="fv"`, unmapped/unimmersed grids are FV by *default*, moving
+geometry now runs on FV too (ALE-on-FV closed, scoping §13 addendum 2),
+and the FV nonhydro is feature-complete against nodal except cut cells
+(out of scope by decision; entries in [`done.md`](done.md), records in
 the scoping §10–§13). Open:
 
-- **ALE on FV — the one family-awareness gap left** (found by the
-  mapped default flip, scoping §13 addendum).
-  `MeshVelocityCorrection` is nodal-only, so moving-geometry
-  models auto-default to nodal (the carve-out: `dynamic_geometry` is
-  a *model* property, factory-supplied — adding a correctness module
-  never flips the family) and explicit `family="fv"` + ALE is a
-  taught error at `bind`. The physics question is answered
-  ([`../research/ale_on_fv.md`](../research/ale_on_fv.md),
-  2026-07-17): the mesh-velocity flux **does** telescope on cell
-  averages (Reynolds-transport flux form; exact constancy, exact
-  semi-discrete tracer conservation — the F5-advection analogue).
-  Open: ratify an option (record recommends C, flux-form
-  module-level routing; sketch + gates in record §6) and the two
-  owner calls in record §7 (auto-default flip once capable;
-  momentum on the flux route), then implement.
 - **Stretched + terrain-following combined** — a grid that is both
   `MappedIntervalMesh`-stretched and terrain-following would J-weight
   the conservative form on top of `flux_diff`'s physical-width

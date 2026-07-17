@@ -291,6 +291,33 @@ Implementation record:
   now: **FV iff unimmersed and statically-mapped-or-flat.** Records:
   scoping §13 addendum; the ALE-FV gap stays in [`open.md`](open.md).
 
+- **ALE on FV — the last family-awareness gap closed** (owner ruling
+  2026-07-17: option C ratified, the auto default flips) — moving
+  geometry now runs on the FV family. `MeshVelocityCorrection` is
+  **family-aware**, routed per field at `bind` on its column factor:
+  the conservative **flux form** on the `CellAvg` columns of
+  `b`/`u`/`v` (`corr = (1/J)[D(f_face·w) − f̄·D(w)]`, the
+  Reynolds-transport identity, `flux_diff` the exact face→cell
+  telescoping — mirroring `_mapped_fv_divergence`), the **advective
+  form** on `w`'s point-valued wall-normal column. The moving-wall
+  mesh flux (`w·n ≠ 0`, where an advective flux vanishes) is carried by
+  the one-sided `CellAvg → Outer` reconstruction + `Outer` `flux_diff`,
+  not the `Inner` zero pad. This is the F5 pattern: module-level
+  routing, **zero** spatial-layer changes. The `dynamic_geometry`
+  carve-out is retired (`_fv_capable` now unconditionally True; the
+  flag + factory plumbing removed) — the auto rule is now simply **FV
+  wherever capable**. New invariant: the semi-discrete tracer budget
+  closes to machine precision at every resolution (telescoping
+  identity, the F5-advection analogue), so the morph tracer drift
+  collapses from the nodal 6.9e-3 spatial-truncation drift to a pure
+  time residual (1.35e-4, halves with `dt`). Gates: frozen-motion
+  bitwise, constancy machine-zero, `H(t)` 2nd order (order 1.88 on the
+  resolved pair), morph (exact volume, machine-zero divergence),
+  autodiff FD-matched (isolated from a **pre-existing** mapped-pressure
+  reverse-mode NaN — flagged, roadmap follow-up). Records:
+  [`../research/ale_on_fv.md`](../research/ale_on_fv.md) + scoping §13
+  addendum 2.
+
 - **Coefficient profiles follow the family** (owner ruling
   2026-07-17) — the `MeridionalStratification` `n2` Profile question
   closed as: physical-coefficient fields declared through the
