@@ -1,5 +1,5 @@
 ---
-status: active
+status: done
 date: 2026-07-17
 ---
 
@@ -202,3 +202,38 @@ decomposition-relevant.
 - **Parameter-name collisions**: two `BoundaryFlux` on the same
   `(field, coord, side)` collide on the scale name — intended
   (declaration-collision error); different sides/fields coexist.
+
+## 6. Outcome (2026-07-17, merge `24ee6fd0`)
+
+V1–V3 shipped on `feat/boundary-forcing`
+(`835f9713`/`a63a8cac`/`43eb564b`/`b3988739`); V4 (generic volumetric
+`Forcing`) stays deferred per its optional marking — promote when a
+shallowwater wind consumer appears; V5 done in the landing commit.
+Every stage gate met: analytic oracles to rtol 1e-11 (wall-row
+`q·t/Δz`, global budget `= q·A`, hand-stepped Ramp/`TimeFunction`
+scales), forced-4 bitwise vs single-device, 100% branch coverage on
+`boundary_flux.py` and `surface_forcing.py`, nonhydro2 suite green,
+ruff clean; end-to-end oscillating-wind + buoyancy run matches the
+analytic integrals.
+
+Corrections vs the text above, resolved at implementation:
+- Canonical spellings are `fr.model.TimeFunction` /
+  `fr.model.TimeSeries`, `fr.model.modules.BoundaryFlux`,
+  `nh.WindStress` / `nh.SurfaceBuoyancyFlux` — the `fr.modules.*`
+  alias used in §2 does not exist.
+- Both wrappers publish SIDE-QUALIFIED scale names
+  (`wind_stress.<coord>_<side>.scale`,
+  `surface_buoyancy_flux.<coord>_<side>.scale`, via an overridable
+  `BoundaryFlux._make_scale_name`) so opposite-wall instances coexist
+  (Rayleigh–Bénard) while same-side duplicates still collide.
+- No `extra_halo` exemption was needed (the term is pure field
+  arithmetic; `scale` comes from `ctx.params`, never the clock).
+- The DIRICHLET-tag taught error is enforceable at bind
+  (`table[field].space.factor(coord).bc`); no dry-run fallback.
+- Stretched-mesh wall weights are asserted directly against the
+  measure (a walled-z *mapped* nonhydro2 model cannot assemble — the
+  spectral pressure solver lacks the transform — so the model-level
+  stretched oracle is unreachable today).
+- Multi-device validation is single-controller forced-4; real
+  multi-process (`srun -n N`) is unexercised (the weight builder
+  stays in field space, so it is expected safe).
