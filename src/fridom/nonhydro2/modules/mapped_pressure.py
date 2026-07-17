@@ -218,7 +218,13 @@ class MappedPressureSolver:
     space : SpaceLike
         The (cell-centered) pressure/divergence space.
     iterations : int
-        The fixed CG iteration count (CS-D2; static).
+        The fixed CG iteration count (CS-D2; static). The maximum
+        budget when a ``tolerance`` is set.
+    tolerance : float | None, optional
+        An optional PCG convergence break forwarded to
+        :class:`ConjugateGradient` (the measure-weighted true relative
+        residual; masked scan, exact gradient — see its docstring).
+        ``None`` runs the fixed ``iterations`` count (default: None).
     weights : Mapping[str, jax.Array | float] | None, optional
         Per-coordinate physical-axis weights; the mapped column's
         base name keys the weight of its *physical* direction
@@ -247,6 +253,7 @@ class MappedPressureSolver:
         space: SpaceLike,
         *,
         iterations: int,
+        tolerance: float | None = None,
         weights: Mapping[str, jax.Array | float] | None = None,
         params: Mapping[str, ScalarField] | None = None,
         single_precision: bool = False,
@@ -288,6 +295,7 @@ class MappedPressureSolver:
             isinstance(factor, AverageSpace)
             for factor in self._space.factors)
         self._iterations = iterations
+        self._tolerance = tolerance
         self._params = params
         self._single_precision = bool(single_precision)
         axes = self._space.active_axis_names
@@ -453,6 +461,11 @@ class MappedPressureSolver:
     def iterations(self) -> int:
         """The fixed CG iteration count (static)."""
         return self._iterations
+
+    @property
+    def tolerance(self) -> float | None:
+        """The optional PCG convergence break (None = fixed count)."""
+        return self._tolerance
 
     # ================================================================
     #  Metric coefficients (derived once per solve, never cached)
@@ -844,8 +857,9 @@ class MappedPressureSolver:
         Returns
         -------
         ConjugateGradient
-            Fixed-iteration PCG on ``apply`` with the spectral
-            preconditioner and the constants-nullspace projection.
+            PCG on ``apply`` with the spectral preconditioner, the
+            constants-nullspace projection, and the optional
+            convergence ``tolerance``.
         """
         if cache is None:
             cache = {}
@@ -853,6 +867,7 @@ class MappedPressureSolver:
             partial(self.apply, cache=cache),
             preconditioner=self._preconditioner(cache),
             iterations=self._iterations,
+            tolerance=self._tolerance,
             project_mean=True)
 
     def solve(
