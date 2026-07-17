@@ -349,6 +349,28 @@ Stage 2f (the mirror/halo-claim widening) is small but pure perf, gated on
 profiling nobody has done. Defer.
 [`../plans/active/boundary_plan.md`](../plans/active/boundary_plan.md)
 
+## Diffusion/friction closures at walls and on terrain
+
+*Staged; scoped and sized 2026-07-17
+([`../research/diffusion_walls_terrain_scoping.md`](../research/diffusion_walls_terrain_scoping.md)).*
+The explicit family rejects every bounded grid (which also catches
+all terrain columns); `VerticalMixing` is Neumann-rows-only. Stages:
+free-slip walls are nearly structural (flux retag to
+`Inner[Dirichlet]`, the advection precedent; ~150-250 LOC src);
+no-slip adds the one new stencil (MITgcm-style wall rows, `slip=`
+API; ~150-300); implicit Dirichlet bottom/top rows (~80-160, high
+value — stiff bottom-drag regime, and the merge key must learn BC
+structure); mapped along-σ with honest tilt naming (~100-200);
+full-metric/rotated tensor deferred. Five owner calls in the record
+(default slip, biharmonic no-slip pair, terrain fidelity bar,
+slip ownership, stage-0 scope). **Not deferred — stage 0**: taught
+gates for a *live silent-wrongness* — `VerticalMixing` binds on
+stretched and terrain columns and silently solves the wrong operator
+(`second_difference_matrix` infers one uniform `dz` from the first
+two nodes; the chart never enters `evaluation_nodes`); a fully
+periodic mapped grid likewise binds the explicit family with no
+cross terms. Gate both now (~30-60 LOC + raises tests).
+
 ## Open boundaries — sponge is small, through-flow is large
 
 *Sponge tier: SMALL (days). Genuine through-flow: LARGE (3–6 weeks,
