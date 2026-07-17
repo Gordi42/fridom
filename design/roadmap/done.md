@@ -76,6 +76,56 @@ Implementation record:
 
 ## Landed since, outside the numbered tasks
 
+- **CG pressure solve — opt-in convergence tolerance**
+  (2026-07-17) — a keyword-only `tolerance: float | None = None` on
+  `ConjugateGradient`
+  ([`krylov.py`](../../src/fridom/spatial/operators/krylov.py)) stops
+  refining once the measure-weighted true relative residual clears
+  `tolerance · sqrt(<b,b>)` (compared squared; zero RHS converges
+  immediately). Mechanism: a **masked `lax.scan`** — the fixed scan
+  keeps its static length, but each step wraps the real CG step in
+  `lax.cond(converged, no-op, real_step)`, so past convergence every
+  step is a runtime no-op (`lax.cond` → real `stablehlo.case`, ~3×
+  forward on CPU at converge-at-5-of-30). Chosen over
+  `while_loop` + `custom_linear_solve` because `scan` + `cond`
+  differentiate the **actual truncated algorithm** — `jax.grad` stays
+  exact to FD precision (the repo invariant, no `custom_vjp`, no
+  transpose machinery) whereas the IFT gradient errs ∝ tolerance and
+  hides a `symmetric=True` 70 %-wrong-grad trap on measure-weighted-
+  self-adjoint operators. `tolerance=None` is the pre-existing fixed
+  path **byte for byte** (a sub-floor tolerance that never fires is
+  measured bitwise-identical). Threaded as `tolerance=` /
+  `pressure_tolerance=` through the mapped
+  ([`mapped_pressure.py`](../../src/fridom/nonhydro2/modules/mapped_pressure.py))
+  and immersed
+  ([`immersed_pressure.py`](../../src/fridom/nonhydro2/modules/immersed_pressure.py))
+  pressure solvers, `DynamicalCore`, the `nh.Model` factory, and
+  `hy.ImplicitFreeSurface` — all default `None`, pure passthrough; the
+  flat spectral paths are untouched. Caveats documented: keep the
+  tolerance above the ~1e-14 residual floor (below it the cond never
+  fires and the fixed-iteration post-floor `tiny/tiny` NaNs the reverse
+  gradient — a firing tolerance *removes* this pre-existing hazard) and
+  do not `vmap` it (`cond` → compute-both `select`). Default-off on
+  purpose (results shift at the tolerance level in tuned configs; a safe
+  default is problem-dependent). The end-to-end tolerance autodiff
+  regression rides the **immersed** consumer — the mapped model is
+  pre-existing-non-reverse-differentiable in this geometry (a metric
+  singularity, `tolerance=None` NaNs identically). GPU step-level
+  re-measure + a default-on revisit: [`open.md`](open.md). Research:
+  [`../research/cg_stopping_criterion.md`](../research/cg_stopping_criterion.md).
+  **Default-on at `1e-8` since 2026-07-17** (owner decision, superseding
+  the default-off above): `tolerance` / `pressure_tolerance` now default
+  to `1e-8` (`sqrt(f64 eps)`, Oceananigans' PCG precedent — fires above
+  the ~4.5e-14 floor so the T4 trap cannot engage in f64); `None` is the
+  explicit fixed-iteration opt-out, and determinism-pinned tests pass it.
+  **GPU-validated 2026-07-17** (A100, 256³ terrain nonhydro2, linear
+  mapped step inside the real chunked scan): the early-exit survives
+  XLA:GPU as a true `conditional`; ms/step 206.0 → 83.4 gentle (9 of 30
+  iterations, −59.5 %) / 153.0 strong (19 iterations, −25.7 %) at the
+  `1e-8` default, −65 %/−40 % at `1e-6`; 50-step state matches the fixed
+  budget to ≤ 1.7e-9 relative. The win *exceeds* the CPU micro-timing —
+  the standalone-vs-chunked reversal fear did not materialize.
+  Addendum with the full table in the research record.
 - **Multigrid pathway, phase A — the grid transfer layer**
   (2026-07-17, merge `fae44be4`) — grid-to-grid transfer on the new
   stack: `Mesh.coarsened` / `Grid.coarsened` (independent coarse
@@ -89,11 +139,43 @@ Implementation record:
   holds by construction: measured <= 2.5e-15 across mapped /
   immersed / semicoarsened cases; conservation exact; forced-4-device
   parity; autodiff regression per the differentiability policy).
-  Dual-use: the multigrid substrate (plan phase B, still gated) and
+  Dual-use: the multigrid substrate (phase B, below) and
   the coupling regrid primitive (CS-15/§11.1). Record:
   [`../plans/active/multigrid_pathway_plan.md`](../plans/active/multigrid_pathway_plan.md)
   §2; research:
   [`../research/multigrid_pathway.md`](../research/multigrid_pathway.md).
+- **Multigrid pathway, phase B — the V-cycle pressure preconditioner**
+  (2026-07-17, merge `87aeabea`) — geometric semicoarsened multigrid
+  as an opt-in preconditioner for the mapped and immersed PCG pressure
+  solves (`pressure_preconditioner="multigrid"` + `multigrid_levels`
+  on both solvers, `DynamicalCore`, and `nh.Model`; fingerprint-static,
+  spectral stays the default; flat grids ignore the knob). Engine:
+  `spatial.operators.multigrid` — fixed-count symmetric V(1,1)
+  (MG-D7/D8: static level tuple, trace-time unrolled, SPD in the
+  weighted product so plain CG stays valid), damped point-Jacobi and
+  vertical-line block-Jacobi smoothers (batched Thomas kernel in
+  `banded.py`, ω = 0.8), per-level projections (mean-free / the
+  level's own wet-mean, MG-D6). Hierarchy:
+  `nonhydro2.modules.multigrid_hierarchy.coarsen_levels` — per-level
+  re-discretization of the same solver on `Grid.coarsened` levels
+  (incl. re-merging the FV `diff` profile per coarse grid),
+  semicoarsening ×2 horizontal with a 4-cell floor and graceful
+  degradation to smoothing-only; `Grid.coarsened` memoized per
+  (factors, devices) for retrace stability. Measured (steep mapped
+  a = 0.8, iterations to 1e-10): **44 → 13, flat over 32/64/96³**
+  (default depth pinned to 5 by the levels×sweeps campaign; depth 3
+  missed the ≤ 15 gate at 18); immersed genuine partials **15 (16³) /
+  18 (32³) against the 30 budget** where spectral needs ~80 — closes
+  the "preconditioner quality on heavily-masked domains" residual.
+  Gates: GB-4 compile-once, HLO flat in the CG iteration count; GB-5
+  forced-4 parity incl. a replicated coarse level (MG-D5); autodiff
+  regression through the immersed multigrid step (the smoothers'
+  dry-cell double-`where` guards hold). The GB-2 wall-clock leg
+  (≥ 1.5× at 128³+ on A100) is the open follow-up
+  ([`open.md`](open.md)). Record:
+  [`../plans/active/multigrid_pathway_plan.md`](../plans/active/multigrid_pathway_plan.md)
+  §3 (B0 spike numbers + the three recorded corrections, not yet
+  owner-reviewed).
 - **Immersed partial cells — all dimensions, all three models**
   (2026-07-17, merges `ee257bc0` I0+I1, `b447b8e5` I2, `a5aec29d` I4,
   `3858d977` I3, plus the autodiff regression gates) — the immersed

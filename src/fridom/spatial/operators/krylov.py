@@ -20,11 +20,15 @@ elsewhere.
 
 Two CS-D2 requirements shape the implementation:
 
-- **Fixed iteration count (static trace).** The recurrence runs a
-  Python-static number of iterations with *no* tolerance break, so
-  the solve jit-compiles once across right-hand-side *values* and is
-  reverse-mode differentiable (``jax.grad`` flows through it) without
-  a ``custom_vjp``.
+- **Static trace, either mode.** The recurrence runs a Python-static
+  number of iterations, so the solve jit-compiles once across
+  right-hand-side *values* and is reverse-mode differentiable
+  (``jax.grad`` flows through it) without a ``custom_vjp``. The
+  **default** is a convergence break at ``tolerance = 1e-8``
+  (*The convergence break*, below), under which ``iterations`` is the
+  *maximum* budget. The explicit opt-out ``tolerance=None`` runs a
+  fixed static count with no break; both modes keep the static trace
+  and the exact gradient.
 - **Everything pure.** No Python-side state is mutated and nothing
   branches on a traced value, so the solver is safe inside a
   jit-compiled tendency container.
@@ -120,7 +124,8 @@ The initial guess is zero unless an explicit ``x0`` is passed.
 
 Exact convergence under fixed iterations
 ----------------------------------------
-Because there is no tolerance break, the recurrence keeps running
+Under the ``tolerance=None`` opt-out there is no tolerance break, so
+the recurrence keeps running
 after the residual reaches exact zero (a zero right-hand side, or an
 exact preconditioner such as the flat spectral inverse on a
 constant-metric mapped grid, stage C3). The scalar ratios
@@ -130,6 +135,78 @@ by zero; both are computed through a guarded division that returns
 post-convergence iteration into an exact no-op (``x`` and ``r``
 unchanged) instead of poisoning the solve with NaNs. For nonzero
 denominators the guard is bitwise-neutral.
+
+The convergence break (the default ``tolerance``)
+-------------------------------------------------
+The default ``tolerance = 1e-8`` adds an early stop: the solve refines
+only until the measure-weighted *true* relative residual satisfies
+
+.. math::
+
+    \sqrt{\langle r, r\rangle} \le
+    \texttt{tolerance}\,\sqrt{\langle b, b\rangle}
+
+(``b`` the projected right-hand side). The comparison is evaluated
+squared — ``rr <= tolerance**2 * bb`` — with the threshold formed
+once outside the loop; a zero right-hand side (``bb == 0``) converges
+immediately without a NaN. The explicit opt-out ``tolerance=None`` is
+exactly the fixed-iteration recurrence above, unchanged bit for bit —
+same scan, no extra dot products, no conditional — for a caller that
+needs a deterministic fixed count.
+
+**Why 1e-8.** The default is :math:`\sqrt{\varepsilon}` for
+``float64`` (the same relative-residual default Oceananigans' PCG
+uses), and it sits 5-6 decades above the measured preconditioned
+residual floor (``~4.5e-14`` on a strong f64 mapping), so the
+tolerance always fires *before* the floor — the (T4) NaN-at-floor trap
+below cannot engage in ``float64``. Solution differences against the
+full fixed budget are at the ``1e-8`` relative level, far below
+truncation error. The design record carries the full contraction
+study.
+
+**Masked scan, not** ``while_loop``. The stop is *not* a
+``lax.while_loop`` with a dynamic trip count. The scan keeps its full
+static ``iterations`` length, but each body step wraps the real CG
+step in ``lax.cond(converged, identity, real_step)``, so once the
+residual clears the threshold every remaining step is a no-op. Three
+properties motivate this over the shorter
+``while_loop`` + ``lax.custom_linear_solve`` form:
+
+- **Exact** ``jax.grad`` **(the repo invariant).** ``scan`` + ``cond``
+  differentiate the *actual truncated algorithm*, so the gradient is
+  exact to finite-difference precision, matching the fixed-iteration
+  path — and with no transpose machinery. A ``while_loop`` with
+  ``custom_linear_solve`` instead substitutes
+  implicit-function-theorem gradients whose error is proportional to
+  the tolerance, and carries a silent-wrong-reverse-gradient trap
+  (``symmetric=True`` gives a badly wrong ``grad`` on any operator
+  that is only *measure-weighted* self-adjoint — correct today only
+  because the current computational measure happens to be uniform).
+- **O(1) compile.** The body is still traced once (plus the peel);
+  the ``cond`` adds a bounded amount of HLO, not per-iteration
+  growth.
+- **Runtime skip.** ``lax.cond`` lowers to a real ``stablehlo``
+  conditional (not a compute-both ``select``), so on a scalar
+  predicate the skipped steps cost nothing at run time.
+
+**Two caveats.**
+
+- *(T4) Keep the tolerance above the residual floor.* A
+  preconditioned ``float64`` solve bottoms out near ``~1e-14``
+  (conservative); a tolerance *below* the achievable floor never
+  fires, so the solve runs the full budget and the post-floor
+  iterations divide a tiny residual by a tiny residual.
+  ``_guarded_ratio`` guards only an *exact* zero, so those iterations
+  keep the forward value finite but can NaN the *reverse* gradient — a
+  pre-existing fixed-iteration hazard. A tolerance that actually fires
+  *removes* this hazard for gradient users by stopping before the
+  floor.
+- *(T5) Do not* ``vmap`` *the tolerance solve.* Under ``vmap`` the
+  scalar ``lax.cond`` predicate becomes a batched one and ``cond``
+  degrades to a compute-both ``select`` — correct, but it forfeits
+  the runtime skip and can re-enter the T4 floor on lanes that have
+  already converged. Map the fixed-iteration path, or run the
+  tolerance solve unbatched.
 """
 # CS-D2 (stage C3): matrix-free preconditioned CG, fixed iterations
 from __future__ import annotations
@@ -149,6 +226,12 @@ if TYPE_CHECKING:  # pragma: no cover
     #: the scan carry: the true-shape ``x``, ``r`` and ``p`` arrays
     #: plus the 0-d ``rz = <r, z>`` (module docstring)
     Carry = tuple[jax.Array, jax.Array, jax.Array, jax.Array]
+
+    #: the ``tolerance``-mode scan carry: the fixed ``Carry`` plus the
+    #: 0-d ``rr = <r, r>`` and the 0-d integer step counter ``k``
+    TolCarry = tuple[
+        jax.Array, jax.Array, jax.Array, jax.Array, jax.Array,
+        jax.Array]
 
 
 def _guarded_ratio(num: jax.Array, den: jax.Array) -> jax.Array:
@@ -213,8 +296,29 @@ class ConjugateGradient:
         runs unpreconditioned CG (identity preconditioner)
         (default: None).
     iterations : int
-        The fixed number of CG iterations (static; ``>= 1``). There is
-        no tolerance break (CS-D2).
+        The CG iteration count (static; ``>= 1``). Under the default
+        ``tolerance`` it is the *maximum* budget and the convergence
+        break stops earlier; with the ``tolerance=None`` opt-out all
+        ``iterations`` steps run (CS-D2).
+    tolerance : float | None, optional
+        The convergence break on the measure-weighted true relative
+        residual: the recurrence stops refining once
+        :math:`\sqrt{\langle r, r\rangle} \le \texttt{tolerance}\,
+        \sqrt{\langle b, b\rangle}` (``b`` the projected right-hand
+        side) and every later scanned step is a no-op (*The convergence
+        break* in the module docstring: masked scan, exact gradient,
+        O(1) compile, the T4 floor and T5 no-``vmap`` caveats). The
+        default ``1e-8`` is :math:`\sqrt{\varepsilon}` for ``float64``
+        (Oceananigans' PCG relative-residual precedent); it sits 5-6
+        decades above the measured preconditioned residual floor
+        (``~4.5e-14`` on a strong f64 mapping), so it fires before the
+        floor and the T4 NaN-at-floor trap cannot engage in
+        ``float64``, and the resulting solution differs from the full
+        fixed budget only at the ``1e-8`` relative level (far below
+        truncation error). ``None`` is the explicit opt-out — the
+        fixed-iteration recurrence, bit-for-bit unchanged — for a
+        caller that needs a deterministic fixed count
+        (default: 1e-8).
     project_mean : bool, optional
         Subtract the measure-weighted mean from the right-hand side,
         the preconditioned residuals, and the solution — the constants
@@ -235,6 +339,7 @@ class ConjugateGradient:
         *,
         preconditioner: Callable[[FieldLike], FieldLike] | None = None,
         iterations: int,
+        tolerance: float | None = 1e-8,
         project_mean: bool = False,
         projection: Callable[[FieldLike], FieldLike] | None = None,
     ) -> None:
@@ -255,6 +360,16 @@ class ConjugateGradient:
             raise ValueError(
                 f"iterations must be >= 1 (fixed count, CS-D2), got "
                 f"{iterations}")
+        if tolerance is not None:
+            if isinstance(tolerance, bool) or not isinstance(
+                    tolerance, int | float):
+                raise TypeError(
+                    "tolerance must be an int or float, or None for a "
+                    f"fixed iteration count, got {tolerance!r}")
+            if tolerance <= 0:
+                raise ValueError(
+                    "tolerance must be > 0 (or None for a fixed "
+                    f"iteration count), got {tolerance}")
         if projection is not None and not callable(projection):
             raise TypeError(
                 "projection must be a field-to-field callable or "
@@ -269,6 +384,8 @@ class ConjugateGradient:
         self._preconditioner: (
             Callable[[FieldLike], FieldLike] | None) = preconditioner
         self._iterations: int = iterations
+        self._tolerance: float | None = (
+            None if tolerance is None else float(tolerance))
         self._project_mean: bool = bool(project_mean)
         self._projection: (
             Callable[[FieldLike], FieldLike] | None) = projection
@@ -290,8 +407,13 @@ class ConjugateGradient:
 
     @property
     def iterations(self) -> int:
-        """The fixed CG iteration count (static)."""
+        """The CG iteration count (static; the max under a tolerance)."""
         return self._iterations
+
+    @property
+    def tolerance(self) -> float | None:
+        """The convergence break (None = fixed iteration count)."""
+        return self._tolerance
 
     @property
     def project_mean(self) -> bool:
@@ -414,22 +536,27 @@ class ConjugateGradient:
         self, rhs: FieldLike, x0: FieldLike | None = None,
     ) -> tuple[FieldLike, dict[str, object]]:
         r"""
-        Solve ``A x = rhs`` for ``x`` (fixed-iteration PCG).
+        Solve ``A x = rhs`` for ``x`` (PCG).
 
         Description
         -----------
         The standard preconditioned conjugate-gradient recurrence over
-        scalar fields, run for exactly ``iterations`` steps with no
-        tolerance break (CS-D2). Inner products are the measure-weighted
-        :math:`L^2` product (module docstring); with ``project_mean``
-        the constants nullspace is projected out of the right-hand
-        side, the preconditioned residuals, and the solution.
+        scalar fields, run until the default ``tolerance`` convergence
+        break fires, or for a fixed ``iterations`` steps under the
+        ``tolerance=None`` opt-out (CS-D2; module docstring). Inner
+        products are the
+        measure-weighted :math:`L^2` product (module docstring); with
+        ``project_mean`` the constants nullspace is projected out of the
+        right-hand side, the preconditioned residuals, and the solution.
 
         The first iteration is peeled and the remaining
         ``iterations - 1`` run inside one :func:`jax.lax.scan` body
         over a raw-array carry, so the trace is O(1) in the iteration
         count (module docstring). A single-iteration solve is the
-        peel alone (the scan then has length zero).
+        peel alone (the scan then has length zero). Under a
+        ``tolerance`` the scan still runs its full static length, but
+        each step past convergence is a ``lax.cond`` no-op (the carry
+        also threads the squared residual ``rr`` and the step counter).
 
         Parameters
         ----------
@@ -443,7 +570,10 @@ class ConjugateGradient:
         tuple[FieldLike, dict[str, object]]
             The solution field and an ``info`` mapping with the final
             weighted residual norm (``"residual_norm"``, a 0-d
-            ``jax.Array``) and the ``"iterations"`` count.
+            ``jax.Array``) and the ``"iterations"`` count — the static
+            Python int on the fixed path, or the traced 0-d
+            ``jax.Array`` step count on the ``tolerance`` path (the
+            break makes it data-dependent).
         """
         b = self._project(rhs)
         if x0 is None:
@@ -456,6 +586,12 @@ class ConjugateGradient:
         p = z
         rz = self._dot(r, z)
 
+        # ``bb`` seeds the tolerance relative-residual threshold; it
+        # reads the projected right-hand side and is formed before the
+        # peel (which leaves ``b`` untouched). ``None`` on the fixed
+        # path pays no extra dot product
+        bb = None if self._tolerance is None else self._dot(b, b)
+
         # the peel: one unrolled iteration, so every first-application
         # side effect of the opaque operator/preconditioner closures
         # lands in *this* trace and not in the scan body
@@ -466,6 +602,44 @@ class ConjugateGradient:
         # torn down to raw arrays and rebuilt inside the body from
         # these templates (grid, space and metadata are static there)
         t_x, t_r, t_p = x, r, p
+
+        if self._tolerance is not None:
+            # the tolerance convergence break (module docstring): the
+            # scan keeps its full static length, but each step skips the
+            # real CG step through ``lax.cond`` once the measure-weighted
+            # true relative residual clears the threshold. ``k`` counts
+            # the steps actually taken; the peel is step 1
+            rr = self._dot(r, r)
+            threshold = self._tolerance ** 2 * bb
+
+            def real_step(s: TolCarry) -> TolCarry:
+                x_d, r_d, p_d, rz_s, _rr, k_s = s
+                n_x, n_r, n_p, n_rz = self._step(
+                    t_x.with_data(x_d), t_r.with_data(r_d),
+                    t_p.with_data(p_d), rz_s)
+                return (n_x.data, n_r.data, n_p.data, n_rz,
+                        self._dot(n_r, n_r), k_s + 1)
+
+            def tol_body(
+                state: TolCarry, _: None,
+            ) -> tuple[TolCarry, None]:
+                # state == (x, r, p, rz, rr, k); break on the residual
+                _x, _r, _p, _rz, rr_c, _k = state
+                converged = rr_c <= threshold
+                new_state = lax.cond(
+                    converged, lambda s: s, real_step, state)
+                return new_state, None
+
+            state: TolCarry = (
+                x.data, r.data, p.data, rz, rr, jnp.asarray(1))
+            state, _ = lax.scan(
+                tol_body, state, None, length=self._iterations - 1)
+            x_d, r_d, _p_d, _rz, rr_f, k_f = state
+            x = self._project(t_x.with_data(x_d))
+            return x, {
+                "residual_norm": jnp.sqrt(rr_f),
+                "iterations": k_f,
+            }
 
         def body(carry: Carry, _: None) -> tuple[Carry, None]:
             x_d, r_d, p_d, rz_c = carry

@@ -473,8 +473,8 @@ class MeshVelocityCorrection(Module):
 
     A nodal-family (``family="nodal"``) model has no ``CellAvg`` column
     factor, so every field takes the advective route — bitwise the
-    pre-ALE-on-FV behaviour. Since the closure the nonhydro auto family
-    default is FV wherever capable, moving geometry included.
+    pre-ALE-on-FV behaviour. Since the closure, the nonhydro auto
+    family default is FV wherever capable, moving geometry included.
 
     Parameters
     ----------

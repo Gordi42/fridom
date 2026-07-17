@@ -368,6 +368,27 @@ class DynamicalCore(fr.model.Module):
         declares a mapped column *and* on an immersed (cut-cell) grid
         — both run the fixed-iteration PCG. The flat spectral solve is
         exact and iterates nothing (default: 30).
+    pressure_tolerance : float | None, optional
+        The PCG convergence break forwarded to the mapped and
+        immersed pressure solvers (the measure-weighted true relative
+        residual; masked scan, exact gradient — see
+        :class:`ConjugateGradient`). The default ``1e-8`` makes
+        ``pressure_iterations`` the maximum budget and sits well above
+        the residual floor (~1e-14); ``None`` is the opt-out that runs
+        the fixed count (default: 1e-8).
+    pressure_preconditioner : str, optional
+        The PCG preconditioner of the fixed-iteration pressure solve
+        (B4): ``"spectral"`` (the flat separable spectral inverse) or
+        ``"multigrid"`` (the semicoarsened geometric-multigrid V-cycle).
+        Consumed on a mapped or immersed grid; the flat spectral solve
+        is exact and ignores it (a flat grid never raises on the knob).
+        Static (a treedef aux, part of the module fingerprint), like
+        ``single_precision_solve`` (default: ``"spectral"``).
+    multigrid_levels : int, optional
+        The maximum multigrid level count when
+        ``pressure_preconditioner="multigrid"`` (the builder floors on
+        small grids); ignored otherwise. Static in the fingerprint
+        (default: 5).
     family : str | None, optional
         The discretization family of the whole core state (FV-D3,
         stage F3): ``"fv"`` declares ``u, v, w, p`` on the
@@ -397,6 +418,9 @@ class DynamicalCore(fr.model.Module):
         coords: tuple[str, ...] = ("x", "y", "z"),
         single_precision_solve: bool = False,
         pressure_iterations: int = 30,
+        pressure_tolerance: float | None = 1e-8,
+        pressure_preconditioner: str = "spectral",
+        multigrid_levels: int = 5,
         family: str | None = None,
     ) -> None:
         """Store the core parameter leaves and the geometry names."""
@@ -410,6 +434,9 @@ class DynamicalCore(fr.model.Module):
         self._coords = coords
         self._single_precision_solve = bool(single_precision_solve)
         self._pressure_iterations = pressure_iterations
+        self._pressure_tolerance = pressure_tolerance
+        self._pressure_preconditioner = pressure_preconditioner
+        self._multigrid_levels = multigrid_levels
         self._family = family
 
     # ================================================================
@@ -628,7 +655,10 @@ class DynamicalCore(fr.model.Module):
             state["p"].function_space,
             weights={self._vertical: 1.0 / dsqr},
             iterations=self._pressure_iterations,
+            tolerance=self._pressure_tolerance,
             single_precision=self._single_precision_solve,
+            preconditioner=self._pressure_preconditioner,
+            multigrid_levels=self._multigrid_levels,
             params=mapping_params(state, grid))
         # one metric derivation for the whole projection: divergence,
         # solve and correction share the solver's per-solve memo (it
@@ -677,7 +707,10 @@ class DynamicalCore(fr.model.Module):
             vertical=self._vertical,
             dsqr=dsqr,
             iterations=self._pressure_iterations,
-            single_precision=self._single_precision_solve)
+            tolerance=self._pressure_tolerance,
+            single_precision=self._single_precision_solve,
+            preconditioner=self._pressure_preconditioner,
+            multigrid_levels=self._multigrid_levels)
         p, corr = solver.project(vel)
         return {
             "u": state["u"] - corr["x"].retag(state["u"]),

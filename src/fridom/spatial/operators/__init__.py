@@ -32,6 +32,7 @@ if TYPE_CHECKING:  # pragma: no cover
         krylov,
         mixed,
         movement,
+        multigrid,
         products,
         realized,
         reconstruct,
@@ -97,6 +98,12 @@ if TYPE_CHECKING:  # pragma: no cover
     from .mapped import MappedDerivative, MetricScaled
     from .mixed import ComposedTransform, resolve_transform
     from .movement import Reshard, Sync
+    from .multigrid import (
+        DampedJacobi,
+        MultigridLevel,
+        MultigridVCycle,
+        VerticalLineJacobi,
+    )
     from .realized import (
         BoundTransform,
         RealizedComposite,
@@ -152,6 +159,7 @@ all_modules_by_origin = {
         "fourier",
         "trig",
         "chebyshev",
+        "multigrid",
         "products",
         # the "integrate" module is NOT re-exported by name: the
         # D3b verb below owns the ``fr.operators.integrate`` slot
@@ -236,6 +244,12 @@ all_imports_by_origin = {
         "VarianceRetag",
     ],
     f"{base}.movement": ["Reshard", "Sync"],
+    f"{base}.multigrid": [
+        "MultigridVCycle",
+        "MultigridLevel",
+        "DampedJacobi",
+        "VerticalLineJacobi",
+    ],
     f"{base}.cumulative": ["CumulativeIntegral"],
     f"{base}.verbs": ["diff", "interpolate", "integrate", "cumint",
                       "physical_diff"],

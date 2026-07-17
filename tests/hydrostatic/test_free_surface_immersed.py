@@ -15,6 +15,7 @@ import numpy as np
 import pytest
 
 import fridom.hydrostatic as hy
+from fridom.hydrostatic.modules import free_surface
 from fridom.hydrostatic.params import CSQR
 from fridom.model.context import StepContext
 from fridom.spatial.grid import Grid
@@ -84,6 +85,38 @@ def test_pressure_iterations_default_and_property():
 def test_pressure_iterations_validation_rejects(value):
     with pytest.raises(ValueError, match="pressure_iterations"):
         hy.ImplicitFreeSurface(pressure_iterations=value)
+
+
+# ================================================================
+#  pressure_tolerance knob (mirrors nh.Model; opt-in CG break)
+# ================================================================
+def test_pressure_tolerance_default_and_property():
+    assert hy.ImplicitFreeSurface().pressure_tolerance == 1e-8
+    assert hy.ImplicitFreeSurface(
+        pressure_tolerance=None).pressure_tolerance is None
+    assert hy.ImplicitFreeSurface(
+        pressure_tolerance=1e-6).pressure_tolerance == 1e-6
+
+
+def test_pressure_tolerance_reaches_the_conjugate_gradient(monkeypatch):
+    # the immersed barotropic solve builds its CG inside
+    # ``_solve_immersed``; capture the tolerance kwarg it forwards
+    captured = {}
+    real = free_surface.ConjugateGradient
+
+    def spy(*args, **kwargs):
+        captured["tolerance"] = kwargs.get("tolerance")
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(free_surface, "ConjugateGradient", spy)
+    model = build(immersed_grid(),
+                  hy.ImplicitFreeSurface(pressure_tolerance=1e-7))
+    rng = np.random.default_rng(3)
+    model.set_fields(**{
+        k: 0.1 * rng.standard_normal(model.state[k].data.shape)
+        for k in ("u", "v", "b", "ps")})
+    model.advance(1)
+    assert captured["tolerance"] == 1e-7
 
 
 # ================================================================

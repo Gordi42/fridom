@@ -40,12 +40,14 @@ def _slope(x, y, z):  # noqa: ARG001
     return jnp.clip(1.4 - 0.35 * x, 0.0, 1.0)
 
 
-def immersed_model(*, dt=0.01):
+def immersed_model(*, dt=0.01, pressure_iterations=12,
+                   pressure_tolerance=None):
     """Return a tiny immersed nonhydro2 model with genuine partials.
 
-    Advection on and the masked CG runs every step
-    (``pressure_iterations = 12``), so the gradient crosses the immersed
-    fraction weighting and the wet-mean-projected pressure solve.
+    Advection on and the masked CG runs every step, so the gradient
+    crosses the immersed fraction weighting and the wet-mean-projected
+    pressure solve. ``pressure_tolerance`` opts the solve into the
+    masked-scan convergence break (default off, the fixed budget).
     """
     grid = Grid(
         (IM(8, (0.0, 6.0), periodic=False, name="x"),
@@ -54,7 +56,9 @@ def immersed_model(*, dt=0.01):
         immersed=ImmersedDomain(_slope, order=2, min_fraction=0.1))
     model = nh.Model(
         grid=grid, dt=dt, advection=True,
-        coriolis=nh.FPlaneCoriolis(f0=1.0), pressure_iterations=12)
+        coriolis=nh.FPlaneCoriolis(f0=1.0),
+        pressure_iterations=pressure_iterations,
+        pressure_tolerance=pressure_tolerance)
     rng = np.random.default_rng(0)
     model.set_fields(**{
         k: 0.2 * rng.standard_normal(model.state[k].data.shape)
@@ -138,3 +142,96 @@ def test_grad_wrt_stepper_dt_is_finite_and_matches_fd():
     h = 1e-4 * float(dt0)
     fd = (float(loss(dt0 + h)) - float(loss(dt0 - h))) / (2.0 * h)
     assert grad == pytest.approx(fd, rel=1e-4)
+
+
+# ================================================================
+#  grad through the masked CG under the opt-in convergence tolerance
+# ================================================================
+def test_grad_through_tolerance_mode_masked_cg_matches_fd():
+    """Grad through the tolerance-mode masked CG w.r.t. the IC: FD-ok.
+
+    The masked-scan convergence break differentiates the *truncated*
+    algorithm (``lax.scan`` + ``lax.cond``, no ``custom_vjp``), so the
+    reverse gradient stays exact — the repo invariant. The tolerance
+    (``1e-6``) fires here around iteration 14, inside the 20-step budget,
+    so the cond-skip branch is genuinely exercised in both AD modes. The
+    immersed solver carries this regression because the mapped CG
+    consumer is not reverse-differentiable in this geometry (a
+    pre-existing metric singularity, unrelated to the tolerance).
+    """
+    model = immersed_model(pressure_iterations=20,
+                           pressure_tolerance=1e-6)
+    u_leaf = model._carry.state["u"].storage
+    loss = leaf_loss(model, u_leaf, n_steps=6)
+
+    grad = np.asarray(jax.grad(loss)(u_leaf))
+    assert bool(np.all(np.isfinite(grad)))
+
+    rng = np.random.default_rng(2)
+    direction = jnp.asarray(rng.standard_normal(u_leaf.shape),
+                            dtype=u_leaf.dtype)
+    directional = float(jnp.vdot(jnp.asarray(grad), direction))
+    eps = 1e-4
+    fd = (float(loss(u_leaf + eps * direction))
+          - float(loss(u_leaf - eps * direction))) / (2.0 * eps)
+    assert directional == pytest.approx(fd, rel=1e-4)
+
+
+# ================================================================
+#  Multigrid pressure preconditioner selected (B5 gate GB-4/T3)
+# ================================================================
+def multigrid_model(*, dt=0.01, levels=3):
+    """Return the same immersed model with the multigrid preconditioner.
+
+    Identical genuine-partial slope wall as :func:`immersed_model`, but
+    the fixed-iteration CG pressure solve runs the semicoarsened
+    geometric-multigrid V-cycle (``pressure_preconditioner="multigrid"``,
+    multigrid pathway plan §B5). The 8x8x6 grid semicoarsens the
+    horizontal x/y (8 -> 4, z kept), so the realized hierarchy is two
+    levels. The differentiation therefore crosses the vertical-line
+    smoother's batched Thomas solve **and** its dry-cell
+    double-``jnp.where`` guard on the line bands — the exact masked
+    singularity (``diag -> 1``, ``rhs -> 0`` on a dry column) the
+    differentiability policy targets for the B1/B2 smoother code.
+    """
+    grid = Grid(
+        (IM(8, (0.0, 6.0), periodic=False, name="x"),
+         IM(8, (0.0, TWO_PI), periodic=True, name="y"),
+         IM(6, (0.0, 1.0), periodic=False, name="z")),
+        immersed=ImmersedDomain(_slope, order=2, min_fraction=0.1))
+    model = nh.Model(
+        grid=grid, dt=dt, advection=True,
+        coriolis=nh.FPlaneCoriolis(f0=1.0), pressure_iterations=12,
+        pressure_preconditioner="multigrid", multigrid_levels=levels)
+    rng = np.random.default_rng(0)
+    model.set_fields(**{
+        k: 0.2 * rng.standard_normal(model.state[k].data.shape)
+        for k in ("u", "v", "w", "b")})
+    return model
+
+
+def test_grad_through_multigrid_solve_is_finite_and_matches_fd():
+    """Grad through the multigrid-preconditioned masked solve: finite, FD.
+
+    The B5 differentiability regression for ``preconditioner="multigrid"``
+    (T3): a NaN here would mean the line-smoother Thomas solve or its
+    dry-cell double-``jnp.where`` guard is not reverse-safe on the true
+    partial cells this model carries. The initial velocity field is the
+    differentiation variable because its data path flows through the
+    residual the smoother relaxes at every level.
+    """
+    model = multigrid_model()
+    u_leaf = model._carry.state["u"].storage
+    loss = leaf_loss(model, u_leaf, n_steps=6)
+
+    grad = np.asarray(jax.grad(loss)(u_leaf))
+    assert bool(np.all(np.isfinite(grad)))
+
+    rng = np.random.default_rng(1)
+    direction = jnp.asarray(rng.standard_normal(u_leaf.shape),
+                            dtype=u_leaf.dtype)
+    directional = float(jnp.vdot(jnp.asarray(grad), direction))
+    eps = 1e-4
+    fd = (float(loss(u_leaf + eps * direction))
+          - float(loss(u_leaf - eps * direction))) / (2.0 * eps)
+    assert directional == pytest.approx(fd, rel=1e-4)

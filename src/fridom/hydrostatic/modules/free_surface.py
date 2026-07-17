@@ -475,6 +475,13 @@ class ImplicitFreeSurface(_FreeSurfaceBase):
         (mirrors ``nh.Model(pressure_iterations=...)``); consumed only
         on an immersed grid — the flat spectral solve is exact and
         iterates nothing. Must be ``>= 1`` (default: 30).
+    pressure_tolerance : float | None, optional
+        The PCG convergence break forwarded to the immersed
+        barotropic :class:`ConjugateGradient` (the measure-weighted
+        true relative residual; masked scan, exact gradient — see its
+        docstring). The default ``1e-8`` makes ``pressure_iterations``
+        the maximum budget; ``None`` is the opt-out that runs the fixed
+        count (default: 1e-8).
     vertical : str, optional
         The vertical coordinate name the depth mean reduces over
         (default: ``"z"``).
@@ -505,6 +512,7 @@ class ImplicitFreeSurface(_FreeSurfaceBase):
         *,
         epsilon: float = 1.0,
         pressure_iterations: int = 30,
+        pressure_tolerance: float | None = 1e-8,
         vertical: str = "z",
         horizontal: tuple[str, str] = ("x", "y"),
     ) -> None:
@@ -526,6 +534,7 @@ class ImplicitFreeSurface(_FreeSurfaceBase):
                 f"only on an immersed grid), got {pressure_iterations!r}")
         self._epsilon = float(epsilon)
         self._pressure_iterations = int(pressure_iterations)
+        self._pressure_tolerance = pressure_tolerance
 
     # ================================================================
     #  Properties
@@ -539,6 +548,11 @@ class ImplicitFreeSurface(_FreeSurfaceBase):
     def pressure_iterations(self) -> int:
         """The fixed PCG budget of the immersed barotropic solve."""
         return self._pressure_iterations
+
+    @property
+    def pressure_tolerance(self) -> float | None:
+        """The optional PCG convergence break (None = fixed count)."""
+        return self._pressure_tolerance
 
     # ================================================================
     #  Field declarations (lifecycle depends on epsilon)
@@ -808,7 +822,8 @@ class ImplicitFreeSurface(_FreeSurfaceBase):
         projection = wet_projection if self._epsilon == 0.0 else None
         cg = ConjugateGradient(
             apply, preconditioner=precondition,
-            iterations=self._pressure_iterations, projection=projection)
+            iterations=self._pressure_iterations,
+            tolerance=self._pressure_tolerance, projection=projection)
         ps_new = cg(rhs)
         return ps_new.with_data(ps_new.data * cell_mask)
 

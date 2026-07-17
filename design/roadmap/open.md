@@ -124,6 +124,28 @@ loudly instead of in the HLO verifier. Evidence, provenance probes, and
 corrections:
 [`../research/multidevice_test_faults.md`](../research/multidevice_test_faults.md).
 
+## Mapped + advection + chunked scan goes non-finite on GPU
+
+Found 2026-07-17 while GPU-measuring the CG tolerance (A100, jax
+0.10.2, dev `b77f8582` — predates the tolerance work). A
+terrain-following mapped nonhydro2 run with advection **on** goes
+non-finite whenever `chunk_size >= 2`, at 256³ and even at dt=0.005
+(2.5e-4 physical) — while the *same* steps run finite one at a time
+(`chunk_size = 1`). Flat + advective + chunked is fine; mapped +
+linear + chunked is fine; only the mapped advective step inside the
+scanned chunk breaks, which points at a scanned-chunk
+compilation/fusion fault, not physics. The known
+`--xla_disable_hlo_passes=multi_output_fusion` workaround does **not**
+fix it (so it is not jax#39100). Distinct from the mapped
+reverse-mode NaN (that is a VJP-only masked singularity; this is the
+forward primal). Work: bisect the module set (advection scheme ×
+mapped metric terms) to a minimal repro, check CPU vs GPU and
+chunk-length sensitivity, then either a fridom-side restructuring or
+an upstream repro. Evidence: the CG-tolerance GPU measurement
+(research record
+[`../research/cg_stopping_criterion.md`](../research/cg_stopping_criterion.md),
+GPU addendum).
+
 ## Finite-volume nonhydro — decisions and validation
 
 All FV stages (F0–F6) are shipped — every non-immersed grid serves
@@ -133,10 +155,24 @@ and the FV nonhydro is feature-complete against nodal except cut cells
 (out of scope by decision; entries in [`done.md`](done.md), records in
 the scoping §10–§13). Open:
 
-- **Stretched + terrain-following combined** — a grid that is both
-  `MappedIntervalMesh`-stretched and terrain-following would J-weight
-  the conservative form on top of `flux_diff`'s physical-width
-  division; correctness there is unverified (scoping §13 follow-up).
+- **Stretched + terrain-following combined** — the correctness
+  question is answered
+  ([`../research/stretched_terrain_combined.md`](../research/stretched_terrain_combined.md),
+  2026-07-17): **no double-count** — stretching (measure widths) and
+  terrain (chart J) factor exactly, and the conservative FV
+  advection is already correct on the combined grid (conservation
+  machine zero, constancy aligned with the projection divergence,
+  2nd order under 15:1 stretch). What remains is downstream: the
+  mapped pressure solve dies on a stretched column (spectral
+  preconditioner unbuildable — cryptic `DispatchError`, no gate;
+  SPD lost in the corner cross hops — measure-adjoint down-hop
+  recipe probed to machine zero, record §3; multigrid V-cycle is
+  the preconditioner candidate), the hydrostatic model has **no
+  terrain support at all** (runs silently with 27%-wrong `p_hyd`;
+  four metric-free sites, record §4), and the cumint `jacobian=`
+  seam is unwired for `maps=` grids (silent no-op / unknown-metric
+  raise). Work items N1–N4 / H0–H4 and four owner calls in record
+  §6–§7; taught errors (N1/H0) are the cheap immediate step.
 - **Validate the FV default on 4 GPUs** — the distributed solve on
   average origins ran only 1-GPU so far (forced-4 CPU asserts the
   walled + mapped FV fast paths), the gpu4 step baseline predates the
@@ -154,10 +190,6 @@ cells in every dimension (stages I0–I4 shipped 2026-07-17; entry in
 [`../plans/active/immersed_partial_cells_plan.md`](../plans/active/immersed_partial_cells_plan.md)).
 Open, none blocking:
 
-- **Preconditioner quality on heavily-masked domains** — genuine
-  partials need ~60+ PCG iterations and slow with refinement; the
-  ratified multigrid pathway is the successor
-  ([`../plans/active/multigrid_pathway_plan.md`](../plans/active/multigrid_pathway_plan.md)).
 - **Biased/upwind/WENO advection on immersed grids** — taught error
   today; needs the graded-fallback closure keyed on masks (the wall
   precedent, `graded.py`).
@@ -391,21 +423,6 @@ roadmap 3.9 — closed 2026-07-16 (entry in [`done.md`](done.md)). What
 survives is a short list of measured, deliberately-not-taken levers —
 promote one only when its trigger appears:*
 
-- **Multigrid with vertical line smoothing** — the only preconditioner
-  family that could beat the spectral solve (coefficient-robust *and*
-  mesh-independent). A real project (staggered mapped-grid
-  restriction/prolongation, smoothers, coarse solve, all under a static
-  trace); justified only if steep bathymetry (4.5× depth ratio, 45
-  iterations) becomes a real workload. Every cheaper alternative was
-  measured and rejected — read
-  [`perf_geometry_merge_plan.md`](../plans/active/perf_geometry_merge_plan.md)
-  §4b lever 1 before re-proposing one. The pathway is researched and
-  planned
-  ([`multigrid_pathway_plan.md`](../plans/active/multigrid_pathway_plan.md)
-  phase B), and its substrate — the grid transfer layer — landed
-  2026-07-17 (entry in [`done.md`](done.md)); the workload trigger
-  above still gates the V-cycle build, de-risked by the plan's B0
-  two-level spike.
 - **Single-precision distributed solve** — `single_precision_solve` is
   a no-op on multi-device walled/mapped grids (the full-precision
   distributed solve takes precedence; documented at
@@ -422,6 +439,27 @@ promote one only when its trigger appears:*
   `decomposition/tensor.py`). No hot-loop consumer exists — the Neumann
   pressure sibling keeps the pressure-space shape. Revisit only if a
   Neumann-outer field enters a hot loop.
+## Multigrid preconditioner — follow-up measurements
+
+The semicoarsened V-cycle preconditioner shipped 2026-07-17 (the
+"multigrid with vertical line smoothing" lever above, taken; entry in
+[`done.md`](done.md); record
+[`../plans/active/multigrid_pathway_plan.md`](../plans/active/multigrid_pathway_plan.md)
+§3). Open, none blocking:
+
+- **GB-2 wall-clock leg** — ≥ 1.5× step wall-clock vs the spectral
+  preconditioner at 128³+ on an A100. Iteration counts are pinned
+  (44 → 13, resolution-independent) but the ms/step claim needs the
+  real device; joins the next GPU campaign (`benchmarks/model` A/B
+  harness). Run it at the new `pressure_tolerance=1e-8` default: both
+  preconditioners now early-exit, so the pinned iteration counts, not
+  the fixed budget, set each side's cost (the spectral side is already
+  GPU-measured at the default — CG-tolerance entry in
+  [`done.md`](done.md)).
+- **Real multi-GPU validation** — forced-4 parity is asserted in the
+  suite (incl. the replicated coarse level, MG-D5); a real
+  `srun -n 4` run joins the next campaign, same status as the
+  FV-default flip and the immersed PCG paths.
 
 ## Differentiable run surface — `model.propagator()`
 
@@ -463,6 +501,17 @@ has to be invented, only assembled:
   (`/ w.to(v)`, `/ w_1`, `/ w_2`) share the masked-0/0 class the
   Sadourny PV division was cured of; guard like
   `_potential_vorticity` when that path meets an adjoint.
+- **Known exception, now localized: the mapped projection is
+  reverse-NaN** through `velocity_correction` — the field `/`
+  jacobian divide (the registry "divide" path in `scalar_field.py`)
+  has a singular VJP while the primal stays finite
+  (single-`where`-class masked singularity: NaN with the spectral and
+  multigrid preconditioners alike, at every CG iteration count;
+  isolated mapped `solve` and `divergence` differentiate finite).
+  First noted as "a metric singularity" at the CG-tolerance landing
+  ([`done.md`](done.md)); the fix is the double-`jnp.where` guard on
+  that divide path plus the mapped autodiff regression it has never
+  had (localization 2026-07-17, multigrid B5 pass).
 
 ---
 
