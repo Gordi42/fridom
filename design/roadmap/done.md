@@ -76,6 +76,27 @@ Implementation record:
 
 ## Landed since, outside the numbered tasks
 
+- **Immersed partial cells — all dimensions, all three models**
+  (2026-07-17, merges `ee257bc0` I0+I1, `b447b8e5` I2, `a5aec29d` I4,
+  `3858d977` I3, plus the autodiff regression gates) — the immersed
+  grid works in nonhydro2, shallowwater2 and hydrostatic with genuine
+  partial cells in every dimension (a sloping `B(y, z)` gives
+  x-partials). Grid layer: quadrature volume fractions
+  (`ImmersedDomain(order=, min_fraction=)`, hFacMin floor, min-rule
+  face transfer, boolean default bitwise iteration-1). Models:
+  masked-Poisson PCG projections (spectral inverse masked onto the
+  wet cells as preconditioner, V-orthogonal wet-mean gauge),
+  fraction-weighted flux-form advection/continuity, `MaskState`
+  hygiene stage, wet-column free surface (implicit PCG +
+  split-explicit), taught gates on everything that cannot honestly
+  run masked. Keystone gates: staircase ≡ walled model at ~1e-16
+  (nonhydro2 FV) / ~3e-17 (sw2 Sadourny); masked divergence and
+  θ-mass conservation at machine zero in all three models; hydrostatic
+  column equivalence ≤ 2e-15; 2nd-order masked-Poisson convergence on
+  genuine x/z-partials; `jax.grad` through every immersed step path
+  FD-matched at ≤ 1e-8. Residuals in [`open.md`](open.md). Record +
+  per-stage corrections:
+  [`../plans/active/immersed_partial_cells_plan.md`](../plans/active/immersed_partial_cells_plan.md).
 - **Variable boundary forcing — wind stress, surface buoyancy flux**
   (2026-07-17, merge `24ee6fd0`) — prescribed wall-face fluxes as
   tendency contributions in the wall-adjacent cell

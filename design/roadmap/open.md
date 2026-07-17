@@ -154,21 +154,32 @@ the scoping §10–§13). Open:
 
 [`../plans/active/fv_nonhydro_scoping.md`](../plans/active/fv_nonhydro_scoping.md)
 
-## Immersed partial cells — all dimensions, all three models
+## Immersed partial cells — residuals
 
-Owner request 2026-07-17: the immersed grid must *work* in nonhydro2,
-shallowwater2, and hydrostatic, with genuine partial cells in every
-dimension (a sloping boundary `B(y, z)` gives partial cells in x).
-Today the grid layer derives boolean masks but **no model consumes
-them** — immersed grids run unmasked on the nodal path. Plan (staged
-I0–I5, decisions IP-D1..D10): quadrature-computed volume/face
-fractions with an hFacMin floor, min-rule staggering transfer,
-term-level fraction weighting in the shared flux-form modules, a
-shared `MaskState` hygiene stage, and masked-Poisson pressure solves
-via `ConjugateGradient` preconditioned by the existing spectral
-inverse (wet-mean gauge). Subsumes the immersed half of FV stage F5
-and the hydrostatic variable-`csqr` solve deferral.
-[`../plans/active/immersed_partial_cells_plan.md`](../plans/active/immersed_partial_cells_plan.md)
+The immersed grid works in all three models with genuine partial
+cells in every dimension (stages I0–I4 shipped 2026-07-17; entry in
+[`done.md`](done.md), record + per-stage corrections in
+[`../plans/active/immersed_partial_cells_plan.md`](../plans/active/immersed_partial_cells_plan.md)).
+Open, none blocking:
+
+- **Preconditioner quality on heavily-masked domains** — genuine
+  partials need ~60+ PCG iterations and slow with refinement; the
+  ratified multigrid pathway is the successor
+  ([`../plans/active/multigrid_pathway_plan.md`](../plans/active/multigrid_pathway_plan.md)).
+- **Biased/upwind/WENO advection on immersed grids** — taught error
+  today; needs the graded-fallback closure keyed on masks (the wall
+  precedent, `graded.py`).
+- **Mapped + immersed composition** — taught error; the mapped and
+  masked PCGs are not composed.
+- **Partial-bottom-cell hydrostatic pressure gradient** — the
+  Pacanowski–Gnanadesikan refinement; the current unweighted `p_hyd`
+  cumsum is 2nd-order away from partial bottom cells only.
+- **Fraction-weighted Sadourny momentum** (sw2) and **masked
+  closures** (diffusion/Smagorinsky/VerticalMixing self-reject on
+  immersed grids today).
+- **4-GPU validation** of the three immersed PCG paths (forced-4 is
+  asserted; real multi-GPU joins the next campaign, same status as
+  the FV-default flip).
 
 ## Docs & examples rebuild
 

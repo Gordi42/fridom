@@ -456,6 +456,21 @@ files; forced-4 invariant. Corrections to IP-D9:
    hygiene owned by the free-surface module; `ImmersedDomain.mask`
    rejects unresolved spaces).
 
+**I5 close-out 2026-07-17.** Autodiff compliance sweep (merge of
+`test/immersed-autodiff`): every immersed guarded division audited
+against the new AGENTS.md differentiability policy — all sites
+already reverse-safe (double-`where`, or the safe-denominator Sadourny
+PV style; note the two styles differ in forward value at guarded
+cells — exact 0 vs finite-masked-downstream — relevant to anyone
+tightening forward parity gates there); three autodiff regression
+shards added (`test_immersed_model_autodiff.py` per model), `jax.grad`
+through the masked PCG / Sadourny / wet-column paths FD-matched at
+≤ 1e-8 on genuine partial cells. Roadmap entry moved to `done.md`;
+residuals (heavily-masked preconditioning → multigrid pathway plan,
+graded-mask biased advection, mapped+immersed, partial-bottom `p_hyd`
+refinement, fraction Sadourny momentum, masked closures, 4-GPU
+validation) tracked in `open.md`. Stages I0–I5: **all shipped**.
+
 ## 7. Out of scope (designed-for, not precluded)
 
 Direct face-area quadrature (shaved-cell faces); ghost-cell
