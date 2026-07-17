@@ -13,6 +13,7 @@ FRIDOM: Framework for Idealized Ocean Models
    installation
    getting_started
    tutorials/index
+   advanced/index
    auto_examples/index
    fridom_api
 
@@ -62,6 +63,12 @@ Navigation
       :link-type: doc
 
       A collection of tutorials to get you started.
+
+   .. grid-item-card::  Advanced Topics
+      :link: advanced/index
+      :link-type: doc
+
+      The machinery behind the models, one concept at a time.
 
    .. grid-item-card::  Gallery
       :link: auto_examples/index
