@@ -171,7 +171,8 @@ def test_constant_h_velocity_correction_matches_flat_gradient():
 #  The preconditioned solve
 # ================================================================
 def test_solve_converges_on_a_sloped_column():
-    solver, grid, mx, ms = build_solver()
+    # fixed-iteration mode: pinned for determinism
+    solver, grid, mx, ms = build_solver(tolerance=None)
     rhs = grid.random.normal(mx.center * ms.center, seed=9)
     rhs = rhs - rhs.mean()
     p = solver.solve(rhs)
@@ -232,7 +233,8 @@ def test_projection_removes_the_measured_divergence():
     # the velocity update is derived from the operator's own fluxes,
     # so the post-projection divergence is the CG residual — not an
     # O(h^2) consistency remainder
-    solver, grid, mx, ms = build_solver()
+    # fixed-iteration mode: pinned for determinism
+    solver, grid, mx, ms = build_solver(tolerance=None)
     vel = random_velocity(grid, mx, ms)
     div = solver.divergence(vel)
     p = solver.solve(div)
@@ -301,7 +303,9 @@ def test_periodic_column_solves_without_retagging():
         params={"H": depth})
     grid = Grid((mx, ms), mapping=mapping)
     space = mx.center * ms.center
-    solver = MappedPressureSolver(grid, space, iterations=20)
+    # fixed-iteration mode: pinned for determinism
+    solver = MappedPressureSolver(grid, space, iterations=20,
+                                  tolerance=None)
     rhs = grid.random.normal(space, seed=13)
     rhs = rhs - rhs.mean()
     p = solver.solve(rhs)
@@ -543,7 +547,8 @@ def make_mapped_model(n=8, init=depth, dt=0.02, family="nodal", **kwargs):
 
 
 def test_core_projects_on_a_mapped_grid():
-    model = make_mapped_model(dsqr=DSQR)
+    # fixed-iteration mode: pinned for determinism
+    model = make_mapped_model(dsqr=DSQR, pressure_tolerance=None)
     hor = (np.arange(8) + 0.5) * (2 * np.pi / 8)
     ver = (np.arange(8) + 0.5) / 8
     x, y, z = np.meshgrid(hor, hor, ver, indexing="ij")
@@ -582,10 +587,10 @@ def test_mapped_solver_carries_the_tolerance():
     assert solver.krylov().tolerance == 1e-8
 
 
-def test_mapped_solver_default_tolerance_is_none():
+def test_mapped_solver_default_tolerance_is_1e_8():
     solver, *_ = build_solver()
-    assert solver.tolerance is None
-    assert solver.krylov().tolerance is None
+    assert solver.tolerance == 1e-8
+    assert solver.krylov().tolerance == 1e-8
 
 
 def test_model_threads_pressure_tolerance_to_the_core():
@@ -595,7 +600,7 @@ def test_model_threads_pressure_tolerance_to_the_core():
     assert core_of(
         make_mapped_model(pressure_tolerance=1e-9))._pressure_tolerance \
         == 1e-9
-    assert core_of(make_mapped_model())._pressure_tolerance is None
+    assert core_of(make_mapped_model())._pressure_tolerance == 1e-8
 
 
 def test_mapped_model_pressure_tolerance_matches_fixed_run():

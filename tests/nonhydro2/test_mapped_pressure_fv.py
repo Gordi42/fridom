@@ -185,7 +185,8 @@ def test_constant_h_preconditioner_is_exact_fv():
 #  The preconditioned FV solve
 # ================================================================
 def test_solve_converges_on_a_sloped_column_fv():
-    solver, grid, mx, ms = build_fv()
+    # fixed-iteration mode: pinned for determinism
+    solver, grid, mx, ms = build_fv(tolerance=None)
     rhs = grid.random.normal(fv_space(mx, ms), seed=9)
     rhs = rhs - rhs.mean()
     p = solver.solve(rhs)
@@ -202,7 +203,8 @@ def test_pcg_convergence_is_resolution_independent_fv():
     # iteration count is roughly resolution-independent, as for nodal)
     residuals = []
     for n in (16, 32):
-        solver, grid, mx, ms = build_fv(n=n, iterations=25)
+        # fixed-iteration mode: pinned for determinism
+        solver, grid, mx, ms = build_fv(n=n, iterations=25, tolerance=None)
         rhs = grid.random.normal(fv_space(mx, ms), seed=9)
         rhs = rhs - rhs.mean()
         p = solver.solve(rhs)
@@ -246,7 +248,8 @@ def random_velocity(grid, mx, ms, seeds=(1, 2)):
 
 
 def test_projection_removes_the_measured_divergence_fv():
-    solver, grid, mx, ms = build_fv()
+    # fixed-iteration mode: pinned for determinism
+    solver, grid, mx, ms = build_fv(tolerance=None)
     vel = random_velocity(grid, mx, ms)
     div = solver.divergence(vel)
     p = solver.solve(div)
@@ -317,7 +320,8 @@ def _seed(model):
 def test_core_projects_on_a_mapped_fv_grid():
     # gate 1: explicit family="fv" on a terrain-following (walled-z)
     # grid assembles and steps; b lands on CellAvg
-    model = make_mapped_fv_model(dsqr=DSQR)
+    # fixed-iteration mode: pinned for determinism
+    model = make_mapped_fv_model(dsqr=DSQR, pressure_tolerance=None)
     assert all(isinstance(f, CellAvg)
                for f in model.state["b"].function_space.bare.factors)
     _seed(model)

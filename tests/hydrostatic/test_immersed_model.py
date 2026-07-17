@@ -56,7 +56,9 @@ def _prognostic_names(model):
 @pytest.mark.parametrize(
     "make_fs",
     [pytest.param(hy.ExplicitFreeSurface, id="explicit"),
-     pytest.param(lambda: hy.ImplicitFreeSurface(pressure_iterations=25),
+     # fixed-iteration mode: pinned for determinism
+     pytest.param(lambda: hy.ImplicitFreeSurface(
+         pressure_iterations=25, pressure_tolerance=None),
                   id="implicit")],
 )
 def test_column_equivalence_flat_bottom(make_fs):

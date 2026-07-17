@@ -39,7 +39,7 @@ def _cell_space(grid):
     return grid._laid_out(space)
 
 
-def _box_solver(n=12, iterations=30, dsqr=0.7):
+def _box_solver(n=12, iterations=30, dsqr=0.7, tolerance=1e-8):
     """Build a face-aligned {0, 1} immersed box in a periodic grid."""
     meshes = tuple(
         IntervalMesh(n, (0.0, TWO_PI), periodic=True, name=nm)
@@ -50,7 +50,8 @@ def _box_solver(n=12, iterations=30, dsqr=0.7):
     grid = _fv_grid(meshes, ImmersedDomain(box))
     space = _cell_space(grid)
     solver = ImmersedPressureSolver(
-        grid, space, vertical="z", dsqr=dsqr, iterations=iterations)
+        grid, space, vertical="z", dsqr=dsqr, iterations=iterations,
+        tolerance=tolerance)
     return grid, space, solver
 
 
@@ -98,7 +99,9 @@ def test_operator_is_symmetric_on_a_masked_grid():
 #  Gate b: post-projection masked divergence is machine zero
 # ================================================================
 def test_projection_drives_masked_divergence_to_machine_zero():
-    _grid, _space, solver = _box_solver(n=12, iterations=30)
+    # fixed-iteration mode: pinned for determinism
+    _grid, _space, solver = _box_solver(n=12, iterations=30,
+                                        tolerance=None)
     vel = _random_velocity(solver, seed=2)
     _, info = solver.solve_info(solver.divergence(vel))
     _p, corr = solver.project(vel)
@@ -169,8 +172,10 @@ def test_manufactured_masked_poisson_converges_at_second_order():
             meshes, ImmersedDomain(ind, order=order_q,
                                    min_fraction=0.0))
         space = _cell_space(grid)
+        # fixed-iteration mode: pinned for determinism
         solver = ImmersedPressureSolver(
-            grid, space, vertical="z", dsqr=1.0, iterations=500)
+            grid, space, vertical="z", dsqr=1.0, iterations=500,
+            tolerance=None)
         rhs_data = grid._discretize(
             space,
             lambda x, y, z: ind(x, y, z) * jnp.vectorize(_lap)(y, z),
@@ -253,7 +258,11 @@ def test_solver_carries_the_tolerance_to_the_krylov_solver():
     assert solver.krylov().tolerance == 1e-8
 
 
-def test_default_tolerance_is_none():
-    _grid, _space, solver = _box_solver(n=8, iterations=20)
-    assert solver.tolerance is None
-    assert solver.krylov().tolerance is None
+def test_default_tolerance_is_1e_8():
+    # build the solver directly (no _box_solver tolerance forwarding) so
+    # this observes the ImmersedPressureSolver constructor default
+    grid, space, _ = _box_solver(n=8, iterations=20)
+    solver = ImmersedPressureSolver(
+        grid, space, vertical="z", dsqr=0.7, iterations=20)
+    assert solver.tolerance == 1e-8
+    assert solver.krylov().tolerance == 1e-8
