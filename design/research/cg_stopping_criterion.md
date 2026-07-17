@@ -219,8 +219,10 @@ now pass `tolerance=None` / `pressure_tolerance=None` explicitly
 tolerance regressions and the immersed tolerance-autodiff regression
 are unchanged. The mapped reverse-mode NaN (the "T4 floor trap"
 corollary above; localized to the `velocity_correction` jacobian divide
-by the multigrid B5 work — see the open-roadmap entry) is untouched by
-the flip: it NaNs identically for `None` and for a firing tolerance.
+by the multigrid B5 work) was untouched by the flip — it NaN'd
+identically for `None` and for a firing tolerance — and has since been
+fixed (guarded `_divide_by_jacobian`, merge `ee350bda`; entry in
+[`done.md`](../roadmap/done.md)).
 
 ## Addendum (2026-07-17): GPU re-measure — win confirmed, larger
 

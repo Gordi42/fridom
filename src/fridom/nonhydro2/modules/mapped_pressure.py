@@ -1046,12 +1046,53 @@ class MappedPressureSolver:
         for a in self._axes:
             if a == self._base:
                 continue
-            corr = fluxes[a] / self._jacobian(fluxes[a], cache)
+            corr = self._divide_by_jacobian(fluxes[a], cache)
             if a in self._coupled:
                 column = column + self._cross_to_column(a, corr, cache)
             corrections[a] = corr
         corrections[self._base] = column
         return corrections
+
+    def _divide_by_jacobian(
+        self, flux: ScalarField, cache: MetricCache | None = None,
+    ) -> ScalarField:
+        r"""
+        Divide a physical flux by the column Jacobian, VJP-safe.
+
+        Description
+        -----------
+        The metric quotient ``F_i / J`` of a plain/coupled velocity
+        correction (:meth:`velocity_correction`). ``J = dm/db`` is
+        strictly positive on every valid cell but zero-filled in the
+        never-valid storage padding, where the raw divide is a sealed
+        ``inf`` the caller's retag discards in the primal — yet whose
+        reverse VJP is singular (``0 * inf -> NaN``, the masked-
+        singularity poison the differentiability policy names). The
+        double-``jnp.where`` seals the reverse pass while staying
+        bitwise identical on every valid cell (``bad`` covers only the
+        ``J == 0`` padding), so the forward projection is untouched.
+
+        Parameters
+        ----------
+        flux : ScalarField
+            The physical flux to rescale (the numerator).
+        cache : MetricCache | None, optional
+            The per-solve metric memo (default: None).
+
+        Returns
+        -------
+        ScalarField
+            The BC-free correction ``flux / J`` on the divide's bare
+            space, finite (0) in the never-valid padding.
+        """
+        jac = self._jacobian(flux, cache)
+        bad = jac.storage == 0.0
+        safe = jnp.where(bad, 1.0, jac.storage)
+        ratio = jnp.where(bad, 0.0, flux.storage / safe)
+        # the divide fixes the result's structure (bare space, merged
+        # halo validity); its raw quotient data is discarded for the
+        # guarded ratio, so the singular divide-VJP is never built.
+        return (flux / jac).with_storage(ratio)
 
     # ================================================================
     #  Smoothing surfaces (multigrid, B1)

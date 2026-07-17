@@ -72,11 +72,15 @@ Weighting and charts
 The increment weight is ``grid.measure(domain, name=axis)`` (rules
 sections 2.7, 3.9), so stretched/mapped meshes enter through the
 measure exactly as they do for ``Integral`` — no ``jacobian=`` needed.
-The optional ``jacobian=`` family mirrors ``Integral``'s parameter:
-on a chart grid the increment of a chart coordinate additionally
-picks up the ``sqrt_g`` metric while every chart coordinate is still
-resolved by the operand space, so the physical running integral
-telescopes to the Jacobian-weighted ``Integral`` (rules 3.13).
+The optional ``jacobian=`` family mirrors ``Integral``'s parameter
+and names *chart coordinates* (``jacobian_weight``): an embedding
+chart's base coordinate adds the ``sqrt_g`` area element once (while
+every chart coordinate is still resolved by the operand space), and
+an analytic-``maps=`` physical coordinate ``p`` adds the column
+Jacobian ``d<p>_d<b>`` on its base axis ``b`` — the terrain-following
+running integral :math:`\int f\,dz_p`. Either way the physical
+running integral telescopes to the Jacobian-weighted ``Integral``
+(rules 3.13); a name off every chart raises a taught error.
 
 Decomposition
 -------------
@@ -105,6 +109,7 @@ from fridom.spatial.operators.base import (
     resolve_codomain,
 )
 from fridom.spatial.operators.interned import interned
+from fridom.spatial.operators.jacobian_weight import jacobian_factor
 from fridom.spatial.scalars import Scalars
 from fridom.spatial.spaces.average import CellAvg
 from fridom.spatial.spaces.coefficient import CoefficientSpace
@@ -143,9 +148,11 @@ class CumulativeIntegral(SeparableOperator):
     co-located (the pyOM half-cell form, module docstring).
     ``direction`` seeds the zero at either bounded end. With
     ``jacobian=`` set the increment of a chart coordinate additionally
-    carries the ``sqrt_g`` metric (mirroring ``Integral``). The axis is
-    declared ``layout="local"``; a sharded axis is resharded onto a
-    negotiated axis-local layout and back (module docstring).
+    carries the metric Jacobian — the ``sqrt_g`` area element on an
+    embedding chart, or the column Jacobian on an analytic-``maps=``
+    terrain column (mirroring ``Integral``). The axis is declared
+    ``layout="local"``; a sharded axis is resharded onto a negotiated
+    axis-local layout and back (module docstring).
 
     Parameters
     ----------
@@ -158,9 +165,11 @@ class CumulativeIntegral(SeparableOperator):
         ``"center"`` lands co-located with the integrand
         (default: "face").
     jacobian : tuple[str, ...] | None, optional
-        The chart-coupled coordinate names whose increment picks up
-        the ``sqrt_g`` Jacobian weight; None keeps the plain
-        computational measure (default: None).
+        Chart coordinate names whose increment picks up the metric
+        Jacobian weight — an embedding chart's base coordinates
+        (``sqrt_g``) or an analytic-``maps=`` physical coordinate
+        (its column Jacobian). None keeps the plain computational
+        measure; a name off every chart raises (default: None).
     """
 
     dispatch_kind: ClassVar[str | None] = "cumint"
@@ -370,10 +379,9 @@ class CumulativeIntegral(SeparableOperator):
         bare = space.bare
         weight = f.grid.measure(bare, name=axis)
         incr = f.data * weight.data
-        if (self._jacobian is not None
-                and axis in self._jacobian
-                and _resolves(bare, self._jacobian)):
-            incr = incr * f.grid.metric(bare, "sqrt_g").data
+        factor = jacobian_factor(f, axis, self._jacobian)
+        if factor is not None:
+            incr = incr * factor
         axis_index = bare.names.index(axis)
         running = _running_integral(incr, axis_index, self._direction)
         if self._target == "center":
@@ -463,38 +471,3 @@ def _midpoint(face: Array, axis: int) -> Array:
     lower[axis] = slice(0, -1)
     upper[axis] = slice(1, None)
     return 0.5 * (face[tuple(lower)] + face[tuple(upper)])
-
-
-def _resolves(space: FunctionSpace | object,
-              names: tuple[str, ...]) -> bool:
-    """
-    Whether ``space`` resolves every name through a live factor.
-
-    Description
-    -----------
-    The chart-reduction guard shared with ``Integral`` (rules 3.13):
-    the ``sqrt_g`` weight enters an increment only while every chart
-    coordinate is still contributed by a non-constant, non-coefficient
-    factor of the operand space.
-
-    Parameters
-    ----------
-    space : SpaceLike
-        The (bare) operand space.
-    names : tuple[str, ...]
-        The chart coordinate names.
-
-    Returns
-    -------
-    bool
-        True iff every name is contributed by a non-constant,
-        non-coefficient factor of ``space``.
-    """
-    for name in names:
-        try:
-            factor = space.factor(name)
-        except KeyError:
-            return False
-        if isinstance(factor, ConstantSpace | CoefficientSpace):
-            return False
-    return True

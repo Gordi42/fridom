@@ -178,12 +178,14 @@ the scoping §10–§13). Open:
   (no interim Thomas route); the `jacobian=` seam wired properly
   (`sqrt_g` for `maps=`, name re-key, taught error — H1 consumes
   the seam, superseding route a). Implementation open.
-- **Validate the FV default on 4 GPUs** — the distributed solve on
-  average origins ran only 1-GPU so far (forced-4 CPU asserts the
-  walled + mapped FV fast paths), the gpu4 step baseline predates the
-  nodal sibling cases, and the walled step baselines predate the
-  FV default flip (nodal sibling cases exist; re-record both on the
-  next GPU campaign).
+- **Re-record the FV/nodal step baselines on 4 GPUs** — the gpu4 step
+  baseline predates the nodal sibling cases and the walled step
+  baselines predate the FV default flip; re-record both
+  `benchmarks/baselines/step-gpu{1,4}.json` on the GPU campaign.
+  (The distributed FV solve on average origins is now **validated on
+  real 4 GPUs** — T1, 2026-07-17: 11/11 `test_distributed_projection.py`
+  green, 1-vs-4 FV step smoke matches to ~8e-15; see the scoping record
+  §10.6.)
 
 [`../plans/active/fv_nonhydro_scoping.md`](../plans/active/fv_nonhydro_scoping.md)
 
@@ -206,9 +208,6 @@ Open, none blocking:
 - **Fraction-weighted Sadourny momentum** (sw2) and **masked
   closures** (diffusion/Smagorinsky/VerticalMixing self-reject on
   immersed grids today).
-- **4-GPU validation** of the three immersed PCG paths (forced-4 is
-  asserted; real multi-GPU joins the next campaign, same status as
-  the FV-default flip).
 
 ## Docs & examples rebuild
 
@@ -349,6 +348,28 @@ needing its own `in_specs`/masking.
 Stage 2f (the mirror/halo-claim widening) is small but pure perf, gated on
 profiling nobody has done. Defer.
 [`../plans/active/boundary_plan.md`](../plans/active/boundary_plan.md)
+
+## Diffusion/friction closures at walls and on terrain
+
+*Staged; scoped and sized 2026-07-17
+([`../research/diffusion_walls_terrain_scoping.md`](../research/diffusion_walls_terrain_scoping.md)).*
+The explicit family rejects every bounded grid (which also catches
+all terrain columns); `VerticalMixing` is Neumann-rows-only. Stages:
+free-slip walls are nearly structural (flux retag to
+`Inner[Dirichlet]`, the advection precedent; ~150-250 LOC src);
+no-slip adds the one new stencil (MITgcm-style wall rows, `slip=`
+API; ~150-300); implicit Dirichlet bottom/top rows (~80-160, high
+value — stiff bottom-drag regime, and the merge key must learn BC
+structure); mapped along-σ with honest tilt naming (~100-200);
+full-metric/rotated tensor deferred. Five owner calls in the record
+(default slip, biharmonic no-slip pair, terrain fidelity bar,
+slip ownership, stage-0 scope). **Not deferred — stage 0**: taught
+gates for a *live silent-wrongness* — `VerticalMixing` binds on
+stretched and terrain columns and silently solves the wrong operator
+(`second_difference_matrix` infers one uniform `dz` from the first
+two nodes; the chart never enters `evaluation_nodes`); a fully
+periodic mapped grid likewise binds the explicit family with no
+cross terms. Gate both now (~30-60 LOC + raises tests).
 
 ## Open boundaries — sponge is small, through-flow is large
 
@@ -506,18 +527,6 @@ has to be invented, only assembled:
   (`/ w.to(v)`, `/ w_1`, `/ w_2`) share the masked-0/0 class the
   Sadourny PV division was cured of; guard like
   `_potential_vorticity` when that path meets an adjoint.
-- **Known exception, now localized: the mapped projection is
-  reverse-NaN** through `velocity_correction` — the field `/`
-  jacobian divide (the registry "divide" path in `scalar_field.py`)
-  has a singular VJP while the primal stays finite
-  (single-`where`-class masked singularity: NaN with the spectral and
-  multigrid preconditioners alike, at every CG iteration count;
-  isolated mapped `solve` and `divergence` differentiate finite).
-  First noted as "a metric singularity" at the CG-tolerance landing
-  ([`done.md`](done.md)); the fix is the double-`jnp.where` guard on
-  that divide path plus the mapped autodiff regression it has never
-  had (localization 2026-07-17, multigrid B5 pass).
-
 ---
 
 # Long-term goals
