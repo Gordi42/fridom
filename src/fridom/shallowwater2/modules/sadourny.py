@@ -222,6 +222,7 @@ import fridom as fr
 from fridom.shallowwater2.state import _wall_free
 from fridom.spatial.bc import BC
 from fridom.spatial.decomposition.halo import HaloSpec
+from fridom.spatial.fields.scalar_field import ScalarField
 from fridom.spatial.fields.vector_field import VectorField
 from fridom.spatial.scalars import Variance
 from fridom.spatial.spaces.constant import ConstantSpace
@@ -229,7 +230,6 @@ from fridom.spatial.spaces.constant import ConstantSpace
 if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Callable, Mapping
 
-    from fridom.spatial.fields.scalar_field import ScalarField
     from fridom.spatial.grid import Grid
 
 #: wall-normal background components must vanish at the wall to this
@@ -241,6 +241,34 @@ _WALL_TOL = 1e-12
 _DIV_TOL = 1e-11
 
 _BG_COMPONENTS = ("u", "v")
+
+
+def _potential_vorticity(
+    zeta: ScalarField, thickness: ScalarField,
+) -> ScalarField:
+    r"""Return the potential vorticity :math:`q = \zeta / h`.
+
+    Description
+    -----------
+    The full thickness ``h`` (``p_full`` interpolated to the vorticity
+    corner) is an exact zero in the unsealed ghost/padding cells — the
+    outermost ring is never valid at this point of the step, and there
+    ``zeta`` vanishes too, so the bare quotient is a masked ``0/0``. The
+    forward pass discards those cells (sealed/stripped before any
+    output), but **reverse-mode autodiff does not**: the quotient VJP
+    (:math:`-\zeta/h^2` with :math:`h = 0`) turns the zero cotangent of
+    a sealed cell into ``0 * inf = NaN`` and poisons every gradient with
+    a data path. Replacing the exact-zero denominators by 1 keeps ``q``
+    finite there; valid cells (``h != 0``) divide by the true thickness
+    and are bitwise unchanged (same ghost-validity claim), forward and
+    reverse. The guard is a no-op on the interior of any gravity grid
+    (``h`` is bounded below by :math:`c^2 > 0` there).
+    """
+    guarded = jnp.where(thickness.storage == 0.0, 1.0, thickness.storage)
+    safe = ScalarField(
+        thickness.grid, thickness.function_space, guarded,
+        thickness.metadata, halo_valid=thickness.halo_valid)
+    return zeta / safe
 
 
 class SadournyAdvection(fr.model.Module):
@@ -629,7 +657,7 @@ class SadournyAdvection(fr.model.Module):
             meridional: v.function_space.bare.factor(meridional)})
         zeta = (v.diff(zonal).retag(corner)
                 - u.diff(meridional).retag(corner))
-        q = zeta / p_full.to(zeta)                 # potential vort.
+        q = _potential_vorticity(zeta, p_full.to(zeta))
         fu = (u * p_full.to(u)).to(zeta)           # mass flux, NE
         fv = (v * p_full.to(v)).to(zeta)
         ekin = 0.5 * ((u * u).to(p) + (v * v).to(p))  # centre
@@ -689,7 +717,7 @@ class SadournyAdvection(fr.model.Module):
         curl = dispatch.resolve(
             "curl", covariant[zonal].function_space.bare)
         zeta = curl(covariant).retag(corner)
-        q = zeta / p_full.to(zeta)                 # potential vort.
+        q = _potential_vorticity(zeta, p_full.to(zeta))
 
         # --- sqrt_g-weighted corner mass fluxes F^i ----------------
         # (the same fluxes the thickness divergence carries, so the
