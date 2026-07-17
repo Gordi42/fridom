@@ -19,6 +19,7 @@ from fridom.model.field_table import (
 from fridom.model.roles import TRACER, Velocity
 from fridom.model.terms import TendencyTerm
 from fridom.spatial.grid import Grid
+from fridom.spatial.immersed_domain import ImmersedDomain
 from fridom.spatial.meshes.interval import IntervalMesh
 from fridom.spatial.space_patterns import (
     Collocated,
@@ -29,9 +30,10 @@ from fridom.spatial.space_patterns import (
 # ================================================================
 #  A resolved table: two tracers, a velocity, a diagnosed velocity
 # ================================================================
-def make_table():
+def make_table(*, immersed=None):
     grid = Grid((IntervalMesh(8, (0.0, 1.0), periodic=True,
-                              name="x"),))
+                              name="x"),),
+                immersed=immersed)
     declarations = (
         FieldDeclaration.velocity("u", "x", space=Staggered("x")),
         FieldDeclaration.tracer("b"),
@@ -179,6 +181,15 @@ def test_zero_resolved_targets_is_an_assembly_error():
     closure = Mixing(exclude=("b", "c"))
     with pytest.raises(AssemblyError, match="zero target"):
         closure.bind(make_table())
+
+
+def test_bind_on_an_immersed_grid_is_taught():
+    # closures read across dry cells unmasked next to the immersed
+    # boundary (IP-D8): bind rejects an immersed grid outright
+    immersed = ImmersedDomain(lambda x: x * 0.0 + 1.0)
+    closure = Mixing()
+    with pytest.raises(NotImplementedError, match="immersed"):
+        closure.bind(make_table(immersed=immersed))
 
 
 def test_missing_default_targets_is_taught():

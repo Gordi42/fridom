@@ -4,8 +4,9 @@ import types
 import numpy as np
 import pytest
 
-from fridom.model.modules.immersed import MaskState
+from fridom.model.modules.immersed import _MASK_ORDER, MaskState
 from fridom.model.stages import StageKind
+from fridom.spatial.decomposition.halo import HaloSpec
 from fridom.spatial.grid import Grid
 from fridom.spatial.immersed_domain import ImmersedDomain
 from fridom.spatial.meshes.interval import IntervalMesh
@@ -35,6 +36,38 @@ def test_bind_freezes_the_prognostic_names():
     mod = MaskState()
     mod.bind(_table(grid, ("u", "v", "p")))
     assert mod._names == ("u", "v", "p")
+
+
+def test_bind_captures_the_immersed_descriptor_and_coords():
+    # the masking reads the immersed descriptor and coordinate names
+    # from bind (the real grid), never from the field's (tracer) grid
+    # at trace time — so it captures them here
+    grid = _immersed_grid()
+    mod = MaskState()
+    mod.bind(_table(grid, ("u",)))
+    assert mod._immersed is grid.immersed
+    assert mod._coords == grid.names
+
+
+def test_extra_halo_is_zero_per_coordinate():
+    # the masking is a local (zero-stencil) concrete-field multiply the
+    # halo tracer cannot follow, so the stage is halo-trace exempt with
+    # a zero declared halo (IP-D5)
+    grid = _immersed_grid()
+    mod = MaskState()
+    mod.bind(_table(grid, ("u",)))
+    halo = mod.extra_halo
+    assert isinstance(halo, HaloSpec)
+    assert halo == HaloSpec(dict.fromkeys(grid.names, 0))
+
+
+def test_masking_stage_sorts_after_the_projection():
+    # the CONSTRAINT-stage order sentinel puts the mask last (after the
+    # pressure projection at order 0) — the composer's overlap lint
+    # requires the explicit order
+    (stage,) = MaskState().stages
+    assert stage.order == _MASK_ORDER
+    assert _MASK_ORDER > 0
 
 
 def test_bind_without_immersed_domain_raises():

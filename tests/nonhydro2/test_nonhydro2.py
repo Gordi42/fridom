@@ -45,6 +45,7 @@ from fridom.spatial.bc import BC
 from fridom.spatial.coordinate_mapping import CoordinateMapping
 from fridom.spatial.fields.vector_field import VectorField
 from fridom.spatial.grid import Grid
+from fridom.spatial.immersed_domain import ImmersedDomain
 from fridom.spatial.meshes.interval import IntervalMesh
 from fridom.spatial.operators.composed import Divergence
 from fridom.spatial.spaces.average import CellAvg
@@ -308,6 +309,22 @@ def test_eigenmode_projector_is_idempotent():
         for c in "uvwb":
             assert np.abs(np.asarray(twice[c].data)
                           - np.asarray(once[c].data)).max() < 1e-9
+
+
+def test_eigenmodes_from_model_rejects_an_immersed_grid():
+    # the masked cut-cell operator's eigenbasis is not the
+    # tensor-product basis the analytic engine diagonalizes (IP-D8):
+    # from_model (and the transforms routing through it) is a taught
+    # error on an immersed grid
+    grid = Grid(
+        tuple(IntervalMesh(8, (0.0, 2 * np.pi), periodic=True, name=n)
+              for n in ("x", "y", "z")),
+        immersed=ImmersedDomain(
+            lambda x, y, z: x * 0.0 + 1.0))  # noqa: ARG005
+    model = nh.Model(grid=grid, dt=0.02, advection=False,
+                     coriolis=FPlaneCoriolis(f0=1.0))
+    with pytest.raises(NotImplementedError, match="immersed"):
+        nh.eigenmodes.from_model(model)
 
 
 def test_tendency_eigenrelation_lq_equals_minus_i_omega_q():

@@ -23,7 +23,10 @@ import fridom.nonhydro2 as nh
 from fridom.model.time_steppers.adam_bashforth import (
     AdamBashforth,
 )
-from fridom.nonhydro2.modules.pressure import SpectralPressureSolver
+from fridom.nonhydro2.modules.pressure import (
+    SpectralPressureSolver,
+    build_flat_spectral_solve,
+)
 from fridom.spatial.bc import BC
 from fridom.spatial.fields.scalar_field import ScalarField
 from fridom.spatial.fields.vector_field import VectorField
@@ -135,6 +138,35 @@ def test_periodic_solver_never_retags(monkeypatch):
     monkeypatch.setattr(ScalarField, "retag", forbidden)
     p = solver.solve(div, dsqr=jnp.asarray(0.25))
     assert p.function_space.bare is div.function_space.bare
+
+
+# ================================================================
+#  The shared builder == the solver (IP-D6 factoring, byte-identical)
+# ================================================================
+@pytest.mark.parametrize("case", ["periodic", "walled"])
+def test_build_flat_spectral_solve_matches_the_solver(case):
+    # SpectralPressureSolver.solve delegates to the module-level
+    # build_flat_spectral_solve (the reusable core the immersed
+    # preconditioner shares, IP-D6); the two must be byte-identical on
+    # both the periodic and the walled (retagging) path
+    if case == "periodic":
+        mx = IntervalMesh(N, (0.0, 2 * np.pi), periodic=True, name="x")
+        my = IntervalMesh(NY, (0.0, 2 * np.pi), periodic=True, name="y")
+        mz = IntervalMesh(N, (0.0, 2 * np.pi), periodic=True, name="z")
+        grid = Grid((mx, my, mz))
+    else:
+        grid, (mx, my, mz) = make_walled_grid()
+    space = mx.center * my.center * mz.center  # BC-free, as div comes
+    div = grid.random.normal(space, seed=7)
+    dsqr = jnp.asarray(0.25)
+    solver = SpectralPressureSolver(grid, space, vertical="z")
+    built = build_flat_spectral_solve(
+        grid, space, vertical="z", dsqr=dsqr)
+    p_solver = solver.solve(div, dsqr=dsqr)
+    p_built = built(div)
+    assert p_solver.function_space is p_built.function_space
+    diff = float(jnp.abs(p_solver.data - p_built.data).max())
+    assert diff <= 1e-14
 
 
 # ================================================================
