@@ -209,6 +209,28 @@ Implementation record:
   the walled-FV analytic-eigenmode taught gap — closed the next day
   (next entry).
 
+- **FV biased advection assembles** (2026-07-17) — the blocker the
+  upwind5 campaign filed (biased velocity self-advection on any
+  FV-default grid died at a `Center` vs `CellAvg` bare-`retag` bridge
+  in `_face_value`, live since the F3 flip) is closed. Fix: the
+  family-aware bridge `_to_flux_space` — co-located `Center → CellAvg`
+  crossings go through a real `.to` (the `"deconvolve"` kind, a
+  one-point pass-through, **bitwise** at 2nd order), BC-only
+  differences stay `retag` (the walled adopt-then-strip seam), pure
+  nodal reduces to the old bridge. The diagnosis was also *extended*:
+  the biased `_velocity_face` silently dropped FV operands to the
+  2-point `"average"` row instead of the order-coupled `_interp` —
+  fixed by deconvolving to the `Center` skeleton first, so the FV
+  velocity face is order-coupled and bitwise nodal. Parity: periodic
+  **exactly bitwise** for upwind3/5, weno3/5 (eager and 12-step
+  jitted); walled bitwise eager, ≤1e-14 jitted (the known F4
+  pressure-solve fusion artifact, not the schemes). Coverage gap
+  closed: `nh.Model`-driven FV biased velocity self-advection tests +
+  biased parity variants in `test_fv_default.py`. Coexists cleanly
+  with the concurrent hydrostatic `Outer→Inner` restriction work
+  (orthogonal branches of the shared `_velocity_face`). Diagnosis
+  record: [`../research/upwind5_revisit.md`](../research/upwind5_revisit.md) §7.
+
 - **Walled-FV analytic eigenmodes** (2026-07-17) — the gap the
   default flip surfaced, closed as an early F5 slice: the kit mints
   its BC-tagged `CellAvg` analysis origins itself

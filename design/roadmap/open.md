@@ -133,24 +133,6 @@ every unmapped, unimmersed grid** — periodic and walled (owner ruling
 [`done.md`](done.md)). Only mapped/immersed grids remain nodal-only
 (taught error). Open:
 
-- **Blocker: biased advection does not assemble on the FV default**
-  (found 2026-07-16 by the upwind5 benchmark campaign, re-verified at
-  `cf633de1`). `nh.Model` with `UpwindAdvection`/`WENOAdvection` on
-  any FV-default grid fails at dry-run with `SpaceMismatchError`
-  (`Center` vs `CellAvg` retag in `_face_value`) — velocity
-  self-advection: `u`'s x-factor is nodal `Right`, so `_flux_space`
-  derives `CellAvg` (via `diff`) while `_biased_pair` picks the nodal
-  reconstruction pair (codomain `Center`), bridged only by a BC-only
-  `retag`. Present since the F3 default flip (`cb752b85`);
-  `CenteredAdvection` survives through `_velocity_face`'s real `.to`
-  conversion. Coverage gap: the FV advection tests drive raw
-  `fr.model.Model` (nodal-default grid) with a `CellAvg` tracer only —
-  FV velocity self-advection through the biased path is never
-  assembled; `test_fv_default.py` is centered-only. Repro:
-  [`../research/upwind5_revisit/fv_repro.py`](../research/upwind5_revisit/fv_repro.py),
-  details in
-  [`../research/upwind5_revisit.md`](../research/upwind5_revisit.md)
-  §7.
 - **F5** mapped/chart FV — the metric-aware rows on averages (C1/C2
   chain) and `MappedPressureSolver` (hard-wired nodal). Handoff notes
   from F4 in the scoping §11 (measure-weighted wall reconstruction,
