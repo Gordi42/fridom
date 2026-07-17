@@ -452,26 +452,31 @@ def test_second_advance_compiles_nothing(compile_counter):
 # ================================================================
 @pytest.mark.parametrize("cls", [CenteredAdvection, UpwindAdvection,
                                  WENOAdvection])
-def test_surface_flux_defaults_off_and_is_stored(cls):
-    # the flag is an opt-in kw-only argument, stored on the module and
-    # off by default (so the default construction is unchanged).
-    assert cls()._surface_flux is False
-    on = cls(surface_flux=True)
-    assert on._surface_flux is True
+def test_surface_flux_is_tristate_and_stored(cls):
+    # tri-state kw-only argument: True/False forced, None (the default)
+    # auto-resolves at bind (to off without an Outer velocity).
+    assert cls()._surface_flux is None
+    assert cls(surface_flux=True)._surface_flux is True
+    assert cls(surface_flux=False)._surface_flux is False
 
 
-def test_surface_flux_off_matches_the_default_bitwise():
-    # surface_flux=False reproduces the default flux-form tendency byte
-    # for byte on a divergent velocity (the correction branch skipped).
+def test_surface_flux_auto_resolves_off_without_outer_velocity():
+    # the nonhydro2 velocities are all on Inner faces (no Outer seam),
+    # so the auto default (None) resolves off and is byte-identical to an
+    # explicit surface_flux=False (nonhydro2 / shallowwater2 stay bitwise
+    # unchanged under the new default).
     n = 16
     xc = centers(n)
     fields = {"u": broadcast(1.0 + 0.5 * np.sin(xc), n),
               "b": broadcast(np.sin(2 * xc), n)}
-    default = make_model(n, CenteredAdvection())
-    default.set_fields(**fields)
+    auto = make_model(n, CenteredAdvection())  # surface_flux=None
+    auto.set_fields(**fields)
     off = make_model(n, CenteredAdvection(surface_flux=False))
     off.set_fields(**fields)
-    td = advection_tendency(default, CenteredAdvection)
+    resolved = next(m for m in auto.modules
+                    if isinstance(m, CenteredAdvection))
+    assert resolved._surface_flux_on is False
+    td = advection_tendency(auto, CenteredAdvection)
     to = advection_tendency(off, CenteredAdvection)
     for name in ("u", "b"):
         np.testing.assert_array_equal(
