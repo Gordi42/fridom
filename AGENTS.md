@@ -166,6 +166,32 @@ JAX_PLATFORMS=cuda srun -n 4 --gpu-bind=none .venv/bin/python your_script.py
 - Full-suite runs (only when explicitly requested):
   `uv run pytest tests/ -n 8 --dist loadfile`.
 
+### Differentiability policy (new stack)
+
+- The new-stack step path is reverse-mode differentiable end to
+  end: `jax.grad` through a model run w.r.t. any bound parameter
+  (`friction.nu`, `dt`, an initial field) is exact to
+  finite-difference precision, including the CG pressure solve (see
+  `design/research/jax_grad_run_investigation.md` for the status,
+  the kernel recipe, and the known hazards). This is a tested
+  invariant, not an accident: treat a NaN gradient as a bug.
+- New or changed step-path code (tendency modules, closures,
+  spatial operators used in tendencies, time steppers) ships one
+  small autodiff regression test in its mirrored test file:
+  `jax.grad` of a quadratic loss through a short run via the pure
+  kernel (`fridom.model.model._chunk_body`; pattern:
+  `tests/model/test_model_autodiff.py`) is finite and matches a
+  central finite difference to rtol 1e-4. Keep it cheap: <=16^2/8^3
+  grids, <=10 steps, one test per feature — a few seconds of
+  compile. Host-side code (io, reporting, assembly) is exempt.
+- The usual poison is a masked singularity: `x / y` or `x ** 0.5`
+  where sealing/clipping keeps the forward value finite but the VJP
+  is singular (`y == 0` in never-valid padding, `sqrt` at a clipped
+  0). Guard with the double-`jnp.where` pattern, or — when the
+  guard costs step time — a `custom_jvp` whose primal is untouched.
+  Never `custom_vjp` in step-path code: it forecloses forward-mode
+  `jvp`.
+
 ### Coverage policy
 
 - The project enforces **95% branch coverage** (`fail_under = 95` in
