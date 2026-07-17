@@ -53,16 +53,15 @@ def depth(x):
 #  Gate 1: frozen motion == static C3, bitwise, with/without ALE
 # ================================================================
 def make_terrain_model(*modules, n=N, init=depth, advection=True,
-                       device_ids=None):
+                       device_ids=None, family="nodal"):
     """Terrain-following model ``zp = z * H(x)`` (z in [0, 1]).
 
-    family="nodal" is explicit: dynamic geometry (stage C4) is a
-    nodal-only feature — the ALE mesh-velocity correction is
-    nodal-only — so the 2026-07-17 mapped auto flip keeps a
-    moving-geometry model on the nodal path. Pinning nodal here keeps
-    the static reference (no MovingGeometry, which would otherwise
-    auto-flip to FV) and the moving models like-for-like, so the
-    frozen-motion bitwise gate compares nodal against nodal.
+    ``family`` defaults to ``"nodal"``: the nodal gates below pin it
+    explicitly to keep the static reference and the moving models
+    like-for-like (auto would flip a moving-geometry model to FV since
+    the 2026-07-17 ALE-on-FV closure). The FV counterparts pass
+    ``family="fv"`` — the ALE mesh-velocity correction is family-aware,
+    so moving geometry runs on FV wherever a static mapped one does.
     """
     mapping = CoordinateMapping(
         maps={"zp": lambda z, H: z * H}, params={"H": init})
@@ -71,7 +70,7 @@ def make_terrain_model(*modules, n=N, init=depth, advection=True,
         IntervalMesh(n, (0.0, TWO_PI), periodic=True, name="y"),
         IntervalMesh(n, (0.0, 1.0), periodic=False, name="z"),
     ), mapping=mapping, device_ids=device_ids)
-    return nh.Model(grid=grid, dt=DT, dsqr=DSQR, family="nodal",
+    return nh.Model(grid=grid, dt=DT, dsqr=DSQR, family=family,
                     coriolis=nh.FPlaneCoriolis(f0=1.0),
                     advection=advection, modules_extra=modules,
                     pressure_iterations=ITERATIONS)
@@ -126,14 +125,15 @@ def ale_profile(zp):
     return np.cos(np.pi * zp)
 
 
-def make_ale_model(n, *modules):
+def make_ale_model(n, *modules, family="nodal"):
     """Zero-physics column with a time-only depth H(t).
 
     8 points per horizontal axis: a 4-wide sharded axis trips a
     PRE-EXISTING XLA spmd-partitioner fault in the (static, C3)
     mapped projection under the forced-4 device suite (a c64/c128
     scalar-constant mix after partitioning) — unrelated to the
-    dynamics under test here.
+    dynamics under test here. ``family`` defaults nodal; the FV
+    convergence gate passes ``family="fv"``.
     """
     mapping = CoordinateMapping(
         maps={"zp": lambda z, H: z * H},
@@ -144,7 +144,7 @@ def make_ale_model(n, *modules):
         IntervalMesh(n, (0.0, 1.0), periodic=False, name="z"),
     ), mapping=mapping)
     return nh.Model(
-        grid=grid, dt=DT, advection=False, family="nodal",
+        grid=grid, dt=DT, advection=False, family=family,
         pressure_iterations=ITERATIONS,
         coriolis=nh.FPlaneCoriolis(f0=0.0),
         stratification=nh.ConstantStratification(n2=0.0),
@@ -227,7 +227,7 @@ def channel_width(x, t):
     return 1.0 - 0.2 * jnp.cos(x) * ramp
 
 
-def make_channel_model(*modules, n=N):
+def make_channel_model(*modules, n=N, family="nodal", dt=DT):
     """Boundary-fitted channel ``yp = y * Y_N(x, t)``."""
     mapping = CoordinateMapping(
         maps={"yp": lambda y, YN: y * YN},
@@ -238,7 +238,7 @@ def make_channel_model(*modules, n=N):
         IntervalMesh(n, (0.0, 1.0), periodic=False, name="z"),
     ), mapping=mapping)
     return nh.Model(
-        grid=grid, dt=DT, dsqr=DSQR, family="nodal",
+        grid=grid, dt=dt, dsqr=DSQR, family=family,
         coriolis=nh.FPlaneCoriolis(f0=1.0),
         pressure_iterations=ITERATIONS,
         modules_extra=(
@@ -341,11 +341,11 @@ def oscillating_depth(x, t):
     return depth(x) * (1.0 + EPS * jnp.sin(OMEGA * t))
 
 
-def make_oscillating_model(device_ids=None):
+def make_oscillating_model(device_ids=None, family="nodal"):
     return make_terrain_model(
         MovingGeometry({"H": oscillating_depth}),
         MeshVelocityCorrection(),
-        advection=False, device_ids=device_ids)
+        advection=False, device_ids=device_ids, family=family)
 
 
 def test_oscillating_terrain_compiles_once_and_stays_solenoidal(
@@ -384,6 +384,180 @@ def test_oscillating_terrain_is_device_count_invariant():
     # differently between the 1- and 4-device programs
     def run(device_ids):
         model = make_oscillating_model(device_ids=device_ids)
+        fields, _ = terrain_fields()
+        model.set_fields(**fields)
+        model.advance(10)
+        return {c: np.asarray(model.state[c].data)
+                for c in ("u", "v", "w", "b", "p")}
+
+    four = run(None)
+    one = run((0,))
+    for c, want in one.items():
+        np.testing.assert_allclose(four[c], want, rtol=0.0,
+                                   atol=1e-11)
+
+
+# ================================================================
+#  FV counterparts of the gates (ALE on FV, 2026-07-17)
+# ================================================================
+# Since the ALE-on-FV closure a moving-geometry model runs on the
+# finite-volume family: the MeshVelocityCorrection routes per field on
+# its column factor — the conservative flux form on the CellAvg columns
+# of b/u/v, the advective form on the wall-normal velocity. These mirror
+# the nodal gates above on family="fv".
+
+
+def _frozen_terrain(family):
+    """Return a frozen-schedule (H_dot == 0) terrain model."""
+    return make_terrain_model(
+        MovingGeometry({"H": lambda x, t: depth(x) + 0.0 * t}),
+        family=family)
+
+
+def test_fv_frozen_motion_reproduces_the_static_run_bitwise():
+    # the FV frozen-motion gate: the dynamic pipeline (MovingGeometry
+    # state, params= threading, the family-aware ALE flux/advective
+    # terms) reproduces the static FV run BITWISE — H_dot == 0 exactly,
+    # so the flux-form correction is a bitwise-zero tendency (w == 0 ->
+    # G == 0 -> flux_diff(0) == 0), added to the static trajectory.
+    static = make_terrain_model(family="fv")
+    without_ale = _frozen_terrain("fv")
+    with_ale = make_terrain_model(
+        MovingGeometry({"H": lambda x, t: depth(x) + 0.0 * t}),
+        MeshVelocityCorrection(), family="fv")
+    fields, _ = terrain_fields()
+    for model in (static, without_ale, with_ale):
+        model.set_fields(**fields)
+        model.advance(20)
+    for c in ("u", "v", "w", "b", "p"):
+        want = np.asarray(static.state[c].data)
+        assert np.array_equal(
+            np.asarray(without_ale.state[c].data), want), c
+        assert np.array_equal(
+            np.asarray(with_ale.state[c].data), want), c
+
+
+@pytest.mark.single_device
+def test_fv_ale_keeps_the_physical_interpretation_in_place():
+    # single_device: see the nodal sign test above (a tall column trips
+    # a PRE-EXISTING XLA spmd fault in the static mapped projection).
+    # FV counterpart of the manufactured H(t) sign test: with the
+    # family-aware flux-form correction the field stays physically put,
+    # b(z, T) = f(z * H(T)), and converges at 2nd order. FV reaches its
+    # asymptotic regime one refinement later than nodal (a larger error
+    # constant; the peak error is INTERIOR — z ~ 0.78 in the shrinking
+    # column — not a boundary artifact, so the moving-wall mesh flux is
+    # handled), so the rate is measured on the resolved (32, 64) pair:
+    # measured 1.62e-3 (n=32), 4.42e-4 (n=64) -> order 1.88.
+    steps = 50
+    t_final = steps * DT
+    errors = []
+    for n in (32, 64):
+        model = make_ale_model(n, MeshVelocityCorrection(("b",)),
+                               family="fv")
+        b0, z = ale_initial(n)
+        model.set_fields(b=b0)
+        model.advance(steps)
+        exact = ale_profile(z * (H0 + RATE * t_final))
+        errors.append(np.abs(
+            np.asarray(model.state["b"].data) - exact).max())
+        # the geometry moved far enough that staying frozen is gross
+        assert np.abs(b0 - exact).max() > 50 * errors[-1]
+    assert errors[0] / errors[1] > 3.4  # 2nd order (4x per level)
+
+
+def test_fv_morph_with_ale_is_stable_and_consistent():
+    # the owner's target experiment on FV. Gates (a)-(c) as the nodal
+    # morph: stable; mapped divergence at solver tolerance every step;
+    # the discrete volume integral(J) EXACTLY conserved. (d) the NEW
+    # tightened tracer bound: the flux-form ALE telescopes, so the
+    # tracer-content drift collapses from the nodal 6.9e-3 SPATIAL-
+    # truncation drift to a pure TIME-discretization residual (measured
+    # worst 1.35e-4 at n = 8; it shrinks with dt — the residual test
+    # below — and the semi-discrete budget closes to machine precision
+    # at every resolution, tests/model/modules test_fv_telescoping...).
+    # Measured: worst per-step divergence 1.7e-14, volume drift 1.4e-16.
+    model = make_channel_model(MeshVelocityCorrection(), family="fv")
+    fields, _ = channel_fields()
+    model.set_fields(**fields)
+    _, volume0, tracer0 = channel_diagnostics(model)
+    u_scale = 0.5
+    for _ in range(MORPH_STEPS):
+        model.advance(1)
+        div, volume, tracer = channel_diagnostics(model)
+        assert div < 1e-10 * u_scale
+        assert abs(volume - volume0) < 1e-12 * abs(volume0)
+        assert abs(tracer - tracer0) < 1e-3 * abs(tracer0)
+    assert not model.panicked
+    for c in ("u", "v", "w", "b"):
+        assert np.isfinite(np.asarray(model.state[c].data)).all()
+    # one more step: the SELF_UPDATE writes the geometry at the
+    # START-of-step time, so the boundary is genuinely flat now
+    model.advance(1)
+    yn = np.asarray(model.state["YN"].data)
+    np.testing.assert_allclose(yn, 1.0, rtol=0, atol=1e-12)
+
+
+def test_fv_morph_tracer_drift_is_a_time_residual():
+    # the tightened bound is a pure TIME-discretization residual, not
+    # the nodal SPATIAL-truncation drift: halving dt over the SAME morph
+    # window roughly halves the drift (measured 1.35e-4 -> 6.9e-5),
+    # whereas a spatial-truncation error is dt-independent. (The
+    # resolution-independence of the underlying invariant is the
+    # machine-exact telescoping identity, unit test test_fv_telescoping.)
+    def drift(dt, steps):
+        model = make_channel_model(
+            MeshVelocityCorrection(), family="fv", dt=dt)
+        fields, _ = channel_fields()
+        model.set_fields(**fields)
+        _, _, tracer0 = channel_diagnostics(model)
+        model.advance(steps)
+        _, _, tracer = channel_diagnostics(model)
+        return abs(tracer - tracer0) / abs(tracer0)
+
+    coarse = drift(DT, MORPH_STEPS)          # dt, 60 steps
+    fine = drift(DT / 2, 2 * MORPH_STEPS)    # dt/2, 120 steps (same window)
+    assert coarse < 1e-3            # tightened vs nodal 6.9e-3
+    assert fine < 0.7 * coarse      # shrinks ~linearly with dt
+
+
+def test_fv_oscillating_terrain_compiles_once_and_stays_solenoidal(
+        compile_counter):
+    # the FV jit gate: the geometry VALUES sweep every step while the
+    # family-aware flux-route reconstruction / flux_diff and the mapped
+    # divergence stay at solver tolerance — the whole run compiles once.
+    model = make_oscillating_model(family="fv")
+    fields, _ = terrain_fields()
+    model.set_fields(**fields)
+    model.advance(2)
+    compile_counter.reset()
+    model.advance(10)
+    assert compile_counter.count == 0
+    assert not model.panicked
+    state = model.state
+    grid = state["u"].grid
+    params = mapping_params(state, grid)
+    solver = MappedPressureSolver(
+        grid, state["p"].function_space, iterations=1,
+        weights={"z": 1.0 / DSQR}, params=params)
+    div = solver.divergence({
+        "x": state["u"], "y": state["v"], "z": state["w"]})
+    vel_scale = max(
+        float(jnp.abs(state[c].data).max()) for c in "uvw")
+    assert float(jnp.abs(div.data).max()) < 1e-8 * max(
+        vel_scale, 1e-3)
+
+
+@pytest.mark.multi_device
+def test_fv_oscillating_terrain_is_device_count_invariant():
+    # the FV flux route under forced-4: the one-sided CellAvg -> Outer
+    # reconstruction demands the mapped column undistributed, which
+    # holds because the periodic x axis shards first (the column z stays
+    # device-local). To tight rounding, not bitwise (the sharded
+    # metric-scaled chains and CG reductions fuse differently 1 vs 4).
+    def run(device_ids):
+        model = make_oscillating_model(device_ids=device_ids,
+                                       family="fv")
         fields, _ = terrain_fields()
         model.set_fields(**fields)
         model.advance(10)
