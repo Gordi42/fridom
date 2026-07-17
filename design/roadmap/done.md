@@ -118,7 +118,14 @@ Implementation record:
   to `1e-8` (`sqrt(f64 eps)`, Oceananigans' PCG precedent — fires above
   the ~4.5e-14 floor so the T4 trap cannot engage in f64); `None` is the
   explicit fixed-iteration opt-out, and determinism-pinned tests pass it.
-  Addendum in the research record.
+  **GPU-validated 2026-07-17** (A100, 256³ terrain nonhydro2, linear
+  mapped step inside the real chunked scan): the early-exit survives
+  XLA:GPU as a true `conditional`; ms/step 206.0 → 83.4 gentle (9 of 30
+  iterations, −59.5 %) / 153.0 strong (19 iterations, −25.7 %) at the
+  `1e-8` default, −65 %/−40 % at `1e-6`; 50-step state matches the fixed
+  budget to ≤ 1.7e-9 relative. The win *exceeds* the CPU micro-timing —
+  the standalone-vs-chunked reversal fear did not materialize.
+  Addendum with the full table in the research record.
 - **Multigrid pathway, phase A — the grid transfer layer**
   (2026-07-17, merge `fae44be4`) — grid-to-grid transfer on the new
   stack: `Mesh.coarsened` / `Grid.coarsened` (independent coarse

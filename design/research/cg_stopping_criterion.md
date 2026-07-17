@@ -222,6 +222,45 @@ corollary above; localized to the `velocity_correction` jacobian divide
 by the multigrid B5 work — see the open-roadmap entry) is untouched by
 the flip: it NaNs identically for `None` and for a firing tolerance.
 
-GPU re-measure. Still open and running separately; its numbers will be
-appended when in (the open-roadmap "GPU re-measure" entry is owned by
-that work).
+## Addendum (2026-07-17): GPU re-measure — win confirmed, larger
+
+Measured on one A100-SXM4-80GB (CUDA_VISIBLE_DEVICES=0, jax 0.10.2
+cuda12), dev `b77f8582`, inside the **real chunked step**: 256³
+terrain-following mapped nonhydro2 (`zp = z·H(x)`, x/y periodic, z
+walled), dt 0.02, chunks of 50 steps, median of 4 timed chunks after a
+warmup chunk. Linear mapped step (see the deviation note below).
+
+| mapping | tolerance | iters | ms/step | vs fixed 30 |
+|---|---|---|---|---|
+| gentle (0.2 sin) | None (fixed 30) | 30 | 206.03 | — |
+| gentle | 1e-8 (default) | 9 | 83.41 | **−59.5 %** |
+| gentle | 1e-6 | 7 | 71.69 | **−65.2 %** |
+| strong (0.6 sin) | None (fixed 30) | 30 | 205.90 | — |
+| strong | 1e-8 (default) | 19 | 152.96 | **−25.7 %** |
+| strong | 1e-6 | 15 | 124.34 | **−39.6 %** |
+
+- Iterations fired match the CPU study exactly (gentle 9/7, strong
+  19/15; identical at 32³ and 256³) — the counts are
+  backend-independent, as expected.
+- Correctness: 50-step state at `1e-8` vs fixed 30 — max relative diff
+  2.5e-10 (gentle) / 1.7e-9 (strong), worst component `w`.
+- Lowering: the compiled XLA:GPU HLO keeps one genuine
+  `conditional(...)` on a scalar predicate at both 32³ and 256³ — the
+  early-exit is not degraded to a compute-both `select`, and skipped
+  iterations cost nothing at runtime. The fixed-30 baseline pays a
+  flat ~206 ms/step regardless of mapping; the tolerance path tracks
+  the iterations actually fired. The krylov-docstring fear (standalone
+  loop wins reversing inside the model chunk under XLA:GPU buffer
+  assignment) applied to the padded-carry rework, not to this
+  early-exit: the win *exceeds* the CPU micro-timing here.
+
+Deviation: advection had to be **off**. Mapped + advection +
+`chunk_size >= 2` goes non-finite on the A100 even at dt 0.005 —
+pre-existing at `b77f8582`, reproduced with `tolerance=None`, not
+fixed by the `multi_output_fusion` workaround, while the same steps
+run finite at `chunk_size = 1` and flat-advective-chunked is fine.
+Recorded as its own open-roadmap entry ("Mapped + advection + chunked
+scan goes non-finite on GPU"). The linear mapped step exercises the
+identical per-step PCG projection the early-exit lives in (and is
+what the official `nh_mapped` benchmark runs), so the measurement
+stands.

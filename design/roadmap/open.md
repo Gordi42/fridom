@@ -124,6 +124,28 @@ loudly instead of in the HLO verifier. Evidence, provenance probes, and
 corrections:
 [`../research/multidevice_test_faults.md`](../research/multidevice_test_faults.md).
 
+## Mapped + advection + chunked scan goes non-finite on GPU
+
+Found 2026-07-17 while GPU-measuring the CG tolerance (A100, jax
+0.10.2, dev `b77f8582` — predates the tolerance work). A
+terrain-following mapped nonhydro2 run with advection **on** goes
+non-finite whenever `chunk_size >= 2`, at 256³ and even at dt=0.005
+(2.5e-4 physical) — while the *same* steps run finite one at a time
+(`chunk_size = 1`). Flat + advective + chunked is fine; mapped +
+linear + chunked is fine; only the mapped advective step inside the
+scanned chunk breaks, which points at a scanned-chunk
+compilation/fusion fault, not physics. The known
+`--xla_disable_hlo_passes=multi_output_fusion` workaround does **not**
+fix it (so it is not jax#39100). Distinct from the mapped
+reverse-mode NaN (that is a VJP-only masked singularity; this is the
+forward primal). Work: bisect the module set (advection scheme ×
+mapped metric terms) to a minimal repro, check CPU vs GPU and
+chunk-length sensitivity, then either a fridom-side restructuring or
+an upstream repro. Evidence: the CG-tolerance GPU measurement
+(research record
+[`../research/cg_stopping_criterion.md`](../research/cg_stopping_criterion.md),
+GPU addendum).
+
 ## Finite-volume nonhydro — decisions and validation
 
 All FV stages (F0–F6) are shipped — every non-immersed grid serves
@@ -417,22 +439,6 @@ promote one only when its trigger appears:*
   `decomposition/tensor.py`). No hot-loop consumer exists — the Neumann
   pressure sibling keeps the pressure-space shape. Revisit only if a
   Neumann-outer field enters a hot loop.
-- **CG convergence tolerance — GPU re-measure inside the model step.**
-  The opt-in masked-scan `tolerance` shipped 2026-07-17 (entry in
-  [`done.md`](done.md); research
-  [`../research/cg_stopping_criterion.md`](../research/cg_stopping_criterion.md)).
-  The 3× forward win (8.2 vs 24.6 ms, converge-at-5-of-30) is **CPU
-  micro-timing** on a standalone 48³ solve; XLA:GPU buffer assignment
-  inside the real chunked step can reverse standalone loop wins (the
-  padded-carry experiment did exactly that, krylov docstring). Lever:
-  re-measure the masked-scan win on A100 inside `_chunk_body`
-  (`benchmarks/model`, nh_mapped cases) before claiming a step-level
-  speedup; only with a green GPU step-benchmark — plus operational
-  experience with the floor trap — reconsider a **default-on** tolerance
-  (today default-off on purpose: results shift at the tolerance level in
-  tuned configs and a safe default is problem-dependent).
-  *Update 2026-07-17: the default was flipped **on** at `1e-8` (owner
-  decision; done.md CG entry); this GPU re-measure item is unchanged.*
 ## Multigrid preconditioner — follow-up measurements
 
 The semicoarsened V-cycle preconditioner shipped 2026-07-17 (the
@@ -445,7 +451,11 @@ The semicoarsened V-cycle preconditioner shipped 2026-07-17 (the
   preconditioner at 128³+ on an A100. Iteration counts are pinned
   (44 → 13, resolution-independent) but the ms/step claim needs the
   real device; joins the next GPU campaign (`benchmarks/model` A/B
-  harness).
+  harness). Run it at the new `pressure_tolerance=1e-8` default: both
+  preconditioners now early-exit, so the pinned iteration counts, not
+  the fixed budget, set each side's cost (the spectral side is already
+  GPU-measured at the default — CG-tolerance entry in
+  [`done.md`](done.md)).
 - **Real multi-GPU validation** — forced-4 parity is asserted in the
   suite (incl. the replicated coarse level, MG-D5); a real
   `srun -n 4` run joins the next campaign, same status as the
