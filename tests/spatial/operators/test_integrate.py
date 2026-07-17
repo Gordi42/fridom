@@ -4,7 +4,9 @@ Also covers the two seams this cluster wires for it: the
 ``grid.measure`` accessor and the ``f.integrate`` / ``f.mean``
 forwarders on ``ScalarField``.
 """
+import jax
 import jax.numpy as jnp
+import numpy as np
 import pytest
 
 from fridom.spatial.bc import BC
@@ -376,3 +378,122 @@ def test_fields_off_the_chart_meshes_use_the_plain_measure():
     f = grid.create_field(mu.center, init=lambda u: 1.0 + 0 * u)
     assert jnp.allclose(f.integrate("u").data.squeeze(),
                         2.0 * jnp.pi)
+
+
+# ================================================================
+#  Analytic maps= terrain columns: the jacobian= column Jacobian
+# ================================================================
+def _depth(x):
+    return 1.0 + 0.2 * jnp.sin(x)
+
+
+def _terrain_grid(n):
+    # z_p = sigma * H(x): a single-base terrain-following column whose
+    # mapped physical coordinate "zp" is not a mesh axis
+    mx = IntervalMesh(n, (0.0, 2.0 * jnp.pi), name="x")
+    ms = IntervalMesh(n, (0.0, 1.0), periodic=False, name="sigma")
+    mapping = CoordinateMapping(
+        maps={"zp": lambda sigma, H: sigma * H},
+        params={"H": _depth})
+    return Grid((mx, ms), mapping=mapping), mx, ms
+
+
+def test_maps_jacobian_matches_the_module_side_weighting():
+    # Integral(jacobian=("zp",)) is exactly cumint of the column
+    # Jacobian d<zp>_d<sigma> onto the increment (route b == route a)
+    grid, mx, ms = _terrain_grid(16)
+    space = mx.center * ms.center
+    u = grid.create_field(
+        space, init=lambda x, sigma: jnp.cos(sigma) + 0.0 * x)
+    gate = Integral(jacobian=("zp",))["sigma"](u)
+    manual = (u * grid.metric(space.bare, "dzp_dsigma")).integrate(
+        "sigma")
+    # route b (the wired seam) computes the same weighted integral as
+    # route a (module-side weighting); the two differ only by
+    # floating-point reassociation (weight*metric multiply order and,
+    # sharded, the reduction), so allclose not bitwise
+    assert jnp.allclose(gate.data, manual.data, atol=1e-14)
+
+
+def test_maps_jacobian_weighted_column_converges_to_the_physical():
+    # int_0^H (sigma H)^2 dz_p = H^3 / 3; the weighted reduction
+    # converges to it at 2nd order (chart-coordinate spelling "zp")
+    errors = []
+    for n in (16, 32, 64):
+        grid, mx, ms = _terrain_grid(n)
+        space = mx.center * ms.center
+        u = grid.create_field(
+            space, init=lambda x, sigma: (sigma * _depth(x)) ** 2)
+        column = Integral(jacobian=("zp",))["sigma"](u)
+        x = np.asarray(
+            grid.evaluation_nodes(column.function_space, "x").data)
+        exact = (1.0 + 0.2 * np.sin(x.ravel())) ** 3 / 3.0
+        errors.append(float(np.max(np.abs(
+            np.asarray(column.data).ravel() - exact))))
+    orders = np.log2(np.asarray(errors[:-1]) / np.asarray(errors[1:]))
+    assert bool(np.all(orders > 1.7))
+
+
+def test_maps_jacobian_is_no_longer_a_silent_noop():
+    # the historical trap: jacobian=("zp",) once equalled the
+    # unweighted reduction (a silent no-op); it now weights by H
+    grid, mx, ms = _terrain_grid(16)
+    space = mx.center * ms.center
+    u = grid.create_field(
+        space, init=lambda x, sigma: jnp.cos(sigma) + 0.0 * x)
+    weighted = Integral(jacobian=("zp",))["sigma"](u)
+    plain = u.integrate("sigma")
+    assert not jnp.allclose(weighted.data, plain.data)
+
+
+def test_maps_jacobian_bogus_name_raises():
+    grid, mx, ms = _terrain_grid(8)
+    space = mx.center * ms.center
+    u = grid.create_field(
+        space, init=lambda x, sigma: jnp.cos(sigma) + 0.0 * x)
+    with pytest.raises(ValueError, match="not a chart coordinate"):
+        Integral(jacobian=("bogus",))["sigma"](u)
+
+
+def test_maps_jacobian_base_axis_name_raises():
+    # spelling the *base* axis ("sigma") rather than the mapped
+    # physical coordinate ("zp") no longer half-matches: a taught
+    # error naming the available chart coordinate, not "unknown
+    # metric 'sqrt_g'"
+    grid, mx, ms = _terrain_grid(8)
+    space = mx.center * ms.center
+    u = grid.create_field(
+        space, init=lambda x, sigma: jnp.cos(sigma) + 0.0 * x)
+    with pytest.raises(ValueError, match="not a chart coordinate"):
+        Integral(jacobian=("sigma",))["sigma"](u)
+
+
+def test_maps_jacobian_on_a_grid_without_a_mapping_raises(mx, my):
+    grid = Grid((mx, my))
+    f = grid.create_field(mx.center * my.center,
+                          init=lambda x, y: 1.0 + 0 * x + 0 * y)
+    with pytest.raises(ValueError, match="no chart coordinates"):
+        Integral(jacobian=("zp",))["x"](f)
+
+
+def test_maps_jacobian_weighted_integral_is_differentiable():
+    # the reduction sits on the hydrostatic p_hyd column path: grad
+    # of a quadratic loss through the weighted integral is finite and
+    # matches a central finite difference (differentiability policy)
+    grid, mx, ms = _terrain_grid(8)
+    space = mx.center * ms.center
+    op = Integral(jacobian=("zp",))["sigma"]
+
+    def loss(data):
+        b = grid.create_field(space, data=data)
+        return (op(b).data ** 2).sum()
+
+    rng = np.random.default_rng(0)
+    x0 = jnp.asarray(rng.standard_normal(space.shape))
+    direction = jnp.asarray(rng.standard_normal(space.shape))
+    ad = float(jnp.vdot(jax.grad(loss)(x0), direction))
+    eps = 1e-4
+    fd = float((loss(x0 + eps * direction)
+                - loss(x0 - eps * direction)) / (2.0 * eps))
+    assert np.isfinite(ad)
+    assert np.isclose(ad, fd, rtol=1e-4)

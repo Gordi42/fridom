@@ -1,4 +1,5 @@
 """Tests for fridom.spatial.coordinate_mapping."""
+import jax
 import jax.numpy as jnp
 import pytest
 
@@ -51,8 +52,10 @@ def grid(mx, ms, mapping):
 # ================================================================
 def test_param_and_metric_names(mapping):
     assert mapping.param_names == ("H",)
+    # a single-base column additionally derives the sqrt_g volume
+    # element (the product of the column Jacobians, one column here)
     assert mapping.metric_names == ("dz_dsigma", "dz_dx",
-                                    "dsigma_dz", "dz_dH")
+                                    "dsigma_dz", "dz_dH", "sqrt_g")
     assert mapping.param_coords == {"H": ("x",)}
 
 
@@ -79,10 +82,12 @@ def test_chart_declares_the_induced_metric_names():
 def test_multi_base_map_supplies_jacobians_only():
     # an inline analytic map (no params) with two base coordinates
     # supplies both Jacobian entries but no inverse (no unambiguous
-    # column) and seeds no derivative kind
+    # column) and seeds no derivative kind — and no sqrt_g, since a
+    # multi-coordinate map has no product-of-columns volume element
     mapping = CoordinateMapping(
         maps={"z": lambda sigma, x: sigma * (1.0 + 0.2 * x)})
     assert mapping.metric_names == ("dz_dsigma", "dz_dx")
+    assert "sqrt_g" not in mapping.metric_names
     assert mapping._corrections() == {}
 
 
@@ -241,6 +246,83 @@ def test_metric_broadcasts_constant_untouched_factors(mx, ms):
     # exact broadcast under the strict algebra
     f = grid.create_field(space)
     assert (f + metric).function_space.bare is space.bare
+
+
+# ================================================================
+#  maps= sqrt_g volume element (the jacobian= seam)
+# ================================================================
+@pytest.mark.parametrize("attrs", [
+    pytest.param(("center", "center"), id="cell-points"),
+    pytest.param(("right", "center"), id="u-points"),
+    pytest.param(("center", "right"), id="w-points"),
+    pytest.param(("cell_avg", "cell_avg"), id="averages"),
+])
+def test_maps_sqrt_g_equals_the_column_jacobian(grid, mx, ms, attrs):
+    # a single-base column's sqrt_g is the (positive) column Jacobian
+    # d<z>_d<sigma>, byte-identical on every staggered space (both are
+    # the same jax.jvp tangent, and it is positive so |J| = J)
+    space = getattr(mx, attrs[0]) * getattr(ms, attrs[1])
+    sqrt_g = grid.metric(space, "sqrt_g")
+    column = grid.metric(space, "dz_dsigma")
+    assert jnp.array_equal(sqrt_g.data, column.data)
+    x = grid.evaluation_nodes(space, "x").data
+    assert jnp.allclose(sqrt_g.data,
+                        jnp.broadcast_to(depth(x), space.shape),
+                        atol=5e-3)
+
+
+def test_maps_sqrt_g_on_cell_centers_is_exactly_the_depth(grid, mx,
+                                                          ms):
+    space = mx.center * ms.center
+    sqrt_g = grid.metric(space, "sqrt_g")
+    x = grid.evaluation_nodes(space, "x").data
+    assert jnp.allclose(sqrt_g.data, depth(x))
+
+
+def test_two_single_base_maps_sqrt_g_is_the_product():
+    # two single-base columns on two axes: sqrt_g factorizes into the
+    # product of the per-column Jacobians (diagonal coordinate change)
+    ma = IntervalMesh(N, (0.0, 1.0), periodic=False, name="a")
+    mb = IntervalMesh(N, (0.0, 1.0), periodic=False, name="b")
+    mapping = CoordinateMapping(
+        maps={"zp": lambda a: a**2, "wp": lambda b: 3.0 * b})
+    assert "sqrt_g" in mapping.metric_names
+    grid = Grid((ma, mb), mapping=mapping)
+    space = ma.center * mb.center
+    sqrt_g = grid.metric(space, "sqrt_g")
+    product = (grid.metric(space, "dzp_da")
+               * grid.metric(space, "dwp_db"))
+    assert jnp.array_equal(sqrt_g.data, product.data)
+
+
+def test_supplied_sqrt_g_wins_over_the_derived(mx, ms):
+    # an explicit metrics={"sqrt_g": ...} owns the name; the maps=
+    # derivation defers (no duplicate-name error) and the supplied
+    # value is what grid.metric returns
+    mapping = CoordinateMapping(
+        maps={"z": lambda sigma: 2.0 * sigma},
+        metrics={"sqrt_g": lambda sigma: 5.0 + 0.0 * sigma})
+    grid = Grid((mx, ms), mapping=mapping)
+    space = mx.center * ms.center
+    assert jnp.allclose(grid.metric(space, "sqrt_g").data, 5.0)
+
+
+def test_maps_sqrt_g_is_differentiable(grid, mx, ms):
+    # the abs() in the volume element is a no-op on a monotone map
+    # (H > 0), so jax.grad through sqrt_g w.r.t. the H values is
+    # finite and non-zero (the differentiability policy guard)
+    space = mx.center * ms.center
+
+    def loss(h_values):
+        h = grid.create_field(mx.center, data=h_values)
+        sqrt_g = grid.metric(space, "sqrt_g", params={"H": h})
+        return (sqrt_g.data ** 2).sum()
+
+    h0 = depth(grid.evaluation_nodes(mx.center).data)
+    gradient = jax.grad(loss)(h0)
+    assert gradient.shape == h0.shape
+    assert bool(jnp.isfinite(gradient).all())
+    assert float(jnp.abs(gradient).max()) > 0.0
 
 
 def test_metric_on_lone_factor_space(mx, ms):

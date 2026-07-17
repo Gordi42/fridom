@@ -28,6 +28,16 @@ plain computational measure. A field *born* constant along a chart
 coordinate therefore integrates against the computational measure
 only — consistent with the flat-grid convention that constant
 factors carry no geometry.
+
+The ``jacobian=`` names *chart coordinates* (``jacobian_weight``);
+besides an embedding chart's base coordinates above, a name may be an
+analytic-``maps=`` grid's mapped physical coordinate ``p`` (e.g.
+``"zp"`` for ``zp = sigma * H``), whose reduction over its single
+base axis ``b`` carries the column Jacobian ``d<p>_d<b>`` — the
+terrain-following column integral :math:`\int f\,dz_p`, equal to the
+single-column ``sqrt_g`` restriction. A ``jacobian=`` name that names
+neither an embedding chart coordinate nor a mapped physical
+coordinate raises a taught error instead of silently no-opping.
 """
 # Wave 3: Integral -- Stage C2: the sqrt_g Jacobian weight
 from __future__ import annotations
@@ -43,6 +53,7 @@ from fridom.spatial.operators.base import (
     resolve_codomain,
 )
 from fridom.spatial.operators.interned import interned
+from fridom.spatial.operators.jacobian_weight import jacobian_factor
 from fridom.spatial.scalars import Scalars
 from fridom.spatial.spaces.average import AverageSpace
 from fridom.spatial.spaces.coefficient import CoefficientSpace
@@ -72,15 +83,18 @@ class Integral(SeparableOperator):
     ``ConstantSpace`` factor is the identity (rules section 3.3,
     realized by the separable base). With ``jacobian=`` set the
     reduction of a chart coordinate additionally contracts against
-    the ``sqrt_g`` metric derived on the operand space (module
-    docstring; the weight enters once per area integral).
+    the metric Jacobian derived on the operand space — the ``sqrt_g``
+    area element (embedding chart) or a terrain column's
+    ``d<p>_d<b>`` (analytic ``maps=``) — module docstring.
 
     Parameters
     ----------
     jacobian : tuple[str, ...] | None, optional
-        The chart-coupled coordinate names whose reduction picks up
-        the ``sqrt_g`` Jacobian weight; None keeps the plain
-        computational measure (default: None).
+        Chart coordinate names whose reduction picks up the metric
+        Jacobian weight — an embedding chart's base coordinates
+        (``sqrt_g``) or an analytic-``maps=`` physical coordinate
+        (its column Jacobian). None keeps the plain computational
+        measure; a name off every chart raises (default: None).
     """
 
     dispatch_kind: ClassVar[str | None] = "integrate"
@@ -169,9 +183,10 @@ class Integral(SeparableOperator):
         DOFs along the axis, keeping the singleton ``ConstantSpace``
         dimension. On a Jacobian row (``jacobian=`` set) the
         reduction of a chart coordinate additionally weighs by the
-        ``sqrt_g`` metric derived on the operand space — exactly
-        when every chart coordinate is still resolved by the space,
-        so sequential reductions apply the area element once
+        metric Jacobian derived on the operand space
+        (``jacobian_weight``): an embedding chart's ``sqrt_g`` once,
+        while every chart coordinate is still resolved by the space,
+        or a terrain column's ``d<p>_d<b>`` on its base axis
         (module docstring).
 
         Parameters
@@ -191,40 +206,11 @@ class Integral(SeparableOperator):
         bare = space.bare
         weight = f.grid.measure(bare, name=axis)
         data = f.data * weight.data
-        if (self._jacobian is not None
-                and axis in self._jacobian
-                and _resolves(bare, self._jacobian)):
-            data = data * f.grid.metric(bare, "sqrt_g").data
+        factor = jacobian_factor(f, axis, self._jacobian)
+        if factor is not None:
+            data = data * factor
         axis_index = bare.names.index(axis)
         data = data.sum(axis=axis_index, keepdims=True)
         codomain = resolve_codomain(self, space)
         stored = store(f.grid.decomposition, codomain, data)
         return type(f)(f.grid, codomain, stored, None)
-
-
-def _resolves(space: FunctionSpace | object,
-              names: tuple[str, ...]) -> bool:
-    """
-    Whether ``space`` resolves every name through a live factor.
-
-    Parameters
-    ----------
-    space : SpaceLike
-        The (bare) operand space.
-    names : tuple[str, ...]
-        The chart coordinate names.
-
-    Returns
-    -------
-    bool
-        True iff every name is contributed by a non-constant,
-        non-coefficient factor of ``space``.
-    """
-    for name in names:
-        try:
-            factor = space.factor(name)
-        except KeyError:
-            return False
-        if isinstance(factor, ConstantSpace | CoefficientSpace):
-            return False
-    return True

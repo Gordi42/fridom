@@ -22,7 +22,14 @@ Three declaration forms (stage C1 of the coordinate-systems plan):
   sensitivity ``d<p>_d<param>`` (the map derivative with respect to
   the parameter *value*, e.g. ``dz_dH = sigma``) — the stage-C4
   ingredient of the mesh velocity, ``z_dot = dz_dH * H_dot`` for a
-  prescribed ``H(t)``.
+  prescribed ``H(t)``. When *every* declared map is a single-base
+  column the mapping also derives ``sqrt_g``, the positive volume
+  element :math:`\prod_k |\partial p_k/\partial b_k|` (for the common
+  single map exactly ``d<p>_d<b>``) — the quadrature weight the
+  ``Integral`` / ``CumulativeIntegral`` ``jacobian=`` seam applies to
+  a terrain-following column integral (rules 3.13). A
+  multi-coordinate map supplies its ``d<p>_d<q>`` Jacobian rows but
+  no ``sqrt_g`` (there is no product-of-columns volume element).
 - **supplied metrics** — ``metrics={"name": callable}`` for cases
   with no closed form; callables take coordinates and parameters by
   keyword and are evaluated at the requested space's nodes.
@@ -525,6 +532,45 @@ class _MapParamDerivative:
         return jnp.asarray(tangent)
 
 
+class _MapsSqrtG:
+
+    r"""
+    ``sqrt_g`` for analytic ``maps=``: product of column Jacobians.
+
+    Description
+    -----------
+    For a mapping whose analytic maps are all single-base columns
+    :math:`p_k = M_k(b_k, \text{params})` the coordinate change is
+    diagonal, so the volume element is the product of the per-column
+    Jacobians, :math:`\sqrt{g} = \prod_k |\partial M_k/\partial b_k|`
+    — each factor the same exact ``jax.jvp`` tangent the
+    ``d<p>_d<b>`` row carries. The absolute value makes it a positive
+    volume element for any declared map and is a no-op on the
+    monotone terrain use (``|J| = J`` where ``J > 0``), so it adds no
+    differentiability kink on the valid domain and needs no guard.
+    For the common single map it is exactly ``d<p>_d<b>``.
+    """
+
+    def __init__(
+        self,
+        columns: tuple[tuple[_Declared, str], ...],
+        deps: frozenset[str],
+    ) -> None:
+        """Store the ``(declaration, base)`` columns and their deps."""
+        self.columns = columns
+        self.deps = deps
+
+    def evaluate(self, ctx: _Derivation) -> jax.Array:
+        """Multiply the absolute column Jacobians of every map."""
+        factors = [
+            jnp.abs(jnp.asarray(_jvp(decl, ctx, base)[1]))
+            for decl, base in self.columns]
+        result = factors[0]
+        for factor in factors[1:]:
+            result = result * factor
+        return result
+
+
 class _Supplied:
 
     """A user-supplied metric callable, sampled at the nodes."""
@@ -737,6 +783,7 @@ class CoordinateMapping:
         for name, fn in metrics.items():
             decl = _Declared(fn, param_names)
             self._add(name, _Supplied(decl, self._deps(decl)))
+        self._declare_maps_sqrt_g()
         self._orthogonal: bool = bool(orthogonal)
         self._grid: Grid | None = None
 
@@ -797,7 +844,11 @@ class CoordinateMapping:
                     "*physical* coordinate a base coordinate maps "
                     "to")
         for recipe in self._recipes.values():
-            decl = recipe.decl
+            decl = getattr(recipe, "decl", None)
+            if decl is None:
+                # a composite recipe (the maps= sqrt_g) validates
+                # through its component map recipes, already checked
+                continue
             unknown = tuple(n for n in decl.coords
                             if n not in names)
             if unknown:
@@ -968,6 +1019,38 @@ class CoordinateMapping:
             # parameter sensitivity (stage C4: mesh velocities)
             self._add(f"d{mapped}_d{param}",
                       _MapParamDerivative(decl, param, deps))
+
+    def _declare_maps_sqrt_g(self) -> None:
+        r"""
+        Derive ``sqrt_g`` for an all-single-base ``maps=`` mapping.
+
+        Description
+        -----------
+        When every declared analytic map is a single-base column
+        (``p_k = M_k(b_k, params)``) and no embedding chart or
+        supplied metric already owns the name, the volume element
+        factors into the product of the per-column Jacobians,
+        :math:`\sqrt{g} = \prod_k |\partial M_k/\partial b_k|`
+        (:class:`_MapsSqrtG`). A multi-coordinate map has no
+        product-of-columns form and is skipped — the mapping then
+        supplies its ``d<p>_d<q>`` rows but no ``maps=`` ``sqrt_g``,
+        mirroring :meth:`_corrections`, which likewise seeds no
+        column for a multi-base map. A chart owns ``sqrt_g`` through
+        its induced-metric determinant instead.
+        """
+        if (not self._maps or self._charts
+                or "sqrt_g" in self._recipes):
+            return
+        if any(len(decl.coords) != 1
+               for decl in self._maps.values()):
+            return
+        columns = tuple(
+            (decl, decl.coords[0])
+            for decl in self._maps.values())
+        deps: frozenset[str] = frozenset()
+        for decl in self._maps.values():
+            deps = deps | self._deps(decl)
+        self._add("sqrt_g", _MapsSqrtG(columns, deps))
 
     def _declare_chart(
         self,
