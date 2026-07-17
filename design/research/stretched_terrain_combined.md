@@ -19,7 +19,9 @@ rows, mapped advection and pressure, hydrostatic core), and a
 numerical probe battery on live combined grids (constructibility,
 factor trace, conservation, constancy, operator symmetry, hydrostatic
 seams). AI-assisted; every load-bearing file:line and number was
-produced on `dev` at `b77f8582`.
+produced on `dev` at `b77f8582`; the pressure-preconditioner claims
+were re-verified after merging the multigrid phase-B dev head
+(`87aeabea`) into this branch (§3).
 
 ## Verdict
 
@@ -51,10 +53,12 @@ What is actually broken is downstream, and different per model:
   column) — the SPD/CG license the F5 proof carried "under the
   uniform computational measure" does not extend. Both are fixable:
   the measure-adjoint down-hop restores exact symmetry (probed to
-  `3.7e-16`, recipe in §3), and the multigrid V-cycle is the natural
-  preconditioner route. No capability gate catches the combination:
-  the grid silently auto-resolves `family="fv"` and fails at the
-  first projection.
+  `3.7e-16`, recipe in §3), and the preconditioner needs a
+  measure-aware column route (the multigrid V-cycle is the candidate
+  once its column machinery reads measure widths — today it raises
+  on a stretched factor too, §3). No capability gate catches the
+  combination: the grid silently auto-resolves `family="fv"` and
+  fails at the first projection.
 - **hydrostatic: no terrain support at all** (stretched-only is
   already exact through the measures) — and it fails *silently*: on
   a terrain grid `hy.Model` builds and runs with no complaint while
@@ -167,16 +171,23 @@ lives in the `K` coefficients" (`mapped_pressure.py:73-75`, echoed
 `:416-418`, `core.py:307-308`). A stretched base column violates this
 twice:
 
-1. **Hard failure first: the preconditioner cannot build.**
-   `_preconditioner` composes `SpectralSolve(Div @ Diag @ Grad)`
-   (`mapped_pressure.py:786-832`); `SpectralSolve` resolves a
-   `transform` per axis, and `MappedIntervalMesh` deliberately has no
-   spectral basis (`mapped_interval.py:109-127`). Result:
-   `DispatchError: no operator registered for kind 'transform' on
-   CellAvg(sigma, ...)` — cryptic, at solver build, far from the
-   grid-construction site that created the mismatch. The
-   constructor's capability checks (`:317-323`) validate the coupled
-   axes but never the base column's uniformity.
+1. **Hard failure first: no preconditioner can run.** The default
+   spectral preconditioner composes `SpectralSolve(Div @ Diag @
+   Grad)`; `SpectralSolve` resolves a `transform` per axis, and
+   `MappedIntervalMesh` deliberately has no spectral basis
+   (`mapped_interval.py:109-127`). Result: `DispatchError: no
+   operator registered for kind 'transform' on CellAvg(sigma, ...)`
+   — cryptic, and far from the grid-construction site that created
+   the mismatch (at solver build on the probe base `b77f8582`; at
+   the first `solve` on the post-multigrid head). Re-probed on the
+   merged `87aeabea` head: the new `preconditioner="multigrid"`
+   option *builds* but its V-cycle also dies on the stretched
+   column — the column machinery reaches `uniform_spacing`
+   (`staggering.py:439-443`) and raises `NotImplementedError:
+   ... has no uniform cell width; nonuniform spacing enters through
+   the grid.measure fields`. Neither route works; the constructor's
+   capability checks validate the coupled axes but never the base
+   column's uniformity.
 2. **The SPD license is lost.** The corner cross hops
    (`_cross_to_face`/`_cross_to_column`, `:548-610`) are exact
    transposes of each other only under the uniform computational
@@ -341,13 +352,14 @@ Per-consumer work items this implies:
   stretched base column, restoring exact SPD under the physical
   inner product; hop-local (`_resolve_corner_rows`/`_to_cell`),
   diagonal legs untouched.
-- N3: a non-spectral column preconditioner. The multigrid V-cycle
-  preconditioner (pathway phase B, on dev at `87aeabea` — landed
-  after this record's probe base `b77f8582`) is the natural
-  candidate: it is stencil-based, already serves steep mapped
-  operators, and needs only a probe on a stretched column.
-  Fallbacks: a vertical-line (Thomas) preconditioner on the column
-  tridiagonal, or plain-CG as a correctness-test stopgap.
+- N3: a stretched-capable column preconditioner. The multigrid
+  V-cycle (pathway phase B, `87aeabea`) is the natural candidate but
+  is not one yet: re-probed on the merged head, its column machinery
+  reads uniform spacing and raises on a stretched factor — it needs
+  to consume `grid.measure` widths in the vertical-line smoother /
+  coarsening instead (the same convention shift as N2). Fallbacks: a
+  measure-aware vertical-line (Thomas) preconditioner alone, or
+  plain-CG as a correctness-test stopgap.
 - N4: extend the C3-style validation battery to a combined-grid case
   (projection idempotence, divergence-free steady state, energy).
 
