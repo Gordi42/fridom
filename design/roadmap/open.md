@@ -208,9 +208,6 @@ Open, none blocking:
 - **Fraction-weighted Sadourny momentum** (sw2) and **masked
   closures** (diffusion/Smagorinsky/VerticalMixing self-reject on
   immersed grids today).
-- **4-GPU validation** of the three immersed PCG paths (forced-4 is
-  asserted; real multi-GPU joins the next campaign, same status as
-  the FV-default flip).
 
 ## Docs & examples rebuild
 

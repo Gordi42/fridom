@@ -369,3 +369,66 @@ def test_immersed_step_is_device_count_invariant():
     for name, r in ref.items():
         assert np.allclose(many[name], r, rtol=1e-9, atol=1e-10), (
             name, np.abs(many[name] - r).max())
+
+
+def _make_partial_immersed_model(*, device_ids=None):
+    # a smooth ellipsoidal obstacle (periodic x/y, walled z) declared as
+    # an order-4 quadrature of a genuine local fraction (the analytic-
+    # fraction route, I0 correction 2) — NOT the face-aligned {0, 1}
+    # box. Its shell carries strictly-interior volume fractions in every
+    # dimension, so the masked cut-cell PCG runs on real partial cells:
+    # the open-area fractions (not just 0/1), the min-rule face
+    # transfer, and the min_fraction=0.1 sliver floor all ride the
+    # ordinary store + sync path, and sharding the periodic x/y must not
+    # perturb them
+    from fridom.spatial.immersed_domain import ImmersedDomain  # noqa: PLC0415
+
+    def blob(x, y, z):
+        r = jnp.sqrt(((x - 2.5) / 1.2) ** 2 + ((y - 2.5) / 1.2) ** 2
+                     + ((z - 0.5) / 0.3) ** 2)
+        return jnp.clip((r - 1.0) * 6.0 + 0.5, 0.0, 1.0)
+
+    grid = Grid((
+        IntervalMesh(N, (0.0, LENGTH), periodic=True, name="x"),
+        IntervalMesh(N, (0.0, LENGTH), periodic=True, name="y"),
+        IntervalMesh(N, (0.0, 1.0), periodic=False, name="z")),
+        immersed=ImmersedDomain(blob, order=4), device_ids=device_ids)
+    return nh.Model(grid=grid, dt=0.02, advection=True,
+                    coriolis=FPlaneCoriolis(f0=1.0),
+                    pressure_iterations=25)
+
+
+@pytest.mark.multi_device
+def test_partial_immersed_step_is_device_count_invariant():
+    # I2 gate on GENUINE partial cells: the sibling above uses a
+    # face-aligned {0, 1} box (staircase fractions), which never
+    # exercises a strictly-interior open-area weight under decomposition.
+    # This obstacle has genuine partial cells in x, y and z, so the
+    # sharded masked cut-cell PCG must reproduce the 1-device replicated
+    # step on real fractions, not just on the boolean special case
+    one = _make_partial_immersed_model(device_ids=(0,))
+
+    # the geometry is genuinely partial in every dimension (documents
+    # the smoke's premise; a face-aligned box would fail this)
+    theta = np.asarray(
+        one.grid.immersed.fraction(one.state["b"].function_space).data)
+    interior = np.argwhere((theta > 1e-6) & (theta < 1.0 - 1e-6))
+    assert interior.size > 0
+    for axis in range(3):
+        assert len(np.unique(interior[:, axis])) > 1
+
+    rng = np.random.default_rng(0)
+    ic = {name: rng.standard_normal(one.state[name].data.shape)
+          for name in ("u", "v", "w", "b")}
+
+    def run(model):
+        model.set_fields(**ic)
+        model.advance(6)
+        return {name: np.asarray(model.state[name].data)
+                for name in ("u", "v", "w", "b")}
+
+    ref = run(one)
+    many = run(_make_partial_immersed_model(device_ids=None))
+    for name, r in ref.items():
+        assert np.allclose(many[name], r, rtol=1e-9, atol=1e-10), (
+            name, np.abs(many[name] - r).max())

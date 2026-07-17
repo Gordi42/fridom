@@ -212,7 +212,12 @@ Implementation record:
   θ-mass conservation at machine zero in all three models; hydrostatic
   column equivalence ≤ 2e-15; 2nd-order masked-Poisson convergence on
   genuine x/z-partials; `jax.grad` through every immersed step path
-  FD-matched at ≤ 1e-8. Residuals in [`open.md`](open.md). Record +
+  FD-matched at ≤ 1e-8. **4-GPU validated** (gpu4 campaign T2,
+  2026-07-17): the masked cut-cell PCG step is device-count invariant on
+  real 4× A100 (`test_[partial_]immersed_step_is_device_count_invariant`,
+  face-aligned box + a new genuine-partial obstacle smoke, 1-vs-4 ≤
+  1.8e-15; the fusion workaround is not even needed at 16³). Residuals in
+  [`open.md`](open.md). Record +
   per-stage corrections:
   [`../plans/active/immersed_partial_cells_plan.md`](../plans/active/immersed_partial_cells_plan.md).
 - **Variable boundary forcing — wind stress, surface buoyancy flux**
