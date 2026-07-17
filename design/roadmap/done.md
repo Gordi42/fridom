@@ -212,6 +212,16 @@ Implementation record:
   the walled-FV analytic-eigenmode taught gap — closed the next day
   (next entry).
 
+- **Coefficient profiles follow the family** (owner ruling
+  2026-07-17) — the `MeridionalStratification` `n2` Profile question
+  closed as: physical-coefficient fields declared through the
+  family-agnostic patterns follow the grid family **by design** (on
+  an FV model `n2(y)` is a `CellAvg(y)` profile — midpoint-initialized,
+  so the numbers are unchanged at 2nd order, and every product stays
+  co-located). No pins; one uniform rule. The distinction becomes
+  real only under `create_field(order>=2)` quadrature init, where the
+  cell-average reading is the correct FV semantics anyway.
+
 - **FV nonhydro stage F5 — mapped/chart FV** (2026-07-17) — the last
   FV stage: terrain-following grids serve explicit `family="fv"`
   (`_require_fv_capable` now rejects immersed only; the mapped

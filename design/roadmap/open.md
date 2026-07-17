@@ -153,10 +153,6 @@ the scoping §10–§13). Open:
   `MappedIntervalMesh`-stretched and terrain-following would J-weight
   the conservative form on top of `flux_diff`'s physical-width
   division; correctness there is unverified (scoping §13 follow-up).
-- **Owner flag:** should `MeridionalStratification`'s `n2` Profile
-  pin nodal independent of family? It currently follows the grid
-  default onto `CellAvg` (assembles and passes; it never reaches the
-  analytic eigenmode kit). A declaration question, nothing blocks.
 - **Validate the FV default on 4 GPUs** — the distributed solve on
   average origins ran only 1-GPU so far (forced-4 CPU asserts the
   walled + mapped FV fast paths), the gpu4 step baseline predates the
