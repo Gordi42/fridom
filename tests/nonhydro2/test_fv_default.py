@@ -9,6 +9,7 @@ because the 2nd-order FV and nodal C-grid stencils are the same numbers
 API: the auto flip, the taught error on walled / mapped grids, the FV
 C-grid diff profile, and the frozen-grid override verification.
 """
+import jax.numpy as jnp
 import numpy as np
 import pytest
 
@@ -57,9 +58,12 @@ def walled_grid(n=N):
 
 
 def mapped_grid(n=N):
+    # jnp (not np) in the param callable: the FV/nodal mapped model now
+    # traces the projection's metric derivation, so the depth profile is
+    # a compute callable (an np.sin would raise under jit)
     mapping = CoordinateMapping(
         maps={"zp": lambda z, h: z * h},
-        params={"h": lambda x: 1.0 + 0.2 * np.sin(x)})
+        params={"h": lambda x: 1.0 + 0.2 * jnp.sin(x)})
     return Grid((
         IntervalMesh(n, (0.0, LENGTH), periodic=True, name="x"),
         IntervalMesh(n, (0.0, LENGTH), periodic=True, name="y"),
@@ -195,14 +199,19 @@ def test_invalid_family_is_rejected():
         DynamicalCore(family="bogus")
 
 
-def test_explicit_fv_on_mapped_grid_is_a_taught_error():
-    # mapped / terrain-following FV is stage F5, still deferred; a
-    # walled grid, by contrast, is now served (F4, below)
-    with pytest.raises(NotImplementedError, match="coordinate mapping"):
-        resolve_model_family("fv", mapped_grid())
-    with pytest.raises(NotImplementedError, match="finite-volume"):
-        nh.Model(coriolis=FPlaneCoriolis(f0=1.0), grid=mapped_grid(),
-                 dt=DT, advection=False, family="fv")
+def test_explicit_fv_on_mapped_grid_is_now_served():
+    # F5: explicit family="fv" on a mapped terrain-following grid is
+    # served — the projection routes to the family-aware
+    # MappedPressureSolver and a CellAvg tracer transports in
+    # conservative flux form. The AUTO default nonetheless stays nodal
+    # on a mapped grid (test_auto_flips..., test_fv_capable_flags): on
+    # genuine terrain FV and nodal are different numbers, so the flip
+    # is an owner decision, not an auto promotion.
+    assert resolve_model_family("fv", mapped_grid()) == "fv"
+    model = nh.Model(coriolis=FPlaneCoriolis(f0=1.0), grid=mapped_grid(),
+                     dt=DT, advection=False, family="fv")
+    assert all(isinstance(f, CellAvg)
+               for f in model.state["b"].function_space.bare.factors)
 
 
 def test_explicit_fv_on_walled_grid_is_now_served():
