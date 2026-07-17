@@ -162,7 +162,11 @@ def phase_neutrality(linear_channel):
 # ================================================================
 def test_oracle_error_decreases_with_tau(oracle_sweep):
     # P_adiab matches the direct labeled-eigenmode slow projection at
-    # the target beta better as the ramp lengthens (the adiabatic limit)
+    # the target beta better as the ramp lengthens (the adiabatic
+    # limit). The two-leg cycle error floors at the idempotency residual
+    # (gate (ii)), so it cannot reach the deep stretched-exponential
+    # regime; test_adiabatic_ramping_exponential.py pins that regime on
+    # the single up leg instead.
     errs = [oracle_sweep[tau]["oracle_err"] for tau in TAUS]
     assert errs[0] > errs[1] > errs[2], errs
     assert errs[-1] < 0.6 * errs[0], errs   # net reduction (measured ~0.40)
