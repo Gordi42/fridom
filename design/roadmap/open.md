@@ -152,6 +152,22 @@ every unmapped, unimmersed grid** — periodic and walled (owner ruling
 
 [`../plans/active/fv_nonhydro_scoping.md`](../plans/active/fv_nonhydro_scoping.md)
 
+## Immersed partial cells — all dimensions, all three models
+
+Owner request 2026-07-17: the immersed grid must *work* in nonhydro2,
+shallowwater2, and hydrostatic, with genuine partial cells in every
+dimension (a sloping boundary `B(y, z)` gives partial cells in x).
+Today the grid layer derives boolean masks but **no model consumes
+them** — immersed grids run unmasked on the nodal path. Plan (staged
+I0–I5, decisions IP-D1..D10): quadrature-computed volume/face
+fractions with an hFacMin floor, min-rule staggering transfer,
+term-level fraction weighting in the shared flux-form modules, a
+shared `MaskState` hygiene stage, and masked-Poisson pressure solves
+via `ConjugateGradient` preconditioned by the existing spectral
+inverse (wet-mean gauge). Subsumes the immersed half of FV stage F5
+and the hydrostatic variable-`csqr` solve deferral.
+[`../plans/active/immersed_partial_cells_plan.md`](../plans/active/immersed_partial_cells_plan.md)
+
 ## Docs & examples rebuild
 
 The bulk of the rebuild: **12 example ports** (only
