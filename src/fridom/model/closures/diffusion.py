@@ -39,9 +39,27 @@ validated at bind. Anisotropy is horizontal/vertical: the optional
 axes when ``*_v`` is omitted) — the old ``(kh, kh, kv)`` /
 ``(ah, av)`` spellings.
 
-**Walled grids are future work**: the flux stencils next to rigid
-walls (free-slip vs no-slip) are not covered, so ``bind`` rejects
-walled grids with a taught error (the CenteredAdvection precedent).
+**Walled grids** (bounded mesh factors) are supported per axis. The
+two-pass flux chain cannot close on a bounded BC-free face (R1: the
+second difference needs the wall-face flux, which a BC-free ``Inner``
+does not define), so along a bounded axis the interior flux is
+retagged onto its Dirichlet-tagged ``Inner`` sibling — a true
+wall-value claim, the wall flux *is* zero — and the closing
+difference telescopes with that structural exact-zero wall flux (the
+advection flux-space BC-sibling precedent). This is the **no-flux**
+tracer wall and the **free-slip** velocity wall (zero tangential wall
+stress). The wall-normal velocity component (staggered along the
+walled axis, space ``Inner[Dirichlet]``) closes on its own tag with
+no slip choice. The **no-slip** velocity wall (``slip="no"`` on the
+friction closures) adds the wall-adjacent-cell correction
+:math:`-2\,\nu\,u_1/\Delta n^2` — the factor-of-2 ghost against the
+zero wall value across the half cell — on top of the free-slip chain.
+Periodic axes take the exact periodic path (bit-identical to a
+purely periodic grid). The biharmonic closures apply the same wall
+treatment on both Laplacian passes (Griffies & Hallberg). The walled
+support is the **nodal** family (Center cells, Inner velocity faces);
+a finite-volume ``CellAvg`` target on a walled axis is rejected at
+bind (FV walled closures are future work).
 """
 from __future__ import annotations
 
@@ -51,7 +69,7 @@ from typing import TYPE_CHECKING, ClassVar
 
 import jax.numpy as jnp
 
-from fridom.framework.utils import jaxify
+from fridom.framework.utils import jaxify, modify_array
 from fridom.model.closures.base import ClosureBase
 from fridom.model.errors import AssemblyError
 from fridom.model.parameters import (
@@ -62,6 +80,8 @@ from fridom.model.params import ParamName
 from fridom.model.roles import TRACER, Velocity
 from fridom.model.terms import TendencyTerm, Treatment
 from fridom.model.time_dependent import TimeDependent
+from fridom.spatial.bc import BC
+from fridom.spatial.spaces.nodal import NodeSet
 
 if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Iterable
@@ -160,23 +180,167 @@ def _coerce_coefficient(
 
 
 # ================================================================
+#  Slip validation (construction-time, host-side)
+# ================================================================
+#: the wall-stress vocabulary of the friction closures
+FREE_SLIP: str = "free"
+NO_SLIP: str = "no"
+_SLIP_VALUES: tuple[str, str] = (FREE_SLIP, NO_SLIP)
+
+
+def _check_slip_value(value: object, arg: str, owner: str) -> str:
+    """Validate one slip choice against the vocabulary."""
+    if value not in _SLIP_VALUES:
+        raise ValueError(
+            f"{owner}: {arg}= must be {FREE_SLIP!r} (zero tangential "
+            f"wall stress) or {NO_SLIP!r} (u = 0 at the wall via the "
+            f"factor-of-2 ghost), got {value!r}")
+    return value  # type: ignore[return-value]
+
+
+def _coerce_slip(value: object, owner: str) -> str | dict[str, str]:
+    """Coerce ``slip=`` to a scalar choice or a per-field mapping."""
+    if not isinstance(value, Mapping):
+        return _check_slip_value(value, "slip", owner)
+    if not value:
+        raise ValueError(
+            f"{owner}: slip= mapping is empty; give every target a "
+            "slip choice, or pass a scalar 'free'/'no'")
+    coerced: dict[str, str] = {}
+    for key, entry in value.items():
+        if not isinstance(key, str) or not key:
+            raise TypeError(
+                f"{owner}: slip= mapping keys are field names, got "
+                f"{key!r}")
+        coerced[key] = _check_slip_value(entry, f"slip[{key!r}]", owner)
+    return coerced
+
+
+# ================================================================
+#  Per-axis wall treatment (bind-time classification)
+# ================================================================
+#: the three per-axis wall regimes of the flux chain
+_PERIODIC: str = "periodic"
+_WALL_NORMAL: str = "wall_normal"
+_TANGENTIAL: str = "tangential"
+
+
+def _wall_treatment(
+    factor: object, owner: str, name: str, axis: str,
+) -> str:
+    """Classify one target factor along its coordinate axis.
+
+    Periodic factors take the exact periodic path; a Dirichlet-tagged
+    ``Inner`` face (the wall-normal velocity) closes on its own tag; a
+    BC-free ``Center`` cell field (a tracer, a tangential velocity)
+    takes the flux-retag wall closure. Any other placement/BC — a
+    finite-volume ``CellAvg`` target, a fixed-value (Dirichlet) cell
+    wall, a bare face — is out of scope and rejected loudly.
+    """
+    if getattr(factor.mesh, "periodic", False):
+        return _PERIODIC
+    node_set = getattr(factor, "node_set", None)
+    has_dirichlet = BC.DIRICHLET in factor.bc.components
+    if node_set is NodeSet.INNER and has_dirichlet:
+        return _WALL_NORMAL
+    if node_set is NodeSet.CENTER and factor.bc.is_free:
+        return _TANGENTIAL
+    raise NotImplementedError(
+        f"{owner}: target {name!r} has an unsupported wall placement "
+        f"along {axis!r} ({factor!r}); the walled closure is the "
+        "nodal family — no-flux / free-slip / no-slip cell fields "
+        "(BC-free Center) and the wall-normal velocity face "
+        "(Inner[Dirichlet]). A finite-volume (CellAvg) target, a "
+        "fixed-value (Dirichlet) cell wall, or a bare face is out of "
+        "scope (FV walled closures / the stage-2e inhomogeneous "
+        "boundary-data path are future work)")
+
+
+# ================================================================
 #  The shared harmonic pass (pure field arithmetic)
 # ================================================================
+def _dirichlet_face(flux: ScalarField, axis: str) -> object:
+    """Return the Dirichlet BC-sibling of the flux's ``Inner`` factor.
+
+    The first difference of a BC-free ``Center`` field lands on the
+    BC-free nodal ``Inner`` face, so the sibling is the same interior
+    face with the Dirichlet tag (the wall flux is a structural zero).
+    """
+    factor = flux.function_space.bare.factor(axis)
+    return factor.mesh.nodal(factor.node_set, bc=BC.DIRICHLET)
+
+
+def _wall_correction(q: ScalarField, k: object, axis: str) -> ScalarField:
+    r"""No-slip wall-adjacent tendency correction along ``axis``.
+
+    Adds :math:`-2\,k\,q/\Delta n^2` at both wall-adjacent cells (index
+    0 and -1 along ``axis`` — an index test, never a coordinate-value
+    test): the factor-of-2 ghost (``q_ghost = -q_1`` across the wall,
+    wall value 0) makes the wall-face flux :math:`2 k q_1/\Delta n`,
+    whose flux-difference contribution in the wall cell is
+    :math:`-2 k q_1/\Delta n^2`. Both lengths are the wall cell's own
+    width, read from ``grid.measure`` (so stretched columns are
+    correct); the row is static and homogeneous-linear in ``q``, so it
+    is jit-pure and reverse-mode differentiable with no singularity.
+
+    Built fresh from ``q``'s (negotiated) grid at evaluation, so the
+    weight shares the step's storage frame. The halo tracer carries no
+    grid, so the caller skips this pointwise, zero-reach correction
+    during negotiation (see :func:`_harmonic`).
+
+    The :math:`1/\Delta n^2` factor is folded into the true-shape
+    weight array (cell widths are positive on the primal centres, so
+    no division by zero) rather than divided in as a field: a
+    field-level ``/ measure`` divides in the never-synced ghost slots
+    too, where the zero-weight numerator makes the reverse pass a
+    ``0/0`` NaN even though the forward value is masked.
+    """
+    grid = q.grid
+    space = q.function_space
+    bare = space.bare
+    ax = bare.names.index(axis)
+    ndim = len(bare.names)
+    indicator = jnp.zeros(space.shape)
+    for end in (0, -1):
+        where = tuple(end if a == ax else slice(None)
+                      for a in range(ndim))
+        indicator = modify_array(indicator, where, 1.0)
+    width = grid.measure(space, axis).data  # true-shape primal widths
+    weight = grid.create_field(space, data=indicator / (width * width))
+    return q * weight * (-2.0 * k)
+
+
 def _harmonic(
     q: ScalarField,
-    kh: object,
-    kv: object,
-    h_axes: tuple[str, ...],
-    v_axes: tuple[str, ...],
+    axes: tuple[tuple[str, object, str], ...],
+    no_slip: frozenset[str],
 ) -> ScalarField:
-    """One ``div(A grad q)`` pass with the coefficient in the flux."""
+    r"""One ``div(A grad q)`` pass with the per-axis wall treatment.
+
+    ``axes`` is ``(axis, coefficient, treatment)`` per coordinate, in
+    horizontal-then-vertical order (the float-summation order of the
+    purely periodic path, preserved bit-for-bit). Periodic axes take
+    the plain two-pass chain; bounded tangential/tracer axes retag the
+    interior flux onto its Dirichlet sibling (structural zero wall
+    flux) and, on a no-slip axis, add the wall-adjacent correction;
+    bounded wall-normal axes close on the target's own tag and retag
+    the result back onto it.
+    """
     res = None
-    for axis in h_axes:
-        contribution = (q.diff(axis) * kh).diff(axis)
-        res = (contribution if res is None
-               else res + contribution)
-    for axis in v_axes:
-        contribution = (q.diff(axis) * kv).diff(axis)
+    for axis, k, treatment in axes:
+        if treatment == _PERIODIC:
+            contribution = (q.diff(axis) * k).diff(axis)
+        elif treatment == _WALL_NORMAL:
+            contribution = (q.diff(axis) * k).diff(axis).retag(q)
+        else:  # tangential / tracer: retag the interior flux
+            flux = q.diff(axis) * k
+            flux = flux.retag(_dirichlet_face(flux, axis))
+            contribution = flux.diff(axis)
+            # the correction is pointwise (zero halo reach); skip it on
+            # the grid-less halo tracer, materialize it on the real grid
+            if axis in no_slip and hasattr(q.grid, "create_field"):
+                contribution = contribution + _wall_correction(
+                    q, k, axis)
         res = (contribution if res is None
                else res + contribution)
     return res
@@ -235,6 +399,7 @@ class _DiffusionClosure(ClosureBase):
         vertical: str,
         fields: Role | type[Role] | str | Iterable[str] | None,
         exclude: str | Iterable[str],
+        slip: object = FREE_SLIP,
     ) -> None:
         """Coerce the coefficients and store the geometry names."""
         super().__init__(fields=fields, exclude=exclude)
@@ -248,7 +413,9 @@ class _DiffusionClosure(ClosureBase):
                     value_v, f"{arg}_v", owner,
                     nonnegative=cls._biharmonic))
         self._vertical = vertical
+        self._slip = _coerce_slip(slip, owner)
         self._target_axes: tuple = ()
+        self._no_slip_axes: dict[str, frozenset[str]] = {}
 
     # ================================================================
     #  Published parameters and per-field options
@@ -275,27 +442,35 @@ class _DiffusionClosure(ClosureBase):
 
     @property
     def per_field_options(self) -> Mapping[str, object]:
-        """The coefficient slots, for the bind-time key validation."""
+        """The coefficient/slip slots, for the bind-time validation."""
         cls = type(self)
         options: dict[str, object] = {
             cls._coeff_attr: getattr(self, cls._coeff_attr)}
         value_v = getattr(self, f"{cls._coeff_attr}_v")
         if value_v is not None:
             options[f"{cls._coeff_attr}_v"] = value_v
+        # a scalar slip passes through unchecked; a per-field mapping is
+        # validated against the resolved targets (keys + full coverage)
+        options["slip"] = self._slip
         return options
 
     # ================================================================
-    #  Bind: axes per target, wall rejection, vertical check
+    #  Bind: per-target axes + wall treatment, vertical + slip check
     # ================================================================
     def bind(self, table: FieldTable) -> None:
         """Resolve targets (base) and freeze the per-target axes.
 
+        Each axis is classified into its wall treatment (periodic,
+        wall-normal, or tangential/tracer), stored horizontal-then-
+        vertical so the float-summation order matches the purely
+        periodic path bit-for-bit.
+
         Raises
         ------
         NotImplementedError
-            On a walled grid (any bounded mesh factor): the flux
-            stencils next to rigid walls (free-slip vs no-slip) are
-            future work.
+            If a target factor carries an unsupported wall placement
+            (a fixed-value cell wall or a bare face; see
+            :func:`_wall_treatment`).
         AssemblyError
             If a ``*_v`` coefficient is given but no target carries
             the ``vertical`` coordinate, or a target has no
@@ -304,43 +479,65 @@ class _DiffusionClosure(ClosureBase):
         super().bind(table)
         cls = type(self)
         owner = cls.__name__
-        factors = getattr(table.grid, "factors", ())
-        walled = tuple(
-            name for mesh in factors for name in mesh.names
-            if not getattr(mesh, "periodic", True))
-        if walled:
-            raise NotImplementedError(
-                f"{owner} does not support walled grids yet "
-                f"(bounded coordinates: {walled}); the diffusive "
-                "flux stencils next to rigid walls (free-slip vs "
-                "no-slip) are future work — drop the closure on "
-                "walled grids")
         has_v = getattr(self, f"{cls._coeff_attr}_v")
-        target_axes: list[tuple[str, tuple[str, ...],
-                                tuple[str, ...]]] = []
+        target_axes: list[
+            tuple[str, tuple[tuple[str, bool, str], ...]]] = []
         for name in self.targets:
-            axes = tuple(table[name].space.names)
+            space = table[name].space
+            axes = tuple(space.names)
             if not axes:
                 raise AssemblyError(
                     f"{owner}: target {name!r} has no coordinate "
                     "axes to diffuse along; exclude it "
                     "(exclude=...) or narrow fields=")
             if has_v is None:
-                h_axes, v_axes = axes, ()
+                ordered = [(a, False) for a in axes]
             else:
-                h_axes = tuple(a for a in axes
-                               if a != self._vertical)
-                v_axes = tuple(a for a in axes
-                               if a == self._vertical)
-            target_axes.append((name, h_axes, v_axes))
+                ordered = (
+                    [(a, False) for a in axes if a != self._vertical]
+                    + [(a, True) for a in axes if a == self._vertical])
+            spec = tuple(
+                (a, is_v, _wall_treatment(
+                    space.bare.factor(a), owner, name, a))
+                for a, is_v in ordered)
+            target_axes.append((name, spec))
         if has_v is not None and not any(
-                v_axes for _, _, v_axes in target_axes):
+                is_v for _, spec in target_axes
+                for _, is_v, _ in spec):
             arg = cls._coeff_attr
             raise AssemblyError(
                 f"{owner} got {arg}_v= but no target carries the "
                 f"vertical coordinate {self._vertical!r}; drop "
                 f"{arg}_v= or pass vertical=<coordinate name>")
         self._target_axes = tuple(target_axes)
+        self._no_slip_axes = self._resolve_no_slip_axes()
+
+    def _resolve_no_slip_axes(self) -> dict[str, frozenset[str]]:
+        """Freeze the bounded tangential axes each target no-slips on.
+
+        The base's :attr:`per_field_options` coverage check guarantees a
+        per-field slip mapping keys (and covers) every target.
+        """
+        by_target = (
+            self._slip if isinstance(self._slip, Mapping)
+            else dict.fromkeys(self.targets, self._slip))
+        return {
+            name: frozenset(
+                axis for axis, _is_v, treatment in spec
+                if treatment == _TANGENTIAL)
+            for name, spec in self._target_axes
+            if by_target[name] == NO_SLIP}
+
+    @staticmethod
+    def _axes(
+        spec: tuple[tuple[str, bool, str], ...],
+        kh: object,
+        kv: object,
+    ) -> tuple[tuple[str, object, str], ...]:
+        """Bind each axis to its coefficient (vertical picks ``kv``)."""
+        return tuple(
+            (axis, kv if is_v else kh, treatment)
+            for axis, is_v, treatment in spec)
 
     # ================================================================
     #  The tendency term
@@ -364,24 +561,26 @@ class _DiffusionClosure(ClosureBase):
         has_v = getattr(self, f"{cls._coeff_attr}_v") is not None
         coeff_v = ctx.params[cls._coeff_param_v] if has_v else None
         out: dict[str, ScalarField] = {}
-        for name, h_axes, v_axes in self._target_axes:
+        for name, spec in self._target_axes:
             q = state[name]
             kh = coeff[name] if isinstance(coeff, dict) else coeff
             kv = None
-            if v_axes:
+            if any(is_v for _, is_v, _ in spec):
                 kv = (coeff_v[name] if isinstance(coeff_v, dict)
                       else coeff_v)
+            no_slip = self._no_slip_axes.get(name, frozenset())
             if cls._biharmonic:
                 # sqrt split, guarded for reverse-mode AD at coeff=0
                 # (plain ** 0.5 keeps demoted Python scalars scalar; the
                 # guard adds the jnp.where only for concrete jnp values)
                 kh = _biharmonic_root(kh)
                 kv = None if kv is None else _biharmonic_root(kv)
-                inner = _harmonic(q, kh, kv, h_axes, v_axes)
-                out[name] = -_harmonic(inner, kh, kv,
-                                       h_axes, v_axes)
+                axes = self._axes(spec, kh, kv)
+                inner = _harmonic(q, axes, no_slip)
+                out[name] = -_harmonic(inner, axes, no_slip)
             else:
-                out[name] = _harmonic(q, kh, kv, h_axes, v_axes)
+                out[name] = _harmonic(
+                    q, self._axes(spec, kh, kv), no_slip)
         return out
 
 
@@ -397,7 +596,9 @@ class HarmonicDiffusion(_DiffusionClosure):
     Description
     -----------
     Targets every ``fr.roles.TRACER`` field by default; provides
-    ``mixing.kappa`` (and ``mixing.kappa_v`` when given).
+    ``mixing.kappa`` (and ``mixing.kappa_v`` when given). On walled
+    grids tracers get **no-flux** (zero wall flux) walls structurally
+    — there is no slip choice (that is friction-only).
 
     Parameters
     ----------
@@ -449,7 +650,8 @@ class BiharmonicDiffusion(_DiffusionClosure):
     coefficients, so ``kappa`` is the true (non-negative) biharmonic
     coefficient in :math:`\mathrm{m^4/s}`. Targets every
     ``fr.roles.TRACER`` field by default; provides ``mixing.kappa4``
-    (and ``mixing.kappa4_v`` when given).
+    (and ``mixing.kappa4_v`` when given). On walled grids tracers get
+    **no-flux** walls on both Laplacian passes (no slip choice).
 
     Parameters
     ----------
@@ -501,6 +703,21 @@ class HarmonicFriction(_DiffusionClosure):
     members, V-H2); provides ``friction.nu`` (and ``friction.nu_v``
     when given).
 
+    On a walled grid the wall stress follows ``slip=``. The choice
+    applies to every velocity factor that is **tangential** (nodal
+    cell-centred, ``Center``) along a walled axis:
+    ``slip="free"`` (the default) sets zero tangential wall stress —
+    the structural zero wall flux, no spurious drag on a wall-parallel
+    flow; ``slip="no"`` sets ``u = 0`` at the wall via the
+    factor-of-2 ghost, adding the wall-adjacent drag
+    :math:`-2\,\nu\,u_1/\Delta n^2`. The **wall-normal** component
+    (staggered, ``Inner[Dirichlet]`` along the walled axis) ignores
+    ``slip=`` — impermeability closes it either way. The default is a
+    documented convention (MOM6 / Oceananigans default free-slip;
+    MITgcm defaults no-slip — both are valid physics). Per-wall
+    refinement is future work (the boundary-data path); a per-field
+    mapping picks the slip per velocity.
+
     Parameters
     ----------
     nu : float | fr.Ramp | Mapping[str, float]
@@ -511,6 +728,12 @@ class HarmonicFriction(_DiffusionClosure):
         ``nu`` isotropically (default: None).
     vertical : str, optional
         The vertical coordinate name (default: ``"z"``).
+    slip : str | Mapping[str, str], optional
+        Wall stress on tangential velocity factors: ``"free"`` (zero
+        wall stress) or ``"no"`` (``u = 0`` at the wall). A scalar
+        applies to every target; a name-keyed mapping (covering every
+        target) picks per velocity. Static — a change recompiles
+        (default: ``"free"``).
     fields : Role | type[Role] | str | Iterable[str] | None, optional
         Target override; see `ClosureBase` (default: None).
     exclude : str | Iterable[str], optional
@@ -531,11 +754,12 @@ class HarmonicFriction(_DiffusionClosure):
         *,
         nu_v: object = None,
         vertical: str = "z",
+        slip: str | Mapping[str, str] = FREE_SLIP,
         fields: Role | type[Role] | str | Iterable[str] | None = None,
         exclude: str | Iterable[str] = (),
     ) -> None:
-        """Store the viscosities; targets resolve at bind."""
-        super().__init__(nu, nu_v, vertical, fields, exclude)
+        """Store the viscosities and slip; targets resolve at bind."""
+        super().__init__(nu, nu_v, vertical, fields, exclude, slip=slip)
 
 
 @partial(jaxify, dynamic=("nu", "nu_v"))
@@ -550,6 +774,10 @@ class BiharmonicFriction(_DiffusionClosure):
     the ``Velocity`` role family (PROGNOSTIC members, V-H2);
     provides ``friction.nu4`` (and ``friction.nu4_v`` when given).
 
+    On a walled grid the **same** slip treatment is applied on both
+    Laplacian passes (Griffies & Hallberg); see `HarmonicFriction`
+    for the ``slip=`` semantics.
+
     Parameters
     ----------
     nu : float | fr.Ramp | Mapping[str, float]
@@ -560,6 +788,10 @@ class BiharmonicFriction(_DiffusionClosure):
         applies ``nu`` isotropically (default: None).
     vertical : str, optional
         The vertical coordinate name (default: ``"z"``).
+    slip : str | Mapping[str, str], optional
+        Wall stress on tangential velocity factors, applied on both
+        passes; ``"free"`` (default) or ``"no"`` (see
+        `HarmonicFriction`).
     fields : Role | type[Role] | str | Iterable[str] | None, optional
         Target override; see `ClosureBase` (default: None).
     exclude : str | Iterable[str], optional
@@ -581,8 +813,9 @@ class BiharmonicFriction(_DiffusionClosure):
         *,
         nu_v: object = None,
         vertical: str = "z",
+        slip: str | Mapping[str, str] = FREE_SLIP,
         fields: Role | type[Role] | str | Iterable[str] | None = None,
         exclude: str | Iterable[str] = (),
     ) -> None:
-        """Store the viscosities; targets resolve at bind."""
-        super().__init__(nu, nu_v, vertical, fields, exclude)
+        """Store the viscosities and slip; targets resolve at bind."""
+        super().__init__(nu, nu_v, vertical, fields, exclude, slip=slip)
