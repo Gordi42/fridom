@@ -49,6 +49,7 @@ if TYPE_CHECKING:  # pragma: no cover
         SplitExplicitFreeSurface,
     )
     from .modules.stratification import ConstantStratification
+    from .modules.thermal_wind import ThermalWindBackground
     from .state import State
 
 base = "fridom.hydrostatic"
@@ -66,6 +67,7 @@ all_imports_by_origin = {
     f"{base}.state": ["State"],
     f"{base}.modules.core": ["HydrostaticCore"],
     f"{base}.modules.stratification": ["ConstantStratification"],
+    f"{base}.modules.thermal_wind": ["ThermalWindBackground"],
     f"{base}.modules.free_surface": [
         "ExplicitFreeSurface", "ImplicitFreeSurface",
         "SplitExplicitFreeSurface"],

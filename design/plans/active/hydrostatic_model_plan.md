@@ -616,6 +616,94 @@ skipped** (the slow refinement); `ruff check src tests` clean;
 by construction across the pin tests (`epsilon` 1/0, custom `eps`/`csqr`/
 `f0`/`n2`/`rossby`/`name`) — the local `--cov` run aborts silently (known
 issue). The example runs end-to-end under a non-interactive backend.
+
+### H5b — thermal-wind background: the Eady gate unblocked (2026-07-17)
+
+Resolves the H5 STOP. New module
+`hy.ThermalWindBackground(shear=Λ)` (`modules/thermal_wind.py`,
+lazypimp-exported at `hy.` and `hy.modules.`) carrying the two
+linearized mean-flow interaction terms of a zonal thermal-wind state
+`U(z)=Λ(z−z₀)`, `B(y)=−f₀Λy` on the doubly-periodic f-plane that the
+shared advection `background=` does **not** supply. New package param
+`hydrostatic.shear`.
+
+**Probe (why a separate module).** The shared advection's
+`background=` `background_advection` term
+([`advection.py:2389-2424`](../../../src/fridom/model/modules/advection.py),
+`_linear_transport`) loops **only over the sampled velocity's own
+axis** — with `background={"u": U(z)}` that is `x` alone — so it is
+exactly the Doppler transport `−U∂ₓq'` of every advected `q'∈{u',v',b'}`
+(`U` independent of `x`), and nothing else. It carries **neither**
+mean-flow interaction whose carrier is a mean *gradient* rather than an
+advecting velocity: the buoyancy source `−v'∂_yB` (no mean-buoyancy
+carrier; the periodic y cannot hold `B(y)`) and the momentum tilting
+`−w'∂_zU` (the mean momentum `U` is only an advecting velocity in
+`background=`, never an advected quantity). Verified directly: a v-only
+divergence-free mode (`w≡0`) gives `db/dt==0` with `background=` alone —
+the H5 pin — and `≠0` with this module.
+
+**Term set and signs (thermal-wind-derived, verified exactly).** Both
+`linear=True`, no Rossby factor (O(1) mean-flow interactions, like
+Coriolis/stratification/Doppler):
+- tilting: `du/dt += −Λ·w'` = `−(shear·w.to(u))` (matches the
+  independently reconstructed diagnosed `w` to 3.5e-15);
+- conversion: `db/dt += −v'∂_yB = +f₀Λ·v'` = `(f0·shear)·v.to(b)`
+  (exact); `dv/dt` carries no thermal-wind term.
+Signs derived in the module docstring from `∂_yB=−f₀∂_zU` (geostrophy +
+hydrostasy of the mean state, the package's `+fv`/`−fu` and
+`∂_z p_hyd=b` conventions) — both locked to the single `Λ` so their
+relative sign, the one the instability depends on, cannot drift. `f₀`
+is read via a `parameter_reference` to `coriolis.f0` (only
+`FPlaneCoriolis` **provides** it), so a non-f-plane config is a taught
+`MissingParameterError`. Convenience wiring `tw.background_velocity()`
+returns the matching `U(z)` callable for
+`CenteredAdvection(background=…)`.
+
+**Energy honesty (conversion identity, no conserved norm).** Under
+`M=diag(1,1,1/N²,1/c²)` (`hy.energy`) the thermal-wind pair is the
+**sole** non-conservative source: `⟨X,M dX/dt⟩` over every *other*
+linear term (Doppler, Coriolis, pressure, stratification, free surface)
+is machine-zero skew (measured 1.5e-16·scale), and with `Λ=0` the full
+system recovers the machine-exact H2 skew. So **no sign-definite
+perturbation quadratic form is conserved** — the defining feature of the
+instability: the mean flow is a genuine energy source
+`dE/dt = −Λ⟨u',w'⟩ + (f₀Λ/N²)⟨v',b'⟩ > 0` for the growing mode. The
+internal KE↔PE `⟨w'b'⟩` conversion (the H2 skew) is unchanged. Gate is
+the conversion-term identity (the module's contribution equals exactly
+those two quadratic forms) plus the eigenvalue growth, not a norm.
+
+**Growth validation.** The discrete linear operator is assembled on the
+`(u,v,b)` reduced mode space at fixed `kₓ` (ky=0), rigid-lid CONSTRAINT
+projection applied (`model.tendency(filter=linear, constraints=True)`,
+the H5 wave-packet probing pattern). Its most-unstable eigenvalue is the
+target: seeding the eigenvector and time-integrating, the perturbation
+energy grows exponentially at **exactly** the operator rate — measured
+`σ=0.11303` vs operator `0.11300`, **rel err 2e-4** (residual is the AB2
+`O(σ²dt²)`), a clean `1.070×`/window envelope. `σ∝f₀Λ/N` confirmed
+across 5 parameter combos.
+
+**PE vs QG (the honest refinement axis).** The operator eigenvalue sits
+**below** the QG continuous `σ≈0.31·f₀Λ/N` (peak at `kN H/f≈1.606`) by
+the **primitive-equation (Stone 1966) non-geostrophic correction** at
+finite Richardson number `Ri=N²/Λ²`. This is **not** a discretization
+error — it is nx- and nz-converged (σ flat to <1% for nz≥12) — so the
+gap does **not** close under mesh refinement but along the physical `Ri`
+axis: measured `σ/σ_QG` = 0.90 (Ri=1) → 0.945 (Ri=1.78) → 0.98 (Ri=4)
+→ →1 as Ri→∞. The "trends toward continuous" gate is therefore the `Ri`
+trend (documented), and the QG 0.31 is context, not the target.
+
+**Flipped pins.** `test_comparison.py`:
+`test_eady_baroclinic_conversion_term_is_absent` →
+`…is_present` (v-only mode now drives `db/dt≠0`); the
+composition / Doppler pins and the "deferred STOP" narrative updated to
+"unblocked (H5b)". Full growth/energy/sign validation in the new
+mirrored shard `tests/hydrostatic/test_thermal_wind.py`.
+
+**Gates (all green, CPU).** `tests/hydrostatic/` = **153 passed, 1
+skipped**; `ruff check src tests` clean; `thermal_wind.py` covered by
+construction (every method exercised — the local `--cov` run aborts
+silently, known issue). No framework-core files touched (module +
+package param + exports only), so no cross-model smoke needed.
 ### H6 — split-explicit free surface (2026-07-17)
 
 **`SplitExplicitFreeSurface(substeps=N, filter=(2,4,0.18927),
