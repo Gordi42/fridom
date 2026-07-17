@@ -113,7 +113,11 @@ Implementation record:
   order; baroclinic and barotropic energy legs machine-precision),
   physical-depth explicit free surface; implicit + split-explicit
   on charts are taught errors (the variable-csqr route, hydrostatic
-  plan §7–§8). Residuals tracked in [`open.md`](open.md).
+  plan §7–§8). Same-day follow-up: the shared mapped advection's
+  `Z/J` divide sealed (`_safe_ratio` double-`where`), making
+  nonlinear terrain advection reverse-safe (grad = FD to 9e-10; the
+  hydrostatic terrain autodiff gate now runs `advection=True`).
+  Residuals tracked in [`open.md`](open.md).
 
 - **CG pressure solve — opt-in convergence tolerance**
   (2026-07-17) — a keyword-only `tolerance: float | None = None` on

@@ -184,13 +184,6 @@ the scoping §10–§13). Open:
   2026-07-17 (entry in [`done.md`](done.md); research + rulings in
   [`../research/stretched_terrain_combined.md`](../research/stretched_terrain_combined.md)).
   Open:
-  - **Shared mapped advection `Z/J` divide unguarded** — the nodal
-    consistent mapped divergence (`model/modules/advection.py`)
-    NaN-poisons reverse mode on bounded terrain grids (the same
-    masked-singularity class as the fixed `staggering.py` divide),
-    so nonlinear terrain advection is forward-only; the hydrostatic
-    terrain autodiff gate rides the linear model until the
-    one-line double-`where` guard lands.
   - **`EnergyMetric`/eigenmodes weight `ps` by the flat extent on
     charts** — terrain energy diagnostics are physically
     inconsistent (model-layer, outside the hydrostatic package;
