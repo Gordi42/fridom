@@ -303,20 +303,6 @@ def test_multigrid_bands_stay_differentiable():
     assert abs(grad - fd) <= 1e-4 * abs(fd)
 
 
-@pytest.mark.xfail(
-    reason="the stretched+terrain SOLVE is not yet reverse-mode "
-           "differentiable through EITHER preconditioner: the same "
-           "PRE-EXISTING core-layer masked singularity as "
-           "test_stretched_terrain_solve_grad_matches_fd (the "
-           "stretched-mesh 'diff' measure division, staggering.py:582, "
-           "over the zero-padded bounded-axis ghost slots) NaNs the "
-           "reverse gradient in the operator applications the V-cycle "
-           "shares with the CG residual. It is independent of N3 (the "
-           "V-cycle's own bands are differentiable — see "
-           "test_multigrid_bands_stay_differentiable — and the plain-CG "
-           "solve NaNs identically). Flips to XPASS when the core "
-           "diff-guard branch lands.",
-    strict=False, raises=AssertionError)
 def test_multigrid_solve_grad_matches_fd():
     # the end-to-end differentiability invariant (AGENTS.md) through the
     # multigrid-preconditioned solve: jax.grad of a quadratic loss w.r.t.
