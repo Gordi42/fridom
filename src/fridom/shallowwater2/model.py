@@ -182,6 +182,13 @@ def Model(  # noqa: N802 — constructor-like factory (D1.3)
     if advection:
         modules += (SadournyAdvection(coords=coords),)
     modules += tuple(modules_extra)
+    # immersed (cut-cell) grid: one shared CONSTRAINT-stage MaskState
+    # keeps every prognostic's dry DOFs dead against the modules that
+    # do not consult the mask (Coriolis) — the fraction-weighted core
+    # continuity / Sadourny transport handle the wet region themselves
+    # (IP-D5). Appended last so its masking runs after the physics.
+    if getattr(grid, "immersed", None) is not None:
+        modules += (fr.model.modules.MaskState(),)
     # the rotation must be counted exactly once (route A: linear +
     # correction; route B: the conserving module alone)
     check_rotation_modules(modules)

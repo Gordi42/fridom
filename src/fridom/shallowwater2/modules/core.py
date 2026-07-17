@@ -86,6 +86,11 @@ from fridom.framework.utils import jaxify
 from fridom.model.time_dependent import TimeDependent
 from fridom.shallowwater2 import params as sw_params
 from fridom.shallowwater2.diagnostics import DIAGNOSTICS
+from fridom.shallowwater2.modules.immersed_weighting import (
+    mask_field,
+    scale_divergence,
+    weight_flux,
+)
 from fridom.shallowwater2.state import State
 from fridom.spatial.decomposition.halo import HaloSpec
 from fridom.spatial.fields.vector_field import VectorField
@@ -141,10 +146,17 @@ class DynamicalCore(fr.model.Module):
     # plain staggered difference the tracer follows exactly — an
     # unconditional 2 doubled the linear model's exchange volume
     # (halo 1 -> 2 per axis) for a chart worst case it never runs.
+    # On an immersed grid the flux-form continuity multiplies the
+    # concrete open-area / plan-area fraction fields (IP-D4) — a
+    # raw-data op the halo tracer cannot follow (the fraction field is
+    # materialized, not traced), exactly the advection precedent — so
+    # the immersed path is halo-trace exempt and declares its (order-2
+    # staggered) FD-stencil halo here too. None on a plain flat grid:
+    # the unimmersed path stays fully halo-traced (the parity guard).
     @property
     def extra_halo(self) -> HaloSpec | None:
-        """Two halo cells per coordinate on chart grids only."""
-        if not self._charted:
+        """Two halo cells per coordinate on chart or immersed grids."""
+        if not (self._charted or self._immersed):
             return None
         return HaloSpec(dict.fromkeys(self._coords, 2))
 
@@ -199,6 +211,9 @@ class DynamicalCore(fr.model.Module):
         # whether the bound grid is chart-coupled; set by bind()
         # (assembly step 4, before the extra_halo merge of step 7)
         self._charted: bool = False
+        # whether the bound grid carries an immersed domain (masked
+        # continuity + pressure gradient); set by bind()
+        self._immersed: bool = False
 
     # ================================================================
     #  Properties
@@ -309,6 +324,7 @@ class DynamicalCore(fr.model.Module):
             to axes positionally, so the order is load-bearing).
         """
         grid = table.grid
+        self._immersed = getattr(grid, "immersed", None) is not None
         chart = grid.chart_coords
         self._charted = chart is not None
         if chart is None:
@@ -369,6 +385,8 @@ class DynamicalCore(fr.model.Module):
         csqr = state["csqr"]
         zonal, meridional = self._coords
         if u.grid.chart_coords is None:
+            if getattr(u.grid, "immersed", None) is not None:
+                return self._gravity_immersed(u, v, p, csqr)
             return {
                 "u": (-p.diff(zonal)).retag(u),
                 "v": (-p.diff(meridional)).retag(v),
@@ -391,4 +409,40 @@ class DynamicalCore(fr.model.Module):
             "u": (-raised[zonal]).retag(u),
             "v": (-raised[meridional]).retag(v),
             "p": -div(flux),
+        }
+
+    def _gravity_immersed(self, u, v, p, csqr) -> dict:  # noqa: ANN001
+        r"""Masked pressure gradient and fraction-weighted continuity.
+
+        Description
+        -----------
+        The cut-cell weighting of the linear physics (IP-D10):
+
+        .. math::
+            \partial_t \boldsymbol{u} = -\,m \odot \nabla p , \qquad
+            \partial_t p = -\frac{1}{\theta}\,
+                \nabla\cdot\left(\alpha \odot c^2 \boldsymbol{u}\right)
+
+        The geopotential flux :math:`c^2 u` is weighted by the open-area
+        face fraction :math:`\alpha_f` before the divergence, whose sum
+        is then divided by the wet plan-area fraction :math:`\theta_c`
+        (guarded: a dry cell stays exactly ``0``) — the ``theta V``-
+        weighted mass ``sum_c theta_c V_c p_c`` is conserved to machine
+        zero (the open-area flux differences telescope, an
+        :math:`\alpha = 0` face carrying none). The pressure gradient is
+        the plain two-point difference masked by the boolean per-space
+        face mask :math:`m` (``theta > 0``), so no tendency drives a
+        closed face. This path runs **only** on an immersed grid; the
+        term is halo-trace exempt here (``extra_halo``) because the
+        fraction multiplies drop to concrete fields.
+        """
+        immersed = u.grid.immersed
+        zonal, meridional = self._coords
+        flux_u = weight_flux(immersed, csqr.to(u) * u)
+        flux_v = weight_flux(immersed, csqr.to(v) * v)
+        div = -(flux_u.diff(zonal) + flux_v.diff(meridional))
+        return {
+            "u": mask_field(immersed, (-p.diff(zonal)).retag(u)),
+            "v": mask_field(immersed, (-p.diff(meridional)).retag(v)),
+            "p": scale_divergence(immersed, div),
         }
