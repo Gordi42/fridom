@@ -411,9 +411,7 @@ def _metric_diagonal(
     """
     parts = []
     for name, weight in zip(prog, weights, strict=True):
-        mu = jnp.asarray(
-            base0[name].measure(bounded_axis).data,
-            dtype=dtype_real()).ravel()
+        mu = _bounded_measure(base0[name], bounded_axis)
         if isinstance(weight, ScalarField):
             sampled = weight.to(base0[name])
             data = np.broadcast_to(np.asarray(sampled.data),
@@ -426,6 +424,30 @@ def _metric_diagonal(
         else:
             parts.append(weight * mu)
     return jnp.concatenate(parts)
+
+
+def _bounded_measure(
+    field: ScalarField, bounded_axis: str,
+) -> jax.Array:
+    r"""Per-node bounded-axis measure of a component (depth H if constant).
+
+    Description
+    -----------
+    The quadrature weight per bounded-axis node the metric diagonal
+    stacks. A component that is **constant along the bounded axis** (a
+    ``fr.Profile`` barotropic field — the hydrostatic ``ps``, which is a
+    single depth-integrated DOF) carries no per-cell measure; its energy
+    is weighted by the **full extent** ``H`` of the bounded axis (the
+    depth integral ``(1/2) H |ps|^2 / c^2`` the free-surface energy pairs
+    with the depth-mean divergence). Every genuine nodal/face component
+    defers to ``ScalarField.measure`` (the dual-cell quadrature).
+    """
+    factor = field.function_space.factor(bounded_axis)
+    if getattr(factor, "is_constant", False):
+        lo, hi = factor.mesh.extent
+        return jnp.asarray([float(hi - lo)], dtype=dtype_real())
+    return jnp.asarray(
+        field.measure(bounded_axis).data, dtype=dtype_real()).ravel()
 
 
 # ================================================================

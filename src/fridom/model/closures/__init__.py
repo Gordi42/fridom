@@ -26,6 +26,7 @@ if TYPE_CHECKING:  # pragma: no cover
         HarmonicDiffusion,
         HarmonicFriction,
     )
+    from .vertical_mixing import VerticalMixing
 
 # ================================================================
 #  Setup lazy loading
@@ -39,6 +40,7 @@ all_imports_by_origin = {
     f"{base}.diffusion": [
         "HarmonicDiffusion", "BiharmonicDiffusion",
         "HarmonicFriction", "BiharmonicFriction"],
+    f"{base}.vertical_mixing": ["VerticalMixing"],
 }
 
 setup(__name__, all_modules_by_origin, all_imports_by_origin)
