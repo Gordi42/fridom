@@ -312,8 +312,32 @@ def nh_mapped(n, iters):
     ``iters`` pins the PCG budget explicitly so the case tracks the
     solver cost, not the packaging default; differencing the 30- and
     12-iteration instances prices a single CG iteration.
+
+    Since the 2026-07-17 mapped auto flip this default-family case runs
+    the **FV** C-grid (a ``CellAvg`` tracer and the family-aware
+    ``MappedPressureSolver``); ``nh_mapped_nodal`` prices its nodal
+    sibling so FV-vs-FD step parity on terrain stays a standing
+    comparison. The committed baseline predates the flip and is
+    re-recorded on the next GPU campaign (no GPU here); baseline
+    untouched.
     """
     model = _nh_model(n, mapped=True, iters=iters)
+    return _stepping_case(model, float(n) ** 3)
+
+
+@benchmark_case(params={"n": SIZES_NH_MAPPED, "iters": [30, 12]},
+                reps=5, warmup=0, measure_compile=False)
+def nh_mapped_nodal(n, iters):
+    """Price the nodal (FD) sibling of ``nh_mapped``.
+
+    ``family="nodal"`` pins the point-value C-grid on the terrain-
+    following column (see ``nh_mapped``), mirroring
+    ``nh_flat_walled_nodal``. On a terrain-following grid the FV mapped
+    pressure operator is bit-identical to nodal (the column rides a
+    uniform computational mesh, §13), so any timing gap is a compiler
+    artifact to hunt, not physics.
+    """
+    model = _nh_model(n, mapped=True, iters=iters, family="nodal")
     return _stepping_case(model, float(n) ** 3)
 
 
