@@ -287,10 +287,29 @@ Implementation record:
   runs on one A100 at `MEM_FRACTION=0.92` (153 ms/step, unroll=3,
   bitwise-identical physics, per-step perf unchanged at all sizes);
   `XLA_PYTHON_CLIENT_ALLOCATOR=cuda_async` is a validated env-only
-  alternative (VMM defeats fragmentation; multi-GPU unvalidated). The
-  4-GPU memory signature still needs its own attribution
-  ([`open.md`](open.md)). Record:
+  alternative (VMM defeats fragmentation; multi-GPU validated in the
+  4-GPU entry below). Record:
   [`../research/gpu_memory_ceiling.md`](../research/gpu_memory_ceiling.md).
+
+- **4-GPU memory signature attributed — same fix, not remat**
+  (2026-07-17) — second bullet of the Oceananigans reference comparison
+  gap. The comparison probe's read that 1024x1024x768 "dies in compile
+  (remat)" on 4 A100s is **wrong**: on current dev it FITS at ~44
+  GiB/GPU steady. The original death (recorded 2026-07-16 10:01 UTC) was
+  per-device BFC arena *fragmentation* — the 18.36 GiB contiguous chunk
+  temp arena could not be placed in a pool churned by the non-donating
+  `_canonicalize` — one rung larger than the single-GPU ceiling, and
+  closed by the SAME donation+defrag fix (`b6b24644`), which merged 5.5 h
+  *after* the observation. The `hlo_rematerialization.cc` line that named
+  it is a non-fatal warning whose peak estimate (~62 GiB) is ~1.4x
+  pessimistic vs the real 44 GiB. Reproduced directly (revert the fix
+  -> BFC OOM; pre-fix + cuda_async -> fit, which also validates
+  cuda_async multi-GPU). Lever for 768: none, it fits at the default BFC
+  0.75. Next rung 1024x1024x1024 (~51 GiB/GPU) is a harder wall BFC
+  clears at neither 0.75 nor 0.92 (GPU0 cannot place the 24.71 GiB
+  arena) — `cuda_async`'s job. Record:
+  [`../research/gpu_memory_ceiling.md`](../research/gpu_memory_ceiling.md)
+  §7.
 
 - **Time-to-first-step attributed; the two main fixes landed**
   (2026-07-16, merge `7842242b`) — gap 2 of the Oceananigans reference
