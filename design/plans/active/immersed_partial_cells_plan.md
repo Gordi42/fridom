@@ -324,9 +324,25 @@ where core machinery is touched (per AGENTS.md).
   conservation gate targets exactly this.
 - **Distributed correctness** — fraction fields ride the ordinary
   `store` + `sync` path (already device-count invariant in tests);
-  the forced-4 suite must cover the new solver's fast paths; real
-  multi-GPU validation joins the next GPU campaign (same status as
-  the FV default flip).
+  the forced-4 suite covers the new solver's fast paths. **Real
+  multi-GPU validated** (gpu4 campaign T2, 2026-07-17, 4× A100-SXM4-80GB,
+  jax 0.10.2): the masked cut-cell pressure PCG
+  (`test_immersed_step_is_device_count_invariant`, face-aligned {0,1}
+  box) is device-count invariant on real 4 GPUs, and a new sibling smoke
+  (`test_partial_immersed_step_is_device_count_invariant`) confirms the
+  same on a **genuine-partial obstacle** — a smooth `order=4`-quadrature
+  ellipsoid with strictly-interior volume fractions in x, y and z
+  (exercising open-area weights, the min-rule face transfer, and the
+  `min_fraction=0.1` sliver floor under decomposition, not just the
+  boolean special case). 1-vs-4 max deviation ≤ 1.8e-15 (GPU) / 2.7e-15
+  (forced-4 CPU). The `multi_output_fusion` workaround is not required
+  at 16³ (both immersed tests pass on 4 GPUs with and without it —
+  jax#39100 does not bite these paths at this size). The shared
+  fraction/mask spatial machinery that the sw2 Sadourny and hydrostatic
+  wet-column paths also ride is covered by the spatial multi-device
+  tests (`tests/spatial/operators/test_transfer.py` forced-4 GridTransfer
+  parity — the immersed multigrid-preconditioner restriction leg — green
+  on 4 GPUs). No committed baselines changed.
 - **Perf** — unimmersed paths are structurally untouched (no
   override, no branch taken); the step-parity guards stand. Immersed
   runs pay one CG (≈ mapped-solve cost profile); no committed
