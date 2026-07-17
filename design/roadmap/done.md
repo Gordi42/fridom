@@ -76,6 +76,30 @@ Implementation record:
 
 ## Landed since, outside the numbered tasks
 
+- **Variable boundary forcing — wind stress, surface buoyancy flux**
+  (2026-07-17, merge `24ee6fd0`) — prescribed wall-face fluxes as
+  tendency contributions in the wall-adjacent cell
+  (`fr.model.modules.BoundaryFlux(field, coord, side, flux=, scale=)`:
+  sign(side)·scale(t)·F(x_tang)·W, W the index-built `1/Δn`
+  wall-weight profile over the grid measure, F a tangential profile,
+  scale a published side-qualified dynamic-leaf parameter) — the
+  surveyed Oceananigans/MITgcm/Veros mechanism riding the structural
+  NEUMANN zero-gradient halos; **no ghost-fill machinery consumed**
+  (boundary-closure 2e stays consumer-less, its entry corrected).
+  Two generic `TimeDependent` curves: `fr.model.TimeFunction`
+  (static law, dynamic params — zero-recompile sweeps) and
+  `fr.model.TimeSeries` (tabulated `jnp.interp`, the EXF/Veros
+  two-record blend). nonhydro2 wrappers `WindStress` /
+  `SurfaceBuoyancyFlux` own the oceanographic signs
+  (`wind_stress.<coord>_<side>.scale`, opposite-wall instances
+  coexist — the Rayleigh–Bénard idealization). Gates: analytic
+  oracles (`q·t/Δz` wall row, global budget `= q·A` to rounding,
+  hand-stepped Ramp/TimeFunction), forced-4 bitwise, 100% branch
+  coverage on both new modules, nonhydro2 suite green. Deferred
+  designed-fors (volumetric `Forcing`/SW wind, bottom drag,
+  tabulated 2-D+time maps, value BCs): plan §BF-D5. Record:
+  [`../plans/done/boundary_forcing_plan.md`](../plans/done/boundary_forcing_plan.md).
+
 - **Upwind5 advection — revisited, attributed, closed at the XLA
   ceiling** (2026-07-17) — the owner's charge to re-research the
   "cannot do better" verdict on new hardware (RTX 3060 Laptop, f64

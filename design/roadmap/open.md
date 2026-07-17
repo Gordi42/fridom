@@ -39,16 +39,6 @@ and the model layer is `fridom.model`.
 
 # Next steps
 
-## Variable boundary forcing — wind stress, surface buoyancy flux
-
-In flight (2026-07-17, `feat/boundary-forcing`): `BoundaryFlux`
-tendency module (prescribed wall-face flux injected in the
-wall-adjacent cell — the surveyed Oceananigans/MITgcm/Veros
-mechanism; it does **not** consume boundary-closure 2e),
-`TimeFunction`/`TimeSeries` `TimeDependent` curves, and nonhydro2
-`WindStress`/`SurfaceBuoyancyFlux` wrappers.
-[`../plans/active/boundary_forcing_plan.md`](../plans/active/boundary_forcing_plan.md)
-
 ## Performance guard — wire the benchmark harness as a CI gate
 
 The A/B harness exists (`benchmarks/model/bench_step.py`, **committed**
@@ -297,9 +287,13 @@ today. Promote an item the moment a consumer appears.
 *Medium (1-2 weeks; ~400-700 LOC source, ~300-400 test, against the
 `9a95202a` analogue of 21 files / +1054).* **No consumer exists**: `BC.ROBIN`
 appears only in `bc.py`, two `NotImplementedError` raises, and the tests
-asserting those raises. Both models use only Dirichlet/Neumann walls, and
-no bottom-drag or flux-BC module exists or is planned. Do it when a model
-needs one — otherwise it ships untested-by-use.
+asserting those raises. Both models use only Dirichlet/Neumann walls.
+Note (2026-07-17): flux-type boundary forcing shipped as a *tendency*
+module (`BoundaryFlux`, [`done.md`](done.md)) and deliberately does
+**not** consume this path (plan §BF-D1) — 2e's consumers remain
+inhomogeneous boundary *values* (moving lids, prescribed wall
+buoyancy) and dynamic Robin data, and none exists yet. Do it when a
+model needs one — otherwise it ships untested-by-use.
 
 Two genuine design questions, unspecified in the record, are why this is
 not days: **(1)** "seeded at assembly" fights "compiles once across an α
