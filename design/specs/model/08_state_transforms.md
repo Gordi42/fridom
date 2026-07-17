@@ -24,11 +24,11 @@ Requirement (raised at D4 sign-off): first-class composable
 propagation — with an algebra mirroring the operator algebra, e.g.
 `optimal_balance_cycle = forward @ vortical @ backward`.
 
-**Extension (§10.9, ruled 2026-07-16, not yet implemented):**
+**Extension (§10.9, ruled 2026-07-16, shipped 2026-07-17):**
 generalized adiabatic ramping — deformations between two operator
 configurations, `AdiabaticRamping`, `AdiabaticProjection`,
-`relative_imbalance`. Decisions AR-D1..D9 and stages in
-[`../../plans/active/adiabatic_ramping.md`](../../plans/active/adiabatic_ramping.md).
+`relative_imbalance`. Decisions AR-D1..D9, stages, and outcome in
+[`../../plans/done/adiabatic_ramping.md`](../../plans/done/adiabatic_ramping.md).
 
 ---
 
@@ -346,10 +346,12 @@ designed-for / deferred.
 
 ## 10.9 Generalized adiabatic ramping (deformations)
 
-Ruled 2026-07-16 (decisions AR-D1..D9); **implemented 2026-07-17**
-(plan stages R1–R5 on `dev`; reader-facing docs pending owner
-review); stages, gates, and landing record in
-[`../../plans/active/adiabatic_ramping.md`](../../plans/active/adiabatic_ramping.md).
+Ruled 2026-07-16 (decisions AR-D1..D9); **shipped 2026-07-17**
+(stages R1–R6 on `dev`; the docs example's content review is open
+roadmap work). Stages, gates, and the outcome record in
+[`../../plans/done/adiabatic_ramping.md`](../../plans/done/adiabatic_ramping.md);
+measured leakage scaling in
+[`../../research/adiabatic_leakage_scaling.md`](../../research/adiabatic_leakage_scaling.md).
 Driving consumer: the adiabatic fast–slow splittings paper (Rosenau
 et al., JFM draft). Everything here composes with §10.1–10.5
 unchanged; `OptimalBalance` is re-homed **onto** this surface

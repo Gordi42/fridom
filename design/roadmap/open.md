@@ -241,10 +241,14 @@ so `FPlaneCoriolis(f0=Ramp(...))` raises a bare `TypeError` from
 
 Level 1 and the *affine-blend* subset of level 2 (a field that moves
 along an affine path in declared scalars, e.g.
-`f(y,t) = f0(t) + beta(t) * y`) are scheduled as stages R1/R2 of
-[`../plans/active/adiabatic_ramping.md`](../plans/active/adiabatic_ramping.md)
-(2026-07-16). What stays open **here** is the general case: profiles
-with non-affine time dependence.
+`f(y,t) = f0(t) + beta(t) * y`) **shipped 2026-07-17** as stages
+R1/R2 of
+[`../plans/done/adiabatic_ramping.md`](../plans/done/adiabatic_ramping.md).
+What stays open **here**: the general case (profiles with non-affine
+time dependence), plus one small follow-up from that landing —
+`dsqr`'s AR-D7 report is cross-module (owned by `DynamicalCore`,
+consumed by `ConstantStratification.buoyancy_force`) and is
+documented but not wired.
 
 **Interaction with the exponential stepper** (the reason this surfaced):
 `ETDRK4` freezes `L` in an eigenbasis snapshot. Anything time-dependent
@@ -261,23 +265,23 @@ by the inertial rather than the gravity CFL. Note also that a
 time-dependent `L` has no fixed eigenbasis at all, so the discrete
 eigenanalysis is itself undefined in that regime.
 
-## Generalized adiabatic ramping
+## Adiabatic-ramping docs — example review (deferred at landing)
 
-Deform a model between two operator configurations — a *reference*
-system `L(0)` and a *target* system `L(1)`,
-`L(s) = (1-rho(s)) L_ref + rho(s) L_target` — with shared terms never
-computed twice and all four propagator legs (ref↔target x
-forward/backward in time). `OptimalBalance` is rebuilt *on*
-`AdiabaticRamping` legs (composition), contributing only balancing
-policy; the paper draft *Fast-slow
-splittings for geophysical flows via the adiabatic theorem* (Rosenau
-et al.) is the driving consumer (Coriolis ramp
-`f(y,t) = f0 + beta rho(t/tau) y`, staggered double-ramp protocol,
-adiabatic projector). Staged plan activated 2026-07-16, decisions
-ruled the same day (stages R0–R7: time-dependent scalars → generic
-field blends (`FieldBlend`) → `AdiabaticRamping` → OB refactor →
-`AdiabaticProjection` → example/docs):
-[`../plans/active/adiabatic_ramping.md`](../plans/active/adiabatic_ramping.md)
+ROADMAP 3.8 shipped 2026-07-17
+([`done.md`](done.md) §3.8;
+[`../plans/done/adiabatic_ramping.md`](../plans/done/adiabatic_ramping.md)),
+with R6 (the double-ramp example + Advanced Topics docs page) merged
+**on owner instruction without the private content-review pass**.
+Open work: the owner review of
+`examples/shallowwater/adiabatic_double_ramp.py` and
+`docs/source/advanced/adiabatic_ramping.rst` (projection onto the
+working tree, `REVIEW:` markers, sweep-and-apply per AGENTS.md), plus
+the style-guide tensions flagged at preparation: citation
+infrastructure for the unpublished JFM draft (bibtex vs the current
+prose citation), whether the one-chapter Advanced Topics scaffold
+stands or folds into the docs rebuild, doctest wiring for inline
+snippets, and API cross-refs as literals until the new-stack API
+reference lands.
 
 ---
 

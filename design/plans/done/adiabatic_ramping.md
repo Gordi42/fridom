@@ -1,6 +1,6 @@
 ---
-status: active
-date: 2026-07-16
+status: done
+date: 2026-07-17
 ---
 
 # Generalized adiabatic ramping — implementation plan (ROADMAP 3.8)
@@ -29,15 +29,19 @@ capability the idea record did not cover: **field-valued blends** (the
 Coriolis profile deforms, not just a scalar).
 
 Companion records:
-[`../roadmap/open.md`](../roadmap/open.md) §"Generalized adiabatic
-ramping" and §"Time-dependent parameters and time-dependent fields"
-(level 1 and the affine-blend subset of level 2 are absorbed here;
-arbitrary time-dependent fields stay open there);
-[`../specs/model/08_state_transforms.md`](../specs/model/08_state_transforms.md)
-§10.5 (Propagator / OptimalBalance);
-[`../research/exponential_stepper.md`](../research/exponential_stepper.md)
+[`../../roadmap/done.md`](../../roadmap/done.md) §3.8 (shipped entry)
+and [`../../roadmap/open.md`](../../roadmap/open.md)
+§"Time-dependent parameters and time-dependent fields" (level 1 and
+the affine-blend subset of level 2 shipped here; arbitrary
+time-dependent fields stay open there) and §"Adiabatic-ramping docs —
+example review" (the R6 review deferral);
+[`../../specs/model/08_state_transforms.md`](../../specs/model/08_state_transforms.md)
+§10.9 (the normative surface) and §10.5;
+[`../../research/adiabatic_leakage_scaling.md`](../../research/adiabatic_leakage_scaling.md)
+(the leakage-scaling investigation);
+[`../../research/exponential_stepper.md`](../../research/exponential_stepper.md)
 §5 (ETDRK4 fallback);
-[`../research/d5_2_variants.md`](../research/d5_2_variants.md)
+[`../../research/d5_2_variants.md`](../../research/d5_2_variants.md)
 (term predicates).
 
 ## 1. Decisions (owner-reviewed 2026-07-16)
@@ -319,9 +323,11 @@ gate met (measured numbers live in the stage test files; highlights:
 static paths bit-identical, ramped-beta leakage decays with `tau`
 both directions, near-inverse 1.7e-11 vs phase-law 0.63, OB
 bit-identical to 16 digits, forward–forward counter-example pinned
-at 10^3–10^4 separation, dt-halving ratio ~1.00). Remaining: R6
-(prepared on local `docs/adiabatic-ramping`, awaiting owner review)
-and R7. Follow-ups recorded at landing, not blocking: `dsqr`'s
+at 10^3–10^4 separation, dt-halving ratio ~1.00); R6 `e2016cd1`
+(landed on owner instruction 2026-07-17, example content review
+deferred to the open roadmap); post-landing: the leakage-scaling
+investigation and its regression shard `0d861388` (see Outcome).
+Follow-ups recorded at landing, not blocking: `dsqr`'s
 AR-D7 report is cross-module (owned by `DynamicalCore`, consumed by
 `ConstantStratification.buoyancy_force`) — documented, not wired;
 `f_coriolis` IO shows the t=0 snapshot during ramped runs (fresh-f
@@ -417,3 +423,32 @@ missing conformance point: the AR-D6 dissipation guard.
 - **An `AdiabaticProjection.from_model(...)` convenience
   classmethod**: the ctor takes a built leg (AR-D8); add the one-call
   form later if usage demands.
+
+## 8. Outcome against the gates (2026-07-17)
+
+- **R0–R5** landed with every stage gate met as specified (§4; merge
+  SHAs and highlights in the Landed block). **AR-D9 held
+  throughout**: `tests/model/transforms/test_optimal_balance.py` was
+  never modified, and the R4 A/B showed identical step counts and
+  bit-identical balanced states.
+- **Post-landing owner audit** (the leakage-scaling question): the
+  stage gates' `tau <= 3` ranges were pre-asymptotic — a stretched
+  exponential is locally indistinguishable from a power law there,
+  and the exp ramp has not yet overtaken a linear one. The
+  investigation
+  ([`../../research/adiabatic_leakage_scaling.md`](../../research/adiabatic_leakage_scaling.md))
+  verified the machinery follows
+  `log eta = -2.52 sqrt(tau) - 1.32` (R^2 0.997) over 11 orders of
+  magnitude to float64 roundoff, dt-invariant — and identified the
+  projection cycle's floor as its own idempotency residual (a
+  two-leg artifact, not ramp leakage). The exponential regime is now
+  suite-pinned
+  (`tests/model/transforms/test_adiabatic_ramping_exponential.py`,
+  merge `0d861388`) and demonstrated by the docs example
+  (single-leg, `log eta` vs `sqrt(tau)`).
+- **R6** landed `e2016cd1` on owner instruction with the private
+  content-review pass deferred — tracked in
+  [`../../roadmap/open.md`](../../roadmap/open.md) (example review +
+  style-guide tensions: citation infra for the unpublished draft,
+  Advanced Topics scaffold sequencing, doctest wiring, API cross-ref
+  literals).
