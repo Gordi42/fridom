@@ -33,6 +33,7 @@ mask-aware operators (designed-for) own their own ghost discipline.
 # Wave 4: ImmersedDomain, Slip (I0: genuine fractions)
 from __future__ import annotations
 
+import copy
 import inspect
 import numbers
 from enum import Enum, auto
@@ -213,6 +214,25 @@ class ImmersedDomain:
                 "pass it as Grid(..., immersed=...) or attach it "
                 "via grid.with_immersed(...)")
         return self._grid
+
+    def _clone_unbound(self) -> ImmersedDomain:
+        """
+        Return an unbound shallow clone re-attachable to a second grid.
+
+        Description
+        -----------
+        The re-bind hook ``Grid.coarsened`` uses to attach the same wet
+        region to a coarse sibling grid (MG-D6). The descriptor is
+        array-free — the declaring callable and static parameters only —
+        so a shallow copy shares the declaration by reference; the grid
+        binding is reset and the materialization cache (keyed on the old
+        grid's laid-out spaces) is dropped, so the coarse grid
+        re-quadratures the wet fractions on its own coarse spaces.
+        """
+        clone = copy.copy(self)
+        clone._grid = None  # noqa: SLF001 — re-bind seam (same class)
+        clone._cache = {}  # noqa: SLF001 — fresh per-grid materialize cache
+        return clone
 
     # ================================================================
     #  Derived per-space fields (derive-on-demand, section 3.7)
