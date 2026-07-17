@@ -227,6 +227,68 @@ def test_solve_accepts_an_initial_guess():
 
 
 # ================================================================
+#  Multigrid preconditioner (B3)
+# ================================================================
+def test_preconditioner_knob_rejects_unknown():
+    grid, mx, ms = build_grid()
+    with pytest.raises(ValueError, match="preconditioner must be"):
+        MappedPressureSolver(grid, mx.center * ms.center, iterations=5,
+                             preconditioner="jacobi")
+
+
+def test_multigrid_hierarchy_shape_and_degradation():
+    # N=16: the horizontal x semicoarsens 16 -> 8 -> 4 (the vertical
+    # sigma stays), so a 3-level request yields 3 levels; only the last
+    # carries transfer=None
+    solver, *_ = build_solver(preconditioner="multigrid",
+                              multigrid_levels=3)
+    levels = solver._build_vcycle({}).levels
+    assert len(levels) == 3
+    assert levels[-1].transfer is None
+    assert all(level.transfer is not None for level in levels[:-1])
+    # a tiny 4-cell grid cannot coarsen (2 < 4): it degrades to a
+    # one-level, smoothing-only hierarchy (must work, not raise)
+    tiny, *_ = build_solver(n=4, preconditioner="multigrid",
+                            multigrid_levels=3)
+    assert len(tiny._build_vcycle({}).levels) == 1
+
+
+def test_multigrid_matches_the_spectral_solve():
+    # the multigrid-preconditioned PCG converges and lands on the same
+    # mean-free pressure as the spectral-preconditioned PCG
+    grid, mx, ms = build_grid()
+    space = mx.center * ms.center
+    kw = {"iterations": 30, "weights": {"sigma": 1.0 / DSQR}}
+    spec = MappedPressureSolver(grid, space, **kw)
+    mg = MappedPressureSolver(grid, space, preconditioner="multigrid",
+                              multigrid_levels=3, **kw)
+    rhs = grid.random.normal(space, seed=9)
+    rhs = rhs - rhs.mean()
+    p_spec = jax.jit(spec.solve)(rhs)
+    p_mg = jax.jit(mg.solve)(rhs)
+    residual = mg.apply(p_mg) - rhs
+    rel = (float(jnp.abs(residual.data).max())
+           / float(jnp.abs(rhs.data).max()))
+    assert rel < 1e-8
+    diff = float(jnp.abs((p_mg - p_spec).data).max())
+    assert diff / float(jnp.abs(p_spec.data).max()) < 1e-6
+
+
+def test_multigrid_rejects_moving_geometry():
+    # dynamic mapping parameter fields (moving geometry) thread grid-
+    # bound field data through params=, which the coarse re-derivation
+    # cannot re-bind — a taught error (iteration 1 is static maps only)
+    grid, mx, ms = build_grid()
+    space = mx.center * ms.center
+    moving = MappedPressureSolver(
+        grid, space, iterations=5, weights={"sigma": 1.0 / DSQR},
+        preconditioner="multigrid",
+        params={"H": grid.random.normal(mx.center, seed=1)})
+    with pytest.raises(NotImplementedError, match="static maps only"):
+        moving.krylov()
+
+
+# ================================================================
 #  The projection identity: divergence -> solve -> correction
 # ================================================================
 def test_projection_removes_the_measured_divergence():

@@ -358,3 +358,88 @@ def test_vertical_bands_reject_a_periodic_vertical():
     _grid, _space, solver = _box_solver(n=8, iterations=2)
     with pytest.raises(NotImplementedError, match="bounded"):
         solver.vertical_bands()
+
+
+# ================================================================
+#  Multigrid preconditioner (B3)
+# ================================================================
+def _box_bounded(n=16, nz=8):
+    """Build a bounded-z {0,1}-box immersed FV grid (line-smoothable)."""
+    meshes = (
+        IntervalMesh(n, (0.0, TWO_PI), periodic=True, name="x"),
+        IntervalMesh(n, (0.0, TWO_PI), periodic=True, name="y"),
+        IntervalMesh(nz, (0.0, 1.0), periodic=False, name="z"))
+    box = lambda x, y, z: (  # noqa: E731
+        (x > 1.0) & (x < 5.0) & (y > 1.0) & (y < 5.0)
+        & (z > 0.2) & (z < 0.8)).astype(float)
+    grid = _fv_grid(meshes, ImmersedDomain(box))
+    return grid, _cell_space(grid)
+
+
+def test_preconditioner_knob_rejects_unknown():
+    grid, space = _box_bounded(n=8)
+    with pytest.raises(ValueError, match="preconditioner must be"):
+        ImmersedPressureSolver(grid, space, vertical="z", dsqr=0.5,
+                               iterations=5, preconditioner="jacobi")
+
+
+def test_multigrid_hierarchy_shape_and_degradation():
+    # n=16: x, y semicoarsen 16 -> 8 -> 4 (z stays), so a 3-level
+    # request yields 3 levels; only the coarsest has transfer=None
+    grid, space = _box_bounded(n=16)
+    mg = ImmersedPressureSolver(
+        grid, space, vertical="z", dsqr=0.5, iterations=5,
+        preconditioner="multigrid", multigrid_levels=3)
+    levels = mg._build_vcycle().levels
+    assert len(levels) == 3
+    assert levels[-1].transfer is None
+    assert all(level.transfer is not None for level in levels[:-1])
+    # a 4-cell grid cannot coarsen (2 < 4): degrades to one smoothing-
+    # only level (must work, not raise)
+    tiny_grid, tiny_space = _box_bounded(n=4)
+    tiny = ImmersedPressureSolver(
+        tiny_grid, tiny_space, vertical="z", dsqr=0.5, iterations=5,
+        preconditioner="multigrid", multigrid_levels=4)
+    assert len(tiny._build_vcycle().levels) == 1
+
+
+def test_multigrid_matches_the_spectral_solve():
+    # the multigrid-preconditioned PCG converges and agrees with the
+    # spectral-preconditioned PCG on the WET region (dry cells are an
+    # unconstrained nullspace: L has zero rows/cols there, so the
+    # transfers leave them uncoupled — project() masks them to zero)
+    grid, space = _box_bounded(n=16)
+    spec = ImmersedPressureSolver(grid, space, vertical="z", dsqr=0.7,
+                                  iterations=40)
+    mg = ImmersedPressureSolver(
+        grid, space, vertical="z", dsqr=0.7, iterations=30,
+        preconditioner="multigrid", multigrid_levels=3)
+    vel = _random_velocity(spec, seed=3)
+    rhs = spec.divergence(vel)
+    p_spec = jax.jit(spec.solve)(rhs)
+    p_mg = jax.jit(mg.solve)(rhs)
+    # the multigrid solve converged
+    residual = mg.apply(p_mg) - rhs
+    rel = (float(jnp.abs(residual.data).max())
+           / float(jnp.abs(rhs.data).max()))
+    assert rel < 1e-8
+    # ... and matches spectral on the wet cells
+    wet = np.asarray(spec._cell_mask)
+    diff = np.abs((np.asarray(p_mg.data) - np.asarray(p_spec.data)) * wet)
+    scale = np.abs(np.asarray(p_spec.data) * wet).max()
+    assert diff.max() / scale < 1e-5
+
+
+def test_projection_property_removes_the_wet_mean():
+    # the exposed projection is the V-orthogonal wet-mean removal the
+    # V-cycle installs per level (idempotent; drives the wet integral
+    # to zero, dry cells untouched)
+    grid, space, solver = _bounded_masked_solver(n=8)
+    project = solver.projection
+    f = grid.random.normal(space, seed=5)
+    pf = project(f)
+    wet_mean = float(jnp.sum((solver._wet * pf).integrate().data))
+    assert abs(wet_mean) < 1e-12
+    # idempotent
+    again = project(pf)
+    assert float(jnp.abs((again - pf).data).max()) < 1e-12

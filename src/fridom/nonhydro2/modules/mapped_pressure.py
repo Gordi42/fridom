@@ -162,6 +162,7 @@ from typing import TYPE_CHECKING
 
 import jax.numpy as jnp
 
+from fridom.nonhydro2.modules.multigrid_hierarchy import coarsen_levels
 from fridom.nonhydro2.modules.pressure import (
     _dirichlet_mid,
     _neumann_sibling,
@@ -174,7 +175,12 @@ from fridom.spatial.operators.composed import (
     Gradient,
 )
 from fridom.spatial.operators.krylov import ConjugateGradient
-from fridom.spatial.operators.multigrid import VerticalBands
+from fridom.spatial.operators.multigrid import (
+    MultigridLevel,
+    MultigridVCycle,
+    VerticalBands,
+    VerticalLineJacobi,
+)
 from fridom.spatial.operators.spectral_solve import SpectralSolve
 from fridom.spatial.operators.staggering import uniform_spacing
 from fridom.spatial.spaces.average import AverageSpace
@@ -192,6 +198,17 @@ if TYPE_CHECKING:  # pragma: no cover
     #: to derived metric fields; created inside one solve, dropped
     #: when it returns, never stored on the solver (module docstring)
     MetricCache = dict[tuple[SpaceLike, str], ScalarField]
+
+#: the accepted ``preconditioner=`` choices (B3/B4)
+_PRECONDITIONERS = ("spectral", "multigrid")
+#: the vertical-line smoother damping of the multigrid V-cycle (B0
+#: spike optimum; omega = 1 diverges)
+_LINE_OMEGA = 0.8
+
+
+def _mean_free(field: ScalarField) -> ScalarField:
+    """Remove the measure-weighted mean (the constants nullspace)."""
+    return field - field.mean()
 
 
 # ================================================================
@@ -328,6 +345,20 @@ class MappedPressureSolver:
         arithmetic. Forwarded to the preconditioner's
         :class:`SpectralSolve` (see its ``single_precision`` doc).
         Off by default (default: False).
+    preconditioner : str, optional
+        The PCG preconditioner (B3/B4): ``"spectral"`` (the flat
+        separable spectral inverse at folded coefficients) or
+        ``"multigrid"`` (the geometric-multigrid V-cycle assembled by
+        :meth:`_build_vcycle`, semicoarsening the horizontal axes with
+        vertical line smoothing). Any other value raises ``ValueError``
+        (default: ``"spectral"``).
+    multigrid_levels : int, optional
+        The **maximum** number of multigrid levels when
+        ``preconditioner="multigrid"``; the builder floors every
+        horizontal axis at four cells and stops at indivisibility, so
+        the realized count is smaller on a small grid (a grid too small
+        for any coarsening degrades to a one-level, smoothing-only
+        cycle). Ignored for the spectral preconditioner (default: 3).
     """
 
     def __init__(
@@ -339,8 +370,16 @@ class MappedPressureSolver:
         weights: Mapping[str, jax.Array | float] | None = None,
         params: Mapping[str, ScalarField] | None = None,
         single_precision: bool = False,
+        preconditioner: str = "spectral",
+        multigrid_levels: int = 3,
     ) -> None:
         """Discover the mapped column and resolve the static rows."""
+        if preconditioner not in _PRECONDITIONERS:
+            raise ValueError(
+                f"preconditioner must be one of {_PRECONDITIONERS}, got "
+                f"{preconditioner!r}")
+        self._preconditioner_kind = preconditioner
+        self._multigrid_levels = multigrid_levels
         mapping = getattr(grid, "mapping", None)
         if mapping is None:
             raise ValueError(
@@ -1056,6 +1095,72 @@ class MappedPressureSolver:
 
         return apply
 
+    def _build_vcycle(self, cache: MetricCache) -> MultigridVCycle:
+        r"""
+        Assemble the semicoarsened multigrid V-cycle preconditioner.
+
+        Description
+        -----------
+        The ``preconditioner="multigrid"`` seam (B3, MG-D4/D6/D8): the
+        horizontal axes semicoarsen (never the mapped column ``base``),
+        each level re-instantiates this solver class on its coarse grid
+        (re-discretization of the metrics on the coarse spaces), the
+        transfers are the order-2 ``GridTransfer`` pair, the smoother is
+        vertical-line Jacobi at :data:`_LINE_OMEGA`, and every level
+        projects out the constants (mean-free). The finest level re-uses
+        ``self`` and the shared ``cache``; the coarse levels each carry
+        their own per-solve metric memo, re-derived on the coarse grid.
+
+        Static maps only (iteration 1): a moving geometry threads
+        grid-bound parameter fields through ``params=``, which the
+        coarse re-derivation cannot re-bind, so this raises.
+
+        Parameters
+        ----------
+        cache : MetricCache
+            The finest level's per-solve metric memo (shared with the
+            outer CG operator).
+
+        Returns
+        -------
+        MultigridVCycle
+            The V-cycle callable for the ``preconditioner=`` seam.
+
+        Raises
+        ------
+        NotImplementedError
+            If ``params`` carry grid-bound field data (moving geometry).
+        """
+        if self._params and any(
+                getattr(field, "grid", None) is not None
+                for field in self._params.values()):
+            raise NotImplementedError(
+                "the multigrid preconditioner supports static maps only "
+                "(iteration 1): this solve threads dynamic mapping "
+                "parameter fields through params= (moving geometry), "
+                "which the coarse re-derivation cannot re-bind — use "
+                "preconditioner='spectral' with a moving geometry")
+        chain = coarsen_levels(
+            self._grid, self._space, vertical=self._base,
+            max_levels=self._multigrid_levels)
+        levels: list[MultigridLevel] = []
+        for index, (grid, space, transfer) in enumerate(chain):
+            if index == 0:
+                solver = self
+                level_cache: MetricCache = cache
+            else:
+                solver = MappedPressureSolver(
+                    grid, space, iterations=self._iterations,
+                    weights=self._weights, params=self._params,
+                    single_precision=self._single_precision)
+                level_cache = {}
+            smoother = VerticalLineJacobi(
+                solver.vertical_bands(level_cache), omega=_LINE_OMEGA)
+            levels.append(MultigridLevel(
+                partial(solver.apply, cache=level_cache),
+                smoother, _mean_free, transfer))
+        return MultigridVCycle(tuple(levels))
+
     def krylov(
         self, cache: MetricCache | None = None,
     ) -> ConjugateGradient:
@@ -1071,7 +1176,9 @@ class MappedPressureSolver:
         go stale, since the memo dies with the returned solver and
         never reaches ``self`` (module docstring). The returned
         object is therefore, like the solver itself, valid for the
-        single trace it was built in.
+        single trace it was built in. The ``preconditioner`` knob
+        selects the flat spectral inverse or the multigrid V-cycle
+        (:meth:`_build_vcycle`).
 
         Parameters
         ----------
@@ -1082,14 +1189,18 @@ class MappedPressureSolver:
         Returns
         -------
         ConjugateGradient
-            Fixed-iteration PCG on ``apply`` with the spectral
+            Fixed-iteration PCG on ``apply`` with the configured
             preconditioner and the constants-nullspace projection.
         """
         if cache is None:
             cache = {}
+        if self._preconditioner_kind == "multigrid":
+            preconditioner = self._build_vcycle(cache)
+        else:
+            preconditioner = self._preconditioner(cache)
         return ConjugateGradient(
             partial(self.apply, cache=cache),
-            preconditioner=self._preconditioner(cache),
+            preconditioner=preconditioner,
             iterations=self._iterations,
             project_mean=True)
 

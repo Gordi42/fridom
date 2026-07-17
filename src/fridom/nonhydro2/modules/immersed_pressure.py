@@ -85,6 +85,7 @@ import jax
 import jax.numpy as jnp
 
 from fridom.framework.utils import dtype_real
+from fridom.nonhydro2.modules.multigrid_hierarchy import coarsen_levels
 from fridom.nonhydro2.modules.pressure import (
     _dirichlet_mid,
     build_flat_spectral_solve,
@@ -92,7 +93,12 @@ from fridom.nonhydro2.modules.pressure import (
 from fridom.spatial.fields.storage import factor_axes
 from fridom.spatial.operators.base import resolve_codomain
 from fridom.spatial.operators.krylov import ConjugateGradient
-from fridom.spatial.operators.multigrid import VerticalBands
+from fridom.spatial.operators.multigrid import (
+    MultigridLevel,
+    MultigridVCycle,
+    VerticalBands,
+    VerticalLineJacobi,
+)
 from fridom.spatial.operators.staggering import uniform_spacing
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -103,6 +109,12 @@ if TYPE_CHECKING:  # pragma: no cover
     from fridom.spatial.fields.scalar_field import ScalarField
     from fridom.spatial.operators.base import Operator
     from fridom.spatial.spaces.tensor_product import SpaceLike
+
+#: the accepted ``preconditioner=`` choices (B3/B4)
+_PRECONDITIONERS = ("spectral", "multigrid")
+#: the vertical-line smoother damping of the multigrid V-cycle (B0
+#: spike optimum; omega = 1 diverges)
+_LINE_OMEGA = 0.8
 
 
 # ================================================================
@@ -179,11 +191,26 @@ class ImmersedPressureSolver:
         CG iterates, the operator and the inner products stay
         ``float64`` (mixed-precision PCG); forwarded to
         :func:`build_flat_spectral_solve` (default: False).
+    preconditioner : str, optional
+        The PCG preconditioner (B3/B4): ``"spectral"`` (the wet-masked
+        flat spectral inverse) or ``"multigrid"`` (the geometric-
+        multigrid V-cycle assembled by :meth:`_build_vcycle`,
+        semicoarsening the horizontal axes with vertical line smoothing
+        and the per-level wet-mean projection). Any other value raises
+        ``ValueError`` (default: ``"spectral"``).
+    multigrid_levels : int, optional
+        The **maximum** number of multigrid levels when
+        ``preconditioner="multigrid"``; the builder floors every
+        horizontal axis at four cells and stops at indivisibility, so
+        the realized count is smaller on a small grid (a grid too small
+        for any coarsening degrades to a one-level, smoothing-only
+        cycle). Ignored for the spectral preconditioner (default: 3).
 
     Raises
     ------
     ValueError
-        If the grid carries no immersed domain.
+        If the grid carries no immersed domain, or ``preconditioner``
+        is not a known choice.
     NotImplementedError
         If the grid also declares a mapped column (mapped + immersed
         is a designed-for composition, plan §6).
@@ -198,8 +225,16 @@ class ImmersedPressureSolver:
         dsqr: jax.Array | float,
         iterations: int,
         single_precision: bool = False,
+        preconditioner: str = "spectral",
+        multigrid_levels: int = 3,
     ) -> None:
         """Resolve the flux rows and fetch the fraction fields."""
+        if preconditioner not in _PRECONDITIONERS:
+            raise ValueError(
+                f"preconditioner must be one of {_PRECONDITIONERS}, got "
+                f"{preconditioner!r}")
+        self._preconditioner_kind = preconditioner
+        self._multigrid_levels = multigrid_levels
         immersed = getattr(grid, "immersed", None)
         if immersed is None:
             raise ValueError(
@@ -286,6 +321,21 @@ class ImmersedPressureSolver:
     def iterations(self) -> int:
         """The fixed CG iteration count (static)."""
         return self._iterations
+
+    @property
+    def projection(self) -> Callable[[ScalarField], ScalarField]:
+        r"""
+        The wet-region-constant nullspace projection (V-orthogonal).
+
+        Description
+        -----------
+        The bound :meth:`_projection` — ``f - (int_wet V f / int_wet V)
+        e`` with ``e = (theta > 0)`` — exposed so the multigrid V-cycle
+        can install **this level's own** wet-mean on the restricted
+        residual (each coarse level re-derives its ``e`` from the coarse
+        fractions, MG-D6).
+        """
+        return self._projection
 
     # ================================================================
     #  The operator, its right-hand side, and the velocity update
@@ -540,11 +590,52 @@ class ImmersedPressureSolver:
 
         return masked
 
+    def _build_vcycle(self) -> MultigridVCycle:
+        r"""
+        Assemble the semicoarsened multigrid V-cycle preconditioner.
+
+        Description
+        -----------
+        The ``preconditioner="multigrid"`` seam (B3, MG-D4/D6/D8): the
+        horizontal axes semicoarsen (never the bounded ``vertical``
+        column), each level re-instantiates this solver class on its
+        coarse grid so the cut-cell fractions **re-derive** on the
+        coarse spaces (MG-D6 re-quadrature), the transfers are the
+        order-2 ``GridTransfer`` pair, the smoother is vertical-line
+        Jacobi at :data:`_LINE_OMEGA`, and every level projects out its
+        **own** wet-region constant (the V-orthogonal wet-mean computed
+        from that level's re-derived fractions). The finest level
+        re-uses ``self``.
+
+        Returns
+        -------
+        MultigridVCycle
+            The V-cycle callable for the ``preconditioner=`` seam.
+        """
+        chain = coarsen_levels(
+            self._grid, self._space, vertical=self._vertical,
+            max_levels=self._multigrid_levels)
+        levels: list[MultigridLevel] = []
+        for index, (grid, space, transfer) in enumerate(chain):
+            solver = self if index == 0 else ImmersedPressureSolver(
+                grid, space, vertical=self._vertical, dsqr=self._dsqr,
+                iterations=self._iterations,
+                single_precision=self._single_precision)
+            smoother = VerticalLineJacobi(
+                solver.vertical_bands(), omega=_LINE_OMEGA)
+            levels.append(MultigridLevel(
+                solver.apply, smoother, solver.projection, transfer))
+        return MultigridVCycle(tuple(levels))
+
     def krylov(self) -> ConjugateGradient:
         """Build the configured PCG solver (public for diagnostics)."""
+        if self._preconditioner_kind == "multigrid":
+            preconditioner = self._build_vcycle()
+        else:
+            preconditioner = self._preconditioner()
         return ConjugateGradient(
             self.apply,
-            preconditioner=self._preconditioner(),
+            preconditioner=preconditioner,
             iterations=self._iterations,
             projection=self._projection)
 
