@@ -526,3 +526,64 @@ def test_solution_is_device_count_invariant():
     many = run(None)
     one = run((0,))
     assert np.allclose(many, one, rtol=0.0, atol=1e-11)
+
+
+# ================================================================
+#  Custom nullspace projection (projection=, IP-D6)
+# ================================================================
+def test_projection_matches_project_mean_bitwise():
+    # project_mean=True is the special case projection=(f - f.mean());
+    # supplying it explicitly must apply the hook at the same three
+    # sites and reproduce the result bit-for-bit.
+    grid = build_grid()
+    rhs = rich_rhs(grid)
+    space = rhs.function_space
+    apply_a, exact = spectral_pieces(grid, space, sign=-1.0)
+    mean_cg = ConjugateGradient(
+        apply_a, preconditioner=exact, iterations=3, project_mean=True)
+    proj_cg = ConjugateGradient(
+        apply_a, preconditioner=exact, iterations=3,
+        projection=lambda f: f - f.mean())
+    x_mean = mean_cg(rhs)
+    x_proj = proj_cg(rhs)
+    assert np.array_equal(np.asarray(x_mean.data),
+                          np.asarray(x_proj.data))
+
+
+def test_custom_projection_solves_the_singular_poisson():
+    # a custom projection converges the singular pure-Poisson solve
+    # (constants nullspace) to the mean-free spectral gauge.
+    grid = build_grid()
+    rhs = rich_rhs(grid)
+    space = rhs.function_space
+    apply_a, exact = spectral_pieces(grid, space, sign=-1.0)
+    cg = ConjugateGradient(
+        apply_a, preconditioner=exact, iterations=3,
+        projection=lambda f: f - f.mean())
+    x = cg(rhs)
+    x_exact = exact(rhs - rhs.mean())
+    assert float(jnp.abs(x.data - x_exact.data).max()) < 1e-10
+    # the solution carries no mean (the pinned nullspace gauge)
+    assert float(jnp.abs(jnp.sum(x.mean().data))) < 1e-12
+
+
+def test_projection_and_project_mean_are_mutually_exclusive():
+    with pytest.raises(ValueError, match="mutually exclusive"):
+        ConjugateGradient(
+            lambda f: f, iterations=1, project_mean=True,
+            projection=lambda f: f)
+
+
+def test_rejects_non_callable_projection():
+    with pytest.raises(TypeError, match="projection must be"):
+        ConjugateGradient(
+            lambda f: f, iterations=1, projection=object())
+
+
+def test_projection_property_exposes_the_hook():
+    proj = lambda f: f  # noqa: E731
+    cg = ConjugateGradient(lambda f: f, iterations=1, projection=proj)
+    assert cg.projection is proj
+    assert cg.project_mean is False
+    plain = ConjugateGradient(lambda f: f, iterations=1)
+    assert plain.projection is None

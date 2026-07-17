@@ -107,6 +107,15 @@ removed from the right-hand side, from every preconditioned residual,
 and from the returned solution, pinning the mean-free gauge — the same
 ``k = 0`` gauge ``SpectralSolve``'s ``where_zero=0`` selects.
 
+``projection=`` generalizes this to any singular operator whose
+nullspace is not the global constants: the caller supplies a
+field-to-field projection installed at the same three sites (IP-D6:
+the immersed cut-cell operator's nullspace is the **wet-region**
+constant, projected as the wet-volume-weighted mean
+``p - (int theta p dV)/(int theta dV)``). ``project_mean=True`` is the
+all-wet special case ``projection = lambda f: f - f.mean()``; passing
+both is a construction error.
+
 The initial guess is zero unless an explicit ``x0`` is passed.
 
 Exact convergence under fixed iterations
@@ -211,6 +220,13 @@ class ConjugateGradient:
         the preconditioned residuals, and the solution — the constants
         nullspace projection for a singular (Neumann/periodic) Poisson
         problem (default: False).
+    projection : Callable[[FieldLike], FieldLike] | None, optional
+        A custom nullspace projection applied at exactly the same
+        three sites as ``project_mean`` (right-hand side, every
+        preconditioned residual, the solution) — the generalization
+        for a singular operator whose nullspace is not the global
+        constants (IP-D6: the immersed **wet-volume-weighted mean**).
+        Mutually exclusive with ``project_mean`` (default: None).
     """
 
     def __init__(
@@ -220,6 +236,7 @@ class ConjugateGradient:
         preconditioner: Callable[[FieldLike], FieldLike] | None = None,
         iterations: int,
         project_mean: bool = False,
+        projection: Callable[[FieldLike], FieldLike] | None = None,
     ) -> None:
         """Validate and store the operator, preconditioner, budget."""
         if not callable(operator):
@@ -238,11 +255,23 @@ class ConjugateGradient:
             raise ValueError(
                 f"iterations must be >= 1 (fixed count, CS-D2), got "
                 f"{iterations}")
+        if projection is not None and not callable(projection):
+            raise TypeError(
+                "projection must be a field-to-field callable or "
+                f"None, got {projection!r}")
+        if project_mean and projection is not None:
+            raise ValueError(
+                "project_mean=True and projection= are mutually "
+                "exclusive: both install a nullspace projection at "
+                "the same three sites — pass one (project_mean is the "
+                "global-mean special case of projection)")
         self._operator: Callable[[FieldLike], FieldLike] = operator
         self._preconditioner: (
             Callable[[FieldLike], FieldLike] | None) = preconditioner
         self._iterations: int = iterations
         self._project_mean: bool = bool(project_mean)
+        self._projection: (
+            Callable[[FieldLike], FieldLike] | None) = projection
 
     # ================================================================
     #  Properties
@@ -268,6 +297,13 @@ class ConjugateGradient:
     def project_mean(self) -> bool:
         """Whether the constants nullspace is projected out."""
         return self._project_mean
+
+    @property
+    def projection(
+        self,
+    ) -> Callable[[FieldLike], FieldLike] | None:
+        """The custom nullspace projection (None = no custom hook)."""
+        return self._projection
 
     # ================================================================
     #  Recurrence helpers
@@ -298,7 +334,9 @@ class ConjugateGradient:
         return jnp.sum((a * b).integrate().data)
 
     def _project(self, f: FieldLike) -> FieldLike:
-        """Remove the weighted mean when projecting the nullspace."""
+        """Project out the nullspace (custom hook or weighted mean)."""
+        if self._projection is not None:
+            return self._projection(f)
         if self._project_mean:
             return f - f.mean()
         return f
