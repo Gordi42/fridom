@@ -778,3 +778,38 @@ invariance (10 distributed tests); nodal mapped suite untouched
 both stretched-vertical (`MappedIntervalMesh`) *and* terrain-following
 — the conservative form would J-weight on top of `flux_diff`'s
 physical-width division; correctness there is unverified (roadmap).
+
+### §13 addendum — the mapped auto-default flip (owner ruling 2026-07-17)
+
+Ruled the same day F5 shipped: **auto = FV wherever capable — no
+surprising family changes by grid type.** Shipped as the
+`feat/fv-mapped-default` merge. The auto rule is now: **FV iff
+unimmersed and statically mapped (or flat)**; the C3 validation
+battery holds on the FV default, and a frozen-`MovingGeometry` FV run
+without ALE is bitwise the static FV run.
+
+**The dynamic-geometry carve-out (found by the flip):** ALE
+(`MeshVelocityCorrection`) is nodal-only — its column derivative
+resolves the face→cell interpolate through the nodal row and lands on
+`Center`, unretaggable onto `CellAvg` (the F5-style family-aware
+routing was never done for this module, and making the mesh-velocity
+flux telescope on cell averages is genuine physics work — roadmap).
+Two consequences, both deliberate:
+
+1. **Time-dependence is a *model* property, not a grid property** — a
+   `CoordinateMapping` carries no time-dependence marker; whether the
+   geometry moves is decided by assembling a `MovingGeometry` module.
+   So `_fv_capable`/`resolve_model_family` take a caller-supplied
+   `dynamic_geometry` flag, computed by the `nh.Model` factory from
+   the module list. The carve-out keys on `MovingGeometry` presence
+   broadly (not on ALE specifically): attaching the ALE *correctness*
+   module never flips the discretization family.
+2. Explicit `family="fv"` + `MeshVelocityCorrection` is a taught
+   `NotImplementedError` at the module's `bind` (the first point where
+   the average-family fields are visible), naming the gap; explicit
+   fv + `MovingGeometry` *without* ALE works (verified bitwise).
+
+Also in the merge: `nh_mapped` benchmarks the FV default with an
+`nh_mapped_nodal` sibling (baselines re-record next GPU campaign),
+the stale `MeridionalStratification` "n2 stays a nodal Profile"
+docstring corrected to the profiles-follow-the-family ruling.

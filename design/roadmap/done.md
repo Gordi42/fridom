@@ -236,6 +236,22 @@ Implementation record:
   the walled-FV analytic-eigenmode taught gap — closed the next day
   (next entry).
 
+- **FV nonhydro — mapped auto-default flip** (owner ruling
+  2026-07-17: "auto = FV wherever capable, no surprising family
+  changes by grid type") — static terrain-following grids now
+  auto-default to FV; the C3 validation battery holds on the FV
+  default, and a frozen-`MovingGeometry`-without-ALE FV run is
+  bitwise the static FV run. **Dynamic geometry is carved out**:
+  ALE (`MeshVelocityCorrection`) is nodal-only, and since
+  time-dependence is a model property the `nh.Model` factory supplies
+  `dynamic_geometry` to `resolve_model_family` — moving-geometry
+  models stay nodal-auto (default path never breaks), explicit
+  `family="fv"` + ALE is a taught error at `bind`. Benchmark
+  `nh_mapped` now measures the FV default (`nh_mapped_nodal` sibling
+  added; baselines re-record next GPU campaign). The auto rule is
+  now: **FV iff unimmersed and statically-mapped-or-flat.** Records:
+  scoping §13 addendum; the ALE-FV gap stays in [`open.md`](open.md).
+
 - **Coefficient profiles follow the family** (owner ruling
   2026-07-17) — the `MeridionalStratification` `n2` Profile question
   closed as: physical-coefficient fields declared through the

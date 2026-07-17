@@ -132,13 +132,15 @@ FV nonhydro is feature-complete against nodal except cut cells (out
 of scope by decision; entries in [`done.md`](done.md), records in
 the scoping §10–§13). Open:
 
-- **Owner call: the mapped auto-default.** Terrain-following grids
-  serve explicit `family="fv"` (pressure operator bitwise nodal;
-  tracer advection *conservative* — `∫J·τ = 0` exactly, where the
-  nodal consistent form drifts O(1)). Unlike the walled flip, the
-  advection numbers genuinely change on terrain, so flipping the
-  mapped default is a numerics decision, not a free retype
-  (scoping §13).
+- **ALE on FV — the one family-awareness gap left** (found by the
+  mapped default flip, scoping §13 addendum).
+  `MeshVelocityCorrection`'s column derivative reduces onto the nodal
+  `Center` family and cannot retag onto `CellAvg`, so moving-geometry
+  models auto-default to nodal (the carve-out: `dynamic_geometry` is
+  a *model* property, factory-supplied — adding a correctness module
+  never flips the family) and explicit `family="fv"` + ALE is a
+  taught error at `bind`. Closing it is genuine physics work: does
+  the mesh-velocity flux telescope on cell averages?
 - **Stretched + terrain-following combined** — a grid that is both
   `MappedIntervalMesh`-stretched and terrain-following would J-weight
   the conservative form on top of `flux_diff`'s physical-width
