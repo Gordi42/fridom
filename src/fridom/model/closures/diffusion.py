@@ -49,6 +49,8 @@ from collections.abc import Mapping
 from functools import partial
 from typing import TYPE_CHECKING, ClassVar
 
+import jax.numpy as jnp
+
 from fridom.framework.utils import jaxify
 from fridom.model.closures.base import ClosureBase
 from fridom.model.errors import AssemblyError
@@ -178,6 +180,27 @@ def _harmonic(
         res = (contribution if res is None
                else res + contribution)
     return res
+
+
+def _biharmonic_root(coeff: object) -> object:
+    r"""Square-root split of a biharmonic coefficient, AD-safe at zero.
+
+    The biharmonic operator applies ``sqrt(coeff)`` per Laplacian pass.
+    Reverse-mode AD: the ``sqrt`` VJP ``0.5 * coeff**-0.5`` is ``inf`` at
+    ``coeff = 0``, so a plain ``coeff ** 0.5`` returns ``NaN`` from
+    ``jax.grad`` at ``nu4 = 0`` even though the forward value is finite.
+    The double ``jnp.where`` guards both branches: the primal is bitwise
+    identical for ``coeff > 0`` (the taken branch), and the measure-zero
+    subgradient at ``coeff = 0`` is pinned to ``0``.
+
+    Demoted Python scalars (halo trace) keep the plain ``** 0.5`` — the
+    ``jnp.where`` would re-promote them to arrays, which the numeric halo
+    tracer rejects.
+    """
+    if isinstance(coeff, int | float | complex):
+        return coeff ** 0.5
+    pos = coeff > 0
+    return jnp.where(pos, jnp.where(pos, coeff, 1.0) ** 0.5, 0.0)
 
 
 # ================================================================
@@ -349,10 +372,11 @@ class _DiffusionClosure(ClosureBase):
                 kv = (coeff_v[name] if isinstance(coeff_v, dict)
                       else coeff_v)
             if cls._biharmonic:
-                # ** 0.5 keeps the halo trace's demoted Python
-                # scalars scalar (jnp.sqrt would re-promote them)
-                kh = kh ** 0.5
-                kv = None if kv is None else kv ** 0.5
+                # sqrt split, guarded for reverse-mode AD at coeff=0
+                # (plain ** 0.5 keeps demoted Python scalars scalar; the
+                # guard adds the jnp.where only for concrete jnp values)
+                kh = _biharmonic_root(kh)
+                kv = None if kv is None else _biharmonic_root(kv)
                 inner = _harmonic(q, kh, kv, h_axes, v_axes)
                 out[name] = -_harmonic(inner, kh, kv,
                                        h_axes, v_axes)

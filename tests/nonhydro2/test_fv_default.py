@@ -278,12 +278,19 @@ def test_fv_capable_flags():
     assert not _fv_capable(mapped_grid(), dynamic_geometry=True)
 
 
-def test_immersed_grid_is_not_fv_capable():
+def test_immersed_grid_is_fv_capable_and_auto_flips():
+    # IP-D7: an immersed grid IS finite-volume-capable (immersed
+    # physics is FV — the fractions are volume/area weights). It
+    # auto-flips to FV, serves explicit family="fv", and rejects an
+    # explicit family="nodal" as a taught error (the nodal path
+    # ignores the mask).
     grid = periodic_grid().with_immersed(
         ImmersedDomain(lambda x, y, z: (x + y + z) * 0.0 + 1.0))
-    assert not _fv_capable(grid)
-    with pytest.raises(NotImplementedError, match="immersed domain"):
-        resolve_model_family("fv", grid)
+    assert _fv_capable(grid)
+    assert resolve_model_family(None, grid) == "fv"
+    assert resolve_model_family("fv", grid) == "fv"
+    with pytest.raises(NotImplementedError, match="finite-volume"):
+        resolve_model_family("nodal", grid)
 
 
 def test_dynamic_mapping_auto_stays_nodal_and_ale_fv_is_a_taught_gap():

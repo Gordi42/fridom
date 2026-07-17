@@ -222,6 +222,15 @@ class VerticalMixing(Module):
         from fridom.model.declarations import (  # noqa: PLC0415 — avoid an import cycle at module load
             Lifecycle,
         )
+        if getattr(getattr(table, "grid", None),
+                   "immersed", None) is not None:
+            raise NotImplementedError(
+                "VerticalMixing does not support immersed (cut-cell) "
+                "grids: its vertical flux column would cross the "
+                "immersed boundary unmasked, and fraction-weighting an "
+                "implicit vertical closure is designed-for (immersed-"
+                "partial-cells plan, IP-D8). Drop the closure on an "
+                "immersed grid.")
         if self.kv is not None:
             self._velocity_targets = self._prognostic(
                 table, table.select(Velocity), Lifecycle)

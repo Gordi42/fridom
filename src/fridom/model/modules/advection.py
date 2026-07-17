@@ -1818,6 +1818,16 @@ class _FluxFormAdvection(fr.model.Module):
     #: future work
     _supports_mapped: ClassVar[bool] = True
 
+    #: whether the scheme is grounded on immersed (cut-cell) grids
+    #: (IP-D4): the centered flux form weights every face flux by the
+    #: open-area fraction and divides the divergence by the cell
+    #: volume fraction (min-rule faces read two wet cells, so the
+    #: two-point stencil never reaches a dry value with nonzero
+    #: weight). The biased subclasses opt out — their wide windows
+    #: reach across dry cells; the graded-mask closure is designed-for
+    #: (IP-D8)
+    _supports_immersed: ClassVar[bool] = True
+
     def __init__(
         self,
         background: Mapping[str, Callable | float] | None = None,
@@ -1833,6 +1843,7 @@ class _FluxFormAdvection(fr.model.Module):
         self._corrections: dict[str, tuple[str, str]] = {}
         self._halo_axes: tuple[str, ...] = ()
         self._walled: tuple[str, ...] = ()
+        self._immersed: object = None
 
     # ------------------------------------------------------------
     #  Background declarations (AUXILIARY profile samples)
@@ -1904,6 +1915,20 @@ class _FluxFormAdvection(fr.model.Module):
                 "CenteredAdvection (walled-capable) or a linear "
                 "model (advection=False in nh.Model)")
         self._walled = walled
+        immersed = getattr(table.grid, "immersed", None)
+        if immersed is not None and not self._supports_immersed:
+            raise NotImplementedError(
+                f"{type(self).__name__} does not support immersed "
+                "(cut-cell) grids: the wide biased/WENO windows reach "
+                "across dry cells, and the graded-mask closure keyed "
+                "on the wet region is designed-for (immersed-partial-"
+                "cells plan, IP-D8). Use CenteredAdvection (the "
+                "supported immersed family — its min-rule faces read "
+                "two wet cells) or a linear model (advection=False in "
+                "nh.Model)")
+        self._immersed = immersed
+        if immersed is not None:
+            self._halo_axes = tuple(table.grid.names)
         self._bind_mapping(table.grid)
         self._advected = table.select(fr.model.roles.ADVECTED)
         selector = table.velocity()
@@ -1998,8 +2023,17 @@ class _FluxFormAdvection(fr.model.Module):
     #: stays fully halo-traced, exactly as before stage C4.
     @property
     def extra_halo(self) -> HaloSpec | None:
-        """Two halo cells per coordinate on mapped grids only."""
-        if self._column is None:
+        """Two halo cells per coordinate on mapped or immersed grids.
+
+        On a mapped column the flux divergence multiplies ``grid.metric``
+        coefficients; on an immersed grid it multiplies the concrete
+        open-area / volume fraction fields (IP-D4) — either way the
+        halo tracer cannot follow, so the module declares its (order-2
+        centered) FD-stencil halo here rather than being traced. The
+        flat, unimmersed path stays fully halo-traced (None), exactly
+        as before.
+        """
+        if self._column is None and self._immersed is None:
             return None
         return HaloSpec(dict.fromkeys(self._halo_axes, 2))
 
@@ -2178,6 +2212,80 @@ class _FluxFormAdvection(fr.model.Module):
         if self._column is None:
             return None
         return mapping_params(state, state[self._advected[0]].grid)
+
+    def _immersed_flux(
+        self, flux: ScalarField, flux_space: object,  # noqa: ARG002
+    ) -> ScalarField:
+        r"""
+        Weight one face flux by the open-area fraction (IP-D4).
+
+        Description
+        -----------
+        ``F <- alpha_f (x) F`` with ``alpha_f = fraction(flux space)``
+        (the min-rule face fraction of I0) — the cut-cell area weight
+        that closes a face with ``alpha = 0`` as a free no-normal-flow
+        wall and, on a face-aligned {0, 1} staircase, reproduces the
+        walled model bit for bit. The fraction is fetched on the flux's
+        own (possibly wall-Dirichlet-tagged) space, so the multiply is a
+        plain same-space product. A no-op off an immersed grid.
+
+        Parameters
+        ----------
+        flux : ScalarField
+            The advective flux on the control-volume face.
+        flux_space : object
+            The flux space (unused; the flux carries its own tag).
+
+        Returns
+        -------
+        ScalarField
+            The open-area-weighted flux.
+        """
+        if self._immersed is None:
+            return flux
+        alpha = self._immersed.fraction(flux.function_space)
+        return flux * alpha
+
+    def _immersed_scale(
+        self, res: ScalarField | None, q: ScalarField,
+    ) -> ScalarField | None:
+        r"""
+        Divide the summed flux divergence by the cell volume fraction.
+
+        Description
+        -----------
+        The masked divergence tendency ``-(1/(theta_c V_c)) sum_f +/-
+        alpha_f A_f F_f``: the summed open-area-weighted flux divergence
+        (already ``1/V_c``-scaled by ``flux_diff``) is divided by the
+        cell volume fraction ``theta_c = fraction(q space)`` — the
+        staggered fraction of the component's own control volume
+        (min-rule for momentum, cell for a tracer). Guarded so a dry
+        cell (``theta = 0``, numerator identically 0) stays exactly 0.
+        The theta-weighted tendency conserves ``sum_c theta_c V_c q_c``
+        to machine zero (the flux differences telescope). A no-op off an
+        immersed grid.
+
+        Parameters
+        ----------
+        res : ScalarField | None
+            The accumulated ``-sum_axis`` flux divergence on ``q``'s
+            space (None when no term contributed).
+        q : ScalarField
+            The advected component (its space carries the fraction).
+
+        Returns
+        -------
+        ScalarField | None
+            The wet-volume-scaled tendency (``res`` unchanged off an
+            immersed grid, None passed through).
+        """
+        if self._immersed is None or res is None:
+            return res
+        theta = self._immersed.fraction(q.function_space)
+        wet = theta.data > 0.0
+        scaled = jnp.where(
+            wet, res.data / jnp.where(wet, theta.data, 1.0), 0.0)
+        return res.with_data(scaled)
 
     def _flux_divergence(
         self,
@@ -2462,12 +2570,13 @@ class _FluxFormAdvection(fr.model.Module):
                 v_face = self._velocity_face(v, flux_space)
                 flux = v_face * self._face_value(
                     q, v_face, axis, flux_space)
+                flux = self._immersed_flux(flux, flux_space)
                 # the divergence lands back on q's wall-tagged space
                 # (flat grids: literally flux.diff(axis).retag(q))
                 divergence = self._flux_divergence(
                     q, flux, axis, params)
                 res = -divergence if res is None else res - divergence
-            out[qname] = ro * res
+            out[qname] = ro * self._immersed_scale(res, q)
         return out
 
     # ------------------------------------------------------------
@@ -2551,10 +2660,11 @@ class _FluxFormAdvection(fr.model.Module):
             v_face = self._velocity_face(v, flux_space)
             flux = v_face * self._face_value(
                 q, v_face, axis, flux_space)
+            flux = self._immersed_flux(flux, flux_space)
             divergence = self._flux_divergence(q, flux, axis,
                                                params)
             res = -divergence if res is None else res - divergence
-        return res
+        return self._immersed_scale(res, q)
 
     def _linear_transport(
         self, state: object, q: ScalarField,
@@ -2588,10 +2698,11 @@ class _FluxFormAdvection(fr.model.Module):
             v_face = self._velocity_face(state[sample], flux_space)
             flux = v_face * self._linear_face_value(
                 q, v_face, axis, flux_space)
+            flux = self._immersed_flux(flux, flux_space)
             divergence = self._flux_divergence(q, flux, axis,
                                                params)
             res = -divergence if res is None else res - divergence
-        return res
+        return self._immersed_scale(res, q)
 
     def _velocity_face(
         self, v: ScalarField, flux_space: object,
@@ -2834,6 +2945,11 @@ class UpwindAdvection(_FluxFormAdvection):
     #: mapped columns need a mapped-aware variant — future work
     #: (taught rejection at bind)
     _supports_mapped: ClassVar[bool] = False
+
+    #: the wide biased windows reach across dry cells; the graded-mask
+    #: near-wall closure keyed on the wet region is designed-for
+    #: (IP-D8) — taught rejection at bind on an immersed grid
+    _supports_immersed: ClassVar[bool] = False
 
     def __init__(
         self,

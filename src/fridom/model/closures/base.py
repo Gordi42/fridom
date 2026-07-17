@@ -175,6 +175,15 @@ class ClosureBase(Module, ABC):
         """
         super().bind(table)
         owner = type(self).__name__
+        if getattr(table.grid, "immersed", None) is not None:
+            raise NotImplementedError(
+                f"{owner} does not support immersed (cut-cell) grids: "
+                "its strain / stress / diffusive-flux stencils next to "
+                "the immersed boundary would read across dry cells "
+                "unmasked, and fraction-weighting a viscous closure is "
+                "not the mechanical edit the advective flux form is "
+                "(immersed-partial-cells plan, IP-D8) — designed-for. "
+                "Drop the closure on an immersed grid.")
         selection = self._fields
         if selection is None:
             selection = getattr(type(self), "default_targets", None)

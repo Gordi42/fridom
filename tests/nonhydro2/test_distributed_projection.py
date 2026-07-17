@@ -323,3 +323,49 @@ def test_mapped_fv_step_is_device_count_invariant():
     for name, r in ref.items():
         assert np.allclose(many[name], r, rtol=1e-9, atol=1e-10), (
             name, np.abs(many[name] - r).max())
+
+
+def _make_immersed_model(*, device_ids=None):
+    # a face-aligned {0, 1} immersed box (periodic x/y, walled z): the
+    # masked cut-cell PCG derives the open-area fractions through the
+    # ordinary store + sync path and preconditions with the wet-masked
+    # spectral inverse, so sharding the periodic x/y must not perturb
+    # the projection, the MaskState, or the fraction-weighted advection
+    from fridom.spatial.immersed_domain import ImmersedDomain  # noqa: PLC0415
+
+    def box(x, y, z):
+        return ((x > 1.0) & (x < 4.0) & (y > 1.0) & (y < 4.0)
+                & (z > 0.2) & (z < 0.8)).astype(float)
+
+    grid = Grid((
+        IntervalMesh(N, (0.0, LENGTH), periodic=True, name="x"),
+        IntervalMesh(N, (0.0, LENGTH), periodic=True, name="y"),
+        IntervalMesh(N, (0.0, 1.0), periodic=False, name="z")),
+        immersed=ImmersedDomain(box), device_ids=device_ids)
+    return nh.Model(grid=grid, dt=0.02, advection=True,
+                    coriolis=FPlaneCoriolis(f0=1.0),
+                    pressure_iterations=25)
+
+
+def test_immersed_step_is_device_count_invariant():
+    # I2 gate: the masked cut-cell projection smoke under forced-4
+    # matches the 1-device replicated result. The immersed fractions,
+    # the wet-mean projection reductions, and the boolean masking all
+    # ride the ordinary decomposition, so the sharded step reproduces
+    # the replicated one
+    rng = np.random.default_rng(0)
+    one = _make_immersed_model(device_ids=(0,))
+    ic = {name: rng.standard_normal(one.state[name].data.shape)
+          for name in ("u", "v", "w", "b")}
+
+    def run(model):
+        model.set_fields(**ic)
+        model.advance(6)
+        return {name: np.asarray(model.state[name].data)
+                for name in ("u", "v", "w", "b")}
+
+    ref = run(one)
+    many = run(_make_immersed_model(device_ids=None))
+    for name, r in ref.items():
+        assert np.allclose(many[name], r, rtol=1e-9, atol=1e-10), (
+            name, np.abs(many[name] - r).max())

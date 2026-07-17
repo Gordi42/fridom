@@ -78,11 +78,17 @@ class FakeRecord:
         self.lifecycle = lifecycle
 
 
+class FakeGrid:
+    def __init__(self, *, immersed=None):
+        self.immersed = immersed
+
+
 class FakeTable:
-    def __init__(self, *, velocity=(), tracer=(), records=None):
+    def __init__(self, *, velocity=(), tracer=(), records=None, grid=None):
         self._velocity = velocity
         self._tracer = tracer
         self._records = records or {}
+        self.grid = grid
 
     def select(self, role):
         if role is Velocity:
@@ -147,6 +153,15 @@ def test_bind_resolves_velocity_and_tracer_targets():
     terms = mixing.tendency_terms()
     resolved = {t.name: t.implicit.fields for t in terms}
     assert resolved == {"friction": ("u", "v"), "mixing": ("b",)}
+
+
+def test_bind_rejects_an_immersed_grid():
+    # the vertical flux column would cross the immersed boundary
+    # unmasked (IP-D8): bind rejects an immersed grid outright, before
+    # any target resolution
+    table = FakeTable(tracer=("b",), grid=FakeGrid(immersed=object()))
+    with pytest.raises(NotImplementedError, match="immersed"):
+        VerticalMixing(kb=0.1).bind(table)
 
 
 def test_bind_rejects_kb_without_a_tracer():

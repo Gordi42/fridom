@@ -51,6 +51,8 @@ from fridom.spatial.spaces.average import AverageSpace
 from fridom.spatial.spaces.nodal import NodalSpace
 
 if TYPE_CHECKING:  # pragma: no cover
+    from collections.abc import Callable
+
     import jax
 
     from fridom.spatial.fields.scalar_field import ScalarField
@@ -138,6 +140,71 @@ def _dirichlet_mid(space: SpaceLike, axis: str) -> SpaceLike:
     return space
 
 
+def build_flat_spectral_solve(
+    grid: object,
+    space: SpaceLike,
+    *,
+    vertical: str,
+    dsqr: jax.Array | float,
+    single_precision: bool = False,
+) -> Callable[[ScalarField], ScalarField]:
+    r"""
+    Build the flat ``dsqr``-weighted spectral Laplacian inverse.
+
+    Description
+    -----------
+    The reusable core of the flat pressure solve (the machinery
+    :class:`SpectralPressureSolver` and the immersed preconditioner
+    share, IP-D6): expand the ``dsqr``-weighted Laplacian
+    ``Div @ Diag(1, .., 1/dsqr) @ Grad`` leg by leg on the
+    Neumann-tagged sibling of ``space`` (the trig-transform origin of
+    the pressure parity; the identity on a fully periodic grid) and
+    wrap :class:`SpectralSolve` in the BC retag seam, so the returned
+    closure consumes and produces fields on the caller's (BC-free)
+    ``space``. On a walled grid the divergence is retagged onto the
+    sibling and the solution retagged back; on a periodic grid the
+    sibling is the space itself and no retag happens.
+
+    Parameters
+    ----------
+    grid : object
+        The grid carrying the transform / dispatch registry.
+    space : SpaceLike
+        The (cell-centered / cell-average) solve space.
+    vertical : str
+        The ``1/dsqr``-weighted vertical coordinate name.
+    dsqr : jax.Array | float
+        The live squared-aspect-ratio leaf.
+    single_precision : bool, optional
+        Run the spectral pipeline in single precision (forwarded to
+        :class:`SpectralSolve`) (default: False).
+
+    Returns
+    -------
+    Callable[[ScalarField], ScalarField]
+        The field-to-field spectral inverse on ``space``.
+    """
+    solve_space = _neumann_sibling(space.bare)
+    grad_block = Gradient().expand(solve_space, grid)
+    axes = solve_space.active_axis_names
+    mid = tuple(
+        _dirichlet_mid(sib, axis)
+        for axis, sib in zip(
+            axes, grad_block.codomains(solve_space), strict=True))
+    div_block = Divergence().expand(mid, grid)
+    diag = Diag({vertical: 1.0 / dsqr}, axes=axes)
+    laplacian = (div_block @ diag @ grad_block).scalar()
+    solve = SpectralSolve(laplacian, grid, solve_space,
+                          single_precision=single_precision)
+    if solve_space is space.bare:
+        return solve.solve
+
+    def apply(div: ScalarField) -> ScalarField:
+        return solve.solve(div.retag(solve_space)).retag(div)
+
+    return apply
+
+
 class SpectralPressureSolver:
 
     """Grid-bound spectral solve of ``lap(p) = div``.
@@ -213,25 +280,11 @@ class SpectralPressureSolver:
         ScalarField
             The pressure on the same (cell-centered) space as ``div``.
         """
-        solve_space = self._solve_space
-        # div @ Diag @ grad expanded leg by leg: the grad rows key
-        # on the (Neumann-tagged) solve space, the div rows on the
-        # Dirichlet-declared mid parity (see _dirichlet_mid) — the
-        # same interned stencil entries the Laplacian builder used
-        # to resolve through the BC-free mid rows before R1
-        grad_block = Gradient().expand(solve_space, self._grid)
-        axes = solve_space.active_axis_names
-        mid = tuple(
-            _dirichlet_mid(space, axis)
-            for axis, space in zip(
-                axes, grad_block.codomains(solve_space),
-                strict=True))
-        div_block = Divergence().expand(mid, self._grid)
-        diag = Diag({self._vertical: 1.0 / dsqr}, axes=axes)
-        laplacian = (div_block @ diag @ grad_block).scalar()
-        solve = SpectralSolve(
-            laplacian, self._grid, solve_space,
-            single_precision=self._single_precision)
-        if solve_space is self._space.bare:
-            return solve.solve(div)
-        return solve.solve(div.retag(solve_space)).retag(div)
+        # the leg-by-leg expansion (grad rows on the Neumann-tagged
+        # solve space, div rows on the Dirichlet-declared mid parity)
+        # and the BC retag seam are factored into the shared builder,
+        # reused by the immersed preconditioner (IP-D6) — behavior is
+        # byte-identical to the pre-refactor flat path
+        return build_flat_spectral_solve(
+            self._grid, self._space, vertical=self._vertical,
+            dsqr=dsqr, single_precision=self._single_precision)(div)

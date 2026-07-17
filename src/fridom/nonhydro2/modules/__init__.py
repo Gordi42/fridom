@@ -24,6 +24,7 @@ if TYPE_CHECKING:  # pragma: no cover
 
     from .core import DynamicalCore
     from .gaussian_wave_maker import GaussianWaveMaker
+    from .immersed_pressure import ImmersedPressureSolver
     from .mapped_pressure import MappedPressureSolver
     from .polarized_wave_maker import PolarizedWaveMaker
     from .pressure import SpectralPressureSolver
@@ -53,6 +54,7 @@ all_imports_by_origin = {
         "ConstantStratification", "MeridionalStratification"],
     f"{base}.pressure": ["SpectralPressureSolver"],
     f"{base}.mapped_pressure": ["MappedPressureSolver"],
+    f"{base}.immersed_pressure": ["ImmersedPressureSolver"],
     f"{base}.gaussian_wave_maker": ["GaussianWaveMaker"],
     f"{base}.polarized_wave_maker": ["PolarizedWaveMaker"],
     f"{base}.smagorinsky_lilly": ["SmagorinskyLilly"],
