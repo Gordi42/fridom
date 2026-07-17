@@ -40,8 +40,18 @@ which must be filtered out of the legs). ``P_adiab`` is declared
 ``idempotent=True`` (a projector by contract) but is exact only up to
 diabatic leakage — exponentially small in ``tau`` — so
 :func:`~fridom.model.transforms.norms.assert_idempotent` and the
-``P @ P`` lint use a **leg-dependent documented tolerance**. Cost: two
-linear-model integrations per application, visible via
+``P @ P`` lint use a **leg-dependent documented tolerance**.
+
+The cycle's projection error **floors** at that idempotency residual: a
+two-leg reversibility artifact (O(dt) plus the multistep warm-up
+asymmetry of the away/return legs, hence leg-dependent) that no ramp
+period drives below. A deep-leakage study — the stretched-exponential
+``eta(tau) ~ exp(-c sqrt(tau))`` decay — must therefore use the
+**single-leg** :class:`AdiabaticRamping` diagnostic, which carries only
+the diabatic leakage (see
+``tests/model/transforms/test_adiabatic_ramping_exponential.py``).
+
+Cost: two linear-model integrations per application, visible via
 :meth:`cost`/``repr``. Tier 2: a host object with the inherited trace
 guard.
 """

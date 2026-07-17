@@ -39,6 +39,16 @@ and the model layer is `fridom.model`.
 
 # Next steps
 
+## Variable boundary forcing — wind stress, surface buoyancy flux
+
+In flight (2026-07-17, `feat/boundary-forcing`): `BoundaryFlux`
+tendency module (prescribed wall-face flux injected in the
+wall-adjacent cell — the surveyed Oceananigans/MITgcm/Veros
+mechanism; it does **not** consume boundary-closure 2e),
+`TimeFunction`/`TimeSeries` `TimeDependent` curves, and nonhydro2
+`WindStress`/`SurfaceBuoyancyFlux` wrappers.
+[`../plans/active/boundary_forcing_plan.md`](../plans/active/boundary_forcing_plan.md)
+
 ## Performance guard — wire the benchmark harness as a CI gate
 
 The A/B harness exists (`benchmarks/model/bench_step.py`, **committed**
@@ -152,6 +162,22 @@ every unmapped, unimmersed grid** — periodic and walled (owner ruling
 
 [`../plans/active/fv_nonhydro_scoping.md`](../plans/active/fv_nonhydro_scoping.md)
 
+## Immersed partial cells — all dimensions, all three models
+
+Owner request 2026-07-17: the immersed grid must *work* in nonhydro2,
+shallowwater2, and hydrostatic, with genuine partial cells in every
+dimension (a sloping boundary `B(y, z)` gives partial cells in x).
+Today the grid layer derives boolean masks but **no model consumes
+them** — immersed grids run unmasked on the nodal path. Plan (staged
+I0–I5, decisions IP-D1..D10): quadrature-computed volume/face
+fractions with an hFacMin floor, min-rule staggering transfer,
+term-level fraction weighting in the shared flux-form modules, a
+shared `MaskState` hygiene stage, and masked-Poisson pressure solves
+via `ConjugateGradient` preconditioned by the existing spectral
+inverse (wet-mean gauge). Subsumes the immersed half of FV stage F5
+and the hydrostatic variable-`csqr` solve deferral.
+[`../plans/active/immersed_partial_cells_plan.md`](../plans/active/immersed_partial_cells_plan.md)
+
 ## Docs & examples rebuild
 
 The bulk of the rebuild: **12 example ports** (only
@@ -215,10 +241,14 @@ so `FPlaneCoriolis(f0=Ramp(...))` raises a bare `TypeError` from
 
 Level 1 and the *affine-blend* subset of level 2 (a field that moves
 along an affine path in declared scalars, e.g.
-`f(y,t) = f0(t) + beta(t) * y`) are scheduled as stages R1/R2 of
-[`../plans/active/adiabatic_ramping.md`](../plans/active/adiabatic_ramping.md)
-(2026-07-16). What stays open **here** is the general case: profiles
-with non-affine time dependence.
+`f(y,t) = f0(t) + beta(t) * y`) **shipped 2026-07-17** as stages
+R1/R2 of
+[`../plans/done/adiabatic_ramping.md`](../plans/done/adiabatic_ramping.md).
+What stays open **here**: the general case (profiles with non-affine
+time dependence), plus one small follow-up from that landing —
+`dsqr`'s AR-D7 report is cross-module (owned by `DynamicalCore`,
+consumed by `ConstantStratification.buoyancy_force`) and is
+documented but not wired.
 
 **Interaction with the exponential stepper** (the reason this surfaced):
 `ETDRK4` freezes `L` in an eigenbasis snapshot. Anything time-dependent
@@ -235,23 +265,23 @@ by the inertial rather than the gravity CFL. Note also that a
 time-dependent `L` has no fixed eigenbasis at all, so the discrete
 eigenanalysis is itself undefined in that regime.
 
-## Generalized adiabatic ramping
+## Adiabatic-ramping docs — example review (deferred at landing)
 
-Deform a model between two operator configurations — a *reference*
-system `L(0)` and a *target* system `L(1)`,
-`L(s) = (1-rho(s)) L_ref + rho(s) L_target` — with shared terms never
-computed twice and all four propagator legs (ref↔target x
-forward/backward in time). `OptimalBalance` is rebuilt *on*
-`AdiabaticRamping` legs (composition), contributing only balancing
-policy; the paper draft *Fast-slow
-splittings for geophysical flows via the adiabatic theorem* (Rosenau
-et al.) is the driving consumer (Coriolis ramp
-`f(y,t) = f0 + beta rho(t/tau) y`, staggered double-ramp protocol,
-adiabatic projector). Staged plan activated 2026-07-16, decisions
-ruled the same day (stages R0–R7: time-dependent scalars → generic
-field blends (`FieldBlend`) → `AdiabaticRamping` → OB refactor →
-`AdiabaticProjection` → example/docs):
-[`../plans/active/adiabatic_ramping.md`](../plans/active/adiabatic_ramping.md)
+ROADMAP 3.8 shipped 2026-07-17
+([`done.md`](done.md) §3.8;
+[`../plans/done/adiabatic_ramping.md`](../plans/done/adiabatic_ramping.md)),
+with R6 (the double-ramp example + Advanced Topics docs page) merged
+**on owner instruction without the private content-review pass**.
+Open work: the owner review of
+`examples/shallowwater/adiabatic_double_ramp.py` and
+`docs/source/advanced/adiabatic_ramping.rst` (projection onto the
+working tree, `REVIEW:` markers, sweep-and-apply per AGENTS.md), plus
+the style-guide tensions flagged at preparation: citation
+infrastructure for the unpublished JFM draft (bibtex vs the current
+prose citation), whether the one-chapter Advanced Topics scaffold
+stands or folds into the docs rebuild, doctest wiring for inline
+snippets, and API cross-refs as literals until the new-stack API
+reference lands.
 
 ---
 
@@ -374,7 +404,7 @@ promote one only when its trigger appears:*
 
 | #   | Task | Notes |
 |-----|------|-------|
-| 3.1 | **Hydrostatic model — external comparison legs** | The model itself shipped 2026-07-17 (entry in [`done.md`](done.md); record [`../plans/active/hydrostatic_model_plan.md`](../plans/active/hydrostatic_model_plan.md) §8). Open: the cross-model *execution* legs of the comparison protocol — running Oceananigans/Veros/pyOM3 against `hy.comparison_model` per the matched-config instructions in plan §8/H5 (the out-of-tree `benchmarks/comparison` harness is not on this machine; **pyOM3 source access needs the owner**) — and the owner review of `examples/hydrostatic/comparison_baseline.py` (local branch `docs/hydrostatic-example`, examples-review workflow). Designed-fors (T/S + EOS, topography / variable-`csqr` CG solve, z*/ALE, spherical) stay in plan §7. |
+| 3.1 | **Hydrostatic model — external comparison legs** | The model itself shipped 2026-07-17 (entry in [`done.md`](done.md); record [`../plans/active/hydrostatic_model_plan.md`](../plans/active/hydrostatic_model_plan.md) §8). Open: the cross-model *execution* legs of the comparison protocol — running Oceananigans/Veros/pyOM3 against `hy.comparison_model` per the matched-config instructions in plan §8/H5 (the out-of-tree `benchmarks/comparison` harness is not on this machine; **pyOM3 source access needs the owner**) — and the **owner review of `examples/hydrostatic/comparison_baseline.py`** — landed on `dev` 2026-07-17 by owner authorization *before* review (deviation from the examples-review workflow, owner instruction in chat); the review itself is still owed — sweep `REVIEW:` markers / direct edits when it happens. Designed-fors (T/S + EOS, topography / variable-`csqr` CG solve, z*/ALE, spherical) stay in plan §7. |
 | 3.7 | **Spherical nonhydro** | The 3D spherical chart (`X(lon, lat, h)`, so the metric comes out diagonal and `w = dh/dt` is already physical) needs the C2 chart metrics and the C3 elliptic machinery to meet: the pressure operator becomes the Laplace–Beltrami on the chart — still SPD under the sqrt(g)-weighted product, so the PCG structure carries over, but the operator assembly must be written. Not the first 3D-spherical consumer: a hydrostatic model needs no pressure solve and is the likelier first use (3.1). |
 | 3.2 | **Coupled models — design** | `jax.distributed`, field exchange between models on different meshes/devices/processes, a `Coupler` module plus regridding operators, a synchronization schedule. **Pre-designed** in [`../specs/model/09_coupling_designfor.md`](../specs/model/09_coupling_designfor.md) (precedent survey + adversarial walk + architecture; the class specs carry its CS-1..18 constraints, so 3.2 stays a pure addition). |
 | 3.3 | **Coupled models — implementation** | Same-process multi-device, then multi-host. Depends on 3.2. Its old cost prerequisite (3.9/3.10 — "decomposed runs must be affordable before coupling them is credible") is met: the multi-device execution-cost line closed 2026-07-16 ([`done.md`](done.md)). |

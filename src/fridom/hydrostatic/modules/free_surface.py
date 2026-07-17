@@ -464,10 +464,23 @@ class ImplicitFreeSurface(_FreeSurfaceBase):
 
     @property
     def stages(self) -> tuple[fr.model.Stage, ...]:
-        """The barotropic solve: replace ``u, v`` and write ``ps``."""
+        """The barotropic solve: replace ``u, v`` and write ``ps``.
+
+        Description
+        -----------
+        With a free surface (``epsilon > 0``) the stage claims
+        ``advances=("ps",)``: the solve is the *only* thing
+        integrating the PROGNOSTIC ``ps`` forward, so the claim is
+        what satisfies the D1.4 coverage lint (spec 5.4 amendment).
+        The velocity writes stay unclaimed — they are a correction,
+        not an advance. Under the rigid lid ``ps`` is DIAGNOSTIC and
+        nothing is claimed.
+        """
+        advances = ("ps",) if self._epsilon > 0 else ()
         return (
             fr.model.Stage(kind=fr.model.StageKind.CONSTRAINT,
-                     fn="_barotropic_solve", name="barotropic_solve"),
+                     fn="_barotropic_solve", name="barotropic_solve",
+                     advances=advances),
         )
 
     def _barotropic_solve(
