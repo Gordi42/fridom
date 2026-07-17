@@ -416,6 +416,46 @@ differently — within the plan's tolerance; (4) shallowwater2 has no
 `family=` concept, so IP-D7's nodal gate has no sw2 analogue — the
 grid-default nodal C-grid carries the masked paths directly.
 
+**I3 shipped 2026-07-17** (merge `3858d977`; branch
+`feat/immersed-hydrostatic`). Masked continuity `w` (fraction-weighted
+transport divergence through `CumulativeIntegral`, guarded `α_z`
+division), wet-column free surface (masked depth-mean, per-column
+transport depths, variable-coefficient implicit barotropic PCG
+`_solve_immersed` with wet-column-masked spectral preconditioner and
+`pressure_iterations` knob, masked explicit/implicit corrections,
+per-column split-explicit subcycle), `MaskState` wiring, eigenmode
+taught gates. Gates: masked continuity ~4.4e-16 (w exactly 0 on closed
+faces); column equivalence ≤ 8.9e-16 explicit / 2.0e-15 implicit;
+all-wet implicit ≡ unimmersed 2.2e-16 at 1 CG iteration; rigid-lid
+masked depth-mean divergence 1.95e-15; split-explicit θ-mass 1.9e-16
+with all-wet byte-identical and land-column transport exactly 0;
+genuine x-partials θ-mass drift ≤ 1.1e-14; 100% coverage on changed
+files; forced-4 invariant. Corrections to IP-D9:
+
+1. **The hydrostatic model is nodal-only** (no FV family machinery);
+   the mask rides explicit fraction arithmetic — family-agnostic, and
+   the 2nd-order stencils are the same numbers anyway. No
+   nodal+immersed taught error exists there (nothing silently ignores
+   the mask); IP-D7's family gate is a nonhydro2-only concept.
+2. **`csqr` stays `g × mesh extent`**, the wet-column wave speed is
+   recovered through the coefficient `H̃ = H_wet/H_ref` — column
+   comparisons must match physical `g`, not `csqr`.
+3. **`_depth_mean_div` keeps the scalar reference depth** `1/H_ref`
+   (the volume-conserving transport form); per-column wet depths
+   enter only the operator coefficient `csqr·H̃` and the split
+   subcycle — putting them in the RHS is the mass-leak trap IP-D9
+   warned about, from the inside.
+4. **The Outer-face `α_z` needs a surface-face override** to the
+   surface-cell fraction: the min-rule's dry exterior would zero the
+   physical surface DOF `w(0)`.
+5. **Genuine partial cells need `min_fraction > 0`** (default 0.1) on
+   explicit paths — the `÷θ` tendency blows up otherwise; and
+   quadrature `init` callables must use `jnp`, not `np` (traced).
+6. Shared-file change: `MaskState` skips prognostics with a
+   `ConstantSpace` factor (barotropic `ps`/`U`/`V` — wet-region
+   hygiene owned by the free-surface module; `ImmersedDomain.mask`
+   rejects unresolved spaces).
+
 ## 7. Out of scope (designed-for, not precluded)
 
 Direct face-area quadrature (shaved-cell faces); ghost-cell
