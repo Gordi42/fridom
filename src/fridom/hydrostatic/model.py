@@ -62,6 +62,7 @@ def Model(  # noqa: N802 — a factory that mirrors fr.model.Model's surface
     coriolis: fr.model.Module | None = None,
     stratification: fr.model.Module | None = None,
     advection: fr.model.Module | bool = True,
+    surface_advective_flux: bool | None = None,
     time_stepper: TimeStepper | None = None,
     modules_extra: Sequence[fr.model.Module] = (),
     name: str | None = None,
@@ -105,6 +106,21 @@ def Model(  # noqa: N802 — a factory that mirrors fr.model.Model's surface
         consumes the diagnosed ``w`` on the ``Outer`` faces through the
         seeded ``Outer -> Inner`` restriction (module docstring); the
         boundary-face flux is a structural zero (default: True).
+    surface_advective_flux : bool | None, optional
+        Tri-state control of the constancy-preserving **surface
+        closure** on the default advection module. The default ``None``
+        is the closure: advect **through** the top/bottom boundary faces
+        with the one-sided (top-cell) face value (the Oceananigans-
+        equivalent linear-free-surface treatment), so ``A(q=const)`` is
+        machine-zero in every cell and tracer content is exchanged with
+        the moving surface. ``False`` restores the legacy fixed-domain
+        closure — it drops the surface velocity ``w(0)`` and so conserves
+        tracer content to roundoff, at the price of the surface-cell
+        constancy violation ``A(q=const) ~ q*w(0)/dz`` (the source that
+        makes the implicit free surface unstable). Only shapes the
+        default-constructed advection; a user-passed module carries its
+        own ``surface_flux`` (whose ``None`` auto-resolves to the same
+        closure on the hydrostatic ``Outer``-``w`` grid) (default: None).
     time_stepper : TimeStepper | None, optional
         Override the default ``AdamBashforth(dt, order=3)``.
     modules_extra : Sequence[fr.model.Module], optional
@@ -124,7 +140,7 @@ def Model(  # noqa: N802 — a factory that mirrors fr.model.Model's surface
     if stratification is None:
         stratification = ConstantStratification(n2=1.0)
     if advection is True:
-        advection = CenteredAdvection()
+        advection = CenteredAdvection(surface_flux=surface_advective_flux)
     if time_stepper is None:
         time_stepper = fr.model.time_steppers.AdamBashforth(dt, order=3)
 
