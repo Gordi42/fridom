@@ -79,9 +79,7 @@ memory ceiling, time-to-first-step, WENO throughput (entries in
   (first advance −24..31%, steady state bitwise-unchanged), default-off
   patch preserved, unlanded.
   [`../research/time_to_first_step.md`](../research/time_to_first_step.md)
-- **WENO selected-input follow-ups.** Multi-host (`srun -n P`)
-  confirmation of the walled selected path (single-controller forced-4
-  exercised, real multi-process not); and the pre-existing forced-4
+- **WENO selected-input follow-ups.** The pre-existing forced-4
   knife-edge divergence test now also tips `weno5` (a kernel-shape
   roundoff flip — see
   [`../research/multidevice_test_faults.md`](../research/multidevice_test_faults.md)).
