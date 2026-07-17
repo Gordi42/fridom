@@ -481,7 +481,10 @@ def test_fv_morph_with_ale_is_stable_and_consistent():
     # below — and the semi-discrete budget closes to machine precision
     # at every resolution, tests/model/modules test_fv_telescoping...).
     # Measured: worst per-step divergence 1.7e-14, volume drift 1.4e-16.
-    model = make_channel_model(MeshVelocityCorrection(), family="fv")
+    # fixed-iteration mode: pinned for determinism (the nodal twin
+    # does the same since the CG tolerance default landed)
+    model = make_channel_model(MeshVelocityCorrection(), family="fv",
+                               pressure_tolerance=None)
     fields, _ = channel_fields()
     model.set_fields(**fields)
     _, volume0, tracer0 = channel_diagnostics(model)
