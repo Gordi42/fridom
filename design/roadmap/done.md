@@ -126,11 +126,43 @@ Implementation record:
   holds by construction: measured <= 2.5e-15 across mapped /
   immersed / semicoarsened cases; conservation exact; forced-4-device
   parity; autodiff regression per the differentiability policy).
-  Dual-use: the multigrid substrate (plan phase B, still gated) and
+  Dual-use: the multigrid substrate (phase B, below) and
   the coupling regrid primitive (CS-15/§11.1). Record:
   [`../plans/active/multigrid_pathway_plan.md`](../plans/active/multigrid_pathway_plan.md)
   §2; research:
   [`../research/multigrid_pathway.md`](../research/multigrid_pathway.md).
+- **Multigrid pathway, phase B — the V-cycle pressure preconditioner**
+  (2026-07-17, merge `87aeabea`) — geometric semicoarsened multigrid
+  as an opt-in preconditioner for the mapped and immersed PCG pressure
+  solves (`pressure_preconditioner="multigrid"` + `multigrid_levels`
+  on both solvers, `DynamicalCore`, and `nh.Model`; fingerprint-static,
+  spectral stays the default; flat grids ignore the knob). Engine:
+  `spatial.operators.multigrid` — fixed-count symmetric V(1,1)
+  (MG-D7/D8: static level tuple, trace-time unrolled, SPD in the
+  weighted product so plain CG stays valid), damped point-Jacobi and
+  vertical-line block-Jacobi smoothers (batched Thomas kernel in
+  `banded.py`, ω = 0.8), per-level projections (mean-free / the
+  level's own wet-mean, MG-D6). Hierarchy:
+  `nonhydro2.modules.multigrid_hierarchy.coarsen_levels` — per-level
+  re-discretization of the same solver on `Grid.coarsened` levels
+  (incl. re-merging the FV `diff` profile per coarse grid),
+  semicoarsening ×2 horizontal with a 4-cell floor and graceful
+  degradation to smoothing-only; `Grid.coarsened` memoized per
+  (factors, devices) for retrace stability. Measured (steep mapped
+  a = 0.8, iterations to 1e-10): **44 → 13, flat over 32/64/96³**
+  (default depth pinned to 5 by the levels×sweeps campaign; depth 3
+  missed the ≤ 15 gate at 18); immersed genuine partials **15 (16³) /
+  18 (32³) against the 30 budget** where spectral needs ~80 — closes
+  the "preconditioner quality on heavily-masked domains" residual.
+  Gates: GB-4 compile-once, HLO flat in the CG iteration count; GB-5
+  forced-4 parity incl. a replicated coarse level (MG-D5); autodiff
+  regression through the immersed multigrid step (the smoothers'
+  dry-cell double-`where` guards hold). The GB-2 wall-clock leg
+  (≥ 1.5× at 128³+ on A100) is the open follow-up
+  ([`open.md`](open.md)). Record:
+  [`../plans/active/multigrid_pathway_plan.md`](../plans/active/multigrid_pathway_plan.md)
+  §3 (B0 spike numbers + the three recorded corrections, not yet
+  owner-reviewed).
 - **Immersed partial cells — all dimensions, all three models**
   (2026-07-17, merges `ee257bc0` I0+I1, `b447b8e5` I2, `a5aec29d` I4,
   `3858d977` I3, plus the autodiff regression gates) — the immersed

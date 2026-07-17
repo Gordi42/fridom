@@ -168,10 +168,6 @@ cells in every dimension (stages I0–I4 shipped 2026-07-17; entry in
 [`../plans/active/immersed_partial_cells_plan.md`](../plans/active/immersed_partial_cells_plan.md)).
 Open, none blocking:
 
-- **Preconditioner quality on heavily-masked domains** — genuine
-  partials need ~60+ PCG iterations and slow with refinement; the
-  ratified multigrid pathway is the successor
-  ([`../plans/active/multigrid_pathway_plan.md`](../plans/active/multigrid_pathway_plan.md)).
 - **Biased/upwind/WENO advection on immersed grids** — taught error
   today; needs the graded-fallback closure keyed on masks (the wall
   precedent, `graded.py`).
@@ -405,21 +401,6 @@ roadmap 3.9 — closed 2026-07-16 (entry in [`done.md`](done.md)). What
 survives is a short list of measured, deliberately-not-taken levers —
 promote one only when its trigger appears:*
 
-- **Multigrid with vertical line smoothing** — the only preconditioner
-  family that could beat the spectral solve (coefficient-robust *and*
-  mesh-independent). A real project (staggered mapped-grid
-  restriction/prolongation, smoothers, coarse solve, all under a static
-  trace); justified only if steep bathymetry (4.5× depth ratio, 45
-  iterations) becomes a real workload. Every cheaper alternative was
-  measured and rejected — read
-  [`perf_geometry_merge_plan.md`](../plans/active/perf_geometry_merge_plan.md)
-  §4b lever 1 before re-proposing one. The pathway is researched and
-  planned
-  ([`multigrid_pathway_plan.md`](../plans/active/multigrid_pathway_plan.md)
-  phase B), and its substrate — the grid transfer layer — landed
-  2026-07-17 (entry in [`done.md`](done.md)); the workload trigger
-  above still gates the V-cycle build, de-risked by the plan's B0
-  two-level spike.
 - **Single-precision distributed solve** — `single_precision_solve` is
   a no-op on multi-device walled/mapped grids (the full-precision
   distributed solve takes precedence; documented at
@@ -450,6 +431,24 @@ promote one only when its trigger appears:*
   experience with the floor trap — reconsider a **default-on** tolerance
   (today default-off on purpose: results shift at the tolerance level in
   tuned configs and a safe default is problem-dependent).
+
+## Multigrid preconditioner — follow-up measurements
+
+The semicoarsened V-cycle preconditioner shipped 2026-07-17 (the
+"multigrid with vertical line smoothing" lever above, taken; entry in
+[`done.md`](done.md); record
+[`../plans/active/multigrid_pathway_plan.md`](../plans/active/multigrid_pathway_plan.md)
+§3). Open, none blocking:
+
+- **GB-2 wall-clock leg** — ≥ 1.5× step wall-clock vs the spectral
+  preconditioner at 128³+ on an A100. Iteration counts are pinned
+  (44 → 13, resolution-independent) but the ms/step claim needs the
+  real device; joins the next GPU campaign (`benchmarks/model` A/B
+  harness).
+- **Real multi-GPU validation** — forced-4 parity is asserted in the
+  suite (incl. the replicated coarse level, MG-D5); a real
+  `srun -n 4` run joins the next campaign, same status as the
+  FV-default flip and the immersed PCG paths.
 
 ## Differentiable run surface — `model.propagator()`
 
@@ -491,6 +490,17 @@ has to be invented, only assembled:
   (`/ w.to(v)`, `/ w_1`, `/ w_2`) share the masked-0/0 class the
   Sadourny PV division was cured of; guard like
   `_potential_vorticity` when that path meets an adjoint.
+- **Known exception, now localized: the mapped projection is
+  reverse-NaN** through `velocity_correction` — the field `/`
+  jacobian divide (the registry "divide" path in `scalar_field.py`)
+  has a singular VJP while the primal stays finite
+  (single-`where`-class masked singularity: NaN with the spectral and
+  multigrid preconditioners alike, at every CG iteration count;
+  isolated mapped `solve` and `divergence` differentiate finite).
+  First noted as "a metric singularity" at the CG-tolerance landing
+  ([`done.md`](done.md)); the fix is the double-`jnp.where` guard on
+  that divide path plus the mapped autodiff regression it has never
+  had (localization 2026-07-17, multigrid B5 pass).
 
 ---
 
