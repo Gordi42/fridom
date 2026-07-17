@@ -96,6 +96,19 @@ memory ceiling, time-to-first-step, WENO throughput (entries in
   question, parity-sensitive, unprobed
   ([`../research/upwind5_revisit.md`](../research/upwind5_revisit.md)
   §6).
+- **Hydro surface-flux correction: slice-only `A(1)`.** The H7
+  constancy-preserving surface advective flux (owner-ratified
+  default, [`../plans/active/hydrostatic_model_plan.md`](../plans/active/hydrostatic_model_plan.md)
+  §H7) costs +18–49% on `se_centered` and +11–36% on `se_weno5`
+  hydro steps in the comparison suite (worst at 2048²×64, resweep
+  2026-07-17), flipping centered hydro from ~break-even to
+  0.79–0.88 oc/fridom; `*_linear` configs unaffected. The correction
+  `−q·A(1)` is mathematically nonzero **only in boundary-adjacent
+  cells**, yet is evaluated as full-3D flux divergences (one per
+  advected field per axis, memory-bound; face-velocity reuse is
+  already XLA-CSE'd — measured perf-neutral). Lever: evaluate `A(1)`
+  on the boundary-adjacent 2D slice only; needs a DSL
+  slice/restriction path on the advecting-velocity faces.
 
 ## Channel eigenmodes on multi-device — two upstream repros to file
 
