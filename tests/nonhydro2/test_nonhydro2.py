@@ -177,6 +177,40 @@ def test_single_precision_solve_is_static_treedef_aux():
     assert full != low
 
 
+# ================================================================
+#  Pressure preconditioner knob (B4 plumbing)
+# ================================================================
+def test_pressure_preconditioner_plumbs_through_the_preset():
+    core = DynamicalCore(pressure_preconditioner="multigrid",
+                         multigrid_levels=5)
+    assert core._pressure_preconditioner == "multigrid"
+    assert core._multigrid_levels == 5
+    # defaults: the spectral preconditioner, three levels
+    assert DynamicalCore()._pressure_preconditioner == "spectral"
+    assert DynamicalCore()._multigrid_levels == 3
+    # the nh.Model factory forwards both knobs to the dynamical core
+    model = nh.Model(coriolis=fplane(), grid=make_grid(), advection=False,
+                     pressure_preconditioner="multigrid",
+                     multigrid_levels=4)
+    dc = next(m for m in model._carry.modules
+              if type(m).__name__ == "DynamicalCore")
+    assert dc._pressure_preconditioner == "multigrid"
+    assert dc._multigrid_levels == 4
+
+
+def test_pressure_preconditioner_is_static_treedef_aux():
+    # both knobs are static (non-leaf) attributes: two cores differing
+    # only in one must produce DIFFERENT treedefs (a distinct compiled
+    # program), like single_precision_solve
+    spectral = jax.tree_util.tree_structure(DynamicalCore())
+    multigrid = jax.tree_util.tree_structure(
+        DynamicalCore(pressure_preconditioner="multigrid"))
+    assert spectral != multigrid
+    levels5 = jax.tree_util.tree_structure(
+        DynamicalCore(multigrid_levels=5))
+    assert spectral != levels5
+
+
 def test_second_advance_with_both_options_compiles_nothing(
         compile_counter):
     # zero-recompile on repeated advance with both reduced-precision

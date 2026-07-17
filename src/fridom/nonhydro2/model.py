@@ -41,6 +41,8 @@ def Model(  # noqa: N802 — a factory that mirrors fr.model.Model's surface
     stratification: fr.model.Module | None = None,
     advection: fr.model.Module | bool = True,
     pressure_iterations: int = 30,
+    pressure_preconditioner: str = "spectral",
+    multigrid_levels: int = 3,
     modules_extra: Sequence[fr.model.Module] = (),
     time_stepper: TimeStepper | None = None,
     dt: float = 1.0,
@@ -86,6 +88,17 @@ def Model(  # noqa: N802 — a factory that mirrors fr.model.Model's surface
         coordinate-mapped grid *and* on an immersed (cut-cell) grid
         (both run the fixed-iteration PCG). The flat spectral solve is
         exact and iterates nothing (default: 30).
+    pressure_preconditioner : str, optional
+        The PCG preconditioner of the fixed-iteration pressure solve
+        (B4), forwarded to the dynamical core: ``"spectral"`` (the flat
+        separable spectral inverse) or ``"multigrid"`` (the
+        semicoarsened geometric-multigrid V-cycle). Consumed on a mapped
+        or immersed grid; a flat grid uses the exact spectral solve and
+        ignores it (default: ``"spectral"``).
+    multigrid_levels : int, optional
+        The maximum multigrid level count when
+        ``pressure_preconditioner="multigrid"`` (floored on small
+        grids); ignored otherwise (default: 3).
     modules_extra : Sequence[fr.model.Module], optional
         Additional modules (tracers, closures) (default: ()).
     time_stepper : TimeStepper | None, optional
@@ -173,7 +186,9 @@ def Model(  # noqa: N802 — a factory that mirrors fr.model.Model's surface
     modules: list[fr.model.Module] = [
         DynamicalCore(dsqr=dsqr, rossby_number=rossby_number,
                       single_precision_solve=single_precision_solve,
-                      pressure_iterations=pressure_iterations),
+                      pressure_iterations=pressure_iterations,
+                      pressure_preconditioner=pressure_preconditioner,
+                      multigrid_levels=multigrid_levels),
     ]
     # rotation is opt-in: coriolis=None installs no module at all
     if coriolis is not None:
