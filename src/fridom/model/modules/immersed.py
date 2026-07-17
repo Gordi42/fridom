@@ -24,6 +24,13 @@ from __future__ import annotations
 
 from fridom.model.module import Module
 from fridom.model.stages import Stage, StageKind
+from fridom.spatial.decomposition.halo import HaloSpec
+
+#: the intra-kind order of the masking stage: a large sentinel so it
+#: sorts **after** every physics CONSTRAINT stage (the pressure
+#: projection at order 0, any diagnostic constraints in between) — the
+#: dry DOFs are zeroed once, last, after the wet region is settled.
+_MASK_ORDER = 1_000_000
 
 
 class MaskState(Module):
@@ -70,13 +77,43 @@ class MaskState(Module):
                 "module — it masks the prognostic state against the "
                 "wet region, and there is none here")
         self._names: tuple[str, ...] = tuple(table.prognostic)
+        # capture the (real-grid) immersed descriptor and coordinate
+        # names at bind: the masking runs a concrete mask field the
+        # halo tracer cannot follow (it drops to raw arrays), so the
+        # stage is halo-trace exempt (`extra_halo`) and reads the
+        # descriptor from here, never from the (tracer) field grid
+        self._immersed: object = grid.immersed
+        self._coords: tuple[str, ...] = tuple(grid.names)
+
+    @property
+    def extra_halo(self) -> HaloSpec:
+        """Exempt the masking from the halo trace (a local multiply).
+
+        Description
+        -----------
+        The mask is a concrete per-space field (materialized from the
+        immersed descriptor) multiplied pointwise onto each prognostic
+        — a zero-stencil operation the ``HaloTracer`` cannot follow (it
+        drops to ``.data``). The stage therefore declares its (zero)
+        FD-stencil halo here rather than being traced, exactly like the
+        mapped projection's metric multiplies (V-N2).
+        """
+        return HaloSpec(dict.fromkeys(self._coords, 0))
 
     @property
     def stages(self) -> tuple[Stage, ...]:
-        """The state-masking CONSTRAINT stage (advances nothing)."""
+        """The state-masking CONSTRAINT stage (runs last, advances none).
+
+        The high ``order`` (:data:`_MASK_ORDER`) sorts the masking after
+        every other same-kind CONSTRAINT stage — the pressure
+        projection writes the prognostic velocities, so the mask must
+        follow it (the composer's overlap lint requires the explicit
+        order; correctness never rides list position).
+        """
         return (
             Stage(kind=StageKind.CONSTRAINT,
-                  fn="_mask_state", name="mask_state"),
+                  fn="_mask_state", name="mask_state",
+                  order=_MASK_ORDER),
         )
 
     def _mask_state(self, state, ctx) -> dict:  # noqa: ANN001, ARG002
@@ -89,8 +126,7 @@ class MaskState(Module):
         """
         if not self._names:
             return {}
-        grid = state[self._names[0]].grid
-        immersed = grid.immersed
+        immersed = self._immersed
         out: dict = {}
         for name in self._names:
             field = state[name]
