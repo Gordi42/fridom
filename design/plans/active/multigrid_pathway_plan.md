@@ -492,7 +492,13 @@ collectives above the replication threshold.
   Depth dominates sweeps; the 4→5 uptick (12→13) is the 4-cell
   coarsest being marginally too coarse (harmless); depth 4 / k = 8
   sits exactly at 15 at n = 96 (zero margin) — hence 5. The
-  wall-clock leg (≥ 1.5× at 128³+) needs an A100: open follow-up.*
+  wall-clock leg was measured post-merge on the A100 and **fails**:
+  5.5–13.4× slower than spectral at 128–256³ (V-cycle ≈ 66× a
+  spectral CG iteration at 128³; the sequential line-smoother Thomas
+  solve at full n_z per semicoarsened level is latency-bound on
+  GPU). Spectral stays the GPU production default; a wall-clock win
+  would need the z-parallel smoother levers (§2). Evidence:
+  [`../research/multigrid_gb2_wallclock.md`](../research/multigrid_gb2_wallclock.md).*
 - *GB-3: genuine partials (order = 4, min_fraction = 0.1): 15
   iterations at 16³ / 18 at 32³ to 1e-10 — inside the 30 budget with
   ≥ 12 margin; spectral needs ~80. The immersed count creeps with n

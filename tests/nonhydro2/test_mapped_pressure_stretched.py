@@ -366,24 +366,16 @@ def test_weighted_hop_stays_differentiable():
     assert abs(grad - fd) <= 1e-4 * abs(fd)
 
 
-@pytest.mark.xfail(
-    reason="the stretched+terrain SOLVE is not yet reverse-mode "
-           "differentiable: a PRE-EXISTING core-layer masked "
-           "singularity (the stretched-mesh 'diff' measure division, "
-           "staggering.py:582 'result._data / measure._data' over the "
-           "zero-padded bounded-axis ghost slots, plus sibling "
-           "storage-frame measure divides) NaNs the reverse gradient. "
-           "It is independent of N1/N2 (the plain pre-N2 operator NaNs "
-           "identically) and the new weighted hop is itself "
-           "differentiable (see test_weighted_hop_stays_differentiable). "
-           "Guarding those core divides (double-jnp.where) is a separate "
-           "spatial-layer branch; this test flips to XPASS when it lands.",
-    strict=False, raises=AssertionError)
 def test_stretched_terrain_solve_grad_matches_fd():
     # the end-to-end differentiability invariant the policy asks for:
     # jax.grad of a quadratic loss through a short plain-CG solve w.r.t.
     # the column weight, finite and matching a central FD (tiny grid,
-    # preconditioner="none", few iterations)
+    # preconditioner="none", few iterations). This was XPASS-gated on a
+    # PRE-EXISTING core-layer masked singularity (the stretched-mesh
+    # 'diff' measure division, staggering.py divide_by_codomain_measure
+    # over the zero-padded bounded-axis ghost slots) that NaNed the
+    # reverse gradient; the double-jnp.where seal on that divide (this
+    # branch) makes the end-to-end solve reverse-differentiable.
     grid, mx, ms = build_grid()
     space = cell_space(mx, ms)
     rhs = grid.random.normal(space, seed=5)

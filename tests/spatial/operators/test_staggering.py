@@ -1,4 +1,5 @@
 """Tests for fridom.spatial.operators.staggering."""
+import jax
 import jax.numpy as jnp
 import pytest
 
@@ -9,6 +10,7 @@ from fridom.spatial.decomposition.tensor import (
     TensorDecomposition,
 )
 from fridom.spatial.errors import SpaceMismatchError
+from fridom.spatial.grid import Grid
 from fridom.spatial.meshes.chebyshev import ChebyshevMesh
 from fridom.spatial.meshes.interval import IntervalMesh
 from fridom.spatial.meshes.mapped_interval import (
@@ -18,6 +20,7 @@ from fridom.spatial.operators.finite_difference import (
     FiniteDifference,
 )
 from fridom.spatial.operators.staggering import (
+    divide_by_codomain_measure,
     first_node_offset,
     mapped_factor,
     mapped_mesh,
@@ -104,6 +107,85 @@ def test_mapped_order_hint_names_the_stencil_and_the_reason():
     assert "the biased face reconstructions" in hint
     assert "uniform-offset" in hint
     assert "silently drop to 2nd order" in hint
+
+
+# ================================================================
+#  divide_by_codomain_measure: reverse-mode seal (AGENTS.md diff
+#  policy). A bounded stretched axis's measure has exactly-zero
+#  ghost slots; the raw storage-frame quotient is a masked
+#  singularity that NaNs jax.grad through the difference.
+# ================================================================
+def _wavy(s):
+    return s + 0.1 * jnp.sin(2.0 * jnp.pi * s) / (2.0 * jnp.pi)
+
+
+def _stretched_diff_loss(space_attr, periodic):
+    def loss(c):
+        mesh = MappedIntervalMesh(8, (0.0, 1.0), _wavy,
+                                  periodic=periodic, name="v")
+        grid = Grid((mesh,))
+        space = getattr(mesh, space_attr)
+        f = grid.create_field(
+            space, init=lambda v: jnp.sin(2.0 * jnp.pi * v)) * c
+        return jnp.sum(f.diff("v").data ** 2)
+    return loss
+
+
+@pytest.mark.parametrize("space_attr", ["cell_avg", "center"])
+def test_stretched_diff_grad_is_finite_and_matches_fd(space_attr):
+    # jax.grad through the mapped-mesh diff (the codomain-measure
+    # divide) on a BOUNDED stretched axis is finite and matches a
+    # central FD: the FV (flux_diff) row and the nodal (finite_
+    # difference) row both route through divide_by_codomain_measure.
+    loss = _stretched_diff_loss(space_attr, periodic=False)
+    c0 = 1.3
+    grad = float(jax.grad(loss)(c0))
+    assert bool(jnp.isfinite(grad))
+    assert grad != 0.0
+    h = 1e-4
+    fd = float((loss(c0 + h) - loss(c0 - h)) / (2.0 * h))
+    assert abs(grad - fd) <= 1e-4 * abs(fd)
+
+
+def test_stretched_diff_forward_mode_jvp_is_finite():
+    # the seal is a double-jnp.where (never a custom_vjp), so forward
+    # mode is untouched: one jax.jvp through the mapped diff stays
+    # finite (policy: never foreclose jvp).
+    loss = _stretched_diff_loss("center", periodic=False)
+    primal, tangent = jax.jvp(loss, (1.3,), (1.0,))
+    assert bool(jnp.isfinite(primal))
+    assert bool(jnp.isfinite(tangent))
+
+
+def test_divide_by_codomain_measure_is_bitwise_on_true_cells():
+    # the seal is bitwise-transparent on every valid cell: the guarded
+    # quotient equals the raw ``result / measure`` on the true region.
+    mesh = MappedIntervalMesh(8, (0.0, 1.0), _wavy, periodic=False,
+                              name="v")
+    grid = Grid((mesh,))
+    result = grid.create_field(
+        mesh.cell_avg, init=lambda v: jnp.cos(2.0 * jnp.pi * v) + 2.0)
+    out = divide_by_codomain_measure(result, result, "v")
+    query = result.function_space.with_layout(
+        result.function_space.layout)
+    measure = grid.sync(grid.measure(query, name="v"))
+    assert jnp.array_equal(out.data, result.data / measure.data)
+
+
+def test_divide_by_codomain_measure_bitwise_whole_array_periodic():
+    # on a periodic mapped axis the measure's wrap fill is strictly
+    # positive, so ``bad`` is empty and the WHOLE storage array (ghost
+    # slots included) is bitwise identical to the raw quotient.
+    mesh = MappedIntervalMesh(8, (0.0, 1.0), _wavy, periodic=True,
+                              name="v")
+    grid = Grid((mesh,))
+    result = grid.create_field(
+        mesh.cell_avg, init=lambda v: jnp.sin(2.0 * jnp.pi * v) + 3.0)
+    out = divide_by_codomain_measure(result, result, "v")
+    query = result.function_space.with_layout(
+        result.function_space.layout)
+    measure = grid.sync(grid.measure(query, name="v"))
+    assert jnp.array_equal(out._data, result._data / measure._data)
 
 
 def test_axis_missing_from_the_halo_spec_counts_as_width_zero(mx):

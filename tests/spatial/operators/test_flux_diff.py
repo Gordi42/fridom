@@ -1,4 +1,5 @@
 """Tests for fridom.spatial.operators.flux_diff."""
+import jax
 import jax.numpy as jnp
 import pytest
 
@@ -630,3 +631,26 @@ def test_mapped_fv_diff_converges_at_second_order():
             jnp.abs(df.data - 2 * jnp.pi
                     * jnp.cos(2 * jnp.pi * x)).max())
     assert errors[0] / errors[1] > 3.0
+
+
+def test_mapped_inner_flux_diff_grad_is_finite_and_matches_fd(
+        flux, mapped_bounded):
+    # reverse-mode gate (AGENTS.md diff policy): the Inner-branch
+    # divide is TRUE-frame (``data / measure.data``) by the strictly-
+    # positive primal cell widths -- no zero-ghost denominator, so it
+    # never sees the masked singularity the codomain-measure divide
+    # does. jax.grad through it is finite and matches a central FD.
+    mesh = mapped_bounded
+
+    def loss(c):
+        grid = Grid((mesh,))
+        f = grid.random.normal(mesh.inner, seed=7) * c
+        return jnp.sum(flux["v"](f).data ** 2)
+
+    c0 = 1.3
+    grad = float(jax.grad(loss)(c0))
+    assert bool(jnp.isfinite(grad))
+    assert grad != 0.0
+    h = 1e-4
+    fd = float((loss(c0 + h) - loss(c0 - h)) / (2.0 * h))
+    assert abs(grad - fd) <= 1e-4 * abs(fd)

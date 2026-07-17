@@ -170,9 +170,15 @@ Implementation record:
   Gates: GB-4 compile-once, HLO flat in the CG iteration count; GB-5
   forced-4 parity incl. a replicated coarse level (MG-D5); autodiff
   regression through the immersed multigrid step (the smoothers'
-  dry-cell double-`where` guards hold). The GB-2 wall-clock leg
-  (≥ 1.5× at 128³+ on A100) is the open follow-up
-  ([`open.md`](open.md)). Record:
+  dry-cell double-`where` guards hold). The GB-2 wall-clock leg was
+  measured on the A100 the same day and **fails**: 5.5–13.4× slower
+  ms/step than spectral at 128/192/256³ (one V-cycle ≈ 66× a spectral
+  CG iteration at 128³ — the sequential vertical-line Thomas smoother
+  runs at full n_z on every semicoarsened level, latency-bound on
+  GPU), so **spectral stays the production default on GPU**; the
+  iteration-count win stands as a robustness/CPU result. Evidence:
+  [`../research/multigrid_gb2_wallclock.md`](../research/multigrid_gb2_wallclock.md).
+  Record:
   [`../plans/active/multigrid_pathway_plan.md`](../plans/active/multigrid_pathway_plan.md)
   §3 (B0 spike numbers + the three recorded corrections, not yet
   owner-reviewed).
@@ -287,10 +293,29 @@ Implementation record:
   runs on one A100 at `MEM_FRACTION=0.92` (153 ms/step, unroll=3,
   bitwise-identical physics, per-step perf unchanged at all sizes);
   `XLA_PYTHON_CLIENT_ALLOCATOR=cuda_async` is a validated env-only
-  alternative (VMM defeats fragmentation; multi-GPU unvalidated). The
-  4-GPU memory signature still needs its own attribution
-  ([`open.md`](open.md)). Record:
+  alternative (VMM defeats fragmentation; multi-GPU validated in the
+  4-GPU entry below). Record:
   [`../research/gpu_memory_ceiling.md`](../research/gpu_memory_ceiling.md).
+
+- **4-GPU memory signature attributed — same fix, not remat**
+  (2026-07-17) — second bullet of the Oceananigans reference comparison
+  gap. The comparison probe's read that 1024x1024x768 "dies in compile
+  (remat)" on 4 A100s is **wrong**: on current dev it FITS at ~44
+  GiB/GPU steady. The original death (recorded 2026-07-16 10:01 UTC) was
+  per-device BFC arena *fragmentation* — the 18.36 GiB contiguous chunk
+  temp arena could not be placed in a pool churned by the non-donating
+  `_canonicalize` — one rung larger than the single-GPU ceiling, and
+  closed by the SAME donation+defrag fix (`b6b24644`), which merged 5.5 h
+  *after* the observation. The `hlo_rematerialization.cc` line that named
+  it is a non-fatal warning whose peak estimate (~62 GiB) is ~1.4x
+  pessimistic vs the real 44 GiB. Reproduced directly (revert the fix
+  -> BFC OOM; pre-fix + cuda_async -> fit, which also validates
+  cuda_async multi-GPU). Lever for 768: none, it fits at the default BFC
+  0.75. Next rung 1024x1024x1024 (~51 GiB/GPU) is a harder wall BFC
+  clears at neither 0.75 nor 0.92 (GPU0 cannot place the 24.71 GiB
+  arena) — `cuda_async`'s job. Record:
+  [`../research/gpu_memory_ceiling.md`](../research/gpu_memory_ceiling.md)
+  §7.
 
 - **Time-to-first-step attributed; the two main fixes landed**
   (2026-07-16, merge `7842242b`) — gap 2 of the Oceananigans reference
@@ -333,9 +358,14 @@ Implementation record:
   single-divide weights (real-step temp blowup, 512³ OOM), f32 weights
   (net loss stacked on selected-input), linear-upwind one-path
   spellings (micro win reverses to +4–6% real), and the
-  conv/tap-loop/per-point-kernel rewrites. Follow-ups (comparison
-  re-run, multi-host confirmation, the forced-4 knife-edge test) stay
-  in [`open.md`](open.md). Records:
+  conv/tap-loop/per-point-kernel rewrites. Multi-host validation closed
+  2026-07-17: a real `srun -n 4 --gpu-bind=none` launch (walled-**and**-
+  sharded x, weno5, 30 steps, fusion workaround set) matched the
+  single-device serial reference to machine precision (max abs 2.3e-15,
+  ≤5.2e-15 of field scale — sharded-vs-serial reduction roundoff), with
+  the selected-input walled path asserted active on the sharded axis.
+  Remaining follow-ups (comparison re-run, the forced-4 knife-edge test)
+  stay in [`open.md`](open.md). Records:
   [`../research/stencil_lowering.md`](../research/stencil_lowering.md),
   A/B in
   [`../research/stencil_lowering/microbench/phase3/IMPLEMENTATION_AB.md`](../research/stencil_lowering/microbench/phase3/IMPLEMENTATION_AB.md).
