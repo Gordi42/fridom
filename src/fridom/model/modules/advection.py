@@ -1800,7 +1800,8 @@ class _FluxFormAdvection(fr.model.Module):
     The constant-preserving **surface closure** adds the correction
     :math:`-q\,A(\mathbf 1)` to every ADVECTED component's tendency,
     where :math:`A(\mathbf 1)` is the module's own advective operator
-    applied to a constant on ``q``'s space (``_constant_transport``).
+    applied to a constant — a lean divergence of the interpolated face
+    velocities, accumulated in the same flux loop (``_transport``).
     On a bounded vertical axis the diagnosed ``w`` lives on the
     both-boundary ``Outer`` faces and the flux uses only its interior
     ``Inner`` restriction, so :math:`A(\mathbf 1)` is machine-zero in
@@ -2650,27 +2651,48 @@ class _FluxFormAdvection(fr.model.Module):
         out: dict[str, ScalarField] = {}
         for qname in self._advected:
             q = state[qname]
-            res = self._transport(state, q, params)
+            res, corr = self._transport(state, q, params)
             tend = ro * self._immersed_scale(res, q)
-            if self._surface_flux_on:
-                tend = tend - q * self._constant_transport(
-                    state, q, ro, params)
+            if corr is not None:
+                # subtract q * A(1), A(1) = ro * scale(div of the face
+                # velocities): advect through the boundary face with the
+                # one-sided face value (machine-exact constancy)
+                tend = tend - q * (ro * self._immersed_scale(corr, q))
             out[qname] = tend
         return out
 
     def _transport(
         self, state: object, q: ScalarField, params: dict | None,
-    ) -> ScalarField:
-        """Accumulate ``-sum_axis div(v_face face(q))`` on ``q``'s space.
+    ) -> tuple[ScalarField, ScalarField | None]:
+        r"""Per-axis flux loop: transport of ``q`` and :math:`A(\mathbf 1)`.
 
         Description
         -----------
-        The bare per-axis flux loop shared by ``_advect`` and the
-        ``surface_flux`` correction: for every advecting axis it forms
-        the flux ``v_face * face(q)``, weights it by the open-area
-        fraction (immersed), and differences it back onto ``q``'s space.
-        Returns the accumulated divergence **before** the Rossby and
-        volume-fraction scalings (the callers apply those).
+        For every advecting axis it forms the flux ``v_face * face(q)``,
+        weights it by the open-area fraction (immersed), and differences
+        it back onto ``q``'s space, accumulating ``-sum_axis`` in the
+        first return — the advective divergence, **before** the Rossby
+        and volume-fraction scalings the caller applies.
+
+        When the surface closure is active it accumulates, **in the same
+        loop and reusing the interpolated velocity face**, the second
+        return: the un-scaled constant divergence :math:`A(\mathbf 1)`.
+        Every reconstruction in the family preserves constants, so the
+        face value of a ones field is *exactly* ``1`` and the correction
+        flux is just the (immersed-weighted) velocity face ``v_face`` — a
+        lean divergence of the advecting velocity, one extra
+        ``_flux_divergence`` per axis rather than a second advection pass
+        (``q`` enters only through its space). It is machine-zero in
+        every interior cell (the diagnosed velocity is discretely
+        divergence-free there) and nonzero only in a boundary cell whose
+        ``Outer -> Inner`` restriction dropped the boundary-face velocity
+        (the free surface's ``w(0)/dz`` at the top; exactly zero at the
+        flat-bottom seeded ``w = 0``). For a staggered ``q`` (``u``,
+        ``v``) ``_velocity_face`` interpolates that surface velocity onto
+        ``q``'s own column automatically. ``_advect`` scales it and
+        subtracts ``q`` times it, telescoping the surface-cell constancy
+        violation to roundoff. ``None`` when the closure is off — the
+        first return is then byte-for-byte the plain flux-form one.
 
         Parameters
         ----------
@@ -2683,10 +2705,13 @@ class _FluxFormAdvection(fr.model.Module):
 
         Returns
         -------
-        ScalarField
-            The accumulated ``-sum_axis`` flux divergence on ``q``.
+        tuple[ScalarField, ScalarField | None]
+            The accumulated advective divergence, and the un-scaled
+            :math:`A(\mathbf 1)` correction divergence (``None`` when the
+            surface closure is off).
         """
         res = None
+        corr = None
         for axis, vname in self._axis_velocity:
             v = state[vname]
             flux_space = self._flux_space(q, v, axis)
@@ -2699,63 +2724,13 @@ class _FluxFormAdvection(fr.model.Module):
             divergence = self._flux_divergence(
                 q, flux, axis, params)
             res = -divergence if res is None else res - divergence
-        return res
-
-    def _constant_transport(
-        self, state: object, q: ScalarField, ro: object,
-        params: dict | None,
-    ) -> ScalarField:
-        r"""Return :math:`A(\mathbf 1)` on ``q``'s space (surface closure).
-
-        Description
-        -----------
-        The module's own advective operator applied to a **constant**
-        (ones) field on ``q``'s space — the full Rossby- and
-        volume-fraction-scaled divergence of the advecting velocity as
-        the operator sees it. Every reconstruction in the family
-        preserves constants, so the face value of a ones field is
-        *exactly* ``1`` and the correction flux is just the (immersed-
-        weighted) velocity face ``v_face``: this collapses to one flux
-        divergence per advected field rather than a second full
-        advection pass, while staying machine-exact (``q`` is used only
-        for its space here, never its data). In every interior cell the
-        result is machine-zero (the diagnosed velocity is discretely
-        divergence-free there); it is nonzero only in a boundary cell
-        whose ``Outer -> Inner`` restriction dropped the boundary-face
-        velocity (the free surface's ``w(0)/dz`` at the top; exactly
-        zero at the flat-bottom seeded ``w = 0``). For a staggered ``q``
-        (``u``, ``v``) ``_velocity_face`` interpolates that surface
-        velocity onto ``q``'s own column automatically. ``_advect``
-        subtracts ``q`` times this, telescoping the surface-cell
-        constancy violation to roundoff.
-
-        Parameters
-        ----------
-        state : object
-            The current state (supplies the advecting velocities).
-        q : ScalarField
-            The advected quantity (fixes the function space; data
-            unused).
-        ro : object
-            The Rossby number (a traced parameter scalar).
-        params : dict | None
-            The dynamic mapping-parameter fields (None on flat grids).
-
-        Returns
-        -------
-        ScalarField
-            :math:`A(\mathbf 1)` on ``q``'s space.
-        """
-        res = None
-        for axis, vname in self._axis_velocity:
-            v = state[vname]
-            flux_space = self._flux_space(q, v, axis)
-            # face(1) == 1 exactly, so the flux is the velocity face
-            flux = self._immersed_flux(
-                self._velocity_face(v, flux_space), flux_space)
-            divergence = self._flux_divergence(q, flux, axis, params)
-            res = -divergence if res is None else res - divergence
-        return ro * self._immersed_scale(res, q)
+            if self._surface_flux_on:
+                # A(1): face(1) == 1 exactly, so the flux is the reused
+                # velocity face -- one extra divergence per axis
+                cflux = self._immersed_flux(v_face, flux_space)
+                cdiv = self._flux_divergence(q, cflux, axis, params)
+                corr = -cdiv if corr is None else corr - cdiv
+        return res, corr
 
     # ------------------------------------------------------------
     #  The background-split terms
