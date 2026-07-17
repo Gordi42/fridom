@@ -669,3 +669,33 @@ Implementation record:
 - **The package split** (2026-07-11) — `framework2` became
   `fridom.spatial` + `fridom.model`. Record:
   [`../plans/done/spatial_model_split_plan.md`](../plans/done/spatial_model_split_plan.md).
+- **Diffusion/friction closures: walls (free-slip / no-slip), mapped
+  columns, implicit no-slip rows** (2026-07-17, branch
+  `feat/diffusion-walls-terrain`) — stages 0–4 of
+  [`../research/diffusion_walls_terrain_scoping.md`](../research/diffusion_walls_terrain_scoping.md).
+  The explicit `_DiffusionClosure` family runs on walled grids
+  (nodal family): no-flux tracers and free-slip tangential close
+  structurally (interior flux retagged onto its `Inner[Dirichlet]`
+  sibling — the advection flux-space precedent; wall-normal targets
+  close on their own tag); `slip="no"` on the friction closures adds
+  the `-2 ν q/Δn²` wall rows (grid-measure widths, positive
+  true-shape weights — singularity-free reverse mode), realizing the
+  same odd-mirror `-3` corner as the implicit band; biharmonic
+  applies the same wall treatment on both passes (G&H 2000).
+  `VerticalMixing(bottom=/top=)` gains no-slip Dirichlet rows
+  (`second_difference_matrix(bc=)`, merge key carries the BC rows so
+  unlike-BC legs never kappa-sum) and taught gates against
+  stretched/terrain solve columns (the uniform-dz band was silently
+  wrong there). Mapped/terrain: along-coordinate semantics validated
+  and documented (order 1.97 stretched convergence, measure-weighted
+  conservation 2.2e-15, terrain legs H-independent bitwise, `nu_v`
+  along the named column coordinate — the ROMS `MIX_S_UV`
+  convention); source change docstring-only. Plus a spatial-layer
+  fix: `divide_by_codomain_measure` VJP sealed (double-`jnp.where`)
+  — any `jax.grad` through a bounded stretched-mesh diff was NaN on
+  boundary-adjacent cells. Gates: discrete cosine/sine mode decay at
+  exact rates, conservation to machine zero, periodic path bitwise
+  unchanged, autodiff regressions (free/no-slip × walled/stretched/
+  terrain) vs central FD, 1697-test sweep green, ruff clean. FV
+  (`CellAvg`) walled targets are a taught rejection — residuals in
+  [`open.md`](open.md).
