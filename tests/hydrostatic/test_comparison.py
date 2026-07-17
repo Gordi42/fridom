@@ -14,15 +14,14 @@ configuration so it cannot drift:
   pressure amplitude and energy fraction match the *discrete*
   deformation-radius prediction to roundoff and refine toward the
   continuous Rossby-adjustment fraction at second order.
-- **Eady baroclinic instability — deliberately deferred (STOP).** The
-  shared advection's ``background=`` composes mechanically with the
-  hydrostatic model (it adds the mean-flow Doppler advection), but the
-  configuration provides **no** baroclinic-conversion term
-  :math:`v'\,\partial_y B` (a mean horizontal buoyancy gradient), which
-  is the Eady energy source. These tests verify the composition *and*
-  pin the missing term, documenting precisely why the growth-rate test
-  is not achievable here (see ``test_eady_*`` docstrings and the H5
-  implementation record).
+- **Eady baroclinic instability — unblocked (H5b).** The shared
+  advection's ``background=`` composes mechanically with the hydrostatic
+  model (it adds the mean-flow Doppler advection) but supplies **no**
+  baroclinic-conversion term :math:`v'\,\partial_y B` — the Eady energy
+  source. ``hy.ThermalWindBackground`` now carries it (and the momentum
+  tilting), so these tests verify the composition *and* that the
+  conversion term is present; the full growth-rate validation lives in
+  ``tests/hydrostatic/test_thermal_wind.py``.
 - **Wave-packet dispersion** — an internal-wave packet propagates at the
   discrete *group* velocity (distinct from the phase speed), complementing
   the per-mode phase checks of H2/H3.
@@ -323,7 +322,7 @@ def test_geostrophic_adjustment_second_order_trend_slow():
 
 
 # ================================================================
-#  Eady baroclinic instability -- deliberately DEFERRED (STOP)
+#  Eady baroclinic instability -- unblocked by the thermal wind (H5b)
 # ================================================================
 #  The Eady problem needs a thermal-wind-balanced mean state: a vertical
 #  shear U(z) = Lambda z AND a mean meridional buoyancy gradient
@@ -331,12 +330,12 @@ def test_geostrophic_adjustment_second_order_trend_slow():
 #  term v' d_y B in the buoyancy equation. FRIDOM's shared advection
 #  ``background=`` supplies ONLY a mean velocity (keys u/v/w), so it can
 #  express the Doppler advection U d_x(.) but NOT a mean buoyancy
-#  gradient; and the doubly-periodic y-domain cannot carry the
-#  non-periodic d_y B = -f Lambda as a state field. Hence the
-#  configuration has no baroclinic-conversion term and cannot sustain an
-#  Eady instability. The two tests below verify the composition works
-#  mechanically AND pin the missing term, so the STOP is documented and
-#  regression-guarded (H5 record).
+#  gradient. ``hy.ThermalWindBackground(shear=Lambda)`` supplies the two
+#  missing terms -- db/dt += +f0 Lambda v' (conversion) and
+#  du/dt += -Lambda w' (tilting) -- reading f0 from the f-plane Coriolis
+#  so the thermal wind d_y B = -f0 Lambda is enforced by construction.
+#  The tests below verify the composition AND that the conversion term
+#  is now present; the growth-rate validation is in test_thermal_wind.py.
 def _background_model(f0=1.0, lam=0.5, epsilon=0.0):
     """Linear hydrostatic model with a background zonal shear U(z)."""
     grid = make_grid(8, 8, 6)
@@ -347,6 +346,22 @@ def _background_model(f0=1.0, lam=0.5, epsilon=0.0):
         free_surface=hy.ImplicitFreeSurface(epsilon=epsilon),
         stratification=hy.ConstantStratification(n2=1.0),
         coriolis=hy.FPlaneCoriolis(f0=f0), advection=adv,
+        time_stepper=fr.model.time_steppers.AdamBashforth(
+            1e-2, order=2, eps=0.1))
+
+
+def _thermal_wind_model(f0=1.0, lam=0.5, epsilon=0.0):
+    """Eady model: background shear U(z) + the thermal-wind module."""
+    grid = make_grid(8, 8, 6)
+    tw = hy.ThermalWindBackground(shear=lam, reference_height=0.5)
+    adv = fr.model.modules.CenteredAdvection(
+        background={"u": tw.background_velocity()})
+    return hy.Model(
+        grid=grid, dt=1e-2, csqr=4.0,
+        free_surface=hy.ImplicitFreeSurface(epsilon=epsilon),
+        stratification=hy.ConstantStratification(n2=1.0),
+        coriolis=hy.FPlaneCoriolis(f0=f0), advection=adv,
+        modules_extra=(tw,),
         time_stepper=fr.model.time_steppers.AdamBashforth(
             1e-2, order=2, eps=0.1))
 
@@ -374,23 +389,23 @@ def test_background_supplies_the_doppler_advection_of_buoyancy():
     assert dbdt > 1e-3
 
 
-def test_eady_baroclinic_conversion_term_is_absent():
-    r"""The v' d_y B baroclinic conversion term does not exist here.
+def test_eady_baroclinic_conversion_term_is_present():
+    r"""The v' d_y B baroclinic conversion term is now supplied (H5b).
 
     Drive a v-only, divergence-free state (v varies only in x, u = 0),
-    so the diagnosed w is exactly zero. The ONLY way db/dt could be
-    nonzero is a mean meridional-buoyancy-gradient term -M^2 v (the Eady
-    energy source). It is machine-zero: the configuration has no such
-    term, so an Eady growth-rate measurement is not achievable and the
-    test is deferred (H5 record).
+    so the diagnosed w is exactly zero. The ONLY way db/dt can be
+    nonzero is the mean meridional-buoyancy-gradient term
+    db/dt += -v' d_y B = +f0 shear v' (the Eady energy source) that
+    ``hy.ThermalWindBackground`` supplies. With the module active it is
+    nonzero -- the term H5 pinned as absent is present.
     """
-    model = _background_model()
+    model = _thermal_wind_model()
     st = zeroed(model).replace(v=mode_field(model, "v", 1, 0, "cos"))
     dX = model.tendency(st)
     # w is genuinely zero (v-only, divergence-free) ...
     assert float(np.max(np.abs(np.asarray(st["v"].data)))) > 0.1
-    # ... so any db/dt would be the missing -M^2 v conversion: it is 0
-    assert float(np.max(np.abs(np.asarray(dX["b"].data)))) == 0.0
+    # ... so a nonzero db/dt is the +f0 shear v conversion alone
+    assert float(np.max(np.abs(np.asarray(dX["b"].data)))) > 1e-3
 
 
 # ================================================================

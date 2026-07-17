@@ -29,6 +29,11 @@ CSQR: Final[ParamName] = ParamName(
     hint="provided by the hydrostatic core, e.g. "
          "hy.HydrostaticCore(csqr=...)")
 
+SHEAR: Final[ParamName] = ParamName(
+    "hydrostatic.shear", units="1/s",
+    hint="provided by the thermal-wind background, e.g. "
+         "hy.ThermalWindBackground(shear=...)")
+
 # ``scaling.rossby`` is framework-canonical but owned (provided) by
 # hy.HydrostaticCore; re-exported so recipes can spell hy.params.ROSSBY.
 ROSSBY: Final[ParamName] = SCALING_ROSSBY
@@ -38,5 +43,6 @@ __all__ = [
     "CORIOLIS_F0",
     "CSQR",
     "ROSSBY",
+    "SHEAR",
     "STRATIFICATION_N2",
 ]

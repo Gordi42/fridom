@@ -23,6 +23,7 @@ if TYPE_CHECKING:  # pragma: no cover
     from .core import HydrostaticCore
     from .free_surface import ExplicitFreeSurface, ImplicitFreeSurface
     from .stratification import ConstantStratification
+    from .thermal_wind import ThermalWindBackground
 
 base = "fridom.hydrostatic.modules"
 
@@ -38,6 +39,7 @@ all_imports_by_origin = {
     f"{base}.stratification": ["ConstantStratification"],
     f"{base}.free_surface": [
         "ExplicitFreeSurface", "ImplicitFreeSurface"],
+    f"{base}.thermal_wind": ["ThermalWindBackground"],
 }
 
 setup(__name__, all_modules_by_origin, all_imports_by_origin)
