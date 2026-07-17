@@ -158,6 +158,7 @@ spellings:
 | [`perf_geometry_merge_plan.md`](plans/active/perf_geometry_merge_plan.md) | active | Reconciling the performance line with the geometry line: the merge, the geometry stages and the mapped-PCG interior pass (§§4a–4b) landed; the A/B step harness exists with committed baselines — open is wiring it as a CI gate plus the unasserted fast paths (roadmap). |
 | [`distributed_transform_reconciliation.md`](plans/active/distributed_transform_reconciliation.md) | active | Reconcile the distributed spectral solve with the §5.1 layout-in-space design. Stages 1–4 landed (the transform planner); closes the push gate. |
 | [`distributed_transform_plan.md`](plans/active/distributed_transform_plan.md) | active | The distributed transform planner: layout-annotated stages, the fused `shard_map` lowering, and the A100 gate results. |
+| [`multigrid_pathway_plan.md`](plans/active/multigrid_pathway_plan.md) | active | Multigrid pathway: the grid-to-grid transfer layer (`Mesh.coarsened` / `Grid.coarsened` / `GridTransfer`, phase A — dual-use with coupling CS-15) plus the gated V-cycle preconditioner (phase B; B0 two-level spike is the kill criterion). |
 
 ## `plans/done/` — shipped plans (kept as records)
 
@@ -217,6 +218,7 @@ are the per-decision research behind `specs/model/` (see
 | [`nnmd_literature.md`](research/nnmd_literature.md) | frozen | NNMD literature sweep. |
 | [`boundary_design_explainer.md`](research/boundary_design_explainer.md) | frozen | Extrapolation-fill vs the boundaries R1 flip — the side-by-side that grounded the R1 decision (made 2026-07-11). |
 | [`xla_spmd_fft_fault.md`](research/xla_spmd_fft_fault.md) | frozen | XLA SPMD-FFT fault: a jitted FFT on a sharded axis RET_CHECKs; reproducer, condition matrix, the fridom-side mitigation. |
+| [`multigrid_pathway.md`](research/multigrid_pathway.md) | frozen | Multigrid pathway research (pinned `731089fc`): framework substrate, solver seam, decomposition constraints, the forced-4-device sharding probe, external prior art; input to the pathway plan. |
 
 ## `archive/` — held / superseded
 

@@ -381,6 +381,21 @@ item of the Phase-2 grid follow-ups (the rest landed — see
 [`done.md`](done.md)).
 [`../plans/active/phase2_grid_followups.md`](../plans/active/phase2_grid_followups.md)
 
+## Grid-to-grid transfer layer — multigrid pathway, phase A
+
+*Planned 2026-07-17, ready to schedule.* `Mesh.coarsened` /
+`Grid.coarsened`, the grid-pair `GridTransfer` operator (order-2
+adjoint restriction/prolongation between coexisting grids), the
+replicated-fallback negotiation mode, and the coarse-level
+shardability gate. Standalone and dual-use: the substrate for the
+multigrid V-cycle (phase B, gated — next entry) and the grid-layer
+cell-average restriction the coupling pre-design names (CS-15 /
+§11.1 of
+[`09_coupling_designfor.md`](../specs/model/09_coupling_designfor.md)),
+plus user-facing regridding. Plan:
+[`multigrid_pathway_plan.md`](../plans/active/multigrid_pathway_plan.md);
+research: [`multigrid_pathway.md`](../research/multigrid_pathway.md).
+
 ## Mapped-solve residual levers — measured, none currently worth taking
 
 *The parent line — "multi-device compile and execution cost", formerly
@@ -396,7 +411,12 @@ promote one only when its trigger appears:*
   iterations) becomes a real workload. Every cheaper alternative was
   measured and rejected — read
   [`perf_geometry_merge_plan.md`](../plans/active/perf_geometry_merge_plan.md)
-  §4b lever 1 before re-proposing one.
+  §4b lever 1 before re-proposing one. The pathway is now researched
+  and planned
+  ([`multigrid_pathway_plan.md`](../plans/active/multigrid_pathway_plan.md)
+  phase B, with the transfer-layer substrate scheduled separately —
+  previous entry); the workload trigger above still gates the
+  V-cycle build, de-risked by the plan's B0 two-level spike.
 - **Single-precision distributed solve** — `single_precision_solve` is
   a no-op on multi-device walled/mapped grids (the full-precision
   distributed solve takes precedence; documented at
