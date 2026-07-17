@@ -616,3 +616,44 @@ skipped** (the slow refinement); `ruff check src tests` clean;
 by construction across the pin tests (`epsilon` 1/0, custom `eps`/`csqr`/
 `f0`/`n2`/`rossby`/`name`) — the local `--cov` run aborts silently (known
 issue). The example runs end-to-end under a non-interactive backend.
+### H6 — split-explicit free surface (2026-07-17)
+
+**`SplitExplicitFreeSurface(substeps=N, filter=(2,4,0.18927),
+forcing="increment"|"tendency_sums")`** (`modules/free_surface.py`). Declares
+`ps` (`Profile`) and the barotropic transports `U, V` (staggered-face,
+constant-along-z; **no** Velocity role — `table.velocity()` stays `u,v,w`),
+plus own-AUX depth-mean buffers `ubar_prev, vbar_prev`. Three halo-trace-exempt
+stages: a SELF_UPDATE snapshot of the substage-start depth mean (V-H4
+reference), an ADVANCE `lax.scan` over N forward-backward substeps
+(`dtau=2dt/N`, the exact linearization of `ExplicitFreeSurface`'s two terms +
+the slow forcing G) committing the SM2005-averaged `ps, U, V`, and a CONSTRAINT
+replacing depth-mean `u,v` with `U/H, V/H`. Slow forcing G is the increment
+`(ū*−ū_start)/dt` (default, scheme-consistent) or the depth-mean of `ctx`'s
+per-treatment sums (`forcing="tendency_sums"`, EXPLICIT + IMPLICIT when present).
+SM2005 weights are host-computed at construction (Oceananigans normalization,
+Σ=1 exact, discrete first moment ~1). Declares `linear_operator_gap` (HY-D7).
+
+**Model-layer touch (additive, for the taught error).** A `supports_split_advance`
+ClassVar on `TimeStepper` (default False; True on `AdamBashforth` and
+`IMEXMultistep`) plus a `time_stepper` handle on the bind table; the module's
+`bind` refuses a non-multistep outer driver (RK / IMEX-RK) with a taught
+`AssemblyError` (§5.4 "multistep outer drivers only"). Integrator statics
+(N, filter, forcing) ride the ADVANCE stage's attribution name into the restart
+fingerprint (V-H3), no further model touch.
+
+**Gates (all green, CPU).** Geostrophic null-eigenvector steady to du=7e-16,
+dp=3e-15 (the correction preserves balance). Convergence vs the explicit oracle
+on the SLOW mode: buoyancy b converges near second order (rates ~2.3, ~2.9),
+the velocity decreases toward the fast-mode-filtering floor (the barotropic
+gravity mode is FILTERED, not resolved — captured to ~1% vs a fine explicit
+reference). Barotropic stability: `sqrt(csqr)dt/dx=8` with N=32
+(substep-CFL 0.5) stable over 100 steps; N=4 (substep-CFL 4) caught by the NaN
+seam (PanicError). Conservation: ps-mean 1.7e-16, tracer mass 1.8e-15 over 30
+steps. Restart: N/filter/forcing each change the fingerprint; snapshot
+round-trip bitwise (own-AUX carried); a different N refuses resume
+(`SnapshotMismatchError`). Forced-4 multi-device bitwise-identical to
+single-device. `tests/hydrostatic/test_free_surface_split.py` 39 tests + 1
+forced-device; `tests/hydrostatic` 163 passed; steppers/assembly/end-to-end 188
+passed; nonhydro smoke 8. `ruff` clean; coverage by construction (the local
+`--cov` SIGABRT is environmental — all new branches exercised: degenerate
+filter, every validation, both guard outcomes, all three forcing paths).

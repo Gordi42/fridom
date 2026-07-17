@@ -11,7 +11,7 @@ reads only the baroclinic ``p_hyd``, so an implicit variant's force
 cannot double-count with the constraint's own velocity correction
 (H3 refactor).
 
-Two variants live here:
+Three variants live here:
 
 - ``ExplicitFreeSurface`` — the correctness oracle (the Oceananigans
   ``ExplicitFreeSurface`` analogue): ``ps`` is a PROGNOSTIC field and
@@ -50,15 +50,38 @@ Two variants live here:
   enforcing a divergence-free depth mean). The barotropic gravity
   coupling leaves the ``linear=True`` terms, so this variant declares a
   ``linear_operator_gap`` (HY-D7).
+
+- ``SplitExplicitFreeSurface`` — the wave-resolving workhorse (H6, the
+  frozen §5.4 design). ``ps`` and the barotropic transports ``U, V``
+  (2D, constant along z; **no** Velocity role) are PROGNOSTIC. A
+  module-owned ADVANCE stage subcycles the 2D barotropic
+  shallow-water pair with a ``lax.scan`` over ``N`` forward-backward
+  substeps (``dtau = 2 dt / N``), reads the slow (baroclinic) forcing
+  ``G`` off the substage-start depth mean (buffered in own AUX by a
+  SELF_UPDATE snapshot) or off ``ctx``'s per-treatment tendency sums,
+  and commits the Shchepetkin-McWilliams (2005) time-averaged
+  barotropic state. A CONSTRAINT stage then replaces the depth mean of
+  ``u, v`` with the averaged ``U/H, V/H``. The barotropic coupling
+  leaves the ``linear=True`` terms (it lives in the subcycle), so this
+  variant also declares a ``linear_operator_gap`` (HY-D7); and because
+  a per-stage-projected subcycle has no production precedent, it
+  refuses a non-multistep outer driver (IMEX-RK / RK) at assembly
+  (§5.4 "multistep outer drivers only").
 """
 from __future__ import annotations
 
 from functools import partial
 from typing import TYPE_CHECKING
 
+import jax
+import jax.numpy as jnp
+import numpy as np
+
 import fridom as fr
-from fridom.framework.utils import jaxify
+from fridom.framework.utils import dtype_real, jaxify
 from fridom.hydrostatic.params import CSQR
+from fridom.model.errors import AssemblyError
+from fridom.model.terms import Treatment
 from fridom.spatial.decomposition.halo import HaloSpec
 from fridom.spatial.operators.base import Identity
 from fridom.spatial.operators.composed import Diag, Divergence, Gradient
@@ -536,3 +559,528 @@ class ImplicitFreeSurface(_FreeSurfaceBase):
         solve = SpectralSolve(helmholtz, grid, solve_space,
                               where_zero=0.0)
         return solve.solve(rhs)
+
+
+# ================================================================
+#  Split-explicit free surface (H6, the frozen §5.4 design)
+# ================================================================
+def _barotropic_zero(field: ScalarField) -> ScalarField:
+    """Return a zero twin of a barotropic field (stored array).
+
+    Zeros are built on the *stored* array (halos included, trivially
+    valid), never as ``0.0 * field`` — the schedule ``zero_like``
+    convention (no NaN poisoning, no arithmetic pass).
+    """
+    return type(field)(
+        field.grid, field.function_space,
+        jnp.zeros_like(field._data),  # noqa: SLF001 — plumbing-constructor seam
+        field.metadata)
+
+
+def _sm2005_weights(
+    substeps: int, p: int, q: int, r: float,
+) -> tuple[float, ...]:
+    r"""Return the normalized SM2005 averaging weights (host-side).
+
+    Description
+    -----------
+    The Shchepetkin-McWilliams (2005) barotropic averaging shape
+    function, evaluated at the substep times
+    :math:`\tau_m = m\,(2/N)`, :math:`m = 1 \ldots N` — the
+    :math:`\tau \in [0, 2]` window discretized by ``substeps`` intervals
+    (so :math:`\tau = 1` is one baroclinic step). With
+    :math:`\tau_0 = (p+2)(p+q+2) / ((p+1)(p+q+1))` and
+    :math:`x = \tau/\tau_0`,
+
+    .. math::
+
+        A(\tau) = x^p\,(1 - x^q) - r\,x ,
+
+    clamped to its positive central lobe and normalized to sum 1. The
+    unit sum makes the barotropic mean conserved (a weighted average of
+    substep states whose means each drift only by a periodic divergence,
+    which sums to zero); the discrete first moment
+    :math:`\sum_m \tau_m\,a_m \approx 1` centers the average at
+    :math:`\tau = 1`. This is the Oceananigans normalization (weights
+    from the shape function over ``substeps`` points, normalized to
+    sum 1); the discrete first moment converges to 1 as ``substeps``
+    grows (measured 0.996 at N=8, 1.002 at N=16, 0.999 at N=64).
+
+    Parameters
+    ----------
+    substeps : int
+        The subcycle length ``N`` (the window discretization).
+    p : int
+        The rising-edge exponent (Oceananigans default 2).
+    q : int
+        The falling-edge exponent (Oceananigans default 4).
+    r : float
+        The small linear correction (Oceananigans default 0.18927).
+
+    Returns
+    -------
+    tuple[float, ...]
+        The ``substeps`` normalized weights (leading/trailing zeros
+        outside the positive lobe), summing to 1.
+
+    Raises
+    ------
+    ValueError
+        If no substep falls in the shape function's positive lobe.
+    """
+    m = np.arange(1, substeps + 1, dtype=np.float64)
+    tau = m * (2.0 / substeps)
+    tau0 = (p + 2) * (p + q + 2) / ((p + 1) * (p + q + 1))
+    x = tau / tau0
+    shape = x**p * (1.0 - x**q) - r * x
+    weights = np.where(shape > 0.0, shape, 0.0)
+    total = float(weights.sum())
+    if total <= 0.0:
+        raise ValueError(
+            "the SM2005 averaging window has no positive weight "
+            f"(substeps={substeps}, filter=({p}, {q}, {r})): the shape "
+            "function is non-positive at every substep. Use more "
+            "substeps (>= ~4) or the default filter (2, 4, 0.18927)")
+    return tuple(float(w) for w in weights / total)
+
+
+@partial(jaxify, dynamic=())
+class SplitExplicitFreeSurface(_FreeSurfaceBase):
+
+    r"""Declares ``ps, U, V``; the barotropic subcycle + correction (H6).
+
+    Description
+    -----------
+    The split-explicit free surface (the frozen §5.4 design). The
+    surface pressure ``ps`` and the barotropic transports ``U, V``
+    (2D, constant along z, on the C-grid faces — ``U`` staggered along
+    the zonal axis, ``V`` along the meridional, both ``ConstantSpace``
+    in z) are PROGNOSTIC. ``U, V`` carry **no** Velocity role (they are
+    diagnostically-slaved transports; ``table.velocity()`` keeps
+    returning the baroclinic trio ``u, v, w``).
+
+    The module owns three stages, all halo-trace exempt (``extra_halo``,
+    the V-N2 precedent — the subcycle's C-grid stencils and the depth
+    means are declared, not traced):
+
+    - **SELF_UPDATE** (S1) snapshots the substage-start depth-mean
+      velocity ``(\bar u, \bar v)`` into the own-AUX buffers
+      ``ubar_prev, vbar_prev`` — the V-H4 increment reference.
+    - **ADVANCE** (S3') subcycles the 2D barotropic shallow-water pair
+      with a ``lax.scan`` over ``N`` forward-backward substeps of size
+      ``dtau = 2 dt / N``:
+
+      .. math::
+
+          p_s \leftarrow p_s - d\tau\, c^2\,
+              (\partial_x \bar u + \partial_y \bar v), \\
+          \bar u \leftarrow \bar u
+              - d\tau\, \partial_x p_s + d\tau\, G_u ,
+
+      (and likewise for ``\bar v``) — the exact linearization of
+      ``ExplicitFreeSurface``'s two terms, plus the slow forcing ``G``.
+      The forward-backward pair (new ``p_s`` in the velocity update) is
+      stable to a wider CFL than forward-forward. The
+      Shchepetkin-McWilliams (2005)-weighted average of the substep
+      trajectory (``filter=(p, q, r)``, host-computed at construction,
+      static under the scan) is committed as ``ps, U, V``.
+    - **CONSTRAINT** (S4) replaces the depth mean of ``u, v`` with the
+      averaged ``U/H, V/H`` (a z-uniform correction, the same broadcast
+      as the implicit variant), injecting the resolved barotropic mode.
+
+    **Slow forcing** ``G`` (the depth mean of the baroclinic tendencies
+    driving the barotropic momentum, held fixed across the subcycle):
+
+    - ``forcing="increment"`` (default, V-H4):
+      ``G = (\bar u^* - \bar u_{\rm start}) / dt`` with ``\bar u^*`` the
+      post-advance depth mean and ``\bar u_{\rm start}`` the SELF_UPDATE
+      snapshot — automatically consistent with the outer scheme's
+      weights, warm-up row and any implicit-mixing increment (they are
+      all in ``\bar u^*``).
+    - ``forcing="tendency_sums"``: ``G`` is the depth mean of ``ctx``'s
+      per-treatment tendency sums (EXPLICIT, plus IMPLICIT when the
+      scheme populates it) — the raw first-order variant.
+
+    Because a per-stage-projected barotropic subcycle has no production
+    precedent, ``bind`` refuses a non-multistep outer driver (an RK /
+    IMEX-RK stepper, whose ``supports_split_advance`` is ``False``) with
+    a taught assembly error (§5.4 "multistep outer drivers only").
+
+    The barotropic coupling leaves the ``linear=True`` terms (it lives
+    in the subcycle and the correction), so the module declares a
+    ``linear_operator_gap`` (HY-D7).
+
+    The integrator statics (``substeps``, the ``filter`` triple and the
+    ``forcing`` choice) are encoded into the ADVANCE stage's attribution
+    name, so they join the restart fingerprint through the schedule
+    (V-H3): a snapshot written by one configuration refuses to resume a
+    structurally different one.
+
+    Parameters
+    ----------
+    substeps : int, optional
+        The subcycle length ``N``: the number of forward-backward
+        substeps discretizing the SM2005 averaging window
+        ``\tau \in [0, 2]``, so the physical substep is
+        ``dtau = 2 dt / N`` and the barotropic CFL is
+        ``sqrt(c^2)\,2 dt / (N dx)``. Must be ``>= 2`` (default: 16).
+    filter : tuple[int, int, float], optional
+        The SM2005 shape-function parameters ``(p, q, r)``; the
+        Oceananigans defaults ``(2, 4, 0.18927)`` (default:
+        ``(2, 4, 0.18927)``).
+    forcing : {"increment", "tendency_sums"}, optional
+        The slow-forcing convention (default: ``"increment"``).
+    vertical : str, optional
+        The vertical coordinate the depth mean reduces over
+        (default: ``"z"``).
+    horizontal : tuple[str, str], optional
+        The (zonal, meridional) coordinate names (default:
+        ``("x", "y")``).
+
+    Raises
+    ------
+    ValueError
+        If ``substeps < 2``, the ``filter`` is malformed or yields no
+        positive averaging weight, or ``forcing`` is unknown.
+    """
+
+    #: the honesty gate (HY-D7): this variant's barotropic coupling is
+    #: NOT in L (``fr.model.require_linear_operator``)
+    linear_operator_gap = (
+        "the barotropic gravity coupling (the surface-pressure update "
+        "and the -grad(ps) momentum force) lives inside the "
+        "split-explicit ADVANCE-stage subcycle and the depth-mean "
+        "CONSTRAINT, NOT in a linear=True term, so the linear operator "
+        "L has NO surface-pressure mode at all. Assemble "
+        "hy.ExplicitFreeSurface instead (the same barotropic physics as "
+        "explicit linear terms, L complete) if you need eigenmodes, "
+        "projections, optimal balance or IMEX-by-linearity")
+
+    def __init__(
+        self,
+        *,
+        substeps: int = 16,
+        filter: tuple[int, int, float] = (2, 4, 0.18927),  # noqa: A002 — §5.4 keyword
+        forcing: str = "increment",
+        vertical: str = "z",
+        horizontal: tuple[str, str] = ("x", "y"),
+    ) -> None:
+        """Validate the integrator statics; store the geometry names."""
+        super().__init__(vertical=vertical, horizontal=horizontal)
+        if (isinstance(substeps, bool) or not isinstance(substeps, int)
+                or substeps < 2):  # noqa: PLR2004 — a subcycle needs >= 2
+            raise ValueError(
+                "substeps is the barotropic subcycle length N (>= 2, "
+                "discretizing the tau in [0, 2] averaging window), got "
+                f"{substeps!r}")
+        try:
+            p, q, r = filter
+        except (TypeError, ValueError):
+            raise ValueError(
+                "filter is the SM2005 shape triple (p, q, r), e.g. the "
+                f"default (2, 4, 0.18927), got {filter!r}") from None
+        if (isinstance(p, bool) or isinstance(q, bool)
+                or not isinstance(p, int) or not isinstance(q, int)
+                or p < 1 or q < 1 or isinstance(r, bool)
+                or not isinstance(r, int | float)):
+            raise ValueError(
+                "filter is the SM2005 shape triple (p, q, r) with p, q "
+                f"positive integers and r a real, got {filter!r}")
+        if forcing not in ("increment", "tendency_sums"):
+            raise ValueError(
+                "forcing is the barotropic slow-forcing convention: "
+                "'increment' (the V-H4 default) or 'tendency_sums', got "
+                f"{forcing!r}")
+        self._substeps = substeps
+        self._filter = (int(p), int(q), float(r))
+        self._forcing = forcing
+        # host-side SM2005 weights: a hashable tuple, static under the
+        # scan and treedef-safe (the module is a dynamic=() pytree)
+        self._weights = _sm2005_weights(substeps, int(p), int(q),
+                                        float(r))
+
+    # ================================================================
+    #  Properties
+    # ================================================================
+    @property
+    def substeps(self) -> int:
+        """The static subcycle length ``N`` (fingerprinted)."""
+        return self._substeps
+
+    @property
+    def sm_filter(self) -> tuple[int, int, float]:
+        """The static SM2005 ``(p, q, r)`` triple (fingerprinted)."""
+        return self._filter
+
+    @property
+    def forcing(self) -> str:
+        """The static slow-forcing convention (fingerprinted)."""
+        return self._forcing
+
+    @property
+    def weights(self) -> tuple[float, ...]:
+        """The normalized SM2005 averaging weights (host, sum 1)."""
+        return self._weights
+
+    # ================================================================
+    #  Bind: the multistep-only guard (§5.4)
+    # ================================================================
+    def bind(self, table: object) -> None:
+        """Freeze ``1/H`` and refuse a non-multistep outer driver.
+
+        Description
+        -----------
+        Runs the base depth-mean freeze, then the §5.4 assembly guard:
+        a per-stage-projected barotropic subcycle has no production
+        precedent under an RK / IMEX-RK outer driver, so the split
+        free surface is a **multistep-only** stage. The stepper's
+        ``supports_split_advance`` capability (set by ``AdamBashforth``
+        and ``IMEXMultistep``, false for the RK and exponential
+        families) is read off the bind table; a non-multistep driver is
+        a taught assembly error, never a silent mis-integration.
+
+        Parameters
+        ----------
+        table : object
+            The binding table (carries the grid and the outer stepper).
+
+        Raises
+        ------
+        AssemblyError
+            If the assembly's outer stepper is not a multistep driver.
+        """
+        super().bind(table)
+        stepper = getattr(table, "time_stepper", None)
+        if not getattr(stepper, "supports_split_advance", False):
+            raise AssemblyError(
+                f"SplitExplicitFreeSurface refuses the outer stepper "
+                f"{type(stepper).__name__}: the split-explicit "
+                "barotropic subcycle is a "
+                "multistep-only stage (§5.4 'multistep outer drivers "
+                "only') — a per-stage-projected subcycle under an "
+                "RK / IMEX-RK driver has no production precedent. "
+                "Assemble with AdamBashforth or an IMEX multistep "
+                "scheme (fr.model.time_steppers.CNAB2 / SBDF2), or use "
+                "hy.ImplicitFreeSurface (which composes with any "
+                "stepper)")
+
+    # ================================================================
+    #  Field declarations
+    # ================================================================
+    def _transport_space(
+        self, staggered: str, collocated: str,
+    ) -> object:
+        """Return the C-grid transport pattern (2D, constant in z).
+
+        ``staggered`` lands on the face (``Dof.STAGGERED``),
+        ``collocated`` on the centre, every other coordinate (the
+        vertical) on ``Dof.CONSTANT`` — exactly the space the depth mean
+        ``u.mean(z)`` and ``ps.diff(staggered)`` land on (verified at
+        assembly through the ``replace`` space check).
+        """
+        return fr.spatial.SpacePattern.create(
+            default=fr.spatial.Dof.CONSTANT,
+            tags={staggered: fr.spatial.Dof.STAGGERED,
+                  collocated: fr.spatial.Dof.COLLOCATED})
+
+    @property
+    def field_declarations(
+        self,
+    ) -> tuple[fr.model.FieldDeclaration, ...]:
+        """``ps`` (centre), ``U, V`` (faces) PROGNOSTIC; the AUX buffers.
+
+        Description
+        -----------
+        ``ps`` on ``Profile(zonal, meridional)`` (the barotropic mode);
+        ``U`` on the zonal face, ``V`` on the meridional face (the
+        constant-along-z transports, **no** Velocity role); and the two
+        own-AUX depth-mean buffers ``ubar_prev, vbar_prev`` (the V-H4
+        increment reference, snapshotted every substage by the
+        SELF_UPDATE stage — zero-initialized, overwritten before read).
+        """
+        zonal, meridional = self._horizontal
+        return (
+            fr.model.FieldDeclaration(
+                "ps", space=fr.spatial.Profile(zonal, meridional),
+                lifecycle=fr.model.Lifecycle.PROGNOSTIC,
+                long_name="Surface pressure (g*eta)",
+                units="m^2/s^2"),
+            fr.model.FieldDeclaration(
+                "U", space=self._transport_space(zonal, meridional),
+                lifecycle=fr.model.Lifecycle.PROGNOSTIC,
+                long_name="Barotropic zonal transport", units="m^2/s"),
+            fr.model.FieldDeclaration(
+                "V", space=self._transport_space(meridional, zonal),
+                lifecycle=fr.model.Lifecycle.PROGNOSTIC,
+                long_name="Barotropic meridional transport",
+                units="m^2/s"),
+            fr.model.FieldDeclaration(
+                "ubar_prev",
+                space=self._transport_space(zonal, meridional),
+                lifecycle=fr.model.Lifecycle.AUXILIARY,
+                long_name="Substage-start depth-mean zonal velocity",
+                units="m/s"),
+            fr.model.FieldDeclaration(
+                "vbar_prev",
+                space=self._transport_space(meridional, zonal),
+                lifecycle=fr.model.Lifecycle.AUXILIARY,
+                long_name="Substage-start depth-mean meridional velocity",
+                units="m/s"),
+        )
+
+    # ================================================================
+    #  Stages (halo-trace exempt: the C-grid stencils are declared)
+    # ================================================================
+    @property
+    def extra_halo(self) -> HaloSpec:
+        """Declare the C-grid stencil halo; exempt the stages from trace.
+
+        One cell per horizontal coordinate — the staggered ``diff`` of
+        the barotropic divergence and pressure gradient inside the
+        subcycle. Declaring it (the V-N2 precedent) exempts the module's
+        stages from the halo trace, so the depth-mean reductions
+        (``u.mean(z)``, halo-tracer-incompatible sugar) and the scan
+        run on real fields.
+        """
+        return HaloSpec(dict.fromkeys(self._horizontal, 1))
+
+    @property
+    def _advance_name(self) -> str:
+        """The ADVANCE attribution key that carries the statics (V-H3).
+
+        Encoding ``substeps``/``filter``/``forcing`` into the stage name
+        threads them into the schedule token and thus the restart
+        fingerprint: changing any of them changes the fingerprint.
+        """
+        p, q, r = self._filter
+        r_tag = format(r, ".6g").replace(".", "p").replace("-", "m")
+        return (f"barotropic_advance__n{self._substeps}"
+                f"__sm{p}_{q}_{r_tag}__{self._forcing}")
+
+    @property
+    def stages(self) -> tuple[fr.model.Stage, ...]:
+        """SELF_UPDATE snapshot, ADVANCE subcycle, CONSTRAINT correction."""
+        return (
+            fr.model.Stage(
+                kind=fr.model.StageKind.SELF_UPDATE,
+                fn="_snapshot_barotropic", name="barotropic_snapshot",
+                reads=("u", "v")),
+            fr.model.Stage(
+                kind=fr.model.StageKind.ADVANCE,
+                fn="_barotropic_subcycle", name=self._advance_name,
+                advances=("ps", "U", "V")),
+            fr.model.Stage(
+                kind=fr.model.StageKind.CONSTRAINT,
+                fn="_correct_depth_mean", name="barotropic_correction"),
+        )
+
+    def _snapshot_barotropic(
+        self, state: object, ctx: StepContext,  # noqa: ARG002
+    ) -> dict[str, object]:
+        r"""Buffer the substage-start depth mean into own AUX (S1).
+
+        ``ubar_prev = \bar u`` / ``vbar_prev = \bar v`` — the V-H4
+        increment reference, read at S3'. SELF_UPDATE runs first in the
+        substage (S1), so the snapshot is the depth mean **before** the
+        primary advance touches ``u, v``.
+        """
+        vertical = self._vertical
+        return {
+            "ubar_prev": state["u"].mean(vertical),
+            "vbar_prev": state["v"].mean(vertical),
+        }
+
+    def _barotropic_subcycle(
+        self, state: object, ctx: StepContext,
+    ) -> dict[str, object]:
+        r"""Subcycle the barotropic pair; commit the SM2005 average (S3').
+
+        Description
+        -----------
+        Reads the slow forcing ``G`` (increment or tendency-sums), takes
+        ``N`` forward-backward substeps of size ``dtau = 2 dt / N`` from
+        the prognostic barotropic state ``(ps, U/H, V/H)``, and commits
+        the SM2005 time-averaged ``ps, U, V``. The primary advance (S3)
+        does not touch ``ps, U, V`` (they carry no tendency term), so the
+        prognostic ``U, V`` read here are the previous step's committed
+        transports and ``U/H`` is the substage-start barotropic velocity.
+        """
+        csqr = ctx.params[CSQR]
+        dt = ctx.stage_dt
+        inv_h = self._inv_depth
+        zonal, meridional = self._horizontal
+        g_u, g_v = self._slow_forcing(state, ctx, dt)
+        ps0 = state["ps"]
+        ubar0 = state["U"] * inv_h
+        vbar0 = state["V"] * inv_h
+        dtau = 2.0 * dt / self._substeps
+        weights = jnp.asarray(self._weights, dtype=dtype_real())
+
+        def body(
+            carry: tuple, weight: object,
+        ) -> tuple[tuple, None]:
+            ps_c, ub_c, vb_c, aps, au, av = carry
+            # forward: ps from the OLD barotropic-velocity divergence
+            div = ub_c.diff(zonal) + vb_c.diff(meridional)
+            ps_n = ps_c - dtau * csqr * div
+            # backward: velocity from the NEW ps + the slow forcing
+            ub_n = (ub_c - dtau * ps_n.diff(zonal).retag(ub_c)
+                    + dtau * g_u)
+            vb_n = (vb_c - dtau * ps_n.diff(meridional).retag(vb_c)
+                    + dtau * g_v)
+            return ((ps_n, ub_n, vb_n, aps + weight * ps_n,
+                     au + weight * ub_n, av + weight * vb_n), None)
+
+        init = (ps0, ubar0, vbar0, _barotropic_zero(ps0),
+                _barotropic_zero(ubar0), _barotropic_zero(vbar0))
+        (_ps, _ub, _vb, ps_avg, ubar_avg, vbar_avg), _ = jax.lax.scan(
+            body, init, weights)
+        return {"ps": ps_avg, "U": ubar_avg / inv_h,
+                "V": vbar_avg / inv_h}
+
+    def _slow_forcing(
+        self, state: object, ctx: StepContext, dt: object,
+    ) -> tuple[object, object]:
+        r"""Return the depth-mean slow forcing ``(G_u, G_v)`` on the faces.
+
+        The increment form (default) reads the post-advance depth mean
+        against the SELF_UPDATE snapshot:
+        ``G = (\bar u^* - \bar u_{\rm start}) / dt`` — scheme-consistent
+        by construction. The tendency-sums form reads the per-treatment
+        summed tendencies from ``ctx`` (EXPLICIT plus IMPLICIT where the
+        scheme populated the forward apply) and takes their depth mean.
+        """
+        vertical = self._vertical
+        if self._forcing == "increment":
+            g_u = (state["u"].mean(vertical) - state["ubar_prev"]) / dt
+            g_v = (state["v"].mean(vertical) - state["vbar_prev"]) / dt
+            return g_u, g_v
+        sums = ctx.tendency_sums
+        du = sums[Treatment.EXPLICIT]["u"]
+        dv = sums[Treatment.EXPLICIT]["v"]
+        try:
+            implicit = sums[Treatment.IMPLICIT]
+        except KeyError:
+            implicit = None
+        if implicit is not None:
+            du = du + implicit["u"]
+            dv = dv + implicit["v"]
+        return du.mean(vertical), dv.mean(vertical)
+
+    def _correct_depth_mean(
+        self, state: object, ctx: StepContext,  # noqa: ARG002
+    ) -> dict[str, object]:
+        r"""Replace the depth mean of ``u, v`` with ``U/H, V/H`` (S4).
+
+        The z-uniform correction ``u(z) \leftarrow u(z) - (\bar u -
+        U/H)`` broadcasts the barotropic increment onto every level (the
+        ConstantSpace lift in ``.to``, the implicit variant's pattern),
+        so the corrected depth mean is exactly ``U/H`` while the
+        baroclinic shear is untouched.
+        """
+        vertical = self._vertical
+        inv_h = self._inv_depth
+        u, v = state["u"], state["v"]
+        du = (u.mean(vertical) - state["U"] * inv_h).to(u).retag(u)
+        dv = (v.mean(vertical) - state["V"] * inv_h).to(v).retag(v)
+        return {"u": u - du, "v": v - dv}

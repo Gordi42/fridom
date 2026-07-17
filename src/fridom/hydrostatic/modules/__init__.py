@@ -22,7 +22,11 @@ if TYPE_CHECKING:  # pragma: no cover
     )
 
     from .core import HydrostaticCore
-    from .free_surface import ExplicitFreeSurface, ImplicitFreeSurface
+    from .free_surface import (
+        ExplicitFreeSurface,
+        ImplicitFreeSurface,
+        SplitExplicitFreeSurface,
+    )
     from .stratification import ConstantStratification
 
 base = "fridom.hydrostatic.modules"
@@ -40,7 +44,8 @@ all_imports_by_origin = {
     f"{base}.core": ["HydrostaticCore"],
     f"{base}.stratification": ["ConstantStratification"],
     f"{base}.free_surface": [
-        "ExplicitFreeSurface", "ImplicitFreeSurface"],
+        "ExplicitFreeSurface", "ImplicitFreeSurface",
+        "SplitExplicitFreeSurface"],
 }
 
 setup(__name__, all_modules_by_origin, all_imports_by_origin)

@@ -197,6 +197,10 @@ class AdamBashforth(TimeStepper):
     supported_treatments: ClassVar[frozenset[Treatment]] = (
         frozenset({Treatment.EXPLICIT}))
 
+    #: multistep outer driver: it runs a module-owned split ADVANCE
+    #: (S3') subcycle with the per-treatment sums attached (03 5.4).
+    supports_split_advance: ClassVar[bool] = True
+
     def __init__(
         self,
         dt: float | np.timedelta64,
