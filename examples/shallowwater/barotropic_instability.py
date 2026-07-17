@@ -67,7 +67,7 @@ model = sw.Model(
 # ``sw.initial_conditions.jet`` samples a Gaussian zonal jet, projects
 # it onto the geostrophic subspace, and adds a small single-mode
 # perturbation of zonal wavenumber two that seeds the instability. The
-# factory normalizes the largest velocity to one; therefore we scale
+# factory normalizes the largest velocity to one. Therefore we scale
 # the state to the jet velocity before assigning it:
 z = sw.initial_conditions.jet(
     model, width=jet_width / L, wavenum=2, waveamp=1e-2)
@@ -83,11 +83,11 @@ _ = model.state.u.xr.plot(x="x")
 # Running and Writing Output
 # --------------------------
 # A ``Writer`` streams selected fields to a zarr store while the model
-# runs; the store opens in xarray with no post-processing. We store
+# runs, and the store opens in xarray with no post-processing. We store
 # the pressure and, as a derived output evaluated at write time, the
 # relative vorticity, interpolated from the vorticity corners to the
 # cell centers so every store variable shares the plain ``x``/``y``
-# coordinates; the trigger fires once per model time unit:
+# coordinates. The trigger fires once per model time unit:
 center = model.state.p.function_space
 writer = fr.model.io.Writer(
     "barotropic_instability.zarr",
@@ -108,7 +108,7 @@ _ = model.state.rel_vort.xr.plot(x="x")
 # Rendering the Animation
 # -----------------------
 # We use `CDFViewer <https://gordi42.github.io/CDFViewer.jl/>`_ to
-# render the vorticity animation from the zarr store; with
+# render the vorticity animation from the zarr store. With
 # ``--record`` it writes the video and exits:
 command = (
     "cdfviewer barotropic_instability.zarr"
