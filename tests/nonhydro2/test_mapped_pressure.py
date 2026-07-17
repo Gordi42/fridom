@@ -521,7 +521,7 @@ def test_unknown_weight_axes_are_rejected():
 # ================================================================
 #  The DynamicalCore mapped projection branch
 # ================================================================
-def make_mapped_model(n=8, init=depth, dt=0.02, **kwargs):
+def make_mapped_model(n=8, init=depth, dt=0.02, family="nodal", **kwargs):
     mx = IntervalMesh(n, (0.0, 2 * np.pi), periodic=True, name="x")
     my = IntervalMesh(n, (0.0, 2 * np.pi), periodic=True, name="y")
     mz = IntervalMesh(n, (0.0, 1.0), periodic=False, name="z")
@@ -529,11 +529,15 @@ def make_mapped_model(n=8, init=depth, dt=0.02, **kwargs):
         maps={"zp": lambda z, H: z * H},
         params={"H": init})
     grid = Grid((mx, my, mz), mapping=mapping)
+    # family="nodal" is explicit: since the 2026-07-17 mapped auto flip
+    # a plain nh.Model on a mapped grid resolves to FV, but this file is
+    # the NODAL mapped battery (the FV mapped battery is
+    # test_mapped_pressure_fv.py) — pin nodal so the split stays clean.
     # 16 PCG iterations, not the model default 30: the projection has
     # converged there (measured post-step mapped divergence 3.4e-12
     # already at 12, 1.1e-13 at 30; the gate below is 1e-10) and the
     # unrolled CG loop is what the mapped model's trace pays for
-    return nh.Model(grid=grid, dt=dt, advection=False,
+    return nh.Model(grid=grid, dt=dt, advection=False, family=family,
                     coriolis=nh.FPlaneCoriolis(f0=1.0),
                     pressure_iterations=16, **kwargs)
 

@@ -51,6 +51,7 @@ from fridom.model.stages import Stage, StageKind
 from fridom.model.terms import TendencyTerm, Treatment
 from fridom.spatial.decomposition.halo import HaloSpec
 from fridom.spatial.space_patterns import Profile
+from fridom.spatial.spaces.average import AverageSpace
 
 if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Callable, Mapping
@@ -413,6 +414,17 @@ class MeshVelocityCorrection(Module):
     (2026-07-12) for experiments that accept the transient error;
     make it knowingly.
 
+    **Family (FV/nodal).** The correction is **nodal-only**: its column
+    derivative reduces onto the nodal ``Center`` family and cannot
+    retag onto the finite-volume ``CellAvg`` codomain (the F5
+    family-awareness gap was never closed for this module). Correcting
+    a field on the average family is a taught error at ``bind``. Moving
+    geometry is therefore a nodal-only feature for now, and the
+    nonhydro auto family default keeps a moving-geometry mapping on the
+    nodal path (mapped FV default record / scoping study §13); an
+    explicit ``family="fv"`` with this module is rejected, not silently
+    run.
+
     Parameters
     ----------
     fields : tuple[str, ...] | None, optional
@@ -464,7 +476,9 @@ class MeshVelocityCorrection(Module):
             field is not PROGNOSTIC.
         NotImplementedError
             If the mapping declares more than one mapped column
-            (stage C4 mirrors the stage-C3 solver support).
+            (stage C4 mirrors the stage-C3 solver support), or a
+            corrected field resolves onto the finite-volume (average)
+            family — the ALE correction is nodal-only.
         """
         grid = table.grid
         mapping = getattr(grid, "mapping", None)
@@ -511,6 +525,32 @@ class MeshVelocityCorrection(Module):
                         f"which is {table[name].lifecycle.name}: "
                         "only PROGNOSTIC fields are advanced from "
                         "tendencies")
+        # the ALE correction is nodal-only: the column derivative
+        # reduces onto the nodal Center family (its interpolate resolves
+        # the seeded Right -> Center row) and cannot retag onto an
+        # average (CellAvg) codomain — the F5 family-awareness gap was
+        # never done for this module. A corrected field on the average
+        # family is a taught error here, not a runtime SpaceMismatchError.
+        # Reached only under an explicit family="fv": the nonhydro auto
+        # default carves a moving-geometry mapping out to nodal (mapped
+        # FV default record / scoping study §13), so the default path
+        # never lands here.
+        average = tuple(
+            name for name in self._fields
+            if any(isinstance(factor, AverageSpace)
+                   for factor in table[name].space.bare.factors))
+        if average:
+            raise NotImplementedError(
+                "MeshVelocityCorrection (the ALE mesh-velocity "
+                "correction) is not implemented on the finite-volume "
+                f"(average) family: {list(average)} resolve onto "
+                "CellAvg, and the correction's column derivative lands "
+                "on the nodal Center family, which cannot retag onto a "
+                "cell average. Moving geometry is a nodal-only feature "
+                "for now; keep this model family='nodal' (the auto "
+                "default already does — a MovingGeometry mapping stays "
+                "nodal) or omit the ALE module (a static mapped grid "
+                "needs none).")
         self._coords = tuple(grid.names)
 
     # ================================================================

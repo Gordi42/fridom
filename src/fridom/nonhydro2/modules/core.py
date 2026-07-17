@@ -61,42 +61,67 @@ if TYPE_CHECKING:  # pragma: no cover
 # ================================================================
 #  The FV C-grid family choice (FV-D3 / stage F3)
 # ================================================================
-def _fv_capable(grid: Grid) -> bool:
+def _fv_capable(grid: Grid, *, dynamic_geometry: bool = False) -> bool:
     """
-    Whether ``grid`` can carry the FV C-grid auto default (FV-D2 A).
+    Whether ``grid`` carries the FV C-grid auto default (FV-D2 A).
 
     Description
     -----------
     The finite-volume nonhydro model serves periodic, walled *and*
     (stage F5) mapped terrain-following grids at 2nd order (scoping
-    study §5 FV-D3, §11 FV-D4, §4 mapped_pressure): periodic axes
-    stagger on the ``Right`` face, walled axes on the Neumann-
-    ``CellAvg`` / Dirichlet-``Inner`` origins, and a mapped column runs
-    the family-aware :class:`MappedPressureSolver`. The **auto** default
-    nonetheless stays nodal on a mapped grid: on a genuine terrain the
-    FV and nodal discretizations are *different numbers* (no bitwise
-    parity, unlike the flat/walled retag), so flipping the mapped
-    default is an owner decision, not something a capability predicate
-    takes. ``_fv_capable`` therefore excludes mapped (auto = FV iff
-    unmapped and unimmersed, the 2026-07-16 ruling) even though explicit
-    ``family="fv"`` is now served there (:func:`_require_fv_capable`
-    rejects **immersed only**). Cut-cell (immersed) FV remains out of
-    scope by decision (scoping §9).
+    study §5 FV-D3, §11 FV-D4, §13 mapped): periodic axes stagger on
+    the ``Right`` face, walled axes on the Neumann-``CellAvg`` /
+    Dirichlet-``Inner`` origins, and a mapped column runs the
+    family-aware :class:`MappedPressureSolver` while a ``CellAvg``
+    tracer transports in conservative J-weighted flux form. The **auto**
+    default therefore flips to FV on any **static** mapped grid too
+    (owner ruling 2026-07-17: FV wherever capable, no surprising family
+    changes by grid type) — the complement of :func:`_require_fv_capable`
+    is now **immersed only**.
+
+    Two carve-outs keep the auto default on the validated nodal path:
+
+    - **Immersed** (cut-cell) grids: cut-cell FV is out of scope by
+      decision (scoping §9), so an immersed grid is never FV-capable.
+    - **Dynamically driven** mappings (``dynamic_geometry=True``): a grid
+      whose mapping parameters move in time (a
+      :class:`~fridom.model.modules.moving_geometry.MovingGeometry`
+      module, stage C4) needs the ALE mesh-velocity correction for
+      correct physics, and that correction is **nodal-only** — its
+      column derivative reduces onto the nodal ``Center`` family and
+      cannot retag onto ``CellAvg`` (the F5-style family-awareness gap
+      was never done for :class:`MeshVelocityCorrection`). So a moving
+      geometry auto-defaults to nodal, where ALE works, and the default
+      path never hits that gap. Time-dependence is a *model* property
+      (which modules are assembled), not a *grid* property — the grid
+      cannot self-report it — so the caller (the ``nh.Model`` factory)
+      supplies ``dynamic_geometry``; an explicit ``family="fv"`` with a
+      ``MeshVelocityCorrection`` is a taught error at the module's
+      ``bind`` (naming the gap), never a silent nodal fallback.
 
     Parameters
     ----------
     grid : Grid
         The assembled grid.
+    dynamic_geometry : bool, optional
+        Whether the model drives the grid's mapping parameters in time
+        (a ``MovingGeometry`` module is assembled). ``True`` keeps the
+        auto default nodal on a mapped grid, since the ALE correction
+        is nodal-only (default: False).
 
     Returns
     -------
     bool
-        True iff the grid is unmapped and unimmersed (periodic or
-        walled) — the grids whose FV C-grid is bitwise the nodal one.
+        True iff the grid is unimmersed and (when it carries a mapping)
+        that mapping is static — the grids whose FV C-grid the auto
+        default is served on.
     """
-    if getattr(grid, "mapping", None) is not None:
+    if getattr(grid, "immersed", None) is not None:
         return False
-    return getattr(grid, "immersed", None) is None
+    # a mapping driven in time: the ALE correction is nodal-only, so
+    # auto stays nodal (dynamic_geometry implies a mapped grid — a plain
+    # grid carries no mapping parameters to drive)
+    return not dynamic_geometry
 
 
 def _require_fv_capable(grid: Grid) -> None:
@@ -219,7 +244,9 @@ def fv_cgrid_overrides(
     return overrides
 
 
-def resolve_model_family(family: str | None, grid: Grid) -> str:
+def resolve_model_family(
+    family: str | None, grid: Grid, *, dynamic_geometry: bool = False,
+) -> str:
     r"""
     Resolve a model-assembly family choice against the grid (F3).
 
@@ -230,17 +257,21 @@ def resolve_model_family(family: str | None, grid: Grid) -> str:
     **auto** default — it follows the grid's own ``default_family``,
     and *promotes* the ``"nodal"`` grid default to ``"fv"`` whenever
     the grid can carry the FV C-grid (:func:`_fv_capable`). This is
-    the flip: a plain periodic **or walled** nonhydro model is
-    finite-volume by default, safe because the 2nd-order stencils are
-    bit-identical to nodal (scoping study §1; the walled solve is
-    eager-bitwise, ≤1.2e-14 jitted, §11). The auto default stays
-    ``"nodal"`` on a **mapped** or **immersed** grid (owner ruling
-    2026-07-16: FV auto iff unmapped and unimmersed) — on a genuine
-    terrain FV and nodal are different numbers, so the mapped default
-    flip is an owner decision, not an auto promotion. An **explicit**
-    ``"fv"`` is served on periodic, walled and mapped terrain-following
-    grids (stages F4, F5); only an **immersed** grid rejects it, a
-    taught error (cut-cell FV is out of scope, scoping §9).
+    the flip: a plain periodic, walled **or static mapped** nonhydro
+    model is finite-volume by default, safe because the 2nd-order
+    stencils are bit-identical to nodal on flat/walled grids (scoping
+    study §1; the walled solve is eager-bitwise, ≤1.2e-14 jitted, §11)
+    and the mapped FV pressure operator is likewise bit-identical to
+    nodal (the mapped column rides a uniform *computational* mesh, §13).
+    The auto default stays ``"nodal"`` only on an **immersed** grid
+    (cut-cell FV out of scope, scoping §9) or a **dynamically driven**
+    mapping (``dynamic_geometry=True``: the ALE correction is nodal-only,
+    :func:`_fv_capable`) — the owner ruling of 2026-07-17 (FV wherever
+    capable). An **explicit** ``"fv"`` is served on periodic, walled and
+    mapped terrain-following grids (stages F4, F5); only an **immersed**
+    grid rejects it here, a taught error (an explicit ``"fv"`` with a
+    moving-geometry ALE module is rejected at that module's ``bind``,
+    since dynamism is not visible on the grid).
 
     Parameters
     ----------
@@ -248,6 +279,12 @@ def resolve_model_family(family: str | None, grid: Grid) -> str:
         The requested family, or None for the auto default.
     grid : Grid
         The assembled grid the model runs on.
+    dynamic_geometry : bool, optional
+        Whether the model drives the grid's mapping parameters in time
+        (a ``MovingGeometry`` module is assembled). Consulted only for
+        the auto default, where it keeps a moving mapping on the nodal
+        path (the ALE correction is nodal-only); an explicit family
+        ignores it (default: False).
 
     Returns
     -------
@@ -263,7 +300,8 @@ def resolve_model_family(family: str | None, grid: Grid) -> str:
     """
     if family is None:
         family = getattr(grid, "default_family", "nodal")
-        if family == "nodal" and _fv_capable(grid):
+        if family == "nodal" and _fv_capable(
+                grid, dynamic_geometry=dynamic_geometry):
             family = "fv"
     if family not in FAMILIES:
         raise ValueError(
@@ -320,10 +358,10 @@ class DynamicalCore(fr.model.Module):
         average family; ``"nodal"`` is the point-value C-grid. ``None``
         defers to the grid-level default (``grid.default_family``), so
         an explicitly assembled core follows the grid. The
-        ``nh.Model`` factory resolves the flip (any unmapped,
-        unimmersed grid — periodic or walled — promotes ``None`` to
-        ``"fv"``); an explicit ``"fv"`` on a mapped or immersed grid
-        is a taught error (default: None).
+        ``nh.Model`` factory resolves the flip (any unimmersed grid —
+        periodic, walled or static mapped — promotes ``None`` to
+        ``"fv"``; a moving-geometry mapping stays nodal); an explicit
+        ``"fv"`` on an immersed grid is a taught error (default: None).
     """
 
     state_type = State
@@ -413,8 +451,9 @@ class DynamicalCore(fr.model.Module):
         The family resolves as the declarations do —
         ``self._family`` or the grid default — so the profile is on
         exactly the grids whose ``u, v, w, p`` landed on ``CellAvg``.
-        An FV family on a non-capable (walled / mapped / immersed)
-        grid is a taught error here, never a silent nodal fallback.
+        An FV family on a non-capable (immersed) grid is a taught
+        error here, never a silent nodal fallback; walled and mapped
+        terrain-following grids are served (stages F4, F5).
 
         Parameters
         ----------

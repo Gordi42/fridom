@@ -164,9 +164,15 @@ class MeridionalStratification(fr.model.Module):
     family : str | None, optional
         The discretization family of the buoyancy tracer ``b``
         (FV-D1b); ``"fv"`` declares it on ``CellAvg^3``. The ``n2``
-        profile stays a nodal ``Profile`` (its ``.to(b)`` broadcast
-        onto the shared meridional nodes is unaffected). None defers
-        to the grid-level default (default: None).
+        profile carries no ``family=`` of its own and so **follows the
+        grid family** — a ``CellAvg`` cell-average profile on an FV
+        model, a nodal ``Profile`` on a nodal one. It is materialized
+        at the cell midpoints on both families (the average profile's
+        evaluation nodes are the midpoints), so at 2nd order the
+        sampled ``N^2(y)`` values are the same numbers and the
+        ``.to(b)`` broadcast onto the shared meridional nodes is
+        unaffected. None defers to the grid-level default
+        (default: None).
     """
 
     def __init__(

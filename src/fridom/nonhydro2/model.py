@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING
 
 import fridom as fr
 from fridom.model.modules.advection import CenteredAdvection
+from fridom.model.modules.moving_geometry import MovingGeometry
 from fridom.nonhydro2.modules.core import (
     DynamicalCore,
     resolve_model_family,
@@ -103,18 +104,27 @@ def Model(  # noqa: N802 — a factory that mirrors fr.model.Model's surface
         F3): ``"fv"`` is the finite-volume C-grid (scalars on
         ``CellAvg``, velocities on the faces — FV-D2 option A),
         ``"nodal"`` the point-value C-grid. ``None`` is the auto
-        default: **``"fv"`` on any unmapped, unimmersed grid (periodic
-        or walled), ``"nodal"`` otherwise** — so a plain periodic or
-        walled nonhydro model is finite-volume by default, at bitwise
-        parity with the nodal model (scoping study §1; the walled
-        solve is eager-bitwise, ≤1.2e-14 jitted, §11). The family
-        threads to every field (``u, v, w, p`` and the default
+        default: **``"fv"`` on any unimmersed grid — periodic, walled
+        or static mapped (terrain-following)**, ``"nodal"`` otherwise —
+        so a plain nonhydro model is finite-volume by default (owner
+        ruling 2026-07-17: FV wherever capable, no surprising family
+        changes by grid type). It is at bitwise parity with the nodal
+        model on flat/walled grids (scoping study §1; the walled solve
+        is eager-bitwise, ≤1.2e-14 jitted, §11) and the mapped FV
+        pressure operator is likewise bit-identical to nodal (§13). The
+        family threads to every field (``u, v, w, p`` and the default
         stratification's ``b``) and seeds the FV C-grid ``diff``
         profile — on a walled grid the pressure DCT-II runs on the
-        Neumann ``CellAvg`` origin (stage F4). Only a mapped or
-        immersed grid stays nodal by default and rejects an explicit
-        ``"fv"`` as a taught error (mapped / cut-cell FV is stage F5)
-        (owner ruling 2026-07-16) (default: None).
+        Neumann ``CellAvg`` origin (stage F4), on a mapped grid the
+        projection routes to the family-aware ``MappedPressureSolver``
+        (stage F5). Two carve-outs keep the auto default nodal: an
+        **immersed** (cut-cell) grid (out of scope, scoping §9; an
+        explicit ``"fv"`` there is a taught error), and a **moving
+        geometry** — a ``MovingGeometry`` in ``modules_extra`` that
+        drives the mapping in time — because the ALE mesh-velocity
+        correction is nodal-only (an explicit ``"fv"`` with a
+        ``MeshVelocityCorrection`` is a taught error at bind)
+        (default: None).
     name : str | None, optional
         Model name (default: None).
     **kwargs : object
@@ -126,15 +136,24 @@ def Model(  # noqa: N802 — a factory that mirrors fr.model.Model's surface
         The assembled model.
     """
     # resolve the model family against the grid and adopt it as the
-    # grid's default (auto-flip: any unmapped, unimmersed grid —
-    # periodic or walled — promotes None -> "fv"; owner ruling
-    # 2026-07-16). Every family=None field of the model — u/v/w/p, the
+    # grid's default (auto-flip: any unimmersed grid — periodic, walled
+    # or static mapped — promotes None -> "fv"; owner ruling 2026-07-17,
+    # FV wherever capable). A MovingGeometry module drives the mapping
+    # in time and the ALE mesh-velocity correction is nodal-only, so a
+    # dynamically driven mapping keeps the auto default nodal; dynamism
+    # is a module property the grid cannot self-report, so the factory
+    # supplies it here (an explicit family="fv" with the ALE module is a
+    # taught error at MeshVelocityCorrection.bind, not a silent
+    # fallback). Every family=None field of the model — u/v/w/p, the
     # default b, and any user tracer — then follows uniformly, so an FV
     # model has no accidental nodal field (only an explicit
     # family="nodal" is the documented mixed corner). Explicit "fv" is
-    # served on periodic and walled grids (F4); only a mapped /
-    # immersed grid is a taught error (F5).
-    resolved = resolve_model_family(family, grid)
+    # served on periodic, walled and mapped grids (F4, F5); only an
+    # immersed grid is a taught error here.
+    dynamic_geometry = any(
+        isinstance(module, MovingGeometry) for module in modules_extra)
+    resolved = resolve_model_family(
+        family, grid, dynamic_geometry=dynamic_geometry)
     grid.set_default_family(resolved)
     if stratification is None:
         stratification = ConstantStratification(n2=1.0)
