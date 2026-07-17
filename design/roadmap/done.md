@@ -212,6 +212,26 @@ Implementation record:
   the walled-FV analytic-eigenmode taught gap — closed the next day
   (next entry).
 
+- **FV nonhydro stage F5 — mapped/chart FV** (2026-07-17) — the last
+  FV stage: terrain-following grids serve explicit `family="fv"`
+  (`_require_fv_capable` now rejects immersed only; the mapped
+  auto-default stays nodal, an owner call — [`open.md`](open.md)).
+  Zero spatial-layer changes: the F0–F4 rows sufficed; the work was
+  family-aware routing — `MappedPressureSolver`'s corner face→cell
+  down-hops resolve the `"average"` kind on FV (`_to_cell`), and a
+  conservative J-weighted mapped FV advection form for pure `CellAvg`
+  tracers (per-axis telescoping: `∫J·τ = 0.0` exactly, vs O(1) drift
+  on the nodal consistent form — the genuinely new FV property on
+  terrain; velocities keep the consistent form, momentum is not
+  FV-conserved per FV-D2). Findings: the mapped FV pressure operator
+  is **bitwise** the nodal one (uniform computational columns);
+  adjointness exactly 0.0 (the SPD/CG license carries over); the
+  operator-level mapped FV DOF is the **chart-cell average**
+  (reconciles G8; the "physical-volume" reading holds only for
+  stretched meshes); `_reconstruct_walled_face` stays chart-uniform
+  (measure-weighting would break the transpose pairing). Record:
+  scoping §13.
+
 - **FV biased advection assembles** (2026-07-17) — the blocker the
   upwind5 campaign filed (biased velocity self-advection on any
   FV-default grid died at a `Center` vs `CellAvg` bare-`retag` bridge

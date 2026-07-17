@@ -134,28 +134,32 @@ loudly instead of in the HLO verifier. Evidence, provenance probes, and
 corrections:
 [`../research/multidevice_test_faults.md`](../research/multidevice_test_faults.md).
 
-## Finite-volume nonhydro — mapped FV, biased advection, validation (F5)
+## Finite-volume nonhydro — decisions and validation
 
-Stages F0–F4 and F6 shipped, the model is **FV by default on
-every unmapped, unimmersed grid** — periodic and walled (owner ruling
-2026-07-16) — and the **walled-FV analytic eigenmodes shipped**
-2026-07-17 (bitwise the nodal eigenbasis; entries in
-[`done.md`](done.md)). Only mapped/immersed grids remain nodal-only
-(taught error). Open:
+All FV stages (F0–F6) are shipped — every non-immersed grid serves
+`family="fv"`, unmapped/unimmersed grids are FV by *default*, and the
+FV nonhydro is feature-complete against nodal except cut cells (out
+of scope by decision; entries in [`done.md`](done.md), records in
+the scoping §10–§13). Open:
 
-- **F5** mapped/chart FV — the metric-aware rows on averages (C1/C2
-  chain) and `MappedPressureSolver` (hard-wired nodal). Handoff notes
-  from F4 in the scoping §11 (measure-weighted wall reconstruction,
-  the single remaining `_require_fv_capable` gate).
+- **Owner call: the mapped auto-default.** Terrain-following grids
+  serve explicit `family="fv"` (pressure operator bitwise nodal;
+  tracer advection *conservative* — `∫J·τ = 0` exactly, where the
+  nodal consistent form drifts O(1)). Unlike the walled flip, the
+  advection numbers genuinely change on terrain, so flipping the
+  mapped default is a numerics decision, not a free retype
+  (scoping §13).
+- **Stretched + terrain-following combined** — a grid that is both
+  `MappedIntervalMesh`-stretched and terrain-following would J-weight
+  the conservative form on top of `flux_diff`'s physical-width
+  division; correctness there is unverified (scoping §13 follow-up).
 - **Owner flag:** should `MeridionalStratification`'s `n2` Profile
   pin nodal independent of family? It currently follows the grid
   default onto `CellAvg` (assembles and passes; it never reaches the
-  analytic eigenmode kit — the module deliberately provides no
-  constant `n2`, so `from_model` routes elsewhere). A declaration
-  question about that module, nothing blocks on it.
+  analytic eigenmode kit). A declaration question, nothing blocks.
 - **Validate the FV default on 4 GPUs** — the distributed solve on
   average origins ran only 1-GPU so far (forced-4 CPU asserts the
-  walled FV fast paths, F4), the gpu4 step baseline predates the
+  walled + mapped FV fast paths), the gpu4 step baseline predates the
   nodal sibling cases, and the walled step baselines predate the
   FV default flip (nodal sibling cases exist; re-record both on the
   next GPU campaign).

@@ -20,9 +20,13 @@ the implementation record and the corrections it surfaced. Later the
 same day F4 (walls, FV-D4 — §11) and F6 (hygiene G7/G8/G9 — §12)
 shipped: walled grids serve explicit `family="fv"` at parity with the
 nodal model, and (owner ruling, same day) **walled grids are FV by
-default** — auto = FV iff unmapped and unimmersed.** F5 (mapped/chart
-FV) remains open as staged; the walled-FV *analytic vertical
-eigenmode* stack is a recorded taught gap (§11 addendum).
+default** — auto = FV iff unmapped and unimmersed. On 2026-07-17 the
+walled-FV analytic eigenmodes (§11 second addendum), the FV biased
+advection fix, and **F5 (mapped/chart FV — §13) shipped: every
+non-immersed grid serves `family="fv"`.** The FV nonhydro is
+feature-complete against the nodal model except cut cells (out of
+scope by decision, §9).** Remaining: the mapped auto-default owner
+call and the 4-GPU validation (roadmap).
 
 ## 1. Headline
 
@@ -701,3 +705,76 @@ reaches the analytic kit (the module deliberately provides no constant
 `n2`, so `from_model` routes to the channel engine / a taught error);
 whether it should pin nodal independent of family stays an open
 declaration question on that module ([`../../roadmap/open.md`](../../roadmap/open.md)).
+
+## 13. F5 — mapped/chart FV (shipped 2026-07-17)
+
+Terrain-following grids serve explicit `family="fv"` (merge of
+`feat/fv-mapped`). The headline finding: **F5 needed zero
+spatial-layer changes** — every hop resolved through the F0–F4
+average-family rows; the work was family-aware *routing* in the two
+consuming modules plus the capability gate. And on a terrain-following
+grid the FV mapped pressure operator is **bit-identical** to the nodal
+one (`apply` and `solve` `np.array_equal`): the mapped column rides
+uniform *computational* meshes, so the 2nd-order FV/nodal stencils and
+the cell measure are the same numbers — the §1 headline extends to
+mapped grids.
+
+What shipped:
+
+1. **`MappedPressureSolver` family switch** — one seam: the corner
+   cross *down*-hops (face→cell) resolve the `"average"` kind on FV
+   (`Right|Inner → CellAvg`, the Dirichlet-`Inner` variant zero-padding
+   the wall face) vs `"interpolate"` on nodal (`_to_cell`). Up-hops key
+   on the cell factor and resolve per family with no branch (G4). The
+   FV pair is the exact transpose of the up-hop under the uniform
+   computational measure, so the corner blocks stay exact
+   negative-transposes: `⟨Ap,q⟩−⟨p,Aq⟩` = **exactly 0.0**, `A·1 = 0`
+   exactly — the SPD/CG license carries over bitwise. PCG behavior
+   identical to nodal.
+2. **Conservative J-weighted mapped FV advection** — a pure `CellAvg`
+   tracer takes the flux form decomposed per axis so each J-weighted
+   term telescopes: `∫(J·τ) = 0.0` **exactly** (the nodal consistent
+   form gives O(1) drift — this is the genuinely new FV property on
+   terrain). Velocities (average only transversely) keep the
+   consistent nodal mapped divergence — momentum is not FV-conserved
+   (FV-D2 ledger, unchanged). The nodal cross-term interp is
+   family-aware so an FV velocity's column correction reduces onto
+   `CellAvg` via `"average"`.
+3. **Capability gates** — `_require_fv_capable` rejects **immersed
+   only**; `_fv_capable` (the auto predicate) stays mapped-excluding:
+   **the mapped auto-default stays nodal, an owner decision** — unlike
+   the walled flip, on genuine terrain the *advection* numbers change
+   (conservative vs consistent form), even though the pressure
+   operator is bitwise.
+
+**Corrections to the F4/F5 handoff assumptions:**
+
+1. **DOF semantics (reconciles G8).** On a terrain-following grid
+   (uniform meshes + `CoordinateMapping`) `flux_diff` divides by the
+   *computational* cell width, so the operator-level FV DOF is the
+   **chart/computational-cell average** — consistent with G8's
+   chart-cell `discretize`. The "physical-volume average" reading
+   holds for the **stretched-mesh** (`MappedIntervalMesh`) case only.
+   Physical conservation `∫q dV = ∫Jq dξ` is delivered by the explicit
+   J-weighted advection form, not by the DOF typing.
+2. **`_reconstruct_walled_face` stays chart-uniform** — the F4 handoff
+   suspected measure weighting; wrong for terrain-following columns:
+   weighting the corner hop would break the transpose pairing the SPD
+   license depends on (up_b is unweighted `linear_interp`), and the
+   mimetic symmetry is exactly 0.0 with the uniform mean.
+3. **C1/C2 rows on averages: not needed** — `physical_diff` and the
+   chart `Metric*` calculus are not on the terrain-following nonhydro
+   path; `grid.metric` already materializes on average factors.
+
+**Gates:** mapped-flat identity (constant-H folds to the walled
+`Div@Diag@Grad` <1e-14; FV=nodal mapped 12-step to rounding, jit
+fusion ≤1e-11·scale); adjointness exactly 0.0; machine-zero projected
+divergence; interior J-weighted divergence convergence >1.7 (2nd
+order); stratified conservation exact; forced-4 device-count
+invariance (10 distributed tests); nodal mapped suite untouched
+(28+223+59 green); ruff clean.
+
+**Untested corner (follow-up, deliberately not gated here):** a grid
+both stretched-vertical (`MappedIntervalMesh`) *and* terrain-following
+— the conservative form would J-weight on top of `flux_diff`'s
+physical-width division; correctness there is unverified (roadmap).
