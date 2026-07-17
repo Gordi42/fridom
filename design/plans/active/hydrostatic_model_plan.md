@@ -469,8 +469,13 @@ the `where_zero` mean gauge. `epsilon` is a **static** constructor arg
 (HY-D7) and `extra_halo` (exempts the spectral solve, V-N2 precedent).
 
 **Model-layer additions (two, additive).** (1) The D1.4 coverage lint
-now counts a CONSTRAINT-stage write as covering a PROGNOSTIC field —
-`ps` is advanced only by the projection, genuinely integrated forward.
+now counts a CONSTRAINT-stage **`advances=` claim** as covering a
+PROGNOSTIC field — `ps` is advanced only by the projection, genuinely
+integrated forward, and the stage claims exactly it. *(Corrected
+2026-07-17: the initial H3 form credited a CONSTRAINT stage's whole
+write set, which silenced the lint for the nonhydro2 velocity
+projection and broke three of its tests — full-suite catch; the claim
+form restores them and matches the spec §5.4 amendment pattern.)*
 (2) `composer._implicit_groups`: a non-mergeable custom implicit operator
 overlapping a mergeable family's fields is a taught `ImplicitCollisionError`
 (the §2 latent footgun — the driver's independent solves clobber), both

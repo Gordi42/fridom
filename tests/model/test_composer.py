@@ -726,10 +726,26 @@ def test_coverage_lint_satisfied_by_advance_claim(field_table):
     composer.dry_run()
 
 
-def test_coverage_lint_satisfied_by_constraint_stage(field_table):
+def test_coverage_lint_satisfied_by_constraint_claim(field_table):
     # a PROGNOSTIC field whose whole evolution is a CONSTRAINT-stage
-    # projection (the implicit free surface's ps, HY-D4) is covered:
-    # replaced every step, it is genuinely advanced
+    # projection (the implicit free surface's ps, HY-D4) is covered
+    # iff the stage CLAIMS it via advances= (spec 5.4 amendment)
+    class Project:
+        def project(self, state, _ctx):
+            return {"b": state["b"] * 0.5}
+
+    terms = ((0, TendencyTerm(name="du", fn=Core.du)),)
+    stage = Stage(kind=StageKind.CONSTRAINT, fn=Project.project,
+                  name="project", advances=("b",))
+    composer = make_composer(field_table, modules=(Core(), Project()),
+                             terms=terms, stages=((1, stage),))
+    composer.dry_run()
+
+
+def test_coverage_lint_ignores_unclaimed_constraint_writes(field_table):
+    # a CONSTRAINT stage that merely REPLACES a prognostic (the
+    # nonhydro velocity projection) earns no coverage credit: an
+    # otherwise term-free prognostic still trips the lint
     class Project:
         def project(self, state, _ctx):
             return {"b": state["b"] * 0.5}
@@ -739,7 +755,8 @@ def test_coverage_lint_satisfied_by_constraint_stage(field_table):
                   name="project")
     composer = make_composer(field_table, modules=(Core(), Project()),
                              terms=terms, stages=((1, stage),))
-    composer.dry_run()
+    with pytest.raises(AssemblyError, match="coverage lint"):
+        composer.dry_run()
 
 
 def test_coverage_lint_downgrades_under_filter(field_table):

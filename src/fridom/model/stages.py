@@ -107,8 +107,12 @@ class Stage:
         same-kind stages with overlapping write sets and equal
         order (default: 0).
     advances : tuple[str, ...]
-        ADVANCE only: the named PROGNOSTIC subset this stage
-        advances; counts as "advanced" in the coverage lint
+        ADVANCE or CONSTRAINT only: the named PROGNOSTIC subset this
+        stage advances; counts as "advanced" in the coverage lint
+        (spec 5.4 lint amendment). A CONSTRAINT stage claims only
+        the fields it genuinely integrates forward (the implicit
+        free surface claims its ``ps``), not its whole write set —
+        a projection that merely corrects velocities claims nothing
         (default: ()).
     reads : tuple[str, ...]
         SELF_UPDATE only: state inputs — the V-H5 scheduling
@@ -121,8 +125,8 @@ class Stage:
         If `kind` is not a ``StageKind`` member or `fn` is neither
         callable nor a method-name string.
     ValueError
-        If `advances` is set on a non-ADVANCE kind or `reads` is set
-        on a non-SELF_UPDATE kind.
+        If `advances` is set on a kind that is neither ADVANCE nor
+        CONSTRAINT, or `reads` is set on a non-SELF_UPDATE kind.
     """
 
     kind: StageKind
@@ -144,9 +148,10 @@ class Stage:
                 f"{self.fn!r}")
         object.__setattr__(self, "advances", tuple(self.advances))
         object.__setattr__(self, "reads", tuple(self.reads))
-        if self.advances and self.kind is not StageKind.ADVANCE:
+        if self.advances and self.kind not in (
+                StageKind.ADVANCE, StageKind.CONSTRAINT):
             raise ValueError(
-                f"advances= is ADVANCE-only, got it on "
+                f"advances= is ADVANCE/CONSTRAINT-only, got it on "
                 f"{self.kind.name}")
         if self.reads and self.kind is not StageKind.SELF_UPDATE:
             raise ValueError(
