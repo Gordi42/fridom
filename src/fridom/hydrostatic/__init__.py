@@ -40,6 +40,7 @@ if TYPE_CHECKING:  # pragma: no cover
     from .modules.free_surface import (
         ExplicitFreeSurface,
         ImplicitFreeSurface,
+        SplitExplicitFreeSurface,
     )
     from .modules.stratification import ConstantStratification
     from .state import State
@@ -58,7 +59,8 @@ all_imports_by_origin = {
     f"{base}.modules.core": ["HydrostaticCore"],
     f"{base}.modules.stratification": ["ConstantStratification"],
     f"{base}.modules.free_surface": [
-        "ExplicitFreeSurface", "ImplicitFreeSurface"],
+        "ExplicitFreeSurface", "ImplicitFreeSurface",
+        "SplitExplicitFreeSurface"],
     # the Coriolis family is the shared framework module library
     "fridom.model.modules": [
         "FPlaneCoriolis", "BetaPlaneCoriolis", "RotationCoriolis"],
