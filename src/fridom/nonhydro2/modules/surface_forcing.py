@@ -18,13 +18,21 @@ profiles, and bind-time validation rather than duplicating them.
   enters the wall-adjacent cell as :math:`\partial_t u = s(t)\,\tau_x\,W`,
   which for a right/top wall is exactly the generic
   ``BoundaryFlux("u", coord, side, flux=-tau_x)`` (internally
-  :math:`q = -\tau`). The single scale is published as
-  ``wind_stress.scale``.
+  :math:`q = -\tau`). The scale is published as
+  ``wind_stress.<coord>_<side>.scale``.
 - ``SurfaceBuoyancyFlux(q, coord, side, scale)`` is a thin subclass of
   ``BoundaryFlux`` on ``b``: a positive ``q`` is a buoyancy *gain* at the
   wall, so internally ``flux = sign(side) * q`` (``-q`` at a right/top
-  wall). The scale is the inherited
-  ``boundary_flux.b.<coord>_<side>.scale``.
+  wall). The scale is published as
+  ``surface_buoyancy_flux.<coord>_<side>.scale``.
+
+Both scale names carry the ``(coord, side)`` so instances at opposite
+walls coexist (heating the top and cooling the bottom — the
+Rayleigh-Benard idealization; symmetric wind stress at two walls
+likewise), while duplicates on one ``(coord, side)`` still collide (the
+declaration-collision error — intended). The bespoke class prefix keeps
+``model.update_parameters`` names matching the class the user
+instantiated.
 """
 from __future__ import annotations
 
@@ -100,9 +108,10 @@ class WindStress(Module):
     ``tau_y`` in ``+y``) regardless of the wall — the oceanographic
     convention (BF-D4). The stresses are kinematic (:math:`\tau/\rho_0`,
     model units), numbers or callables of the tangential coordinate
-    names. The single scale is published as the dynamic-leaf parameter
-    ``wind_stress.scale`` (``fr.Ramp``- / ``TimeDependent``-capable), so
-    ``model.update_parameters`` sweeps it without re-assembly. For a
+    names. The scale is published as the dynamic-leaf parameter
+    ``wind_stress.<coord>_<side>.scale`` (``fr.Ramp``- /
+    ``TimeDependent``-capable), so ``model.update_parameters`` sweeps it
+    without re-assembly and instances at opposite walls coexist. For a
     right/top wall the ``u`` term equals
     ``fr.modules.BoundaryFlux("u", coord, side, flux=-tau_x)``.
 
@@ -151,8 +160,9 @@ class WindStress(Module):
         self._taux_name: str = f"windstress_{tag}_taux"
         self._tauy_name: str = f"windstress_{tag}_tauy"
         self._scale_name: ParamName = ParamName(
-            "wind_stress.scale", units="n/a",
-            hint="provided by the nh.WindStress instance")
+            f"wind_stress.{tag}.scale", units="n/a",
+            hint="provided by the nh.WindStress instance at the "
+                 f"{coord} {side} wall")
 
     # ================================================================
     #  Properties
@@ -273,10 +283,12 @@ class SurfaceBuoyancyFlux(BoundaryFlux):
     surface *gain* — heating the top), the oceanographic convention
     (BF-D4). Internally the generic flux is ``sign(side) * q`` (``-q`` at
     a right/top wall), so the wall-adjacent tendency is
-    :math:`\partial_t b = s(t)\,q\,W` with :math:`W = 1/\Delta n`. All
-    the generic machinery (wall weight, flux profile, bind-time taught
-    errors, the scale parameter ``boundary_flux.b.<coord>_<side>.scale``)
-    is inherited.
+    :math:`\partial_t b = s(t)\,q\,W` with :math:`W = 1/\Delta n`. The
+    generic machinery (wall weight, flux profile, bind-time taught
+    errors) is inherited; the scale is published under the wrapper's own
+    name ``surface_buoyancy_flux.<coord>_<side>.scale``, so instances at
+    opposite walls coexist (heating the top and cooling the bottom)
+    while duplicates on one wall still collide.
 
     Parameters
     ----------
@@ -310,3 +322,12 @@ class SurfaceBuoyancyFlux(BoundaryFlux):
         super().__init__(
             "b", coord, side,
             flux=_signed_flux(_SIGN[side], q), scale=scale)
+
+    def _make_scale_name(
+        self, field: str, coord: str, side: str,  # noqa: ARG002
+    ) -> ParamName:
+        """Publish the scale under the wrapper's own class name (BF-D4)."""
+        return ParamName(
+            f"surface_buoyancy_flux.{coord}_{side}.scale", units="n/a",
+            hint="provided by the nh.SurfaceBuoyancyFlux instance at "
+                 f"the {coord} {side} wall")

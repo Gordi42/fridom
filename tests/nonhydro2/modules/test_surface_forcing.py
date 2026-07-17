@@ -84,11 +84,11 @@ def test_windstress_forces_u_and_v_from_one_module():
     assert terms[0].advances == ("u", "v")
 
 
-def test_windstress_publishes_the_shared_scale():
+def test_windstress_publishes_a_side_qualified_scale():
     ws = nh.WindStress(tau_x=0.2)
     model = make_model(ws)
-    assert ws.scale_parameter == "wind_stress.scale"
-    assert "wind_stress.scale" in model.parameters
+    assert ws.scale_parameter == "wind_stress.z_right.scale"
+    assert "wind_stress.z_right.scale" in model.parameters
 
 
 def test_windstress_update_parameters_sweeps_the_scale():
@@ -128,9 +128,9 @@ def test_positive_q_is_a_buoyancy_gain_at_the_wall(side, idx):
                                rtol=1e-11, atol=1e-13)
 
 
-def test_surface_buoyancy_flux_scale_is_the_inherited_name():
+def test_surface_buoyancy_flux_publishes_its_own_scale_name():
     sb = nh.SurfaceBuoyancyFlux(0.5)
-    assert sb.scale_parameter == "boundary_flux.b.z_right.scale"
+    assert sb.scale_parameter == "surface_buoyancy_flux.z_right.scale"
     model = make_model(sb)
     before = np.asarray(
         model.tendency(model.state, constraints=False)["b"].data)
@@ -150,6 +150,45 @@ def test_combined_wind_and_buoyancy_stays_finite():
     assert not model.panicked
     for comp in ("u", "v", "w", "b"):
         assert np.isfinite(np.asarray(model.state[comp].data)).all()
+
+
+# ================================================================
+#  Opposite-wall coexistence and same-wall collision (side-qualified)
+# ================================================================
+def test_top_and_bottom_buoyancy_flux_coexist():
+    # heating the top and cooling the bottom (Rayleigh-Benard): the
+    # side-qualified scale names and AUXILIARY field names must not clash
+    model = make_model(nh.SurfaceBuoyancyFlux(0.5, side="right"),
+                       nh.SurfaceBuoyancyFlux(-0.3, side="left"))
+    params = model.parameters
+    assert "surface_buoyancy_flux.z_right.scale" in params
+    assert "surface_buoyancy_flux.z_left.scale" in params
+    model.advance(4)
+    assert not model.panicked
+    b = np.asarray(model.state["b"].data)
+    assert b[0, 0, -1] > 0   # gain at the top
+    assert b[0, 0, 0] < 0    # loss at the bottom
+
+
+def test_top_and_bottom_wind_stress_coexist():
+    model = make_model(nh.WindStress(tau_x=0.3, side="right"),
+                       nh.WindStress(tau_x=0.3, side="left"))
+    params = model.parameters
+    assert "wind_stress.z_right.scale" in params
+    assert "wind_stress.z_left.scale" in params
+    model.advance(4)
+    assert not model.panicked
+
+
+def test_two_buoyancy_fluxes_on_the_same_wall_collide():
+    with pytest.raises(Exception, match=r"surface_buoyancy_flux|bflux_b"):
+        make_model(nh.SurfaceBuoyancyFlux(0.5),
+                   nh.SurfaceBuoyancyFlux(0.3))
+
+
+def test_two_wind_stresses_on_the_same_wall_collide():
+    with pytest.raises(Exception, match=r"wind_stress|windstress_"):
+        make_model(nh.WindStress(tau_x=0.1), nh.WindStress(tau_x=0.2))
 
 
 # ================================================================

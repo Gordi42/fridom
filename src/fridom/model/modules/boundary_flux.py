@@ -341,8 +341,25 @@ class BoundaryFlux(Module):
         tag = f"{coord}_{side}"
         self._weight_name: str = f"bflux_{field}_{tag}_weight"
         self._flux_name: str = f"bflux_{field}_{tag}_flux"
-        self._scale_name: ParamName = ParamName(
-            f"boundary_flux.{field}.{tag}.scale", units="n/a",
+        self._scale_name: ParamName = self._make_scale_name(
+            field, coord, side)
+
+    def _make_scale_name(
+        self, field: str, coord: str, side: str,
+    ) -> ParamName:
+        """Build the published scale parameter name (wrappers override).
+
+        The generic module namespaces the scale by the forced field and
+        the wall, ``boundary_flux.<field>.<coord>_<side>.scale``. The
+        model-package wrappers (BF-D4) override this to publish under
+        their own class name, so ``model.update_parameters`` names match
+        the class the user instantiated. Because the name carries the
+        ``(coord, side)``, instances at opposite walls coexist while
+        duplicates on one wall still collide (the declaration-collision
+        error — intended).
+        """
+        return ParamName(
+            f"boundary_flux.{field}.{coord}_{side}.scale", units="n/a",
             hint="provided by the fr.modules.BoundaryFlux instance "
                  f"forcing {field!r} at the {coord} {side} wall")
 
