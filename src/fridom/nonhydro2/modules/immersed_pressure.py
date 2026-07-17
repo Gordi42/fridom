@@ -126,7 +126,13 @@ class ImmersedPressureSolver:
     dsqr : jax.Array | float
         The live squared-aspect-ratio leaf.
     iterations : int
-        The fixed CG iteration budget (``pressure_iterations``).
+        The fixed CG iteration budget (``pressure_iterations``). The
+        maximum budget when a ``tolerance`` is set.
+    tolerance : float | None, optional
+        An optional PCG convergence break forwarded to
+        :class:`ConjugateGradient` (the measure-weighted true relative
+        residual; masked scan, exact gradient — see its docstring).
+        ``None`` runs the fixed ``iterations`` count (default: None).
     single_precision : bool, optional
         Run the spectral *preconditioner* in single precision while the
         CG iterates, the operator and the inner products stay
@@ -150,6 +156,7 @@ class ImmersedPressureSolver:
         vertical: str,
         dsqr: jax.Array | float,
         iterations: int,
+        tolerance: float | None = None,
         single_precision: bool = False,
     ) -> None:
         """Resolve the flux rows and fetch the fraction fields."""
@@ -173,6 +180,7 @@ class ImmersedPressureSolver:
         self._vertical = vertical
         self._dsqr = dsqr
         self._iterations = iterations
+        self._tolerance = tolerance
         self._single_precision = bool(single_precision)
         self._immersed = immersed
         self._axes: tuple[str, ...] = self._space.active_axis_names
@@ -239,6 +247,11 @@ class ImmersedPressureSolver:
     def iterations(self) -> int:
         """The fixed CG iteration count (static)."""
         return self._iterations
+
+    @property
+    def tolerance(self) -> float | None:
+        """The optional PCG convergence break (None = fixed count)."""
+        return self._tolerance
 
     # ================================================================
     #  The operator, its right-hand side, and the velocity update
@@ -405,6 +418,7 @@ class ImmersedPressureSolver:
             self.apply,
             preconditioner=self._preconditioner(),
             iterations=self._iterations,
+            tolerance=self._tolerance,
             projection=self._projection)
 
     def solve(

@@ -436,6 +436,20 @@ promote one only when its trigger appears:*
   `decomposition/tensor.py`). No hot-loop consumer exists — the Neumann
   pressure sibling keeps the pressure-space shape. Revisit only if a
   Neumann-outer field enters a hot loop.
+- **CG convergence tolerance — GPU re-measure inside the model step.**
+  The opt-in masked-scan `tolerance` shipped 2026-07-17 (entry in
+  [`done.md`](done.md); research
+  [`../research/cg_stopping_criterion.md`](../research/cg_stopping_criterion.md)).
+  The 3× forward win (8.2 vs 24.6 ms, converge-at-5-of-30) is **CPU
+  micro-timing** on a standalone 48³ solve; XLA:GPU buffer assignment
+  inside the real chunked step can reverse standalone loop wins (the
+  padded-carry experiment did exactly that, krylov docstring). Lever:
+  re-measure the masked-scan win on A100 inside `_chunk_body`
+  (`benchmarks/model`, nh_mapped cases) before claiming a step-level
+  speedup; only with a green GPU step-benchmark — plus operational
+  experience with the floor trap — reconsider a **default-on** tolerance
+  (today default-off on purpose: results shift at the tolerance level in
+  tuned configs and a safe default is problem-dependent).
 
 ## Differentiable run surface — `model.propagator()`
 

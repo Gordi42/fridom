@@ -571,3 +571,50 @@ def test_mapped_model_is_treedef_stable():
     model.advance(3)
     assert jax.tree_util.tree_structure(model._carry) == before
     assert not model.panicked
+
+
+# ================================================================
+#  Optional convergence tolerance (plumbing to ConjugateGradient)
+# ================================================================
+def test_mapped_solver_carries_the_tolerance():
+    solver, *_ = build_solver(tolerance=1e-8)
+    assert solver.tolerance == 1e-8
+    assert solver.krylov().tolerance == 1e-8
+
+
+def test_mapped_solver_default_tolerance_is_none():
+    solver, *_ = build_solver()
+    assert solver.tolerance is None
+    assert solver.krylov().tolerance is None
+
+
+def test_model_threads_pressure_tolerance_to_the_core():
+    def core_of(model):
+        return next(m for m in model._carry.modules
+                    if type(m).__name__ == "DynamicalCore")
+    assert core_of(
+        make_mapped_model(pressure_tolerance=1e-9))._pressure_tolerance \
+        == 1e-9
+    assert core_of(make_mapped_model())._pressure_tolerance is None
+
+
+def test_mapped_model_pressure_tolerance_matches_fixed_run():
+    # a firing tolerance and the fixed budget project to the same state
+    # (the tolerance only stops refining once the residual is below
+    # 1e-10 * ||b||, well inside the fixed-iteration floor)
+    def run(**kw):
+        model = make_mapped_model(dsqr=DSQR, **kw)
+        hor = (np.arange(8) + 0.5) * (2 * np.pi / 8)
+        ver = (np.arange(8) + 0.5) / 8
+        x, y, z = np.meshgrid(hor, hor, ver, indexing="ij")
+        model.set_fields(u=np.sin(x) * np.cos(y), v=0.3 * np.cos(x),
+                         b=0.01 * np.cos(np.pi * z))
+        model.advance(3)
+        return model
+
+    tol = run(pressure_tolerance=1e-10)
+    fixed = run()
+    assert not tol.panicked
+    for k in ("u", "v", "w"):
+        assert np.allclose(np.asarray(tol.state[k].data),
+                           np.asarray(fixed.state[k].data), atol=1e-9)

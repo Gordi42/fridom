@@ -400,6 +400,14 @@ class DynamicalCore(fr.model.Module):
         declares a mapped column *and* on an immersed (cut-cell) grid
         — both run the fixed-iteration PCG. The flat spectral solve is
         exact and iterates nothing (default: 30).
+    pressure_tolerance : float | None, optional
+        An optional PCG convergence break forwarded to the mapped and
+        immersed pressure solvers (the measure-weighted true relative
+        residual; masked scan, exact gradient — see
+        :class:`ConjugateGradient`). ``pressure_iterations`` becomes the
+        maximum budget. ``None`` runs the fixed count; the tolerance
+        should sit above the residual floor (~1e-14) or it never fires
+        (default: None).
     family : str | None, optional
         The discretization family of the whole core state (FV-D3,
         stage F3): ``"fv"`` declares ``u, v, w, p`` on the
@@ -429,6 +437,7 @@ class DynamicalCore(fr.model.Module):
         coords: tuple[str, ...] = ("x", "y", "z"),
         single_precision_solve: bool = False,
         pressure_iterations: int = 30,
+        pressure_tolerance: float | None = None,
         family: str | None = None,
     ) -> None:
         """Store the core parameter leaves and the geometry names."""
@@ -442,6 +451,7 @@ class DynamicalCore(fr.model.Module):
         self._coords = coords
         self._single_precision_solve = bool(single_precision_solve)
         self._pressure_iterations = pressure_iterations
+        self._pressure_tolerance = pressure_tolerance
         self._family = family
 
     # ================================================================
@@ -660,6 +670,7 @@ class DynamicalCore(fr.model.Module):
             state["p"].function_space,
             weights={self._vertical: 1.0 / dsqr},
             iterations=self._pressure_iterations,
+            tolerance=self._pressure_tolerance,
             single_precision=self._single_precision_solve,
             params=mapping_params(state, grid))
         # one metric derivation for the whole projection: divergence,
@@ -709,6 +720,7 @@ class DynamicalCore(fr.model.Module):
             vertical=self._vertical,
             dsqr=dsqr,
             iterations=self._pressure_iterations,
+            tolerance=self._pressure_tolerance,
             single_precision=self._single_precision_solve)
         p, corr = solver.project(vel)
         return {

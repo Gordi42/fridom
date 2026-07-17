@@ -76,6 +76,43 @@ Implementation record:
 
 ## Landed since, outside the numbered tasks
 
+- **CG pressure solve — opt-in convergence tolerance**
+  (2026-07-17) — a keyword-only `tolerance: float | None = None` on
+  `ConjugateGradient`
+  ([`krylov.py`](../../src/fridom/spatial/operators/krylov.py)) stops
+  refining once the measure-weighted true relative residual clears
+  `tolerance · sqrt(<b,b>)` (compared squared; zero RHS converges
+  immediately). Mechanism: a **masked `lax.scan`** — the fixed scan
+  keeps its static length, but each step wraps the real CG step in
+  `lax.cond(converged, no-op, real_step)`, so past convergence every
+  step is a runtime no-op (`lax.cond` → real `stablehlo.case`, ~3×
+  forward on CPU at converge-at-5-of-30). Chosen over
+  `while_loop` + `custom_linear_solve` because `scan` + `cond`
+  differentiate the **actual truncated algorithm** — `jax.grad` stays
+  exact to FD precision (the repo invariant, no `custom_vjp`, no
+  transpose machinery) whereas the IFT gradient errs ∝ tolerance and
+  hides a `symmetric=True` 70 %-wrong-grad trap on measure-weighted-
+  self-adjoint operators. `tolerance=None` is the pre-existing fixed
+  path **byte for byte** (a sub-floor tolerance that never fires is
+  measured bitwise-identical). Threaded as `tolerance=` /
+  `pressure_tolerance=` through the mapped
+  ([`mapped_pressure.py`](../../src/fridom/nonhydro2/modules/mapped_pressure.py))
+  and immersed
+  ([`immersed_pressure.py`](../../src/fridom/nonhydro2/modules/immersed_pressure.py))
+  pressure solvers, `DynamicalCore`, the `nh.Model` factory, and
+  `hy.ImplicitFreeSurface` — all default `None`, pure passthrough; the
+  flat spectral paths are untouched. Caveats documented: keep the
+  tolerance above the ~1e-14 residual floor (below it the cond never
+  fires and the fixed-iteration post-floor `tiny/tiny` NaNs the reverse
+  gradient — a firing tolerance *removes* this pre-existing hazard) and
+  do not `vmap` it (`cond` → compute-both `select`). Default-off on
+  purpose (results shift at the tolerance level in tuned configs; a safe
+  default is problem-dependent). The end-to-end tolerance autodiff
+  regression rides the **immersed** consumer — the mapped model is
+  pre-existing-non-reverse-differentiable in this geometry (a metric
+  singularity, `tolerance=None` NaNs identically). GPU step-level
+  re-measure + a default-on revisit: [`open.md`](open.md). Research:
+  [`../research/cg_stopping_criterion.md`](../research/cg_stopping_criterion.md).
 - **Multigrid pathway, phase A — the grid transfer layer**
   (2026-07-17, merge `fae44be4`) — grid-to-grid transfer on the new
   stack: `Mesh.coarsened` / `Grid.coarsened` (independent coarse
