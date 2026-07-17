@@ -266,3 +266,36 @@ scan goes non-finite on GPU"). The linear mapped step exercises the
 identical per-step PCG projection the early-exit lives in (and is
 what the official `nh_mapped` benchmark runs), so the measurement
 stands.
+
+## Addendum (2026-07-17): the mapped-projection residual floor is backend-independent
+
+`tests/validation/test_terrain_following_pressure.py::test_mapped_projection_is_device_count_invariant`
+(a 16² terrain-following `zp = σ·H(x)`, gentle H = 1 + 0.2 sin x,
+fixed 12-iteration mapped PCG) asserts two things: (a) device-count
+invariance `p4 == p1` to atol 1e-11, and (b) an absolute post-
+correction residual `max|div(u − ∇p)| < 1e-9·scale` where scale =
+max|div| ≈ 95.9. Gate (a) holds on every backend. Gate (b) was **red
+on real 4×A100** — the residual sits at **1.0301303e-6** (relative
+residual ≈ 1.07e-8 of the scale-95.9 initial divergence), ~11× over
+the 9.6e-8 threshold.
+
+The initial GPU-red observation invited a "CPU-tuned threshold /
+CPU-vs-GPU convergence gap" reading. **Direct measurement refutes
+that gap.** Sweeping the pinned iteration count 12→16→…→60 on the GPU
+holds the residual dead flat at 1.0301303e-6 — the fixed-iteration CG
+has already reached its float64 stagnation floor by iteration 12; more
+iterations buy nothing (it is a roundoff floor, not slow
+convergence). And **forced-CPU-4 measures the identical 1.0301303e-6**
+and fails the same assertion — the two backends differ only in the
+last few ulps of the invariant `p` (well inside the 1e-11 gate). So
+the floor is a property of the fixed 12-iteration mapped operator in
+float64, **not** a backend artifact; the old 1e-9·scale gate simply
+demanded a relative residual below the achievable CG floor, so it was
+latently red on *any* real multi-device backend (the test is
+`@pytest.mark.multi_device`, so single-device CI skips it and never
+exercised it). Fix: keep the tight invariance gate, relax the absolute
+gate to `1e-7·scale` (still a >7-orders-of-magnitude reduction check,
+~9× margin over the floor); green on both real-GPU-4 and forced-CPU-4.
+No backend-aware split was warranted because there is no backend gap.
+Measured on DKRZ 4×A100-SXM4-80GB, jax 0.10.2 cuda12, `multi_output_
+fusion` disabled, branch `test/mapped-multigrid-gpu-validation`.

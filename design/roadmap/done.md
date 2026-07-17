@@ -209,7 +209,11 @@ Implementation record:
   Gates: GB-4 compile-once, HLO flat in the CG iteration count; GB-5
   forced-4 parity incl. a replicated coarse level (MG-D5); autodiff
   regression through the immersed multigrid step (the smoothers'
-  dry-cell double-`where` guards hold). The GB-2 wall-clock leg was
+  dry-cell double-`where` guards hold). GB-5 real multi-GPU validated
+  2026-07-17 (DKRZ 4×A100): the eight multi-device parity tests pass on
+  real 4 GPUs single-process, and a real `srun -n 4` multi-process
+  steep-mapped multigrid model run matches its single-device reference
+  to 5.6e-17 (plan §3, GB-5 outcome). The GB-2 wall-clock leg was
   measured on the A100 the same day and **fails**: 5.5–13.4× slower
   ms/step than spectral at 128/192/256³ (one V-cycle ≈ 66× a spectral
   CG iteration at 128³ — the sequential vertical-line Thomas smoother

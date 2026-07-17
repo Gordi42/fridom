@@ -524,10 +524,6 @@ The semicoarsened V-cycle preconditioner shipped 2026-07-17 (the
   is load-bearing for the semicoarsening hierarchy). Free side
   benefit: the same swap speeds the IMEX implicit vertical-diffusion
   solve (shared kernel).
-- **Real multi-GPU validation** — forced-4 parity is asserted in the
-  suite (incl. the replicated coarse level, MG-D5); a real
-  `srun -n 4` run joins the next campaign, same status as the
-  FV-default flip and the immersed PCG paths.
 
 ## Differentiable run surface — `model.propagator()`
 
