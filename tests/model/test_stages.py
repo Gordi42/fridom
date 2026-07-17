@@ -88,9 +88,15 @@ def test_rejects_non_callable_non_string_fn():
         Stage(kind=StageKind.DIAGNOSE, fn=42)
 
 
-def test_advances_is_advance_only():
-    with pytest.raises(ValueError, match="ADVANCE-only"):
+def test_advances_is_advance_or_constraint_only():
+    with pytest.raises(ValueError, match="ADVANCE/CONSTRAINT-only"):
         Stage(kind=StageKind.DIAGNOSTIC, fn=body, advances=("u",))
+
+
+def test_advances_accepted_on_constraint():
+    # the implicit free surface's ps claim (spec 5.4 lint amendment)
+    stage = Stage(kind=StageKind.CONSTRAINT, fn=body, advances=("ps",))
+    assert stage.advances == ("ps",)
 
 
 def test_reads_is_self_update_only():

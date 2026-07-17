@@ -587,30 +587,30 @@ class TendencyComposer:
 
         Description
         -----------
-        A PROGNOSTIC field is "advanced" iff a term writes it, an
-        ADVANCE stage claims it (the barotropic subcycle — spec §5.4
-        amendment), **or** a CONSTRAINT stage replaces it: a
-        surface-pressure ``ps`` whose whole evolution is a
-        CONSTRAINT-stage projection (the implicit free surface, HY-D4)
-        carries no tendency term yet is genuinely integrated forward
-        every step, so the projection covers it.
+        A PROGNOSTIC field is "advanced" iff a term writes it, or an
+        ADVANCE **or CONSTRAINT stage claims it** via ``advances=``
+        (the spec §5.4 lint amendment; the barotropic subcycle and
+        the implicit free surface's ``ps``, HY-D4). A CONSTRAINT
+        stage's unclaimed writes earn no credit: the nonhydro
+        pressure projection replaces the velocities without
+        advancing them, and silencing the lint for those would hide
+        a genuinely term-free prognostic.
         """
         advanced: set[str] = set()
         for entry, observed in writes.items():
             if entry.is_term:
                 advanced |= observed
-            elif entry.kind is StageKind.ADVANCE:
+            elif entry.kind in (StageKind.ADVANCE,
+                                StageKind.CONSTRAINT):
                 advanced |= set(entry.advances or ())
-            elif entry.kind is StageKind.CONSTRAINT:
-                advanced |= observed
         uncovered = tuple(name for name in self._prognostic
                           if name not in advanced)
         if not uncovered:
             return
         message = (
             f"PROGNOSTIC fields {uncovered} are advanced by no "
-            "term, claimed by no ADVANCE stage, and replaced by no "
-            "CONSTRAINT stage (coverage lint, D1.4)")
+            "term and claimed by no ADVANCE/CONSTRAINT stage "
+            "(coverage lint, D1.4)")
         if self._term_filter is not None:
             # info downgrade under a variant filter (08 10.4)
             warnings.warn(message, stacklevel=3)
