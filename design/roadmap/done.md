@@ -76,6 +76,45 @@ Implementation record:
 
 ## Landed since, outside the numbered tasks
 
+- **Stretched + terrain-following combined — answered and shipped**
+  (2026-07-17, merges `1c8614c0`, `0a887fa9`, `d338538c`, `4906b8db`,
+  `7fba1bfe`) — the roadmap correctness question resolved
+  ([`../research/stretched_terrain_combined.md`](../research/stretched_terrain_combined.md):
+  **no double-count** — stretching lives in `grid.measure` widths,
+  terrain in the chart `J`, exactly complementary factors of one
+  Jacobian; the conservative FV advection was *already*
+  correct/conservative/2nd-order on combined grids) and every
+  downstream gap closed the same day on the record's §7-addendum
+  rulings: **(1)** the `jacobian=` seam wired for analytic `maps=`
+  grids — `sqrt_g` derived (∏ column Jacobians, single-base only),
+  the gate re-keyed chart-coordinate → base-axis through the shared
+  `jacobian_weight` helper, the silent no-op now a taught error;
+  **(2)** the mapped pressure solve on stretched columns — the
+  measure-adjoint base-axis corner down-hop (`down_b =
+  diag(1/m_cell)·up_bᵀ·diag(m_inner)`) restores SPD under the
+  physical inner product to machine zero, spectral-on-stretched is a
+  taught error, `preconditioner="none"` added as the correctness
+  stopgap; **(3)** the multigrid V-cycle consumes `grid.measure`
+  widths (vertical bands, diagonal, coarse levels; the transfers
+  were already measure-adjoint): **7 PCG iterations flat** across
+  16²–64² and up to ~20:1 stretch vs 221→non-convergent
+  unpreconditioned, uniform columns bitwise unchanged; **(4)** the
+  pre-existing storage-frame measure-divide masked singularity
+  (`staggering.py`) guarded with the double-`where` — every bounded
+  stretched-mesh `diff`, and the end-to-end stretched+terrain solve,
+  is now reverse-differentiable (grad = FD in-suite; the one
+  flagged-but-safe sibling, `MetricScaled`, in `open.md`); **(5)**
+  the hydrostatic model gained its **sigma-coordinate core**:
+  J-weighted `p_hyd` (2nd order on uniform and stretched columns;
+  previously silently 27% wrong on terrain), contravariant-`w`
+  diagnosis (machine-exact flux-form FTC, exact bottom seed), the
+  slope-corrected pressure gradient built as the exact discrete
+  adjoint of continuity (rest-over-topography converges at 2nd
+  order; baroclinic and barotropic energy legs machine-precision),
+  physical-depth explicit free surface; implicit + split-explicit
+  on charts are taught errors (the variable-csqr route, hydrostatic
+  plan §7–§8). Residuals tracked in [`open.md`](open.md).
+
 - **CG pressure solve — opt-in convergence tolerance**
   (2026-07-17) — a keyword-only `tolerance: float | None = None` on
   `ConjugateGradient`
@@ -170,7 +209,11 @@ Implementation record:
   Gates: GB-4 compile-once, HLO flat in the CG iteration count; GB-5
   forced-4 parity incl. a replicated coarse level (MG-D5); autodiff
   regression through the immersed multigrid step (the smoothers'
-  dry-cell double-`where` guards hold). The GB-2 wall-clock leg was
+  dry-cell double-`where` guards hold). GB-5 real multi-GPU validated
+  2026-07-17 (DKRZ 4×A100): the eight multi-device parity tests pass on
+  real 4 GPUs single-process, and a real `srun -n 4` multi-process
+  steep-mapped multigrid model run matches its single-device reference
+  to 5.6e-17 (plan §3, GB-5 outcome). The GB-2 wall-clock leg was
   measured on the A100 the same day and **fails**: 5.5–13.4× slower
   ms/step than spectral at 128/192/256³ (one V-cycle ≈ 66× a spectral
   CG iteration at 128³ — the sequential vertical-line Thomas smoother

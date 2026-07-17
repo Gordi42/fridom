@@ -96,6 +96,19 @@ memory ceiling, time-to-first-step, WENO throughput (entries in
   question, parity-sensitive, unprobed
   ([`../research/upwind5_revisit.md`](../research/upwind5_revisit.md)
   §6).
+- **Hydro surface-flux correction: slice-only `A(1)`.** The H7
+  constancy-preserving surface advective flux (owner-ratified
+  default, [`../plans/active/hydrostatic_model_plan.md`](../plans/active/hydrostatic_model_plan.md)
+  §H7) costs +18–49% on `se_centered` and +11–36% on `se_weno5`
+  hydro steps in the comparison suite (worst at 2048²×64, resweep
+  2026-07-17), flipping centered hydro from ~break-even to
+  0.79–0.88 oc/fridom; `*_linear` configs unaffected. The correction
+  `−q·A(1)` is mathematically nonzero **only in boundary-adjacent
+  cells**, yet is evaluated as full-3D flux divergences (one per
+  advected field per axis, memory-bound; face-velocity reuse is
+  already XLA-CSE'd — measured perf-neutral). Lever: evaluate `A(1)`
+  on the boundary-adjacent 2D slice only; needs a DSL
+  slice/restriction path on the advecting-velocity faces.
 
 ## Channel eigenmodes on multi-device — two upstream repros to file
 
@@ -166,29 +179,32 @@ and the FV nonhydro is feature-complete against nodal except cut cells
 (out of scope by decision; entries in [`done.md`](done.md), records in
 the scoping §10–§13). Open:
 
-- **Stretched + terrain-following combined** — the correctness
-  question is answered
-  ([`../research/stretched_terrain_combined.md`](../research/stretched_terrain_combined.md),
-  2026-07-17): **no double-count** — stretching (measure widths) and
-  terrain (chart J) factor exactly, and the conservative FV
-  advection is already correct on the combined grid (conservation
-  machine zero, constancy aligned with the projection divergence,
-  2nd order under 15:1 stretch). What remains is downstream: the
-  mapped pressure solve dies on a stretched column (spectral
-  preconditioner unbuildable — cryptic `DispatchError`, no gate;
-  SPD lost in the corner cross hops — measure-adjoint down-hop
-  recipe probed to machine zero, record §3; multigrid V-cycle is
-  the preconditioner candidate), the hydrostatic model has **no
-  terrain support at all** (runs silently with 27%-wrong `p_hyd`;
-  four metric-free sites, record §4), and the cumint `jacobian=`
-  seam is unwired for `maps=` grids (silent no-op / unknown-metric
-  raise). All four owner calls **ruled 2026-07-17** (record §7
-  addendum): N1+N2 with a plain-CG stopgap; hydrostatic core build
-  H0–H2+H4 with the explicit/split depth fix (implicit H3 deferred
-  behind a taught error); multigrid learns `grid.measure` widths
-  (no interim Thomas route); the `jacobian=` seam wired properly
-  (`sqrt_g` for `maps=`, name re-key, taught error — H1 consumes
-  the seam, superseding route a). Implementation open.
+- **Stretched + terrain-following combined — residuals.** The
+  correctness question and the implementation campaign shipped
+  2026-07-17 (entry in [`done.md`](done.md); research + rulings in
+  [`../research/stretched_terrain_combined.md`](../research/stretched_terrain_combined.md)).
+  Open:
+  - **Shared mapped advection `Z/J` divide unguarded** — the nodal
+    consistent mapped divergence (`model/modules/advection.py`)
+    NaN-poisons reverse mode on bounded terrain grids (the same
+    masked-singularity class as the fixed `staggering.py` divide),
+    so nonlinear terrain advection is forward-only; the hydrostatic
+    terrain autodiff gate rides the linear model until the
+    one-line double-`where` guard lands.
+  - **`EnergyMetric`/eigenmodes weight `ps` by the flat extent on
+    charts** — terrain energy diagnostics are physically
+    inconsistent (model-layer, outside the hydrostatic package;
+    flagged by the terrain build).
+  - **Variable-depth implicit + split-explicit free surfaces**
+    (H3): taught errors on charts today; need the variable-csqr 2D
+    solve (hydrostatic plan §7). The barotropic volume-vs-energy
+    tension is documented in the plan §8 (energy chosen; exact
+    volume needs variable-`c²`).
+  - **`MetricScaled` divides** (`mapped.py:219-222`) share the
+    masked-singularity structure but are empirically reverse-safe;
+    guard only if a composition exposes them (VJP-fix audit).
+  - **GPU validation** of the new stretched+terrain paths (fold
+    into the standing 4-GPU baseline re-record below).
 - **Re-record the FV/nodal step baselines on 4 GPUs** — the gpu4 step
   baseline predates the nodal sibling cases and the walled step
   baselines predate the FV default flip; re-record both
@@ -508,10 +524,6 @@ The semicoarsened V-cycle preconditioner shipped 2026-07-17 (the
   is load-bearing for the semicoarsening hierarchy). Free side
   benefit: the same swap speeds the IMEX implicit vertical-diffusion
   solve (shared kernel).
-- **Real multi-GPU validation** — forced-4 parity is asserted in the
-  suite (incl. the replicated coarse level, MG-D5); a real
-  `srun -n 4` run joins the next campaign, same status as the
-  FV-default flip and the immersed PCG paths.
 
 ## Differentiable run surface — `model.propagator()`
 

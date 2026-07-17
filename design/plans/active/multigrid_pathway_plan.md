@@ -519,8 +519,27 @@ collectives above the replication threshold.
   HLO equality.*
 - *GB-5: forced-4 parity < 1e-8 on an aligned 3-level shard and on a
   12→6 shard whose coarse level replicates (6 does not divide 4
-  devices — the MG-D5 fallback exercised under decomposition). Real
-  multi-GPU joins the next campaign.*
+  devices — the MG-D5 fallback exercised under decomposition).*
+- *GB-5 real multi-GPU (validated 2026-07-17, DKRZ 4×A100-SXM4-80GB,
+  jax 0.10.2 cuda12, `multi_output_fusion` disabled): (a) the eight
+  `@pytest.mark.multi_device` parity tests
+  (`test_mapped_pressure_multigrid.py::test_forced4_multigrid_solve_matches_single_device`
+  ×2 incl. the x12→6 replicated MG-D5 shard, plus the four
+  `test_transfer.py` GA-2 shards and their no-all-gather / mismatched-
+  set guards) all PASS on **real 4 GPUs, single process** (device_ids
+  = all four CUDA devices), not just forced-host-4. (b) A real
+  **multi-process** `srun -l -n 4 --gpu-bind=none` run (explicit
+  `jax.distributed.initialize`, one GPU/rank) of a steep terrain-
+  following (`zp = z·H(x)`, H = 1 + 0.6 sin x) 32×32×8 nonhydro2 model
+  with `pressure_preconditioner="multigrid"`, `multigrid_levels=3`,
+  fixed 12-iteration CG (`pressure_tolerance=None`), 20 steps, gathered
+  with `process_allgather(tiled=True)`, matches the single-process
+  single-device reference to **max abs deviation 5.6e-17** (≈ machine
+  epsilon; per-field rel ~1e-15, `allclose` atol 1e-10) across u/v/w/b.
+  The distributed V-cycle + cross-shard CG reductions are correct
+  under genuine process sharding, not only single-controller GSPMD.
+  Driver was throwaway (scratchpad, uncommitted); no wall-clock numbers
+  taken (that leg is settled and out of scope).*
 - *Differentiability: `jax.grad` through a 6-step immersed multigrid
   run via `_chunk_body` is finite and FD-matched (~1.5e-8, gate
   1e-4) — the smoothers' dry-cell double-`where` guards hold. The

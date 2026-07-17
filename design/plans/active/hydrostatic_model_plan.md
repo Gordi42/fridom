@@ -933,9 +933,15 @@ split-explicit → quiet (filter, see above).
 
 **Cost + follow-up.** +1.37 ms/step at 512²×32 implicit+centered
 (2.98 → 4.35, +46%): one extra flux divergence per advected field per
-axis, memory-bound, irreducible by face-velocity reuse. If it ever
-matters: evaluate `A(1)` on the boundary-adjacent slice only (2D
-work) — open optimization, not scheduled.
+axis, memory-bound, irreducible by face-velocity reuse (XLA CSE
+already dedups — the interleaved and separate-pass forms measure the
+same). Real-suite resweep (2026-07-17, post-merge): `se_centered`
++18/+30/+36/+45/+49% across the ladder (101.8 → 151.4 ms/step at
+2048²×64), `se_weno5` +11–36%, `*_linear` unchanged; the centered
+hydro oc/fridom ratio drops from ~break-even to 0.79–0.88, and all
+five `im_centered` rungs now complete stably (rf23–28 were
+non-finite). The 2D slice-only `A(1)` evaluation is tracked as an
+open roadmap item (Oceananigans-gap list).
 
 **Gates.** `tests/hydrostatic` + `tests/model/modules` 759 passed /
 4 skipped; `ruff` clean; autodiff regression (grad through
