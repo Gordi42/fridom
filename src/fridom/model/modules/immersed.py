@@ -25,6 +25,7 @@ from __future__ import annotations
 from fridom.model.module import Module
 from fridom.model.stages import Stage, StageKind
 from fridom.spatial.decomposition.halo import HaloSpec
+from fridom.spatial.spaces.constant import ConstantSpace
 
 #: the intra-kind order of the masking stage: a large sentinel so it
 #: sorts **after** every physics CONSTRAINT stage (the pressure
@@ -123,6 +124,16 @@ class MaskState(Module):
         velocity-role face takes the slip combination and a cell
         field the cell mask), then applied as a pure array product on
         the true DOFs — dry DOFs go to zero, wet DOFs are untouched.
+
+        A prognostic whose space carries a ``ConstantSpace`` factor
+        (a field held constant along a grid coordinate, e.g. the
+        constant-along-z barotropic ``ps``/``U``/``V`` of the
+        hydrostatic free surface) has **no** per-cell mask — the wet
+        region is not resolved along the constant axis
+        (``ImmersedDomain.mask`` rejects such a space). Its wet-region
+        hygiene is owned by the declaring module (the free-surface
+        wet-column masking), so it is skipped here rather than
+        crashing the shared stage.
         """
         if not self._names:
             return {}
@@ -130,6 +141,10 @@ class MaskState(Module):
         out: dict = {}
         for name in self._names:
             field = state[name]
-            mask = immersed.mask(field.function_space)
+            space = field.function_space
+            if any(isinstance(f, ConstantSpace)
+                   for f in space.bare.factors):
+                continue  # owner-masked (barotropic constant-along-z)
+            mask = immersed.mask(space)
             out[name] = field.with_data(field.data * mask.data)
         return out

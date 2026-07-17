@@ -139,6 +139,19 @@ def Model(  # noqa: N802 — a factory that mirrors fr.model.Model's surface
     if advection is not False:
         modules.append(advection)
     modules.extend(modules_extra)
+    # immersed (cut-cell) grid: one shared CONSTRAINT-stage MaskState
+    # keeps every 3D prognostic's dry DOFs dead against the modules that
+    # do not consult the mask (Coriolis, the p_hyd pressure gradient,
+    # the thermal-wind terms) — the masked continuity, the fraction-
+    # weighted advection and the masked barotropic solve handle the wet
+    # region themselves; the 2D barotropic prognostics (ps, U, V) are
+    # masked by the free-surface module, which owns them (IP-D9). The
+    # hydrostatic model stays on the grid's default (nodal) family: the
+    # mask enters through explicit fraction arithmetic, not a family-
+    # dispatched solver, so there is no unmasked "nodal path" to reject.
+    # Appended last so its masking runs after the physics stages.
+    if getattr(grid, "immersed", None) is not None:
+        modules.append(fr.model.modules.MaskState())
 
     return fr.model.Model(grid=grid, modules=tuple(modules),
                           time_stepper=time_stepper, name=name, **kwargs)

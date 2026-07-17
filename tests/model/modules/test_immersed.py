@@ -4,6 +4,7 @@ import types
 import numpy as np
 import pytest
 
+import fridom.hydrostatic as hy
 from fridom.model.modules.immersed import _MASK_ORDER, MaskState
 from fridom.model.stages import StageKind
 from fridom.spatial.decomposition.halo import HaloSpec
@@ -166,3 +167,30 @@ def test_mask_state_no_prognostics_is_a_noop():
     mod = MaskState()
     mod.bind(_table(grid, ()))
     assert mod._mask_state({}, None) == {}
+
+
+# ================================================================
+#  ConstantSpace prognostics (the 2D barotropic ps) are skipped
+# ================================================================
+def test_maskstate_skips_constant_space_prognostics():
+    # the barotropic ps lives on Profile(x, y) -- a ConstantSpace along
+    # z -- which immersed.mask() cannot resolve (it rejects a Constant
+    # factor).  MaskState must SKIP such prognostics (the free-surface
+    # module owns and masks the 2D barotropic state), not crash on them.
+    mx = IntervalMesh(8, (0.0, 1.0), periodic=True, name="x")
+    my = IntervalMesh(8, (0.0, 1.0), periodic=True, name="y")
+    mz = IntervalMesh(4, (0.0, 1.0), periodic=False, name="z")
+    grid = Grid((mx, my, mz), immersed=ImmersedDomain(
+        lambda x, y, z: (z > 0.5).astype(float)))  # noqa: ARG005
+    model = hy.Model(
+        grid=grid, dt=0.01, free_surface=hy.ExplicitFreeSurface(),
+        advection=False)
+    # ps is a PROGNOSTIC ConstantSpace(z) field the MaskState sees
+    assert "ps" in set(model._artifacts.field_table.prognostic)
+    rng = np.random.default_rng(0)
+    model.set_fields(**{
+        k: 0.1 * rng.standard_normal(model.state[k].data.shape)
+        for k in ("u", "v", "b")})
+    # advancing steps the shared MaskState over ps without raising
+    model.advance(3)
+    assert not model.panicked
