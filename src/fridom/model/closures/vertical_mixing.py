@@ -46,7 +46,10 @@ from typing import TYPE_CHECKING, Final
 
 from fridom.framework.utils import jaxify
 from fridom.model.errors import AssemblyError
-from fridom.model.implicit import VerticalDiffusion
+from fridom.model.implicit import (
+    VerticalDiffusion,
+    reject_unsupported_solve_column,
+)
 from fridom.model.module import Module
 from fridom.model.parameters import (
     ParameterDeclaration,
@@ -73,6 +76,30 @@ VERTICAL_VISCOSITY: Final[ParamName] = ParamName(
 VERTICAL_DIFFUSIVITY: Final[ParamName] = ParamName(
     "mixing.vertical_kappa", units="m^2/s",
     hint="provided by fr.closures.VerticalMixing(kb=...)")
+
+
+# ================================================================
+#  Slip vocabulary (velocity leg only; tracers are always no-flux)
+# ================================================================
+#: map a per-wall slip choice to the column band's boundary row.
+#: ``"free-slip"`` is the zero-stress Neumann row (today's behaviour);
+#: ``"no-slip"`` is the Dirichlet row (odd-mirror wall value, ``-3``
+#: corner). Applied to the VELOCITY leg only — a tracer has no slip, so
+#: the buoyancy leg stays Neumann (no-flux) always.
+_SLIP_TO_BC: Final[dict[str, str]] = {
+    "free-slip": "neumann",
+    "no-slip": "dirichlet",
+}
+
+
+def _slip_bc(side: str, which: str) -> str:
+    """Return the band BC for a slip choice, raising a taught error."""
+    if side not in _SLIP_TO_BC:
+        raise ValueError(
+            f"VerticalMixing {which}= must be 'free-slip' (zero wall "
+            f"stress, the default) or 'no-slip' (Dirichlet wall), got "
+            f"{side!r}")
+    return _SLIP_TO_BC[side]
 
 
 # ================================================================
@@ -127,11 +154,21 @@ class VerticalMixing(Module):
         (the default — an IMEX tridiagonal solve) or
         ``fr.model.EXPLICIT`` (the write-once ``apply``-derived path)
         (default: ``fr.model.IMPLICIT``).
+    bottom : str, optional
+        The slip condition at the bottom (low-side) wall of the
+        VELOCITY leg: ``"free-slip"`` (the default — zero wall stress, a
+        Neumann row) or ``"no-slip"`` (a Dirichlet wall row). Ignored by
+        the buoyancy leg, which is always no-flux (default:
+        ``"free-slip"``).
+    top : str, optional
+        The slip condition at the top (high-side) wall of the VELOCITY
+        leg, same values as `bottom` (default: ``"free-slip"``).
 
     Raises
     ------
     ValueError
-        If both ``kv`` and ``kb`` are ``None``.
+        If both ``kv`` and ``kb`` are ``None``, or ``bottom`` / ``top``
+        is not a recognized slip condition.
     TypeError
         If ``treatment`` is not a ``Treatment`` member.
     """
@@ -143,8 +180,10 @@ class VerticalMixing(Module):
         kb: float | None = None,
         vertical: str = "z",
         treatment: Treatment = Treatment.IMPLICIT,
+        bottom: str = "free-slip",
+        top: str = "free-slip",
     ) -> None:
-        """Store the coefficient leaves, geometry and treatment."""
+        """Store the coefficient leaves, geometry, treatment and slip."""
         if kv is None and kb is None:
             raise ValueError(
                 "VerticalMixing needs at least one coefficient: kv= "
@@ -154,6 +193,9 @@ class VerticalMixing(Module):
             raise TypeError(
                 "treatment is an author-declared fr.model.Treatment "
                 f"(IMPLICIT or EXPLICIT), got {treatment!r}")
+        # validate the slip choices at construction (taught error)
+        self._velocity_bc: tuple[str, str] = (
+            _slip_bc(bottom, "bottom"), _slip_bc(top, "top"))
         self.kv = None if kv is None else leaf(kv)
         self.kb = None if kb is None else leaf(kb)
         self._vertical = vertical
@@ -218,12 +260,16 @@ class VerticalMixing(Module):
         AssemblyError
             If a coefficient leg resolves zero target fields (a ``kv``
             with no PROGNOSTIC velocity, or a ``kb`` with no tracer).
+        NotImplementedError
+            On an immersed grid, or a stretched / terrain-coupled solve
+            column (the uniform-spacing column band would silently solve
+            the wrong operator).
         """
         from fridom.model.declarations import (  # noqa: PLC0415 — avoid an import cycle at module load
             Lifecycle,
         )
-        if getattr(getattr(table, "grid", None),
-                   "immersed", None) is not None:
+        grid = getattr(table, "grid", None)
+        if getattr(grid, "immersed", None) is not None:
             raise NotImplementedError(
                 "VerticalMixing does not support immersed (cut-cell) "
                 "grids: its vertical flux column would cross the "
@@ -231,6 +277,7 @@ class VerticalMixing(Module):
                 "implicit vertical closure is designed-for (immersed-"
                 "partial-cells plan, IP-D8). Drop the closure on an "
                 "immersed grid.")
+        reject_unsupported_solve_column(grid, self._vertical)
         if self.kv is not None:
             self._velocity_targets = self._prognostic(
                 table, table.select(Velocity), Lifecycle)
@@ -271,7 +318,8 @@ class VerticalMixing(Module):
                 implicit=VerticalDiffusion(
                     axis=self._vertical,
                     fields=self._velocity_targets,
-                    kappa=_viscosity),
+                    kappa=_viscosity,
+                    bc=self._velocity_bc),
                 advances=self._velocity_targets,
                 linear=True),)
         if self._tracer_targets:

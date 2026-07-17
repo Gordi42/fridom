@@ -46,36 +46,104 @@ if TYPE_CHECKING:  # pragma: no cover
 # ================================================================
 #  Band assembly
 # ================================================================
-def second_difference_matrix(coords: jax.Array) -> jax.Array:
-    r"""
-    Dense ``(N, N)`` Neumann second-difference ``d2/dz2`` on uniform nodes.
+#: the per-side corner main-diagonal value each boundary condition
+#: contributes to :func:`second_difference_matrix`. Neumann (zero-flux,
+#: even ghost mirror ``u_{-1} = u_0``) gives ``-1``; Dirichlet (no-slip,
+#: odd ghost mirror across the half-cell ``u_{-1} = -u_0``) gives ``-3``
+#: (the wall-adjacent row becomes ``(u_1 - 3 u_0) / dz^2``).
+_CORNER: dict[str, float] = {"neumann": -1.0, "dirichlet": -3.0}
+
+
+def validate_boundary_conditions(
+    bc: tuple[str, str],
+) -> tuple[str, str]:
+    """
+    Return the ``(low, high)`` boundary-condition pair or raise.
 
     Description
     -----------
-    The tridiagonal second-difference stencil with zero-flux (Neumann)
-    boundary rows — ``-1`` on the two corner diagonals instead of
-    ``-2`` — divided by ``dz^2`` (uniform spacing inferred from the
-    first two nodes). Grid-free: it reads only the 1D node line, so the
-    same band feeds the diffusion operator (scaled by ``kappa``) and,
-    with a per-mode scalar shift, the spectral banded z-solve.
+    The single source of truth for the per-side boundary vocabulary of
+    :func:`second_difference_matrix` (and the ``VerticalDiffusion``
+    operator that carries one): each side must be ``"neumann"`` (the
+    zero-flux corner) or ``"dirichlet"`` (the no-slip odd-mirror
+    corner). The choice is static (host-side), so it is validated in
+    plain Python — never on a traced value.
+
+    Parameters
+    ----------
+    bc : tuple[str, str]
+        The per-side ``(low, high)`` boundary conditions.
+
+    Returns
+    -------
+    tuple[str, str]
+        The validated ``(low, high)`` pair.
+
+    Raises
+    ------
+    ValueError
+        If `bc` is not a length-2 pair of accepted condition names.
+    """
+    pair = tuple(bc)
+    valid = tuple(_CORNER)
+    if len(pair) != 2 or any(  # noqa: PLR2004 — a (low, high) pair
+            side not in _CORNER for side in pair):
+        raise ValueError(
+            "boundary conditions must be a (low, high) pair drawn from "
+            f"{valid}, got {bc!r}")
+    return pair
+
+
+def second_difference_matrix(
+    coords: jax.Array,
+    bc: tuple[str, str] = ("neumann", "neumann"),
+) -> jax.Array:
+    r"""
+    Dense ``(N, N)`` second-difference ``d2/dz2`` on uniform nodes.
+
+    Description
+    -----------
+    The tridiagonal second-difference stencil divided by ``dz^2``
+    (uniform spacing inferred from the first two nodes) with per-side
+    boundary rows selected by `bc`. A **Neumann** (zero-flux) side puts
+    ``-1`` on its corner diagonal (the even ghost mirror ``u_{-1} =
+    u_0``); a **Dirichlet** (no-slip) side puts ``-3`` (the odd ghost
+    mirror across the half-cell ``u_{-1} = -u_0``, so the wall-adjacent
+    row is ``(u_1 - 3 u_0) / dz^2``). The default ``("neumann",
+    "neumann")`` reproduces the historical zero-flux band. Grid-free: it
+    reads only the 1D node line, so the same band feeds the diffusion
+    operator (scaled by ``kappa``) and, with a per-mode scalar shift,
+    the spectral banded z-solve; the ``bc`` choice is static (host-side)
+    and jit-friendly (it selects Python constants, never a traced
+    branch).
 
     Parameters
     ----------
     coords : jax.Array
         The evaluation nodes along the solve axis (any shape; flattened
         to the 1D line).
+    bc : tuple[str, str], optional
+        The per-side ``(low, high)`` boundary conditions, each
+        ``"neumann"`` or ``"dirichlet"`` (default: ``("neumann",
+        "neumann")``).
 
     Returns
     -------
     jax.Array
         The ``(N, N)`` second-difference matrix.
+
+    Raises
+    ------
+    ValueError
+        If `bc` is not a length-2 pair of accepted condition names.
     """
+    low, high = validate_boundary_conditions(bc)
     real = dtype_real()
     line = jnp.reshape(jnp.asarray(coords), (-1,)).astype(real)
     size = line.shape[0]
     dz = line[1] - line[0]
     main = jnp.full((size,), -2.0, dtype=real)
-    main = main.at[0].set(-1.0).at[size - 1].set(-1.0)
+    main = main.at[0].set(_CORNER[low]).at[size - 1].set(_CORNER[high])
     off = jnp.ones((size - 1,), dtype=real)
     return (jnp.diag(main) + jnp.diag(off, 1) + jnp.diag(off, -1)
             ) / (dz * dz)
