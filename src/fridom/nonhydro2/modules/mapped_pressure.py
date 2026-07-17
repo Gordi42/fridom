@@ -162,10 +162,12 @@ from typing import TYPE_CHECKING
 
 import jax.numpy as jnp
 
+from fridom.nonhydro2.modules.multigrid_hierarchy import coarsen_levels
 from fridom.nonhydro2.modules.pressure import (
     _dirichlet_mid,
     _neumann_sibling,
 )
+from fridom.spatial.fields.storage import factor_axes
 from fridom.spatial.operators.base import resolve_codomain
 from fridom.spatial.operators.composed import (
     Diag,
@@ -173,7 +175,14 @@ from fridom.spatial.operators.composed import (
     Gradient,
 )
 from fridom.spatial.operators.krylov import ConjugateGradient
+from fridom.spatial.operators.multigrid import (
+    MultigridLevel,
+    MultigridVCycle,
+    VerticalBands,
+    VerticalLineJacobi,
+)
 from fridom.spatial.operators.spectral_solve import SpectralSolve
+from fridom.spatial.operators.staggering import uniform_spacing
 from fridom.spatial.spaces.average import AverageSpace
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -189,6 +198,103 @@ if TYPE_CHECKING:  # pragma: no cover
     #: to derived metric fields; created inside one solve, dropped
     #: when it returns, never stored on the solver (module docstring)
     MetricCache = dict[tuple[SpaceLike, str], ScalarField]
+
+#: the accepted ``preconditioner=`` choices (B3/B4)
+_PRECONDITIONERS = ("spectral", "multigrid")
+#: the vertical-line smoother damping of the multigrid V-cycle (B0
+#: spike optimum; omega = 1 diverges)
+_LINE_OMEGA = 0.8
+
+
+def _mean_free(field: ScalarField) -> ScalarField:
+    """Remove the measure-weighted mean (the constants nullspace)."""
+    return field - field.mean()
+
+
+# ================================================================
+#  Diagonal / band assembly helpers (measure-free; storage frame)
+# ================================================================
+def _adjacent_face_sum(
+    data: jax.Array, axis: int, *, periodic: bool,
+) -> jax.Array:
+    r"""
+    Sum the two face coefficients adjacent to each cell along ``axis``.
+
+    Description
+    -----------
+    The ``K_{f-} + K_{f+}`` cell field of a diagonal flux leg: a
+    periodic axis wraps (``roll`` — the ``GridTransfer`` neighbor-access
+    pattern, GSPMD-lowered), a bounded axis drops the wall faces by
+    zero-padding the ``Inner`` face array to the cell count (the
+    Neumann boundary rows). ``face c`` lies at ``c + 1/2`` (the right
+    face of cell ``c``, the left face of cell ``c + 1``).
+
+    Parameters
+    ----------
+    data : jax.Array
+        The face-coefficient array (storage frame).
+    axis : int
+        The storage-frame axis of the coarsened/differenced coordinate.
+    periodic : bool
+        Whether the axis wraps.
+
+    Returns
+    -------
+    jax.Array
+        The adjacent-face sum on the cell axis (length ``n_cells``).
+    """
+    if periodic:
+        return data + jnp.roll(data, 1, axis=axis)
+    edge = list(data.shape)
+    edge[axis] = 1
+    zeros = jnp.zeros(edge, dtype=data.dtype)
+    right = jnp.concatenate([data, zeros], axis=axis)
+    left = jnp.concatenate([zeros, data], axis=axis)
+    return right + left
+
+
+def _corner_cross_bracket(
+    slope: jax.Array, axis_a: int, axis_b: int,
+) -> jax.Array:
+    r"""
+    Return the mixed corner difference of a slope (the cross rows).
+
+    Description
+    -----------
+    The corner cross fluxes couple a cell to its column and transverse
+    neighbours; their **diagonal** contribution is the mixed second
+    difference of the corner slope ``Z_a`` (on ``Right_a (x) Inner_b``)
+    over the two ``a``-faces and two ``b``-faces of the cell,
+
+    .. math::
+        Z_a[l, k{-}1] + Z_a[l{-}1, k] - Z_a[l, k] - Z_a[l{-}1, k{-}1],
+
+    with the wall ``b``-faces dropped (the Dirichlet corner closure).
+    This is non-zero exactly when ``Z_a`` varies along the column
+    (``Z_a = z\,H'`` for a terrain map), so the centered vertical
+    average no longer annihilates it (module docstring).
+
+    Parameters
+    ----------
+    slope : jax.Array
+        The corner slope metric ``Z_a`` (storage frame).
+    axis_a : int
+        The storage-frame axis of the coupled (transverse) coordinate.
+    axis_b : int
+        The storage-frame axis of the mapped column (vertical) axis.
+
+    Returns
+    -------
+    jax.Array
+        The mixed corner difference on the cell grid.
+    """
+    edge = list(slope.shape)
+    edge[axis_b] = 1
+    zeros = jnp.zeros(edge, dtype=slope.dtype)
+    onto_right = jnp.concatenate([slope, zeros], axis=axis_b)
+    onto_left = jnp.concatenate([zeros, slope], axis=axis_b)
+    column = onto_left - onto_right
+    return column - jnp.roll(column, 1, axis=axis_a)
 
 
 class MappedPressureSolver:
@@ -245,6 +351,20 @@ class MappedPressureSolver:
         arithmetic. Forwarded to the preconditioner's
         :class:`SpectralSolve` (see its ``single_precision`` doc).
         Off by default (default: False).
+    preconditioner : str, optional
+        The PCG preconditioner (B3/B4): ``"spectral"`` (the flat
+        separable spectral inverse at folded coefficients) or
+        ``"multigrid"`` (the geometric-multigrid V-cycle assembled by
+        :meth:`_build_vcycle`, semicoarsening the horizontal axes with
+        vertical line smoothing). Any other value raises ``ValueError``
+        (default: ``"spectral"``).
+    multigrid_levels : int, optional
+        The **maximum** number of multigrid levels when
+        ``preconditioner="multigrid"``; the builder floors every
+        horizontal axis at four cells and stops at indivisibility, so
+        the realized count is smaller on a small grid (a grid too small
+        for any coarsening degrades to a one-level, smoothing-only
+        cycle). Ignored for the spectral preconditioner (default: 5).
     """
 
     def __init__(
@@ -257,8 +377,16 @@ class MappedPressureSolver:
         weights: Mapping[str, jax.Array | float] | None = None,
         params: Mapping[str, ScalarField] | None = None,
         single_precision: bool = False,
+        preconditioner: str = "spectral",
+        multigrid_levels: int = 5,
     ) -> None:
         """Discover the mapped column and resolve the static rows."""
+        if preconditioner not in _PRECONDITIONERS:
+            raise ValueError(
+                f"preconditioner must be one of {_PRECONDITIONERS}, got "
+                f"{preconditioner!r}")
+        self._preconditioner_kind = preconditioner
+        self._multigrid_levels = multigrid_levels
         mapping = getattr(grid, "mapping", None)
         if mapping is None:
             raise ValueError(
@@ -766,6 +894,155 @@ class MappedPressureSolver:
         return corrections
 
     # ================================================================
+    #  Smoothing surfaces (multigrid, B1)
+    # ================================================================
+    def _axis_storage(self) -> dict[str, int]:
+        """Map each coordinate name to its storage-frame array axis."""
+        return {factor.names[0]: axis
+                for factor, axis in factor_axes(self._space)}
+
+    def _diagonal_data(
+        self, cache: MetricCache | None = None,
+    ) -> jax.Array:
+        r"""
+        Assemble the exact operator diagonal as a storage array.
+
+        Description
+        -----------
+        The diagonal of :meth:`apply` derived analytically from the
+        face coefficient fields: per axis the ``-(K_{f-} + K_{f+})/h^2``
+        second-difference pattern of the diagonal flux leg (``K^{aa} =
+        w_a J`` on the transverse faces, ``K^{bb}`` on the column
+        faces, with the Neumann wall drops on the bounded column),
+        **plus** the corner cross rows — the slope's mixed corner
+        difference (:func:`_corner_cross_bracket`), which contribute to
+        the diagonal because the column slope ``Z_a`` varies along the
+        column (module docstring). Broadcast to the cell shape by the
+        caller.
+
+        Parameters
+        ----------
+        cache : MetricCache | None, optional
+            The per-solve metric memo threaded through the derivations
+            (default: None).
+
+        Returns
+        -------
+        jax.Array
+            The diagonal in the storage frame (broadcastable over the
+            cell space).
+        """
+        storage = self._axis_storage()
+        base = self._base
+        z_axis = storage[base]
+        dz = uniform_spacing(self._space.factor(base))
+        diagonal: jax.Array | None = None
+        for a in self._axes:
+            dx = uniform_spacing(self._space.factor(a))
+            if a == base:
+                kface = self._column_coefficient(self._face[a], cache)
+                periodic = False
+            else:
+                kface = self._weight(a) * self._metric(
+                    self._face[a],
+                    f"d{self._mapped}_d{self._base}", cache)
+                periodic = True
+            leg = -_adjacent_face_sum(
+                kface.data, storage[a], periodic=periodic) / (dx * dx)
+            diagonal = leg if diagonal is None else diagonal + leg
+        for a in self._coupled:
+            dx = uniform_spacing(self._space.factor(a))
+            slope = self._metric(
+                self._corner[a], f"d{self._mapped}_d{a}", cache)
+            bracket = _corner_cross_bracket(
+                slope.data, storage[a], z_axis)
+            diagonal = diagonal - self._weight(a) / (
+                2.0 * dx * dz) * bracket
+        return diagonal
+
+    def diagonal(
+        self, cache: MetricCache | None = None,
+    ) -> ScalarField:
+        r"""
+        Return the exact diagonal of ``apply`` on the pressure space.
+
+        Description
+        -----------
+        The operator's diagonal (:meth:`_diagonal_data`) as a field on
+        :attr:`_space`, for the damped point-Jacobi smoother
+        (:class:`~fridom.spatial.operators.multigrid.DampedJacobi`). It
+        is probe-exact: ``sum_c e_c (x) A e_c`` matches it to roundoff
+        (the corner cross rows included). Derived from the same
+        per-solve metric machinery as :meth:`apply`; nothing is stored.
+
+        Parameters
+        ----------
+        cache : MetricCache | None, optional
+            The per-solve metric memo (default: None).
+
+        Returns
+        -------
+        ScalarField
+            The diagonal field on the pressure space.
+        """
+        template = self._grid.create_field(self._space)
+        data = jnp.broadcast_to(
+            self._diagonal_data(cache), template.data.shape)
+        return template.with_data(data)
+
+    def vertical_bands(
+        self, cache: MetricCache | None = None,
+    ) -> VerticalBands:
+        r"""
+        Return the per-column tridiagonal ``T`` for line relaxation.
+
+        Description
+        -----------
+        The symmetric tridiagonal of the vertical-line smoother
+        (:class:`~fridom.spatial.operators.multigrid.VerticalLineJacobi`):
+        ``diag`` is the **full** operator diagonal (:meth:`diagonal`,
+        so the horizontal stiffness enters as a stronger diagonal),
+        while ``lower``/``upper`` are the **vertical flux leg only** —
+        the column coefficient ``K^{bb}`` at the ``z``-faces, giving
+        ``+K^{bb}_{f}/dz^2`` on each off-diagonal with the Neumann ends
+        zeroed. ``T`` deliberately excludes the horizontal-flux cross
+        residues: they couple off-column and are asymmetric per column
+        (``K^{bb}`` already carries the slope-squared stiffness), so
+        ``T`` stays symmetric by construction (``lower[c] ==
+        upper[c-1]``).
+
+        Parameters
+        ----------
+        cache : MetricCache | None, optional
+            The per-solve metric memo (default: None).
+
+        Returns
+        -------
+        VerticalBands
+            The ``(lower, diag, upper, axis)`` bands on the pressure
+            space.
+        """
+        storage = self._axis_storage()
+        base = self._base
+        z_axis = storage[base]
+        dz = uniform_spacing(self._space.factor(base))
+        kbb = self._column_coefficient(self._face[base], cache).data
+        edge = list(kbb.shape)
+        edge[z_axis] = 1
+        zeros = jnp.zeros(edge, dtype=kbb.dtype)
+        lower_data = jnp.concatenate([zeros, kbb], axis=z_axis) / (
+            dz * dz)
+        upper_data = jnp.concatenate([kbb, zeros], axis=z_axis) / (
+            dz * dz)
+        template = self._grid.create_field(self._space)
+        shape = template.data.shape
+        diag = template.with_data(
+            jnp.broadcast_to(self._diagonal_data(cache), shape))
+        lower = template.with_data(jnp.broadcast_to(lower_data, shape))
+        upper = template.with_data(jnp.broadcast_to(upper_data, shape))
+        return VerticalBands(lower, diag, upper, z_axis)
+
+    # ================================================================
     #  The preconditioned solve
     # ================================================================
     def _mean_coefficients(
@@ -831,6 +1108,72 @@ class MappedPressureSolver:
 
         return apply
 
+    def _build_vcycle(self, cache: MetricCache) -> MultigridVCycle:
+        r"""
+        Assemble the semicoarsened multigrid V-cycle preconditioner.
+
+        Description
+        -----------
+        The ``preconditioner="multigrid"`` seam (B3, MG-D4/D6/D8): the
+        horizontal axes semicoarsen (never the mapped column ``base``),
+        each level re-instantiates this solver class on its coarse grid
+        (re-discretization of the metrics on the coarse spaces), the
+        transfers are the order-2 ``GridTransfer`` pair, the smoother is
+        vertical-line Jacobi at :data:`_LINE_OMEGA`, and every level
+        projects out the constants (mean-free). The finest level re-uses
+        ``self`` and the shared ``cache``; the coarse levels each carry
+        their own per-solve metric memo, re-derived on the coarse grid.
+
+        Static maps only (iteration 1): a moving geometry threads
+        grid-bound parameter fields through ``params=``, which the
+        coarse re-derivation cannot re-bind, so this raises.
+
+        Parameters
+        ----------
+        cache : MetricCache
+            The finest level's per-solve metric memo (shared with the
+            outer CG operator).
+
+        Returns
+        -------
+        MultigridVCycle
+            The V-cycle callable for the ``preconditioner=`` seam.
+
+        Raises
+        ------
+        NotImplementedError
+            If ``params`` carry grid-bound field data (moving geometry).
+        """
+        if self._params and any(
+                getattr(field, "grid", None) is not None
+                for field in self._params.values()):
+            raise NotImplementedError(
+                "the multigrid preconditioner supports static maps only "
+                "(iteration 1): this solve threads dynamic mapping "
+                "parameter fields through params= (moving geometry), "
+                "which the coarse re-derivation cannot re-bind — use "
+                "preconditioner='spectral' with a moving geometry")
+        chain = coarsen_levels(
+            self._grid, self._space, vertical=self._base,
+            max_levels=self._multigrid_levels)
+        levels: list[MultigridLevel] = []
+        for index, (grid, space, transfer) in enumerate(chain):
+            if index == 0:
+                solver = self
+                level_cache: MetricCache = cache
+            else:
+                solver = MappedPressureSolver(
+                    grid, space, iterations=self._iterations,
+                    weights=self._weights, params=self._params,
+                    single_precision=self._single_precision)
+                level_cache = {}
+            smoother = VerticalLineJacobi(
+                solver.vertical_bands(level_cache), omega=_LINE_OMEGA)
+            levels.append(MultigridLevel(
+                partial(solver.apply, cache=level_cache),
+                smoother, _mean_free, transfer))
+        return MultigridVCycle(tuple(levels))
+
     def krylov(
         self, cache: MetricCache | None = None,
     ) -> ConjugateGradient:
@@ -846,7 +1189,9 @@ class MappedPressureSolver:
         go stale, since the memo dies with the returned solver and
         never reaches ``self`` (module docstring). The returned
         object is therefore, like the solver itself, valid for the
-        single trace it was built in.
+        single trace it was built in. The ``preconditioner`` knob
+        selects the flat spectral inverse or the multigrid V-cycle
+        (:meth:`_build_vcycle`).
 
         Parameters
         ----------
@@ -857,15 +1202,19 @@ class MappedPressureSolver:
         Returns
         -------
         ConjugateGradient
-            PCG on ``apply`` with the spectral preconditioner, the
+            PCG on ``apply`` with the configured preconditioner, the
             constants-nullspace projection, and the optional
             convergence ``tolerance``.
         """
         if cache is None:
             cache = {}
+        if self._preconditioner_kind == "multigrid":
+            preconditioner = self._build_vcycle(cache)
+        else:
+            preconditioner = self._preconditioner(cache)
         return ConjugateGradient(
             partial(self.apply, cache=cache),
-            preconditioner=self._preconditioner(cache),
+            preconditioner=preconditioner,
             iterations=self._iterations,
             tolerance=self._tolerance,
             project_mean=True)
