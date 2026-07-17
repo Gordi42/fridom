@@ -147,10 +147,24 @@ the scoping §10–§13). Open:
   module-level routing; sketch + gates in record §6) and the two
   owner calls in record §7 (auto-default flip once capable;
   momentum on the flux route), then implement.
-- **Stretched + terrain-following combined** — a grid that is both
-  `MappedIntervalMesh`-stretched and terrain-following would J-weight
-  the conservative form on top of `flux_diff`'s physical-width
-  division; correctness there is unverified (scoping §13 follow-up).
+- **Stretched + terrain-following combined** — the correctness
+  question is answered
+  ([`../research/stretched_terrain_combined.md`](../research/stretched_terrain_combined.md),
+  2026-07-17): **no double-count** — stretching (measure widths) and
+  terrain (chart J) factor exactly, and the conservative FV
+  advection is already correct on the combined grid (conservation
+  machine zero, constancy aligned with the projection divergence,
+  2nd order under 15:1 stretch). What remains is downstream: the
+  mapped pressure solve dies on a stretched column (spectral
+  preconditioner unbuildable — cryptic `DispatchError`, no gate;
+  SPD lost in the corner cross hops — measure-adjoint down-hop
+  recipe probed to machine zero, record §3; multigrid V-cycle is
+  the preconditioner candidate), the hydrostatic model has **no
+  terrain support at all** (runs silently with 27%-wrong `p_hyd`;
+  four metric-free sites, record §4), and the cumint `jacobian=`
+  seam is unwired for `maps=` grids (silent no-op / unknown-metric
+  raise). Work items N1–N4 / H0–H4 and four owner calls in record
+  §6–§7; taught errors (N1/H0) are the cheap immediate step.
 - **Validate the FV default on 4 GPUs** — the distributed solve on
   average origins ran only 1-GPU so far (forced-4 CPU asserts the
   walled + mapped FV fast paths), the gpu4 step baseline predates the
