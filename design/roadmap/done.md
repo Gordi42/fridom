@@ -170,9 +170,15 @@ Implementation record:
   Gates: GB-4 compile-once, HLO flat in the CG iteration count; GB-5
   forced-4 parity incl. a replicated coarse level (MG-D5); autodiff
   regression through the immersed multigrid step (the smoothers'
-  dry-cell double-`where` guards hold). The GB-2 wall-clock leg
-  (≥ 1.5× at 128³+ on A100) is the open follow-up
-  ([`open.md`](open.md)). Record:
+  dry-cell double-`where` guards hold). The GB-2 wall-clock leg was
+  measured on the A100 the same day and **fails**: 5.5–13.4× slower
+  ms/step than spectral at 128/192/256³ (one V-cycle ≈ 66× a spectral
+  CG iteration at 128³ — the sequential vertical-line Thomas smoother
+  runs at full n_z on every semicoarsened level, latency-bound on
+  GPU), so **spectral stays the production default on GPU**; the
+  iteration-count win stands as a robustness/CPU result. Evidence:
+  [`../research/multigrid_gb2_wallclock.md`](../research/multigrid_gb2_wallclock.md).
+  Record:
   [`../plans/active/multigrid_pathway_plan.md`](../plans/active/multigrid_pathway_plan.md)
   §3 (B0 spike numbers + the three recorded corrections, not yet
   owner-reviewed).

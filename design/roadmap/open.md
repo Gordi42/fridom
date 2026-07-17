@@ -473,15 +473,17 @@ The semicoarsened V-cycle preconditioner shipped 2026-07-17 (the
 [`../plans/active/multigrid_pathway_plan.md`](../plans/active/multigrid_pathway_plan.md)
 §3). Open, none blocking:
 
-- **GB-2 wall-clock leg** — ≥ 1.5× step wall-clock vs the spectral
-  preconditioner at 128³+ on an A100. Iteration counts are pinned
-  (44 → 13, resolution-independent) but the ms/step claim needs the
-  real device; joins the next GPU campaign (`benchmarks/model` A/B
-  harness). Run it at the new `pressure_tolerance=1e-8` default: both
-  preconditioners now early-exit, so the pinned iteration counts, not
-  the fixed budget, set each side's cost (the spectral side is already
-  GPU-measured at the default — CG-tolerance entry in
-  [`done.md`](done.md)).
+- **GPU wall-clock lever (only if wanted)** — the GB-2 wall-clock
+  leg was measured on the A100 and **fails** (5.5–13.4× *slower*
+  than spectral at 128–256³; the vertical-line Thomas smoother is
+  latency-bound at full n_z on every semicoarsened level — entry in
+  [`done.md`](done.md), evidence
+  [`../research/multigrid_gb2_wallclock.md`](../research/multigrid_gb2_wallclock.md)).
+  Spectral stays the production default on GPU. A GPU wall-clock win
+  would need a z-parallel smoother (Chebyshev / stronger point
+  variants — recorded levers in the plan §2) or restructuring away
+  from the sequential vertical solve; open only if the owner wants
+  that win — the iteration-count robustness result stands regardless.
 - **Real multi-GPU validation** — forced-4 parity is asserted in the
   suite (incl. the replicated coarse level, MG-D5); a real
   `srun -n 4` run joins the next campaign, same status as the
