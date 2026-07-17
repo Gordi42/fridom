@@ -15,7 +15,6 @@ from typing import TYPE_CHECKING
 
 import fridom as fr
 from fridom.model.modules.advection import CenteredAdvection
-from fridom.model.modules.moving_geometry import MovingGeometry
 from fridom.nonhydro2.modules.core import (
     DynamicalCore,
     resolve_model_family,
@@ -105,13 +104,13 @@ def Model(  # noqa: N802 — a factory that mirrors fr.model.Model's surface
         F3): ``"fv"`` is the finite-volume C-grid (scalars on
         ``CellAvg``, velocities on the faces — FV-D2 option A),
         ``"nodal"`` the point-value C-grid. ``None`` is the auto
-        default: **``"fv"`` on any periodic, walled, static mapped
-        (terrain-following) or immersed grid** — so a plain nonhydro
-        model is finite-volume by default (owner ruling 2026-07-17:
-        FV wherever capable, no surprising family changes by grid
-        type). It is at bitwise parity with the nodal model on
-        flat/walled grids (scoping study §1; the walled solve is
-        eager-bitwise, ≤1.2e-14 jitted, §11), the mapped FV pressure
+        default: **``"fv"`` on every grid** — periodic, walled, mapped
+        (terrain-following, static *or* dynamically driven) or immersed
+        — so a plain nonhydro model is finite-volume by default (owner
+        ruling 2026-07-17: FV wherever capable, no surprising family
+        changes by grid type). It is at bitwise parity with the nodal
+        model on flat/walled grids (scoping study §1; the walled solve
+        is eager-bitwise, ≤1.2e-14 jitted, §11), the mapped FV pressure
         operator is likewise bit-identical to nodal (§13), and an
         immersed grid runs the masked FV path (stage I2). The family
         threads to every field (``u, v, w, p`` and the default
@@ -120,16 +119,16 @@ def Model(  # noqa: N802 — a factory that mirrors fr.model.Model's surface
         Neumann ``CellAvg`` origin (stage F4), on a mapped grid the
         projection routes to the family-aware ``MappedPressureSolver``
         (stage F5), on an immersed grid to the masked
-        ``ImmersedPressureSolver`` (stage I2). One carve-out keeps
-        the auto default nodal: a **moving geometry** — a
-        ``MovingGeometry`` in ``modules_extra`` that drives the
-        mapping in time — because the ALE mesh-velocity correction is
-        nodal-only (an explicit ``"fv"`` with a
-        ``MeshVelocityCorrection`` is a taught error at bind). An
-        immersed grid rejects an explicit ``"nodal"`` (the mask is
-        FV-only, IP-D7), and a grid with both a mapped column and an
-        immersed domain rejects an explicit ``"fv"`` (the mapped and
-        masked PCGs are not yet composed)
+        ``ImmersedPressureSolver`` (stage I2). A **moving geometry** —
+        a ``MovingGeometry`` in ``modules_extra`` — is FV by default
+        too since the ALE-on-FV closure (2026-07-17): the ALE
+        mesh-velocity correction (``MeshVelocityCorrection``) is
+        family-aware (the conservative flux form on the ``CellAvg``
+        column factors of ``b`` / ``u`` / ``v``, the advective form on
+        the wall-normal velocity). An immersed grid rejects an explicit
+        ``"nodal"`` (the mask is FV-only, IP-D7), and a grid with both
+        a mapped column and an immersed domain rejects an explicit
+        ``"fv"`` (the mapped and masked PCGs are not yet composed)
         (default: None).
     name : str | None, optional
         Model name (default: None).
@@ -142,26 +141,20 @@ def Model(  # noqa: N802 — a factory that mirrors fr.model.Model's surface
         The assembled model.
     """
     # resolve the model family against the grid and adopt it as the
-    # grid's default (auto-flip: any periodic, walled, static-mapped
-    # or immersed grid promotes None -> "fv"; owner ruling 2026-07-17,
-    # FV wherever capable). A MovingGeometry module drives the mapping
-    # in time and the ALE mesh-velocity correction is nodal-only, so a
-    # dynamically driven mapping keeps the auto default nodal; dynamism
-    # is a module property the grid cannot self-report, so the factory
-    # supplies it here (an explicit family="fv" with the ALE module is a
-    # taught error at MeshVelocityCorrection.bind, not a silent
-    # fallback). Every family=None field of the model — u/v/w/p, the
-    # default b, and any user tracer — then follows uniformly, so an FV
-    # model has no accidental nodal field (only an explicit
-    # family="nodal" is the documented mixed corner). Explicit "fv" is
-    # served on periodic, walled, mapped (F4, F5) and immersed (I2)
-    # grids; only a grid with both a mapped column and an immersed
-    # domain is a taught error, and explicit "nodal" on an immersed
-    # grid is a taught error too (mask is FV-only, IP-D7).
-    dynamic_geometry = any(
-        isinstance(module, MovingGeometry) for module in modules_extra)
-    resolved = resolve_model_family(
-        family, grid, dynamic_geometry=dynamic_geometry)
+    # grid's default (auto-flip: every grid promotes None -> "fv";
+    # owner ruling 2026-07-17, FV wherever capable). Since the ALE-on-FV
+    # closure (2026-07-17) a moving-geometry mapping is FV-capable too —
+    # the ALE mesh-velocity correction is family-aware — so a dynamically
+    # driven mapping no longer carves the auto default back to nodal.
+    # Every family=None field of the model — u/v/w/p, the default b, and
+    # any user tracer — then follows uniformly, so an FV model has no
+    # accidental nodal field (only an explicit family="nodal" is the
+    # documented mixed corner). Explicit "fv" is served on periodic,
+    # walled, mapped (F4, F5) and immersed (I2) grids; only a grid with
+    # both a mapped column and an immersed domain is a taught error, and
+    # explicit "nodal" on an immersed grid is a taught error too (mask
+    # is FV-only, IP-D7).
+    resolved = resolve_model_family(family, grid)
     grid.set_default_family(resolved)
     if stratification is None:
         stratification = ConstantStratification(n2=1.0)
