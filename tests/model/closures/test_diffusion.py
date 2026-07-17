@@ -309,13 +309,6 @@ def test_vertical_coefficient_without_vertical_coordinate():
         make_model(HarmonicDiffusion(1e-3, kappa_v=2e-3), grid=grid)
 
 
-def test_walled_grid_is_a_taught_rejection():
-    grid = make_grid(periodic=False)
-    with pytest.raises(NotImplementedError,
-                       match="walled grids"):
-        make_model(HarmonicDiffusion(1e-3), grid=grid)
-
-
 def test_target_without_coordinate_axes_is_rejected():
     grid = make_grid()
     record = FieldRecord(

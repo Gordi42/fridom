@@ -369,27 +369,41 @@ Stage 2f (the mirror/halo-claim widening) is small but pure perf, gated on
 profiling nobody has done. Defer.
 [`../plans/active/boundary_plan.md`](../plans/active/boundary_plan.md)
 
-## Diffusion/friction closures at walls and on terrain
+## Diffusion/friction closures at walls and on terrain — residuals
 
-*Staged; scoped and sized 2026-07-17
-([`../research/diffusion_walls_terrain_scoping.md`](../research/diffusion_walls_terrain_scoping.md)).*
-The explicit family rejects every bounded grid (which also catches
-all terrain columns); `VerticalMixing` is Neumann-rows-only. Stages:
-free-slip walls are nearly structural (flux retag to
-`Inner[Dirichlet]`, the advection precedent; ~150-250 LOC src);
-no-slip adds the one new stencil (MITgcm-style wall rows, `slip=`
-API; ~150-300); implicit Dirichlet bottom/top rows (~80-160, high
-value — stiff bottom-drag regime, and the merge key must learn BC
-structure); mapped along-σ with honest tilt naming (~100-200);
-full-metric/rotated tensor deferred. Five owner calls in the record
-(default slip, biharmonic no-slip pair, terrain fidelity bar,
-slip ownership, stage-0 scope). **Not deferred — stage 0**: taught
-gates for a *live silent-wrongness* — `VerticalMixing` binds on
-stretched and terrain columns and silently solves the wrong operator
-(`second_difference_matrix` infers one uniform `dz` from the first
-two nodes; the chart never enters `evaluation_nodes`); a fully
-periodic mapped grid likewise binds the explicit family with no
-cross terms. Gate both now (~30-60 LOC + raises tests).
+Stages 0–4 shipped 2026-07-17 (walls free/no-slip on the nodal
+family, implicit no-slip rows, mapped along-σ, the `VerticalMixing`
+stretched/terrain gates, the measure-divide VJP seal; entry in
+[`done.md`](done.md), record
+[`../research/diffusion_walls_terrain_scoping.md`](../research/diffusion_walls_terrain_scoping.md)).
+Open:
+
+- **FV walled closures** — a `CellAvg` walled target is a taught
+  rejection (a `CellAvg[Dirichlet]` retag is a fixed-value fill, not
+  zero-flux; probed silently wrong at +32.0 on a constant tracer).
+  FV is the nonhydro2 default family, so walled default-FV models
+  still refuse these closures; the lift is the conservative FV
+  flux-form closure depositing the wall stress in the `Outer` flux
+  slot (record §3.1 opt C, §3.3 spelling b).
+- **Measure-aware implicit column** — the `VerticalMixing`
+  stretched/terrain gates stand until the banded column learns
+  `grid.measure` widths + the terrain Jacobian (the multigrid V-cycle
+  already consumes measure widths on stretched columns — N3, entry in
+  [`done.md`](done.md) — this is its implicit-diffusion twin; pairs
+  with the flagged variable-kappa follow-up, `implicit.py`).
+- **Stage 5** — the geopotential-correct full-metric (then rotated)
+  diffusion tensor; deferred, separate plan (record §3.6 A/C).
+- **Owner ratification** — shipped on the record's RECs, unreviewed:
+  `slip="free"` default, biharmonic same-treatment-both-passes
+  (incl. no-slip), along-σ as the first terrain deliverable
+  (record §6 calls 1–3).
+- **`grid.measure` pre-assembly ordering (lead)** — querying a
+  mapped mesh's measure before `Model` assembly freezes the
+  decomposition early; the stale cached measure then
+  shape-mismatches the step frame. Normal build→run ordering is
+  unaffected (probe artifact; matters for diagnostics workflows).
+- Partial slip (NEMO `shlat`-style) = a Robin wall flux — a
+  boundary-closure 2e consumer (entry above).
 
 ## Open boundaries — sponge is small, through-flow is large
 

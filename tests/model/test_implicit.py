@@ -1,12 +1,18 @@
 """Tests for the implicit families (model/implicit.py)."""
 import dataclasses
 
+import numpy as np
 import pytest
 
 from fridom.model.implicit import (
     ImplicitOperator,
     VerticalDiffusion,
+    reject_unsupported_solve_column,
 )
+from fridom.spatial.coordinate_mapping import CoordinateMapping
+from fridom.spatial.grid import Grid
+from fridom.spatial.meshes.interval import IntervalMesh
+from fridom.spatial.meshes.mapped_interval import MappedIntervalMesh
 
 
 class FullDuck:
@@ -139,6 +145,25 @@ def test_rejects_non_callable_kappa():
 
 
 # ================================================================
+#  Boundary-condition record (per-side column rows)
+# ================================================================
+def test_defaults_to_neumann_neumann_rows():
+    operator = VerticalDiffusion("z", ("u",), kappa_2)
+    assert operator.bc == ("neumann", "neumann")
+
+
+def test_records_and_normalizes_bc():
+    operator = VerticalDiffusion(
+        "z", ("u",), kappa_2, bc=["dirichlet", "neumann"])
+    assert operator.bc == ("dirichlet", "neumann")
+
+
+def test_rejects_a_bad_bc():
+    with pytest.raises(ValueError, match="low, high"):
+        VerticalDiffusion("z", ("u",), kappa_2, bc=("robin", "robin"))
+
+
+# ================================================================
 #  Kernels
 # ================================================================
 # The apply/solve tridiagonal kernels landed at wave 5 (ROADMAP 2.5);
@@ -204,3 +229,63 @@ def test_merged_with_rejects_family_mismatch():
     operator = VerticalDiffusion("z", ("u",), kappa_2)
     with pytest.raises((ValueError, AttributeError)):
         operator.merged_with(FullDuck())
+
+
+# ================================================================
+#  The merge key carries the BC structure (unlike-BC legs never merge)
+# ================================================================
+def test_merge_key_separates_boundary_conditions():
+    # a no-slip (Dirichlet-row) velocity leg and a Neumann-row leg on
+    # the SAME axis must NOT merge — kappa-summing them would silently
+    # combine a -3 Dirichlet corner with a -1 Neumann corner
+    no_slip = VerticalDiffusion(
+        "z", ("u", "v"), kappa_2, bc=("dirichlet", "neumann"))
+    neumann = VerticalDiffusion("z", ("b",), kappa_3)
+    assert no_slip.merge_key() != neumann.merge_key()
+    with pytest.raises(ValueError, match="different merge keys"):
+        no_slip.merged_with(neumann)
+
+
+def test_merge_key_groups_same_boundary_conditions():
+    # two same-BC legs on the same axis still merge exactly
+    op1 = VerticalDiffusion(
+        "z", ("u",), kappa_2, bc=("dirichlet", "neumann"))
+    op2 = VerticalDiffusion(
+        "z", ("v",), kappa_3, bc=("dirichlet", "neumann"))
+    assert op1.merge_key() == op2.merge_key()
+    merged = op1.merged_with(op2)
+    assert merged.fields == ("u", "v")
+    assert merged.bc == ("dirichlet", "neumann")
+
+
+# ================================================================
+#  The solve-column geometry gate (stretched / terrain rejection)
+# ================================================================
+def test_gate_accepts_a_uniform_column():
+    grid = Grid((IntervalMesh(4, (0.0, 1.0), name="z"),))
+    # a plain uniform IntervalMesh column raises nothing
+    reject_unsupported_solve_column(grid, "z")
+
+
+def test_gate_rejects_a_stretched_column():
+    grid = Grid((
+        MappedIntervalMesh(4, (0.0, 1.0), lambda s: s ** 2,
+                           name="z"),))
+    with pytest.raises(NotImplementedError, match="uniform spacing"):
+        reject_unsupported_solve_column(grid, "z")
+
+
+def test_gate_rejects_a_terrain_coupled_column():
+    mx = IntervalMesh(4, (0.0, 2 * np.pi), periodic=True, name="x")
+    ms = IntervalMesh(4, (0.0, 1.0), periodic=False, name="sigma")
+    mapping = CoordinateMapping(
+        maps={"zp": lambda sigma, height: sigma * height},
+        params={"height": lambda x: 1.0 + 0.2 * np.sin(x)})
+    grid = Grid((mx, ms), mapping=mapping)
+    with pytest.raises(NotImplementedError, match="terrain"):
+        reject_unsupported_solve_column(grid, "sigma")
+
+
+def test_gate_ignores_a_missing_grid_seam():
+    # anything without factors / mapping is treated as unmapped
+    reject_unsupported_solve_column(object(), "z")

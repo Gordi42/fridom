@@ -30,7 +30,9 @@ from fridom.spatial.operators.banded import (
     apply_along_axis,
     second_difference_matrix,
     solve_along_axis,
+    validate_boundary_conditions,
 )
+from fridom.spatial.operators.staggering import mapped_mesh
 
 if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Callable, Hashable
@@ -250,6 +252,12 @@ class VerticalDiffusion:
         scalar | ScalarField`` — coefficients, not a solver.
         Bound-ness is validated at assembly (the aliasing rule); the
         vocabulary records.
+    bc : tuple[str, str], optional
+        The per-side ``(low, high)`` boundary-condition rows of the
+        column band, each ``"neumann"`` (zero-flux / free-slip) or
+        ``"dirichlet"`` (no-slip). The pair enters :meth:`merge_key`,
+        so unlike-BC operators on the same axis never kappa-merge
+        (default: ``("neumann", "neumann")``).
 
     Raises
     ------
@@ -257,15 +265,16 @@ class VerticalDiffusion:
         If `axis` is not a non-empty string or `kappa` is not
         callable.
     ValueError
-        If `fields` is empty.
+        If `fields` is empty or `bc` is not an accepted per-side pair.
     """
 
     axis: str
     fields: tuple[str, ...]
     kappa: Callable
+    bc: tuple[str, str] = ("neumann", "neumann")
 
     def __post_init__(self) -> None:
-        """Normalize `fields` and check local record validity."""
+        """Normalize `fields`/`bc` and check local record validity."""
         if not isinstance(self.axis, str) or not self.axis:
             raise TypeError(
                 f"axis must be a non-empty coordinate name, got "
@@ -277,6 +286,8 @@ class VerticalDiffusion:
         if not callable(self.kappa):
             raise TypeError(
                 f"kappa must be callable, got {self.kappa!r}")
+        object.__setattr__(
+            self, "bc", validate_boundary_conditions(self.bc))
 
     def apply(
         self, module: Any, state: Any, ctx: Any,
@@ -318,7 +329,7 @@ class VerticalDiffusion:
             field = state[name]
             operator, axis_index = _diffusion_operator(
                 field, self.axis,
-                self.kappa(module, state, ctx, name))
+                self.kappa(module, state, ctx, name), self.bc)
             data = jnp.asarray(field.data)
             applied = apply_along_axis(operator, data, axis_index)
             result[name] = field.with_data(applied)
@@ -369,7 +380,7 @@ class VerticalDiffusion:
             field = rhs[name]
             operator, axis_index = _diffusion_operator(
                 field, self.axis,
-                self.kappa(module, field, ctx, name))
+                self.kappa(module, field, ctx, name), self.bc)
             size = operator.shape[0]
             system = (jnp.eye(size, dtype=real)
                       - jnp.asarray(dt_gamma, dtype=real) * operator)
@@ -380,15 +391,24 @@ class VerticalDiffusion:
 
     def merge_key(self) -> Hashable:
         """
-        Return the family grouping key: same axis, same family.
+        Return the family grouping key: same axis, same BC, same family.
+
+        Description
+        -----------
+        ``(type, axis, bc)`` — the per-side boundary rows enter the key
+        so that a no-slip (Dirichlet-row) leg and a free-slip / no-flux
+        (Neumann-row) leg on the same axis are **not** merged:
+        kappa-summing them would silently combine two different
+        operators (a Dirichlet ``-3`` corner with a Neumann ``-1``
+        corner). Same-axis, same-BC instances of one family remain
+        mergeable (per shared field).
 
         Returns
         -------
         Hashable
-            ``(type, axis)`` — same-axis instances of one family are
-            mergeable (per shared field).
+            ``(type, axis, bc)``.
         """
-        return (type(self), self.axis)
+        return (type(self), self.axis, self.bc)
 
     def merged_with(
         self, other: VerticalDiffusion,
@@ -431,7 +451,72 @@ class VerticalDiffusion:
             axis=self.axis,
             fields=merged_fields,
             kappa=_summed_kappa((self, other)),
+            bc=self.bc,
         )
+
+
+# ================================================================
+#  Solve-column geometry gate (uniform-spacing / no-terrain contract)
+# ================================================================
+def reject_unsupported_solve_column(grid: Any, axis: str) -> None:
+    r"""
+    Reject a stretched or terrain-coupled column solve (taught error).
+
+    Description
+    -----------
+    The column band is assembled by
+    :func:`~fridom.spatial.operators.banded.second_difference_matrix`,
+    which infers **one uniform** ``dz`` from the first two nodes and
+    carries **no** terrain Jacobian. Two grid structures would make that
+    band silently solve the wrong operator, so both are rejected here
+    (structural predicates, no numeric tolerance):
+
+    - a **stretched** solve-axis mesh factor (a ``MappedIntervalMesh``
+      whose ``coordinate_map`` is non-``None``): the band would apply
+      the first interval's spacing to the whole column;
+    - a grid whose ``CoordinateMapping`` **couples** the solve axis
+      (terrain-following, e.g. ``z = sigma * H(x)``, exposed through the
+      mapping's ``column_corrections`` seam): the solve axis is the base
+      ``sigma`` and the band is ``d2/dsigma2`` with the ``H(x)``
+      Jacobian missing entirely.
+
+    Reads only static grid descriptors (``grid.factors`` /
+    ``grid.mapping``), so it is safe to call under trace — it never
+    branches on a traced value.
+
+    Parameters
+    ----------
+    grid : Any
+        The grid carrying the solve column (``factors`` / ``mapping``
+        seams; anything without them is treated as unmapped).
+    axis : str
+        The solve-axis coordinate name.
+
+    Raises
+    ------
+    NotImplementedError
+        If the solve-axis factor is stretched, or the grid mapping
+        couples the solve axis.
+    """
+    for mesh in getattr(grid, "factors", ()):
+        if axis in getattr(mesh, "names", ()) and mapped_mesh(mesh):
+            raise NotImplementedError(
+                f"the implicit column matrix for axis {axis!r} assumes "
+                "uniform spacing (one dz inferred from the first two "
+                "nodes), so on a stretched mesh factor "
+                "(MappedIntervalMesh) it would silently solve the wrong "
+                "d2/dz2. Use a uniform column (IntervalMesh), or wait "
+                "for the measure-aware column.")
+    mapping = getattr(grid, "mapping", None)
+    corrections = getattr(mapping, "column_corrections", {})
+    if axis in corrections:
+        raise NotImplementedError(
+            f"the implicit column matrix for axis {axis!r} carries no "
+            "terrain Jacobian, but the grid's coordinate mapping "
+            f"couples {axis!r} (terrain-following, e.g. z = sigma * "
+            "H(x)): the band would be d2/dsigma2 and silently solve "
+            "the wrong operator. Use a uniform (non-terrain) column, or "
+            "wait for the measure-aware column.")
 
 
 # ================================================================
@@ -439,17 +524,21 @@ class VerticalDiffusion:
 # ================================================================
 def _diffusion_operator(
     field: ScalarField, axis: str, kappa_value: Any,
+    bc: tuple[str, str] = ("neumann", "neumann"),
 ) -> tuple[jax.Array, int]:
     """
-    Build ``L = kappa * d2/dz2`` along ``axis`` (Neumann rows).
+    Build ``L = kappa * d2/dz2`` along ``axis`` (per-side `bc` rows).
 
     Description
     -----------
-    The dense ``(N, N)`` Neumann second-difference band — assembled by
-    the shared ``grid.operators.banded`` primitive on the field's
-    true-shape column evaluation nodes — scaled by the constant column
-    ``kappa``. Returns the matrix and the storage-frame axis index of
-    ``axis``.
+    The dense ``(N, N)`` second-difference band — assembled by the
+    shared ``grid.operators.banded`` primitive on the field's true-shape
+    column evaluation nodes with the per-side boundary rows `bc` — scaled
+    by the constant column ``kappa``. Returns the matrix and the
+    storage-frame axis index of ``axis``. Defensively rejects a
+    stretched or terrain-coupled solve column (the band assumes uniform
+    spacing and carries no terrain Jacobian), so direct users of the
+    operator get the same taught error ``VerticalMixing.bind`` raises.
 
     Parameters
     ----------
@@ -460,6 +549,9 @@ def _diffusion_operator(
     kappa_value : Any
         The live scalar coefficient (a field-valued kappa is the
         variable-coefficient follow-up — not built in iteration 1).
+    bc : tuple[str, str], optional
+        The per-side ``(low, high)`` boundary rows (default:
+        ``("neumann", "neumann")``).
 
     Returns
     -------
@@ -471,7 +563,8 @@ def _diffusion_operator(
     ValueError
         If ``axis`` is not a coordinate of the field's space.
     NotImplementedError
-        If ``kappa_value`` is field-valued (variable coefficient).
+        If ``kappa_value`` is field-valued (variable coefficient), or
+        the solve column is stretched / terrain-coupled.
     """
     space = field.function_space
     names = space.bare.names
@@ -485,7 +578,8 @@ def _diffusion_operator(
             "VerticalDiffusion supports a constant (scalar) column "
             "kappa in iteration 1; a face-averaged variable-kappa "
             "conservative form is the follow-up")
+    reject_unsupported_solve_column(field.grid, axis)
     kappa = jnp.asarray(kappa_value, dtype=dtype_real())
     coords = field.grid.evaluation_nodes(space, axis)
-    d2 = second_difference_matrix(coords.data)
+    d2 = second_difference_matrix(coords.data, bc)
     return kappa * d2, axis_index

@@ -17,6 +17,7 @@ from fridom.spatial.operators.banded import (
     second_difference_matrix,
     solve_along_axis,
     tridiagonal_solve_along_axis,
+    validate_boundary_conditions,
 )
 
 N = 12
@@ -78,6 +79,84 @@ def test_second_difference_flattens_a_column_node_field():
     band = second_difference_matrix(column)
     assert band.shape == (N, N)
     assert np.allclose(np.asarray(band), dense_reference(nodes))
+
+
+def test_default_bc_is_neumann_neumann():
+    # the default reproduces the historical zero-flux band exactly
+    nodes = (np.arange(N) + 0.5) * (1.0 / N)
+    default = second_difference_matrix(jnp.asarray(nodes))
+    explicit = second_difference_matrix(
+        jnp.asarray(nodes), ("neumann", "neumann"))
+    assert np.allclose(np.asarray(default), np.asarray(explicit))
+
+
+# ================================================================
+#  Per-side Dirichlet (no-slip) boundary rows
+# ================================================================
+def test_dirichlet_corners_are_minus_three():
+    # the no-slip corner is the odd-mirror ghost u_{-1} = -u_1 across
+    # the half-cell: the wall-adjacent row becomes (u_2 - 3 u_1)/dz^2
+    nodes = (np.arange(N) + 0.5) * (1.0 / N)
+    dz = 1.0 / N
+    band = np.asarray(
+        second_difference_matrix(jnp.asarray(nodes),
+                                 ("dirichlet", "dirichlet")))
+    assert band[0, 0] == pytest.approx(-3.0 / dz ** 2)
+    assert band[-1, -1] == pytest.approx(-3.0 / dz ** 2)
+    # the off-diagonal coupling is unchanged (still +1/dz^2)
+    assert band[0, 1] == pytest.approx(1.0 / dz ** 2)
+    assert band[-1, -2] == pytest.approx(1.0 / dz ** 2)
+    # the interior rows are the plain -2 second difference
+    assert band[1, 1] == pytest.approx(-2.0 / dz ** 2)
+
+
+def test_mixed_bc_sets_each_corner_independently():
+    # a Dirichlet bottom (-3) and Neumann top (-1): per-side selection
+    nodes = (np.arange(N) + 0.5) * (1.0 / N)
+    dz = 1.0 / N
+    band = np.asarray(
+        second_difference_matrix(jnp.asarray(nodes),
+                                 ("dirichlet", "neumann")))
+    assert band[0, 0] == pytest.approx(-3.0 / dz ** 2)
+    assert band[-1, -1] == pytest.approx(-1.0 / dz ** 2)
+
+
+@pytest.mark.parametrize("k", [1, 2, 3])
+def test_dirichlet_band_acts_as_the_discrete_sine_eigenvalue(k):
+    # the Dirichlet-Dirichlet band diagonalizes the cell-centered sine
+    # modes v_i = sin((i+0.5) k pi / N): band @ v = lambda_k v with the
+    # exact discrete eigenvalue lambda_k = -(2 - 2 cos(k pi / N))/dz^2
+    nodes = (np.arange(N) + 0.5) * (1.0 / N)
+    dz = 1.0 / N
+    band = second_difference_matrix(
+        jnp.asarray(nodes), ("dirichlet", "dirichlet"))
+    theta = k * np.pi / N
+    mode = jnp.asarray(np.sin((np.arange(N) + 0.5) * theta))
+    eigval = -(2.0 - 2.0 * np.cos(theta)) / dz ** 2
+    assert np.allclose(np.asarray(band @ mode),
+                       eigval * np.asarray(mode), atol=1e-9)
+
+
+# ================================================================
+#  Boundary-condition validation (the single source of truth)
+# ================================================================
+def test_validate_boundary_conditions_passes_valid_pairs():
+    assert validate_boundary_conditions(
+        ("dirichlet", "neumann")) == ("dirichlet", "neumann")
+
+
+@pytest.mark.parametrize(
+    "bad", [("robin", "neumann"), ("neumann",),
+            ("neumann", "neumann", "neumann"), ("free", "no")])
+def test_validate_boundary_conditions_rejects_bad_pairs(bad):
+    with pytest.raises(ValueError, match="low, high"):
+        validate_boundary_conditions(bad)
+
+
+def test_second_difference_rejects_a_bad_bc():
+    nodes = (np.arange(N) + 0.5) * (1.0 / N)
+    with pytest.raises(ValueError, match="low, high"):
+        second_difference_matrix(jnp.asarray(nodes), ("robin", "robin"))
 
 
 # ================================================================
