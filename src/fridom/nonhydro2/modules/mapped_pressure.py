@@ -70,9 +70,27 @@ Dirichlet ``Inner -> CellAvg`` variant zero-padding the wall face,
 nodal ``Center <-> Right`` / ``Center <-> Inner`` interpolations and
 exact transposes under the uniform computational cell measure, so the
 transpose-pairing — and the exact symmetry and CG license — hold on
-both families. No measure weighting enters the cross hops: the mapped
-column rides uniform computational meshes and all geometry lives in
-the ``K`` coefficients (the chart-uniform-stencil rule).
+both families. On a **uniform** base column no measure weighting
+enters the cross hops: the mapped column rides uniform computational
+meshes and all geometry lives in the ``K`` coefficients (the
+chart-uniform-stencil rule).
+
+On a **stretched** base column (a ``MappedIntervalMesh``, whose base
+factor carries a ``coordinate_map``) the physical column measure
+diverges from the computational one, and CG's inner product is the
+**physical** measure-weighted :math:`L^2` (``krylov.py`` ``_dot``), so
+the plain ``0.5/0.5`` base-axis down-hop is no longer the up-hop's
+adjoint and ``A`` loses exact symmetry. The base-axis cross down-hop
+is then the **measure-weighted adjoint** of the up-hop,
+``down_b = diag(1/m_cell) up_b^T diag(m_inner)`` with ``m_cell`` /
+``m_inner`` the physical cell / interior-face widths
+(:meth:`_down_b_hop`, N2) — restoring exact symmetry
+(``design/research/stretched_terrain_combined.md`` §3). The
+coupled-axis hops stay uniform-periodic and unweighted; the diagonal
+flux legs never touch this hop and stay byte-identical. The separable
+spectral preconditioner has no transform to build on a stretched base
+mesh, so it is rejected at construction (N1) in favour of the
+``preconditioner="none"`` plain-CG correctness stopgap.
 
 The alternative —
 evaluating the cross coefficient on the flux faces, which is what the
@@ -182,7 +200,10 @@ from fridom.spatial.operators.multigrid import (
     VerticalLineJacobi,
 )
 from fridom.spatial.operators.spectral_solve import SpectralSolve
-from fridom.spatial.operators.staggering import uniform_spacing
+from fridom.spatial.operators.staggering import (
+    mapped_factor,
+    uniform_spacing,
+)
 from fridom.spatial.spaces.average import AverageSpace
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -199,8 +220,9 @@ if TYPE_CHECKING:  # pragma: no cover
     #: when it returns, never stored on the solver (module docstring)
     MetricCache = dict[tuple[SpaceLike, str], ScalarField]
 
-#: the accepted ``preconditioner=`` choices (B3/B4)
-_PRECONDITIONERS = ("spectral", "multigrid")
+#: the accepted ``preconditioner=`` choices (B3/B4; ``"none"`` is the
+#: N1 plain-CG correctness stopgap for the stretched base column)
+_PRECONDITIONERS = ("spectral", "multigrid", "none")
 #: the vertical-line smoother damping of the multigrid V-cycle (B0
 #: spike optimum; omega = 1 diverges)
 _LINE_OMEGA = 0.8
@@ -355,10 +377,16 @@ class MappedPressureSolver:
         Off by default (default: False).
     preconditioner : str, optional
         The PCG preconditioner (B3/B4): ``"spectral"`` (the flat
-        separable spectral inverse at folded coefficients) or
+        separable spectral inverse at folded coefficients),
         ``"multigrid"`` (the geometric-multigrid V-cycle assembled by
         :meth:`_build_vcycle`, semicoarsening the horizontal axes with
-        vertical line smoothing). Any other value raises ``ValueError``
+        vertical line smoothing), or ``"none"`` (unpreconditioned CG —
+        the N1 plain-CG correctness stopgap that makes solves on a
+        **stretched** base column possible today, since neither the
+        spectral nor the multigrid route builds on the stretched
+        column; slow, not a production route). A stretched base column
+        with ``"spectral"`` raises ``NotImplementedError`` at
+        construction (N1). Any other value raises ``ValueError``
         (default: ``"spectral"``).
     multigrid_levels : int, optional
         The **maximum** number of multigrid levels when
@@ -435,6 +463,26 @@ class MappedPressureSolver:
                 f"the mapped column's base coordinate "
                 f"{self._base!r}")
         self._axes: tuple[str, ...] = axes
+        # a stretched base column (its base factor rides a
+        # ``MappedIntervalMesh``, i.e. a non-None ``coordinate_map``)
+        # is where the physical and computational column measures
+        # diverge: the corner base-axis down-hop needs the measure-
+        # weighted adjoint (N2, :meth:`_down_b_hop`) to stay SPD, and
+        # the separable spectral preconditioner has no transform to
+        # build on (N1, below)
+        self._stretched_base: bool = mapped_factor(
+            self._space.factor(self._base))
+        if self._stretched_base and preconditioner == "spectral":
+            raise NotImplementedError(
+                f"the spectral preconditioner needs a per-axis "
+                f"spectral transform on the mapped column's base "
+                f"coordinate {self._base!r}, which its stretched "
+                "MappedIntervalMesh does not supply (a coordinate-"
+                "mapped mesh carries no spectral basis); run "
+                "correctness solves on a stretched column with "
+                "preconditioner='none' (the plain, unpreconditioned-CG "
+                "stopgap) — see "
+                "design/research/stretched_terrain_combined.md (N1)")
         self._coupled: tuple[str, ...] = tuple(
             a for a in axes if a != self._base and a in table)
         weights = dict(weights or {})
@@ -542,10 +590,14 @@ class MappedPressureSolver:
         pair (the ``Inner(DIRICHLET) -> CellAvg`` variant zero-pads
         the wall face) — so the corner cross blocks stay exact
         negative-transposes and ``A`` stays exactly symmetric on
-        both families (module docstring). No measure weighting
-        enters: the mapped column rides uniform computational
-        meshes, and the geometry lives entirely in the ``K``
-        coefficients.
+        both families (module docstring). This resolves the **plain**
+        (unweighted, ``0.5/0.5``) reconstruction on any mesh; on a
+        uniform base column it is already the up-hop's adjoint and no
+        measure weighting enters (the geometry lives entirely in the
+        ``K`` coefficients). On a **stretched** base column the
+        base-axis down-hop is wrapped in the measure-weighted adjoint
+        of the up-hop downstream (:meth:`_down_b_hop`, N2); the plain
+        row resolved here is its unweighted core.
 
         Parameters
         ----------
@@ -642,6 +694,45 @@ class MappedPressureSolver:
             cache[key] = field
         return field
 
+    def _measure(self, space: SpaceLike,
+                 cache: MetricCache | None = None) -> ScalarField:
+        """
+        Derive the base-axis physical measure on ``space`` (memoized).
+
+        Description
+        -----------
+        The stretched base column's physical widths (``grid.measure``
+        of the base factor): the primal cell widths on a cell space,
+        the dual center-to-center widths on the interior-face space —
+        the two diagonal factors of the measure-weighted down-hop
+        (:meth:`_down_b_hop`, N2). Static mesh geometry (no ``params=``
+        seam), threaded through the per-solve memo like the chart
+        metrics so the reduction's weights are derived once per solve
+        rather than once per CG iteration; ``grid.measure`` also holds
+        its own concrete memo (module docstring on the metric memo).
+
+        Parameters
+        ----------
+        space : SpaceLike
+            The querying (staggered) space.
+        cache : MetricCache | None, optional
+            The per-solve memo; None derives without memoizing
+            (default: None).
+
+        Returns
+        -------
+        ScalarField
+            The base-axis measure field on ``space``.
+        """
+        if cache is None:
+            return self._grid.measure(space, self._base)
+        key = (space, f"measure:{self._base}")
+        field = cache.get(key)
+        if field is None:
+            field = self._grid.measure(space, self._base)
+            cache[key] = field
+        return field
+
     def _weight(self, axis: str) -> jax.Array | float:
         """Return the physical-axis weight of ``axis`` (default 1)."""
         return self._weights.get(axis, 1.0)
@@ -705,7 +796,74 @@ class MappedPressureSolver:
         corner = self._up_i[axis](g_b)
         flux = corner * self._slope(corner, axis, cache)
         flux = flux.retag(self._corner_tagged[axis])
-        return self._down_b[axis](flux)
+        return self._down_b_hop(axis, flux, cache)
+
+    def _down_b_hop(self, axis: str, flux: ScalarField,
+                    cache: MetricCache | None = None) -> ScalarField:
+        r"""
+        Land the corner cross flux on the cell (base-axis down-hop).
+
+        Description
+        -----------
+        The down leg of :meth:`_cross_to_face` along the mapped
+        column's base axis. On a **uniform** base column the plain
+        ``"average"`` reconstruction (:meth:`_to_cell`) is already the
+        exact transpose of the ``cell -> face`` up-hop, so ``A`` is
+        symmetric and the hop is applied unchanged (**bitwise** — the
+        F5 chart-uniform-stencil path). On a **stretched** base column
+        (:attr:`_stretched_base`) the physical column measure diverges
+        from the computational one, so the ``0.5/0.5`` down-hop is no
+        longer the up-hop's adjoint under CG's measure-weighted inner
+        product (``krylov.py`` ``_dot``) and the operator loses exact
+        symmetry (record §3). The measure-weighted adjoint of the
+        up-hop restores it (N2):
+
+        .. math::
+            \mathrm{down}_b \;=\;
+            \operatorname{diag}(1/m_{\text{cell}})\;
+            \mathrm{up}_b^{\top}\;
+            \operatorname{diag}(m_{\text{inner}}),
+
+        with ``m_cell`` the physical stretched cell widths of the base
+        axis and ``m_inner`` its physical center-to-center face
+        measures (both :meth:`_measure`). Because the plain down-hop
+        **is** ``up_b^T`` (the zero-padded two-point mean), this is the
+        weighted reduction ``(1/m_cell) * down_b(m_inner * flux)`` — no
+        matrices are formed. The coupled-axis down-hop
+        (:meth:`_cross_to_column` via :attr:`_down_i`) is uniform-
+        periodic and needs no weighting; the diagonal flux legs never
+        touch this hop, so they stay byte-identical across the change.
+
+        Parameters
+        ----------
+        axis : str
+            The coupled coordinate whose corner cross flux is landed.
+        flux : ScalarField
+            The Dirichlet-tagged corner cross flux (interior-face along
+            the base axis).
+        cache : MetricCache | None, optional
+            The per-solve metric/measure memo (default: None).
+
+        Returns
+        -------
+        ScalarField
+            The cross flux on the ``axis`` face space.
+        """
+        if not self._stretched_base:
+            return self._down_b[axis](flux)
+        m_inner = self._measure(flux.function_space, cache)
+        reduced = self._down_b[axis](flux * m_inner)
+        # scale by the reciprocal cell measure. A field divide
+        # ``reduced / m_cell`` is a storage-frame quotient and the base
+        # measure's bounded-axis ghost slots are exactly zero, so it
+        # would be a masked singularity: the forward stays finite (the
+        # never-valid padding is re-synced) but ``1/0`` in the padding
+        # poisons the reverse gradient (AGENTS.md differentiability
+        # policy). The physical widths are strictly positive, so the
+        # reciprocal built on the true region is finite and the padding
+        # multiplies cleanly to zero — no divide, no guard needed.
+        m_cell = self._measure(reduced.function_space, cache)
+        return reduced * m_cell.with_data(1.0 / m_cell.data)
 
     def _cross_to_column(self, axis: str, v: ScalarField,
                          cache: MetricCache | None = None,
@@ -1210,7 +1368,16 @@ class MappedPressureSolver:
         """
         if cache is None:
             cache = {}
-        if self._preconditioner_kind == "multigrid":
+        if self._preconditioner_kind == "none":
+            # the N1 plain-CG stopgap: unpreconditioned CG (identity
+            # M_inv). ``A`` is negative definite, but the CG recurrence
+            # on ``(A, identity)`` gives the same iterates as standard
+            # CG on the SPD ``-A`` (the sign folds through the alpha/beta
+            # ratios), so no sign flip is needed. Slow (no spectral
+            # compression), for correctness runs on a stretched column,
+            # not production.
+            preconditioner = None
+        elif self._preconditioner_kind == "multigrid":
             preconditioner = self._build_vcycle(cache)
         else:
             preconditioner = self._preconditioner(cache)
