@@ -76,6 +76,48 @@ def dot(a, b):
     return float(jnp.sum((a * b).integrate().data))
 
 
+def stretch_strong(sigma):
+    """Strong tanh clustering near sigma=1 (physical width ratio ~20:1)."""
+    a = 2.2
+    return 1.0 + jnp.tanh(a * (sigma - 1.0)) / jnp.tanh(a)
+
+
+def build_mg_grid(nx, nz, stretch_fn=stretch, init=depth):
+    """Return a combined stretch + terrain FV grid (independent nx, nz)."""
+    mx = IntervalMesh(nx, (0.0, 2 * np.pi), periodic=True, name="x")
+    ms = MappedIntervalMesh(nz, (0.0, 1.0), stretch_fn, periodic=False,
+                            name="sigma")
+    mapping = CoordinateMapping(
+        maps={"zp": lambda sigma, H: sigma * H},
+        params={"H": init})
+    grid = Grid((mx, ms), mapping=mapping)
+    grid.merge_overrides(fv_cgrid_overrides(grid.factors))
+    return grid, mx, ms
+
+
+def iters_to_tol(precond, stretch_fn=stretch, *, budget, nx=16, nz=16,
+                 tol=1e-6):
+    """Return the PCG step count to ``tol`` (info['iterations'])."""
+    grid, mx, ms = build_mg_grid(nx, nz, stretch_fn)
+    space = cell_space(mx, ms)
+    solver = MappedPressureSolver(
+        grid, space, iterations=budget, tolerance=tol,
+        weights={"sigma": 1.0 / DSQR}, preconditioner=precond,
+        multigrid_levels=5)
+    rhs = grid.create_field(
+        space,
+        init=lambda x, sigma: jnp.exp(
+            -((x - 3.0) ** 2 + (sigma - 0.5) ** 2) * 3.0))
+    rhs = rhs - rhs.mean()
+
+    @jax.jit
+    def run(d):
+        _x, info = solver.krylov().solve(rhs.with_data(d))
+        return info["iterations"]
+
+    return int(run(rhs.data))
+
+
 # ================================================================
 #  The stretched base column is detected
 # ================================================================
@@ -176,17 +218,126 @@ def test_spectral_on_a_stretched_column_is_rejected_at_construction():
                              preconditioner="spectral")
 
 
-def test_multigrid_on_a_stretched_column_still_raises():
-    # kept as-is (a later branch teaches the V-cycle the measure
-    # widths): construction succeeds, the V-cycle assembly raises when
-    # it reaches the stretched factor's absent uniform spacing
-    grid, mx, ms = build_grid()
+def test_multigrid_on_a_stretched_column_builds_and_solves():
+    # N3: the V-cycle now LEARNS the grid.measure widths (measure-aware
+    # vertical bands + diagonal), so it builds on a stretched column
+    # instead of raising "no uniform cell width" — and the
+    # preconditioned solve converges (record §6 N3, §7 addendum ruling 3)
+    grid, mx, ms = build_mg_grid(16, 8)
+    space = cell_space(mx, ms)
     solver = MappedPressureSolver(
-        grid, cell_space(mx, ms), iterations=5,
+        grid, space, iterations=20, tolerance=None,
         weights={"sigma": 1.0 / DSQR}, preconditioner="multigrid")
-    with pytest.raises(NotImplementedError,
-                       match="no uniform cell width"):
-        solver.krylov()
+    solver.krylov()  # builds the V-cycle (previously raised)
+    rhs = grid.random.normal(space, seed=7)
+    rhs = rhs - rhs.mean()
+    p = solver.solve(rhs)
+    r0 = float(jnp.abs(rhs.data).max())
+    r_end = float(jnp.abs((solver.apply(p) - rhs).data).max())
+    assert r_end / r0 < 1e-8
+    # the solve pins the mean-free gauge
+    assert float(jnp.abs(p.mean().data.ravel()[0])) < 1e-12
+
+
+def test_multigrid_vcycle_is_symmetric_on_a_stretched_column():
+    # the SPD gate (record §6 N3): a V(1,1) cycle whose vertical-line
+    # smoother carries the measure-self-adjoint tridiagonal
+    # (diag(m_cell) T symmetric) and whose semicoarsening transfers are
+    # measure-adjoint (R = M_H^-1 P^T M_h, the uncoarsened stretched
+    # column cancelling) is symmetric under CG's physical measure-
+    # weighted product: <M u, v> == <u, M v> to roundoff (probed 1.9e-16)
+    grid, mx, ms = build_mg_grid(16, 8)
+    space = cell_space(mx, ms)
+    solver = MappedPressureSolver(
+        grid, space, iterations=5, weights={"sigma": 1.0 / DSQR},
+        preconditioner="multigrid", multigrid_levels=5)
+    vcycle = solver._build_vcycle({})
+    u = grid.random.normal(space, seed=1)
+    u = u - u.mean()
+    v = grid.random.normal(space, seed=2)
+    v = v - v.mean()
+    left = dot(vcycle(u), v)
+    right = dot(u, vcycle(v))
+    assert abs(left - right) <= 1e-12 * abs(left)
+
+
+@pytest.mark.parametrize("stretch_fn", [stretch, stretch_strong],
+                         ids=["mild", "strong"])
+def test_multigrid_beats_none_on_a_stretched_column(stretch_fn):
+    # the effectiveness gate (record §6 N3, §7 ruling 3): PCG with the
+    # measure-aware V-cycle reaches the tolerance in substantially fewer
+    # iterations than unpreconditioned CG on the same combined
+    # stretch+terrain grid — at least halved, conservatively (probed 7
+    # vs 221-300, a >30x reduction that stays flat to nz=64)
+    none = iters_to_tol("none", stretch_fn, budget=300)
+    mg = iters_to_tol("multigrid", stretch_fn, budget=40)
+    assert mg < 40           # the V-cycle converged inside its budget
+    assert 2 * mg <= none    # at least halved (in fact far more)
+
+
+def test_multigrid_bands_stay_differentiable():
+    # the measure-weighted vertical bands K^bb_f / (m_inner m_cell) and
+    # the measure-form diagonal are built from LOGICAL-frame, strictly
+    # positive grid.measure widths (never the storage frame's zero-
+    # padded ghost slots), so jax.grad through the band assembly is
+    # finite and matches a central FD — the new N3 arithmetic adds no
+    # masked singularity (contrast the end-to-end SOLVE grad below,
+    # which still NaNs on the PRE-EXISTING core diff singularity)
+    grid, mx, ms = build_mg_grid(16, 16)
+    space = cell_space(mx, ms)
+
+    def loss(w):
+        solver = MappedPressureSolver(
+            grid, space, iterations=5, weights={"sigma": w},
+            preconditioner="multigrid")
+        bands = solver.vertical_bands()
+        return jnp.sum(bands.lower.data ** 2 + bands.diag.data ** 2
+                       + bands.upper.data ** 2)
+
+    w0 = 1.0 / DSQR
+    grad = float(jax.grad(loss)(w0))
+    assert bool(jnp.isfinite(grad))
+    assert grad != 0.0
+    h = 1e-4
+    fd = float((loss(w0 + h) - loss(w0 - h)) / (2 * h))
+    assert abs(grad - fd) <= 1e-4 * abs(fd)
+
+
+@pytest.mark.xfail(
+    reason="the stretched+terrain SOLVE is not yet reverse-mode "
+           "differentiable through EITHER preconditioner: the same "
+           "PRE-EXISTING core-layer masked singularity as "
+           "test_stretched_terrain_solve_grad_matches_fd (the "
+           "stretched-mesh 'diff' measure division, staggering.py:582, "
+           "over the zero-padded bounded-axis ghost slots) NaNs the "
+           "reverse gradient in the operator applications the V-cycle "
+           "shares with the CG residual. It is independent of N3 (the "
+           "V-cycle's own bands are differentiable — see "
+           "test_multigrid_bands_stay_differentiable — and the plain-CG "
+           "solve NaNs identically). Flips to XPASS when the core "
+           "diff-guard branch lands.",
+    strict=False, raises=AssertionError)
+def test_multigrid_solve_grad_matches_fd():
+    # the end-to-end differentiability invariant (AGENTS.md) through the
+    # multigrid-preconditioned solve: jax.grad of a quadratic loss w.r.t.
+    # the column weight, finite and matching a central FD
+    grid, mx, ms = build_mg_grid(16, 8)
+    space = cell_space(mx, ms)
+    rhs = grid.random.normal(space, seed=5)
+    rhs = rhs - rhs.mean()
+
+    def loss(w):
+        solver = MappedPressureSolver(
+            grid, space, iterations=8, weights={"sigma": w},
+            preconditioner="multigrid", tolerance=None)
+        return jnp.sum(solver.solve(rhs).data ** 2)
+
+    w0 = 1.0 / DSQR
+    grad = float(jax.grad(loss)(w0))
+    h = 1e-4
+    fd = float((loss(w0 + h) - loss(w0 - h)) / (2 * h))
+    assert bool(jnp.isfinite(grad))
+    assert abs(grad - fd) <= 1e-4 * abs(fd)
 
 
 # ================================================================
