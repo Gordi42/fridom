@@ -147,9 +147,18 @@ periodic wrap, zero at a wall (the ``Inner`` variant pads exact-zero
 boundary fluxes) — ``integrate(q)`` is conserved to machine zero over
 a run, on periodic and walled axes alike. At second order the FV and
 nodal C-grid stencils are the same numbers, so an FV tracer's tendency
-is bitwise the nodal one on a periodic box (a retag). Mapped FV is
-rejected at bind (stage F5); the FV pressure C-grid is stage F3 (the
-projection here never touches a tracer).
+is bitwise the nodal one on a periodic box (a retag). On a mapped
+terrain-following column (``CenteredAdvection`` only, stage F5) the
+flat ``flux_diff`` is replaced by the **J-weighted conservative flux
+form** (:meth:`_FluxFormAdvection._mapped_fv_divergence`, mirroring the
+mapped pressure operator): ``(1/J) [D_i(J F_i) + D_b(F_b - Z_i
+I(F_i))]``, whose ``J``-weighted sum telescopes, so the physical
+buoyancy content ``\int q\,\mathrm{d}V = \int J q\,\mathrm{d}x`` is
+conserved to machine zero — the FV headline property on genuine
+terrain, which the consistent (nodal) mapped divergence does not give.
+The biased schemes reject mapped geometry entirely (above). The FV
+pressure C-grid is stage F3 (the projection here never touches a
+tracer).
 
 **Walled grids**: all three schemes support bounded mesh factors.
 ``CenteredAdvection`` does so structurally (next paragraph); the
@@ -1637,6 +1646,28 @@ def _is_average_space(space: object) -> bool:
                for factor in space.bare.factors)
 
 
+def _is_pure_average(space: object) -> bool:
+    """Whether *every* non-constant factor is average-family.
+
+    Description
+    -----------
+    The scalar-tracer discriminant of the mapped FV flux divergence
+    (stage F5): a ``CellAvg`` cell-scalar (buoyancy) is average along
+    every non-constant axis and takes the J-weighted conservative flux
+    form (its physical content is the FV-conserved quantity), whereas a
+    C-grid velocity is average only *transversely* (``Right(x) (x)
+    CellAvg(y) (x) CellAvg(z)``) — a mixed staggering that takes the
+    consistent nodal physical divergence instead (momentum is not
+    conserved by the tracer flux form). ``_is_average_space`` (any
+    factor) marks the flat FV path; this (all factors) separates a
+    pure tracer from a velocity on a mapped column.
+    """
+    factors = [factor for factor in space.bare.factors
+               if not isinstance(factor, ConstantSpace)]
+    return bool(factors) and all(
+        isinstance(factor, AverageSpace) for factor in factors)
+
+
 def _is_face_factor(factor: object) -> bool:
     """Whether a bare factor sits on the mesh faces (staggered).
 
@@ -1875,44 +1906,11 @@ class _FluxFormAdvection(fr.model.Module):
         self._walled = walled
         self._bind_mapping(table.grid)
         self._advected = table.select(fr.model.roles.ADVECTED)
-        self._reject_mapped_average(table)
         selector = table.velocity()
         # selector.labels pairs each velocity name with its axis
         self._axis_velocity = tuple(
             (axis, name) for name, axis in selector.labels)
         self._bind_background(table)
-
-    def _reject_mapped_average(self, table: object) -> None:
-        """Refuse average-family tracers on a mapped grid (stage F5).
-
-        Description
-        -----------
-        FV flux-form transport of a ``CellAvg`` tracer is grounded on
-        the flat (and walled) grid only: the flux divergence is the
-        computational-coordinate ``flux_diff``, not the J-weighted
-        physical flux divergence a mapped column needs (mapped FV is
-        stage F5). The biased schemes already refuse any mapped grid
-        (`_supports_mapped`); this additionally guards the
-        mapped-capable `CenteredAdvection` against an FV tracer.
-
-        Raises
-        ------
-        NotImplementedError
-            If a mapped column is declared and any advected component
-            resolves to the average family.
-        """
-        if self._column is None:
-            return
-        average = tuple(
-            name for name in self._advected
-            if _is_average_space(table[name].space))
-        if average:
-            raise NotImplementedError(
-                f"{type(self).__name__} cannot transport the "
-                f"average-family (CellAvg) tracer(s) {average} on a "
-                "mapped grid: FV flux-form advection is flat/walled "
-                "only in the tracer slice (mapped FV is stage F5). "
-                "Use a flat grid, or declare the tracer family='nodal'")
 
     def _bind_mapping(self, grid: object) -> None:
         """Freeze the mapped-column coupling table (stage C4).
@@ -2227,27 +2225,41 @@ class _FluxFormAdvection(fr.model.Module):
             The flux divergence on ``q``'s (wall-tagged) space.
         """
         if isinstance(q.function_space.bare.factor(axis), AverageSpace):
-            # FV: the exact discrete Gauss theorem. flux_diff maps the
-            # face flux back onto the cell average (Right | Inner ->
-            # CellAvg), telescoping to the boundary fluxes — zero on a
-            # periodic wrap, zero at a wall (the Inner variant pads
-            # exact-zero boundary fluxes). integrate(flux_diff(F)) is
-            # therefore machine zero, so the tracer mass is conserved
-            # by construction. On a walled axis the flux carries the
-            # velocity's adopted Dirichlet tag; strip it first (the
-            # flux_diff Inner variant is BC-free — it imposes the zero
-            # wall flux itself, the wall-face DOFs are never read). The
-            # data is unchanged by the retag, so conservation holds.
-            # The result already lands on q's space (no retag). Mapped
-            # FV is rejected at bind (stage F5).
-            flux_factor = flux.function_space.bare.factor(axis)
-            if not flux_factor.bc.is_free:
-                bcfree = flux_factor.mesh.inner
-                flux = flux.retag(
-                    flux.function_space.replace(**{axis: bcfree}))
-                flux_factor = bcfree
-            return q.grid.dispatch.resolve(
-                "flux_diff", flux_factor)[axis](flux)
+            if self._column is not None:
+                if _is_pure_average(q.function_space):
+                    # mapped FV (stage F5): a pure CellAvg tracer takes
+                    # the J-weighted conservative flux form, so its
+                    # physical content is conserved to machine zero
+                    return self._mapped_fv_divergence(
+                        q, flux, axis, params)
+                # a mapped C-grid velocity is cell-averaged only
+                # transversely (Right(x) (x) CellAvg(y) (x) CellAvg(z));
+                # momentum is not the FV-conserved quantity, so its
+                # transverse-CellAvg axes take the *consistent* nodal
+                # physical divergence below (correct to 2nd order, the
+                # nodal-model numbers up to metric round-off)
+            else:
+                # FV (flat / walled): the exact discrete Gauss theorem.
+                # flux_diff maps the face flux back onto the cell average
+                # (Right | Inner -> CellAvg), telescoping to the boundary
+                # fluxes — zero on a periodic wrap, zero at a wall (the
+                # Inner variant pads exact-zero boundary fluxes).
+                # integrate(flux_diff(F)) is machine zero, so the tracer
+                # mass is conserved by construction. On a walled axis the
+                # flux carries the velocity's adopted Dirichlet tag;
+                # strip it first (the flux_diff Inner variant is BC-free
+                # — it imposes the zero wall flux itself, the wall-face
+                # DOFs are never read). The data is unchanged by the
+                # retag, so conservation holds. The result already lands
+                # on q's space (no retag).
+                flux_factor = flux.function_space.bare.factor(axis)
+                if not flux_factor.bc.is_free:
+                    bcfree = flux_factor.mesh.inner
+                    flux = flux.retag(
+                        flux.function_space.replace(**{axis: bcfree}))
+                    flux_factor = bcfree
+                return q.grid.dispatch.resolve(
+                    "flux_diff", flux_factor)[axis](flux)
         if self._column is None:
             return flux.diff(axis).retag(q)
         mapped, base = self._column
@@ -2273,8 +2285,166 @@ class _FluxFormAdvection(fr.model.Module):
             dst = div.function_space.bare.factor(name)
             if src is dst or _bc_siblings(src, dst):
                 continue
-            corr = registry.resolve("interpolate", src)[name](corr)
+            # family-aware staggering hop (stage F5): the FV velocity
+            # is cell-averaged transversely (Right(x) (x) CellAvg(y) (x)
+            # CellAvg(z)), so the column correction lands on a nodal
+            # face (Inner(z)) that must reduce back onto the *average*
+            # cell CellAvg(z) — the "average" reconstruction, not the
+            # nodal "interpolate" (-> Center). A nodal-Center target
+            # keeps "interpolate" (bitwise unchanged).
+            kind = ("average" if isinstance(dst, AverageSpace)
+                    else "interpolate")
+            corr = registry.resolve(kind, src)[name](corr)
         return (div - corr.retag(div)).retag(q)
+
+    def _mapped_fv_divergence(
+        self,
+        q: ScalarField,
+        flux: ScalarField,
+        axis: str,
+        params: dict | None,
+    ) -> ScalarField:
+        r"""
+        J-weighted conservative FV flux divergence of one axis.
+
+        Description
+        -----------
+        The genuinely conservative physical divergence of a
+        ``CellAvg`` tracer on a mapped column ``m = M(b, params)``
+        (stage F5): the same J-weighted flux form the mapped pressure
+        operator uses (``mapped_pressure.py``), reused for advective
+        transport so buoyancy content ``\int q\,\mathrm{d}V`` (the
+        physical volume ``J`` times the computational measure) is
+        conserved to machine zero. Per axis the flux form
+        ``J\,\nabla_{\!phys}\!\cdot F = \sum_i D_i(J F_i) +
+        D_b(F_b - \sum_i Z_i I(F_i))`` decomposes because every axis
+        term telescopes independently under the ``J``-weighted sum
+        (``D_i`` and ``D_b`` are exact flux differences ``flux_diff``):
+
+        - ``axis == base``: ``(1/J) D_b(F_b)`` — the column flux
+          difference, the walls closed by the Inner ``flux_diff``
+          (exact-zero boundary flux, impermeability);
+        - coupled ``axis``: ``(1/J)[D_i(J F_i) - D_b(Z_i I(F_i))]`` —
+          the diagonal flux difference minus the cross flux
+          interpolated onto the column face (:meth:`_mapped_fv_cross`);
+        - uncoupled ``axis``: ``(1/J) D_i(J F_i)`` (``J`` and the flux
+          difference commute, so it reduces to the plain divergence).
+
+        Every metric derives through ``grid.metric`` at application
+        with the current ``params`` (nothing cached, rules 2.3/3.8).
+        The outer ``1/J`` (``dz/dzp``) rides the cell space; ``J``
+        (``dzp/dz``) the flux (face) space; ``Z_i`` (``dzp/dx_i``) the
+        corner. The result lands on ``q``'s space.
+
+        Parameters
+        ----------
+        q : ScalarField
+            The advected ``CellAvg`` tracer (the target cell space).
+        flux : ScalarField
+            The advective flux ``F_axis = v_axis q_face`` on the
+            control-volume face.
+        axis : str
+            The flux axis.
+        params : dict | None
+            The dynamic mapping-parameter fields (None on a
+            static-default mapped grid).
+
+        Returns
+        -------
+        ScalarField
+            The axis contribution to the physical divergence, on
+            ``q``'s space.
+        """
+        mapped, base = self._column
+        grid = q.grid
+        registry = grid.dispatch
+        # strip a wall Dirichlet tag: the flux_diff Inner variant
+        # imposes the exact-zero wall flux itself (the wall face is a
+        # structural zero of impermeability, never read from ghosts)
+        flux_factor = flux.function_space.bare.factor(axis)
+        if not flux_factor.bc.is_free:
+            bcfree = flux_factor.mesh.inner
+            flux = flux.retag(
+                flux.function_space.replace(**{axis: bcfree}))
+            flux_factor = bcfree
+        if axis == base:
+            div = registry.resolve("flux_diff", flux_factor)[axis](flux)
+        else:
+            jac = grid.metric(
+                flux.function_space, f"d{mapped}_d{base}",
+                params=params)
+            div = registry.resolve(
+                "flux_diff", flux_factor)[axis](flux * jac)
+            if axis in self._corrections:
+                div = div - self._mapped_fv_cross(
+                    flux, axis, base, mapped, params)
+        inv_j = grid.metric(
+            div.function_space, f"d{base}_d{mapped}", params=params)
+        return (div * inv_j).retag(q)
+
+    def _mapped_fv_cross(
+        self,
+        flux: ScalarField,
+        axis: str,
+        base: str,
+        mapped: str,
+        params: dict | None,
+    ) -> ScalarField:
+        r"""
+        Cross flux difference ``D_b(Z_i I(F_i))`` on the cell.
+
+        Description
+        -----------
+        The column cross term of the coupled axis ``axis`` (stage F5):
+        interpolate the ``axis``-face flux ``F_i`` onto the cell
+        corners along the column (``CellAvg(base) -> Inner(base)``, the
+        ``"interpolate"`` reconstruction), contract with the corner
+        slope ``Z_i = dm/dx_i``, reduce back onto the column face along
+        ``axis`` (``Right(axis) -> CellAvg(axis)``, the ``"average"``
+        reconstruction — the FV ``face -> cell`` hop), and take the
+        column flux difference (Inner ``flux_diff``, the wall closed by
+        the exact-zero boundary flux). Mirrors the mapped pressure
+        operator's ``_cross_to_column`` chain (transpose pairing is not
+        needed here — advection is not self-adjoint — only telescoping
+        conservation, which the flux difference gives for any consistent
+        interpolation).
+
+        Parameters
+        ----------
+        flux : ScalarField
+            The ``axis``-face flux ``F_i`` (BC-free on ``axis``).
+        axis : str
+            The coupled axis.
+        base : str
+            The mapped column's base coordinate.
+        mapped : str
+            The mapped physical coordinate.
+        params : dict | None
+            The dynamic mapping-parameter fields.
+
+        Returns
+        -------
+        ScalarField
+            The cross flux difference on the cell (``CellAvg`` column).
+        """
+        grid = flux.grid
+        registry = grid.dispatch
+        # up_b: CellAvg(base) -> Inner(base), onto the cell corners
+        corner = registry.resolve(
+            "interpolate", flux.function_space.bare.factor(base),
+        )[base](flux)
+        slope = grid.metric(
+            corner.function_space, f"d{mapped}_d{axis}", params=params)
+        corner = corner * slope
+        # down_i: Right(axis) -> CellAvg(axis), onto the column face
+        column = registry.resolve(
+            "average", corner.function_space.bare.factor(axis),
+        )[axis](corner)
+        # the column flux difference closes the walls itself (BC-free
+        # Inner flux_diff pads exact-zero boundary fluxes)
+        return registry.resolve(
+            "flux_diff", column.function_space.bare.factor(base),
+        )[base](column)
 
     def _advect(
         self, state: object, ctx: StepContext,
