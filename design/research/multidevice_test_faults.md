@@ -149,3 +149,53 @@ message). Two findings amend the record above:
   green again and usable as a gate: 583 passed / 6 skipped /
   1 deselected / 0 failed on the merged dev (`0d139fc5`), consistent
   with the 581 / 8 record above (six marked tests skip, two pass).
+
+## Item 1, CPU mechanism — re-attributed (2026-07-17, T5b)
+
+The forced-CPU exit-139 crash is **not** a jax 0.10.2 `sort`-lowering
+bug. Minimized on current dev (`c0259f74`, jax/jaxlib 0.10.2) to a
+fridom-free repro; the root cause is a **heap corruption inside
+jaxlib's batched CPU eigendecomposition**, and the `sort` lowering is
+only where the already-poisoned heap happens to be walked next (heap
+corruption aliases the crash site — it wanders run to run between
+`_sort_lower`/`shaped_abstractify`, `_standard_weak_type_rule`,
+`mlir.make_ir_context`, and glibc `malloc` detection).
+
+- **Minimal repro exists** (no fridom, no `sort`, no sharding, one
+  device): `jnp.linalg.eigh` on a batch of 144 `63x63` f64 symmetric
+  matrices deterministically corrupts the heap (SIGABRT `corrupted
+  size vs. prev_size`, 4/4). Batch <= 128 is fine; a single `63x63`
+  is fine. `gdb` puts the abort in
+  `jaxlib/cpu/_lapack.so`
+  `jax::EigenvalueDecompositionSymmetric::Kernel` under
+  `jax::ParallelBatchMap` — jaxlib fans the batch across the Eigen
+  intra-op threadpool while each worker's `?syevd` also spins up
+  OpenBLAS threads, and on this 256-thread node (2× EPYC 7763) the
+  nested oversubscription overruns OpenBLAS's precompiled
+  `NUM_THREADS` (`OpenBLAS warning: precompiled NUM_THREADS
+  exceeded, adding auxiliary array`). fridom hits batch = 16*9 = 144:
+  one `63x63` generalized-Hermitian pencil per Fourier mode of the
+  `16^3` channel.
+- **Trigger conditions:** CPU backend, `jax_enable_x64=True`, a
+  many-core host (256 logical here), batched `eigh` with batch beyond
+  OpenBLAS's precompiled thread budget. Independent of device count
+  and of sharding — a plain single-device `eigh` crashes too, so the
+  record's "single-device path is fine" holds only on low-core hosts
+  (CI runners); it does **not** hold on this node. `--xla_force_host_
+  platform_device_count=4` makes it fire regardless, and surfaces it
+  in the following op's lowering (hence the original `sort` blame).
+- **Mitigation:** `OPENBLAS_NUM_THREADS<=32` clears the isolated
+  single-device eigh (2/2 OK); it does **not** clear the forced-4
+  configuration (each forced device drives the eigh concurrently).
+- **One-line minimization:** started from the fridom channel test →
+  the crashing `argsort` operand aval is byte-identical to a
+  non-crashing isolated `argsort` → removing the `sort` still crashes
+  → `_generalized_eigh_diag`'s batched `eigh` alone crashes → a bare
+  `jnp.linalg.eigh` on a 144-batch crashes; the `sort` is neither
+  necessary nor sufficient.
+- **Artifacts:** `artifacts/channel_sort_segfault/`
+  (`repro_batched_eigh_heap_corruption.py` — the minimal cause;
+  `repro_forced4_sort_alias.py` — reproduces the record's exact
+  `sort`-lowering exit-139 symptom to demonstrate the aliasing;
+  `issue_draft.md` — drafted jax-ml/jax issue, **not filed**, awaiting
+  owner go-ahead).
