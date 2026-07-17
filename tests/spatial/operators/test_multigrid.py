@@ -31,6 +31,8 @@ from fridom.spatial.operators.multigrid import (
     DampedJacobi,
     MultigridLevel,
     MultigridVCycle,
+    VerticalBands,
+    VerticalLineJacobi,
 )
 from fridom.spatial.operators.staggering import uniform_spacing
 from fridom.spatial.operators.transfer import GridTransfer
@@ -253,6 +255,46 @@ def test_interior_level_needs_a_transfer():
 def test_empty_levels_raise():
     with pytest.raises(ValueError, match="at least one level"):
         MultigridVCycle(())
+
+
+def test_coarsest_level_must_have_no_transfer():
+    grid = Grid((IntervalMesh(8, (0.0, 1.0), name="x"),))
+    space = cell_space(grid)
+    transfer = GridTransfer(grid, grid.coarsened(2), order=2)
+    level = MultigridLevel(
+        laplacian(("x",)),
+        DampedJacobi(diagonal_field(grid, space)),
+        lambda f: f - f.mean(), transfer)
+    with pytest.raises(ValueError, match="must have transfer=None"):
+        MultigridVCycle((level,))
+
+
+def test_non_positive_sweeps_raise():
+    grid = Grid((IntervalMesh(8, (0.0, 1.0), name="x"),))
+    space = cell_space(grid)
+    level = MultigridLevel(
+        laplacian(("x",)),
+        DampedJacobi(diagonal_field(grid, space)),
+        lambda f: f - f.mean(), None)
+    with pytest.raises(ValueError, match=">= 1"):
+        MultigridVCycle((level,), pre_sweeps=0, post_sweeps=0)
+
+
+def test_properties_expose_the_configuration():
+    grid, space, _, vcycle = build_hierarchy(8, 3, 2, omega=0.7,
+                                              coarse_sweeps=5)
+    assert len(vcycle.levels) == 2
+    assert vcycle.pre_sweeps == 1
+    assert vcycle.post_sweeps == 1
+    assert vcycle.coarse_sweeps == 5
+    smoother = vcycle.levels[0].smoother
+    assert smoother.omega == 0.7
+    assert smoother.diagonal is vcycle.levels[0].smoother.diagonal
+    d = diagonal_field(grid, space)
+    bands = VerticalBands(d, d, d, 0)
+    line = VerticalLineJacobi(bands, omega=0.9)
+    assert line.omega == 0.9
+    assert line.bands is bands
 
 
 # ================================================================
