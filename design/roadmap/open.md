@@ -506,18 +506,6 @@ has to be invented, only assembled:
   (`/ w.to(v)`, `/ w_1`, `/ w_2`) share the masked-0/0 class the
   Sadourny PV division was cured of; guard like
   `_potential_vorticity` when that path meets an adjoint.
-- **Known exception, now localized: the mapped projection is
-  reverse-NaN** through `velocity_correction` — the field `/`
-  jacobian divide (the registry "divide" path in `scalar_field.py`)
-  has a singular VJP while the primal stays finite
-  (single-`where`-class masked singularity: NaN with the spectral and
-  multigrid preconditioners alike, at every CG iteration count;
-  isolated mapped `solve` and `divergence` differentiate finite).
-  First noted as "a metric singularity" at the CG-tolerance landing
-  ([`done.md`](done.md)); the fix is the double-`jnp.where` guard on
-  that divide path plus the mapped autodiff regression it has never
-  had (localization 2026-07-17, multigrid B5 pass).
-
 ---
 
 # Long-term goals

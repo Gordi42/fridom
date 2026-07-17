@@ -512,11 +512,13 @@ collectives above the replication threshold.
 - *Differentiability: `jax.grad` through a 6-step immersed multigrid
   run via `_chunk_body` is finite and FD-matched (~1.5e-8, gate
   1e-4) — the smoothers' dry-cell double-`where` guards hold. The
-  mapped twin is blocked by a **pre-existing** reverse-NaN in
+  mapped twin was blocked by a **pre-existing** reverse-NaN in
   `velocity_correction` (the field/jacobian divide VJP; present with
   the spectral preconditioner too; first noted at the CG-tolerance
-  landing) — localized this session, filed in
-  [`open.md`](../../roadmap/open.md).*
+  landing) — localized this session and since fixed (guarded
+  `_divide_by_jacobian`, merge `ee350bda`; mapped autodiff
+  regression in `test_mapped_model_autodiff.py`; entry in
+  [`done.md`](../../roadmap/done.md)).*
 
 ## 4. Test plan (mirrored)
 

@@ -176,6 +176,24 @@ Implementation record:
   [`../plans/active/multigrid_pathway_plan.md`](../plans/active/multigrid_pathway_plan.md)
   §3 (B0 spike numbers + the three recorded corrections, not yet
   owner-reviewed).
+- **Mapped projection reverse-NaN fixed** (2026-07-17, merge
+  `ee350bda`) — `jax.grad` through a mapped (terrain-following) run
+  returned an all-NaN gradient while the primal stayed finite: the
+  `velocity_correction` metric quotient `F_i / J` divided by the
+  column Jacobian `J = dm/db`, strictly positive on valid cells but
+  zero-filled in never-valid storage padding, so the sealed-`inf`
+  primal there carried a singular divide VJP (`0 * inf -> NaN` —
+  the masked-singularity class the differentiability policy names).
+  First noted as "a metric singularity" at the CG-tolerance landing,
+  localized by the multigrid B5 pass, fixed with the double-
+  `jnp.where` guard (`MappedPressureSolver._divide_by_jacobian`):
+  bitwise-identical primal on every valid cell (parity + treedef
+  tests unchanged), finite reverse pass. Ships the mapped autodiff
+  regression the path never had
+  (`tests/nonhydro2/test_mapped_model_autodiff.py`: grad finite and
+  FD-matched to rel-err ~6e-12 against gate 1e-4, nodal + FV). The
+  new-stack step path is now reverse-differentiable on **all** grid
+  types — flat, walled, mapped, immersed — with no known exception.
 - **Immersed partial cells — all dimensions, all three models**
   (2026-07-17, merges `ee257bc0` I0+I1, `b447b8e5` I2, `a5aec29d` I4,
   `3858d977` I3, plus the autodiff regression gates) — the immersed
