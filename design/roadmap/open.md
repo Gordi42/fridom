@@ -70,11 +70,6 @@ memory ceiling, time-to-first-step, WENO throughput (entries in
 - **Re-run the comparison suite** on post-fix dev (projected weno5
   edge ~1.8x), and fix its chunk metric to report compile separately
   (`_CHUNK_COMPILE_LOG`).
-- **4-GPU memory signature.** 1024x1024x512 fits (~31 GiB/GPU steady),
-  1024x1024x768 dies *in compile* (remat) — needs its own attribution
-  (per-device arena + fragmentation vs genuine remat). The single-GPU
-  ceiling is resolved
-  ([`../research/gpu_memory_ceiling.md`](../research/gpu_memory_ceiling.md)).
 - **Cold-compile HLO volume.** Step-body compile scales ~O(ops^1.35);
   HLO-volume reduction is the only cold-start lever for weno5
   (~8.5–10 s honest compile) and for the mapped solve's 16–18 s cold
@@ -84,9 +79,7 @@ memory ceiling, time-to-first-step, WENO throughput (entries in
   (first advance −24..31%, steady state bitwise-unchanged), default-off
   patch preserved, unlanded.
   [`../research/time_to_first_step.md`](../research/time_to_first_step.md)
-- **WENO selected-input follow-ups.** Multi-host (`srun -n P`)
-  confirmation of the walled selected path (single-controller forced-4
-  exercised, real multi-process not); and the pre-existing forced-4
+- **WENO selected-input follow-ups.** The pre-existing forced-4
   knife-edge divergence test now also tips `weno5` (a kernel-shape
   roundoff flip — see
   [`../research/multidevice_test_faults.md`](../research/multidevice_test_faults.md)).
@@ -103,25 +96,56 @@ memory ceiling, time-to-first-step, WENO throughput (entries in
   question, parity-sensitive, unprobed
   ([`../research/upwind5_revisit.md`](../research/upwind5_revisit.md)
   §6).
+- **Hydro surface-flux correction: slice-only `A(1)`.** The H7
+  constancy-preserving surface advective flux (owner-ratified
+  default, [`../plans/active/hydrostatic_model_plan.md`](../plans/active/hydrostatic_model_plan.md)
+  §H7) costs +18–49% on `se_centered` and +11–36% on `se_weno5`
+  hydro steps in the comparison suite (worst at 2048²×64, resweep
+  2026-07-17), flipping centered hydro from ~break-even to
+  0.79–0.88 oc/fridom; `*_linear` configs unaffected. The correction
+  `−q·A(1)` is mathematically nonzero **only in boundary-adjacent
+  cells**, yet is evaluated as full-3D flux divergences (one per
+  advected field per axis, memory-bound; face-velocity reuse is
+  already XLA-CSE'd — measured perf-neutral). Lever: evaluate `A(1)`
+  on the boundary-adjacent 2D slice only; needs a DSL
+  slice/restriction path on the advecting-velocity faces.
 
-## Channel eigenmodes are broken on multi-device
+## Channel eigenmodes on multi-device — two upstream repros to file
 
-Two independent pre-existing faults, both attributed **upstream**
-(jax/jaxlib 0.10.2; the earlier "fridom-side c64/c128 dtype mix"
-reading is refuted — the traced jaxpr carries zero complex64 on either
-path): a `sort`-lowering **segfault** on forced-CPU meshes (blocks even
-testing; re-verified exit 139 on dev), and an **XLA:GPU/GSPMD lowering
-fault** that synthesizes a c64 FFT-norm constant against the c128 cuFFT
-output inside the large sharded projection module, so the HLO verifier
-kills the projection on real multi-GPU (not covered by the
-`multi_output_fusion` workaround). The single-device path is fine.
+The fridom-side work shipped (2026-07-17, T5): the channel projection now
+fails loudly with a taught `NotImplementedError` on a grid that shards a
+periodic axis, instead of dying in the HLO verifier — see
+[`done.md`](done.md). Both underlying faults are **upstream**
+(jax/jaxlib 0.10.2; the earlier "fridom-side c64/c128 dtype mix" reading
+is refuted — the traced jaxpr carries zero complex64), and both now have
+a minimal fridom-free repro + a drafted jax issue awaiting the owner's
+go-ahead to file:
 
-Work: minimal upstream repros for both faults (ready to file with jax —
-filing needs the owner's go-ahead), plus a fridom-side mitigation (e.g.
-keep the FFT norm scaling outside the fused sharded kernel) or a taught
-multi-device skip on the channel eigenbasis so the projection fails
-loudly instead of in the HLO verifier. Evidence, provenance probes, and
-corrections:
+- **GPU (T5).** Not the FFT-norm constant (refuted: reproduces with
+  `norm=None`). XLA:GPU/GSPMD lowers a **sharded-transform-axis** FFT
+  through its distributed Cooley-Tukey decomposition whose
+  **twiddle-factor** constants are `complex64` against `complex128`
+  data; the HLO verifier rejects `multiply c64[] c128[]`. Not covered by
+  `multi_output_fusion`. Repro + issue:
+  [`../research/artifacts/channel_fftnorm_gpu/`](../research/artifacts/channel_fftnorm_gpu/).
+- **CPU (T5b).** A batched-`eigh` heap corruption in jaxlib's CPU LAPACK
+  on many-core hosts (not the `sort` lowering; that was aliasing).
+  Repro + issue:
+  [`../research/artifacts/channel_sort_segfault/`](../research/artifacts/channel_sort_segfault/).
+
+Remaining open work:
+
+- **File the two jax issues** (owner go-ahead required — the drafts are
+  ready).
+- **Optional real GPU fix** (make the projection *run* multi-device,
+  not just skip): route the channel transforms through the slab /
+  distributed-transform lowering the spectral solver already uses
+  (`operators/distributed_solve.py`), so each transform axis is
+  device-local when its FFT runs — the `with_sharding_constraint`
+  "replicate the transform axis" workaround is proven bit-for-bit exact
+  vs the single-device result. Bigger blast radius; deferred.
+
+Evidence, provenance probes, and the full re-attribution history:
 [`../research/multidevice_test_faults.md`](../research/multidevice_test_faults.md).
 
 ## Mapped + advection + chunked scan goes non-finite on GPU
@@ -155,29 +179,25 @@ and the FV nonhydro is feature-complete against nodal except cut cells
 (out of scope by decision; entries in [`done.md`](done.md), records in
 the scoping §10–§13). Open:
 
-- **Stretched + terrain-following combined** — the correctness
-  question is answered
-  ([`../research/stretched_terrain_combined.md`](../research/stretched_terrain_combined.md),
-  2026-07-17): **no double-count** — stretching (measure widths) and
-  terrain (chart J) factor exactly, and the conservative FV
-  advection is already correct on the combined grid (conservation
-  machine zero, constancy aligned with the projection divergence,
-  2nd order under 15:1 stretch). What remains is downstream: the
-  mapped pressure solve dies on a stretched column (spectral
-  preconditioner unbuildable — cryptic `DispatchError`, no gate;
-  SPD lost in the corner cross hops — measure-adjoint down-hop
-  recipe probed to machine zero, record §3; multigrid V-cycle is
-  the preconditioner candidate), the hydrostatic model has **no
-  terrain support at all** (runs silently with 27%-wrong `p_hyd`;
-  four metric-free sites, record §4), and the cumint `jacobian=`
-  seam is unwired for `maps=` grids (silent no-op / unknown-metric
-  raise). All four owner calls **ruled 2026-07-17** (record §7
-  addendum): N1+N2 with a plain-CG stopgap; hydrostatic core build
-  H0–H2+H4 with the explicit/split depth fix (implicit H3 deferred
-  behind a taught error); multigrid learns `grid.measure` widths
-  (no interim Thomas route); the `jacobian=` seam wired properly
-  (`sqrt_g` for `maps=`, name re-key, taught error — H1 consumes
-  the seam, superseding route a). Implementation open.
+- **Stretched + terrain-following combined — residuals.** The
+  correctness question and the implementation campaign shipped
+  2026-07-17 (entry in [`done.md`](done.md); research + rulings in
+  [`../research/stretched_terrain_combined.md`](../research/stretched_terrain_combined.md)).
+  Open:
+  - **`EnergyMetric`/eigenmodes weight `ps` by the flat extent on
+    charts** — terrain energy diagnostics are physically
+    inconsistent (model-layer, outside the hydrostatic package;
+    flagged by the terrain build).
+  - **Variable-depth implicit + split-explicit free surfaces**
+    (H3): taught errors on charts today; need the variable-csqr 2D
+    solve (hydrostatic plan §7). The barotropic volume-vs-energy
+    tension is documented in the plan §8 (energy chosen; exact
+    volume needs variable-`c²`).
+  - **`MetricScaled` divides** (`mapped.py:219-222`) share the
+    masked-singularity structure but are empirically reverse-safe;
+    guard only if a composition exposes them (VJP-fix audit).
+  - **GPU validation** of the new stretched+terrain paths (fold
+    into the standing 4-GPU baseline re-record below).
 - **Re-record the FV/nodal step baselines on 4 GPUs** — the gpu4 step
   baseline predates the nodal sibling cases and the walled step
   baselines predate the FV default flip; re-record both
@@ -367,9 +387,10 @@ Open:
   slot (record §3.1 opt C, §3.3 spelling b).
 - **Measure-aware implicit column** — the `VerticalMixing`
   stretched/terrain gates stand until the banded column learns
-  `grid.measure` widths + the terrain Jacobian (the same object the
-  stretched-column multigrid smoother needs; pairs with the flagged
-  variable-kappa follow-up, `implicit.py`).
+  `grid.measure` widths + the terrain Jacobian (the multigrid V-cycle
+  already consumes measure widths on stretched columns — N3, entry in
+  [`done.md`](done.md) — this is its implicit-diffusion twin; pairs
+  with the flagged variable-kappa follow-up, `implicit.py`).
 - **Stage 5** — the geopotential-correct full-metric (then rotated)
   diffusion tensor; deferred, separate plan (record §3.6 A/C).
 - **Owner ratification** — shipped on the record's RECs, unreviewed:
@@ -486,19 +507,30 @@ The semicoarsened V-cycle preconditioner shipped 2026-07-17 (the
 [`../plans/active/multigrid_pathway_plan.md`](../plans/active/multigrid_pathway_plan.md)
 §3). Open, none blocking:
 
-- **GB-2 wall-clock leg** — ≥ 1.5× step wall-clock vs the spectral
-  preconditioner at 128³+ on an A100. Iteration counts are pinned
-  (44 → 13, resolution-independent) but the ms/step claim needs the
-  real device; joins the next GPU campaign (`benchmarks/model` A/B
-  harness). Run it at the new `pressure_tolerance=1e-8` default: both
-  preconditioners now early-exit, so the pinned iteration counts, not
-  the fixed budget, set each side's cost (the spectral side is already
-  GPU-measured at the default — CG-tolerance entry in
-  [`done.md`](done.md)).
-- **Real multi-GPU validation** — forced-4 parity is asserted in the
-  suite (incl. the replicated coarse level, MG-D5); a real
-  `srun -n 4` run joins the next campaign, same status as the
-  FV-default flip and the immersed PCG paths.
+- **V-cycle kernel swap (candidate task)** — the GB-2 wall-clock leg
+  failed on the A100 (5.5–13.4× *slower* than spectral; entry in
+  [`done.md`](done.md), evidence
+  [`../research/multigrid_gb2_wallclock.md`](../research/multigrid_gb2_wallclock.md)),
+  and the same-day idealized kernel study
+  ([`../research/multigrid_kernel_study.md`](../research/multigrid_kernel_study.md))
+  pinned the cause: ~91% of the 53 ms V-cycle is the scan-Thomas
+  *lowering* (latency-bound, batch-independent 2.75 ms/solve = 2·n_z
+  sequential kernel launches), not the algorithm. The lever is a
+  kernel swap in the shared `banded.tridiagonal_solve_along_axis`:
+  PCR (~30 lines pure jax, portable, bit-identical solution so
+  convergence is unchanged, natively differentiable) or batched
+  `lax.linalg.tridiagonal_solve` (cuSPARSE, ~1.4× faster still,
+  CUDA-only → needs the PCR fallback; grad+vmap verified — the
+  banded.py:28-30 "backend-uneven" docstring is stale). Measured
+  end-to-end: mapped 128³ solve 9–13× faster → step at ~parity with
+  spectral (0.79–1.17×, still short of the 1.5× GB-2 bar at 128³;
+  likelier at 192³+, unmeasured); **immersed wins outright**
+  (1.3–2.0× and converges in 15–18 iters where spectral needs ~80
+  and busts the 30 budget). Chebyshev/point smoothers are **refuted**
+  as an alternative (fail even the isotropic control — line smoothing
+  is load-bearing for the semicoarsening hierarchy). Free side
+  benefit: the same swap speeds the IMEX implicit vertical-diffusion
+  solve (shared kernel).
 
 ## Differentiable run surface — `model.propagator()`
 
@@ -546,7 +578,7 @@ has to be invented, only assembled:
 
 | #   | Task | Notes |
 |-----|------|-------|
-| 3.1 | **Hydrostatic model — external comparison legs** | The model itself shipped 2026-07-17 (entry in [`done.md`](done.md); record [`../plans/active/hydrostatic_model_plan.md`](../plans/active/hydrostatic_model_plan.md) §8). Open: the cross-model *execution* legs of the comparison protocol — running Oceananigans/Veros/pyOM3 against `hy.comparison_model` per the matched-config instructions in plan §8/H5 (the out-of-tree `benchmarks/comparison` harness is not on this machine; **pyOM3 source access needs the owner**) — and the **owner review of `examples/hydrostatic/comparison_baseline.py`** — landed on `dev` 2026-07-17 by owner authorization *before* review (deviation from the examples-review workflow, owner instruction in chat); the review itself is still owed — sweep `REVIEW:` markers / direct edits when it happens. Designed-fors (T/S + EOS, topography / variable-`csqr` CG solve, z*/ALE, spherical) stay in plan §7. |
+| 3.1 | **Hydrostatic model — external comparison legs** | The model itself shipped 2026-07-17 (entry in [`done.md`](done.md); record [`../plans/active/hydrostatic_model_plan.md`](../plans/active/hydrostatic_model_plan.md) §8). The **Oceananigans leg executed 2026-07-17** (out-of-tree `benchmarks/comparison` harness, single A100; machine-precision linear parity, full HY-D6 ladder — results in the bench repo's `results/HYDRO_REPORT.md`; it also surfaced the implicit+advection surface-closure instability, root-caused and fixed same day, plan §H7). Still open: the **Veros and pyOM3 legs** (**pyOM3 source access needs the owner**) — and the **owner review of `examples/hydrostatic/comparison_baseline.py`** — landed on `dev` 2026-07-17 by owner authorization *before* review (deviation from the examples-review workflow, owner instruction in chat); the review itself is still owed — sweep `REVIEW:` markers / direct edits when it happens. Designed-fors (T/S + EOS, topography / variable-`csqr` CG solve, z*/ALE, spherical) stay in plan §7. |
 | 3.7 | **Spherical nonhydro** | The 3D spherical chart (`X(lon, lat, h)`, so the metric comes out diagonal and `w = dh/dt` is already physical) needs the C2 chart metrics and the C3 elliptic machinery to meet: the pressure operator becomes the Laplace–Beltrami on the chart — still SPD under the sqrt(g)-weighted product, so the PCG structure carries over, but the operator assembly must be written. Not the first 3D-spherical consumer: a hydrostatic model needs no pressure solve and is the likelier first use (3.1). |
 | 3.2 | **Coupled models — design** | `jax.distributed`, field exchange between models on different meshes/devices/processes, a `Coupler` module plus regridding operators, a synchronization schedule. **Pre-designed** in [`../specs/model/09_coupling_designfor.md`](../specs/model/09_coupling_designfor.md) (precedent survey + adversarial walk + architecture; the class specs carry its CS-1..18 constraints, so 3.2 stays a pure addition). |
 | 3.3 | **Coupled models — implementation** | Same-process multi-device, then multi-host. Depends on 3.2. Its old cost prerequisite (3.9/3.10 — "decomposed runs must be affordable before coupling them is credible") is met: the multi-device execution-cost line closed 2026-07-16 ([`done.md`](done.md)). |

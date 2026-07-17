@@ -507,13 +507,27 @@ def test_multiwalled_grids_are_rejected():
 #  The sharded multi-device application (forced-devices gate)
 # ================================================================
 @pytest.mark.multi_device
-def test_channel_projection_is_device_count_invariant(forced_devices):
-    # the projector application composes under the domain
-    # decomposition: the partial-axis transforms (two periodic axes)
-    # and the per-plane contraction run on the sharded state (no
-    # host gather), and the result matches the explicit one-device
-    # grid. N = 16: below that the negotiation collapses the tiny
-    # 3-D blocks onto one device and nothing would be sharded.
+def test_channel_projection_rejects_a_sharded_periodic_axis(forced_devices):
+    # The per-plane Fourier contraction cannot run when a periodic
+    # (transform) axis is sharded across devices: XLA's GSPMD
+    # distributed-FFT lowering synthesizes the twiddle-factor constants
+    # at complex64 against the complex128 cuFFT data and the HLO
+    # verifier rejects the mixed multiply (an upstream jax/jaxlib
+    # 0.10.x XLA:GPU fault, NOT the FFT norm and NOT covered by
+    # multi_output_fusion; see multidevice_test_faults.md). The engine
+    # rejects it upfront with a taught NotImplementedError instead of
+    # dying in the verifier. N = 16: below that the negotiation
+    # collapses the tiny 3-D blocks onto one device and no axis shards.
+    #
+    # GPU-scoped: building the n=16 channel eigenbasis runs a
+    # batch-144 63x63 eigh, which heap-corrupts jaxlib's CPU LAPACK on
+    # many-core hosts (the T5b upstream bug); on GPU the eigh is
+    # cuSOLVER and clean. Skip on the CPU backend.
+    if jax.default_backend() == "cpu":
+        pytest.skip(
+            "channel eigenbasis batch-144 eigh heap-corrupts jaxlib's "
+            "CPU LAPACK on many-core hosts (T5b); this multi-device "
+            "projection gate is GPU-scoped")
     if forced_devices is not None:
         assert jax.device_count() == forced_devices
 
@@ -523,23 +537,25 @@ def test_channel_projection_is_device_count_invariant(forced_devices):
               "v": rng.standard_normal((n, n - 1, n)),
               "w": rng.standard_normal((n, n, n)),
               "b": rng.standard_normal((n, n, n))}
-    results = {}
-    for tag, device_ids in (("many", None), ("one", (0,))):
-        model = make_channel_model(device_ids=device_ids, n=n)
-        model.set_fields(**fields)
-        z = nh.State({c: model.state[c] for c in COMPONENTS})
-        proj = nh.transforms.VorticalProjection(nh.eigenbasis(model))
-        results[tag] = proj(z)
-        if tag == "many":
-            # genuinely sharded in and out (x is the blocked factor)
-            assert z["u"]._data.sharding.spec[0] == "devices"
-            out = results[tag]["u"]._data
-            assert len(out.sharding.device_set) == jax.device_count()
-            assert out.sharding.spec[0] == "devices"
-            # idempotent on the sharded state
-            twice = proj(results[tag])
-            assert _absmax(twice, results[tag]) < 1e-12
-    assert max(
-        float(np.abs(np.asarray(results["many"][c].data)
-                     - np.asarray(results["one"][c].data)).max())
-        for c in COMPONENTS) < 1e-11
+
+    # many devices: x (a periodic axis) shards, so the projection is
+    # rejected loudly before it can reach the broken sharded FFT
+    many = make_channel_model(device_ids=None, n=n)
+    many.set_fields(**fields)
+    z_many = nh.State({c: many.state[c] for c in COMPONENTS})
+    assert z_many["u"]._data.sharding.spec[0] == "devices"
+    proj_many = nh.transforms.VorticalProjection(nh.eigenbasis(many))
+    with pytest.raises(NotImplementedError, match="shards a periodic axis"):
+        proj_many(z_many)
+
+    # one device (device_ids=(0,)) on the same host: every axis is
+    # local, the gate does not fire, and the projection runs normally
+    one = make_channel_model(device_ids=(0,), n=n)
+    one.set_fields(**fields)
+    z_one = nh.State({c: one.state[c] for c in COMPONENTS})
+    proj_one = nh.transforms.VorticalProjection(nh.eigenbasis(one))
+    out_one = proj_one(z_one)
+    assert not any(
+        np.iscomplexobj(np.asarray(out_one[c].data)) for c in COMPONENTS)
+    # the single-device projection is a genuine idempotent projector
+    assert _absmax(proj_one(out_one), out_one) < 1e-11

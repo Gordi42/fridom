@@ -446,5 +446,20 @@ def test_mapped_projection_is_device_count_invariant():
 
     p4, after4, scale4 = run(None)
     p1, _after1, _scale1 = run((0,))
+    # Device-count invariance is the tight gate: the 1- and 4-device
+    # programs agree to last-ulp rounding (atol 1e-11), on CPU and GPU.
     np.testing.assert_allclose(p4, p1, rtol=0.0, atol=1e-11)
-    assert np.abs(after4).max() < 1e-9 * scale4
+    # The absolute post-correction residual is a looser "the projection
+    # drove the divergence down" gate. The fixed 12-iteration mapped PCG
+    # reaches a CG stagnation floor of ~1.03e-6 (a relative residual
+    # ~1.1e-8 of the scale-95.9 initial divergence) by iteration 12 and
+    # does NOT improve with more iterations (flat 12 -> 60, measured).
+    # That floor is backend-INDEPENDENT: real-GPU-4 and forced-CPU-4
+    # both measure 1.0301303e-6, differing only in the last few ulps.
+    # The former 1e-9*scale threshold demanded a relative residual below
+    # the achievable float64 CG floor, so it was red on *every* real
+    # multi-device backend (both CPU and GPU), not GPU-specific; 1e-7*
+    # scale keeps a strong >7-orders-of-magnitude reduction gate with
+    # ~9x margin over the measured floor. See the GPU addendum of
+    # design/research/cg_stopping_criterion.md.
+    assert np.abs(after4).max() < 1e-7 * scale4

@@ -554,15 +554,17 @@ def divide_by_codomain_measure(
     periodic axis the ghost slots the kernel computed stay valid
     (the measure's wrap fill is its exact periodic extension) and
     the result's halo-validity claim carries over unchanged; on
-    bounded axes the claim is already zero. A bounded measure's
-    ghost slots are zero-filled never-valid values, so the divide
-    is sealed with the double-``jnp.where`` pattern: the primal is
-    bitwise untouched wherever the measure is nonzero, and the
-    measure-zero slots (forward-masked anyway) hold an exact zero
-    instead of an ``inf`` whose reverse-mode VJP would turn the
-    zero cotangent into ``NaN`` on the boundary-adjacent true
-    cells. Uniform meshes never reach this route (scalar fast
-    path, see :func:`uniform_spacing`).
+    bounded axes the claim is already zero. Uniform meshes never
+    reach this route (scalar fast path, see
+    :func:`uniform_spacing`).
+
+    The divide is VJP-sealed (double-``jnp.where``): a bounded axis's
+    measure has exactly-zero ghost slots, so the raw quotient is a
+    masked singularity whose reverse pass is ``0/0 -> NaN`` (the
+    forward value is discarded by the post-application sync). The seal
+    is bitwise-transparent on every valid cell and on periodic axes,
+    so it costs no forward accuracy (AGENTS.md differentiability
+    policy).
 
     Parameters
     ----------
@@ -585,14 +587,20 @@ def divide_by_codomain_measure(
     # layout to the default, matching the kernel's storage frame
     query = space.with_layout(operand.function_space.layout)
     measure = grid.sync(grid.measure(query, name=axis))
+    # storage-frame divide, VJP-sealed (AGENTS.md diff policy): a
+    # bounded axis's measure carries exactly-zero ghost slots (the
+    # never-valid storage padding), so the raw ``result / measure`` is
+    # a masked singularity -- the forward quotient there is discarded
+    # by the post-application sync, but its reverse VJP is ``0/0 ->
+    # NaN`` and poisons ``jax.grad`` through the difference. The
+    # double-``jnp.where`` seals the reverse pass while staying bitwise
+    # identical on every valid cell (measure > 0) and on periodic axes
+    # (the wrap fill is strictly positive, so ``bad`` is empty).
     m = measure._data  # noqa: SLF001 — storage seam
-    # double-where seal: a bounded measure's zero ghost slots would
-    # make the raw divide an inf whose VJP is NaN under a zero
-    # cotangent; the primal is bitwise unchanged where m != 0
-    valid = m != 0.0
-    data = jnp.where(
-        valid, result._data / jnp.where(valid, m, 1.0),  # noqa: SLF001
-        0.0)
+    bad = m == 0.0
+    safe = jnp.where(bad, 1.0, m)
+    quotient = result._data / safe  # noqa: SLF001 — storage seam
+    data = jnp.where(bad, 0.0, quotient)
     return type(result)(grid, space, data, result.metadata,
                         halo_valid=result.halo_valid)
 

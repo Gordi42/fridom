@@ -18,6 +18,7 @@ import fridom.hydrostatic as hy
 from fridom.hydrostatic.modules import free_surface
 from fridom.hydrostatic.params import CSQR
 from fridom.model.context import StepContext
+from fridom.model.modules.advection import CenteredAdvection
 from fridom.spatial.grid import Grid
 from fridom.spatial.immersed_domain import ImmersedDomain
 from fridom.spatial.meshes.interval import IntervalMesh
@@ -284,11 +285,16 @@ def test_masked_depth_mean_div_all_wet_matches_unimmersed():
 # ================================================================
 def test_split_theta_mass_conserved_to_machine_zero():
     grid = immersed_grid(8, 8)
+    # surface_flux=False: the default constancy-preserving closure
+    # advects through the surface face and exchanges tracer content with
+    # the moving free surface, so exact theta-mass conservation is the
+    # legacy fixed-domain closure's property.
     model = hy.Model(
         grid=grid, dt=0.005, csqr=4.0,
         free_surface=hy.SplitExplicitFreeSurface(substeps=8),
         stratification=hy.ConstantStratification(n2=0.0),
-        coriolis=hy.FPlaneCoriolis(f0=0.5), advection=True)
+        coriolis=hy.FPlaneCoriolis(f0=0.5),
+        advection=CenteredAdvection(surface_flux=False))
     rng = np.random.default_rng(0)
     model.set_fields(**{k: 0.2 * rng.standard_normal(
         model.state[k].data.shape) for k in ("u", "v", "b")})
@@ -333,7 +339,9 @@ def test_split_all_wet_matches_unimmersed():
 def test_split_transport_depth_consistency_no_coast_leak():
     # a full-depth land column (x<0.25): the barotropic transport U on a
     # closed face is exactly 0 (transport-depth consistent), so no mass
-    # leaks across the coast and the run stays finite.
+    # leaks across the coast and the run stays finite. surface_flux=False
+    # isolates the coast (lateral) conservation from the moving-surface
+    # exchange the default constancy-preserving closure introduces.
     def coast(x, y, z):  # noqa: ARG001
         return (x > 0.25).astype(float)
     grid = Grid(_meshes(8, 4, 1.0), immersed=ImmersedDomain(coast))
@@ -341,7 +349,8 @@ def test_split_transport_depth_consistency_no_coast_leak():
         grid=grid, dt=0.002, csqr=1.0,
         free_surface=hy.SplitExplicitFreeSurface(substeps=8),
         stratification=hy.ConstantStratification(n2=0.0),
-        coriolis=hy.FPlaneCoriolis(f0=0.5), advection=True)
+        coriolis=hy.FPlaneCoriolis(f0=0.5),
+        advection=CenteredAdvection(surface_flux=False))
     rng = np.random.default_rng(6)
     model.set_fields(**{k: 0.1 * rng.standard_normal(
         model.state[k].data.shape) for k in ("u", "v", "b")})

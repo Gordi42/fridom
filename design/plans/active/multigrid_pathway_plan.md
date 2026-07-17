@@ -492,7 +492,19 @@ collectives above the replication threshold.
   Depth dominates sweeps; the 4→5 uptick (12→13) is the 4-cell
   coarsest being marginally too coarse (harmless); depth 4 / k = 8
   sits exactly at 15 at n = 96 (zero margin) — hence 5. The
-  wall-clock leg (≥ 1.5× at 128³+) needs an A100: open follow-up.*
+  wall-clock leg was measured post-merge on the A100 and **fails**:
+  5.5–13.4× slower than spectral at 128–256³ (V-cycle ≈ 66× a
+  spectral CG iteration at 128³; the sequential line-smoother Thomas
+  solve at full n_z per semicoarsened level is latency-bound on
+  GPU). Spectral stays the GPU production default. The same-day
+  kernel study pinned ~91% of the cost to the scan-Thomas *lowering*
+  and refuted the z-parallel point-smoother levers (line smoothing is
+  load-bearing for the semicoarsening); the recovery lever is a
+  batched-tridiagonal kernel swap in `banded.py` — mapped reaches
+  ~parity, immersed wins outright
+  ([`../research/multigrid_kernel_study.md`](../research/multigrid_kernel_study.md)).
+  Evidence:
+  [`../research/multigrid_gb2_wallclock.md`](../research/multigrid_gb2_wallclock.md).*
 - *GB-3: genuine partials (order = 4, min_fraction = 0.1): 15
   iterations at 16³ / 18 at 32³ to 1e-10 — inside the 30 budget with
   ≥ 12 margin; spectral needs ~80. The immersed count creeps with n
@@ -507,8 +519,27 @@ collectives above the replication threshold.
   HLO equality.*
 - *GB-5: forced-4 parity < 1e-8 on an aligned 3-level shard and on a
   12→6 shard whose coarse level replicates (6 does not divide 4
-  devices — the MG-D5 fallback exercised under decomposition). Real
-  multi-GPU joins the next campaign.*
+  devices — the MG-D5 fallback exercised under decomposition).*
+- *GB-5 real multi-GPU (validated 2026-07-17, DKRZ 4×A100-SXM4-80GB,
+  jax 0.10.2 cuda12, `multi_output_fusion` disabled): (a) the eight
+  `@pytest.mark.multi_device` parity tests
+  (`test_mapped_pressure_multigrid.py::test_forced4_multigrid_solve_matches_single_device`
+  ×2 incl. the x12→6 replicated MG-D5 shard, plus the four
+  `test_transfer.py` GA-2 shards and their no-all-gather / mismatched-
+  set guards) all PASS on **real 4 GPUs, single process** (device_ids
+  = all four CUDA devices), not just forced-host-4. (b) A real
+  **multi-process** `srun -l -n 4 --gpu-bind=none` run (explicit
+  `jax.distributed.initialize`, one GPU/rank) of a steep terrain-
+  following (`zp = z·H(x)`, H = 1 + 0.6 sin x) 32×32×8 nonhydro2 model
+  with `pressure_preconditioner="multigrid"`, `multigrid_levels=3`,
+  fixed 12-iteration CG (`pressure_tolerance=None`), 20 steps, gathered
+  with `process_allgather(tiled=True)`, matches the single-process
+  single-device reference to **max abs deviation 5.6e-17** (≈ machine
+  epsilon; per-field rel ~1e-15, `allclose` atol 1e-10) across u/v/w/b.
+  The distributed V-cycle + cross-shard CG reductions are correct
+  under genuine process sharding, not only single-controller GSPMD.
+  Driver was throwaway (scratchpad, uncommitted); no wall-clock numbers
+  taken (that leg is settled and out of scope).*
 - *Differentiability: `jax.grad` through a 6-step immersed multigrid
   run via `_chunk_body` is finite and FD-matched (~1.5e-8, gate
   1e-4) — the smoothers' dry-cell double-`where` guards hold. The

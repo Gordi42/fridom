@@ -668,6 +668,58 @@ def _apply_weighted(
     return _contract_planes(em, state, lambda amp: weights * amp)
 
 
+def _reject_sharded_projection(em: ChannelEigenmodesBase) -> None:
+    r"""
+    Taught skip when a periodic (Fourier) axis is sharded.
+
+    Description
+    -----------
+    The per-plane contraction (:func:`_contract_planes`) Fourier
+    transforms the periodic axes. When the grid's default layout
+    shards one of those axes across devices, XLA's GSPMD
+    distributed-FFT lowering (a Cooley-Tukey split across devices,
+    ``fft_collective_permute``) synthesizes the transform's
+    twiddle-factor constants at ``complex64`` against the
+    ``complex128`` cuFFT data, and the HLO verifier rejects the
+    mixed-precision multiply (``multiply c64[] c128[]``, jax/jaxlib
+    0.10.x). This is an upstream XLA:GPU/GSPMD fault, independent of
+    the jax FFT normalization (it fires with ``norm=None``); it is
+    **not** the FFT-norm constant and **not** covered by the
+    ``multi_output_fusion`` workaround. Raise a taught error here so
+    the projection fails loudly instead of dying deep in the verifier.
+    The single-device path is unaffected — including a
+    ``device_ids=(0,)`` grid on a multi-device host, whose layout
+    leaves every axis local. See
+    ``design/research/multidevice_test_faults.md``.
+
+    Parameters
+    ----------
+    em : ChannelEigenmodesBase
+        The labeled channel eigenmodes (carries the grid).
+
+    Raises
+    ------
+    NotImplementedError
+        When a periodic axis is sharded across devices.
+    """
+    layout = em.grid.decomposition.default_layout
+    sharded = tuple(
+        name for name in em.grid.names
+        if name != em.bounded_axis and not layout.is_local(name))
+    if sharded:
+        raise NotImplementedError(
+            "the channel eigenmode projection cannot run on a grid "
+            f"that shards a periodic axis {sharded!r} across devices: "
+            "the per-plane Fourier contraction hits an upstream "
+            "XLA:GPU/GSPMD distributed-FFT lowering fault (complex64 "
+            "twiddle constants multiplied against complex128 data — "
+            "the HLO verifier rejects the mixed-precision multiply, "
+            "jax/jaxlib 0.10.x). Build the channel model on a single "
+            "device (Grid(..., device_ids=(0,))) to use the eigenbasis "
+            "projections; see "
+            "design/research/multidevice_test_faults.md.")
+
+
 def _contract_planes(
     em: ChannelEigenmodesBase,
     state: VectorField,
@@ -695,8 +747,12 @@ def _contract_planes(
     non-closed selection acts on the analytic signal (see
     :meth:`ChannelEigenmodesBase.projector`). Sharding-clean: the
     contraction is an einsum of the replicated basis against the
-    (decomposition-laid-out) coefficient planes — no host gather.
+    (decomposition-laid-out) coefficient planes — no host gather. A
+    grid that shards a periodic (Fourier) axis is rejected upfront
+    (:func:`_reject_sharded_projection`): the sharded-axis FFT hits an
+    upstream XLA distributed-FFT lowering fault.
     """
+    _reject_sharded_projection(em)
     ops = fourier_ops(em)
     bounded = em.grid.names.index(em.bounded_axis)
     coeff = {}

@@ -1,0 +1,374 @@
+r"""The hydrostatic core on a terrain-following (sigma) grid.
+
+Terrain items H1/H2 (research record ``stretched_terrain_combined.md``
+§6): the ``p_hyd`` column integral carries the column Jacobian
+(``jacobian=(mapped,)``); the diagnosed ``w`` is the contravariant
+vertical volume flux ``J\omega`` from the flux-form horizontal
+divergence (a machine-exact fundamental theorem, ``w = 0`` at the
+terrain bottom); and the baroclinic pressure gradient is the
+slope-corrected (constant-physical-height) derivative, so a stratified
+fluid at rest over topography stays at rest to the scheme's truncation
+order (the sigma pressure-gradient-error gate). A flat grid is byte-
+identical to before. Self-contained builders (AGENTS oversized-module
+rule).
+"""
+import inspect
+
+import jax
+import jax.numpy as jnp
+import numpy as np
+import pytest
+
+import fridom as fr
+import fridom.hydrostatic as hy
+from fridom.model.model import _chunk_body
+from fridom.spatial.coordinate_mapping import CoordinateMapping
+from fridom.spatial.immersed_domain import ImmersedDomain
+from fridom.spatial.operators.cumulative import CumulativeIntegral
+from fridom.spatial.spaces.constant import ConstantSpace
+
+IM = fr.spatial.meshes.IntervalMesh
+MIM = fr.spatial.meshes.MappedIntervalMesh
+N2, CSQR, F0 = 2.0, 3.0, 1.3
+ORDER_FLOOR = 1.7
+
+
+def _depth(x, y):
+    return 1.0 + 0.2 * jnp.sin(2 * jnp.pi * x) * jnp.cos(2 * jnp.pi * y)
+
+
+def _mapping():
+    return CoordinateMapping(maps={"zp": lambda z, H: z * H},
+                             params={"H": _depth})
+
+
+def _terrain_grid(n, *, stretched=False):
+    """Sigma grid, flat surface (z=0), sloped bottom (z=-1 -> zp=-H)."""
+    mx = IM(n, (0.0, 1.0), periodic=True, name="x")
+    my = IM(n, (0.0, 1.0), periodic=True, name="y")
+    if stretched:
+        mz = MIM(n, (-1.0, 0.0),
+                 lambda s: -1.0 + s - 0.3 * jnp.sin(jnp.pi * s), name="z")
+    else:
+        mz = IM(n, (-1.0, 0.0), periodic=False, name="z")
+    return fr.spatial.Grid((mx, my, mz), mapping=_mapping())
+
+
+def _flat_grid(n):
+    return fr.spatial.Grid((
+        IM(n, (0.0, 1.0), periodic=True, name="x"),
+        IM(n, (0.0, 1.0), periodic=True, name="y"),
+        IM(n, (-1.0, 0.0), periodic=False, name="z")))
+
+
+def _model(grid, *, coriolis=None, advection=False, dt=1e-3,
+           free_surface=None):
+    return hy.Model(
+        grid=grid, dt=dt, csqr=CSQR,
+        stratification=hy.ConstantStratification(n2=N2),
+        coriolis=coriolis, advection=advection,
+        free_surface=free_surface or hy.ExplicitFreeSurface(),
+        time_stepper=fr.model.time_steppers.AdamBashforth(dt, order=3))
+
+
+def _orders(errs):
+    errs = np.asarray(errs)
+    return np.log2(errs[:-1] / errs[1:])
+
+
+def _smooth(grid, space, fn):
+    var = tuple(n for f in space.bare.factors
+                if not isinstance(f, ConstantSpace) for n in f.names)
+
+    def init(**c):
+        return fn(**c) + 0.0 * sum(c.values())
+    init.__signature__ = inspect.Signature(
+        [inspect.Parameter(n, inspect.Parameter.POSITIONAL_OR_KEYWORD)
+         for n in var])
+    return grid.create_field(space, init=init)
+
+
+def _nodes(grid, space, name):
+    return grid.evaluation_nodes(space.bare, name).data
+
+
+# ================================================================
+#  H1: p_hyd carries the column Jacobian (converges to the physical
+#      integral -int b dz_p at second order)
+# ================================================================
+@pytest.mark.parametrize("stretched", [False, True],
+                         ids=["uniform-sigma", "stretched-sigma"])
+def test_p_hyd_converges_to_the_physical_integral(stretched):
+    # b = sin(zp);  -int_zp^0 b dzp' = 1 - cos(zp)  (surface at zp = 0)
+    errs = []
+    for n in (8, 16, 32):
+        grid = _terrain_grid(n, stretched=stretched)
+        coll = fr.spatial.Collocated().resolve(grid)
+        zp = (_nodes(grid, coll, "z")
+              * _depth(_nodes(grid, coll, "x"), _nodes(grid, coll, "y")))
+        b = grid.create_field(coll, data=jnp.sin(zp))
+        p = -CumulativeIntegral(
+            direction="down", target="center",
+            jacobian=("zp",))["z"](b)
+        errs.append(float(jnp.abs(p.data - (1.0 - jnp.cos(zp))).max()))
+    assert np.all(_orders(errs) > ORDER_FLOOR)
+
+
+def test_p_hyd_terrain_differs_from_the_plain_integral():
+    # the old (unweighted) diagnosis omits J: a real, O(1) error the
+    # record measured at 27%. Here it is clearly non-negligible.
+    grid = _terrain_grid(16)
+    coll = fr.spatial.Collocated().resolve(grid)
+    zp = (_nodes(grid, coll, "z")
+          * _depth(_nodes(grid, coll, "x"), _nodes(grid, coll, "y")))
+    b = grid.create_field(coll, data=jnp.sin(zp))
+    weighted = -CumulativeIntegral(
+        direction="down", target="center", jacobian=("zp",))["z"](b)
+    plain = -CumulativeIntegral(direction="down", target="center")["z"](b)
+    rel = float(jnp.abs(weighted.data - plain.data).max()
+                / jnp.abs(weighted.data).max())
+    assert rel > 0.1
+
+
+# ================================================================
+#  H2a: w is the contravariant volume flux J*omega (flux form),
+#       FTC exact, w == 0 at the terrain bottom
+# ================================================================
+def test_diagnosed_w_is_the_flux_form_with_exact_ftc():
+    grid = _terrain_grid(16)
+    model = _model(grid)
+    su, sv = (model.state["u"].function_space,
+              model.state["v"].function_space)
+    u = _smooth(grid, su, lambda **c: jnp.sin(2 * jnp.pi * c["x"]))
+    v = _smooth(grid, sv, lambda **c: jnp.cos(2 * jnp.pi * c["y"]))
+    core = model.module(hy.HydrostaticCore)
+    w = core._diagnose_w(model.state.replace(u=u, v=v), None)["w"]
+
+    jname = "dzp_dz"
+    ju = u * grid.metric(su.bare, jname)
+    jv = v * grid.metric(sv.bare, jname)
+    dh = ju.diff("x") + jv.diff("y")
+    # fundamental theorem in J-weighted (flux) form: d_z w == -Dh
+    ftc = np.asarray(w.diff("z").data) + np.asarray(dh.data)
+    assert np.abs(ftc).max() < 1e-11
+    # w == 0 at the terrain bottom (zero normal flow on the sigma column)
+    wd = np.asarray(w.data)
+    zaxis = next(i for i, f in enumerate(w.function_space.bare.factors)
+                 if "z" in f.names)
+    assert np.abs(np.take(wd, 0, axis=zaxis)).max() < 1e-13
+
+
+def test_flat_w_is_byte_identical_to_the_cartesian_form():
+    # on a flat grid the terrain path is off: w is the plain divergence
+    # cumint, byte-for-byte.
+    grid = _flat_grid(8)
+    model = _model(grid)
+    su, sv = (model.state["u"].function_space,
+              model.state["v"].function_space)
+    rng = np.random.default_rng(2)
+    u = grid.create_field(su, data=rng.standard_normal(su.shape))
+    v = grid.create_field(sv, data=rng.standard_normal(sv.shape))
+    core = model.module(hy.HydrostaticCore)
+    assert core._column is None
+    w = core._diagnose_w(model.state.replace(u=u, v=v), None)["w"]
+    expect = -CumulativeIntegral(direction="up", target="face")["z"](
+        u.diff("x") + v.diff("y"))
+    assert np.array_equal(np.asarray(w.data), np.asarray(expect.data))
+
+
+# ================================================================
+#  H2b: rest state over topography (the sigma PG-error gate)
+# ================================================================
+def _rest_tendency(n, *, kind):
+    grid = _terrain_grid(n)
+    model = _model(grid)
+    coll = model.state["b"].function_space
+    zp = (_nodes(grid, coll, "z")
+          * _depth(_nodes(grid, coll, "x"), _nodes(grid, coll, "y")))
+    bd = -2.0 * zp if kind == "linear" else -2.0 * zp - 0.7 * zp ** 2
+    model.set_fields(
+        u=np.zeros(model.state["u"].shape),
+        v=np.zeros(model.state["v"].shape),
+        b=np.asarray(bd), ps=np.zeros(model.state["ps"].shape))
+    dX = model.tendency(model.state)
+    return max(float(jnp.abs(dX["u"].data).max()),
+               float(jnp.abs(dX["v"].data).max()))
+
+
+@pytest.mark.parametrize("kind", ["linear", "nonlinear"])
+def test_rest_state_pressure_gradient_error_converges(kind):
+    # a stratified fluid at rest over a seamount: the slope-corrected
+    # pressure gradient leaves only a truncation-order residual current
+    # that vanishes at ~2nd order (the plain gradient leaves O(1)).
+    errs = [_rest_tendency(n, kind=kind) for n in (16, 32, 64)]
+    assert np.all(_orders(errs) > ORDER_FLOOR)
+
+
+def test_rest_state_stays_near_rest_over_a_short_run():
+    grid = _terrain_grid(16)
+    model = _model(grid, dt=2e-3)
+    coll = model.state["b"].function_space
+    zp = (_nodes(grid, coll, "z")
+          * _depth(_nodes(grid, coll, "x"), _nodes(grid, coll, "y")))
+    model.set_fields(
+        u=np.zeros(model.state["u"].shape),
+        v=np.zeros(model.state["v"].shape),
+        b=np.asarray(-2.0 * zp), ps=np.zeros(model.state["ps"].shape))
+    model.run(10, progress=False)
+    # the spurious current stays at the truncation-order floor (small),
+    # not growing to O(1)
+    assert float(jnp.abs(model.state["u"].data).max()) < 1e-2
+    assert float(jnp.abs(model.state["v"].data).max()) < 1e-2
+
+
+def test_flat_pressure_gradient_is_the_plain_difference():
+    grid = _flat_grid(8)
+    model = _model(grid)
+    core = model.module(hy.HydrostaticCore)
+    rng = np.random.default_rng(4)
+    model.set_fields(
+        u=np.zeros(model.state["u"].shape),
+        v=np.zeros(model.state["v"].shape),
+        b=rng.standard_normal(model.state["b"].shape),
+        ps=np.zeros(model.state["ps"].shape))
+    st = model.state
+    p_hyd = core._diagnose_p_hyd(st, None)["p_hyd"]
+    out = core.pressure_gradient(st.replace(p_hyd=p_hyd), None)
+    expect_u = (-p_hyd.diff("x")).retag(st["u"])
+    assert np.array_equal(np.asarray(out["u"].data),
+                          np.asarray(expect_u.data))
+
+
+# ================================================================
+#  H4 (baroclinic leg): the KE<->PE conversion conserves to roundoff
+# ================================================================
+def test_baroclinic_energy_conversion_is_conserved_to_roundoff():
+    # <X, M dX/dt> of the pressure-gradient + stratification pair
+    # (ps = 0, no rotation) under the model's own (plain) energy metric
+    # vanishes to machine precision on a RESOLVED (smooth) state: the
+    # slope-corrected pressure gradient (coefficient on the column-face
+    # space) is the EXACT discrete adjoint of the flux-form continuity
+    # that diagnoses w, so the surface-energy cancellation survives the
+    # J-weighted vertical exactly. (Unlike the flat model, the identity
+    # is exact only in the resolved regime -- grid-scale noise breaks
+    # the interpolation-transpose pairing; smooth is the physical
+    # analog of the flat random-field test.)
+    grid = _terrain_grid(16)
+    model = _model(grid)
+    u = _smooth(grid, model.state["u"].function_space,
+                lambda **c: jnp.sin(2 * jnp.pi * c["x"]) * jnp.cos(3 * c["z"])
+                + 0.5 * jnp.sin(4 * jnp.pi * c["y"]) * (c["z"] + 0.5))
+    v = _smooth(grid, model.state["v"].function_space,
+                lambda **c: jnp.cos(2 * jnp.pi * c["y"]) * jnp.sin(2 * c["z"])
+                + 0.3 * jnp.cos(2 * jnp.pi * c["x"]))
+    b = _smooth(grid, model.state["b"].function_space,
+                lambda **c: jnp.cos(2 * jnp.pi * c["x"]) * jnp.cos(c["z"])
+                + 0.4 * jnp.sin(2 * jnp.pi * c["y"]) * jnp.cos(2 * c["z"]))
+    model.set_fields(u=u.data, v=v.data, b=b.data,
+                     ps=np.zeros(model.state["ps"].shape))
+    st = model.state
+    dX = model.tendency(st)
+
+    def integ(f):
+        return float(f.integrate().data.ravel()[0])
+    terms = [integ(st["u"] * dX["u"]), integ(st["v"] * dX["v"]),
+             integ((st["b"] / N2) * dX["b"])]
+    skew = sum(terms)
+    scale = sum(abs(t) for t in terms)
+    assert abs(skew) < 1e-12 * scale
+
+
+# ================================================================
+#  Model assembles + runs on terrain (linear and advective)
+# ================================================================
+def test_terrain_model_assembles_and_runs():
+    grid = _terrain_grid(8)
+    model = _model(grid, coriolis=hy.FPlaneCoriolis(f0=F0),
+                   advection=True)
+    rng = np.random.default_rng(0)
+    model.set_fields(
+        u=0.1 * rng.standard_normal(model.state["u"].shape),
+        v=0.1 * rng.standard_normal(model.state["v"].shape),
+        b=0.1 * rng.standard_normal(model.state["b"].shape),
+        ps=np.zeros(model.state["ps"].shape))
+    dX = model.tendency(model.state)
+    assert all(bool(jnp.isfinite(dX[k].data).all())
+               for k in ("u", "v", "b", "ps"))
+    model.run(3, progress=False)
+    assert bool(jnp.isfinite(model.state["u"].data).all())
+
+
+# ================================================================
+#  Taught errors (H0): unsupported terrain combinations
+# ================================================================
+def test_non_base_vertical_is_a_taught_error():
+    # a column mapped from x (horizontal base): the hydrostatic vertical
+    # axis 'z' is not the base -> taught error at bind.
+    grid = fr.spatial.Grid(
+        (IM(8, (0.1, 0.9), periodic=False, name="x"),
+         IM(8, (0.0, 1.0), periodic=True, name="y"),
+         IM(6, (-1.0, 0.0), periodic=False, name="z")),
+        mapping=CoordinateMapping(maps={"xp": lambda x, W: x * W},
+                                  params={"W": lambda x: 1.0 + 0.0 * x}))
+    with pytest.raises(NotImplementedError, match="not the base"):
+        _model(grid)
+
+
+def test_immersed_plus_terrain_is_a_taught_error():
+    grid = fr.spatial.Grid(
+        (IM(8, (0.0, 1.0), periodic=True, name="x"),
+         IM(8, (0.0, 1.0), periodic=True, name="y"),
+         IM(6, (-1.0, 0.0), periodic=False, name="z")),
+        mapping=_mapping(),
+        immersed=ImmersedDomain(lambda x, y, z: 1.0 + 0.0 * (x + y + z),
+                                order=4))
+    with pytest.raises(NotImplementedError, match="immersed"):
+        _model(grid)
+
+
+# ================================================================
+#  Differentiability policy: grad through a short terrain run
+# ================================================================
+@pytest.mark.parametrize("advection", [False, True],
+                         ids=["linear", "advective"])
+def test_grad_wrt_initial_buoyancy_is_finite_and_matches_fd(advection):
+    # the terrain step path crosses the guarded terrain singularities:
+    # the slope coefficient Z/J of the baroclinic pressure gradient
+    # (core) and the reciprocal physical depth 1/H of the free-surface
+    # depth mean, both sealed on the never-valid padding by the double-
+    # `where`. With advection=True the differentiated data additionally
+    # crosses the shared nodal mapped divergence's Z/J slope factor,
+    # sealed by advection._safe_ratio -- unguarded it is forward-finite
+    # but reverse-NaN-poisons the whole gradient here.
+    grid = _terrain_grid(8)
+    model = _model(grid, coriolis=hy.FPlaneCoriolis(f0=1.0),
+                   advection=advection, dt=1e-2)
+    rng = np.random.default_rng(11)
+    model.set_fields(
+        u=0.1 * rng.standard_normal(model.state["u"].shape),
+        v=0.1 * rng.standard_normal(model.state["v"].shape),
+        b=0.1 * rng.standard_normal(model.state["b"].shape),
+        ps=np.zeros(model.state["ps"].shape))
+    record = model._artifacts.record
+    carry = model._carry
+    stepper = model._stepper
+    leaf = carry.state["b"].storage
+    leaves, treedef = jax.tree_util.tree_flatten(carry)
+    (idx,) = [i for i, ref in enumerate(leaves) if ref is leaf]
+
+    def loss(x):
+        new = list(leaves)
+        new[idx] = x
+        spliced = jax.tree_util.tree_unflatten(treedef, new)
+        final = _chunk_body(record, 6, spliced, stepper)
+        return sum(jnp.sum(f.data ** 2) for f in final.state)
+
+    grad = np.asarray(jax.grad(loss)(leaf))
+    assert bool(np.all(np.isfinite(grad)))
+    direction = jnp.asarray(rng.standard_normal(leaf.shape),
+                            dtype=leaf.dtype)
+    directional = float(jnp.vdot(jnp.asarray(grad), direction))
+    eps = 1e-4
+    fd = (float(loss(leaf + eps * direction))
+          - float(loss(leaf - eps * direction))) / (2.0 * eps)
+    assert directional == pytest.approx(fd, rel=1e-4)
