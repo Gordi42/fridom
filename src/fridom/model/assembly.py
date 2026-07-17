@@ -1211,6 +1211,12 @@ class _BindTable:
     so a bind may inspect a sibling's *declared* configuration
     (constructor arguments, class), never its bind-time state.
 
+    ``time_stepper`` is the assembly's outer driver, read-only, for
+    the rare **stepper-compatibility check** a module must make and
+    cannot express through the field table — the split-explicit free
+    surface refuses a non-multistep outer driver (its
+    ``supports_split_advance`` capability, 03 section 5.4).
+
     Parameters
     ----------
     table : FieldTable
@@ -1219,20 +1225,24 @@ class _BindTable:
         The gated bind-time parameter view (step 2 values).
     modules : tuple, optional
         The assembled module tuple, in module order (default: ()).
+    time_stepper : object | None, optional
+        The assembly's outer time stepper (default: None).
     """
 
-    __slots__ = ("_table", "modules", "parameters")
+    __slots__ = ("_table", "modules", "parameters", "time_stepper")
 
     def __init__(
         self,
         table: FieldTable,
         parameters: BindParameterView,
         modules: tuple = (),
+        time_stepper: object | None = None,
     ) -> None:
         """Pair the frozen table with the gated parameter view."""
         self._table = table
         self.parameters = parameters
         self.modules = tuple(modules)
+        self.time_stepper = time_stepper
 
     def __getattr__(self, name: str) -> object:
         """Delegate everything else to the field table."""
@@ -1711,7 +1721,8 @@ def assemble(
     # -- step 4: bind, module order ------------------------------
     bind_table = _BindTable(table, BindParameterView({
         str(entry.name): _read_leaf(entry, modules, time_stepper)
-        for entry in binding_table}), modules)
+        for entry in binding_table}), modules,
+        time_stepper=time_stepper)
     for module in modules:
         bind = getattr(module, "bind", None)
         if callable(bind):

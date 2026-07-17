@@ -123,6 +123,17 @@ class TimeStepper(abc.ABC):
     #: :class:`~fridom.model.errors.TimeDependentLinearOperatorError`).
     freezes_linear_operator: ClassVar[bool] = False
 
+    #: Whether this stepper is a **multistep outer driver** able to
+    #: carry a module-owned split ADVANCE (S3') subcycle: it commits a
+    #: single post-advance state per step and feeds the per-treatment
+    #: tendency sums to that stage (design 03, section 5.4 —
+    #: "multistep outer drivers only"; the split-explicit free surface
+    #: reads this at bind and refuses a non-multistep outer scheme,
+    #: since IMEX-RK/RK x split-explicit has no production precedent).
+    #: The AdamBashforth and IMEXMultistep families set it; the RK and
+    #: exponential families keep the default ``False``.
+    supports_split_advance: ClassVar[bool] = False
+
     def __init__(self, dt: float | np.timedelta64) -> None:
         """Convert dt once onto the dynamic leaf; see class doc."""
         if isinstance(dt, np.timedelta64):
