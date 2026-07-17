@@ -91,7 +91,13 @@ if TYPE_CHECKING:  # pragma: no cover
         Treatment,
         term,
     )
-    from .time_dependent import Ramp, TimeDependent, resolve_at
+    from .time_dependent import (
+        Ramp,
+        TimeDependent,
+        TimeFunction,
+        TimeSeries,
+        resolve_at,
+    )
     from .transforms.adiabatic_projection import AdiabaticProjection
     from .transforms.adiabatic_ramping import AdiabaticRamping
     from .transforms.base import StateTransform
@@ -122,7 +128,8 @@ all_imports_by_origin = {
         "ParameterDeclaration", "ParameterReference", "Param",
         "USE_PROVIDED", "leaf"],
     f"{base}.time_dependent": [
-        "TimeDependent", "Ramp", "resolve_at"],
+        "TimeDependent", "Ramp", "TimeFunction", "TimeSeries",
+        "resolve_at"],
     f"{base}.terms": [
         "TendencyTerm", "term", "Treatment", "EXPLICIT", "IMPLICIT"],
     f"{base}.stages": ["Stage", "StageKind", "self_update"],

@@ -46,6 +46,14 @@ def _leaf_repr(value: object) -> str:
         return repr(value)
 
 
+def _seq_repr(value: object) -> str:
+    """Format a 1-D dynamic-leaf array for repr (a list if concrete)."""
+    try:
+        return repr(value.tolist())
+    except (AttributeError, jax.errors.ConcretizationTypeError):
+        return repr(value)
+
+
 # ================================================================
 #  TimeDependent (the abstract curve)
 # ================================================================
@@ -312,6 +320,126 @@ class Ramp(TimeDependent):
         return (f"Ramp({_leaf_repr(self.v0)}, {_leaf_repr(self.v1)}, "
                 f"period={_leaf_repr(self.period)}, "
                 f"t0={_leaf_repr(self.t0)}, curve={curve!r})")
+
+
+# ================================================================
+#  TimeFunction (an arbitrary user law fn(t, *params))
+# ================================================================
+@partial(jaxify, dynamic=("params",))
+class TimeFunction(TimeDependent):
+
+    r"""
+    An arbitrary time law ``fn(t, *params)`` as a `TimeDependent`.
+
+    Description
+    -----------
+    The escape hatch for any pure, branch-free scalar law of time —
+    an oscillating wind ``lambda t, w: jnp.sin(w * t)``, a decaying
+    pulse, a polynomial — usable in *every* declared scalar parameter
+    slot, not just forcing (BF-D3). ``fn`` is STATIC (a law change is
+    different math — exactly one recompile, the ``Ramp.curve`` split);
+    ``params`` are dynamic leaves, so sweeping them never recompiles
+    and ``jax.grad`` flows through them. ``fn`` must be valid at every
+    ``t`` (evaluated at every scan step) and free of Python branches
+    on the traced time — the `TimeDependent` contract.
+
+    Parameters
+    ----------
+    fn : Callable
+        The pure law ``fn(t, *params) -> scalar``; STATIC (hashed by
+        identity — a distinct ``fn`` recompiles once).
+    params : tuple, optional
+        Extra dynamic-leaf arguments passed after ``t`` (each coerced
+        with ``jnp.asarray``); swept without recompiling (default: ()).
+    """
+
+    def __init__(
+        self,
+        fn: Callable[..., jax.Array],
+        params: tuple = (),
+    ) -> None:
+        """Store the static law; coerce the extra arguments to leaves."""
+        if not callable(fn):
+            raise TypeError(
+                f"TimeFunction fn must be callable fn(t, *params), "
+                f"got {fn!r}")
+        self._fn = fn                                   # static law
+        self.params = tuple(jnp.asarray(p) for p in params)
+
+    def __call__(self, t: jax.Array | float) -> jax.Array:
+        """Evaluate ``fn(t, *params)``; valid for all t, branch-free."""
+        return self._fn(jnp.asarray(t), *self.params)
+
+    def __repr__(self) -> str:
+        """Repr naming the law and its concrete leaves."""
+        name = getattr(self._fn, "__name__", repr(self._fn))
+        params = ", ".join(_leaf_repr(p) for p in self.params)
+        return f"TimeFunction({name}, params=({params}))"
+
+
+# ================================================================
+#  TimeSeries (tabulated data, branch-free jnp.interp)
+# ================================================================
+@partial(jaxify, dynamic=("times", "values"))
+class TimeSeries(TimeDependent):
+
+    r"""
+    Tabulated ``(times, values)`` interpolated at the stage time.
+
+    Description
+    -----------
+    Data-driven forcing without recompiles (BF-D3): the value at the
+    traced stage time is the branch-free ``jnp.interp(t, times,
+    values)``, **end-clamped** to the first/last sample outside the
+    tabulated range (``jnp.interp`` semantics — valid at every ``t``).
+    ``times`` and ``values`` are dynamic leaves, so re-tabulating (the
+    Veros two-record blend, the MITgcm/EXF time-interpolation pattern)
+    never recompiles and ``jax.grad`` flows through them. The table is
+    validated **once, host-side, at construction** (1-D, equal length,
+    at least two samples, strictly increasing ``times``); there are
+    deliberately no traced-value checks in ``__call__``.
+
+    Parameters
+    ----------
+    times : array-like
+        Strictly increasing sample times (1-D, at least two); a
+        dynamic leaf.
+    values : array-like
+        The sample values (1-D, same length as ``times``); a dynamic
+        leaf.
+    """
+
+    def __init__(self, times: object, values: object) -> None:
+        """Coerce and host-validate the table; see the class docstring."""
+        times_arr = jnp.asarray(times)
+        values_arr = jnp.asarray(values)
+        if times_arr.ndim != 1 or values_arr.ndim != 1:
+            raise ValueError(
+                "TimeSeries times and values are 1-D arrays, got "
+                f"shapes {times_arr.shape} and {values_arr.shape}")
+        if times_arr.shape != values_arr.shape:
+            raise ValueError(
+                "TimeSeries times and values must have equal length, "
+                f"got {times_arr.shape[0]} and {values_arr.shape[0]}")
+        if times_arr.shape[0] < 2:  # noqa: PLR2004 — interp needs two
+            raise ValueError(
+                "TimeSeries needs at least two samples to interpolate, "
+                f"got {times_arr.shape[0]}")
+        if not bool(jnp.all(jnp.diff(times_arr) > 0)):
+            raise ValueError(
+                "TimeSeries times must be strictly increasing (they "
+                "are the interpolation knots)")
+        self.times = times_arr
+        self.values = values_arr
+
+    def __call__(self, t: jax.Array | float) -> jax.Array:
+        """Branch-free ``jnp.interp`` at ``t``; end-clamped, all t."""
+        return jnp.interp(jnp.asarray(t), self.times, self.values)
+
+    def __repr__(self) -> str:
+        """Repr showing the tabulated knots (concrete leaves as lists)."""
+        return (f"TimeSeries(times={_seq_repr(self.times)}, "
+                f"values={_seq_repr(self.values)})")
 
 
 # ================================================================
