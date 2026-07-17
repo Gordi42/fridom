@@ -282,8 +282,20 @@ mirrored tests green, patch coverage ≥ 95%.
 ## 3. Phase B — the multigrid preconditioner (gated)
 
 **Trigger** (unchanged from the roadmap lever): steep bathymetry
-(4.5× depth ratio, ~45 iterations) or genuine partial cells (~60+)
-as a real workload.
+(~45 iterations; profile relabel below) or genuine partial cells
+(~60+) as a real workload.
+
+**Status (cross-machine handoff, 2026-07-17):** B0 ran — **GB-0
+PASS** — and B1+B2 are implemented, tested, and green on the branch
+`feat/multigrid-preconditioner` (pushed to origin; commits
+`09421e10`, `28c11a2f`, `568673ca`, `25d088e5`, plus the throwaway
+spike harness in `a17a9da8` — **`git rm` the two `spike_b0_*.py`
+files before the final merge**). B3–B5 are open; the continuation
+brief closes this section. Three corrections recorded below
+(steep-profile relabel, off-diagonal sign, GB-1 recalibration) are
+evidence-backed agent findings endorsed by the orchestrating
+session, not yet owner-reviewed — flag them when reporting the
+landing.
 
 ### B0 — two-level spike (the kill criterion)
 
@@ -295,6 +307,27 @@ GB-0:** preconditioned iterations to 1e-10 at 64³ drop below ~20
 spectral preconditioner — the lever returns to "measured, not
 taken".
 
+*Ran 2026-07-17 — **GB-0 PASS.** Numbers (64³, random mean-free
+rhs, iterations to 1e-10 relative residual, weighted norm):
+spectral baseline 44; two-grid V(1,1), semicoarsen {x: 2, y: 2},
+damped vertical-line Jacobi, near-exact coarse solve — ω
+0.6/0.7/**0.8**/0.9/1.0 → 13/12/**11**/16/diverges. The 11 is
+resolution-independent (same at 32³). V(2,2): 8 (marginal for ~2×
+smoother cost). Production-shaped coarse solve (k fixed line
+sweeps, no recursion): k = 8/16/32 → 31/23/17 — a real bottom
+needs recursion depth, not extra sweeps at the first coarse level.
+Cycle symmetry ⟨M⁻¹u,v⟩ vs ⟨u,M⁻¹v⟩ at roundoff (3e-16). Mild
+profile: 11 vs spectral's 11 — the win is entirely the steep case
+(44 → 11). MG-D7's inner-CG ban was also empirically confirmed:
+a fixed-iteration inner CG run past convergence degrades cycle
+symmetry to ~1e-8.*
+
+*Profile relabel: the §4b "steep 4.5×" is mislabeled — the
+documented 44/45-iteration problem is `depth(x) = 1 + 0.8 sin(x)`
+(depth ratio **9.0**); amplitude 7/11 (a true 4.5 ratio) needs only
+27 iterations. GB-2 below is re-pinned to a = 0.8; a correction
+note now sits in `perf_geometry_merge_plan.md` §4b.*
+
 ### B1 — operator smoothing surfaces
 
 `MappedPressureSolver` / `ImmersedPressureSolver` expose the
@@ -305,6 +338,21 @@ line relaxation via the shared banded kernel,
 `operators/banded.py`). Both derive from the same metric /
 fraction machinery `apply()` uses (per-solve memo discipline
 unchanged).
+
+*Landed on the branch (`568673ca`), probe-verified to roundoff
+(probe tests must use period-4 coloring — period 3 aliases on
+periodic axes whose cell count is not divisible by 3). Binding
+findings: (1) the slope cross fluxes DO contribute to the mapped
+diagonal (`Z_a` varies along the column, so the centered vertical
+average does not annihilate them; exact analytic corner bracket
+implemented), while the pure z-off-diagonal is exactly
+**+**`K^bb_face/dz²` — positive, because ``A`` is
+negative-semidefinite; a minus sign there makes the outer PCG
+diverge. (2) ``T`` deliberately excludes the horizontal cross
+residues (asymmetric per column, subdominant) — validated:
+production ``T`` reproduces the spike's 11 iterations exactly.
+`vertical_bands()` raises on a periodic vertical; the Thomas solve
+axis must stay device-local.*
 
 ### B2 — `MultigridVCycle` (`spatial/operators/multigrid.py`)
 
@@ -356,6 +404,17 @@ Python recursion over the static level tuple (jit-unrolled);
 per-level projections applied to restricted residuals (nullspace
 consistency across levels).
 
+*Landed on the branch (`09421e10` Thomas kernel in `banded.py`,
+`28c11a2f` engine, `25d088e5` tests; 182 mirrored tests green, ruff
+clean). API facts the B3 builders rely on: smoother sweep signature
+is `sweep(x, b, operator)` (the cycle passes `level.operator`);
+`VerticalBands` lives in `spatial.operators.multigrid`; the cycle
+applies the NEXT level's projection to restricted residuals and
+never retags — the transfer's restricted space must BE the next
+level's operator space (derive it as
+`transfer.restrict(probe).function_space`). Line-smoother default
+ω = 0.8 (spike optimum; ω = 1 diverges).*
+
 ### B3 — hierarchy builders (nonhydro2)
 
 `mapped_pressure` / `immersed_pressure` gain a builder that
@@ -378,16 +437,71 @@ solve, no iteration).
 
 ### B5 — gates
 
-**GB-1** V(1,1) empirical contraction ρ ≤ 0.2 on the flat isotropic
-Poisson (2- and 3-level, 64³); preconditioner symmetry
-`<M⁻¹u, v>_w == <u, M⁻¹v>_w` to roundoff. **GB-2** steep mapped
-4.5×: ≤ 15 iterations to 1e-10, resolution-independent over
-n = 32..192, and ≥ 1.5× step wall-clock win vs the spectral
-preconditioner at 128³+ on the A/B harness. **GB-3** immersed
+**GB-1** *(recalibrated 2026-07-17: ρ ≤ 0.2 was mis-set — that is a
+Gauss–Seidel-class number; the measured damped point-Jacobi V(1,1)
+floor is ρ ≈ 0.36 (2-D) / 0.54 (3-D) at ω = 0.8, textbook LFA
+values, grid-independent)*: committed gate is flat isotropic 2-D
+full-depth V(1,1) contraction < 0.5 and grid-independent, plus
+preconditioner symmetry `<M⁻¹u, v>_w == <u, M⁻¹v>_w` to roundoff
+(both hold on the branch). The production smoother for the real
+anisotropic workload is the line variant (11 iterations on the
+steep case); stronger point smoothers (V(2,2) ≈ 0.38, Chebyshev,
+GS) stay recorded levers. **GB-2** steep mapped a = 0.8 (depth
+ratio 9.0 — re-pinned from the mislabeled "4.5×", see B0): ≤ 15
+iterations to 1e-10, resolution-independent over n = 32..96+
+(iteration counts are platform-independent; measure on cpu), and
+≥ 1.5× step wall-clock win vs the spectral preconditioner at 128³+
+on the A/B harness — the wall-clock leg needs an A100-class device
+and may land as a post-merge follow-up measurement. **GB-3** immersed
 genuine partials within the default 30-iteration budget. **GB-4**
 zero warm recompiles; HLO flat in both the CG iteration count and
 the level count. **GB-5** forced-4-device parity; no gather-class
 collectives above the replication threshold.
+
+### Continuation brief (cross-machine handoff, 2026-07-17)
+
+Everything above B3 is done on `feat/multigrid-preconditioner`
+(origin). Remaining work, in order:
+
+1. **B3 + B4 as specified above**, with these bindings from the
+   landed work: solver constructor knobs
+   `preconditioner: str = "spectral"` (`"spectral" | "multigrid"`,
+   ValueError otherwise) and `multigrid_levels: int = 3` on both
+   PCG solvers, dispatched in `krylov()`; `multigrid_levels` is a
+   MAXIMUM — the builder floors at 4 cells per horizontal axis and
+   stops at indivisibility, degrading gracefully on small grids;
+   line smoother ω = 0.8 on both solvers; per-level projections
+   mean-free (mapped) / the LEVEL's own wet-mean (immersed, from
+   re-derived coarse fractions, MG-D6); mapped `params` carrying
+   grid-bound field data (moving geometry) raises
+   NotImplementedError — iteration 1 is static maps only; the
+   hierarchy must be retrace-stable: check whether `Grid.coarsened`
+   memoizes per (factors, device_ids) and add the memo if not
+   (grid STRUCTURE caching is fine — the per-solve memo discipline
+   governs metric/fraction DATA, not grid assembly).
+2. **Measurement-driven defaults** before pinning: levels ∈ {2..5}
+   × coarse_sweeps ∈ {8, 16, 32} on the steep case (a = 0.8, 64³;
+   the spike harness on the branch is the rig); pick defaults
+   meeting GB-2's ≤ 15 with margin, preferring depth over sweeps
+   (per-level cost shrinks 4× per level; the spike's two-level
+   k = 8/16/32 → 31/23/17 shows sweeps cannot substitute for
+   depth). Verify resolution independence n ∈ {32, 64, 96}. GB-3:
+   the genuine-partials case from
+   `immersed_partial_cells_plan.md` within the 30-iteration
+   budget. On any gate miss: stop and record here — the fallback
+   levers are in §5; do not improvise a new scheme.
+3. **B5 evidence**: GB-4 compile-once/HLO-flat (compile_counter
+   idiom, `tests/spatial/operators/test_krylov.py`), GB-5 forced-4
+   parity shards (crib the GA-2 shards in `test_transfer.py`), and
+   one full-model autodiff regression with multigrid selected
+   (`_chunk_body` pattern, `tests/model/test_model_autodiff.py`;
+   ≤ 16² × 8, ≤ 10 steps, grad vs central FD at rtol 1e-4).
+4. **Landing**: `git rm` the two `spike_b0_*.py` files; ruff +
+   mirrored tests + forced-4 green; merge `--no-ff` onto `dev`;
+   move the roadmap lever entry from `open.md` to `done.md`;
+   replace this status/handoff scaffolding with a landed record
+   (keep the B0 numbers and the three corrections); delete the
+   branch and remove the worktree in the same session.
 
 ## 4. Test plan (mirrored)
 

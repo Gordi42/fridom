@@ -475,6 +475,15 @@ default rather than a tuned constant — iterations to `1e-10`:
 The iteration count does not grow with the grid: at 512³ or 1024³ the
 same budget holds and only the per-iteration cost scales.
 
+*Label correction (2026-07-17, found by the multigrid B0 spike): the
+"steep 4.5×" columns above were measured with
+`depth(x) = 1 + 0.8 sin(x)`, which is a **9.0** depth ratio, not
+4.5× (a true 4.5 ratio, amplitude 7/11, needs only 27 iterations).
+The numbers themselves reproduce exactly (44 at 64³ re-measured);
+only the label was wrong. Downstream gates
+([multigrid_pathway_plan.md](multigrid_pathway_plan.md) GB-2) are
+re-pinned to amplitude 0.8.*
+
 ### Stage 3 lever outcomes
 
 | lever | outcome |
