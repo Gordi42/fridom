@@ -1,6 +1,8 @@
 """The diffusion closures: discrete rates, targets, coefficients."""
 from types import SimpleNamespace
 
+import jax
+import jax.numpy as jnp
 import numpy as np
 import pytest
 
@@ -17,7 +19,7 @@ from fridom.model.field_table import (
     FieldRecord,
     FieldTable,
 )
-from fridom.model.model import Model
+from fridom.model.model import Model, _chunk_body
 from fridom.model.module import Module
 from fridom.model.time_steppers.adam_bashforth import (
     AdamBashforth,
@@ -326,3 +328,61 @@ def test_target_without_coordinate_axes_is_rejected():
     closure = HarmonicDiffusion(1e-3)
     with pytest.raises(AssemblyError, match="no coordinate axes"):
         closure.bind(FieldTable((record,), grid))
+
+
+# ================================================================
+#  Reverse-mode AD: the biharmonic sqrt-split is guarded at coeff=0
+# ================================================================
+# The biharmonic coefficient enters as ``sqrt(coeff)`` per Laplacian
+# pass; the sqrt VJP is inf at coeff=0, so a plain ``coeff ** 0.5``
+# turns ``jax.grad`` w.r.t. nu4 into NaN exactly at nu4=0 even though
+# the forward value is finite. ``_biharmonic_root`` guards both sqrt
+# branches: finite (pinned to the measure-zero subgradient 0) at 0,
+# and the true derivative elsewhere.
+def _biharmonic_grad_loss(nu4, n_steps=10):
+    """Build a grad-ready loss over a toy biharmonic-friction run.
+
+    Returns ``(loss, coeff)``: ``loss(theta)`` splices ``theta`` in
+    for the friction coefficient leaf and time-steps the pure kernel
+    (``_chunk_body``) for ``n_steps``, returning the sum of squares of
+    the final state (a smooth scalar objective).
+    """
+    model = make_model(BiharmonicFriction(nu4))
+    x, z = coords()
+    model.set_fields(u=np.sin(2 * np.pi * x), v=np.cos(2 * np.pi * z))
+    record = model._artifacts.record
+    carry = model._carry
+    stepper = model._stepper
+    leaf = next(m for m in carry.modules
+                if isinstance(m, BiharmonicFriction)).nu
+    leaves, treedef = jax.tree_util.tree_flatten(carry)
+    idx = next(i for i, lf in enumerate(leaves) if lf is leaf)
+
+    def loss(theta):
+        packed = list(leaves)
+        packed[idx] = theta
+        c = jax.tree_util.tree_unflatten(treedef, packed)
+        final = _chunk_body(record, n_steps, c, stepper)
+        return sum(jnp.sum(f.data ** 2) for f in final.state)
+
+    return loss, jnp.asarray(leaf, dtype=jnp.float64)
+
+
+def test_biharmonic_grad_is_finite_zero_at_nu4_zero():
+    # exactly at nu4=0 the double-where pins the (measure-zero)
+    # subgradient to 0 -- finite, not the NaN of the unguarded sqrt
+    loss, _ = _biharmonic_grad_loss(0.0)
+    g = float(jax.grad(loss)(jnp.asarray(0.0, dtype=jnp.float64)))
+    assert np.isfinite(g)
+    assert g == 0.0
+
+
+def test_biharmonic_grad_matches_central_fd_away_from_zero():
+    nu4 = 1e-4
+    loss, x0 = _biharmonic_grad_loss(nu4)
+    g = float(jax.grad(loss)(x0))
+    assert np.isfinite(g)
+    eps = 1e-4
+    fd = float((loss(x0 * (1 + eps)) - loss(x0 * (1 - eps)))
+               / (2 * x0 * eps))
+    np.testing.assert_allclose(g, fd, rtol=1e-4)
