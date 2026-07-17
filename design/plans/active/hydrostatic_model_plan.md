@@ -298,7 +298,34 @@ a Veros-style superbee limiter in the shared advection family;
 
 ## 8. Implementation record
 
-*(H0/H1 entries land above this line when they ship; H2 below.)*
+**Update 2026-07-17: every stage has shipped and merged** — H0, H1,
+H2 (+H2b), H3, H4, H5 (+H5b), H6; entries below in stage order. What
+remains open (tracked in the roadmap 3.1 entry): the cross-model
+*execution* legs of §6 (the out-of-tree `benchmarks/comparison`
+harness is not on this machine; pyOM3 source access pending owner),
+and the owner review of `examples/hydrostatic/comparison_baseline.py`
+(local branch `docs/hydrostatic-example`, never merged, per the
+AGENTS.md docs workflow). The §7 designed-fors are untouched.
+
+### H0 — advection rehomed (2026-07-16)
+
+`nonhydro2/modules/advection.py` -> `fr.model.modules.advection`
+(pure move; one docstring line changed), re-exported into `nonhydro2`
+through the shared-modules origin (the Coriolis pattern); the six
+`test_advection*` shards moved to `tests/model/modules/`. Gates: 494
+shard tests + nonhydro smoke + ruff, `git diff --find-renames` clean.
+
+### H1 — `CumulativeIntegral` (2026-07-16)
+
+`spatial/operators/cumulative.py`: the staggered running integral on
+one bounded axis (`direction="up"/"down"`, `target="face"/"center"`,
+`jacobian=`), verb `cumint`, nodal + FV rows. The face form carries
+the machine-exact discrete fundamental theorem and telescopes exactly
+to `Integral`; the center form is the pyOM half-cell midpoint (its
+exact identity: `diff == interpolated integrand`). Periodic axes are
+a taught error; a decomposed axis reshards through the negotiated
+layout (bitwise vs single-device). Gates: 39+2 single-device, 41
+forced-4, 100% coverage.
 
 ### H2 — package + kinematics + explicit free surface (2026-07-16)
 
