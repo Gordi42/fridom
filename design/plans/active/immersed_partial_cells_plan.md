@@ -91,23 +91,32 @@ Notation, per cell `c` and face `f` (any axis): full cell volume
   the whole iteration; the preconditioner may paint values onto dry
   cells but they are multiplied by `α = 0` everywhere they could act
   (a face with `α > 0` has two wet neighbors under the min rule).
-  The physical nullspace is the wet-region constant: project the
-  **wet-volume-weighted mean** `p − (∫ θ p dV)/(∫ θ dV)` from the
-  RHS, the preconditioned residuals, and the solution (the
-  `project_mean` pattern, generalized — IP-D6). Compatibility holds
-  by telescoping: masked wall faces carry zero flux, so
-  `Σ_c V_c r_c = 0` exactly.
+  The physical nullspace is the wet-region constant `e` (the boolean
+  wet indicator): project its **V-orthogonal complement**,
+  `p − (∫_wet V p / ∫_wet V) · e` — the orthogonal projector in the
+  V-weighted product in which this row scaling of `L` is symmetric.
+  (**Correction, I2**: the θ-weighted global mean this plan first
+  specified is the projector for the *differently scaled* operator
+  and re-introduces incompatibility on genuine partial cells —
+  measured residual plateau ~4e-2. The e-form holds at machine
+  zero.) Compatibility holds by telescoping: masked wall faces carry
+  zero flux, so `Σ_c V_c r_c = 0` exactly.
 - **Velocity correction**: `u_f ← u*_f − m_f G_f(p)` (vertical leg
   `1/dsqr`-weighted as in the flat solver), with `m_f` the boolean
   face mask `α_f > 0` — the correction never injects velocity into a
   closed face.
 - **Preconditioner**: the existing flat `SpectralSolve` of the
   unmasked Laplacian (`nonhydro2/modules/pressure.py` machinery,
-  Neumann/Dirichlet sibling seams on walled grids). When no immersed
-  domain is attached the model never routes here (structurally
-  unchanged spectral path); when the declared domain is all-wet the
-  operator equals the preconditioner's and CG converges in one
-  iteration (the mapped-flat identity precedent).
+  Neumann/Dirichlet sibling seams on walled grids), **masked onto
+  the wet cells**: `z = e ⊙ M⁻¹(r)`. (**Correction, I2**: the raw
+  unmasked inverse destabilizes CG — its global `k = 0` gauge mixes
+  with the wet-constant nullspace, measured residual → 1e17. With
+  wet-supported residuals the masked form equals the symmetric
+  `D M⁻¹ D`, SPD on the wet subspace.) When no immersed domain is
+  attached the model never routes here (structurally unchanged
+  spectral path); when the declared domain is all-wet the operator
+  equals the preconditioner's and CG converges in ~1 iteration (the
+  mapped-flat identity precedent).
 
 ## 3. Decisions
 
@@ -349,6 +358,37 @@ device invariance; ruff clean. Corrections found:
 3. Direct `FaceAvg` quadrature stays guarded in `grid.py`
    (designed-for); face-area fractions go through the min-transfer,
    as designed.
+
+**I2 shipped 2026-07-17** (merge `b447b8e5`; branch
+`feat/immersed-nonhydro`). `ImmersedPressureSolver`
+(`nonhydro2/modules/immersed_pressure.py`), the `_project_immersed`
+branch, the family-gate flip, IP-D4 fraction weighting in
+`_FluxFormAdvection`, `MaskState` factory wiring, and the IP-D8
+taught gates (biased advection, closures, eigenmodes, nodal+immersed,
+mapped+immersed). Gates: operator symmetry exact (rel-diff 0.0);
+post-projection masked divergence 9e-14 (CG residual 2e-16);
+staircase ≡ walled FV at ~1e-16 over 12 jitted steps; all-wet ≡
+unimmersed ~1e-15 with ~2 PCG iterations; manufactured masked Poisson
+with genuine x/z-partials at L2 order 2.38; θ-weighted buoyancy
+conservation exactly 0.0; dry-DOF hygiene exactly 0.0; forced-4
+device invariance; patch coverage 95.7%. The merge onto `dev`
+composed IP-D7 with the concurrent `fv-mapped-default` owner ruling
+("FV wherever capable"): the merged predicate is **FV-capable iff
+immersed or static-mapped-or-flat; only a dynamically driven mapping
+(ALE, nodal-only) keeps the nodal auto default**, and mapped+immersed
+routes to FV so the specific composition error fires. Corrections
+found (both folded into §2 above): the preconditioner must be masked
+(`e ⊙ M⁻¹`), and the nullspace projection is the V-orthogonal
+boolean-wet mean, not the θ-weighted mean. Also recorded for I3/I4:
+two scalings coexist (solver rows `1/V`, physical tendencies `1/θV`);
+the velocity correction uses the boolean face mask (α·m = α exactly);
+isolated `min_fraction`-floored slivers add nullspace modes — use
+`min_fraction=0` (or guaranteed connectivity) for manufactured-RHS
+convergence studies (the physical projection RHS is always in range);
+preconditioner quality degrades on genuine partials (~60+ iterations,
+plan risk 1 confirmed — multigrid stays the recorded fallback);
+`MaskState` must be halo-trace exempt, sort after the projection, and
+capture the immersed descriptor at bind.
 
 ## 7. Out of scope (designed-for, not precluded)
 
