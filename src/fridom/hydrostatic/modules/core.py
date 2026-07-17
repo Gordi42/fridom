@@ -62,11 +62,17 @@ import jax.numpy as jnp
 import fridom as fr
 from fridom.framework.utils import jaxify, modify_array
 from fridom.hydrostatic.diagnostics import DIAGNOSTICS
+from fridom.hydrostatic.modules.terrain import (
+    discover_column,
+    jacobian_name,
+)
 from fridom.hydrostatic.params import CSQR, ROSSBY
 from fridom.hydrostatic.state import State
 from fridom.model.roles import Velocity
 from fridom.spatial.decomposition.halo import HaloSpec
+from fridom.spatial.fields.scalar_field import _bc_siblings
 from fridom.spatial.operators.cumulative import CumulativeIntegral
+from fridom.spatial.spaces.average import AverageSpace
 from fridom.spatial.spaces.tensor_product import TensorProductSpace
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -171,31 +177,61 @@ class HydrostaticCore(fr.model.Module):
         # precedent). The unimmersed core stays fully traced (None).
         self._immersed: object | None = None
         self._coords: tuple[str, ...] = ()
+        # captured at bind: the terrain-following column (mapped, base)
+        # of a sigma-coordinate grid, or None off a mapped grid (the
+        # byte-identical flat / stretched-only path). On a terrain grid
+        # the DIAGNOSE stages J-weight the vertical increment and the
+        # baroclinic pressure gradient adopts the slope-corrected
+        # (constant-physical-height) horizontal derivative.
+        self._column: tuple[str, str] | None = None
 
     def bind(self, table: object) -> None:
-        """Capture the immersed descriptor and coordinate names (IP-D9)."""
-        grid = table.grid
-        self._immersed = getattr(grid, "immersed", None)
-        self._coords = tuple(grid.names)
-
-    @property
-    def extra_halo(self) -> HaloSpec | None:
-        """Exempt the masked DIAGNOSE stages from the halo trace.
+        """Capture the immersed / terrain descriptors and coord names.
 
         Description
         -----------
-        Only on an immersed grid: the fraction-weighted continuity and
-        the fraction lookups run concrete field arithmetic the tracer
-        cannot follow, and the materialized fractions carry the grid's
-        provisional (per-operator-max) storage halo, so the stages read
-        full-halo fields that align with the fractions. Two cells per
-        coordinate matches that provisional halo (and the shared FV
-        advection / nonhydro2 core), keeping the frozen storage halo
-        equal to the fraction cache's halo. Off an immersed grid this is
-        ``None`` — the unimmersed DIAGNOSE stages stay fully halo-
-        traced, bitwise unchanged.
+        Reads the immersed descriptor (IP-D9) and, through
+        :func:`~fridom.hydrostatic.modules.terrain.discover_column`,
+        the single-base terrain column on the vertical axis (rules
+        3.8). The two are mutually exclusive in this iteration: a
+        cut-cell mask on top of a tilted sigma column is not modelled
+        (its masked continuity would need the Jacobian-weighted face
+        fractions), so a terrain + immersed grid is a taught error.
         """
-        if self._immersed is None:
+        grid = table.grid
+        self._immersed = getattr(grid, "immersed", None)
+        self._coords = tuple(grid.names)
+        self._column = discover_column(grid, self._vertical)
+        if self._column is not None and self._immersed is not None:
+            raise NotImplementedError(
+                "the hydrostatic model does not support an immersed "
+                "(cut-cell) domain on top of a terrain-following sigma "
+                "column: the masked continuity would have to weight "
+                "the face fractions by the column Jacobian, which is "
+                "not built (hydrostatic plan §7). Use a terrain grid "
+                "without an immersed mask, or a flat immersed grid")
+
+    @property
+    def extra_halo(self) -> HaloSpec | None:
+        """Exempt the masked / terrain DIAGNOSE stages from the trace.
+
+        Description
+        -----------
+        On an **immersed** grid the fraction-weighted continuity and the
+        fraction lookups run concrete field arithmetic the tracer cannot
+        follow. On a **terrain** grid the DIAGNOSE stages and the
+        baroclinic pressure gradient multiply ``grid.metric`` coefficient
+        fields (the column Jacobian ``J``, the slope-corrected
+        ``physical_diff``) that the halo tracer's ``_TracerGrid`` cannot
+        materialize — the shared mapped-advection precedent (its own
+        ``extra_halo``). Either way the module declares its (order-2
+        centered) FD-stencil halo here instead of being traced. Two
+        cells per coordinate matches the provisional storage halo the
+        materialized metrics carry. Off a mapped / immersed grid this is
+        ``None`` — the flat DIAGNOSE stages stay fully halo-traced,
+        bitwise unchanged.
+        """
+        if self._immersed is None and self._column is None:
             return None
         return HaloSpec(dict.fromkeys(self._coords, 2))
 
@@ -289,6 +325,34 @@ class HydrostaticCore(fr.model.Module):
         the both-boundary face set ``Outer``: seeded ``w = 0`` at the
         flat bottom, ``d_z w == -(d_x u + d_y v)`` machine-exactly.
 
+        **Terrain-following column** (a sigma-coordinate grid,
+        :meth:`bind` captured ``self._column``): the diagnosed ``w`` is
+        the **contravariant vertical volume flux**
+        ``J\omega = w_{phys} - u\,Z_x - v\,Z_y`` (``J`` the column
+        Jacobian, ``Z_i`` the coordinate-surface slope), built from the
+        **flux form** of the physical horizontal divergence,
+
+        .. math::
+
+            J\omega(z) = -\int_{-H}^{z}
+                \bigl[\partial_x (J u) + \partial_y (J v)\bigr]\,
+                \mathrm{d}z' ,
+
+        with ``J`` on the ``u`` / ``v`` faces. This choice keeps the
+        two flat invariants exactly: the fundamental theorem
+        ``\partial_z(J\omega) == -[\partial_x(Ju) + \partial_y(Jv)]``
+        holds to machine precision (the face-form ``CumulativeIntegral``
+        FTC), and the bottom seed ``J\omega = 0`` is the **exact**
+        zero-normal-flow bottom boundary condition on the sigma column
+        (``\omega = 0`` at the terrain, the natural prognostic-free
+        choice — the Cartesian ``w_{phys}`` is *not* zero over a
+        slope). The same increment ``\partial_x(Ju) + \partial_y(Jv)``
+        is the horizontal leg of the mapped pressure solver's
+        J-weighted flux divergence, so the diagnosis is energy-
+        consistent with the vertical hydrostatic pairing. With ``J = 1``
+        and ``Z = 0`` (a flat grid) it collapses byte-for-byte to the
+        Cartesian form above.
+
         On an immersed (cut-cell) grid this becomes **masked
         continuity** (IP-D9): the horizontal transport divergence is
         fraction-weighted (``(alpha_x u).diff(x) + (alpha_y v).diff(y)``
@@ -309,6 +373,16 @@ class HydrostaticCore(fr.model.Module):
         cumint = CumulativeIntegral(
             direction="up", target="face")[self._vertical]
         immersed = getattr(u.grid, "immersed", None)
+        if immersed is None and self._column is not None:
+            # terrain: the flux-form horizontal divergence of the
+            # J-weighted transport (J on the u/v faces), so w is the
+            # contravariant vertical volume flux Jomega (0 at bottom).
+            jname = jacobian_name(self._column)
+            grid = u.grid
+            ju = u * grid.metric(u.function_space.bare, jname)
+            jv = v * grid.metric(v.function_space.bare, jname)
+            div_h = ju.diff(zonal) + jv.diff(meridional)
+            return {"w": -cumint(div_h)}
         if immersed is None:
             div_h = u.diff(zonal) + v.diff(meridional)
             return {"w": -cumint(div_h)}
@@ -372,6 +446,16 @@ class HydrostaticCore(fr.model.Module):
         ``p_hyd = 0`` at the surface. The negative sign is the
         integral taken from the upper limit.
 
+        **Terrain-following column**: the vertical increment is taken
+        along the *physical* height ``\mathrm{d}z_p = J\,\mathrm{d}z``,
+        so the running sum carries the column Jacobian
+        (``jacobian=(mapped,)`` — the wired seam, ``jacobian_weight``):
+        ``p_hyd(z) = -\int_z^0 b\,J\,\mathrm{d}z'``, the physical
+        hydrostatic pressure ``-\int b\,\mathrm{d}z_p`` (converges at
+        second order on both uniform-sigma and stretched-sigma
+        columns). On a flat grid ``self._column`` is ``None`` and the
+        plain (unweighted) form is byte-identical to before.
+
         On an immersed grid the cumulative sum is **unweighted** (the
         top-down hydrostatic integral of the masked buoyancy, which is
         zero on dry cells through ``MaskState``): the diagnosed
@@ -383,9 +467,11 @@ class HydrostaticCore(fr.model.Module):
         gradient refinement (Pacanowski & Gnanadesikan) is designed-for
         (immersed-partial-cells plan §7), not built here.
         """
+        jacobian = (None if self._column is None
+                    else (self._column[0],))
         p_hyd = -CumulativeIntegral(
-            direction="down", target="center")[self._vertical](
-                state["b"])
+            direction="down", target="center",
+            jacobian=jacobian)[self._vertical](state["b"])
         return {"p_hyd": p_hyd}
 
     # ================================================================
@@ -403,11 +489,99 @@ class HydrostaticCore(fr.model.Module):
         is owned by the free-surface variant (H3): a linear term in
         ``ExplicitFreeSurface``, the CONSTRAINT-stage projection in
         ``ImplicitFreeSurface``.
+
+        **Terrain-following column**: the horizontal force is the
+        gradient at **constant physical height**
+        ``-\partial_x p_{hyd}|_{z_p}
+        = -(\partial_x p_{hyd}|_z - (Z_x/J)\,\partial_z p_{hyd})``,
+        the slope-corrected derivative dispatched through the grid's
+        ``physical_diff`` row (the same constant-physical-coordinate
+        derivative the mapped advection consumes). Adding the slope
+        term is the classic sigma-coordinate pressure-gradient-error
+        correction: a stratified fluid at rest over topography stays at
+        rest to the scheme's truncation order (the rest-state gate),
+        where the plain ``\partial_x p_{hyd}|_z`` alone drives an
+        O(1) spurious current. On a flat grid ``self._column`` is
+        ``None`` and the plain staggered ``diff`` is byte-identical.
         """
         zonal, meridional = self._horizontal
         u, v = state["u"], state["v"]
         p_hyd = state["p_hyd"]
+        if self._column is not None:
+            return {
+                "u": (-self._slope_gradient(p_hyd, zonal, u)).retag(u),
+                "v": (-self._slope_gradient(p_hyd, meridional, v)
+                      ).retag(v),
+            }
         return {
             "u": (-p_hyd.diff(zonal)).retag(u),
             "v": (-p_hyd.diff(meridional)).retag(v),
         }
+
+    def _slope_gradient(
+        self, p_hyd: object, axis: str, target: object,
+    ) -> object:
+        r"""Return ``\partial_{axis} p_{hyd}|_{z_p}`` on ``target``'s face.
+
+        Description
+        -----------
+        The horizontal derivative at **constant physical height**,
+        ``\partial_i p|_{z_p} = \partial_i p|_z - (Z_i/J)\,
+        \partial_z p``, assembled by explicit field arithmetic that
+        mirrors the mapped advection's nodal physical divergence
+        (``model/modules/advection.py`` ``_mapped_divergence``, the
+        same ``grid.metric`` rows) — **not** the ``physical_diff``
+        dispatch verb, whose composite reciprocal-Jacobian metric seals
+        a never-valid-padding singularity that poisons the reverse pass
+        (the differentiability policy). The slope coefficient is the
+        ratio ``Z_i/J = d<mapped>_d<axis> / d<mapped>_d<base>`` (both
+        finite on a monotone map, so no guard), the column derivative
+        ``\partial_z p`` is interpolated from the column faces onto the
+        velocity face along both the column and the coupled axis.
+
+        Parameters
+        ----------
+        p_hyd : object
+            The diagnosed hydrostatic pressure (a cell-centre field).
+        axis : str
+            The horizontal coordinate the gradient is taken along.
+        target : object
+            The velocity component whose face the gradient lands on
+            (fixes the staggering; the retag is applied by the caller).
+
+        Returns
+        -------
+        object
+            The constant-physical-height horizontal derivative on
+            ``target``'s face.
+        """
+        mapped, base = self._column
+        grid = p_hyd.grid
+        div = p_hyd.diff(axis)
+        dcol = p_hyd.diff(base)
+        space = dcol.function_space
+        slope = grid.metric(space.bare, f"d{mapped}_d{axis}")
+        jac = grid.metric(space.bare, f"d{mapped}_d{base}")
+        # slope coefficient Z_i / J. Double-`where` guard
+        # (differentiability policy): J > 0 on every valid column, but
+        # the never-valid column-face padding derives J == 0, where a
+        # bare ratio seals the forward value yet leaves the VJP singular
+        # and poisons the whole gradient with NaN (physical_diff's
+        # composite reciprocal-Jacobian hits the same trap — this is why
+        # the gradient is assembled by hand).
+        jd = jac.data
+        nonzero = jd != 0.0
+        coeff = slope.with_data(
+            jnp.where(nonzero, slope.data / jnp.where(nonzero, jd, 1.0),
+                      0.0))
+        corr = coeff * dcol
+        registry = grid.dispatch
+        for name in (base, axis):
+            src = corr.function_space.bare.factor(name)
+            dst = div.function_space.bare.factor(name)
+            if src is dst or _bc_siblings(src, dst):
+                continue
+            kind = ("average" if isinstance(dst, AverageSpace)
+                    else "interpolate")
+            corr = registry.resolve(kind, src)[name](corr)
+        return (div - corr.retag(div)).retag(target)

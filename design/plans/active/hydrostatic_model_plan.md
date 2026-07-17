@@ -305,7 +305,80 @@ remains open (tracked in the roadmap 3.1 entry): the cross-model
 harness is not on this machine; pyOM3 source access pending owner),
 and the owner review of `examples/hydrostatic/comparison_baseline.py`
 (local branch `docs/hydrostatic-example`, never merged, per the
-AGENTS.md docs workflow). The §7 designed-fors are untouched.
+AGENTS.md docs workflow). The §7 designed-fors are untouched **except
+terrain, now built** (see below).
+
+### Terrain-following (sigma-coordinate) core (branch `feat/hydrostatic-terrain`)
+
+Builds the ratified terrain items H0/H1/H2/H4 + the explicit/split
+depth fix of `stretched_terrain_combined.md` §6 (§7 addendum ruling 2).
+New seam `hydrostatic/modules/terrain.py` (`discover_column`): the
+single-base sigma column `(mapped, base)` on the vertical mesh axis, or
+`None` off a mapped grid (flat / stretched-only — byte-identical).
+
+- **H1 (`p_hyd`)** — the top-down center `CumulativeIntegral` carries
+  `jacobian=(mapped,)` (the wired seam), i.e. `-∫ b J dz`. Converges at
+  second order on uniform- **and** stretched-sigma columns.
+- **H2a (`w`)** — the diagnosed `w` is the **contravariant vertical
+  volume flux `Jω`** (not the Cartesian `w_phys`), from the flux-form
+  horizontal divergence `-∫[∂ₓ(Ju)+∂_y(Jv)]dz` (`J` on the u/v faces).
+  This keeps both flat invariants **exactly**: the machine-exact FTC
+  `∂_z(Jω) == -[∂ₓ(Ju)+∂_y(Jv)]` and the **exact** bottom seed `Jω = 0`
+  (zero normal flow on the sigma bottom — `w_phys` is nonzero over a
+  slope; `Jω=0` is the natural prognostic-free choice). Flat `J=1`,
+  `Z=0` collapses byte-for-byte to the Cartesian form.
+- **H2b (baroclinic pressure gradient)** — the horizontal force is the
+  gradient at constant physical height `-∂ₓ p|_zp = -(∂ₓ p|_z -
+  (Zₓ/J)∂_z p)`, assembled by hand (`HydrostaticCore._slope_gradient`,
+  slope coefficient on the *column-face* space — mirrors the mapped
+  advection's nodal divergence) **not** the `physical_diff` verb, whose
+  composite reciprocal-Jacobian seals a never-valid-padding singularity
+  that NaNs the reverse pass (differentiability policy). The rest state
+  over a seamount converges at second order (linear and nonlinear); the
+  slope coefficient's `Z/J` division carries a double-`where` guard.
+- **H4 (energy)** — with `_slope_gradient` on the column-face space the
+  baroclinic pressure gradient is the **exact discrete adjoint** of the
+  flux-form continuity that diagnoses `w`, so the KE↔PE conversion +
+  surface cancellation conserve energy to roundoff on a **resolved**
+  state (grid-scale noise breaks the interpolation-transpose pairing —
+  smooth is the terrain analog of the flat random-field test). The
+  **barotropic** pair conserves energy to roundoff (any state) under
+  the physical-volume metric.
+- **depth fix** — the physical column depth `H(x,y)=∫J dz` (in-trace,
+  double-`where` guarded reciprocal) replaces the computational extent
+  in `_depth_mean_div` (flux-form transport divergence `∫[∂ₓ(Ju)+
+  ∂_y(Jv)]dz / H`) and the ps energy weight.
+
+**Two sigma tensions, recorded (not bugs — inherent to a C-grid sigma
+model with a single `c²`).** (1) *Pressure-gradient vs energy*: the
+slope-corrected gradient cannot be simultaneously machine-exact for
+rest-state balance **and** machine-energy-conserving; `_slope_gradient`
+takes exact energy (adjoint) + second-order rest state (`physical_diff`
+takes the reverse and is grad-unsafe besides). (2) *Barotropic volume
+vs energy*: with constant `c²` over a variable physical depth, the
+physical-depth `H(x,y)` depth-mean conserves **energy** to roundoff but
+drifts `∫ps` by O(slope); the reference-depth form would conserve
+volume, not energy. Per the §6 depth-fix instruction (use `H(x,y)`) the
+build takes energy; exact volume needs the variable-`c²(x,y)` solve
+(deferred with the implicit variant).
+
+**Deferred behind taught errors (H0 gates).** `ImplicitFreeSurface` on
+a chart grid (variable-coefficient barotropic Helmholtz — the
+`mapped_pressure.py` analogue, unbuilt); `SplitExplicitFreeSurface` on
+a chart grid (transport-depth-consistent subcycle, unbuilt); an
+embedding `chart=` (spherical / curvilinear); a vertical axis that is
+not the base of a single-base analytic column; immersed **and** terrain
+together. **Known gaps (reported, not gated):** nonlinear advection on
+a terrain grid is forward-finite but **not** reverse-safe (the shared
+nodal mapped divergence divides `Z/J` unguarded — a shared-advection
+fix); and `EnergyMetric`/`eigenmodes` on a terrain grid use the plain
+(extent) ps weight and so are physically inconsistent (energy
+diagnostics off a chart, unfixed here).
+
+Tests: `tests/hydrostatic/test_terrain.py`, `test_core_terrain.py`,
+`test_free_surface_terrain.py` (the H1/H2/H4 + depth + rest-state +
+taught-error + autodiff gates); the full flat `tests/hydrostatic`
+suite unchanged.
 
 ### H0 — advection rehomed (2026-07-16)
 

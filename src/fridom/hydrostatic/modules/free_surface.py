@@ -79,6 +79,10 @@ import numpy as np
 
 import fridom as fr
 from fridom.framework.utils import dtype_real, jaxify
+from fridom.hydrostatic.modules.terrain import (
+    discover_column,
+    jacobian_name,
+)
 from fridom.hydrostatic.params import CSQR
 from fridom.model.errors import AssemblyError
 from fridom.model.terms import Treatment
@@ -169,6 +173,15 @@ class _FreeSurfaceBase(fr.model.Module):
         # (memoized concrete-only, like grid._measures) — a jax array
         # cannot ride a dynamic=() pytree's static aux
         self._immersed: object | None = None
+        # the terrain-following column (mapped, base) of a sigma grid,
+        # or None off a mapped grid (rules 3.8). On a terrain grid the
+        # physical column depth H(x, y) = int J dz varies horizontally
+        # and differs from the computational extent, so the depth mean
+        # and the ps energy weight read it from grid.metric (in-trace,
+        # like the immersed transport depths — a field cannot ride the
+        # static aux). Discovered at bind; None keeps the flat scalar
+        # 1/H path byte-identical.
+        self._column: tuple[str, str] | None = None
 
     def bind(self, table: object) -> None:
         """Freeze the reciprocal depth ``1/H`` (the depth-mean divisor).
@@ -198,6 +211,14 @@ class _FreeSurfaceBase(fr.model.Module):
         """
         grid = table.grid
         self._immersed = getattr(grid, "immersed", None)
+        self._column = discover_column(grid, self._vertical)
+        if self._column is not None and self._immersed is not None:
+            raise NotImplementedError(
+                "the hydrostatic free surface does not support an "
+                "immersed (cut-cell) domain on top of a terrain-"
+                "following sigma column (the barotropic transport "
+                "depth would weight the face fractions by the column "
+                "Jacobian, not built — hydrostatic plan §7)")
         for mesh in grid.factors:
             if self._vertical in mesh.names:
                 lo, hi = mesh.extent
@@ -274,6 +295,20 @@ class _FreeSurfaceBase(fr.model.Module):
         """
         zonal, meridional = self._horizontal
         u, v = state["u"], state["v"]
+        if self._column is not None:
+            # terrain: the flux-form horizontal transport divergence
+            # int[d_x(Ju) + d_y(Jv)] dz divided by the *physical* column
+            # depth H(x, y) = int J dz. The flux form is the exact
+            # adjoint (under the plain measure) of the -grad ps momentum
+            # force on the z-constant ps, so the barotropic pair stays
+            # skew and the surface DOF w(0) it drives is consistent with
+            # the DIAGNOSE w. Both physical-depth reads are in-trace.
+            jname = jacobian_name(self._column)
+            ju = u * u.grid.metric(u.function_space.bare, jname)
+            jv = v * v.grid.metric(v.function_space.bare, jname)
+            div_h = ju.diff(zonal) + jv.diff(meridional)
+            transport_div = Integral()[self._vertical](div_h)
+            return transport_div * self._terrain_inv_depth(div_h)
         if self._immersed is None:
             div_h = u.diff(zonal) + v.diff(meridional)
             return Integral()[self._vertical](div_h) * self._inv_depth
@@ -282,6 +317,75 @@ class _FreeSurfaceBase(fr.model.Module):
         div_h = ((alpha_x * u).diff(zonal)
                  + (alpha_y * v).diff(meridional))
         return Integral()[self._vertical](div_h) * self._inv_depth
+
+    # ================================================================
+    #  Terrain (sigma-coordinate) physical depth
+    # ================================================================
+    def _terrain_inv_depth(self, cell_ref: ScalarField) -> ScalarField:
+        r"""Return ``1/H(x, y)``, the reciprocal physical column depth.
+
+        Description
+        -----------
+        The physical depth ``H(x, y) = \int J\,\mathrm{d}z`` (the
+        plain vertical integral of the column Jacobian
+        ``J = d<mapped>_d<base>``, :meth:`_physical_depth`), reciprocal
+        taken on the reduced barotropic ``Profile`` face. Materialized
+        in-trace from ``grid.metric`` (a field cannot ride the
+        ``dynamic=()`` static aux — the immersed transport-depth
+        precedent). ``J > 0`` on a monotone map, so ``H > 0`` and no
+        guard is needed.
+
+        Parameters
+        ----------
+        cell_ref : ScalarField
+            A field whose space still resolves the vertical factor
+            (the pre-reduction cell space), fixing the horizontal
+            staggering the depth reduces onto.
+
+        Returns
+        -------
+        ScalarField
+            The reciprocal physical depth on the ``Profile`` face.
+        """
+        depth = self._physical_depth(cell_ref)
+        d = depth.data
+        # double-`where` guard (differentiability policy): the physical
+        # depth H > 0 on every valid column, but the padding / halo
+        # columns integrate a zero Jacobian to H == 0. A bare 1/H would
+        # seal the forward value yet leave the VJP singular (1/0^2) and
+        # poison the whole gradient with NaN; the guard makes both the
+        # value and the reverse pass finite there.
+        safe = d != 0.0
+        inv = jnp.where(safe, 1.0 / jnp.where(safe, d, 1.0), 0.0)
+        return depth.with_data(inv)
+
+    def _physical_depth(self, cell_ref: ScalarField) -> ScalarField:
+        r"""Return ``H(x, y) = \int J\,\mathrm{d}z`` on the ``Profile`` face.
+
+        Description
+        -----------
+        The plain vertical integral of the column Jacobian at
+        ``cell_ref``'s horizontal staggering (the cell centre for the
+        ``ps`` divisor, the ``u`` / ``v`` face for a transport depth).
+        ``Integral``'s plain measure over the Jacobian field is exactly
+        the physical column extent ``\int J\,\mathrm{d}z`` (rules 2.7);
+        it lands on the ``ConstantSpace`` z-factor (the barotropic
+        ``Profile``).
+
+        Parameters
+        ----------
+        cell_ref : ScalarField
+            A field whose space resolves the vertical factor (a
+            non-constant z), fixing the horizontal staggering.
+
+        Returns
+        -------
+        ScalarField
+            The physical column depth on the ``Profile`` face.
+        """
+        jname = jacobian_name(self._column)
+        jac = cell_ref.grid.metric(cell_ref.function_space.bare, jname)
+        return Integral()[self._vertical](jac)
 
     # ================================================================
     #  Immersed barotropic reductions (IP-D9; no-ops off a cut cell)
@@ -380,6 +484,26 @@ class ExplicitFreeSurface(_FreeSurfaceBase):
                 long_name="Surface pressure (g*eta)",
                 units="m^2/s^2"),
         )
+
+    @property
+    def extra_halo(self) -> HaloSpec | None:
+        r"""Exempt the terrain gravity term from the halo trace.
+
+        Description
+        -----------
+        On a terrain grid the depth-mean divergence multiplies the
+        column Jacobian and divides by the physical depth
+        ``\int J\,dz``, both ``grid.metric`` reads the halo tracer's
+        ``_TracerGrid`` cannot materialize (the mapped-advection
+        precedent). The ``linear=True`` gravity term declares its
+        one-cell C-grid stencil halo per horizontal coordinate here
+        instead of being traced. Off a terrain grid this is ``None`` —
+        the flat gravity term stays fully halo-traced, bitwise
+        unchanged.
+        """
+        if self._column is None:
+            return None
+        return HaloSpec(dict.fromkeys(self._horizontal, 1))
 
     @fr.model.term(advances=("ps",), linear=True)
     def gravity(self, state, ctx) -> dict:  # noqa: ANN001
@@ -535,6 +659,40 @@ class ImplicitFreeSurface(_FreeSurfaceBase):
         self._epsilon = float(epsilon)
         self._pressure_iterations = int(pressure_iterations)
         self._pressure_tolerance = pressure_tolerance
+
+    def bind(self, table: object) -> None:
+        r"""Freeze the depth; refuse a terrain (chart) grid (H3 deferred).
+
+        Description
+        -----------
+        Runs the base depth freeze, then the terrain gate: on a
+        terrain-following sigma column the physical depth ``H(x, y)``
+        varies horizontally, so the barotropic Helmholtz operator
+        ``\\varepsilon - dt'^2\\,\\nabla\\!\\cdot(c^2 H\\,\\nabla)``
+        becomes **variable-coefficient** and leaves the separable
+        ``SpectralSolve`` fast path — the variable-``c^2 H`` CG route
+        (the hydrostatic analogue of ``mapped_pressure.py``) is
+        specified but **not built** (research record
+        ``stretched_terrain_combined.md`` §6 H3; hydrostatic plan §7).
+        Rather than run silently on the wrong (constant-depth) operator,
+        the implicit variant is a taught error on a chart grid; use the
+        ``hy.ExplicitFreeSurface`` or ``hy.SplitExplicitFreeSurface``
+        (both terrain-capable) instead.
+        """
+        super().bind(table)
+        if self._column is not None:
+            raise NotImplementedError(
+                "hy.ImplicitFreeSurface does not support a terrain-"
+                "following (sigma) grid yet: the physical column depth "
+                "H(x, y) varies horizontally, so the barotropic "
+                "Helmholtz operator eps - dt'^2 div(c^2 H grad) is "
+                "variable-coefficient and leaves the separable spectral "
+                "solve. The variable-c^2 H conjugate-gradient route (the "
+                "hydrostatic analogue of the mapped pressure solver) is "
+                "specified but not built (stretched_terrain_combined.md "
+                "§6 item H3; hydrostatic plan §7). Assemble with "
+                "hy.ExplicitFreeSurface or hy.SplitExplicitFreeSurface, "
+                "which carry the terrain physical depth")
 
     # ================================================================
     #  Properties
@@ -1117,6 +1275,20 @@ class SplitExplicitFreeSurface(_FreeSurfaceBase):
             If the assembly's outer stepper is not a multistep driver.
         """
         super().bind(table)
+        if self._column is not None:
+            raise NotImplementedError(
+                "hy.SplitExplicitFreeSurface does not support a terrain-"
+                "following (sigma) grid yet: the barotropic subcycle "
+                "steps a 2D shallow-water pair whose depth is the "
+                "physical column depth H(x, y) = int J dz, so every "
+                "substep needs the transport-depth-consistent "
+                "divergence div(H ubar)/H and the SM2005 time-average "
+                "must conserve volume against that variable depth — the "
+                "same variable-depth machinery the immersed path "
+                "carries, J-weighted, which is a follow-up "
+                "(stretched_terrain_combined.md §6; hydrostatic plan "
+                "§7). Assemble with hy.ExplicitFreeSurface (the "
+                "terrain-capable barotropic oracle) on a chart grid")
         stepper = getattr(table, "time_stepper", None)
         if not getattr(stepper, "supports_split_advance", False):
             raise AssemblyError(
