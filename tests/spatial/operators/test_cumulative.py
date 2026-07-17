@@ -25,6 +25,7 @@ from fridom.spatial.operators.finite_difference import (
     FiniteDifference,
 )
 from fridom.spatial.operators.flux_diff import FluxDifference
+from fridom.spatial.operators.integrate import Integral
 from fridom.spatial.operators.interp import LinearInterp
 from fridom.spatial.operators.verbs import cumint
 from fridom.spatial.scalars import Scalars
@@ -397,6 +398,130 @@ def test_lone_factor_off_the_chart_uses_the_plain_measure():
     f = grid.create_field(mv.center, init=lambda v: 1.0 + 0.0 * v)
     w = row["v"](f)
     assert jnp.allclose(w.data[-1], 2.0 * jnp.pi, atol=1e-12)
+
+
+# ================================================================
+#  Analytic maps= terrain columns: the jacobian= column Jacobian
+# ================================================================
+def _depth(x):
+    return 1.0 + 0.2 * jnp.sin(x)
+
+
+def _stretch(s):
+    return s + 0.15 * jnp.sin(2.0 * np.pi * s) / (2.0 * np.pi)
+
+
+def _terrain_grid(n, stretched):
+    # z_p = sigma * H(x): the mapped physical coordinate "zp" is not a
+    # mesh axis; its base column "sigma" may itself be stretched
+    mx = IntervalMesh(n, (0.0, 2.0 * np.pi), periodic=True, name="x")
+    if stretched:
+        ms = MappedIntervalMesh(n, (0.0, 1.0), _stretch,
+                                periodic=False, name="sigma")
+    else:
+        ms = IntervalMesh(n, (0.0, 1.0), periodic=False,
+                          name="sigma")
+    mapping = CoordinateMapping(
+        maps={"zp": lambda sigma, H: sigma * H},
+        params={"H": _depth})
+    return Grid((mx, ms), mapping=mapping, device_ids=(0,)), mx, ms
+
+
+@pytest.mark.parametrize("stretched", [
+    pytest.param(False, id="uniform-sigma"),
+    pytest.param(True, id="stretched-sigma"),
+])
+def test_maps_jacobian_running_integral_converges(stretched):
+    # p_hyd(z) = -int_z^H cos(z') dz' = sin(z) - sin(H), with the
+    # increment weighted by the column Jacobian d<zp>_d<sigma> == H;
+    # the down/center running integral converges at 2nd order
+    errors = []
+    for n in (16, 32, 64):
+        grid, mx, ms = _terrain_grid(n, stretched)
+        space = mx.center * ms.center
+        b = grid.create_field(
+            space, init=lambda x, sigma: jnp.cos(sigma * _depth(x)))
+        op = CumulativeIntegral(direction="down", target="center",
+                                jacobian=("zp",))["sigma"]
+        p = -np.asarray(op(b).data)
+        x = np.asarray(grid.evaluation_nodes(space, "x").data)
+        s = np.asarray(grid.evaluation_nodes(space, "sigma").data)
+        depth = 1.0 + 0.2 * np.sin(x)
+        exact = np.sin(s * depth) - np.sin(depth)
+        errors.append(float(np.max(np.abs(p - exact))))
+    orders = np.log2(np.asarray(errors[:-1])
+                     / np.asarray(errors[1:]))
+    assert bool(np.all(orders > 1.7))
+
+
+def test_maps_jacobian_telescopes_to_the_weighted_integral():
+    # the far-boundary value of the running integral == the
+    # jacobian-weighted Integral of the same field (physical column)
+    grid, mx, ms = _terrain_grid(24, stretched=True)
+    space = mx.center * ms.center
+    b = grid.create_field(space,
+                          init=lambda x, sigma: jnp.cos(sigma) + 0.0 * x)
+    run = CumulativeIntegral(direction="up", target="face",
+                             jacobian=("zp",))["sigma"](b)
+    total = Integral(jacobian=("zp",))["sigma"](b)
+    assert jnp.allclose(run.data[:, -1], total.data.squeeze(),
+                        atol=1e-12)
+
+
+def test_maps_jacobian_is_no_longer_a_silent_noop():
+    # the historical trap: jacobian=("zp",) once was bitwise equal to
+    # the unweighted running integral (a silent no-op)
+    grid, mx, ms = _terrain_grid(16, stretched=False)
+    space = mx.center * ms.center
+    b = grid.create_field(space,
+                          init=lambda x, sigma: jnp.cos(sigma) + 0.0 * x)
+    weighted = CumulativeIntegral(
+        direction="down", jacobian=("zp",))["sigma"](b)
+    plain = CumulativeIntegral(direction="down")["sigma"](b)
+    assert not jnp.allclose(weighted.data, plain.data)
+
+
+def test_maps_jacobian_bogus_name_raises():
+    grid, mx, ms = _terrain_grid(8, stretched=False)
+    space = mx.center * ms.center
+    b = grid.create_field(space,
+                          init=lambda x, sigma: jnp.cos(sigma) + 0.0 * x)
+    with pytest.raises(ValueError, match="not a chart coordinate"):
+        CumulativeIntegral(jacobian=("bogus",))["sigma"](b)
+
+
+def test_maps_jacobian_base_axis_name_raises():
+    # "sigma" is the base axis, not the chart coordinate "zp"
+    grid, mx, ms = _terrain_grid(8, stretched=False)
+    space = mx.center * ms.center
+    b = grid.create_field(space,
+                          init=lambda x, sigma: jnp.cos(sigma) + 0.0 * x)
+    with pytest.raises(ValueError, match="not a chart coordinate"):
+        CumulativeIntegral(jacobian=("sigma",))["sigma"](b)
+
+
+def test_maps_jacobian_running_integral_is_differentiable():
+    # the down/center running integral is the hydrostatic p_hyd path:
+    # grad of a quadratic loss through it is finite and matches a
+    # central finite difference (differentiability policy)
+    grid, mx, ms = _terrain_grid(8, stretched=False)
+    space = mx.center * ms.center
+    op = CumulativeIntegral(direction="down", target="center",
+                            jacobian=("zp",))["sigma"]
+
+    def loss(data):
+        b = grid.create_field(space, data=data)
+        return (op(b).data ** 2).sum()
+
+    rng = np.random.default_rng(0)
+    x0 = jnp.asarray(rng.standard_normal(space.shape))
+    direction = jnp.asarray(rng.standard_normal(space.shape))
+    ad = float(jnp.vdot(jax.grad(loss)(x0), direction))
+    eps = 1e-4
+    fd = float((loss(x0 + eps * direction)
+                - loss(x0 - eps * direction)) / (2.0 * eps))
+    assert np.isfinite(ad)
+    assert np.isclose(ad, fd, rtol=1e-4)
 
 
 # ================================================================
