@@ -40,6 +40,14 @@ The scale :math:`s(t)` is a provided dynamic-leaf parameter
 pattern), so ``model.update_parameters`` sweeps it — a plain float, an
 ``fr.Ramp``, or any ``TimeDependent`` curve — without re-assembly, and
 the term reads it from ``ctx.params`` (never the clock).
+
+The wall-weight builder, the flux-profile declaration, and the bind-time
+validation are module-level helpers (``build_wall_weight``,
+``flux_declaration``, ``reject_chart_grid`` / ``check_walled_coord`` /
+``check_tangential_flux`` / ``check_forced_field``) so the model-package
+wrappers that own the physical sign conventions
+(``nonhydro2.WindStress`` / ``SurfaceBuoyancyFlux``, BF-D4) reuse them
+rather than duplicating.
 """
 from __future__ import annotations
 
@@ -83,6 +91,9 @@ _FIELD_HINT = ("the forced field must be declared by another module "
                "BoundaryFlux field-name spelling")
 
 
+# ================================================================
+#  Shared helpers (reused by the model-package wrappers, BF-D4)
+# ================================================================
 def _coordinate_names(fn: Callable) -> tuple[str, ...]:
     """Return the coordinate names a flux callable varies along."""
     return tuple(inspect.signature(fn).parameters)
@@ -113,6 +124,136 @@ def _is_collocated_along(space: object, coord: str) -> bool:
     if node_set is not None:
         return node_set is NodeSet.CENTER
     return isinstance(factor, CellAvg)
+
+
+def build_wall_weight(
+    grid: object, space: object, coord: str, side: str, name: str,
+) -> ScalarField:
+    r"""Materialize the wall weight ``1/\Delta n`` at the wall cell.
+
+    Builds a true-shape indicator that is ``1`` at the wall-adjacent
+    cell row (index ``0`` for a left wall, ``-1`` for a right wall) and
+    ``0`` elsewhere — an index test, never a float-equality coordinate
+    test — then divides by the grid measure so the nonzero entry is
+    :math:`1/\Delta n`, the actual wall-cell width (stretched meshes
+    included). The indicator and the measure are fields on the same
+    ``Profile(coord)`` space, so the division shards consistently under
+    decomposition. Shared by ``BoundaryFlux`` and the model-package
+    wrappers.
+    """
+    axis = _coord_axis(space, coord)
+    where = tuple(
+        _SIDES[side] if a == axis else slice(None)
+        for a in range(len(space.shape)))
+    indicator = modify_array(jnp.zeros(space.shape), where, 1.0)
+    weight = (grid.create_field(space, data=indicator)
+              / grid.measure(space, coord))
+    return weight.with_metadata(name=name)
+
+
+def flux_declaration(
+    name: str, flux: float | Callable, *, long_name: str,
+) -> FieldDeclaration:
+    """Declare a flux pattern as an AUXILIARY profile field.
+
+    A number becomes a constant fill on the one-DOF ``fr.Profile()``; a
+    callable becomes the coordinate default of a ``fr.Profile`` over
+    exactly the tangential coordinates its signature names (the
+    ``Relaxation`` profile normalization). Shared by ``BoundaryFlux``
+    and the model-package wrappers.
+    """
+    if callable(flux):
+        space = Profile(*_coordinate_names(flux))
+        default: float | Callable = flux
+    else:
+        space = Profile()
+        default = float(flux)
+    return FieldDeclaration(
+        name, space=space, lifecycle=Lifecycle.AUXILIARY,
+        default=default, long_name=long_name, units="n/a")
+
+
+def reject_chart_grid(grid: object, owner: str) -> None:
+    """Refuse a chart/mapped grid (iteration-1 scope, BF-D2 d)."""
+    chart = grid.chart_coords
+    if chart is not None:
+        raise ValueError(
+            f"{owner} computes the wall weight 1/Delta n from 1-D "
+            "measures, but this grid carries an embedding chart on "
+            f"{chart}: the metric-aware A_face/V_cell weight is "
+            "designed-for but not implemented (iteration 1). Use a "
+            "flat Cartesian grid")
+
+
+def check_walled_coord(grid: object, coord: str, owner: str) -> None:
+    """Require ``coord`` to be a bounded (walled) axis of the grid (a)."""
+    mesh = next(
+        (m for m in grid.factors if coord in m.names), None)
+    walls = sorted(
+        name for m in grid.factors
+        if not getattr(m, "periodic", False) for name in m.names)
+    if mesh is None:
+        raise ValueError(
+            f"{owner} coord={coord!r} is not a coordinate of the grid "
+            f"(coordinates: {grid.names}); the walled axes are {walls}")
+    if getattr(mesh, "periodic", False):
+        raise ValueError(
+            f"{owner} coord={coord!r} is periodic: a boundary flux "
+            "enters through a bounded (walled) axis; the walled axes "
+            f"are {walls}")
+
+
+def check_tangential_flux(
+    grid: object, coord: str, flux: float | Callable, owner: str,
+) -> None:
+    """Reject a flux callable naming the normal or a missing coord."""
+    if not callable(flux):
+        return
+    names = _coordinate_names(flux)
+    if coord in names:
+        raise ValueError(
+            f"the {owner} flux callable names the normal coordinate "
+            f"{coord!r}: the flux lives on the wall face and varies "
+            "only along the tangential coordinates")
+    unknown = sorted(set(names) - set(grid.names))
+    if unknown:
+        raise ValueError(
+            f"the {owner} flux callable names the coordinate(s) "
+            f"{unknown}, which the grid does not have (coordinates: "
+            f"{grid.names})")
+
+
+def check_forced_field(
+    table: object, field: str, coord: str, side: str, owner: str,
+) -> None:
+    """Require a PROGNOSTIC, cell-centred, non-DIRICHLET field (b, c).
+
+    Rejects a non-PROGNOSTIC field, a field staggered (wall-normal)
+    along ``coord``, and a field whose resolved BC on ``(coord, side)``
+    is DIRICHLET (the wall value is pinned, so a flux cannot be
+    prescribed).
+    """
+    record = table[field]
+    if record.lifecycle is not Lifecycle.PROGNOSTIC:
+        raise ValueError(
+            f"{owner} forces {field!r}, which is "
+            f"{record.lifecycle.name}: only PROGNOSTIC fields are "
+            "advanced from tendencies")
+    if not _is_collocated_along(record.space, coord):
+        raise ValueError(
+            f"{owner} forces {field!r}, which is staggered along "
+            f"{coord!r} (its wall faces are not DOFs): prescribing "
+            "wall-normal flow is an open-boundary condition, out of "
+            "scope. Force a cell-centred field (a tracer, buoyancy, or "
+            "a tangential velocity)")
+    component = record.space.factor(coord).bc.components[_SIDES[side]]
+    if component is BC.DIRICHLET:
+        raise ValueError(
+            f"{owner} forces {field!r} at the {coord} {side} wall, but "
+            "its resolved boundary condition there is DIRICHLET: the "
+            "wall value is pinned, so a flux cannot be prescribed. Use "
+            "the NEUMANN sibling, or fr.modules.Relaxation to nudge "
+            "toward a target")
 
 
 @partial(jaxify, dynamic=("scale",))
@@ -246,7 +387,9 @@ class BoundaryFlux(Module):
                 default=self._wall_weight_default,
                 long_name=f"Wall weight on {self._field}",
                 units="1/m"),
-            self._flux_declaration(),
+            flux_declaration(
+                self._flux_name, self._flux,
+                long_name=f"Boundary flux on {self._field}"),
         )
 
     @property
@@ -261,148 +404,25 @@ class BoundaryFlux(Module):
                     f"{self._coord} {self._side} wall"),
         )
 
-    def _flux_declaration(self) -> FieldDeclaration:
-        """Declare the flux pattern as an AUXILIARY profile field.
-
-        A number becomes a constant fill on the one-DOF
-        ``fr.Profile()``; a callable becomes the coordinate default of
-        a ``fr.Profile`` over exactly the tangential coordinates its
-        signature names (the ``Relaxation`` normalization).
-        """
-        if callable(self._flux):
-            space = Profile(*_coordinate_names(self._flux))
-            default: float | Callable = self._flux
-        else:
-            space = Profile()
-            default = float(self._flux)
-        return FieldDeclaration(
-            self._flux_name, space=space,
-            lifecycle=Lifecycle.AUXILIARY, default=default,
-            long_name=f"Boundary flux on {self._field}", units="n/a")
-
     def _wall_weight_default(
         self, grid: object, space: object,
     ) -> ScalarField:
-        r"""Owner-method default: ``1/\Delta n`` at the wall-adjacent cell.
-
-        Builds a true-shape indicator that is ``1`` at the
-        wall-adjacent cell row (index ``0`` for a left wall, ``-1`` for
-        a right wall) and ``0`` elsewhere — an index test, never a
-        float-equality coordinate test — then divides by the grid
-        measure so the nonzero entry is :math:`1/\Delta n`, the actual
-        wall-cell width (stretched meshes included). The indicator and
-        the measure are fields on the same ``Profile(coord)`` space, so
-        the division shards consistently under decomposition.
-        """
-        axis = _coord_axis(space, self._coord)
-        where = tuple(
-            _SIDES[self._side] if a == axis else slice(None)
-            for a in range(len(space.shape)))
-        indicator = modify_array(
-            jnp.zeros(space.shape), where, 1.0)
-        weight = (grid.create_field(space, data=indicator)
-                  / grid.measure(space, self._coord))
-        return weight.with_metadata(name=self._weight_name)
+        r"""Owner-method default: ``1/\Delta n`` at the wall-adjacent cell."""
+        return build_wall_weight(
+            grid, space, self._coord, self._side, self._weight_name)
 
     # ================================================================
-    #  Bind-time validation (taught errors)
+    #  Bind-time validation (taught errors a-d)
     # ================================================================
     def bind(self, table: object) -> None:
-        """Validate the coordinate, the field, and the BC (a)-(d).
-
-        Raises
-        ------
-        ValueError
-            If ``coord`` is unknown or periodic (a); if the flux
-            callable names the normal coordinate; if the forced field
-            is not PROGNOSTIC, or is staggered (wall-normal) along
-            ``coord`` (b); if the resolved BC on ``(coord, side)`` is
-            DIRICHLET (c); or if the grid carries an embedding chart
-            (d).
-        """
+        """Validate the coordinate, the field, and the BC (a)-(d)."""
         grid = table.grid
-        self._reject_chart_grid(grid)                       # (d)
-        self._check_coordinate(grid)                        # (a)
-        self._check_flux_coordinates(grid)
-        self._check_field(table)                            # (b)
-        self._check_boundary_condition(table)               # (c)
-
-    def _reject_chart_grid(self, grid: object) -> None:
-        """Refuse a chart/mapped grid (iteration-1 scope, BF-D2 d)."""
-        chart = grid.chart_coords
-        if chart is not None:
-            raise ValueError(
-                "BoundaryFlux computes the wall weight 1/Delta n from "
-                "1-D measures, but this grid carries an embedding "
-                f"chart on {chart}: the metric-aware A_face/V_cell "
-                "weight is designed-for but not implemented (iteration "
-                "1). Use a flat Cartesian grid")
-
-    def _check_coordinate(self, grid: object) -> None:
-        """Require ``coord`` to be a bounded (walled) axis of the grid."""
-        mesh = next(
-            (m for m in grid.factors if self._coord in m.names), None)
-        walls = sorted(
-            name for m in grid.factors
-            if not getattr(m, "periodic", False) for name in m.names)
-        if mesh is None:
-            raise ValueError(
-                f"BoundaryFlux coord={self._coord!r} is not a "
-                f"coordinate of the grid (coordinates: {grid.names}); "
-                f"the walled axes are {walls}")
-        if getattr(mesh, "periodic", False):
-            raise ValueError(
-                f"BoundaryFlux coord={self._coord!r} is periodic: a "
-                "boundary flux enters through a bounded (walled) axis; "
-                f"the walled axes are {walls}")
-
-    def _check_flux_coordinates(self, grid: object) -> None:
-        """Reject a flux callable naming the normal or a missing coord."""
-        if not callable(self._flux):
-            return
-        names = _coordinate_names(self._flux)
-        if self._coord in names:
-            raise ValueError(
-                f"the BoundaryFlux flux callable names the normal "
-                f"coordinate {self._coord!r}: the flux lives on the "
-                "wall face and varies only along the tangential "
-                "coordinates")
-        unknown = sorted(set(names) - set(grid.names))
-        if unknown:
-            raise ValueError(
-                f"the BoundaryFlux flux callable names the "
-                f"coordinate(s) {unknown}, which the grid does not "
-                f"have (coordinates: {grid.names})")
-
-    def _check_field(self, table: object) -> None:
-        """Require a PROGNOSTIC field, collocated (non-normal) at coord."""
-        record = table[self._field]
-        if record.lifecycle is not Lifecycle.PROGNOSTIC:
-            raise ValueError(
-                f"BoundaryFlux forces {self._field!r}, which is "
-                f"{record.lifecycle.name}: only PROGNOSTIC fields are "
-                "advanced from tendencies")
-        if not _is_collocated_along(record.space, self._coord):
-            raise ValueError(
-                f"BoundaryFlux forces {self._field!r}, which is "
-                f"staggered along {self._coord!r} (its wall faces are "
-                "not DOFs): prescribing wall-normal flow is an "
-                "open-boundary condition, out of scope. Force a "
-                "cell-centred field (a tracer, buoyancy, or a "
-                "tangential velocity)")
-
-    def _check_boundary_condition(self, table: object) -> None:
-        """Reject a DIRICHLET-pinned wall (the value is fixed, not fluxed)."""
-        factor = table[self._field].space.factor(self._coord)
-        component = factor.bc.components[_SIDES[self._side]]
-        if component is BC.DIRICHLET:
-            raise ValueError(
-                f"BoundaryFlux forces {self._field!r} at the "
-                f"{self._coord} {self._side} wall, but its resolved "
-                f"boundary condition there is DIRICHLET: the wall "
-                "value is pinned, so a flux cannot be prescribed. Use "
-                "the NEUMANN sibling, or fr.modules.Relaxation to "
-                "nudge toward a target")
+        owner = type(self).__name__
+        reject_chart_grid(grid, owner)                          # (d)
+        check_walled_coord(grid, self._coord, owner)            # (a)
+        check_tangential_flux(grid, self._coord, self._flux, owner)
+        check_forced_field(
+            table, self._field, self._coord, self._side, owner)  # (b,c)
 
     # ================================================================
     #  The boundary-flux term
