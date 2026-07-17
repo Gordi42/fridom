@@ -219,6 +219,11 @@ import jax.numpy as jnp
 import numpy as np
 
 import fridom as fr
+from fridom.shallowwater2.modules.immersed_weighting import (
+    mask_field,
+    scale_divergence,
+    weight_flux,
+)
 from fridom.shallowwater2.state import _wall_free
 from fridom.spatial.bc import BC
 from fridom.spatial.decomposition.halo import HaloSpec
@@ -452,6 +457,16 @@ class SadournyAdvection(fr.model.Module):
             the metric path).
         """
         grid = table.grid
+        if (self._background is not None
+                and getattr(grid, "immersed", None) is not None):
+            raise NotImplementedError(
+                "background= is not supported on immersed (cut-cell) "
+                "grids: the background-transport flux stencils are "
+                "unmasked, so a prescribed background would silently "
+                "advect across the wet-region boundary (immersed-"
+                "partial-cells plan, IP-D8 — masked background "
+                "transport is designed-for). Run the immersed model "
+                "without a prescribed background flow.")
         chart = grid.chart_coords
         if chart is not None:
             expected = tuple(
@@ -612,6 +627,9 @@ class SadournyAdvection(fr.model.Module):
         if u.grid.chart_coords is not None:
             return self._advect_chart(u, v, p, p_full, rossby)
 
+        if getattr(u.grid, "immersed", None) is not None:
+            return self._advect_immersed(u, v, p, p_full, rossby)
+
         # --- thickness tendency  dp = -Ro div(u p_e, v p_n) --------
         # (wall-normal flux lives on interior faces; the Dirichlet
         # fill closes the divergence with a zero wall flux)
@@ -638,6 +656,77 @@ class SadournyAdvection(fr.model.Module):
         dv = rossby * (-(fu * q).to(v)
                        - ekin.diff(meridional).retag(v))
         return {"u": du, "v": dv, "p": dp}
+
+    def _advect_immersed(
+        self,
+        u: ScalarField,
+        v: ScalarField,
+        p: ScalarField,
+        p_full: ScalarField,
+        rossby: object,
+    ) -> dict:
+        r"""Return the Sadourny tendency under immersed boolean masks.
+
+        Description
+        -----------
+        The cut-cell path (IP-D10) on a flat immersed grid. **Mass** is
+        conserved exactly: the thickness transport is fraction-weighted
+        exactly like the linear core continuity — every face flux
+        carries the open-area fraction :math:`\alpha_f` and the
+        divergence divides by the wet plan-area :math:`\theta_c`
+        (guarded), so ``sum_c theta_c V_c p_c`` is machine-zero
+        conserved for any fractions (the flux differences telescope, an
+        :math:`\alpha = 0` face carrying none).
+
+        **Momentum** runs under **boolean masks** (genuine-fraction
+        Sadourny weighting is designed-for): the corner potential
+        vorticity is zeroed wherever its corner touches a dry cell
+        (``q <- q * mask(corner)``) — no vorticity is computed from dry
+        velocities, the immersed free-slip closure (the wall analog of
+        the ``zeta = 0`` corner retag) — and the momentum tendency is
+        masked onto its own face (``du <- du * mask(u)``) so neither the
+        vorticity flux nor the kinetic-energy gradient drives a closed
+        face.
+
+        **Conservation scope.** Away from the mask (a fully wet region:
+        :math:`\theta = 1`, every mask ``True``) the scheme reduces to
+        the flat scheme term for term, so the discrete energy/enstrophy
+        telescoping is **interior-exact**. At the wet-region boundary
+        the boolean-masked corner fluxes make energy/enstrophy
+        conservation **approximate** (mass stays exact) — the price of
+        the boolean simplification, documented here per IP-D10.
+        """
+        immersed = u.grid.immersed
+        zonal, meridional = self._coords
+
+        # --- thickness: mass-conserving fraction-weighted transport --
+        # dp = -(Ro/theta) div(alpha u p) — the core-continuity idiom,
+        # so mass conserves to machine zero on any (partial) fractions
+        flux_u = weight_flux(immersed, u * p.to(u))
+        flux_v = weight_flux(immersed, v * p.to(v))
+        div = -(flux_u.diff(zonal) + flux_v.diff(meridional))
+        dp = rossby * scale_divergence(immersed, div)
+
+        # --- momentum: boolean-masked vorticity flux + KE gradient ---
+        corner = u.function_space.bare.replace(**{
+            meridional: v.function_space.bare.factor(meridional)})
+        zeta = (v.diff(zonal).retag(corner)
+                - u.diff(meridional).retag(corner))
+        # zero the corner PV where it touches a dry cell (immersed
+        # free-slip: no vorticity from dry velocities)
+        q = mask_field(immersed, zeta / p_full.to(zeta))
+        fu = (u * p_full.to(u)).to(zeta)           # mass flux, NE
+        fv = (v * p_full.to(v)).to(zeta)
+        ekin = 0.5 * ((u * u).to(p) + (v * v).to(p))  # centre
+        du = rossby * ((fv * q).to(u) - ekin.diff(zonal).retag(u))
+        dv = rossby * (-(fu * q).to(v)
+                       - ekin.diff(meridional).retag(v))
+        # no momentum tendency into a closed face
+        return {
+            "u": mask_field(immersed, du),
+            "v": mask_field(immersed, dv),
+            "p": dp,
+        }
 
     def _advect_chart(
         self,

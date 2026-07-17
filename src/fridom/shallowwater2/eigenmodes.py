@@ -604,6 +604,29 @@ def _bounded_names(grid: Grid) -> tuple[str, ...]:
         for name in mesh.names)
 
 
+def _reject_immersed(model: Model) -> None:
+    """Raise the immersed-deferral taught error (IP-D8).
+
+    The eigenbasis of the masked cut-cell operator is not the
+    tensor-product basis the analytic / channel engines diagonalize,
+    so eigenmode analysis and the ``from_model`` transforms do not
+    serve immersed grids.
+
+    Raises
+    ------
+    NotImplementedError
+        If the model's grid carries an immersed domain.
+    """
+    if getattr(model.grid, "immersed", None) is not None:
+        raise NotImplementedError(
+            "shallow-water eigenmodes do not serve immersed (cut-cell) "
+            "grids: the eigenbasis of the masked cut-cell operator is "
+            "not the tensor-product basis the analytic / channel "
+            "engines diagonalize (immersed-partial-cells plan, IP-D8) "
+            "— the masked spectrum is designed-for. Use an unimmersed "
+            "grid for eigenmode analysis and from_model transforms.")
+
+
 def eigenbasis(
     model: Model, *, at_time: float = 0.0,
 ) -> ChannelEigenmodes:
@@ -647,6 +670,7 @@ def eigenbasis(
         If a module declares a linear-operator gap (see
         :func:`from_model`).
     """
+    _reject_immersed(model)
     fr.model.require_linear_operator(
         model, consumer="sw.eigenbasis")
     bounded = _bounded_names(model.grid)
@@ -711,6 +735,7 @@ def from_model(
         term, so ``L`` would describe a non-rotating system and its
         eigenmodes would be wrong, not merely inaccurate.
     """
+    _reject_immersed(model)
     fr.model.require_linear_operator(
         model, consumer="sw.eigenmodes.from_model")
     bounded = _bounded_names(model.grid)
