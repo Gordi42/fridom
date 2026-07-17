@@ -19,9 +19,9 @@ the grid-layer cell-average restriction the coupling pre-design
 already names (CS-15, §11.1 of
 [`../../specs/model/09_coupling_designfor.md`](../../specs/model/09_coupling_designfor.md))
 and a user-facing regridding utility (e.g. restart at a different
-resolution). **Phase B (the V-cycle) stays gated** on the roadmap
-trigger (steep bathymetry / genuine partials as a real workload) and
-opens with a cheap two-level spike (B0) as its own kill criterion.
+resolution). **Phase B (the V-cycle) shipped 2026-07-17** after the
+gate trigger fired on both workloads and its B0 two-level spike
+passed the kill criterion (§3).
 
 *Owner ratification 2026-07-17 (decision walkthrough in chat): MG-D1..D8
 confirmed as written — notably semicoarsening (MG-D4), analytic
@@ -279,23 +279,22 @@ parity with single-device results and zero gather-class collectives
 on the aligned order-1 restriction path; **GA-3** ruff clean,
 mirrored tests green, patch coverage ≥ 95%.
 
-## 3. Phase B — the multigrid preconditioner (gated)
+## 3. Phase B — the multigrid preconditioner (shipped)
 
 **Trigger** (unchanged from the roadmap lever): steep bathymetry
 (~45 iterations; profile relabel below) or genuine partial cells
-(~60+) as a real workload.
+(~60+) as a real workload. Both had fired.
 
-**Status (cross-machine handoff, 2026-07-17):** B0 ran — **GB-0
-PASS** — and B1+B2 are implemented, tested, and green on the branch
-`feat/multigrid-preconditioner` (pushed to origin; commits
-`09421e10`, `28c11a2f`, `568673ca`, `25d088e5`, plus the throwaway
-spike harness in `a17a9da8` — **`git rm` the two `spike_b0_*.py`
-files before the final merge**). B3–B5 are open; the continuation
-brief closes this section. Three corrections recorded below
+**Status: shipped 2026-07-17** (merge `87aeabea` onto dev). B0 ran
+2026-07-17 (GB-0 pass, numbers below); B1+B2 landed as
+`09421e10`/`28c11a2f`/`568673ca`/`25d088e5`, B3+B4 as
+`56774cb8`/`7bdaca8e`/`e0da2495`, the B5 evidence as `6ac5d4e6`, the
+default re-pin as `e047c496`; the throwaway spike harness was removed
+before the merge (`5705f002`). Three corrections recorded below
 (steep-profile relabel, off-diagonal sign, GB-1 recalibration) are
 evidence-backed agent findings endorsed by the orchestrating
-session, not yet owner-reviewed — flag them when reporting the
-landing.
+sessions, **not yet owner-reviewed**. Open follow-up: the GB-2
+wall-clock A100 leg ([`open.md`](../../roadmap/open.md)).
 
 ### B0 — two-level spike (the kill criterion)
 
@@ -425,6 +424,23 @@ transfers from A4, level count static with a floor on coarse cells
 (and the A5 gate). The builder output feeds `krylov()` as the
 `preconditioner=` callable when selected.
 
+*Landed (`7bdaca8e`, grid memo `56774cb8`): the shared builder lives
+in `nonhydro2/modules/multigrid_hierarchy.py` —
+`coarsen_levels(fine_grid, fine_space, *, vertical, max_levels,
+order=2)` returns the finest-first `(grid, space, transfer)` chain
+(`HORIZONTAL_FACTOR = 2`, `MIN_COARSE_CELLS = 4`); each solver's
+`_build_vcycle` assembles the `MultigridLevel`s and `krylov()`
+dispatches on the knob. Degradation verified: an axis coarsens iff
+even and ≥ 8 cells; a grid too small for any coarsening yields a
+1-level smoothing-only cycle (works, no error). Two implementation
+findings: `Grid.coarsened` now memoizes per (factors, device_ids)
+for retrace stability, with a `Grid.override_keys` accessor so the
+FV re-discretization is idempotent under the memo; and MG-D6
+re-discretization must also re-merge the FV `diff` dispatch profile
+on each coarse grid — `Grid.coarsened` deliberately drops model
+overrides, so a CellAvg coarse level would otherwise resolve the
+pressure gradient on the wrong face family (loud shape error).*
+
 ### B4 — settings surface
 
 `DynamicalCore.__init__` gains
@@ -434,6 +450,13 @@ transfers from A4, level count static with a floor on coarse cells
 build sites) and mirrored on the `nh.Model` factory. Static in the
 module fingerprint; flat grids ignore the knob (exact spectral
 solve, no iteration).
+
+*Landed (`e0da2495`): knobs exactly as specified, threaded at both
+PCG build sites and mirrored on `nh.Model`. Default
+`multigrid_levels` re-pinned to **5** after the measurement campaign
+(`e047c496`): depth 3 gives 18 iterations at 64³ on the steep case —
+over the GB-2 gate — while 5 is a graceful maximum (4-cell floor)
+and flat at 13.*
 
 ### B5 — gates
 
@@ -458,50 +481,42 @@ zero warm recompiles; HLO flat in both the CG iteration count and
 the level count. **GB-5** forced-4-device parity; no gather-class
 collectives above the replication threshold.
 
-### Continuation brief (cross-machine handoff, 2026-07-17)
+*Outcomes (all on the branch before the merge):*
 
-Everything above B3 is done on `feat/multigrid-preconditioner`
-(origin). Remaining work, in order:
-
-1. **B3 + B4 as specified above**, with these bindings from the
-   landed work: solver constructor knobs
-   `preconditioner: str = "spectral"` (`"spectral" | "multigrid"`,
-   ValueError otherwise) and `multigrid_levels: int = 3` on both
-   PCG solvers, dispatched in `krylov()`; `multigrid_levels` is a
-   MAXIMUM — the builder floors at 4 cells per horizontal axis and
-   stops at indivisibility, degrading gracefully on small grids;
-   line smoother ω = 0.8 on both solvers; per-level projections
-   mean-free (mapped) / the LEVEL's own wet-mean (immersed, from
-   re-derived coarse fractions, MG-D6); mapped `params` carrying
-   grid-bound field data (moving geometry) raises
-   NotImplementedError — iteration 1 is static maps only; the
-   hierarchy must be retrace-stable: check whether `Grid.coarsened`
-   memoizes per (factors, device_ids) and add the memo if not
-   (grid STRUCTURE caching is fine — the per-solve memo discipline
-   governs metric/fraction DATA, not grid assembly).
-2. **Measurement-driven defaults** before pinning: levels ∈ {2..5}
-   × coarse_sweeps ∈ {8, 16, 32} on the steep case (a = 0.8, 64³;
-   the spike harness on the branch is the rig); pick defaults
-   meeting GB-2's ≤ 15 with margin, preferring depth over sweeps
-   (per-level cost shrinks 4× per level; the spike's two-level
-   k = 8/16/32 → 31/23/17 shows sweeps cannot substitute for
-   depth). Verify resolution independence n ∈ {32, 64, 96}. GB-3:
-   the genuine-partials case from
-   `immersed_partial_cells_plan.md` within the 30-iteration
-   budget. On any gate miss: stop and record here — the fallback
-   levers are in §5; do not improvise a new scheme.
-3. **B5 evidence**: GB-4 compile-once/HLO-flat (compile_counter
-   idiom, `tests/spatial/operators/test_krylov.py`), GB-5 forced-4
-   parity shards (crib the GA-2 shards in `test_transfer.py`), and
-   one full-model autodiff regression with multigrid selected
-   (`_chunk_body` pattern, `tests/model/test_model_autodiff.py`;
-   ≤ 16² × 8, ≤ 10 steps, grad vs central FD at rtol 1e-4).
-4. **Landing**: `git rm` the two `spike_b0_*.py` files; ruff +
-   mirrored tests + forced-4 green; merge `--no-ff` onto `dev`;
-   move the roadmap lever entry from `open.md` to `done.md`;
-   replace this status/handoff scaffolding with a landed record
-   (keep the B0 numbers and the three corrections); delete the
-   branch and remove the worktree in the same session.
+- *GB-1: holds as recalibrated (flat isotropic 2-D V(1,1)
+  contraction < 0.5, grid-independent; cycle symmetry at roundoff).*
+- *GB-2 (iterations): **44 → 13**, flat over n = 32/64/96 at the
+  pinned defaults (levels = 5, engine coarse_sweeps = 8). Campaign
+  (64³, iterations to 1e-10, spectral baseline 44): depth 2/3/4/5 at
+  k = 8 → 31/18/12/13; k = 16 → 23/14/12/13; k = 32 → 17/12/12/13.
+  Depth dominates sweeps; the 4→5 uptick (12→13) is the 4-cell
+  coarsest being marginally too coarse (harmless); depth 4 / k = 8
+  sits exactly at 15 at n = 96 (zero margin) — hence 5. The
+  wall-clock leg (≥ 1.5× at 128³+) needs an A100: open follow-up.*
+- *GB-3: genuine partials (order = 4, min_fraction = 0.1): 15
+  iterations at 16³ / 18 at 32³ to 1e-10 — inside the 30 budget with
+  ≥ 12 margin; spectral needs ~80. The immersed count creeps with n
+  and does not improve with depth or sweeps — cut-cell boundary
+  eigenvalues set the floor, well inside budget. Immersed
+  comparisons are wet-region-only by necessity: dry cells are
+  unconstrained (zero operator rows) and the geometric transfers
+  bleed prolongated values into them.*
+- *GB-4: compile-once per level config; HLO identical across CG
+  iteration counts 4/8/20; HLO grows with level count by design
+  (trace-time unroll, MG-D8) — the level gate is compile-once, not
+  HLO equality.*
+- *GB-5: forced-4 parity < 1e-8 on an aligned 3-level shard and on a
+  12→6 shard whose coarse level replicates (6 does not divide 4
+  devices — the MG-D5 fallback exercised under decomposition). Real
+  multi-GPU joins the next campaign.*
+- *Differentiability: `jax.grad` through a 6-step immersed multigrid
+  run via `_chunk_body` is finite and FD-matched (~1.5e-8, gate
+  1e-4) — the smoothers' dry-cell double-`where` guards hold. The
+  mapped twin is blocked by a **pre-existing** reverse-NaN in
+  `velocity_correction` (the field/jacobian divide VJP; present with
+  the spectral preconditioner too; first noted at the CG-tolerance
+  landing) — localized this session, filed in
+  [`open.md`](../../roadmap/open.md).*
 
 ## 4. Test plan (mirrored)
 

@@ -227,7 +227,7 @@ def channel_width(x, t):
     return 1.0 - 0.2 * jnp.cos(x) * ramp
 
 
-def make_channel_model(*modules, n=N):
+def make_channel_model(*modules, n=N, pressure_tolerance=1e-8):
     """Boundary-fitted channel ``yp = y * Y_N(x, t)``."""
     mapping = CoordinateMapping(
         maps={"yp": lambda y, YN: y * YN},
@@ -241,6 +241,7 @@ def make_channel_model(*modules, n=N):
         grid=grid, dt=DT, dsqr=DSQR, family="nodal",
         coriolis=nh.FPlaneCoriolis(f0=1.0),
         pressure_iterations=ITERATIONS,
+        pressure_tolerance=pressure_tolerance,
         modules_extra=(
             MovingGeometry({"YN": channel_width}), *modules))
 
@@ -294,7 +295,9 @@ def test_morph_with_ale_is_stable_and_consistent():
     # measured relative drift 6.9e-3 over the full morph (n = 8),
     # asserted at 2e-2. Measured: worst per-step divergence
     # 1.9e-14, volume drift 1.4e-16.
-    model = make_channel_model(MeshVelocityCorrection())
+    # fixed-iteration mode: pinned for determinism
+    model = make_channel_model(MeshVelocityCorrection(),
+                               pressure_tolerance=None)
     fields, _ = channel_fields()
     model.set_fields(**fields)
     _, volume0, tracer0 = channel_diagnostics(model)

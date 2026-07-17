@@ -215,8 +215,10 @@ def test_projection_drives_mapped_divergence_to_tolerance():
     space = mx.center * ms.center
     # 16 iterations: the projection is converged there (measured
     # relative divergence 1.4e-15 at 16 and at 20)
+    # fixed-iteration mode: pinned for determinism
     solver = MappedPressureSolver(
-        grid, space, iterations=16, weights={"sigma": 1.0 / DSQR})
+        grid, space, iterations=16, weights={"sigma": 1.0 / DSQR},
+        tolerance=None)
     u = grid.random.normal(mx.right * ms.center, seed=4)
     w = grid.random.normal(
         mx.center * ms.nodal(NodeSet.INNER, bc=BC.DIRICHLET),
@@ -264,7 +266,9 @@ def test_boundary_fitted_channel_assembles_and_projects():
     # (in the mapped sense), the along-channel transport becomes
     # exactly constant (the flux form telescopes), and the flow
     # accelerates through the narrows as 1 / Y_N
-    model = make_channel_model(dt=DT, dsqr=0.5, advection=False)
+    # fixed-iteration mode: pinned for determinism
+    model = make_channel_model(dt=DT, dsqr=0.5, advection=False,
+                               pressure_tolerance=None)
     hor = (np.arange(N) + 0.5) * (TWO_PI / N)
     ver = (np.arange(N) + 0.5) / N
     _, _, z = np.meshgrid(hor, ver, ver, indexing="ij")

@@ -230,3 +230,35 @@ def test_face_aligned_box_matches_the_walled_fv_model(advection):
             lo:lo + s[0], lo:lo + s[1], lo:lo + s[2]]
         diff = np.abs(sub - np.asarray(wal.state[name].data)).max()
         assert diff < 1e-10, (name, diff)
+
+
+# ================================================================
+#  Multigrid pressure preconditioner (B3/B4) — production wiring
+# ================================================================
+def test_multigrid_preconditioner_model_runs_end_to_end():
+    # the pressure_preconditioner='multigrid' knob threads the factory
+    # -> DynamicalCore -> ImmersedPressureSolver and assembles the
+    # V-cycle on the FROZEN grid (the coarse-sibling hierarchy) — a full
+    # immersed model steps finite and non-panicked (a bounded-z box so
+    # the vertical-line smoother has a Neumann column)
+    n = 12
+    meshes = (
+        IntervalMesh(n, (0.0, TWO_PI), periodic=True, name="x"),
+        IntervalMesh(n, (0.0, TWO_PI), periodic=True, name="y"),
+        IntervalMesh(8, (0.0, 1.0), periodic=False, name="z"))
+    box = lambda x, y, z: (  # noqa: E731
+        (x > 1.0) & (x < 5.0) & (y > 1.0) & (y < 5.0)
+        & (z > 0.2) & (z < 0.8)).astype(float)
+    grid = Grid(meshes, immersed=ImmersedDomain(box))
+    model = nh.Model(
+        grid=grid, dt=0.01, advection=False,
+        coriolis=FPlaneCoriolis(f0=1.0), pressure_iterations=25,
+        pressure_preconditioner="multigrid", multigrid_levels=3)
+    rng = np.random.default_rng(0)
+    model.set_fields(**{
+        k: 0.2 * rng.standard_normal(model.state[k].data.shape)
+        for k in ("u", "v", "w", "b")})
+    model.advance(3)
+    assert not model.panicked
+    for name in ("u", "v", "w", "p"):
+        assert bool(jnp.isfinite(model.state[name].data).all())

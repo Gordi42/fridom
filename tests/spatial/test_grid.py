@@ -1481,3 +1481,31 @@ def test_coarsened_does_not_carry_dispatch_overrides(mx):
     assert coarse.dispatch is not grid.dispatch
     assert coarse.dispatch.resolve(
         "diff", coarse.factors[0].center) is not None
+
+
+def test_coarsened_memoizes_per_factors_and_devices(grid):
+    # structure caching (MG-D3/D5): identical arguments return the
+    # identical coarse Grid object, so a hierarchy rebuilt every solver
+    # trace re-uses one stable grid identity per level
+    a = grid.coarsened({"x": 2})
+    b = grid.coarsened({"x": 2})
+    assert a is b
+    # the uniform-int and per-name forms that normalize to the SAME
+    # factor map share the memo entry (x:2, y:1 both ways would differ,
+    # so use a form that truly matches: {"x": 2} vs {"x": 2, "y": 1})
+    assert grid.coarsened({"x": 2, "y": 1}) is a
+    # a different factor map is a different object
+    assert grid.coarsened(2) is not a
+    # an explicit device_ids key is distinct from the inherited one
+    assert grid.coarsened({"x": 2}, device_ids=(0,)) is not a
+
+
+def test_override_keys_records_merged_overrides(mx):
+    grid = Grid((mx,))
+    assert grid.override_keys == frozenset()
+    op = grid.dispatch.resolve("diff", mx.center)
+    grid.merge_overrides({("diff", mx.center): op})
+    assert ("diff", mx.center) in grid.override_keys
+    # a coarse sibling starts with an empty record (overrides do not
+    # carry, so a re-discretizing caller merges its own profile once)
+    assert grid.coarsened(2).override_keys == frozenset()

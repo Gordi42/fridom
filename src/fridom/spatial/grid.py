@@ -313,6 +313,15 @@ class Grid:
         # (operators/base.py), removing the per-application exchange
         # of freshly built measures.
         self._measures: dict[tuple[SpaceLike, str], ScalarField] = {}
+        # coarse sibling grids memoized per (normalized factors,
+        # device_ids): grid STRUCTURE caching (MG-D3/D5), so a
+        # multigrid hierarchy rebuilt on every solver trace re-uses the
+        # identical coarse ``Grid`` objects — their interned spaces and
+        # negotiated layouts keep the per-level operator caches hitting
+        # instead of missing on a fresh grid identity every solve.
+        self._coarsened_grids: dict[
+            tuple[tuple[tuple[str, int], ...],
+                  tuple[int, ...] | None], Grid] = {}
 
     # ================================================================
     #  Identity
@@ -422,6 +431,14 @@ class Grid:
         (semicoarsening, MG-D4); a factor > 1 on a multi-name or
         non-``StructuredMesh1D`` mesh raises.
 
+        The result is **memoized** per ``(normalized factors,
+        device_ids)``: repeated calls with the same arguments return the
+        identical coarse ``Grid`` object, so a multigrid hierarchy
+        rebuilt on every solver trace re-uses one stable grid identity
+        per level (structure caching, MG-D3/D5 — the per-solve metric /
+        fraction *data* is never cached, it re-derives on the coarse
+        spaces every solve).
+
         Parameters
         ----------
         factors : Mapping[str, int] | int
@@ -445,6 +462,10 @@ class Grid:
             mesh.
         """
         factor_map = self._normalize_factors(factors)
+        memo_key = (tuple(sorted(factor_map.items())), device_ids)
+        cached = self._coarsened_grids.get(memo_key)
+        if cached is not None:
+            return cached
         new_meshes: list[Mesh] = []
         for mesh in self._meshes:
             mesh_factors = {factor_map[name] for name in mesh.names}
@@ -463,7 +484,7 @@ class Grid:
                    else self._mapping._clone_unbound())  # noqa: SLF001
         immersed = (None if self._immersed is None
                     else self._immersed._clone_unbound())  # noqa: SLF001
-        return Grid(
+        coarse = Grid(
             tuple(new_meshes),
             mapping=mapping,
             immersed=immersed,
@@ -471,6 +492,8 @@ class Grid:
                         if device_ids is None else device_ids),
             family=self._default_family,
             _allow_replicated=True)
+        self._coarsened_grids[memo_key] = coarse
+        return coarse
 
     def _resolved_device_ids(self) -> tuple[int, ...]:
         """
@@ -544,6 +567,23 @@ class Grid:
     def dispatch(self) -> OperatorRegistry:
         """The operator dispatch registry (defaults + overrides)."""
         return self._dispatch
+
+    @property
+    def override_keys(self) -> frozenset[DispatchKey]:
+        """
+        The dispatch override keys merged onto this grid (bookkeeping).
+
+        Description
+        -----------
+        The (normalized) keys every :meth:`merge_overrides` call has
+        contributed so far — the grid's own record of which resolution
+        rows a model re-pointed. A coarse sibling built by
+        :meth:`coarsened` starts empty (model overrides do not carry
+        over); a re-discretizing caller (the multigrid hierarchy
+        builder) consults this to merge its profile onto a memoized
+        coarse grid **exactly once**.
+        """
+        return frozenset(self._override_keys)
 
     def merge_overrides(
         self,
