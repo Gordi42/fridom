@@ -138,3 +138,63 @@ def test_grad_wrt_stepper_dt_is_finite_and_matches_fd():
     h = 1e-4 * float(dt0)
     fd = (float(loss(dt0 + h)) - float(loss(dt0 - h))) / (2.0 * h)
     assert grad == pytest.approx(fd, rel=1e-4)
+
+
+# ================================================================
+#  Multigrid pressure preconditioner selected (B5 gate GB-4/T3)
+# ================================================================
+def multigrid_model(*, dt=0.01, levels=3):
+    """Return the same immersed model with the multigrid preconditioner.
+
+    Identical genuine-partial slope wall as :func:`immersed_model`, but
+    the fixed-iteration CG pressure solve runs the semicoarsened
+    geometric-multigrid V-cycle (``pressure_preconditioner="multigrid"``,
+    multigrid pathway plan §B5). The 8x8x6 grid semicoarsens the
+    horizontal x/y (8 -> 4, z kept), so the realized hierarchy is two
+    levels. The differentiation therefore crosses the vertical-line
+    smoother's batched Thomas solve **and** its dry-cell
+    double-``jnp.where`` guard on the line bands — the exact masked
+    singularity (``diag -> 1``, ``rhs -> 0`` on a dry column) the
+    differentiability policy targets for the B1/B2 smoother code.
+    """
+    grid = Grid(
+        (IM(8, (0.0, 6.0), periodic=False, name="x"),
+         IM(8, (0.0, TWO_PI), periodic=True, name="y"),
+         IM(6, (0.0, 1.0), periodic=False, name="z")),
+        immersed=ImmersedDomain(_slope, order=2, min_fraction=0.1))
+    model = nh.Model(
+        grid=grid, dt=dt, advection=True,
+        coriolis=nh.FPlaneCoriolis(f0=1.0), pressure_iterations=12,
+        pressure_preconditioner="multigrid", multigrid_levels=levels)
+    rng = np.random.default_rng(0)
+    model.set_fields(**{
+        k: 0.2 * rng.standard_normal(model.state[k].data.shape)
+        for k in ("u", "v", "w", "b")})
+    return model
+
+
+def test_grad_through_multigrid_solve_is_finite_and_matches_fd():
+    """Grad through the multigrid-preconditioned masked solve: finite, FD.
+
+    The B5 differentiability regression for ``preconditioner="multigrid"``
+    (T3): a NaN here would mean the line-smoother Thomas solve or its
+    dry-cell double-``jnp.where`` guard is not reverse-safe on the true
+    partial cells this model carries. The initial velocity field is the
+    differentiation variable because its data path flows through the
+    residual the smoother relaxes at every level.
+    """
+    model = multigrid_model()
+    u_leaf = model._carry.state["u"].storage
+    loss = leaf_loss(model, u_leaf, n_steps=6)
+
+    grad = np.asarray(jax.grad(loss)(u_leaf))
+    assert bool(np.all(np.isfinite(grad)))
+
+    rng = np.random.default_rng(1)
+    direction = jnp.asarray(rng.standard_normal(u_leaf.shape),
+                            dtype=u_leaf.dtype)
+    directional = float(jnp.vdot(jnp.asarray(grad), direction))
+    eps = 1e-4
+    fd = (float(loss(u_leaf + eps * direction))
+          - float(loss(u_leaf - eps * direction))) / (2.0 * eps)
+    assert directional == pytest.approx(fd, rel=1e-4)
