@@ -813,3 +813,84 @@ Also in the merge: `nh_mapped` benchmarks the FV default with an
 `nh_mapped_nodal` sibling (baselines re-record next GPU campaign),
 the stale `MeridionalStratification` "n2 stays a nodal Profile"
 docstring corrected to the profiles-follow-the-family ruling.
+
+### §13 addendum 2 — ALE on FV, the gap closed (2026-07-17)
+
+The dynamic-geometry carve-out above is **retired**: `MeshVelocityCorrection`
+is now family-aware, so moving geometry runs on FV wherever a static
+mapped grid does. Physics ratified in
+[`../../research/ale_on_fv.md`](../../research/ale_on_fv.md) (option C);
+owner rulings 2026-07-17: option C; the auto default **does** flip
+(dynamic geometry no longer disqualifies `_fv_capable`); `u`/`v` take
+the flux route on their `CellAvg` column factors; `w` keeps the
+advective form.
+
+**Form + routing (the F5 pattern, module-level only — zero
+spatial-layer changes).** Resolved per field at `bind` on its **column
+(base) factor**:
+
+- `CellAvg` column (`b`, and the transverse-averaged `u`/`v`) →
+  **flux form**, the Reynolds-transport control-volume identity
+  `corr = (1/J)[D(f_face·w) − f̄·D(w)]` with `D` the exact face→cell
+  `flux_diff`, `1/J = d<base>_d<mapped>` the reciprocal column
+  Jacobian (the physical-width weighting `flux_diff`'s static measure
+  division does not carry — done module-side with params-threaded
+  metrics, mirroring `_mapped_fv_divergence`). Both `flux_diff` calls
+  share the same face mesh velocity `w` (the constancy condition).
+- nodal / point-valued column (`w`, the wall-normal velocity) →
+  the **advective form** unchanged (`physical_diff` → interpolate-back
+  → `·w`); on FV it resolves through the average-family rows
+  (`physical_diff` on a face factor lands on `CellAvg`, `interpolate`
+  reconstructs back to the face) — verified, kept.
+
+**Moving-wall mesh flux (the one trap).** At a moving wall
+`w·n ≠ 0` (unlike an advective flux, zero there by impermeability), so
+the boundary cell needs the boundary-face mesh flux. The flux form
+reconstructs `f` onto **all** column faces including the walls — the
+one-sided `CellAvg → Outer` closure (`LinearReconstruction(
+target=OUTER, boundary="one_sided")`, interior-only extrapolation,
+design order 2) — and takes the **Outer** `flux_diff` (reads the true
+wall fluxes, not the `Inner` variant's zero pad). The wall
+extrapolation reproduces constants, so constancy holds in the
+boundary cells too. The `Outer` reconstruction demands the mapped
+column undistributed; it always is, because periodic axes shard first
+(the column is never the default-sharded axis) — verified under
+forced-4. No `extra_halo` growth: reconstruct + `flux_diff` = depth 2,
+the declared substitute.
+
+**Capability gate + plumbing.** `_fv_capable` no longer keys on
+`dynamic_geometry` — it is now unconditionally True (every iteration-2
+grid is FV-capable). The `dynamic_geometry` parameter and its
+`nh.Model`-factory computation are **removed** as dead. The auto rule
+is now simply: **FV wherever capable** (mapped + immersed composition
+stays the one `_require_fv_capable` taught error).
+
+**Gates measured (all pass; cpu x64).** Frozen-motion FV **bitwise**
+vs the static FV run, with and without ALE (`np.array_equal`).
+Constancy: uniform `b` under motion → correction ≤2.3e-16 (machine
+zero — the flux form's `c·D(w)` vs `D(c·w)` differ at rounding; the
+bitwise-exact case is frozen motion, `w ≡ 0`). Telescoping identity
+`Σ V·corr + Σ f̄·V̇ = boundary mesh flux` to rel 1.1e-16 at **both**
+n = 8 and n = 16 — the invariant is resolution-independent and
+machine-exact (the F5-advection analogue). Manufactured `H(t)`: 2nd
+order, measured 1.62e-3 (n = 32) → 4.42e-4 (n = 64), order 1.88 (FV
+reaches its asymptotic regime one refinement later than nodal — a
+larger error constant, the peak error INTERIOR at z ≈ 0.78 in the
+shrinking column, not a boundary artifact). Sloped-to-flat morph:
+stable, mapped divergence 1.7e-14, volume drift 1.4e-16 (exact),
+**tracer-content drift 1.35e-4** — a pure time residual (halves to
+6.9e-5 when `dt` halves), 50× below the nodal 6.9e-3 spatial-truncation
+drift. Autodiff: `jax.grad` through a short FV moving-geometry run
+matches central FD to rel 1e-11 (the flux route is linear — reconstruct
++ `flux_diff` + a `1/J` product, no sqrt/clip/field-division — hence
+exactly differentiable).
+
+**Discovered (out of scope, flagged):** the mapped-pressure PCG has a
+**pre-existing reverse-mode NaN** (a masked-singular VJP; present in
+the static mapped model with no ALE and no moving geometry — a
+full-model moving-geometry adjoint NaNs on it), so the ALE autodiff
+gate isolates the step path with a projection-free toy core. Same
+class as the hazards in
+[`../../research/jax_grad_run_investigation.md`](../../research/jax_grad_run_investigation.md)
+§"Remaining hazards" (`mapped_pressure.py:748`, `/ jacobian`); a
+roadmap follow-up, not part of this closure.

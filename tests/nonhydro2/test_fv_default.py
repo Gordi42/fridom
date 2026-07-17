@@ -175,10 +175,10 @@ def test_projection_drives_divergence_to_machine_zero_on_fv():
 # ================================================================
 def test_auto_flips_every_unimmersed_grid_to_fv():
     # owner ruling 2026-07-17: the auto default is FV on every grid it
-    # can carry — periodic, walled AND static mapped (terrain-
-    # following). Only an immersed grid (cut-cell FV out of scope) or a
-    # dynamically driven mapping (test_dynamic_mapping_auto_stays_nodal)
-    # stays nodal by default.
+    # can carry — periodic, walled, mapped terrain-following (static
+    # AND dynamically driven, since the ALE-on-FV closure —
+    # test_dynamic_mapping_auto_flips_to_fv_with_family_aware_ale). An
+    # immersed grid also auto-flips (test_immersed_grid_is_fv_capable).
     assert resolve_model_family(None, periodic_grid()) == "fv"
     assert resolve_model_family(None, walled_grid()) == "fv"
     assert resolve_model_family(None, mapped_grid()) == "fv"
@@ -268,14 +268,15 @@ def test_walled_fv_eigenmodes_build():
 
 
 def test_fv_capable_flags():
-    # the auto predicate is now True on any unimmersed grid — periodic,
-    # walled AND static mapped. Immersed stays non-capable, and a
-    # dynamically driven mapping (dynamic_geometry=True) is carved out
-    # to nodal (the ALE correction is nodal-only).
+    # since the ALE-on-FV closure (2026-07-17) the auto predicate is
+    # True on EVERY grid — periodic, walled, static mapped, immersed,
+    # AND a dynamically driven mapping (the ALE mesh-velocity
+    # correction is now family-aware, so moving geometry runs on FV
+    # wherever a static mapped one does). The one unserved composition
+    # (mapped + immersed) is a taught error in _require_fv_capable.
     assert _fv_capable(periodic_grid())
     assert _fv_capable(walled_grid())
     assert _fv_capable(mapped_grid())
-    assert not _fv_capable(mapped_grid(), dynamic_geometry=True)
 
 
 def test_immersed_grid_is_fv_capable_and_auto_flips():
@@ -293,41 +294,48 @@ def test_immersed_grid_is_fv_capable_and_auto_flips():
         resolve_model_family("nodal", grid)
 
 
-def test_dynamic_mapping_auto_stays_nodal_and_ale_fv_is_a_taught_gap():
-    # the dynamic-metrics carve-out (mapped FV default record / scoping
-    # study §13): a mapping driven in time (a MovingGeometry module)
-    # needs the ALE mesh-velocity correction for correct physics, and
-    # that correction is nodal-only (its column derivative lands on the
-    # nodal Center family and cannot retag onto CellAvg). So the auto
-    # default keeps a moving-geometry model on the NODAL path — the
-    # default path never hits the ALE FV gap — while a STATIC mapped
-    # model still flips to FV (test_auto_flips_every_unimmersed_grid).
-    assert resolve_model_family(
-        None, mapped_grid(), dynamic_geometry=True) == "nodal"
+def test_dynamic_mapping_auto_flips_to_fv_with_family_aware_ale():
+    # the ALE-on-FV closure (2026-07-17): a mapping driven in time (a
+    # MovingGeometry module) is now FV-capable — the ALE mesh-velocity
+    # correction is family-aware — so the auto default flips a
+    # moving-geometry model to FV, exactly like a static mapped one.
+    assert resolve_model_family(None, mapped_grid()) == "fv"
 
-    # the nh.Model factory detects the MovingGeometry in modules_extra
-    # and resolves the auto default to nodal: b stays a point-value
-    # scalar (no CellAvg factor), not the FV cell average
+    # the nh.Model factory auto-resolves a moving-geometry model to FV:
+    # b lands on CellAvg^3 (the cell average), the same family a static
+    # mapped model gets
     auto = nh.Model(
         coriolis=FPlaneCoriolis(f0=1.0), grid=mapped_grid(), dt=DT,
         advection=False,
         modules_extra=(MovingGeometry(
             {"h": lambda x, t: 1.0 + 0.2 * jnp.sin(x) + 0.0 * t}),))
-    assert not any(
+    assert all(
         isinstance(f, CellAvg)
         for f in auto.state["b"].function_space.bare.factors)
 
-    # an explicit family="fv" WITH the ALE module is a taught error at
-    # bind (naming the average-family gap), never a silent nodal
-    # fallback nor a runtime SpaceMismatchError
-    with pytest.raises(NotImplementedError, match="average"):
-        nh.Model(
-            coriolis=FPlaneCoriolis(f0=1.0), grid=mapped_grid(), dt=DT,
-            advection=False, family="fv",
-            modules_extra=(
-                MovingGeometry(
-                    {"h": lambda x, t: 1.0 + 0.0 * x + 0.0 * t}),
-                MeshVelocityCorrection()))
+
+def test_explicit_fv_with_ale_binds_and_runs():
+    # an explicit family="fv" WITH the ALE module binds (no taught
+    # error any more — the family-aware routing handles the CellAvg
+    # column factors) and advances a projected step end to end. The
+    # walled-z column staggers w onto n-1 faces, so seed w via an init
+    # callable evaluated on its own nodes.
+    model = nh.Model(
+        coriolis=FPlaneCoriolis(f0=1.0), grid=mapped_grid(), dt=DT,
+        advection=False, family="fv",
+        modules_extra=(
+            MovingGeometry(
+                {"h": lambda x, t: 1.0 + 0.2 * jnp.sin(x)
+                 + 0.05 * t}),
+            MeshVelocityCorrection()))
+    assert all(
+        isinstance(f, CellAvg)
+        for f in model.state["b"].function_space.bare.factors)
+    model.set_fields(
+        b=lambda x, y, z: 0.01 * jnp.cos(jnp.pi * z),  # noqa: ARG005
+        w=lambda x, y, z: 0.1 * jnp.sin(jnp.pi * z))  # noqa: ARG005
+    model.advance(2)
+    assert not model.panicked
 
 
 def test_dispatch_hook_colliding_with_static_dispatch_is_rejected():

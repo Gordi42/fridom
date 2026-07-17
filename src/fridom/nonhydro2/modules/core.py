@@ -64,7 +64,7 @@ if TYPE_CHECKING:  # pragma: no cover
 # ================================================================
 #  The FV C-grid family choice (FV-D3 / stage F3)
 # ================================================================
-def _fv_capable(grid: Grid, *, dynamic_geometry: bool = False) -> bool:
+def _fv_capable(grid: Grid) -> bool:  # noqa: ARG001
     """
     Whether ``grid`` carries the FV C-grid auto default (FV-D2 A).
 
@@ -85,53 +85,32 @@ def _fv_capable(grid: Grid, *, dynamic_geometry: bool = False) -> bool:
     nodal path ignores the mask, taught error at
     :func:`_require_nodal_capable`).
 
-    One carve-out keeps the auto default on the validated nodal path:
-    **dynamically driven** mappings (``dynamic_geometry=True``) — a
-    grid whose mapping parameters move in time (a
-    :class:`~fridom.model.modules.moving_geometry.MovingGeometry`
-    module, stage C4) needs the ALE mesh-velocity correction for
-    correct physics, and that correction is **nodal-only** — its
-    column derivative reduces onto the nodal ``Center`` family and
-    cannot retag onto ``CellAvg`` (the F5-style family-awareness gap
-    was never done for :class:`MeshVelocityCorrection`). So a moving
-    geometry auto-defaults to nodal, where ALE works, and the default
-    path never hits that gap. Time-dependence is a *model* property
-    (which modules are assembled), not a *grid* property — the grid
-    cannot self-report it — so the caller (the ``nh.Model`` factory)
-    supplies ``dynamic_geometry``; an explicit ``family="fv"`` with a
-    ``MeshVelocityCorrection`` is a taught error at the module's
-    ``bind`` (naming the gap), never a silent nodal fallback.
-
-    A grid declaring **both** a mapped column and an immersed domain
-    routes to FV as well, so the *specific* composition taught error
-    fires (:func:`_require_fv_capable`), never the generic nodal one.
+    Since the **ALE-on-FV closure** (2026-07-17) a dynamically driven
+    mapping is FV-capable too: the ALE mesh-velocity correction
+    (:class:`~fridom.model.modules.moving_geometry.MeshVelocityCorrection`)
+    is now family-aware — the conservative flux form on the ``CellAvg``
+    column factors, the advective form on the point-valued
+    wall-normal velocity — so a moving-geometry model runs on FV
+    wherever a static mapped one does. The old ``dynamic_geometry``
+    carve-out (which kept moving geometry nodal-auto) is gone. So the
+    predicate is now unconditionally True: every grid the model runs
+    on is FV-capable. The one unserved *composition* — a grid
+    declaring both a mapped column and an immersed domain — is a
+    taught error in :func:`_require_fv_capable`, reached after the auto
+    flip, not gated here.
 
     Parameters
     ----------
     grid : Grid
-        The assembled grid.
-    dynamic_geometry : bool, optional
-        Whether the model drives the grid's mapping parameters in time
-        (a ``MovingGeometry`` module is assembled). ``True`` keeps the
-        auto default nodal on a mapped grid, since the ALE correction
-        is nodal-only (default: False).
+        The assembled grid (unused: capability no longer depends on the
+        grid type; kept for the predicate's call surface).
 
     Returns
     -------
     bool
-        True iff the grid is immersed, or its mapping (if any) is
-        static — every grid the FV C-grid auto default is served on;
-        only a dynamically driven mapping stays nodal (ALE).
+        True — every grid the FV C-grid auto default is served on.
     """
-    # immersed physics is finite-volume (IP-D7): the nodal path
-    # ignores the mask, and mapped + immersed must reach the specific
-    # composition error in _require_fv_capable
-    if getattr(grid, "immersed", None) is not None:
-        return True
-    # a mapping driven in time: the ALE correction is nodal-only, so
-    # auto stays nodal (dynamic_geometry implies a mapped grid — a plain
-    # grid carries no mapping parameters to drive)
-    return not dynamic_geometry
+    return True
 
 
 def _require_fv_capable(grid: Grid) -> None:
@@ -286,9 +265,7 @@ def fv_cgrid_overrides(
     return overrides
 
 
-def resolve_model_family(
-    family: str | None, grid: Grid, *, dynamic_geometry: bool = False,
-) -> str:
+def resolve_model_family(family: str | None, grid: Grid) -> str:
     r"""
     Resolve a model-assembly family choice against the grid (F3).
 
@@ -298,28 +275,26 @@ def resolve_model_family(
     ``DynamicalCore(family=...)``, scoping study §8): ``None`` is the
     **auto** default — it follows the grid's own ``default_family``,
     and *promotes* the ``"nodal"`` grid default to ``"fv"`` whenever
-    the grid can carry the FV C-grid (:func:`_fv_capable`). This is
-    the flip: a plain periodic, walled, **static mapped** or
-    **immersed** nonhydro model is finite-volume by default — safe
-    because the 2nd-order stencils are bit-identical to nodal on
-    flat/walled grids (scoping study §1; the walled solve is
-    eager-bitwise, ≤1.2e-14 jitted, §11), the mapped FV pressure
-    operator is likewise bit-identical to nodal (the mapped column
-    rides a uniform *computational* mesh, §13), and on an immersed
-    grid FV is the only *correct* choice (immersed physics is
-    finite-volume, stage I2; the nodal path silently ignores the
-    mask) — the owner ruling of 2026-07-17 (FV wherever capable).
-    The auto default stays ``"nodal"`` only on a **dynamically
-    driven** mapping (``dynamic_geometry=True``: the ALE correction
-    is nodal-only, :func:`_fv_capable`). An **explicit** ``"fv"`` is
-    served on periodic, walled, mapped terrain-following *and*
-    immersed cut-cell grids (stages F4, F5, I2); only a grid that
-    declares **both** a mapped column and an immersed domain rejects
-    it (the mapped and masked PCGs are not yet composed, plan §6),
-    and an explicit ``"fv"`` with a moving-geometry ALE module is
-    rejected at that module's ``bind`` (dynamism is not visible on
-    the grid). An explicit ``"nodal"`` on an immersed grid is
-    likewise a taught error (the mask is FV-only, IP-D7).
+    the grid can carry the FV C-grid (:func:`_fv_capable`, now every
+    grid). This is the flip: a plain periodic, walled, **mapped**
+    (static *or* dynamically driven) or **immersed** nonhydro model is
+    finite-volume by default — safe because the 2nd-order stencils are
+    bit-identical to nodal on flat/walled grids (scoping study §1; the
+    walled solve is eager-bitwise, ≤1.2e-14 jitted, §11), the mapped FV
+    pressure operator is likewise bit-identical to nodal (the mapped
+    column rides a uniform *computational* mesh, §13), the ALE
+    mesh-velocity correction is family-aware (the ALE-on-FV closure,
+    2026-07-17: conservative flux form on the ``CellAvg`` column
+    factors), and on an immersed grid FV is the only *correct* choice
+    (immersed physics is finite-volume, stage I2; the nodal path
+    silently ignores the mask) — the owner ruling of 2026-07-17 (FV
+    wherever capable). An **explicit** ``"fv"`` is served on periodic,
+    walled, mapped terrain-following *and* immersed cut-cell grids
+    (stages F4, F5, I2); only a grid that declares **both** a mapped
+    column and an immersed domain rejects it (the mapped and masked
+    PCGs are not yet composed, plan §6). An explicit ``"nodal"`` on an
+    immersed grid is likewise a taught error (the mask is FV-only,
+    IP-D7).
 
     Parameters
     ----------
@@ -327,12 +302,6 @@ def resolve_model_family(
         The requested family, or None for the auto default.
     grid : Grid
         The assembled grid the model runs on.
-    dynamic_geometry : bool, optional
-        Whether the model drives the grid's mapping parameters in time
-        (a ``MovingGeometry`` module is assembled). Consulted only for
-        the auto default, where it keeps a moving mapping on the nodal
-        path (the ALE correction is nodal-only); an explicit family
-        ignores it (default: False).
 
     Returns
     -------
@@ -348,8 +317,7 @@ def resolve_model_family(
     """
     if family is None:
         family = getattr(grid, "default_family", "nodal")
-        if family == "nodal" and _fv_capable(
-                grid, dynamic_geometry=dynamic_geometry):
+        if family == "nodal" and _fv_capable(grid):
             family = "fv"
     if family not in FAMILIES:
         raise ValueError(
@@ -430,12 +398,12 @@ class DynamicalCore(fr.model.Module):
         average family; ``"nodal"`` is the point-value C-grid. ``None``
         defers to the grid-level default (``grid.default_family``), so
         an explicitly assembled core follows the grid. The
-        ``nh.Model`` factory resolves the flip (any periodic, walled,
-        static-mapped or immersed grid promotes ``None`` to ``"fv"``;
-        a moving-geometry mapping stays nodal); an explicit ``"fv"``
-        on a grid with both a mapped column and an immersed domain,
-        or an explicit ``"nodal"`` on an immersed grid, is a taught
-        error (default: None).
+        ``nh.Model`` factory resolves the flip (every grid promotes
+        ``None`` to ``"fv"`` — periodic, walled, mapped static or
+        dynamically driven, and immersed); an explicit ``"fv"`` on a
+        grid with both a mapped column and an immersed domain, or an
+        explicit ``"nodal"`` on an immersed grid, is a taught error
+        (default: None).
     """
 
     state_type = State

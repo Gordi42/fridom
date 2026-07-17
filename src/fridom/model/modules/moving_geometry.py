@@ -50,8 +50,10 @@ from fridom.model.module import Module
 from fridom.model.stages import Stage, StageKind
 from fridom.model.terms import TendencyTerm, Treatment
 from fridom.spatial.decomposition.halo import HaloSpec
+from fridom.spatial.operators.reconstruct import LinearReconstruction
 from fridom.spatial.space_patterns import Profile
 from fridom.spatial.spaces.average import AverageSpace
+from fridom.spatial.spaces.nodal import NodeSet
 
 if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Callable, Mapping
@@ -414,16 +416,65 @@ class MeshVelocityCorrection(Module):
     (2026-07-12) for experiments that accept the transient error;
     make it knowingly.
 
-    **Family (FV/nodal).** The correction is **nodal-only**: its column
-    derivative reduces onto the nodal ``Center`` family and cannot
-    retag onto the finite-volume ``CellAvg`` codomain (the F5
-    family-awareness gap was never closed for this module). Correcting
-    a field on the average family is a taught error at ``bind``. Moving
-    geometry is therefore a nodal-only feature for now, and the
-    nonhydro auto family default keeps a moving-geometry mapping on the
-    nodal path (mapped FV default record / scoping study §13); an
-    explicit ``family="fv"`` with this module is rejected, not silently
-    run.
+    **Family (FV/nodal).** The correction is **family-aware**, routed
+    per corrected field at ``bind`` on its column factor (ALE-on-FV,
+    scoping study §13 addendum, 2026-07-17):
+
+    - a **nodal / point-valued** column factor (the ``Center`` /
+      ``Right`` / Dirichlet-tagged ``Inner`` face of ``w`` — the
+      wall-normal velocity along the column) takes the **advective
+      form** above: ``physical_diff`` along the column, interpolated
+      back onto the field's own factor, times the mesh velocity. On FV
+      this resolves through the average-family rows
+      (``physical_diff`` on a face factor lands on ``CellAvg``, the
+      ``interpolate`` reconstruction returns it to the face) and lands
+      back on the field's own staggering.
+    - an **average** (``CellAvg``) column factor (``b``, and the
+      transverse-averaged momentum ``u`` / ``v``) takes the
+      **flux form** — the Reynolds-transport control-volume identity
+      whose FV counterpart telescopes on cell averages:
+
+      .. math::
+
+          \left.\frac{\mathrm{d}\bar f}{\mathrm{d}t}\right|_{\rm ALE}
+          = \frac{1}{V}\Bigl[(f w)_{\rm top} - (f w)_{\rm bot}
+                              - \bar f\,(w_{\rm top} - w_{\rm bot})\Bigr],
+
+      with :math:`V` the current physical cell width, :math:`w` the
+      face mesh velocity, and :math:`f` reconstructed onto the
+      control-volume faces. Both bracket terms share the **same** face
+      :math:`w` (the constancy condition): a uniform field has zero
+      correction to machine precision (the free-stream/GCL property),
+      and summed over the column the interior fluxes telescope, so the
+      semi-discrete tracer content ``integral(J f)`` changes only by
+      the boundary mesh flux — exact conservation, the F5-advection
+      analogue. Discretely the bracket is
+      ``(1/J)[D(f_face w) - f D(w)]`` with ``D`` the exact face->cell
+      ``flux_diff`` and ``1/J = d<base>_d<mapped>`` the reciprocal
+      column Jacobian, mirroring ``_mapped_fv_divergence`` (the
+      ``flux_diff`` measure division is static, so the physical-width
+      weighting is done module-side with params-threaded metrics).
+
+    **Moving-wall mesh flux (boundary).** At a moving wall (the top of
+    an ``H(t)`` column, the morphing ``Y_N(x, t)`` boundary) the wall
+    face itself moves, so :math:`w\!\cdot\!n \neq 0` and the boundary
+    cell needs the boundary-face mesh flux — unlike an advective flux,
+    which vanishes there by impermeability. The flux form therefore
+    reconstructs ``f`` onto **all** column faces including the walls
+    (the one-sided ``CellAvg -> Outer`` closure — interior-only
+    extrapolation, design order 2) and takes the ``Outer`` ``flux_diff``
+    (which reads the true wall fluxes, not the ``Inner`` variant's
+    zero pad). The wall extrapolation reproduces constants, so
+    constancy holds in the boundary cells too. This one-sided closure
+    demands the mapped column undistributed (guarded by the
+    reconstruction); a mapped column is never the default-sharded axis
+    (periodic axes shard first), so the guard is satisfied on every
+    supported layout.
+
+    A nodal-family (``family="nodal"``) model has no ``CellAvg`` column
+    factor, so every field takes the advective route — bitwise the
+    pre-ALE-on-FV behaviour. Since the closure, the nonhydro auto
+    family default is FV wherever capable, moving geometry included.
 
     Parameters
     ----------
@@ -447,6 +498,10 @@ class MeshVelocityCorrection(Module):
         self._base: str = ""
         self._driven: tuple[str, ...] = ()
         self._coords: tuple[str, ...] = ()
+        #: per-field routing resolved at bind (column factor CellAvg ->
+        #: flux form, nodal/point -> advective form)
+        self._flux_fields: tuple[str, ...] = ()
+        self._advective_fields: tuple[str, ...] = ()
 
     # ================================================================
     #  Properties
@@ -465,7 +520,7 @@ class MeshVelocityCorrection(Module):
     #  Bind-time validation (taught errors)
     # ================================================================
     def bind(self, table) -> None:  # noqa: ANN001
-        """Resolve the column, moving parameters, and field set.
+        """Resolve the column, moving parameters, field set, routing.
 
         Raises
         ------
@@ -476,9 +531,7 @@ class MeshVelocityCorrection(Module):
             field is not PROGNOSTIC.
         NotImplementedError
             If the mapping declares more than one mapped column
-            (stage C4 mirrors the stage-C3 solver support), or a
-            corrected field resolves onto the finite-volume (average)
-            family — the ALE correction is nodal-only.
+            (stage C4 mirrors the stage-C3 solver support).
         """
         grid = table.grid
         mapping = getattr(grid, "mapping", None)
@@ -525,32 +578,20 @@ class MeshVelocityCorrection(Module):
                         f"which is {table[name].lifecycle.name}: "
                         "only PROGNOSTIC fields are advanced from "
                         "tendencies")
-        # the ALE correction is nodal-only: the column derivative
-        # reduces onto the nodal Center family (its interpolate resolves
-        # the seeded Right -> Center row) and cannot retag onto an
-        # average (CellAvg) codomain — the F5 family-awareness gap was
-        # never done for this module. A corrected field on the average
-        # family is a taught error here, not a runtime SpaceMismatchError.
-        # Reached only under an explicit family="fv": the nonhydro auto
-        # default carves a moving-geometry mapping out to nodal (mapped
-        # FV default record / scoping study §13), so the default path
-        # never lands here.
-        average = tuple(
-            name for name in self._fields
-            if any(isinstance(factor, AverageSpace)
-                   for factor in table[name].space.bare.factors))
-        if average:
-            raise NotImplementedError(
-                "MeshVelocityCorrection (the ALE mesh-velocity "
-                "correction) is not implemented on the finite-volume "
-                f"(average) family: {list(average)} resolve onto "
-                "CellAvg, and the correction's column derivative lands "
-                "on the nodal Center family, which cannot retag onto a "
-                "cell average. Moving geometry is a nodal-only feature "
-                "for now; keep this model family='nodal' (the auto "
-                "default already does — a MovingGeometry mapping stays "
-                "nodal) or omit the ALE module (a static mapped grid "
-                "needs none).")
+        # family-aware routing (ALE-on-FV, scoping study §13 addendum):
+        # a field whose column (base) factor is an average (CellAvg)
+        # takes the conservative flux form; a nodal / point-valued
+        # column factor (the wall-normal velocity along the column, and
+        # every field on a family="nodal" model) takes the advective
+        # form. Both routes land back on the field's own space.
+        flux: list[str] = []
+        advective: list[str] = []
+        for name in self._fields:
+            factor = table[name].space.bare.factor(self._base)
+            (flux if isinstance(factor, AverageSpace)
+             else advective).append(name)
+        self._flux_fields = tuple(flux)
+        self._advective_fields = tuple(advective)
         self._coords = tuple(grid.names)
 
     # ================================================================
@@ -558,10 +599,12 @@ class MeshVelocityCorrection(Module):
     # ================================================================
     #: the metric coefficients multiply through ``grid.metric``
     #: derivations the halo tracer cannot follow (V-N2): declare the
-    #: stencil substitute (diff + interpolate hops: depth 2)
+    #: stencil substitute. Both routes are depth 2 along the column:
+    #: the advective route is diff + interpolate, the flux route is
+    #: reconstruct + flux_diff (each a two-point stencil).
     @property
     def extra_halo(self) -> HaloSpec:
-        """Two halo cells per coordinate (diff + interp chains)."""
+        """Two halo cells per coordinate (both routes are depth 2)."""
         return HaloSpec(dict.fromkeys(self._coords, 2))
 
     def tendency_terms(self) -> tuple[TendencyTerm, ...]:
@@ -574,26 +617,87 @@ class MeshVelocityCorrection(Module):
         )
 
     def _correct(self, state, ctx) -> dict:  # noqa: ANN001, ARG002
-        r"""``df/dt += m_dot * df/dm`` for every configured field.
+        r"""``df/dt += ALE correction`` for every configured field.
+
+        Dispatch per field on the routing resolved at ``bind``: the
+        advective form on a nodal / point-valued column factor
+        (:meth:`_advective_correction`), the conservative flux form on
+        an average (``CellAvg``) column factor
+        (:meth:`_flux_correction`). Metrics are derived from the
+        CURRENT parameter fields every call (``params=``, nothing
+        cached — grid rules 2.3/3.8).
+        """
+        grid = state[self._fields[0]].grid
+        registry = grid.dispatch
+        params = mapping_params(state, grid)
+        out: dict[str, object] = {}
+        for name in self._advective_fields:
+            out[name] = self._advective_correction(
+                state, name, grid, registry, params)
+        for name in self._flux_fields:
+            out[name] = self._flux_correction(
+                state, name, grid, registry, params)
+        return out
+
+    def _advective_correction(
+        self,
+        state,  # noqa: ANN001
+        name: str,
+        grid,  # noqa: ANN001
+        registry,  # noqa: ANN001
+        params: dict | None,
+    ) -> ScalarField:
+        r"""``m_dot * df/dm`` on a nodal / point-valued column factor.
 
         The column derivative is the registry-resolved
         ``physical_diff`` composite bound to the CURRENT parameter
         fields (``with_params``), interpolated back onto the field's
         own staggering; the mesh velocity contracts the mapping's
         parameter sensitivities with the ``<p>_dot`` state fields at
-        the same nodes.
+        the same nodes. On FV this resolves through the average-family
+        rows (``physical_diff`` on a face factor lands on ``CellAvg``,
+        the ``interpolate`` reconstruction returns it to the face).
         """
-        grid = state[self._fields[0]].grid
-        registry = grid.dispatch
-        params = mapping_params(state, grid)
-        out: dict[str, object] = {}
-        for name in self._fields:
-            f = state[name]
-            dfdm = self._column_derivative(f, registry, params)
-            mdot = self._mesh_velocity(
-                state, grid, dfdm.function_space, params)
-            out[name] = (mdot * dfdm).retag(f)
-        return out
+        f = state[name]
+        dfdm = self._column_derivative(f, registry, params)
+        mdot = self._mesh_velocity(
+            state, grid, dfdm.function_space, params)
+        return (mdot * dfdm).retag(f)
+
+    def _flux_correction(
+        self,
+        state,  # noqa: ANN001
+        name: str,
+        grid,  # noqa: ANN001
+        registry,  # noqa: ANN001
+        params: dict | None,
+    ) -> ScalarField:
+        r"""Conservative flux-form ALE correction on a ``CellAvg`` column.
+
+        ``corr = (1/J)[D(f_face w) - f D(w)]`` with ``D`` the exact
+        face->cell ``flux_diff`` and ``1/J = d<base>_d<mapped>`` the
+        reciprocal column Jacobian (the physical-width weighting the
+        static ``flux_diff`` measure division does not carry). ``f`` is
+        reconstructed onto **all** column faces including the walls
+        (the one-sided ``CellAvg -> Outer`` closure, so the moving-wall
+        mesh flux is read, not zero-padded), and both ``flux_diff``
+        calls share the same face mesh velocity ``w`` (the constancy
+        condition). Mirrors ``_mapped_fv_divergence``.
+        """
+        f = state[name]
+        base, mapped = self._base, self._mapped
+        reconstruct = LinearReconstruction(
+            target=NodeSet.OUTER, boundary="one_sided")
+        f_face = reconstruct[base](f)
+        face_space = f_face.function_space
+        w_face = self._mesh_velocity(state, grid, face_space, params)
+        flux_diff = registry.resolve(
+            "flux_diff", face_space.bare.factor(base))[base]
+        div_fw = flux_diff(f_face * w_face)
+        div_w = flux_diff(w_face)
+        inv_j = grid.metric(
+            div_fw.function_space, f"d{base}_d{mapped}", params=params)
+        return (inv_j * (div_fw - f * div_w)).retag(f)
 
     def _column_derivative(
         self,
