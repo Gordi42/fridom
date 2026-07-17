@@ -154,10 +154,10 @@ def test_grad_through_tolerance_mode_masked_cg_matches_fd():
     algorithm (``lax.scan`` + ``lax.cond``, no ``custom_vjp``), so the
     reverse gradient stays exact — the repo invariant. The tolerance
     (``1e-6``) fires here around iteration 14, inside the 20-step budget,
-    so the cond-skip branch is genuinely exercised in both AD modes. The
-    immersed solver carries this regression because the mapped CG
-    consumer is not reverse-differentiable in this geometry (a
-    pre-existing metric singularity, unrelated to the tolerance).
+    so the cond-skip branch is genuinely exercised in both AD modes.
+    The mapped CG consumer carries its own regression in
+    ``test_mapped_model_autodiff.py`` (its former metric-singularity
+    NaN is fixed — the guarded ``_divide_by_jacobian``).
     """
     model = immersed_model(pressure_iterations=20,
                            pressure_tolerance=1e-6)
