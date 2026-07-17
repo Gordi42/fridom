@@ -60,6 +60,39 @@ treatment on both Laplacian passes (Griffies & Hallberg). The walled
 support is the **nodal** family (Center cells, Inner velocity faces);
 a finite-volume ``CellAvg`` target on a walled axis is rejected at
 bind (FV walled closures are future work).
+
+**Mapped / terrain-following grids** (stretched ``MappedIntervalMesh``
+factors, or a ``Grid(..., mapping=CoordinateMapping(maps=...))`` chart)
+bind and run through the same per-axis chain: the operator is
+**along-coordinate** (the ROMS-default ``MIX_S_UV`` convention). Each
+``q.diff(axis)`` is the *computational* (along-coordinate) derivative,
+which divides by the codomain's own measure (the two-point node
+spacing, order 2), so:
+
+- On a **stretched** bounded column the measure *is* the physical cell
+  spacing, so the chain is the physical :math:`\partial_z(k\,\partial_z
+  q)` and is **metrically exact at order 2** (the same-row-Jacobian
+  argument, ``stretched_terrain_combined.md`` §5); the measure-weighted
+  telescoping keeps the no-flux tracer integral machine-zero.
+- On a **terrain-following** chart the operator acts on
+  *constant-coordinate* (constant-:math:`\sigma`) surfaces: the chart
+  factor :math:`H(x)` lives in ``grid.metric`` and **never enters**
+  ``diff``/``measure``, so the per-axis legs carry no cross terms and
+  no :math:`H(x)` coupling — "horizontal" mixing **tilts with the
+  terrain**. This is accepted practice for **viscosity** (ROMS
+  default), but a physics error for **tracer** mixing over steep
+  slopes (spurious diapycnal mixing); the geopotential/rotated
+  operator that fixes tracer orientation is future work (record §3.6
+  options A/C). The ``vertical=`` split is by **axis name**, so on a
+  terrain grid ``nu_v``/``kappa_v`` (with e.g. ``vertical="sigma"``)
+  acts along the **column coordinate**, not the physical vertical.
+
+Forward is exact as above; reverse-mode ``jax.grad`` is clean on
+terrain (uniform-mesh) grids, but through a genuinely stretched
+``MappedIntervalMesh`` axis it is currently limited by the mapped
+``diff`` boundary-face VJP (a pre-existing spatial-layer measure-divide
+singularity, not this family's), so treat a stretched-column gradient
+as unsupported until that spatial fix lands.
 """
 from __future__ import annotations
 
@@ -610,7 +643,10 @@ class HarmonicDiffusion(_DiffusionClosure):
         Vertical mixing coefficient, acting along ``vertical``;
         ``None`` applies ``kappa`` isotropically (default: None).
     vertical : str, optional
-        The vertical coordinate name (default: ``"z"``).
+        The vertical coordinate name (default: ``"z"``); on a mapped /
+        terrain grid this names the **column coordinate** the ``*_v``
+        coefficient acts along (e.g. ``"sigma"``), not the physical
+        vertical — the along-coordinate split (see the module docstring).
     fields : Role | type[Role] | str | Iterable[str] | None, optional
         Target override; see `ClosureBase` (default: None).
     exclude : str | Iterable[str], optional
@@ -662,7 +698,10 @@ class BiharmonicDiffusion(_DiffusionClosure):
         Vertical biharmonic coefficient along ``vertical``; ``None``
         applies ``kappa`` isotropically (default: None).
     vertical : str, optional
-        The vertical coordinate name (default: ``"z"``).
+        The vertical coordinate name (default: ``"z"``); on a mapped /
+        terrain grid this names the **column coordinate** the ``*_v``
+        coefficient acts along (e.g. ``"sigma"``), not the physical
+        vertical — the along-coordinate split (see the module docstring).
     fields : Role | type[Role] | str | Iterable[str] | None, optional
         Target override; see `ClosureBase` (default: None).
     exclude : str | Iterable[str], optional
@@ -727,7 +766,10 @@ class HarmonicFriction(_DiffusionClosure):
         Vertical viscosity along ``vertical``; ``None`` applies
         ``nu`` isotropically (default: None).
     vertical : str, optional
-        The vertical coordinate name (default: ``"z"``).
+        The vertical coordinate name (default: ``"z"``); on a mapped /
+        terrain grid this names the **column coordinate** the ``*_v``
+        coefficient acts along (e.g. ``"sigma"``), not the physical
+        vertical — the along-coordinate split (see the module docstring).
     slip : str | Mapping[str, str], optional
         Wall stress on tangential velocity factors: ``"free"`` (zero
         wall stress) or ``"no"`` (``u = 0`` at the wall). A scalar
@@ -787,7 +829,10 @@ class BiharmonicFriction(_DiffusionClosure):
         Vertical biharmonic viscosity along ``vertical``; ``None``
         applies ``nu`` isotropically (default: None).
     vertical : str, optional
-        The vertical coordinate name (default: ``"z"``).
+        The vertical coordinate name (default: ``"z"``); on a mapped /
+        terrain grid this names the **column coordinate** the ``*_v``
+        coefficient acts along (e.g. ``"sigma"``), not the physical
+        vertical — the along-coordinate split (see the module docstring).
     slip : str | Mapping[str, str], optional
         Wall stress on tangential velocity factors, applied on both
         passes; ``"free"`` (default) or ``"no"`` (see
