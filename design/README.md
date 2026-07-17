@@ -219,6 +219,7 @@ are the per-decision research behind `specs/model/` (see
 | [`boundary_design_explainer.md`](research/boundary_design_explainer.md) | frozen | Extrapolation-fill vs the boundaries R1 flip — the side-by-side that grounded the R1 decision (made 2026-07-11). |
 | [`xla_spmd_fft_fault.md`](research/xla_spmd_fft_fault.md) | frozen | XLA SPMD-FFT fault: a jitted FFT on a sharded axis RET_CHECKs; reproducer, condition matrix, the fridom-side mitigation. |
 | [`multigrid_pathway.md`](research/multigrid_pathway.md) | frozen | Multigrid pathway research (pinned `731089fc`): framework substrate, solver seam, decomposition constraints, the forced-4-device sharding probe, external prior art; input to the pathway plan. |
+| [`diffusion_walls_terrain_scoping.md`](research/diffusion_walls_terrain_scoping.md) | frozen | Diffusion/friction closures at walls (free-slip/no-slip) and on mapped terrain: machinery inventory, external practice, per-case design, staged sizing; flags the live `VerticalMixing` stretched/terrain silent-wrongness. |
 
 ## `archive/` — held / superseded
 
