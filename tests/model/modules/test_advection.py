@@ -445,3 +445,54 @@ def test_second_advance_compiles_nothing(compile_counter):
     compile_counter.reset()
     model.advance(4)
     assert compile_counter.count == 0
+
+
+# ================================================================
+#  The opt-in constancy-preserving surface closure (surface_flux)
+# ================================================================
+@pytest.mark.parametrize("cls", [CenteredAdvection, UpwindAdvection,
+                                 WENOAdvection])
+def test_surface_flux_defaults_off_and_is_stored(cls):
+    # the flag is an opt-in kw-only argument, stored on the module and
+    # off by default (so the default construction is unchanged).
+    assert cls()._surface_flux is False
+    on = cls(surface_flux=True)
+    assert on._surface_flux is True
+
+
+def test_surface_flux_off_matches_the_default_bitwise():
+    # surface_flux=False reproduces the default flux-form tendency byte
+    # for byte on a divergent velocity (the correction branch skipped).
+    n = 16
+    xc = centers(n)
+    fields = {"u": broadcast(1.0 + 0.5 * np.sin(xc), n),
+              "b": broadcast(np.sin(2 * xc), n)}
+    default = make_model(n, CenteredAdvection())
+    default.set_fields(**fields)
+    off = make_model(n, CenteredAdvection(surface_flux=False))
+    off.set_fields(**fields)
+    td = advection_tendency(default, CenteredAdvection)
+    to = advection_tendency(off, CenteredAdvection)
+    for name in ("u", "b"):
+        np.testing.assert_array_equal(
+            np.asarray(td[name].data), np.asarray(to[name].data))
+
+
+def test_surface_flux_cancels_the_divergence_of_a_constant():
+    # A(q = const) = -const * div(v) is the effective advective
+    # divergence; surface_flux subtracts const * A(1), so the constant's
+    # tendency collapses to machine zero even for a velocity that is not
+    # discretely divergence-free (here u = 1 + 0.5 sin x, du/dx != 0).
+    n = 16
+    xc = centers(n)
+    fields = {"u": broadcast(1.0 + 0.5 * np.sin(xc), n),
+              "b": broadcast(3.3 + 0.0 * xc, n)}
+    off = make_model(n, CenteredAdvection(surface_flux=False))
+    off.set_fields(**fields)
+    on = make_model(n, CenteredAdvection(surface_flux=True))
+    on.set_fields(**fields)
+    tb_off = np.asarray(
+        advection_tendency(off, CenteredAdvection)["b"].data)
+    tb_on = np.asarray(advection_tendency(on, CenteredAdvection)["b"].data)
+    assert np.max(np.abs(tb_off)) > 1e-2  # the flux form is not constant-safe
+    assert np.max(np.abs(tb_on)) <= 1e-13  # the correction makes it so

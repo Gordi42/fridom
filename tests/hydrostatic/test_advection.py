@@ -7,12 +7,15 @@ interior flux faces through the seeded ``Outer -> Inner`` restriction
 the vertical/horizontal transport, the zero-boundary-flux closure (mass
 to roundoff), and the semi-discrete energy behaviour.
 """
+import jax
+import jax.numpy as jnp
 import numpy as np
 import pytest
 
 import fridom as fr
 import fridom.hydrostatic as hy
 from fridom.model.energy import EnergyMetric
+from fridom.model.model import _chunk_body
 from fridom.model.modules.advection import (
     CenteredAdvection,
     UpwindAdvection,
@@ -246,3 +249,96 @@ def test_advection_tendency_is_energy_orthogonal():
     tau = model.tendency(state, filter=owned_by(CenteredAdvection))
     scale = float(metric.inner(state, state).real)
     assert abs(float(metric.inner(state, tau).real)) <= 1e-13 * scale
+
+
+# ================================================================
+#  The opt-in constancy-preserving surface closure (surface_flux)
+# ================================================================
+_DIVERGENT = {
+    "u": lambda x, y, z: 0.3 * np.sin(2 * np.pi * x) + 0.0 * (y + z),
+    "v": lambda x, y, z: 0.3 * np.sin(2 * np.pi * y) * (1 + 0.5 * z)
+    + 0.0 * x,
+}
+
+
+def test_surface_flux_makes_the_advection_constant_preserving():
+    # with surface_flux the flux is carried through the top face with
+    # the one-sided face value, so A(b = const) is machine-zero in EVERY
+    # cell (surface cell included) — the constancy violation the default
+    # closure localizes to the top cell is telescoped away. The velocity
+    # is horizontally divergent, so w(0) != 0 and the pump is genuinely
+    # present to be cancelled.
+    grid = make_grid(nx=16, nz=8)
+    const_b = {"b": lambda x, y, z: 2.5 + 0.0 * (x + y + z)}
+    on = make_model(grid, advection=CenteredAdvection(surface_flux=True))
+    _set(on, grid, **_DIVERGENT, **const_b)
+    tb = np.asarray(on.tendency(
+        on.state, filter=owned_by(CenteredAdvection))["b"].data)
+    assert np.max(np.abs(tb)) <= 1e-13  # every cell, surface included
+    # the default (surface_flux=False) still carries the surface source
+    off = make_model(grid, advection=CenteredAdvection(surface_flux=False))
+    _set(off, grid, **_DIVERGENT, **const_b)
+    tb_off = np.asarray(off.tendency(
+        off.state, filter=owned_by(CenteredAdvection))["b"].data)
+    assert np.max(np.abs(tb_off[..., :-1])) <= 1e-12  # interior quiet
+    assert np.max(np.abs(tb_off[..., -1])) > 1e-2  # surface loud
+
+
+def test_surface_flux_off_is_a_bitwise_no_op():
+    # surface_flux=False must reproduce the plain default advection to
+    # the byte: the correction branch is skipped entirely.
+    grid = make_grid(nx=16, nz=8)
+    inits = {
+        **_DIVERGENT,
+        "b": lambda x, y, z: np.cos(2 * np.pi * x) * np.sin(np.pi * z)
+        + 0.0 * y}
+    default = make_model(grid, advection=True)
+    _set(default, grid, **inits)
+    off = make_model(grid, advection=CenteredAdvection(surface_flux=False))
+    _set(off, grid, **inits)
+    td = default.tendency(
+        default.state, filter=owned_by(CenteredAdvection))
+    to = off.tendency(off.state, filter=owned_by(CenteredAdvection))
+    for name in ("u", "v", "b"):
+        np.testing.assert_array_equal(
+            np.asarray(td[name].data), np.asarray(to[name].data))
+
+
+def test_surface_flux_grad_through_a_short_run_matches_fd():
+    # differentiability policy (AGENTS.md): jax.grad of a quadratic loss
+    # through a short surface_flux run (via the pure _chunk_body kernel)
+    # w.r.t. an initial field is finite and matches a central FD. The
+    # data path crosses the ones-field construction (q*0 + 1) and the
+    # second flux loop of the -q*A(1) correction.
+    grid = make_grid(nx=8, nz=4)
+    model = hy.Model(
+        grid=grid, dt=2e-3, csqr=1.0,
+        stratification=hy.ConstantStratification(n2=1.0),
+        advection=CenteredAdvection(surface_flux=True))
+    rng = np.random.default_rng(3)
+    model.set_fields(**{
+        k: 0.1 * rng.standard_normal(model.state[k].data.shape)
+        for k in ("u", "v", "b")})
+    record = model._artifacts.record
+    carry, stepper = model._carry, model._stepper
+    b_leaf = carry.state["b"].storage
+    leaves, treedef = jax.tree_util.tree_flatten(carry)
+    (idx,) = [i for i, ref in enumerate(leaves) if ref is b_leaf]
+
+    def loss(x):
+        new = list(leaves)
+        new[idx] = x
+        spliced = jax.tree_util.tree_unflatten(treedef, new)
+        final = _chunk_body(record, 6, spliced, stepper)
+        return sum(jnp.sum(f.data ** 2) for f in final.state)
+
+    grad = np.asarray(jax.grad(loss)(b_leaf))
+    assert bool(np.all(np.isfinite(grad)))
+    rng = np.random.default_rng(7)
+    direction = jnp.asarray(rng.standard_normal(b_leaf.shape),
+                            dtype=b_leaf.dtype)
+    directional = float(jnp.vdot(jnp.asarray(grad), direction))
+    eps = 1e-4
+    fd = (float(loss(b_leaf + eps * direction))
+          - float(loss(b_leaf - eps * direction))) / (2.0 * eps)
+    assert directional == pytest.approx(fd, rel=1e-4)
