@@ -23,6 +23,12 @@ resolution). **Phase B (the V-cycle) stays gated** on the roadmap
 trigger (steep bathymetry / genuine partials as a real workload) and
 opens with a cheap two-level spike (B0) as its own kill criterion.
 
+*Owner ratification 2026-07-17 (decision walkthrough in chat): MG-D1..D8
+confirmed as written — notably semicoarsening (MG-D4), analytic
+re-derivation for coarse geometry (MG-D6), line-Jacobi V(1,1)
+(MG-D7) — and the sequencing is phase A first, then B0 on real
+`GridTransfer` machinery.*
+
 ## 1. Decisions
 
 - **MG-D1 — the transfer is a free-standing grid-pair operator**
@@ -387,6 +393,13 @@ collectives above the replication threshold.
   level-count/HLO stability.
 - `tests/nonhydro2/test_pressure*.py` (phase B) — knob wiring,
   mapped + immersed convergence gates at test scale.
+- **Differentiability policy (AGENTS.md)**: `GridTransfer` and the
+  V-cycle are step-path code once selected, so each phase ships its
+  one cheap `jax.grad` regression test (pure-kernel pattern, <=8^3,
+  <=10 steps). Transfers are linear (safe); the smoother divisions
+  (Jacobi diagonal, line bands) must guard dry/padded cells with the
+  double-`jnp.where` pattern; `custom_vjp` stays banned in the
+  cycle.
 
 ## 5. Risks
 
