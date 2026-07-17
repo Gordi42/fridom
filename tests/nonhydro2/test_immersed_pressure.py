@@ -19,6 +19,7 @@ from fridom.spatial.coordinate_mapping import CoordinateMapping
 from fridom.spatial.grid import Grid
 from fridom.spatial.immersed_domain import ImmersedDomain
 from fridom.spatial.meshes.interval import IntervalMesh
+from fridom.spatial.operators.multigrid import VerticalLineJacobi
 
 TWO_PI = 2.0 * np.pi
 
@@ -239,3 +240,121 @@ def test_solver_rejects_mapped_plus_immersed():
         ImmersedPressureSolver(
             grid, _cell_space(grid), vertical="z", dsqr=1.0,
             iterations=2)
+
+
+# ================================================================
+#  Smoothing surfaces (B1): diagonal() and vertical_bands()
+# ================================================================
+def _bounded_masked_solver(n=8, dsqr=0.5, iterations=2):
+    """Build sloped topography (bounded z) with partials + dry cells."""
+    meshes = (
+        IntervalMesh(n, (0.0, TWO_PI), periodic=True, name="x"),
+        IntervalMesh(n, (0.0, TWO_PI), periodic=True, name="y"),
+        IntervalMesh(n, (0.0, 1.0), periodic=False, name="z"))
+    slope = lambda x, y, z: jnp.clip(  # noqa: E731
+        ((0.6 + 0.15 * jnp.sin(y) + 0.1 * z) - x / TWO_PI) * 8 + 0.5,
+        0.0, 1.0)
+    grid = _fv_grid(meshes, ImmersedDomain(slope, order=4))
+    space = _cell_space(grid)
+    solver = ImmersedPressureSolver(
+        grid, space, vertical="z", dsqr=dsqr, iterations=iterations)
+    return grid, space, solver
+
+
+def _probe_diag_and_zbands(grid, space, solver, z_axis, period=4):
+    """Extract (diag, lower, upper) along ``z_axis`` by 4^3 p-coloring."""
+    shape = tuple(space.shape)
+    a_data = jax.jit(
+        lambda d: solver.apply(grid.create_field(space, data=d)).data)
+    p = period
+    ii, jj, kk = np.indices(shape)
+    stack = np.zeros((p, p, p, *shape))
+    for cx in range(p):
+        for cy in range(p):
+            for cz in range(p):
+                mask = ((ii % p == cx) & (jj % p == cy)
+                        & (kk % p == cz)).astype(np.float64)
+                stack[cx, cy, cz] = np.asarray(
+                    a_data(jnp.asarray(mask)))
+    ci, cj, ck = ii % p, jj % p, kk % p
+    assert z_axis == 2  # (x, y, z): the column axis is the third
+    diag = stack[ci, cj, ck, ii, jj, kk]
+    lower = stack[ci, cj, (kk - 1) % p, ii, jj, kk]
+    upper = stack[ci, cj, (kk + 1) % p, ii, jj, kk]
+    return diag, lower, upper
+
+
+def test_immersed_diagonal_is_probe_exact():
+    # no cross terms: diag = -sum_a (alpha_f- + alpha_f+)/h^2 exactly,
+    # matched to the 4^3-coloured probe on every cell (partials and the
+    # cells adjacent to the immersed boundary included)
+    grid, space, solver = _bounded_masked_solver()
+    diag_probe, _, _ = _probe_diag_and_zbands(grid, space, solver, 2)
+    diag = np.asarray(solver.diagonal().data)
+    scale = max(np.abs(diag_probe).max(), 1.0)
+    assert np.abs(diag_probe - diag).max() <= 1e-11 * scale
+
+
+def test_immersed_vertical_band_is_probe_exact_and_symmetric():
+    grid, space, solver = _bounded_masked_solver()
+    _, lo_p, up_p = _probe_diag_and_zbands(grid, space, solver, 2)
+    bands = solver.vertical_bands()
+    assert bands.axis == 2
+    lo = np.asarray(bands.lower.data)
+    up = np.asarray(bands.upper.data)
+    scale = max(np.abs(np.asarray(bands.diag.data)).max(), 1.0)
+    # the vertical leg IS the exact z-off-diagonal (no cross terms)
+    assert np.abs(up[:, :, :-1] - up_p[:, :, :-1]).max() <= 1e-11 * scale
+    assert np.abs(lo[:, :, 1:] - lo_p[:, :, 1:]).max() <= 1e-11 * scale
+    # symmetric per column, Neumann ends
+    assert np.abs(lo[:, :, 1:] - up[:, :, :-1]).max() < 1e-12
+    assert np.abs(lo[:, :, 0]).max() == 0.0
+    assert np.abs(up[:, :, -1]).max() == 0.0
+
+
+def test_immersed_dry_cells_have_zero_diagonal_and_bands():
+    _grid, _space, solver = _bounded_masked_solver()
+    dry = np.asarray(solver._cell_mask) == 0.0
+    assert dry.any()  # the topography really carves out dry cells
+    diag = np.asarray(solver.diagonal().data)
+    assert np.abs(diag[dry]).max() == 0.0
+    bands = solver.vertical_bands()
+    assert np.abs(np.asarray(bands.lower.data)[dry]).max() == 0.0
+    assert np.abs(np.asarray(bands.upper.data)[dry]).max() == 0.0
+
+
+def test_immersed_line_sweep_is_finite_and_zero_on_dry_cells():
+    # the smoother's double-jnp.where guard: a dry (zero-diagonal)
+    # column takes a finite zero update; wet columns move
+    grid, space, solver = _bounded_masked_solver()
+    smoother = VerticalLineJacobi(solver.vertical_bands(), omega=0.8)
+    b = grid.random.normal(space, seed=1)
+    out = smoother.sweep(grid.create_field(space), b, solver.apply)
+    data = np.asarray(out.data)
+    assert np.all(np.isfinite(data))
+    dry = np.asarray(solver._cell_mask) == 0.0
+    assert np.abs(data[dry]).max() == 0.0
+    assert np.abs(data[~dry]).max() > 0.0
+
+
+def test_immersed_line_sweep_grad_is_finite():
+    grid, space, solver = _bounded_masked_solver()
+    smoother = VerticalLineJacobi(solver.vertical_bands(), omega=0.8)
+    b = grid.random.normal(space, seed=2)
+
+    def loss(scale):
+        out = smoother.sweep(
+            grid.create_field(space), scale * b, solver.apply)
+        return jnp.sum(out.data ** 2)
+
+    grad = jax.grad(loss)(2.0)
+    assert bool(jnp.isfinite(grad))
+    assert float(grad) != 0.0
+
+
+def test_vertical_bands_reject_a_periodic_vertical():
+    # the box solver's z is periodic: line smoothing needs a bounded
+    # (non-cyclic) column, so vertical_bands refuses it loudly
+    _grid, _space, solver = _box_solver(n=8, iterations=2)
+    with pytest.raises(NotImplementedError, match="bounded"):
+        solver.vertical_bands()

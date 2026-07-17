@@ -20,6 +20,7 @@ from fridom.spatial.coordinate_mapping import CoordinateMapping
 from fridom.spatial.grid import Grid
 from fridom.spatial.meshes.interval import IntervalMesh
 from fridom.spatial.operators.krylov import ConjugateGradient
+from fridom.spatial.operators.multigrid import VerticalLineJacobi
 from fridom.spatial.spaces.nodal import NodeSet
 
 N = 16
@@ -571,3 +572,115 @@ def test_mapped_model_is_treedef_stable():
     model.advance(3)
     assert jax.tree_util.tree_structure(model._carry) == before
     assert not model.panicked
+
+
+# ================================================================
+#  Smoothing surfaces (B1): diagonal() and vertical_bands()
+# ================================================================
+def steep_depth(x):
+    """Return a steep periodic water depth (depth ratio 9.0)."""
+    return 1.0 + 0.8 * jnp.sin(x)
+
+
+def _probe_diag_and_zbands_2d(solver, grid, space, z_axis, period=4):
+    """Extract (diag, lower, upper) along ``z_axis`` by p-coloring.
+
+    Period 4 (not 3): the periodic x-count (8) is not divisible by 3, so
+    a 3-coloring aliases distance-1 wrap neighbours; period 4 keeps the
+    three consecutive residues of any +-1 stencil distinct on the torus.
+    """
+    shape = tuple(space.shape)
+    a_data = jax.jit(
+        lambda d: solver.apply(grid.create_field(space, data=d)).data)
+    p = period
+    ii, jj = np.indices(shape)
+    stack = np.zeros((p, p, *shape))
+    for cx in range(p):
+        for cy in range(p):
+            mask = ((ii % p == cx) & (jj % p == cy)).astype(np.float64)
+            stack[cx, cy] = np.asarray(a_data(jnp.asarray(mask)))
+    ci, cj = ii % p, jj % p
+    assert z_axis == 1  # (x, sigma): the column axis is the second
+    diag = stack[ci, cj, ii, jj]
+    lower = stack[ci, (jj - 1) % p, ii, jj]
+    upper = stack[ci, (jj + 1) % p, ii, jj]
+    return diag, lower, upper
+
+
+def test_diagonal_is_probe_exact_on_a_steep_case():
+    # the analytic diagonal (diagonal-flux legs + the corner cross rows)
+    # matches the probe-extracted diagonal to roundoff, every cell
+    # (boundary-adjacent columns included)
+    solver, grid, mx, ms = build_solver(n=8, init=steep_depth)
+    space = mx.center * ms.center
+    diag_probe, _, _ = _probe_diag_and_zbands_2d(solver, grid, space, 1)
+    diag = np.asarray(solver.diagonal().data)
+    scale = np.abs(diag_probe).max()
+    assert np.abs(diag_probe - diag).max() <= 1e-11 * scale
+
+
+def test_vertical_bands_diag_is_the_full_diagonal():
+    solver, *_ = build_solver(n=8, init=steep_depth)
+    bands = solver.vertical_bands()
+    assert np.array_equal(np.asarray(bands.diag.data),
+                          np.asarray(solver.diagonal().data))
+
+
+def test_vertical_bands_are_symmetric_with_neumann_ends():
+    solver, *_ = build_solver(n=8, init=steep_depth)
+    bands = solver.vertical_bands()
+    assert bands.axis == 1
+    lo = np.asarray(bands.lower.data)
+    up = np.asarray(bands.upper.data)
+    # symmetric per column: lower[c] == upper[c-1]
+    assert np.abs(lo[:, 1:] - up[:, :-1]).max() < 1e-12
+    # Neumann ends: no coupling through the walls
+    assert np.abs(lo[:, 0]).max() == 0.0
+    assert np.abs(up[:, -1]).max() == 0.0
+
+
+def test_vertical_band_offdiagonals_match_the_probed_z_coupling():
+    # the vertical-leg band +K^bb/dz^2 IS the exact z-off-diagonal of A:
+    # the slope cross residues couple off-column (x +- 1), never the
+    # pure vertical neighbour, so the tridiagonal misses nothing there
+    solver, grid, mx, ms = build_solver(n=8, init=steep_depth)
+    space = mx.center * ms.center
+    _, lo_p, up_p = _probe_diag_and_zbands_2d(solver, grid, space, 1)
+    bands = solver.vertical_bands()
+    lo = np.asarray(bands.lower.data)
+    up = np.asarray(bands.upper.data)
+    scale = np.abs(np.asarray(bands.diag.data)).max()
+    assert np.abs(up[:, :-1] - up_p[:, :-1]).max() <= 1e-11 * scale
+    assert np.abs(lo[:, 1:] - lo_p[:, 1:]).max() <= 1e-11 * scale
+
+
+def test_vertical_line_sweep_reduces_the_steep_residual():
+    solver, grid, mx, ms = build_solver(n=8, init=steep_depth)
+    space = mx.center * ms.center
+    smoother = VerticalLineJacobi(solver.vertical_bands(), omega=0.8)
+    b = grid.random.normal(space, seed=7)
+    b = b - b.mean()
+    x0 = grid.create_field(space)
+    x1 = smoother.sweep(x0, b, solver.apply)
+    r0 = b - solver.apply(x0)
+    r1 = b - solver.apply(x1)
+    assert dot(r1, r1) < dot(r0, r0)
+
+
+def test_grad_through_a_line_sweep_is_finite():
+    # the smoother is step-path once selected: jax.grad through one
+    # vertical-line sweep (guarded Thomas + the mapped operator) is
+    # finite and non-zero (differentiability policy)
+    solver, grid, mx, ms = build_solver(n=8, init=steep_depth)
+    space = mx.center * ms.center
+    smoother = VerticalLineJacobi(solver.vertical_bands(), omega=0.8)
+    b = grid.random.normal(space, seed=8)
+
+    def loss(scale):
+        x1 = smoother.sweep(
+            grid.create_field(space), scale * b, solver.apply)
+        return jnp.sum(x1.data ** 2)
+
+    grad = jax.grad(loss)(2.0)
+    assert bool(jnp.isfinite(grad))
+    assert float(grad) != 0.0

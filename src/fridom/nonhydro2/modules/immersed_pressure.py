@@ -89,15 +89,62 @@ from fridom.nonhydro2.modules.pressure import (
     _dirichlet_mid,
     build_flat_spectral_solve,
 )
+from fridom.spatial.fields.storage import factor_axes
 from fridom.spatial.operators.base import resolve_codomain
 from fridom.spatial.operators.krylov import ConjugateGradient
+from fridom.spatial.operators.multigrid import VerticalBands
+from fridom.spatial.operators.staggering import uniform_spacing
 
 if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Callable, Mapping
 
+    import jax
+
     from fridom.spatial.fields.scalar_field import ScalarField
     from fridom.spatial.operators.base import Operator
     from fridom.spatial.spaces.tensor_product import SpaceLike
+
+
+# ================================================================
+#  Diagonal / band assembly helper (measure-free; storage frame)
+# ================================================================
+def _adjacent_face_sum(
+    data: jax.Array, axis: int, *, periodic: bool,
+) -> jax.Array:
+    r"""
+    Sum the two face fractions adjacent to each cell along ``axis``.
+
+    Description
+    -----------
+    The ``alpha_{f-} + alpha_{f+}`` cell field of a flux leg: a
+    periodic axis wraps (``roll`` — the ``GridTransfer`` neighbor-access
+    pattern, GSPMD-lowered), a bounded axis drops the wall faces by
+    zero-padding the ``Inner`` face array to the cell count (the
+    Neumann boundary rows). ``face c`` lies at ``c + 1/2`` (the right
+    face of cell ``c``, the left face of cell ``c + 1``).
+
+    Parameters
+    ----------
+    data : jax.Array
+        The face-fraction array (storage frame).
+    axis : int
+        The storage-frame axis of the differenced coordinate.
+    periodic : bool
+        Whether the axis wraps.
+
+    Returns
+    -------
+    jax.Array
+        The adjacent-face sum on the cell axis (length ``n_cells``).
+    """
+    if periodic:
+        return data + jnp.roll(data, 1, axis=axis)
+    edge = list(data.shape)
+    edge[axis] = 1
+    zeros = jnp.zeros(edge, dtype=data.dtype)
+    right = jnp.concatenate([data, zeros], axis=axis)
+    left = jnp.concatenate([zeros, data], axis=axis)
+    return right + left
 
 
 class ImmersedPressureSolver:
@@ -347,6 +394,100 @@ class ImmersedPressureSolver:
         return {
             a: self._fmask[a] * self._grad_leg(p, a)
             for a in self._axes}
+
+    # ================================================================
+    #  Smoothing surfaces (multigrid, B1)
+    # ================================================================
+    def _axis_storage(self) -> dict[str, int]:
+        """Map each coordinate name to its storage-frame array axis."""
+        return {factor.names[0]: axis
+                for factor, axis in factor_axes(self._space)}
+
+    def diagonal(self) -> ScalarField:
+        r"""
+        Return the exact diagonal of ``apply`` on the pressure space.
+
+        Description
+        -----------
+        The masked cut-cell operator has no cross terms, so its
+        diagonal is exactly ``-sum_a (alpha_{f-} + alpha_{f+})/h_a^2``
+        (the vertical leg scaled ``1/dsqr``), derived from the open-area
+        face fractions ``_alpha`` (:func:`_adjacent_face_sum`, wall
+        drops on bounded axes). Dry cells fall out as an exact zero
+        diagonal (a face touching a dry cell has ``alpha = 0`` under the
+        min rule) — **not** special-cased here; the smoothers guard the
+        zero (module docstring, plan §B1).
+
+        Returns
+        -------
+        ScalarField
+            The diagonal field on the pressure space.
+        """
+        storage = self._axis_storage()
+        diagonal: jax.Array | None = None
+        for a in self._axes:
+            h = uniform_spacing(self._space.factor(a))
+            periodic = bool(getattr(
+                self._space.factor(a).mesh, "periodic", False))
+            weight = (1.0 / self._dsqr) if a == self._vertical else 1.0
+            leg = -weight * _adjacent_face_sum(
+                self._alpha[a].data, storage[a],
+                periodic=periodic) / (h * h)
+            diagonal = leg if diagonal is None else diagonal + leg
+        template = self._grid.create_field(self._space)
+        return template.with_data(
+            jnp.broadcast_to(diagonal, template.data.shape))
+
+    def vertical_bands(self) -> VerticalBands:
+        r"""
+        Return the per-column tridiagonal ``T`` for line relaxation.
+
+        Description
+        -----------
+        The symmetric tridiagonal of the vertical-line smoother: ``diag``
+        is the full operator diagonal (:meth:`diagonal`), and — with no
+        cross terms — the off-diagonals are the **exact** vertical flux
+        leg ``+alpha_{z-face}/(dsqr dz^2)`` with the Neumann ends zeroed
+        (``lower[c]`` couples cell ``c`` to ``c-1``, ``upper[c]`` to
+        ``c+1``; symmetric by ``lower[c] == upper[c-1]``). Dry columns
+        carry a zero diagonal and zero bands; the smoother substitutes
+        ``diag -> 1`` there.
+
+        Returns
+        -------
+        VerticalBands
+            The ``(lower, diag, upper, axis)`` bands on the pressure
+            space.
+
+        Raises
+        ------
+        NotImplementedError
+            If the vertical axis is periodic (line smoothing needs a
+            bounded, non-cyclic column).
+        """
+        vertical = self._vertical
+        mesh = self._space.factor(vertical).mesh
+        if getattr(mesh, "periodic", False):
+            raise NotImplementedError(
+                "vertical-line bands need a bounded (Neumann) vertical "
+                f"column; the {vertical!r} axis is periodic")
+        storage = self._axis_storage()
+        z_axis = storage[vertical]
+        dz = uniform_spacing(self._space.factor(vertical))
+        alpha_z = self._alpha[vertical].data
+        scale = 1.0 / (self._dsqr * dz * dz)
+        edge = list(alpha_z.shape)
+        edge[z_axis] = 1
+        zeros = jnp.zeros(edge, dtype=alpha_z.dtype)
+        lower_data = jnp.concatenate(
+            [zeros, alpha_z], axis=z_axis) * scale
+        upper_data = jnp.concatenate(
+            [alpha_z, zeros], axis=z_axis) * scale
+        diag = self.diagonal()
+        shape = diag.data.shape
+        lower = diag.with_data(jnp.broadcast_to(lower_data, shape))
+        upper = diag.with_data(jnp.broadcast_to(upper_data, shape))
+        return VerticalBands(lower, diag, upper, z_axis)
 
     # ================================================================
     #  The preconditioned, wet-mean-projected solve
