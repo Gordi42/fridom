@@ -496,8 +496,14 @@ collectives above the replication threshold.
   5.5–13.4× slower than spectral at 128–256³ (V-cycle ≈ 66× a
   spectral CG iteration at 128³; the sequential line-smoother Thomas
   solve at full n_z per semicoarsened level is latency-bound on
-  GPU). Spectral stays the GPU production default; a wall-clock win
-  would need the z-parallel smoother levers (§2). Evidence:
+  GPU). Spectral stays the GPU production default. The same-day
+  kernel study pinned ~91% of the cost to the scan-Thomas *lowering*
+  and refuted the z-parallel point-smoother levers (line smoothing is
+  load-bearing for the semicoarsening); the recovery lever is a
+  batched-tridiagonal kernel swap in `banded.py` — mapped reaches
+  ~parity, immersed wins outright
+  ([`../research/multigrid_kernel_study.md`](../research/multigrid_kernel_study.md)).
+  Evidence:
   [`../research/multigrid_gb2_wallclock.md`](../research/multigrid_gb2_wallclock.md).*
 - *GB-3: genuine partials (order = 4, min_fraction = 0.1): 15
   iterations at 16³ / 18 at 32³ to 1e-10 — inside the 30 budget with

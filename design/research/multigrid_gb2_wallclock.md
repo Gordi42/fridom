@@ -73,11 +73,16 @@ slowdown eases at larger n (more parallel horizontal columns hide the
 fixed vertical latency) but the absolute V-cycle cost still climbs
 (53 → ~75 → ~107 ms).
 
-If a GPU wall-clock win is ever wanted, the recorded upgrade levers
-apply: a z-parallel smoother (Chebyshev / stronger point smoothers,
-plan §2 levers) or restructuring away from the sequential vertical
-solve. The iteration-count result (robustness on steep/masked
-problems) stands on its own and is CPU-relevant as measured.
+Follow-up (same day): the idealized kernel study
+([`multigrid_kernel_study.md`](multigrid_kernel_study.md)) pinned ~91%
+of the V-cycle cost to the scan-Thomas *lowering* (not the algorithm)
+and **refuted** the z-parallel smoother lever hypothesized here
+(point/Chebyshev fails even the isotropic control — line smoothing is
+load-bearing for the semicoarsening). The recovery lever is a batched
+tridiagonal kernel swap in `banded.py`: mapped reaches ~parity with
+spectral, immersed wins outright. The iteration-count result
+(robustness on steep/masked problems) stands on its own and is
+CPU-relevant as measured.
 
 ## Measurement-fairness verification (why budget=100 is honest here)
 
