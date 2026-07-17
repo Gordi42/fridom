@@ -41,7 +41,7 @@ def Model(  # noqa: N802 — a factory that mirrors fr.model.Model's surface
     stratification: fr.model.Module | None = None,
     advection: fr.model.Module | bool = True,
     pressure_iterations: int = 30,
-    pressure_tolerance: float | None = None,
+    pressure_tolerance: float | None = 1e-8,
     modules_extra: Sequence[fr.model.Module] = (),
     time_stepper: TimeStepper | None = None,
     dt: float = 1.0,
@@ -88,11 +88,12 @@ def Model(  # noqa: N802 — a factory that mirrors fr.model.Model's surface
         (both run the fixed-iteration PCG). The flat spectral solve is
         exact and iterates nothing (default: 30).
     pressure_tolerance : float | None, optional
-        An optional PCG convergence break forwarded to the dynamical
+        The PCG convergence break forwarded to the dynamical
         core (the measure-weighted true relative residual; masked scan,
         exact gradient — see ``DynamicalCore`` and
-        :class:`ConjugateGradient`). ``pressure_iterations`` becomes the
-        maximum budget; ``None`` runs the fixed count (default: None).
+        :class:`ConjugateGradient`). The default ``1e-8`` makes
+        ``pressure_iterations`` the maximum budget; ``None`` is the
+        opt-out that runs the fixed count (default: 1e-8).
     modules_extra : Sequence[fr.model.Module], optional
         Additional modules (tracers, closures) (default: ()).
     time_stepper : TimeStepper | None, optional

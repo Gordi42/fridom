@@ -401,13 +401,13 @@ class DynamicalCore(fr.model.Module):
         — both run the fixed-iteration PCG. The flat spectral solve is
         exact and iterates nothing (default: 30).
     pressure_tolerance : float | None, optional
-        An optional PCG convergence break forwarded to the mapped and
+        The PCG convergence break forwarded to the mapped and
         immersed pressure solvers (the measure-weighted true relative
         residual; masked scan, exact gradient — see
-        :class:`ConjugateGradient`). ``pressure_iterations`` becomes the
-        maximum budget. ``None`` runs the fixed count; the tolerance
-        should sit above the residual floor (~1e-14) or it never fires
-        (default: None).
+        :class:`ConjugateGradient`). The default ``1e-8`` makes
+        ``pressure_iterations`` the maximum budget and sits well above
+        the residual floor (~1e-14); ``None`` is the opt-out that runs
+        the fixed count (default: 1e-8).
     family : str | None, optional
         The discretization family of the whole core state (FV-D3,
         stage F3): ``"fv"`` declares ``u, v, w, p`` on the
@@ -437,7 +437,7 @@ class DynamicalCore(fr.model.Module):
         coords: tuple[str, ...] = ("x", "y", "z"),
         single_precision_solve: bool = False,
         pressure_iterations: int = 30,
-        pressure_tolerance: float | None = None,
+        pressure_tolerance: float | None = 1e-8,
         family: str | None = None,
     ) -> None:
         """Store the core parameter leaves and the geometry names."""
