@@ -199,3 +199,89 @@ corruption aliases the crash site — it wanders run to run between
   `sort`-lowering exit-139 symptom to demonstrate the aliasing;
   `issue_draft.md` — drafted jax-ml/jax issue, **not filed**, awaiting
   owner go-ahead).
+
+## Item 1, GPU mechanism — re-attributed + mitigated (2026-07-17, T5)
+
+Reproduced on current dev (branch `fix/channel-eigen-gpu-lowering`, off
+dev `e0b96107`; jax/jaxlib 0.10.2) on real 4× A100, single-process
+GSPMD, with `--xla_disable_hlo_passes=multi_output_fusion` active:
+`test_channel_projection_is_device_count_invariant`'s `many`-device
+`proj(z)` dies in the HLO verifier with the recorded
+`Binary op multiply with different element types: c64[] and c128[]`
+(reached via `fourier.py:256` `Fourier._forward_fused_kernel`
+`jnp.fft.fftn`, the full-spectrum transform over the sharded x-axis).
+
+**The 2026-07-16 "c64 FFT-norm constant" attribution is REFUTED.** The
+offending `complex64` scalar is *not* jax `_fft_core`'s `1/prod(s)`
+normalization. Evidence:
+
+- A fridom-free repro reproduces the exact verifier error **with
+  `norm=None`** (no `_fft_norm`, no `1/prod(s)` anywhere) — so the c64
+  is not the norm constant. It also reproduces with `norm="forward"`;
+  moving the norm outside the FFT (my first mitigation attempt) does
+  **not** clear it.
+- The SPMD-partitioned HLO (`--xla_dump_to`,
+  `*.after_spmd_partitioner.txt`) shows the real source: XLA:GPU lowers
+  a **sharded-transform-axis** FFT through its distributed Cooley-Tukey
+  decomposition — a `while` loop `fft_collective_permute_body` doing
+  local `fft` chunks + `collective-permute` + `all-to-all`. Its
+  **twiddle-factor** constants are synthesized at `complex64` while the
+  data is `complex128`:
+  `%constant.1 = c64[] constant((0, -1.57079637))` (= −i·π/2),
+  `%multiply = c64[] multiply(%constant.1, %get-tuple-element.4)`
+  (c64 × c128), `%exponential = c64[] exponential(...)`, and
+  `%constant.4 = c64[] constant((0, -0.392699093))` (= −i·2π/16). These
+  are the distributed-FFT phase factors `exp(-2πik/N)`, emitted at c64.
+
+**Minimization (fridom-free, pure jax/XLA).** The fault is *contextual*:
+an isolated sharded FFT compiles fine (GSPMD all-gathers the axis → one
+local cuFFT); the fault needs a downstream consumer (an einsum/dot) that
+keeps the transform axis sharded, forcing the distributed decomposition.
+Discriminated: (i) shard the **transform axis** + einsum → **crashes**;
+(ii) shard a **non-transform axis** (transform axis local) + einsum →
+**OK**; (iii) FFT alone, sharded transform axis → **OK**. So the trigger
+is precisely *a sharded FFT axis whose result is contracted while still
+sharded*. Artifacts:
+`artifacts/channel_fftnorm_gpu/repro_distributed_fft_c64_twiddle.py`
+(the three trials above) and `issue_draft.md` (drafted jax-ml/jax issue,
+**not filed**, awaiting owner go-ahead).
+
+**Fridom-side mitigation shipped — taught skip.** Task 3a ("keep the FFT
+norm scaling outside the fused sharded kernel") is inapplicable: the c64
+is a distributed-FFT twiddle, not the norm, and the norm-outside variant
+still fails. Shipped the taught skip (3b) instead:
+`_eigenbasis._reject_sharded_projection` guards `_contract_planes` and
+raises a taught `NotImplementedError` when the grid's default layout
+shards a **periodic (Fourier) axis** (`Layout.is_local(name)` per axis),
+so the projection fails loudly with an actionable message
+(`device_ids=(0,)`) instead of dying in the verifier. Precise: fires
+only when a transform axis is genuinely sharded — never on single-device
+or `device_ids=(0,)` grids, and never on a many-device grid too small to
+shard (the collapsed case that the existing `n=8` channel tests exercise
+green on 4 GPU). Test:
+`tests/nonhydro2/test_transforms.py::test_channel_projection_rejects_a_sharded_periodic_axis`
+(GPU-scoped — skips on the CPU backend so the n=16 eigenbasis's
+batch-144 `eigh` does not hit the T5b heap-corruption crash; on 4 GPU
+the `many` branch asserts the taught error and the `device_ids=(0,)`
+branch asserts the projection still runs and is idempotent). The single-
+device GPU projection is unchanged (validated: 176 passed / 3 skipped
+across `test_eigenbasis` + `test_transforms` +
+nh/sw `test_channel_eigenmodes` on 1 GPU).
+
+**A real fix (deferred).** Making the projection *run* multi-device is
+possible and correct: forcing the transform axis device-local before the
+FFT (a `with_sharding_constraint` to replicate it, or a slab/pencil
+reshard so each axis is local when its FFT runs) gives one local cuFFT
+per shard and is **bit-for-bit identical** to the single-device result
+(verified in pure jax, max abs diff 0.0). The channel `_contract_planes`
+uses the plain `Transform.forward/backward` (naive GSPMD path); the
+proper fix routes it through the slab distributed-transform lowering the
+spectral solver already owns (`operators/distributed_solve.py`) — wider
+blast radius, left as follow-up (see `roadmap/open.md`).
+
+**Anomaly vs the frozen record.** Two corrections to the header of this
+document: (1) the GPU c64 is the distributed-FFT twiddle, not the
+FFT-norm constant (refuted with `norm=None`); (2) the failing transform
+is the `fftn` full-spectrum stage over the sharded x-axis
+(`fourier.py:256`), not `rfftn` — the earlier note cited the `rfftn`
+z-stage.

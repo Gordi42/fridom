@@ -699,3 +699,27 @@ Implementation record:
 - **The package split** (2026-07-11) — `framework2` became
   `fridom.spatial` + `fridom.model`. Record:
   [`../plans/done/spatial_model_split_plan.md`](../plans/done/spatial_model_split_plan.md).
+- **Channel eigenmode projection — taught multi-device skip**
+  (2026-07-17, T5) — the channel projection engine
+  ([`_eigenbasis.py`](../../src/fridom/model/_eigenbasis.py),
+  `_reject_sharded_projection` guarding `_contract_planes`) now raises a
+  taught `NotImplementedError` when the grid shards a **periodic
+  (Fourier) axis** across devices, instead of dying deep in the HLO
+  verifier. Root cause (re-attributed on real 4× A100, refuting the
+  earlier "c64 **FFT-norm** constant" reading): XLA:GPU/GSPMD lowers a
+  sharded-transform-axis FFT through its distributed Cooley-Tukey
+  decomposition (`fft_collective_permute_body`) whose **twiddle-factor**
+  constants are synthesized at `complex64` against the `complex128`
+  data — the fault reproduces with `norm=None`, so it is **not** the
+  jax FFT normalization and **not** covered by `multi_output_fusion`.
+  The gate keys off `default_layout.is_local(name)`, so it never fires
+  on a single-device grid or a `device_ids=(0,)` grid on a multi-device
+  host, and never on a grid too small to shard (the collapsed
+  many-device case). GPU-scoped mirrored test
+  (`test_channel_projection_rejects_a_sharded_periodic_axis`, skipped on
+  the CPU backend so the batch-144 eigenbasis eigh does not trip the T5b
+  heap-corruption crash). Minimal fridom-free repro + drafted (unfiled)
+  jax issue:
+  [`../research/artifacts/channel_fftnorm_gpu/`](../research/artifacts/channel_fftnorm_gpu/).
+  Record:
+  [`../research/multidevice_test_faults.md`](../research/multidevice_test_faults.md).
