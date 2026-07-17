@@ -443,6 +443,13 @@ energy gate is the semi-discrete skew, not a time-integrated dt-slope.
 test_restrict.py`, extended `test_grid.py` / `test_scalar_field.py`;
 advection regression `test_advection*.py` 200 passed (unchanged);
 `ruff` clean.
+
+**Amended by H7 (2026-07-17):** the surface-cell constancy exception
+recorded above turned out to destabilize the implicit free surface
+under advection (and to corrupt amplitudes even where it stays
+finite). The constancy-preserving surface closure is now the
+**default**; the fixed-domain dropped-`w(0)` closure survives as the
+explicit `surface_flux=False` opt-out. See H7.
 ### H3 — implicit free surface + taught IMEX assembly error (2026-07-17)
 
 **Coupling-ownership refactor (load-bearing).** Each free-surface
@@ -777,3 +784,87 @@ forced-device; `tests/hydrostatic` 163 passed; steppers/assembly/end-to-end 188
 passed; nonhydro smoke 8. `ruff` clean; coverage by construction (the local
 `--cov` SIGABRT is environmental — all new branches exercised: degenerate
 filter, every validation, both guard outcomes, all three forcing paths).
+
+### H7 — constancy-preserving surface advective flux, default on (2026-07-17)
+
+**Symptom (found by the out-of-tree Oceananigans comparison bench,
+2026-07-17).** `hy.comparison_model` (implicit + centered, HY-D6) goes
+non-finite at 512²×32 (~iter 700 at dt=1e-3) and every larger rung.
+Autopsy (bench `autopsy/*.json`): onset at fixed **physical** time
+0.65–0.8 for dt ∈ {1e-3, 5e-4, 2.5e-4} and unchanged under forward
+Euler / AB2 `eps=0.5` — a semi-discrete defect, not temporal; the
+grown mode is an **interior, large-scale (kx=ky=1–2)** w–b overturning
+descending from the upper interior; 256²×32 never panics but is
+**corrupted** — max|w| saturates 5–8 and b grows 0.01→0.8 while the
+quiet yardsticks (implicit with `advection=False`: u~0.49, w~0.05;
+the Oceananigans implicit twin: u~0.46, η~4.8e-3) stay small.
+
+**Root cause: the H2b constancy exception.** Dropping `w(0)` leaves
+`A(q=const) ∝ q·w(0)/dz` in the surface cell for every ADVECTED field
+(1/dz = 32 amplifies). Under the divergent comparison IC, `w(0)` is
+the large-scale ∂η/∂t of the barotropic adjustment (O(0.3–1) early),
+so the top layer is pumped (~2× hot top-cell u in the parity twin —
+exactly the recorded H5 parity anomaly), the stratification
+overturns, and the O(1)-amplitude inviscid centered state blows up at
+fine dx (the H2b note's "nonlinearly unstable" resolution property).
+Refuted along the way: AB2 over-extrapolation of the implicit term
+(the HY-D4 projection stays out of the ring, in fridom AND in
+Oceananigans — verified in both sources); any dt/stepper mechanism.
+The split-explicit variant escapes only because SM2005 averaging
+damps the (purely barotropic — the comparison IC is z-uniform)
+adjustment to u~5e-3 before the pump acts; Oceananigans is
+structurally immune (it advects **through** the top face with the
+continuity `w`, constancy-preserving in every cell).
+
+**Fix + ruling (owner-ratified in chat, 2026-07-17).** The
+constancy-preserving surface closure is the **default**:
+`A_new(q) = A_old(q) − q·A(1)`, with the lean `A(1)` = the flux
+divergence of the (immersed-weighted) interpolated face velocities
+themselves — exact because every reconstruction preserves constants,
+so `face(1) ≡ 1` — interleaved into the per-axis flux loop
+(`v_face`/`flux_space` reuse is XLA-CSE'd; the separate-pass form is
+bitwise-identical). Equivalent to advecting through the boundary
+faces with the one-sided face value: the Oceananigans linear-free-
+surface treatment. Surface: `surface_flux: bool | None = None` on the
+flux-form base (`CenteredAdvection`/`UpwindAdvection`/
+`WENOAdvection`), tri-state — None = **auto**, on iff an advecting
+velocity's own-axis factor sits on the both-boundary `Outer` node set
+(the exact `_outer_to_inner` seam predicate), resolved at bind. So
+hydrostatic advection is corrected for every scheme and construction
+path, while nonhydro2/shallowwater2 resolve off and stay **bitwise**
+unchanged (tested). `hy.Model` / `hy.comparison_model` forward
+`surface_advective_flux: bool | None = None`; `False` restores the
+H2b fixed-domain closure (tracer content conserved to roundoff — and
+with it the instability).
+
+**Consequences.** Tracer content is now exchanged with the moving
+surface (the accumulated `−∮ b_top·w(0) dA`): oscillating, rel
+~1e-5..1e-3 on the parity run, not secular. The H2b conservation /
+surface-localization tests are pinned to `surface_flux=False` as
+legacy characterization (5 tests). Energy-orthogonality is
+**unchanged** (⟨q, M A(q)⟩ = −1.7e-18 vs 6.2e-17 legacy): the
+corrected operator is the advective form with the divergence-free
+continuity velocity. Background-split terms are NOT covered by the
+correction (a background `w` with nonzero surface value would still
+be dropped; no such background exists today).
+
+**Validation (causal, single A100; bench `autopsy/fix/*.json`).**
+512²×32 implicit+centered: stable 3000 steps (was panic @700),
+settles u~0.47/w~0.03/ps~1, tracking the advection-free reference
+through the (physical) w≈0.71 adjustment transient. 256²×32: quiet
+through 8000 steps (was w~5–8, b~0.8). Parity twin (64²×8): top-cell
+u 0.264→0.1376 = Oceananigans to 0.001% (n2=0) / 0.06% (n2=1), flat
+profile. Discriminators on the UNFIXED code: divergence-free IC →
+quiet at 512² (the pump is `w(0)` of the divergent adjustment);
+split-explicit → quiet (filter, see above).
+
+**Cost + follow-up.** +1.37 ms/step at 512²×32 implicit+centered
+(2.98 → 4.35, +46%): one extra flux divergence per advected field per
+axis, memory-bound, irreducible by face-velocity reuse. If it ever
+matters: evaluate `A(1)` on the boundary-adjacent slice only (2D
+work) — open optimization, not scheduled.
+
+**Gates.** `tests/hydrostatic` + `tests/model/modules` 759 passed /
+4 skipped; `ruff` clean; autodiff regression (grad through
+`_chunk_body`, default-on) FD-matched. Merge `8bd91dfe` (branch
+`fix/hydro-surface-advective-flux`, 5 commits).
