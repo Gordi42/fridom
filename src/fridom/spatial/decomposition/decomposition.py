@@ -618,6 +618,7 @@ def negotiate(
     tendency: Callable[..., object] | None = None,
     halo: HaloSpec | None = None,
     device_ids: tuple[int, ...] | None = None,
+    allow_replicated: bool = False,
 ) -> Decomposition:
     """
     Choose a backend and layouts from mesh traits + operator demands.
@@ -668,6 +669,13 @@ def negotiate(
     device_ids : tuple[int, ...] | None, optional
         Indices into ``jax.devices()``; None uses all available
         devices (default: None).
+    allow_replicated : bool, optional
+        When an **explicit** device set has nothing GHOST-shardable,
+        keep the full device set with the replicated-only layout
+        (``Layout({})``) instead of raising — the below-the-floor
+        replicated coarse level of a multigrid hierarchy (MG-D5). The
+        auto-selection single-device fallback is untouched
+        (default: False).
 
     Returns
     -------
@@ -697,14 +705,16 @@ def negotiate(
         if shardable:
             layouts = (*(Layout({name: _DEVICE_AXIS})
                          for name in shardable), Layout({}))
-        elif explicit:
+        elif explicit and not allow_replicated:
             raise ValueError(
                 f"no factor of {names} is GHOST-shardable over "
                 f"{len(ids)} devices (a cell count is padded to "
                 "ceil(n_cells / P) per shard, and the last shard's "
                 "extent must cover min_local_size and halo + 1)")
-        else:
+        elif not explicit:
             ids = ids[:1]  # auto-selection falls back to one device
+        # else: explicit + allow_replicated keeps the full device set
+        # with the replicated-only ``Layout({})`` (MG-D5)
 
     from fridom.spatial.decomposition.tensor import (  # noqa: PLC0415 — tensor imports this module
         TensorDecomposition,
@@ -1006,3 +1016,69 @@ def _shard_rank(mesh: object, n_cells: int, devices: int) -> int:
     if n_cells % devices != 0:
         return 2
     return 0 if getattr(mesh, "periodic", None) is True else 1
+
+
+def check_level_shardability(
+    meshes: tuple[object, ...],
+    layout: Layout,
+    halo: HaloSpec,
+    device_count: int,
+    *,
+    level: str = "level",
+) -> None:
+    """
+    Re-check that every sharded axis of one hierarchy level is sound.
+
+    Description
+    -----------
+    The A5 gate (research F3's silent-corruption hazard): per sharded
+    axis of ``layout``, the shortest (last) shard must hold at least one
+    true cell **and** at least ``halo + 1`` of them — the same
+    constraint ``negotiate`` applies once at fine-grid selection, here
+    re-checked for **every** level of a multigrid hierarchy so an
+    undersized coarse level fails loudly instead of corrupting a halo
+    exchange. Per-level grids negotiate fresh and make the failure
+    structurally unreachable; this gate keeps it that way (and guards a
+    hand-built decomposition). A no-op when ``layout`` shards nothing
+    (the replicated coarse level, MG-D5) or on a single device.
+
+    Parameters
+    ----------
+    meshes : tuple[object, ...]
+        The level's mesh factors (their ``names``/``n_cells``).
+    layout : Layout
+        The level's default layout (the sharded axes to check).
+    halo : HaloSpec
+        The level's negotiated per-name ghost widths.
+    device_count : int
+        The device count of the 1-D realization.
+    level : str, optional
+        A label naming the level in the error (default: "level").
+
+    Raises
+    ------
+    ValueError
+        If a sharded axis's last shard cannot cover a full exchange
+        edge plus BC-fill depth (naming the level and axis).
+    """
+    if device_count <= 1:
+        return
+    sizes = {name: getattr(mesh, "n_cells", None)
+             for mesh in meshes for name in mesh.names}
+    for name, _axis in layout.device_axes:
+        n_cells = sizes.get(name)
+        if n_cells is None:
+            continue
+        cells = -(-n_cells // device_count)
+        last = n_cells - (device_count - 1) * cells
+        try:
+            width = halo[name]
+        except KeyError:
+            width = 0
+        if last < max(1, width + 1):
+            raise ValueError(
+                f"{level}: the sharded axis {name!r} is undersized "
+                f"over {device_count} devices — its last shard holds "
+                f"{last} cell(s), below the halo + 1 = {width + 1} an "
+                "exchange edge needs (research F3); coarsen less along "
+                f"{name!r} or replicate this level")

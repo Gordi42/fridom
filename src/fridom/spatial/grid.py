@@ -248,6 +248,7 @@ class Grid:
         immersed: ImmersedDomain | None = None,
         device_ids: tuple[int, ...] | None = None,
         family: str = "nodal",
+        _allow_replicated: bool = False,
     ) -> None:
         """Assemble a grid from pre-built, pre-named mesh factors."""
         meshes = tuple(meshes)
@@ -284,6 +285,11 @@ class Grid:
             _default_registry(self, meshes, mapping)
             if dispatch is None else dispatch)
         self._device_ids: tuple[int, ...] | None = device_ids
+        # replicated-fallback flag (MG-D5): only ``Grid.coarsened``
+        # sets it, so the public constructor's behavior is unchanged;
+        # threaded through both negotiation calls so a coarse level
+        # renegotiated in phase B stays replication-capable.
+        self._allow_replicated: bool = _allow_replicated
         self._frozen: bool = False
         # negotiation-fingerprint bookkeeping (grid lifecycle;
         # sealed by freeze())
@@ -297,7 +303,8 @@ class Grid:
         # the registry (grid lifecycle step 2; exact under the
         # iteration-1 sync-after-every-operator contract)
         self._decomposition: Decomposition = negotiate(
-            self, self._dispatch, device_ids=device_ids)
+            self, self._dispatch, device_ids=device_ids,
+            allow_replicated=_allow_replicated)
         self._random: RandomFieldFactory = RandomFieldFactory(self)
         # measure fields are static mesh geometry (no params seam),
         # so they are memoized per (laid-out space, factor name) —
@@ -387,6 +394,147 @@ class Grid:
                 "the assembly phase only (an earlier model fixed the "
                 f"family to {self._default_family!r})")
         self._default_family = family
+
+    # ================================================================
+    #  Hierarchy (coarse sibling grids)
+    # ================================================================
+    def coarsened(
+        self,
+        factors: Mapping[str, int] | int,
+        *,
+        device_ids: tuple[int, ...] | None = None,
+    ) -> Grid:
+        """
+        Assemble the coarse sibling grid (multigrid / regrid levels).
+
+        Description
+        -----------
+        Rebuilds a grid from per-coordinate coarsened meshes
+        (``Mesh.coarsened``, MG-D3) with the same attachments
+        (``CoordinateMapping`` / ``ImmersedDomain`` descriptors cloned
+        and re-bound; metrics and fractions re-derive on the coarse
+        spaces, MG-D6), the same default family, and a fresh default
+        registry. Model-level dispatch overrides (merged via
+        ``merge_overrides``) do **not** carry over. The result is
+        unfrozen with a provisional negotiation over the **same device
+        set**, replicating below the shardability floor (MG-D5) instead
+        of raising. A missing coordinate name defaults to factor 1
+        (semicoarsening, MG-D4); a factor > 1 on a multi-name or
+        non-``StructuredMesh1D`` mesh raises.
+
+        Parameters
+        ----------
+        factors : Mapping[str, int] | int
+            Per-coordinate-name integer divisors (missing names default
+            to 1), or one uniform divisor applied to every name.
+        device_ids : tuple[int, ...] | None, optional
+            Override the device set; None inherits this grid's
+            (default: None).
+
+        Returns
+        -------
+        Grid
+            The coarse sibling grid (unfrozen, provisionally
+            negotiated).
+
+        Raises
+        ------
+        ValueError
+            If a factor is not a positive integer, names an unknown
+            coordinate, or exceeds 1 on a multi-name / non-structured
+            mesh.
+        """
+        factor_map = self._normalize_factors(factors)
+        new_meshes: list[Mesh] = []
+        for mesh in self._meshes:
+            mesh_factors = {factor_map[name] for name in mesh.names}
+            if mesh_factors == {1}:
+                new_meshes.append(mesh)  # pass-through (MG-D4)
+                continue
+            if (len(mesh.names) != 1
+                    or not isinstance(mesh, StructuredMesh1D)):
+                raise ValueError(
+                    f"cannot coarsen {mesh!r} by "
+                    f"{sorted(mesh_factors)}: only single-name "
+                    "StructuredMesh1D factors coarsen (a multi-name or "
+                    "non-structured mesh must keep factor 1)")
+            new_meshes.append(mesh.coarsened(factor_map[mesh.names[0]]))
+        mapping = (None if self._mapping is None
+                   else self._mapping._clone_unbound())  # noqa: SLF001
+        immersed = (None if self._immersed is None
+                    else self._immersed._clone_unbound())  # noqa: SLF001
+        return Grid(
+            tuple(new_meshes),
+            mapping=mapping,
+            immersed=immersed,
+            device_ids=(self._resolved_device_ids()
+                        if device_ids is None else device_ids),
+            family=self._default_family,
+            _allow_replicated=True)
+
+    def _resolved_device_ids(self) -> tuple[int, ...]:
+        """
+        Return the ``jax.devices()`` indices this grid actually holds.
+
+        Description
+        -----------
+        Pins the coarse sibling to the fine grid's realized device set
+        (MG-D5): an auto-selected (``device_ids=None``) fine grid that
+        sharded over every device would otherwise let the coarse level
+        *auto-fall-back to one device* — two levels on different device
+        meshes, which the transfer refuses. Resolving the fine mesh's
+        devices to explicit indices makes the coarse level land on the
+        same set and replicate there when it can no longer shard.
+        """
+        index_of = {dev: i for i, dev in enumerate(jax.devices())}
+        devices = self._decomposition.device_mesh.devices.flatten()
+        return tuple(index_of[dev] for dev in devices)
+
+    def _normalize_factors(
+        self, factors: Mapping[str, int] | int,
+    ) -> dict[str, int]:
+        """
+        Normalize the ``coarsened`` factor argument to a per-name dict.
+
+        Description
+        -----------
+        One uniform integer applies to every coordinate; a mapping fills
+        missing names with 1 (semicoarsening). Every value must be a
+        positive integer (booleans rejected), and every mapping key must
+        be a grid coordinate name.
+
+        Parameters
+        ----------
+        factors : Mapping[str, int] | int
+            The user divisor argument.
+
+        Returns
+        -------
+        dict[str, int]
+            The per-name integer divisors (every grid name present).
+        """
+        if isinstance(factors, Mapping):
+            unknown = tuple(name for name in factors
+                            if name not in self._names)
+            if unknown:
+                raise ValueError(
+                    f"unknown coordinate names {unknown} in factors=; "
+                    f"grid coordinates are {self._names}")
+            resolved = {name: factors.get(name, 1)
+                        for name in self._names}
+        elif isinstance(factors, int) and not isinstance(factors, bool):
+            resolved = dict.fromkeys(self._names, factors)
+        else:
+            raise TypeError(
+                "factors must be a per-name mapping or one uniform "
+                f"integer divisor, got {factors!r}")
+        for name, value in resolved.items():
+            if (isinstance(value, bool) or not isinstance(value, int)
+                    or value < 1):
+                raise ValueError(
+                    f"coarsening factor for {name!r} must be a positive "
+                    f"integer, got {value!r}")
+        return resolved
 
     # ================================================================
     #  Operator dispatch (seam: registry class owned by the
@@ -511,7 +659,8 @@ class Grid:
         self._decomposition = negotiate(
             self, self._dispatch,
             state_spaces=state_spaces, tendency=tendency, halo=halo,
-            device_ids=self._device_ids)
+            device_ids=self._device_ids,
+            allow_replicated=self._allow_replicated)
         self._state_spaces = (
             frozenset() if state_spaces is None
             else frozenset(s.bare for s in state_spaces))

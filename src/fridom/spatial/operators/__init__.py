@@ -41,6 +41,7 @@ if TYPE_CHECKING:  # pragma: no cover
         spectral,
         spectral_solve,
         symbol,
+        transfer,
         transform,
         trig,
         verbs,
@@ -109,6 +110,7 @@ if TYPE_CHECKING:  # pragma: no cover
     from .spectral import PhaseShift, SpectralDerivative
     from .spectral_solve import SpectralSolve
     from .symbol import Symbol
+    from .transfer import GridTransfer
     from .trig import Cosine, Sine
     from .verbs import (
         cumint,
@@ -143,6 +145,7 @@ all_modules_by_origin = {
         "flux_diff",
         "cumulative",
         "spectral",
+        "transfer",
         "transform",
         "mixed",
         "mapped",
@@ -217,6 +220,7 @@ all_imports_by_origin = {
     f"{base}.trig": ["Sine", "Cosine"],
     f"{base}.chebyshev": ["Chebyshev"],
     f"{base}.spectral": ["SpectralDerivative", "PhaseShift"],
+    f"{base}.transfer": ["GridTransfer"],
     f"{base}.composed": [
         "Gradient",
         "Divergence",

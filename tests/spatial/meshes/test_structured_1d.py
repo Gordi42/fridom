@@ -3,6 +3,7 @@ import pytest
 
 from fridom.spatial.bc import BC, BCStructure
 from fridom.spatial.decomposition.traits import HaloStrategy
+from fridom.spatial.meshes.chebyshev import ChebyshevMesh
 from fridom.spatial.meshes.interval import IntervalMesh
 from fridom.spatial.scalars import Scalars
 from fridom.spatial.spaces.average import (
@@ -304,3 +305,60 @@ def test_repr(periodic, bounded):
         "IntervalMesh(x: n=8, extent=(0, 1), periodic)")
     assert repr(bounded) == (
         "IntervalMesh(x: n=8, extent=(0, 1), bounded)")
+
+
+# ================================================================
+#  Coarsening (multigrid / regrid sibling meshes, A1)
+# ================================================================
+def test_coarsened_halves_cell_count_without_adoption(periodic):
+    coarse = periodic.coarsened(2)
+    assert coarse.n_cells == N // 2
+    assert coarse.extent == periodic.extent
+    assert coarse.periodic == periodic.periodic
+    assert coarse.names == periodic.names
+    # MG-D3: no adoption link back to the fine mesh
+    assert coarse.refined_from is None
+
+
+def test_coarsened_is_memoized_identity_stable(periodic):
+    coarse = periodic.coarsened(2)
+    assert periodic.coarsened(2) is coarse
+    # interned spaces stay identity-comparable across calls
+    assert periodic.coarsened(2).center is coarse.center
+
+
+def test_coarsened_factor_one_is_the_pass_through_self(periodic):
+    # semicoarsening keeps an axis at full resolution (MG-D4)
+    assert periodic.coarsened(1) is periodic
+
+
+def test_coarsened_bounded_mesh(bounded):
+    coarse = bounded.coarsened(2)
+    assert coarse.n_cells == N // 2
+    assert coarse.periodic is False
+    assert coarse.refined_from is None
+
+
+def test_coarsened_rejects_indivisible_factor(periodic):
+    with pytest.raises(ValueError, match="divisible"):
+        periodic.coarsened(3)
+
+
+@pytest.mark.parametrize("bad", [0, -2])
+def test_coarsened_rejects_non_positive_factor(periodic, bad):
+    with pytest.raises(ValueError, match=">= 1"):
+        periodic.coarsened(bad)
+
+
+@pytest.mark.parametrize("bad", [True, 2.0, "2"])
+def test_coarsened_rejects_non_integer_factor(periodic, bad):
+    with pytest.raises(TypeError, match="positive integers"):
+        periodic.coarsened(bad)
+
+
+def test_coarsened_chebyshev_refuses_real_coarsening():
+    mesh = ChebyshevMesh(8, (0.0, 1.0), name="z")
+    with pytest.raises(NotImplementedError, match="ChebyshevMesh"):
+        mesh.coarsened(2)
+    # but the semicoarsening pass-through never asks it to coarsen
+    assert mesh.coarsened(1) is mesh

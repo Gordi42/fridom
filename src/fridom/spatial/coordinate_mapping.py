@@ -53,6 +53,7 @@ sweeping parameter values through jit compiles once.
 # Coordinate-systems plan, stage C1: CoordinateMapping + grid.metric
 from __future__ import annotations
 
+import copy
 import inspect
 from typing import TYPE_CHECKING
 
@@ -821,6 +822,23 @@ class CoordinateMapping:
                 "this CoordinateMapping is not attached to a grid; "
                 "pass it as Grid(..., mapping=...)")
         return self._grid
+
+    def _clone_unbound(self) -> CoordinateMapping:
+        """
+        Return an unbound shallow clone re-attachable to a second grid.
+
+        Description
+        -----------
+        The re-bind hook ``Grid.coarsened`` uses to attach the same
+        declaration to a coarse sibling grid (MG-D6). The descriptor is
+        array-free — map/chart/metric callables and static parameter
+        defaults only — so a shallow copy shares every declaration by
+        reference and only the single-shot grid binding is reset. The
+        coarse grid re-derives all metrics on its own coarse spaces.
+        """
+        clone = copy.copy(self)
+        clone._grid = None  # noqa: SLF001 — re-bind seam (same class)
+        return clone
 
     # ================================================================
     #  Metric derivation (delegation target of grid.metric)

@@ -111,6 +111,7 @@ class StructuredMesh1D(Mesh):
         self._periodic: bool = bool(periodic)
         self._refined_from: Self | None = None
         self._refined_cache: dict[Fraction, Self] = {}
+        self._coarsened_cache: dict[int, Self] = {}
 
     # ================================================================
     #  Geometry descriptors
@@ -270,6 +271,60 @@ class StructuredMesh1D(Mesh):
     def refined_from(self) -> Self | None:
         """The refinement parent (None on unrefined meshes)."""
         return self._refined_from
+
+    def coarsened(self, factor: int) -> Self:
+        """
+        Return an independent same-family mesh with n_cells // factor.
+
+        Description
+        -----------
+        The coarse sibling for grid hierarchies (multigrid, regridding,
+        MG-D3). Unlike :meth:`refined`, the result carries **no**
+        ``refined_from`` link: it is not adopted by any grid owning this
+        mesh, so cross-resolution use is always explicit through
+        ``GridTransfer``. Memoized per factor in its own cache, so
+        repeated requests return the identical coarser mesh and its
+        spaces stay identity-comparable.
+
+        ``factor == 1`` is the semicoarsening pass-through (MG-D4): it
+        returns ``self`` unchanged, so a ``ChebyshevMesh`` kept at full
+        resolution along the vertical is never asked to coarsen. A
+        ``factor >= 2`` on a mesh whose ``_make_refined`` is designed-for
+        (``ChebyshevMesh``) raises there, exactly as ``refined`` does.
+
+        Parameters
+        ----------
+        factor : int
+            The integer cell-count divisor (>= 1); ``n_cells`` must be
+            divisible by it.
+
+        Returns
+        -------
+        Self
+            The pass-through ``self`` (factor 1) or the memoized
+            coarser mesh (``refined_from`` unset).
+        """
+        if isinstance(factor, bool) or not isinstance(factor, int):
+            raise TypeError(
+                "coarsening factors are positive integers, got "
+                f"{factor!r}")
+        if factor < 1:
+            raise ValueError(
+                f"coarsening factors must be >= 1, got {factor}")
+        if factor == 1:
+            return self  # semicoarsening pass-through (MG-D4)
+        if self._n_cells % factor != 0:
+            raise ValueError(
+                f"n_cells must be divisible by the coarsening factor, "
+                f"got {self._n_cells} % {factor} = "
+                f"{self._n_cells % factor}")
+        mesh = self._coarsened_cache.get(factor)
+        if mesh is None:
+            mesh = self._make_refined(self._n_cells // factor)
+            # no ``refined_from`` link (MG-D3): an independent mesh, so
+            # the fine grid never silently adopts these coarse spaces
+            self._coarsened_cache[factor] = mesh
+        return mesh
 
     @abstractmethod
     def _make_refined(self, n_cells: int) -> Self:
