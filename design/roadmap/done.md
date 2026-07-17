@@ -113,6 +113,12 @@ Implementation record:
   singularity, `tolerance=None` NaNs identically). GPU step-level
   re-measure + a default-on revisit: [`open.md`](open.md). Research:
   [`../research/cg_stopping_criterion.md`](../research/cg_stopping_criterion.md).
+  **Default-on at `1e-8` since 2026-07-17** (owner decision, superseding
+  the default-off above): `tolerance` / `pressure_tolerance` now default
+  to `1e-8` (`sqrt(f64 eps)`, Oceananigans' PCG precedent — fires above
+  the ~4.5e-14 floor so the T4 trap cannot engage in f64); `None` is the
+  explicit fixed-iteration opt-out, and determinism-pinned tests pass it.
+  Addendum in the research record.
 - **Multigrid pathway, phase A — the grid transfer layer**
   (2026-07-17, merge `fae44be4`) — grid-to-grid transfer on the new
   stack: `Mesh.coarsened` / `Grid.coarsened` (independent coarse

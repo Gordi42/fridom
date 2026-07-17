@@ -189,3 +189,37 @@ the runtime skip (T5).
   standalone loop wins (as the padded-carry experiment did, krylov
   docstring). Re-measure on A100 before claiming the step-level win;
   entry in [`../roadmap/open.md`](../roadmap/open.md).
+
+## Addendum — default flipped on (owner decision, 2026-07-17)
+
+The verdict above shipped the tolerance **opt-in** (`tolerance=None`
+default). Owner decision, same day: make the convergence break the
+**default**. `ConjugateGradient(tolerance=...)` and every
+`pressure_tolerance=` passthrough now default to **`1e-8`**;
+`tolerance=None` becomes the explicit fixed-iteration opt-out.
+
+Rationale for `1e-8`. It is `sqrt(float64 eps)` — the same
+relative-residual default Oceananigans' PCG uses — and sits 5-6 decades
+above the measured preconditioned residual floor (`~4.5e-14` on the
+strong f64 mapping, table above), so the tolerance **always fires
+before the floor**: the (T4) NaN-at-floor trap cannot engage in f64,
+turning the pre-existing over-convergence gradient hazard into a
+non-issue for the default. Solution differences against the full fixed
+budget sit at the `1e-8` relative level — far below truncation error.
+The rationale is documented at the introduction site (the
+`ConjugateGradient` class docstring); the full contraction study is
+above.
+
+Test policy under the flip. Tests that need the old deterministic
+fixed-iteration behaviour — bitwise/parity/cross-config equality,
+exact iteration counts, deep-convergence residual gates calibrated to
+the fixed budget, and the mapped-divergence-to-solver-residual gates —
+now pass `tolerance=None` / `pressure_tolerance=None` explicitly
+(`# fixed-iteration mode: pinned for determinism`). The dedicated
+tolerance regressions and the immersed tolerance-autodiff regression
+are unchanged. The mapped reverse-mode NaN (below) is untouched by the
+flip — it NaNs identically for `None` and for a firing tolerance.
+
+GPU re-measure. Still open and running separately; its numbers will be
+appended when in (the open-roadmap "GPU re-measure" entry is owned by
+that work).

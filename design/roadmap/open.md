@@ -450,6 +450,28 @@ promote one only when its trigger appears:*
   experience with the floor trap — reconsider a **default-on** tolerance
   (today default-off on purpose: results shift at the tolerance level in
   tuned configs and a safe default is problem-dependent).
+  *Update 2026-07-17: the default was flipped **on** at `1e-8` (owner
+  decision; done.md CG entry); this GPU re-measure item is unchanged.*
+- **Mapped nonhydro2 reverse-mode gradient is NaN.** In the
+  terrain-following (mapped) geometry `jax.grad` through a short mapped
+  run NaNs on **unmodified** code with fixed CG iterations (4 / 6 / 8
+  budgets all tried), while the forward values and forward-mode `jvp`
+  are finite. Discovered 2026-07-17 during the CG-tolerance work — the
+  NaN is identical for `tolerance=None` and for a firing tolerance, so
+  it is a pre-existing mapped-step-path fault, not a tolerance artefact
+  (evidence: [`../research/cg_stopping_criterion.md`](../research/cg_stopping_criterion.md)
+  "T4 floor trap" corollary + addendum, and the docstring note in
+  [`../../tests/nonhydro2/test_immersed_model_autodiff.py`](../../tests/nonhydro2/test_immersed_model_autodiff.py)).
+  Suspected masked-singularity class — see the "Remaining hazards"
+  list in
+  [`../research/jax_grad_run_investigation.md`](../research/jax_grad_run_investigation.md),
+  notably the `/ jacobian` division in
+  `MappedPressureSolver.velocity_correction`
+  (`fluxes[a] / self._jacobian(...)`, `mapped_pressure.py:763`). Fix =
+  locate the singular divide/sqrt, apply the double-`where`
+  (or `custom_jvp`) guard per the AGENTS.md differentiability policy,
+  then move the model-level tolerance-autodiff regression (which today
+  rides the immersed consumer) onto the mapped consumer.
 
 ## Differentiable run surface — `model.propagator()`
 
