@@ -334,3 +334,44 @@ def test_friction_grad_matches_central_fd_on_terrain(slip):
     fd = float((loss(x0 * (1 + eps)) - loss(x0 * (1 - eps)))
                / (2 * x0 * eps))
     np.testing.assert_allclose(g, fd, rtol=1e-4)
+
+
+def _stretched_friction_grad_loss(slip, nu, n_steps=8):
+    """Build a grad-ready loss over a stretched-column friction run."""
+    model = make_model(
+        ZVelCore(),
+        HarmonicFriction(nu, nu_v=0.5 * nu, vertical="z", slip=slip),
+        stretched_2d(8))
+    model.set_fields(
+        u=lambda x, z: np.sin(2 * np.pi * x) * np.sin(np.pi * z),
+        w=lambda x, z: np.cos(2 * np.pi * x) * np.sin(np.pi * z))
+    record = model._artifacts.record
+    carry = model._carry
+    stepper = model._stepper
+    leaf = next(m for m in carry.modules
+                if isinstance(m, HarmonicFriction)).nu
+    leaves, treedef = jax.tree_util.tree_flatten(carry)
+    idx = next(i for i, lf in enumerate(leaves) if lf is leaf)
+
+    def loss(theta):
+        packed = list(leaves)
+        packed[idx] = theta
+        c = jax.tree_util.tree_unflatten(treedef, packed)
+        final = _chunk_body(record, n_steps, c, stepper)
+        return sum(jnp.sum(f.data ** 2) for f in final.state)
+
+    return loss, jnp.asarray(leaf, dtype=jnp.float64)
+
+
+@pytest.mark.parametrize("slip", ["free", "no"])
+def test_friction_grad_matches_central_fd_on_a_stretched_column(slip):
+    # the spatial-layer VJP seal (divide_by_codomain_measure) makes the
+    # stretched bounded column reverse-mode differentiable end to end
+    nu = 2e-2
+    loss, x0 = _stretched_friction_grad_loss(slip, nu)
+    g = float(jax.grad(loss)(x0))
+    assert np.isfinite(g)
+    eps = 1e-4
+    fd = float((loss(x0 * (1 + eps)) - loss(x0 * (1 - eps)))
+               / (2 * x0 * eps))
+    np.testing.assert_allclose(g, fd, rtol=1e-4)

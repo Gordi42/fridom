@@ -87,12 +87,11 @@ spacing, order 2), so:
   terrain grid ``nu_v``/``kappa_v`` (with e.g. ``vertical="sigma"``)
   acts along the **column coordinate**, not the physical vertical.
 
-Forward is exact as above; reverse-mode ``jax.grad`` is clean on
-terrain (uniform-mesh) grids, but through a genuinely stretched
-``MappedIntervalMesh`` axis it is currently limited by the mapped
-``diff`` boundary-face VJP (a pre-existing spatial-layer measure-divide
-singularity, not this family's), so treat a stretched-column gradient
-as unsupported until that spatial fix lands.
+Forward is exact as above, and reverse-mode ``jax.grad`` is finite on
+every supported grid kind — the stretched-column boundary-face
+measure divide is VJP-sealed in the spatial layer
+(``divide_by_codomain_measure``); the mirrored test shards carry the
+autodiff regressions.
 """
 from __future__ import annotations
 

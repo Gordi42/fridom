@@ -1,4 +1,5 @@
 """Tests for fridom.spatial.operators.staggering."""
+import jax
 import jax.numpy as jnp
 import pytest
 
@@ -9,6 +10,7 @@ from fridom.spatial.decomposition.tensor import (
     TensorDecomposition,
 )
 from fridom.spatial.errors import SpaceMismatchError
+from fridom.spatial.grid import Grid
 from fridom.spatial.meshes.chebyshev import ChebyshevMesh
 from fridom.spatial.meshes.interval import IntervalMesh
 from fridom.spatial.meshes.mapped_interval import (
@@ -134,3 +136,19 @@ def test_axis_missing_from_the_halo_spec_counts_as_width_zero(mx):
     field = FieldStandIn(GridStandIn(), mx.center, jnp.arange(8.0))
     with pytest.raises(ValueError, match="halo width 0"):
         FiniteDifference()["x"](field)
+
+
+def test_bounded_mapped_divide_vjp_is_sealed():
+    # reverse-mode AD through a bounded mapped-mesh diff: the codomain
+    # measure's zero ghost slots must not turn the boundary rows' VJP
+    # into NaN (the double-where seal in divide_by_codomain_measure)
+    mesh = MappedIntervalMesh(
+        8, (0.0, 1.0), lambda s: s**2 / 2 + s / 2, name="v")
+    grid = Grid((mesh,))
+    f = grid.random.normal(mesh.center, seed=7)
+
+    def loss(theta):
+        return jnp.sum((f * theta).diff("v").data ** 2)
+
+    grad = jax.grad(loss)(jnp.asarray(1.0))
+    assert bool(jnp.isfinite(grad))
