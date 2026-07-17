@@ -323,7 +323,34 @@ where core machinery is touched (per AGENTS.md).
   runs pay one CG (≈ mapped-solve cost profile); no committed
   baselines change.
 
-## 6. Out of scope (designed-for, not precluded)
+## 6. Implementation record
+
+**I0+I1 shipped 2026-07-17** (merge `ee257bc0`; branch
+`feat/immersed-fractions`). Genuine fractions
+(`order=`/`min_fraction=` per IP-D1/D3, min-transfer per IP-D2,
+`mask = staggered θ > 0`, explicit fractions unthresholded,
+concrete-only memoization), CG `projection=` hook, `MaskState` in
+`fr.model.modules.immersed` (factory wiring deferred to I2–I4).
+Gates: bitwise `order=None` parity across the whole pre-existing
+suite; 100% branch coverage on all three touched files; forced-4
+device invariance; ruff clean. Corrections found:
+
+1. **`order=1` aliases `None`** (the collocation staircase), matching
+   `grid.py`'s midpoint shortcut — documented and pinned, not an
+   error.
+2. **Hard indicators quadrature-converge slowly** — Gauss–Legendre
+   quadrature of a discontinuous `x < B` indicator is O(1/q)-ish and
+   oscillatory (measured: cell-true 0.75 → 0.50 at q=2, 0.755 at
+   q=64, 0.746 at q=128). Consequence for gates and users: accuracy
+   claims (the I2 manufactured-Poisson 2nd-order gate) must declare
+   geometry via **smooth/analytic local fractions or the explicit
+   `fraction=` path**; users with exactly known columnar geometry
+   (`B(y, z)`) should pass exact per-cell fractions explicitly.
+3. Direct `FaceAvg` quadrature stays guarded in `grid.py`
+   (designed-for); face-area fractions go through the min-transfer,
+   as designed.
+
+## 7. Out of scope (designed-for, not precluded)
 
 Direct face-area quadrature (shaved-cell faces); ghost-cell
 immersed-boundary fill (ladder point 3) and Brinkman penalization
