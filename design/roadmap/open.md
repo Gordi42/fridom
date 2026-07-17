@@ -434,6 +434,47 @@ promote one only when its trigger appears:*
   pressure sibling keeps the pressure-space shape. Revisit only if a
   Neumann-outer field enters a hot loop.
 
+## Differentiable run surface — `model.propagator()`
+
+Reverse-mode `jax.grad` through a run is exact and policy-tested
+(record:
+[`../research/jax_grad_run_investigation.md`](../research/jax_grad_run_investigation.md);
+AGENTS.md "Differentiability policy"), but the supported spelling is
+still the private kernel recipe (`_chunk_body` + leaf splicing by
+identity). The public surface is one composition away — nothing new
+has to be invented, only assembled:
+
+- **Surface**: `model.propagator(*, wrt=("friction.nu", ...), steps,
+  remat=None)` returning a pure `(theta, state=None) -> State`.
+  Name resolution reuses the `update_parameters` machinery verbatim
+  (binding table -> `(slot, attr)` -> `_replace_leaf`,
+  `model.py:1628`) but builds a carry *transformer* instead of
+  committing; `wrt` names bound parameters (incl. `TIME_STEP`) or
+  PROGNOSTIC fields (IC differentiation splices
+  `state[name].storage`).
+- **Kernel**: `_chunk_body` without donation; `record` static,
+  stepper loop-invariant; no io, no `bool(panic)` host sync — the
+  panic pair rides the returned carry for functional inspection.
+- **`remat`**: optional `jax.checkpoint` on the scan body. Reverse
+  mode tapes O(steps) (measured ~1.4 MB/step at 8^3); production
+  adjoints need this knob. Requires a small hook in `_chunk_body`.
+- **Warm-up semantics**: default to a fresh stepper state (gradients
+  include the multistep warm-up ramp); document.
+- **Taught errors**: steppers with `freezes_linear_operator`
+  (ETDRK4) refuse `wrt` names owned by the frozen operator —
+  gradients w.r.t. a stale `exp(L dt)` snapshot are silently wrong.
+- **Follow-ons unlocked**: the D5 `TangentPropagator` (`jax.jvp` of
+  `model.tendency`,
+  [`../specs/model/04_run_loop_io.md`](../specs/model/04_run_loop_io.md))
+  shares the name-resolution piece; the AGENTS.md test-policy pattern
+  migrates from the private kernel to the public surface once it
+  exists.
+- **Residual hazards to sweep when first exercised under grad**: the
+  `metric_weight` divisions in `model/modules/coriolis.py`
+  (`/ w.to(v)`, `/ w_1`, `/ w_2`) share the masked-0/0 class the
+  Sadourny PV division was cured of; guard like
+  `_potential_vorticity` when that path meets an adjoint.
+
 ---
 
 # Long-term goals
