@@ -62,6 +62,7 @@ def Model(  # noqa: N802 — a factory that mirrors fr.model.Model's surface
     coriolis: fr.model.Module | None = None,
     stratification: fr.model.Module | None = None,
     advection: fr.model.Module | bool = True,
+    surface_advective_flux: bool = False,
     time_stepper: TimeStepper | None = None,
     modules_extra: Sequence[fr.model.Module] = (),
     name: str | None = None,
@@ -105,6 +106,19 @@ def Model(  # noqa: N802 — a factory that mirrors fr.model.Model's surface
         consumes the diagnosed ``w`` on the ``Outer`` faces through the
         seeded ``Outer -> Inner`` restriction (module docstring); the
         boundary-face flux is a structural zero (default: True).
+    surface_advective_flux : bool, optional
+        The constancy-preserving **surface closure** for the default
+        advection: advect **through** the top/bottom boundary faces with
+        the one-sided (top-cell) face value instead of dropping the
+        surface velocity ``w(0)``. It removes the surface-cell constancy
+        violation ``A(q=const) ~ q*w(0)/dz`` (the spurious source the
+        default fixed-domain closure leaves in the top cell — the
+        Oceananigans-equivalent linear-free-surface treatment). Tracer
+        content is then exchanged with the moving surface rather than
+        conserved to roundoff. Applies **only** when ``advection`` is
+        left at its default (``True`` installs ``CenteredAdvection``);
+        pass a configured ``CenteredAdvection(surface_flux=True)`` to
+        combine it with a non-default scheme (default: False).
     time_stepper : TimeStepper | None, optional
         Override the default ``AdamBashforth(dt, order=3)``.
     modules_extra : Sequence[fr.model.Module], optional
@@ -124,7 +138,7 @@ def Model(  # noqa: N802 — a factory that mirrors fr.model.Model's surface
     if stratification is None:
         stratification = ConstantStratification(n2=1.0)
     if advection is True:
-        advection = CenteredAdvection()
+        advection = CenteredAdvection(surface_flux=surface_advective_flux)
     if time_stepper is None:
         time_stepper = fr.model.time_steppers.AdamBashforth(dt, order=3)
 

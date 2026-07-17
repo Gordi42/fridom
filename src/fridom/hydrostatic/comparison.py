@@ -85,6 +85,7 @@ def comparison_model(
     rossby_number: float = 1.0,
     epsilon: float = 1.0,
     eps: float = 0.1,
+    surface_advective_flux: bool = False,
     name: str | None = None,
     **kwargs: object,
 ) -> _Model:
@@ -132,6 +133,15 @@ def comparison_model(
     eps : float, optional
         The pyOM quasi-AB2 computational-mode damper (Oceananigans'
         ``QuasiAdamsBashforth2`` default) (default: 0.1).
+    surface_advective_flux : bool, optional
+        Enable the constancy-preserving **surface closure** on the
+        centered advection: advect **through** the top/bottom boundary
+        faces with the one-sided face value instead of dropping the
+        surface velocity ``w(0)`` (the Oceananigans-equivalent
+        linear-free-surface treatment; see ``hy.Model``). Off is the
+        HY-D6 fixed-domain closure that conserves tracer content to
+        roundoff; on, tracer content is exchanged with the moving
+        surface (default: False).
     name : str | None, optional
         Model name (default: None).
     **kwargs : object
@@ -151,7 +161,7 @@ def comparison_model(
         free_surface=ImplicitFreeSurface(epsilon=epsilon),
         coriolis=FPlaneCoriolis(f0=coriolis_f0),
         stratification=ConstantStratification(n2=n2),
-        advection=CenteredAdvection(),
+        advection=CenteredAdvection(surface_flux=surface_advective_flux),
         time_stepper=AdamBashforth(dt, order=2, eps=eps),
         name=name,
         **kwargs,

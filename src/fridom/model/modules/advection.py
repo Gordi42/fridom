@@ -1796,6 +1796,25 @@ class _FluxFormAdvection(fr.model.Module):
     q) - S_\mathrm{lin}(U, q)`; the background samples are
     AUXILIARY fields ``background_<component>`` on each velocity
     component's own space.
+
+    With ``surface_flux`` (opt-in, default off) the constant-preserving
+    **surface closure** is added to every ADVECTED component's tendency:
+    the correction :math:`-q\,A(\mathbf 1)`, where :math:`A(\mathbf 1)`
+    is the module's own flux operator applied to a ones field in ``q``'s
+    space. On a bounded vertical axis the diagnosed ``w`` lives on the
+    both-boundary ``Outer`` faces and the flux uses only its interior
+    ``Inner`` restriction, so :math:`A(\mathbf 1)` is machine-zero in
+    every interior cell but nonzero in the surface cell (the dropped
+    ``w(0)`` — the free surface's :math:`\partial_t\eta`). Subtracting
+    ``q`` times it advects **through** the surface face with the
+    one-sided (top-cell) face value, so :math:`A` annihilates a constant
+    in every cell: the Oceananigans-equivalent linear-free-surface
+    treatment. Tracer content is then exchanged with the moving surface
+    rather than conserved to roundoff (the ``ps`` equation no longer
+    carries the whole surface volume flux). Off, the branch is skipped
+    and the tendency is byte-for-byte the pre-flag one; the flag is
+    reached through ``hy.Model(surface_advective_flux=True)`` /
+    ``hy.comparison_model(surface_advective_flux=True)``.
     """
 
     parameter_references = (
@@ -1831,6 +1850,8 @@ class _FluxFormAdvection(fr.model.Module):
     def __init__(
         self,
         background: Mapping[str, Callable | float] | None = None,
+        *,
+        surface_flux: bool = False,
     ) -> None:
         """Normalize the background mapping; targets resolve at bind."""
         self._advected: tuple[str, ...] = ()
@@ -1844,6 +1865,7 @@ class _FluxFormAdvection(fr.model.Module):
         self._halo_axes: tuple[str, ...] = ()
         self._walled: tuple[str, ...] = ()
         self._immersed: object = None
+        self._surface_flux: bool = bool(surface_flux)
 
     # ------------------------------------------------------------
     #  Background declarations (AUXILIARY profile samples)
@@ -2557,27 +2579,114 @@ class _FluxFormAdvection(fr.model.Module):
     def _advect(
         self, state: object, ctx: StepContext,
     ) -> dict[str, ScalarField]:
-        """Flux-form transport of every advected component (Ro-scaled)."""
+        r"""Flux-form transport of every advected component (Ro-scaled).
+
+        With ``surface_flux`` (opt-in, default off) the
+        constancy-preserving surface closure is added: the correction
+        :math:`-q\,A(\mathbf 1)` restores the boundary-face advective
+        flux the ``Outer -> Inner`` restriction drops (module docstring),
+        so :math:`A` annihilates a constant in **every** cell, the
+        surface cell included. Off (the default) the branch is skipped
+        and the tendency is byte-for-byte the pre-flag one.
+        """
         ro = ctx.params[fr.model.params.SCALING_ROSSBY]
         params = self._geometry_params(state)
         out: dict[str, ScalarField] = {}
         for qname in self._advected:
             q = state[qname]
-            res = None
-            for axis, vname in self._axis_velocity:
-                v = state[vname]
-                flux_space = self._flux_space(q, v, axis)
-                v_face = self._velocity_face(v, flux_space)
-                flux = v_face * self._face_value(
-                    q, v_face, axis, flux_space)
-                flux = self._immersed_flux(flux, flux_space)
-                # the divergence lands back on q's wall-tagged space
-                # (flat grids: literally flux.diff(axis).retag(q))
-                divergence = self._flux_divergence(
-                    q, flux, axis, params)
-                res = -divergence if res is None else res - divergence
-            out[qname] = ro * self._immersed_scale(res, q)
+            res = self._transport(state, q, params)
+            tend = ro * self._immersed_scale(res, q)
+            if self._surface_flux:
+                tend = tend - q * self._constant_transport(
+                    state, q, ro, params)
+            out[qname] = tend
         return out
+
+    def _transport(
+        self, state: object, q: ScalarField, params: dict | None,
+    ) -> ScalarField:
+        """Accumulate ``-sum_axis div(v_face face(q))`` on ``q``'s space.
+
+        Description
+        -----------
+        The bare per-axis flux loop shared by ``_advect`` and the
+        ``surface_flux`` correction: for every advecting axis it forms
+        the flux ``v_face * face(q)``, weights it by the open-area
+        fraction (immersed), and differences it back onto ``q``'s space.
+        Returns the accumulated divergence **before** the Rossby and
+        volume-fraction scalings (the callers apply those).
+
+        Parameters
+        ----------
+        state : object
+            The current state (supplies the advecting velocities).
+        q : ScalarField
+            The transported quantity.
+        params : dict | None
+            The dynamic mapping-parameter fields (None on flat grids).
+
+        Returns
+        -------
+        ScalarField
+            The accumulated ``-sum_axis`` flux divergence on ``q``.
+        """
+        res = None
+        for axis, vname in self._axis_velocity:
+            v = state[vname]
+            flux_space = self._flux_space(q, v, axis)
+            v_face = self._velocity_face(v, flux_space)
+            flux = v_face * self._face_value(
+                q, v_face, axis, flux_space)
+            flux = self._immersed_flux(flux, flux_space)
+            # the divergence lands back on q's wall-tagged space
+            # (flat grids: literally flux.diff(axis).retag(q))
+            divergence = self._flux_divergence(
+                q, flux, axis, params)
+            res = -divergence if res is None else res - divergence
+        return res
+
+    def _constant_transport(
+        self, state: object, q: ScalarField, ro: object,
+        params: dict | None,
+    ) -> ScalarField:
+        r"""Return :math:`A(\mathbf 1)` on ``q``'s space (surface closure).
+
+        Description
+        -----------
+        Runs the module's own flux path on a **ones** field in ``q``'s
+        function space — the full Rossby- and volume-fraction-scaled
+        advective operator applied to a constant. In every interior cell
+        this is machine-zero (the diagnosed velocity is discretely
+        divergence-free there); it is nonzero only in a boundary cell
+        whose ``Outer -> Inner`` restriction dropped the boundary-face
+        velocity (the free surface's ``w(0)`` at the top; exactly zero at
+        the flat-bottom seeded ``w = 0``). For a staggered ``q``
+        (``u``, ``v``) the flux path interpolates that surface velocity
+        onto ``q``'s own column automatically. ``_advect`` subtracts
+        ``q`` times this, telescoping the surface-cell constancy
+        violation to roundoff.
+
+        Parameters
+        ----------
+        state : object
+            The current state (supplies the advecting velocities).
+        q : ScalarField
+            The advected quantity (fixes the function space).
+        ro : object
+            The Rossby number (a traced parameter scalar).
+        params : dict | None
+            The dynamic mapping-parameter fields (None on flat grids).
+
+        Returns
+        -------
+        ScalarField
+            :math:`A(\mathbf 1)` on ``q``'s space.
+        """
+        # a ones field on q's space, portable across the eager path and
+        # the halo-negotiation trace (a scalar shift/scale, no `.data`)
+        ones = q * 0.0 + 1.0
+        res = self._transport(state, ones, params)
+        return ro * self._immersed_scale(res, ones)
 
     # ------------------------------------------------------------
     #  The background-split terms
@@ -2830,6 +2939,12 @@ class CenteredAdvection(_FluxFormAdvection):
         :math:`U + \mathrm{Ro}\,u'` with no outer Rossby factor —
         unlike the old stack, whose scaling factor multiplied the
         background too (default: None).
+    surface_flux : bool, optional
+        Enable the constancy-preserving surface closure (advect through
+        the top/bottom boundary faces with the one-sided face value; see
+        the ``_FluxFormAdvection`` Description). Default off, in which
+        case the tendency is byte-for-byte the plain flux-form one
+        (default: False).
     """
 
 
@@ -2933,6 +3048,12 @@ class UpwindAdvection(_FluxFormAdvection):
         grid; inert on a fully periodic one (default: "upwind1" — the
         monotone, globally 1st-order choice; see the class
         Description).
+    surface_flux : bool, optional
+        Enable the constancy-preserving surface closure (advect through
+        the top/bottom boundary faces with the one-sided face value; see
+        the ``_FluxFormAdvection`` Description). Default off, in which
+        case the tendency is byte-for-byte the plain flux-form one
+        (default: False).
     """
 
     _weighting: ClassVar[Literal["linear", "weno"]] = "linear"
@@ -2957,9 +3078,10 @@ class UpwindAdvection(_FluxFormAdvection):
         *,
         background: Mapping[str, Callable | float] | None = None,
         wall: Literal["upwind1", "centered2"] = "upwind1",
+        surface_flux: bool = False,
     ) -> None:
         """Build the biased reconstruction pairs for ``order``."""
-        super().__init__(background=background)
+        super().__init__(background=background, surface_flux=surface_flux)
         if order not in _SUPPORTED_ORDERS:
             raise ValueError(
                 f"{type(self).__name__} grounds the biased "
