@@ -13,6 +13,7 @@ from fridom.spatial.errors import (
 )
 from fridom.spatial.fields.metadata import FieldMetadata
 from fridom.spatial.grid import Grid, _tagged_trig_origins
+from fridom.spatial.immersed_domain import ImmersedDomain
 from fridom.spatial.meshes.chebyshev import ChebyshevMesh
 from fridom.spatial.meshes.interval import IntervalMesh
 from fridom.spatial.meshes.mapped_interval import (
@@ -1385,3 +1386,98 @@ def test_one_coordinate_charts_seed_the_jacobian_only(mx):
                           MetricGradient)
     with pytest.raises(DispatchError, match="raise_index"):
         grid.dispatch.resolve("raise_index", mx.center)
+
+
+# ================================================================
+#  Grid.coarsened (multigrid / regrid sibling grids, A2)
+# ================================================================
+def test_coarsened_uniform_factor_halves_every_axis(grid):
+    coarse = grid.coarsened(2)
+    assert coarse.names == grid.names
+    assert tuple(m.n_cells for m in coarse.factors) == (4, 2)
+    # a fresh, unfrozen grid with its own decomposition (provisional
+    # negotiation done, no fingerprint sealed)
+    assert coarse is not grid
+    assert coarse.fingerprint is None
+    assert coarse.decomposition is not grid.decomposition
+
+
+def test_coarsened_per_name_factors_are_semicoarsening(grid):
+    coarse = grid.coarsened({"x": 2})
+    # x halved, y (missing -> factor 1) at full resolution (MG-D4)
+    assert tuple(m.n_cells for m in coarse.factors) == (4, 4)
+    # the pass-through axis reuses the fine mesh object
+    assert coarse.factors[1] is grid.factors[1]
+
+
+def test_coarsened_carries_the_family(mx):
+    grid = Grid((mx,), family="fv")
+    assert grid.coarsened(2).default_family == "fv"
+
+
+def test_coarsened_seeds_a_fresh_default_registry(grid):
+    coarse = grid.coarsened(2)
+    # a working registry keyed on the coarse spaces
+    assert coarse.dispatch is not grid.dispatch
+    field = coarse.create_field()
+    assert field.diff("x").function_space is not None
+
+
+def test_coarsened_inherits_the_device_set(grid):
+    coarse = grid.coarsened(2)
+    assert (coarse.decomposition.device_count
+            == grid.decomposition.device_count)
+
+
+def test_coarsened_rejects_unknown_name(grid):
+    with pytest.raises(ValueError, match="unknown coordinate"):
+        grid.coarsened({"q": 2})
+
+
+@pytest.mark.parametrize("bad", [0, -1, 2.0, True])
+def test_coarsened_rejects_bad_factor(grid, bad):
+    with pytest.raises((ValueError, TypeError)):
+        grid.coarsened({"x": bad})
+
+
+def test_coarsened_rejects_non_mapping_non_int(grid):
+    with pytest.raises(TypeError, match="uniform"):
+        grid.coarsened([2])
+
+
+def test_coarsened_rebinds_the_coordinate_mapping(mx):
+    mapping = CoordinateMapping(
+        maps={"z": lambda x, H: x * H},
+        params={"H": lambda x: 1.0 + 0.0 * x})
+    grid = Grid((mx,), mapping=mapping)
+    coarse = grid.coarsened(2)
+    assert coarse.mapping is not None
+    assert coarse.mapping is not grid.mapping
+    # the clone is re-bound to the coarse grid and re-derives metrics
+    metric = coarse.metric(coarse.factors[0].center, "dz_dx")
+    assert metric.data.shape == (4,)
+
+
+def test_coarsened_rebinds_the_immersed_domain(mx, my):
+    immersed = ImmersedDomain(
+        lambda x, y: ((x < 0.6) & (y >= 0.0)).astype(float))
+    grid = Grid((mx, my), immersed=immersed)
+    coarse = grid.coarsened(2)
+    assert coarse.immersed is not None
+    assert coarse.immersed is not grid.immersed
+    # fresh cache + re-bind: fractions re-derive on the coarse spaces
+    space = coarse.factors[0].center * coarse.factors[1].center
+    frac = coarse.immersed.fraction(space)
+    assert frac.data.shape == (4, 2)
+
+
+def test_coarsened_does_not_carry_dispatch_overrides(mx):
+    grid = Grid((mx,))
+    op = grid.dispatch.resolve("diff", mx.center)
+    grid.merge_overrides({("diff", mx.center): op})
+    coarse = grid.coarsened(2)
+    # the coarse grid is seeded from a fresh default registry (model
+    # overrides do not carry); it resolves defaults on its own spaces
+    assert coarse.dispatch is not grid.dispatch
+    assert coarse.dispatch.resolve(
+        "diff", coarse.factors[0].center) is not None
