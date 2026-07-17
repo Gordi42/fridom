@@ -558,6 +558,14 @@ def divide_by_codomain_measure(
     reach this route (scalar fast path, see
     :func:`uniform_spacing`).
 
+    The divide is VJP-sealed (double-``jnp.where``): a bounded axis's
+    measure has exactly-zero ghost slots, so the raw quotient is a
+    masked singularity whose reverse pass is ``0/0 -> NaN`` (the
+    forward value is discarded by the post-application sync). The seal
+    is bitwise-transparent on every valid cell and on periodic axes,
+    so it costs no forward accuracy (AGENTS.md differentiability
+    policy).
+
     Parameters
     ----------
     result : FieldLike
@@ -579,7 +587,20 @@ def divide_by_codomain_measure(
     # layout to the default, matching the kernel's storage frame
     query = space.with_layout(operand.function_space.layout)
     measure = grid.sync(grid.measure(query, name=axis))
-    data = result._data / measure._data  # noqa: SLF001 — storage seam
+    # storage-frame divide, VJP-sealed (AGENTS.md diff policy): a
+    # bounded axis's measure carries exactly-zero ghost slots (the
+    # never-valid storage padding), so the raw ``result / measure`` is
+    # a masked singularity -- the forward quotient there is discarded
+    # by the post-application sync, but its reverse VJP is ``0/0 ->
+    # NaN`` and poisons ``jax.grad`` through the difference. The
+    # double-``jnp.where`` seals the reverse pass while staying bitwise
+    # identical on every valid cell (measure > 0) and on periodic axes
+    # (the wrap fill is strictly positive, so ``bad`` is empty).
+    m = measure._data  # noqa: SLF001 — storage seam
+    bad = m == 0.0
+    safe = jnp.where(bad, 1.0, m)
+    quotient = result._data / safe  # noqa: SLF001 — storage seam
+    data = jnp.where(bad, 0.0, quotient)
     return type(result)(grid, space, data, result.metadata,
                         halo_valid=result.halo_valid)
 

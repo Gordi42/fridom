@@ -71,7 +71,7 @@ Implementation record:
 | 3.4 | **Coordinate systems** (2026-07-12) | Mapped, spherical and boundary-fitted grids — the Phase-1 designed-for metric seams, filled in: measures as fields + `MappedIntervalMesh` (C0), `CoordinateMapping` / `grid.metric` / `physical_diff` with the CS-D1 chart embedding (C1), metric-aware vector calculus + spherical shallow water (C2), the CS-D2 preconditioned-CG mapped pressure solve + terrain-following nonhydro (C3), dynamic metrics + the optional CS-D4 ALE module (C4). Record: [`../plans/done/coordinate_systems_plan.md`](../plans/done/coordinate_systems_plan.md). |
 | 3.6 | **CG compile cost: `lax.scan` the Krylov loop** (2026-07-13) | The mapped pressure CG was an unrolled fixed-iteration loop, so tracing and XLA compilation were O(iterations). Converted to `lax.scan` (not `fori_loop`: `jax.grad` must keep working) by carrying raw arrays plus a static space and rebuilding fields inside the body, sidestepping the `ScalarField.halo_valid` treedef-stability obstacle. HLO is now flat in the iteration count (468 lines at 12, 60 and 300 iterations, against 2102/5198/10358 unrolled). One loose end, carried to [`open.md`](open.md): the jitted forced-4 multi-device solve was never re-measured. Record: [`../plans/done/krylov_scan_plan.md`](../plans/done/krylov_scan_plan.md). |
 
-| 3.1 | **Hydrostatic model** (2026-07-17) | Greenfield `fridom.hydrostatic` (plan decisions HY-D1..D7 signed off 2026-07-16): prognostic `u,v,b` + `ps = g·eta`, diagnosed `w`/`p_hyd` on DIAGNOSE stages via the new staggered `CumulativeIntegral` (exact discrete fundamental theorem / pyOM half-cell forms); three free-surface variants — explicit term (oracle), implicit CONSTRAINT-stage 2D Helmholtz with the pyOM `epsilon` knob (`epsilon=0` = rigid lid, mean-gauged), split-explicit ADVANCE subcycle with the SM2005 filter per spec §5.4 as frozen; shared advection rehomed to `fr.model.modules` (+ the exact `Outer -> Inner` restriction row); `fr.closures.VerticalMixing` (mergeable tridiagonal, CNAB2/SBDF2); exact numeric eigenbasis (the cumint pair is an exact transpose pair) with vortical/wave + barotropic/baroclinic projections; `hy.comparison_model` preset + physics suite — discrete Rossby-adjustment target (the γ² Coriolis-interpolation correction, matched to 3e-5), wave-packet group velocity, Eady growth vs the discrete operator to 2e-4 (`ThermalWindBackground`; the QG 0.31·fΛ/N gap is the physical Stone/Ri correction). Open remnants (external comparison legs, example review) stay in [`open.md`](open.md) 3.1. Record: [`../plans/active/hydrostatic_model_plan.md`](../plans/active/hydrostatic_model_plan.md) §8. |
+| 3.1 | **Hydrostatic model** (2026-07-17) | Greenfield `fridom.hydrostatic` (plan decisions HY-D1..D7 signed off 2026-07-16): prognostic `u,v,b` + `ps = g·eta`, diagnosed `w`/`p_hyd` on DIAGNOSE stages via the new staggered `CumulativeIntegral` (exact discrete fundamental theorem / pyOM half-cell forms); three free-surface variants — explicit term (oracle), implicit CONSTRAINT-stage 2D Helmholtz with the pyOM `epsilon` knob (`epsilon=0` = rigid lid, mean-gauged), split-explicit ADVANCE subcycle with the SM2005 filter per spec §5.4 as frozen; shared advection rehomed to `fr.model.modules` (+ the exact `Outer -> Inner` restriction row); `fr.closures.VerticalMixing` (mergeable tridiagonal, CNAB2/SBDF2); exact numeric eigenbasis (the cumint pair is an exact transpose pair) with vortical/wave + barotropic/baroclinic projections; `hy.comparison_model` preset + physics suite — discrete Rossby-adjustment target (the γ² Coriolis-interpolation correction, matched to 3e-5), wave-packet group velocity, Eady growth vs the discrete operator to 2e-4 (`ThermalWindBackground`; the QG 0.31·fΛ/N gap is the physical Stone/Ri correction). Oceananigans execution leg ran 2026-07-17 (out-of-tree harness, single A100): machine-precision linear parity; per-step ratios oc/fridom — implicit-linear ~2x fridom at every rung, split-explicit centered 1.04–1.29x, weno5 parity; it surfaced the implicit+advection surface-closure instability → root-caused and fixed same day (constancy-preserving surface advective flux, default on; plan §H7, merge `8bd91dfe`). Open remnants (Veros/pyOM3 legs, example review) stay in [`open.md`](open.md) 3.1. Record: [`../plans/active/hydrostatic_model_plan.md`](../plans/active/hydrostatic_model_plan.md) §8. |
 | 3.8 | **Generalized adiabatic ramping** (2026-07-17) | Deform a model between reference and target operator configurations, `L(s) = (1-rho(s)) L_ref + rho(s) L_target`, with shared terms never computed twice (blend taxonomy: untouched / affine-parameter / term-weight; decisions AR-D1..D9, driving consumer the Rosenau et al. JFM draft). Shipped R1–R6: time-dependent scalar parameters + the declarative AR-D7 ETDRK4 taught error; `FieldBlend` (author-level affine field blends; ramped Coriolis `f0(t) + beta(t)·y`, static paths bit-identical); `fr.transforms.AdiabaticRamping` (four legs `.down`/`.backward`, `replace()`, window + composition protocol surfaces, AR-D6 irreversibility guard); `OptimalBalance` rebuilt *on* the legs bit-identically; phase-neutral `AdiabaticProjection` (backward–forward; forward–forward counter-example pinned) + `relative_imbalance`; docs page + double-ramp example. Post-landing audit verified the stretched-exponential leakage law to roundoff (`log eta = -2.52 sqrt(tau)`, R² 0.997; [`../research/adiabatic_leakage_scaling.md`](../research/adiabatic_leakage_scaling.md)) and pinned it as a regression shard. Example content review deferred at owner instruction — open in [`open.md`](open.md). Record: [`../plans/done/adiabatic_ramping.md`](../plans/done/adiabatic_ramping.md). |
 
 ## Landed since, outside the numbered tasks
@@ -170,9 +170,15 @@ Implementation record:
   Gates: GB-4 compile-once, HLO flat in the CG iteration count; GB-5
   forced-4 parity incl. a replicated coarse level (MG-D5); autodiff
   regression through the immersed multigrid step (the smoothers'
-  dry-cell double-`where` guards hold). The GB-2 wall-clock leg
-  (≥ 1.5× at 128³+ on A100) is the open follow-up
-  ([`open.md`](open.md)). Record:
+  dry-cell double-`where` guards hold). The GB-2 wall-clock leg was
+  measured on the A100 the same day and **fails**: 5.5–13.4× slower
+  ms/step than spectral at 128/192/256³ (one V-cycle ≈ 66× a spectral
+  CG iteration at 128³ — the sequential vertical-line Thomas smoother
+  runs at full n_z on every semicoarsened level, latency-bound on
+  GPU), so **spectral stays the production default on GPU**; the
+  iteration-count win stands as a robustness/CPU result. Evidence:
+  [`../research/multigrid_gb2_wallclock.md`](../research/multigrid_gb2_wallclock.md).
+  Record:
   [`../plans/active/multigrid_pathway_plan.md`](../plans/active/multigrid_pathway_plan.md)
   §3 (B0 spike numbers + the three recorded corrections, not yet
   owner-reviewed).
@@ -212,7 +218,12 @@ Implementation record:
   θ-mass conservation at machine zero in all three models; hydrostatic
   column equivalence ≤ 2e-15; 2nd-order masked-Poisson convergence on
   genuine x/z-partials; `jax.grad` through every immersed step path
-  FD-matched at ≤ 1e-8. Residuals in [`open.md`](open.md). Record +
+  FD-matched at ≤ 1e-8. **4-GPU validated** (gpu4 campaign T2,
+  2026-07-17): the masked cut-cell PCG step is device-count invariant on
+  real 4× A100 (`test_[partial_]immersed_step_is_device_count_invariant`,
+  face-aligned box + a new genuine-partial obstacle smoke, 1-vs-4 ≤
+  1.8e-15; the fusion workaround is not even needed at 16³). Residuals in
+  [`open.md`](open.md). Record +
   per-stage corrections:
   [`../plans/active/immersed_partial_cells_plan.md`](../plans/active/immersed_partial_cells_plan.md).
 - **Variable boundary forcing — wind stress, surface buoyancy flux**
@@ -282,10 +293,29 @@ Implementation record:
   runs on one A100 at `MEM_FRACTION=0.92` (153 ms/step, unroll=3,
   bitwise-identical physics, per-step perf unchanged at all sizes);
   `XLA_PYTHON_CLIENT_ALLOCATOR=cuda_async` is a validated env-only
-  alternative (VMM defeats fragmentation; multi-GPU unvalidated). The
-  4-GPU memory signature still needs its own attribution
-  ([`open.md`](open.md)). Record:
+  alternative (VMM defeats fragmentation; multi-GPU validated in the
+  4-GPU entry below). Record:
   [`../research/gpu_memory_ceiling.md`](../research/gpu_memory_ceiling.md).
+
+- **4-GPU memory signature attributed — same fix, not remat**
+  (2026-07-17) — second bullet of the Oceananigans reference comparison
+  gap. The comparison probe's read that 1024x1024x768 "dies in compile
+  (remat)" on 4 A100s is **wrong**: on current dev it FITS at ~44
+  GiB/GPU steady. The original death (recorded 2026-07-16 10:01 UTC) was
+  per-device BFC arena *fragmentation* — the 18.36 GiB contiguous chunk
+  temp arena could not be placed in a pool churned by the non-donating
+  `_canonicalize` — one rung larger than the single-GPU ceiling, and
+  closed by the SAME donation+defrag fix (`b6b24644`), which merged 5.5 h
+  *after* the observation. The `hlo_rematerialization.cc` line that named
+  it is a non-fatal warning whose peak estimate (~62 GiB) is ~1.4x
+  pessimistic vs the real 44 GiB. Reproduced directly (revert the fix
+  -> BFC OOM; pre-fix + cuda_async -> fit, which also validates
+  cuda_async multi-GPU). Lever for 768: none, it fits at the default BFC
+  0.75. Next rung 1024x1024x1024 (~51 GiB/GPU) is a harder wall BFC
+  clears at neither 0.75 nor 0.92 (GPU0 cannot place the 24.71 GiB
+  arena) — `cuda_async`'s job. Record:
+  [`../research/gpu_memory_ceiling.md`](../research/gpu_memory_ceiling.md)
+  §7.
 
 - **Time-to-first-step attributed; the two main fixes landed**
   (2026-07-16, merge `7842242b`) — gap 2 of the Oceananigans reference
@@ -328,9 +358,14 @@ Implementation record:
   single-divide weights (real-step temp blowup, 512³ OOM), f32 weights
   (net loss stacked on selected-input), linear-upwind one-path
   spellings (micro win reverses to +4–6% real), and the
-  conv/tap-loop/per-point-kernel rewrites. Follow-ups (comparison
-  re-run, multi-host confirmation, the forced-4 knife-edge test) stay
-  in [`open.md`](open.md). Records:
+  conv/tap-loop/per-point-kernel rewrites. Multi-host validation closed
+  2026-07-17: a real `srun -n 4 --gpu-bind=none` launch (walled-**and**-
+  sharded x, weno5, 30 steps, fusion workaround set) matched the
+  single-device serial reference to machine precision (max abs 2.3e-15,
+  ≤5.2e-15 of field scale — sharded-vs-serial reduction roundoff), with
+  the selected-input walled path asserted active on the sharded axis.
+  Remaining follow-ups (comparison re-run, the forced-4 knife-edge test)
+  stay in [`open.md`](open.md). Records:
   [`../research/stencil_lowering.md`](../research/stencil_lowering.md),
   A/B in
   [`../research/stencil_lowering/microbench/phase3/IMPLEMENTATION_AB.md`](../research/stencil_lowering/microbench/phase3/IMPLEMENTATION_AB.md).
@@ -664,3 +699,27 @@ Implementation record:
 - **The package split** (2026-07-11) — `framework2` became
   `fridom.spatial` + `fridom.model`. Record:
   [`../plans/done/spatial_model_split_plan.md`](../plans/done/spatial_model_split_plan.md).
+- **Channel eigenmode projection — taught multi-device skip**
+  (2026-07-17, T5) — the channel projection engine
+  ([`_eigenbasis.py`](../../src/fridom/model/_eigenbasis.py),
+  `_reject_sharded_projection` guarding `_contract_planes`) now raises a
+  taught `NotImplementedError` when the grid shards a **periodic
+  (Fourier) axis** across devices, instead of dying deep in the HLO
+  verifier. Root cause (re-attributed on real 4× A100, refuting the
+  earlier "c64 **FFT-norm** constant" reading): XLA:GPU/GSPMD lowers a
+  sharded-transform-axis FFT through its distributed Cooley-Tukey
+  decomposition (`fft_collective_permute_body`) whose **twiddle-factor**
+  constants are synthesized at `complex64` against the `complex128`
+  data — the fault reproduces with `norm=None`, so it is **not** the
+  jax FFT normalization and **not** covered by `multi_output_fusion`.
+  The gate keys off `default_layout.is_local(name)`, so it never fires
+  on a single-device grid or a `device_ids=(0,)` grid on a multi-device
+  host, and never on a grid too small to shard (the collapsed
+  many-device case). GPU-scoped mirrored test
+  (`test_channel_projection_rejects_a_sharded_periodic_axis`, skipped on
+  the CPU backend so the batch-144 eigenbasis eigh does not trip the T5b
+  heap-corruption crash). Minimal fridom-free repro + drafted (unfiled)
+  jax issue:
+  [`../research/artifacts/channel_fftnorm_gpu/`](../research/artifacts/channel_fftnorm_gpu/).
+  Record:
+  [`../research/multidevice_test_faults.md`](../research/multidevice_test_faults.md).

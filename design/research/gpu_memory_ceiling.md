@@ -139,3 +139,104 @@ a default after a multi-GPU validation.
 
 Raw logs/dumps: session scratch (`~/.claude/jobs/c4ef6662/tmp/`) —
 `logs/`, `dump/d{512,1024}adv_c7/`, `p2_repack.py`, `p3_churn.py`.
+
+## 7. The 4-GPU signature (2026-07-17): the same fix, not remat
+
+The Oceananigans comparison's 4-GPU max-fit probe
+(`benchmarks/comparison/fridom_multi/bench_maxfit.py`, `cmp_maxfit`)
+recorded, **2026-07-16 10:01 UTC**, that 1024x1024x512 fits (~30.7
+GiB/GPU) but **1024x1024x768 "dies in compile (remat)"**, quoting an
+`hlo_rematerialization.cc` line. That attribution is wrong and the death
+is already closed.
+
+Config (matched protocol, z-walled flat nonhydro): `(2*pi, 2*pi, 1)`,
+(Periodic, Periodic, Bounded-z), `CenteredAdvection`, `FPlaneCoriolis
+f0=1`, `dsqr=0.25`, `dt=1e-3`, `chunk_size=20`; single-process GSPMD over
+4x A100-80GB; `XLA_FLAGS=--xla_disable_hlo_passes=multi_output_fusion`.
+Footprint via `peak_bytes_in_use` after syncing the LIVE `_carry` — never
+`model.state` (copy-on-read). Driver: session scratch (`driver.py`).
+
+### Verdict
+
+1024x1024x768 **fits on current dev** at ~44 GiB/GPU steady. The original
+death was per-device **BFC arena fragmentation** — the same kind as the
+single-GPU ceiling (§1-2), one rung larger — **not** rematerialization.
+It was closed by the SAME fix (§4: carry donation + pre-chunk defrag, dev
+`b6b24644`), which merged **2026-07-16 15:30 CEST, 5.5 h AFTER the
+observation**. The `hlo_rematerialization.cc` line is a **non-fatal
+warning**, off the failure path.
+
+### Buffer census (per device, `compiled.memory_analysis()`)
+
+| shape | arg (carry) | temp arena | footprint | measured peak GPU0 |
+|---|---|---|---|---|
+| 1024x1024x512  | 13.40 | 11.35 | 24.75 | 29.28 |
+| 1024x1024x768  | 20.06 | 18.36 | 38.42 | 43.88 |
+| 1024x1024x1024 | ~26.7 | 24.71 | ~51.4 | 54.44 (OOM) |
+
+(GiB.) Output aliases the donated carry, so footprint = arg + temp.
+Everything is linear in per-device cells (768/512 = 1.5x: arg x1.50, temp
+x1.62). GPU0 carries ~4 GiB of replicated buffers the sharded devices do
+not (25.76 vs 29.28 at 512; 39.92 vs 43.88 at 768). The 768 footprint
+(38-44 GiB) sits well under the 60 GiB pool (`MEM_FRACTION` 0.75) — no
+capacity or remat problem.
+
+### The decisive knob: allocator/placement flips it (-> fragmentation)
+
+| # | code | allocator / knob | 768 outcome |
+|---|---|---|---|
+| 1 | current dev | BFC 0.75 (default) | FIT 43.88 GiB |
+| 2 | current dev | BFC 0.75 + copy-on-read churn | FIT 43.88 |
+| 3 | current dev | BFC 0.75, `DISABLE_DEFRAG=1` + churn | FIT 43.88 |
+| 4 | current dev | BFC 0.75, **no** fusion flag | FIT 43.88 (arena =) |
+| 5 | **pre-fix `4025f121~1`** | **BFC 0.75** | **OOM** |
+| 6 | pre-fix `4025f121~1` | cuda_async 0.75 | FIT 44.74 |
+
+Row 5 reproduces the original death directly — revert only the
+donation+defrag commit and 1024x1024x768 raises, at chunk **execution**:
+
+```
+bfc_allocator.cc:514] Allocator (GPU_0_bfc) ran out of memory trying to
+allocate 18.36GiB ... If the cause is memory fragmentation maybe the
+environment variable 'TF_GPU_ALLOCATOR=cuda_malloc_async' will improve
+the situation.  [free map: *___***___****...]
+RESOURCE_EXHAUSTED: Out of memory while trying to allocate 18.36GiB.
+[executable_name='jit__chunk_body']
+```
+
+The failing 18.36 GiB is exactly the `temp_size` arena: it cannot be
+placed as one contiguous block in a pool fragmented by the non-donating
+`_canonicalize` set-IC churn (peak 44.7 GiB reached in a 60 GiB pool, no
+18.36 GiB hole). XLA itself names fragmentation and points at cuda_async.
+Row 6 confirms it — pre-fix + cuda_async (VMM maps the "contiguous" arena
+onto scattered pages) fits, which also **validates cuda_async on
+multi-GPU**, the open caveat of §5. Rows 2-4 show the current-dev fit is
+robust: copy-on-read churn, defrag-disabled (donation alone suffices),
+and the fusion flag toggled all fit, arena byte-identical.
+
+The original JSON captured only the (non-fatal) remat WARNING, truncated
+at "down from 62..."; the fatal `RESOURCE_EXHAUSTED` that followed it in
+stderr was dropped — which is why the death was misnamed "remat". On
+current dev the warning still fires on a COLD compile (identical text:
+budget 57.47 GiB = 0.95 x 0.75 x 80, vs an "irreducible" estimate of
+61.94 GiB) yet the compile proceeds and the program runs at a true ~44
+GiB peak — the remat estimate is a pessimistic upper bound ~1.4x the real
+buffer-assignment peak. Served warm from `.jax_cache` the warning never
+appears and the verdict is unchanged: it is not on the failure path.
+
+### Lever for a user who needs 1024x1024x768 on 4 GPUs
+
+None — it fits out of the box at the default BFC 0.75 on current dev.
+
+The next rung, 1024x1024x1024 (~51 GiB/GPU footprint), is a harder wall
+and BFC does **not** clear it at either fraction: 0.75 OOMs on the 24.71
+GiB arena with GPU0 at 54 GiB in the 60 GiB pool, and **0.92 OOMs too** —
+GPU0 (which carries the ~4-8 GiB of replicated buffers the sharded
+devices do not) cannot place the contiguous 24.71 GiB arena even in the
+73.6 GiB pool (fragmented free-map `***___***___***`). So this rung is
+`cuda_async`'s (VMM has no contiguous-arena requirement; row 6 validates
+it multi-GPU), not a MEM_FRACTION bump. Operational note: the single-
+device OOM did not fail cleanly — it left the other three ranks **hung on
+the NCCL clique barrier** (`rendezvous.cc: ... may be stuck`), the same
+dead-participant-blocks-the-collective mode AGENTS.md flags for `srun`;
+guard large single-process multi-device probes under `timeout`.

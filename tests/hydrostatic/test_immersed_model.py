@@ -167,12 +167,16 @@ def _sidewall(x, y, z):  # noqa: ARG001
 
 def test_lateral_partials_conserve_mass():
     grid = _immersed_grid(_sidewall, nz=4, order=4, min_fraction=0.1)
+    # surface_flux=False (legacy fixed-domain closure): the default
+    # constancy-preserving closure advects through the top face and so
+    # exchanges tracer content with the moving surface, which breaks the
+    # exact theta-mass conservation this test characterizes.
     m = hy.Model(
         grid=grid, dt=0.002, csqr=1.0,
         free_surface=hy.ImplicitFreeSurface(pressure_iterations=40),
         coriolis=hy.FPlaneCoriolis(f0=0.5),
         stratification=hy.ConstantStratification(n2=0.0),
-        advection=True)
+        advection=fr.model.modules.CenteredAdvection(surface_flux=False))
     rng = np.random.default_rng(11)
     m.set_fields(**{
         k: 0.1 * rng.standard_normal(m.state[k].data.shape)
