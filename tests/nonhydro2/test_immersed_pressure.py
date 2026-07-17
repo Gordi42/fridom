@@ -239,3 +239,21 @@ def test_solver_rejects_mapped_plus_immersed():
         ImmersedPressureSolver(
             grid, _cell_space(grid), vertical="z", dsqr=1.0,
             iterations=2)
+
+
+# ================================================================
+#  Optional convergence tolerance (plumbing to ConjugateGradient)
+# ================================================================
+def test_solver_carries_the_tolerance_to_the_krylov_solver():
+    grid, space, _ = _box_solver(n=8, iterations=20)
+    solver = ImmersedPressureSolver(
+        grid, space, vertical="z", dsqr=0.7, iterations=20,
+        tolerance=1e-8)
+    assert solver.tolerance == 1e-8
+    assert solver.krylov().tolerance == 1e-8
+
+
+def test_default_tolerance_is_none():
+    _grid, _space, solver = _box_solver(n=8, iterations=20)
+    assert solver.tolerance is None
+    assert solver.krylov().tolerance is None
