@@ -39,6 +39,16 @@ and the model layer is `fridom.model`.
 
 # Next steps
 
+## Variable boundary forcing — wind stress, surface buoyancy flux
+
+In flight (2026-07-17, `feat/boundary-forcing`): `BoundaryFlux`
+tendency module (prescribed wall-face flux injected in the
+wall-adjacent cell — the surveyed Oceananigans/MITgcm/Veros
+mechanism; it does **not** consume boundary-closure 2e),
+`TimeFunction`/`TimeSeries` `TimeDependent` curves, and nonhydro2
+`WindStress`/`SurfaceBuoyancyFlux` wrappers.
+[`../plans/active/boundary_forcing_plan.md`](../plans/active/boundary_forcing_plan.md)
+
 ## Performance guard — wire the benchmark harness as a CI gate
 
 The A/B harness exists (`benchmarks/model/bench_step.py`, **committed**
