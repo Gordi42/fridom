@@ -60,6 +60,8 @@ from __future__ import annotations
 from functools import partial
 from typing import TYPE_CHECKING
 
+import jax
+import jax.numpy as jnp
 import numpy as np
 
 import fridom as fr
@@ -90,6 +92,54 @@ _VEL_HINT = ("the velocity trio is declared by the dynamical core "
 def _positive_part(field: ScalarField) -> ScalarField:
     """Pointwise ``max(field, 0)`` as pure field arithmetic."""
     return 0.5 * (field + abs(field))
+
+
+@jax.custom_jvp
+def _sqrt_clipped(x: jax.Array) -> jax.Array:
+    r"""Elementwise ``sqrt`` of a non-negative array, AD-safe at zero.
+
+    ``x >= 0`` by construction (a ``max(., 0)`` clip upstream). The
+    primal is the plain ``x ** 0.5`` — bitwise identical to an unguarded
+    sqrt, so the forward step pays nothing. Only the derivative rule is
+    replaced: ``d sqrt/dx = 0.5 * x**-0.5`` is ``inf`` at ``x = 0``, and
+    the clip feeds exact zeros into it, so a single clipped cell would
+    otherwise turn ``jax.grad`` of the whole field into ``NaN``. The
+    tangent rule below guards the ``sqrt`` and pins the (measure-zero)
+    subgradient in the clipped cells to ``0`` — the correct value there.
+
+    A ``custom_jvp`` (not ``custom_vjp``) is used deliberately: its
+    linear tangent rule is transposed automatically by jax, so both
+    forward-mode (``jax.jvp``) and reverse-mode (``jax.grad``) AD flow
+    through it; a ``custom_vjp`` would silently break forward mode.
+    """
+    return x ** 0.5
+
+
+@_sqrt_clipped.defjvp
+def _sqrt_clipped_jvp(
+    primals: tuple[jax.Array, ...],
+    tangents: tuple[jax.Array, ...],
+) -> tuple[jax.Array, jax.Array]:
+    """JVP with both sqrt branches guarded (subgradient 0 at ``x = 0``)."""
+    (x,), (t,) = primals, tangents
+    pos = x > 0
+    xs = jnp.where(pos, x, 1.0)
+    tangent = jnp.where(pos, 0.5 * t / xs ** 0.5, 0.0)
+    return _sqrt_clipped(x), tangent
+
+
+def _guarded_sqrt(field: ScalarField) -> ScalarField:
+    r"""Elementwise ``sqrt`` of a non-negative field, AD-safe at zero.
+
+    The concrete-field path applies :func:`_sqrt_clipped` (a plain
+    ``** 0.5`` primal with a guarded tangent rule) on the storage array;
+    the forward value is therefore bitwise identical to an unguarded
+    sqrt. The halo trace (``HaloTracer``, no storage array and no AD)
+    takes the plain ``** 0.5`` and its pointwise stencil unchanged.
+    """
+    if not isinstance(field, fr.spatial.ScalarField):
+        return field ** 0.5
+    return field.with_storage(_sqrt_clipped(field.storage))
 
 
 @partial(jaxify, dynamic=(
@@ -324,7 +374,7 @@ class SmagorinskyLilly(ClosureBase):
                 sigma2 = sigma2 + 2.0 * (s * s).to(anchor)
         n2 = state["b"].diff(self._vertical).to(anchor) + n2_bg
         damped = _positive_part(sigma2 - beta * _positive_part(n2))
-        return (cs * self._filter_width) ** 2 * damped ** 0.5
+        return (cs * self._filter_width) ** 2 * _guarded_sqrt(damped)
 
     # ================================================================
     #  The tendency hooks

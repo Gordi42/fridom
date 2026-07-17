@@ -1,6 +1,8 @@
 """SmagorinskyLilly: physics limits, targeting, term predicates."""
 from types import SimpleNamespace
 
+import jax
+import jax.numpy as jnp
 import numpy as np
 import pytest
 
@@ -15,7 +17,7 @@ from fridom.model.field_table import (
     FieldRecord,
     FieldTable,
 )
-from fridom.model.model import Model
+from fridom.model.model import Model, _chunk_body
 from fridom.model.time_steppers.adam_bashforth import (
     AdamBashforth,
 )
@@ -24,6 +26,11 @@ from fridom.nonhydro2.modules.smagorinsky_lilly import SmagorinskyLilly
 from fridom.nonhydro2.modules.stratification import (
     ConstantStratification,
     MeridionalStratification,
+)
+from fridom.nonhydro2.params import (
+    SMAG_BUOYANCY_MULTIPLIER,
+    SMAG_CS,
+    STRATIFICATION_N2,
 )
 from fridom.spatial.grid import Grid
 from fridom.spatial.meshes.interval import IntervalMesh
@@ -302,3 +309,73 @@ def test_run_dissipates_kinetic_energy():
 def test_exported_from_the_package_namespaces():
     assert nh.SmagorinskyLilly is SmagorinskyLilly
     assert nh.modules.SmagorinskyLilly is SmagorinskyLilly
+
+
+# ================================================================
+#  Reverse-mode AD: the clipped-strain sqrt is guarded
+# ================================================================
+# The eddy viscosity is ``(Cs Delta)^2 sqrt(max(|S|^2 - beta N^2, 0))``.
+# The ``max(., 0)`` clip feeds exact zeros into the sqrt, whose VJP is
+# inf there, so ONE clipped cell anywhere across the field/steps turns
+# ``jax.grad`` w.r.t. Cs into NaN. ``_guarded_sqrt`` guards both sqrt
+# branches (subgradient 0 in the clipped cells) so the gradient is
+# finite and matches finite differences.
+def _smag_grad_loss(n2=0.4, cs=0.16, n_steps=10):
+    """Build a grad-ready loss over a partially-clipped Smagorinsky run.
+
+    ``n2`` is tuned so a fraction of the cells clip (the hazard fires)
+    while ``Cs`` still drives the unclipped cells (a non-trivial
+    gradient). Returns ``(loss, cs_leaf, n_clipped_at_t0)``.
+    """
+    model = make_model(n2=n2, smagorinsky_constant=cs)
+    rng = np.random.default_rng(1)
+    sh = (N, N, N)
+    model.set_fields(u=0.2 * rng.standard_normal(sh),
+                     v=0.2 * rng.standard_normal(sh),
+                     w=0.2 * rng.standard_normal(sh),
+                     b=0.01 * rng.standard_normal(sh))
+    closure = next(m for m in model._carry.modules
+                   if isinstance(m, SmagorinskyLilly))
+    ctx = SimpleNamespace(params={
+        SMAG_CS: cs, SMAG_BUOYANCY_MULTIPLIER: 1.0,
+        STRATIFICATION_N2: n2})
+    nu_s = closure._eddy_viscosity(model.state, ctx)
+    n_clipped = int(np.sum(data(nu_s) == 0.0))
+    record = model._artifacts.record
+    carry = model._carry
+    stepper = model._stepper
+    leaf = closure.smagorinsky_constant
+    leaves, treedef = jax.tree_util.tree_flatten(carry)
+    idx = next(i for i, lf in enumerate(leaves) if lf is leaf)
+
+    def loss(theta):
+        packed = list(leaves)
+        packed[idx] = theta
+        c = jax.tree_util.tree_unflatten(treedef, packed)
+        final = _chunk_body(record, n_steps, c, stepper)
+        return sum(jnp.sum(f.data ** 2) for f in final.state)
+
+    return loss, jnp.asarray(leaf, dtype=jnp.float64), n_clipped
+
+
+def test_smagorinsky_grad_is_finite_and_matches_fd_through_the_clip():
+    loss, x0, n_clipped = _smag_grad_loss()
+    # the setup must actually exercise the clip (some cells, not all)
+    assert 0 < n_clipped < N ** 3
+    g = float(jax.grad(loss)(x0))
+    assert np.isfinite(g)
+    eps = 1e-4
+    fd = float((loss(x0 * (1 + eps)) - loss(x0 * (1 - eps)))
+               / (2 * x0 * eps))
+    np.testing.assert_allclose(g, fd, rtol=1e-4)
+
+
+def test_smagorinsky_forward_mode_survives_the_custom_jvp():
+    # the custom_jvp (not custom_vjp) keeps forward-mode AD alive: the
+    # directional derivative must be finite and agree with reverse mode
+    loss, x0, n_clipped = _smag_grad_loss()
+    assert 0 < n_clipped < N ** 3
+    _, jvp = jax.jvp(loss, (x0,), (jnp.asarray(1.0, dtype=jnp.float64),))
+    jvp = float(jvp)
+    assert np.isfinite(jvp)
+    np.testing.assert_allclose(jvp, float(jax.grad(loss)(x0)), rtol=1e-6)
