@@ -464,9 +464,23 @@ a dead-end by decision (FV-D2) — the only open gap, by choice.
    *advection* works (adopt-then-strip of the velocity's tag around
    the BC-free `flux_diff`); the walled mixed stratified model does
    not assemble until F4 seeds the tagged rows.
-6. **Multi-device.** All F0–F3 gates ran on cpu and 1 GPU; the
-   distributed solve on average origins and the 4-GPU step baseline
-   are still to be validated (next 4-GPU campaign).
+6. **Multi-device.** All F0–F3 gates ran on cpu and 1 GPU. The
+   distributed solve on **average origins is now validated on real
+   4 GPUs** (T1, 2026-07-17, 4× A100-SXM4-80GB, single-process GSPMD,
+   `JAX_PLATFORMS=cuda`): `tests/nonhydro2/test_distributed_projection.py`
+   is **11/11 green, 0 skips** (all `multi_device` tests ran — the
+   file carries no backend-pinned skip), and an FV-default step smoke
+   (auto-resolved `family="fv"`, CellAvg⊗CellAvg⊗CellAvg origins,
+   N=32³, 30 steps, dt=0.02, advection + pressure solve; periodic and
+   walled-x) matches **1-GPU vs 4-GPU to max abs 8.5e-15 / max rel
+   1.9e-15** (allclose rtol 1e-9, atol 1e-10). The upstream
+   `multi_output_fusion` workaround
+   (`XLA_FLAGS=--xla_disable_hlo_passes=multi_output_fusion`,
+   jax#39100) is **not** set by the test harness, so it was set on both
+   invocations per campaign ground rule 3. Still open: the **4-GPU step
+   baseline** re-record (gpu4 baseline predates the nodal sibling cases;
+   walled baselines predate the FV flip) — handled by the campaign's
+   baseline task.
 
 ## 11. FV-D4 — walls on FV (decided + shipped 2026-07-16; F4 record)
 
