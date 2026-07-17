@@ -310,6 +310,26 @@ Stage 2f (the mirror/halo-claim widening) is small but pure perf, gated on
 profiling nobody has done. Defer.
 [`../plans/active/boundary_plan.md`](../plans/active/boundary_plan.md)
 
+## Open boundaries — sponge is small, through-flow is large
+
+*Sponge tier: SMALL (days). Genuine through-flow: LARGE (3–6 weeks,
+four shippable stages; scoped 2026-07-17).* **No consumer exists** —
+nothing on the roadmap needs net inflow/outflow today, and a
+sponge-emulated open boundary (`Relaxation` + coordinate mask next to
+a wall) is already possible with zero code. The scoping record
+([`../research/open_boundaries_scoping.md`](../research/open_boundaries_scoping.md))
+sizes the tiers: a packaged `SpongeLayer` module (days); prescribed
+through-flow — open-side space structure (the wall face becomes a
+DOF; widest blast radius), boundary data via the FV wall-flux slot or
+stage 2e ghost-fill rows, an MITgcm-style volume-flux balance pass
+(the Poisson solvability condition; the spectral solver itself needs
+**no** surgery — predictor-only inflow, the Oceananigans route), and
+Orlanski/perturbation-advection outflow as CONSTRAINT-stage
+overwrites. A shallowwater2 Flather module (~1 wk) is the cheap pilot
+— no elliptic solve. Five owner calls are listed in the record (§4)
+before Tier 2 starts. Doing Tier 2 finally gives boundary-closure 2e
+its consumer.
+
 ## Eigenmode phase I — `Banded` as a first-class realized map
 
 *Medium (1-2 weeks; ~500-700 LOC source, 8-12 files) for the FD/nodal
