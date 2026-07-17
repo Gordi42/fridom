@@ -327,10 +327,12 @@ class MappedPressureSolver:
         The fixed CG iteration count (CS-D2; static). The maximum
         budget when a ``tolerance`` is set.
     tolerance : float | None, optional
-        An optional PCG convergence break forwarded to
+        The PCG convergence break forwarded to
         :class:`ConjugateGradient` (the measure-weighted true relative
         residual; masked scan, exact gradient — see its docstring).
-        ``None`` runs the fixed ``iterations`` count (default: None).
+        The default ``1e-8`` makes ``iterations`` the maximum budget;
+        ``None`` is the opt-out that runs the fixed ``iterations``
+        count (default: 1e-8).
     weights : Mapping[str, jax.Array | float] | None, optional
         Per-coordinate physical-axis weights; the mapped column's
         base name keys the weight of its *physical* direction
@@ -373,7 +375,7 @@ class MappedPressureSolver:
         space: SpaceLike,
         *,
         iterations: int,
-        tolerance: float | None = None,
+        tolerance: float | None = 1e-8,
         weights: Mapping[str, jax.Array | float] | None = None,
         params: Mapping[str, ScalarField] | None = None,
         single_precision: bool = False,

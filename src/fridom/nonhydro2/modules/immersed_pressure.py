@@ -188,10 +188,12 @@ class ImmersedPressureSolver:
         The fixed CG iteration budget (``pressure_iterations``). The
         maximum budget when a ``tolerance`` is set.
     tolerance : float | None, optional
-        An optional PCG convergence break forwarded to
+        The PCG convergence break forwarded to
         :class:`ConjugateGradient` (the measure-weighted true relative
         residual; masked scan, exact gradient — see its docstring).
-        ``None`` runs the fixed ``iterations`` count (default: None).
+        The default ``1e-8`` makes ``iterations`` the maximum budget;
+        ``None`` is the opt-out that runs the fixed ``iterations``
+        count (default: 1e-8).
     single_precision : bool, optional
         Run the spectral *preconditioner* in single precision while the
         CG iterates, the operator and the inner products stay
@@ -230,7 +232,7 @@ class ImmersedPressureSolver:
         vertical: str,
         dsqr: jax.Array | float,
         iterations: int,
-        tolerance: float | None = None,
+        tolerance: float | None = 1e-8,
         single_precision: bool = False,
         preconditioner: str = "spectral",
         multigrid_levels: int = 5,

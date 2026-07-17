@@ -115,9 +115,11 @@ def test_rejects_non_positive_tolerance(value):
         ConjugateGradient(lambda f: f, iterations=1, tolerance=value)
 
 
-def test_tolerance_property_defaults_to_none():
+def test_tolerance_property_defaults_to_1e_8():
     plain = ConjugateGradient(lambda f: f, iterations=3)
-    assert plain.tolerance is None
+    assert plain.tolerance == 1e-8
+    fixed = ConjugateGradient(lambda f: f, iterations=3, tolerance=None)
+    assert fixed.tolerance is None
     tol = ConjugateGradient(lambda f: f, iterations=3, tolerance=1e-6)
     assert tol.tolerance == 1e-6
 
@@ -169,7 +171,8 @@ def test_tiny_tolerance_never_fires_matches_none_bitwise_unpre():
     rhs = rich_rhs(grid)
     space = rhs.function_space
     apply_a, _ = helmholtz_pieces(grid, space)
-    none_cg = ConjugateGradient(apply_a, iterations=5)
+    # fixed-iteration mode: pinned for determinism
+    none_cg = ConjugateGradient(apply_a, iterations=5, tolerance=None)
     tiny_cg = ConjugateGradient(apply_a, iterations=5, tolerance=1e-30)
     assert np.array_equal(np.asarray(none_cg(rhs).data),
                           np.asarray(tiny_cg(rhs).data))
@@ -181,8 +184,9 @@ def test_tiny_tolerance_never_fires_matches_none_bitwise_pre():
     rhs = rich_rhs(grid)
     space = rhs.function_space
     apply_a, exact = helmholtz_pieces(grid, space)
+    # fixed-iteration mode: pinned for determinism
     none_cg = ConjugateGradient(apply_a, preconditioner=exact,
-                                iterations=4)
+                                iterations=4, tolerance=None)
     tiny_cg = ConjugateGradient(apply_a, preconditioner=exact,
                                 iterations=4, tolerance=1e-30)
     assert np.array_equal(np.asarray(none_cg(rhs).data),

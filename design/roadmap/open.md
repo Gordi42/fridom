@@ -431,7 +431,8 @@ promote one only when its trigger appears:*
   experience with the floor trap — reconsider a **default-on** tolerance
   (today default-off on purpose: results shift at the tolerance level in
   tuned configs and a safe default is problem-dependent).
-
+  *Update 2026-07-17: the default was flipped **on** at `1e-8` (owner
+  decision; done.md CG entry); this GPU re-measure item is unchanged.*
 ## Multigrid preconditioner — follow-up measurements
 
 The semicoarsened V-cycle preconditioner shipped 2026-07-17 (the

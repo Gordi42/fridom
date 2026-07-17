@@ -20,13 +20,15 @@ elsewhere.
 
 Two CS-D2 requirements shape the implementation:
 
-- **Fixed iteration count by default (static trace).** The recurrence
-  runs a Python-static number of iterations, so the solve
-  jit-compiles once across right-hand-side *values* and is
-  reverse-mode differentiable (``jax.grad`` flows through it) without
-  a ``custom_vjp``. The default is *no* tolerance break; an opt-in
-  ``tolerance`` adds a convergence break that preserves both
-  properties (*Optional convergence break*, below).
+- **Static trace, either mode.** The recurrence runs a Python-static
+  number of iterations, so the solve jit-compiles once across
+  right-hand-side *values* and is reverse-mode differentiable
+  (``jax.grad`` flows through it) without a ``custom_vjp``. The
+  **default** is a convergence break at ``tolerance = 1e-8``
+  (*The convergence break*, below), under which ``iterations`` is the
+  *maximum* budget. The explicit opt-out ``tolerance=None`` runs a
+  fixed static count with no break; both modes keep the static trace
+  and the exact gradient.
 - **Everything pure.** No Python-side state is mutated and nothing
   branches on a traced value, so the solver is safe inside a
   jit-compiled tendency container.
@@ -122,7 +124,8 @@ The initial guess is zero unless an explicit ``x0`` is passed.
 
 Exact convergence under fixed iterations
 ----------------------------------------
-Because there is no tolerance break, the recurrence keeps running
+Under the ``tolerance=None`` opt-out there is no tolerance break, so
+the recurrence keeps running
 after the residual reaches exact zero (a zero right-hand side, or an
 exact preconditioner such as the flat spectral inverse on a
 constant-metric mapped grid, stage C3). The scalar ratios
@@ -133,13 +136,10 @@ post-convergence iteration into an exact no-op (``x`` and ``r``
 unchanged) instead of poisoning the solve with NaNs. For nonzero
 denominators the guard is bitwise-neutral.
 
-Optional convergence break (the ``tolerance`` mode)
----------------------------------------------------
-``tolerance=None`` (the default) is exactly the fixed-iteration
-recurrence above, unchanged bit for bit — same scan, no extra dot
-products, no conditional. Passing ``tolerance > 0`` adds an opt-in
-early stop: the solve refines only until the measure-weighted *true*
-relative residual satisfies
+The convergence break (the default ``tolerance``)
+-------------------------------------------------
+The default ``tolerance = 1e-8`` adds an early stop: the solve refines
+only until the measure-weighted *true* relative residual satisfies
 
 .. math::
 
@@ -149,7 +149,20 @@ relative residual satisfies
 (``b`` the projected right-hand side). The comparison is evaluated
 squared — ``rr <= tolerance**2 * bb`` — with the threshold formed
 once outside the loop; a zero right-hand side (``bb == 0``) converges
-immediately without a NaN.
+immediately without a NaN. The explicit opt-out ``tolerance=None`` is
+exactly the fixed-iteration recurrence above, unchanged bit for bit —
+same scan, no extra dot products, no conditional — for a caller that
+needs a deterministic fixed count.
+
+**Why 1e-8.** The default is :math:`\sqrt{\varepsilon}` for
+``float64`` (the same relative-residual default Oceananigans' PCG
+uses), and it sits 5-6 decades above the measured preconditioned
+residual floor (``~4.5e-14`` on a strong f64 mapping), so the
+tolerance always fires *before* the floor — the (T4) NaN-at-floor trap
+below cannot engage in ``float64``. Solution differences against the
+full fixed budget are at the ``1e-8`` relative level, far below
+truncation error. The design record carries the full contraction
+study.
 
 **Masked scan, not** ``while_loop``. The stop is *not* a
 ``lax.while_loop`` with a dynamic trip count. The scan keeps its full
@@ -283,21 +296,29 @@ class ConjugateGradient:
         runs unpreconditioned CG (identity preconditioner)
         (default: None).
     iterations : int
-        The number of CG iterations (static; ``>= 1``). With
-        ``tolerance=None`` (the default) all ``iterations`` steps run;
-        with a ``tolerance`` set it is the *maximum* budget and the
-        convergence break stops earlier (CS-D2).
+        The CG iteration count (static; ``>= 1``). Under the default
+        ``tolerance`` it is the *maximum* budget and the convergence
+        break stops earlier; with the ``tolerance=None`` opt-out all
+        ``iterations`` steps run (CS-D2).
     tolerance : float | None, optional
-        An optional convergence break on the measure-weighted true
-        relative residual: when set, the recurrence stops refining once
+        The convergence break on the measure-weighted true relative
+        residual: the recurrence stops refining once
         :math:`\sqrt{\langle r, r\rangle} \le \texttt{tolerance}\,
         \sqrt{\langle b, b\rangle}` (``b`` the projected right-hand
-        side) and every later scanned step is a no-op (*Optional
-        convergence break* in the module docstring: masked scan, exact
-        gradient, O(1) compile, the T4 floor and T5 no-``vmap``
-        caveats). ``None`` is the default fixed-iteration recurrence,
-        bit-for-bit unchanged — a caller wanting a fixed count passes
-        ``None`` (default: None).
+        side) and every later scanned step is a no-op (*The convergence
+        break* in the module docstring: masked scan, exact gradient,
+        O(1) compile, the T4 floor and T5 no-``vmap`` caveats). The
+        default ``1e-8`` is :math:`\sqrt{\varepsilon}` for ``float64``
+        (Oceananigans' PCG relative-residual precedent); it sits 5-6
+        decades above the measured preconditioned residual floor
+        (``~4.5e-14`` on a strong f64 mapping), so it fires before the
+        floor and the T4 NaN-at-floor trap cannot engage in
+        ``float64``, and the resulting solution differs from the full
+        fixed budget only at the ``1e-8`` relative level (far below
+        truncation error). ``None`` is the explicit opt-out — the
+        fixed-iteration recurrence, bit-for-bit unchanged — for a
+        caller that needs a deterministic fixed count
+        (default: 1e-8).
     project_mean : bool, optional
         Subtract the measure-weighted mean from the right-hand side,
         the preconditioned residuals, and the solution — the constants
@@ -318,7 +339,7 @@ class ConjugateGradient:
         *,
         preconditioner: Callable[[FieldLike], FieldLike] | None = None,
         iterations: int,
-        tolerance: float | None = None,
+        tolerance: float | None = 1e-8,
         project_mean: bool = False,
         projection: Callable[[FieldLike], FieldLike] | None = None,
     ) -> None:
@@ -520,9 +541,10 @@ class ConjugateGradient:
         Description
         -----------
         The standard preconditioned conjugate-gradient recurrence over
-        scalar fields, run for ``iterations`` steps (the fixed default)
-        or until the optional ``tolerance`` convergence break fires
-        (CS-D2; module docstring). Inner products are the
+        scalar fields, run until the default ``tolerance`` convergence
+        break fires, or for a fixed ``iterations`` steps under the
+        ``tolerance=None`` opt-out (CS-D2; module docstring). Inner
+        products are the
         measure-weighted :math:`L^2` product (module docstring); with
         ``project_mean`` the constants nullspace is projected out of the
         right-hand side, the preconditioned residuals, and the solution.

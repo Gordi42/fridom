@@ -91,9 +91,11 @@ def test_pressure_iterations_validation_rejects(value):
 #  pressure_tolerance knob (mirrors nh.Model; opt-in CG break)
 # ================================================================
 def test_pressure_tolerance_default_and_property():
-    assert hy.ImplicitFreeSurface().pressure_tolerance is None
+    assert hy.ImplicitFreeSurface().pressure_tolerance == 1e-8
     assert hy.ImplicitFreeSurface(
-        pressure_tolerance=1e-8).pressure_tolerance == 1e-8
+        pressure_tolerance=None).pressure_tolerance is None
+    assert hy.ImplicitFreeSurface(
+        pressure_tolerance=1e-6).pressure_tolerance == 1e-6
 
 
 def test_pressure_tolerance_reaches_the_conjugate_gradient(monkeypatch):
