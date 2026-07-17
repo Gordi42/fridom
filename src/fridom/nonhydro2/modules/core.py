@@ -67,16 +67,21 @@ def _fv_capable(grid: Grid) -> bool:
 
     Description
     -----------
-    The finite-volume nonhydro model serves both periodic and walled
-    (bounded) grids at 2nd order (scoping study §5 FV-D3, §11 FV-D4):
-    periodic axes stagger on the ``Right`` face, walled axes on the
-    Neumann-``CellAvg`` / Dirichlet-``Inner`` origins (stage F4). Only
-    a **mapped** (terrain-following) or **immersed** (cut-cell) grid
-    stays on the validated nodal path (mapped/cut-cell FV is stage F5).
-    So the auto default flips to FV on any unmapped, unimmersed grid —
-    exactly the grids on which an explicit ``family="fv"`` is served
-    (:func:`_require_fv_capable` raises on precisely the complement),
-    which is the owner ruling of 2026-07-16.
+    The finite-volume nonhydro model serves periodic, walled *and*
+    (stage F5) mapped terrain-following grids at 2nd order (scoping
+    study §5 FV-D3, §11 FV-D4, §4 mapped_pressure): periodic axes
+    stagger on the ``Right`` face, walled axes on the Neumann-
+    ``CellAvg`` / Dirichlet-``Inner`` origins, and a mapped column runs
+    the family-aware :class:`MappedPressureSolver`. The **auto** default
+    nonetheless stays nodal on a mapped grid: on a genuine terrain the
+    FV and nodal discretizations are *different numbers* (no bitwise
+    parity, unlike the flat/walled retag), so flipping the mapped
+    default is an owner decision, not something a capability predicate
+    takes. ``_fv_capable`` therefore excludes mapped (auto = FV iff
+    unmapped and unimmersed, the 2026-07-16 ruling) even though explicit
+    ``family="fv"`` is now served there (:func:`_require_fv_capable`
+    rejects **immersed only**). Cut-cell (immersed) FV remains out of
+    scope by decision (scoping §9).
 
     Parameters
     ----------
@@ -87,7 +92,7 @@ def _fv_capable(grid: Grid) -> bool:
     -------
     bool
         True iff the grid is unmapped and unimmersed (periodic or
-        walled).
+        walled) — the grids whose FV C-grid is bitwise the nodal one.
     """
     if getattr(grid, "mapping", None) is not None:
         return False
@@ -101,12 +106,16 @@ def _require_fv_capable(grid: Grid) -> None:
     Description
     -----------
     Explicit ``family="fv"`` (or a ``Grid(family="fv")`` default) on a
-    grid the FV C-grid cannot yet serve is a taught error, never a
-    silent fallback to nodal. Walled (bounded) grids are now served
-    (stage F4): the pressure DCT-II runs on the Neumann-tagged
-    ``CellAvg`` origin exactly as the nodal model runs on Neumann
-    ``Center``. Only **mapped** (terrain-following) and **immersed**
-    (cut-cell) grids remain deferred to stage F5.
+    grid the FV C-grid cannot serve is a taught error, never a silent
+    fallback to nodal. Walled (bounded) grids are served (stage F4):
+    the pressure DCT-II runs on the Neumann-tagged ``CellAvg`` origin
+    exactly as the nodal model runs on Neumann ``Center``. Mapped
+    (terrain-following) grids are served (stage F5): the projection
+    routes to the family-aware :class:`MappedPressureSolver` and
+    ``CenteredAdvection`` transports a ``CellAvg`` tracer in
+    conservative J-weighted flux form. Only **immersed** (cut-cell)
+    grids remain out of scope — cut-cell FV is a deliberate
+    non-goal (scoping §9), not a deferral.
 
     Parameters
     ----------
@@ -116,26 +125,18 @@ def _require_fv_capable(grid: Grid) -> None:
     Raises
     ------
     NotImplementedError
-        If the grid is mapped or immersed.
+        If the grid is immersed.
     """
-    reasons = []
-    if getattr(grid, "mapping", None) is not None:
-        reasons.append(
-            "it carries a coordinate mapping — mapped / terrain-"
-            "following FV is stage F5")
-    if getattr(grid, "immersed", None) is not None:
-        reasons.append(
-            "it carries an immersed domain — cut-cell FV is stage F5")
-    if not reasons:
+    if getattr(grid, "immersed", None) is None:
         return
     raise NotImplementedError(
         "family='fv' is the finite-volume nonhydro model (FV-D2 "
         "option A: scalars on CellAvg, velocities on the C-grid "
-        "faces), which serves periodic and walled grids but not "
-        "mapped or immersed ones yet. This grid cannot: "
-        + "; ".join(reasons)
-        + ". Keep this model family='nodal' (the validated mapped / "
-        "immersed path).")
+        "faces), which serves periodic, walled and mapped terrain-"
+        "following grids but not immersed (cut-cell) ones: this grid "
+        "carries an immersed domain, and cut-cell FV is out of scope "
+        "by decision (scoping study §9). Keep this model "
+        "family='nodal' (the validated immersed path).")
 
 
 def fv_cgrid_overrides(
@@ -233,11 +234,13 @@ def resolve_model_family(family: str | None, grid: Grid) -> str:
     finite-volume by default, safe because the 2nd-order stencils are
     bit-identical to nodal (scoping study §1; the walled solve is
     eager-bitwise, ≤1.2e-14 jitted, §11). The auto default stays
-    ``"nodal"`` only on a **mapped** or **immersed** grid (owner ruling
-    2026-07-16: FV auto iff unmapped and unimmersed). An **explicit**
-    ``"fv"`` is served on periodic and walled grids (stage F4); on a
-    mapped or immersed grid it is a taught error, never a silent
-    fallback (stage F5).
+    ``"nodal"`` on a **mapped** or **immersed** grid (owner ruling
+    2026-07-16: FV auto iff unmapped and unimmersed) — on a genuine
+    terrain FV and nodal are different numbers, so the mapped default
+    flip is an owner decision, not an auto promotion. An **explicit**
+    ``"fv"`` is served on periodic, walled and mapped terrain-following
+    grids (stages F4, F5); only an **immersed** grid rejects it, a
+    taught error (cut-cell FV is out of scope, scoping §9).
 
     Parameters
     ----------
