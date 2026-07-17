@@ -102,6 +102,21 @@ re-derivation for coarse geometry (MG-D6), line-Jacobi V(1,1)
 
 ## 2. Phase A — the grid transfer layer
 
+*Landed 2026-07-17 (merge `fae44be4`); the sections below are the
+record. Implementation deviations from the stubs, all verified by the
+GA gates: restriction is built as `jax.linear_transpose` of the
+explicit prolongation wrapped in the two volume weightings — the
+literal `R = M_H^-1 P^T M_h`, exact on boundary rows, with no
+hand-rolled `shard_map` kernels (GSPMD keeps aligned axes shard-local;
+asserted no-gather in tests). `Grid.coarsened` pins the coarse level
+to the fine grid's **resolved** device set (an auto-sharded fine grid
+would otherwise auto-fall its coarse sibling back to one device,
+breaking MG-D5). `Mesh.coarsened(1)` returns `self` (pass-through, so
+Chebyshev verticals pass under semicoarsening). Order-2 halo demands
+are **not** registered pre-freeze — neighbor access lowers to GSPMD
+collective-permutes (forced-4 parity confirmed); explicit registration
+is deferred to the traceable-Regrid need (§11.5).*
+
 ### A1 — `Mesh.coarsened(factor)`
 
 `StructuredMesh1D.coarsened(factor: int) -> Self`: an independent

@@ -76,6 +76,24 @@ Implementation record:
 
 ## Landed since, outside the numbered tasks
 
+- **Multigrid pathway, phase A — the grid transfer layer**
+  (2026-07-17, merge `fae44be4`) — grid-to-grid transfer on the new
+  stack: `Mesh.coarsened` / `Grid.coarsened` (independent coarse
+  siblings, no adoption links, attachments cloned and re-derived),
+  `negotiate(allow_replicated=)` (a coarse level below the
+  shardability floor replicates on the same device mesh, MG-D5),
+  `check_level_shardability` (the gate on the silent-halo hazard,
+  research F3), and `GridTransfer` — adjoint restriction /
+  prolongation between coexisting grids (order-1/2 pairs,
+  `R = M_H^-1 P^T M_h` via `jax.linear_transpose`, so adjointness
+  holds by construction: measured <= 2.5e-15 across mapped /
+  immersed / semicoarsened cases; conservation exact; forced-4-device
+  parity; autodiff regression per the differentiability policy).
+  Dual-use: the multigrid substrate (plan phase B, still gated) and
+  the coupling regrid primitive (CS-15/§11.1). Record:
+  [`../plans/active/multigrid_pathway_plan.md`](../plans/active/multigrid_pathway_plan.md)
+  §2; research:
+  [`../research/multigrid_pathway.md`](../research/multigrid_pathway.md).
 - **Immersed partial cells — all dimensions, all three models**
   (2026-07-17, merges `ee257bc0` I0+I1, `b447b8e5` I2, `a5aec29d` I4,
   `3858d977` I3, plus the autodiff regression gates) — the immersed

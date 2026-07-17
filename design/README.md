@@ -158,7 +158,7 @@ spellings:
 | [`perf_geometry_merge_plan.md`](plans/active/perf_geometry_merge_plan.md) | active | Reconciling the performance line with the geometry line: the merge, the geometry stages and the mapped-PCG interior pass (§§4a–4b) landed; the A/B step harness exists with committed baselines — open is wiring it as a CI gate plus the unasserted fast paths (roadmap). |
 | [`distributed_transform_reconciliation.md`](plans/active/distributed_transform_reconciliation.md) | active | Reconcile the distributed spectral solve with the §5.1 layout-in-space design. Stages 1–4 landed (the transform planner); closes the push gate. |
 | [`distributed_transform_plan.md`](plans/active/distributed_transform_plan.md) | active | The distributed transform planner: layout-annotated stages, the fused `shard_map` lowering, and the A100 gate results. |
-| [`multigrid_pathway_plan.md`](plans/active/multigrid_pathway_plan.md) | active | Multigrid pathway: the grid-to-grid transfer layer (`Mesh.coarsened` / `Grid.coarsened` / `GridTransfer`, phase A — dual-use with coupling CS-15) plus the gated V-cycle preconditioner (phase B; B0 two-level spike is the kill criterion). |
+| [`multigrid_pathway_plan.md`](plans/active/multigrid_pathway_plan.md) | active | Multigrid pathway: phase A (the grid transfer layer — `Mesh.coarsened` / `Grid.coarsened` / `GridTransfer`, dual-use with coupling CS-15) landed 2026-07-17; open are the B0 two-level spike and the workload-gated V-cycle preconditioner (phase B). |
 
 ## `plans/done/` — shipped plans (kept as records)
 
