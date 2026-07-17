@@ -26,6 +26,7 @@ import pytest
 
 from fridom.spatial.grid import Grid
 from fridom.spatial.meshes.interval import IntervalMesh
+from fridom.spatial.meshes.mapped_interval import MappedIntervalMesh
 from fridom.spatial.operators.krylov import ConjugateGradient
 from fridom.spatial.operators.multigrid import (
     DampedJacobi,
@@ -295,6 +296,104 @@ def test_properties_expose_the_configuration():
     line = VerticalLineJacobi(bands, omega=0.9)
     assert line.omega == 0.9
     assert line.bands is bands
+
+
+# ================================================================
+#  (h) N3: measure-weighted line smoothing on a stretched column
+# ================================================================
+def _mapped_stretch(sigma):
+    """Return a monotone periodic clustering (non-uniform widths)."""
+    return sigma + 0.18 * jnp.sin(2.0 * jnp.pi * sigma) / (2.0 * jnp.pi)
+
+
+def _measure_line_bands(grid, space, z_axis, dx):
+    r"""Return the measure-self-adjoint tridiagonal of the stretched line.
+
+    The unit-coefficient vertical Laplacian's off-diagonals in physical
+    measure form: ``upper[c] = 1 / (m_inner[c] m_cell[c])`` and (periodic
+    column) ``lower[c] = 1 / (m_inner[c-1] m_cell[c])``. These are
+    Euclidean-asymmetric (``lower[c] != upper[c-1]``) but self-adjoint
+    under the physical cell measure — ``m_cell[c-1] upper[c-1] ==
+    m_cell[c] lower[c]``, i.e. ``diag(m_cell) T`` is symmetric — exactly
+    the N3 construction ``MappedPressureSolver.vertical_bands`` builds on
+    a bounded stretched column, exercised here at the engine level.
+    """
+    face = grid.create_field(space).diff("sigma").function_space
+    m_inner = grid.measure(face, "sigma").data
+    m_cell = grid.measure(space, "sigma").data
+    band = jnp.ones_like(m_inner) / m_inner
+    lower = jnp.roll(band, 1, axis=z_axis) / m_cell
+    upper = band / m_cell
+    diag = (-(band + jnp.roll(band, 1, axis=z_axis)) / m_cell
+            - 2.0 / dx ** 2)
+    template = grid.create_field(space)
+    shape = template.data.shape
+    return VerticalBands(
+        template.with_data(jnp.broadcast_to(lower, shape)),
+        template.with_data(jnp.broadcast_to(diag, shape)),
+        template.with_data(jnp.broadcast_to(upper, shape)), z_axis)
+
+
+def mapped_line_hierarchy(nx, nz, num_levels):
+    """Build a periodic-x, stretched-sigma vertical-line Poisson tower."""
+    def build(nx_):
+        mx = IntervalMesh(nx_, (0.0, 1.0), periodic=True, name="x")
+        ms = MappedIntervalMesh(nz, (0.0, 1.0), _mapped_stretch,
+                                periodic=True, name="sigma")
+        return Grid((mx, ms))
+    grids = [build(nx)]
+    for _ in range(num_levels - 1):
+        grids.append(grids[-1].coarsened({"x": 2}))
+    spaces = [cell_space(g) for g in grids]
+    z_axis = spaces[0].names.index("sigma")
+    dx = uniform_spacing(spaces[0].factor("x"))
+    levels = []
+    for lvl in range(num_levels):
+        g, sp = grids[lvl], spaces[lvl]
+        smoother = VerticalLineJacobi(
+            _measure_line_bands(g, sp, z_axis, dx), omega=0.8)
+        transfer = (GridTransfer(grids[lvl], grids[lvl + 1], order=2)
+                    if lvl < num_levels - 1 else None)
+        levels.append(MultigridLevel(
+            laplacian(sp.active_axis_names), smoother,
+            lambda f: f - f.mean(), transfer))
+    return grids[0], spaces[0], \
+        laplacian(spaces[0].active_axis_names), \
+        MultigridVCycle(tuple(levels))
+
+
+def test_stretched_line_vcycle_is_measure_symmetric():
+    # N3 engine gate: a VerticalLineJacobi smoother whose tridiagonal is
+    # Euclidean-ASYMMETRIC but self-adjoint under the physical cell
+    # measure (diag(m_cell) T symmetric), plus the measure-adjoint
+    # GridTransfer pair, composes into a V(1,1) cycle symmetric in CG's
+    # measure-weighted product on a stretched column (probed 2e-16)
+    grid, space, _, vcycle = mapped_line_hierarchy(8, 8, 2)
+    u = grid.random.normal(space, seed=1)
+    u = u - u.mean()
+    v = grid.random.normal(space, seed=2)
+    v = v - v.mean()
+    left = weighted_dot(vcycle(u), v)
+    right = weighted_dot(u, vcycle(v))
+    assert abs(left - right) <= 1e-12 * abs(left)
+
+
+def test_stretched_line_vcycle_beats_unpreconditioned_cg():
+    # the measure-weighted V-cycle is an effective preconditioner on a
+    # stretched column: at a fixed budget the preconditioned CG residual
+    # is far below the unpreconditioned one (the operator-level echo of
+    # the solver-level 7-vs-300 iteration count on the real bounded
+    # terrain+stretch grid, test_mapped_pressure_stretched)
+    grid, space, apply_a, vcycle = mapped_line_hierarchy(16, 8, 3)
+    rhs = grid.random.normal(space, seed=3)
+    rhs = rhs - rhs.mean()
+    pre = ConjugateGradient(
+        apply_a, preconditioner=vcycle, iterations=3, project_mean=True)
+    raw = ConjugateGradient(apply_a, iterations=3, project_mean=True)
+    _, pre_info = pre.solve(rhs)
+    _, raw_info = raw.solve(rhs)
+    assert (float(pre_info["residual_norm"])
+            < 0.5 * float(raw_info["residual_norm"]))
 
 
 # ================================================================

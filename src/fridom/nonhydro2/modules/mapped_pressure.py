@@ -90,7 +90,16 @@ coupled-axis hops stay uniform-periodic and unweighted; the diagonal
 flux legs never touch this hop and stay byte-identical. The separable
 spectral preconditioner has no transform to build on a stretched base
 mesh, so it is rejected at construction (N1) in favour of the
-``preconditioner="none"`` plain-CG correctness stopgap.
+``preconditioner="none"`` plain-CG correctness stopgap — or the
+``preconditioner="multigrid"`` V-cycle, which **does** serve the
+stretched column (N3): its vertical-line smoother and point diagonal
+build the column tridiagonal from the same ``grid.measure`` widths
+(:meth:`vertical_bands`, :meth:`_diagonal_data`), so the band is
+self-adjoint under the physical measure (``diag(m_cell) T`` symmetric)
+and the ``pre == post`` cycle stays SPD in CG's inner product; the
+semicoarsening transfers never touch the (uncoarsened) mapped column,
+so their measure-adjoint pair (``R = M_H^{-1} P^\top M_h``) already
+carries the stretched vertical unchanged.
 
 The alternative —
 evaluating the cross coefficient on the flux faces, which is what the
@@ -380,13 +389,14 @@ class MappedPressureSolver:
         separable spectral inverse at folded coefficients),
         ``"multigrid"`` (the geometric-multigrid V-cycle assembled by
         :meth:`_build_vcycle`, semicoarsening the horizontal axes with
-        vertical line smoothing), or ``"none"`` (unpreconditioned CG —
-        the N1 plain-CG correctness stopgap that makes solves on a
-        **stretched** base column possible today, since neither the
-        spectral nor the multigrid route builds on the stretched
-        column; slow, not a production route). A stretched base column
-        with ``"spectral"`` raises ``NotImplementedError`` at
-        construction (N1). Any other value raises ``ValueError``
+        vertical line smoothing — its vertical bands and diagonal read
+        the ``grid.measure`` widths, so it is the **stretched**-column
+        preconditioner too, N3), or ``"none"`` (unpreconditioned CG —
+        the N1 plain-CG correctness stopgap; slow, not a production
+        route). A stretched base column with ``"spectral"`` raises
+        ``NotImplementedError`` at construction (N1: the separable
+        spectral inverse needs a per-axis transform the mapped mesh
+        does not supply). Any other value raises ``ValueError``
         (default: ``"spectral"``).
     multigrid_levels : int, optional
         The **maximum** number of multigrid levels when
@@ -1136,20 +1146,38 @@ class MappedPressureSolver:
         storage = self._axis_storage()
         base = self._base
         z_axis = storage[base]
-        dz = uniform_spacing(self._space.factor(base))
+        # the base-axis (vertical) spacing enters as a scalar ``dz`` on
+        # a uniform column and as the physical ``grid.measure`` fields
+        # on a stretched one (N3): the base ``diff`` legs divide the
+        # gradient by the dual center-to-center width ``m_inner`` and
+        # the divergence by the primal cell width ``m_cell``, so the
+        # column leg diagonal is ``-(K^bb_f / m_inner_f)`` summed over
+        # the cell's two faces, over ``m_cell`` (and the cross bracket's
+        # vertical scale is ``1 / m_cell`` in place of ``1 / dz``). The
+        # uniform branch stays **bitwise** the phase-B scalar path.
+        if self._stretched_base:
+            m_cell = self._measure(self._space, cache).data
+            m_inner = self._measure(self._face[base], cache).data
+        else:
+            dz = uniform_spacing(self._space.factor(base))
         diagonal: jax.Array | None = None
         for a in self._axes:
-            dx = uniform_spacing(self._space.factor(a))
             if a == base:
                 kface = self._column_coefficient(self._face[a], cache)
-                periodic = False
+                if self._stretched_base:
+                    leg = -_adjacent_face_sum(
+                        kface.data / m_inner, z_axis,
+                        periodic=False) / m_cell
+                else:
+                    leg = -_adjacent_face_sum(
+                        kface.data, z_axis, periodic=False) / (dz * dz)
             else:
+                dx = uniform_spacing(self._space.factor(a))
                 kface = self._weight(a) * self._metric(
                     self._face[a],
                     f"d{self._mapped}_d{self._base}", cache)
-                periodic = True
-            leg = -_adjacent_face_sum(
-                kface.data, storage[a], periodic=periodic) / (dx * dx)
+                leg = -_adjacent_face_sum(
+                    kface.data, storage[a], periodic=True) / (dx * dx)
             diagonal = leg if diagonal is None else diagonal + leg
         for a in self._coupled:
             dx = uniform_spacing(self._space.factor(a))
@@ -1157,8 +1185,12 @@ class MappedPressureSolver:
                 self._corner[a], f"d{self._mapped}_d{a}", cache)
             bracket = _corner_cross_bracket(
                 slope.data, storage[a], z_axis)
-            diagonal = diagonal - self._weight(a) / (
-                2.0 * dx * dz) * bracket
+            if self._stretched_base:
+                diagonal = diagonal - self._weight(a) / (
+                    2.0 * dx) * bracket / m_cell
+            else:
+                diagonal = diagonal - self._weight(a) / (
+                    2.0 * dx * dz) * bracket
         return diagonal
 
     def diagonal(
@@ -1199,18 +1231,29 @@ class MappedPressureSolver:
 
         Description
         -----------
-        The symmetric tridiagonal of the vertical-line smoother
+        The per-column tridiagonal of the vertical-line smoother
         (:class:`~fridom.spatial.operators.multigrid.VerticalLineJacobi`):
         ``diag`` is the **full** operator diagonal (:meth:`diagonal`,
         so the horizontal stiffness enters as a stronger diagonal),
         while ``lower``/``upper`` are the **vertical flux leg only** —
-        the column coefficient ``K^{bb}`` at the ``z``-faces, giving
-        ``+K^{bb}_{f}/dz^2`` on each off-diagonal with the Neumann ends
-        zeroed. ``T`` deliberately excludes the horizontal-flux cross
-        residues: they couple off-column and are asymmetric per column
-        (``K^{bb}`` already carries the slope-squared stiffness), so
-        ``T`` stays symmetric by construction (``lower[c] ==
-        upper[c-1]``).
+        the column coefficient ``K^{bb}`` at the ``z``-faces, with the
+        Neumann ends zeroed. ``T`` deliberately excludes the
+        horizontal-flux cross residues: they couple off-column and are
+        asymmetric per column (``K^{bb}`` already carries the
+        slope-squared stiffness).
+
+        On a **uniform** column the off-diagonal is ``+K^{bb}_f / dz^2``
+        and ``T`` is Euclidean-symmetric by construction (``lower[c] ==
+        upper[c-1]``). On a **stretched** column (N3) it is the exact
+        vertical restriction of the measure-weighted operator,
+        ``upper[c] = K^{bb}_f / (m_inner_f\, m_cell_c)`` and the
+        sub-face partner for ``lower``: Euclidean-asymmetric, but
+        **self-adjoint under the physical measure** — ``m_cell_{c-1}
+        upper[c-1] == m_cell_c lower[c]``, i.e. ``diag(m_cell) T`` is
+        symmetric — which is the inner product CG evaluates
+        (``krylov`` ``_dot``), so the ``pre == post`` V-cycle stays SPD
+        under it. The batched Thomas solve needs no symmetry, and the
+        full diagonal keeps every column diagonally dominant either way.
 
         Parameters
         ----------
@@ -1226,15 +1269,37 @@ class MappedPressureSolver:
         storage = self._axis_storage()
         base = self._base
         z_axis = storage[base]
-        dz = uniform_spacing(self._space.factor(base))
         kbb = self._column_coefficient(self._face[base], cache).data
         edge = list(kbb.shape)
         edge[z_axis] = 1
         zeros = jnp.zeros(edge, dtype=kbb.dtype)
-        lower_data = jnp.concatenate([zeros, kbb], axis=z_axis) / (
-            dz * dz)
-        upper_data = jnp.concatenate([kbb, zeros], axis=z_axis) / (
-            dz * dz)
+        # the vertical off-diagonals of the operator's column
+        # tridiagonal. On a uniform column the constant ``dz`` (bitwise
+        # the phase-B scalar path); on a stretched column the
+        # measure-weighted band ``upper[c] = K^bb_f / (m_inner_f
+        # m_cell_c)`` (and ``lower[c]`` the sub-face partner). That
+        # band is Euclidean-asymmetric (``lower[c] != upper[c-1]``) but
+        # **self-adjoint under the physical measure**: ``m_cell_{c-1}
+        # upper[c-1] == m_cell_c lower[c] == K^bb_f / m_inner_f``, i.e.
+        # ``diag(m_cell) T`` is symmetric. That is exactly the inner
+        # product CG uses (krylov ``_dot``), so ``T^{-1}`` is
+        # measure-self-adjoint and the ``pre == post`` V-cycle stays
+        # symmetric under it (N3). The Thomas kernel needs no symmetry;
+        # the full diagonal keeps every column diagonally dominant.
+        if self._stretched_base:
+            m_cell = self._measure(self._space, cache).data
+            m_inner = self._measure(self._face[base], cache).data
+            band = kbb / m_inner
+            lower_data = jnp.concatenate(
+                [zeros, band], axis=z_axis) / m_cell
+            upper_data = jnp.concatenate(
+                [band, zeros], axis=z_axis) / m_cell
+        else:
+            dz = uniform_spacing(self._space.factor(base))
+            lower_data = jnp.concatenate([zeros, kbb], axis=z_axis) / (
+                dz * dz)
+            upper_data = jnp.concatenate([kbb, zeros], axis=z_axis) / (
+                dz * dz)
         template = self._grid.create_field(self._space)
         shape = template.data.shape
         diag = template.with_data(
@@ -1363,10 +1428,19 @@ class MappedPressureSolver:
                 solver = self
                 level_cache: MetricCache = cache
             else:
+                # the coarse level supplies only its operator, bands
+                # and diagonal — its own preconditioner is never built,
+                # so ``"none"`` sidesteps the N1 spectral-on-stretched
+                # construction raise a stretched coarse column would
+                # otherwise trigger (the vertical stays mapped at every
+                # level, MG-D4). On a uniform column this stays the
+                # phase-B ``"spectral"`` default (behaviour unchanged).
                 solver = MappedPressureSolver(
                     grid, space, iterations=self._iterations,
                     weights=self._weights, params=self._params,
-                    single_precision=self._single_precision)
+                    single_precision=self._single_precision,
+                    preconditioner=(
+                        "none" if self._stretched_base else "spectral"))
                 level_cache = {}
             smoother = VerticalLineJacobi(
                 solver.vertical_bands(level_cache), omega=_LINE_OMEGA)
