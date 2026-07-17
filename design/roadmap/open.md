@@ -97,24 +97,42 @@ memory ceiling, time-to-first-step, WENO throughput (entries in
   ([`../research/upwind5_revisit.md`](../research/upwind5_revisit.md)
   §6).
 
-## Channel eigenmodes are broken on multi-device
+## Channel eigenmodes on multi-device — two upstream repros to file
 
-Two independent pre-existing faults, both attributed **upstream**
-(jax/jaxlib 0.10.2; the earlier "fridom-side c64/c128 dtype mix"
-reading is refuted — the traced jaxpr carries zero complex64 on either
-path): a `sort`-lowering **segfault** on forced-CPU meshes (blocks even
-testing; re-verified exit 139 on dev), and an **XLA:GPU/GSPMD lowering
-fault** that synthesizes a c64 FFT-norm constant against the c128 cuFFT
-output inside the large sharded projection module, so the HLO verifier
-kills the projection on real multi-GPU (not covered by the
-`multi_output_fusion` workaround). The single-device path is fine.
+The fridom-side work shipped (2026-07-17, T5): the channel projection now
+fails loudly with a taught `NotImplementedError` on a grid that shards a
+periodic axis, instead of dying in the HLO verifier — see
+[`done.md`](done.md). Both underlying faults are **upstream**
+(jax/jaxlib 0.10.2; the earlier "fridom-side c64/c128 dtype mix" reading
+is refuted — the traced jaxpr carries zero complex64), and both now have
+a minimal fridom-free repro + a drafted jax issue awaiting the owner's
+go-ahead to file:
 
-Work: minimal upstream repros for both faults (ready to file with jax —
-filing needs the owner's go-ahead), plus a fridom-side mitigation (e.g.
-keep the FFT norm scaling outside the fused sharded kernel) or a taught
-multi-device skip on the channel eigenbasis so the projection fails
-loudly instead of in the HLO verifier. Evidence, provenance probes, and
-corrections:
+- **GPU (T5).** Not the FFT-norm constant (refuted: reproduces with
+  `norm=None`). XLA:GPU/GSPMD lowers a **sharded-transform-axis** FFT
+  through its distributed Cooley-Tukey decomposition whose
+  **twiddle-factor** constants are `complex64` against `complex128`
+  data; the HLO verifier rejects `multiply c64[] c128[]`. Not covered by
+  `multi_output_fusion`. Repro + issue:
+  [`../research/artifacts/channel_fftnorm_gpu/`](../research/artifacts/channel_fftnorm_gpu/).
+- **CPU (T5b).** A batched-`eigh` heap corruption in jaxlib's CPU LAPACK
+  on many-core hosts (not the `sort` lowering; that was aliasing).
+  Repro + issue:
+  [`../research/artifacts/channel_sort_segfault/`](../research/artifacts/channel_sort_segfault/).
+
+Remaining open work:
+
+- **File the two jax issues** (owner go-ahead required — the drafts are
+  ready).
+- **Optional real GPU fix** (make the projection *run* multi-device,
+  not just skip): route the channel transforms through the slab /
+  distributed-transform lowering the spectral solver already uses
+  (`operators/distributed_solve.py`), so each transform axis is
+  device-local when its FFT runs — the `with_sharding_constraint`
+  "replicate the transform axis" workaround is proven bit-for-bit exact
+  vs the single-device result. Bigger blast radius; deferred.
+
+Evidence, provenance probes, and the full re-attribution history:
 [`../research/multidevice_test_faults.md`](../research/multidevice_test_faults.md).
 
 ## Mapped + advection + chunked scan goes non-finite on GPU
