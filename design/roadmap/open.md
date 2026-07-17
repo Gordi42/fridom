@@ -495,10 +495,6 @@ The semicoarsened V-cycle preconditioner shipped 2026-07-17 (the
   variants — recorded levers in the plan §2) or restructuring away
   from the sequential vertical solve; open only if the owner wants
   that win — the iteration-count robustness result stands regardless.
-- **Real multi-GPU validation** — forced-4 parity is asserted in the
-  suite (incl. the replicated coarse level, MG-D5); a real
-  `srun -n 4` run joins the next campaign, same status as the
-  FV-default flip and the immersed PCG paths.
 
 ## Differentiable run surface — `model.propagator()`
 
