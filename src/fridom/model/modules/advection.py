@@ -1797,24 +1797,34 @@ class _FluxFormAdvection(fr.model.Module):
     AUXILIARY fields ``background_<component>`` on each velocity
     component's own space.
 
-    With ``surface_flux`` (opt-in, default off) the constant-preserving
-    **surface closure** is added to every ADVECTED component's tendency:
-    the correction :math:`-q\,A(\mathbf 1)`, where :math:`A(\mathbf 1)`
-    is the module's own flux operator applied to a ones field in ``q``'s
-    space. On a bounded vertical axis the diagnosed ``w`` lives on the
+    The constant-preserving **surface closure** adds the correction
+    :math:`-q\,A(\mathbf 1)` to every ADVECTED component's tendency,
+    where :math:`A(\mathbf 1)` is the module's own advective operator
+    applied to a constant on ``q``'s space (``_constant_transport``).
+    On a bounded vertical axis the diagnosed ``w`` lives on the
     both-boundary ``Outer`` faces and the flux uses only its interior
     ``Inner`` restriction, so :math:`A(\mathbf 1)` is machine-zero in
-    every interior cell but nonzero in the surface cell (the dropped
-    ``w(0)`` — the free surface's :math:`\partial_t\eta`). Subtracting
-    ``q`` times it advects **through** the surface face with the
-    one-sided (top-cell) face value, so :math:`A` annihilates a constant
-    in every cell: the Oceananigans-equivalent linear-free-surface
-    treatment. Tracer content is then exchanged with the moving surface
-    rather than conserved to roundoff (the ``ps`` equation no longer
-    carries the whole surface volume flux). Off, the branch is skipped
-    and the tendency is byte-for-byte the pre-flag one; the flag is
-    reached through ``hy.Model(surface_advective_flux=True)`` /
-    ``hy.comparison_model(surface_advective_flux=True)``.
+    every interior cell but ``w(0)/dz`` in the surface cell (the dropped
+    surface velocity — the free surface's :math:`\partial_t\eta`).
+    Subtracting ``q`` times it advects **through** the surface face with
+    the one-sided (top-cell) face value, so :math:`A` annihilates a
+    constant in every cell: the Oceananigans-equivalent linear-free-
+    surface treatment. Tracer content is then exchanged with the moving
+    surface rather than conserved to roundoff (the ``ps`` equation no
+    longer carries the whole surface volume flux).
+
+    ``surface_flux`` is tri-state: ``True`` / ``False`` force the
+    closure on / off; the default ``None`` **auto-resolves at bind** —
+    on iff some advecting velocity sits on the ``Outer`` node set along
+    its own flux axis (the ``_outer_to_inner`` seam). So the closure is
+    the default for hydrostatic advection (the diagnosed ``w`` on the
+    vertical ``Outer`` faces, under *any* construction path) and off —
+    bitwise unchanged — for nodal-velocity models (nonhydro2 /
+    shallowwater2, every velocity on ``Inner``). The factory knobs
+    ``hy.Model(surface_advective_flux=...)`` /
+    ``hy.comparison_model(surface_advective_flux=...)`` forward the
+    tri-state. The correction covers only the plain ``advection`` term,
+    not the ``background_advection`` split.
     """
 
     parameter_references = (
@@ -1851,7 +1861,7 @@ class _FluxFormAdvection(fr.model.Module):
         self,
         background: Mapping[str, Callable | float] | None = None,
         *,
-        surface_flux: bool = False,
+        surface_flux: bool | None = None,
     ) -> None:
         """Normalize the background mapping; targets resolve at bind."""
         self._advected: tuple[str, ...] = ()
@@ -1865,7 +1875,11 @@ class _FluxFormAdvection(fr.model.Module):
         self._halo_axes: tuple[str, ...] = ()
         self._walled: tuple[str, ...] = ()
         self._immersed: object = None
-        self._surface_flux: bool = bool(surface_flux)
+        # tri-state config: True/False force, None auto-resolves at bind
+        # to on iff the Outer -> Inner boundary-face seam exists
+        self._surface_flux: bool | None = surface_flux
+        # the resolved per-grid decision (bind); False before bind
+        self._surface_flux_on: bool = False
 
     # ------------------------------------------------------------
     #  Background declarations (AUXILIARY profile samples)
@@ -1958,6 +1972,42 @@ class _FluxFormAdvection(fr.model.Module):
         self._axis_velocity = tuple(
             (axis, name) for name, axis in selector.labels)
         self._bind_background(table)
+        self._surface_flux_on = self._resolve_surface_flux(table)
+
+    def _resolve_surface_flux(self, table: object) -> bool:
+        """Resolve the tri-state ``surface_flux`` on this grid.
+
+        Description
+        -----------
+        Explicit ``True`` / ``False`` are forced. The default ``None``
+        auto-resolves from **static space metadata only**: on iff some
+        advecting velocity sits on the both-boundary ``Outer`` node set
+        along its own flux axis — the exact structural condition under
+        which ``_outer_to_inner`` fires in ``_flux_space`` and the
+        boundary-face flux is dropped. Today that holds precisely for
+        the hydrostatic diagnosed ``w`` (on the vertical ``Outer``
+        faces), so the constancy-preserving closure is the default there
+        while nodal-velocity models (nonhydro2 / shallowwater2, every
+        velocity on ``Inner``) resolve off and stay bitwise unchanged.
+
+        Parameters
+        ----------
+        table : object
+            The bind field table (supplies the velocity spaces).
+
+        Returns
+        -------
+        bool
+            Whether the surface closure is active on this grid.
+        """
+        if self._surface_flux is not None:
+            return self._surface_flux
+        for axis, vname in self._axis_velocity:
+            factor = table[vname].space.bare.factor(axis)
+            if (isinstance(factor, NodalSpace)
+                    and factor.node_set is NodeSet.OUTER):
+                return True
+        return False
 
     def _bind_mapping(self, grid: object) -> None:
         """Freeze the mapped-column coupling table (stage C4).
@@ -2581,13 +2631,19 @@ class _FluxFormAdvection(fr.model.Module):
     ) -> dict[str, ScalarField]:
         r"""Flux-form transport of every advected component (Ro-scaled).
 
-        With ``surface_flux`` (opt-in, default off) the
-        constancy-preserving surface closure is added: the correction
-        :math:`-q\,A(\mathbf 1)` restores the boundary-face advective
-        flux the ``Outer -> Inner`` restriction drops (module docstring),
-        so :math:`A` annihilates a constant in **every** cell, the
-        surface cell included. Off (the default) the branch is skipped
-        and the tendency is byte-for-byte the pre-flag one.
+        When the surface closure is active (``_surface_flux_on``, the
+        resolved tri-state) the constancy-preserving correction
+        :math:`-q\,A(\mathbf 1)` is added: it restores the boundary-face
+        advective flux the ``Outer -> Inner`` restriction drops (module
+        docstring), so :math:`A` annihilates a constant in **every**
+        cell, the surface cell included. When it is off the branch is
+        skipped and the tendency is byte-for-byte the plain flux-form
+        one (the nodal-velocity default). The correction rides this
+        term's own EXPLICIT stage. **Note:** the background-split terms
+        (``_advect_perturbation`` / ``_advect_background``) are *not*
+        corrected — a background velocity with a nonzero surface value
+        would still drop its boundary face; today no such background
+        exists.
         """
         ro = ctx.params[fr.model.params.SCALING_ROSSBY]
         params = self._geometry_params(state)
@@ -2596,7 +2652,7 @@ class _FluxFormAdvection(fr.model.Module):
             q = state[qname]
             res = self._transport(state, q, params)
             tend = ro * self._immersed_scale(res, q)
-            if self._surface_flux:
+            if self._surface_flux_on:
                 tend = tend - q * self._constant_transport(
                     state, q, ro, params)
             out[qname] = tend
@@ -2653,25 +2709,33 @@ class _FluxFormAdvection(fr.model.Module):
 
         Description
         -----------
-        Runs the module's own flux path on a **ones** field in ``q``'s
-        function space — the full Rossby- and volume-fraction-scaled
-        advective operator applied to a constant. In every interior cell
-        this is machine-zero (the diagnosed velocity is discretely
+        The module's own advective operator applied to a **constant**
+        (ones) field on ``q``'s space — the full Rossby- and
+        volume-fraction-scaled divergence of the advecting velocity as
+        the operator sees it. Every reconstruction in the family
+        preserves constants, so the face value of a ones field is
+        *exactly* ``1`` and the correction flux is just the (immersed-
+        weighted) velocity face ``v_face``: this collapses to one flux
+        divergence per advected field rather than a second full
+        advection pass, while staying machine-exact (``q`` is used only
+        for its space here, never its data). In every interior cell the
+        result is machine-zero (the diagnosed velocity is discretely
         divergence-free there); it is nonzero only in a boundary cell
         whose ``Outer -> Inner`` restriction dropped the boundary-face
-        velocity (the free surface's ``w(0)`` at the top; exactly zero at
-        the flat-bottom seeded ``w = 0``). For a staggered ``q``
-        (``u``, ``v``) the flux path interpolates that surface velocity
-        onto ``q``'s own column automatically. ``_advect`` subtracts
-        ``q`` times this, telescoping the surface-cell constancy
-        violation to roundoff.
+        velocity (the free surface's ``w(0)/dz`` at the top; exactly
+        zero at the flat-bottom seeded ``w = 0``). For a staggered ``q``
+        (``u``, ``v``) ``_velocity_face`` interpolates that surface
+        velocity onto ``q``'s own column automatically. ``_advect``
+        subtracts ``q`` times this, telescoping the surface-cell
+        constancy violation to roundoff.
 
         Parameters
         ----------
         state : object
             The current state (supplies the advecting velocities).
         q : ScalarField
-            The advected quantity (fixes the function space).
+            The advected quantity (fixes the function space; data
+            unused).
         ro : object
             The Rossby number (a traced parameter scalar).
         params : dict | None
@@ -2682,11 +2746,16 @@ class _FluxFormAdvection(fr.model.Module):
         ScalarField
             :math:`A(\mathbf 1)` on ``q``'s space.
         """
-        # a ones field on q's space, portable across the eager path and
-        # the halo-negotiation trace (a scalar shift/scale, no `.data`)
-        ones = q * 0.0 + 1.0
-        res = self._transport(state, ones, params)
-        return ro * self._immersed_scale(res, ones)
+        res = None
+        for axis, vname in self._axis_velocity:
+            v = state[vname]
+            flux_space = self._flux_space(q, v, axis)
+            # face(1) == 1 exactly, so the flux is the velocity face
+            flux = self._immersed_flux(
+                self._velocity_face(v, flux_space), flux_space)
+            divergence = self._flux_divergence(q, flux, axis, params)
+            res = -divergence if res is None else res - divergence
+        return ro * self._immersed_scale(res, q)
 
     # ------------------------------------------------------------
     #  The background-split terms
@@ -2939,12 +3008,14 @@ class CenteredAdvection(_FluxFormAdvection):
         :math:`U + \mathrm{Ro}\,u'` with no outer Rossby factor —
         unlike the old stack, whose scaling factor multiplied the
         background too (default: None).
-    surface_flux : bool, optional
-        Enable the constancy-preserving surface closure (advect through
-        the top/bottom boundary faces with the one-sided face value; see
-        the ``_FluxFormAdvection`` Description). Default off, in which
-        case the tendency is byte-for-byte the plain flux-form one
-        (default: False).
+    surface_flux : bool | None, optional
+        Tri-state control of the constancy-preserving surface closure
+        (advect through the top/bottom boundary faces with the one-sided
+        face value; see the ``_FluxFormAdvection`` Description). ``True``
+        / ``False`` force it; the default ``None`` auto-resolves at bind
+        — on iff an advecting velocity sits on the ``Outer`` faces (the
+        hydrostatic diagnosed ``w``), off (bitwise unchanged) otherwise
+        (default: None).
     """
 
 
@@ -3048,12 +3119,14 @@ class UpwindAdvection(_FluxFormAdvection):
         grid; inert on a fully periodic one (default: "upwind1" — the
         monotone, globally 1st-order choice; see the class
         Description).
-    surface_flux : bool, optional
-        Enable the constancy-preserving surface closure (advect through
-        the top/bottom boundary faces with the one-sided face value; see
-        the ``_FluxFormAdvection`` Description). Default off, in which
-        case the tendency is byte-for-byte the plain flux-form one
-        (default: False).
+    surface_flux : bool | None, optional
+        Tri-state control of the constancy-preserving surface closure
+        (advect through the top/bottom boundary faces with the one-sided
+        face value; see the ``_FluxFormAdvection`` Description). ``True``
+        / ``False`` force it; the default ``None`` auto-resolves at bind
+        — on iff an advecting velocity sits on the ``Outer`` faces (the
+        hydrostatic diagnosed ``w``), off (bitwise unchanged) otherwise
+        (default: None).
     """
 
     _weighting: ClassVar[Literal["linear", "weno"]] = "linear"
@@ -3078,7 +3151,7 @@ class UpwindAdvection(_FluxFormAdvection):
         *,
         background: Mapping[str, Callable | float] | None = None,
         wall: Literal["upwind1", "centered2"] = "upwind1",
-        surface_flux: bool = False,
+        surface_flux: bool | None = None,
     ) -> None:
         """Build the biased reconstruction pairs for ``order``."""
         super().__init__(background=background, surface_flux=surface_flux)

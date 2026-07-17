@@ -85,7 +85,7 @@ def comparison_model(
     rossby_number: float = 1.0,
     epsilon: float = 1.0,
     eps: float = 0.1,
-    surface_advective_flux: bool = False,
+    surface_advective_flux: bool | None = None,
     name: str | None = None,
     **kwargs: object,
 ) -> _Model:
@@ -133,15 +133,17 @@ def comparison_model(
     eps : float, optional
         The pyOM quasi-AB2 computational-mode damper (Oceananigans'
         ``QuasiAdamsBashforth2`` default) (default: 0.1).
-    surface_advective_flux : bool, optional
-        Enable the constancy-preserving **surface closure** on the
-        centered advection: advect **through** the top/bottom boundary
-        faces with the one-sided face value instead of dropping the
-        surface velocity ``w(0)`` (the Oceananigans-equivalent
-        linear-free-surface treatment; see ``hy.Model``). Off is the
-        HY-D6 fixed-domain closure that conserves tracer content to
-        roundoff; on, tracer content is exchanged with the moving
-        surface (default: False).
+    surface_advective_flux : bool | None, optional
+        Tri-state control of the constancy-preserving **surface
+        closure** on the centered advection (see ``hy.Model``). The
+        default ``None`` is the closure: advect **through** the
+        top/bottom boundary faces with the one-sided face value (the
+        Oceananigans-equivalent linear-free-surface treatment), so
+        tracer content is exchanged with the moving surface. ``False``
+        restores the legacy HY-D6 fixed-domain closure that drops the
+        surface velocity ``w(0)`` and conserves tracer content to
+        roundoff (subject to the surface-cell constancy violation /
+        implicit-free-surface instability) (default: None).
     name : str | None, optional
         Model name (default: None).
     **kwargs : object
