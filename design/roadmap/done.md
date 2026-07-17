@@ -453,7 +453,8 @@ Implementation record:
   Shipped with the walled test sweep (nodal coverage pinned
   `family="nodal"` where the nodal path is the test's purpose, the
   F3-flip precedent) and nodal siblings for the walled step-benchmark
-  cases (baselines re-record next GPU campaign). The flip surfaced
+  cases (baselines re-recorded 2026-07-17, gpu4 campaign T7 — see the
+  step-baseline re-record entry). The flip surfaced
   the walled-FV analytic-eigenmode taught gap — closed the next day
   (next entry).
 
@@ -469,7 +470,8 @@ Implementation record:
   models stay nodal-auto (default path never breaks), explicit
   `family="fv"` + ALE is a taught error at `bind`. Benchmark
   `nh_mapped` now measures the FV default (`nh_mapped_nodal` sibling
-  added; baselines re-record next GPU campaign). The auto rule is
+  added; baselines re-recorded 2026-07-17, gpu4 campaign T7). The auto
+  rule is
   now: **FV iff unimmersed and statically-mapped-or-flat.** Records:
   scoping §13 addendum; the ALE-FV gap stays in [`open.md`](open.md).
 
@@ -499,6 +501,33 @@ Implementation record:
   reverse-mode NaN — flagged, roadmap follow-up). Records:
   [`../research/ale_on_fv.md`](../research/ale_on_fv.md) + scoping §13
   addendum 2.
+
+- **FV/nodal step baselines re-recorded on the campaign's final dev**
+  (2026-07-17, gpu4 campaign T7) — both `benchmarks/baselines/step-gpu{1,4}.json`
+  re-recorded on clean merged dev `5af2e370` (metadata `dirty=false`).
+  `step-gpu4.json` re-recorded **in full** on a single-process 4×A100
+  node (fusion workaround `--xla_disable_hlo_passes=multi_output_fusion`),
+  gaining all nodal sibling cases (`nh_flat_periodic_nodal`,
+  `nh_flat_advective_nodal`, `nh_flat_walled_nodal`,
+  `nh_flat_walled_x_nodal`, `nh_mapped_nodal`); only the walled rows of
+  `step-gpu1.json` were re-recorded (single device; other rows carried
+  forward byte-identical). Regression check vs the old baselines: every
+  large delta attributed to a known landing, no unexplained regression.
+  The **walled** cases (`nh_flat_walled{,_x}`) now run the **FV** C-grid
+  by default (walled auto flip), +0.8..+9.7% on 4 GPUs / +0.6..+5.0% on
+  1 GPU vs the old FD numbers — confirmed as the FV-vs-FD cost by the new
+  nodal siblings matching the old FD baseline to within noise. The
+  **mapped** cases (`nh_mapped`, FV default) are **much faster**
+  (4-GPU: −53..−58% at 30 iters; 1-GPU `nh_mapped[256,30]` 10.19 s →
+  4.17 s, −59.1%) from the CG-tolerance default flip to 1e-8 (the bench
+  cases pass no `pressure_tolerance`, so they run the 1e-8 convergence
+  break with `pressure_iterations` as the max budget; the "pin fv morph
+  to fixed-iteration" commit pinned a *test*, not these cases). FV and
+  nodal siblings step at parity (small residual gaps are compiler/fusion
+  artifacts, not physics). `sw_flat[1024]` +6.1% (4 GPU) attributed to
+  the reverse-mode-safe Sadourny PV-division double-`where` guard
+  (`4f6e86b6`, differentiability policy). Self-check
+  `--fail-on-regression` vs the new baselines: green on both.
 
 - **Coefficient profiles follow the family** (owner ruling
   2026-07-17) — the `MeridionalStratification` `n2` Profile question

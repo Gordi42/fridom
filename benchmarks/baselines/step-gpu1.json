@@ -1,17 +1,17 @@
 {
   "format_version": 1,
   "metadata": {
-    "commit": "8508b71de309a674652ffe363237f245e47d7766",
-    "dirty": true,
-    "branch": "perf/fv-step-parity",
+    "commit": "5af2e37073b745a261ecc01a0d785362205c18cc",
+    "dirty": false,
+    "branch": "perf/step-baselines-gpu4",
     "fridom_version": "0.0.5",
     "jax_version": "0.10.2",
     "python_version": "3.12.11",
     "backend": "gpu",
     "device_kind": "NVIDIA A100-SXM4-80GB",
     "device_count": 1,
-    "hostname": "l50054.lvt.dkrz.de",
-    "timestamp": "2026-07-16T17:29:51.023873+00:00"
+    "hostname": "l50109.lvt.dkrz.de",
+    "timestamp": "2026-07-17T18:04:49.240343+00:00"
   },
   "results": [
     {
@@ -398,11 +398,11 @@
         "n": 32
       },
       "wall_times": [
-        0.009758303058333695,
-        0.009420232032425702,
-        0.01050151593517512,
-        0.009334461996331811,
-        0.009580731973983347
+        0.009867326996754855,
+        0.009582276979926974,
+        0.05248274595942348,
+        0.009729366982355714,
+        0.009593107039108872
       ],
       "trace_time": null,
       "compile_time": null,
@@ -411,11 +411,11 @@
       "output_bytes": null,
       "code_bytes": null,
       "flops": null,
-      "peak_bytes": 23134464,
+      "peak_bytes": 11669760,
       "extras": {
         "points": 32768.0,
         "steps": 50.0,
-        "first_advance_s": 2.0684521549846977
+        "first_advance_s": 2.523788977006916
       },
       "error": null
     },
@@ -425,11 +425,11 @@
         "n": 256
       },
       "wall_times": [
-        0.3142376620089635,
-        0.3144863829948008,
-        0.31505555391777307,
-        0.3144590329611674,
-        0.3142111609922722
+        0.31736770301358774,
+        0.31697322300169617,
+        0.3579987859702669,
+        0.3170450630132109,
+        0.31709164299536496
       ],
       "trace_time": null,
       "compile_time": null,
@@ -438,11 +438,11 @@
       "output_bytes": null,
       "code_bytes": null,
       "flops": null,
-      "peak_bytes": 4451436032,
+      "peak_bytes": 4445045760,
       "extras": {
         "points": 16777216.0,
         "steps": 50.0,
-        "first_advance_s": 2.0853655430255458
+        "first_advance_s": 1.9567025380092673
       },
       "error": null
     },
@@ -452,11 +452,11 @@
         "n": 32
       },
       "wall_times": [
-        0.009524891967885196,
-        0.009360341937281191,
-        0.009622122975997627,
-        0.009389312006533146,
-        0.009260322083719075
+        0.009757088031619787,
+        0.00978225702419877,
+        0.010145247972104698,
+        0.009858058008830994,
+        0.00996595702599734
       ],
       "trace_time": null,
       "compile_time": null,
@@ -465,11 +465,11 @@
       "output_bytes": null,
       "code_bytes": null,
       "flops": null,
-      "peak_bytes": 23247616,
+      "peak_bytes": 11282688,
       "extras": {
         "points": 32768.0,
         "steps": 50.0,
-        "first_advance_s": 1.8146607800154015
+        "first_advance_s": 2.1355912960134447
       },
       "error": null
     },
@@ -479,11 +479,11 @@
         "n": 256
       },
       "wall_times": [
-        0.3191988389007747,
-        0.3190598980290815,
-        0.31902137806173414,
-        0.3188653680263087,
-        0.318983317934908
+        0.32092766399728134,
+        0.3209440630162135,
+        0.321040513983462,
+        0.3203497019712813,
+        0.32078284403542057
       ],
       "trace_time": null,
       "compile_time": null,
@@ -496,7 +496,7 @@
       "extras": {
         "points": 16777216.0,
         "steps": 50.0,
-        "first_advance_s": 2.0830486449413
+        "first_advance_s": 2.1778423129580915
       },
       "error": null
     },

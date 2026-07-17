@@ -477,10 +477,14 @@ a dead-end by decision (FV-D2) — the only open gap, by choice.
    `multi_output_fusion` workaround
    (`XLA_FLAGS=--xla_disable_hlo_passes=multi_output_fusion`,
    jax#39100) is **not** set by the test harness, so it was set on both
-   invocations per campaign ground rule 3. Still open: the **4-GPU step
-   baseline** re-record (gpu4 baseline predates the nodal sibling cases;
-   walled baselines predate the FV flip) — handled by the campaign's
-   baseline task.
+   invocations per campaign ground rule 3. **Validation note
+   (2026-07-17, gpu4 campaign T7):** the step baselines were re-recorded
+   on the campaign's final merged dev (`5af2e370`, clean tree) —
+   `step-gpu4.json` in full (nodal siblings added) and the walled rows
+   of `step-gpu1.json`; every large delta vs the old baselines
+   attributed to a known landing (walled → FV default; mapped → CG
+   tolerance 1e-8), self-check green. See the step-baseline re-record
+   entry in [`../../roadmap/done.md`](../../roadmap/done.md).
 
 ## 11. FV-D4 — walls on FV (decided + shipped 2026-07-16; F4 record)
 
@@ -643,8 +647,8 @@ the docstring sweep (`core.py`, `model.py`, `eigenmodes.py`), the
 walled test sweep (nodal coverage pinned `family="nodal"` where the
 nodal path is the test's purpose — the F3-flip precedent), and
 explicit nodal siblings for the walled step-benchmark cases
-(`nh_flat_walled_nodal` / `nh_flat_walled_x_nodal`; committed
-baselines untouched — re-record on the next GPU campaign).
+(`nh_flat_walled_nodal` / `nh_flat_walled_x_nodal`; baselines
+re-recorded 2026-07-17, gpu4 campaign T7 — see §10.6).
 
 **Discovery pinned during the flip — the walled-FV analytic
 eigenmode gap.** Under a walled-FV default, the analytic
@@ -824,7 +828,7 @@ Two consequences, both deliberate:
    fv + `MovingGeometry` *without* ALE works (verified bitwise).
 
 Also in the merge: `nh_mapped` benchmarks the FV default with an
-`nh_mapped_nodal` sibling (baselines re-record next GPU campaign),
+`nh_mapped_nodal` sibling (baselines re-recorded 2026-07-17, T7),
 the stale `MeridionalStratification` "n2 stays a nodal Profile"
 docstring corrected to the profiles-follow-the-family ruling.
 
