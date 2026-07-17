@@ -171,8 +171,13 @@ the scoping §10–§13). Open:
   terrain support at all** (runs silently with 27%-wrong `p_hyd`;
   four metric-free sites, record §4), and the cumint `jacobian=`
   seam is unwired for `maps=` grids (silent no-op / unknown-metric
-  raise). Work items N1–N4 / H0–H4 and four owner calls in record
-  §6–§7; taught errors (N1/H0) are the cheap immediate step.
+  raise). All four owner calls **ruled 2026-07-17** (record §7
+  addendum): N1+N2 with a plain-CG stopgap; hydrostatic core build
+  H0–H2+H4 with the explicit/split depth fix (implicit H3 deferred
+  behind a taught error); multigrid learns `grid.measure` widths
+  (no interim Thomas route); the `jacobian=` seam wired properly
+  (`sqrt_g` for `maps=`, name re-key, taught error — H1 consumes
+  the seam, superseding route a). Implementation open.
 - **Validate the FV default on 4 GPUs** — the distributed solve on
   average origins ran only 1-GPU so far (forced-4 CPU asserts the
   walled + mapped FV fast paths), the gpu4 step baseline predates the

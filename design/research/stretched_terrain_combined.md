@@ -420,6 +420,31 @@ method unified.
    not in grid construction (the grid itself is valid and the
    advection layer uses it correctly).
 
+### §7 addendum — rulings (owner, 2026-07-17)
+
+All four calls ruled the day the record froze:
+
+1. **nonhydro2 scope:** N1 + N2 now, with a plain-CG stopgap so
+   correctness runs and the N4 battery are possible; the
+   preconditioner lift proceeds on the ratified route (ruling 3),
+   not deferred behind measurements.
+2. **Hydrostatic:** gate **and** build the core — H0, H1, H2, H4,
+   plus the depth-integral fix for the explicit/split-explicit free
+   surfaces; the variable-csqr *implicit* free surface (H3) stays
+   deferred behind a taught error.
+3. **Preconditioner route:** the multigrid V-cycle learns
+   `grid.measure` widths directly (column smoother + coarsening);
+   no interim Thomas-only preconditioner.
+4. **The `jacobian=` seam is wired properly:** `sqrt_g` derived for
+   analytic `maps=` mappings, the gate re-keyed so chart-coordinate
+   names resolve, and unresolvable names become a taught error.
+   Consequence: H1 consumes the wired seam (§6 route b),
+   **superseding** the module-side route-(a) recommendation.
+
+Gate placement stays as recommended: capability gates live in the
+consuming solvers/modules (F5 precedent), never in grid
+construction.
+
 ## Appendix: probe battery
 
 Probes live outside the tree (scratch); recipes and numbers:
