@@ -1,5 +1,6 @@
 """Advection on mapped and stretched grids: physical flux divergence."""
 
+import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
@@ -12,6 +13,7 @@ from fridom.model.modules.advection import (
     WENOAdvection,
     _BiasedFaceReconstruction,
     _CenteredFaceInterpolation,
+    _safe_ratio,
 )
 from fridom.model.modules.moving_geometry import MovingGeometry
 from fridom.model.time_steppers.adam_bashforth import (
@@ -349,4 +351,98 @@ def test_mapped_advection_reads_the_current_geometry():
         rtol=0, atol=1e-14)
     assert not np.allclose(np.asarray(got["b"].data),
                            np.asarray(other_t["b"].data))
+
+
+# ================================================================
+#  Differentiability: the coupled-axis slope factor Z/J is VJP-sealed
+# ================================================================
+def test_mapped_slope_ratio_is_vjp_sealed():
+    # the coupled-axis slope coefficient of the nodal mapped divergence
+    # divides two metric fields; on the bounded (terrain) column the
+    # denominator J = dzp/dz is zero-filled in the never-valid storage
+    # padding, so the raw quotient is a masked singularity whose reverse
+    # pass is 0/0 -> NaN. _safe_ratio seals it: forward is bitwise the
+    # naive quotient on every valid cell, and jax.grad through it is
+    # finite where the raw divide poisons the padding.
+    n = 8
+    model = make_mapped_model(n, CenteredAdvection(), ny=n)
+    grid = model.grid
+    space = model.state["b"].function_space
+    slope = grid.metric(space, "dzp_dx")
+    jac = grid.metric(space, "dzp_dz")
+
+    guarded = _safe_ratio(slope, jac)
+    naive = slope / jac
+    valid = np.asarray(jac.storage != 0.0)
+    # (1) forward bitwise unchanged on every valid cell
+    assert np.array_equal(
+        np.asarray(guarded.storage)[valid],
+        np.asarray(naive.storage)[valid])
+    # the guard fires only on the never-valid padding
+    assert np.all(np.isfinite(np.asarray(guarded.storage)))
+    assert np.any(~np.isfinite(np.asarray(naive.storage)))
+
+    # (2) reverse-mode: grad of a quadratic loss through the ratio times
+    # a differentiated field is finite (the padding cotangent 0 * NaN is
+    # sealed to 0), where the naive divide leaves NaN in the padding
+    base = jnp.asarray(
+        np.random.default_rng(4).standard_normal(slope.storage.shape))
+
+    def make_loss(ratio):
+        def loss(x):
+            v = slope.with_storage(x)
+            return jnp.sum((ratio(slope, jac) * v).data ** 2)
+        return loss
+
+    gg = np.asarray(jax.grad(make_loss(_safe_ratio))(base))
+    gn = np.asarray(jax.grad(make_loss(lambda a, b: a / b))(base))
+    assert np.all(np.isfinite(gg))
+    assert np.any(~np.isfinite(gn))
+
+    # (3) forward mode stays finite (never foreclose jvp)
+    tangent = jnp.asarray(
+        np.random.default_rng(5).standard_normal(slope.storage.shape))
+    _, jvp = jax.jvp(lambda x: _safe_ratio(slope.with_storage(x),
+                                           jac).data,
+                     (slope.storage,), (tangent,))
+    assert np.all(np.isfinite(np.asarray(jvp)))
+
+
+def test_mapped_advection_tendency_grad_matches_fd():
+    # jax.grad of a quadratic loss through the nodal mapped advection
+    # tendency (a terrain grid, velocities + tracer -- the u rows cross
+    # the guarded Z/J slope factor) is finite and matches a central
+    # finite difference; one jvp stays finite. The smallest grid that
+    # carries the cross/slope term (a sloped column, coupled x-axis).
+    n = 6
+    model = make_mapped_model(n, CenteredAdvection(), ny=4)
+    set_random_state(model, seed=3)
+    flt = fr.model.term_predicates.owned_by(CenteredAdvection)
+    state = model.state
+    leaves, treedef = jax.tree_util.tree_flatten(state)
+    u_leaf = state["u"].storage
+    (idx,) = [i for i, ref in enumerate(leaves) if ref is u_leaf]
+
+    def loss(x):
+        new = list(leaves)
+        new[idx] = x
+        spliced = jax.tree_util.tree_unflatten(treedef, new)
+        tend = model.tendency(spliced, constraints=False, filter=flt)
+        return sum(jnp.sum(f.data ** 2) for f in tend)
+
+    grad = np.asarray(jax.grad(loss)(u_leaf))
+    assert np.all(np.isfinite(grad))
+    assert np.abs(grad).max() > 0.0
+
+    rng = np.random.default_rng(6)
+    direction = jnp.asarray(rng.standard_normal(u_leaf.shape),
+                            dtype=u_leaf.dtype)
+    directional = float(jnp.vdot(jnp.asarray(grad), direction))
+    eps = 1e-4
+    fd = (float(loss(u_leaf + eps * direction))
+          - float(loss(u_leaf - eps * direction))) / (2.0 * eps)
+    assert directional == pytest.approx(fd, rel=1e-4)
+
+    _, jvp = jax.jvp(loss, (u_leaf,), (direction,))
+    assert np.isfinite(float(jvp))
 

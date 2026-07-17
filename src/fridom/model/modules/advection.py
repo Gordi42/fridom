@@ -475,6 +475,50 @@ def _wall_profile_values(
     return worst
 
 
+def _safe_ratio(
+    num: ScalarField, den: ScalarField,
+) -> ScalarField:
+    r"""
+    VJP-sealed metric ratio ``num / den`` (the slope factor Z_i / J).
+
+    Description
+    -----------
+    The coupled-axis slope coefficient of the nodal mapped divergence
+    (:meth:`_FluxFormAdvection._flux_divergence`) divides two metric
+    fields sharing a space. On a bounded (terrain) axis the denominator
+    ``J = d<mapped>_d<base>`` is strictly positive on every valid cell
+    but zero-filled in the never-valid storage padding, where the raw
+    quotient is a masked singularity: the forward ``0/0`` is discarded
+    by the post-application retag/sync, but its reverse VJP is
+    ``0/0 -> NaN`` and poisons ``jax.grad`` through nonlinear terrain
+    advection (the differentiability-policy poison). The double-
+    ``jnp.where`` seals the reverse pass while staying bitwise identical
+    on every valid cell (``bad`` covers only the ``J == 0`` padding) —
+    the same seal as the staggered measure divide and the mapped
+    pressure operator's ``_divide_by_jacobian`` (AGENTS.md diff policy).
+
+    Parameters
+    ----------
+    num : ScalarField
+        The numerator (the slope ``d<mapped>_d<axis>``).
+    den : ScalarField
+        The denominator (the Jacobian ``d<mapped>_d<base>``).
+
+    Returns
+    -------
+    ScalarField
+        The ratio on the divide's structure, finite (0) in the
+        never-valid padding.
+    """
+    bad = den.storage == 0.0
+    safe = jnp.where(bad, 1.0, den.storage)
+    ratio = jnp.where(bad, 0.0, num.storage / safe)
+    # the field divide fixes the result's structure (space, merged halo
+    # validity); its raw quotient data is discarded for the guarded
+    # ratio, so the singular divide-VJP is never built.
+    return (num / den).with_storage(ratio)
+
+
 # ================================================================
 #  The linear (optimal-weight) upwind rows
 # ================================================================
@@ -2455,10 +2499,9 @@ class _FluxFormAdvection(fr.model.Module):
             return div.retag(q)
         dcol = flux.diff(base)
         space = dcol.function_space
-        coeff = (
-            grid.metric(space, f"d{mapped}_d{axis}", params=params)
-            / grid.metric(space, f"d{mapped}_d{base}",
-                          params=params))
+        slope = grid.metric(space, f"d{mapped}_d{axis}", params=params)
+        jac = grid.metric(space, f"d{mapped}_d{base}", params=params)
+        coeff = _safe_ratio(slope, jac)
         corr = coeff * dcol
         registry = grid.dispatch
         for name in (base, axis):
