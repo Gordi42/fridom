@@ -8,12 +8,14 @@ change, a transform-plan decline, a Symbol-form elliptic — leaves
 every correctness test green while multiplying the multi-device step
 cost. These tests spy on the resolution seam and run a real step.
 """
+import jax.numpy as jnp
 import numpy as np
 import pytest
 
 import fridom.nonhydro2 as nh
 import fridom.spatial.operators.spectral_solve as spectral_solve_mod
 from fridom.model.modules.coriolis import FPlaneCoriolis
+from fridom.spatial.coordinate_mapping import CoordinateMapping
 from fridom.spatial.grid import Grid
 from fridom.spatial.meshes.interval import IntervalMesh
 from fridom.spatial.operators.distributed_solve import SlabSolve
@@ -279,3 +281,45 @@ def test_prime_step_is_device_count_invariant():
     for name, ref in one.items():
         assert np.allclose(many[name], ref, rtol=1e-10, atol=1e-11), (
             name, np.abs(many[name] - ref).max())
+
+
+def _make_mapped_fv_model(*, device_ids=None):
+    # a terrain-following FV column (zp = z H(x), walled z, periodic x/y):
+    # the mapped PCG projection derives every metric through halo-clean
+    # field ops and preconditions with the mixed Fourier x Cosine
+    # spectral inverse, so it must ride the same decomposition as the
+    # walled FV solve
+    mapping = CoordinateMapping(
+        maps={"zp": lambda z, H: z * H},
+        params={"H": lambda x: 1.0 + 0.2 * jnp.sin(x)})
+    grid = Grid((
+        IntervalMesh(N, (0.0, LENGTH), periodic=True, name="x"),
+        IntervalMesh(N, (0.0, LENGTH), periodic=True, name="y"),
+        IntervalMesh(N, (0.0, 1.0), periodic=False, name="z")),
+        mapping=mapping, device_ids=device_ids)
+    return nh.Model(grid=grid, dt=0.02, advection=True,
+                    coriolis=FPlaneCoriolis(f0=1.0),
+                    pressure_iterations=16, family="fv")
+
+
+def test_mapped_fv_step_is_device_count_invariant():
+    # gate 7: the mapped FV projection smoke under forced-4 matches the
+    # 1-device replicated result. Sharding the periodic x/y while the
+    # walled z stays local must not perturb the PCG metric chains, the
+    # corner cross interpolations, or the conservative buoyancy flux
+    rng = np.random.default_rng(0)
+    one = _make_mapped_fv_model(device_ids=(0,))
+    ic = {name: rng.standard_normal(one.state[name].data.shape)
+          for name in ("u", "v", "w", "b")}
+
+    def run(model):
+        model.set_fields(**ic)
+        model.advance(6)
+        return {name: np.asarray(model.state[name].data)
+                for name in ("u", "v", "w", "b")}
+
+    ref = run(one)
+    many = run(_make_mapped_fv_model(device_ids=None))
+    for name, r in ref.items():
+        assert np.allclose(many[name], r, rtol=1e-9, atol=1e-10), (
+            name, np.abs(many[name] - r).max())

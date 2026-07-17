@@ -58,7 +58,23 @@ hops of one cross pair are exact transposes of each other
 (``C -> R`` / ``R -> C`` on the periodic coupled axis, ``C -> Inner``
 / Dirichlet-tagged ``Inner -> C`` on the bounded column), the two
 cross blocks are exact negative-transposes and ``A`` is **exactly
-symmetric** — the SPD license CG requires (CS-D2). The alternative —
+symmetric** — the SPD license CG requires (CS-D2).
+
+The solver is **family-aware** (stage F5): on the FV C-grid the cell
+pressure is a ``CellAvg`` average, so the cross-term ``cell -> face``
+up-hop resolves the G4 ``("interpolate", CellAvg)`` reconstruction
+(``CellAvg -> Right | Inner``) and the ``face -> cell`` down-hop the
+``"average"`` reconstruction (``Right | Inner -> CellAvg``, its
+Dirichlet ``Inner -> CellAvg`` variant zero-padding the wall face,
+:meth:`_to_cell`). Those two-point means are the same numbers as the
+nodal ``Center <-> Right`` / ``Center <-> Inner`` interpolations and
+exact transposes under the uniform computational cell measure, so the
+transpose-pairing — and the exact symmetry and CG license — hold on
+both families. No measure weighting enters the cross hops: the mapped
+column rides uniform computational meshes and all geometry lives in
+the ``K`` coefficients (the chart-uniform-stencil rule).
+
+The alternative —
 evaluating the cross coefficient on the flux faces, which is what the
 ``physical_diff``-composed ``Div(grad_phys)`` would do — is symmetric
 only to O(h^2); per the stage-C3 instruction the exact-SPD corner
@@ -158,6 +174,7 @@ from fridom.spatial.operators.composed import (
 )
 from fridom.spatial.operators.krylov import ConjugateGradient
 from fridom.spatial.operators.spectral_solve import SpectralSolve
+from fridom.spatial.spaces.average import AverageSpace
 
 if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Callable, Mapping
@@ -256,6 +273,20 @@ class MappedPressureSolver:
         self._mapped, self._base = next(iter(columns))
         self._grid = grid
         self._space: SpaceLike = space.bare
+        # the discretization family of the (cell) pressure space: an
+        # average-family (CellAvg) space is the FV C-grid (stage F5),
+        # a nodal Center space the point-value C-grid. The two families
+        # differ only in the cross-term corner *face -> cell* hop —
+        # the FV cell is CellAvg, so that hop is the ``"average"``
+        # reconstruction (face -> CellAvg) rather than the nodal
+        # ``"interpolate"`` (face -> Center); the *cell -> face* up-hop
+        # keys on the cell factor and resolves per family with no
+        # branch (the G4 ``("interpolate", CellAvg)`` reconstruction row
+        # lands ``CellAvg -> Right | Inner`` exactly as the nodal
+        # ``("interpolate", Center)`` lands ``Center -> Right | Inner``)
+        self._fv: bool = any(
+            isinstance(factor, AverageSpace)
+            for factor in self._space.factors)
         self._iterations = iterations
         self._params = params
         self._single_precision = bool(single_precision)
@@ -342,16 +373,58 @@ class MappedPressureSolver:
             corner = resolve_codomain(up_i, face_b)
             corner_tagged = _dirichlet_mid(corner, self._base)
             self._up_i[a] = up_i
-            self._down_i[a] = registry.resolve(
-                "interpolate", corner.factor(a))[a]
+            self._down_i[a] = self._to_cell(
+                registry, corner.factor(a), a)
             self._up_b[a] = registry.resolve(
                 "interpolate", self._face[a].factor(self._base),
             )[self._base]
-            self._down_b[a] = registry.resolve(
-                "interpolate", corner_tagged.factor(self._base),
-            )[self._base]
+            self._down_b[a] = self._to_cell(
+                registry, corner_tagged.factor(self._base), self._base)
             self._corner[a] = corner
             self._corner_tagged[a] = corner_tagged
+
+    def _to_cell(
+        self, registry: object, factor: SpaceLike, axis: str,
+    ) -> Operator:
+        r"""
+        Resolve the cross-term face -> cell staggering hop (family).
+
+        Description
+        -----------
+        The down leg of a corner cross chain lands the flux back on
+        the pressure cell. On the nodal C-grid the cell is
+        ``Center`` and the hop is the ``"interpolate"`` row
+        (``Right | Inner -> Center``); on the FV C-grid (stage F5)
+        the cell is ``CellAvg`` and the hop is the ``"average"``
+        reconstruction (``Right | Inner -> CellAvg``, the
+        ``f.to`` direction). The two are exact transposes of the
+        matching ``cell -> face`` up-hop under the (uniform,
+        computational) cell measure — the FV ``CellAvg <-> Right``
+        two-point-mean pair and the walled ``CellAvg <-> Inner``
+        pair (the ``Inner(DIRICHLET) -> CellAvg`` variant zero-pads
+        the wall face) — so the corner cross blocks stay exact
+        negative-transposes and ``A`` stays exactly symmetric on
+        both families (module docstring). No measure weighting
+        enters: the mapped column rides uniform computational
+        meshes, and the geometry lives entirely in the ``K``
+        coefficients.
+
+        Parameters
+        ----------
+        registry : object
+            The grid's dispatch registry.
+        factor : SpaceLike
+            The (bare, nodal) corner face factor to reconstruct.
+        axis : str
+            The coordinate the hop reduces along.
+
+        Returns
+        -------
+        Operator
+            The bound face -> cell reconstruction/interpolation.
+        """
+        kind = "average" if self._fv else "interpolate"
+        return registry.resolve(kind, factor)[axis]
 
     # ================================================================
     #  Properties

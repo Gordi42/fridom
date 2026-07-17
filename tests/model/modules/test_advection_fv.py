@@ -322,20 +322,61 @@ def test_fv_background_split_conserves_and_stays_finite(cls):
 
 
 # ================================================================
-#  Stage F5: FV tracer on a mapped grid is a taught error
+#  Stage F5: FV tracer on a mapped column (J-weighted conservation)
 # ================================================================
-def test_fv_tracer_on_a_mapped_grid_is_a_taught_error():
-    # the FV flux divergence is the computational-coordinate flux_diff,
-    # not the J-weighted physical divergence a mapped column needs
-    # (mapped FV is stage F5); CenteredAdvection is mapped-capable, so
-    # the guard is an explicit rejection on the average-family tracer
+@pytest.mark.parametrize("periodic_column", [True, False])
+def test_fv_tracer_on_a_mapped_grid_conserves_physical_content(
+        periodic_column):
+    # CenteredAdvection transports a CellAvg tracer on a terrain-
+    # following column in J-weighted conservative flux form (stage F5),
+    # so its PHYSICAL content int(q dV) = int(J q dx) is conserved to
+    # machine zero — the FV headline property on genuine terrain, which
+    # the consistent nodal mapped divergence does not give.
+    grid = make_mapped_grid(periodic_column=periodic_column)
+    model = FrModel(grid=grid,
+                    modules=(DynamicalCore(),
+                             _PassiveTracer(family="fv"),
+                             CenteredAdvection()),
+                    time_stepper=AdamBashforth(DT, order=3))
+    set_random_state(model)
+    tau = advection_tendency(model, CenteredAdvection)
+    jac = grid.metric(model.state["b"].function_space, "dzp_dz")
+    weighted = float(np.asarray((tau["b"] * jac).integrate().data
+                                ).ravel()[0])
+    db = np.asarray(tau["b"].data)
+    scale = float(np.sum(np.abs(db)))
+    assert abs(weighted) < 1e-11 * (scale + 1.0)
+
+
+def test_fv_mapped_tracer_conserves_and_nodal_does_not():
+    # the same b advected on the nodal mapped model does NOT conserve
+    # its physical content: the FV conservative flux form is the new
+    # property, not a shared one
     grid = make_mapped_grid()
-    with pytest.raises(NotImplementedError, match="average-family"):
-        FrModel(grid=grid,
-                modules=(DynamicalCore(),
-                         _PassiveTracer(family="fv"),
-                         CenteredAdvection()),
-                time_stepper=AdamBashforth(DT, order=3))
+    fv = FrModel(grid=grid,
+                 modules=(DynamicalCore(),
+                          _PassiveTracer(family="fv"),
+                          CenteredAdvection()),
+                 time_stepper=AdamBashforth(DT, order=3))
+    nodal = FrModel(grid=make_mapped_grid(),
+                    modules=(DynamicalCore(),
+                             _PassiveTracer(family="nodal"),
+                             CenteredAdvection()),
+                    time_stepper=AdamBashforth(DT, order=3))
+    set_random_state(fv)
+    set_random_state(nodal)
+    jac_fv = grid.metric(fv.state["b"].function_space, "dzp_dz")
+    jac_nod = nodal.state["b"].grid.metric(
+        nodal.state["b"].function_space, "dzp_dz")
+    tau_fv = advection_tendency(fv, CenteredAdvection)["b"]
+    tau_nod = advection_tendency(nodal, CenteredAdvection)["b"]
+    w_fv = abs(float(np.asarray(
+        (tau_fv * jac_fv).integrate().data).ravel()[0]))
+    w_nod = abs(float(np.asarray(
+        (tau_nod * jac_nod).integrate().data).ravel()[0]))
+    scale = float(np.sum(np.abs(np.asarray(tau_fv.data))))
+    assert w_fv < 1e-11 * (scale + 1.0)
+    assert w_nod > 1e-6 * scale  # the nodal form is not conservative
 
 
 # ================================================================
