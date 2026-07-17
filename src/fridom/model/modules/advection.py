@@ -1339,7 +1339,7 @@ class _SelectedFaceReconstruction(Operator):
         if (getattr(q, "_trace_apply", None) is not None
                 or getattr(positive, "_trace_apply", None)
                 is not None):
-            return left_op(q).retag(flux_space)
+            return _to_flux_space(left_op(q), flux_space)
         order = self._order
         u_size = order + 1
         domain = q.function_space.bare.factor(axis)
@@ -1368,7 +1368,7 @@ class _SelectedFaceReconstruction(Operator):
             metadata=q.metadata, align=m0)
         interior = _finalize(q, interior, codomain)
         if self._boundary == "none" or domain.mesh.periodic:
-            return interior.retag(flux_space)
+            return _to_flux_space(interior, flux_space)
         left_walls = apply_graded_walls(
             q, axis, interior, self._rungs(order, shift, "left"),
             shift)
@@ -1376,8 +1376,8 @@ class _SelectedFaceReconstruction(Operator):
             q, axis, interior, self._rungs(order, shift, "right"),
             shift)
         return Where()(positive,
-                       left_walls.retag(flux_space),
-                       right_walls.retag(flux_space))
+                       _to_flux_space(left_walls, flux_space),
+                       _to_flux_space(right_walls, flux_space))
 
     def _rungs(
         self, order: int, shift: int,
@@ -1635,6 +1635,85 @@ def _is_average_space(space: object) -> bool:
     """
     return any(isinstance(factor, AverageSpace)
                for factor in space.bare.factors)
+
+
+def _is_face_factor(factor: object) -> bool:
+    """Whether a bare factor sits on the mesh faces (staggered).
+
+    Description
+    -----------
+    The staggering discriminant of the biased velocity interpolation:
+    a ``Right`` (periodic) or ``Inner`` (bounded) nodal factor lives on
+    the mesh faces, half a cell from the ``Center`` / ``CellAvg`` cell
+    midpoints. Two factors of the same axis need a genuine half-cell
+    interpolation exactly when their face-ness differs; equal face-ness
+    means they are co-located (``Center`` and ``CellAvg`` share the
+    midpoint) and any difference is family (deconvolve) or BC (retag)
+    only.
+
+    Parameters
+    ----------
+    factor : object
+        The bare 1D factor space.
+
+    Returns
+    -------
+    bool
+        True iff the factor is a face-staggered nodal space.
+    """
+    return (isinstance(factor, NodalSpace)
+            and factor.node_set in (NodeSet.RIGHT, NodeSet.INNER))
+
+
+def _to_flux_space(
+    field: FieldLike, flux_space: object,
+) -> FieldLike:
+    r"""
+    Bridge a nodal C-grid stencil output onto the (FV) flux space.
+
+    Description
+    -----------
+    The biased schemes reconstruct the advected quantity and interpolate
+    the advecting velocity on the nodal C-grid frame; both land on a
+    ``Center`` factor along the flux axis. On an FV model that axis of
+    the flux space is the co-located ``CellAvg`` (the ``diff``
+    :class:`FluxDifference` codomain of a velocity's own staggered axis),
+    so the output must cross the nodal -> average family there. That
+    crossing is the co-located ``Center -> CellAvg`` deconvolution — the
+    2nd-order ``LinearDeconvolution`` identity (a one-point pass-through,
+    bitwise), so it retypes the factor without moving the numbers and
+    the FV tendency stays bitwise the nodal one. A ``retag`` cannot cross
+    it (the node-set class changes); a genuine ``.to`` resolves the
+    ``"deconvolve"`` kind. Every other axis is either already matching or
+    a BC-only difference — the walled adopt-then-strip seam, where a
+    BC-free stencil output adopts the flux space's wall Dirichlet tag —
+    and stays a ``retag``. On a fully nodal (periodic or walled) flux
+    space no axis crosses families, so the loop is empty and this is
+    exactly the pre-FV ``retag`` bridge (bitwise unchanged).
+
+    Parameters
+    ----------
+    field : FieldLike
+        The nodal stencil output (a ``ScalarField`` eagerly, a
+        ``HaloTracer`` during the halo-negotiation trace).
+    flux_space : object
+        The flux (control-volume face) space to land on.
+
+    Returns
+    -------
+    FieldLike
+        ``field`` on ``flux_space`` (family crossings deconvolved, the
+        rest retagged).
+    """
+    bare = flux_space.bare
+    result = field
+    for name in bare.names:
+        src = result.function_space.bare.factor(name)
+        dst = bare.factor(name)
+        if src is dst or _bc_siblings(src, dst):
+            continue
+        result = result.to(dst)
+    return result.retag(flux_space)
 
 
 def _outer_to_inner(src: object, dst: object) -> bool:
@@ -2769,13 +2848,29 @@ class UpwindAdvection(_FluxFormAdvection):
         space (a genuine operator application on each axis, so the
         halo trace follows).
 
-        The trailing ``retag`` is the walled-grid seam: nodal operator
-        outputs are BC-free, so on a walled axis the interpolated
-        velocity lands on the BC-free sibling of the flux space's
-        wall-tagged factor and adopts the tag here (the exact-zero
-        wall flux the divergence closes on). On periodic axes the
-        factors are the same interned object and ``retag`` returns
-        ``self`` — the periodic path is bitwise unchanged.
+        The trailing bridge is the walled- and FV-grid seam: nodal
+        operator outputs are BC-free, so on a walled axis the
+        interpolated velocity lands on the BC-free sibling of the flux
+        space's wall-tagged factor and adopts the tag (the exact-zero
+        wall flux the divergence closes on); on an FV flux axis (a
+        velocity's own staggered axis whose flux is the co-located
+        ``CellAvg``) the ``Center`` interpolation output crosses to
+        ``CellAvg`` through the 2nd-order deconvolve identity
+        (`_to_flux_space`). Both are bitwise no-ops on the numbers, so
+        the FV velocity face is bitwise the nodal one — the order-coupled
+        interpolation is kept whatever the family, unlike a plain ``.to``
+        (which would drop to the 2-point row on the flux axis). On a
+        periodic nodal axis the factors are the same interned object and
+        the bridge returns ``self`` — the periodic path is bitwise
+        unchanged.
+
+        On an FV model the velocity's transverse factors are ``CellAvg``;
+        where an axis needs a genuine half-cell interpolation (its
+        face-ness differs from the flux face) the ``CellAvg`` operand is
+        first deconvolved to its co-located ``Center`` (a bitwise
+        identity) so the nodal ``_interp`` row applies, then the bridge
+        deconvolves back. Co-located and BC-only axes are left to the
+        bridge (no interpolation).
 
         Parameters
         ----------
@@ -2789,22 +2884,11 @@ class UpwindAdvection(_FluxFormAdvection):
         ScalarField
             ``v`` on the flux space.
         """
-        if _is_average_space(flux_space):
-            # FV flux face: the velocity hops onto the reconstructed
-            # face (identity on the flux axis — the face adopted the
-            # velocity's tag) and deconvolves transverse Center ->
-            # CellAvg (a co-located 2nd-order pass-through). The tracer
-            # reconstruction carries the scheme's order; the velocity
-            # interpolation is the registered centered conversion, the
-            # FV-D2 face-normal-velocity convention.
-            return v.to(flux_space)
         result = v
         bare = flux_space.bare
         for axis in bare.names:
             src = result.function_space.bare.factor(axis)
             dst = bare.factor(axis)
-            if src is dst:
-                continue
             if _outer_to_inner(src, dst):
                 # the diagnosed w already lives on the flux faces'
                 # superset (Outer ⊃ Inner): the exact restriction, not
@@ -2813,8 +2897,16 @@ class UpwindAdvection(_FluxFormAdvection):
                 # nodes (hydrostatic vertical leg).
                 result = result.to(dst)
                 continue
+            if _is_face_factor(src) == _is_face_factor(dst):
+                # co-located (or BC-only): no half-cell interpolation;
+                # the trailing bridge deconvolves / retags it
+                continue
+            if isinstance(src, CellAvg):
+                # bring the FV operand to its nodal skeleton so the
+                # order-coupled row applies (a bitwise deconvolve)
+                result = result.to(src.mesh.center)
             result = self._interp[axis](result)
-        return result.retag(flux_space)
+        return _to_flux_space(result, flux_space)
 
     def _face_value(
         self,
@@ -2857,8 +2949,8 @@ class UpwindAdvection(_FluxFormAdvection):
         left, right = self._biased_pair(q, axis)
         positive = v_face + abs(v_face)
         return Where()(positive,
-                       left(q).retag(flux_space),
-                       right(q).retag(flux_space))
+                       _to_flux_space(left(q), flux_space),
+                       _to_flux_space(right(q), flux_space))
 
     def _biased_pair(
         self, q: ScalarField, axis: str,
@@ -2933,8 +3025,8 @@ class UpwindAdvection(_FluxFormAdvection):
         left, right = self._linear_pair(q, axis)
         positive = v_face + abs(v_face)
         return Where()(positive,
-                       left(q).retag(flux_space),
-                       right(q).retag(flux_space))
+                       _to_flux_space(left(q), flux_space),
+                       _to_flux_space(right(q), flux_space))
 
 
 class WENOAdvection(UpwindAdvection):

@@ -103,6 +103,39 @@ def test_fv_default_is_bitwise_identical_to_nodal(advection):
             err_msg=f"FV vs nodal diverged on {c!r}")
 
 
+BIASED = [
+    pytest.param(lambda: nh.UpwindAdvection(3), id="upwind3"),
+    pytest.param(lambda: nh.UpwindAdvection(5), id="upwind5"),
+    pytest.param(lambda: nh.WENOAdvection(3), id="weno3"),
+    pytest.param(lambda: nh.WENOAdvection(5), id="weno5"),
+]
+
+
+@pytest.mark.parametrize("advection", BIASED)
+def test_fv_default_biased_is_bitwise_identical_to_nodal(advection):
+    # the F3-default-flip blocker fix (side-finding upwind5_revisit.md
+    # §7): biased (upwind / WENO) advection on the FV default is served
+    # and stays BITWISE the nodal trajectory on a periodic box, exactly
+    # as centered does above. Velocity self-advection is face-normal on
+    # the FV C-grid (u on Right ⊗ CellAvg^2), so its own axis crosses
+    # nodal -> average through the 2nd-order-identity deconvolve — the
+    # numbers are preserved to the bit whatever the order.
+    steps = 12  # >= 10
+    fv = _seed(nh.Model(coriolis=FPlaneCoriolis(f0=1.0),
+                        grid=periodic_grid(), dt=DT, dsqr=2.0,
+                        rossby_number=1.0, advection=advection()))
+    nodal = _seed(nh.Model(coriolis=FPlaneCoriolis(f0=1.0),
+                           grid=periodic_grid(), dt=DT, dsqr=2.0,
+                           rossby_number=1.0, advection=advection(),
+                           family="nodal"))
+    fv.advance(steps)
+    nodal.advance(steps)
+    for c in ("u", "v", "w", "b", "p"):
+        np.testing.assert_array_equal(
+            np.asarray(fv.state[c].data), np.asarray(nodal.state[c].data),
+            err_msg=f"FV vs nodal biased diverged on {c!r}")
+
+
 def test_fv_default_state_is_finite_volume():
     model = nh.Model(coriolis=FPlaneCoriolis(f0=1.0),
                      grid=periodic_grid(), dt=DT)
