@@ -84,8 +84,16 @@ class VerticalBands(NamedTuple):
     diagonal, MG-D7); ``lower``/``upper`` are the operator's vertical
     off-diagonals (``lower[c]`` couples cell ``c`` to ``c - 1``,
     ``upper[c]`` to ``c + 1``, both along ``axis``), with the Neumann
-    ends ``lower[0]`` and ``upper[N - 1]`` left at zero. ``T`` is
-    symmetric per column by construction (``lower[c] == upper[c - 1]``).
+    ends ``lower[0]`` and ``upper[N - 1]`` left at zero. On a uniform
+    column ``T`` is symmetric per column by construction (``lower[c] ==
+    upper[c - 1]``); on a stretched column (the measure-weighted
+    operator, N3) it is instead **self-adjoint under the physical cell
+    measure** — ``m_cell[c - 1] * upper[c - 1] == m_cell[c] *
+    lower[c]``, i.e. ``diag(m_cell) T`` is symmetric — which is CG's
+    inner product, so the symmetric V-cycle argument (MG-D7) carries
+    over unchanged. The batched Thomas solve
+    (:func:`~fridom.spatial.operators.banded.tridiagonal_solve_along_axis`)
+    needs no per-column symmetry.
 
     Parameters
     ----------
