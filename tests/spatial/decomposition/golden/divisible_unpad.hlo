@@ -1,10 +1,10 @@
-HloModule <m> is_scheduled=true, entry_computation_layout={(f64[9]{0})->f64[4]{0}}, allow_spmd_sharding_propagation_to_output={true}, num_partitions=4
-%wrapped_slice_computation (param_0: f64[9]) -> f64[4] {
-  %param_0 = f64[9]{0} parameter(0)
-  ROOT %slice.4 = f64[4]{0} slice(%param_0), slice={[2:6]}, metadata={op_name="jit(<lambda>)/jit(gather_local)/shard_map/slice" stack_frame_id=<n>}
+HloModule <m> is_scheduled=true, entry_computation_layout={(f64[7]{0})->f64[4]{0}}, allow_spmd_sharding_propagation_to_output={true}, num_partitions=4
+%wrapped_slice_computation (param_0: f64[7]) -> f64[4] {
+  %param_0 = f64[7]{0} parameter(0)
+  ROOT %slice.4 = f64[4]{0} slice(%param_0), slice={[1:5]}, metadata={op_name="jit(<lambda>)/jit(gather_local)/shard_map/slice" stack_frame_id=<n>}
 }
 
-ENTRY %main.2_spmd (param.1: f64[9]) -> f64[4] {
-  %param.1 = f64[9]{0} parameter(0), sharding={devices=[4]<=[4]}, metadata={op_name="s"}
+ENTRY %main.2_spmd (param.1: f64[7]) -> f64[4] {
+  %param.1 = f64[7]{0} parameter(0), sharding={devices=[4]<=[4]}, metadata={op_name="s"}
   ROOT %wrapped_slice = f64[4]{0} fusion(%param.1), kind=kLoop, calls=%wrapped_slice_computation, metadata={op_name="jit(<lambda>)/jit(gather_local)/shard_map/slice" stack_frame_id=<n>}
 }
