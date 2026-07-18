@@ -34,6 +34,7 @@ from fridom.framework.utils import dtype_real
 from fridom.spatial.bc import BC, BCStructure
 from fridom.spatial.decomposition.decomposition import (
     ReshardingReport,
+    _cap_for_sharding,
     _registry_halo,
     negotiate,
 )
@@ -780,6 +781,21 @@ class Grid:
                 "the grid is frozen but carries no negotiation "
                 "fingerprint")
         demand = self._demanded_halo(state_spaces, tendency, halo)
+        # Symmetric verify-cap (task 1.8): the negotiate path lowers
+        # traced widths through ``_cap_for_sharding`` before freeze
+        # records them, so the fingerprint holds capped widths on a
+        # sharded grid. Recompute the demand through the SAME cap with
+        # the SAME arguments (the frozen device count, the registry
+        # floor, the meshes) so verify compares capped-vs-capped and
+        # the ``Model.variant`` subset lemma holds; on a single device
+        # the cap is identity and the record holds the raw demand.
+        devices = self._decomposition.device_count
+        if devices > 1:
+            demand = _cap_for_sharding(
+                self.factors, demand,
+                _registry_halo(self._names, self._dispatch,
+                               state_spaces),
+                devices)
         problems = _halo_violations(demand, record.halo)
         adopted: list[SpaceLike] = []
         for space in state_spaces or ():
