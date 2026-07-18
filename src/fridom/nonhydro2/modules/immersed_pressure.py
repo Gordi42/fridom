@@ -91,6 +91,7 @@ from fridom.nonhydro2.modules.pressure import (
     build_flat_spectral_solve,
 )
 from fridom.spatial.fields.storage import factor_axes
+from fridom.spatial.operators.banded import validate_tridiagonal_method
 from fridom.spatial.operators.base import resolve_codomain
 from fridom.spatial.operators.krylov import ConjugateGradient
 from fridom.spatial.operators.multigrid import (
@@ -213,12 +214,22 @@ class ImmersedPressureSolver:
         the realized count is smaller on a small grid (a grid too small
         for any coarsening degrades to a one-level, smoothing-only
         cycle). Ignored for the spectral preconditioner (default: 5).
+    multigrid_tridiagonal_method : str, optional
+        The vertical-line tridiagonal kernel of the multigrid smoother,
+        forwarded to
+        :func:`~fridom.spatial.operators.banded.tridiagonal_solve_along_axis`:
+        ``"auto"`` (cuSPARSE on a GPU, parallel cyclic reduction
+        elsewhere), ``"cusparse"``, ``"pcr"`` or ``"scan"``. The name is
+        validated at construction; the backend requirement of
+        ``"cusparse"`` is checked at solve time. Ignored for the
+        spectral preconditioner (default: ``"auto"``).
 
     Raises
     ------
     ValueError
-        If the grid carries no immersed domain, or ``preconditioner``
-        is not a known choice.
+        If the grid carries no immersed domain, ``preconditioner`` is
+        not a known choice, or ``multigrid_tridiagonal_method`` is not a
+        known kernel name.
     NotImplementedError
         If the grid also declares a mapped column (mapped + immersed
         is a designed-for composition, plan §6).
@@ -236,6 +247,7 @@ class ImmersedPressureSolver:
         single_precision: bool = False,
         preconditioner: str = "spectral",
         multigrid_levels: int = 5,
+        multigrid_tridiagonal_method: str = "auto",
     ) -> None:
         """Resolve the flux rows and fetch the fraction fields."""
         if preconditioner not in _PRECONDITIONERS:
@@ -244,6 +256,8 @@ class ImmersedPressureSolver:
                 f"{preconditioner!r}")
         self._preconditioner_kind = preconditioner
         self._multigrid_levels = multigrid_levels
+        self._multigrid_tridiagonal_method = validate_tridiagonal_method(
+            multigrid_tridiagonal_method)
         immersed = getattr(grid, "immersed", None)
         if immersed is None:
             raise ValueError(
@@ -637,7 +651,8 @@ class ImmersedPressureSolver:
                 iterations=self._iterations,
                 single_precision=self._single_precision)
             smoother = VerticalLineJacobi(
-                solver.vertical_bands(), omega=_LINE_OMEGA)
+                solver.vertical_bands(), omega=_LINE_OMEGA,
+                method=self._multigrid_tridiagonal_method)
             levels.append(MultigridLevel(
                 solver.apply, smoother, solver.projection, transfer))
         return MultigridVCycle(tuple(levels))
