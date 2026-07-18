@@ -3099,6 +3099,23 @@ class _FluxFormAdvection(fr.model.Module):
         column = registry.resolve(
             "average", corner.function_space.bare.factor(axis),
         )[axis](corner)
+        # gate the reduced cross flux by the column (base) face open
+        # fraction on an immersed grid (MI-D5, the composed cross-cell
+        # closure): the cross flux is the vertical interpolation of the
+        # *horizontal* face flux, so it does not inherit the base face's
+        # open-area weight from ``_immersed_flux`` (which weighted the
+        # horizontal faces). Left un-gated it stays non-zero at a wet/dry
+        # vertical interface, where ``_immersed_scale`` then truncates the
+        # column and the telescoping sum leaks (conservation of
+        # ``sum theta J V q`` drifts). The base-face fraction is exactly
+        # zero across a wet/dry vertical face (the min rule), so gating
+        # here makes the cross flux vanish there and the wet-region
+        # telescoping close. A no-op without a mask or on an all-wet
+        # column (``alpha == 1``), so the mapped-only conservation is
+        # byte-identical.
+        if self._immersed is not None:
+            alpha = self._immersed.fraction(column.function_space)
+            column = column * alpha
         # the column flux difference closes the walls itself (BC-free
         # Inner flux_diff pads exact-zero boundary fluxes)
         return registry.resolve(
