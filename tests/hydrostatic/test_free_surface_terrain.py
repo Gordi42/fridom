@@ -109,8 +109,11 @@ def test_barotropic_energy_is_conserved_to_roundoff():
     p3 = st["b"].function_space
 
     def jint(f):
-        jw = f * grid.metric(f.function_space.bare, "dzp_dz")
-        return float(jw.integrate().data.ravel()[0])
+        # the physical (Jacobian-weighted) volume integral is now the
+        # plain seeded verb on a maps= terrain grid (the physical-
+        # integral-default flip): f.integrate() carries the column
+        # Jacobian, so hand-multiplying dzp_dz would double-count
+        return float(f.integrate().data.ravel()[0])
     terms = [jint(st["u"] * dX["u"]), jint(st["v"] * dX["v"]),
              jint((st["ps"].to(p3) / CSQR) * dX["ps"].to(p3))]
     skew = sum(terms)
