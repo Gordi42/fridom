@@ -138,11 +138,21 @@ the scoping §10–§13). Open:
     charts** — terrain energy diagnostics are physically
     inconsistent (model-layer, outside the hydrostatic package;
     flagged by the terrain build).
-  - **Variable-depth implicit + split-explicit free surfaces**
-    (H3): taught errors on charts today; need the variable-csqr 2D
-    solve (hydrostatic plan §7). The barotropic volume-vs-energy
-    tension is documented in the plan §8 (energy chosen; exact
-    volume needs variable-`c²`).
+  - **Variable-depth split-explicit free surface** (H3 residual):
+    still a taught error on charts. The *implicit* half shipped
+    2026-07-18 (multigrid_generalization_plan phase B: the
+    volume-exact variable-csqr solve, resolving the plan §8
+    volume-vs-energy tension for the implicit variant); the
+    subcycle's terrain transport form is the remaining half.
+  - **Hydrostatic walled-horizontal gap** (found 2026-07-18,
+    generalization plan phase B): the hydrostatic package does not
+    assemble on walled *horizontal* grids at all — the velocity
+    staggering never wires wall BCs for horizontal axes (a bare
+    velocity-face `.diff` fails on `Inner(y)`), hitting every
+    free-surface variant, flat and terrain alike. The new barotropic
+    solver's wall closure is proven at the solver level
+    (self-adjoint 8.8e-16, cancellation exact); a walled channel
+    *model* needs this upstream staggering work first.
   - **`MetricScaled` divides** (`mapped.py:219-222`) share the
     masked-singularity structure but are empirically reverse-safe;
     guard only if a composition exposes them (VJP-fix audit).

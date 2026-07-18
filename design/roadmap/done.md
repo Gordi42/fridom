@@ -497,6 +497,27 @@ Implementation record:
   FD-matched to rel-err ~6e-12 against gate 1e-4, nodal + FV). The
   new-stack step path is now reverse-differentiable on **all** grid
   types — flat, walled, mapped, immersed — with no known exception.
+- **Multigrid generalization: terrain implicit surface + coarsening
+  freedom + warm starts** (2026-07-18, plan
+  [`../plans/active/multigrid_generalization_plan.md`](../plans/active/multigrid_generalization_plan.md),
+  all five phases owner-ratified and shipped same day; merges
+  `51db9ba6` A, `70b012d8` E, `a0eb7027` D, `6e32b4b4` B,
+  `5e7a0eff` C) — closes the **H3 implicit** taught error:
+  `hy.ImplicitFreeSurface` now runs on sigma charts via the new
+  `BarotropicPressureSolver` (GM-D1 volume-exact variable-csqr
+  operator: volume drift ≤ 1e-12, correction cancellation 6e-16,
+  flat-limit exact, autodiff green), preconditioned by the flat
+  spectral inverse or the new 2-D point-Jacobi multigrid (iterations
+  11–13 h- **and** steepness-flat vs spectral's 27 at a=0.8;
+  forced-4 replicated-coarse-level parity green). All pressure/surface
+  CG solves warm-start from the previous step (GB-2 128³ step
+  −19.5 % multigrid / −16.8 % spectral, physics-neutral ≤ 3.5e-9),
+  and full 3-D coarsening is the mapped-solver multigrid default
+  (GM-D9: −4.3 % on top, parity 3.1e-10, automatic semicoarsening
+  fallback for Chebyshev / indivisible n_z / stretched-base columns).
+  Residuals stay in `open.md`: the split-explicit chart variant, the
+  hydrostatic walled-horizontal gap (found in phase B), the real
+  multi-process 4-GPU leg.
 - **Multigrid size-scaling root cause: the depth cap, not the
   algorithm** (2026-07-18, measurement-only; record
   [`../research/multigrid_depth_scaling.md`](../research/multigrid_depth_scaling.md))

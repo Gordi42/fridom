@@ -122,6 +122,44 @@ def test_implicit_rejects_a_bad_horizontal(horizontal):
         hy.ImplicitFreeSurface(horizontal=horizontal)
 
 
+# ================================================================
+#  Phase C: the terrain multigrid knobs (validation + defaults)
+# ================================================================
+def test_pressure_preconditioner_default_and_property():
+    assert hy.ImplicitFreeSurface().pressure_preconditioner == "spectral"
+    assert hy.ImplicitFreeSurface(
+        pressure_preconditioner="multigrid").pressure_preconditioner \
+        == "multigrid"
+
+
+def test_multigrid_levels_default_and_property():
+    assert hy.ImplicitFreeSurface().multigrid_levels is None
+    assert hy.ImplicitFreeSurface(multigrid_levels=3).multigrid_levels == 3
+
+
+@pytest.mark.parametrize(
+    "preconditioner",
+    [pytest.param("jacobi", id="unknown"),
+     pytest.param("Spectral", id="miscased"),
+     pytest.param(None, id="none")],
+)
+def test_pressure_preconditioner_validation_rejects(preconditioner):
+    with pytest.raises(ValueError, match="pressure_preconditioner"):
+        hy.ImplicitFreeSurface(pressure_preconditioner=preconditioner)
+
+
+@pytest.mark.parametrize(
+    "levels",
+    [pytest.param(0, id="zero"),
+     pytest.param(-2, id="negative"),
+     pytest.param(2.0, id="float"),
+     pytest.param(True, id="bool")],
+)
+def test_multigrid_levels_validation_rejects(levels):
+    with pytest.raises(ValueError, match="multigrid_levels"):
+        hy.ImplicitFreeSurface(multigrid_levels=levels)
+
+
 def test_ps_lifecycle_depends_on_epsilon():
     prog = hy.ImplicitFreeSurface(epsilon=1.0).field_declarations[0]
     diag = hy.ImplicitFreeSurface(epsilon=0.0).field_declarations[0]
