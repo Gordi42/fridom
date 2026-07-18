@@ -2278,6 +2278,53 @@ def _family_spaces(
     return tuple(spaces)
 
 
+def _reduction_jacobian(
+    mapping: CoordinateMapping | None,
+) -> tuple[str, ...] | None:
+    """
+    Derive the ``jacobian=`` family the seeded reductions carry.
+
+    Description
+    -----------
+    The volume element the seeded ``("integrate", ...)`` /
+    ``("cumint", ...)`` rows contract against (rules section 3.13),
+    covering **both** mapping forms so a maps= terrain grid reduces
+    physically just like an embedding ``chart=`` grid:
+
+    - an embedding ``chart=`` mapping names the chart's base
+      coordinates (the ``sqrt_g`` area element), read straight off
+      ``mapping.chart_coords``;
+    - an analytic ``maps=`` mapping (no chart) names the mapped
+      physical coordinates of its single-base columns (each column's
+      ``d<mapped>_d<base>`` Jacobian), deduplicated order-stably from
+      ``mapping.column_corrections``.
+
+    Returns ``None`` (the plain computational measure) for a chartless
+    mapping with no single-base column — a multi-base analytic map
+    derives Jacobian metrics but no unambiguous column volume element,
+    so its reductions stay computational.
+
+    Parameters
+    ----------
+    mapping : CoordinateMapping | None
+        The attached coordinate mapping, or None.
+
+    Returns
+    -------
+    tuple[str, ...] | None
+        The chart-coordinate / mapped-physical family the reductions
+        weight by, or None for the plain computational measure.
+    """
+    if mapping is None:
+        return None
+    chart = mapping.chart_coords
+    if chart is not None:
+        return chart
+    mapped = tuple(dict.fromkeys(
+        name for name, _base in mapping.column_corrections.values()))
+    return mapped or None
+
+
 def _default_registry(
     grid: Grid,
     meshes: tuple[Mesh, ...],
@@ -2342,22 +2389,33 @@ def _default_registry(
         single-base analytic map seeds the kind-only
         ``"physical_diff"`` row — the constant-physical-coordinate
         derivative builder (rules section 3.8, sketch 4.4) — for
-        exactly the coordinates it couples, and a mapping carrying
-        an embedding chart (CS-D1, stage C2) seeds the metric-aware
-        vector calculus: the ``("integrate", ...)`` rows become
-        Jacobian-weighted (``Integral(jacobian=<chart coords>)``,
-        rules 3.13), and — for charts coupling at least two
-        coordinates — the kind-only ``"grad"`` / ``"div"`` /
-        ``"curl"`` / ``"laplacian"`` rows hold the chart builders
-        and ``"raise_index"`` / ``"lower_index"`` the explicit
-        metric contractions (validation 6.3). Chartless grids keep
-        the flat builders untouched (default: None).
+        exactly the coordinates it couples. **Any** mapping that
+        derives a volume element makes the seeded ``("integrate",
+        ...)`` / ``("cumint", ...)`` rows Jacobian-weighted
+        (``Integral(jacobian=<family>)``, rules 3.13) so both mapping
+        forms reduce physically alike (:func:`_reduction_jacobian`):
+        an embedding chart (CS-D1, stage C2) contributes its
+        ``sqrt_g`` area element on the chart's base coordinates, and
+        an analytic ``maps=`` grid its single-base columns'
+        ``d<mapped>_d<base>`` on the mapped physical coordinates. A
+        chartless mapping with no single-base column (a multi-base
+        analytic map) derives no volume element and keeps the plain
+        computational measure. For an embedding chart coupling at
+        least two coordinates the kind-only ``"grad"`` / ``"div"`` /
+        ``"curl"`` / ``"laplacian"`` rows additionally hold the chart
+        builders and ``"raise_index"`` / ``"lower_index"`` the
+        explicit metric contractions (validation 6.3). Chartless flat
+        grids keep the flat builders untouched (default: None).
 
     Returns
     -------
     OperatorRegistry
         The seeded default registry (placeholders resolved).
     """
+    # the reduction Jacobian covers both mapping forms (chart sqrt_g or
+    # maps= column Jacobian); the embedding-chart base coordinates below
+    # gate only the metric-aware vector-calculus kinds
+    jacobian = _reduction_jacobian(mapping)
     chart = (mapping.chart_coords
              if mapping is not None else None)
     flux_ops = (FluxDifference(), DualFluxDifference(),
@@ -2365,8 +2423,8 @@ def _default_registry(
     reconstruct = LinearReconstruction()
     deconvolve = LinearDeconvolution()
     fv_derivative = FVDerivative()
-    integral = Integral(jacobian=chart)
-    cumint = CumulativeIntegral(jacobian=chart)
+    integral = Integral(jacobian=jacobian)
+    cumint = CumulativeIntegral(jacobian=jacobian)
     multiply = CollocationProduct()
     divide = Divide()
     power = Power()

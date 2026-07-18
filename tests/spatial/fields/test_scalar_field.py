@@ -1,12 +1,14 @@
 """Tests for fridom.spatial.fields.scalar_field."""
 import jax
 import jax.numpy as jnp
+import numpy as np
 import pytest
 
 from fridom.model.errors import (
     ImmutableStateError as ModelImmutableStateError,
 )
 from fridom.spatial.bc import BC
+from fridom.spatial.coordinate_mapping import CoordinateMapping
 from fridom.spatial.errors import (
     GridMismatchError,
     ImmutableStateError,
@@ -16,6 +18,7 @@ from fridom.spatial.fields.metadata import FieldMetadata
 from fridom.spatial.fields.scalar_field import ScalarField
 from fridom.spatial.grid import Grid
 from fridom.spatial.meshes.interval import IntervalMesh
+from fridom.spatial.operators.integrate import Integral
 from fridom.spatial.operators.registry import OperatorRegistry
 from fridom.spatial.scalars import Scalars, Variance
 from fridom.spatial.spaces.nodal import NodeSet
@@ -1067,3 +1070,100 @@ def test_item_of_a_complex_field_is_complex(f):
 def test_item_needs_a_one_dof_field(f):
     with pytest.raises(ValueError, match="one-DOF field"):
         f.item()
+
+
+# ================================================================
+#  mean() on a maps= terrain grid: the physical (Jacobian-weighted)
+#  divisor (the physical-integral-default flip)
+# ================================================================
+def _terrain_grid_2d(n):
+    # zp = sigma * H(x): a single-base terrain column (sigma the base
+    # axis, x the parameter axis the column Jacobian H varies over)
+    mx = IntervalMesh(n, (0.0, 2.0 * jnp.pi), name="x")
+    ms = IntervalMesh(n, (0.0, 1.0), periodic=False, name="sigma")
+    mapping = CoordinateMapping(
+        maps={"zp": lambda sigma, H: sigma * H},
+        params={"H": lambda x: 1.0 + 0.2 * jnp.sin(x)})
+    return Grid((mx, ms), mapping=mapping)
+
+
+def _raw(field, *names):
+    result = field
+    for name in (names or field.function_space.bare.names):
+        result = Integral()[name](result)
+    return result
+
+
+def test_terrain_partial_mean_is_the_physical_column_depth_mean():
+    # mean("sigma") divides the physical column integral by the
+    # per-column physical depth H(x) = int J dsigma -- a FIELD over x
+    grid = _terrain_grid_2d(16)
+    space = grid.factors[0].center * grid.factors[1].center
+    f = grid.create_field(
+        space, init=lambda x, sigma: jnp.cos(sigma) + 0.3 * jnp.sin(x))
+    mz = f.mean("sigma")
+    jac = grid.metric(space.bare, "dzp_dsigma")
+    num = _raw(f * jac, "sigma")
+    den = _raw(jac, "sigma")
+    expected = num.with_data(num.data / den.data)
+    assert jnp.allclose(mz.data, expected.data, atol=1e-13)
+    # the result is a per-column FIELD over x, not a scalar (partial
+    # mean lands on Constant(sigma) but keeps the x factor)
+    assert "x" in mz.function_space.bare.names
+    assert mz.data.size > 1
+    # (for zp = sigma * H the column Jacobian H(x) is constant along
+    # sigma and factors out, so this base-axis mean equals the plain
+    # sigma-mean numerically -- the full mean below shows the flip's
+    # genuine numeric effect, where H's x-variation does not cancel)
+
+
+def test_terrain_full_mean_is_the_physical_volume_mean():
+    grid = _terrain_grid_2d(16)
+    space = grid.factors[0].center * grid.factors[1].center
+    f = grid.create_field(
+        space, init=lambda x, sigma: 2.0 + jnp.cos(sigma) + jnp.sin(x))
+    mean = f.mean().item()
+    jac = grid.metric(space.bare, "dzp_dsigma")
+    physical_int = float(_raw(f * jac).item())
+    physical_vol = float(_raw(jac).item())
+    assert mean == pytest.approx(physical_int / physical_vol, rel=1e-12)
+    # genuinely different from the plain computational full mean: H(x)'s
+    # x-variation weights the average and does not cancel
+    ones = grid.create_field(space, data=jnp.ones(space.shape))
+    comp = float(_raw(f).item()) / float(_raw(ones).item())
+    assert abs(mean - comp) > 1e-3
+
+
+def test_flat_mean_is_bitwise_the_computational_average(grid):
+    # off a mapped grid the mean keeps the plain computational divisor,
+    # bitwise the historical path
+    field = grid.create_field(
+        init=lambda x, y: jnp.sin(2 * jnp.pi * x) + 0.5 * y)
+    space = field.function_space.bare
+    total = 1.0
+    for name in space.names:
+        total = total * float(grid.measure(space, name=name).data.sum())
+    expected = _raw(field).data / total
+    assert jnp.array_equal(field.mean().data, expected)
+
+
+def test_terrain_mean_is_differentiable():
+    # the double-`where` divisor guard keeps grad through mean("sigma")
+    # finite and matches a central finite difference (diff. policy)
+    grid = _terrain_grid_2d(8)
+    space = grid.factors[0].center * grid.factors[1].center
+
+    def loss(data):
+        f = grid.create_field(space, data=data)
+        return (f.mean("sigma").data ** 2).sum()
+
+    rng = jnp.asarray(
+        np.random.default_rng(0).standard_normal(space.shape))
+    g = jax.grad(loss)(rng)
+    assert bool(jnp.all(jnp.isfinite(g)))
+    eps = 1e-6
+    idx = (2, 3)
+    plus = rng.at[idx].add(eps)
+    minus = rng.at[idx].add(-eps)
+    fd = float((loss(plus) - loss(minus)) / (2 * eps))
+    assert float(g[idx]) == pytest.approx(fd, rel=1e-4, abs=1e-7)
