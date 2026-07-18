@@ -147,6 +147,13 @@ def numeric_eigenpairs(
     ``Eigenmodes.from_model`` gate); a variable-coefficient or non-
     periodic block axis is out of H0 scope.
 
+    The spectrum is a fixed-``at_time`` snapshot: a time-dependent
+    parameter (a ``Ramp``) is frozen at that instant (default 0.0)
+    and the returned eigenbasis does not evolve with the run. This is
+    a deliberately time-frozen analysis surface, not a
+    re-diagonalization contract — a time-dependent ``L`` has no fixed
+    eigenbasis (TDF-D6).
+
     Parameters
     ----------
     model : Model

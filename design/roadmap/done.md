@@ -1526,3 +1526,49 @@ Implementation record:
   cured the sadourny doubly-walled sharded failures and closed a
   lone-bounded-op width-0 negotiation hole). Record:
   [`../research/halo_sharding_invariants.md`](../research/halo_sharding_invariants.md).
+
+- **Time-dependent fields — general non-affine mechanism SHIPPED**
+  (2026-07-18, three waves). Closes the general half of the
+  "Time-dependent parameters and time-dependent fields" roadmap ask: a
+  *profile* that itself evolves — `f(y, t)`, `csqr(y, t)` — with
+  **non-affine** time dependence, beyond the affine-blend subset that
+  shipped 2026-07-17 (`adiabatic_ramping.md` R1/R2). Also closed: the
+  `dsqr` AR-D7 cross-module report (owned by `DynamicalCore`, consumed
+  by `ConstantStratification.buoyancy_force` — a live silent-wrongness
+  hole under `ETDRK4`), and the mandatory `ETDRK4` answer. Waves:
+  - **Wave 1 — structural frozen-`L` guard** (merge `bb2fb96f`,
+    `refactor/linear-term-guard`; 11 files, +636/−68). `@fr.term`
+    gains `linear_params` / `linear_fields`; the frozen-`L` sweep moves
+    into the **base-class default** of
+    `Module.time_dependent_linear_parameters` (the hand-written Coriolis
+    / stratification overrides deleted), keeping the assembly guard
+    call-site, offender attribution and error surface byte-compatible.
+    Resolution is module-local; cross-module deps like `dsqr` are
+    reported by the **owning** module (`DynamicalCore`).
+  - **Wave 2 — mechanism + consumers** (merge `ceb9db75`,
+    `feat/time-dependent-fields`; 14 files, +1424/−78). The
+    `(coords, t)` recompute core and `ProfileFunction` extracted into
+    `model/scheduled_field.py` (`MovingGeometry` re-expressed on it
+    bitwise); `FieldDeclaration.time_dependent` marker + the composer
+    `SELF_UPDATE` coverage lint (+ `Stage(writes=)`); the law-valued
+    `BetaPlaneCoriolis(f=ProfileFunction(...))` and shallow-water
+    `DynamicalCore` `csqr` paths; and the `linear_fields` wiring so
+    `ETDRK4` refuses a scheduled `f`.
+  - **Wave 3 — honesty sweep + records** (`chore/td-fields-honesty`,
+    this merge). `PolarizedWaveMaker` refuses a `ProfileFunction`-valued
+    parameter or a `time_dependent`-marked dependency field at bind
+    (TDF-D6); the eigen/analysis surfaces (`eigenbasis` /
+    `ChannelEigenmodes` / `Eigenmodes.from_model`, `EnergyMetric`)
+    document their fixed-`at_time` snapshot semantics — the
+    `EnergyMetric` check confirmed the weights are **baked once at
+    `from_model`**, never re-read at evaluation time.
+
+  Rulings: TDF-D5 (`ETDRK4` refuses a time-dependent `L`, never
+  auto-splits), TDF-D6 (setup-baked consumers get the same honest
+  refusal; the analysis tools stay time-frozen, no re-diagonalization
+  contract), TDF-D7 (`f` / `csqr` in scope; nonhydro `n2(z, t)` a named
+  follow-up), TDF-D9 (`FieldBlend` NOT unified onto the rewrite path —
+  owner decision). Open remainders in `open.md`: the `n2(z, t)` path,
+  the `FieldBlend`-unification question, and the declined
+  re-diagonalization contract. Plan:
+  [`../plans/done/time_dependent_fields.md`](../plans/done/time_dependent_fields.md).

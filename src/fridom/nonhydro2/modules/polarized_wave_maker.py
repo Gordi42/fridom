@@ -44,11 +44,13 @@ import jax.numpy as jnp
 
 import fridom as fr
 from fridom.framework.utils import jaxify
+from fridom.model.errors import TimeDependentParameterError
 from fridom.model.params import (
     CORIOLIS_F0,
     STRATIFICATION_N2,
     ParamName,
 )
+from fridom.model.scheduled_field import ProfileFunction
 from fridom.nonhydro2.params import DSQR
 from fridom.spatial.decomposition.halo import HaloSpec
 
@@ -229,9 +231,13 @@ class PolarizedWaveMaker(fr.model.Module):
             the grid does not have, or on a structurally
             unrepresented carrier mode.
         TimeDependentParameterError
-            On a Ramp-valued ``f0``/``N^2``/``dsqr`` (the packet
-            polarization is frozen structure; ramp the amplitude
-            instead).
+            On any time-dependent input the frozen packet cannot
+            follow (TDF-D6): a Ramp-valued ``f0``/``N^2``/``dsqr``
+            (caught by the bind-time parameter gate), a
+            ``ProfileFunction``-valued one, or a dependency field
+            marked ``time_dependent``. The packet polarization and
+            frequency are baked once at bind — ramp the amplitude
+            instead.
         """
         # deferred: sibling-package imports resolved at bind keep the
         # module import light (the lazypimp spirit)
@@ -263,12 +269,47 @@ class PolarizedWaveMaker(fr.model.Module):
                 f"coordinate(s) {unknown}, which the grid does not "
                 f"have (coordinates: {grid.names})")
 
+        # TDF-D6: the packet is precomputed once at bind, so any
+        # time-dependent input would leave a stale t=0 snapshot. The
+        # Ramp case is caught by the parameter gate on read below;
+        # refuse the two forms the general-time-dependence plan adds —
+        # a ProfileFunction-valued parameter and a field marked
+        # time_dependent — the same way (name the offender, prescribe
+        # ramping the amplitude).
         parameters = table.parameters
+        f0 = parameters[CORIOLIS_F0]
+        n2 = parameters[STRATIFICATION_N2]
+        dsqr = parameters[DSQR]
+        for name, value in (
+            (CORIOLIS_F0, f0),
+            (STRATIFICATION_N2, n2),
+            (DSQR, dsqr),
+        ):
+            if isinstance(value, ProfileFunction):
+                raise TimeDependentParameterError(
+                    f"PolarizedWaveMaker freezes its wave packet from "
+                    f"a constant {name!r}, but it was given a "
+                    "time-dependent ProfileFunction law: the packet "
+                    "polarization and frequency are baked once at "
+                    f"bind and cannot follow a {name!r}(y, t) profile."
+                    " Pass a constant and ramp "
+                    "wavemaker.polarized.amplitude to drive the "
+                    "forcing in time instead")
+        for ref in self.field_references:
+            if getattr(table[ref.name], "time_dependent", False):
+                raise TimeDependentParameterError(
+                    f"PolarizedWaveMaker depends on the field "
+                    f"{ref.name!r}, which is marked time_dependent "
+                    "(its values evolve every substage), but the wave "
+                    "packet is precomputed once at bind from a frozen "
+                    "snapshot and cannot track it. Ramp "
+                    "wavemaker.polarized.amplitude to drive the "
+                    "forcing in time instead")
         modes = Eigenmodes(
             grid,
-            f0=float(parameters[CORIOLIS_F0]),
-            n2=float(parameters[STRATIFICATION_N2]),
-            dsqr=float(parameters[DSQR]),
+            f0=float(f0),
+            n2=float(n2),
+            dsqr=float(dsqr),
             vertical=self._vertical)
         omega, wave = modes.mode(self._s, self._k)
 

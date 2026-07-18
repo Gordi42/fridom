@@ -9,10 +9,14 @@ import numpy as np
 import pytest
 
 import fridom.nonhydro2 as nh
+from fridom.model.errors import TimeDependentParameterError
+from fridom.model.params import CORIOLIS_F0, STRATIFICATION_N2
+from fridom.model.scheduled_field import ProfileFunction
 from fridom.nonhydro2.modules.polarized_wave_maker import (
     _COMPONENTS,
     PolarizedWaveMaker,
 )
+from fridom.nonhydro2.params import DSQR
 from fridom.spatial.grid import Grid
 from fridom.spatial.meshes.interval import IntervalMesh
 
@@ -79,6 +83,59 @@ def test_unknown_envelope_coordinate_is_rejected_at_bind():
     maker = make_maker(position={"q": 1.0}, width={"q": 1.0})
     with pytest.raises(ValueError, match="grid does not have"):
         make_model(maker)
+
+
+# ================================================================
+#  TDF-D6: the frozen packet refuses time-dependent inputs
+# ================================================================
+class _FakeRecord:
+
+    """A duck-typed field record carrying only the TDF-D3 marker."""
+
+    def __init__(self, *, time_dependent: bool) -> None:
+        self.time_dependent = time_dependent
+
+
+class _FakeTable:
+
+    """A duck-typed bind table (the seam PolarizedWaveMaker.bind reads).
+
+    The ``_BindTable`` contract docstring sanctions tests duck-typing
+    the table; the refusal path only touches ``grid``, ``parameters``
+    and the ``time_dependent`` marker of referenced field records.
+    """
+
+    def __init__(self, grid, parameters, td_fields=()):
+        self.grid = grid
+        self.parameters = parameters
+        self._td = set(td_fields)
+
+    def __getitem__(self, name):
+        return _FakeRecord(time_dependent=name in self._td)
+
+
+@pytest.mark.parametrize(
+    "pname",
+    [CORIOLIS_F0, STRATIFICATION_N2, DSQR],
+    ids=["f0", "n2", "dsqr"])
+def test_profile_function_parameter_is_refused_at_bind(pname):
+    maker = make_maker()
+    params = {CORIOLIS_F0: 1.0, STRATIFICATION_N2: 1.0, DSQR: 1.0}
+    params[pname] = ProfileFunction(lambda *args: args[0])
+    table = _FakeTable(make_grid(), params)
+    with pytest.raises(TimeDependentParameterError,
+                       match="ProfileFunction"):
+        maker.bind(table)
+
+
+def test_time_dependent_dependency_field_is_refused_at_bind():
+    maker = make_maker()
+    params = {CORIOLIS_F0: 1.0, STRATIFICATION_N2: 1.0, DSQR: 1.0}
+    # mark one packet-dependency field (u) as time_dependent
+    table = _FakeTable(make_grid(), params, td_fields=("u",))
+    with pytest.raises(TimeDependentParameterError,
+                       match=r"'u'.*time_dependent"):
+        maker.bind(table)
 
 
 # ================================================================
