@@ -181,3 +181,62 @@ at the mask); ghost-cell fill / ILW (fidelity ladder point 3);
 centroid-shifted reconstruction on genuine partials; band-restricted
 rung evaluation (perf); mapped + immersed composition (separate
 residual).
+
+## 6. Implementation record
+
+**Shipped 2026-07-18** (merge `02663933`; branch
+`feat/immersed-graded-advection`). `graded.apply_graded_mask` (the
+`apply_graded_walls` sibling: full-array rungs over the pre-masked
+operand, nested static `jnp.where` over union-window selectors), the
+advection mask helpers + routing of `_BiasedFaceReconstruction`
+(both shifts), `_FVBiasedReconstruction`,
+`_CenteredFaceInterpolation`, and WENO's both-then-select fallback;
+`_supports_immersed` flipped on the biased schemes; biased immersed
+`extra_halo` widened to `order//2 + 1`. Gates: **staircase advection
+tendency ≡ walled graded FV at machine zero** (up3/up5 exactly 0.0,
+weno5 1.4e-17 — the GA-D1/D2 by-construction claim, measured);
+12-step staircase full masked-pressure runs ≤ 1.3e-11
+(pressure-solver-limited — the existing centered gate measures
+1.6e-11 on the identical setup; its "~1e-16" narrative was stale);
+all-wet ≡ unimmersed bitwise on both families (nodal 1.4e-16, FV
+2.2e-16, orders 3/5); uniform tracer exact on every rung; θ-mass
+≤ 1e-12 over 20 steps on genuine partials; 2-cell wet pocket stable;
+autodiff FD-match rtol 1e-4; forced-4 green (order-5 gates
+single-device-marked: 4-way sharding of the ≤ 12-cell test grids caps
+the halo below order-5's demand — pre-existing size limit, verified
+identical on unimmersed grids); ruff clean.
+
+Corrections found (both folded into GA-D1/D2 above in spirit):
+
+1. **The present/operand masks must be halo-synced before
+   windowing** — `store` pads (zero halos) but never syncs, so raw
+   `immersed.mask()` ghosts read dry at periodic wraps and shard
+   edges (all-wet ≢ unimmersed by ~0.5 until fixed). Cast to real
+   before the exchange (no boolean `neg`).
+2. **Threshold the present-mask back to `{0, 1}` after the sync** —
+   the exchange odd-reflects wall-Dirichlet ghosts (`1 → −1`) and
+   the all-wet *product* kernel turns two `−1`s into a false
+   present. The pre-mask itself is `jnp.where(mask, f, 0)`, not a
+   multiply — multiply-by-0 does not kill NaN.
+
+Interpretations: selectors are computed inside `apply_graded_mask`
+from the ImmersedDomain-memoized `mask()` (same `apply_fv_staggered`
+plumbing as the values, so alignment matches by construction); a
+dedicated per-selector cache is designed-for. GA-D5's "`Fallback`
+wiring" was moot: `spatial/operators/fallback.py` is **not on the
+advection flux path** (only reachable via
+`WenoReconstruction(boundary="graded")`, wired into no model) — the
+flux path uses advection.py's module-private reconstructions on both
+families (verified: FV = `_FVBiasedReconstruction` shift 0 +
+`_BiasedFaceReconstruction` shift 1; nodal =
+`_BiasedFaceReconstruction` both shifts).
+
+Open notes for future work: on a genuinely *distributed* bounded
+axis the shift-1 physical-wall exemption (`_fill_wall_slots`) is
+skipped where wall slots are not addressable — the wall face grades
+to a narrower rung (lower order, not wrong); bounded axes stay local
+in every gated config. The immersed WENO one-pass (selected-input)
+and band-restricted rung evaluation remain the designed-for perf
+levers, owner-gated on a GPU A/B. Local branch coverage could not be
+measured (the coverage C tracer aborts jax on this node; line
+coverage of the new code is complete) — confirm the CI patch number.

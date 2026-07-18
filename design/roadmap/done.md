@@ -650,6 +650,23 @@ Implementation record:
   [`open.md`](open.md). Record +
   per-stage corrections:
   [`../plans/active/immersed_partial_cells_plan.md`](../plans/active/immersed_partial_cells_plan.md).
+- **Biased/upwind/WENO advection on immersed grids** (2026-07-18,
+  merge `02663933`) — the first immersed residual closed: the
+  IP-D8 taught error replaced by the **mask-keyed graded ladder**
+  (`graded.apply_graded_mask`), generalizing the wall closure's rung
+  ladder from index-distance keying to per-face distance-to-dry
+  selectors (static union-window products of the boolean masks;
+  pre-masked operand; full-array rungs + trace-time-constant
+  `jnp.where` select — the PALM precompute-and-select precedent,
+  subsuming NEMO/MITgcm difference-zeroing). Covers both families
+  (FV `_FVBiasedReconstruction`, nodal `_BiasedFaceReconstruction`
+  both shifts, centered velocity interp, WENO both-then-select).
+  Keystone gate: **staircase advection tendency ≡ walled graded FV
+  at machine zero** (up3/up5 exactly 0.0, weno5 1.4e-17); all-wet ≡
+  unimmersed bitwise on both families; θ-mass ≤ 1e-12 on genuine
+  partials; autodiff FD-matched; forced-4 green. Plan + decisions +
+  corrections:
+  [`../plans/active/immersed_graded_advection_plan.md`](../plans/active/immersed_graded_advection_plan.md).
 - **Variable boundary forcing — wind stress, surface buoyancy flux**
   (2026-07-17, merge `24ee6fd0`) — prescribed wall-face fluxes as
   tendency contributions in the wall-adjacent cell
