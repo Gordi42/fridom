@@ -53,24 +53,33 @@ def _fv_modules(advection):
 
 
 # ================================================================
-#  The capability flags (IP-D4 / IP-D8)
+#  The capability flags (IP-D4 / GA-D6): every scheme supports immersed
 # ================================================================
-def test_centered_supports_immersed_biased_does_not():
+def test_every_scheme_supports_immersed():
+    # the biased schemes gained the mask-keyed graded closure (GA-D6),
+    # so all three flux-form schemes now bind on an immersed grid
     assert CenteredAdvection._supports_immersed is True
-    assert UpwindAdvection._supports_immersed is False
-    assert WENOAdvection._supports_immersed is False
+    assert UpwindAdvection._supports_immersed is True
+    assert WENOAdvection._supports_immersed is True
 
 
 # ================================================================
-#  Biased schemes reject an immersed grid at bind
+#  Biased schemes now bind on an immersed grid (GA-D4): the mask-keyed
+#  graded kernels install and the module captures the descriptor
 # ================================================================
 @pytest.mark.parametrize("cls", [UpwindAdvection, WENOAdvection])
-def test_biased_schemes_reject_immersed_at_bind(cls):
+@pytest.mark.parametrize("order", [3, 5])
+def test_biased_schemes_bind_on_immersed(cls, order):
     grid = _immersed_grid()
-    with pytest.raises(NotImplementedError,
-                       match=r"immersed.*CenteredAdvection"):
-        FrModel(grid=grid, modules=_fv_modules(cls(3)),
-                time_stepper=AdamBashforth(DT, order=3))
+    model = FrModel(grid=grid, modules=_fv_modules(cls(order)),
+                    time_stepper=AdamBashforth(DT, order=3))
+    (advection,) = [m for m in model.modules if isinstance(m, cls)]
+    # the descriptor is captured and the biased kernels declare the
+    # order//2+1 mask-keyed halo (wider than the base order-2 fraction
+    # stencil for order 5), routed through the explicit extra_halo (GA-D3)
+    assert advection._immersed is grid.immersed
+    assert advection.extra_halo == HaloSpec(
+        dict.fromkeys(grid.names, order // 2 + 1))
 
 
 # ================================================================
