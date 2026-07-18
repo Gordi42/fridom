@@ -1,0 +1,141 @@
+upwind5 storage-shape regression — raw GPU results
+single A100-SXM4-80GB, Levante, jax/jaxlib 0.10.2 (cuda12 plugin),
+float64, nsys 2026.1.3, ncu 2026.1 (cuda-13.3 module). Fresh process per
+variant; clocks pinned 1410 MHz SM / 1593 MHz mem, GPU cool (43-49 C),
+dedicated (no foreign compute-app) throughout. 2026-07-18.
+
+Harness: rep_step.py (per-rep step ms, one variant/process, first advance
+excluded); prof_step.py (cudaProfilerApi region for nsys); nsys via
+run_nsys.sh with --cuda-graph-trace=node (see METHOD NOTE below).
+Widths forced with the floor_halo monkeypatch on the two negotiation
+seams (biased upwind5 natural = width 3 -> 198^3; wide = width 4 ->
+200^3; wN,N,N = uniform per-axis width N -> (192+2N)^3).
+
+============================================================
+1. REPRODUCE — 192^3 upwind5, 3 fresh processes each (median (min) ms/step)
+============================================================
+w3 / 198^3 natural: 6.216 (6.214) | 6.223 (6.216) | 6.219 (6.218)
+w4 / 200^3 wide   : 5.568 (5.564) | 5.571 (5.569) | 5.572 (5.568)
+  gap = 6.219 / 5.570 = +11.7%  (all reps within 0.02 ms; STABLE)
+compiled memory_analysis: w3 arg 807.3 / temp 1297.3 MB; w4 832.0 / 1335.3
+  (tracks (198/200)^3, storage claim of the narrowing holds exactly)
+
+============================================================
+2. WIDTH SWEEP — 192^3 upwind5, uniform widths w3..w8 (2 procs each)
+   storage = 192 + 2w ; only 200^3 is fast; 208^3 (also div by 512) slow
+============================================================
+w3 198^3  med 6.212 / 6.232   (198 = 2*3^2*11)      SLOW
+w4 200^3  med 5.569 / 5.568   (200 = 2^3*5^2)        FAST  <-- unique
+w5 202^3  med 6.446 / 6.470   (202 = 2*101)          SLOW
+w6 204^3  med 6.345 / 6.321   (204 = 2^2*3*17)       SLOW
+w7 206^3  med 6.785 / 6.788   (206 = 2*103)          SLOWEST
+w8 208^3  med 6.243 / 6.246   (208 = 2^4*13; flat 2^12*13^3 div by 512) SLOW
+  -> "flat divisible by 512" is NECESSARY-NOT-SUFFICIENT; 200 is a genuine
+     sweet spot; no exploitable padding rule. Bytes rise monotonically w3->w8,
+     so fast-200 / slow-204 / slow-208 is not a byte or alignment story.
+
+============================================================
+3. nsys NODE-LEVEL localisation — 192^3 upwind5, 4x advance(50)=200 steps
+   METHOD NOTE: nsys default --cuda-graph-trace=graph HIDES the kernels XLA
+   captured into CUDA graphs (command buffers); it showed a false "85% idle"
+   and only the un-graphable cuFFT/cublas custom calls. nvidia-smi shows GPU
+   util = 99% under sustained load. Re-run with --cuda-graph-trace=node:
+============================================================
+GPU-active fraction: w3 99.2% (span 1249.6 ms, active 1240.1)
+                     w4 99.1% (span 1117.0 ms, active 1107.1)  -> GPU-BOUND.
+loop fusions ~86% of GPU time; FFT pressure solve ~13%.
+
+Per-kernel matched diff (total, w3 vs w4, ms over 200 steps):
+ d_ms   w3_ms  w4_ms  w3_i w4_i  kernel
+ 36.93   63.7   26.8  128  128  loop_add_fusion_10   (reg 32)  <-- 2.4x
+ 20.40   36.3   15.9   72   76  loop_add_fusion_11   (reg 32)
+ 14.84   97.3   82.5   64   64  loop_add_fusion      (reg 254)
+ 11.78   95.7   83.9   64   64  loop_add_fusion_2    (reg 254)
+ 11.42   94.8   83.4   64   64  loop_add_fusion_1    (reg 254)
+  8.50  133.7  125.2   64   64  loop_multiply_fusion_2 (reg 255)
+  8.10  134.0  125.9   64   64  loop_multiply_fusion_1 (reg 255)
+  7.99  133.7  125.7   64   64  loop_multiply_fusion   (reg 255)
+  0.09   61.5   61.5  800  800  regular_fft            (true 192^3 -> IDENTICAL)
+  0.11   27.9   27.8  400  400  scal_kernel_val        (cublas, true -> IDENTICAL)
+  0.00   17.3   17.3  200  200  wrapped_transpose_12   (IDENTICAL)
+(loop_add_fusion_5/6/7/8/17/18/19 differ in name/instance-count between the
+ two compilations = XLA renumbers fusions per schedule; not real structural
+ kernels. Total delta = 134.3 ms / 200 = 671.7 us/step = the +0.65 ms/step gap.)
+
+Launch configs (block=128 for every loop fusion):
+ loop_multiply_fusion_1  w3 grid=15161  avg 2093 us | w4 grid=15625 avg 1966 us
+ loop_multiply_fusion_2  w3 grid=15161  2090         | w4 15625 1957
+ loop_add_fusion (r254)  w3 grid=15161  1521         | w4 15625 1289   (+18%)
+ loop_add_fusion_10(r32) w3 grid=14932   498         | w4 15391  209   (+138%)
+   15625 = 200^3 / 512 (block128 x unroll4) EXACT ; 15161 = ceil(198^3/512) REMAINDER
+ regular_fft / scal / wrapped_transpose : identical grid AND time (true shape)
+
+208 vs 200 kernel view (why 208 misses despite div-by-512):
+ loop_multiply_fusion_1  208 grid=17576(=208^3/512 EXACT) 2390 us | 200 15625 1966
+   -> 208 remainder-free too, but +12.5% more elements -> slower absolute.
+ loop_add_fusion_10(r32) 208 grid=17323  234 us | 200 15391 209 | 198 14932 498
+   -> the reg-32 kernel is fast on BOTH 200 and 208, slow ONLY on 198.
+
+============================================================
+4. ncu — the two sub-mechanisms (loop_add_fusion_10 = reg 32; loop_multiply = reg 255)
+============================================================
+loop_add_fusion_10 (reg 32, ~high occupancy):
+  metric                                   w3/198     w4/200
+  gpu__time_duration                       ~498 us    ~227 us    (2.2x)
+  gpu__dram_throughput.pct_peak            39.0-39.8  53.7-53.7  <-- LOWER on 198
+  sm__throughput.pct_peak                  6.75-6.86  16.7-16.7
+  sm__warps_active.pct_peak                92.0       88.0-88.3  (~same, high)
+  l1tex avg sectors/request (global ld)    31.99      32.00      <-- SAME (max uncoalesced)
+  launch grid                              14932      15391
+  -> same access pattern + same occupancy, only achieved DRAM efficiency
+     differs -> stride-dependent DRAM/L2 partition efficiency of the 198 row
+     stride (1584 B) vs 200 (1600 B). This is the biggest single contributor.
+
+loop_multiply_fusion_1 (reg 255, occupancy-capped: 2 blocks/SM):
+  metric                                   w3/198     w4/200
+  gpu__time_duration                       2.24 ms    2.14 ms    (+5%)
+  gpu__dram_throughput.pct_peak            52.47      47.73
+  sm__throughput.pct_peak                  19.26      20.82
+  l1tex avg sectors/request                31.81      31.84
+  launch grid                              15161(rem) 15625(exact)
+  -> here w3 pushes MORE DRAM% yet is slower -> NOT a dram deficit; the
+     slowdown is the loop-emitter REMAINDER TAIL (partial last block +
+     bounds-checked path) on the non-divisible 198^3 element count.
+
+============================================================
+5. FLAG SWEEP — 192^3 upwind5, w3 vs w4, 2 procs each, fresh compile
+============================================================
+default                      : w3 6.22  w4 5.57   gap +11.7%   (baseline)
+--xla_gpu_autotune_level=0    : w3 6.222 w4 5.570  gap +11.7%   NOT autotune
+--xla_gpu_enable_command_buffer= (off) : w3 6.291 w4 5.664 gap +11.1% (both ~+1.5%, no help)
+--xla_disable_hlo_passes=multi_output_fusion :
+     w3 6.868  w4 6.800  gap +1.0%  BUT w4 +22% slower (5.57->6.80), temp
+     1297->435 MB. Closes the gap by making the FAST shape slow. NET LOSS.
+  -> the shape-sensitive kernels ARE the multi-output flux fusions (reg 254/255).
+  -> NO free mitigation flag exists. Only lever: pin storage to the lucky
+     200^3 via a width floor (memory +3%, an optional per-config knob).
+
+============================================================
+6. SCHEME-DEPENDENCE — centered advection storage sweep at 192^3 (2 procs each)
+   the "lucky" shape MOVES with the scheme -> confirms no universal rule
+============================================================
+centered 196^3 (w2, natural): med 3.062 / 3.059   FAST   <-- centered sweet spot
+centered 198^3 (w3)          : med 3.393 / 3.390   +11%
+centered 200^3 (w4)          : med 3.219 / 3.221   +5%   (200 is NOT best here)
+centered 202^3 (w5)          : med 3.534 / 3.540   +15%
+centered 208^3 (w8)          : med 3.511 / 3.531   +15%
+  196 = 2^2*7^2 (2^6*7^6 cube). upwind5 best = 200^3; centered best = 196^3.
+  Implication for the centered n+4->n+2 gate: current centered storage is
+  196^3 (FAST); the narrowing target 194^3 (=2*97, hostile factorization like
+  198/202) will very likely REGRESS at 192^3, mirroring upwind5 n+8->n+6.
+
+============================================================
+7. INSTABILITY — did NOT reproduce on a dedicated cool GPU
+============================================================
+All runs above are stable to +/-0.02 ms across processes and reps; SM clock
+pinned at 1410 MHz throughout (logged before/after every process). autotune=0
+gives byte-identical medians -> not autotune nondeterminism. The predecessor's
+16% cross-process wobble (storage_halo_gpu_ab.md) coincided with a foreign
+~65 GiB spike.py sharing the device; the memory-inefficient 198^3 shape (sec 4)
+is the more DRAM-contention-sensitive of the pair, so a shared GPU amplifies
+its variance. On a dedicated GPU the slow shape is DETERMINISTICALLY slow.
