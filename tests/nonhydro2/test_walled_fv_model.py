@@ -42,7 +42,7 @@ def _walled_grid(walled):
     return Grid(tuple(
         IntervalMesh(N, (0.0, 1.0 if name == walled else 2 * np.pi),
                      periodic=(name != walled), name=name)
-        for name in ("x", "y", "z")))
+        for name in ("x", "y", "z")), device_ids=(0,))
 
 
 def _build(family, walled, advection):
@@ -177,7 +177,7 @@ def test_average_row_interior_bitwise_and_matches_nodal_interp():
     # cells are bitwise the BC-free two-point mean and bitwise the
     # nodal LinearInterp; the wall cells use the claimed 0
     mz = IntervalMesh(N, (0.0, 1.0), periodic=False, name="z")
-    grid = Grid((mz,))
+    grid = Grid((mz,), device_ids=(0,))
     inner_dir = mz.nodal(NodeSet.INNER, bc=BC.DIRICHLET)
     w = grid.random.normal(inner_dir, seed=3)
     faces = np.asarray(w.data)
