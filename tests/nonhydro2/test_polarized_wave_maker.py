@@ -27,7 +27,7 @@ def make_grid(walled=()):
     return Grid(tuple(
         IntervalMesh(N, (0.0, LENGTH), periodic=name not in walled,
                      name=name)
-        for name in ("x", "y", "z")))
+        for name in ("x", "y", "z")), device_ids=(0,))
 
 
 def make_maker(**kwargs):

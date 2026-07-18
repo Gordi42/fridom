@@ -125,7 +125,7 @@ def _stretched_diff_loss(space_attr, periodic):
     def loss(c):
         mesh = MappedIntervalMesh(8, (0.0, 1.0), _wavy,
                                   periodic=periodic, name="v")
-        grid = Grid((mesh,))
+        grid = Grid((mesh,), device_ids=(0,))
         space = getattr(mesh, space_attr)
         f = grid.create_field(
             space, init=lambda v: jnp.sin(2.0 * jnp.pi * v)) * c
@@ -164,7 +164,7 @@ def test_divide_by_codomain_measure_is_bitwise_on_true_cells():
     # quotient equals the raw ``result / measure`` on the true region.
     mesh = MappedIntervalMesh(8, (0.0, 1.0), _wavy, periodic=False,
                               name="v")
-    grid = Grid((mesh,))
+    grid = Grid((mesh,), device_ids=(0,))
     result = grid.create_field(
         mesh.cell_avg, init=lambda v: jnp.cos(2.0 * jnp.pi * v) + 2.0)
     out = divide_by_codomain_measure(result, result, "v")
@@ -180,7 +180,7 @@ def test_divide_by_codomain_measure_bitwise_whole_array_periodic():
     # slots included) is bitwise identical to the raw quotient.
     mesh = MappedIntervalMesh(8, (0.0, 1.0), _wavy, periodic=True,
                               name="v")
-    grid = Grid((mesh,))
+    grid = Grid((mesh,), device_ids=(0,))
     result = grid.create_field(
         mesh.cell_avg, init=lambda v: jnp.sin(2.0 * jnp.pi * v) + 3.0)
     out = divide_by_codomain_measure(result, result, "v")

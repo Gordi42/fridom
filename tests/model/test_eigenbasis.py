@@ -63,8 +63,13 @@ def make_model(device_ids=None):
 
 @pytest.fixture(scope="module")
 def channel():
-    """One labeled sw channel eigenbasis through fr.model.eigenbasis."""
-    model = make_model()
+    """One labeled sw channel eigenbasis through fr.model.eigenbasis.
+
+    device_ids=(0,) keeps every axis local so the naive channel
+    eigenbasis math runs identically at any device count; the sharded
+    path is exercised by the @pytest.mark.multi_device test below.
+    """
+    model = make_model(device_ids=(0,))
     return model, eigenbasis(model)
 
 
