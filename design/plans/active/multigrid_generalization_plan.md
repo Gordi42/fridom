@@ -342,7 +342,47 @@ transfer pass-through and GM-D5's builder flag):
   z-transfers are shard-local — expected neutral, to be verified in
   Phase D).
 
-## 6. Roadmap tie-in
+## 6. Implementation record
+
+### Phase A — spatial machinery (2026-07-18, merge `51db9ba6`)
+`GridTransfer` ConstantSpace pass-through (two functions:
+`_is_cell_factor` / `_sibling_factor` honor `is_constant`); hierarchy
+builder promoted to `fridom.spatial.operators.multigrid_hierarchy`
+with `vertical: str | None`, `coarsen_vertical: bool = False`, and the
+new `Mesh.coarsenable` property (Chebyshev False). **Deviation
+(sound):** the FV C-grid re-discretization was a deferred
+`spatial → nonhydro2` import inside the old builder — resolved by
+dependency inversion: the builder takes a
+`rediscretize: Callable[[Grid], None] | None` callback; the FV helpers
+live in `nonhydro2/modules/pressure.py`. Gates: 190+52 passed, ruff
+clean; Profile-adjointness order-2 rel 2.5e-16 on a mapped-sigma pair.
+
+### Phase E — warm-started solves (2026-07-18, merge `70b012d8`)
+`x0` threaded to the mapped/immersed projections
+(`x0 = state["p"] · ctx.stage_dt`) and the immersed implicit surface
+(`x0 = state["ps"]`). krylov needed **no change** — it already
+projects the guess and the result (gauge start-independent). GE-2
+measured (GB-2 steep 128³, single A100): step **44.91 → 36.16 ms
+(−19.5%) multigrid, 39.99 → 33.27 ms (−16.8%) spectral**; physics
+old-vs-new ≤ 3.5e-9. All autodiff gates green.
+
+### Phase D — full-coarsen mapped default (2026-07-18, merge `a0eb7027`)
+`multigrid_coarsen_vertical: bool = True` on
+`MappedPressureSolver` / `DynamicalCore` / `nh.Model`; immersed solver
+untouched (scope). GD-1 forced-4: multigrid parity tests genuinely ran
+(2 selected 2 passed; transfers 6/6). GD-1 cost (GB-2 steep 128³):
+full **36.18** vs semicoarsen 37.78 ms/step (**−4.3%**), physics
+parity 3.1e-10. GD-2 fallbacks tested (indivisible n_z at solver
+level; Chebyshev at builder level — a mapped Chebyshev-column grid is
+not constructible). **Deviation (extends GM-D9's fallback list):** a
+*stretched-base* column (`MappedIntervalMesh` vertical, N2/N3) also
+falls back to semicoarsening — coarse `MappedIntervalMesh`
+construction is jit-incompatible (host-side `np.asarray` in
+`_validate_mapping`), and the spike validated only the uniform-base
+terrain column. Making it jit-constructible is a possible later
+spatial-layer lever, recorded here, not claimed.
+
+## 7. Roadmap tie-in
 
 Closes the implicit half of the open.md item "Variable-depth implicit +
 split-explicit free surfaces (H3)" (the split-explicit chart variant is
