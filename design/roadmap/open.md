@@ -36,19 +36,26 @@ memory ceiling, time-to-first-step, WENO throughput (entries in
   on a 4-GPU allocation. New runs report the honest `compile_s`
   metric (chunk metric fixed 2026-07-18; entry in
   [`done.md`](done.md)).
-- **Storage-halo width — remainders.** The biased +1 layer is
-  recovered: two-sided (interval) halo accounting shipped 2026-07-18,
-  upwind5/weno5 storage `n+8 → n+6`, bitwise parity, sync-count
-  invariant (entry in [`done.md`](done.md); record
-  [`../research/storage_halo_width.md`](../research/storage_halo_width.md)).
-  Still open: (a) the centered family stays at `n+4` — its traced
-  chain tightens to width 1 but `DynamicalCore.extra_halo = 2` floors
-  the assembled model at 2; revisit the floor (twin of the reverted
-  shallow-water `extra_halo` item,
-  [`../plans/active/perf_geometry_merge_plan.md`](../plans/active/perf_geometry_merge_plan.md)
-  §1.3); (b) GPU wall-clock A/B of the narrowed biased step —
-  manual protocol, owner-triggered (est. 2–3 ms/step @192³ on
-  RTX-3060-class, −3.0% step bytes @192³).
+- **Derived `extra_halo` + storage-width follow-ups.** Research done
+  2026-07-18 (records
+  [`../research/pressure_solver_halo.md`](../research/pressure_solver_halo.md),
+  [`../research/storage_halo_gpu_ab.md`](../research/storage_halo_gpu_ab.md);
+  outcomes in [`done.md`](done.md)). Open work:
+  (a) implement the derived declaration ("structure declared, numbers
+  derived", `pressure_solver_halo.md` §5 opt. 1 / §7): nonhydro2 core
+  2→1, hydrostatic core terrain 2→1, sw2 orthogonal-chart gravity
+  2→1 — realizes centered flat storage `n+4 → n+2`, and ships only
+  behind a fresh-process GPU step A/B (the shape-luck gate,
+  `storage_halo_gpu_ab.md` §3);
+  (b) `bench_step` prices no biased advection — add
+  `nh_flat_advective_upwind5` / `_weno5` cases (append-only; baseline
+  at the next owner-batched guard run) so ±10-20% GPU swings in this
+  family stop being guard-invisible;
+  (c) owner call: a supported storage-width floor knob to pin lucky
+  shapes (192³ upwind5 at width 4 is ~12% faster on A100);
+  (d) optional one-line width assert at the CG diagonal builders
+  (closes the only consumption-guard bypass,
+  `pressure_solver_halo.md` §7.2).
 - **Hydro surface-flux correction: slice-only `A(1)`.** The H7
   constancy-preserving surface advective flux (owner-ratified
   default, [`../plans/active/hydrostatic_model_plan.md`](../plans/active/hydrostatic_model_plan.md)

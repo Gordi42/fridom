@@ -1,0 +1,37 @@
+RESULT n=128 scheme=upwind5 variant=natural widths={'x': 3, 'y': 3, 'z': 3} med=1.842 ms/step min=1.834 max=1.861 first_advance=3.7s mem={'temp_MB': 363.094432, 'arg_MB': 250.234901, 'out_MB': 250.235085}
+RESULT n=128 scheme=upwind5 variant=wide widths={'x': 4, 'y': 4, 'z': 4} med=1.859 ms/step min=1.825 max=1.986 first_advance=3.6s mem={'temp_MB': 378.827424, 'arg_MB': 261.607509, 'out_MB': 261.607693}
+RESULT n=128 scheme=weno5 variant=natural widths={'x': 3, 'y': 3, 'z': 3} med=2.297 ms/step min=2.289 max=2.350 first_advance=5.5s mem={'temp_MB': 398.290592, 'arg_MB': 250.234901, 'out_MB': 250.235085}
+RESULT n=128 scheme=weno5 variant=wide widths={'x': 4, 'y': 4, 'z': 4} med=2.270 ms/step min=2.254 max=2.340 first_advance=5.8s mem={'temp_MB': 415.672224, 'arg_MB': 261.607509, 'out_MB': 261.607693}
+RESULT n=128 scheme=centered variant=natural widths={'x': 2, 'y': 2, 'z': 2} med=1.119 ms/step min=1.118 max=1.185 first_advance=2.1s mem={'temp_MB': 219.441568, 'arg_MB': 239.196757, 'out_MB': 239.196941}
+RESULT n=128 scheme=centered variant=wide widths={'x': 2, 'y': 2, 'z': 2} med=1.118 ms/step min=1.111 max=1.183 first_advance=0.5s mem={'temp_MB': 219.441568, 'arg_MB': 239.196757, 'out_MB': 239.196941}
+RESULT n=192 scheme=upwind5 variant=natural widths={'x': 3, 'y': 3, 'z': 3} med=6.651 ms/step min=6.493 max=6.984 first_advance=3.8s mem={'temp_MB': 1297.325472, 'arg_MB': 807.288853, 'out_MB': 807.289037}
+RESULT n=192 scheme=upwind5 variant=wide widths={'x': 4, 'y': 4, 'z': 4} med=5.876 ms/step min=5.768 max=6.598 first_advance=3.9s mem={'temp_MB': 1335.303072, 'arg_MB': 832.000085, 'out_MB': 832.000269}
+RESULT n=192 scheme=weno5 variant=natural widths={'x': 3, 'y': 3, 'z': 3} med=6.983 ms/step min=6.974 max=6.986 first_advance=6.3s mem={'temp_MB': 1296.694688, 'arg_MB': 807.288853, 'out_MB': 807.289037}
+RESULT n=192 scheme=weno5 variant=wide widths={'x': 4, 'y': 4, 'z': 4} med=7.423 ms/step min=6.782 max=8.568 first_advance=5.7s mem={'temp_MB': 1334.659488, 'arg_MB': 832.000085, 'out_MB': 832.000269}
+RESULT n=192 scheme=centered variant=natural widths={'x': 2, 'y': 2, 'z': 2} med=3.081 ms/step min=3.078 max=3.100 first_advance=2.1s mem={'temp_MB': 719.510944, 'arg_MB': 783.071829, 'out_MB': 783.072013}
+RESULT n=192 scheme=centered variant=wide widths={'x': 2, 'y': 2, 'z': 2} med=3.068 ms/step min=3.064 max=3.080 first_advance=0.6s mem={'temp_MB': 719.510944, 'arg_MB': 783.071829, 'out_MB': 783.072013}
+RESULT n=256 scheme=weno5 variant=natural widths={'x': 3, 'y': 3, 'z': 3} med=18.436 ms/step min=16.325 max=18.744 first_advance=7.1s mem={'temp_MB': 3008.438176, 'arg_MB': 1870.411797, 'out_MB': 1870.411981}
+RESULT n=256 scheme=weno5 variant=wide widths={'x': 4, 'y': 4, 'z': 4} med=15.623 ms/step min=15.618 max=17.040 first_advance=6.4s mem={'temp_MB': 3074.771872, 'arg_MB': 1913.573461, 'out_MB': 1913.573645}
+SWEEP-DONE
+RESULT n=192 scheme=upwind5 variant=natural widths={'x': 3, 'y': 3, 'z': 3} med=7.277 ms/step min=7.099 max=7.375 first_advance=1.0s mem={'temp_MB': 1297.325472, 'arg_MB': 807.288853, 'out_MB': 807.289037}
+RESULT n=192 scheme=upwind5 variant=wide widths={'x': 4, 'y': 4, 'z': 4} med=5.620 ms/step min=5.617 max=5.626 first_advance=0.9s mem={'temp_MB': 1335.303072, 'arg_MB': 832.000085, 'out_MB': 832.000269}
+RESULT n=192 scheme=upwind5 variant=w5,5,5 widths={'x': 5, 'y': 5, 'z': 5} med=6.495 ms/step min=6.492 max=6.504 first_advance=3.8s mem={'temp_MB': 1374.05328, 'arg_MB': 857.210517, 'out_MB': 857.210701}
+RESULT n=192 scheme=upwind5 variant=w6,6,6 widths={'x': 6, 'y': 6, 'z': 6} med=6.367 ms/step min=6.363 max=6.374 first_advance=3.9s mem={'temp_MB': 1413.572, 'arg_MB': 882.925141, 'out_MB': 882.925325}
+RESULT n=192 scheme=upwind5 variant=w3,3,4 widths={'x': 3, 'y': 3, 'z': 4} med=6.537 ms/step min=5.887 max=6.691 first_advance=4.1s mem={'temp_MB': 1309.850528, 'arg_MB': 815.443285, 'out_MB': 815.443469}
+RESULT n=192 scheme=upwind5 variant=w4,4,3 widths={'x': 4, 'y': 4, 'z': 3} med=6.769 ms/step min=6.546 max=6.961 first_advance=4.1s mem={'temp_MB': 1322.503072, 'arg_MB': 823.680085, 'out_MB': 823.680269}
+RESULT n=192 scheme=upwind5 variant=natural widths={'x': 3, 'y': 3, 'z': 3} med=6.279 ms/step min=6.270 max=6.281 first_advance=1.0s mem={'temp_MB': 1297.325472, 'arg_MB': 807.288853, 'out_MB': 807.289037}
+RESULT n=192 scheme=upwind5 variant=wide widths={'x': 4, 'y': 4, 'z': 4} med=5.622 ms/step min=5.620 max=5.623 first_advance=0.9s mem={'temp_MB': 1335.303072, 'arg_MB': 832.000085, 'out_MB': 832.000269}
+SCAN-DONE
+RESULT n=192 scheme=upwind5 variant=natural widths={'x': 4, 'y': 4, 'z': 4} med=5.632 ms/step min=5.624 max=6.318 first_advance=1.0s mem={'temp_MB': 1335.303072, 'arg_MB': 832.000085, 'out_MB': 832.000269}
+RESULT n=192 scheme=upwind5 variant=natural widths={'x': 4, 'y': 4, 'z': 4} med=5.634 ms/step min=5.631 max=7.080 first_advance=0.9s mem={'temp_MB': 1335.303072, 'arg_MB': 832.000085, 'out_MB': 832.000269}
+OLDDEV-DONE
+RESULT n=256 scheme=upwind5 variant=natural widths={'x': 3, 'y': 3, 'z': 3} med=14.650 ms/step min=14.606 max=15.530 first_advance=4.3s mem={'temp_MB': 3009.539488, 'arg_MB': 1870.411797, 'out_MB': 1870.411981}
+RESULT n=256 scheme=upwind5 variant=wide widths={'x': 4, 'y': 4, 'z': 4} med=14.489 ms/step min=14.340 max=16.116 first_advance=4.2s mem={'temp_MB': 3075.89008, 'arg_MB': 1913.573461, 'out_MB': 1913.573645}
+RESULT n=512 scheme=upwind5 variant=wide widths={'x': 4, 'y': 4, 'z': 4} med=143.204 ms/step min=127.445 max=146.720 first_advance=10.3s mem={'temp_MB': 23562.247072, 'arg_MB': 14623.232085, 'out_MB': 14623.232269}
+RESULT n=512 scheme=weno5 variant=natural widths={'x': 3, 'y': 3, 'z': 3} med=152.617 ms/step min=140.125 max=161.284 first_advance=12.8s mem={'temp_MB': 23299.464608, 'arg_MB': 14455.150613, 'out_MB': 14455.150797}
+BIG-DONE
+=== 512 upwind5 natural ===
+RESULT n=512 scheme=upwind5 variant=natural widths={'x': 3, 'y': 3, 'z': 3} med=123.707 ms/step min=123.705 max=123.716 first_advance=9.7s mem={'temp_MB': 23297.321632, 'arg_MB': 14455.150613, 'out_MB': 14455.150797}
+=== 512 weno5 wide ===
+RESULT n=512 scheme=weno5 variant=wide widths={'x': 4, 'y': 4, 'z': 4} med=130.001 ms/step min=129.986 max=130.019 first_advance=7.4s mem={'temp_MB': 24665.476, 'arg_MB': 14623.232085, 'out_MB': 14623.232269}
+RETRY-DONE

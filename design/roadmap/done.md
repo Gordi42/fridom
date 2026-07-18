@@ -131,6 +131,47 @@ Implementation record:
   [`storage_halo_width.md`](../research/storage_halo_width.md)
   (probe scripts + RESULTS under `storage_halo_width/probe/`).
 
+- **Storage-halo GPU A/B executed — shape-luck verdict** (2026-07-18,
+  owner-requested, single A100-80GB): compiled bytes track
+  `(n+6)³/(n+8)³` to 4 s.f. at every size, but wall-clock is
+  per-(scheme, size) XLA:GPU kernel-selection luck, ±10-20% in *both*
+  directions — upwind5 +12-18% @192³ yet −3-14% @512³, weno5 +5-17%
+  @256³/512³, 128³/256³-upwind5 neutral, centered A/A noise ~0.3%.
+  The 192³ width scan (w3-w6 uniform + per-axis) refutes both the
+  bytes-monotone and the alignment reading: only the uniform 200³
+  (width-4) shape is fast, so there is no padding rule to chase.
+  Cross-checked against real pre-merge dev (detached worktree at
+  `4c287c12`): forced-wide new code compiles byte-identical to old
+  dev (persistent-cache-served). Narrowing kept (memory −3%, CPU
+  faster, GPU mixed); follow-ups (biased `bench_step` cases, optional
+  width-floor knob) tracked in [`open.md`](open.md). Record:
+  [`storage_halo_gpu_ab.md`](../research/storage_halo_gpu_ab.md)
+  (harness + raw results under `storage_halo_gpu_ab/`).
+
+- **Pressure-solver halo demand researched — "silently wrong"
+  disproven, true demand 1, derivation design** (2026-07-18): every
+  default pressure/constraint solver path needs **1**/side, not the
+  declared 2 — the nonhydro2 projection's div and grad are 2-point
+  legs on opposite sides of a global transform that acts as a runtime
+  validity barrier (legs merge by max, not Minkowski sum);
+  empirically forcing the declaration to 1 is bitwise on the periodic
+  and walled spectral paths, ~1 ulp on mapped CG, and the hydrostatic
+  surface solve already declares 1. The owner's stale-declaration
+  fear does not hold: under-provisioning fails **loudly** (registry
+  consumption guards; the physics floor keeps width ≥ 1 in any
+  runnable model), and the spectral symbol derives from the same
+  registry rows the stage applies, so an operator swap cannot
+  silently desync. Also over-declared: hydrostatic core terrain 2→1,
+  sw2 orthogonal-chart gravity 2→1 (Sadourny/Coriolis corner-chain 2s
+  are genuine). Design: derived `extra_halo` ("structure declared,
+  numbers derived") is feasible — the declaration is read after
+  `bind` and the dispatch merge, so it can resolve the bound operator
+  rows and compose their two-sided `reach`. Implementation (and the
+  centered `n+4 → n+2` it unlocks, GPU-gated) tracked in
+  [`open.md`](open.md). Record:
+  [`pressure_solver_halo.md`](../research/pressure_solver_halo.md)
+  (probes under `pressure_solver_halo/`).
+
 - **Half-axis-sharded 3-D channel served — layout-aware half-axis
   re-designation** (2026-07-18, merge `feade7fa`; coverage follow-up
   merge `964a9117`) — the last remainder case with a fast path: when
