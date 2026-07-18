@@ -220,6 +220,33 @@ def test_pressure_preconditioner_is_static_treedef_aux():
     scan_method = jax.tree_util.tree_structure(
         DynamicalCore(multigrid_tridiagonal_method="scan"))
     assert spectral != scan_method
+    # the full-coarsening knob (GM-D9) is a static aux too
+    semicoarsen = jax.tree_util.tree_structure(
+        DynamicalCore(multigrid_coarsen_vertical=False))
+    assert spectral != semicoarsen
+
+
+def test_multigrid_coarsen_vertical_plumbs_through_the_preset():
+    # GM-D9: the full-coarsening knob defaults True and forwards
+    # Model -> DynamicalCore -> MappedPressureSolver
+    core = DynamicalCore(pressure_preconditioner="multigrid",
+                         multigrid_coarsen_vertical=False)
+    assert core._multigrid_coarsen_vertical is False
+    # the owner-ratified default is full 3-D coarsening (True)
+    assert DynamicalCore()._multigrid_coarsen_vertical is True
+    # the nh.Model factory forwards the knob to the dynamical core
+    model = nh.Model(coriolis=fplane(), grid=make_grid(), advection=False,
+                     pressure_preconditioner="multigrid",
+                     multigrid_coarsen_vertical=False)
+    dc = next(m for m in model._carry.modules
+              if type(m).__name__ == "DynamicalCore")
+    assert dc._multigrid_coarsen_vertical is False
+    # the True default forwards along Model -> DynamicalCore too
+    default = nh.Model(coriolis=fplane(), grid=make_grid(),
+                       advection=False)
+    dc_default = next(m for m in default._carry.modules
+                      if type(m).__name__ == "DynamicalCore")
+    assert dc_default._multigrid_coarsen_vertical is True
 
 
 def test_multigrid_tridiagonal_method_plumbs_through_the_preset():

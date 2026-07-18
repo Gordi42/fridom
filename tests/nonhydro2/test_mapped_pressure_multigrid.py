@@ -138,7 +138,8 @@ def test_multigrid_compiles_once_per_level_config(compile_counter, levels):
     # the level-count gate in its committed form: every hierarchy depth
     # compiles ONCE and a warm re-solve (a re-step) retraces nothing.
     # levels=1 is the smoothing-only degenerate cycle, 2/3 the real
-    # recursion (16 -> 8 -> 4 on x, sigma kept full)
+    # recursion (16 -> 8 -> 4 on x, and sigma 8 -> 4 too under the GM-D9
+    # full-coarsening default)
     solver, grid, space = build_solver(iterations=6, levels=levels)
     rhs1 = mean_free_rhs(grid, space)
     rhs2 = rhs1 * -2.0
@@ -262,6 +263,124 @@ def test_mapped_solver_rejects_unknown_tridiagonal_method():
             grid, space, iterations=3, weights={"sigma": 1.0 / DSQR},
             preconditioner="multigrid",
             multigrid_tridiagonal_method="thomas")
+
+
+# ================================================================
+#  GM-D9: full 3-D coarsening is the mapped-solver default
+# ================================================================
+def build_grid_3d(nx, ny, nz, *, depth_fn=None):
+    """Build a 3-D terrain grid ``zp = sigma H(x, y)`` (x, y periodic)."""
+    depth_fn = depth_fn or (
+        lambda x, y: 1.0 + 0.4 * jnp.sin(x) + 0.1 * jnp.cos(y))
+    mx = IntervalMesh(nx, (0.0, TWO_PI), periodic=True, name="x")
+    my = IntervalMesh(ny, (0.0, TWO_PI), periodic=True, name="y")
+    ms = IntervalMesh(nz, (0.0, 1.0), periodic=False, name="sigma")
+    mapping = CoordinateMapping(maps={"zp": lambda sigma, H: sigma * H},
+                                params={"H": depth_fn})
+    grid = Grid((mx, my, ms), mapping=mapping)
+    return grid, mx.center * my.center * ms.center
+
+
+def build_solver_3d(nx, ny, nz, *, coarsen_vertical=True, levels=None,
+                    iterations=5):
+    """Return a 3-D multigrid-preconditioned mapped solver and its grid."""
+    grid, space = build_grid_3d(nx, ny, nz)
+    solver = MappedPressureSolver(
+        grid, space, iterations=iterations, weights={"sigma": 1.0 / DSQR},
+        preconditioner="multigrid", multigrid_levels=levels,
+        multigrid_coarsen_vertical=coarsen_vertical)
+    return solver, grid, space
+
+
+def realized_shapes(solver):
+    """Return each V-cycle level's (x, y, z) solver-space shape."""
+    vcycle = solver._build_vcycle({})
+    return [tuple(level.operator.func.__self__._space.shape)
+            for level in vcycle.levels]
+
+
+def mean_free_rhs_3d(grid, space):
+    """Return a smooth mean-free rhs on the 3-D pressure space."""
+    rhs = grid.create_field(
+        space,
+        init=lambda x, y, sigma: jnp.exp(
+            -((x - 3.0) ** 2 + (y - 3.0) ** 2 + (sigma - 0.5) ** 2) * 3.0))
+    return rhs - rhs.mean()
+
+
+def test_coarsen_vertical_defaults_true_and_is_stored():
+    # the ratified GM-D9 default: the knob is True unless overridden
+    solver, *_ = build_solver_3d(16, 16, 16)
+    assert solver._multigrid_coarsen_vertical is True
+    off, *_ = build_solver_3d(16, 16, 16, coarsen_vertical=False)
+    assert off._multigrid_coarsen_vertical is False
+
+
+def test_default_coarsens_the_vertical_column():
+    # GM-D9: the mapped column halves alongside the horizontals,
+    # 32^3 -> 16^3 -> 8^3 -> 4^3 (the spike's realized hierarchy)
+    solver, *_ = build_solver_3d(32, 32, 32)
+    assert realized_shapes(solver) == [
+        (32, 32, 32), (16, 16, 16), (8, 8, 8), (4, 4, 4)]
+
+
+def test_semicoarsening_knob_keeps_the_vertical_full():
+    # multigrid_coarsen_vertical=False restores the pre-flip
+    # semicoarsened shapes: the sigma column stays at 32 at every level
+    solver, *_ = build_solver_3d(32, 32, 32, coarsen_vertical=False)
+    assert realized_shapes(solver) == [
+        (32, 32, 32), (16, 16, 32), (8, 8, 32), (4, 4, 32)]
+
+
+@pytest.mark.parametrize(
+    ("nz", "expected"),
+    [pytest.param(24, [(16, 16, 24), (8, 8, 12), (4, 4, 6)], id="nz24"),
+     pytest.param(20, [(16, 16, 20), (8, 8, 10), (4, 4, 5)], id="nz20")])
+def test_default_indivisible_nz_degrades_and_solves(nz, expected):
+    # GD-2 graceful degradation at the SOLVER level: an indivisible n_z
+    # stops coarsening the column at the floor/parity wall (24 -> 12 -> 6
+    # stops since 6 // 2 = 3 < 4; 20 -> 10 -> 5 stops at the odd 5) while
+    # the horizontals keep halving — the solve assembles and runs, no
+    # error on the knob
+    solver, grid, space = build_solver_3d(16, 16, nz, iterations=12)
+    assert realized_shapes(solver) == expected
+    rhs = mean_free_rhs_3d(grid, space)
+    p = jax.jit(solver.solve)(rhs)
+    assert bool(jnp.all(jnp.isfinite(p.data)))
+
+
+@pytest.mark.parametrize("coarsen_vertical", [True, False])
+def test_multigrid_converges_under_both_coarsenings(coarsen_vertical):
+    # both knob values drive the mapped Poisson below tolerance in a
+    # small PCG budget (the line smoother is kept at every level either
+    # way — a point smoother stalls under full coarsening too, spike 2)
+    solver, grid, space = build_solver_3d(
+        16, 16, 16, coarsen_vertical=coarsen_vertical, iterations=20)
+    rhs = mean_free_rhs_3d(grid, space)
+    p = jax.jit(solver.solve)(rhs)
+    residual = solver.apply(p) - rhs
+    rel = (float(jnp.abs(residual.data).max())
+           / float(jnp.abs(rhs.data).max()))
+    assert rel < 1e-7
+
+
+def test_full_and_semi_coarsening_agree_on_the_solution():
+    # the coarsening axis is a preconditioner choice, never physics: the
+    # full-coarsened and semicoarsened solves converge to the SAME
+    # mean-free pressure (GD-1 parity, single device). Both solvers ride
+    # the SAME grid so a single rhs field is valid for either.
+    grid, space = build_grid_3d(16, 16, 16)
+    kw = {"iterations": 25, "weights": {"sigma": 1.0 / DSQR},
+          "preconditioner": "multigrid"}
+    full = MappedPressureSolver(grid, space,
+                                multigrid_coarsen_vertical=True, **kw)
+    semi = MappedPressureSolver(grid, space,
+                                multigrid_coarsen_vertical=False, **kw)
+    rhs = mean_free_rhs_3d(grid, space)
+    p_full = jax.jit(full.solve)(rhs)
+    p_semi = jax.jit(semi.solve)(rhs)
+    scale = float(jnp.abs(p_semi.data).max())
+    assert float(jnp.abs((p_full - p_semi).data).max()) / scale < 1e-6
 
 
 # ================================================================

@@ -238,15 +238,20 @@ def test_preconditioner_knob_rejects_unknown():
 
 
 def test_multigrid_hierarchy_shape_and_degradation():
-    # N=16: the horizontal x semicoarsens 16 -> 8 -> 4 (the vertical
-    # sigma stays), so a 3-level request yields 3 levels; only the last
-    # carries transfer=None
+    # N=16: under the GM-D9 full-coarsening default BOTH axes halve
+    # 16 -> 8 -> 4 (x and the mapped column sigma), so a 3-level request
+    # yields 3 levels; only the last carries transfer=None
     solver, *_ = build_solver(preconditioner="multigrid",
                               multigrid_levels=3)
     levels = solver._build_vcycle({}).levels
     assert len(levels) == 3
     assert levels[-1].transfer is None
     assert all(level.transfer is not None for level in levels[:-1])
+    # the mapped column coarsens with the horizontals (the flip): each
+    # level's solver space halves on sigma too, 16 -> 8 -> 4
+    shapes = [tuple(level.operator.func.__self__._space.shape)
+              for level in levels]
+    assert shapes == [(16, 16), (8, 8), (4, 4)]
     # a tiny 4-cell grid cannot coarsen (2 < 4): it degrades to a
     # one-level, smoothing-only hierarchy (must work, not raise)
     tiny, *_ = build_solver(n=4, preconditioner="multigrid",
