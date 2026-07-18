@@ -813,7 +813,11 @@ class ImplicitFreeSurface(_FreeSurfaceBase):
         if self._immersed is None:
             ps_new = self._solve(rhs, csqr=csqr, dt=dt)
         else:
-            ps_new = self._solve_immersed(rhs, state, csqr=csqr, dt=dt)
+            # warm start the CG from the previous surface pressure
+            # (prognostic for eps > 0, previous diagnostic for eps = 0;
+            # both are valid mean-free guesses — Phase E)
+            ps_new = self._solve_immersed(
+                rhs, state, csqr=csqr, dt=dt, x0=state["ps"])
         # z-uniform correction: broadcast the ConstantSpace ps gradient
         # onto the velocity faces (the same C-grid diff the solve uses).
         # On an immersed grid the boolean open-face mask keeps the
@@ -891,7 +895,7 @@ class ImplicitFreeSurface(_FreeSurfaceBase):
 
     def _solve_immersed(
         self, rhs: ScalarField, state: object, *,
-        csqr: object, dt: object,
+        csqr: object, dt: object, x0: ScalarField | None = None,
     ) -> ScalarField:
         r"""Invert the variable-coefficient barotropic Helmholtz (IP-D9).
 
@@ -926,6 +930,12 @@ class ImplicitFreeSurface(_FreeSurfaceBase):
             The live squared-phase-speed leaf ``c^2``.
         dt : object
             The stage increment ``dt' = ctx.stage_dt``.
+        x0 : ScalarField | None, optional
+            The warm-start initial guess (the previous surface
+            pressure); None starts from zeros (default: None). The
+            RHS-relative stopping test saves iterations from a good
+            guess; the wet-mean gauge (eps = 0) is enforced
+            start-independently, so the solution is unchanged.
 
         Returns
         -------
@@ -982,7 +992,7 @@ class ImplicitFreeSurface(_FreeSurfaceBase):
             apply, preconditioner=precondition,
             iterations=self._pressure_iterations,
             tolerance=self._pressure_tolerance, projection=projection)
-        ps_new = cg(rhs)
+        ps_new = cg(rhs, x0)
         return ps_new.with_data(ps_new.data * cell_mask)
 
 

@@ -117,6 +117,23 @@ def test_projection_drives_masked_divergence_to_machine_zero():
     assert float(jnp.abs(div.data).max()) < 1e-9
 
 
+def test_project_warm_start_matches_cold_start():
+    # Phase E (GE-1): warm-starting the masked projection from the
+    # previous solved pressure lands on the same wet-mean-free pressure
+    # and drives the masked divergence to the same machine-zero.
+    _grid, _space, solver = _box_solver(n=12, iterations=30,
+                                        tolerance=None)
+    vel = _random_velocity(solver, seed=2)
+    p_cold, _ = solver.project(vel)
+    p_warm, corr = solver.project(vel, x0=p_cold)
+    scale = float(jnp.abs(p_cold.data).max())
+    assert float(jnp.abs(p_warm.data - p_cold.data).max()) < 1e-8 * scale
+    corrected = {
+        a: vel[a] - corr[a].retag(vel[a]) for a in solver.axes}
+    div = solver.divergence(corrected)
+    assert float(jnp.abs(div.data).max()) < 1e-9
+
+
 # ================================================================
 #  All-wet: the preconditioner is the exact inverse (~1 iteration)
 # ================================================================
