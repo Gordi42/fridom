@@ -30,6 +30,12 @@ same manual lowering the distributed spectral solve owns:
 5. the mirrored inverse path (``all_to_all`` back, half-axis synthesis
    last, real part), so the output sharding equals the input sharding.
 
+The synthesis-only features (single-mode ``mode()`` states,
+random-phase channel states) build their coefficient columns host-side
+and need only that inverse path: :meth:`ContractPlan.synthesize` runs
+it alone (no forward, no contraction), taking store-frame coefficient
+columns to real fields on the grid's own layout.
+
 The coefficient frame is fixed by the engine: ``q`` is laid out in the
 ``rfftn`` frame (the full spectrum on the sharded axis ``a``, the half
 spectrum on ``periodic_axis``, both in their original array positions),
@@ -192,6 +198,21 @@ class ContractPlan:
                       self._metric_spec),
             out_specs=comp_specs))
 
+        # the backward-only synthesis region (host-built coefficient
+        # columns -> real fields, no forward / contraction): reuses the
+        # contraction's inverse pipeline (``_backward_component``). The
+        # input shards the half axis ``b`` -- the internal frame the
+        # forward's ``all_to_all`` produces, so a coefficient column laid
+        # out with ``b`` sharded and ``a`` full needs no transpose here;
+        # the output shards ``a``, the field storage frame.
+        coeff_spec = [None, None, None]
+        coeff_spec[b_arr] = axis_name
+        self._coeff_spec = jax.sharding.PartitionSpec(*coeff_spec)
+        self._backward_region = jax.jit(jax.shard_map(
+            self._backward_body, mesh=mesh,
+            in_specs=(dict.fromkeys(components, self._coeff_spec),),
+            out_specs=comp_specs))
+
     # ================================================================
     #  Properties
     # ================================================================
@@ -262,6 +283,20 @@ class ContractPlan:
             result[name] = self._backward_component(seg)
         return result
 
+    def _backward_body(
+        self,
+        coeffs: dict[str, jax.Array],
+    ) -> dict[str, jax.Array]:
+        """Per-component inverse pipeline (one shard): synthesis only.
+
+        The synthesis counterpart of :meth:`_body`: the coefficient
+        columns are already built (host-side, in the engine's store
+        frame -- the half axis ``b`` sharded), so only the mirrored
+        inverse path runs, no forward transform and no contraction.
+        """
+        return {name: self._backward_component(coeffs[name])
+                for name in self._components}
+
     # ================================================================
     #  Application
     # ================================================================
@@ -270,6 +305,33 @@ class ContractPlan:
         if self._pad_b == self._n_b:
             return arr
         return _tail_pad(arr, self._b_plane, self._pad_b - self._n_b)
+
+    def _pad_half_axis(self, arr: jax.Array) -> jax.Array:
+        """Zero-pad the field-frame half axis (``b``) to ``pad_b``."""
+        if self._pad_b == self._n_b:
+            return arr
+        return _tail_pad(arr, self._b, self._pad_b - self._n_b)
+
+    def _wrap(
+        self,
+        out: dict[str, jax.Array],
+        fields: Mapping[str, ScalarField],
+    ) -> dict[str, ScalarField]:
+        """Wrap region outputs as fields on the components' nodal spaces.
+
+        On an indivisible sharded axis the region delivers the
+        padded-even storage frame (``pad_even``); otherwise the true
+        frame (``with_data``). Shared by :meth:`apply` and
+        :meth:`synthesize`.
+        """
+        if self.a_padded:
+            decomposition = next(iter(fields.values())).grid.decomposition
+            return {
+                name: fields[name].with_storage(decomposition.pad_even(
+                    out[name], fields[name].function_space))
+                for name in self._components}
+        return {name: fields[name].with_data(out[name])
+                for name in self._components}
 
     def apply(
         self,
@@ -319,16 +381,54 @@ class ContractPlan:
                 name: decomposition.unpad_even(
                     f.storage, f.function_space)
                 for name, f in fields.items()}
-            out = self._region(pieces, qf, wf, metric)
-            return {
-                name: fields[name].with_storage(decomposition.pad_even(
-                    out[name], fields[name].function_space))
-                for name in self._components}
-        pieces = {name: jnp.asarray(fields[name].data)
-                  for name in self._components}
+        else:
+            pieces = {name: jnp.asarray(fields[name].data)
+                      for name in self._components}
         out = self._region(pieces, qf, wf, metric)
-        return {name: fields[name].with_data(out[name])
-                for name in self._components}
+        return self._wrap(out, fields)
+
+    def synthesize(
+        self,
+        coeffs: Mapping[str, jax.Array],
+        fields: Mapping[str, ScalarField],
+    ) -> dict[str, ScalarField]:
+        r"""
+        Inverse-transform coefficient columns to real fields (no gather).
+
+        Description
+        -----------
+        The synthesis (backward-only) entry, the inverse of the
+        contraction :meth:`apply` shares with the engine's host path:
+        the caller has already built each component's coefficient column
+        in the engine's store frame (the sharded axis ``a`` full
+        spectrum, the half axis ``b`` the Hermitian half spectrum, the
+        bounded axis nodal), so only the fused inverse pipeline runs.
+        The half axis is zero-padded to the balanced extent and the
+        ``shard_map`` ``in_specs`` shard it -- the internal frame the
+        forward's ``all_to_all`` produces, so the store-frame column
+        needs no transpose. The output lands on the components' own
+        nodal spaces (the grid's default layout; the sharded axis is
+        never gathered).
+
+        Parameters
+        ----------
+        coeffs : Mapping[str, jax.Array]
+            Per-component coefficient columns in the store frame
+            (``a`` full spectrum, ``b`` the ``n_b`` half spectrum,
+            bounded axis nodal), complex.
+        fields : Mapping[str, ScalarField]
+            Template physical nodal fields (the components' spaces),
+            for the output layout / wrapping.
+
+        Returns
+        -------
+        dict[str, ScalarField]
+            The synthesized real component fields.
+        """
+        padded = {name: self._pad_half_axis(jnp.asarray(coeffs[name]))
+                  for name in self._components}
+        out = self._backward_region(padded)
+        return self._wrap(out, fields)
 
 
 # ================================================================
