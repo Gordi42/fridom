@@ -163,6 +163,34 @@ def test_to_bc_sibling_adoption_on_a_lone_factor(grid, my):
     assert tracer.function_space.bare is tagged
 
 
+def test_to_tag_only_sibling_trace_matches_the_eager_space(grid, space,
+                                                           my):
+    # the zero-op tag-only arm: src and dst are BC siblings already (a
+    # bare walled Center and its Dirichlet sibling), so .to needs no
+    # operator and adopts the tag via the public retag. The traced space
+    # must equal the eager runtime space or the trace diverges.
+    tagged = my.nodal(NodeSet.CENTER, bc=BC.DIRICHLET)
+    target = space.replace(y=tagged)
+    tracer = HaloTracer(space, grid.dispatch,
+                        HaloSpec({"x": 2, "y": 1})).to(target)
+    assert tracer.function_space.bare is target
+    eager = grid.create_field(space, init=lambda x, y: x * y)
+    assert eager.to(target).function_space.bare is target
+    # depth resets on the retagged axis (mirrors the eager halo reset)
+    # and carries over on the other; sound because a tag swap moves no
+    # data across the seam
+    assert widths(tracer.depth) == {"x": 2, "y": 0}
+
+
+def test_to_tag_only_sibling_accrues_no_halo_demand(grid, space, my):
+    # a pure tag-only .to needs no ghost cells, so trace_halo records
+    # zero demand -- a sound upper bound on the (zero) runtime need
+    tagged = my.nodal(NodeSet.CENTER, bc=BC.DIRICHLET)
+    target = space.replace(y=tagged)
+    spec = trace_halo(lambda f: f.to(target), (space,), grid.dispatch)
+    assert widths(spec) == {}
+
+
 def test_to_non_sibling_codomain_disagreement_raises(grid, space,
                                                      my):
     # Center -> Outer: the registered operator lands on Inner free,

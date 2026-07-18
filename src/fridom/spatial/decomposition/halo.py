@@ -725,13 +725,17 @@ class HaloTracer:
         Description
         -----------
         Mirrors the eager ``ScalarField.to`` exactly, including the
-        BC-sibling seam: where the registered operator's codomain is
-        a BC-sibling of the requested factor (nodal operator outputs
-        are BC-free; owner decision), the eager path adopts the
-        requested tag via ``retag`` — so the tracer relabels its
-        space the same way (``_retag_factor``), keeping the traced
-        space identical to the runtime one. Any other codomain
-        disagreement raises, as it does eagerly.
+        BC-sibling seams. A factor that is already a BC-sibling of
+        the target (same node set, tag-only difference) needs no
+        operator: the eager path does ``result.retag(dst)`` and the
+        tracer mirrors it with the public traced ``retag``. And where
+        the registered operator's codomain is a BC-sibling of the
+        requested factor (nodal operator outputs are BC-free; owner
+        decision), the eager path adopts the requested tag via
+        ``retag`` — so the tracer relabels its space the same way
+        (``_retag_factor``), keeping the traced space identical to
+        the runtime one. Any other codomain disagreement raises, as
+        it does eagerly.
         """
         from fridom.spatial.fields.scalar_field import (  # noqa: PLC0415 — fields import the operator base
             _bc_siblings,
@@ -751,6 +755,14 @@ class HaloTracer:
                 continue
             if isinstance(src, ConstantSpace):
                 result = result._broadcast_factor(name, dst)
+                continue
+            if _bc_siblings(src, dst):
+                # tag-only difference (same node set): the eager path
+                # does result.retag(dst) — no operator, just adopt the
+                # sibling tag; mirror it with the public traced retag
+                # so the traced space agrees and the accumulated depth
+                # resets on this axis (the eager halo-validity reset)
+                result = result.retag(dst)  # single-factor shorthand
                 continue
             op = self._registry.resolve(
                 _conversion_kind(src, dst), src)[name]
