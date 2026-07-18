@@ -1859,14 +1859,21 @@ def _outer_to_inner(src: object, dst: object) -> bool:
 
 
 #: H7 surface-flux slice lowering (``_FluxFormAdvection._apply_correction``):
+#: ``None`` (the default) resolves per scheme via each class's
+#: ``_surface_flux_lowering`` ClassVar — ``"scatter"`` for the centered flux
+#: form, ``"embed"`` for the biased/upwind family — because the lowering is
+#: scheme-dependent in wall-clock (2026-07-18 single-A100 A/B: scatter wins
+#: centered -16% vs off at 2048^2 x 64, embed wins weno5 +5.8% vs off where
+#: scatter costs +16%; ``design/plans/active/boundary_trace_plan.md`` §9).
 #: ``"scatter"`` — the fully-2D row-scatter-add of the boundary term (the
-#: FV-native default, and the ``surface_flux`` closure runs FV by default in
+#: FV-native lowering, and the ``surface_flux`` closure runs FV by default in
 #: the hydrostatic model); ``"embed"`` — the sparse-3D ``embed`` of the
 #: boundary term plus the pre-slice full-3D ``q * A(1)`` AXPY (nodal only; an
 #: FV component's ``embed`` lands on the co-located nodal ``Center``, not
-#: ``CellAvg``, so it falls back to ``"scatter"``). Both are exact; the GPU
-#: A/B pick between them is the owner's (boundary_trace_plan.md §6).
-_SURFACE_FLUX_LOWERING = "scatter"
+#: ``CellAvg``, so it falls back to ``"scatter"``). Both are exact; setting an
+#: explicit string forces one lowering globally (the A/B knob — semantics for
+#: explicit strings unchanged).
+_SURFACE_FLUX_LOWERING: str | None = None
 
 
 def _is_surface_seam(v: ScalarField, axis: str) -> bool:
@@ -2006,6 +2013,12 @@ class _FluxFormAdvection(fr.model.Module):
     #: reach across dry cells; the graded-mask closure is designed-for
     #: (IP-D8)
     _supports_immersed: ClassVar[bool] = True
+
+    #: the per-scheme H7 surface-flux lowering used when the module-level
+    #: ``_SURFACE_FLUX_LOWERING`` is ``None``: the centered flux form wins
+    #: with ``"scatter"`` (the biased family overrides this to ``"embed"``;
+    #: 2026-07-18 A/B, boundary_trace_plan.md §9)
+    _surface_flux_lowering: ClassVar[str] = "scatter"
 
     def __init__(
         self,
@@ -3022,17 +3035,23 @@ class _FluxFormAdvection(fr.model.Module):
 
         Description
         -----------
-        Two exact lowerings (``_SURFACE_FLUX_LOWERING``): ``"embed"``
-        materializes ``A(1)|top`` sparsely back into its parent row and
-        runs the pre-slice full-3D ``q * A(1)`` AXPY (nodal only — an FV
-        component's ``embed`` lands on the co-located nodal ``Center``,
-        not ``CellAvg``, so it falls back to ``"scatter"``);
-        ``"scatter"`` (the default) keeps everything 2D and
+        Two exact lowerings: ``"embed"`` materializes ``A(1)|top``
+        sparsely back into its parent row and runs the pre-slice full-3D
+        ``q * A(1)`` AXPY (nodal only — an FV component's ``embed`` lands
+        on the co-located nodal ``Center``, not ``CellAvg``, so it falls
+        back to ``"scatter"``); ``"scatter"`` keeps everything 2D and
         row-scatter-adds the negated correction into ``tend``'s boundary
-        row. Both give the same tendency.
+        row. Both give the same tendency. The lowering is chosen
+        per-scheme (``scatter`` for the centered flux form, ``embed`` for
+        the biased/upwind family) via the class ``_surface_flux_lowering``
+        default, globally overridable by the module-level
+        ``_SURFACE_FLUX_LOWERING`` (an explicit string forces one lowering
+        for all schemes).
         """
-        if (_SURFACE_FLUX_LOWERING == "embed"
-                and not _is_average_space(q.function_space)):
+        lowering = (self._surface_flux_lowering
+                    if _SURFACE_FLUX_LOWERING is None
+                    else _SURFACE_FLUX_LOWERING)
+        if lowering == "embed" and not _is_average_space(q.function_space):
             # embed lands on the BC-free parent Center row; retag onto q's
             # own (possibly wall-tagged) cell factor for the AXPY (data
             # untouched — the boundary row is a structural interior DOF)
@@ -3454,6 +3473,11 @@ class UpwindAdvection(_FluxFormAdvection):
     #: near-wall closure keyed on the wet region is designed-for
     #: (IP-D8) — taught rejection at bind on an immersed grid
     _supports_immersed: ClassVar[bool] = False
+
+    #: the biased/upwind family (incl. WENO) wins with ``"embed"`` when
+    #: ``_SURFACE_FLUX_LOWERING`` is ``None`` -- scatter costs +16% at
+    #: 2048^2 x 64 where embed is +5.8% vs off (2026-07-18 A/B, §9)
+    _surface_flux_lowering: ClassVar[str] = "embed"
 
     def __init__(
         self,
