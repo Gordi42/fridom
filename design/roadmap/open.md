@@ -19,31 +19,26 @@ entry is enough.
 
 # Next steps
 
-## Performance guard — wire the benchmark harness as a CI gate
+## Performance guard — final A100 validation
 
-The A/B harness exists (`benchmarks/model/bench_step.py`, **committed**
-baselines `benchmarks/baselines/step-gpu{1,4}.json`,
-`--fail-on-regression`, the `nh_flat_prime` / `nh_flat_walled_x` guard
-cases — see [`done.md`](done.md)), but the CI benchmark job still only
-smoke-runs ("No timing assertions", `.github/workflows/tests.yml`), so
-a silent perf regression on the untimed CI path stays green.
-
-Also open: **fast-path assertions beyond the solve.**
-`tests/nonhydro2/test_distributed_projection.py` asserts the
-distributed fast path for all four solve geometries (periodic,
-walled-z, walled-x, prime), and the halo-claim assertions guard
-storage-frame arithmetic — but the other fast paths remain unasserted.
-A change that pushes production off one of them would pass the suite
-and quietly cost ~2x at scale.
-[`../plans/active/perf_geometry_merge_plan.md`](../plans/active/perf_geometry_merge_plan.md)
-
-Closure design (2026-07-18, owner rulings recorded in its §5):
+The closure design and its whole buildable surface shipped
+2026-07-18 (entry in [`done.md`](done.md); plan + owner rulings:
 [`../plans/active/perf_guard_plan.md`](../plans/active/perf_guard_plan.md)
-— PR CI gates *structure* (six new fast-path assertions, incl. the
-FV walled/mapped ratchet), the DKRZ A100 node gates *time* (hardened
-`compare` + manually submitted sbatch guard; **no automated cluster
-submissions**, owner ruling); a wall-clock gate in GitHub CI is
-explicitly rejected there. Open: implement G1–G3.
+— PR CI gates *structure*, the DKRZ A100 node gates *time*,
+manual-trigger only, **no automated cluster submissions**).
+Remaining (plan §6):
+
+- **One green, manually submitted**
+  `benchmarks/ci/step_guard.sbatch` run on the A100 node. The first
+  submission must confirm the `# TODO(Silvano): confirm`
+  `--account=uo0780_gpu` header value.
+- **The gpu-marked guard legs**
+  (`test_auto_method_wires_to_cusparse_on_gpu`, mapped + immersed)
+  green on the A100 suite — cheap to piggyback on the same node
+  session as the guard run.
+
+When both are green, move this entry to [`done.md`](done.md) and
+record the run in the plan.
 
 ## Gaps against the Oceananigans reference comparison
 
