@@ -48,6 +48,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import jax.numpy as jnp
+import numpy as np
 
 from fridom.framework.utils import dtype_comp, dtype_real
 from fridom.model.energy import EnergyMetric
@@ -220,9 +221,17 @@ def _probe_symbol(
     mode) and reads the response's DFT, so
     ``S[..., c', c] = FFT(apply_fn(e_c)_{c'})``. Returns the batched
     ``(*modes, m_out, m_in)`` symbol tensor.
+
+    On a multi-device grid each response is fetched to host and
+    rebuilt replicated before its ``fftn`` (mirroring the channel
+    build's ``eigen_channel._gathered_responses``): the naive
+    ``jnp.fft.fftn`` on a sharded transform axis would silently
+    all-gather (CPU) or crash in XLA's distributed-FFT lowering (GPU,
+    jaxlib 0.10.2). The single-device path is left bit-identical.
     """
     shape = base0[prog[0]].data.shape
     axes = tuple(range(len(shape)))
+    gather = base0.grid.decomposition.device_count > 1
     columns = []
     for name in prog:
         field = base0[name]
@@ -231,10 +240,13 @@ def _probe_symbol(
                 (0,) * field.data.ndim].set(1.0)
         response = apply_fn(base0.replace(**{name: field.with_data(
             impulse)}))
-        column = jnp.stack(
-            [jnp.fft.fftn(response[out].data, axes=axes)
-             for out in prog], axis=-1)
-        columns.append(column)
+        outs = []
+        for out in prog:
+            data = response[out].data
+            if gather:
+                data = jnp.asarray(np.asarray(data))
+            outs.append(jnp.fft.fftn(data, axes=axes))
+        columns.append(jnp.stack(outs, axis=-1))
     return jnp.stack(columns, axis=-1)
 
 

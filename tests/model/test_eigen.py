@@ -45,12 +45,13 @@ from fridom.spatial.operators.composed import Divergence
 # ================================================================
 #  Model builders
 # ================================================================
-def sw_model(n=16, *, f0=1.0, csqr=1.0):
+def sw_model(n=16, *, f0=1.0, csqr=1.0, device_ids=None):
     """Return a doubly-periodic staggered shallow-water model."""
     mx = IntervalMesh(n, (0.0, 1.0), periodic=True, name="x")
     my = IntervalMesh(n, (0.0, 1.0), periodic=True, name="y")
     return sw.Model(
-        grid=Grid((mx, my)), csqr=csqr, rossby_number=0.2,
+        grid=Grid((mx, my), device_ids=device_ids), csqr=csqr,
+        rossby_number=0.2,
         coriolis=sw.modules.FPlaneCoriolis(f0=f0), advection=True,
         time_stepper=AdamBashforth(5e-3, order=3))
 
@@ -78,6 +79,20 @@ def test_shallow_water_returns_three_branches():
     assert isinstance(ne, NumericEigenmodes)
     assert ne.components == ("u", "v", "p")
     assert ne.omega.shape[-1] == 3
+
+
+@pytest.mark.multi_device
+def test_numeric_eigenpairs_are_device_count_invariant():
+    # _probe_symbol gathers each response to a replicated array before
+    # its fftn on a multi-device grid (the naive jnp.fft.fftn on the
+    # sharded transform axis would silently all-gather on CPU / crash
+    # XLA's distributed-FFT lowering on GPU): the spectrum matches the
+    # single-device reference exactly
+    many = numeric_eigenpairs(sw_model(n=16))
+    one = numeric_eigenpairs(sw_model(n=16, device_ids=(0,)))
+    om_many = np.sort(np.asarray(many.omega).ravel())
+    om_one = np.sort(np.asarray(one.omega).ravel())
+    assert np.abs(om_many - om_one).max() < 1e-12
 
 
 def test_shallow_water_spectrum_is_real():
