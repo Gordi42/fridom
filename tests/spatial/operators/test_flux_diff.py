@@ -654,3 +654,74 @@ def test_mapped_inner_flux_diff_grad_is_finite_and_matches_fd(
     h = 1e-4
     fd = float((loss(c0 + h) - loss(c0 - h)) / (2.0 * h))
     assert abs(grad - fd) <= 1e-4 * abs(fd)
+
+
+# ================================================================
+#  Scalar-dx fold: uniform meshes divide by no measure field (gap F)
+# ================================================================
+def _walk_eqns(jaxpr):
+    """Yield every equation of a jaxpr and all nested sub-jaxprs."""
+    for eqn in jaxpr.eqns:
+        yield eqn
+        for value in eqn.params.values():
+            for sub in _nested_jaxprs(value):
+                yield from _walk_eqns(sub)
+
+
+def _nested_jaxprs(value):
+    """Jaxpr objects reachable from one equation-parameter value."""
+    inner = getattr(value, "jaxpr", None)  # ClosedJaxpr -> its Jaxpr
+    if inner is not None:
+        return [inner]
+    if hasattr(value, "eqns"):              # a bare Jaxpr
+        return [value]
+    if isinstance(value, (tuple, list)):    # e.g. cond branches
+        return [j for v in value for j in _nested_jaxprs(v)]
+    return []
+
+
+def _field_div_divisors(closed_jaxpr, ndim_threshold):
+    """``div`` eqns whose divisor is a traced array of field rank.
+
+    A scalar cell width folds into the static stencil weights and never
+    reaches the jaxpr as an array divisor; a materialized measure field
+    appears as a traced ``Var`` of the storage rank. "Field-shaped" is
+    ``ndim >= ndim_threshold`` (the grid's dimensionality), which admits
+    the measure field and excludes any 0-d scalar.
+    """
+    hits = []
+    for eqn in _walk_eqns(closed_jaxpr.jaxpr):
+        if eqn.primitive.name != "div":
+            continue
+        divisor = eqn.invars[1]
+        aval = getattr(divisor, "aval", None)
+        if (type(divisor).__name__ == "Var" and aval is not None
+                and aval.ndim >= ndim_threshold):
+            hits.append(aval.shape)
+    return hits
+
+
+def test_uniform_mesh_folds_scalar_dx_no_field_division():
+    # F: on a uniform mesh the constant cell width folds into the static
+    # weights (staggering.uniform_spacing scalar fast path), so the
+    # traced FV derivative (flux_diff @ reconstruct) divides by NO
+    # materialized measure field. Traced under jax.jit so the walker
+    # must descend into the pjit sub-jaxpr to inspect the (absent)
+    # division -- exercising the nested-jaxpr walk.
+    umesh = IntervalMesh(16, (0.0, 1.0), name="x")
+    ugrid = Grid((umesh,))
+    uf = ugrid.random.normal(umesh.cell_avg, seed=3)
+    uniform = jax.make_jaxpr(
+        jax.jit(lambda fld: fld.diff("x").data))(uf)
+    assert _field_div_divisors(uniform, len(ugrid.factors)) == []
+
+    # detector sanity: a mapped mesh DOES divide by its codomain measure
+    # field (staggering.divide_by_codomain_measure), so the uniform
+    # assertion above is not vacuously true.
+    mmesh = MappedIntervalMesh(16, (0.0, 1.0), _wavy_map, periodic=True,
+                               name="w")
+    mgrid = Grid((mmesh,))
+    mf = mgrid.random.normal(mmesh.cell_avg, seed=3)
+    mapped = jax.make_jaxpr(
+        jax.jit(lambda fld: fld.diff("w").data))(mf)
+    assert _field_div_divisors(mapped, len(mgrid.factors))
