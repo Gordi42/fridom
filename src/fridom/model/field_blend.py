@@ -24,12 +24,24 @@ never recompile).
 ``FieldBlend`` value type in a module constructor: a module *holds* a
 ``FieldBlend`` (a module-level descriptor), contributes its ingredient
 declarations from ``field_declarations`` when a weight is time-dependent,
-and evaluates the blend inside its own clock-aware tendency term. The
-first consumer is the Coriolis family (``f(t) = f0(t) + beta(t)*y``);
-stratification/topography blends are follow-ups (plan §7). We still do
-**not** build general time-dependent fields (no SELF_UPDATE rewrite, no
-``(coords, t)`` recompute contract) — those stay with the open roadmap
-entry, of which this affine blend is the forward-compatible subset.
+and — since TDF-D11 (2026-07-19) — lowers the blend onto the general
+SELF_UPDATE rewrite path. When a weight is time-dependent the module
+marks its blended field ``time_dependent=True`` and emits a SELF_UPDATE
+stage (``stage``) that rewrites the field each substage to the affine
+combination ``p(t) = sum_i w_i(t) * P_i`` (the stage body ``rewrite``,
+which just wraps ``evaluate`` at the substage clock); the tendency term
+then reads the carried field plainly. The first consumer is the Coriolis
+family (``f(t) = f0(t) + beta(t)*y``); stratification/topography blends
+are plain future consumers (plan §7) that wire the same two thin lines
+(``stage`` + a one-line rewrite method).
+
+TDF-D11 supersedes AR-D2's *mechanism* half — the term-side
+``evaluate``-in-term seam that left the carried field a frozen ``t = 0``
+snapshot (a staleness wart seen by I/O, restart and cross-module readers)
+— now that the SELF_UPDATE rewrite machinery exists. AR-D2's ruling *for
+generality* (an affine blend is the forward-compatible subset of the
+general ``(coords, t)`` fields) is untouched; ``evaluate`` survives as
+the shared compute core.
 """
 from __future__ import annotations
 
@@ -39,6 +51,7 @@ from typing import TYPE_CHECKING
 import jax
 
 from fridom.model.declarations import FieldDeclaration, Lifecycle
+from fridom.model.stages import Stage, StageKind
 from fridom.model.time_dependent import TimeDependent, resolve_at
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -253,3 +266,85 @@ class FieldBlend:
             total = (contribution if total is None
                      else total + contribution)
         return total
+
+    # ================================================================
+    #  The SELF_UPDATE rewrite path (TDF-D11)
+    # ================================================================
+    def stage(
+        self, fn: str, *, target: str, name: str | None = None,
+    ) -> Stage:
+        """
+        Build the SELF_UPDATE stage that rewrites ``target`` (TDF-D11).
+
+        Description
+        -----------
+        The reusable half of the TDF-D11 lowering: a consumer whose
+        blend is active declares this stage from its ``stages`` property
+        (one thin line) and points ``fn`` at a one-line rewrite method
+        that delegates to :meth:`rewrite` (the second thin line). The
+        stage reads the target plus every ingredient (the V-H5
+        scheduling inputs, assembly-checked like a ``FieldReference``)
+        and writes the target through the ``replace`` gate; it carries
+        no ``extra_halo`` — the blend is pointwise field arithmetic over
+        halo-valid ingredients, so the rewritten field is halo-valid by
+        construction and stays halo-traced.
+
+        Parameters
+        ----------
+        fn : str
+            The owning module's rewrite-method name (resolved to the
+            unbound method at collection); the method wraps
+            :meth:`rewrite`.
+        target : str
+            The blended AUXILIARY field the stage rewrites.
+        name : str | None, optional
+            The stage attribution key part; defaults to ``fn``
+            (default: None).
+
+        Returns
+        -------
+        Stage
+            The SELF_UPDATE stage declaration.
+        """
+        return Stage(
+            kind=StageKind.SELF_UPDATE, fn=fn, name=name,
+            reads=(target, *(i.field for i in self._ingredients)),
+            writes=(target,))
+
+    def rewrite(
+        self, module: object, state: object, ctx: object, *,
+        target: str,
+    ) -> dict:
+        r"""
+        SELF_UPDATE body: rewrite ``target`` to the stage-time blend.
+
+        Description
+        -----------
+        The compute core of the TDF-D11 stage: evaluate the affine
+        combination :math:`\sum_i w_i(t)\,P_i` at the substage clock
+        (``ctx.clock.time`` in a run, the bare dry-run/tendency scalar
+        otherwise — the ``eval_params``-consistent seam) and return it
+        as a **full** field write (:meth:`evaluate` is pure field
+        arithmetic over the halo-valid ingredients — not a raw
+        ``with_data``), so the ``replace`` gate re-attaches the target's
+        own metadata and the carry keeps a byte-stable treedef.
+
+        Parameters
+        ----------
+        module : object
+            The owning module (source of the weight leaves).
+        state : Mapping[str, ScalarField]
+            The model state (source of the ingredient profiles).
+        ctx : object
+            The per-substage step context (its clock resolves the
+            weights).
+        target : str
+            The blended AUXILIARY field name to write.
+
+        Returns
+        -------
+        dict
+            ``{target: blended field}`` for the SELF_UPDATE replace.
+        """
+        time = getattr(ctx.clock, "time", ctx.clock)
+        return {target: self.evaluate(module, state, time)}

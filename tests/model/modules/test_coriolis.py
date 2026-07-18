@@ -727,7 +727,89 @@ def test_beta_plane_ramped_declares_the_blend_ingredients(kwargs):
     model = _beta_channel(_r1_grid(), **kwargs)
     for name in ("f_coriolis", "f_coriolis_const", "f_coriolis_grad"):
         assert name in model.state
-    assert model.module(BetaPlaneCoriolis)._blend_active
+    module = model.module(BetaPlaneCoriolis)
+    assert module._blend_active
+    # f_coriolis is marked time_dependent on the blend path (TDF-D11)
+    decls = {d.name: d for d in module.field_declarations}
+    assert decls["f_coriolis"].time_dependent
+
+
+def test_beta_plane_blend_emits_a_self_update_stage():
+    """The blend path emits one SELF_UPDATE stage writing f_coriolis.
+
+    TDF-D11: the ramped f0/beta lowers onto the general rewrite path, so
+    the module rewrites f_coriolis to the stage-time blend each substage
+    (the reads name the target plus the two ingredients). A fully static
+    module emits no stage.
+    """
+    ramped = BetaPlaneCoriolis(beta=fr.model.Ramp(0.0, 2.0, period=1.0))
+    (stage,) = ramped.stages
+    assert stage.kind is fr.model.StageKind.SELF_UPDATE
+    assert stage.writes == ("f_coriolis",)
+    assert stage.reads == (
+        "f_coriolis", "f_coriolis_const", "f_coriolis_grad")
+    assert BetaPlaneCoriolis(f0=F0, beta=2.0).stages == ()
+
+
+def test_beta_plane_blend_field_equals_the_blend_at_stage_time():
+    """The wart-fix: after a run, f_coriolis is the stage-time blend.
+
+    Under the old term-side seam the carried f_coriolis stayed a frozen
+    t=0 snapshot; the SELF_UPDATE stage now rewrites it each substage, so
+    I/O, restart and cross-module readers see the fresh value.
+    """
+    grid = _r1_grid()
+    ramp = fr.model.Ramp(0.0, 2.0, period=6 * RAMP_DT, curve="exp")
+    ramped = _beta_channel(grid, f0=1.3, beta=ramp, order=3)
+    ramped.advance(3)
+    y = (np.arange(N) + 0.5) * (1.0 / N)
+    t_last = 2 * RAMP_DT
+    field = np.asarray(ramped.state["f_coriolis"].data).ravel()
+    np.testing.assert_allclose(
+        field, 1.3 + float(ramp.at_time(t_last)) * y, atol=1e-12)
+    # and it is NOT the frozen t=0 snapshot (the ramp actually moved it)
+    assert not np.allclose(field, 1.3 + float(ramp.at_time(0.0)) * y)
+
+
+def test_beta_plane_blend_carry_treedef_is_stable():
+    """The blend stage keeps a byte-stable scan carry across chunks.
+
+    _seal_carry_ghosts normalizes every field to the full decomposition
+    halo at each carry boundary, so the full-field blend write keeps the
+    carry treedef stable exactly as the shipped law path does.
+    """
+    model = _beta_channel(
+        _r1_grid(), beta=fr.model.Ramp(0.0, 1.0, period=1.0), order=1)
+    before = jax.tree_util.tree_structure(model._carry)
+    model.advance(4)
+    assert jax.tree_util.tree_structure(model._carry) == before
+
+
+def test_beta_plane_blend_grad_wrt_ic_is_finite_and_matches_fd():
+    """Grad through a blend-active run w.r.t. the IC (TDF-D8 spirit).
+
+    The blend is pure linear field arithmetic (no masked singularity), so
+    the SELF_UPDATE rewrite is trivially reverse-differentiable; this pins
+    that a ramped-beta run stays finite and FD-matched end to end.
+    """
+    grid = _r1_grid()
+    ramp = fr.model.Ramp(0.0, 2.0, period=6 * RAMP_DT, curve="exp")
+    model = _beta_channel(grid, f0=1.3, beta=ramp, order=1)
+    random_state(model, seed=7)
+    u_leaf = model._carry.state["u"].storage
+    loss = _chunk_leaf_loss(model, u_leaf, n_steps=6)
+
+    grad = np.asarray(jax.grad(loss)(u_leaf))
+    assert bool(np.all(np.isfinite(grad)))
+
+    rng = np.random.default_rng(8)
+    direction = jnp.asarray(rng.standard_normal(u_leaf.shape),
+                            dtype=u_leaf.dtype)
+    directional = float(jnp.vdot(jnp.asarray(grad), direction))
+    eps = 1e-4
+    fd = (float(loss(u_leaf + eps * direction))
+          - float(loss(u_leaf - eps * direction))) / (2.0 * eps)
+    assert directional == pytest.approx(fd, rel=1e-4)
 
 
 @pytest.mark.parametrize("t", [0.0, 0.017, 0.05, 0.2])
@@ -801,18 +883,27 @@ def test_beta_plane_ramped_actually_changes_the_answer():
 
 
 def test_beta_plane_time_dependent_linear_parameters():
-    """The AR-D7 hook: reports ramped f0/beta feeding the linear term."""
+    """The AR-D7 hook: ramped f0/beta AND the marked f_coriolis field.
+
+    A ramped f0/beta makes f_coriolis a time_dependent field rewritten by
+    the blend SELF_UPDATE stage (TDF-D11), so the marked field now fires
+    the linear_fields route alongside the ramped linear_params (both feed
+    the linear rotation term). The two routes are double-covered — either
+    alone already refuses a frozen-L stepper — but the honesty seam
+    reports the full offender set (declaration order: params, then field).
+    """
     assert BetaPlaneCoriolis(
         f0=F0, beta=2.0).time_dependent_linear_parameters() == ()
     ramp = fr.model.Ramp(0.0, 1.0, period=1.0)
     assert BetaPlaneCoriolis(
-        f0=ramp).time_dependent_linear_parameters() == (str(CORIOLIS_F0),)
+        f0=ramp).time_dependent_linear_parameters() == (
+        str(CORIOLIS_F0), "f_coriolis")
     assert BetaPlaneCoriolis(
         beta=ramp).time_dependent_linear_parameters() == (
-        str(CORIOLIS_BETA),)
+        str(CORIOLIS_BETA), "f_coriolis")
     both = BetaPlaneCoriolis(f0=ramp, beta=ramp)
     assert both.time_dependent_linear_parameters() == (
-        str(CORIOLIS_F0), str(CORIOLIS_BETA))
+        str(CORIOLIS_F0), str(CORIOLIS_BETA), "f_coriolis")
 
 
 def test_beta_plane_etdrk4_refuses_a_ramped_beta():
