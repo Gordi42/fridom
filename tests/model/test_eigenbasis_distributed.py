@@ -41,6 +41,7 @@ from fridom.model._eigenbasis import (
     _contract_planes,
     _project_masked,
 )
+from fridom.model.eigen_channel import _designate_half_axis
 from fridom.spatial.fields.vector_field import VectorField
 from fridom.spatial.grid import Grid
 from fridom.spatial.meshes.interval import IntervalMesh
@@ -400,3 +401,25 @@ def test_real_two_dimensional_channel_keeps_the_taught_error(
     z = sw.State({c: model.state[c] for c in eb.components})
     with pytest.raises(NotImplementedError, match="shards a periodic axis"):
         eb.projector("wave")(z)
+
+
+@pytest.mark.multi_device
+def test_half_axis_designation_prefers_a_local_periodic_axis(
+        forced_devices):
+    # the pick itself is pure Python (no eigensolve), so this runs on
+    # any backend -- including the forced-4 CPU suite, which otherwise
+    # skips the GPU-scoped real-eigenbasis re-designation test above.
+    if forced_devices is not None:
+        assert jax.device_count() == forced_devices
+    many = make_nh_channel_last_axis()
+    assert not many.grid.decomposition.default_layout.is_local("z")
+    assert _designate_half_axis(many.grid, ("x", "z")) == "x"
+    # the default pick (the last periodic axis) stays whenever that
+    # axis is local: divisible x is the default sharded axis here.
+    meshes = tuple(
+        IntervalMesh(n, (0.0, 1.0 if name == "y" else 2 * np.pi),
+                     periodic=(name != "y"), name=name)
+        for name, n in (("x", 12), ("y", 8), ("z", 12)))
+    divisible = Grid(meshes)
+    assert divisible.decomposition.default_layout.is_local("z")
+    assert _designate_half_axis(divisible, ("x", "z")) == "z"
