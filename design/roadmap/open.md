@@ -37,6 +37,12 @@ A change that pushes production off one of them would pass the suite
 and quietly cost ~2x at scale.
 [`../plans/active/perf_geometry_merge_plan.md`](../plans/active/perf_geometry_merge_plan.md)
 
+Closure design (2026-07-18, research done, owner rulings pending):
+[`../plans/active/perf_guard_plan.md`](../plans/active/perf_guard_plan.md)
+— PR CI gates *structure* (six new fast-path assertions), the DKRZ
+A100 node gates *time* (hardened `compare` + sbatch guard script);
+a wall-clock gate in GitHub CI is explicitly rejected there.
+
 ## Gaps against the Oceananigans reference comparison
 
 The 2026-07 matched-protocol comparison against Oceananigans.jl
