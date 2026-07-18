@@ -239,6 +239,26 @@ def test_multigrid_on_a_stretched_column_builds_and_solves():
     assert float(jnp.abs(p.mean().data.ravel()[0])) < 1e-12
 
 
+def test_stretched_base_keeps_semicoarsening_under_the_default():
+    # GM-D9 graceful degradation: the full-coarsening default is ON
+    # (multigrid_coarsen_vertical=True) but a stretched base column is a
+    # MappedIntervalMesh whose coarse construction is host-validated and
+    # cannot run under the solve trace, so the column stays FULL while
+    # the horizontals coarsen — automatically, no error and no knob
+    grid, mx, ms = build_mg_grid(16, 8)
+    space = cell_space(mx, ms)
+    solver = MappedPressureSolver(
+        grid, space, iterations=5, weights={"sigma": 1.0 / DSQR},
+        preconditioner="multigrid")
+    assert solver._multigrid_coarsen_vertical is True  # default on
+    assert solver._stretched_base                      # but stretched
+    vcycle = solver._build_vcycle({})
+    shapes = [tuple(level.operator.func.__self__._space.shape)
+              for level in vcycle.levels]
+    # x halves 16 -> 8 -> 4; the sigma column stays 8 at every level
+    assert shapes == [(16, 8), (8, 8), (4, 8)]
+
+
 def test_multigrid_vcycle_is_symmetric_on_a_stretched_column():
     # the SPD gate (record §6 N3): a V(1,1) cycle whose vertical-line
     # smoother carries the measure-self-adjoint tridiagonal
