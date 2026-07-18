@@ -636,6 +636,16 @@ def negotiate(
     (the provisional path — exact under the iteration-1
     sync-after-every-operator contract).
 
+    The explicit `halo=` widths also join the per-application **floor**
+    the sharding cap respects: they carry declared-bypass demands
+    (``Module.extra_halo``, the tight reach of a trace-exempt stage's
+    operators) plus user widths, both of which a raw-``.data`` stage
+    reads in one unguarded application, so the cap must never squeeze
+    them. An axis whose `halo=` width does not fit a shard is therefore
+    not capped down to fit — it simply fails the shardability check and
+    is left unsharded (and an **explicit** device set with nothing else
+    shardable raises the taught error below).
+
     Iteration-1 layout realization: a 1-D device mesh over all
     requested devices; the default layout shards the first
     GHOST-capable factor whose per-shard extent respects
@@ -751,10 +761,21 @@ def _negotiated_halo(
     :func:`_cap_for_sharding`: the registry per-application maximum
     (:func:`_registry_halo`) combined (``merge_max``) with the trace
     floor — the widest single-*application* reach among the operators
-    that actually fired. The wide advection reconstructions are
-    trace-only (never registered), so the registry alone under-reports
-    their reach; sourcing the floor from the trace keeps the cap from
-    squeezing a single stencil's ghosts below what it reads at once.
+    that actually fired — **and with the explicit** ``halo=`` (when
+    given). The explicit spec carries declared-bypass per-application
+    demands (``Module.extra_halo``, whose derived form
+    :func:`~fridom.model.halo_demand.derive_extra_halo` is the tight
+    reach of the operators a trace-exempt stage runs) plus any user
+    width, so it too is a per-application floor: capping it could
+    silently under-provision a raw-``.data`` stage the halo trace
+    cannot follow (see ``require_solver_halo``). Folding ``halo=`` into
+    the floor makes :func:`_cap_for_sharding` leave it uncapped (its
+    ``cap >= low`` guard), so an axis whose explicit width does not fit
+    a shard simply fails :func:`_shardable_names` and is not sharded.
+    The wide advection reconstructions are trace-only (never
+    registered), so the registry alone under-reports their reach;
+    sourcing the floor from the trace keeps the cap from squeezing a
+    single stencil's ghosts below what it reads at once.
     """
     spec: HaloSpec | None = None
     floor = _registry_halo(names, registry, state_spaces)
@@ -770,6 +791,10 @@ def _negotiated_halo(
     if halo is not None:
         spec = (HaloSpec.zero(names) if spec is None
                 else spec).merge_max(halo)
+        # explicit ``halo=`` is a per-application floor (declared
+        # bypass reach + user width): join it so the cap never
+        # squeezes it (task 1.8 — see the docstring).
+        floor = floor.merge_max(halo)
     if spec is None:
         spec = floor
     return spec, floor
