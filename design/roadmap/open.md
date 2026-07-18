@@ -181,13 +181,34 @@ the scoping §10–§13). Open:
   - **`MetricScaled` divides** (`mapped.py:219-222`) share the
     masked-singularity structure but are empirically reverse-safe;
     guard only if a composition exposes them (VJP-fix audit).
-  - **GPU validation** of the new stretched+terrain paths (the
-    standing 4-GPU baseline re-record shipped 2026-07-17 without a
-    stretched+terrain-combined bench case, so this stays open — validate
-    separately). Single-GPU leg done 2026-07-17 (gpu4 campaign
-    wrap-up): `test_mapped_pressure_stretched.py` +
-    `test_stretched_mesh.py` green on a real A100 (CUDA, fusion
-    workaround set). Open remainder: the multi-GPU leg.
+  - **GPU validation** of the new stretched+terrain paths. Single-GPU
+    leg done 2026-07-17. Multi-GPU leg run 2026-07-18 (4x A100,
+    addendum in
+    [`../research/stretched_terrain_combined.md`](../research/stretched_terrain_combined.md)):
+    the **core** paths validate on multi-GPU — the N2 measure-adjoint
+    hop, plain-CG stopgap and differentiability pass forced-4, the
+    terrain hydrostatic core/free-surface files pass, and the realistic
+    3D model (Leg B single-process + Leg C real `srun -n 4`) is
+    device-count-invariant to the iterative CG tolerance floor (per-step
+    ~2.4e-6 at `tol=1e-10`, ~2.1e-8 at `tol=1e-14`; there is no exact
+    spectral solve on a mapped grid, so machine-precision parity does
+    not apply). Two open remainders:
+    - **The multigrid preconditioner multi-device parity is broken**
+      (GB-5 `test_forced4_multigrid_solve_matches_single_device` and the
+      stretched-column V-cycle): 1-GPU clean, 4-GPU wrong (asym `3.5e-3`,
+      rel up to `0.96`), reproduces **bit-identically on forced-CPU-4**
+      and across all tridiagonal kernels, so it is not the cuSPARSE-GSPMD
+      caveat and not jax#39100. Root cause is coarse-level horizontal
+      roll/gather resharding (`{devices=[1,4]}->{[2,1,2] replicate}`
+      involuntary rematerialization). **This is a broader
+      mapped-multigrid multi-device regression since the T8 validation
+      (`5af2e370`, 07-17), not stretched-specific** — first-bad-commit
+      not yet bisected.
+    - **A lone bounded 1D `MappedIntervalMesh` sharded across 4 devices**
+      corrupts its staggered FD / flux telescoping
+      (`validation/test_stretched_mesh.py`, 2 tests). Degenerate config
+      (a real model keeps the mapped column undistributed); needs a
+      supported-vs-unsupported ruling.
 [`../plans/active/fv_nonhydro_scoping.md`](../plans/active/fv_nonhydro_scoping.md)
 
 ## Immersed partial cells — residuals

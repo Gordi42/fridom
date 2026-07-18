@@ -479,3 +479,148 @@ Probes live outside the tree (scratch); recipes and numbers:
   `0.5/0.5` hops sit inside a divergence over a smooth map;
   boundary cells show a wall-closure effect only, an impermeability
   artifact of manufactured fluxes, not a stretching-order effect).
+
+## GPU validation addendum (2026-07-18)
+
+Multi-GPU leg of the stretched+terrain GPU validation (the single-GPU
+leg was cleared 2026-07-17 at the gpu4 campaign wrap-up). Run on DKRZ
+node `l50054`, 4x NVIDIA A100-SXM4-80GB, jax 0.10.2, dev `c4497db5`.
+The jax#39100 fusion workaround
+(`XLA_FLAGS=--xla_disable_hlo_passes=multi_output_fusion`) was set on
+every run. Artifacts (scripts, captured output, reference `.npy`):
+`design/research/artifacts/stretched_terrain_gpu4/`.
+
+**Verdict: the core stretched+terrain paths validate on multi-GPU, but
+the multigrid preconditioner path does not (a broader mapped-multigrid
+multi-device regression), so the roadmap sub-bullet stays open.**
+
+### Leg A — mirrored test suite, real 4-GPU (single-process GSPMD)
+
+`JAX_PLATFORMS=cuda FRIDOM_TEST_FORCED_DEVICES=4`, serial pytest.
+
+| file | result |
+|---|---|
+| `nonhydro2/test_mapped_pressure_stretched.py` | 11 passed, **4 failed** |
+| `validation/test_stretched_mesh.py` | 5 passed, **2 failed** |
+| `hydrostatic/test_terrain.py` | 6 passed |
+| `hydrostatic/test_core_terrain.py` | 15 passed |
+| `hydrostatic/test_free_surface_terrain.py` | 7 passed |
+| `nonhydro2/test_mapped_pressure_multigrid.py` | 13 passed, **3 failed**, 1 skipped |
+| `spatial/operators/test_multigrid.py` | 18 passed |
+
+The core stretched+terrain pressure path is 4-GPU-clean: the N2
+measure-adjoint base-axis down-hop, the `preconditioner="none"`
+plain-CG stopgap, the operator symmetry/annihilation tests, and every
+differentiability regression pass (the 11 passing in file 1), as do all
+the terrain hydrostatic core / free-surface files (28 passed) and the
+isolated V-cycle operator (file 7, 18 passed).
+
+**Failure 1 — the multigrid preconditioner multi-device parity is
+broken** (file-1's 4 failures + file-6's 3 failures). Not
+stretched-specific and not a stretched+terrain defect:
+
+- File 1 (stretched column): `multigrid_on_a_stretched_column_builds_
+  and_solves` (residual barely reduces, 0.926/3.23), `multigrid_vcycle_
+  is_symmetric` (asymmetry `3.49e-3` vs the `1e-12` gate), and both
+  `multigrid_beats_none` cases (the V-cycle uses its whole 40-iteration
+  budget instead of ~7).
+- File 6 (general mapped, no stretch): `test_forced4_multigrid_solve_
+  matches_single_device[aligned-x16-3lvl]` (rel `0.116`), `[replicated-
+  x12-coarse6]` (rel `0.96` — essentially garbage), and
+  `test_steep_mapped_multigrid_converges_within_budget` (residual
+  `6.69`). These are the GB-5 parity tests that the gpu4 campaign T8
+  recorded green on real 4 GPUs on 2026-07-17.
+
+Attribution (repro `attribute_multigrid_cusparse.py`, and the file-6
+forced-CPU-4 rerun):
+
+- **1-GPU passes, 4-GPU fails.** On 1 GPU every tridiagonal kernel gives
+  vcycle asymmetry `~1e-17` and solve residual `~5e-14`; on 4 GPUs every
+  kernel gives asymmetry `3.493e-3` and residual `0.287`.
+- **Kernel-independent.** `auto`/`cusparse`/`pcr`/`scan` all fail
+  identically on 4 GPUs, so it is *not* the documented cuSPARSE-GSPMD
+  custom-call limitation (`banded.py:498-502`); the mitigation
+  "prefer `method='pcr'`" does **not** save this path.
+- **Backend-independent, bit-identical.** `test_mapped_pressure_
+  multigrid.py` on forced-CPU-4 reproduces the GPU-4 numbers to ~15
+  digits (`0.0368963225269988…`, `0.303078556069…`, steep `6.68957208…`).
+  So it is not jax#39100 (workaround set, and CPU reproduces) and not a
+  backend-specific bitwise artifact.
+- **Root cause: coarse-level horizontal resharding.** The XLA log names
+  it — `[SPMD] Involuntary full rematerialization … cannot go from
+  sharding {devices=[1,4]} to {devices=[2,1,2] last_tile_dim_replicate}`
+  on `jit(gather_local)/shard_map` and `jit(_roll_static)/concatenate`
+  inside the V-cycle, tracked upstream as Shardy b/433785288. The
+  coarse-grid restriction/roll mis-partitions when a coarsened
+  horizontal extent no longer divides the device count (the
+  x=12→6, replicated-coarse case is the worst, 0.96 rel).
+- **Regression since T8.** The GB-5 parity assertions are unchanged
+  since `5af2e370` (07-17); the multigrid smoother/kernel path changed
+  after it (`4d3a9dcb` auto-dispatch replaced the dedicated Thomas
+  kernel; `4427d92b` floor-limited depth). First-bad-commit not
+  bisected (the editable venv points at the shared main checkout, which
+  another session held). This is a broader mapped-multigrid
+  multi-device regression; the stretched-column multigrid V-cycle is
+  one victim of it.
+
+**Failure 2 — lone bounded-axis 1D operator sharding** (file-2's 2
+failures: `bounded_fd_converges_at_second_order`, `flux_diff_
+telescopes_to_the_boundary_fluxes`). A single non-periodic
+`MappedIntervalMesh` (`Grid((mesh,))`, 16/32/64 cells) auto-sharded
+across 4 devices corrupts the bounded-axis staggered FD (errors *grow*
+with resolution: 10→21→44) and the flux telescoping (total `0.0727` vs
+boundary `0.1188`). The periodic-mesh variants pass. This is a
+degenerate configuration that does not arise in a real stretched+terrain
+model, where the mapped/stretched column is the vertical and stays
+**undistributed** by design while the periodic horizontals shard; it is
+recorded as a separate honest gap, not on the realistic model path.
+
+### Leg B — 1-GPU vs 4-GPU physics smoke (combined stretch+terrain)
+
+`smoke_stretched_terrain.py`: 3D FV nonhydro2 model, periodic x/y +
+stretched vertical `z` (`MappedIntervalMesh`) + terrain `zp = z·H(x)`,
+32×32×16, non-trivial IC, `preconditioner="none"` (the spectral solver
+is rejected on a stretched base and multigrid is broken on 4-GPU, so
+plain-CG is the device-invariant choice), 30 steps.
+
+- Sharding is exactly the intended layout: `P('devices', None, None)` —
+  x across all 4 GPUs, the mapped z-column whole (4 addressable shards),
+  no panic.
+- 30-step 1-vs-4 max-abs diff **`4.283e-5`**, i.e. *not* the machine
+  precision the T1 FV smoke reached (`8.5e-15`). That gate was
+  calibrated on the FV **spectral** (direct FFT) pressure solve, which
+  is exact and device-invariant. The stretched grid cannot use spectral
+  and runs **iterative** plain-CG, whose per-step solution is only
+  reproducible to ~(tolerance × conditioning) across device counts
+  because the CG inner-product reductions reassociate across shards.
+- Confirmed iterative-tolerance, not a bug: at **1 step** the diff is
+  `2.377e-6` (buoyancy `b` bit-identical, `0.0` — it is untouched by the
+  sharded CG reduction in one step); tightening the solve
+  (`iters 80→400`, `tol 1e-10→1e-14`) drops the 1-step diff to
+  `2.127e-8`, tracking the tolerance. The 30-step `4e-5` is nonlinear
+  amplification of this tolerance-level per-step difference.
+
+### Leg C — real multi-process (srun -n 4, one GPU per process)
+
+`srun_stretched_terrain.py` (explicit `jax.distributed.initialize`
+before importing fridom, deterministic coordinator port from the job id;
+`process_allgather(tiled=True)` for the global gather):
+`process_count=4`, `device_count=4`, one local device per rank, clean
+completion (`panicked=False`).
+
+- 30-step rank-0 max-abs diff vs the 1-GPU reference **`2.713e-3`**
+  (reproducible: `2.712e-3` on a repeat). Larger than the single-process
+  GSPMD `4.3e-5` because the multi-process all-reduce reassociates on a
+  different path and amplifies more over 30 nonlinear steps.
+- Same iterative-tolerance class: at 1 step the diff is `2.390e-6`
+  (`b` again `0.0`), matching the single-process GSPMD 1-step `2.377e-6`
+  almost exactly. Real multi-process per-step device-invariance equals
+  single-process.
+- Operational note: the srun **hangs** (after a clean
+  `jax.distributed.initialize`, during the first compile) when it shares
+  fridom's default persistent compile cache (`src/fridom/_compile_
+  cache.py`) with a concurrently-running pytest writing the same
+  `.jax_cache` — multi-process compilation is a collective, and
+  concurrent cache writers desync the ranks. Pointing the run at a
+  private `JAX_COMPILATION_CACHE_DIR` makes it clean and reproducible.
+  A test-environment artifact, not a fridom multi-process defect.

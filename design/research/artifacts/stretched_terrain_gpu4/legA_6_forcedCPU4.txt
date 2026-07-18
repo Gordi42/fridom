@@ -1,0 +1,80 @@
+......FF......F.s                                                        [100%]
+=================================== FAILURES ===================================
+_____ test_forced4_multigrid_solve_matches_single_device[aligned-x16-3lvl] _____
+
+nx = 16, levels = 3
+
+    @pytest.mark.multi_device
+    @pytest.mark.parametrize(
+        ("nx", "levels"),
+        [pytest.param(16, 3, id="aligned-x16-3lvl"),
+         pytest.param(12, 3, id="replicated-x12-coarse6")])
+    def test_forced4_multigrid_solve_matches_single_device(nx, levels):
+        # If a halo/pad slot leaked into a level's smoother, transfer or the
+        # CG inner products, the sharded solve would diverge from the
+        # single-device one. The x=12 shard coarsens 12 -> 6 and 6 does not
+        # divide four devices, so its coarse level lives replicated on the
+        # same device mesh (MG-D5) — exercised here under decomposition.
+        one, many = _solve_single_vs_forced(nx, levels=levels)
+        scale = np.max(np.abs(one))
+>       assert np.max(np.abs(one - many)) / scale < 1e-8
+E       AssertionError: assert (np.float64(0.036896322526998815) / np.float64(0.31740235802193506)) < 1e-08
+E        +  where np.float64(0.036896322526998815) = <function max at 0x7fff46035d70>(array([[0.02054453, 0.02022956, 0.01993024, 0.01884063, 0.01711646,\n        0.01513635, 0.007719  , 0.00682761],\n     ...685],\n       [0.02680278, 0.0265829 , 0.02660963, 0.02584991, 0.02465363,\n        0.02324768, 0.01529563, 0.01439012]]))
+E        +    where <function max at 0x7fff46035d70> = np.max
+E        +    and   array([[0.02054453, 0.02022956, 0.01993024, 0.01884063, 0.01711646,\n        0.01513635, 0.007719  , 0.00682761],\n     ...685],\n       [0.02680278, 0.0265829 , 0.02660963, 0.02584991, 0.02465363,\n        0.02324768, 0.01529563, 0.01439012]]) = <ufunc 'absolute'>((array([[ 0.18515389,  0.18497931,  0.18462856,  0.18409852,  0.18338447,\n         0.18248019,  0.18137795,  0.18006854...     [ 0.21547522,  0.21538511,  0.21520387,  0.21492944,  0.21455869,\n         0.21408742,  0.2135103 ,  0.21282086]]) - array([[ 0.20569842,  0.20520886,  0.2045588 ,  0.20293914,  0.20050093,\n         0.19761654,  0.18909694,  0.18689615...     [ 0.242278  ,  0.24196801,  0.24181351,  0.24077935,  0.23921232,\n         0.23733509,  0.22880593,  0.22721098]])))
+E        +      where <ufunc 'absolute'> = np.abs
+
+tests/nonhydro2/test_mapped_pressure_multigrid.py:213: AssertionError
+__ test_forced4_multigrid_solve_matches_single_device[replicated-x12-coarse6] __
+
+nx = 12, levels = 3
+
+    @pytest.mark.multi_device
+    @pytest.mark.parametrize(
+        ("nx", "levels"),
+        [pytest.param(16, 3, id="aligned-x16-3lvl"),
+         pytest.param(12, 3, id="replicated-x12-coarse6")])
+    def test_forced4_multigrid_solve_matches_single_device(nx, levels):
+        # If a halo/pad slot leaked into a level's smoother, transfer or the
+        # CG inner products, the sharded solve would diverge from the
+        # single-device one. The x=12 shard coarsens 12 -> 6 and 6 does not
+        # divide four devices, so its coarse level lives replicated on the
+        # same device mesh (MG-D5) — exercised here under decomposition.
+        one, many = _solve_single_vs_forced(nx, levels=levels)
+        scale = np.max(np.abs(one))
+>       assert np.max(np.abs(one - many)) / scale < 1e-8
+E       AssertionError: assert (np.float64(0.3030785560691757) / np.float64(0.31600630245572414)) < 1e-08
+E        +  where np.float64(0.3030785560691757) = <function max at 0x7fff46035d70>(array([[0.17306946, 0.17271753, 0.17236137, 0.17120485, 0.16878759,\n        0.16681987, 0.15814009, 0.15659178],\n     ...022],\n       [0.21180902, 0.21161962, 0.21181378, 0.21119041, 0.20940842,\n        0.20833566, 0.19873659, 0.19783196]]))
+E        +    where <function max at 0x7fff46035d70> = np.max
+E        +    and   array([[0.17306946, 0.17271753, 0.17236137, 0.17120485, 0.16878759,\n        0.16681987, 0.15814009, 0.15659178],\n     ...022],\n       [0.21180902, 0.21161962, 0.21181378, 0.21119041, 0.20940842,\n        0.20833566, 0.19873659, 0.19783196]]) = <ufunc 'absolute'>((array([[ 0.17964522,  0.17946674,  0.17910827,  0.1785668 ,  0.1778378 ,\n         0.17691527,  0.17579176,  0.17445836...     [ 0.21969918,  0.21962788,  0.21948456,  0.21926771,  0.2189751 ,\n         0.21860367,  0.21814955,  0.21760799]]) - array([[ 0.00657576,  0.00674921,  0.00674691,  0.00736195,  0.0090502 ,\n         0.01009541,  0.01765167,  0.01786657...     [ 0.00789016,  0.00800826,  0.00767077,  0.0080773 ,  0.00956668,\n         0.010268  ,  0.01941296,  0.01977602]])))
+E        +      where <ufunc 'absolute'> = np.abs
+
+tests/nonhydro2/test_mapped_pressure_multigrid.py:213: AssertionError
+----------------------------- Captured stderr call -----------------------------
+W0718 18:06:12.701054  246450 spmd_partitioner.cc:656] [SPMD] Involuntary full rematerialization. The compiler cannot go from sharding {devices=[1,1,4]<=[4]} to {devices=[2,1,1,2]<=[4] last_tile_dim_replicate} efficiently for HLO operation %broadcast_in_dim.342 = f64[6,1,2]{2,1,0} reshape(%copy), sharding={devices=[1,1,4]<=[4]}, metadata={op_name="jit(scan)/while/body/closed_call/cond/branch_0_fun/broadcast_in_dim" stack_frame_id=1162}. As the last resort, SPMD will replicate the tensor and then partition it to obtain the target sharding, which is inefficient. This issue will be fixed by Shardy partitioner in the future, which is tracked in b/433785288. Contact Shardy or XLA team for help.
+W0718 18:06:12.701623  246450 spmd_partitioner.cc:656] [SPMD] Involuntary full rematerialization. The compiler cannot go from sharding {devices=[1,1,4]<=[4]} to {devices=[2,1,1,2]<=[4] last_tile_dim_replicate} efficiently for HLO operation %broadcast_in_dim.343 = f64[6,1,2]{2,1,0} reshape(%concatenate.4), sharding={devices=[1,1,4]<=[4]}, metadata={op_name="jit(scan)/while/body/closed_call/cond/branch_0_fun/broadcast_in_dim" stack_frame_id=1172}. As the last resort, SPMD will replicate the tensor and then partition it to obtain the target sharding, which is inefficient. This issue will be fixed by Shardy partitioner in the future, which is tracked in b/433785288. Contact Shardy or XLA team for help.
+W0718 18:06:12.701792  246450 spmd_partitioner.cc:656] [SPMD] Involuntary full rematerialization. The compiler cannot go from sharding {devices=[1,1,4]<=[4]} to {devices=[2,1,1,2]<=[4] last_tile_dim_replicate} efficiently for HLO operation %broadcast_in_dim.344 = f64[6,1,2]{2,1,0} reshape(%concatenate.5), sharding={devices=[1,1,4]<=[4]}, metadata={op_name="jit(scan)/while/body/closed_call/cond/branch_0_fun/broadcast_in_dim" stack_frame_id=1178}. As the last resort, SPMD will replicate the tensor and then partition it to obtain the target sharding, which is inefficient. This issue will be fixed by Shardy partitioner in the future, which is tracked in b/433785288. Contact Shardy or XLA team for help.
+_____________ test_steep_mapped_multigrid_converges_within_budget ______________
+
+    def test_steep_mapped_multigrid_converges_within_budget():
+        # perf-guard gap A convergence budget: the vertical-line V-cycle
+        # drives the steep (depth-ratio-9) mapped Poisson below tolerance in
+        # a small PCG budget. A point-smoother swap stalls here (rel ~1,
+        # measured), so this fails loudly if the anisotropy smoother is lost.
+        solver, grid, space = build_solver(
+            iterations=13, levels=3, depth_fn=steep_depth)
+        rhs = mean_free_rhs(grid, space)
+        p = jax.jit(solver.solve)(rhs)
+        residual = solver.apply(p) - rhs
+        rel = (float(jnp.abs(residual.data).max())
+               / float(jnp.abs(rhs.data).max()))
+>       assert rel < 1e-7
+E       assert 6.689572085821051 < 1e-07
+
+tests/nonhydro2/test_mapped_pressure_multigrid.py:294: AssertionError
+=========================== short test summary info ============================
+FAILED tests/nonhydro2/test_mapped_pressure_multigrid.py::test_forced4_multigrid_solve_matches_single_device[aligned-x16-3lvl]
+FAILED tests/nonhydro2/test_mapped_pressure_multigrid.py::test_forced4_multigrid_solve_matches_single_device[replicated-x12-coarse6]
+FAILED tests/nonhydro2/test_mapped_pressure_multigrid.py::test_steep_mapped_multigrid_converges_within_budget
+3 failed, 13 passed, 1 skipped in 301.15s (0:05:01)
+EXIT=1
