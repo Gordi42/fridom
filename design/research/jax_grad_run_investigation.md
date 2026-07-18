@@ -225,3 +225,27 @@ scanned solve differentiates exactly today. An autodiff regression
 gate (the new `test_sadourny_autodiff.py` pattern: grad finite +
 FD-matched on a tiny run) per model package would keep this surface
 from silently rotting.
+
+## Addendum (2026-07-18): mapped-pressure divide closed
+
+The record above is frozen; this addendum only updates status.
+
+- The "Remaining hazards" entry for the `mapped_pressure.py:748`
+  `/ jacobian` divide (listed "audited, unfixed") is **CLOSED**. It
+  was sealed 2026-07-17 by merge `ee350bda` as the guarded
+  `_divide_by_jacobian` (double-`jnp.where`), with regression
+  coverage in
+  [`test_mapped_model_autodiff.py`](../../tests/nonhydro2/test_mapped_model_autodiff.py).
+  The mapped model is now reverse-differentiable on all grid types.
+- The only unsealed masked-singularity divides left in the step path
+  are the three coriolis `metric_weight`/chart divides in
+  [`coriolis.py`](../../src/fridom/model/modules/coriolis.py):
+  `linear_rotation`'s `/ w.to(v)`, and `chart_rotation`'s `/ w_1` and
+  `/ w_2`. Their VJP is `-num/w²` → `0·inf = NaN` in never-valid
+  padding, same class as the cured Sadourny PV divide; no autodiff
+  test currently differentiates a weighted coriolis, so the suite is
+  blind to them.
+- The closure campaign for those seals and for the public
+  `model.propagator()` surface is planned in
+  [`../plans/active/differentiability_plan.md`](../plans/active/differentiability_plan.md)
+  (2026-07-18).
