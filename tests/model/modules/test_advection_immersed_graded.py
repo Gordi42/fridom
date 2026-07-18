@@ -38,12 +38,18 @@ from fridom.spatial.meshes.interval import IntervalMesh
 TWO_PI = 2.0 * np.pi
 IM = IntervalMesh
 
-# the biased schemes covered (orders 3 and 5, upwind and WENO)
+# the biased schemes covered (orders 3 and 5, upwind and WENO). The
+# order-5 stencil needs a 3-cell halo, which a 4-way shard of these
+# small (<= 12-cell) grids cannot sustain (3 cells/shard caps the halo
+# at 2) — the identical limitation the non-immersed order-5 advection
+# hits — so the order-5 cases run single-device; order 3 (halo 2)
+# carries the multi-device shard-invariance evidence for the mask path.
+_SD = pytest.mark.single_device
 SCHEMES = [
     pytest.param(lambda: UpwindAdvection(3), id="upwind3"),
-    pytest.param(lambda: UpwindAdvection(5), id="upwind5"),
+    pytest.param(lambda: UpwindAdvection(5), id="upwind5", marks=_SD),
     pytest.param(lambda: WENOAdvection(3), id="weno3"),
-    pytest.param(lambda: WENOAdvection(5), id="weno5"),
+    pytest.param(lambda: WENOAdvection(5), id="weno5", marks=_SD),
 ]
 
 
@@ -141,6 +147,7 @@ def test_staircase_advection_tendency_matches_walled_to_machine_zero(fac):
 #  Gate: the wall="centered2" bottom rung also matches the walled model
 #  (the mask ladder carries the symmetric bottom rung, GA-D5)
 # ================================================================
+@_SD  # order-5 walled comparison: single-device (see SCHEMES)
 @pytest.mark.parametrize("wall", ["upwind1", "centered2"])
 def test_wall_rung_option_matches_walled_tendency(wall):
     def fac():
@@ -214,6 +221,7 @@ def test_all_wet_immersed_matches_unimmersed_fv(fac):
         assert diff < 1e-11, (k, diff)
 
 
+@_SD  # n=8 hydrostatic shards below the order-5 halo; single-device
 @pytest.mark.parametrize(
     "fac", [pytest.param(lambda: UpwindAdvection(3), id="upwind3"),
             pytest.param(lambda: WENOAdvection(5), id="weno5")])
@@ -266,6 +274,7 @@ def test_uniform_tracer_reconstructed_exactly_on_every_rung(fac):
 #  Gate: theta-weighted tracer content conserved to machine zero on
 #  genuine partial cells with biased advection active
 # ================================================================
+@_SD  # order-5 on a 12-cell grid: single-device (see SCHEMES)
 @pytest.mark.parametrize(
     "fac", [pytest.param(lambda: UpwindAdvection(5), id="upwind5"),
             pytest.param(lambda: WENOAdvection(5), id="weno5")])
@@ -307,6 +316,7 @@ def test_theta_weighted_tracer_conserved_on_partials(fac):
 # ================================================================
 #  Gate: a narrow wet pocket (1-2 cells wide) is stable and conserving
 # ================================================================
+@_SD  # order-5 on a 12-cell grid: single-device (see SCHEMES)
 @pytest.mark.parametrize(
     "fac", [pytest.param(lambda: UpwindAdvection(5), id="upwind5"),
             pytest.param(lambda: WENOAdvection(5), id="weno5")])
@@ -345,6 +355,7 @@ def test_narrow_wet_pocket_is_stable_and_conserving(fac):
 # ================================================================
 #  Gate: reverse-mode autodiff through the immersed biased mask path
 # ================================================================
+@_SD  # reverse-mode grad on an 8-cell grid: single-device
 def test_grad_through_immersed_biased_run_matches_fd():
     # jax.grad of a quadratic loss w.r.t. an initial field through a short
     # masked biased run is finite and FD-matched (AGENTS differentiability
