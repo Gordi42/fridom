@@ -335,16 +335,18 @@ class BlockMatrix(Operator):
         OperatorRequirements
             The combined per-factor requirements record.
         """
-        halo = 0
+        lo = hi = 0
         collective = False
         for row in self._rows:
             for entry in row:
                 if isinstance(entry, Zero):
                     continue
                 req = entry.requirements(domain)
-                halo = max(halo, req.halo)
+                lo = max(lo, req.reach[0])
+                hi = max(hi, req.reach[1])
                 collective = collective or req.collective
-        return OperatorRequirements(halo=halo, collective=collective)
+        return OperatorRequirements(
+            reach=(lo, hi), collective=collective)
 
     # ------------------------------------------------------------
     #  Block matmul

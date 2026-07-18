@@ -44,6 +44,7 @@ from fridom.spatial.operators.staggering import (
     divide_by_codomain_measure,
     mapped_factor,
     patch_one_sided_edges,
+    reach_or,
     require_dof_preserving_bc,
     require_grounded_bounded_sides,
     require_local_axis,
@@ -218,10 +219,18 @@ class FiniteDifference(SeparableOperator):
 
     def requirements(
         self,
-        domain: FunctionSpace,  # noqa: ARG002 — order-dependent only
+        domain: FunctionSpace,
     ) -> OperatorRequirements:
         """
-        Declare halo = order // 2, layout "any".
+        Declare reach ``(below, above)``, halo = order // 2.
+
+        Description
+        -----------
+        The staggered difference is asymmetric: a ``Center -> Right``
+        derivative reaches one cell up, a ``Right -> Center`` one cell
+        down (order 2), so the two-sided reach keeps the chain from
+        over-provisioning. ``halo`` (the per-side maximum) is unchanged
+        at ``order // 2``.
 
         Parameters
         ----------
@@ -233,12 +242,15 @@ class FiniteDifference(SeparableOperator):
         OperatorRequirements
             The per-factor requirements record.
         """
+        half = self._order // 2
         if self._boundary == "one_sided":
-            # the boundary patches write static physical-edge
-            # indices: negotiation must keep the axis undistributed
-            return OperatorRequirements(halo=self._order // 2,
-                                        layout="local")
-        return OperatorRequirements(halo=self._order // 2)
+            # the boundary patches write static physical-edge indices
+            # from wider one-sided true-DOF stencils, so the interior
+            # midpoint reach does not describe them: keep the symmetric
+            # declaration, and demand the axis undistributed
+            return OperatorRequirements(halo=half, layout="local")
+        reach = reach_or(self, domain, self._order, half)
+        return OperatorRequirements(reach=reach)
 
     def eigenvalues(
         self,

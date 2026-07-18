@@ -216,11 +216,14 @@ def test_trace_halo_over_a_mixed_tendency():
 
     def tendency(state):
         u, q = state[0], state[1]
-        q.diff("x")             # FV chain: un-synced depth 2
-        u.diff("y").diff("y")   # FD: depth 1 per application
+        q.diff("x")             # FV chain: composed window [-1,+1] = 1
+        u.diff("y").diff("y")   # bounded Outer->Center->Inner: reach 0
         u_hat = t(u)            # transform: halo 0
         u_hat.diff("x")         # spectral derivative: halo 0
 
     spec = trace_halo(tendency, spaces, grid.dispatch)
-    assert spec["x"] == 2
-    assert spec["y"] == 1
+    # two-sided accounting: the periodic FV derivative composes to
+    # width 1 (not the scalar sum 2); the bounded double difference
+    # shrinks the codomain each hop and reads no exterior slot (0)
+    assert spec["x"] == 1
+    assert spec["y"] == 0

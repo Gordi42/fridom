@@ -167,8 +167,10 @@ def test_laplacian_expands_to_a_sum_of_chains(p, grid2):
     assert all(isinstance(term, SeparableComposite)
                for term in entry.terms)
     assert {term.bound_axis for term in entry.terms} == {"x", "y"}
-    # per-axis second derivatives: summed chain halo of 2
-    assert block.requirements(p.function_space.bare).halo == 2
+    # per-axis second derivative Center -> Right -> Center: two-sided
+    # accounting composes [0,+1] and [-1,0] to the window [-1,+1],
+    # width 1 (not the scalar sum 2)
+    assert block.requirements(p.function_space.bare).halo == 1
 
 
 def test_div_validates_the_component_count(grid2, mx, my):

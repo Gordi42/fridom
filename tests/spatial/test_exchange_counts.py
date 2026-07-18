@@ -64,9 +64,11 @@ def test_pointwise_products_never_sync(sync_log, f, g):
 
 
 def test_a_stencil_chain_pays_one_exchange(sync_log, grid, f):
-    # entry sync fills the negotiated width; the kernel claims keep
-    # the intermediate valid, so the second diff elides
-    assert grid.decomposition.halo["x"] >= 2
+    # entry sync fills the negotiated width; the two-sided kernel
+    # claims keep the intermediate valid on the side the next diff
+    # reads (Center->Right [0,+1] leaves the low side, Right->Center
+    # [-1,0] reads it), so the second diff elides even at width 1
+    assert grid.decomposition.halo["x"] == 1
     _ = f.diff("x").diff("x")
     assert len(sync_log) == 1
     assert sync_log[0] is f
@@ -90,9 +92,10 @@ def test_an_operator_sum_pays_one_exchange(sync_log, f):
 def test_a_stencil_consuming_a_field_sum_elides_the_exchange(
         sync_log, grid, f, g):
     # storage-frame arithmetic keeps the operands' minimum claim:
-    # the two diff outputs claim width-1 layers, the sum keeps
-    # them, and a consuming stencil within that reach never syncs
-    assert grid.decomposition.halo["x"] >= 2
+    # the two Center->Right diff outputs claim a valid low layer, the
+    # sum keeps it, and a consuming Right->Center diff reads only that
+    # low side, so it never syncs even at width 1
+    assert grid.decomposition.halo["x"] == 1
     s = 2.0 * f.diff("x") - g.diff("x")
     assert len(sync_log) == 2  # the two entry syncs (f and g)
     _ = s.diff("x")
@@ -120,18 +123,19 @@ def test_a_representative_tendency_pays_one_exchange_per_component(
 
 
 def test_traced_negotiation_buys_chain_elision(sync_log):
-    # width-independence (task 1.8): under the registry width (2) a
+    # width-independence (task 1.8): under the registry width (1) a
     # triple chain pays a mid-chain re-sync; negotiating against the
-    # traced step widens to its sync-free demand (3) and the same
-    # chain pays one exchange — both are correct, width only tunes
-    # the exchange count
+    # traced step widens to its two-sided sync-free demand (2) and the
+    # same chain pays one exchange — both are correct, width only tunes
+    # the exchange count. Two-sided accounting: the alternating
+    # windows [0,+1],[-1,0],[0,+1] compose to [-1,+2], demand 2
     def chain(u):
         return u.diff("x").diff("x").diff("x")
 
     mx = IntervalMesh(16, (0.0, 1.0), name="x")
     my = IntervalMesh(16, (0.0, 2.0), name="y")
     narrow = Grid((mx, my))
-    assert narrow.decomposition.halo["x"] == 2
+    assert narrow.decomposition.halo["x"] == 1
     _ = chain(narrow.create_field(init=lambda x, y: x + y))
     assert len(sync_log) == 2
 
@@ -141,7 +145,7 @@ def test_traced_negotiation_buys_chain_elision(sync_log):
     wide = Grid((mx2, my2))
     space = wide.create_field().function_space
     wide.negotiate(state_spaces=(space,), tendency=chain)
-    assert wide.decomposition.halo["x"] == 3
+    assert wide.decomposition.halo["x"] == 2
     _ = chain(wide.create_field(init=lambda x, y: x + y))
     assert len(sync_log) == 1
 

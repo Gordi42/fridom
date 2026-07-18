@@ -312,7 +312,12 @@ class Grid:
         # object also lets the operator-level sync memo hit
         # (operators/base.py), removing the per-application exchange
         # of freshly built measures.
-        self._measures: dict[tuple[SpaceLike, str], ScalarField] = {}
+        # keyed on the negotiated halo too: the stored measure is
+        # padded to the storage frame, so a re-negotiation to a wider
+        # halo (a module's extra_halo) must re-materialize, not reuse
+        # the provisionally-narrower field.
+        self._measures: dict[
+            tuple[SpaceLike, str, object], ScalarField] = {}
         # coarse sibling grids memoized per (normalized factors,
         # device_ids): grid STRUCTURE caching (MG-D3/D5), so a
         # multigrid hierarchy rebuilt on every solver trace re-uses the
@@ -1183,7 +1188,8 @@ class Grid:
         """
         space = self._laid_out(space)
         name = _pick_factor_name(space, name)
-        cached = self._measures.get((space, name))
+        key = (space, name, self._decomposition.halo)
+        cached = self._measures.get(key)
         if cached is not None:
             return cached
         factor = space.factor(name)
@@ -1210,7 +1216,7 @@ class Grid:
         field = ScalarField(self, result, stored,
                             FieldMetadata.create(name=f"d{name}"))
         if not isinstance(stored, jax.core.Tracer):
-            self._measures[(space, name)] = field
+            self._measures[key] = field
         return field
 
     def metric(

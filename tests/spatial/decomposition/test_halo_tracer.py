@@ -109,10 +109,12 @@ def test_trace_of_a_single_diff_is_the_operator_halo(grid, space):
 def test_chains_accumulate_on_periodic_axes(grid, space):
     # consumption-side contract (task 1.8): kernel claims keep
     # periodic chains valid, so the sync-free width demand is the
-    # chain sum — one entry exchange covers both diffs
+    # composed offset window — one entry exchange covers both diffs.
+    # Two-sided: Center->Right [0,+1] then Right->Center [-1,0] gives
+    # [-1,+1] = width 1 (not the scalar sum 2)
     spec = trace_halo(lambda f: f.diff("x").diff("x"),
                       (space,), grid.dispatch)
-    assert widths(spec) == {"x": 2, "y": 0}
+    assert widths(spec) == {"x": 1, "y": 0}
 
 
 def test_parallel_terms_max_merge(grid, space):
@@ -122,7 +124,9 @@ def test_parallel_terms_max_merge(grid, space):
         return f.diff("x"), f.diff("y"), f * f
 
     spec = trace_halo(tendency, (space,), grid.dispatch)
-    assert widths(spec) == {"x": 1, "y": 1}
+    # bounded Center -> Inner (diff y) shrinks the codomain and reads
+    # no exterior slot: reach 0
+    assert widths(spec) == {"x": 1, "y": 0}
 
 
 def test_to_conversions_trace_through_the_registry(grid, space, mx):
@@ -225,7 +229,8 @@ def test_mixed_operand_reflected_ops_survive(grid, space):
         return (field + f).diff("x"), (field * f).diff("y")
 
     spec = trace_halo(tendency, (space,), grid.dispatch)
-    assert widths(spec) == {"x": 1, "y": 1}
+    # bounded Center -> Inner (diff y) reads no exterior slot: reach 0
+    assert widths(spec) == {"x": 1, "y": 0}
 
 
 def test_scalar_arithmetic_keeps_the_tracer(grid, space):
@@ -243,8 +248,9 @@ def test_composite_chains_trace_factor_by_factor(grid, space):
         return op(f)
 
     spec = trace_halo(tendency, (space,), grid.dispatch)
-    # mixed-axis composite: each factor syncs, per-axis max is exact
-    assert widths(spec) == {"x": 1, "y": 1}
+    # mixed-axis composite: each factor syncs, per-axis max is exact.
+    # bounded Center -> Inner (diff y) reads no exterior slot: reach 0
+    assert widths(spec) == {"x": 1, "y": 0}
 
 
 # ================================================================
@@ -278,7 +284,8 @@ def test_trace_halo_wraps_multiple_spaces(grid, space):
         return du + du, dv
 
     spec = trace_halo(tendency, (space, space), grid.dispatch)
-    assert widths(spec) == {"x": 1, "y": 1}
+    # bounded Center -> Inner (diff y) reads no exterior slot: reach 0
+    assert widths(spec) == {"x": 1, "y": 0}
 
 
 def test_vector_tracer_arithmetic_is_componentwise(grid, space):
