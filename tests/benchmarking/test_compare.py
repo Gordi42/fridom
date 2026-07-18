@@ -2,14 +2,18 @@
 import pytest
 
 from fridom.benchmarking.compare import (
+    NOISE_TOLERANCE_K,
     CaseComparison,
+    EnvMismatch,
     MetricDelta,
     _format_bytes,
     _format_rel,
     _format_seconds,
     _memory_bytes,
     compare,
+    env_mismatches,
     format_comparison,
+    format_env_mismatches,
     format_suite,
 )
 from fridom.benchmarking.result import (
@@ -103,6 +107,154 @@ def test_case_status(comparison, status):
 def test_case_status_custom_threshold():
     assert case(1.0, 1.2).status(threshold=0.5) == "ok"
     assert case(1.0, 1.2).status(threshold=0.1) == "slower"
+
+
+# ================================================================
+#  Environment guard
+# ================================================================
+def env_metadata(**overrides):
+    fields = {
+        "backend": "gpu",
+        "device_count": 4,
+        "device_kind": "A100",
+        "jax_version": "0.10.2",
+    }
+    fields.update(overrides)
+    return RunMetadata(**fields)
+
+
+def test_env_mismatches_match():
+    assert env_mismatches(env_metadata(), env_metadata()) == []
+
+
+@pytest.mark.parametrize(
+    "field",
+    ["backend", "device_count", "device_kind", "jax_version"],
+)
+def test_env_mismatches_single_field(field):
+    base = env_metadata()
+    new = env_metadata(**{field: "other" if field != "device_count" else 1})
+    mismatches = env_mismatches(base, new)
+    assert [m.field for m in mismatches] == [field]
+    assert mismatches[0].base == getattr(base, field)
+    assert mismatches[0].new == getattr(new, field)
+
+
+def test_env_mismatches_missing_field_is_mismatch():
+    # a field that is None on both sides is still a mismatch: an
+    # incompletely recorded run must never silently pass the guard
+    mismatches = env_mismatches(
+        env_metadata(jax_version=None), env_metadata(jax_version=None))
+    assert [m.field for m in mismatches] == ["jax_version"]
+
+
+def test_env_mismatches_missing_on_one_side():
+    mismatches = env_mismatches(
+        env_metadata(), env_metadata(backend=None))
+    assert [m.field for m in mismatches] == ["backend"]
+
+
+def test_env_mismatches_multiple_and_order():
+    mismatches = env_mismatches(
+        env_metadata(),
+        env_metadata(backend="cpu", jax_version="0.9.0"))
+    # order follows ENV_GUARD_FIELDS
+    assert [m.field for m in mismatches] == ["backend", "jax_version"]
+
+
+def test_format_env_mismatches():
+    text = format_env_mismatches([EnvMismatch("backend", "gpu", "cpu")])
+    assert "environment mismatch" in text
+    assert "backend" in text
+    assert "'gpu'" in text
+    assert "'cpu'" in text
+
+
+# ================================================================
+#  Min estimator
+# ================================================================
+def test_wall_delta_uses_min_not_median():
+    base = BenchmarkResult(name="c", wall_times=[3.0, 1.0, 2.0])
+    new = BenchmarkResult(name="c", wall_times=[6.0, 4.0, 5.0])
+    delta = CaseComparison(full_name="c", base=base, new=new).wall
+    # min: base 1.0, new 4.0 -> rel 3.0 (median would give 2.0/5.0 -> 1.5)
+    assert delta.base == 1.0
+    assert delta.new == 4.0
+    assert delta.rel == pytest.approx(3.0)
+
+
+def test_status_uses_min_not_median():
+    # base min 1.0 / median 9.0; new min 8.0 / median 9.0. On the min
+    # the case is +700% (slower); on the median it is 0% (ok).
+    base = BenchmarkResult(name="c", wall_times=[1.0, 9.0, 9.0, 9.0, 9.0])
+    new = BenchmarkResult(name="c", wall_times=[8.0, 9.0, 9.0, 9.0, 9.0])
+    comparison = CaseComparison(full_name="c", base=base, new=new)
+    assert comparison.status() == "slower"
+
+
+# ================================================================
+#  Per-case tolerance
+# ================================================================
+def test_cov_base_degenerate():
+    new = BenchmarkResult(name="c", wall_times=[1.0])
+    assert CaseComparison("c", None, new).cov_base == 0.0
+    assert CaseComparison(
+        "c", BenchmarkResult(name="c", wall_times=[1.0]), new).cov_base == 0.0
+    assert CaseComparison(
+        "c", BenchmarkResult(name="c", wall_times=[]), new).cov_base == 0.0
+    assert CaseComparison(
+        "c", BenchmarkResult(name="c", wall_times=[0.0, 0.0]),
+        new).cov_base == 0.0
+
+
+def test_cov_base_value():
+    base = BenchmarkResult(name="c", wall_times=[1.0, 2.0, 3.0])
+    cov = CaseComparison("c", base, None).cov_base
+    assert cov == pytest.approx(base.wall_std / base.wall_mean)
+
+
+def test_effective_tolerance_global_rule():
+    base = BenchmarkResult(name="c", wall_times=[1.0, 1.0, 1.0])
+    tol, rule = CaseComparison("c", base, None).effective_tolerance(0.05)
+    assert rule == "global"
+    assert tol == 0.05
+
+
+def test_effective_tolerance_noise_rule():
+    base = BenchmarkResult(name="c", wall_times=[1.0, 1.0, 1.0, 1.0, 1.10])
+    case_cmp = CaseComparison("c", base, None)
+    tol, rule = case_cmp.effective_tolerance(0.05)
+    assert rule == "noise"
+    assert tol == pytest.approx(NOISE_TOLERANCE_K * case_cmp.cov_base)
+    assert tol > 0.05
+
+
+def test_status_noise_band_absorbs_delta():
+    # 3*cov ~= 13% here; an 8% delta clears the global 5% threshold but
+    # stays inside the noise band -> "ok".
+    base = BenchmarkResult(name="c", wall_times=[1.0, 1.0, 1.0, 1.0, 1.10])
+    new = BenchmarkResult(name="c", wall_times=[1.08])
+    comparison = CaseComparison("c", base, new)
+    assert comparison.effective_tolerance(0.05)[0] > 0.08
+    assert comparison.status(0.05) == "ok"
+
+
+def test_status_delta_exceeds_noise_band():
+    # same jittery base, but a 20% delta exceeds the ~13% band -> slower.
+    base = BenchmarkResult(name="c", wall_times=[1.0, 1.0, 1.0, 1.0, 1.10])
+    new = BenchmarkResult(name="c", wall_times=[1.20])
+    comparison = CaseComparison("c", base, new)
+    assert comparison.effective_tolerance(0.05)[0] < 0.20
+    assert comparison.status(0.05) == "slower"
+
+
+def test_status_low_cov_uses_global_threshold():
+    # a stable base has no noise band; an 8% delta is flagged slower.
+    base = BenchmarkResult(name="c", wall_times=[1.0, 1.0, 1.0])
+    new = BenchmarkResult(name="c", wall_times=[1.08])
+    comparison = CaseComparison("c", base, new)
+    assert comparison.effective_tolerance(0.05) == (0.05, "global")
+    assert comparison.status(0.05) == "slower"
 
 
 # ================================================================
@@ -255,3 +407,32 @@ def test_format_comparison_markdown():
     report = format_comparison(compare(base, new), markdown=True)
     assert "| case |" in report
     assert "| --- |" in report
+
+
+def test_format_comparison_shows_effective_tolerance():
+    base = make_suite([
+        BenchmarkResult(name="stable", wall_times=[1.0, 1.0, 1.0]),
+        BenchmarkResult(
+            name="jittery", wall_times=[1.0, 1.0, 1.0, 1.0, 1.10]),
+    ])
+    new = make_suite([
+        BenchmarkResult(name="stable", wall_times=[2.0]),
+        BenchmarkResult(name="jittery", wall_times=[1.08]),
+    ])
+    report = format_comparison(compare(base, new))
+    # tol header and both rules appear; the slower (non-ok) stable case
+    # carries its global tol, the jittery case its noise band
+    assert "tol" in report
+    assert "(global)" in report
+    assert "(noise)" in report
+
+
+def test_format_comparison_tolerance_dash_for_non_comparable():
+    base = make_suite([BenchmarkResult(name="removed", wall_times=[1.0])])
+    new = make_suite([BenchmarkResult(name="added", wall_times=[1.0])])
+    report = format_comparison(compare(base, new))
+    # added/removed rows have no tolerance band
+    for line in report.splitlines():
+        if line.startswith(("added", "removed")):
+            assert "(global)" not in line
+            assert "(noise)" not in line
