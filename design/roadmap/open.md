@@ -36,10 +36,6 @@ memory ceiling, time-to-first-step, WENO throughput (entries in
   on a 4-GPU allocation. New runs report the honest `compile_s`
   metric (chunk metric fixed 2026-07-18; entry in
   [`done.md`](done.md)).
-- **Async two-tier chunk compile** (optional, interactive-UX). Measured
-  (first advance −24..31%, steady state bitwise-unchanged), default-off
-  patch preserved, unlanded.
-  [`../research/time_to_first_step.md`](../research/time_to_first_step.md)
 - **Storage-halo width probe.** Biased order-5 pads storage to `n+8`
   per axis where the nominal reach needs `n+6` (centered: `n+4` vs
   `n+2`) — ~6% inflation on every upwind5 buffer, est. 2–3 ms/step
