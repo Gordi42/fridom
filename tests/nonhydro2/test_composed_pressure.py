@@ -510,6 +510,24 @@ def test_default_preconditioner_is_multigrid():
     assert solver._preconditioner_kind == "multigrid"
 
 
+def test_collocation_mask_on_a_chart_is_a_taught_error():
+    # order=None (the collocation staircase) samples the indicator at the
+    # computational cell centre, which the chart maps to the wrong
+    # physical point (§6 seam 2) -- a taught error, never a silent
+    # wrong-geometry mask
+    mx = IntervalMesh(8, (0.0, TWO_PI), periodic=True, name="x")
+    ms = IntervalMesh(8, (0.0, 1.0), periodic=False, name="sigma")
+    mapping = CoordinateMapping(
+        maps={"zp": lambda sigma, H: sigma * H}, params={"H": depth})
+    grid = _fv_grid(
+        (mx, ms), mapping=mapping,
+        immersed=ImmersedDomain(cut))  # order=None (collocation)
+    with pytest.raises(NotImplementedError, match="quadrature"):
+        ComposedPressureSolver(
+            grid, _cell_space(grid), iterations=2,
+            weights={"sigma": 1.0 / DSQR})
+
+
 # ================================================================
 #  Differentiability (policy shard): jax.grad through a composed solve
 # ================================================================

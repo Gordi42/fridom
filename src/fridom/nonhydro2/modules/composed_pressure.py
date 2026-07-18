@@ -131,6 +131,11 @@ if TYPE_CHECKING:  # pragma: no cover
     from fridom.spatial.fields.scalar_field import ScalarField
     from fridom.spatial.spaces.tensor_product import SpaceLike
 
+#: the smallest immersed quadrature ``order`` a chart admits: below it
+#: (``None`` / ``1``) the collocation staircase samples the computational
+#: cell centre, which the chart mis-places (§6 seam 2)
+_MIN_CHART_ORDER = 2
+
 
 class ComposedPressureSolver(MappedPressureSolver):
 
@@ -211,6 +216,21 @@ class ComposedPressureSolver(MappedPressureSolver):
                 "mapped + immersed pressure solve needs a "
                 "Grid(..., mapping=..., immersed=...) — the mapped "
                 "MappedPressureSolver applies without a mask")
+        # a chart immersed domain must use genuine per-cell quadrature
+        # (order >= 2): the collocation staircase (order=None/1) samples
+        # the indicator at the *computational* cell centre, which the
+        # chart maps to the wrong physical point (M0+M1 §6 seam 2), so a
+        # collocation mask on a chart is a silent wrong-geometry mask.
+        # A taught error, never a silent unmapped mask.
+        if immersed.order is None or immersed.order < _MIN_CHART_ORDER:
+            raise NotImplementedError(
+                "a chart immersed domain needs genuine per-cell "
+                "quadrature (ImmersedDomain(order=q) with q >= 2): the "
+                "collocation staircase (order=None/1) samples the "
+                "indicator at the computational cell centre, which the "
+                "mapped column places at the wrong physical position, so "
+                "the wet-region mask would be wrong-geometry on a chart "
+                "(mapped + immersed composition plan §6). Pass order>=2.")
         self._immersed = immersed
         # the open-area FACE fraction on each C-grid flux face (the
         # min-transfer of the two adjacent cells, IP-D1): weights each
