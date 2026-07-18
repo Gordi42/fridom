@@ -377,7 +377,13 @@ def test_negotiate_tendency_requires_state_spaces(grid):
         grid.negotiate(tendency=lambda state: state)
 
 
-def test_freeze_ends_the_assembly_phase(grid):
+def test_freeze_ends_the_assembly_phase(mx, my):
+    # pin to one device so the larger-demand raise is genuine at any
+    # device count: on a sharded grid the shardable-cap would absorb
+    # halo={x: 99} to the shard extent (width above the floor is
+    # satisfiable via runtime re-sync), so the raw comparison must be
+    # exercised on a non-sharding grid
+    grid = Grid((mx, my), device_ids=(0,))
     grid.freeze()
     # satisfiable demands verify against the frozen record ...
     report = grid.negotiate()
