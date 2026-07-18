@@ -310,6 +310,27 @@ def test_chunk_output_feeds_the_next_chunk():
     assert int(out.clock.it) == 4
 
 
+def test_chunk_body_donates_the_carry_buffers():
+    # The load-bearing MEMORY guard (perf_guard_plan.md gap D): the
+    # chunk jit carries donate_argnums=(2,), so the carry's buffers are
+    # consumed in place rather than doubled -- lost donation was a 2x
+    # carry peak and the 1024x512^2 OOM. is_deleted() is the direct
+    # observable that donation actually fired; the chosen check here
+    # (over parsing the lowered alias annotation) because on this
+    # backend jax deletes the donated inputs after the call -- verified
+    # empirically in the worktree that all carry leaves report deleted
+    # on cpu, so the assertion is deterministic on the default suite.
+    model = make_model()
+    model.advance(2)                     # warm the executable
+    leaves = [x for x in jax.tree_util.tree_leaves(model._carry)
+              if isinstance(x, jax.Array)]
+    assert leaves
+    assert not any(x.is_deleted() for x in leaves)   # alive before
+    out = chunk(model, 2)                # donates model._carry (arg 2)
+    jax.block_until_ready(jax.tree_util.tree_leaves(out))
+    assert all(x.is_deleted() for x in leaves)        # consumed
+
+
 # ================================================================
 #  The carry seal — production-side ghost fill
 # ================================================================

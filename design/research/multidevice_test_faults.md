@@ -142,7 +142,12 @@ message). Two findings amend the record above:
   forced-4 runs the same single-device program; the overshoot is
   CPU-backend FP reassociation, also seen as 1.42e-13 on CI after the
   native-DCT landing) and was fixed independently the same day by
-  bounding the residual relative to the tendency (`cbfc032a`). Gates
+  bounding the residual relative to the tendency (`cbfc032a`). The
+  bound is scheme-generic: the `weno5` parametrization that the
+  selected-input kernel-shape roundoff later tipped is covered by the
+  same fix (verified 2026-07-18, all 12
+  `test_walled_biased_projected_tendency_stays_divergence_free` cases
+  green under forced-4 CPU on dev). Gates
   on the four files: forced-4 CPU 281 passed / 6 skipped / 0 failed;
   single-device 287 passed, the marked tests running. With item 1's
   test deselected, the whole-dir `tests/nonhydro2` forced-4 run is

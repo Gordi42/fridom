@@ -267,6 +267,38 @@ Implementation record:
   FD-matched to rel-err ~6e-12 against gate 1e-4, nodal + FV). The
   new-stack step path is now reverse-differentiable on **all** grid
   types — flat, walled, mapped, immersed — with no known exception.
+- **Multigrid V-cycle kernel swap** (2026-07-18, merge `0ece46b1`) —
+  `banded.tridiagonal_solve_along_axis` grew a host-static
+  `method` knob with three interchangeable kernels: `"scan"` (the
+  old reference Thomas, kept verbatim), `"pcr"` (pure-jax parallel
+  cyclic reduction, portable, arbitrary n) and `"cusparse"` (batched
+  `lax.linalg.tridiagonal_solve`, gtsv2StridedBatch); `"auto"` (the
+  default) resolves host-side to cuSPARSE on a GPU backend and PCR
+  elsewhere, and an explicit `"cusparse"` off-GPU raises a taught
+  ValueError. Threaded as `multigrid_tridiagonal_method` along the
+  `multigrid_levels` route (`nh.Model` → `DynamicalCore` → both
+  pressure solvers → `VerticalLineJacobi`), name-validated at
+  construction. All kernels agree to ~1e-18 (convergence-neutral)
+  and are natively reverse-differentiable; autodiff + garbage-ends +
+  non-power-of-two + dispatch tests shipped in the mirrored files.
+  Microbench (A100, n_z = 128, batch 128²): scan 2.80 →
+  pcr 0.37 → cusparse 0.20 ms/solve. In-model steep mapped
+  (GB-2 protocol): 128³ step 542.7 → **42.0** ms (12.9×; spectral
+  41.0 — parity, 0.975×); 512³ scan 7394 → cusparse **3402** ms
+  (2.2×; spectral 2278 — 0.67×, so the GB-2 1.5× bar stays unmet
+  and spectral stays the mapped GPU default; the study's "likelier
+  at larger n" projection is refuted at 512³). Physics equivalence
+  spectral↔cusparse ~5e-11 at both sizes. 512³ memory: spectral
+  28.5 / multigrid-cusparse 43.8 GiB peak (fits one A100-80GB);
+  the pcr variant OOMs at 512³ (XLA live set ≥ 76 GiB) — on GPU
+  the cuSPARSE default is also the memory-viable kernel. Two
+  corrections to the study record: the projected 128³ post-swap
+  1.17× measured as 0.975×, and the "free IMEX side benefit" was
+  wrong (`model/implicit.py` uses the dense `solve_along_axis`,
+  not this kernel). Open residue (cuSPARSE-under-GSPMD validation,
+  residual mapped-GPU levers): [`open.md`](open.md). Evidence:
+  [`../research/multigrid_kernel_study.md`](../research/multigrid_kernel_study.md)
+  §Addendum.
 - **Immersed partial cells — all dimensions, all three models**
   (2026-07-17, merges `ee257bc0` I0+I1, `b447b8e5` I2, `a5aec29d` I4,
   `3858d977` I3, plus the autodiff regression gates) — the immersed
@@ -450,8 +482,18 @@ Implementation record:
   single-device serial reference to machine precision (max abs 2.3e-15,
   ≤5.2e-15 of field scale — sharded-vs-serial reduction roundoff), with
   the selected-input walled path asserted active on the sharded axis.
-  Remaining follow-ups (comparison re-run, the forced-4 knife-edge test)
-  stay in [`open.md`](open.md). Records:
+  Both follow-ups closed: the 2026-07-17 single-GPU suite recheck
+  confirmed the win in the suite itself (512³ weno5 186.8→130.5
+  ms/step, oc edge 1.10→1.57×; `results/recheck-2026-07-17/` in the
+  bench repo — the full-table refresh and chunk-metric fix remain a
+  separate [`open.md`](open.md) item), and the forced-4 knife-edge
+  divergence-gate flip for `weno5` was covered by the same
+  residual-vs-tendency bound (`cbfc032a`) that fixed the pre-existing
+  `upwind5` case — verified 2026-07-18, 12/12 green under forced-4
+  CPU on dev. Further negative results for upwind5 (one-path
+  spellings, XLA flags, Pallas) are in
+  [`../research/upwind5_revisit.md`](../research/upwind5_revisit.md);
+  do not revisit any of them without reading the records. Records:
   [`../research/stencil_lowering.md`](../research/stencil_lowering.md),
   A/B in
   [`../research/stencil_lowering/microbench/phase3/IMPLEMENTATION_AB.md`](../research/stencil_lowering/microbench/phase3/IMPLEMENTATION_AB.md).
@@ -869,5 +911,53 @@ Implementation record:
   exact rates, conservation to machine zero, periodic path bitwise
   unchanged, autodiff regressions (free/no-slip × walled/stretched/
   terrain) vs central FD, 1697-test sweep green, ruff clean. FV
-  (`CellAvg`) walled targets are a taught rejection — residuals in
+  (`CellAvg`) walled targets were a taught rejection at this landing
+  (lifted next day, entry below) — remaining residuals in
   [`open.md`](open.md).
+- **FV walled diffusion/friction closures** (2026-07-18, branch
+  `feat/fv-walled-diffusion`) — the finite-volume residual of the
+  entry above: walled BC-free `CellAvg` targets (the nonhydro2
+  default family) now take the **same** flux-retag wall closure as
+  the nodal family, because under the FV C-grid `diff` profile the
+  interior flux stagger-lands on the same nodal `Inner` face and the
+  F4 `Inner[Dirichlet] → CellAvg` row closes it with the structural
+  zero wall flux — free-slip/no-flux verbatim, no-slip reusing the
+  wall-adjacent `-2 ν u₁/Δn²` correction unchanged (`CellAvg` ghosts
+  bit-identical to `Center`; `grid.measure` gives true per-cell
+  widths). New code is classification + a bind-time face-exposing
+  probe only: a raw grid (collocated `FVDerivative` profile) is
+  taught-rejected instead of running the wrong stencil; a tagged FV
+  cell wall cannot even be declared (space-layer C8 gate). Deliberate
+  deviation from the open.md lean: the `Outer`-flux-slot spelling
+  (§3.3-b) was **not** built (needs a new `CellAvg → Outer` row + a
+  wall-slot constructor; stays the open-boundaries Tier-2
+  unification) — record §9 addendum. Mapped/stretched FV columns
+  validated on the along-σ semantics rather than gated
+  (measure-weighted conservation machine-zero, terrain bitwise
+  H-independent, autodiff FD-exact walled + stretched); FV-vs-nodal
+  walled parity 1e-12; periodic FV chain got first numeric coverage
+  (bitwise vs nodal). Tests:
+  `tests/model/closures/test_diffusion_fv.py` (24 tests); gates:
+  closures suite 150 green, nonhydro2 596 green, ruff clean.
+
+- **Cold-compile HLO volume — closed as a measured negative**
+  (2026-07-18) — the HLO-volume remainder of the 2026-07-16
+  time-to-first-step entry above. Four-way campaign (census refresh,
+  frame plumbing, advection batching, mapped/CG body): the motivating
+  numbers were stale — weno5 chunk compile is 4.37 s, not 8.5–10 s
+  (the selected-input landing already delivered −38%), and the mapped
+  "16–18 s vs 2–3 s" was the first-advance-wall metric artifact
+  (today: ~3.8 s vs 1.3 s GPU, size-independent) — and every
+  remaining reduction buys a measured runtime regression: the seal
+  DUS spelling is the runtime-optimal one (+2.8 ms/step
+  alternatives), pads fold at jax lowering (69 jaxpr → 9 HLO),
+  call-dedup of the 12 flux kernels is erased by XLA's CallInliner
+  (−37% unopt, ±0 compile), true batching needs a stacked state
+  (temp 0→571 MB, 2.6–8× kernel time, shapes diverge on
+  walled/mapped), and the multigrid V-cycle is structurally linear
+  in levels with the cuSPARSE auto-default already smallest+fastest.
+  Compile tracks *optimized* HLO (unopt is unroll-invariant) —
+  corrected in the record. The one honest cold-start lever left is
+  the async two-tier chunk compile, tracked in
+  [`open.md`](open.md). Record (incl. do-not-revisit list):
+  [`../research/hlo_volume.md`](../research/hlo_volume.md).

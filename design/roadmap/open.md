@@ -37,11 +37,13 @@ A change that pushes production off one of them would pass the suite
 and quietly cost ~2x at scale.
 [`../plans/active/perf_geometry_merge_plan.md`](../plans/active/perf_geometry_merge_plan.md)
 
-Closure design (2026-07-18, research done, owner rulings pending):
+Closure design (2026-07-18, owner rulings recorded in its §5):
 [`../plans/active/perf_guard_plan.md`](../plans/active/perf_guard_plan.md)
-— PR CI gates *structure* (six new fast-path assertions), the DKRZ
-A100 node gates *time* (hardened `compare` + sbatch guard script);
-a wall-clock gate in GitHub CI is explicitly rejected there.
+— PR CI gates *structure* (six new fast-path assertions, incl. the
+FV walled/mapped ratchet), the DKRZ A100 node gates *time* (hardened
+`compare` + manually submitted sbatch guard; **no automated cluster
+submissions**, owner ruling); a wall-clock gate in GitHub CI is
+explicitly rejected there. Open: implement G1–G3.
 
 ## Gaps against the Oceananigans reference comparison
 
@@ -56,21 +58,6 @@ memory ceiling, time-to-first-step, WENO throughput (entries in
 - **Re-run the comparison suite** on post-fix dev (projected weno5
   edge ~1.8x), and fix its chunk metric to report compile separately
   (`_CHUNK_COMPILE_LOG`).
-- **Cold-compile HLO volume.** Step-body compile scales ~O(ops^1.35);
-  HLO-volume reduction is the only cold-start lever for weno5
-  (~8.5–10 s honest compile) and for the mapped solve's 16–18 s cold
-  compile (vs 2–3 s flat, 2026-07-13 — the same HLO-volume problem in
-  the CG body).
-- **WENO selected-input follow-ups.** The pre-existing forced-4
-  knife-edge divergence test now also tips `weno5` (a kernel-shape
-  roundoff flip — see
-  [`../research/multidevice_test_faults.md`](../research/multidevice_test_faults.md)).
-  Negative results are recorded in
-  [`../research/stencil_lowering.md`](../research/stencil_lowering.md)
-  and — for upwind5: one-path spellings, XLA flags, Pallas — in
-  [`../research/upwind5_revisit.md`](../research/upwind5_revisit.md)
-  (the 2026-07-17 RTX 3060 re-baseline; entry in
-  [`done.md`](done.md)) — do not revisit them without reading both.
 - **Storage-halo width probe.** Biased order-5 pads storage to `n+8`
   per axis where the nominal reach needs `n+6` (centered: `n+4` vs
   `n+2`) — ~6% inflation on every upwind5 buffer, est. 2–3 ms/step
@@ -372,18 +359,13 @@ profiling nobody has done. Defer.
 
 Stages 0–4 shipped 2026-07-17 (walls free/no-slip on the nodal
 family, implicit no-slip rows, mapped along-σ, the `VerticalMixing`
-stretched/terrain gates, the measure-divide VJP seal; entry in
-[`done.md`](done.md), record
+stretched/terrain gates, the measure-divide VJP seal), and the FV
+walled lift shipped 2026-07-18 (walled `CellAvg` targets take the
+same flux-retag closure — both families now covered; entries in
+[`done.md`](done.md), record + §9 addendum
 [`../research/diffusion_walls_terrain_scoping.md`](../research/diffusion_walls_terrain_scoping.md)).
 Open:
 
-- **FV walled closures** — a `CellAvg` walled target is a taught
-  rejection (a `CellAvg[Dirichlet]` retag is a fixed-value fill, not
-  zero-flux; probed silently wrong at +32.0 on a constant tracer).
-  FV is the nonhydro2 default family, so walled default-FV models
-  still refuse these closures; the lift is the conservative FV
-  flux-form closure depositing the wall stress in the `Outer` flux
-  slot (record §3.1 opt C, §3.3 spelling b).
 - **Measure-aware implicit column** — the `VerticalMixing`
   stretched/terrain gates stand until the banded column learns
   `grid.measure` widths + the terrain Jacobian (the multigrid V-cycle
@@ -500,36 +482,31 @@ promote one only when its trigger appears:*
   Neumann-outer field enters a hot loop.
 ## Multigrid preconditioner — follow-up measurements
 
-The semicoarsened V-cycle preconditioner shipped 2026-07-17 (the
-"multigrid with vertical line smoothing" lever above, taken; entry in
-[`done.md`](done.md); record
-[`../plans/active/multigrid_pathway_plan.md`](../plans/active/multigrid_pathway_plan.md)
-§3). Open, none blocking:
+The semicoarsened V-cycle preconditioner shipped 2026-07-17 and the
+V-cycle kernel swap it called for shipped 2026-07-18 (merge
+`0ece46b1`; both entries in [`done.md`](done.md), measurements in
+[`../research/multigrid_kernel_study.md`](../research/multigrid_kernel_study.md)
+§Addendum). Open, none blocking:
 
-- **V-cycle kernel swap (candidate task)** — the GB-2 wall-clock leg
-  failed on the A100 (5.5–13.4× *slower* than spectral; entry in
-  [`done.md`](done.md), evidence
-  [`../research/multigrid_gb2_wallclock.md`](../research/multigrid_gb2_wallclock.md)),
-  and the same-day idealized kernel study
-  ([`../research/multigrid_kernel_study.md`](../research/multigrid_kernel_study.md))
-  pinned the cause: ~91% of the 53 ms V-cycle is the scan-Thomas
-  *lowering* (latency-bound, batch-independent 2.75 ms/solve = 2·n_z
-  sequential kernel launches), not the algorithm. The lever is a
-  kernel swap in the shared `banded.tridiagonal_solve_along_axis`:
-  PCR (~30 lines pure jax, portable, bit-identical solution so
-  convergence is unchanged, natively differentiable) or batched
-  `lax.linalg.tridiagonal_solve` (cuSPARSE, ~1.4× faster still,
-  CUDA-only → needs the PCR fallback; grad+vmap verified — the
-  banded.py:28-30 "backend-uneven" docstring is stale). Measured
-  end-to-end: mapped 128³ solve 9–13× faster → step at ~parity with
-  spectral (0.79–1.17×, still short of the 1.5× GB-2 bar at 128³;
-  likelier at 192³+, unmeasured); **immersed wins outright**
-  (1.3–2.0× and converges in 15–18 iters where spectral needs ~80
-  and busts the 30 budget). Chebyshev/point smoothers are **refuted**
-  as an alternative (fail even the isotropic control — line smoothing
-  is load-bearing for the semicoarsening hierarchy). Free side
-  benefit: the same swap speeds the IMEX implicit vertical-diffusion
-  solve (shared kernel).
+- **cuSPARSE kernel under GSPMD (multi-device) — unvalidated.** The
+  line smoother's `method="auto"` resolves to the batched
+  `lax.linalg.tridiagonal_solve` (cuSPARSE) on any GPU backend,
+  including sharded multi-GPU runs. A custom call's GSPMD
+  partitioning is not guaranteed: XLA may all-gather the batch axes
+  instead of partitioning them (correct but slow). Validate on real
+  4×A100 (parity + no unexpected all-gathers in the HLO); until
+  then a multi-device run that sees them should set
+  `multigrid_tridiagonal_method="pcr"` (pure jax, partitions
+  cleanly). Caveat documented in `banded.py`.
+- **Mapped GPU wall-clock still behind spectral after the swap** —
+  measured in-model: parity at 128³ (0.975×), 0.67× at 512³; the
+  1.5× GB-2 bar stays unmet and the 128³-study projection "likelier
+  at larger n" is refuted at 512³. The study-ranked residual levers
+  (fewer coarse sweeps; cheaper mapped operator applies — now the
+  dominant V-cycle cost) are unclaimed; take only with a concrete
+  mapped-GPU production driver. Immersed remains the case where
+  multigrid wins (study projection 1.3–2.0×, in-model post-swap
+  standing unmeasured).
 
 ## Differentiable run surface — `model.propagator()`
 

@@ -311,3 +311,56 @@ unambiguous win is the IMMERSED case, where spectral cannot converge in budget
 and a cheap-V-cycle multigrid wins 1.3-2.0x outright. Keep the line smoother
 (anisotropy-robust, load-bearing for the semicoarsening); swap only the kernel.
 
+
+---
+
+## Addendum (2026-07-18) — swap SHIPPED; in-model + 512^3 measurements
+
+The kernel swap is on dev (merge `0ece46b1`):
+`banded.tridiagonal_solve_along_axis(..., method=...)` with
+`{"auto", "cusparse", "pcr", "scan"}`, auto = cuSPARSE on a GPU backend /
+PCR elsewhere, explicit `"cusparse"` off-GPU raises a taught ValueError;
+threaded to the model API as `multigrid_tridiagonal_method`. Microbench
+on the shipped code reproduces Phase A: scan 2.80 / pcr 0.37 /
+cusparse 0.20 ms/solve (n_z=128, batch 128^2).
+
+In-model GB-2-protocol measurements on the shipped code (same A100, steep
+mapped a=0.8, FV auto, budget 100, tol 1e-8, ms/step, median of 6 x 20
+steps, compile excluded; scan\@512^3 median of 3):
+
+| n | spectral | mg cusparse (auto) | mg scan (old) | swap gain | vs spectral |
+|-------|--------|----------|----------|-------|-------|
+| 128^3 | 40.97 | **42.01** | 542.7 (07-17 record) | 12.9x | 0.975x (parity) |
+| 512^3 | 2277.9 | **3401.7** | 7394.3 | 2.2x | 0.67x |
+
+Corrections to this record's synthesis, from the measured runs:
+
+- **The 128^3 substitution projection (1.17x, "beats spectral") was
+  ~18% optimistic**: measured in-model parity, 0.975x. The projection
+  substituted the standalone-solve delta; the in-model CG context does
+  not cancel exactly.
+- **The size trend refutes "GB-2 likelier at 192^3+"**: post-swap the
+  deficit vs spectral *widens* with n (0.975x at 128^3 -> 0.67x at
+  512^3). The old "slowdown eases with size" trend was a property of the
+  scan kernel's batch-independent latency being amortized, not of the
+  algorithm. GB-2 (>=1.5x) stays unmet at every measured size; spectral
+  stays the mapped GPU production default.
+- **PCR does not fit 512^3 mapped on one A100-80GB**: the XLA live set
+  after rematerialization is >= 76 GiB (the 9 host-unrolled passes'
+  shifted temporaries stay live inside the CG scan) -> RESOURCE_EXHAUSTED
+  under the default 0.75 pool, and 76 GiB exceeds even a 0.9 pool. On
+  GPU the cuSPARSE default is also the memory-viable kernel
+  (peak 43.8 GiB vs spectral 28.5 at 512^3); PCR remains the portable
+  CPU/TPU + multi-device-safe kernel.
+- **The "free IMEX side benefit" claim above is WRONG**:
+  `model/implicit.py` uses the dense `solve_along_axis`, not
+  `tridiagonal_solve_along_axis`; switching IMEX to the tridiagonal
+  kernel would be a separate (unclaimed) change.
+
+Physics equivalence spectral vs mg-cusparse at equal step counts:
+rel diff ~5e-11 at both 128^3 and 512^3. The scan\@512^3 run's final
+state is not comparable (fewer reps = fewer total steps), and its
+correctness is unit-covered instead. Immersed post-swap in-model
+standing was not re-measured (the 1.3-2.0x win above remains a
+substitution projection). Multi-device cuSPARSE-under-GSPMD validation
+is an open residue (roadmap).

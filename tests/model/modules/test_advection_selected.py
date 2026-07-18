@@ -20,12 +20,15 @@ Self-contained per the oversized-module test convention (the
 builders below are duplicated, not imported.
 """
 
+import jax
 import numpy as np
 import pytest
+from jax.extend.core import ClosedJaxpr, Jaxpr
 
 import fridom as fr
 from fridom.model.model import Model as FrModel
 from fridom.model.modules.advection import (
+    UpwindAdvection,
     WENOAdvection,
     _BiasedFaceReconstruction,
     _FVBiasedReconstruction,
@@ -394,3 +397,86 @@ def test_face_value_dispatches_selected_kernel_by_family():
         want = kernel(v + abs(v), q, axis, flux_space)
         assert np.array_equal(np.asarray(got.data),
                               np.asarray(want.data))
+
+
+# ================================================================
+#  The selected-input performance guard (jaxpr divide count)
+# ================================================================
+def _count_div_primitives(jaxpr):
+    """Count lax ``div`` primitives in a jaxpr.
+
+    Descends into every nested sub-jaxpr (pjit / cond / scan closures
+    carry their bodies as equation params), so a divide hidden behind
+    a jitted operator is still counted.
+    """
+    if isinstance(jaxpr, ClosedJaxpr):
+        jaxpr = jaxpr.jaxpr
+    total = 0
+    for eqn in jaxpr.eqns:
+        if eqn.primitive.name == "div":
+            total += 1
+        for value in eqn.params.values():
+            items = value if isinstance(value, (tuple, list)) else (value,)
+            for item in items:
+                if isinstance(item, (Jaxpr, ClosedJaxpr)):
+                    total += _count_div_primitives(item)
+    return total
+
+
+def _face_value_div_counts(build, recon_cls, order):
+    """``div`` counts for one isolated WENO face value, both ways.
+
+    Traces the face-value computation with ``jax.make_jaxpr`` over the
+    tracer field data (``with_data``), once via the WENO
+    selected-input override as production dispatches it, and once via
+    the inherited ``UpwindAdvection._face_value`` both-then-select base
+    invoked explicitly on the same operands. Returns
+    ``(selected, both)``.
+    """
+    _, advection = _weno_model(order)            # a periodic WENO model
+    grid, q, axis, _ = build(order)
+    left = recon_cls(order, "left", "weno")
+    flux_space = left[axis](q).function_space
+    axis_index = flux_space.bare.names.index(axis)
+    v = grid.create_field(
+        flux_space,
+        data=_broadcast(_mixed_sign(flux_space.shape[axis_index]),
+                        flux_space.shape, axis_index))
+
+    def selected(qd):
+        return WENOAdvection._face_value(
+            advection, q.with_data(qd), v, axis, flux_space).data
+
+    def both(qd):
+        return UpwindAdvection._face_value(
+            advection, q.with_data(qd), v, axis, flux_space).data
+
+    return (_count_div_primitives(jax.make_jaxpr(selected)(q.data)),
+            _count_div_primitives(jax.make_jaxpr(both)(q.data)))
+
+
+@pytest.mark.parametrize("order", [3, 5])
+@pytest.mark.parametrize(
+    ("build", "recon_cls"),
+    [pytest.param(_periodic_tracer, _BiasedFaceReconstruction,
+                  id="nodal"),
+     pytest.param(_periodic_fv_tracer, _FVBiasedReconstruction,
+                  id="fv")])
+def test_selected_input_halves_the_divide_count(build, recon_cls,
+                                                order):
+    # The load-bearing PERFORMANCE guard (perf_guard_plan.md gap C):
+    # the selected-input override reconstructs ONE sign-selected window,
+    # running the WENO nonlinear weights once, so its jaxpr carries
+    # ~half the ``div`` primitives of the inherited both-then-select
+    # base (which reconstructs both biases, then ``Where``-selects).
+    # The two spellings are bitwise-identical where v > 0, so the parity
+    # tests above CANNOT see a silent revert to both-then-select -- the
+    # divide count can. Both sides are measured here (never the historic
+    # 253/493 hardcoded), so only the RATIO is pinned and the guard
+    # survives unrelated arithmetic changes. On these periodic (interior
+    # only) rows the halving is clean; a revert makes selected == both
+    # and trips ``selected < 0.6 * both`` with margin on either side.
+    selected, both = _face_value_div_counts(build, recon_cls, order)
+    assert both > 0
+    assert selected <= both / 2 + 4
+    assert selected < 0.6 * both

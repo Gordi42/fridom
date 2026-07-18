@@ -330,3 +330,51 @@ harmonic/biharmonic stability); "no-slip at coarse resolution",
 Ocean Modelling 2011 (S1463500311000874, abstract-level).
 Unverified externals are flagged in place (MITgcm/Oceananigans
 biharmonic intermediate-BC details).
+
+## 9. Addendum (2026-07-18): the FV walled lift shipped
+
+The finite-volume residual (walled `CellAvg` targets a taught
+rejection) closed on `feat/fv-walled-diffusion`. The machinery
+investigation collapsed the design to a near-trivial delta, because
+the F4 walled-FV advection rows had already built the substrate:
+
+- Under the FV C-grid `diff` profile (`fv_cgrid_overrides`,
+  `nonhydro2/modules/core.py`), `q.diff(a)` on a bounded BC-free
+  `CellAvg` stagger-lands the interior flux on the **same nodal
+  BC-free `Inner` face the nodal chain uses** (`FaceDifference`), and
+  the closing `Inner[Dirichlet] → CellAvg` `FluxDifference` row
+  (structural exact-zero wall flux) was registered by F4. So FV
+  free-slip / no-flux is the §3.1 retag **verbatim** — the chain code
+  (`_harmonic`, `_dirichlet_face`) needed zero changes.
+- `CellAvg` ghost fills are bit-identical to `Center` (odd/even
+  mirror, `_OFFSET` distance class), and `grid.measure` on `CellAvg`
+  returns true per-cell physical widths, so no-slip reuses the §3.3
+  spelling-(a) wall row (`_wall_correction`) unchanged — including
+  the stretched-column half-cell geometry.
+- The only genuinely new code: `_wall_treatment` accepts bounded
+  BC-free `CellAvg` as tangential, plus a bind-time **face-exposing
+  probe** — on a raw grid (no FV C-grid profile) `("diff", CellAvg)`
+  resolves to the collocated `FVDerivative` (`CellAvg → CellAvg`),
+  which cannot close a wall flux, so it is taught-rejected rather
+  than run as the wrong collocated stencil. A *tagged* (fixed-value)
+  FV cell wall cannot even be declared (space-layer C8 gate:
+  average factors carry no boundary structure).
+- **Deviation from the roadmap residual's lean.** The open.md entry
+  pointed at an `Outer`-flux-slot spelling (§3.3-b's FV twin). The
+  investigation showed (b) needs a new `CellAvg → Outer`
+  diffusive-gradient row **and** an explicit wall-slot constructor
+  (`Inner`/`Outer` are not retag-siblings), while (a) needs no new
+  spatial registration at all — consistent with this record's own
+  §3.3 recommendation. (b) remains the open-boundaries Tier-2
+  unification if wall-face flux DOFs get a second consumer.
+- Mapped/stretched FV columns were **validated, not gated**: the
+  along-σ semantics carry over through the shared measure machinery
+  (measure-weighted no-flux integral machine-zero on a stretched FV
+  column, terrain tendency bitwise H-independent, reverse-mode AD
+  finite and FD-exact on walled + stretched FV). FV-vs-nodal walled
+  parity holds at 1e-12 (eager bitwise); the periodic FV chain got
+  its first numeric coverage (bitwise vs nodal).
+
+Tests: `tests/model/closures/test_diffusion_fv.py` (self-contained
+shard). Owner calls §6 are unchanged — the shipped `slip=` semantics
+apply to both families.

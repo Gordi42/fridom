@@ -82,7 +82,11 @@ load-bearing for the semicoarsening). The recovery lever is a batched
 tridiagonal kernel swap in `banded.py`: mapped reaches ~parity with
 spectral, immersed wins outright. The iteration-count result
 (robustness on steep/masked problems) stands on its own and is
-CPU-relevant as measured.
+CPU-relevant as measured. The swap shipped 2026-07-18 (merge
+`0ece46b1`); measured in-model it delivers 12.9× at 128³ (parity with
+spectral, 0.975×) and 2.2× at 512³ (0.67× vs spectral — the deficit
+widens with n, so this gate stays failed at every measured size; see
+the kernel study's Addendum).
 
 ## Measurement-fairness verification (why budget=100 is honest here)
 
