@@ -84,6 +84,15 @@ JAX_PLATFORMS=cuda srun -n 4 --gpu-bind=none .venv/bin/python your_script.py
   `num_processes=int(os.environ["SLURM_NTASKS"])`,
   `process_id=int(os.environ["SLURM_PROCID"])`,
   `local_device_ids=[int(os.environ["SLURM_LOCALID"])]`.
+  fridom disables its default persistent compile cache
+  (`src/fridom/_compile_cache.py`) under a real multi-process launch:
+  XLA:GPU shard autotuning turns compilation into a cross-rank
+  rendezvous, and a persistent cache whose per-rank state diverges lets
+  some ranks skip a compile others perform cold, deadlocking the whole
+  run in the `Model` build (observed 2026-07-18, Levante A100, jax
+  0.10.2). Enabling a cache explicitly via `FRIDOM_JAX_CACHE_DIR` under
+  multi-process therefore requires
+  `XLA_FLAGS=--xla_gpu_shard_autotuning=false`.
 
 - For full-suite runs use pytest-xdist with `--dist loadfile`: tests in the
   same file share jit-compilation caches, so grouping by file minimizes
