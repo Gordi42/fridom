@@ -1,5 +1,5 @@
 ---
-status: active
+status: done
 date: 2026-07-13
 ---
 
@@ -21,10 +21,12 @@ the analogue, in the opposite direction, of
 file fed implementation findings back into the design, this file fed
 design demands back to the grid implementers.
 
-Status (2026-07-13): **everything that gated the model layer has
-landed**. What is left is one ergonomics item, kept below. The file
-stays active only as the home of that one; it is also cited as the
-record of the `_halo_valid`/treedef failure mode (item R11), e.g. by
+Status (done 2026-07-18): **everything that gated the model layer
+landed**, and the one remaining ergonomics item — coefficient-space
+product/power rows — was **ruled closed by design** on 2026-07-18 (see
+the closure note below). The file is retained as the record of the
+resolved items, including the `_halo_valid`/treedef failure mode
+(item R11), cited e.g. by
 [`krylov_scan_plan.md`](../done/krylov_scan_plan.md).
 
 ## Resolved (original numbering, one line each)
@@ -80,7 +82,7 @@ record of the `_halo_valid`/treedef failure mode (item R11), e.g. by
   are the opt-in closure. Note moved to
   [`../done/bc_free_boundaries.md`](../done/bc_free_boundaries.md);
   the remaining boundary work (Robin dynamic data) lives in
-  [`boundary_plan.md`](boundary_plan.md), which also owns the
+  [`boundary_plan.md`](../active/boundary_plan.md), which also owns the
   BC-nodal operator-row gap.
 - **R15 `fr.spatial.cartesian.Grid` constructor** — built 2026-07-15
   (the decision was keep, not withdraw): the `shape=`/`extent=`/
@@ -90,27 +92,19 @@ record of the `_halo_valid`/treedef failure mode (item R11), e.g. by
   `fr.spatial.charts.lonlat_sphere` chart primitive. Record:
   [`../done/grid_ergonomics_plan.md`](../done/grid_ergonomics_plan.md).
 
-## Open work items
+## Closure
 
-1. **Coefficient-space product/power rows** — ergonomics, not blocking,
-   and **deferred**: not a missing row but a semantics decision.
-   Coefficient-space fields have no product/power rows, and
-   constant→coefficient broadcast is blocked, so spectral operator
-   coefficients still drop to `.data`. Elementwise multiplication of two
-   Fourier-coefficient fields is a convolution, not the product of the
-   represented functions, so it cannot share the `("multiply", space)`
-   kind; it needs an owner semantics call first and blocks nothing.
-
-   Landed from that backlog and no longer tracked here: the
-   `ImmutableStateError` `.data` setter (2026-07-15;
-   [`fields.md`](../../specs/grid/classes/fields.md) D1.5 — the class
-   moved to `fridom.spatial.errors`, re-exported from `model/errors.py`),
-   the transform-class + `NodeSet` re-exports (`fr.spatial.operators.*` /
-   `fr.spatial.*`) and the `Grid.dispatch` -> `OperatorRegistry` typing;
-   `MissingComponentError` and the `_component` hint path,
-   `ScalarField.to` metadata preservation (operator application
-   carries `result.metadata`), `.item()`, biased nodal stencils
-   (upwind/WENO), and WENO's halo (modules declare no `extra_halo`;
-   negotiation picks the width). Clenshaw–Curtis measures on
-   `ChebyshevMesh` are tracked in
-   [`high_order_mapped_plan.md`](high_order_mapped_plan.md).
+**All items resolved; plan complete.** The one item that remained
+open — coefficient-space product/power rows — was **ruled closed by
+design** on 2026-07-18 (owner-ratified): coefficient-space
+`ScalarField`s are a vector space, not an algebra, so
+`("multiply"|"divide"|"power"|"abs", coefficient-space)` rows are
+permanently absent (an elementwise product of two coefficient fields
+is a convolution, not their product). Per-mode diagonal algebra lives
+on `Symbol`; the pointwise function product lives in nodal space;
+`Convolution` and the zero-mode `ConstantBroadcast` stay reserved
+distinct kinds, unbuilt until a consumer exists. Full record:
+[`../../research/coefficient_space_arithmetic_semantics.md`](../../research/coefficient_space_arithmetic_semantics.md).
+Clenshaw–Curtis measures on `ChebyshevMesh`, once folded into the
+same backlog, are tracked separately in
+[`high_order_mapped_plan.md`](../active/high_order_mapped_plan.md).

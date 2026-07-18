@@ -455,17 +455,6 @@ recorded route
 §3, numbers in
 [`../research/mapped_jacobian_spike.md`](../research/mapped_jacobian_spike.md)).
 
-## Coefficient-space product/power rows — needs an owner call
-
-*Small in code, but a semantics decision, not a missing row.*
-Elementwise multiplication of two Fourier-coefficient fields is *not*
-the product of the represented functions (it is a convolution), so
-registering it under the same `("multiply", space)` kind invites silent
-nonsense. Needs an owner ruling first; it blocks nothing. The last open
-item of the Phase-2 grid follow-ups (the rest landed — see
-[`done.md`](done.md)).
-[`../plans/active/phase2_grid_followups.md`](../plans/active/phase2_grid_followups.md)
-
 ## Mapped-solve residual levers — measured, none currently worth taking
 
 *The parent line — "multi-device compile and execution cost", formerly
