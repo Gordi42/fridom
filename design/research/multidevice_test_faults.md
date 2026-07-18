@@ -325,3 +325,13 @@ synthesis crash** — the backward-only synthesis paths (`mode`,
 not route through the fused contraction. Tracked in
 `roadmap/open.md`; the shipped projection fix is validated by
 dedicated tests on non-freezing grids (n=12/16).
+
+## Closure (2026-07-18, same day)
+
+Both faults above are fixed on dev: the `GridFrozenError` was a
+negotiate/verify cap asymmetry (merge `8a787452`), and the synthesis
+paths route through the fused backward-only contraction on 3-D
+channels (merge `e316987d`). Mechanisms and follow-on invariant fixes:
+[`halo_sharding_invariants.md`](halo_sharding_invariants.md); campaign
+record:
+[`gspmd_naive_transform_illegality.md`](gspmd_naive_transform_illegality.md).

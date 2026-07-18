@@ -1481,3 +1481,48 @@ Implementation record:
   the one remaining layer (terrain chart + walled horizontal — a
   genuine missing interpolate in the mapped slope gradient, not a
   tag issue) is tracked in [`open.md`](open.md).
+- **Multi-device eigenbasis setup + synthesis faults — FIXED**
+  (2026-07-18). The two "pre-existing faults surfaced by the
+  projection validation": (a) the setup `GridFrozenError` was a
+  negotiate/verify **cap asymmetry** (freeze sealed the sharding-capped
+  halo, verify compared the raw demand — every `model.variant`
+  faulted on cap-engaged grids, n ∈ {8,11,14,17}@4dev for the nh
+  channel); fixed by capping the verify side identically (merge
+  `8a787452`, restores the `variant` ⊆ lemma). (b) `mode()` /
+  `channel_random_state` on a sharded periodic axis now route through
+  the fused backward-only synthesis (`ContractPlan.synthesize`, merge
+  `e316987d`; bit-identical parity, finite VJP; 2-D channel remains
+  the ratification item in `open.md`). Record:
+  [`../research/halo_sharding_invariants.md`](../research/halo_sharding_invariants.md).
+
+- **Naive GSPMD transform path illegal (Tier 1) — SHIPPED**
+  (2026-07-18, merge `83fbc56c` + CI `867537e1` + fixture pins
+  `a6bc4b39`). `Transform.forward/backward` raise a taught error when
+  the operand's layout shards a transform axis (the path silently
+  all-gathered on CPU and crashed XLA:GPU's distributed-FFT lowering,
+  jax#39291); safe lowerings (`SlabPlan`, `ContractPlan`) bypass the
+  seam by construction. The `numeric_eigenpairs` probe gathers first.
+  Suite converted (device-pinned fixtures; taught-error counterparts).
+  Study + campaign record:
+  [`../research/gspmd_naive_transform_illegality.md`](../research/gspmd_naive_transform_illegality.md);
+  phases 2+ in
+  [`../plans/active/gspmd_transform_illegality_plan.md`](../plans/active/gspmd_transform_illegality_plan.md).
+
+- **Interval-accounting sharding regressions — FIXED (one loud, one
+  silent)** (2026-07-18). Surfaced by the campaign's forced-4 residual
+  sweep; both from the two-sided-accounting landing `40a24df8`.
+  **Loud:** the sharding-cap floor was blind to trace-only wide
+  stencils, so small axes sharded with a halo below one application's
+  reach (97 advection forced-4 failures); fixed by flooring the cap
+  with the traced per-application reach in negotiate + frozen verify,
+  plus an assembly pre-validation negotiate so construction-time
+  sharding collapses before `dry_run` (in dev via `94786a7c`).
+  **Silent wrong physics:** bounded staggered kernels published a
+  wall-cancelled `exterior_reach` of (0,0), eliding the inter-shard
+  halo sync on sharded walled axes — diffusion/friction tendencies
+  wrong by O(1)–O(10) at real multi-GPU scale, growing with N; fixed
+  by publishing the per-shard `footprint_reach` (merge `b57e3e78`;
+  periodic bit-identical, the n+8→n+6 storage win survives; also
+  cured the sadourny doubly-walled sharded failures and closed a
+  lone-bounded-op width-0 negotiation hole). Record:
+  [`../research/halo_sharding_invariants.md`](../research/halo_sharding_invariants.md).
