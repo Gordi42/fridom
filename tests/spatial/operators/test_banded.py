@@ -7,6 +7,8 @@ inverse of the apply, and the per-column Thomas kernel
 (``tridiagonal_solve_along_axis``) against a dense per-column solve
 (batched, axis-agnostic, reverse-mode differentiable).
 """
+import re
+
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -478,3 +480,43 @@ def test_tridiagonal_kernel_grad_matches_scan(method):
     fd = (loss(diag, (2.0 + eps) * rhs, method)
           - loss(diag, (2.0 - eps) * rhs, method)) / (2 * eps)
     assert abs(float(scale_grad) - float(fd)) <= 1e-4 * abs(float(fd))
+
+
+# ----------------------------------------------------------------
+#  HLO structure: pcr is while-free, scan is not (perf-guard gap B)
+# ----------------------------------------------------------------
+def _isolated_solve_hlo(method):
+    """Compile the ISOLATED banded solve and return its compiled HLO."""
+    rng = np.random.default_rng(80)
+    shape = (N, 4)
+    lower, diag, upper = _random_bands(rng, shape)
+    rhs = jnp.asarray(rng.standard_normal(shape))
+    return jax.jit(
+        lambda lo, di, up, r: tridiagonal_solve_along_axis(
+            lo, di, up, r, 0, method=method),
+    ).lower(lower, diag, upper, rhs).compile().as_text()
+
+
+def _has_while_opcode(hlo_text):
+    """Return True if the HLO carries a ``while`` control-flow op."""
+    # the opcode spelling ``while(%...)``; the ``while/body`` op_name
+    # metadata and the ``%while.N_computation`` names have no ``(`` right
+    # after ``while``, so this matches the instruction, not the label
+    return bool(re.search(r"while\(", hlo_text))
+
+
+def test_pcr_kernel_lowers_without_a_while_loop():
+    # gap-B HLO guard: pcr is host-unrolled cyclic reduction
+    # (ceil(log2 N) passes emitted straight-line), so the isolated
+    # banded solve carries NO HLO while — the flat lowering the CG solve
+    # depends on (a silent revert to scan-Thomas costs 9-18x). Scoped to
+    # the banded kernel alone: the outer CG/Krylov iteration may
+    # legitimately lower to while/scan and is not compiled here.
+    assert not _has_while_opcode(_isolated_solve_hlo("pcr"))
+
+
+def test_scan_kernel_lowers_with_a_while_loop():
+    # the detector's positive control: the reference scan-Thomas kernel
+    # IS a pair of lax.scan calls, which lower to HLO while — so a
+    # while-absence assert genuinely distinguishes the two kernels
+    assert _has_while_opcode(_isolated_solve_hlo("scan"))
