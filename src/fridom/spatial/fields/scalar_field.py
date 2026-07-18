@@ -975,6 +975,7 @@ class ScalarField:
         space = self._function_space
         if isinstance(other, complex):
             space = _promoted_space(space)
+        _reject_coefficient_elementwise("divide", space.bare)
         op = self._grid.dispatch.resolve("divide", space.bare)
         numerator = _wrap(self._grid, space,
                           jnp.full(space.shape, other))
@@ -986,6 +987,7 @@ class ScalarField:
                 or _is_0d_array(exponent)):
             return NotImplemented
         space = self._function_space
+        _reject_coefficient_elementwise("power", space.bare)
         op = self._grid.dispatch.resolve("power", space.bare)
         lifted = _wrap(self._grid, space,
                        jnp.full(space.shape, exponent))
@@ -994,6 +996,7 @@ class ScalarField:
     def __abs__(self) -> ScalarField:
         """Pointwise modulus, (kind="abs", space); nodal default."""
         space = self._function_space
+        _reject_coefficient_elementwise("abs", space.bare)
         op = self._grid.dispatch.resolve("abs", space.bare)
         return op(self)
 
@@ -1227,10 +1230,10 @@ def _check_lift(from_space: SpaceLike, to_space: SpaceLike) -> None:
     Description
     -----------
     The join already established that the factors are related by the
-    two sanctioned lifts; this checks the iteration-1 *realization*:
-    constant broadcast is a plain jnp broadcast onto nodal/average
-    factors (the seeded ``("broadcast", ConstantSpace)`` default),
-    and real -> complex promotion must not change the factor shape.
+    two sanctioned lifts; this checks the *realization*: constant
+    broadcast is a plain jnp broadcast onto nodal/average factors
+    (realized eagerly in ``_lift_field``, not a registered row), and
+    real -> complex promotion must not change the factor shape.
     """
     pairs = zip(from_space.factors, to_space.factors, strict=True)
     for src, dst in pairs:
@@ -1240,10 +1243,11 @@ def _check_lift(from_space: SpaceLike, to_space: SpaceLike) -> None:
             if isinstance(dst, CoefficientSpace):
                 raise DispatchError(
                     "no ('broadcast', ConstantSpace -> "
-                    f"{dst!r}) dispatch entry: broadcasting a "
-                    "constant into a coefficient space is the "
-                    "zero-mode update, not implemented in "
-                    "iteration 1")
+                    f"{dst!r}) dispatch entry by design: broadcasting "
+                    "a constant into a coefficient space is the "
+                    "zero-mode update, not a field operation; transform "
+                    "back to nodal space, or fold the constant into the "
+                    "Symbol algebra")
             continue
         if src.shape != dst.shape:
             raise NotImplementedError(
@@ -1337,9 +1341,11 @@ def _scalar_shift(
         if isinstance(factor, CoefficientSpace):
             raise DispatchError(
                 "no ('broadcast', ConstantSpace -> "
-                f"{factor!r}) dispatch entry: adding a Python "
-                "scalar to a coefficient-space field is the exact "
-                "zero-mode update, not implemented in iteration 1")
+                f"{factor!r}) dispatch entry by design: adding a "
+                "Python scalar to a coefficient-space field is the "
+                "exact zero-mode update, not a field operation (a "
+                "constant is not representable in a Sine basis); "
+                "transform back to nodal space first")
     if isinstance(value, complex):
         space = _promoted_space(space)
     valid = HaloSpec({
@@ -1396,6 +1402,60 @@ def _lift_field(f: ScalarField, joined: SpaceLike) -> ScalarField:
     return _wrap(f.grid, joined, data)
 
 
+# Coefficient-space fields form a vector space, not an algebra (owner
+# ruling 2026-07-18): only transform-commuting operations are field
+# arithmetic. An elementwise multiply/divide/power/abs of coefficient
+# factors is a convolution or a spectral diagnostic, not a field, so
+# these rows are permanently absent by design. Per-mode (diagonal)
+# manipulation lives on ``Symbol``; the pointwise product lives in
+# nodal space. Record:
+# design/research/coefficient_space_arithmetic_semantics.md.
+_COEFFICIENT_ELEMENTWISE_REJECTIONS = {
+    "multiply": (
+        "no ('multiply', {space!r}) dispatch entry by design: an "
+        "elementwise product of two coefficient-space fields is a "
+        "convolution of the represented functions, not their product; "
+        "apply a Symbol for a per-mode (diagonal) factor, or transform "
+        "back to nodal space for the pointwise product"),
+    "divide": (
+        "no ('divide', {space!r}) dispatch entry by design: a quotient "
+        "of spectra has no representation-independent realization; use "
+        "Symbol.inverse for a per-mode (diagonal) inverse, or transform "
+        "back to nodal space"),
+    "power": (
+        "no ('power', {space!r}) dispatch entry by design: an "
+        "elementwise power of a spectrum is not the transform of any "
+        "function power; use the Symbol algebra for diagonal powers, or "
+        "transform back to nodal space"),
+    "abs": (
+        "no ('abs', {space!r}) dispatch entry by design: per-mode "
+        "magnitudes are a spectral diagnostic, not a field; read .data, "
+        "or transform back to nodal space"),
+}
+
+
+def _reject_coefficient_elementwise(
+    kind: str, space: SpaceLike,
+) -> None:
+    """
+    Reject an elementwise coeff-space op with a teaching error.
+
+    Description
+    -----------
+    Raised before ``resolve`` (owner ruling 2026-07-18) when any bare
+    factor of ``space`` is a ``CoefficientSpace``: the taught message
+    replaces the generic registry miss, pointing multiply/divide/power/
+    abs at the ``Symbol`` diagonal algebra or a transform back to nodal
+    space. Linear ops (add/sub, scalar scale) never route here — they
+    bypass the registry — so the guard only fires on the permanently
+    absent elementwise rows.
+    """
+    if any(isinstance(factor, CoefficientSpace)
+           for factor in space.factors):
+        raise DispatchError(
+            _COEFFICIENT_ELEMENTWISE_REJECTIONS[kind].format(space=space))
+
+
 def _dispatched_product(
     a: ScalarField,
     b: ScalarField,
@@ -1408,6 +1468,7 @@ def _dispatched_product(
                   operation=operation)
     _check_lift(a.function_space, joined)
     _check_lift(b.function_space, joined)
+    _reject_coefficient_elementwise(kind, joined.bare)
     op = a.grid.dispatch.resolve(kind, joined.bare)
     return op(_lift_field(a, joined), _lift_field(b, joined))
 
@@ -1425,7 +1486,7 @@ def _broadcast_factor(
     ``profile.to(nodal)`` and the implicit lift inside ``profile * f``
     produce the identical field. Halo 0 — a broadcast reads the single
     DOF and adds no ghost demand. Broadcasting into a coefficient factor
-    is the zero-mode update, a ``DispatchError`` in iteration 1.
+    is the zero-mode update, a ``DispatchError`` by design.
 
     Parameters
     ----------
@@ -1444,9 +1505,10 @@ def _broadcast_factor(
     if isinstance(dst, CoefficientSpace):
         raise DispatchError(
             "no ('broadcast', ConstantSpace -> "
-            f"{dst!r}) dispatch entry: broadcasting a constant into a "
-            "coefficient space is the zero-mode update, not implemented "
-            "in iteration 1")
+            f"{dst!r}) dispatch entry by design: broadcasting a "
+            "constant into a coefficient space is the zero-mode "
+            "update, not a field operation; transform back to nodal "
+            "space, or fold the constant into the Symbol algebra")
     space = f.function_space
     if isinstance(space, TensorProductSpace):
         target: SpaceLike = space.replace(**{name: dst})

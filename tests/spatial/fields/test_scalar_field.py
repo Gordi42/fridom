@@ -347,7 +347,7 @@ def test_mul_on_coefficient_space_raises(grid1d, mx):
     space = mx.fourier(origin=mx.center)
     a = grid1d.random.normal(space, seed=0)
     b = grid1d.random.normal(space, seed=1)
-    with pytest.raises(KeyError, match="multiply"):
+    with pytest.raises(KeyError, match="convolution"):
         _ = a * b
 
 
@@ -359,7 +359,7 @@ def test_div(f, g):
 def test_div_on_coefficient_space_raises(grid1d, mx):
     space = mx.fourier(origin=mx.center)
     a = grid1d.random.normal(space, seed=0)
-    with pytest.raises(KeyError, match="divide"):
+    with pytest.raises(KeyError, match="quotient of spectra"):
         _ = a / a
 
 
@@ -396,7 +396,7 @@ def test_complex_scalar_rtruediv_promotes(f):
 
 def test_rtruediv_on_coefficient_space_raises(grid1d, mx):
     a = grid1d.random.normal(mx.fourier(origin=mx.center), seed=0)
-    with pytest.raises(KeyError, match="divide"):
+    with pytest.raises(KeyError, match="quotient of spectra"):
         _ = 1.0 / a
 
 
@@ -407,7 +407,7 @@ def test_pow(f):
 
 def test_pow_on_coefficient_space_raises(grid1d, mx):
     a = grid1d.random.normal(mx.fourier(origin=mx.center), seed=0)
-    with pytest.raises(KeyError, match="power"):
+    with pytest.raises(KeyError, match="Symbol algebra"):
         _ = a ** 2
 
 
@@ -446,6 +446,12 @@ def test_abs_on_average_spaces(grid1d, mx):
     h = abs(a)
     assert h.function_space.bare is mx.cell_avg
     assert jnp.array_equal(h.data, jnp.abs(data))
+
+
+def test_abs_on_coefficient_space_raises(grid1d, mx):
+    a = grid1d.random.normal(mx.fourier(origin=mx.center), seed=0)
+    with pytest.raises(KeyError, match="spectral diagnostic"):
+        _ = abs(a)
 
 
 def test_constant_into_coefficient_lift_raises(grid1d, mx):

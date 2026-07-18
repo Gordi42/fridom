@@ -13,6 +13,8 @@ operators already lifted onto their common space (doc 02's join +
 sanctioned lifts), so the codomain resolvers demand identical bare
 spaces. ``Where``/``Hadamard``/``Convolution``/``ConstantBroadcast``
 land in later waves (no field sugar consumes them yet).
+Coefficient spaces get no elementwise rows by design (owner
+ruling 2026-07-18; see the spec section above).
 """
 # Wave 2: CollocationProduct, Divide, Power, Abs --
 #    Wave 3+: Where, ConstantBroadcast, Hadamard, Convolution

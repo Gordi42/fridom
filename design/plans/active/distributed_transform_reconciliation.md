@@ -225,7 +225,7 @@ parity-locked cut; N-D pencil is a scoped follow-on.
   topology-aware mesh mapping) **with** the pencil follow-on; the 2-node
   smoke test is the gate.
 
-Related: [`phase2_grid_followups.md`](phase2_grid_followups.md),
+Related: [`phase2_grid_followups.md`](../done/phase2_grid_followups.md),
 `specs/grid/04_decomposition.md` §5.1,
 `specs/grid/classes/operators_transforms.md`. Memory:
 [[new-stack-gpu-performance]].
