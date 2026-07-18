@@ -482,9 +482,11 @@ def test_grid_seeds_a_concrete_fv_derivative(mx):
     assert isinstance(op, SeparableComposite)
     assert isinstance(op.factors[0], FluxDifference)
     assert isinstance(op.factors[1], LinearReconstruction)
-    # the summed chain halo drives the provisional negotiation
-    assert op.requirements(mx.cell_avg).halo == 2
-    assert grid.decomposition.halo["x"] == 2
+    # two-sided accounting: the reconstruct [0,+1] and flux-difference
+    # [-1,0] windows compose to [-1,+1], width 1 (not the scalar sum 2)
+    assert op.requirements(mx.cell_avg).halo == 1
+    assert op.requirements(mx.cell_avg).reach == (1, 1)
+    assert grid.decomposition.halo["x"] == 1
 
 
 def test_fv_diff_converges_at_second_order():

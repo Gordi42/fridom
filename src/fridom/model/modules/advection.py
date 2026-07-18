@@ -254,12 +254,14 @@ from fridom.spatial.operators.graded import (
 from fridom.spatial.operators.interned import interned
 from fridom.spatial.operators.reconstruct import (
     apply_fv_staggered,
+    fv_reach_or,
 )
 from fridom.spatial.operators.select import Where
 from fridom.spatial.operators.staggering import (
     mapped_factor,
     mapped_mesh,
     mapped_order_hint,
+    window_reach,
 )
 from fridom.spatial.operators.weno import (
     _shu_row,  # the exact-rational coefficient seam
@@ -825,9 +827,16 @@ class _CenteredFaceInterpolation(SeparableOperator):
 
     def requirements(
         self,
-        domain: FunctionSpace,  # noqa: ARG002 — fixed by the size
+        domain: FunctionSpace,
     ) -> OperatorRequirements:
-        """Declare halo = size // 2, layout "any".
+        """Declare reach ``(below, above)``, halo = size // 2.
+
+        Description
+        -----------
+        The midpoint-aligned interpolation reaches asymmetrically per
+        direction (``Center -> Right`` vs ``Right -> Center``); the
+        two-sided reach keeps the transport chain from over-provisioning.
+        The symmetric ``halo`` stays ``size // 2``.
 
         Parameters
         ----------
@@ -839,7 +848,9 @@ class _CenteredFaceInterpolation(SeparableOperator):
         OperatorRequirements
             The per-factor requirements record.
         """
-        return OperatorRequirements(halo=self._size // 2)
+        return OperatorRequirements(
+            reach=fv_reach_or(self, domain, self._size,
+                              self._size // 2))
 
     def _apply_factor(self, f: FieldLike, axis: str) -> FieldLike:
         """Interpolate along ``axis`` (midpoint-aligned window).
@@ -1127,16 +1138,21 @@ class _BiasedFaceReconstruction(SeparableOperator):
 
     def requirements(
         self,
-        domain: FunctionSpace,  # noqa: ARG002 — fixed by the order
+        domain: FunctionSpace,
     ) -> OperatorRequirements:
         """
-        Declare halo = order // 2 + 1, layout "any".
+        Declare the biased reach ``(below, above)``, halo = order // 2 + 1.
 
         Description
         -----------
-        The uniform declaration over both biases and both node-set
-        directions: the widest window reach beyond the output slot
-        is ``order // 2 + 1`` cells.
+        The biased window is asymmetric and direction-dependent: with
+        the same explicit alignment ``m0 = biased_offset + wall_shift``
+        the kernel uses, the reach is ``(m0, size - 1 - m0)`` on a
+        periodic axis. This is exactly what the runtime consumes, so
+        the negotiated width tightens to the true composed footprint
+        (``n + 6`` per axis for upwind5, not ``n + 8``) while the
+        symmetric ``halo`` (the per-side maximum over both biases) stays
+        ``order // 2 + 1``.
 
         Parameters
         ----------
@@ -1148,7 +1164,15 @@ class _BiasedFaceReconstruction(SeparableOperator):
         OperatorRequirements
             The per-factor requirements record.
         """
-        return OperatorRequirements(halo=self._order // 2 + 1)
+        fallback = self._order // 2 + 1
+        try:
+            m0 = (biased_offset(self._order, self._bias)
+                  + _wall_shift(domain))
+            reach = window_reach(domain, self.codomain(domain),
+                                 self._order, m0)
+        except SpaceMismatchError:
+            reach = (fallback, fallback)
+        return OperatorRequirements(reach=reach)
 
     # ------------------------------------------------------------
     #  Kernel application (biased window alignment)
@@ -1610,11 +1634,19 @@ class _FVBiasedReconstruction(SeparableOperator):
         return mesh.inner
 
     def requirements(
-        self,
-        domain: FunctionSpace,  # noqa: ARG002 — fixed by the order
+        self, domain: FunctionSpace,
     ) -> OperatorRequirements:
         """
-        Declare halo = order // 2 + 1, layout "any".
+        Declare the biased reach ``(below, above)``, halo = order//2+1.
+
+        Description
+        -----------
+        The FV primal-frame biased window (no dual shift) at the same
+        explicit alignment ``m0 = biased_offset`` the kernel uses, so
+        the FV upwind/WENO reconstruction tightens to the same width as
+        the nodal path and the two stay bitwise-parallel. The symmetric
+        ``halo`` (per-side maximum over both biases) stays
+        ``order // 2 + 1``.
 
         Parameters
         ----------
@@ -1626,7 +1658,14 @@ class _FVBiasedReconstruction(SeparableOperator):
         OperatorRequirements
             The per-factor requirements record.
         """
-        return OperatorRequirements(halo=self._order // 2 + 1)
+        fallback = self._order // 2 + 1
+        try:
+            m0 = biased_offset(self._order, self._bias)
+            reach = window_reach(domain, self.codomain(domain),
+                                 self._order, m0)
+        except SpaceMismatchError:
+            reach = (fallback, fallback)
+        return OperatorRequirements(reach=reach)
 
     # ------------------------------------------------------------
     #  Kernel application (biased window alignment, primal frame)

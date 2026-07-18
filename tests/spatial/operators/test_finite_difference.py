@@ -403,12 +403,14 @@ def test_separable_chain_applies_on_multi_axis_fields(fd, mx):
 
 
 def test_order_6_needs_a_wider_halo_than_negotiated(mx):
-    # provisional halo 2 (the seeded order-2 registry's widest
-    # entry is the two-factor FV-derivative chain)
+    # provisional halo 1: two-sided accounting tightens the seeded
+    # order-2 FV-derivative chain (reconstruct then flux-difference)
+    # to its true composed window [-1, +1], width 1 (not the scalar
+    # sum 2)
     grid = Grid((mx,))
     f = grid.create_field(init=lambda x: jnp.sin(2 * jnp.pi * x))
     wide = FiniteDifference(order=6)
-    with pytest.raises(ValueError, match="halo width 2"):
+    with pytest.raises(ValueError, match="halo width 1"):
         wide["x"](f)
 
 

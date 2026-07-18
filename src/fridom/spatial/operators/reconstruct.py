@@ -63,6 +63,7 @@ from fridom.spatial.operators.spectral import (
 from fridom.spatial.operators.staggering import (
     first_node_offset,
     require_local_axis,
+    window_reach,
 )
 from fridom.spatial.operators.stencil_kernels import (
     apply_stencil,
@@ -191,6 +192,77 @@ def fv_node_offset(factor: FunctionSpace) -> float:
     return first_node_offset(factor)
 
 
+def fv_reach(
+    domain: FunctionSpace, codomain: FunctionSpace, size: int,
+) -> tuple[int, int]:
+    """
+    Per-side reach of a midpoint-aligned ``size``-point FV kernel.
+
+    Description
+    -----------
+    The average-family twin of ``staggering.exterior_reach``:
+    :func:`staggering.window_reach` at the midpoint alignment computed
+    with :func:`fv_node_offset` (so ``CellAvg``/``FaceAvg`` factors
+    align at their quadrature points). Nodal factors give the same
+    reach as ``exterior_reach``. Biased kernels pass their explicit
+    alignment to ``window_reach`` directly instead.
+
+    Parameters
+    ----------
+    domain : FunctionSpace
+        The bare 1D domain factor.
+    codomain : FunctionSpace
+        The bare 1D codomain factor.
+    size : int
+        The stencil size (number of input points per output).
+
+    Returns
+    -------
+    tuple[int, int]
+        The (below, above) reach in slots (>= 0).
+    """
+    delta = fv_node_offset(codomain) - fv_node_offset(domain)
+    m0 = -int(delta - (size - 1) / 2)
+    return window_reach(domain, codomain, size, m0)
+
+
+def fv_reach_or(
+    op: Operator, domain: FunctionSpace, size: int, fallback: int,
+) -> tuple[int, int]:
+    """
+    Midpoint :func:`fv_reach`, or the symmetric fallback.
+
+    Description
+    -----------
+    The reach helper for an FV operator's two-sided ``requirements``:
+    resolves the codomain factor and returns the exact
+    ``(below, above)`` reach when the factors are staggered, and the
+    symmetric ``(fallback, fallback)`` otherwise (a ``Fourier`` retag
+    row, whose ghost reach is the declared symmetric width and whose
+    physical geometry is not defined).
+
+    Parameters
+    ----------
+    op : Operator
+        The FV operator (its ``codomain`` resolves the codomain factor).
+    domain : FunctionSpace
+        The bare 1D domain factor.
+    size : int
+        The stencil size.
+    fallback : int
+        The symmetric width to use when the geometry is undefined.
+
+    Returns
+    -------
+    tuple[int, int]
+        The two-sided reach.
+    """
+    try:
+        return fv_reach(domain, op.codomain(domain), size)
+    except SpaceMismatchError:
+        return (fallback, fallback)
+
+
 def apply_fv_staggered(
     op: Operator,
     f: FieldLike,
@@ -306,9 +378,10 @@ def apply_fv_staggered(
     # of the *output* field, so those ghost slots must be refilled
     # at the next consumption.
     if getattr(domain_factor.mesh, "periodic", False):
-        valid = f.halo_valid.consume(axis, max(m0, reach_right, 0))
+        valid = f.halo_valid.consume(
+            axis, (max(m0, 0), max(reach_right, 0)))
     else:
-        valid = f.halo_valid.consume(axis, f.halo_valid[axis])
+        valid = f.halo_valid.reset(axis)
     return type(f)(f.grid, codomain, data, metadata,
                    halo_valid=valid)
 
@@ -748,17 +821,21 @@ class LinearReconstruction(SeparableOperator):
 
     def requirements(
         self,
-        domain: FunctionSpace,  # noqa: ARG002 — fixed two-point halo
+        domain: FunctionSpace,
     ) -> OperatorRequirements:
         """
-        Declare halo = 1; layout "local" for the one-sided variant.
+        Declare reach ``(below, above)``, halo = 1.
 
         Description
         -----------
-        The two-point interior kernel needs one halo layer. The
-        one-sided ``CellAvg -> Outer`` closure additionally patches
-        static physical-edge indices, so negotiation must keep the
-        applied axis undistributed (``layout="local"``).
+        The two-point interior kernel is one-sided per direction (a
+        ``CellAvg -> Right`` average reaches one cell up), so the
+        two-sided reach keeps the FV derivative chain
+        (reconstruct + flux-difference) from over-provisioning; the
+        symmetric ``halo`` stays 1. The one-sided ``CellAvg -> Outer``
+        closure additionally patches static physical-edge indices, so
+        negotiation must keep the applied axis undistributed
+        (``layout="local"``).
 
         Parameters
         ----------
@@ -770,9 +847,10 @@ class LinearReconstruction(SeparableOperator):
         OperatorRequirements
             The per-factor requirements record.
         """
+        reach = fv_reach_or(self, domain, _RECON_SIZE, 1)
         if self._is_one_sided_outer:
-            return OperatorRequirements(halo=1, layout="local")
-        return OperatorRequirements(halo=1)
+            return OperatorRequirements(reach=reach, layout="local")
+        return OperatorRequirements(reach=reach)
 
     def eigenvalues(
         self,

@@ -45,10 +45,11 @@ def test_explicit_halo_wins_and_missing_names_are_zero(grid):
 
 def test_registry_maximum_is_the_provisional_default(grid):
     decomp = negotiate(grid, grid.dispatch, device_ids=(0,))
-    # the widest seeded entry is the FV-derivative chain
-    # (reconstruct + flux_diff, width 1 each, summed)
-    assert decomp.halo["x"] == 2
-    assert decomp.halo["y"] == 2
+    # the widest seeded entry is the FV-derivative chain (reconstruct
+    # [0,+1] then flux_diff [-1,0]); two-sided accounting composes them
+    # to the true window [-1,+1] = width 1 (not the scalar sum 2)
+    assert decomp.halo["x"] == 1
+    assert decomp.halo["y"] == 1
 
 
 def test_traced_tendency_overrides_the_registry_maximum(grid):
@@ -60,7 +61,9 @@ def test_traced_tendency_overrides_the_registry_maximum(grid):
     decomp = negotiate(grid, grid.dispatch, state_spaces=(space,),
                        tendency=tendency, device_ids=(0,))
     assert decomp.halo["x"] == 0
-    assert decomp.halo["y"] == 1
+    # bounded Center -> Inner shrinks the codomain (8 -> 7 cells), so
+    # the true-shape difference reads no exterior slot: reach 0
+    assert decomp.halo["y"] == 0
 
 
 def test_tendency_without_state_spaces_raises(grid):
@@ -80,12 +83,15 @@ def test_tendency_and_halo_combine_as_merge_max(grid):
                        tendency=tendency,
                        halo=HaloSpec({"x": 3}), device_ids=(0,))
     assert decomp.halo["x"] == 3
-    assert decomp.halo["y"] == 1
+    # bounded Center -> Inner reads no exterior slot (reach 0)
+    assert decomp.halo["y"] == 0
 
 
 def test_traced_chains_accumulate_the_sync_free_demand(grid):
-    # task 1.8: the trace records the sync-free width of the step —
-    # a triple diff chain on the periodic axis demands 3
+    # task 1.8: the trace records the sync-free width of the step — a
+    # triple diff chain on the periodic axis. Two-sided accounting:
+    # the alternating windows [0,+1], [-1,0], [0,+1] compose to
+    # [-1,+2], width 2 (not the scalar sum 3)
     space = grid.create_field().function_space
 
     def tendency(state):
@@ -93,16 +99,17 @@ def test_traced_chains_accumulate_the_sync_free_demand(grid):
 
     decomp = negotiate(grid, grid.dispatch, state_spaces=(space,),
                        tendency=tendency, device_ids=(0,))
-    assert decomp.halo["x"] == 3
+    assert decomp.halo["x"] == 2
     assert decomp.halo["y"] == 0
 
 
 def test_traced_bounded_chains_demand_the_per_application_max(
         grid, my):
     # bounded axes re-sync at every stencil (kernel claims reset
-    # there), so the sync-free demand is the per-application max.
-    # The chain runs Outer -> Center -> Inner: the exterior-free
-    # bounded signatures (BC-free Inner -> Center is gated by R1)
+    # there), so the sync-free demand is the per-application max, not
+    # the sum. The chain runs Outer -> Center -> Inner; both hops
+    # shrink the codomain (9 -> 8 -> 7 cells), so each true-shape
+    # difference reads no exterior slot: per-application reach 0
     space = grid.create_field().function_space.bare.replace(
         y=my.outer)
 
@@ -111,7 +118,7 @@ def test_traced_bounded_chains_demand_the_per_application_max(
 
     decomp = negotiate(grid, grid.dispatch, state_spaces=(space,),
                        tendency=tendency, device_ids=(0,))
-    assert decomp.halo["y"] == 1
+    assert decomp.halo["y"] == 0
 
 
 def test_arithmetic_resets_the_traced_demand(grid):
@@ -124,7 +131,9 @@ def test_arithmetic_resets_the_traced_demand(grid):
 
     decomp = negotiate(grid, grid.dispatch, state_spaces=(space,),
                        tendency=tendency, device_ids=(0,))
-    assert decomp.halo["x"] == 2  # interp consumes 1, diff adds 1
+    # each segment is a diff [0,+1] then interp [-1,0] = window
+    # [-1,+1], width 1; the +/- reset keeps them from summing
+    assert decomp.halo["x"] == 1
 
 
 def test_cap_for_sharding_lowers_wide_traces_to_the_shard_extent(
@@ -172,11 +181,12 @@ def test_cap_for_sharding_on_non_divisible_axes():
 
 def test_registry_halo_scopes_to_state_space_meshes(grid, my):
     # scoping to a y-only state silences the x-mesh demands (the y
-    # width is 2: the FV-derivative chain is the widest seeded entry)
+    # width is 1: the two-sided FV-derivative chain is the widest
+    # seeded entry, composed window [-1,+1])
     spec = _registry_halo(("x", "y"), grid.dispatch,
                           state_spaces=(my.center,))
     assert spec["x"] == 0
-    assert spec["y"] == 2
+    assert spec["y"] == 1
 
 
 def test_registry_halo_without_items_surface_is_zero():
