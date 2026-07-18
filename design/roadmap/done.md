@@ -462,10 +462,10 @@ Implementation record:
   the <2 s goal) and a persistent compilation cache with
   `min_compile_time_secs=0` (warm TTFS −48%; jax's default threshold
   silently skips the 113 small compiles). Post-merge 64³ GPU: cold
-  TTFS 7.5→5.05 s, warm 2.83 s, per-step unchanged. Remainders (the
-  default-off async two-tier chunk-compile patch, HLO-volume
-  reduction, the comparison-suite metric fix) stay in
-  [`open.md`](open.md). Record:
+  TTFS 7.5→5.05 s, warm 2.83 s, per-step unchanged. Of the
+  remainders, only the default-off async two-tier chunk-compile
+  patch stays in [`open.md`](open.md); HLO-volume reduction and the
+  comparison-suite metric fix are closed (entries below). Record:
   [`../research/time_to_first_step.md`](../research/time_to_first_step.md).
 
 - **WENO selected-input one-pass reconstruction** (2026-07-16, merge of
@@ -1038,3 +1038,27 @@ Implementation record:
   remainder tracked in [`open.md`](open.md): the first green,
   manually submitted guard run on the A100 node and the gpu-marked
   cusparse legs.
+
+- **Comparison-suite chunk-metric fix — honest `compile_s`**
+  (2026-07-18, out-of-tree bench repo only; no fridom src change) —
+  the metric-fix remainder of the 2026-07-16 time-to-first-step
+  entry above. The fridom harnesses (`fridom/bench_compare.py`,
+  `fridom_hydro/bench_hydro.py`,
+  `fridom_multi/bench_{multi,maxfit}.py`) now report `compile_s` —
+  the AOT chunk-compile seconds fridom records in
+  `_CHUNK_COMPILE_LOG`, read as a before/after delta around the
+  first advance (the log is process-global; a sweep touches it many
+  times) — beside the unchanged, now explicitly-flagged-as-conflated
+  `first_advance_s`. `analyze.py`/`analyze_hydro.py` render three
+  distinct columns (fridom compile / fridom 1st-adv / oc 1st-step —
+  the old table put oc's first `time_step!` under a column titled
+  "oc compile s"), keep pre-fix JSONs rendering (`—†` + footnote),
+  and both reports regenerate cleanly against the existing results.
+  Smoke-verified: 64³ linear compile 1.70 s vs first-advance 2.46 s
+  (single A100) and 1.19 s vs 19.0 s (CPU); hydro 256²×32 CPU 0.82 s
+  vs 84.7 s (the artifact vividly). The multi-GPU scripts were edited
+  by careful reading only (no 4-GPU allocation) and get exercised at
+  the next full sweep — tracked with the suite re-run in
+  [`open.md`](open.md). Record:
+  [`../research/time_to_first_step.md`](../research/time_to_first_step.md)
+  §1 + the bench repo README (Metrics).

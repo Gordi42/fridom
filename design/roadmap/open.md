@@ -49,9 +49,13 @@ three trailing areas it identified are largely closed — single-GPU
 memory ceiling, time-to-first-step, WENO throughput (entries in
 [`done.md`](done.md)). Still open:
 
-- **Re-run the comparison suite** on post-fix dev (projected weno5
-  edge ~1.8x), and fix its chunk metric to report compile separately
-  (`_CHUNK_COMPILE_LOG`).
+- **Re-run the full comparison suite** on post-fix dev. The
+  2026-07-17 single-GPU recheck already re-measured the changed rows
+  (weno5 512³ 130.5 ms/step, oc edge 1.57×); what remains is the
+  full-table refresh — including the multi-GPU scaling rows — blocked
+  on a 4-GPU allocation. New runs report the honest `compile_s`
+  metric (chunk metric fixed 2026-07-18; entry in
+  [`done.md`](done.md)).
 - **Async two-tier chunk compile** (optional, interactive-UX). Measured
   (first advance −24..31%, steady state bitwise-unchanged), default-off
   patch preserved, unlanded.

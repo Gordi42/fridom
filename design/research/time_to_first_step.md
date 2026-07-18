@@ -186,7 +186,14 @@ data-bound `set_fields`. Remaining follow-up levers, in value order:
    step).
 2. **Comparison-suite metric fix** (§1) — cheap, corrects the public
    story: fridom centered is at Oceananigans-parity on honest compile,
-   not 5–8× worse.
+   not 5–8× worse. **Shipped 2026-07-18** (out-of-tree bench repo
+   only): the fridom harnesses report `compile_s` — a before/after
+   delta over `_CHUNK_COMPILE_LOG` around the first advance — beside
+   the unchanged `first_advance_s`; the reports render fridom
+   compile / fridom 1st-adv / oc 1st-step as three distinct columns,
+   with pre-fix JSONs flagged `—†`. Smoke: 64³ linear GPU compile
+   1.70 s vs first-advance 2.46 s; hydro 256²×32 CPU 0.82 s vs
+   84.7 s.
 3. lazypimp resolve (0.55 s) and jax import — minor, fixed costs.
 
 Wave-1/2 harnesses (phase breakdown, census, AOT split, scheme sizing,
