@@ -1,4 +1,6 @@
 """Tests for the ``Transform`` ABC surface and the static planner."""
+from types import SimpleNamespace
+
 import jax.numpy as jnp
 import pytest
 
@@ -500,3 +502,65 @@ def test_distributed_backward_plan_none_when_ineligible():
     transform = resolve_transform(grid, bare)
     assert transform.distributed_backward_plan(
         transform.codomain(bare)) is None
+
+
+# ================================================================
+#  Tier-1 guard: a sharded transform axis is illegal
+# ================================================================
+def test_device_ids_zero_is_never_rejected():
+    # a device_ids=(0,) grid leaves every axis local, so the naive
+    # forward runs even on a multi-device host (the guard is exempt)
+    grid = _grid3d(device_ids=(0,))
+    field = grid.create_field()
+    out = Fourier(grid).forward(field)
+    assert out.function_space.bare == Fourier(grid).codomain(
+        field.function_space.bare)
+
+
+@pytest.mark.multi_device
+def test_sharded_transform_axis_forward_is_rejected():
+    # x is sharded AND a transform axis: the naive GSPMD forward would
+    # all-gather (CPU) / crash the distributed-FFT lowering (GPU), so the
+    # Tier-1 guard raises the taught error naming the offending axis
+    grid = _grid3d()
+    assert not grid.decomposition.default_layout.is_local("x")
+    field = grid.create_field()
+    with pytest.raises(NotImplementedError,
+                       match=r"shards the transform axis/axes \('x',\)"):
+        Fourier(grid).forward(field)
+
+
+@pytest.mark.multi_device
+def test_sharded_transform_axis_backward_is_rejected():
+    # the guard covers the backward seam too (operation name in the
+    # message); it fires on the sharded transform axis before the plan
+    grid = _grid3d()
+    field = grid.create_field()
+    with pytest.raises(NotImplementedError,
+                       match=r"Fourier\.backward cannot run"):
+        Fourier(grid).backward(field)
+
+
+@pytest.mark.multi_device
+def test_sharded_non_transform_axis_stays_tier_two_legal():
+    # x is sharded but the transform acts on the LOCAL axis y only: the
+    # FFT axis is device-local, GSPMD needs no reshard, and the guard
+    # stays silent (Tier 2 is legal) -- the real forward completes and
+    # keeps the operand's x-sharding
+    grid = _grid3d()
+    field = grid.create_field()
+    out = Fourier(grid, axes="y").forward(field)
+    assert not out.function_space.layout.is_local("x")
+
+
+@pytest.mark.multi_device
+def test_replicated_operand_is_not_rejected():
+    # a deliberately gathered/replicated operand (a bare space, layout
+    # None) passes the guard even on a multi-device grid -- the predicate
+    # reads the operand's own layout, not the grid default
+    grid = _grid3d()
+    replicated = SimpleNamespace(
+        function_space=grid.create_field().function_space.bare)
+    # no raise (returns None)
+    assert Fourier(grid)._reject_sharded_transform(
+        replicated, "forward") is None
