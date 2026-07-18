@@ -85,10 +85,11 @@ import jax
 import jax.numpy as jnp
 
 from fridom.framework.utils import dtype_real
-from fridom.nonhydro2.modules.multigrid_hierarchy import coarsen_levels
 from fridom.nonhydro2.modules.pressure import (
     _dirichlet_mid,
     build_flat_spectral_solve,
+    is_fv,
+    rediscretize_fv_coarse,
 )
 from fridom.spatial.fields.storage import factor_axes
 from fridom.spatial.operators.banded import validate_tridiagonal_method
@@ -100,6 +101,7 @@ from fridom.spatial.operators.multigrid import (
     VerticalBands,
     VerticalLineJacobi,
 )
+from fridom.spatial.operators.multigrid_hierarchy import coarsen_levels
 from fridom.spatial.operators.staggering import uniform_spacing
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -646,7 +648,9 @@ class ImmersedPressureSolver:
         """
         chain = coarsen_levels(
             self._grid, self._space, vertical=self._vertical,
-            max_levels=self._multigrid_levels)
+            max_levels=self._multigrid_levels,
+            rediscretize=(rediscretize_fv_coarse
+                          if is_fv(self._space) else None))
         levels: list[MultigridLevel] = []
         for index, (grid, space, transfer) in enumerate(chain):
             solver = self if index == 0 else ImmersedPressureSolver(

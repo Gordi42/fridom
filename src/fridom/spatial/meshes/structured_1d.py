@@ -326,6 +326,18 @@ class StructuredMesh1D(Mesh):
             self._coarsened_cache[factor] = mesh
         return mesh
 
+    @property
+    def coarsenable(self) -> bool:
+        """Whether this mesh family can build a coarser sibling.
+
+        ``True`` on the structured interval meshes (their
+        ``_make_refined`` scales the cell count); the ``ChebyshevMesh``
+        override returns ``False``. Consulted by the multigrid hierarchy
+        builder to keep a non-coarsenable axis at full resolution rather
+        than fault (GM-D9 graceful degradation).
+        """
+        return True
+
     @abstractmethod
     def _make_refined(self, n_cells: int) -> Self:
         """Construct (not memoize) the scaled same-type mesh.

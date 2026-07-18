@@ -46,6 +46,7 @@ from fridom.spatial.operators.composed import (
     Divergence,
     Gradient,
 )
+from fridom.spatial.operators.registry import check_override_key
 from fridom.spatial.operators.spectral_solve import SpectralSolve
 from fridom.spatial.spaces.average import AverageSpace
 from fridom.spatial.spaces.nodal import NodalSpace
@@ -56,7 +57,50 @@ if TYPE_CHECKING:  # pragma: no cover
     import jax
 
     from fridom.spatial.fields.scalar_field import ScalarField
+    from fridom.spatial.grid import Grid
     from fridom.spatial.spaces.tensor_product import SpaceLike
+
+
+# ================================================================
+#  Coarse-grid FV re-discretization (multigrid hierarchy, MG-D6)
+# ================================================================
+def is_fv(space: SpaceLike) -> bool:
+    """Whether the pressure space is finite-volume (a ``CellAvg`` cell)."""
+    return any(isinstance(factor, AverageSpace)
+               for factor in space.factors)
+
+
+def rediscretize_fv_coarse(grid: Grid) -> None:
+    """
+    Re-establish the FV ``diff`` profile on a coarse grid (idempotent).
+
+    Description
+    -----------
+    The ``rediscretize`` callback the FV pressure solvers hand to
+    :func:`~fridom.spatial.operators.multigrid_hierarchy.coarsen_levels`.
+    ``Grid.coarsened`` drops model dispatch overrides, so an FV coarse
+    grid resolves the pressure ``diff`` on the registry defaults (the
+    wrong face family). This re-merges the FV C-grid profile — but only
+    once per grid, gated on :attr:`Grid.override_keys`, so the memoized
+    coarse grid is re-discretized a single time even when the hierarchy
+    is rebuilt across traces.
+
+    Parameters
+    ----------
+    grid : Grid
+        The coarse grid to re-discretize.
+    """
+    # deferred import: ``core`` imports the pressure solver modules,
+    # which import this module — the function-local import breaks the
+    # load cycle (and keeps the FV coupling on the nonhydro2 side, so
+    # the promoted spatial builder stays model-agnostic)
+    from fridom.nonhydro2.modules.core import (  # noqa: PLC0415
+        fv_cgrid_overrides,
+    )
+    overrides = fv_cgrid_overrides(grid.factors)
+    wanted = {check_override_key(key) for key in overrides}
+    if not wanted <= grid.override_keys:
+        grid.merge_overrides(overrides)
 
 
 def _neumann_sibling(space: SpaceLike) -> SpaceLike:

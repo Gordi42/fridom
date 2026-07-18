@@ -189,10 +189,11 @@ from typing import TYPE_CHECKING
 
 import jax.numpy as jnp
 
-from fridom.nonhydro2.modules.multigrid_hierarchy import coarsen_levels
 from fridom.nonhydro2.modules.pressure import (
     _dirichlet_mid,
     _neumann_sibling,
+    is_fv,
+    rediscretize_fv_coarse,
 )
 from fridom.spatial.fields.storage import factor_axes
 from fridom.spatial.operators.banded import validate_tridiagonal_method
@@ -209,6 +210,7 @@ from fridom.spatial.operators.multigrid import (
     VerticalBands,
     VerticalLineJacobi,
 )
+from fridom.spatial.operators.multigrid_hierarchy import coarsen_levels
 from fridom.spatial.operators.spectral_solve import SpectralSolve
 from fridom.spatial.operators.staggering import (
     mapped_factor,
@@ -1437,7 +1439,9 @@ class MappedPressureSolver:
                 "preconditioner='spectral' with a moving geometry")
         chain = coarsen_levels(
             self._grid, self._space, vertical=self._base,
-            max_levels=self._multigrid_levels)
+            max_levels=self._multigrid_levels,
+            rediscretize=(rediscretize_fv_coarse
+                          if is_fv(self._space) else None))
         levels: list[MultigridLevel] = []
         for index, (grid, space, transfer) in enumerate(chain):
             if index == 0:

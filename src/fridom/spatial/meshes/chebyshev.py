@@ -143,6 +143,16 @@ class ChebyshevMesh(StructuredMesh1D):
                 f"spaces, got {origin!r}")
         return self._coefficient(ChebyshevSpace, origin)
 
+    @property
+    def coarsenable(self) -> bool:
+        """``False``: Lobatto geometry has no cell-count coarsening.
+
+        ``_make_refined`` is designed-for here, so a Chebyshev vertical
+        keeps full resolution in the multigrid hierarchy (GM-D9 graceful
+        degradation) rather than fault.
+        """
+        return False
+
     def _make_refined(self, n_cells: int) -> Self:
         """Refinement is designed-for on this mesh."""
         raise NotImplementedError(

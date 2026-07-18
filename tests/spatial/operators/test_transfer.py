@@ -360,3 +360,69 @@ def test_forced4_rejects_mismatched_device_sets():
                   device_ids=(0,))
     with pytest.raises(ValueError, match="shared device set"):
         GridTransfer(fine, coarse)
+
+
+# ================================================================
+#  Profile fields: ConstantSpace pass-through (GM-D3)
+# ================================================================
+def sigma_profile_pair(nx, ny, nz, factor=2):
+    """Fine/coarse 3-D grid pair with a mapped (sigma) vertical."""
+    sigma = MappedIntervalMesh(nz, (0.0, 1.0), lambda s: s ** 1.5,
+                               periodic=False, name="z")
+    fine = Grid((IntervalMesh(nx, (0.0, 1.0), name="x"),
+                 IntervalMesh(ny, (0.0, 2.0), name="y"),
+                 sigma))
+    coarse = fine.coarsened({"x": factor, "y": factor})
+    return fine, coarse
+
+
+def profile_space(grid):
+    """Cell x, cell y, constant z: a barotropic ``Profile`` space."""
+    mx, my, mz = grid.factors
+    return TensorProductSpace.of(mx.center, my.center, mz.constant)
+
+
+def profile_field(grid, seed):
+    """Random Profile field (shape ``(nx, ny, 1)``)."""
+    nx, ny, _ = (mesh.n_cells for mesh in grid.factors)
+    data = jax.random.normal(jax.random.PRNGKey(seed), (nx, ny, 1))
+    return grid.create_field(profile_space(grid), data=data)
+
+
+@pytest.mark.parametrize("order", [1, 2])
+def test_profile_transfer_shapes_and_spaces(order):
+    # a Profile field (cell x/y, constant z) transfers on its horizontal
+    # factors alone; the constant z factor passes through untransferred
+    fine, coarse = sigma_profile_pair(8, 8, 6)
+    transfer = GridTransfer(fine, coarse, order=order)
+    field = profile_field(fine, 3)
+    restricted = transfer.restrict(field)
+    assert restricted.grid is coarse
+    assert tuple(restricted.data.shape) == (4, 4, 1)
+    assert restricted.function_space.factors[2].is_constant
+    back = transfer.prolong(restricted)
+    assert back.grid is fine
+    assert tuple(back.data.shape) == (8, 8, 1)
+    assert back.function_space.factors[2].is_constant
+
+
+@pytest.mark.parametrize("order", [1, 2])
+def test_profile_adjointness_with_constant_z(order):
+    # <R f, g>_H == <f, P g>_h with a ConstantSpace z factor present, on
+    # a mapped (sigma) vertical so the measure weighting is exercised
+    fine, coarse = sigma_profile_pair(8, 6, 6)
+    transfer = GridTransfer(fine, coarse, order=order)
+    fine_field = profile_field(fine, 7)
+    coarse_field = profile_field(coarse, 8)
+    lhs = weighted_dot(transfer.restrict(fine_field), coarse_field)
+    rhs = weighted_dot(fine_field, transfer.prolong(coarse_field))
+    assert abs(lhs - rhs) / (abs(rhs) + 1e-300) < 1e-12
+
+
+def test_profile_field_is_accepted_by_the_input_gate():
+    # the ConstantSpace z factor no longer trips _check_input (GM-D3)
+    fine, coarse = sigma_profile_pair(8, 8, 6)
+    transfer = GridTransfer(fine, coarse)
+    # neither direction raises on the Profile field
+    transfer.restrict(profile_field(fine, 1))
+    transfer.prolong(profile_field(coarse, 2))
