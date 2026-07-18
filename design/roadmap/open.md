@@ -61,10 +61,6 @@ memory ceiling, time-to-first-step, WENO throughput (entries in
   (~8.5–10 s honest compile) and for the mapped solve's 16–18 s cold
   compile (vs 2–3 s flat, 2026-07-13 — the same HLO-volume problem in
   the CG body).
-- **Async two-tier chunk compile** (optional, interactive-UX). Measured
-  (first advance −24..31%, steady state bitwise-unchanged), default-off
-  patch preserved, unlanded.
-  [`../research/time_to_first_step.md`](../research/time_to_first_step.md)
 - **WENO selected-input follow-ups.** The pre-existing forced-4
   knife-edge divergence test now also tips `weno5` (a kernel-shape
   roundoff flip — see

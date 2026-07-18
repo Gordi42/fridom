@@ -401,6 +401,25 @@ Implementation record:
   [`open.md`](open.md). Record:
   [`../research/time_to_first_step.md`](../research/time_to_first_step.md).
 
+- **Async two-tier chunk compile** (2026-07-18) — the time-to-first-
+  step §3c follow-up, now landed behind the default-off knob
+  `Model(async_chunk_compile=True)`. On a chunk cache miss whose
+  natural unroll > 1, `step_chunk` lowers the full-unroll chunk on the
+  calling thread (a `Lowered` holds HLO, not the donated carry's
+  buffers), synchronously compiles a cheap `force_unroll=1` variant of
+  the same length, serves it while the full executable compiles in a
+  daemon thread (`.compile()` releases the GIL), and swaps the cache
+  entry to the full executable at a later chunk boundary — both tiers
+  share the `out_shardings` pin, so the swap is reshard-free. Measured
+  (single GPU, from the prototype): first advance −24..31% (256³/64³),
+  steady-state per-step bitwise-unchanged after the swap; a background
+  compile failure re-raises on the next `step_chunk` call. The shipped
+  version drops the prototype's `eager1` mode (measured strictly worse)
+  and serves the length-C unroll-1 tier. Forced-4 CPU keeps the
+  bitwise-equality invariant (no `single_device` mark needed). Record:
+  [`../research/time_to_first_step.md`](../research/time_to_first_step.md)
+  §3c.
+
 - **WENO selected-input one-pass reconstruction** (2026-07-16, merge of
   `perf/weno-selected-input`) — gap 3 of the Oceananigans reference
   comparison. The stencil-lowering study attributed the advection
