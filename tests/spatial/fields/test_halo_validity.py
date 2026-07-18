@@ -81,7 +81,10 @@ def test_stencil_output_sums_keep_the_kernel_claim(grid, f):
     d1, d2 = f.diff("x"), g.diff("x")
     s = d1 + d2
     assert s.halo_valid == d1.halo_valid.merge_min(d2.halo_valid)
-    assert s.halo_valid["x"] == grid.decomposition.halo["x"] - 1
+    # Center -> Right consumes the high side; the sum keeps the shared
+    # two-sided claim (low side full, high side down one)
+    w = grid.decomposition.halo["x"]
+    assert s.halo_valid.interval("x") == (w, max(w - 1, 0))
 
 
 def test_scaling_and_negation_keep_validity(grid, f):
@@ -157,7 +160,8 @@ def test_operator_results_carry_the_kernel_claim(grid, f):
     # axis, and the result keeps the remainder
     d = f.diff("x")
     w = grid.decomposition.halo
-    assert d.halo_valid["x"] == w["x"] - 1
+    # Center -> Right consumes only the high side (two-sided claim)
+    assert d.halo_valid.interval("x") == (w["x"], max(w["x"] - 1, 0))
     assert d.halo_valid["y"] == w["y"]
     # the triggered sync is memoized in the external identity cache,
     # never onto the treedef-participating operand (direction a)

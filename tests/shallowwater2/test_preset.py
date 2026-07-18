@@ -163,11 +163,11 @@ def test_varying_csqr_model_steps():
 
 
 def test_flat_linear_model_negotiates_the_traced_halo():
-    # the core's chart-worst-case extra_halo (2 per axis) is gated
-    # on chartedness: the flat gravity term is a plain staggered
+    # the core's chart / immersed extra_halo (derived, 1 per axis) is
+    # gated on chartedness: the flat gravity term is a plain staggered
     # difference the tracer follows exactly, so a linear flat model
-    # negotiates width 1 — an unconditional declaration doubled its
-    # exchange volume for a chart path it never runs
+    # negotiates width 1 — an unconditional declaration would pay halo
+    # bytes for a chart path a flat model never runs
     model = sw.Model(grid=make_grid(), csqr=1.0,
                      coriolis=sw.modules.FPlaneCoriolis(f0=1.0),
                      advection=False)

@@ -1,17 +1,17 @@
 {
   "format_version": 1,
   "metadata": {
-    "commit": "5af2e37073b745a261ecc01a0d785362205c18cc",
+    "commit": "8d405f6d6ec45628b8cbec9b03f496086b60c3df",
     "dirty": false,
-    "branch": "perf/step-baselines-gpu4",
+    "branch": "perf/fv-walled-storage-frame",
     "fridom_version": "0.0.5",
     "jax_version": "0.10.2",
     "python_version": "3.12.11",
     "backend": "gpu",
     "device_kind": "NVIDIA A100-SXM4-80GB",
     "device_count": 1,
-    "hostname": "l50109.lvt.dkrz.de",
-    "timestamp": "2026-07-17T18:04:49.240343+00:00"
+    "hostname": "l50054.lvt.dkrz.de",
+    "timestamp": "2026-07-18T11:04:44.479232+00:00"
   },
   "results": [
     {
@@ -20,227 +20,11 @@
         "n": 32
       },
       "wall_times": [
-        0.00979085301514715,
-        0.009583052946254611,
-        0.009707933058962226,
-        0.00964197306893766,
-        0.009610152919776738
-      ],
-      "trace_time": null,
-      "compile_time": null,
-      "temp_bytes": null,
-      "argument_bytes": null,
-      "output_bytes": null,
-      "code_bytes": null,
-      "flops": null,
-      "peak_bytes": 23165184,
-      "extras": {
-        "points": 32768.0,
-        "steps": 50.0,
-        "first_advance_s": 3.537788985995576
-      },
-      "error": null
-    },
-    {
-      "name": "nh_flat_periodic",
-      "params": {
-        "n": 256
-      },
-      "wall_times": [
-        0.2580156900221482,
-        0.25804883998353034,
-        0.25825924205128103,
-        0.25809874990954995,
-        0.2579910900676623
-      ],
-      "trace_time": null,
-      "compile_time": null,
-      "temp_bytes": null,
-      "argument_bytes": null,
-      "output_bytes": null,
-      "code_bytes": null,
-      "flops": null,
-      "peak_bytes": 4186767872,
-      "extras": {
-        "points": 16777216.0,
-        "steps": 50.0,
-        "first_advance_s": 1.6670207569841295
-      },
-      "error": null
-    },
-    {
-      "name": "nh_flat_periodic",
-      "params": {
-        "n": 512
-      },
-      "wall_times": [
-        2.012585653923452,
-        2.0119090520311147,
-        2.0128548860084265,
-        2.01217474299483,
-        2.0127102551050484
-      ],
-      "trace_time": null,
-      "compile_time": null,
-      "temp_bytes": null,
-      "argument_bytes": null,
-      "output_bytes": null,
-      "code_bytes": null,
-      "flops": null,
-      "peak_bytes": 30749514496,
-      "extras": {
-        "points": 134217728.0,
-        "steps": 50.0,
-        "first_advance_s": 3.533349400968291
-      },
-      "error": null
-    },
-    {
-      "name": "nh_flat_prime",
-      "params": {
-        "n": 31
-      },
-      "wall_times": [
-        0.010253914981149137,
-        0.010088014998473227,
-        0.010921037057414651,
-        0.009915684000588953,
-        0.010067524039186537
-      ],
-      "trace_time": null,
-      "compile_time": null,
-      "temp_bytes": null,
-      "argument_bytes": null,
-      "output_bytes": null,
-      "code_bytes": null,
-      "flops": null,
-      "peak_bytes": 22640640,
-      "extras": {
-        "points": 29791.0,
-        "steps": 50.0,
-        "first_advance_s": 1.585581897990778
-      },
-      "error": null
-    },
-    {
-      "name": "nh_flat_prime",
-      "params": {
-        "n": 257
-      },
-      "wall_times": [
-        0.43098941002972424,
-        0.43111582996789366,
-        0.43183204310480505,
-        0.4311294408980757,
-        0.43120849994011223
-      ],
-      "trace_time": null,
-      "compile_time": null,
-      "temp_bytes": null,
-      "argument_bytes": null,
-      "output_bytes": null,
-      "code_bytes": null,
-      "flops": null,
-      "peak_bytes": 4505399040,
-      "extras": {
-        "points": 16974593.0,
-        "steps": 50.0,
-        "first_advance_s": 2.1392843269277364
-      },
-      "error": null
-    },
-    {
-      "name": "nh_flat_advective",
-      "params": {
-        "n": 32
-      },
-      "wall_times": [
-        0.009784313035197556,
-        0.00997349398676306,
-        0.009726754040457308,
-        0.009583561914041638,
-        0.009662972996011376
-      ],
-      "trace_time": null,
-      "compile_time": null,
-      "temp_bytes": null,
-      "argument_bytes": null,
-      "output_bytes": null,
-      "code_bytes": null,
-      "flops": null,
-      "peak_bytes": 13372672,
-      "extras": {
-        "points": 32768.0,
-        "steps": 50.0,
-        "first_advance_s": 1.954779307008721
-      },
-      "error": null
-    },
-    {
-      "name": "nh_flat_advective",
-      "params": {
-        "n": 256
-      },
-      "wall_times": [
-        0.37483288801740855,
-        0.3747176480246708,
-        0.37437133595813066,
-        0.37470270798075944,
-        0.374538857024163
-      ],
-      "trace_time": null,
-      "compile_time": null,
-      "temp_bytes": null,
-      "argument_bytes": null,
-      "output_bytes": null,
-      "code_bytes": null,
-      "flops": null,
-      "peak_bytes": 5031498496,
-      "extras": {
-        "points": 16777216.0,
-        "steps": 50.0,
-        "first_advance_s": 2.212836307939142
-      },
-      "error": null
-    },
-    {
-      "name": "nh_flat_advective",
-      "params": {
-        "n": 512
-      },
-      "wall_times": [
-        3.0731364120729268,
-        3.0745472469134256,
-        3.072136258939281,
-        3.075385390082374,
-        3.0721384790958837
-      ],
-      "trace_time": null,
-      "compile_time": null,
-      "temp_bytes": null,
-      "argument_bytes": null,
-      "output_bytes": null,
-      "code_bytes": null,
-      "flops": null,
-      "peak_bytes": 37346274304,
-      "extras": {
-        "points": 134217728.0,
-        "steps": 50.0,
-        "first_advance_s": 4.948200776940212
-      },
-      "error": null
-    },
-    {
-      "name": "nh_flat_periodic_nodal",
-      "params": {
-        "n": 32
-      },
-      "wall_times": [
-        0.009051230968907475,
-        0.008730979985557497,
-        0.008953590062446892,
-        0.008784109959378839,
-        0.008992761024273932
+        0.009693272993899882,
+        0.009772452991455793,
+        0.009916953975334764,
+        0.009802203043363988,
+        0.009661932941526175
       ],
       "trace_time": null,
       "compile_time": null,
@@ -253,21 +37,21 @@
       "extras": {
         "points": 32768.0,
         "steps": 50.0,
-        "first_advance_s": 0.39684138307347894
+        "first_advance_s": 0.4036186079028994
       },
       "error": null
     },
     {
-      "name": "nh_flat_periodic_nodal",
+      "name": "nh_flat_periodic",
       "params": {
         "n": 256
       },
       "wall_times": [
-        0.25821422098670155,
-        0.2582061509601772,
-        0.2582069400232285,
-        0.2580610809382051,
-        0.25803751102648675
+        0.258275036001578,
+        0.2583400149596855,
+        0.25805664400104433,
+        0.2579111849190667,
+        0.2580947750248015
       ],
       "trace_time": null,
       "compile_time": null,
@@ -280,21 +64,21 @@
       "extras": {
         "points": 16777216.0,
         "steps": 50.0,
-        "first_advance_s": 1.105606131022796
+        "first_advance_s": 0.6350281519116834
       },
       "error": null
     },
     {
-      "name": "nh_flat_periodic_nodal",
+      "name": "nh_flat_periodic",
       "params": {
         "n": 512
       },
       "wall_times": [
-        2.0125432340428233,
-        2.0121374130249023,
-        2.013006775989197,
-        2.0119247420225292,
-        2.0126283050049096
+        2.0125362519174814,
+        2.012028030003421,
+        2.01306625304278,
+        2.012077199993655,
+        2.0128515830729157
       ],
       "trace_time": null,
       "compile_time": null,
@@ -307,21 +91,75 @@
       "extras": {
         "points": 134217728.0,
         "steps": 50.0,
-        "first_advance_s": 2.3850114749511704
+        "first_advance_s": 2.388568955939263
       },
       "error": null
     },
     {
-      "name": "nh_flat_advective_nodal",
+      "name": "nh_flat_prime",
+      "params": {
+        "n": 31
+      },
+      "wall_times": [
+        0.0107896359404549,
+        0.009938014089129865,
+        0.010152483941055834,
+        0.010113675030879676,
+        0.010223133955150843
+      ],
+      "trace_time": null,
+      "compile_time": null,
+      "temp_bytes": null,
+      "argument_bytes": null,
+      "output_bytes": null,
+      "code_bytes": null,
+      "flops": null,
+      "peak_bytes": 10778880,
+      "extras": {
+        "points": 29791.0,
+        "steps": 50.0,
+        "first_advance_s": 0.4145777659723535
+      },
+      "error": null
+    },
+    {
+      "name": "nh_flat_prime",
+      "params": {
+        "n": 257
+      },
+      "wall_times": [
+        0.43182883400004357,
+        0.43132850201800466,
+        0.43169415299780667,
+        0.43164301302749664,
+        0.4313509720377624
+      ],
+      "trace_time": null,
+      "compile_time": null,
+      "temp_bytes": null,
+      "argument_bytes": null,
+      "output_bytes": null,
+      "code_bytes": null,
+      "flops": null,
+      "peak_bytes": 4505399040,
+      "extras": {
+        "points": 16974593.0,
+        "steps": 50.0,
+        "first_advance_s": 1.157167362049222
+      },
+      "error": null
+    },
+    {
+      "name": "nh_flat_advective",
       "params": {
         "n": 32
       },
       "wall_times": [
-        0.008960281033068895,
-        0.008893399965018034,
-        0.008768989937379956,
-        0.008865920011885464,
-        0.009061950957402587
+        0.009788523078896105,
+        0.010008004028350115,
+        0.010768295964226127,
+        0.010016122949309647,
+        0.009611282031983137
       ],
       "trace_time": null,
       "compile_time": null,
@@ -334,21 +172,21 @@
       "extras": {
         "points": 32768.0,
         "steps": 50.0,
-        "first_advance_s": 0.5391756290337071
+        "first_advance_s": 0.48444794199895114
       },
       "error": null
     },
     {
-      "name": "nh_flat_advective_nodal",
+      "name": "nh_flat_advective",
       "params": {
         "n": 256
       },
       "wall_times": [
-        0.3757066020043567,
-        0.37548653106205165,
-        0.42375127505511045,
-        0.3758434019982815,
-        0.3759206719696522
+        0.37506096099969,
+        0.3749430710449815,
+        0.3753437519771978,
+        0.3750693810870871,
+        0.3747130789561197
       ],
       "trace_time": null,
       "compile_time": null,
@@ -361,21 +199,21 @@
       "extras": {
         "points": 16777216.0,
         "steps": 50.0,
-        "first_advance_s": 0.8458116850815713
+        "first_advance_s": 0.8466493199812248
       },
       "error": null
     },
     {
-      "name": "nh_flat_advective_nodal",
+      "name": "nh_flat_advective",
       "params": {
         "n": 512
       },
       "wall_times": [
-        3.0732825729064643,
-        3.075622129952535,
-        3.1175119819818065,
-        3.0763738830573857,
-        3.0723489690572023
+        3.073284246958792,
+        3.0757117950124666,
+        3.073209497029893,
+        3.0757740160916,
+        3.0725808340357617
       ],
       "trace_time": null,
       "compile_time": null,
@@ -388,7 +226,169 @@
       "extras": {
         "points": 134217728.0,
         "steps": 50.0,
-        "first_advance_s": 3.6957226649392396
+        "first_advance_s": 3.556619296083227
+      },
+      "error": null
+    },
+    {
+      "name": "nh_flat_periodic_nodal",
+      "params": {
+        "n": 32
+      },
+      "wall_times": [
+        0.009879403980448842,
+        0.00962884200271219,
+        0.009680783026851714,
+        0.010033954051323235,
+        0.010019354056566954
+      ],
+      "trace_time": null,
+      "compile_time": null,
+      "temp_bytes": null,
+      "argument_bytes": null,
+      "output_bytes": null,
+      "code_bytes": null,
+      "flops": null,
+      "peak_bytes": 11741440,
+      "extras": {
+        "points": 32768.0,
+        "steps": 50.0,
+        "first_advance_s": 0.39827022003009915
+      },
+      "error": null
+    },
+    {
+      "name": "nh_flat_periodic_nodal",
+      "params": {
+        "n": 256
+      },
+      "wall_times": [
+        0.25791624491102993,
+        0.25795361399650574,
+        0.2580187249695882,
+        0.2578465240076184,
+        0.2578816940076649
+      ],
+      "trace_time": null,
+      "compile_time": null,
+      "temp_bytes": null,
+      "argument_bytes": null,
+      "output_bytes": null,
+      "code_bytes": null,
+      "flops": null,
+      "peak_bytes": 4186767872,
+      "extras": {
+        "points": 16777216.0,
+        "steps": 50.0,
+        "first_advance_s": 0.6189259689999744
+      },
+      "error": null
+    },
+    {
+      "name": "nh_flat_periodic_nodal",
+      "params": {
+        "n": 512
+      },
+      "wall_times": [
+        2.0133119439706206,
+        2.0121821409557015,
+        2.012986932997592,
+        2.012258051079698,
+        2.0133820440387353
+      ],
+      "trace_time": null,
+      "compile_time": null,
+      "temp_bytes": null,
+      "argument_bytes": null,
+      "output_bytes": null,
+      "code_bytes": null,
+      "flops": null,
+      "peak_bytes": 30749514496,
+      "extras": {
+        "points": 134217728.0,
+        "steps": 50.0,
+        "first_advance_s": 2.3873937720200047
+      },
+      "error": null
+    },
+    {
+      "name": "nh_flat_advective_nodal",
+      "params": {
+        "n": 32
+      },
+      "wall_times": [
+        0.009881993988528848,
+        0.009745622985064983,
+        0.0100268239621073,
+        0.00987706403248012,
+        0.009912854060530663
+      ],
+      "trace_time": null,
+      "compile_time": null,
+      "temp_bytes": null,
+      "argument_bytes": null,
+      "output_bytes": null,
+      "code_bytes": null,
+      "flops": null,
+      "peak_bytes": 13372672,
+      "extras": {
+        "points": 32768.0,
+        "steps": 50.0,
+        "first_advance_s": 0.5348100529517978
+      },
+      "error": null
+    },
+    {
+      "name": "nh_flat_advective_nodal",
+      "params": {
+        "n": 256
+      },
+      "wall_times": [
+        0.3758447439176962,
+        0.3764704259810969,
+        0.37617876497097313,
+        0.3764275460271165,
+        0.3757090329891071
+      ],
+      "trace_time": null,
+      "compile_time": null,
+      "temp_bytes": null,
+      "argument_bytes": null,
+      "output_bytes": null,
+      "code_bytes": null,
+      "flops": null,
+      "peak_bytes": 5031498496,
+      "extras": {
+        "points": 16777216.0,
+        "steps": 50.0,
+        "first_advance_s": 0.8835467949975282
+      },
+      "error": null
+    },
+    {
+      "name": "nh_flat_advective_nodal",
+      "params": {
+        "n": 512
+      },
+      "wall_times": [
+        3.088680098997429,
+        3.091361648053862,
+        3.0879143570782617,
+        3.0909980370197445,
+        3.088668729062192
+      ],
+      "trace_time": null,
+      "compile_time": null,
+      "temp_bytes": null,
+      "argument_bytes": null,
+      "output_bytes": null,
+      "code_bytes": null,
+      "flops": null,
+      "peak_bytes": 37346274304,
+      "extras": {
+        "points": 134217728.0,
+        "steps": 50.0,
+        "first_advance_s": 3.609952086932026
       },
       "error": null
     },
@@ -398,11 +398,11 @@
         "n": 32
       },
       "wall_times": [
-        0.009867326996754855,
-        0.009582276979926974,
-        0.05248274595942348,
-        0.009729366982355714,
-        0.009593107039108872
+        0.0094394019106403,
+        0.00953515199944377,
+        0.051524894894100726,
+        0.010095054050907493,
+        0.00990009296219796
       ],
       "trace_time": null,
       "compile_time": null,
@@ -415,7 +415,7 @@
       "extras": {
         "points": 32768.0,
         "steps": 50.0,
-        "first_advance_s": 2.523788977006916
+        "first_advance_s": 2.4873857410857454
       },
       "error": null
     },
@@ -425,11 +425,11 @@
         "n": 256
       },
       "wall_times": [
-        0.31736770301358774,
-        0.31697322300169617,
-        0.3579987859702669,
-        0.3170450630132109,
-        0.31709164299536496
+        0.3154965890571475,
+        0.3151753790443763,
+        0.35685682902112603,
+        0.3155081099830568,
+        0.3155708689009771
       ],
       "trace_time": null,
       "compile_time": null,
@@ -438,11 +438,11 @@
       "output_bytes": null,
       "code_bytes": null,
       "flops": null,
-      "peak_bytes": 4445045760,
+      "peak_bytes": 4451436032,
       "extras": {
         "points": 16777216.0,
         "steps": 50.0,
-        "first_advance_s": 1.9567025380092673
+        "first_advance_s": 0.7004898239392787
       },
       "error": null
     },
@@ -452,11 +452,11 @@
         "n": 32
       },
       "wall_times": [
-        0.009757088031619787,
-        0.00978225702419877,
-        0.010145247972104698,
-        0.009858058008830994,
-        0.00996595702599734
+        0.009777003084309399,
+        0.009355281945317984,
+        0.009651932981796563,
+        0.00973996298853308,
+        0.009534102049656212
       ],
       "trace_time": null,
       "compile_time": null,
@@ -469,7 +469,7 @@
       "extras": {
         "points": 32768.0,
         "steps": 50.0,
-        "first_advance_s": 2.1355912960134447
+        "first_advance_s": 2.012899952940643
       },
       "error": null
     },
@@ -479,11 +479,11 @@
         "n": 256
       },
       "wall_times": [
-        0.32092766399728134,
-        0.3209440630162135,
-        0.321040513983462,
-        0.3203497019712813,
-        0.32078284403542057
+        0.3187789199873805,
+        0.3187128999270499,
+        0.318971541011706,
+        0.3189265610417351,
+        0.31915668107103556
       ],
       "trace_time": null,
       "compile_time": null,
@@ -496,7 +496,115 @@
       "extras": {
         "points": 16777216.0,
         "steps": 50.0,
-        "first_advance_s": 2.1778423129580915
+        "first_advance_s": 0.757816088036634
+      },
+      "error": null
+    },
+    {
+      "name": "nh_flat_walled_nodal",
+      "params": {
+        "n": 32
+      },
+      "wall_times": [
+        0.00987191405147314,
+        0.009623243007808924,
+        0.0512624429538846,
+        0.009957073954865336,
+        0.009725273004733026
+      ],
+      "trace_time": null,
+      "compile_time": null,
+      "temp_bytes": null,
+      "argument_bytes": null,
+      "output_bytes": null,
+      "code_bytes": null,
+      "flops": null,
+      "peak_bytes": 11669760,
+      "extras": {
+        "points": 32768.0,
+        "steps": 50.0,
+        "first_advance_s": 0.4662687099771574
+      },
+      "error": null
+    },
+    {
+      "name": "nh_flat_walled_nodal",
+      "params": {
+        "n": 256
+      },
+      "wall_times": [
+        0.31450294598471373,
+        0.31475188699550927,
+        0.3554282650584355,
+        0.3147331270156428,
+        0.3147128669079393
+      ],
+      "trace_time": null,
+      "compile_time": null,
+      "temp_bytes": null,
+      "argument_bytes": null,
+      "output_bytes": null,
+      "code_bytes": null,
+      "flops": null,
+      "peak_bytes": 4451436032,
+      "extras": {
+        "points": 16777216.0,
+        "steps": 50.0,
+        "first_advance_s": 0.7296150629408658
+      },
+      "error": null
+    },
+    {
+      "name": "nh_flat_walled_x_nodal",
+      "params": {
+        "n": 32
+      },
+      "wall_times": [
+        0.00942421203944832,
+        0.009204611065797508,
+        0.009277142002247274,
+        0.009482691995799541,
+        0.009595773066394031
+      ],
+      "trace_time": null,
+      "compile_time": null,
+      "temp_bytes": null,
+      "argument_bytes": null,
+      "output_bytes": null,
+      "code_bytes": null,
+      "flops": null,
+      "peak_bytes": 11655680,
+      "extras": {
+        "points": 32768.0,
+        "steps": 50.0,
+        "first_advance_s": 0.5052889930084348
+      },
+      "error": null
+    },
+    {
+      "name": "nh_flat_walled_x_nodal",
+      "params": {
+        "n": 256
+      },
+      "wall_times": [
+        0.3193924230290577,
+        0.3192124719498679,
+        0.3194590030470863,
+        0.31898180092684925,
+        0.3193537719780579
+      ],
+      "trace_time": null,
+      "compile_time": null,
+      "temp_bytes": null,
+      "argument_bytes": null,
+      "output_bytes": null,
+      "code_bytes": null,
+      "flops": null,
+      "peak_bytes": 4315613184,
+      "extras": {
+        "points": 16777216.0,
+        "steps": 50.0,
+        "first_advance_s": 0.7701174799585715
       },
       "error": null
     },
@@ -507,11 +615,11 @@
         "iters": 30
       },
       "wall_times": [
-        0.18167492002248764,
-        0.18164578906726092,
-        0.18135182897094637,
-        0.18155339895747602,
-        0.18135578790679574
+        0.10959001199807972,
+        0.10918755095917732,
+        0.10897052905056626,
+        0.10910177999176085,
+        0.10904960008338094
       ],
       "trace_time": null,
       "compile_time": null,
@@ -520,11 +628,11 @@
       "output_bytes": null,
       "code_bytes": null,
       "flops": null,
-      "peak_bytes": 55603200,
+      "peak_bytes": 12356608,
       "extras": {
         "points": 32768.0,
         "steps": 50.0,
-        "first_advance_s": 5.5843752269865945
+        "first_advance_s": 5.605986481998116
       },
       "error": null
     },
@@ -535,11 +643,11 @@
         "iters": 12
       },
       "wall_times": [
-        0.08491426007822156,
-        0.08402924600522965,
-        0.07907873997464776,
-        0.07902516005560756,
-        0.07901391899213195
+        0.08563991996925324,
+        0.08505288895685226,
+        0.07850959699135274,
+        0.0770720619475469,
+        0.07698664104100317
       ],
       "trace_time": null,
       "compile_time": null,
@@ -548,11 +656,11 @@
       "output_bytes": null,
       "code_bytes": null,
       "flops": null,
-      "peak_bytes": 12324864,
+      "peak_bytes": 12356608,
       "extras": {
         "points": 32768.0,
         "steps": 50.0,
-        "first_advance_s": 5.1441132460022345
+        "first_advance_s": 5.558823601924814
       },
       "error": null
     },
@@ -563,11 +671,11 @@
         "iters": 30
       },
       "wall_times": [
-        1.3069654400460422,
-        1.3076992239803076,
-        1.3062650479841977,
-        1.30736151302699,
-        1.3058846269268543
+        0.609664177056402,
+        0.5886012660339475,
+        0.5896680080331862,
+        0.5887267659418285,
+        0.5895245980937034
       ],
       "trace_time": null,
       "compile_time": null,
@@ -576,11 +684,11 @@
       "output_bytes": null,
       "code_bytes": null,
       "flops": null,
-      "peak_bytes": 679938560,
+      "peak_bytes": 680259072,
       "extras": {
         "points": 2097152.0,
         "steps": 50.0,
-        "first_advance_s": 6.529971768963151
+        "first_advance_s": 2.320411495049484
       },
       "error": null
     },
@@ -591,11 +699,11 @@
         "iters": 12
       },
       "wall_times": [
-        0.5711729740723968,
-        0.5709897229680791,
-        0.5707267429679632,
-        0.5706940919626504,
-        0.5703967509325594
+        0.5016538099152967,
+        0.4801830879878253,
+        0.47969766601454467,
+        0.4796686570625752,
+        0.4797839369857684
       ],
       "trace_time": null,
       "compile_time": null,
@@ -604,11 +712,11 @@
       "output_bytes": null,
       "code_bytes": null,
       "flops": null,
-      "peak_bytes": 679938560,
+      "peak_bytes": 680259072,
       "extras": {
         "points": 2097152.0,
         "steps": 50.0,
-        "first_advance_s": 5.448763448977843
+        "first_advance_s": 2.146707567037083
       },
       "error": null
     },
@@ -619,11 +727,11 @@
         "iters": 30
       },
       "wall_times": [
-        10.192257486050949,
-        10.188365172012709,
-        10.189409495913424,
-        10.188126750988886,
-        10.189806737937033
+        4.434341251035221,
+        4.2318001840030774,
+        4.232519426033832,
+        4.232333245920017,
+        4.233083648956381
       ],
       "trace_time": null,
       "compile_time": null,
@@ -632,11 +740,11 @@
       "output_bytes": null,
       "code_bytes": null,
       "flops": null,
-      "peak_bytes": 4857817600,
+      "peak_bytes": 4857823488,
       "extras": {
         "points": 16777216.0,
         "steps": 50.0,
-        "first_advance_s": 14.914965591975488
+        "first_advance_s": 6.149933226057328
       },
       "error": null
     },
@@ -647,11 +755,11 @@
         "iters": 12
       },
       "wall_times": [
-        4.409714414039627,
-        4.442939848056994,
-        4.415347984060645,
-        4.408201659913175,
-        4.4085622110869735
+        3.860135933966376,
+        3.6597121950471774,
+        3.6575422269525006,
+        3.6589057630626485,
+        3.6575278600212187
       ],
       "trace_time": null,
       "compile_time": null,
@@ -660,11 +768,179 @@
       "output_bytes": null,
       "code_bytes": null,
       "flops": null,
-      "peak_bytes": 4857817600,
+      "peak_bytes": 4857823488,
       "extras": {
         "points": 16777216.0,
         "steps": 50.0,
-        "first_advance_s": 8.982805368956178
+        "first_advance_s": 9.01630937110167
+      },
+      "error": null
+    },
+    {
+      "name": "nh_mapped_nodal",
+      "params": {
+        "n": 32,
+        "iters": 30
+      },
+      "wall_times": [
+        0.10832063492853194,
+        0.10815246403217316,
+        0.10793121298775077,
+        0.10790056304540485,
+        0.10788672300986946
+      ],
+      "trace_time": null,
+      "compile_time": null,
+      "temp_bytes": null,
+      "argument_bytes": null,
+      "output_bytes": null,
+      "code_bytes": null,
+      "flops": null,
+      "peak_bytes": 12356352,
+      "extras": {
+        "points": 32768.0,
+        "steps": 50.0,
+        "first_advance_s": 1.8363142230082303
+      },
+      "error": null
+    },
+    {
+      "name": "nh_mapped_nodal",
+      "params": {
+        "n": 32,
+        "iters": 12
+      },
+      "wall_times": [
+        0.08395120990462601,
+        0.08160416292957962,
+        0.07679579593241215,
+        0.07695561705622822,
+        0.07676423504017293
+      ],
+      "trace_time": null,
+      "compile_time": null,
+      "temp_bytes": null,
+      "argument_bytes": null,
+      "output_bytes": null,
+      "code_bytes": null,
+      "flops": null,
+      "peak_bytes": 12356352,
+      "extras": {
+        "points": 32768.0,
+        "steps": 50.0,
+        "first_advance_s": 1.8060364089906216
+      },
+      "error": null
+    },
+    {
+      "name": "nh_mapped_nodal",
+      "params": {
+        "n": 128,
+        "iters": 30
+      },
+      "wall_times": [
+        0.6059392660390586,
+        0.5845741629600525,
+        0.5846942630596459,
+        0.5846508030081168,
+        0.5860464579891413
+      ],
+      "trace_time": null,
+      "compile_time": null,
+      "temp_bytes": null,
+      "argument_bytes": null,
+      "output_bytes": null,
+      "code_bytes": null,
+      "flops": null,
+      "peak_bytes": 680259072,
+      "extras": {
+        "points": 2097152.0,
+        "steps": 50.0,
+        "first_advance_s": 2.335143159958534
+      },
+      "error": null
+    },
+    {
+      "name": "nh_mapped_nodal",
+      "params": {
+        "n": 128,
+        "iters": 12
+      },
+      "wall_times": [
+        0.502851388999261,
+        0.48075819306541234,
+        0.480586752993986,
+        0.48061433306429535,
+        0.4806790229631588
+      ],
+      "trace_time": null,
+      "compile_time": null,
+      "temp_bytes": null,
+      "argument_bytes": null,
+      "output_bytes": null,
+      "code_bytes": null,
+      "flops": null,
+      "peak_bytes": 680259072,
+      "extras": {
+        "points": 2097152.0,
+        "steps": 50.0,
+        "first_advance_s": 2.2307991089764982
+      },
+      "error": null
+    },
+    {
+      "name": "nh_mapped_nodal",
+      "params": {
+        "n": 256,
+        "iters": 30
+      },
+      "wall_times": [
+        4.33809865009971,
+        4.13503262703307,
+        4.134913946036249,
+        4.135071657015942,
+        4.134887136053294
+      ],
+      "trace_time": null,
+      "compile_time": null,
+      "temp_bytes": null,
+      "argument_bytes": null,
+      "output_bytes": null,
+      "code_bytes": null,
+      "flops": null,
+      "peak_bytes": 4857825024,
+      "extras": {
+        "points": 16777216.0,
+        "steps": 50.0,
+        "first_advance_s": 6.101928401971236
+      },
+      "error": null
+    },
+    {
+      "name": "nh_mapped_nodal",
+      "params": {
+        "n": 256,
+        "iters": 12
+      },
+      "wall_times": [
+        3.7605734210228547,
+        3.557309487950988,
+        3.557936860015616,
+        3.5582309419987723,
+        3.5580716099357232
+      ],
+      "trace_time": null,
+      "compile_time": null,
+      "temp_bytes": null,
+      "argument_bytes": null,
+      "output_bytes": null,
+      "code_bytes": null,
+      "flops": null,
+      "peak_bytes": 4857825024,
+      "extras": {
+        "points": 16777216.0,
+        "steps": 50.0,
+        "first_advance_s": 5.519146736012772
       },
       "error": null
     },
@@ -674,11 +950,11 @@
         "n": 64
       },
       "wall_times": [
-        0.004048893926665187,
-        0.004056144040077925,
-        0.00424020504578948,
-        0.0042345349211245775,
-        0.0037634829059243202
+        0.0038429530104622245,
+        0.0040400640573352575,
+        0.0035949719604104757,
+        0.004090704955160618,
+        0.004272195044904947
       ],
       "trace_time": null,
       "compile_time": null,
@@ -691,7 +967,7 @@
       "extras": {
         "points": 4096.0,
         "steps": 50.0,
-        "first_advance_s": 1.0499374610371888
+        "first_advance_s": 0.20633283397182822
       },
       "error": null
     },
@@ -701,11 +977,11 @@
         "n": 1024
       },
       "wall_times": [
-        0.015557263046503067,
-        0.01561872405000031,
-        0.015619062935002148,
-        0.015441313036717474,
-        0.015599132981151342
+        0.014563280041329563,
+        0.014553209999576211,
+        0.014469409943558276,
+        0.014380540000274777,
+        0.014562761061824858
       ],
       "trace_time": null,
       "compile_time": null,
@@ -718,7 +994,7 @@
       "extras": {
         "points": 1048576.0,
         "steps": 50.0,
-        "first_advance_s": 1.1906354440143332
+        "first_advance_s": 0.23017657606396824
       },
       "error": null
     },
@@ -728,11 +1004,11 @@
         "n": 2048
       },
       "wall_times": [
-        0.04452805290929973,
-        0.04434617201332003,
-        0.04122183099389076,
-        0.04142916202545166,
-        0.041057000984437764
+        0.04280104802455753,
+        0.04291546798776835,
+        0.04275198793038726,
+        0.042919207946397364,
+        0.04279970901552588
       ],
       "trace_time": null,
       "compile_time": null,
@@ -745,7 +1021,7 @@
       "extras": {
         "points": 4194304.0,
         "steps": 50.0,
-        "first_advance_s": 1.244867479079403
+        "first_advance_s": 0.2576141309691593
       },
       "error": null
     },
@@ -755,11 +1031,11 @@
         "n": 64
       },
       "wall_times": [
-        0.00647744198795408,
-        0.00622777093667537,
-        0.0062856420408934355,
-        0.006184541038237512,
-        0.0061312910402193666
+        0.006691552931442857,
+        0.00647079199552536,
+        0.006414782023057342,
+        0.006662264000624418,
+        0.00646207295358181
       ],
       "trace_time": null,
       "compile_time": null,
@@ -772,7 +1048,7 @@
       "extras": {
         "points": 4096.0,
         "steps": 50.0,
-        "first_advance_s": 3.203683709958568
+        "first_advance_s": 0.9471531780436635
       },
       "error": null
     },
@@ -782,11 +1058,11 @@
         "n": 1024
       },
       "wall_times": [
-        0.0655516650294885,
-        0.06306181498803198,
-        0.06324693700298667,
-        0.06303576496429741,
-        0.06313285604119301
+        0.06572440802119672,
+        0.06461000302806497,
+        0.06334999902173877,
+        0.06295876810327172,
+        0.0630064980359748
       ],
       "trace_time": null,
       "compile_time": null,
@@ -799,7 +1075,7 @@
       "extras": {
         "points": 1048576.0,
         "steps": 50.0,
-        "first_advance_s": 2.6989137129858136
+        "first_advance_s": 0.7099656370701268
       },
       "error": null
     },
@@ -809,11 +1085,11 @@
         "n": 2048
       },
       "wall_times": [
-        0.24653020408004522,
-        0.24626373196952045,
-        0.24594464094843715,
-        0.24615177302621305,
-        0.24587945197708905
+        0.2524152030237019,
+        0.2520279521122575,
+        0.2516891109989956,
+        0.25201050203759223,
+        0.2520141020650044
       ],
       "trace_time": null,
       "compile_time": null,
@@ -826,7 +1102,7 @@
       "extras": {
         "points": 4194304.0,
         "steps": 50.0,
-        "first_advance_s": 2.9268213419709355
+        "first_advance_s": 0.907529130927287
       },
       "error": null
     }

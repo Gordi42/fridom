@@ -214,6 +214,53 @@ def window_reach(
     return below, above
 
 
+def footprint_reach(size: int, m0: int) -> tuple[int, int]:
+    r"""
+    Per-shard stencil footprint of a ``size``-point kernel at ``m0``.
+
+    Description
+    -----------
+    The ghost depth a ``size``-point kernel aligned at ``m0`` reads
+    below/above **each output slot's own index** — the per-shard
+    halo-exchange demand, as opposed to :func:`window_reach`, which
+    additionally folds in the *global* codomain/domain length
+    difference (the physical-boundary staggering deficit). That global
+    term belongs to the boundary-legality reach
+    (:func:`exterior_reach`, consumed by
+    :func:`require_grounded_bounded_sides`) but is wrong as a per-shard
+    halo demand: a generic interior shard carries equal true
+    input/output counts, so the deficit never lightens its exchange
+    (the whole global deficit lands on a single physical-boundary
+    shard, whose extra reach is toward the locally-filled wall). This
+    is why the requirements reach — consumed by ``_ensure_valid`` and
+    the negotiation tracer, both of which must see the exchange demand
+    — must use the footprint, not :func:`exterior_reach`: a staggered
+    first difference ``Center -> Inner`` has exterior reach ``(0, 0)``
+    (the shrinking codomain cancels the stencil overhang at the global
+    wall) yet a genuine footprint of one slot, and reading the former
+    silently elides the sync of a sharded walled operand.
+
+    Periodic factors already satisfy ``n_out == n_in``, so the
+    footprint coincides with :func:`window_reach` there (the two-sided
+    storage optimization is preserved bit-for-bit); only bounded
+    staggered kernels differ.
+
+    Parameters
+    ----------
+    size : int
+        The stencil size (number of input points per output).
+    m0 : int
+        The window alignment (output slot ``t`` reads input window
+        ``[t + m0, t + m0 + size - 1]``).
+
+    Returns
+    -------
+    tuple[int, int]
+        The (below, above) footprint reach in slots (>= 0).
+    """
+    return max(0, m0), max(0, size - 1 - m0)
+
+
 def _midpoint_m0(
     domain: FunctionSpace, codomain: FunctionSpace, size: int,
 ) -> int:
@@ -257,18 +304,23 @@ def reach_or(
     op: object, domain: FunctionSpace, size: int, fallback: int,
 ) -> tuple[int, int]:
     """
-    Midpoint ``exterior_reach``, or the symmetric fallback.
+    Midpoint :func:`footprint_reach`, or the symmetric fallback.
 
     Description
     -----------
     The reach helper for a nodal-staggered operator's two-sided
     ``requirements``: resolves the codomain factor and returns the
-    exact ``(below, above)`` reach when the factors are
-    staggered-nodal, and the symmetric ``(fallback, fallback)``
-    otherwise — a ``Fourier`` retag row, or a product/whole-space
-    query where the operator has no 1D signature — whose ghost reach
-    is the declared symmetric ``fallback`` and whose physical stencil
-    geometry is not defined.
+    per-shard :func:`footprint_reach` at the midpoint alignment when
+    the factors are staggered-nodal, and the symmetric
+    ``(fallback, fallback)`` otherwise — a ``Fourier`` retag row, or a
+    product/whole-space query where the operator has no 1D signature —
+    whose ghost reach is the declared symmetric ``fallback`` and whose
+    physical stencil geometry is not defined. The footprint (not
+    :func:`exterior_reach`) is the halo-exchange demand the
+    requirements must publish: on a bounded axis a staggered stencil's
+    exterior reach can cancel to zero while its per-shard footprint
+    does not, and the requirements feed both ``_ensure_valid`` and the
+    negotiation tracer, which must sync/size a sharded walled operand.
 
     Parameters
     ----------
@@ -287,9 +339,10 @@ def reach_or(
         The two-sided reach.
     """
     try:
-        return exterior_reach(domain, op.codomain(domain), size)
+        codomain = op.codomain(domain)
     except SpaceMismatchError:
         return (fallback, fallback)
+    return footprint_reach(size, _midpoint_m0(domain, codomain, size))
 
 
 def require_grounded_bounded_sides(
@@ -779,11 +832,12 @@ def apply_staggered(
     # halo-validity claim (task 1.8, stage B): the kernel computed
     # every output ghost slot its window reaches, so on a *periodic*
     # axis the result keeps the operand's valid layers minus the
-    # per-side maximum reach (stencils commute with the wrap fill).
-    # On bounded axes the claim is zero: stenciling the input's
-    # BC-structured/extrapolated fill is not the BC-consistent fill
-    # of the *output* field, so those ghost slots must be refilled
-    # at the next consumption.
+    # per-side reach ``(m0, reach_right)`` (stencils commute with the
+    # wrap fill; the low side keeps its spare when the stencil only
+    # reaches high, and vice versa). On bounded axes the claim is
+    # zero: stenciling the input's BC-structured/extrapolated fill is
+    # not the BC-consistent fill of the *output* field, so those ghost
+    # slots must be refilled at the next consumption.
     if getattr(domain_factor.mesh, "periodic", False):
         valid = f.halo_valid.consume(
             axis, (max(m0, 0), max(reach_right, 0)))

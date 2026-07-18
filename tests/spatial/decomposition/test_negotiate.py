@@ -16,6 +16,9 @@ from fridom.spatial.decomposition.tensor import (
 )
 from fridom.spatial.grid import Grid
 from fridom.spatial.meshes.interval import IntervalMesh
+from fridom.spatial.operators.finite_difference import (
+    FiniteDifference,
+)
 
 
 @pytest.fixture
@@ -43,6 +46,42 @@ def test_explicit_halo_wins_and_missing_names_are_zero(grid):
     assert decomp.halo["y"] == 0
 
 
+def test_two_sided_accounting_tightens_the_biased_chain(grid):
+    # acceptance gate (perf/halo-interval): two-sided accounting
+    # negotiates the true composed offset window, not the scalar sum
+    # of symmetric halos. A wide biased stencil (FD order 6,
+    # Center -> Right window [-2,+3], halo 3) composed with a narrow
+    # flux-difference-like Right -> Center [-1,0] gives [-3,+3] =
+    # width 3 -- where scalar accounting summed 3 + 1 = 4. This is the
+    # same 4 -> 3 tightening upwind5/weno5 get (storage n+6, not n+8).
+    space = grid.create_field().function_space
+    fd6, fd2 = FiniteDifference(order=6), FiniteDifference(order=2)
+    assert fd6.requirements(space.bare.factor("x")).reach == (2, 3)
+
+    def tendency(state):
+        return fd2["x"](fd6["x"](state))
+
+    decomp = negotiate(grid, grid.dispatch, state_spaces=(space,),
+                       tendency=tendency, device_ids=(0,))
+    assert decomp.halo["x"] == 3
+
+
+def test_two_sided_accounting_tightens_the_centered_chain(grid):
+    # the width-1 gate: a centered / diffusion chain, Center -> Right
+    # [0,+1] then Right -> Center [-1,0], composes to [-1,+1] = width 1
+    # (scalar sum 2). This is the FV order-2 derivative and the nodal
+    # Laplacian tightening -- the "centered -> 1" acceptance value.
+    space = grid.create_field().function_space
+    fd2 = FiniteDifference(order=2)
+
+    def tendency(state):
+        return fd2["x"](fd2["x"](state))
+
+    decomp = negotiate(grid, grid.dispatch, state_spaces=(space,),
+                       tendency=tendency, device_ids=(0,))
+    assert decomp.halo["x"] == 1
+
+
 def test_registry_maximum_is_the_provisional_default(grid):
     decomp = negotiate(grid, grid.dispatch, device_ids=(0,))
     # the widest seeded entry is the FV-derivative chain (reconstruct
@@ -61,9 +100,10 @@ def test_traced_tendency_overrides_the_registry_maximum(grid):
     decomp = negotiate(grid, grid.dispatch, state_spaces=(space,),
                        tendency=tendency, device_ids=(0,))
     assert decomp.halo["x"] == 0
-    # bounded Center -> Inner shrinks the codomain (8 -> 7 cells), so
-    # the true-shape difference reads no exterior slot: reach 0
-    assert decomp.halo["y"] == 0
+    # bounded Center -> Inner shrinks the codomain (8 -> 7 cells): the
+    # exterior reach is 0 at the wall, but the per-shard footprint is
+    # 1 (a sharded interior boundary reads one neighbor slot)
+    assert decomp.halo["y"] == 1
 
 
 def test_tendency_without_state_spaces_raises(grid):
@@ -83,8 +123,10 @@ def test_tendency_and_halo_combine_as_merge_max(grid):
                        tendency=tendency,
                        halo=HaloSpec({"x": 3}), device_ids=(0,))
     assert decomp.halo["x"] == 3
-    # bounded Center -> Inner reads no exterior slot (reach 0)
-    assert decomp.halo["y"] == 0
+    # bounded Center -> Inner: exterior reach is 0 at the wall, but the
+    # per-shard footprint is 1 (a sharded interior boundary reads one
+    # neighbor slot)
+    assert decomp.halo["y"] == 1
 
 
 def test_traced_chains_accumulate_the_sync_free_demand(grid):
@@ -108,8 +150,10 @@ def test_traced_bounded_chains_demand_the_per_application_max(
     # bounded axes re-sync at every stencil (kernel claims reset
     # there), so the sync-free demand is the per-application max, not
     # the sum. The chain runs Outer -> Center -> Inner; both hops
-    # shrink the codomain (9 -> 8 -> 7 cells), so each true-shape
-    # difference reads no exterior slot: per-application reach 0
+    # shrink the codomain (9 -> 8 -> 7 cells), so each difference's
+    # exterior reach cancels to 0 at the wall — but its per-shard
+    # stencil footprint is 1 (a sharded interior boundary reads a
+    # neighbor slot), so the per-application max is 1
     space = grid.create_field().function_space.bare.replace(
         y=my.outer)
 
@@ -118,7 +162,7 @@ def test_traced_bounded_chains_demand_the_per_application_max(
 
     decomp = negotiate(grid, grid.dispatch, state_spaces=(space,),
                        tendency=tendency, device_ids=(0,))
-    assert decomp.halo["y"] == 0
+    assert decomp.halo["y"] == 1
 
 
 def test_arithmetic_resets_the_traced_demand(grid):
@@ -450,3 +494,44 @@ def test_layout_for_reaches_a_pencil(grid):
     decomp = grid.decomposition
     pencil = decomp.layout_for(("x",))
     assert pencil.is_local("x")
+
+
+# ================================================================
+#  Per-application floor disqualifies a would-shard-too-small axis
+#  (cap-floor per application): a wide single-application stencil the
+#  cap cannot satisfy DISQUALIFIES the axis at negotiation instead of
+#  sharding then raising at term evaluation
+# ================================================================
+@pytest.mark.multi_device
+def test_wide_stencil_too_small_to_shard_collapses():
+    # a wide stencil (FD order 6, per-application reach 3) on a small
+    # periodic axis cannot shard: over N devices the shortest shard
+    # holds 2 cells, below the reach-3 ghost one application needs at
+    # once. The trace-sourced per-application floor keeps the cap from
+    # dropping below 3, so the shardability bar DISQUALIFIES the axis
+    # and the auto-selected grid collapses to a single device (rather
+    # than sharding with halo 1 and raising when the stencil fires).
+    n = jax.device_count() * 2
+    grid = Grid((IntervalMesh(n, (0.0, 1.0), name="x"),))
+    space = grid.create_field().function_space
+    fd6 = FiniteDifference(order=6)
+    decomp = negotiate(grid, grid.dispatch, state_spaces=(space,),
+                       tendency=fd6["x"])
+    assert decomp.device_count == 1
+    assert decomp.layouts == (Layout({}),)
+
+
+@pytest.mark.multi_device
+def test_narrow_stencil_on_the_same_small_axis_still_shards():
+    # the companion: the SAME small axis shards for a reach-1 stencil
+    # (per-application floor 1, shortest shard 2 >= 1 + 1). The
+    # disqualification above is specifically the wide per-application
+    # reach, not the axis size -- reach-1 chains keep sharding exactly
+    # as before (the n = 2 * device_count analogue of the n=8 channel)
+    n = jax.device_count() * 2
+    grid = Grid((IntervalMesh(n, (0.0, 1.0), name="x"),))
+    space = grid.create_field().function_space
+    decomp = negotiate(grid, grid.dispatch, state_spaces=(space,),
+                       tendency=lambda state: state.diff("x"))
+    assert dict(decomp.default_layout.device_axes) == {"x": "devices"}
+    assert decomp.device_count == jax.device_count()

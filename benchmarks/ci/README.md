@@ -16,9 +16,25 @@ sbatch benchmarks/ci/step_guard.sbatch    # submit from the repo root
 ```
 
 Submit from the repository root: the script resolves the repo from
-`$SLURM_SUBMIT_DIR`. Watch the job's output (`step-guard-<jobid>.out`
-in the submit dir); there is no alerting — the terminal output and the
-marker file are the record (owner ruling §5.2).
+`$SLURM_SUBMIT_DIR`. Watch the job's output
+(`benchmarks/results/step-guard-<jobid>.out`); there is no alerting —
+the terminal output and the marker file are the record (owner ruling
+§5.2).
+
+**Run from a quiescent checkout.** The job imports the repo state at
+each case's subprocess launch, so parallel sessions merging onto
+`dev` (or dirtying the tree — including an in-flight baseline
+re-record) mid-run corrupt the comparison. The result JSON records
+`commit` and `dirty`; a `dirty=True` run is not evidence. Lesson from
+the first run, 2026-07-18: two guard runs interleaved with a parallel
+session's baseline re-record and read a shifted tree.
+
+The submitting checkout's `.venv` must carry the CUDA jax plugin:
+`uv sync --extra dev --extra cuda`. This bites **worktrees** in
+particular — a fresh worktree synced with `--extra dev` alone gets
+CPU-only jax, and both legs then die in seconds with `Backend 'cuda'
+is not in the list of known backends` and a spurious RED marker
+(observed 2026-07-18, job 26346286).
 
 Local sanity check without touching SLURM or GPUs:
 
@@ -26,15 +42,23 @@ Local sanity check without touching SLURM or GPUs:
 DRY_RUN=1 bash benchmarks/ci/step_guard.sbatch   # echoes each command
 ```
 
-## When it is REQUIRED
+## When to run it (owner-batched checkpoints — never per-merge)
 
-Per the AGENTS.md merge gate: any merge touching **step-path lowering**
-— `spatial/operators/`, `spatial/decomposition/`,
-`model/time_steppers/`, tendency modules, `model/model.py` —
-additionally requires a **green**, manually submitted run of this
-script on the A100 node before it lands on `dev`. This codifies what
-the perf campaigns already do by hand. Non-perf-sensitive merges do not
-need it.
+Guard runs are **not** a merge requirement. Silvano batches them: he
+decides when a checkpoint is due (for example after ~10 merges), runs
+the guard against the **last-guarded baselines**, and on RED studies
+the accumulated batch — bisecting within it if needed — before either
+fixing the regression or accepting the movement and re-recording the
+baselines (which makes the new state the reference for the next
+checkpoint).
+
+**Agents: never submit this script — or any GPU job — on your own
+initiative.** A merge being "perf-sensitive" is not authorization;
+codifying a per-merge guard requirement was tried on 2026-07-18 and
+retracted the same day after agents began submitting guard runs
+unprompted (owner ruling: GPU submissions happen only when Silvano
+explicitly asks in chat; see `design/plans/active/perf_guard_plan.md`
+§5).
 
 ## Manual submission ONLY
 
@@ -95,7 +119,16 @@ methodology: re-measure the flagged case(s) to rule out A100 thermal
 jitter (small-`n` and `sw_sphere` cases carry 2–6% noise — a single
 reading can collapse on re-measure), then attribute the change to the
 responsible commit before deciding whether it is a real regression or
-an intended, to-be-re-baselined move. See
+an intended, to-be-re-baselined move.
+
+**Node-to-node variance is a confirmed false-RED cause.** Observed
+2026-07-18: `sw_flat[n=1024]` read 14.5 ms (l50051) and 15.4 ms
+(l50163) on identical code, tight reps each — a +7% wholesale shift
+past the 5% global tolerance from the node alone. When a RED does not
+attribute to a commit, re-run pinned to the node the baseline was
+recorded on (`sbatch -w <node> benchmarks/ci/step_guard.sbatch`); the
+baseline JSON records its node in `metadata.hostname`, matching the
+"same node" rule of the baseline lifecycle below. See
 [`design/plans/active/perf_guard_plan.md`](../../design/plans/active/perf_guard_plan.md)
 (§1.3, §4.3) and `benchmarks/README.md` "Measurement traps".
 

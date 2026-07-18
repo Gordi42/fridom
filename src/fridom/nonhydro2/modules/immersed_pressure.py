@@ -85,10 +85,12 @@ import jax
 import jax.numpy as jnp
 
 from fridom.framework.utils import dtype_real
-from fridom.nonhydro2.modules.multigrid_hierarchy import coarsen_levels
+from fridom.model.halo_demand import require_solver_halo
 from fridom.nonhydro2.modules.pressure import (
     _dirichlet_mid,
     build_flat_spectral_solve,
+    is_fv,
+    rediscretize_fv_coarse,
 )
 from fridom.spatial.fields.storage import factor_axes
 from fridom.spatial.operators.banded import validate_tridiagonal_method
@@ -100,6 +102,7 @@ from fridom.spatial.operators.multigrid import (
     VerticalBands,
     VerticalLineJacobi,
 )
+from fridom.spatial.operators.multigrid_hierarchy import coarsen_levels
 from fridom.spatial.operators.staggering import uniform_spacing
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -207,13 +210,16 @@ class ImmersedPressureSolver:
         semicoarsening the horizontal axes with vertical line smoothing
         and the per-level wet-mean projection). Any other value raises
         ``ValueError`` (default: ``"spectral"``).
-    multigrid_levels : int, optional
-        The **maximum** number of multigrid levels when
-        ``preconditioner="multigrid"``; the builder floors every
-        horizontal axis at four cells and stops at indivisibility, so
-        the realized count is smaller on a small grid (a grid too small
-        for any coarsening degrades to a one-level, smoothing-only
-        cycle). Ignored for the spectral preconditioner (default: 5).
+    multigrid_levels : int | None, optional
+        The multigrid depth when ``preconditioner="multigrid"``. ``None``
+        (the default) coarsens to the four-cell horizontal floor
+        (floor-limited depth, h-independent iteration counts at every
+        size); an ``int`` is a **maximum** cap as before. Either way the
+        builder floors every horizontal axis at four cells and stops at
+        indivisibility, so the realized count is smaller on a small grid
+        (a grid too small for any coarsening degrades to a one-level,
+        smoothing-only cycle). Ignored for the spectral preconditioner
+        (default: None).
     multigrid_tridiagonal_method : str, optional
         The vertical-line tridiagonal kernel of the multigrid smoother,
         forwarded to
@@ -246,7 +252,7 @@ class ImmersedPressureSolver:
         tolerance: float | None = 1e-8,
         single_precision: bool = False,
         preconditioner: str = "spectral",
-        multigrid_levels: int = 5,
+        multigrid_levels: int | None = None,
         multigrid_tridiagonal_method: str = "auto",
     ) -> None:
         """Resolve the flux rows and fetch the fraction fields."""
@@ -282,6 +288,8 @@ class ImmersedPressureSolver:
         self._single_precision = bool(single_precision)
         self._immersed = immersed
         self._axes: tuple[str, ...] = self._space.active_axis_names
+        require_solver_halo(
+            grid, self._axes, solver="ImmersedPressureSolver")
         self._resolve_flux_rows(grid.dispatch)
         # concrete, memoized fraction fields (I0): open-area fraction
         # on each flux face, cell volume fraction on the pressure cell
@@ -643,7 +651,9 @@ class ImmersedPressureSolver:
         """
         chain = coarsen_levels(
             self._grid, self._space, vertical=self._vertical,
-            max_levels=self._multigrid_levels)
+            max_levels=self._multigrid_levels,
+            rediscretize=(rediscretize_fv_coarse
+                          if is_fv(self._space) else None))
         levels: list[MultigridLevel] = []
         for index, (grid, space, transfer) in enumerate(chain):
             solver = self if index == 0 else ImmersedPressureSolver(
@@ -698,6 +708,7 @@ class ImmersedPressureSolver:
 
     def project(
         self, vel: Mapping[str, ScalarField],
+        x0: ScalarField | None = None,
     ) -> tuple[ScalarField, dict[str, ScalarField]]:
         r"""
         Run the whole masked projection (divergence, solve, correction).
@@ -711,16 +722,24 @@ class ImmersedPressureSolver:
         topography" convention — the correction is already applied, so
         the mask is purely cosmetic).
 
+        The optional ``x0`` warm-starts the PCG from the previous
+        step's solved potential (:meth:`solve`); the returned solution
+        is projected onto the wet-mean-free gauge and stays
+        start-independent, so a good guess only saves iterations.
+
         Parameters
         ----------
         vel : Mapping[str, ScalarField]
             The provisional velocity components (:meth:`divergence`).
+        x0 : ScalarField | None, optional
+            The warm-start initial guess for the solve; None starts
+            from zeros (default: None).
 
         Returns
         -------
         tuple[ScalarField, dict[str, ScalarField]]
             The masked pressure and the per-axis velocity corrections.
         """
-        p = self.solve(self.divergence(vel))
+        p = self.solve(self.divergence(vel), x0)
         corr = self.velocity_correction(p)
         return p.with_data(p.data * self._cell_mask), corr

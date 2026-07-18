@@ -25,10 +25,12 @@ from fridom.spatial.operators.finite_difference import (
     FiniteDifference,
 )
 from fridom.spatial.operators.movement import Reshard
-from fridom.spatial.spaces.nodal import NodeSet
+from fridom.spatial.spaces.constant import ConstantSpace
+from fridom.spatial.spaces.nodal import NodalSpace, NodeSet
 from fridom.spatial.spaces.tensor_product import (
     TensorProductSpace,
 )
+from fridom.spatial.spaces.trace import Side, TraceSpace
 
 
 @pytest.fixture
@@ -109,10 +111,12 @@ def test_trace_of_a_single_diff_is_the_operator_halo(grid, space):
 def test_chains_accumulate_on_periodic_axes(grid, space):
     # consumption-side contract (task 1.8): kernel claims keep
     # periodic chains valid, so the sync-free width demand is the
-    # chain sum — one entry exchange covers both diffs
+    # composed offset window — one entry exchange covers both diffs.
+    # Two-sided: Center->Right [0,+1] then Right->Center [-1,0] gives
+    # [-1,+1] = width 1 (not the scalar sum 2)
     spec = trace_halo(lambda f: f.diff("x").diff("x"),
                       (space,), grid.dispatch)
-    assert widths(spec) == {"x": 2, "y": 0}
+    assert widths(spec) == {"x": 1, "y": 0}
 
 
 def test_parallel_terms_max_merge(grid, space):
@@ -122,6 +126,9 @@ def test_parallel_terms_max_merge(grid, space):
         return f.diff("x"), f.diff("y"), f * f
 
     spec = trace_halo(tendency, (space,), grid.dispatch)
+    # bounded Center -> Inner (diff y) shrinks the codomain: its
+    # exterior reach cancels to 0 at the wall, but the per-shard
+    # footprint is 1 (a sharded interior boundary reads a neighbor)
     assert widths(spec) == {"x": 1, "y": 1}
 
 
@@ -155,6 +162,34 @@ def test_to_bc_sibling_adoption_on_a_lone_factor(grid, my):
     tagged = my.nodal(NodeSet.INNER, bc=BC.DIRICHLET)
     tracer = HaloTracer(my.center, grid.dispatch).to(tagged)
     assert tracer.function_space.bare is tagged
+
+
+def test_to_tag_only_sibling_trace_matches_the_eager_space(grid, space,
+                                                           my):
+    # the zero-op tag-only arm: src and dst are BC siblings already (a
+    # bare walled Center and its Dirichlet sibling), so .to needs no
+    # operator and adopts the tag via the public retag. The traced space
+    # must equal the eager runtime space or the trace diverges.
+    tagged = my.nodal(NodeSet.CENTER, bc=BC.DIRICHLET)
+    target = space.replace(y=tagged)
+    tracer = HaloTracer(space, grid.dispatch,
+                        HaloSpec({"x": 2, "y": 1})).to(target)
+    assert tracer.function_space.bare is target
+    eager = grid.create_field(space, init=lambda x, y: x * y)
+    assert eager.to(target).function_space.bare is target
+    # depth resets on the retagged axis (mirrors the eager halo reset)
+    # and carries over on the other; sound because a tag swap moves no
+    # data across the seam
+    assert widths(tracer.depth) == {"x": 2, "y": 0}
+
+
+def test_to_tag_only_sibling_accrues_no_halo_demand(grid, space, my):
+    # a pure tag-only .to needs no ghost cells, so trace_halo records
+    # zero demand -- a sound upper bound on the (zero) runtime need
+    tagged = my.nodal(NodeSet.CENTER, bc=BC.DIRICHLET)
+    target = space.replace(y=tagged)
+    spec = trace_halo(lambda f: f.to(target), (space,), grid.dispatch)
+    assert widths(spec) == {}
 
 
 def test_to_non_sibling_codomain_disagreement_raises(grid, space,
@@ -225,6 +260,9 @@ def test_mixed_operand_reflected_ops_survive(grid, space):
         return (field + f).diff("x"), (field * f).diff("y")
 
     spec = trace_halo(tendency, (space,), grid.dispatch)
+    # bounded Center -> Inner (diff y): exterior reach is 0 at the
+    # wall, but the per-shard footprint is 1 (a sharded interior
+    # boundary reads one neighbor slot)
     assert widths(spec) == {"x": 1, "y": 1}
 
 
@@ -243,7 +281,10 @@ def test_composite_chains_trace_factor_by_factor(grid, space):
         return op(f)
 
     spec = trace_halo(tendency, (space,), grid.dispatch)
-    # mixed-axis composite: each factor syncs, per-axis max is exact
+    # mixed-axis composite: each factor syncs, per-axis max is exact.
+    # bounded Center -> Inner (diff y): exterior reach is 0 at the
+    # wall, but the per-shard footprint is 1 (a sharded interior
+    # boundary reads one neighbor slot)
     assert widths(spec) == {"x": 1, "y": 1}
 
 
@@ -278,6 +319,9 @@ def test_trace_halo_wraps_multiple_spaces(grid, space):
         return du + du, dv
 
     spec = trace_halo(tendency, (space, space), grid.dispatch)
+    # bounded Center -> Inner (diff y): exterior reach is 0 at the
+    # wall, but the per-shard footprint is 1 (a sharded interior
+    # boundary reads one neighbor slot)
     assert widths(spec) == {"x": 1, "y": 1}
 
 
@@ -351,6 +395,74 @@ def test_nary_op_with_halo_grows_the_codomain_axes(grid, space):
     assert widths(spec) == {"x": 1, "y": 1}
 
 
+# ================================================================
+#  Per-application floor (``with_floor=``): the width the
+#  shardability cap must never squeeze below (one stencil needs its
+#  ghosts at once; a multi-application chain may be re-synced)
+# ================================================================
+def test_trace_halo_without_floor_returns_the_bare_demand(grid, space):
+    # back-compat: the default (no flag) return is a single HaloSpec
+    result = trace_halo(lambda f: f.diff("x"), (space,), grid.dispatch)
+    assert isinstance(result, HaloSpec)
+    assert widths(result) == {"x": 1, "y": 0}
+
+
+def test_trace_floor_is_the_max_single_application_reach(grid, space):
+    # a single wide biased stencil (FD order 6, window [-2, +3],
+    # symmetric width 3) sets the per-application floor to 3 -- the
+    # cap must never squeeze one stencil's ghosts below the width it
+    # reads simultaneously
+    fd6 = FiniteDifference(order=6)
+    demand, floor = trace_halo(fd6["x"], (space,),
+                               grid.dispatch, with_floor=True)
+    assert widths(demand)["x"] == 3
+    # only axes an operator fired on contribute a floor; y is absent
+    assert widths(floor) == {"x": 3}
+
+
+def test_trace_floor_ignores_chain_accumulation(grid, space):
+    # a chain of two reach-1 applications accumulates to a width-2
+    # sync-free demand, but each single application reaches only 1:
+    # the floor tracks the per-application reach, so the cap may
+    # squeeze the CHAIN (a mid-chain re-sync repairs it) but never a
+    # single application. This preserves the n=8 chain-cap scenario.
+    class Smoother(UnaryOperator):
+        def codomain(self, domain):
+            return domain
+
+        def requirements(self, domain):  # noqa: ARG002
+            return OperatorRequirements(halo=1)
+
+        def _apply(self, f):  # pragma: no cover — tracer-only test
+            return f
+
+    op = Smoother()
+    demand, floor = trace_halo(lambda f: op(op(f)), (space,),
+                               grid.dispatch, with_floor=True)
+    assert widths(demand)["x"] == 2
+    assert widths(floor)["x"] == 1
+    assert widths(floor)["y"] == 1
+
+
+def test_trace_floor_of_an_nary_wide_product(grid, space):
+    # the n-ary interception hook records its per-application reach
+    # too: a halo-2 product's floor is 2 on every codomain axis
+    class WideProduct(BinaryOperator):
+        def codomain(self, domain_a, domain_b):  # noqa: ARG002
+            return domain_a
+
+        def requirements(self, domain):  # noqa: ARG002
+            return OperatorRequirements(halo=2)
+
+        def _apply(self, f, g, *more):  # noqa: ARG002 # pragma: no cover
+            return f
+
+    demand, floor = trace_halo(lambda f: WideProduct()(f, f),
+                               (space,), grid.dispatch, with_floor=True)
+    assert widths(demand) == {"x": 2, "y": 2}
+    assert widths(floor) == {"x": 2, "y": 2}
+
+
 def test_to_on_the_same_space_returns_self(grid, space):
     tracer = HaloTracer(space, grid.dispatch)
     assert tracer.to(space.bare) is tracer
@@ -381,3 +493,38 @@ def test_vector_tracer_components_view(grid, space):
     tracer = HaloTracer(space, grid.dispatch)
     vec = VectorTracer({"u": tracer})
     assert vec.components == {"u": tracer}
+
+
+# ================================================================
+#  Boundary verbs (trace / embed / as_profile / adopt) + measure stub
+# ================================================================
+def test_trace_forwarder_lands_on_the_trace_space(grid, space):
+    traced = HaloTracer(space, grid.dispatch).trace("y", Side.HIGH)
+    factor = traced.function_space.bare.factor("y")
+    assert isinstance(factor, TraceSpace)
+    assert factor.side is Side.HIGH
+    assert factor.parent_node_set is NodeSet.CENTER
+
+
+def test_tracer_grid_measure_is_a_space_only_stub(grid, space):
+    tracer = HaloTracer(space, grid.dispatch)
+    measure = tracer.grid.measure(space, "y")
+    assert isinstance(measure, HaloTracer)
+    # the querying factor is kept; every other factor -> ConstantSpace
+    assert measure.function_space.bare.factor("y") is space.bare.factor("y")
+    assert isinstance(
+        measure.function_space.bare.factor("x"), ConstantSpace)
+
+
+def test_boundary_verbs_round_trip_through_the_tracer(grid, space):
+    tracer = HaloTracer(space, grid.dispatch)
+    profile = tracer.trace("y", Side.HIGH).as_profile("y")
+    assert isinstance(
+        profile.function_space.bare.factor("y"), ConstantSpace)
+    readopted = profile.adopt("y", NodeSet.CENTER, Side.HIGH)
+    assert isinstance(
+        readopted.function_space.bare.factor("y"), TraceSpace)
+    embedded = readopted.embed("y")
+    factor = embedded.function_space.bare.factor("y")
+    assert isinstance(factor, NodalSpace)
+    assert factor.node_set is NodeSet.CENTER

@@ -45,21 +45,22 @@ from fridom.spatial.operators.composed import Divergence
 # ================================================================
 #  Model builders
 # ================================================================
-def sw_model(n=16, *, f0=1.0, csqr=1.0):
+def sw_model(n=16, *, f0=1.0, csqr=1.0, device_ids=None):
     """Return a doubly-periodic staggered shallow-water model."""
     mx = IntervalMesh(n, (0.0, 1.0), periodic=True, name="x")
     my = IntervalMesh(n, (0.0, 1.0), periodic=True, name="y")
     return sw.Model(
-        grid=Grid((mx, my)), csqr=csqr, rossby_number=0.2,
+        grid=Grid((mx, my), device_ids=device_ids), csqr=csqr,
+        rossby_number=0.2,
         coriolis=sw.modules.FPlaneCoriolis(f0=f0), advection=True,
         time_stepper=AdamBashforth(5e-3, order=3))
 
 
-def nh_model(n=8, *, f0=1.0, n2=1.0, dsqr=1.0):
+def nh_model(n=8, *, f0=1.0, n2=1.0, dsqr=1.0, device_ids=None):
     """Return a triply-periodic nonhydro model (explicit dsqr, N2, f)."""
     grid = Grid(tuple(
         IntervalMesh(n, (0.0, 2 * np.pi), periodic=True, name=nm)
-        for nm in ("x", "y", "z")))
+        for nm in ("x", "y", "z")), device_ids=device_ids)
     return Model(
         grid=grid,
         modules=(
@@ -78,6 +79,20 @@ def test_shallow_water_returns_three_branches():
     assert isinstance(ne, NumericEigenmodes)
     assert ne.components == ("u", "v", "p")
     assert ne.omega.shape[-1] == 3
+
+
+@pytest.mark.multi_device
+def test_numeric_eigenpairs_are_device_count_invariant():
+    # _probe_symbol gathers each response to a replicated array before
+    # its fftn on a multi-device grid (the naive jnp.fft.fftn on the
+    # sharded transform axis would silently all-gather on CPU / crash
+    # XLA's distributed-FFT lowering on GPU): the spectrum matches the
+    # single-device reference exactly
+    many = numeric_eigenpairs(sw_model(n=16))
+    one = numeric_eigenpairs(sw_model(n=16, device_ids=(0,)))
+    om_many = np.sort(np.asarray(many.omega).ravel())
+    om_one = np.sort(np.asarray(one.omega).ravel())
+    assert np.abs(om_many - om_one).max() < 1e-12
 
 
 def test_shallow_water_spectrum_is_real():
@@ -141,7 +156,12 @@ def test_nonhydro_spectrum_matches_the_analytic_discrete(f0, n2, dsqr):
     # The energy-metric eigensolve reproduces the analytic DISCRETE
     # dispersion to machine precision on every mode except the k = 0
     # mean (the analytic ports mask its physical inertial +/- f to 0).
-    model = nh_model(n=8, f0=f0, n2=n2, dsqr=dsqr)
+    # Pin to one device: the analytic reference below builds
+    # nh.eigenmodes.Eigenmodes, whose naive forward transform the
+    # Tier-1 guard rejects on a sharded transform axis. numeric
+    # eigenpairs are device-count invariant, so the comparison is
+    # unchanged (see test_numeric_eigenpairs_are_device_count_invariant).
+    model = nh_model(n=8, f0=f0, n2=n2, dsqr=dsqr, device_ids=(0,))
     ne = numeric_eigenpairs(model)
     omega = np.asarray(ne.omega).reshape(-1, 4)
 

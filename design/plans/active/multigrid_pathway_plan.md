@@ -456,7 +456,11 @@ PCG build sites and mirrored on `nh.Model`. Default
 `multigrid_levels` re-pinned to **5** after the measurement campaign
 (`e047c496`): depth 3 gives 18 iterations at 64³ on the steep case —
 over the GB-2 gate — while 5 is a graceful maximum (4-cell floor)
-and flat at 13.*
+and flat at 13. Superseded 2026-07-18 (merge `b8b165f1`): the fixed
+pin caps depth on large grids and breaks h-independence from 256³ up
+([`../../research/multigrid_depth_scaling.md`](../../research/multigrid_depth_scaling.md));
+the default is now `None` = floor-limited depth, an int stays an
+explicit cap.*
 
 ### B5 — gates
 
@@ -502,18 +506,27 @@ collectives above the replication threshold.
   load-bearing for the semicoarsening); the recovery lever is a
   batched-tridiagonal kernel swap in `banded.py` — mapped reaches
   ~parity, immersed wins outright
-  ([`../research/multigrid_kernel_study.md`](../research/multigrid_kernel_study.md)).
+  ([`../../research/multigrid_kernel_study.md`](../../research/multigrid_kernel_study.md)).
   Evidence:
-  [`../research/multigrid_gb2_wallclock.md`](../research/multigrid_gb2_wallclock.md).
+  [`../../research/multigrid_gb2_wallclock.md`](../../research/multigrid_gb2_wallclock.md).
   The swap SHIPPED 2026-07-18 (merge `0ece46b1`:
   `method={"auto","cusparse","pcr","scan"}` on the banded kernel,
   auto = cuSPARSE on GPU / PCR elsewhere, model knob
   `multigrid_tridiagonal_method`). Measured in-model: 128³ step
   542.7 → 42.0 ms (12.9×, parity with spectral at 0.975×); 512³
-  3402 vs spectral 2278 (0.67× — the deficit *widens* with n, so
-  GB-2 stays unmet at every size and spectral stays the mapped GPU
-  default; kernel-study Addendum). Immersed remains multigrid's
-  win case (projection; not re-measured post-swap).*
+  3402 vs spectral 2278 (0.67× at the pinned `levels=5`;
+  kernel-study Addendum). Same-day root cause
+  ([`../../research/multigrid_depth_scaling.md`](../../research/multigrid_depth_scaling.md)):
+  the widening deficit was the `levels=5` depth cap breaking
+  h-independence (10 → 27 iterations at 512³); at floor-scaled
+  depth iterations are flat 10 at every size and multigrid beats
+  spectral in-model 1.23× at 256³ (L=6) / 1.22× at 512³ (L=7) —
+  GB-2 (≥1.5×) still unmet. Floor-limited depth is the DEFAULT
+  since merge `b8b165f1` (same day, owner-ratified:
+  `multigrid_levels: int | None = None`, None = coarsen to the
+  4-cell floor, int = explicit cap — supersedes the §B4 levels=5
+  pin). Immersed remains multigrid's win case (projection;
+  not re-measured post-swap).*
 - *GB-3: genuine partials (order = 4, min_fraction = 0.1): 15
   iterations at 16³ / 18 at 32³ to 1e-10 — inside the 30 budget with
   ≥ 12 margin; spectral needs ~80. The immersed count creeps with n

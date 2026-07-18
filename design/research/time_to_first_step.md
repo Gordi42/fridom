@@ -103,7 +103,10 @@ cache lives in `src/fridom/_compile_cache.py`, env knobs
 `FRIDOM_DISABLE_COMPILE_CACHE` / `FRIDOM_JAX_CACHE_DIR`, per-rank
 subdirs under an initialized `jax.distributed`, and the test suite's
 conftest keeps precedence). Post-merge 64³ GPU: cold TTFS 7.5→5.05 s,
-warm 2.83 s, per-step unchanged. 3c remains a patch only.
+warm 2.83 s, per-step unchanged. **3c LANDED 2026-07-18** behind the
+default-off `Model(async_chunk_compile=True)` knob (the shipped version
+drops the `eager1` mode — measured strictly worse — and serves the lenC
+unroll-1 tier).
 
 ### 3a. dry_run under `jax.eval_shape` — kills bucket 1 (~3 s → ~0.1 s)
 
@@ -163,6 +166,18 @@ the floor no unroll trick beats. Sharp edges recorded in the patch:
 donation ordering, out_shardings pin shared by both tiers (swap is
 reshard-free), background-failure propagation on next call.
 
+**LANDED 2026-07-18** behind the default-off knob
+`Model(async_chunk_compile=True)` (`step_chunk(..., async_compile=)`,
+`_TwoTier` holder, `_lower_chunk`/`_compile_chunk` split, module-level
+`_CHUNK_LOCK` guarding the swap). The shipped version drops the `eager1`
+mode (measured strictly worse) and serves the lenC unroll-1 tier only;
+the prototype's global `_ASYNC_CFG` config is gone (the knob rides the
+`Model`). Miss dispatch: async only when `async_compile` and the
+natural unroll > 1 and n > 1, else the legacy synchronous single-tier
+compile; the length-1 tails always take the sync path. Forced-4 CPU
+kept the bitwise-equality invariant (no `single_device` mark needed).
+Tests: `tests/model/test_step_chunk_async.py`.
+
 ### Rejected: permanent lower unroll
 
 unroll=2 on the *advective* config costs **+10.5%/step** (8.27 vs
@@ -186,7 +201,14 @@ data-bound `set_fields`. Remaining follow-up levers, in value order:
    step).
 2. **Comparison-suite metric fix** (§1) — cheap, corrects the public
    story: fridom centered is at Oceananigans-parity on honest compile,
-   not 5–8× worse.
+   not 5–8× worse. **Shipped 2026-07-18** (out-of-tree bench repo
+   only): the fridom harnesses report `compile_s` — a before/after
+   delta over `_CHUNK_COMPILE_LOG` around the first advance — beside
+   the unchanged `first_advance_s`; the reports render fridom
+   compile / fridom 1st-adv / oc 1st-step as three distinct columns,
+   with pre-fix JSONs flagged `—†`. Smoke: 64³ linear GPU compile
+   1.70 s vs first-advance 2.46 s; hydro 256²×32 CPU 0.82 s vs
+   84.7 s.
 3. lazypimp resolve (0.55 s) and jax import — minor, fixed costs.
 
 Wave-1/2 harnesses (phase breakdown, census, AOT split, scheme sizing,

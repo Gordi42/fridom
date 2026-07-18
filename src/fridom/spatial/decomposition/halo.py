@@ -24,6 +24,7 @@ from fridom.spatial.operators.base import (
     Composite,
     Dispatched,
     SeparableOperator,
+    _required_halo,
     _resolve_axis,
     resolve_codomain,
 )
@@ -404,14 +405,31 @@ _SCALAR_TYPES = int | float | complex
 
 class _TraceRecorder:
 
-    """Accumulates the maximal observed halo depth of one trace."""
+    """
+    Accumulates a trace's sync-free demand and per-application floor.
+
+    Description
+    -----------
+    ``spec`` is the sync-free width demand: the maximum accumulated
+    depth observed over the trace. ``floor`` is the per-axis maximum
+    single-*application* reach — the width the shardability cap must
+    never squeeze below, because one stencil needs its ghosts
+    simultaneously (a multi-application chain's demand may be
+    re-synced mid-chain and so may be capped, a single application's
+    reach may not).
+    """
 
     def __init__(self) -> None:
         self.spec: HaloSpec = HaloSpec({})
+        self.floor: HaloSpec = HaloSpec({})
 
     def observe(self, depth: HaloSpec) -> None:
         """Merge one observed accumulated depth into the maximum."""
         self.spec = self.spec.merge_max(depth)
+
+    def observe_floor(self, reach: HaloSpec) -> None:
+        """Merge one application's reach into the per-axis floor."""
+        self.floor = self.floor.merge_max(reach)
 
 
 class _TracerGrid:
@@ -438,6 +456,32 @@ class _TracerGrid:
 
     def __init__(self, dispatch: object) -> None:
         self.dispatch = dispatch
+
+    def measure(
+        self, space: SpaceLike, name: str | None = None,
+    ) -> HaloTracer:
+        """Space-only ``grid.measure`` stand-in (halo-0 static geometry).
+
+        Description
+        -----------
+        The measure is a fixed mesh-geometry field with no ghost
+        demand, so the halo trace needs only its **space** — the
+        querying factor kept, every other factor replaced by its
+        ``ConstantSpace`` (``grid.measure`` broadcasts exactly, rules
+        section 3.3). Returns a fresh depth-zero :class:`HaloTracer`
+        on that space so a flat-gated body's measure-based divide
+        (e.g. the H7 surface term's top-cell width) traces through
+        the boundary verbs without touching the decomposition.
+        """
+        bare = space.bare
+        if isinstance(bare, TensorProductSpace) and name is not None:
+            measure_space: SpaceLike = bare.replace(**{
+                n: bare.factor(n).mesh.constant
+                for n in bare.names if n != name})
+        else:
+            measure_space = bare
+        return HaloTracer(
+            _laid_out_like(measure_space, space), self.dispatch)
 
 
 def _laid_out_like(space: SpaceLike, reference: SpaceLike) -> SpaceLike:
@@ -555,6 +599,11 @@ class HaloTracer:
         if self._recorder is not None:
             self._recorder.observe(depth)
 
+    def _record_reach(self, reach: HaloSpec) -> None:
+        """Report one application's reach to the recorder's floor."""
+        if self._recorder is not None:
+            self._recorder.observe_floor(reach)
+
     def _grown(self, op: Operator) -> HaloSpec:
         """
         Compute the depth after `op`.
@@ -576,11 +625,27 @@ class HaloTracer:
         depth = self._depth
         if reach != (0, 0):
             for factor in space.factors:
-                if isinstance(factor, ConstantSpace):
+                if factor.collapses_axis:
                     continue
                 for name in factor.names:
                     depth = depth.grow(name, reach)
         return depth
+
+    def _reach(self, op: Operator) -> HaloSpec:
+        """
+        Per-application two-sided reach of `op` (the single-stencil floor).
+
+        Description
+        -----------
+        Reuses the runtime twin :func:`_required_halo`: the ghost
+        demand a **single** application consumes, per axis. Unlike the
+        accumulated :meth:`_grown` depth (a chain the runtime may
+        re-sync, so the shardability cap may squeeze it), one
+        application's reach is the width the cap must never fall below
+        — a stencil needs all its ghosts at once. Empty for reach-0
+        applications (identity / a ``ConstantSpace`` factor).
+        """
+        return HaloSpec(_required_halo(op, self._space))
 
     def _trace_apply(self, op: Operator) -> HaloTracer:
         """
@@ -616,6 +681,7 @@ class HaloTracer:
             return self._child(codomain, depth)
         grown = self._grown(op)
         self._record(grown)
+        self._record_reach(self._reach(op))
         codomain = _laid_out_like(
             resolve_codomain(op, self._space), self._space)
         return self._child(codomain, self._claimed(op, grown))
@@ -673,14 +739,18 @@ class HaloTracer:
             spaces.append(operand.function_space)
         codomain = op.codomain(*(space.bare for space in spaces))
         reach = op.requirements(codomain).reach
+        reach_spec = HaloSpec({})
         if reach != (0, 0):
             for factor in codomain.factors:
-                if isinstance(factor, ConstantSpace):
+                if factor.collapses_axis:
                     continue
                 for name in factor.names:
                     depth = depth.merge_max(
                         HaloSpec({name: 0})).grow(name, reach)
+                    reach_spec = reach_spec.merge_max(
+                        HaloSpec({name: reach}))
         self._record(depth)
+        self._record_reach(reach_spec)
         codomain = _laid_out_like(codomain, self._space)
         return self._child(codomain,
                            depth.over(tuple(codomain.names)))
@@ -699,13 +769,17 @@ class HaloTracer:
         Description
         -----------
         Mirrors the eager ``ScalarField.to`` exactly, including the
-        BC-sibling seam: where the registered operator's codomain is
-        a BC-sibling of the requested factor (nodal operator outputs
-        are BC-free; owner decision), the eager path adopts the
-        requested tag via ``retag`` — so the tracer relabels its
-        space the same way (``_retag_factor``), keeping the traced
-        space identical to the runtime one. Any other codomain
-        disagreement raises, as it does eagerly.
+        BC-sibling seams. A factor that is already a BC-sibling of
+        the target (same node set, tag-only difference) needs no
+        operator: the eager path does ``result.retag(dst)`` and the
+        tracer mirrors it with the public traced ``retag``. And where
+        the registered operator's codomain is a BC-sibling of the
+        requested factor (nodal operator outputs are BC-free; owner
+        decision), the eager path adopts the requested tag via
+        ``retag`` — so the tracer relabels its space the same way
+        (``_retag_factor``), keeping the traced space identical to
+        the runtime one. Any other codomain disagreement raises, as
+        it does eagerly.
         """
         from fridom.spatial.fields.scalar_field import (  # noqa: PLC0415 — fields import the operator base
             _bc_siblings,
@@ -725,6 +799,14 @@ class HaloTracer:
                 continue
             if isinstance(src, ConstantSpace):
                 result = result._broadcast_factor(name, dst)
+                continue
+            if _bc_siblings(src, dst):
+                # tag-only difference (same node set): the eager path
+                # does result.retag(dst) — no operator, just adopt the
+                # sibling tag; mirror it with the public traced retag
+                # so the traced space agrees and the accumulated depth
+                # resets on this axis (the eager halo-validity reset)
+                result = result.retag(dst)  # single-factor shorthand
                 continue
             op = self._registry.resolve(
                 _conversion_kind(src, dst), src)[name]
@@ -853,6 +935,32 @@ class HaloTracer:
         target = _laid_out_like(target, self._space)
         return self._child(
             target, self._depth.over(tuple(target.names)))
+
+    def trace(
+        self, name: str, side: object, depth: int = 0,
+    ) -> HaloTracer:
+        """Boundary-adjacent row as a 2D trace; mirrors ScalarField.trace."""
+        from fridom.spatial.operators.boundary import (  # noqa: PLC0415 — keep boundary off the module import path
+            BoundaryTrace,
+        )
+        return BoundaryTrace(side, depth)[name](self)
+
+    def embed(self, name: str) -> HaloTracer:
+        """Sparse-materialize a trace back into its parent row (traced)."""
+        return Dispatched("embed")[name](self)
+
+    def as_profile(self, name: str) -> HaloTracer:
+        """Bridge a boundary trace into the Constant-z machinery (traced)."""
+        return Dispatched("as_profile")[name](self)
+
+    def adopt(
+        self, name: str, node_set: object, side: object,
+    ) -> HaloTracer:
+        """Retag a ConstantSpace factor as a boundary trace (traced)."""
+        from fridom.spatial.operators.boundary import (  # noqa: PLC0415 — keep boundary off the module import path
+            Adopt,
+        )
+        return Adopt(node_set, side, name)(self)
 
     def integrate(self, *names: str) -> HaloTracer:
         """Weighted integral; mirrors the ScalarField stub."""
@@ -1128,7 +1236,9 @@ def trace_halo(
     tendency: Callable[..., object],
     state_spaces: Mapping[str, SpaceLike] | tuple[SpaceLike, ...],
     registry: object,
-) -> HaloSpec:
+    *,
+    with_floor: bool = False,
+) -> HaloSpec | tuple[HaloSpec, HaloSpec]:
     """
     Dry-run the tendency on tracers; return the max accumulated depth.
 
@@ -1156,11 +1266,18 @@ def trace_halo(
         positional.
     registry : object
         The (duck-typed) operator registry, as merged.
+    with_floor : bool, optional
+        When True, also return the per-application floor: the per-axis
+        maximum single-application reach among the operators that
+        fired (the width the shardability cap must never squeeze
+        below). The default keeps the legacy single-``HaloSpec``
+        return so existing callers are unaffected (default: False).
 
     Returns
     -------
-    HaloSpec
-        The maximal accumulated per-name depth over the trace.
+    HaloSpec | tuple[HaloSpec, HaloSpec]
+        The maximal accumulated per-name depth over the trace; with
+        ``with_floor=True`` the ``(demand, floor)`` pair instead.
     """
     if not state_spaces:
         raise ValueError("trace_halo needs at least one state space")
@@ -1178,4 +1295,7 @@ def trace_halo(
     tendency(state)
     # storage is symmetric: collapse the two-sided sync-free demand to
     # the per-side maximum width the negotiated halo must hold
-    return recorder.spec.symmetric()
+    demand = recorder.spec.symmetric()
+    if with_floor:
+        return demand, recorder.floor.symmetric()
+    return demand

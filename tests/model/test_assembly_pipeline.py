@@ -163,8 +163,17 @@ class AlsoB(Module):
 #  Fixtures
 # ================================================================
 def make_grid():
-    return Grid((IntervalMesh(8, (0.0, 1.0), periodic=True,
+    # the composer dry-run (assembly step 6) runs at the provisional
+    # width before the trace/extra_halo negotiation (step 7), so an
+    # order-4 dispatch override registered by a module needs the
+    # provisional to already cover it. Two-sided halo accounting
+    # narrows the bare provisional to 1, so negotiate width 2 up front
+    # (the pre-tightening provisional value; every fingerprint
+    # assertion in this file is a >= lower bound).
+    grid = Grid((IntervalMesh(8, (0.0, 1.0), periodic=True,
                               name="x"),))
+    grid.negotiate(halo=HaloSpec({"x": 2}))
+    return grid
 
 
 @pytest.fixture
@@ -504,6 +513,46 @@ class RampedLinear(Module):
 
     def time_dependent_linear_parameters(self):
         return ("toy.f0",) if isinstance(self.f0, Ramp) else ()
+
+
+@partial(jaxify, dynamic=())
+class ScheduledFieldToy(Module):
+
+    """A linear term whose operator depends on a time_dependent field."""
+
+    def __init__(self, *, time_dependent=True):
+        self._td = time_dependent
+
+    @property
+    def field_declarations(self):
+        return (
+            FieldDeclaration(
+                "mu", space=Profile("x"),
+                lifecycle=Lifecycle.AUXILIARY, default=1.0,
+                time_dependent=self._td),
+        )
+
+    @term(advances=("u",), linear=True, linear_fields=("mu",))
+    def scaled(self, state, _ctx):
+        return {"u": state["mu"].to(state["u"].function_space)}
+
+
+def test_time_dependent_field_reports_only_when_marked():
+    # the structural default resolves a linear_fields name to the
+    # module's own declaration and reports the time_dependent marker
+    assert ScheduledFieldToy(
+        time_dependent=False).time_dependent_linear_parameters() == ()
+    assert ScheduledFieldToy(
+        time_dependent=True).time_dependent_linear_parameters() == ("mu",)
+
+
+def test_frozen_l_stepper_refuses_a_time_dependent_linear_field(grid):
+    # a linear term annotating a time_dependent AUXILIARY field is
+    # refused under a frozen-L stepper, exactly like a ramped parameter
+    with pytest.raises(TimeDependentLinearOperatorError,
+                       match=r"mu \(ScheduledFieldToy\)"):
+        assemble(grid=grid, modules=(Core(), ScheduledFieldToy()),
+                 time_stepper=FrozenLStepper())
 
 
 def test_frozen_l_stepper_refuses_a_time_dependent_linear_parameter(grid):

@@ -161,9 +161,14 @@ class ImmersedDomain:
         self._min_fraction: float = float(min_fraction)
         self._grid: Grid | None = None
         # concrete-only materialization cache, keyed by (laid-out
-        # space, kind, slip); mirrors grid._measures (host-side, not
-        # a pytree — the descriptor stays static aux)
-        self._cache: dict[tuple[object, str, Slip | None], jax.Array] = {}
+        # space, kind, slip, negotiated halo); mirrors grid._measures
+        # (host-side, not a pytree — the descriptor stays static aux).
+        # The halo is part of the key because the stored array is
+        # padded to the storage frame: a model that re-negotiates the
+        # grid wider (a module's extra_halo) must re-materialize, not
+        # reuse the provisionally-narrower fraction.
+        self._cache: dict[
+            tuple[object, str, Slip | None, object], jax.Array] = {}
 
     # ================================================================
     #  Identity (static aux discipline, matching Grid)
@@ -273,7 +278,7 @@ class ImmersedDomain:
         """
         grid = self._bound_grid()
         space = grid._laid_out(space)  # noqa: SLF001 — grid seam
-        key = (space, "fraction", None)
+        key = (space, "fraction", None, grid.decomposition.halo)
         if fraction is None:
             cached = self._cache.get(key)
             if cached is not None:
@@ -330,7 +335,7 @@ class ImmersedDomain:
         if not isinstance(slip, Slip):
             raise TypeError(
                 f"slip must be a Slip member, got {slip!r}")
-        key = (space, "mask", slip)
+        key = (space, "mask", slip, grid.decomposition.halo)
         if fraction is None:
             cached = self._cache.get(key)
             if cached is not None:

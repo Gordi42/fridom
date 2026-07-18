@@ -216,6 +216,34 @@ def test_immersed_rigid_lid_projects_masked_depth_mean_divergence_free():
     assert post / uscale < 1e-11           # projected to machine zero
 
 
+def test_immersed_warm_start_matches_zero_start():
+    # Phase E (GE-1): at eps = 0 the RHS is start-independent, so
+    # warm-starting the CG from a deliberately non-mean-free previous
+    # ``ps`` lands on the same wet-mean-free surface pressure as the
+    # cold (zero) start.
+    grid = immersed_grid(16, 8)
+    model = build(grid, hy.ImplicitFreeSurface(
+        epsilon=0.0, pressure_iterations=40), csqr=3.0, f0=0.5, dt=0.05)
+    rng = np.random.default_rng(1)
+    model.set_fields(
+        u=rng.standard_normal(model.state["u"].shape),
+        v=rng.standard_normal(model.state["v"].shape))
+    fs = model.module(hy.ImplicitFreeSurface)
+    ctx = StepContext(params={CSQR: jnp.asarray(3.0)},
+                      clock=jnp.asarray(0.0), dt=jnp.asarray(0.05),
+                      stage_dt=jnp.asarray(0.05))
+    ps_cold = fs._barotropic_solve(model.state, ctx)["ps"]
+    # warm start from the previous ps plus a large constant offset
+    # (non-mean-free); eps = 0 keeps the RHS unchanged
+    ps_guess = ps_cold.with_data(ps_cold.data + 5.0)
+    warm_state = model.state.replace(ps=ps_guess)
+    ps_warm = fs._barotropic_solve(warm_state, ctx)["ps"]
+    scale = float(np.max(np.abs(np.asarray(ps_cold.data))))
+    diff = float(np.max(np.abs(np.asarray(
+        ps_warm.data - ps_cold.data))))
+    assert diff < 1e-9 * scale
+
+
 def test_immersed_rigid_lid_ps_masked_to_wet_columns():
     # a land column (full-depth wall on x<0.25) -> ps == 0 there
     def coast(x, y, z):  # noqa: ARG001

@@ -2,6 +2,7 @@
 import pytest
 
 from fridom.benchmarking.compare import (
+    ABSOLUTE_FLOOR,
     NOISE_TOLERANCE_K,
     CaseComparison,
     EnvMismatch,
@@ -255,6 +256,58 @@ def test_status_low_cov_uses_global_threshold():
     comparison = CaseComparison("c", base, new)
     assert comparison.effective_tolerance(0.05) == (0.05, "global")
     assert comparison.status(0.05) == "slower"
+
+
+# ================================================================
+#  Absolute floor
+# ================================================================
+def test_status_floor_suppresses_tiny_absolute_delta():
+    # a 15 ms case bumped by the ~0.8 ms per-process slow mode: rel is
+    # +5.3% (past the global 5% band) but the absolute delta is below
+    # the 1.2 ms floor, so it stays "ok".
+    comparison = case(15e-3, 15.8e-3)
+    assert comparison.wall.rel > comparison.effective_tolerance(0.05)[0]
+    assert ABSOLUTE_FLOOR > 15.8e-3 - 15e-3
+    assert comparison.status(0.05) == "ok"
+
+
+def test_status_floor_never_masks_real_tiny_regression():
+    # same 15 ms case, but a +2 ms bump clears both the relative band
+    # and the absolute floor -> a real regression is still flagged.
+    comparison = case(15e-3, 17e-3)
+    assert comparison.wall.rel > comparison.effective_tolerance(0.05)[0]
+    assert ABSOLUTE_FLOOR < 17e-3 - 15e-3
+    assert comparison.status(0.05) == "slower"
+
+
+def test_status_floor_irrelevant_on_large_case():
+    # a 250 ms case at +6%: the absolute delta (15 ms) dwarfs the floor,
+    # so the floor plays no role and the regression is flagged.
+    comparison = case(250e-3, 265e-3)
+    assert comparison.status(0.05) == "slower"
+
+
+def test_status_floor_suppresses_symmetric_faster():
+    # a slow-mode-contaminated baseline can make a fresh run look
+    # spuriously faster; a sub-floor absolute delta is equally
+    # meaningless, so the suppression is symmetric.
+    comparison = case(15e-3, 14.2e-3)
+    assert comparison.wall.rel < -comparison.effective_tolerance(0.05)[0]
+    assert ABSOLUTE_FLOOR > 15e-3 - 14.2e-3
+    assert comparison.status(0.05) == "ok"
+
+
+def test_format_comparison_floor_annotation():
+    # a floor-suppressed case renders "(floor)" in the tol column so the
+    # suppression stays visible in the report rather than being silent.
+    base = make_suite([BenchmarkResult(name="tiny", wall_times=[15e-3])])
+    new = make_suite([BenchmarkResult(name="tiny", wall_times=[15.8e-3])])
+    report = format_comparison(compare(base, new))
+    assert "(floor)" in report
+    for line in report.splitlines():
+        if line.startswith("tiny"):
+            assert "(floor)" in line
+            assert "ok" in line
 
 
 # ================================================================

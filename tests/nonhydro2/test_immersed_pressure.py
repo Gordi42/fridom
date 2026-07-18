@@ -117,6 +117,23 @@ def test_projection_drives_masked_divergence_to_machine_zero():
     assert float(jnp.abs(div.data).max()) < 1e-9
 
 
+def test_project_warm_start_matches_cold_start():
+    # Phase E (GE-1): warm-starting the masked projection from the
+    # previous solved pressure lands on the same wet-mean-free pressure
+    # and drives the masked divergence to the same machine-zero.
+    _grid, _space, solver = _box_solver(n=12, iterations=30,
+                                        tolerance=None)
+    vel = _random_velocity(solver, seed=2)
+    p_cold, _ = solver.project(vel)
+    p_warm, corr = solver.project(vel, x0=p_cold)
+    scale = float(jnp.abs(p_cold.data).max())
+    assert float(jnp.abs(p_warm.data - p_cold.data).max()) < 1e-8 * scale
+    corrected = {
+        a: vel[a] - corr[a].retag(vel[a]) for a in solver.axes}
+    div = solver.divergence(corrected)
+    assert float(jnp.abs(div.data).max()) < 1e-9
+
+
 # ================================================================
 #  All-wet: the preconditioner is the exact inverse (~1 iteration)
 # ================================================================
@@ -432,6 +449,22 @@ def test_multigrid_hierarchy_shape_and_degradation():
         tiny_grid, tiny_space, vertical="z", dsqr=0.5, iterations=5,
         preconditioner="multigrid", multigrid_levels=4)
     assert len(tiny._build_vcycle().levels) == 1
+
+
+def test_multigrid_levels_defaults_to_floor_limited_depth():
+    # the None default (omitted) stores None and forwards to a
+    # floor-limited hierarchy: n=16 semicoarsens x, y 16 -> 8 -> 4, a
+    # three-level V-cycle, while an int still caps the depth (cap 2)
+    grid, space = _box_bounded(n=16)
+    default = ImmersedPressureSolver(
+        grid, space, vertical="z", dsqr=0.5, iterations=5,
+        preconditioner="multigrid")
+    assert default._multigrid_levels is None
+    assert len(default._build_vcycle().levels) == 3
+    capped = ImmersedPressureSolver(
+        grid, space, vertical="z", dsqr=0.5, iterations=5,
+        preconditioner="multigrid", multigrid_levels=2)
+    assert len(capped._build_vcycle().levels) == 2
 
 
 def test_multigrid_tridiagonal_method_is_stored_and_forwarded():

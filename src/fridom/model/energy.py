@@ -64,7 +64,6 @@ from fridom.model.params import (
 from fridom.model.time_dependent import resolve_at
 from fridom.spatial.fields.scalar_field import ScalarField
 from fridom.spatial.spaces.coefficient import CoefficientSpace
-from fridom.spatial.spaces.constant import ConstantSpace
 
 if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Mapping
@@ -184,10 +183,17 @@ class EnergyMetric:
         -----------
         :math:`\sum_c \mathrm{reduce}(\overline{a_c}\,(w_c\,b_c))`
         over the weighted components. A physical/nodal state reduces
-        through ``integrate`` (``grid.measure`` quadrature); a
+        through the seeded ``integrate`` verb, so on a grid whose
+        mapping derives a volume element the reduction is the
+        **physical** (Jacobian-weighted) energy — the intended metric
+        for the ``u`` / ``v`` / ``b`` legs on a terrain-following grid;
+        on a flat grid it is the plain ``grid.measure`` quadrature. A
         coefficient-space state reduces by Parseval (the per-mode sum
         times the transformed-axis volume, ``norm="forward"``). The
-        result is a single scalar (0-d ``jax`` array).
+        result is a single scalar (0-d ``jax`` array). (Known gap: the
+        depth-integrated ``ps`` leg still wants an explicit ``H`` weight
+        and the Parseval leg an ``sqrt_g`` factor on mapped grids — a
+        separate follow-up, not this change.)
 
         Parameters
         ----------
@@ -361,7 +367,7 @@ class EnergyMetric:
         coefficient = any(
             isinstance(f, CoefficientSpace) for f in factors)
         physical = any(
-            not isinstance(f, CoefficientSpace | ConstantSpace)
+            not (isinstance(f, CoefficientSpace) or f.collapses_axis)
             for f in factors)
         if coefficient and physical:
             raise NotImplementedError(

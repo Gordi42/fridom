@@ -83,6 +83,7 @@ import jax.numpy as jnp
 
 import fridom as fr
 from fridom.framework.utils import jaxify
+from fridom.model.halo_demand import derive_extra_halo
 from fridom.model.time_dependent import TimeDependent
 from fridom.shallowwater2 import params as sw_params
 from fridom.shallowwater2.diagnostics import DIAGNOSTICS
@@ -92,12 +93,13 @@ from fridom.shallowwater2.modules.immersed_weighting import (
     weight_flux,
 )
 from fridom.shallowwater2.state import State
-from fridom.spatial.decomposition.halo import HaloSpec
 from fridom.spatial.fields.vector_field import VectorField
 from fridom.spatial.scalars import Variance
 
 if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Callable
+
+    from fridom.spatial.decomposition.halo import HaloSpec
 
 
 @partial(jaxify, dynamic=("csqr", "rossby_number"))
@@ -139,26 +141,20 @@ class DynamicalCore(fr.model.Module):
     # whose multi-row block application the halo tracer cannot
     # follow (it collects traced operands into VectorFields), so the
     # module declares its stencil width and is halo-trace exempt
-    # (V-N2, the Sadourny precedent): one staggered difference plus
-    # at most one cross-term interpolation hop per axis (the
-    # non-diagonal raise_index worst case). None on flat grids
-    # (chartedness recorded by ``bind``): the flat gravity term is a
-    # plain staggered difference the tracer follows exactly — an
-    # unconditional 2 doubled the linear model's exchange volume
-    # (halo 1 -> 2 per axis) for a chart worst case it never runs.
-    # On an immersed grid the flux-form continuity multiplies the
-    # concrete open-area / plan-area fraction fields (IP-D4) — a
-    # raw-data op the halo tracer cannot follow (the fraction field is
-    # materialized, not traced), exactly the advection precedent — so
-    # the immersed path is halo-trace exempt and declares its (order-2
-    # staggered) FD-stencil halo here too. None on a plain flat grid:
-    # the unimmersed path stays fully halo-traced (the parity guard).
+    # (V-N2, the Sadourny precedent). On an immersed grid the flux-form
+    # continuity multiplies the concrete open-area / plan-area fraction
+    # fields (IP-D4) — a raw-data op the halo tracer cannot follow (the
+    # fraction field is materialized, not traced), exactly the advection
+    # precedent — so the immersed path is halo-trace exempt and declares
+    # its (order-2 staggered) FD-stencil halo here too. The width is
+    # DERIVED at bind from the ``diff`` rows the term applies (width 1 —
+    # the cross-interp hop telescopes, see ``_derive_extra_halo``), not
+    # a literal. None on a plain flat grid: the unimmersed path stays
+    # fully halo-traced (the parity guard).
     @property
     def extra_halo(self) -> HaloSpec | None:
-        """Two halo cells per coordinate on chart or immersed grids."""
-        if not (self._charted or self._immersed):
-            return None
-        return HaloSpec(dict.fromkeys(self._coords, 2))
+        """Derived staggered ghost width on chart / immersed grids."""
+        return self._extra_halo
 
     def __init__(
         self,
@@ -214,6 +210,10 @@ class DynamicalCore(fr.model.Module):
         # whether the bound grid carries an immersed domain (masked
         # continuity + pressure gradient); set by bind()
         self._immersed: bool = False
+        # the chart / immersed gravity term's derived halo substitute
+        # (V-N2), computed at bind from the staggered rows it applies;
+        # None on a plain flat grid (the traceable path).
+        self._extra_halo: HaloSpec | None = None
 
     # ================================================================
     #  Properties
@@ -327,22 +327,67 @@ class DynamicalCore(fr.model.Module):
         self._immersed = getattr(grid, "immersed", None) is not None
         chart = grid.chart_coords
         self._charted = chart is not None
-        if chart is None:
-            return
-        expected = tuple(
-            name for name in grid.names if name in set(chart))
-        if self._coords != expected:
-            raise ValueError(
-                f"DynamicalCore coords={self._coords!r} do not "
-                f"match the grid's chart coordinates {expected!r} "
-                "(in factor order); pass coords=(zonal, meridional) "
-                "matching the grid, e.g. coords=('lon', 'lat') on "
-                "the standard sphere chart")
+        if chart is not None:
+            expected = tuple(
+                name for name in grid.names if name in set(chart))
+            if self._coords != expected:
+                raise ValueError(
+                    f"DynamicalCore coords={self._coords!r} do not "
+                    f"match the grid's chart coordinates {expected!r} "
+                    "(in factor order); pass coords=(zonal, meridional) "
+                    "matching the grid, e.g. coords=('lon', 'lat') on "
+                    "the standard sphere chart")
+        self._extra_halo = self._derive_extra_halo(table)
+
+    def _derive_extra_halo(self, table) -> HaloSpec | None:  # noqa: ANN001
+        r"""Derive the chart / immersed gravity term's ghost width (V-N2).
+
+        Description
+        -----------
+        On a plain flat grid the gravity term is a traceable staggered
+        difference, so no substitute is declared (``None``). On a
+        **chart** or **immersed** grid it resolves metric-aware /
+        fraction-weighted rows the halo trace cannot follow, so the
+        module declares its own width — derived from the order-2
+        staggered ``diff`` rows the term applies, not a literal. The
+        pressure gradient differences the cell pressure onto the
+        velocity faces (reach 1 per coordinate) and the geopotential /
+        continuity flux differences the face flux back onto the cell
+        (reach 1); the two are parallel outputs, so the demand is their
+        per-side max, 1.
+
+        On a **non-orthogonal** chart the contravariant tendency adds a
+        ``raise_index`` cross-interpolation hop, but its window is
+        opposite-biased to the gradient difference it re-aligns and
+        telescopes two-sidedly back to reach 1
+        (``[0, +1] ⊕ [-1, 0] = [-1, +1]``, ``storage_halo_width.md``
+        §1) — so the chart gravity is 1 whether or not the chart is
+        orthogonal (empirically bitwise-verified,
+        ``pressure_solver_halo.md``). A registry override of the
+        differences moves the value.
+        """
+        grid = table.grid
+        if not (self._charted or self._immersed):
+            return None
+        registry = grid.dispatch
+        p = table["p"].space
+        vel = (table["u"].space, table["v"].space)
+        grad_leg: dict[str, list[tuple[str, object]]] = {}
+        div_leg: dict[str, list[tuple[str, object]]] = {}
+        for axis in self._coords:
+            centre = p.factor(axis)
+            grad_leg[axis] = [("diff", centre)]
+            face = next(vs.factor(axis) for vs in vel
+                        if vs.factor(axis) is not centre)
+            div_leg[axis] = [("diff", face)]
+        return derive_extra_halo(
+            registry, self._coords, [div_leg, grad_leg])
 
     # ================================================================
     #  Tendency terms (linear)
     # ================================================================
-    @fr.model.term(advances=("u", "v", "p"), linear=True)
+    @fr.model.term(advances=("u", "v", "p"), linear=True,
+                   linear_fields=("csqr",))
     def gravity(self, state, ctx) -> dict:  # noqa: ANN001, ARG002
         r"""Pressure gradient and geopotential divergence.
 

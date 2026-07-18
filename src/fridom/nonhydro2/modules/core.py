@@ -26,6 +26,7 @@ from typing import TYPE_CHECKING
 
 import fridom as fr
 from fridom.framework.utils import jaxify
+from fridom.model.halo_demand import derive_extra_halo
 from fridom.model.modules.moving_geometry import mapping_params
 from fridom.nonhydro2.diagnostics import DIAGNOSTICS
 from fridom.nonhydro2.modules.immersed_pressure import (
@@ -38,7 +39,6 @@ from fridom.nonhydro2.modules.pressure import SpectralPressureSolver
 from fridom.nonhydro2.params import DSQR, ROSSBY
 from fridom.nonhydro2.state import State
 from fridom.spatial.bc import BC
-from fridom.spatial.decomposition.halo import HaloSpec
 from fridom.spatial.fields.vector_field import VectorField
 from fridom.spatial.operators.banded import validate_tridiagonal_method
 from fridom.spatial.operators.composed import (
@@ -57,6 +57,7 @@ if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Mapping
 
     from fridom.model.context import StepContext
+    from fridom.spatial.decomposition.halo import HaloSpec
     from fridom.spatial.grid import Grid
     from fridom.spatial.operators.base import Operator
     from fridom.spatial.operators.registry import DispatchKey
@@ -385,11 +386,13 @@ class DynamicalCore(fr.model.Module):
         is exact and ignores it (a flat grid never raises on the knob).
         Static (a treedef aux, part of the module fingerprint), like
         ``single_precision_solve`` (default: ``"spectral"``).
-    multigrid_levels : int, optional
-        The maximum multigrid level count when
-        ``pressure_preconditioner="multigrid"`` (the builder floors on
-        small grids); ignored otherwise. Static in the fingerprint
-        (default: 5).
+    multigrid_levels : int | None, optional
+        The multigrid depth when ``pressure_preconditioner="multigrid"``;
+        ignored otherwise. ``None`` (the default) coarsens to the
+        four-cell horizontal floor (floor-limited depth, h-independent
+        iteration counts at every size); an ``int`` is a maximum cap as
+        before (the builder floors on small grids either way). Static in
+        the fingerprint (default: None).
     multigrid_tridiagonal_method : str, optional
         The vertical-line tridiagonal kernel of the multigrid smoother
         (``"auto"`` / ``"cusparse"`` / ``"pcr"`` / ``"scan"``),
@@ -397,6 +400,20 @@ class DynamicalCore(fr.model.Module):
         construction; consumed only for
         ``pressure_preconditioner="multigrid"``. Static in the
         fingerprint (default: ``"auto"``).
+    multigrid_coarsen_vertical : bool, optional
+        Whether the mapped multigrid V-cycle coarsens the vertical
+        column too (full 3-D coarsening), forwarded to the
+        :class:`MappedPressureSolver` (only — the immersed solver keeps
+        semicoarsening, out of GM-D9's scope). ``True`` — the
+        owner-ratified default (GM-D9, 2026-07-18) — coarsens the
+        vertical alongside the horizontals wherever the vertical mesh
+        supports it (identical 10-iteration convergence, -6..-11% per CG
+        iteration at 128/256/512^3 on the GB-2 mapped protocol),
+        degrading to horizontal semicoarsening automatically where it
+        cannot (a Chebyshev vertical, an indivisible ``n_z``); ``False``
+        restores pure semicoarsening. Consumed only for a mapped grid
+        with ``pressure_preconditioner="multigrid"``. Static in the
+        fingerprint (default: True).
     family : str | None, optional
         The discretization family of the whole core state (FV-D3,
         stage F3): ``"fv"`` declares ``u, v, w, p`` on the
@@ -428,8 +445,9 @@ class DynamicalCore(fr.model.Module):
         pressure_iterations: int = 30,
         pressure_tolerance: float | None = 1e-8,
         pressure_preconditioner: str = "spectral",
-        multigrid_levels: int = 5,
+        multigrid_levels: int | None = None,
         multigrid_tridiagonal_method: str = "auto",
+        multigrid_coarsen_vertical: bool = True,
         family: str | None = None,
     ) -> None:
         """Store the core parameter leaves and the geometry names."""
@@ -448,7 +466,12 @@ class DynamicalCore(fr.model.Module):
         self._multigrid_levels = multigrid_levels
         self._multigrid_tridiagonal_method = validate_tridiagonal_method(
             multigrid_tridiagonal_method)
+        self._multigrid_coarsen_vertical = bool(multigrid_coarsen_vertical)
         self._family = family
+        # the projection's derived halo substitute (V-N2), computed
+        # once at bind from the C-grid ``div`` / ``grad`` rows the stage
+        # applies; None until bound (assembly reads it only post-bind).
+        self._extra_halo: HaloSpec | None = None
 
     # ================================================================
     #  Field declarations
@@ -484,6 +507,47 @@ class DynamicalCore(fr.model.Module):
                 lifecycle=fr.model.Lifecycle.DIAGNOSTIC,
                 long_name="Pressure", units="m^2/s^2"),
         )
+
+    # ================================================================
+    #  Bind (step 4): derive the projection's halo substitute
+    # ================================================================
+    def bind(self, table: object) -> None:
+        r"""Derive the pressure projection's ``extra_halo`` (V-N2).
+
+        Description
+        -----------
+        The projection is a whole-domain spectral / CG solve wrapping
+        raw arrays the halo trace cannot follow, so the module declares
+        its own ghost width. That width is not a literal: it is the
+        two-sided reach of the very C-grid ``div`` / ``grad`` rows the
+        stage applies (:meth:`_project`), composed across the global
+        transform **barrier** by per-side max (never sum). ``div`` and
+        ``grad`` are order-2 staggered differences (reach 1) on opposite
+        sides of the transform, so the derived width is ``max(1, 1) =
+        1`` — half the old hardcoded 2 (``pressure_solver_halo.md`` §3,
+        §5). A registry ``diff`` override moves the value automatically,
+        in both the declaration and the discrete eigenvalue (one source
+        of truth). Runs once at bind (the merged registry is visible);
+        the value is read at assembly steps 5 / 7.
+        """
+        grid = table.grid  # type: ignore[attr-defined]
+        registry = grid.dispatch
+        p = table["p"].space  # type: ignore[index]
+        vel = tuple(table[name].space  # type: ignore[index]
+                    for name in ("u", "v", "w"))
+        div_leg: dict[str, list[tuple[str, object]]] = {}
+        grad_leg: dict[str, list[tuple[str, object]]] = {}
+        for axis in self._coords:
+            centre = p.factor(axis)
+            # ``grad`` differences the pressure centre onto the face;
+            # ``div`` differences the face-normal velocity back — the
+            # two legs the transform separates.
+            grad_leg[axis] = [("diff", centre)]
+            face = next(vs.factor(axis) for vs in vel
+                        if vs.factor(axis) is not centre)
+            div_leg[axis] = [("diff", face)]
+        self._extra_halo = derive_extra_halo(
+            registry, self._coords, [div_leg, grad_leg])
 
     # ================================================================
     #  The FV C-grid diff profile (grid-aware dispatch hook, F3)
@@ -542,20 +606,41 @@ class DynamicalCore(fr.model.Module):
                                 doc="Rossby number (nonlinear scaling)"),
     )
 
+    def time_dependent_linear_parameters(self) -> tuple[str, ...]:
+        """Report a ramped ``dsqr`` feeding the frozen linear operator.
+
+        ``dsqr`` enters ``L`` through the pressure projection, which is
+        a CONSTRAINT stage (S4) rather than a ``linear=True`` term, so
+        the structural term sweep (TDF-D4) cannot see it: a model
+        assembled without stratification would otherwise slip a ramped
+        ``dsqr`` past a frozen-``L`` (exponential) stepper silently. The
+        core owns the leaf, so it reports it here directly (and closes
+        the cross-module hole where a stratification term consumes but
+        does not own ``dsqr``).
+        """
+        names = list(super().time_dependent_linear_parameters())
+        if isinstance(self.dsqr, fr.model.TimeDependent):
+            names.append(str(DSQR))
+        return tuple(names)
+
     # ================================================================
     #  The pressure-projection CONSTRAINT stage (S4)
     # ================================================================
     @property
-    def extra_halo(self) -> HaloSpec:
+    def extra_halo(self) -> HaloSpec | None:
         """Exempt the (global, spectral) projection from the halo trace.
 
         Description
         -----------
         The projection is a whole-domain spectral solve wrapping raw
         arrays (``Fourier``/``.data``); it declares its FD-stencil halo
-        here (V-N2) rather than being traced.
+        here (V-N2) rather than being traced. The value is **derived**
+        at :meth:`bind` from the ``div`` / ``grad`` rows the stage
+        applies (per-side max across the transform barrier — width 1 on
+        the default C-grid), not a literal. ``None`` before bind
+        (assembly reads it only post-bind).
         """
-        return HaloSpec(dict.fromkeys(self._coords, 2))
+        return self._extra_halo
 
     @property
     def stages(self) -> tuple[fr.model.Stage, ...]:
@@ -653,6 +738,16 @@ class DynamicalCore(fr.model.Module):
         reads the substage's geometry; a static mapped grid finds
         no parameter fields in the state and keeps the declaration
         defaults (the exact C3 path).
+
+        Warm start (Phase E): the PCG is seeded with the previous
+        step's potential ``x0 = state["p"] * ctx.stage_dt``. The
+        stored diagnostic is ``p = phi / stage_dt``, so multiplying by
+        the CURRENT ``stage_dt`` reconstructs the previous solve
+        variable ``phi`` at this stage's increment; the RHS-relative
+        stopping test then saves the iterations a good guess makes
+        unnecessary. The first step's zero-initialized ``p`` seeds a
+        zero guess, and the mean gauge is enforced start-independently
+        inside the solve, so the result is unchanged.
         """
         dsqr = ctx.params[DSQR]
         grid = state["u"].grid
@@ -672,12 +767,13 @@ class DynamicalCore(fr.model.Module):
             multigrid_levels=self._multigrid_levels,
             multigrid_tridiagonal_method=(
                 self._multigrid_tridiagonal_method),
+            multigrid_coarsen_vertical=self._multigrid_coarsen_vertical,
             params=mapping_params(state, grid))
         # one metric derivation for the whole projection: divergence,
         # solve and correction share the solver's per-solve memo (it
         # dies with the call, so the next step re-derives at the new
         # geometry — MappedPressureSolver.project)
-        p, corr = solver.project(vel)
+        p, corr = solver.project(vel, x0=state["p"] * ctx.stage_dt)
         return {
             "u": state["u"] - corr["x"].retag(state["u"]),
             "v": state["v"] - corr["y"].retag(state["v"]),
@@ -706,6 +802,13 @@ class DynamicalCore(fr.model.Module):
         vertical weight ``1/dsqr`` rides the solver's own vertical leg.
         A ``MaskState`` CONSTRAINT stage (added by the factory) keeps
         the dry velocity DOFs dead against the other tendency modules.
+
+        Warm start (Phase E): the PCG is seeded with the previous
+        step's potential ``x0 = state["p"] * ctx.stage_dt`` (the
+        stored ``p = phi / stage_dt`` rescaled back to this stage's
+        increment); the wet-mean gauge is enforced start-independently
+        inside the solve, so a good guess only saves iterations. The
+        first step's zero ``p`` seeds a zero guess (unchanged).
         """
         dsqr = ctx.params[DSQR]
         grid = state["u"].grid
@@ -726,7 +829,7 @@ class DynamicalCore(fr.model.Module):
             multigrid_levels=self._multigrid_levels,
             multigrid_tridiagonal_method=(
                 self._multigrid_tridiagonal_method))
-        p, corr = solver.project(vel)
+        p, corr = solver.project(vel, x0=state["p"] * ctx.stage_dt)
         return {
             "u": state["u"] - corr["x"].retag(state["u"]),
             "v": state["v"] - corr["y"].retag(state["v"]),

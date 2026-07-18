@@ -294,7 +294,10 @@ def test_selected_operator_delegates_signature_to_left_recon():
     # codomain and the halo demand are exactly that kernel's — per
     # family (nodal Center/Right, and the FV CellAvg twin)
     mx = IntervalMesh(8, (0.0, 1.0), name="x")
-    for order, halo in ((3, 2), (5, 3)):
+    # the delegated per-bias-left Center -> Right reach is symmetric of
+    # reach order//2 (halo 1 for order 3, 2 for order 5) -- the left
+    # kernel's own window, tighter than the both-bias envelope
+    for order, halo in ((3, 1), (5, 2)):
         op = _SelectedFaceReconstruction(order)
         ref = _BiasedFaceReconstruction(order, "left", "weno")
         assert op.codomain(mx.center) is ref.codomain(mx.center)

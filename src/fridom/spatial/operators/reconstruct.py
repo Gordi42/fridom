@@ -62,8 +62,8 @@ from fridom.spatial.operators.spectral import (
 )
 from fridom.spatial.operators.staggering import (
     first_node_offset,
+    footprint_reach,
     require_local_axis,
-    window_reach,
 )
 from fridom.spatial.operators.stencil_kernels import (
     apply_stencil,
@@ -196,16 +196,20 @@ def fv_reach(
     domain: FunctionSpace, codomain: FunctionSpace, size: int,
 ) -> tuple[int, int]:
     """
-    Per-side reach of a midpoint-aligned ``size``-point FV kernel.
+    Per-shard footprint of a midpoint-aligned ``size``-point FV kernel.
 
     Description
     -----------
-    The average-family twin of ``staggering.exterior_reach``:
-    :func:`staggering.window_reach` at the midpoint alignment computed
-    with :func:`fv_node_offset` (so ``CellAvg``/``FaceAvg`` factors
-    align at their quadrature points). Nodal factors give the same
-    reach as ``exterior_reach``. Biased kernels pass their explicit
-    alignment to ``window_reach`` directly instead.
+    The average-family twin of ``staggering.reach_or``'s footprint:
+    :func:`staggering.footprint_reach` at the midpoint alignment
+    computed with :func:`fv_node_offset` (so ``CellAvg``/``FaceAvg``
+    factors align at their quadrature points). This is the per-shard
+    halo-exchange demand the FV requirements must publish; it drops
+    the global codomain/domain length difference that
+    :func:`staggering.window_reach` folds in (correct for the
+    boundary-legality reach, wrong for the sharded exchange — see
+    :func:`staggering.footprint_reach`). Biased kernels pass their
+    explicit alignment to ``footprint_reach`` directly instead.
 
     Parameters
     ----------
@@ -219,11 +223,11 @@ def fv_reach(
     Returns
     -------
     tuple[int, int]
-        The (below, above) reach in slots (>= 0).
+        The (below, above) footprint reach in slots (>= 0).
     """
     delta = fv_node_offset(codomain) - fv_node_offset(domain)
     m0 = -int(delta - (size - 1) / 2)
-    return window_reach(domain, codomain, size, m0)
+    return footprint_reach(size, m0)
 
 
 def fv_reach_or(
@@ -372,11 +376,12 @@ def apply_fv_staggered(
     # halo-validity claim (task 1.8, stage B): the kernel computed
     # every output ghost slot its window reaches, so on a *periodic*
     # axis the result keeps the operand's valid layers minus the
-    # per-side maximum reach (stencils commute with the wrap fill).
-    # On bounded axes the claim is zero: stenciling the input's
-    # BC-structured/extrapolated fill is not the BC-consistent fill
-    # of the *output* field, so those ghost slots must be refilled
-    # at the next consumption.
+    # per-side reach ``(m0, reach_right)`` (stencils commute with the
+    # wrap fill; the low side keeps its spare when the stencil only
+    # reaches high, and vice versa). On bounded axes the claim is
+    # zero: stenciling the input's BC-structured/extrapolated fill is
+    # not the BC-consistent fill of the *output* field, so those ghost
+    # slots must be refilled at the next consumption.
     if getattr(domain_factor.mesh, "periodic", False):
         valid = f.halo_valid.consume(
             axis, (max(m0, 0), max(reach_right, 0)))
@@ -384,6 +389,105 @@ def apply_fv_staggered(
         valid = f.halo_valid.reset(axis)
     return type(f)(f.grid, codomain, data, metadata,
                    halo_valid=valid)
+
+
+# ================================================================
+#  Storage-frame wall imposition (the two FV walled special branches)
+# ================================================================
+def wall_slots_addressable(f: FieldLike, axis: str) -> bool:
+    r"""
+    Whether ``axis``'s two wall ghost slots are locally addressable.
+
+    Description
+    -----------
+    The gate of the storage-frame windowed spelling of the two FV
+    walled special branches — ``FluxDifference``'s homogeneous
+    ``Inner`` arm and :meth:`LinearReconstruction._reconstruct_walled_face`
+    (the ``w.to(b)`` seam). Both impose the zero wall value by writing
+    into two wall-adjacent ghost slots of the operand storage at
+    **static** indices (:func:`wall_zeroed_operand`), so the applied
+    axis must be device-local (the physical edges sit on one shard)
+    and carry at least one negotiated ghost layer (the slots exist).
+    Both hold for every benchmarked walled/mapped geometry — the
+    walled axis is local after shard-axis selection, and the two-point
+    stencils negotiate halo >= 1 — so the storage-frame spelling is
+    the rule and the true-frame fallback the exception (a distributed
+    walled axis or an un-negotiated halo).
+
+    Parameters
+    ----------
+    f : FieldLike
+        The operand field.
+    axis : str
+        The applied (bounded) coordinate axis.
+
+    Returns
+    -------
+    bool
+        True iff ``axis`` is undistributed and its negotiated halo
+        width is >= 1.
+    """
+    layout = f.function_space.layout
+    if layout is not None and not layout.is_local(axis):
+        return False
+    return dict(f.grid.decomposition.halo.widths).get(axis, 0) >= 1
+
+
+def _wall_plane_index(
+    axis_index: int, slot: int, ndim: int,
+) -> tuple:
+    """Index tuple selecting the ``slot`` hyperplane along an axis."""
+    index: list[object] = [slice(None)] * ndim
+    index[axis_index] = slot
+    return tuple(index)
+
+
+def wall_zeroed_operand(
+    f: FieldLike, axis: str, n_faces: int,
+) -> FieldLike:
+    r"""
+    Copy ``f`` with the two ``axis`` wall ghost slots set to exact zero.
+
+    Description
+    -----------
+    The storage-frame imposition of the homogeneous no-normal-flow
+    wall value shared by the two FV walled special branches. The
+    interior-face (``Inner``) column stores its ``n_faces`` true DOFs
+    at storage slots ``[width, width + n_faces)``; the two wall faces
+    are the ghost slots just outside — ``width - 1`` (left wall) and
+    ``width + n_faces`` (right wall). Writing an exact 0 there turns
+    the ``Inner`` storage into the ``Outer``-like ``n + 1``-face
+    column the ordinary windowed kernel differences/averages, with the
+    zero wall flux imposed exactly and never read from the BC-free
+    extrapolation ghost. Static-index plane writes, so the caller must
+    have gated on :func:`wall_slots_addressable` (``axis`` local,
+    halo >= 1).
+
+    Parameters
+    ----------
+    f : FieldLike
+        The operand field on a bounded ``Inner`` factor along ``axis``.
+    axis : str
+        The applied (bounded) coordinate axis.
+    n_faces : int
+        The interior-face count (the ``Inner`` factor's true shape).
+
+    Returns
+    -------
+    FieldLike
+        A field like ``f`` with the two wall ghost slots zeroed
+        (space, metadata, and halo-validity claim carried over).
+    """
+    bare = f.function_space.bare
+    axis_index = bare.names.index(axis)
+    width = f.grid.decomposition.halo[axis]
+    storage = f._data  # noqa: SLF001 — documented storage seam
+    ndim = storage.ndim
+    left = _wall_plane_index(axis_index, width - 1, ndim)
+    right = _wall_plane_index(axis_index, width + n_faces, ndim)
+    storage = storage.at[left].set(0.0).at[right].set(0.0)
+    return type(f)(f.grid, f.function_space, storage, f.metadata,
+                   halo_valid=f.halo_valid)
 
 
 # ================================================================
@@ -970,14 +1074,99 @@ class LinearReconstruction(SeparableOperator):
         Description
         -----------
         The homogeneous Dirichlet tag claims the wall value 0, so the
-        ``n - 1`` interior faces are padded with an exact zero at each
-        wall (the ``n + 1`` Outer-like face column) and the two-point
-        Gauss mean lands the ``n`` cell averages. Interior cells read
-        only interior faces, so they are **bitwise** the BC-free
-        two-point mean; the two wall cells use the claimed zero. This
-        mirrors ``FluxDifference``'s Inner branch — the exact-zero wall
-        value is imposed here, never read from the BC-free ghost
-        extrapolation.
+        ``n - 1`` interior faces close the two-point Gauss mean onto
+        the ``n`` cell averages with an exact zero imposed at each
+        wall (never read from the BC-free ghost extrapolation).
+        Interior cells read only interior faces, so they are
+        **bitwise** the BC-free two-point mean; the two wall cells use
+        the claimed zero. This mirrors ``FluxDifference``'s Inner arm.
+
+        Two byte-for-byte equivalent spellings, gated by
+        :func:`wall_slots_addressable`:
+
+        - the storage-frame windowed fast path
+          (:meth:`_reconstruct_walled_face_windowed`): impose the zero
+          wall value in the storage ghost slots, then run the ordinary
+          ``apply_fv_staggered`` window (like nodal). It keeps the
+          operand's halo-validity claim on the periodic axes;
+        - the true-frame fallback
+          (:meth:`_reconstruct_walled_face_true_frame`): unpad,
+          ``jnp.pad`` the zero walls, interpolate, and ``store``. It
+          works on any layout but drops every axis's halo claim.
+
+        The fast path exists because the true-frame excursion is what
+        the multi-device step pays for: the SPMD partitioner
+        materializes the unpad -> pad -> store tensors in a transposed
+        layout and reroutes the periodic-axis halo collective-permutes
+        through it, opening the FV-vs-nodal step gap the storage-frame
+        spelling closes (``design/research/fv_nodal_step_gap.md``).
+
+        Parameters
+        ----------
+        f : FieldLike
+            The operand field on a Dirichlet-tagged ``Inner`` factor.
+        axis : str
+            The resolved (bounded) coordinate axis.
+
+        Returns
+        -------
+        FieldLike
+            The reconstructed field on the bare BC-free ``CellAvg``.
+        """
+        if wall_slots_addressable(f, axis):
+            return self._reconstruct_walled_face_windowed(f, axis)
+        return self._reconstruct_walled_face_true_frame(f, axis)
+
+    def _reconstruct_walled_face_windowed(
+        self, f: FieldLike, axis: str,
+    ) -> FieldLike:
+        """
+        Storage-frame windowed ``Inner(DIRICHLET) -> CellAvg`` mean.
+
+        Description
+        -----------
+        Impose the zero wall value in the two wall ghost slots of the
+        operand storage (:func:`wall_zeroed_operand`), then run the
+        ordinary :func:`apply_fv_staggered` window (``m0 = 1``,
+        reach 1 — the alignment calculus already handles
+        ``Inner -> CellAvg``). Bitwise the true-frame spelling on every
+        output cell, but the result keeps the operand's periodic-axis
+        halo-validity claims (only the applied bounded axis is
+        consumed), like the nodal staggering path — the reason it
+        exists (see :meth:`_reconstruct_walled_face`).
+
+        Parameters
+        ----------
+        f : FieldLike
+            The operand field on a Dirichlet-tagged ``Inner`` factor
+            with ``axis`` device-local and halo >= 1.
+        axis : str
+            The resolved (bounded) coordinate axis.
+
+        Returns
+        -------
+        FieldLike
+            The reconstructed field on the bare BC-free ``CellAvg``.
+        """
+        factor = f.function_space.bare.factor(axis)
+        operand = wall_zeroed_operand(f, axis, factor.shape[0])
+        return apply_fv_staggered(self, operand, axis, _RECON_SIZE,
+                                  linear_interp, metadata=f.metadata)
+
+    def _reconstruct_walled_face_true_frame(
+        self, f: FieldLike, axis: str,
+    ) -> FieldLike:
+        """
+        True-frame ``Inner(DIRICHLET) -> CellAvg`` mean (any layout).
+
+        Description
+        -----------
+        The layout-agnostic fallback of :meth:`_reconstruct_walled_face`
+        (a distributed walled axis or an un-negotiated halo): unpad the
+        ``n - 1`` interior faces, ``jnp.pad`` an exact zero at each wall
+        (the ``n + 1`` Outer-like column), interpolate the ``n`` cell
+        means, and ``store``. Correct on any layout, but the
+        ``store``-built result claims zero halo validity on every axis.
 
         Parameters
         ----------

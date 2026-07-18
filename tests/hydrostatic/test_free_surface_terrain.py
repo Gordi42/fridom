@@ -72,12 +72,16 @@ def test_physical_depth_matches_the_analytic_depth():
 
 def test_physical_depth_equals_the_jacobian_integral_seam():
     # the free surface's in-trace depth agrees with the wired
-    # Integral(jacobian=) seam (the canonical physical column extent)
+    # Integral(jacobian=) seam (the canonical physical column extent).
+    # Build the model first: it re-negotiates the grid to the
+    # hydrostatic core's extra_halo, so ``one`` must be created on the
+    # frozen (final-width) grid, not the provisionally-narrower base.
     grid = _terrain_grid(12)
+    fs = _bound_fs(_model(grid))
     coll = fr.spatial.Collocated().resolve(grid)
     one = grid.create_field(coll, data=jnp.ones(coll.shape))
     seam = Integral(jacobian=("zp",))["z"](one)
-    mine = _bound_fs(_model(grid))._physical_depth(one)
+    mine = fs._physical_depth(one)
     assert np.allclose(np.asarray(mine.data), np.asarray(seam.data),
                        atol=1e-13)
 
@@ -105,8 +109,11 @@ def test_barotropic_energy_is_conserved_to_roundoff():
     p3 = st["b"].function_space
 
     def jint(f):
-        jw = f * grid.metric(f.function_space.bare, "dzp_dz")
-        return float(jw.integrate().data.ravel()[0])
+        # the physical (Jacobian-weighted) volume integral is now the
+        # plain seeded verb on a maps= terrain grid (the physical-
+        # integral-default flip): f.integrate() carries the column
+        # Jacobian, so hand-multiplying dzp_dz would double-count
+        return float(f.integrate().data.ravel()[0])
     terms = [jint(st["u"] * dX["u"]), jint(st["v"] * dX["v"]),
              jint((st["ps"].to(p3) / CSQR) * dX["ps"].to(p3))]
     skew = sum(terms)
@@ -145,12 +152,24 @@ def test_flat_depth_mean_is_byte_identical():
 
 
 # ================================================================
-#  Deferred variants: taught errors on a terrain grid (H0/H3)
+#  The implicit free surface now engages on a terrain grid (H3; the
+#  volume-exact solve, GM-D1/D2) — the taught error is gone. The
+#  gates live in test_free_surface_terrain_implicit.py.
 # ================================================================
-def test_implicit_free_surface_is_a_taught_error_on_terrain():
+def test_implicit_free_surface_engages_on_terrain():
     grid = _terrain_grid(8)
-    with pytest.raises(NotImplementedError, match="terrain"):
-        _model(grid, free_surface=hy.ImplicitFreeSurface())
+    model = _model(grid, free_surface=hy.ImplicitFreeSurface())
+    assert "ps" in model.state.component_names
+    fs = model.module(hy.ImplicitFreeSurface)
+    assert fs._column == ("zp", "z")
+    rng = np.random.default_rng(0)
+    model.set_fields(
+        u=0.1 * rng.standard_normal(model.state["u"].shape),
+        v=0.1 * rng.standard_normal(model.state["v"].shape),
+        ps=0.1 * rng.standard_normal(model.state["ps"].shape))
+    model.advance(4)
+    assert not model.panicked
+    assert bool(jnp.isfinite(model.state["ps"].data).all())
 
 
 def test_split_free_surface_is_a_taught_error_on_terrain():

@@ -34,6 +34,18 @@ def grid_2d():
     return fr.spatial.Grid((mx, my))
 
 
+@pytest.fixture
+def grid_2d_local():
+    # a device_ids=(0,) twin of grid_2d: every axis stays local on any
+    # device count, so the tests that drive the naive transform / the
+    # replicated composite directly (a change-of-representation on a
+    # sharded axis is a Tier-1 taught error) test the math at any device
+    # count without tripping the guard
+    mx = fr.spatial.meshes.IntervalMesh(32, (0.0, 1.0), name="x")
+    my = fr.spatial.meshes.IntervalMesh(32, (0.0, 2.0), name="y")
+    return fr.spatial.Grid((mx, my), device_ids=(0,))
+
+
 # ================================================================
 #  The Poisson solve reproduces the analytic solution
 # ================================================================
@@ -54,11 +66,11 @@ def test_reproduces_the_poisson_solution(grid_2d):
     assert float(jnp.abs(u.mean().data.ravel()[0])) < 1e-13
 
 
-def test_call_is_bitwise_equal_to_imperative_solve(grid_2d):
+def test_call_is_bitwise_equal_to_imperative_solve(grid_2d_local):
     # S2 reframe guard: the composite ``backward @ inverse @ forward``
     # must be bitwise-identical to the pre-refactor imperative body
     # ``transform.backward(inverse(transform.forward(rhs)))``
-    grid = grid_2d
+    grid = grid_2d_local
     rhs = grid.create_field(
         init=lambda x, y: jnp.sin(4 * jnp.pi * x) * jnp.cos(jnp.pi * y))
     solve = SpectralSolve(laplacian_2d(), grid, rhs.function_space)
@@ -90,8 +102,12 @@ def test_solve_alias_matches_call(grid_2d):
 #  The solution actually solves the equation (residual check)
 # ================================================================
 def test_solution_solves_the_equation():
+    # a 1-D transform has no transpose partner, so no distributed slab
+    # exists; the residual check drives the naive transform directly, so
+    # keep the axis local (device_ids=(0,)) to test the math at any
+    # device count
     mx = fr.spatial.meshes.IntervalMesh(32, (0.0, 1.0), name="x")
-    grid = fr.spatial.Grid((mx,))
+    grid = fr.spatial.Grid((mx,), device_ids=(0,))
     laplacian = SpectralDerivative()["x"] @ SpectralDerivative()["x"]
     rhs = grid.create_field(
         init=lambda x: jnp.sin(2 * jnp.pi * x)
@@ -140,11 +156,11 @@ def test_helmholtz_shift_has_no_nullspace():
 # ================================================================
 #  Properties
 # ================================================================
-def test_accepts_a_preassembled_symbol(grid_2d):
+def test_accepts_a_preassembled_symbol(grid_2d_local):
     # the metric seam: a solve built from a coefficient-space Symbol
     # (assembled off the operators, e.g. with a traced weight) rather
     # than an operator — must match the operator-built solve
-    grid = grid_2d
+    grid = grid_2d_local
     rhs = grid.create_field(
         init=lambda x, y: jnp.sin(4 * jnp.pi * x) * jnp.cos(jnp.pi * y))
     from_op = SpectralSolve(laplacian_2d(), grid, rhs.function_space)
@@ -235,10 +251,10 @@ def test_cast_map_casts_field_data(grid_2d):
         cast.inverse()
 
 
-def test_cast_map_algebra_composes_and_sums(grid_2d):
+def test_cast_map_algebra_composes_and_sums(grid_2d_local):
     # the realized-map algebra dunders: @ builds a composite (the
     # cast fuses transparently), + builds the common-signature sum
-    grid = grid_2d
+    grid = grid_2d_local
     f = grid.create_field(
         init=lambda x, y: jnp.sin(2 * jnp.pi * x) * jnp.cos(jnp.pi * y))
     solve = SpectralSolve(laplacian_2d(), grid, f.function_space)
@@ -262,9 +278,9 @@ def test_cast_map_algebra_composes_and_sums(grid_2d):
         _ = 1 + cast
 
 
-def test_single_precision_solve_pytree_round_trip(grid_2d):
+def test_single_precision_solve_pytree_round_trip(grid_2d_local):
     # the reduced composite flattens/unflattens (jit/scan friendly)
-    grid = grid_2d
+    grid = grid_2d_local
     rhs = grid.create_field(
         init=lambda x, y: jnp.sin(2 * jnp.pi * x) * jnp.cos(jnp.pi * y))
     low = SpectralSolve(laplacian_2d(), grid, rhs.function_space,
@@ -318,8 +334,13 @@ def test_slab_falls_back_when_eigenvalues_refuse():
     picky = SpectralSolve(HalfOnly(laplacian_2d()), grid,
                           rhs.function_space)
     assert picky.slab is None
-    assert jnp.allclose(picky(rhs).data, plain(rhs).data,
-                        rtol=1e-12, atol=1e-14)
+    # with no slab, __call__ would fall back to the naive replicated
+    # composite, whose forward shards a transform axis -> the Tier-1
+    # guard rejects it (deliberate, no reroute): a solve whose symbol
+    # refuses the distributed spectral frame cannot run multi-device
+    with pytest.raises(NotImplementedError,
+                       match="cannot run on this grid"):
+        picky(rhs)
 
 
 @pytest.mark.multi_device

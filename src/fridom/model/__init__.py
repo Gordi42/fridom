@@ -29,6 +29,7 @@ if TYPE_CHECKING:  # pragma: no cover
         eigen_channel,
         errors,
         field_table,
+        halo_demand,
         implicit,
         io,
         module,
@@ -60,6 +61,7 @@ if TYPE_CHECKING:  # pragma: no cover
     from .eigen import NumericEigenmodes, numeric_eigenpairs
     from .eigen_channel import ChannelEigenbasis, channel_eigenpairs
     from .energy import EnergyMetric
+    from .halo_demand import derive_extra_halo, row_reach
     from .io import slurm
     from .io.triggers import at, every
     from .model import Model
@@ -117,7 +119,8 @@ all_modules_by_origin = {
         "term_predicates", "implicit", "stages", "context",
         "field_table", "assembly", "module", "composer", "schedule",
         "clock", "results", "report", "errors", "eigen",
-        "eigen_channel", "modules", "transforms", "io", "ops"],
+        "eigen_channel", "modules", "transforms", "io", "ops",
+        "halo_demand"],
     f"{base}.io": ["slurm"],
 }
 
@@ -142,6 +145,7 @@ all_imports_by_origin = {
         "ChannelEigenbasis", "channel_eigenpairs"],
     f"{base}._eigenbasis": ["eigenbasis"],
     f"{base}.energy": ["EnergyMetric"],
+    f"{base}.halo_demand": ["derive_extra_halo", "row_reach"],
     f"{base}.term_predicates": [
         "linearize", "require_linear_operator",
         "linear_operator_gaps"],

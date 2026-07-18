@@ -42,8 +42,9 @@ def Model(  # noqa: N802 — a factory that mirrors fr.model.Model's surface
     pressure_iterations: int = 30,
     pressure_tolerance: float | None = 1e-8,
     pressure_preconditioner: str = "spectral",
-    multigrid_levels: int = 5,
+    multigrid_levels: int | None = None,
     multigrid_tridiagonal_method: str = "auto",
+    multigrid_coarsen_vertical: bool = True,
     modules_extra: Sequence[fr.model.Module] = (),
     time_stepper: TimeStepper | None = None,
     dt: float = 1.0,
@@ -103,10 +104,12 @@ def Model(  # noqa: N802 — a factory that mirrors fr.model.Model's surface
         semicoarsened geometric-multigrid V-cycle). Consumed on a mapped
         or immersed grid; a flat grid uses the exact spectral solve and
         ignores it (default: ``"spectral"``).
-    multigrid_levels : int, optional
-        The maximum multigrid level count when
-        ``pressure_preconditioner="multigrid"`` (floored on small
-        grids); ignored otherwise (default: 5).
+    multigrid_levels : int | None, optional
+        The multigrid depth when ``pressure_preconditioner="multigrid"``;
+        ignored otherwise. ``None`` (the default) coarsens to the
+        four-cell horizontal floor (floor-limited depth, h-independent
+        iteration counts at every size); an ``int`` is a maximum cap as
+        before (floored on small grids either way) (default: None).
     multigrid_tridiagonal_method : str, optional
         The vertical-line tridiagonal kernel of the multigrid smoother
         (``"auto"`` / ``"cusparse"`` / ``"pcr"`` / ``"scan"``),
@@ -114,6 +117,19 @@ def Model(  # noqa: N802 — a factory that mirrors fr.model.Model's surface
         cuSPARSE solve on a GPU and pure-jax parallel cyclic reduction
         elsewhere. Consumed only for
         ``pressure_preconditioner="multigrid"`` (default: ``"auto"``).
+    multigrid_coarsen_vertical : bool, optional
+        Whether the mapped multigrid V-cycle coarsens the vertical
+        column too (full 3-D coarsening), forwarded to the dynamical
+        core and on to the :class:`MappedPressureSolver` (the immersed
+        solver keeps semicoarsening, out of GM-D9's scope). ``True`` —
+        the owner-ratified default (GM-D9, 2026-07-18) — coarsens the
+        vertical alongside the horizontals wherever the vertical mesh
+        supports it (identical 10-iteration convergence, -6..-11% per CG
+        iteration at 128/256/512^3 on the GB-2 mapped protocol),
+        degrading to horizontal semicoarsening automatically where it
+        cannot (a Chebyshev vertical, an indivisible ``n_z``); ``False``
+        restores pure semicoarsening. Consumed only on a mapped grid with
+        ``pressure_preconditioner="multigrid"`` (default: True).
     modules_extra : Sequence[fr.model.Module], optional
         Additional modules (tracers, closures) (default: ()).
     time_stepper : TimeStepper | None, optional
@@ -200,7 +216,9 @@ def Model(  # noqa: N802 — a factory that mirrors fr.model.Model's surface
                       pressure_preconditioner=pressure_preconditioner,
                       multigrid_levels=multigrid_levels,
                       multigrid_tridiagonal_method=(
-                          multigrid_tridiagonal_method)),
+                          multigrid_tridiagonal_method),
+                      multigrid_coarsen_vertical=(
+                          multigrid_coarsen_vertical)),
     ]
     # rotation is opt-in: coriolis=None installs no module at all
     if coriolis is not None:

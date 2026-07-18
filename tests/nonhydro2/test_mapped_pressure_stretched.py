@@ -28,6 +28,10 @@ from fridom.spatial.coordinate_mapping import CoordinateMapping
 from fridom.spatial.grid import Grid
 from fridom.spatial.meshes.interval import IntervalMesh
 from fridom.spatial.meshes.mapped_interval import MappedIntervalMesh
+from fridom.spatial.operators.krylov import (
+    _computational_integral,
+    _computational_mean,
+)
 
 N = 8
 DSQR = 0.25
@@ -73,7 +77,7 @@ def build_solver(n=N, init=depth, **kwargs):
 
 def dot(a, b):
     """Return the measure-weighted inner product CG uses (physical L2)."""
-    return float(jnp.sum((a * b).integrate().data))
+    return float(jnp.sum(_computational_integral(a * b).data))
 
 
 def stretch_strong(sigma):
@@ -108,7 +112,7 @@ def iters_to_tol(precond, stretch_fn=stretch, *, budget, nx=16, nz=16,
         space,
         init=lambda x, sigma: jnp.exp(
             -((x - 3.0) ** 2 + (sigma - 0.5) ** 2) * 3.0))
-    rhs = rhs - rhs.mean()
+    rhs = rhs - _computational_mean(rhs)
 
     @jax.jit
     def run(d):
@@ -182,13 +186,13 @@ def test_none_preconditioner_cg_reduces_the_residual():
     solver, grid, mx, ms = build_solver(iterations=80, tolerance=None)
     space = cell_space(mx, ms)
     rhs = grid.random.normal(space, seed=9)
-    rhs = rhs - rhs.mean()
+    rhs = rhs - _computational_mean(rhs)
     p = solver.solve(rhs)
     r0 = float(jnp.abs(rhs.data).max())
     r_end = float(jnp.abs((solver.apply(p) - rhs).data).max())
     assert r_end / r0 < 1e-8
     # the solve pins the mean-free gauge
-    assert float(jnp.abs(p.mean().data.ravel()[0])) < 1e-12
+    assert float(jnp.abs(_computational_mean(p).data.ravel()[0])) < 1e-12
 
 
 def test_none_preconditioner_is_an_accepted_choice():
@@ -230,13 +234,33 @@ def test_multigrid_on_a_stretched_column_builds_and_solves():
         weights={"sigma": 1.0 / DSQR}, preconditioner="multigrid")
     solver.krylov()  # builds the V-cycle (previously raised)
     rhs = grid.random.normal(space, seed=7)
-    rhs = rhs - rhs.mean()
+    rhs = rhs - _computational_mean(rhs)
     p = solver.solve(rhs)
     r0 = float(jnp.abs(rhs.data).max())
     r_end = float(jnp.abs((solver.apply(p) - rhs).data).max())
     assert r_end / r0 < 1e-8
     # the solve pins the mean-free gauge
-    assert float(jnp.abs(p.mean().data.ravel()[0])) < 1e-12
+    assert float(jnp.abs(_computational_mean(p).data.ravel()[0])) < 1e-12
+
+
+def test_stretched_base_keeps_semicoarsening_under_the_default():
+    # GM-D9 graceful degradation: the full-coarsening default is ON
+    # (multigrid_coarsen_vertical=True) but a stretched base column is a
+    # MappedIntervalMesh whose coarse construction is host-validated and
+    # cannot run under the solve trace, so the column stays FULL while
+    # the horizontals coarsen — automatically, no error and no knob
+    grid, mx, ms = build_mg_grid(16, 8)
+    space = cell_space(mx, ms)
+    solver = MappedPressureSolver(
+        grid, space, iterations=5, weights={"sigma": 1.0 / DSQR},
+        preconditioner="multigrid")
+    assert solver._multigrid_coarsen_vertical is True  # default on
+    assert solver._stretched_base                      # but stretched
+    vcycle = solver._build_vcycle({})
+    shapes = [tuple(level.operator.func.__self__._space.shape)
+              for level in vcycle.levels]
+    # x halves 16 -> 8 -> 4; the sigma column stays 8 at every level
+    assert shapes == [(16, 8), (8, 8), (4, 8)]
 
 
 def test_multigrid_vcycle_is_symmetric_on_a_stretched_column():
@@ -253,9 +277,9 @@ def test_multigrid_vcycle_is_symmetric_on_a_stretched_column():
         preconditioner="multigrid", multigrid_levels=5)
     vcycle = solver._build_vcycle({})
     u = grid.random.normal(space, seed=1)
-    u = u - u.mean()
+    u = u - _computational_mean(u)
     v = grid.random.normal(space, seed=2)
-    v = v - v.mean()
+    v = v - _computational_mean(v)
     left = dot(vcycle(u), v)
     right = dot(u, vcycle(v))
     assert abs(left - right) <= 1e-12 * abs(left)
@@ -310,7 +334,7 @@ def test_multigrid_solve_grad_matches_fd():
     grid, mx, ms = build_mg_grid(16, 8)
     space = cell_space(mx, ms)
     rhs = grid.random.normal(space, seed=5)
-    rhs = rhs - rhs.mean()
+    rhs = rhs - _computational_mean(rhs)
 
     def loss(w):
         solver = MappedPressureSolver(
@@ -365,7 +389,7 @@ def test_stretched_terrain_solve_grad_matches_fd():
     grid, mx, ms = build_grid()
     space = cell_space(mx, ms)
     rhs = grid.random.normal(space, seed=5)
-    rhs = rhs - rhs.mean()
+    rhs = rhs - _computational_mean(rhs)
 
     def loss(w):
         solver = MappedPressureSolver(

@@ -7,7 +7,11 @@ Owning class doc: ``design/plans/active/multigrid_pathway_plan.md`` §A4
 (MG-D1/D2). A free-standing **grid-pair** operator (not a ``.to`` kind
 and not a registry row): built after both a fine grid and its coarse
 sibling exist, it transfers real scalar fields on the collocated cell
-spaces (``Center`` nodal, ``CellAvg``) between them.
+spaces (``Center`` nodal, ``CellAvg``) between them. A ``ConstantSpace``
+broadcast factor (shape ``(1,)``) is carried through untransferred — it
+has no data axis to coarsen and drops out of the volume weighting — so a
+barotropic ``Profile`` field (cell horizontals, constant vertical)
+transfers on its horizontal factors alone (GM-D3).
 
 The pair is **adjoint** under the two grids' measure-weighted L2
 products,
@@ -304,10 +308,11 @@ class GridTransfer:
             if not _is_cell_factor(factor):
                 raise ValueError(
                     f"GridTransfer.{op} transfers collocated cell "
-                    "fields only (Center nodal or CellAvg); the factor "
-                    f"{factor!r} is a staggered face, coefficient, or "
-                    "constant space (designed-for: coupling fluxes, "
-                    "CS-16 traces)")
+                    "factors (Center nodal or CellAvg), plus a "
+                    "pass-through ConstantSpace; the factor "
+                    f"{factor!r} is a staggered face or coefficient "
+                    "space (designed-for: coupling fluxes, CS-16 "
+                    "traces)")
 
 
 # ================================================================
@@ -518,7 +523,17 @@ def _axis_ratio(name: str, fine_mesh: object, coarse_mesh: object) -> int:
 
 
 def _is_cell_factor(factor: FunctionSpace) -> bool:
-    """Whether ``factor`` is a collocated cell space (Center/CellAvg)."""
+    """Whether ``factor`` transfers as a cell factor (or passes through).
+
+    A ``ConstantSpace`` broadcast factor passes through: it carries no
+    data axis to transfer (shape ``(1,)``, never coarsened, ratio 1) and
+    drops out of the coarsened-name volume weighting, so a barotropic
+    ``Profile`` cell field (cell x/y, constant z) transfers exactly on
+    its horizontal factors (GM-D3). Otherwise the factor must be a
+    collocated cell space (``Center`` nodal / ``CellAvg``).
+    """
+    if factor.is_constant:
+        return True
     if isinstance(factor, CellAvg):
         return True
     return (isinstance(factor, NodalSpace)
@@ -529,6 +544,8 @@ def _sibling_factor(
     factor: FunctionSpace, target_mesh: object,
 ) -> FunctionSpace:
     """Rebuild one cell factor's family on the target (sibling) mesh."""
+    if factor.is_constant:
+        return target_mesh.constant
     if isinstance(factor, CellAvg):
         return target_mesh.cell_avg
     if (isinstance(factor, NodalSpace)

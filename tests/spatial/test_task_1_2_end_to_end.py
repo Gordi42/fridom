@@ -11,6 +11,7 @@ import numpy as np
 import pytest
 
 from fridom.spatial.bc import BC
+from fridom.spatial.decomposition.halo import HaloSpec
 from fridom.spatial.errors import SpaceMismatchError
 from fridom.spatial.grid import Grid
 from fridom.spatial.meshes.interval import IntervalMesh
@@ -25,7 +26,7 @@ TWO_PI = 2.0 * jnp.pi
 
 def _periodic_grid(n):
     mesh = IntervalMesh(n, (0.0, 1.0), name="x")
-    return Grid((mesh,)), mesh
+    return Grid((mesh,), device_ids=(0,)), mesh
 
 
 def _sin_field(grid):
@@ -91,7 +92,7 @@ def test_products_route_through_the_real_registry():
 # ================================================================
 def test_bounded_diff_is_exterior_free_and_gated():
     mesh = IntervalMesh(16, (0.0, 1.0), periodic=False, name="y")
-    grid = Grid((mesh,))
+    grid = Grid((mesh,), device_ids=(0,))
     f = grid.create_field(init=lambda y: y * (1.0 - y))
     df = f.diff("y")
     assert df.function_space.bare is mesh.inner
@@ -109,8 +110,11 @@ def test_bounded_diff_is_exterior_free_and_gated():
 def test_dirichlet_structured_storage_gets_the_odd_extension():
     mesh = IntervalMesh(8, (0.0, 1.0), periodic=False, name="y")
     # one device pinned: the assertions index the single-shard
-    # storage frame (the blocked variant lives in test_multi_device)
+    # storage frame (the blocked variant lives in test_multi_device).
+    # Negotiate width 2 for the two-layer odd-extension assertions
+    # (two-sided accounting narrows the bounded provisional to 1).
     grid = Grid((mesh,), device_ids=(0,))
+    grid.negotiate(halo=HaloSpec({"y": 2}))
     space = mesh.nodal(NodeSet.CENTER, bc=BC.DIRICHLET)
     f = grid.create_field(space,
                           init=lambda y: jnp.sin(jnp.pi * y))
@@ -136,8 +140,9 @@ def test_separable_composite_second_derivative():
     f = _sin_field(grid)
     fd = FiniteDifference(order=2)
     chain = fd["x"] @ fd["x"]
-    # halo 2 honored: the chain declares the summed requirement
-    assert chain.requirements(mesh.center).halo == 2
+    # two-sided accounting: Center -> Right [0,+1] then Right -> Center
+    # [-1,0] composes to the window [-1,+1], width 1 (not the sum 2)
+    assert chain.requirements(mesh.center).halo == 1
     d2 = chain(f)
     assert d2.function_space.bare is mesh.center
     # identical to the synced two-step route

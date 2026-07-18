@@ -48,13 +48,14 @@ def flat_grid(*, periodic_y=True):
     mx = fr.spatial.meshes.IntervalMesh(16, (0.0, 1.0), name="x")
     my = fr.spatial.meshes.IntervalMesh(
         16, (0.0, 1.0), periodic=periodic_y, name="y")
-    return fr.spatial.Grid((mx, my))
+    return fr.spatial.Grid((mx, my), device_ids=(0,))
 
 
 def sphere_grid(nlon=16, nlat=8, radius=1.0):
     """Return the documented lat-lon sphere chart grid."""
     return fr.spatial.spherical.Grid(
-        (nlon, nlat), radius=radius, lat_extent=(-LAT_MAX, LAT_MAX))
+        (nlon, nlat), radius=radius, lat_extent=(-LAT_MAX, LAT_MAX),
+        device_ids=(0,))
 
 
 def stepper():
@@ -654,7 +655,8 @@ def adiabatic_channel():
     my = fr.spatial.meshes.IntervalMesh(8, (0.0, 1.0), periodic=False,
                                         name="y")
     target = sw.Model(
-        grid=fr.spatial.Grid((mx, my)), csqr=_AD_CSQR, rossby_number=0.2,
+        grid=fr.spatial.Grid((mx, my), device_ids=(0,)),
+        csqr=_AD_CSQR, rossby_number=0.2,
         coriolis=sw.modules.BetaPlaneCoriolis(f0=_AD_F0, beta=_AD_BETA),
         advection=False,
         time_stepper=fr.model.time_steppers.AdamBashforth(_AD_DT, order=3))

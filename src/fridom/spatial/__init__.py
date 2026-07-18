@@ -47,6 +47,7 @@ if TYPE_CHECKING:  # pragma: no cover
     )
     from .spaces.nodal import NodeSet
     from .spaces.tensor_product import SpaceLike, TensorProductSpace
+    from .spaces.trace import Side
     from .symbols import GridSymbols, ModeChart, rayleigh_dual
 
 # ================================================================
@@ -66,6 +67,7 @@ all_imports_by_origin = {
     f"{base}.bc": ["BC"],
     f"{base}.errors": ["SpaceMismatchError", "GridMismatchError"],
     f"{base}.spaces.nodal": ["NodeSet"],
+    f"{base}.spaces.trace": ["Side"],
     f"{base}.spaces.tensor_product": ["TensorProductSpace",
                                       "SpaceLike"],
     f"{base}.fields": ["ScalarField", "FieldMetadata",

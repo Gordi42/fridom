@@ -60,7 +60,7 @@ from typing import TYPE_CHECKING
 import jax.numpy as jnp
 
 import fridom as fr
-from fridom.framework.utils import jaxify, modify_array
+from fridom.framework.utils import jaxify
 from fridom.hydrostatic.diagnostics import DIAGNOSTICS
 from fridom.hydrostatic.modules.terrain import (
     discover_column,
@@ -68,17 +68,21 @@ from fridom.hydrostatic.modules.terrain import (
 )
 from fridom.hydrostatic.params import CSQR, ROSSBY
 from fridom.hydrostatic.state import State
+from fridom.model.halo_demand import derive_extra_halo
 from fridom.model.roles import Velocity
-from fridom.spatial.decomposition.halo import HaloSpec
 from fridom.spatial.fields.scalar_field import _bc_siblings
 from fridom.spatial.operators.cumulative import CumulativeIntegral
+from fridom.spatial.operators.verbs import scatter_set
 from fridom.spatial.spaces.average import AverageSpace
+from fridom.spatial.spaces.nodal import NodeSet
 from fridom.spatial.spaces.tensor_product import TensorProductSpace
+from fridom.spatial.spaces.trace import Side
 
 if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Callable
 
     from fridom.model.context import StepContext
+    from fridom.spatial.decomposition.halo import HaloSpec
     from fridom.spatial.grid import Grid
     from fridom.spatial.spaces.function_space import FunctionSpace
 
@@ -184,6 +188,10 @@ class HydrostaticCore(fr.model.Module):
         # baroclinic pressure gradient adopts the slope-corrected
         # (constant-physical-height) horizontal derivative.
         self._column: tuple[str, str] | None = None
+        # the masked / terrain DIAGNOSE stages' derived halo substitute
+        # (V-N2), computed at bind from the staggered rows they apply;
+        # None off a mapped / immersed grid (the flat path stays traced).
+        self._extra_halo: HaloSpec | None = None
 
     def bind(self, table: object) -> None:
         """Capture the immersed / terrain descriptors and coord names.
@@ -210,6 +218,62 @@ class HydrostaticCore(fr.model.Module):
                 "the face fractions by the column Jacobian, which is "
                 "not built (hydrostatic plan §7). Use a terrain grid "
                 "without an immersed mask, or a flat immersed grid")
+        self._extra_halo = self._derive_extra_halo(table)
+
+    def _derive_extra_halo(self, table: object) -> HaloSpec | None:
+        r"""Derive the masked / terrain stages' ghost width (V-N2).
+
+        Description
+        -----------
+        Off a mapped / immersed grid the DIAGNOSE stages and pressure
+        gradient are plain staggered stencils the halo trace follows,
+        so no substitute is declared (``None``). On a **terrain** or
+        **immersed** grid they multiply metric / fraction fields the
+        tracer cannot materialize, so the module declares its own
+        width — derived from the order-2 rows those stages apply, not a
+        literal. Two parallel horizontal legs give reach 1 on each
+        horizontal coordinate under any boundary: the pressure gradient
+        differences the cell pressure onto the faces (centre -> face),
+        the flux / masked continuity differences the face transport back
+        onto the cell (face -> centre; the direction that carries the
+        reach on a bounded axis). A terrain column adds the
+        constant-physical-height slope term to the vertical: a column
+        derivative (centre -> face ``diff``) re-aligned onto the cell by
+        the column interpolation (face -> centre) — the two composing
+        two-sided to reach 1 on the bounded vertical (the diff alone
+        shrinks at a wall; the interp carries the reach). An immersed
+        grid has **no** vertical stencil (the masked continuity's column
+        sum is a reduction, reach 0), so its vertical stays 0. A registry
+        override of the differences / interpolations moves these values.
+        """
+        if self._immersed is None and self._column is None:
+            return None
+        registry = table.grid.dispatch  # type: ignore[attr-defined]
+        p_hyd = table["p_hyd"].space  # type: ignore[index]
+        u = table["u"].space  # type: ignore[index]
+        v = table["v"].space  # type: ignore[index]
+        zonal, meridional = self._horizontal
+        grad_leg: dict[str, list[tuple[str, object]]] = {
+            zonal: [("diff", p_hyd.factor(zonal))],
+            meridional: [("diff", p_hyd.factor(meridional))],
+        }
+        div_leg: dict[str, list[tuple[str, object]]] = {
+            zonal: [("diff", u.factor(zonal))],
+            meridional: [("diff", v.factor(meridional))],
+        }
+        if self._column is not None:
+            vert = self._vertical
+            centre = p_hyd.factor(vert)
+            face = registry.resolve("diff", centre)[vert].codomain(centre)
+            # the slope gradient reads the column derivative (centre ->
+            # face) and re-aligns it onto the cell by the column
+            # interpolation (face -> centre; nodal on the nodal-only
+            # hydrostatic grid). The pair reaches 1 on the bounded
+            # vertical, driven by the interp (the centre -> face diff
+            # shrinks at a wall)
+            grad_leg[vert] = [("diff", centre), ("interpolate", face)]
+        return derive_extra_halo(
+            registry, self._coords, [grad_leg, div_leg])
 
     @property
     def extra_halo(self) -> HaloSpec | None:
@@ -230,10 +294,15 @@ class HydrostaticCore(fr.model.Module):
         materialized metrics carry. Off a mapped / immersed grid this is
         ``None`` — the flat DIAGNOSE stages stay fully halo-traced,
         bitwise unchanged.
+
+        The value is **derived** at :meth:`bind` (see
+        :meth:`_derive_extra_halo`) from the staggered ``diff`` rows the
+        stages apply, not a literal: 1 per horizontal coordinate on both
+        paths, plus 1 on the vertical for a terrain column (the slope
+        gradient's vertical difference) and 0 on the vertical for an
+        immersed grid (no vertical stencil there).
         """
-        if self._immersed is None and self._column is None:
-            return None
-        return HaloSpec(dict.fromkeys(self._coords, 2))
+        return self._extra_halo
 
     # ================================================================
     #  Field declarations
@@ -413,6 +482,18 @@ class HydrostaticCore(fr.model.Module):
         face needs no override: the running sum seeds ``transport == 0``
         there, so ``w`` is zero irrespective of ``alpha_z``.
 
+        The surface override rides the sanctioned boundary machinery
+        (``design/plans/active/boundary_trace_plan.md`` §3) rather than
+        raw ``.data`` surgery: the surface cell fraction is a
+        ``Side.HIGH`` boundary trace of ``theta_cell`` (on the
+        ``Center`` cells), relocated onto the vertical ``Outer`` face
+        set through the sanctioned Constant bridge (``as_profile`` ->
+        ``adopt``) — the explicit cross-node-set relocation the strict
+        space algebra otherwise refuses — then ``scatter_set`` overwrites
+        the ``Outer`` surface face of ``alpha_z``. The path is a pure
+        slice + two retags + a row-scatter (all native VJPs, no
+        ``.data``), so the diagnosed ``w`` is bitwise unchanged.
+
         Parameters
         ----------
         immersed : object
@@ -425,16 +506,16 @@ class HydrostaticCore(fr.model.Module):
         object
             The ``alpha_z`` field with the surface face overridden.
         """
-        w_space = state["w"].function_space
-        alpha_z = immersed.fraction(w_space)
+        vertical = self._vertical
+        alpha_z = immersed.fraction(state["w"].function_space)
         theta_cell = immersed.fraction(state["p_hyd"].function_space)
-        z_axis = next(
-            i for i, f in enumerate(w_space.bare.factors)
-            if self._vertical in f.names)
-        az = jnp.moveaxis(alpha_z.data, z_axis, 0)
-        tc = jnp.moveaxis(theta_cell.data, z_axis, 0)
-        az = modify_array(az, -1, tc[-1])  # surface face = surface cell
-        return alpha_z.with_data(jnp.moveaxis(az, 0, z_axis))
+        # surface (top) face fraction = surface cell fraction: trace the
+        # top Center cell, relocate it onto the Outer face set (the
+        # sanctioned Constant bridge), and overwrite the surface face.
+        surface = (theta_cell.trace(vertical, Side.HIGH)
+                   .as_profile(vertical)
+                   .adopt(vertical, NodeSet.OUTER, Side.HIGH))
+        return scatter_set(alpha_z, surface)
 
     def _diagnose_p_hyd(
         self, state: State, ctx: StepContext,  # noqa: ARG002

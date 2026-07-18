@@ -366,7 +366,7 @@ Semantics, invariants, error behavior:
   semantics (2026-07-08 amendment, model.md step 7): the negotiated
   spec is trace ∨ extra_halo via `merge_max`, never either-or — the
   landed grid's exclusive-override behavior is a pending grid work
-  item ([`../../../plans/active/phase2_grid_followups.md`](../../../plans/active/phase2_grid_followups.md)).
+  item ([`../../../plans/done/phase2_grid_followups.md`](../../../plans/done/phase2_grid_followups.md)).
 - **`self_update` semantics** (03 §5.2, 02_rules, CS-1):
   - runs **per substage at substage time** (S1), stage-consistent
     with `eval_params` — a ramped scalar and a ramped N² profile

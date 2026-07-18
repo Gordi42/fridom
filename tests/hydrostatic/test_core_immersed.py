@@ -104,6 +104,83 @@ def test_masked_continuity_residual_is_machine_zero(
     assert w_closed == 0.0                        # w == 0 on dry faces
 
 
+def _old_masked_w_faces(core, immersed, state):
+    """Frozen pre-machinery raw-``.data`` surgery (the bitwise anchor).
+
+    A verbatim copy of the original ``_masked_w_faces`` moveaxis +
+    row-set surgery, kept here as the reference the machinery rewrite
+    must reproduce bit-for-bit (``modify_array`` inlined as ``.at``).
+    """
+    vertical = core._vertical
+    w_space = state["w"].function_space
+    alpha_z = immersed.fraction(w_space)
+    theta_cell = immersed.fraction(state["p_hyd"].function_space)
+    z_axis = next(
+        i for i, f in enumerate(w_space.bare.factors)
+        if vertical in f.names)
+    az = jnp.moveaxis(alpha_z.data, z_axis, 0)
+    tc = jnp.moveaxis(theta_cell.data, z_axis, 0)
+    az = az.at[-1].set(tc[-1])  # surface face = surface cell
+    return alpha_z.with_data(jnp.moveaxis(az, 0, z_axis))
+
+
+# ================================================================
+#  Machinery rewrite reproduces the raw-.data surgery bit-for-bit
+# ================================================================
+# NB: a stretched-*vertical* immersed grid is unreachable here — a
+# mapped / terrain column on top of an immersed mask is a taught error
+# (``HydrostaticCore.bind``) — so representativeness comes from the
+# fraction pattern (walled step, quadrature partial, sloping genuine
+# partials incl. a partial *surface* cell) and the column count.
+@pytest.mark.parametrize(
+    ("init", "n", "nz", "order", "min_fraction", "id_"),
+    [pytest.param(lambda x, y, z: (z > 0.5).astype(float),  # noqa: ARG005
+                  8, 8, None, 0.0, "walled-step", id="walled-step"),
+     pytest.param(lambda x, y, z: (z > 0.4).astype(float),  # noqa: ARG005
+                  6, 6, None, 0.0, "staircase", id="staircase"),
+     pytest.param(
+         lambda x, y, z: jnp.clip(  # noqa: ARG005
+             (z - (0.3 + 0.1 * jnp.sin(2 * jnp.pi * x))) / (1.0 / 8)
+             + 0.5, 0.0, 1.0),
+         8, 8, 4, 0.0, "z-partial", id="z-partial"),
+     pytest.param(
+         lambda x, y, z: jnp.clip(  # noqa: ARG005
+             (x - (0.35 + 0.1 * jnp.sin(2 * jnp.pi * y))) / (1.0 / 8)
+             + 0.5, 0.0, 1.0),
+         8, 4, 4, 0.1, "sidewall-partial", id="sidewall-partial"),
+     pytest.param(
+         lambda x, y, z: jnp.clip(  # noqa: ARG005
+             (z - 0.85) / (1.0 / 4) + 0.5, 0.0, 1.0),
+         4, 4, 4, 0.1, "partial-surface", id="partial-surface")],
+)
+def test_masked_w_faces_matches_raw_data_surgery_bitwise(
+        init, n, nz, order, min_fraction, id_):
+    """The machinery path reproduces the raw ``.data`` surgery exactly."""
+    model = hy.Model(
+        grid=grid(init, n=n, nz=nz, order=order,
+                  min_fraction=min_fraction),
+        dt=0.01, advection=False)
+    imm = model.grid.immersed
+    core = model.module(hy.HydrostaticCore)
+    old = np.asarray(_old_masked_w_faces(core, imm, model.state).data)
+    new = np.asarray(core._masked_w_faces(imm, model.state).data)
+    assert np.array_equal(old, new), id_          # bitwise equivalence
+
+
+def test_partial_surface_cell_is_a_true_partial():
+    """The ``partial-surface`` case copies a genuine partial (not 0/1)."""
+    model = hy.Model(
+        grid=grid(lambda x, y, z: jnp.clip(  # noqa: ARG005
+            (z - 0.85) / (1.0 / 4) + 0.5, 0.0, 1.0),
+            n=4, nz=4, order=4, min_fraction=0.1),
+        dt=0.01, advection=False)
+    core = model.module(hy.HydrostaticCore)
+    az = np.asarray(core._masked_w_faces(
+        model.grid.immersed, model.state).data)
+    surface = az[..., -1]
+    assert ((surface > 1e-6) & (surface < 1.0 - 1e-6)).any()
+
+
 def test_surface_face_is_a_genuine_dof_not_dry():
     # the physical surface face keeps alpha_z = surface-cell fraction
     # (the barotropic column-divergence carrier), NOT the dry-exterior 0
@@ -147,6 +224,10 @@ def test_core_extra_halo_only_when_immersed():
         grid=grid(lambda x, y, z: (z > 0.5).astype(float)),  # noqa: ARG005
         dt=0.01, advection=False)
     plain = hy.Model(grid=plain_grid(), dt=0.01, advection=False)
-    assert isinstance(
-        imm_model.module(hy.HydrostaticCore).extra_halo, HaloSpec)
+    imm_halo = imm_model.module(hy.HydrostaticCore).extra_halo
+    assert isinstance(imm_halo, HaloSpec)
+    # DERIVED from the masked stencils (not a literal 2): reach 1 on
+    # each horizontal coordinate, 0 on the vertical — the masked
+    # continuity's column sum is a reduction with no vertical stencil
+    assert dict(imm_halo.widths) == {"x": 1, "y": 1, "z": 0}
     assert plain.module(hy.HydrostaticCore).extra_halo is None

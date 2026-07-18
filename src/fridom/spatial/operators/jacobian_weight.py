@@ -28,13 +28,24 @@ base axis (``jacobian=("sigma",)`` for ``zp``) therefore no longer
 half-matches. A ``jacobian=`` name that names neither an embedding
 chart coordinate nor an analytic map's physical coordinate resolves
 to nothing on the grid and raises a taught error (no silent no-op).
+
+The maps= branch additionally carries an **aliveness guard** (Hazard
+1): the column Jacobian ``d<mapped>_d<base>`` varies over the map's
+parameter axes, so it is well defined only while every coordinate the
+column couples (the base and its parameters) is still resolved by the
+operand space. Reducing a parameter axis to a ``ConstantSpace`` before
+the base axis leaves the metric unresolvable, so the branch raises a
+taught ``ValueError`` naming the coupled coordinates and the fix
+(reduce the base axis first). The seeded ``f.integrate()`` /
+``f.mean()`` verbs order the reduction so the base axis goes first and
+never trip it (``scalar_field._bases_first``); only a hand-built
+reduction that collapses a parameter axis in a separate call can.
 """
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
 from fridom.spatial.spaces.coefficient import CoefficientSpace
-from fridom.spatial.spaces.constant import ConstantSpace
 
 if TYPE_CHECKING:  # pragma: no cover
     from jax import Array
@@ -52,10 +63,11 @@ def resolves(space: FunctionSpace | object,
     -----------
     The chart-reduction guard (rules 3.13): an embedding chart's
     ``sqrt_g`` enters an increment only while every named chart
-    coordinate is still contributed by a non-constant,
-    non-coefficient factor of the operand space. A field born
-    constant (or lone-factor) along a chart coordinate carries no
-    geometry and contracts against the plain computational measure.
+    coordinate is still contributed by a non-collapsed (non-constant,
+    non-trace), non-coefficient factor of the operand space. A field
+    born constant, traced, or lone-factor along a chart coordinate
+    carries no geometry and contracts against the plain computational
+    measure.
 
     Parameters
     ----------
@@ -67,7 +79,7 @@ def resolves(space: FunctionSpace | object,
     Returns
     -------
     bool
-        True iff every name is contributed by a non-constant,
+        True iff every name is contributed by a non-collapsed,
         non-coefficient factor of ``space``.
     """
     for name in names:
@@ -75,7 +87,7 @@ def resolves(space: FunctionSpace | object,
             factor = space.factor(name)
         except KeyError:
             return False
-        if isinstance(factor, ConstantSpace | CoefficientSpace):
+        if isinstance(factor, CoefficientSpace) or factor.collapses_axis:
             return False
     return True
 
@@ -102,7 +114,10 @@ def jacobian_factor(
       docstring), or
     - the column Jacobian ``d<mapped>_d<axis>`` when ``axis`` is the
       single base of a ``maps=`` column whose mapped physical
-      coordinate is named in ``jacobian``.
+      coordinate is named in ``jacobian`` — guarded (Hazard 1): if a
+      coordinate the column couples has already collapsed, a taught
+      ``ValueError`` fires (reduce the base axis before its
+      parameters) rather than an unresolvable-metric error.
 
     Parameters
     ----------
@@ -154,8 +169,34 @@ def jacobian_factor(
     #     restriction, positive on a monotone map)
     mapped = column_by_base.get(axis)
     if mapped is not None and mapped in jacobian:
+        # aliveness guard (Hazard 1): d<mapped>_d<axis> varies over the
+        # map's parameter axes, so if a coupled coordinate has already
+        # reduced to a ConstantSpace the metric is unresolvable. The
+        # seeded verbs reduce the base axis first (scalar_field
+        # `_bases_first`); a hand-built reduction that collapses a
+        # parameter axis first hits this taught error rather than a
+        # silently broadcast wrong weight.
+        coupled = tuple(coord for coord, pair in columns.items()
+                        if pair == (mapped, axis))
+        if not resolves(bare, coupled):
+            raise ValueError(
+                _collapsed_axis_message(mapped, axis, coupled))
         return grid.metric(bare, f"d{mapped}_d{axis}").data
     return None
+
+
+def _collapsed_axis_message(
+    mapped: str, axis: str, coupled: tuple[str, ...],
+) -> str:
+    """Taught error for a column Jacobian on a collapsed parameter."""
+    return (
+        f"reducing {axis!r} with the {mapped!r} column Jacobian "
+        f"d{mapped}_d{axis} needs every coupled coordinate {list(coupled)}"
+        f" still resolved by the operand space, but one has already "
+        f"reduced to a ConstantSpace (or coefficient factor); the "
+        f"Jacobian varies over the map's parameter axes, so reduce the "
+        f"base axis {axis!r} before its parameters — the seeded "
+        f"f.integrate() / f.mean() verbs do this automatically")
 
 
 def _unknown_name_message(

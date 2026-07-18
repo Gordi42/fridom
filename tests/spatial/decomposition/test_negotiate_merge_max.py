@@ -51,7 +51,9 @@ def test_mixed_per_coordinate_maximum(grid, space):
         grid, grid.dispatch, state_spaces=(space,),
         tendency=tendency, halo=HaloSpec({"x": 4}),
         device_ids=(0,))
-    # x: extra (4) > trace (1); y: trace (1) > extra (absent -> 0)
+    # x: extra (4) > trace (1); y: bounded Center -> Inner exterior
+    # reach is 0 at the wall but the per-shard footprint is 1 (a
+    # sharded interior boundary reads a neighbor), so 1
     assert decomp.halo["x"] == 4
     assert decomp.halo["y"] == 1
 
@@ -87,4 +89,7 @@ def test_tendency_only_is_the_pure_trace(grid, space):
         grid, grid.dispatch, state_spaces=(space,),
         tendency=lambda f: f.diff("y"), device_ids=(0,))
     assert decomp.halo["x"] == 0
+    # bounded Center -> Inner (diff y): exterior reach is 0 at the
+    # wall, but the per-shard footprint is 1 (a sharded interior
+    # boundary reads one neighbor slot)
     assert decomp.halo["y"] == 1

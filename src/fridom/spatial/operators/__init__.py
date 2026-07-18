@@ -19,11 +19,13 @@ if TYPE_CHECKING:  # pragma: no cover
     from . import (
         banded,
         base,
+        boundary,
         chebyshev,
         combinators,
         composed,
         cumulative,
         dealias,
+        distributed_contract,
         distributed_solve,
         finite_difference,
         flux_diff,
@@ -33,6 +35,7 @@ if TYPE_CHECKING:  # pragma: no cover
         mixed,
         movement,
         multigrid,
+        multigrid_hierarchy,
         products,
         realized,
         reconstruct,
@@ -67,6 +70,14 @@ if TYPE_CHECKING:  # pragma: no cover
         Zero,
         resolve_codomain,
     )
+    from .boundary import (
+        Adopt,
+        AsProfile,
+        BoundaryEmbed,
+        BoundaryScatterAdd,
+        BoundaryScatterSet,
+        BoundaryTrace,
+    )
     from .chebyshev import Chebyshev
     from .composed import (
         Curl,
@@ -83,6 +94,7 @@ if TYPE_CHECKING:  # pragma: no cover
         VarianceRetag,
     )
     from .cumulative import CumulativeIntegral
+    from .distributed_contract import resolve_distributed_contraction
     from .distributed_solve import resolve_distributed_solve
     from .finite_difference import FiniteDifference
     from .flux_diff import (
@@ -104,6 +116,7 @@ if TYPE_CHECKING:  # pragma: no cover
         MultigridVCycle,
         VerticalLineJacobi,
     )
+    from .multigrid_hierarchy import coarsen_levels
     from .realized import (
         BoundTransform,
         RealizedComposite,
@@ -120,11 +133,15 @@ if TYPE_CHECKING:  # pragma: no cover
     from .transfer import GridTransfer
     from .trig import Cosine, Sine
     from .verbs import (
+        as_profile,
         cumint,
         diff,
+        embed,
         integrate,
         interpolate,
         physical_diff,
+        scatter_add,
+        scatter_set,
     )
     from .weno import WenoReconstruction
 
@@ -136,10 +153,12 @@ base = "fridom.spatial.operators"
 all_modules_by_origin = {
     base: [
         "base",
+        "boundary",
         "registry",
         "banded",
         "symbol",
         "realized",
+        "distributed_contract",
         "distributed_solve",
         "spectral_solve",
         "finite_difference",
@@ -202,7 +221,16 @@ all_imports_by_origin = {
         "LinearDeconvolution", "LinearReconstruction"],
     f"{base}.weno": ["WenoReconstruction"],
     f"{base}.restrict": ["Restriction"],
+    f"{base}.boundary": [
+        "BoundaryTrace",
+        "BoundaryEmbed",
+        "BoundaryScatterAdd",
+        "BoundaryScatterSet",
+        "AsProfile",
+        "Adopt",
+    ],
     f"{base}.select": ["Where"],
+    f"{base}.distributed_contract": ["resolve_distributed_contraction"],
     f"{base}.distributed_solve": ["resolve_distributed_solve"],
     f"{base}.spectral_solve": ["SpectralSolve"],
     f"{base}.realized": [
@@ -250,9 +278,11 @@ all_imports_by_origin = {
         "DampedJacobi",
         "VerticalLineJacobi",
     ],
+    f"{base}.multigrid_hierarchy": ["coarsen_levels"],
     f"{base}.cumulative": ["CumulativeIntegral"],
     f"{base}.verbs": ["diff", "interpolate", "integrate", "cumint",
-                      "physical_diff"],
+                      "physical_diff", "embed", "as_profile",
+                      "scatter_add", "scatter_set"],
 }
 
 setup(__name__, all_modules_by_origin, all_imports_by_origin)

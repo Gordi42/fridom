@@ -79,6 +79,12 @@ import numpy as np
 
 import fridom as fr
 from fridom.framework.utils import dtype_real, jaxify
+from fridom.hydrostatic.modules.barotropic_pressure import (
+    _PRECONDITIONERS as _BAROTROPIC_PRECONDITIONERS,
+)
+from fridom.hydrostatic.modules.barotropic_pressure import (
+    BarotropicPressureSolver,
+)
 from fridom.hydrostatic.modules.terrain import (
     discover_column,
     jacobian_name,
@@ -303,11 +309,7 @@ class _FreeSurfaceBase(fr.model.Module):
             # force on the z-constant ps, so the barotropic pair stays
             # skew and the surface DOF w(0) it drives is consistent with
             # the DIAGNOSE w. Both physical-depth reads are in-trace.
-            jname = jacobian_name(self._column)
-            ju = u * u.grid.metric(u.function_space.bare, jname)
-            jv = v * v.grid.metric(v.function_space.bare, jname)
-            div_h = ju.diff(zonal) + jv.diff(meridional)
-            transport_div = Integral()[self._vertical](div_h)
+            transport_div, div_h = self._terrain_transport_div(state)
             return transport_div * self._terrain_inv_depth(div_h)
         if self._immersed is None:
             div_h = u.diff(zonal) + v.diff(meridional)
@@ -321,6 +323,42 @@ class _FreeSurfaceBase(fr.model.Module):
     # ================================================================
     #  Terrain (sigma-coordinate) physical depth
     # ================================================================
+    def _terrain_transport_div(
+        self, state: object,
+    ) -> tuple[ScalarField, ScalarField]:
+        r"""Return the raw transport divergence ``T^*`` and its cell field.
+
+        Description
+        -----------
+        The **un-normalized** flux-form horizontal transport divergence
+        ``T^* = \int[\partial_x(Ju) + \partial_y(Jv)]\,\mathrm{d}z``
+        (``J`` the column Jacobian) on the ``ps`` cell, together with the
+        pre-integral collocated field ``div_h`` that still resolves the
+        vertical factor. The shared flux build of the depth-mean
+        divergence (:meth:`_depth_mean_div`, which divides ``T^*`` by the
+        physical column depth) and the volume-exact implicit operator's
+        right-hand side (GM-D1 option 1), which uses the raw ``T^*``
+        directly with **no** ``1/H(x, y)`` division.
+
+        Parameters
+        ----------
+        state : object
+            The current state (reads ``u`` and ``v``).
+
+        Returns
+        -------
+        tuple[ScalarField, ScalarField]
+            ``(T^*, div_h)`` — the reduced transport divergence on the
+            ``Profile`` cell and its pre-reduction collocated field.
+        """
+        zonal, meridional = self._horizontal
+        u, v = state["u"], state["v"]
+        jname = jacobian_name(self._column)
+        ju = u * u.grid.metric(u.function_space.bare, jname)
+        jv = v * v.grid.metric(v.function_space.bare, jname)
+        div_h = ju.diff(zonal) + jv.diff(meridional)
+        return Integral()[self._vertical](div_h), div_h
+
     def _terrain_inv_depth(self, cell_ref: ScalarField) -> ScalarField:
         r"""Return ``1/H(x, y)``, the reciprocal physical column depth.
 
@@ -586,6 +624,18 @@ class ImplicitFreeSurface(_FreeSurfaceBase):
     projection for the rigid lid. The unimmersed path is unchanged
     (:meth:`_solve`).
 
+    **Terrain grids (GM-D1/D2).** On a terrain-following (sigma) grid the
+    physical column depth ``H(x, y) = int J dz`` varies horizontally, so
+    the volume-exact barotropic operator
+    ``eps ps - dt'^2 (c^2/H_ref) div(H_a grad ps)`` (``H_a`` the a-face
+    physical depth) is also non-separable. The solve flips to the
+    :class:`~fridom.hydrostatic.modules.barotropic_pressure.BarotropicPressureSolver`
+    (:meth:`_solve_terrain`): the same SPD flux-form CG route with the
+    flat mean-depth spectral inverse as preconditioner and the plain-mean
+    nullspace projection for the rigid lid — carrying **no** ``1/H(x, y)``
+    division (option 1), so it conserves the barotropic volume ``int ps``
+    to round-off and has no guarded-division autodiff hazard.
+
     Parameters
     ----------
     epsilon : float, optional
@@ -595,17 +645,37 @@ class ImplicitFreeSurface(_FreeSurfaceBase):
         lid (the singular Poisson, ``where_zero`` mean gauge). Must be
         ``>= 0`` (default: 1.0).
     pressure_iterations : int, optional
-        The fixed PCG iteration budget of the immersed barotropic solve
-        (mirrors ``nh.Model(pressure_iterations=...)``); consumed only
-        on an immersed grid — the flat spectral solve is exact and
-        iterates nothing. Must be ``>= 1`` (default: 30).
+        The fixed PCG iteration budget of the immersed / terrain
+        barotropic solve (mirrors ``nh.Model(pressure_iterations=...)``);
+        consumed only on an immersed or terrain grid — the flat spectral
+        solve is exact and iterates nothing. Must be ``>= 1``
+        (default: 30).
     pressure_tolerance : float | None, optional
-        The PCG convergence break forwarded to the immersed
+        The PCG convergence break forwarded to the immersed / terrain
         barotropic :class:`ConjugateGradient` (the measure-weighted
         true relative residual; masked scan, exact gradient — see its
         docstring). The default ``1e-8`` makes ``pressure_iterations``
         the maximum budget; ``None`` is the opt-out that runs the fixed
         count (default: 1e-8).
+    pressure_preconditioner : str, optional
+        The terrain barotropic PCG preconditioner (GM-D2, Phase C),
+        forwarded to
+        :class:`~fridom.hydrostatic.modules.barotropic_pressure.BarotropicPressureSolver`:
+        ``"spectral"`` (the flat mean-depth separable spectral inverse,
+        the default) or ``"multigrid"`` (the point-Jacobi
+        geometric-multigrid V-cycle, h- and steepness-flat on steep
+        terrain). **Consumed only on a terrain (sigma) grid** — the flat
+        spectral solve is exact on a Cartesian grid and iterates nothing,
+        and the immersed path keeps its own masked spectral
+        preconditioner. Any other value raises ``ValueError``
+        (default: ``"spectral"``).
+    multigrid_levels : int | None, optional
+        The multigrid depth when
+        ``pressure_preconditioner="multigrid"``, forwarded to the terrain
+        solver: ``None`` coarsens the horizontal axes to the four-cell
+        floor (the ratified floor-limited-depth semantics), an ``int``
+        caps the count as a maximum. Consumed only on a terrain grid with
+        the multigrid preconditioner (default: None).
     vertical : str, optional
         The vertical coordinate name the depth mean reduces over
         (default: ``"z"``).
@@ -637,6 +707,8 @@ class ImplicitFreeSurface(_FreeSurfaceBase):
         epsilon: float = 1.0,
         pressure_iterations: int = 30,
         pressure_tolerance: float | None = 1e-8,
+        pressure_preconditioner: str = "spectral",
+        multigrid_levels: int | None = None,
         vertical: str = "z",
         horizontal: tuple[str, str] = ("x", "y"),
     ) -> None:
@@ -656,43 +728,25 @@ class ImplicitFreeSurface(_FreeSurfaceBase):
                 "pressure_iterations is the fixed PCG budget of the "
                 "immersed barotropic solve (a positive int, consumed "
                 f"only on an immersed grid), got {pressure_iterations!r}")
+        if pressure_preconditioner not in _BAROTROPIC_PRECONDITIONERS:
+            raise ValueError(
+                "pressure_preconditioner is the terrain barotropic PCG "
+                f"preconditioner: one of {_BAROTROPIC_PRECONDITIONERS} "
+                "(consumed only on a terrain grid), got "
+                f"{pressure_preconditioner!r}")
+        if multigrid_levels is not None and (
+                isinstance(multigrid_levels, bool)
+                or not isinstance(multigrid_levels, int)
+                or multigrid_levels < 1):
+            raise ValueError(
+                "multigrid_levels is the terrain multigrid depth cap: a "
+                "positive int or None (floor-limited depth), got "
+                f"{multigrid_levels!r}")
         self._epsilon = float(epsilon)
         self._pressure_iterations = int(pressure_iterations)
         self._pressure_tolerance = pressure_tolerance
-
-    def bind(self, table: object) -> None:
-        r"""Freeze the depth; refuse a terrain (chart) grid (H3 deferred).
-
-        Description
-        -----------
-        Runs the base depth freeze, then the terrain gate: on a
-        terrain-following sigma column the physical depth ``H(x, y)``
-        varies horizontally, so the barotropic Helmholtz operator
-        ``\\varepsilon - dt'^2\\,\\nabla\\!\\cdot(c^2 H\\,\\nabla)``
-        becomes **variable-coefficient** and leaves the separable
-        ``SpectralSolve`` fast path — the variable-``c^2 H`` CG route
-        (the hydrostatic analogue of ``mapped_pressure.py``) is
-        specified but **not built** (research record
-        ``stretched_terrain_combined.md`` §6 H3; hydrostatic plan §7).
-        Rather than run silently on the wrong (constant-depth) operator,
-        the implicit variant is a taught error on a chart grid; use the
-        ``hy.ExplicitFreeSurface`` or ``hy.SplitExplicitFreeSurface``
-        (both terrain-capable) instead.
-        """
-        super().bind(table)
-        if self._column is not None:
-            raise NotImplementedError(
-                "hy.ImplicitFreeSurface does not support a terrain-"
-                "following (sigma) grid yet: the physical column depth "
-                "H(x, y) varies horizontally, so the barotropic "
-                "Helmholtz operator eps - dt'^2 div(c^2 H grad) is "
-                "variable-coefficient and leaves the separable spectral "
-                "solve. The variable-c^2 H conjugate-gradient route (the "
-                "hydrostatic analogue of the mapped pressure solver) is "
-                "specified but not built (stretched_terrain_combined.md "
-                "§6 item H3; hydrostatic plan §7). Assemble with "
-                "hy.ExplicitFreeSurface or hy.SplitExplicitFreeSurface, "
-                "which carry the terrain physical depth")
+        self._pressure_preconditioner = pressure_preconditioner
+        self._multigrid_levels = multigrid_levels
 
     # ================================================================
     #  Properties
@@ -711,6 +765,16 @@ class ImplicitFreeSurface(_FreeSurfaceBase):
     def pressure_tolerance(self) -> float | None:
         """The optional PCG convergence break (None = fixed count)."""
         return self._pressure_tolerance
+
+    @property
+    def pressure_preconditioner(self) -> str:
+        """The terrain barotropic PCG preconditioner (spectral/multigrid)."""
+        return self._pressure_preconditioner
+
+    @property
+    def multigrid_levels(self) -> int | None:
+        """The terrain multigrid depth cap (None = floor-limited)."""
+        return self._multigrid_levels
 
     # ================================================================
     #  Field declarations (lifecycle depends on epsilon)
@@ -746,17 +810,25 @@ class ImplicitFreeSurface(_FreeSurfaceBase):
     # ================================================================
     @property
     def extra_halo(self) -> HaloSpec:
-        """Exempt the (global, spectral) 2D solve from the halo trace.
+        r"""Exempt the (global, spectral / CG) 2D solve from the halo trace.
 
         Description
         -----------
         The CONSTRAINT wraps raw ``Fourier``/``.data`` arrays inside
-        :class:`SpectralSolve`; it declares its FD-stencil halo here
-        (one cell per horizontal coordinate — the staggered ``diff`` of
-        the divergence RHS and the gradient correction) rather than
-        being halo-traced (the nonhydro projection precedent, V-N2).
+        :class:`SpectralSolve` (flat) or the terrain barotropic PCG; it
+        declares its FD-stencil halo here rather than being halo-traced
+        (the nonhydro projection precedent, V-N2). Off a terrain grid
+        this is **one** cell per horizontal coordinate — the staggered
+        ``diff`` of the divergence RHS and the gradient correction. On a
+        terrain grid it is **two** cells (GM-D8): the barotropic operator
+        multiplies the ``grid.metric`` column Jacobian ``J`` the halo
+        tracer's ``_TracerGrid`` cannot materialize, so the stage runs on
+        real fields whose materialized metrics carry the provisional
+        two-cell storage halo (the ``core.py`` terrain / immersed
+        precedent).
         """
-        return HaloSpec(dict.fromkeys(self._horizontal, 1))
+        cells = 2 if self._column is not None else 1
+        return HaloSpec(dict.fromkeys(self._horizontal, cells))
 
     @property
     def stages(self) -> tuple[fr.model.Stage, ...]:
@@ -807,13 +879,31 @@ class ImplicitFreeSurface(_FreeSurfaceBase):
         dt = ctx.stage_dt
         zonal, meridional = self._horizontal
         u, v = state["u"], state["v"]
-        div_bar = self._depth_mean_div(state)  # masked on a cut cell
-        # RHS: eps * ps_old - dt' * c^2 * div(ubar*)  (eps=0 drops ps)
-        rhs = self._epsilon * state["ps"] - dt * csqr * div_bar
-        if self._immersed is None:
-            ps_new = self._solve(rhs, csqr=csqr, dt=dt)
+        if self._column is not None:
+            # terrain (GM-D1 option 1, volume-exact): the RHS uses the
+            # RAW transport divergence T* with the constant gravity
+            # coefficient g = c^2 / H_ref (no 1/H(x, y) division), and the
+            # variable-coefficient operator carries the physical face
+            # depth H_a. RHS = eps * ps_old - dt' * g * T*.
+            transport_div, _ = self._terrain_transport_div(state)
+            rhs = (self._epsilon * state["ps"]
+                   - dt * csqr * self._inv_depth * transport_div)
+            # warm start from the previous ps (CG projects the guess, so
+            # a non-mean-free x0 is safe under the eps=0 mean gauge)
+            ps_new = self._solve_terrain(
+                rhs, x0=state["ps"], csqr=csqr, dt=dt)
         else:
-            ps_new = self._solve_immersed(rhs, state, csqr=csqr, dt=dt)
+            div_bar = self._depth_mean_div(state)  # masked on a cut cell
+            # RHS: eps * ps_old - dt' * c^2 * div(ubar*)  (eps=0 drops ps)
+            rhs = self._epsilon * state["ps"] - dt * csqr * div_bar
+            if self._immersed is None:
+                ps_new = self._solve(rhs, csqr=csqr, dt=dt)
+            else:
+                # warm start the CG from the previous surface pressure
+                # (prognostic for eps > 0, previous diagnostic for
+                # eps = 0; both are valid guesses — Phase E)
+                ps_new = self._solve_immersed(
+                    rhs, state, csqr=csqr, dt=dt, x0=state["ps"])
         # z-uniform correction: broadcast the ConstantSpace ps gradient
         # onto the velocity faces (the same C-grid diff the solve uses).
         # On an immersed grid the boolean open-face mask keeps the
@@ -891,7 +981,7 @@ class ImplicitFreeSurface(_FreeSurfaceBase):
 
     def _solve_immersed(
         self, rhs: ScalarField, state: object, *,
-        csqr: object, dt: object,
+        csqr: object, dt: object, x0: ScalarField | None = None,
     ) -> ScalarField:
         r"""Invert the variable-coefficient barotropic Helmholtz (IP-D9).
 
@@ -926,6 +1016,12 @@ class ImplicitFreeSurface(_FreeSurfaceBase):
             The live squared-phase-speed leaf ``c^2``.
         dt : object
             The stage increment ``dt' = ctx.stage_dt``.
+        x0 : ScalarField | None, optional
+            The warm-start initial guess (the previous surface
+            pressure); None starts from zeros (default: None). The
+            RHS-relative stopping test saves iterations from a good
+            guess; the wet-mean gauge (eps = 0) is enforced
+            start-independently, so the solution is unchanged.
 
         Returns
         -------
@@ -982,8 +1078,59 @@ class ImplicitFreeSurface(_FreeSurfaceBase):
             apply, preconditioner=precondition,
             iterations=self._pressure_iterations,
             tolerance=self._pressure_tolerance, projection=projection)
-        ps_new = cg(rhs)
+        ps_new = cg(rhs, x0)
         return ps_new.with_data(ps_new.data * cell_mask)
+
+    def _solve_terrain(
+        self, rhs: ScalarField, x0: ScalarField | None = None,
+        *, csqr: object, dt: object,
+    ) -> ScalarField:
+        r"""Invert the volume-exact terrain barotropic Helmholtz (H3).
+
+        Description
+        -----------
+        On a terrain-following (sigma) grid the physical column depth
+        ``H(x, y) = \int J\,\mathrm{d}z`` varies horizontally, so the
+        barotropic operator
+        ``eps ps - dt'^2 (c^2/H_ref) div(H_a grad ps)`` is
+        variable-coefficient and leaves the separable spectral fast path
+        (GM-D1 option 1, volume-exact). It flips to the
+        :class:`~fridom.hydrostatic.modules.barotropic_pressure.BarotropicPressureSolver`:
+        the SPD flux-form operator built by explicit field arithmetic, the
+        knob-selected ``pressure_preconditioner`` (the flat mean-depth
+        spectral inverse or the point-Jacobi multigrid V-cycle), and —
+        for ``epsilon == 0`` (the singular rigid lid) — the plain-mean
+        nullspace projection (GM-D7). The solver reuses this module's
+        ``pressure_iterations`` / ``pressure_tolerance`` budget. On a flat
+        (``a = 0``) chart the preconditioner is the exact inverse and PCG
+        converges in one iteration (the flat-limit gate GB-2).
+
+        Parameters
+        ----------
+        rhs : ScalarField
+            The terrain barotropic right-hand side on the ``ps`` cell.
+        x0 : ScalarField | None, optional
+            The initial guess (the previous ``ps`` for a warm start);
+            None starts from zeros (default: None).
+        csqr : object
+            The live squared-phase-speed leaf ``c^2``.
+        dt : object
+            The stage increment ``dt' = ctx.stage_dt``.
+
+        Returns
+        -------
+        ScalarField
+            The surface pressure ``ps^{n+1}`` on ``rhs``'s space.
+        """
+        solver = BarotropicPressureSolver(
+            rhs.grid, rhs.function_space.bare, self._column,
+            self._vertical, epsilon=self._epsilon,
+            inv_depth=self._inv_depth,
+            iterations=self._pressure_iterations,
+            tolerance=self._pressure_tolerance,
+            preconditioner=self._pressure_preconditioner,
+            multigrid_levels=self._multigrid_levels)
+        return solver.solve(rhs, x0, csqr=csqr, dt=dt)
 
 
 # ================================================================

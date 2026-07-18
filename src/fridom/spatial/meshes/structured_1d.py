@@ -35,7 +35,6 @@ from fridom.spatial.spaces.coefficient import (
     FourierSpace,
     SineSpace,
 )
-from fridom.spatial.spaces.constant import ConstantSpace
 from fridom.spatial.spaces.function_space import (
     _FACTORY_TOKEN,
     FunctionSpace,
@@ -51,6 +50,7 @@ from fridom.spatial.spaces.nodal import (
     Outer,
     Right,
 )
+from fridom.spatial.spaces.trace import Side, TraceSpace
 
 if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Callable
@@ -195,9 +195,9 @@ class StructuredMesh1D(Mesh):
         Description
         -----------
         GHOST-first for nodal/average spaces; (LOCAL, TRANSPOSE)
-        for coefficient spaces (local preferred); (LOCAL,) for
-        ``ConstantSpace``. ``ChebyshevMesh`` overrides
-        (transpose-first).
+        for coefficient spaces (local preferred); (LOCAL,) for the
+        collapsed factors (``ConstantSpace`` / ``TraceSpace``).
+        ``ChebyshevMesh`` overrides (transpose-first).
 
         Parameters
         ----------
@@ -210,7 +210,7 @@ class StructuredMesh1D(Mesh):
             The preference-ordered strategies record.
         """
         self._check_owned(space)
-        if isinstance(space, ConstantSpace):
+        if space.collapses_axis:
             return MeshDecompositionTraits((HaloStrategy.LOCAL,))
         if isinstance(space, CoefficientSpace):
             return MeshDecompositionTraits(
@@ -326,6 +326,18 @@ class StructuredMesh1D(Mesh):
             self._coarsened_cache[factor] = mesh
         return mesh
 
+    @property
+    def coarsenable(self) -> bool:
+        """Whether this mesh family can build a coarser sibling.
+
+        ``True`` on the structured interval meshes (their
+        ``_make_refined`` scales the cell count); the ``ChebyshevMesh``
+        override returns ``False``. Consulted by the multigrid hierarchy
+        builder to keep a non-coarsenable axis at full resolution rather
+        than fault (GM-D9 graceful degradation).
+        """
+        return True
+
     @abstractmethod
     def _make_refined(self, n_cells: int) -> Self:
         """Construct (not memoize) the scaled same-type mesh.
@@ -410,6 +422,61 @@ class StructuredMesh1D(Mesh):
             key,
             lambda: cls(self, Scalars.REAL, structure,
                         _token=_FACTORY_TOKEN))
+
+    def trace(self, node_set: NodeSet, side: Side,
+              depth: int = 0) -> TraceSpace:
+        """
+        Boundary-trace factory: the values on one boundary row.
+
+        Description
+        -----------
+        Mints the interned ``TraceSpace`` of the given parent node
+        set at the given wall — a size-1, non-broadcasting factor on
+        *this* mesh (``boundary_trace_plan.md`` §2). A trace needs a
+        boundary, so periodic meshes and the ``POINTS`` node set are
+        rejected; ``depth != 0`` (interior slices) raises at
+        construction (only the boundary row is implemented).
+
+        Parameters
+        ----------
+        node_set : NodeSet
+            The topological node set the trace is taken from (any
+            structured 1D set; ``POINTS`` is rejected).
+        side : Side
+            The boundary side (``Side.LOW`` / ``Side.HIGH``).
+        depth : int, optional
+            The signed true-node index from ``side``; only ``0`` (the
+            boundary row) is implemented (default: 0).
+
+        Returns
+        -------
+        TraceSpace
+            The interned trace space.
+        """
+        if not isinstance(node_set, NodeSet):
+            raise TypeError(
+                f"node_set must be a NodeSet member, got {node_set!r}")
+        if node_set is NodeSet.POINTS:
+            raise ValueError(
+                "POINTS is the PointMesh node set; structured 1D "
+                "meshes have no point-values space to trace")
+        if not isinstance(side, Side):
+            raise TypeError(
+                f"side must be a Side member (Side.LOW / Side.HIGH), "
+                f"got {side!r}")
+        if self._periodic:
+            raise ValueError(
+                "trace spaces need a bounded mesh: a periodic mesh "
+                "has no boundary to trace")
+        self._validate_node_set(node_set)
+        key = space_key(TraceSpace, node_set, side, depth,
+                        Scalars.REAL)
+        return self._intern(
+            key,
+            lambda: TraceSpace(
+                self, Scalars.REAL, self._free_bc,
+                parent_node_set=node_set, side=side, depth=depth,
+                _token=_FACTORY_TOKEN))
 
     def _validate_node_set(self, node_set: NodeSet) -> None:
         """Reject node sets a restricted mesh does not carry.

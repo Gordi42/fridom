@@ -38,13 +38,13 @@ N = 16
 @pytest.fixture
 def periodic():
     mesh = IntervalMesh(N, (0.0, 1.0), name="x")
-    return Grid((mesh,)), mesh
+    return Grid((mesh,), device_ids=(0,)), mesh
 
 
 @pytest.fixture
 def bounded():
     mesh = IntervalMesh(8, (0.0, 1.0), periodic=False, name="x")
-    return Grid((mesh,)), mesh
+    return Grid((mesh,), device_ids=(0,)), mesh
 
 
 # ----------------------------------------------------------------
@@ -221,7 +221,7 @@ def test_spectral_derivative_trig_symbol_matches_the_apply(
 
 def test_spectral_derivative_eigenvalues_raise_on_chebyshev():
     mesh = ChebyshevMesh(8, (-1.0, 1.0), name="z")
-    grid = Grid((mesh,))
+    grid = Grid((mesh,), device_ids=(0,))
     with pytest.raises(EigenbasisError):
         SpectralDerivative().eigenvalues(
             grid, mesh.chebyshev(mesh.lobatto))
@@ -372,7 +372,7 @@ def test_chebyshev_derivative_is_exact_with_extent_scaling():
     # physical interval (0, 2): d/dx = (2/L) d/dxi = d/dxi
     for extent, scale in (((-1.0, 1.0), 1.0), ((0.0, 4.0), 0.5)):
         mesh = ChebyshevMesh(8, extent, name="z")
-        grid = Grid((mesh,))
+        grid = Grid((mesh,), device_ids=(0,))
         xi = -jnp.cos(jnp.pi * jnp.arange(9) / 8)
         f = grid.create_field(mesh.lobatto,
                               data=4 * xi ** 3 - 3 * xi)  # T_3
@@ -385,7 +385,7 @@ def test_chebyshev_derivative_is_exact_with_extent_scaling():
 def test_derivative_binds_like_any_separable_kernel():
     mx = IntervalMesh(8, (0.0, 1.0), name="x")
     my = IntervalMesh(8, (0.0, 1.0), name="y")
-    grid = Grid((mx, my))
+    grid = Grid((mx, my), device_ids=(0,))
     f = grid.create_field(
         init=lambda x, y: jnp.sin(TWO_PI * x) * jnp.cos(TWO_PI * y))
     ft = Fourier(grid)
@@ -425,7 +425,7 @@ def test_phase_shift_zeroes_the_even_n_nyquist_mode(periodic):
 
 def test_phase_shift_integer_offsets_keep_the_nyquist_mode():
     mesh = IntervalMesh(8, (0.0, 1.0), name="x")
-    grid = Grid((mesh,))
+    grid = Grid((mesh,), device_ids=(0,))
     ft = Fourier(grid)
     f = grid.create_field(
         mesh.left, init=lambda x: jnp.cos(TWO_PI * 4 * x))
@@ -511,7 +511,7 @@ def test_sinc_shift_target_validation():
 
 def test_odd_n_fourier_derivative_has_no_nyquist_slot():
     mesh = IntervalMesh(9, (0.0, 1.0), name="x")
-    grid = Grid((mesh,))
+    grid = Grid((mesh,), device_ids=(0,))
     f = grid.create_field(init=lambda x: jnp.sin(TWO_PI * 4 * x))
     ft = Fourier(grid)
     deriv = ft.backward(SpectralDerivative()(ft.forward(f)))
@@ -544,7 +544,7 @@ def test_shift_target_properties():
 
 def test_phase_shift_is_exact_on_odd_n_real_origins():
     mesh = IntervalMesh(9, (0.0, 1.0), name="x")
-    grid = Grid((mesh,))
+    grid = Grid((mesh,), device_ids=(0,))
     ft = Fourier(grid)
     wave = lambda x: (jnp.sin(TWO_PI * x)  # noqa: E731
                       + jnp.cos(TWO_PI * 4 * x))

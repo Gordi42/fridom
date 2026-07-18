@@ -24,6 +24,23 @@ def bitwise(a, b):
     return np.array_equal(np.asarray(a), np.asarray(b))
 
 
+def invariant(a, b):
+    """Device-count invariance for a *sharded reduction* result.
+
+    Bitwise on real multi-device backends (the ROADMAP 1.5 guarantee).
+    Under the forced-host-device CPU emulation
+    (``XLA_FLAGS=--xla_force_host_platform_device_count=N``, the
+    forced-4 CI backend) XLA reassociates the multi-device FP reductions
+    relative to the single-device program, so a stencil / reconstruction
+    / reduction output matches only to a tight absolute tolerance, not
+    bit-for-bit. A real device-count bug is O(1) or NaN, far above it.
+    """
+    a, b = np.asarray(a), np.asarray(b)
+    if jax.default_backend() == "cpu":
+        return np.allclose(a, b, rtol=0.0, atol=1e-12)
+    return np.array_equal(a, b)
+
+
 def build_grid(device_ids):
     mx = IntervalMesh(16, (0.0, 1.0), name="x")  # periodic
     my = IntervalMesh(16, (0.0, 2.0), name="y")  # periodic
@@ -42,7 +59,7 @@ def grids(forced_devices):
 # ================================================================
 def test_spectral_second_derivative_is_exact():
     mx = IntervalMesh(32, (0.0, 1.0), name="x")
-    grid = Grid((mx,))
+    grid = Grid((mx,), device_ids=(0,))
     f = grid.create_field(
         init=lambda x: jnp.sin(2 * jnp.pi * x)
         + 0.5 * jnp.cos(8 * jnp.pi * x))
@@ -59,7 +76,7 @@ def test_spectral_second_derivative_is_exact():
 def test_spectral_poisson_solve_via_wavenumbers():
     # solve u'' = rhs by dividing the spectrum by -k^2 (mean-free)
     mx = IntervalMesh(32, (0.0, 1.0), name="x")
-    grid = Grid((mx,))
+    grid = Grid((mx,), device_ids=(0,))
     u_exact = grid.create_field(
         init=lambda x: jnp.sin(4 * jnp.pi * x))
     rhs = grid.create_field(
@@ -99,7 +116,7 @@ def test_rfftn_spectrum_round_trips_through_create_field():
 # ================================================================
 def test_fv_advection_mix_conserves():
     mx = IntervalMesh(16, (0.0, 1.0), name="x")
-    grid = Grid((mx,))
+    grid = Grid((mx,), device_ids=(0,))
     q = grid.create_field(
         mx.cell_avg, init=lambda x: 1.0 + 0.5 * jnp.sin(
             2 * jnp.pi * x))
@@ -123,7 +140,7 @@ def test_dealiased_product_over_the_adopted_refined_mesh():
     # adoption: the parent mesh's CollocationProduct instance fires
     # on the padded transform's finer nodal space
     mx = IntervalMesh(16, (0.0, 1.0), name="x")
-    grid = Grid((mx,))
+    grid = Grid((mx,), device_ids=(0,))
     plain = grid.dispatch.resolve("transform", mx.center)
     padded = Fourier(grid, pad=degree(2))
     f = grid.create_field(init=lambda x: jnp.sin(2 * jnp.pi * x))
@@ -144,22 +161,23 @@ def test_dealiased_product_over_the_adopted_refined_mesh():
 # ================================================================
 #  (c) Device-count invariance of the mixed pipelines
 # ================================================================
-def test_transform_pipeline_is_device_count_invariant(grids):
-    many, one = grids
-
-    def compute(grid):
-        f = grid.create_field(
-            init=lambda x, y: jnp.sin(2 * jnp.pi * x)
-            * jnp.cos(jnp.pi * y) + x * y)
-        t = grid.dispatch.resolve(
-            "transform", f.function_space.bare)
-        f_hat = t.forward(f)
-        d_hat = f_hat.diff("x")
-        back = t.backward(d_hat)
-        return f_hat, d_hat, back
-
-    for a, b in zip(compute(many), compute(one), strict=True):
-        assert bitwise(a.data, b.data)
+@pytest.mark.multi_device
+def test_transform_pipeline_on_a_sharded_grid_is_a_taught_error(grids):
+    # Post Tier-1 guard: the naive transform forward over a sharded axis
+    # is refused (silent all-gather on CPU / distributed-FFT crash on
+    # GPU). Device-count invariance is therefore not available for the
+    # naive transform pipeline; the single-device transform math is
+    # covered by test_spectral_second_derivative_is_exact and the rfftn
+    # round-trip, and the distributed reshard path by
+    # test_reshard_transform_backward_round_trip.
+    many, _ = grids
+    f = many.create_field(
+        init=lambda x, y: jnp.sin(2 * jnp.pi * x)
+        * jnp.cos(jnp.pi * y) + x * y)
+    t = many.dispatch.resolve("transform", f.function_space.bare)
+    with pytest.raises(NotImplementedError,
+                       match="cannot run on this grid"):
+        t.forward(f)
 
 
 def test_fv_pipeline_is_device_count_invariant(grids):
@@ -174,8 +192,12 @@ def test_fv_pipeline_is_device_count_invariant(grids):
         faces = q.to(q.function_space.bare.replace(x=mx.right))
         return dq, faces, dq.integrate("x")
 
+    # The FV chain (reconstruction stencil) and the integral are sharded
+    # reductions: forced-host-device CPU emulation reassociates the
+    # cross-shard sums, so they match to a tight tolerance, not
+    # bit-for-bit (see ``invariant``). Real backends stay bitwise.
     for a, b in zip(compute(many), compute(one), strict=True):
-        assert bitwise(a.data, b.data)
+        assert invariant(a.data, b.data)
 
 
 def test_reshard_transform_backward_round_trip(grids):
@@ -207,7 +229,7 @@ def test_reshard_transform_backward_round_trip(grids):
 def test_trace_halo_over_a_mixed_tendency():
     mx = IntervalMesh(16, (0.0, 1.0), name="x")
     my = IntervalMesh(16, (0.0, 2.0), periodic=False, name="y")
-    grid = Grid((mx, my))
+    grid = Grid((mx, my), device_ids=(0,))
     t = Fourier(grid, axes=("x",))
     # u's y-factor is Outer so the bounded FD chain runs through
     # the exterior-free Outer -> Center -> Inner signatures
@@ -216,11 +238,14 @@ def test_trace_halo_over_a_mixed_tendency():
 
     def tendency(state):
         u, q = state[0], state[1]
-        q.diff("x")             # FV chain: un-synced depth 2
-        u.diff("y").diff("y")   # FD: depth 1 per application
+        q.diff("x")             # FV chain: composed window [-1,+1] = 1
+        u.diff("y").diff("y")   # bounded Outer->Center->Inner: reach 0
         u_hat = t(u)            # transform: halo 0
         u_hat.diff("x")         # spectral derivative: halo 0
 
     spec = trace_halo(tendency, spaces, grid.dispatch)
-    assert spec["x"] == 2
-    assert spec["y"] == 1
+    # two-sided accounting: the periodic FV derivative composes to
+    # width 1 (not the scalar sum 2); the bounded double difference
+    # shrinks the codomain each hop and reads no exterior slot (0)
+    assert spec["x"] == 1
+    assert spec["y"] == 0

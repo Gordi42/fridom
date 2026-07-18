@@ -71,6 +71,7 @@ if TYPE_CHECKING:  # pragma: no cover
         FunctionSpace,
     )
     from fridom.spatial.spaces.tensor_product import SpaceLike
+    from fridom.spatial.spaces.trace import Side
 
 # Python scalars entering field arithmetic (bool counts as int)
 _SCALAR_TYPES = int | float | complex
@@ -465,6 +466,122 @@ class ScalarField:
         """
         return Dispatched("diff")[name](self)
 
+    def trace(
+        self, name: str, side: Side, depth: int = 0,
+    ) -> ScalarField:
+        """
+        Boundary-adjacent row along ``name`` as a 2D trace field.
+
+        Description
+        -----------
+        Builds and applies
+        :class:`~fridom.spatial.operators.boundary.BoundaryTrace` for
+        the requested side directly (the side cannot ride a
+        single-kind dispatch key). ``Side.LOW`` traces the ``x_min``
+        wall, ``Side.HIGH`` the ``x_max`` wall; the result is a
+        non-broadcasting ``TraceSpace`` factor. Nodal and FV
+        ``CellAvg`` factors only (rejections in ``BoundaryTrace``).
+
+        Parameters
+        ----------
+        name : str
+            The bounded coordinate name to trace along.
+        side : Side
+            The boundary side (``Side.LOW`` / ``Side.HIGH``).
+        depth : int, optional
+            The signed true-node index from the side; only ``0`` (the
+            boundary row) is implemented (default: 0).
+
+        Returns
+        -------
+        ScalarField
+            The 2D boundary-trace field.
+        """
+        from fridom.spatial.operators.boundary import (  # noqa: PLC0415 — keep boundary off the field-core import path
+            BoundaryTrace,
+        )
+        return BoundaryTrace(side, depth)[name](self)
+
+    def embed(self, name: str) -> ScalarField:
+        """
+        Sparse-materialize a 2D trace back into its parent row.
+
+        Description
+        -----------
+        Thin forwarder to the seeded verb (D3):
+        ``fr.operators.embed[name](self)`` — the mutual VJP of
+        :meth:`trace` (boundary row set, zeros elsewhere; side/parent
+        ride the operand's ``TraceSpace``).
+
+        Parameters
+        ----------
+        name : str
+            The traced coordinate name to expand back to full.
+
+        Returns
+        -------
+        ScalarField
+            The sparse full field on the parent node set.
+        """
+        return Dispatched("embed")[name](self)
+
+    def as_profile(self, name: str) -> ScalarField:
+        """
+        Bridge a boundary trace into the Constant-z machinery.
+
+        Description
+        -----------
+        Thin forwarder to the seeded verb (D3):
+        ``fr.operators.as_profile[name](self)`` — the *opt-in* retag
+        Trace -> ``ConstantSpace`` (broadcast sanction). Exact, data
+        untouched.
+
+        Parameters
+        ----------
+        name : str
+            The traced coordinate name to retag as constant.
+
+        Returns
+        -------
+        ScalarField
+            The field on the ``ConstantSpace`` (Profile) factor.
+        """
+        return Dispatched("as_profile")[name](self)
+
+    def adopt(
+        self, name: str, node_set: NodeSet, side: Side,
+    ) -> ScalarField:
+        """
+        Retag a ``ConstantSpace`` factor as a boundary trace.
+
+        Description
+        -----------
+        Builds and applies
+        :class:`~fridom.spatial.operators.boundary.Adopt` (the reverse
+        of :meth:`as_profile`) — locates a constant factor on the given
+        wall (e.g. a wind-stress input file). Exact, data untouched;
+        the node set and side cannot ride a single-kind dispatch key,
+        so the operator is constructed directly.
+
+        Parameters
+        ----------
+        name : str
+            The coordinate name of the ``ConstantSpace`` factor.
+        node_set : NodeSet
+            The parent node set to locate the trace on.
+        side : Side
+            The boundary side (``Side.LOW`` / ``Side.HIGH``).
+
+        Returns
+        -------
+        ScalarField
+            The field on the boundary ``TraceSpace`` factor.
+        """
+        from fridom.spatial.operators.boundary import (  # noqa: PLC0415 — keep boundary off the field-core import path
+            Adopt,
+        )
+        return Adopt(node_set, side, name)(self)
+
     def to(self, target: ScalarField | SpaceLike) -> ScalarField:
         """
         Convert per axis onto the target's space.
@@ -477,7 +594,10 @@ class ScalarField:
         source ``"reconstruct"``, nodal -> average ``"average"``,
         coefficient -> coefficient ``"interpolate"``), resolves
         ``(kind, source_factor)`` in the grid registry, and applies
-        the bound operator. A registered codomain that is a
+        the bound operator. A factor that is a BC-sibling of the
+        target (same node set, tag-only difference) needs no
+        conversion and adopts the requested tag via ``retag``. A
+        registered codomain that is a
         BC-sibling of the requested target factor (nodal operator
         outputs are BC-free; owner decision) adopts the requested
         tag via ``retag``; any other disagreement raises
@@ -513,6 +633,13 @@ class ScalarField:
                 continue
             if isinstance(src, ConstantSpace):
                 result = _broadcast_factor(result, name, dst)
+                continue
+            if _bc_siblings(src, dst):
+                # tag-only difference (same node set): no conversion,
+                # just adopt the requested sibling tag (retag resets
+                # halo validity on this axis — the ghost policy
+                # changed with the tag)
+                result = result.retag(dst)  # single-factor shorthand
                 continue
             kind = _conversion_kind(src, dst)
             op = self._grid.dispatch.resolve(kind, src)[name]
@@ -572,10 +699,23 @@ class ScalarField:
         Thin forwarder to the seeded verb (D3): per name,
         ``fr.operators.integrate[name](self)`` resolves
         ``("integrate", factor)`` against ``grid.dispatch`` (rules
-        section 3.13). No names integrates every factor; reductions
-        along ``ConstantSpace`` factors are the identity; the result
-        broadcasts back via ``ConstantSpace`` (section 3.3), so
-        ``f - f.integrate("x")`` stays in the strict algebra.
+        section 3.13). On a mapping that derives a volume element the
+        seeded rows are Jacobian-weighted, so the reduction is the
+        **physical** integral on both mapping forms (an embedding
+        ``chart=`` ``sqrt_g`` element, an analytic ``maps=`` column
+        Jacobian) — identical to the raw ``Integral()`` only on flat /
+        computational grids. No names integrates every factor;
+        reductions along ``ConstantSpace`` factors are the identity;
+        the result broadcasts back via ``ConstantSpace`` (section 3.3),
+        so ``f - f.integrate("x")`` stays in the strict algebra.
+
+        Jacobian-carrying axes reduce **first** (:func:`_bases_first`
+        over :func:`_jacobian_axes`): required for ``maps=`` column
+        base axes (Hazard 1 — the column Jacobian varies over the
+        map's parameter axes, so a base axis reduced after its
+        parameters would evaluate the metric on a collapsed axis and
+        raise), harmless for embedding-chart coordinates. Flat grids
+        keep the plain space order.
 
         Parameters
         ----------
@@ -588,8 +728,10 @@ class ScalarField:
             The integral on the reduced space (default metadata).
         """
         space = self._function_space.bare
+        selected = _bases_first(_reduction_names(space, names),
+                                _jacobian_axes(self._grid))
         result = self
-        for name in _reduction_names(space, names):
+        for name in selected:
             factor = space.factor(name)
             if isinstance(factor, ConstantSpace):
                 continue  # identity reduction (section 3.13)
@@ -602,15 +744,30 @@ class ScalarField:
         return result
 
     def mean(self, *names: str) -> ScalarField:
-        """
+        r"""
         Integral divided by the integrated measure (sugar).
 
         Description
         -----------
-        ``f.integrate(*names)`` scaled by the reciprocal of the
-        total measure of the reduced factors (the per-name sums of
-        ``grid.measure``), so the mean of a constant is that
-        constant on every space family.
+        ``f.integrate(*names)`` scaled by the reciprocal of the total
+        measure of the reduced factors, so the mean of a constant is
+        that constant on every space family. On a grid seeding no
+        Jacobian rows (or when no selected name is a Jacobian-carrying
+        base axis) the divisor is the product of the per-name
+        ``grid.measure`` sums — the plain computational average, bitwise
+        the historical path. When a selected name carries a Jacobian
+        weight (a ``maps=`` column base axis, an embedding-chart
+        coordinate — :func:`_jacobian_axes`) the divisor becomes the
+        seeded (physical) volume ``\int J\,\mathrm{d}V`` of the reduced
+        factors — the same ``ones`` field integrated through the
+        Jacobian-weighted rows, so a partial ``mean("z")`` on a terrain
+        grid divides by the per-column depth ``H(x, y)`` (a field, not
+        a scalar), the full mean by the total physical volume, and a
+        chart mean by the ``sqrt_g`` area — numerator and divisor
+        always share one measure. The division is
+        double-``where`` guarded (differentiability policy): padding /
+        halo columns integrate ``J = 0``, and a bare ``1 / 0`` would
+        seal the value yet leave the VJP singular.
 
         Parameters
         ----------
@@ -624,7 +781,16 @@ class ScalarField:
         """
         space = self._function_space.bare
         selected = _reduction_names(space, names)
+        jac_axes = _jacobian_axes(self._grid)
         integral = self.integrate(*selected)
+        if any(name in jac_axes for name in selected):
+            # physical volume divisor (a field for a partial mean)
+            ones = self.with_data(jnp.ones_like(self.data))
+            volume = ones.integrate(*selected)
+            den = volume.data
+            safe = den != 0.0
+            inv = jnp.where(safe, 1.0 / jnp.where(safe, den, 1.0), 0.0)
+            return integral.with_data(integral.data * inv)
         total = None
         for name in selected:
             factor = space.factor(name)
@@ -819,6 +985,7 @@ class ScalarField:
         space = self._function_space
         if isinstance(other, complex):
             space = _promoted_space(space)
+        _reject_coefficient_elementwise("divide", space.bare)
         op = self._grid.dispatch.resolve("divide", space.bare)
         numerator = _wrap(self._grid, space,
                           jnp.full(space.shape, other))
@@ -830,6 +997,7 @@ class ScalarField:
                 or _is_0d_array(exponent)):
             return NotImplemented
         space = self._function_space
+        _reject_coefficient_elementwise("power", space.bare)
         op = self._grid.dispatch.resolve("power", space.bare)
         lifted = _wrap(self._grid, space,
                        jnp.full(space.shape, exponent))
@@ -838,6 +1006,7 @@ class ScalarField:
     def __abs__(self) -> ScalarField:
         """Pointwise modulus, (kind="abs", space); nodal default."""
         space = self._function_space
+        _reject_coefficient_elementwise("abs", space.bare)
         op = self._grid.dispatch.resolve("abs", space.bare)
         return op(self)
 
@@ -926,6 +1095,81 @@ def _reduction_names(
     return tuple(dict.fromkeys(names))
 
 
+def _jacobian_axes(grid: Grid) -> tuple[str, ...]:
+    """
+    Return the axes whose seeded reduction carries a Jacobian weight.
+
+    Description
+    -----------
+    The names the seeded rows weight by the mapping's volume element
+    (rules section 3.13): an embedding ``chart=`` mapping's chart
+    coordinates (the ``sqrt_g`` element) or an analytic ``maps=``
+    mapping's single-base column base axes (each column's
+    ``d<mapped>_d<base>``). ``integrate`` fronts these in the
+    reduction order — required for ``maps=`` columns (Hazard 1: the
+    column Jacobian varies over the map's parameter axes, so a base
+    axis reduced after its parameters would evaluate the metric on a
+    collapsed axis and raise) and harmless for charts (``sqrt_g``
+    enters on the first live chart reduction, order-independent) —
+    and ``mean`` keys its physical-volume divisor on them. A flat
+    grid returns the empty tuple (the untouched fast path).
+
+    Parameters
+    ----------
+    grid : Grid
+        The grid whose mapping supplies the volume element.
+
+    Returns
+    -------
+    tuple[str, ...]
+        The Jacobian-carrying reduction names (order-stable), or
+        empty.
+    """
+    mapping = grid.mapping
+    if mapping is None:
+        return ()
+    chart = mapping.chart_coords
+    if chart is not None:
+        return chart
+    return tuple(dict.fromkeys(
+        base for _mapped, base in mapping.column_corrections.values()))
+
+
+def _bases_first(
+    selected: tuple[str, ...], base_axes: tuple[str, ...],
+) -> tuple[str, ...]:
+    """
+    Stable-partition ``selected`` with Jacobian base axes first.
+
+    Description
+    -----------
+    The Hazard-1 reordering (:func:`_jacobian_axes`): ``maps=`` column
+    base axes reduce before their parameter axes so the column Jacobian
+    is evaluated while every parameter axis is still alive (fronting
+    embedding-chart coordinates alongside is harmless — ``sqrt_g`` is
+    order-independent). Relative order is preserved within each group;
+    with no Jacobian axes selected the result is ``selected`` unchanged
+    (the flat fast path).
+
+    Parameters
+    ----------
+    selected : tuple[str, ...]
+        The validated reduction names in space order.
+    base_axes : tuple[str, ...]
+        The grid's Jacobian-carrying reduction names.
+
+    Returns
+    -------
+    tuple[str, ...]
+        ``selected`` with base axes moved to the front, order stable.
+    """
+    if not base_axes:
+        return selected
+    bases = tuple(n for n in selected if n in base_axes)
+    rest = tuple(n for n in selected if n not in base_axes)
+    return bases + rest
+
+
 def _wrap(grid: Grid, space: SpaceLike,
           true_data: jax.Array) -> ScalarField:
     """Build a default-metadata result field from true-shape data."""
@@ -996,10 +1240,10 @@ def _check_lift(from_space: SpaceLike, to_space: SpaceLike) -> None:
     Description
     -----------
     The join already established that the factors are related by the
-    two sanctioned lifts; this checks the iteration-1 *realization*:
-    constant broadcast is a plain jnp broadcast onto nodal/average
-    factors (the seeded ``("broadcast", ConstantSpace)`` default),
-    and real -> complex promotion must not change the factor shape.
+    two sanctioned lifts; this checks the *realization*: constant
+    broadcast is a plain jnp broadcast onto nodal/average factors
+    (realized eagerly in ``_lift_field``, not a registered row), and
+    real -> complex promotion must not change the factor shape.
     """
     pairs = zip(from_space.factors, to_space.factors, strict=True)
     for src, dst in pairs:
@@ -1009,10 +1253,11 @@ def _check_lift(from_space: SpaceLike, to_space: SpaceLike) -> None:
             if isinstance(dst, CoefficientSpace):
                 raise DispatchError(
                     "no ('broadcast', ConstantSpace -> "
-                    f"{dst!r}) dispatch entry: broadcasting a "
-                    "constant into a coefficient space is the "
-                    "zero-mode update, not implemented in "
-                    "iteration 1")
+                    f"{dst!r}) dispatch entry by design: broadcasting "
+                    "a constant into a coefficient space is the "
+                    "zero-mode update, not a field operation; transform "
+                    "back to nodal space, or fold the constant into the "
+                    "Symbol algebra")
             continue
         if src.shape != dst.shape:
             raise NotImplementedError(
@@ -1106,9 +1351,11 @@ def _scalar_shift(
         if isinstance(factor, CoefficientSpace):
             raise DispatchError(
                 "no ('broadcast', ConstantSpace -> "
-                f"{factor!r}) dispatch entry: adding a Python "
-                "scalar to a coefficient-space field is the exact "
-                "zero-mode update, not implemented in iteration 1")
+                f"{factor!r}) dispatch entry by design: adding a "
+                "Python scalar to a coefficient-space field is the "
+                "exact zero-mode update, not a field operation (a "
+                "constant is not representable in a Sine basis); "
+                "transform back to nodal space first")
     if isinstance(value, complex):
         space = _promoted_space(space)
     valid = HaloSpec({
@@ -1165,6 +1412,60 @@ def _lift_field(f: ScalarField, joined: SpaceLike) -> ScalarField:
     return _wrap(f.grid, joined, data)
 
 
+# Coefficient-space fields form a vector space, not an algebra (owner
+# ruling 2026-07-18): only transform-commuting operations are field
+# arithmetic. An elementwise multiply/divide/power/abs of coefficient
+# factors is a convolution or a spectral diagnostic, not a field, so
+# these rows are permanently absent by design. Per-mode (diagonal)
+# manipulation lives on ``Symbol``; the pointwise product lives in
+# nodal space. Record:
+# design/research/coefficient_space_arithmetic_semantics.md.
+_COEFFICIENT_ELEMENTWISE_REJECTIONS = {
+    "multiply": (
+        "no ('multiply', {space!r}) dispatch entry by design: an "
+        "elementwise product of two coefficient-space fields is a "
+        "convolution of the represented functions, not their product; "
+        "apply a Symbol for a per-mode (diagonal) factor, or transform "
+        "back to nodal space for the pointwise product"),
+    "divide": (
+        "no ('divide', {space!r}) dispatch entry by design: a quotient "
+        "of spectra has no representation-independent realization; use "
+        "Symbol.inverse for a per-mode (diagonal) inverse, or transform "
+        "back to nodal space"),
+    "power": (
+        "no ('power', {space!r}) dispatch entry by design: an "
+        "elementwise power of a spectrum is not the transform of any "
+        "function power; use the Symbol algebra for diagonal powers, or "
+        "transform back to nodal space"),
+    "abs": (
+        "no ('abs', {space!r}) dispatch entry by design: per-mode "
+        "magnitudes are a spectral diagnostic, not a field; read .data, "
+        "or transform back to nodal space"),
+}
+
+
+def _reject_coefficient_elementwise(
+    kind: str, space: SpaceLike,
+) -> None:
+    """
+    Reject an elementwise coeff-space op with a teaching error.
+
+    Description
+    -----------
+    Raised before ``resolve`` (owner ruling 2026-07-18) when any bare
+    factor of ``space`` is a ``CoefficientSpace``: the taught message
+    replaces the generic registry miss, pointing multiply/divide/power/
+    abs at the ``Symbol`` diagonal algebra or a transform back to nodal
+    space. Linear ops (add/sub, scalar scale) never route here — they
+    bypass the registry — so the guard only fires on the permanently
+    absent elementwise rows.
+    """
+    if any(isinstance(factor, CoefficientSpace)
+           for factor in space.factors):
+        raise DispatchError(
+            _COEFFICIENT_ELEMENTWISE_REJECTIONS[kind].format(space=space))
+
+
 def _dispatched_product(
     a: ScalarField,
     b: ScalarField,
@@ -1177,6 +1478,7 @@ def _dispatched_product(
                   operation=operation)
     _check_lift(a.function_space, joined)
     _check_lift(b.function_space, joined)
+    _reject_coefficient_elementwise(kind, joined.bare)
     op = a.grid.dispatch.resolve(kind, joined.bare)
     return op(_lift_field(a, joined), _lift_field(b, joined))
 
@@ -1194,7 +1496,7 @@ def _broadcast_factor(
     ``profile.to(nodal)`` and the implicit lift inside ``profile * f``
     produce the identical field. Halo 0 — a broadcast reads the single
     DOF and adds no ghost demand. Broadcasting into a coefficient factor
-    is the zero-mode update, a ``DispatchError`` in iteration 1.
+    is the zero-mode update, a ``DispatchError`` by design.
 
     Parameters
     ----------
@@ -1213,9 +1515,10 @@ def _broadcast_factor(
     if isinstance(dst, CoefficientSpace):
         raise DispatchError(
             "no ('broadcast', ConstantSpace -> "
-            f"{dst!r}) dispatch entry: broadcasting a constant into a "
-            "coefficient space is the zero-mode update, not implemented "
-            "in iteration 1")
+            f"{dst!r}) dispatch entry by design: broadcasting a "
+            "constant into a coefficient space is the zero-mode "
+            "update, not a field operation; transform back to nodal "
+            "space, or fold the constant into the Symbol algebra")
     space = f.function_space
     if isinstance(space, TensorProductSpace):
         target: SpaceLike = space.replace(**{name: dst})

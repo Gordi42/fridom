@@ -24,7 +24,6 @@ from fridom.spatial.decomposition.traits import (
 )
 from fridom.spatial.meshes.structured_1d import StructuredMesh1D
 from fridom.spatial.spaces.coefficient import ChebyshevSpace
-from fridom.spatial.spaces.constant import ConstantSpace
 from fridom.spatial.spaces.nodal import (
     NodalSpace,
     NodeSet,
@@ -144,6 +143,16 @@ class ChebyshevMesh(StructuredMesh1D):
                 f"spaces, got {origin!r}")
         return self._coefficient(ChebyshevSpace, origin)
 
+    @property
+    def coarsenable(self) -> bool:
+        """``False``: Lobatto geometry has no cell-count coarsening.
+
+        ``_make_refined`` is designed-for here, so a Chebyshev vertical
+        keeps full resolution in the multigrid hierarchy (GM-D9 graceful
+        degradation) rather than fault.
+        """
+        return False
+
     def _make_refined(self, n_cells: int) -> Self:
         """Refinement is designed-for on this mesh."""
         raise NotImplementedError(
@@ -172,11 +181,11 @@ class ChebyshevMesh(StructuredMesh1D):
         Returns
         -------
         MeshDecompositionTraits
-            ``(TRANSPOSE, LOCAL)``; ``(LOCAL,)`` for
-            ``ConstantSpace``.
+            ``(TRANSPOSE, LOCAL)``; ``(LOCAL,)`` for the collapsed
+            factors (``ConstantSpace`` / ``TraceSpace``).
         """
         self._check_owned(space)
-        if isinstance(space, ConstantSpace):
+        if space.collapses_axis:
             return MeshDecompositionTraits((HaloStrategy.LOCAL,))
         return MeshDecompositionTraits(
             (HaloStrategy.TRANSPOSE, HaloStrategy.LOCAL))

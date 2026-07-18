@@ -19,32 +19,6 @@ entry is enough.
 
 # Next steps
 
-## Performance guard — wire the benchmark harness as a CI gate
-
-The A/B harness exists (`benchmarks/model/bench_step.py`, **committed**
-baselines `benchmarks/baselines/step-gpu{1,4}.json`,
-`--fail-on-regression`, the `nh_flat_prime` / `nh_flat_walled_x` guard
-cases — see [`done.md`](done.md)), but the CI benchmark job still only
-smoke-runs ("No timing assertions", `.github/workflows/tests.yml`), so
-a silent perf regression on the untimed CI path stays green.
-
-Also open: **fast-path assertions beyond the solve.**
-`tests/nonhydro2/test_distributed_projection.py` asserts the
-distributed fast path for all four solve geometries (periodic,
-walled-z, walled-x, prime), and the halo-claim assertions guard
-storage-frame arithmetic — but the other fast paths remain unasserted.
-A change that pushes production off one of them would pass the suite
-and quietly cost ~2x at scale.
-[`../plans/active/perf_geometry_merge_plan.md`](../plans/active/perf_geometry_merge_plan.md)
-
-Closure design (2026-07-18, owner rulings recorded in its §5):
-[`../plans/active/perf_guard_plan.md`](../plans/active/perf_guard_plan.md)
-— PR CI gates *structure* (six new fast-path assertions, incl. the
-FV walled/mapped ratchet), the DKRZ A100 node gates *time* (hardened
-`compare` + manually submitted sbatch guard; **no automated cluster
-submissions**, owner ruling); a wall-clock gate in GitHub CI is
-explicitly rejected there. Open: implement G1–G3.
-
 ## Gaps against the Oceananigans reference comparison
 
 The 2026-07 matched-protocol comparison against Oceananigans.jl
@@ -55,93 +29,95 @@ three trailing areas it identified are largely closed — single-GPU
 memory ceiling, time-to-first-step, WENO throughput (entries in
 [`done.md`](done.md)). Still open:
 
-- **Re-run the comparison suite** on post-fix dev (projected weno5
-  edge ~1.8x), and fix its chunk metric to report compile separately
-  (`_CHUNK_COMPILE_LOG`).
-- **Async two-tier chunk compile** (optional, interactive-UX). Measured
-  (first advance −24..31%, steady state bitwise-unchanged), default-off
-  patch preserved, unlanded.
-  [`../research/time_to_first_step.md`](../research/time_to_first_step.md)
-- **Storage-halo width probe.** Biased order-5 pads storage to `n+8`
-  per axis where the nominal reach needs `n+6` (centered: `n+4` vs
-  `n+2`) — ~6% inflation on every upwind5 buffer, est. 2–3 ms/step
-  @192³ on RTX-3060-class hardware. A core staggering-policy
-  question, parity-sensitive, unprobed
-  ([`../research/upwind5_revisit.md`](../research/upwind5_revisit.md)
-  §6).
-- **Hydro surface-flux correction: slice-only `A(1)`.** The H7
-  constancy-preserving surface advective flux (owner-ratified
-  default, [`../plans/active/hydrostatic_model_plan.md`](../plans/active/hydrostatic_model_plan.md)
-  §H7) costs +18–49% on `se_centered` and +11–36% on `se_weno5`
-  hydro steps in the comparison suite (worst at 2048²×64, resweep
-  2026-07-17), flipping centered hydro from ~break-even to
-  0.79–0.88 oc/fridom; `*_linear` configs unaffected. The correction
-  `−q·A(1)` is mathematically nonzero **only in boundary-adjacent
-  cells**, yet is evaluated as full-3D flux divergences (one per
-  advected field per axis, memory-bound; face-velocity reuse is
-  already XLA-CSE'd — measured perf-neutral). Lever: evaluate `A(1)`
-  on the boundary-adjacent 2D slice only; needs a DSL
-  slice/restriction path on the advecting-velocity faces.
+- **Re-run the full comparison suite** on post-fix dev. The
+  2026-07-17 single-GPU recheck already re-measured the changed rows
+  (weno5 512³ 130.5 ms/step, oc edge 1.57×); what remains is the
+  full-table refresh — including the multi-GPU scaling rows — blocked
+  on a 4-GPU allocation. New runs report the honest `compile_s`
+  metric (chunk metric fixed 2026-07-18; entry in
+  [`done.md`](done.md)).
+- **Hydro surface-flux correction — weno re-measure + multi-host
+  remaining.** The centered §8 criteria are **met** (arm sweep
+  2026-07-18, owner-requested; record in
+  [`../plans/active/boundary_trace_plan.md`](../plans/active/boundary_trace_plan.md)
+  §9): overhead vs `surface_flux=False` single-digit-to-negative
+  on `se_centered`, oc/fridom 0.92–1.04 top rungs, `im_centered`
+  0.99–1.12 with all rungs stable; per-scheme lowering default
+  landed (`893e82a8`). Same-day slice-exactness audit fixed a
+  real top-row error (~15–17% u/v) for order-5 biased staggered
+  momentum (`81995781` — biased momentum now takes the exact
+  full-3D correction; constancy-oracle record in plan §9).
+  Remaining, all owner-gated GPU work: (a) post-reroute weno5
+  ladder re-measure — overhead vs off and embed-vs-scatter for
+  the remaining tracer slice (the biased `"embed"` default is
+  provisional, in-code note); (b) real multi-host validation of
+  trace/scatter under `srun -n 4 --gpu-bind=none` (forced-4 is
+  green; plan §4 gate); (c) the `surface_flux=False` opt-out path
+  reads +28–48% over its pre-H7 cost at big rungs (plan §9 flag)
+  — decide whether the legacy opt-out is worth chasing. Step-guard
+  checkpointing stays on Silvano's own batch cadence (never
+  agent-initiated).
 
-## Channel eigenmodes on multi-device — two upstream repros to file
+## Channel eigenmodes on multi-device — remaining gaps
 
-The fridom-side work shipped (2026-07-17, T5): the channel projection now
-fails loudly with a taught `NotImplementedError` on a grid that shards a
-periodic axis, instead of dying in the HLO verifier — see
-[`done.md`](done.md). Both underlying faults are **upstream**
-(jax/jaxlib 0.10.2; the earlier "fridom-side c64/c128 dtype mix" reading
-is refuted — the traced jaxpr carries zero complex64), and both now have
-a minimal fridom-free repro + a drafted jax issue awaiting the owner's
-go-ahead to file:
+The projection now **runs** multi-GPU: the fused distributed
+contraction shipped 2026-07-18 (merge `e60259de`, entry in
+[`done.md`](done.md)). Still open:
 
-- **GPU (T5).** Not the FFT-norm constant (refuted: reproduces with
-  `norm=None`). XLA:GPU/GSPMD lowers a **sharded-transform-axis** FFT
-  through its distributed Cooley-Tukey decomposition whose
-  **twiddle-factor** constants are `complex64` against `complex128`
-  data; the HLO verifier rejects `multiply c64[] c128[]`. Not covered by
-  `multi_output_fusion`. Repro + issue:
-  [`../research/artifacts/channel_fftnorm_gpu/`](../research/artifacts/channel_fftnorm_gpu/).
-- **CPU (T5b).** A batched-`eigh` heap corruption in jaxlib's CPU LAPACK
-  on many-core hosts (not the `sort` lowering; that was aliasing).
-  Repro + issue:
-  [`../research/artifacts/channel_sort_segfault/`](../research/artifacts/channel_sort_segfault/).
-
-Remaining open work:
-
-- **File the two jax issues** (owner go-ahead required — the drafts are
-  ready).
-- **Optional real GPU fix** (make the projection *run* multi-device,
-  not just skip): route the channel transforms through the slab /
-  distributed-transform lowering the spectral solver already uses
-  (`operators/distributed_solve.py`), so each transform axis is
-  device-local when its FFT runs — the `with_sharding_constraint`
-  "replicate the transform axis" workaround is proven bit-for-bit exact
-  vs the single-device result. Bigger blast radius; deferred.
+- **Unsupported sharded-periodic remainder** (kept on the narrowed
+  taught `NotImplementedError`) — solution paths investigated
+  2026-07-18
+  ([`../research/eigen_remainder_investigation.md`](../research/eigen_remainder_investigation.md));
+  the half-axis-sharded 3-D case **shipped** the same day
+  (layout-aware half-axis re-designation, merge `feade7fa` — entry in
+  [`done.md`](done.md)). Still the remainder:
+  - *2-D channel* (highest exposure — the **default** for any 2-D
+    channel on >1 device): recommend a gather path scoped to 2-D
+    (exact, negligible cost at every size the dense engine can build;
+    `em.q` is already replicated). A bounded-partner psum kernel was
+    proven exact but shelved — its ×P basis-slicing edge only pays in
+    a regime the dense `eigh` cannot reach. Needs owner ratification,
+    then implementation.
+  - *Non-1-D meshes*: **unreachable today** (the decomposition
+    negotiates only single-axis layouts; a hand-built 2-axis mesh dies
+    at decomposition build) — keep the defensive decline. The pencil
+    primitive (per-mesh-axis `all_to_all` in one 2-D-mesh `shard_map`)
+    is proven composable for the day a 2-D backend lands.
+- **Pre-existing multi-device eigenbasis faults surfaced by the
+  2026-07-18 validation** (both reproduce on the pre-merge dev; the
+  existing multi-device eigen tests hit them before reaching the
+  projection):
+  - **Setup `GridFrozenError`:** on small sharded grids the
+    `linearize(model)` probe's halo demand exceeds the frozen halo, so
+    `channel_eigenpairs` cannot even build the basis.
+  - **`mode()` / synthesis sharded-FFT crash:** the backward-only
+    synthesis path (`mode`, `channel_random_state`) still crashes on a
+    sharded periodic axis; it does not route through the fused
+    contraction (out of its scope — a candidate follow-on).
 
 Evidence, provenance probes, and the full re-attribution history:
 [`../research/multidevice_test_faults.md`](../research/multidevice_test_faults.md).
 
-## Mapped + advection + chunked scan goes non-finite on GPU
+## Mapped chunk-NaN hardening — residuals
 
-Found 2026-07-17 while GPU-measuring the CG tolerance (A100, jax
-0.10.2, dev `b77f8582` — predates the tolerance work). A
-terrain-following mapped nonhydro2 run with advection **on** goes
-non-finite whenever `chunk_size >= 2`, at 256³ and even at dt=0.005
-(2.5e-4 physical) — while the *same* steps run finite one at a time
-(`chunk_size = 1`). Flat + advective + chunked is fine; mapped +
-linear + chunked is fine; only the mapped advective step inside the
-scanned chunk breaks, which points at a scanned-chunk
-compilation/fusion fault, not physics. The known
-`--xla_disable_hlo_passes=multi_output_fusion` workaround does **not**
-fix it (so it is not jax#39100). Distinct from the mapped
-reverse-mode NaN (that is a VJP-only masked singularity; this is the
-forward primal). Work: bisect the module set (advection scheme ×
-mapped metric terms) to a minimal repro, check CPU vs GPU and
-chunk-length sensitivity, then either a fridom-side restructuring or
-an upstream repro. Evidence: the CG-tolerance GPU measurement
-(research record
-[`../research/cg_stopping_criterion.md`](../research/cg_stopping_criterion.md),
-GPU addendum).
+The 2026-07-17 "mapped + advection + chunked scan goes non-finite on
+GPU" fault itself is resolved (entry in [`done.md`](done.md); record
+[`../research/mapped_chunk_nonfinite_rootcause.md`](../research/mapped_chunk_nonfinite_rootcause.md)).
+The hazard class outlives the instance — any unguarded storage-frame
+divide by a zero-padded factor plants `inf` in never-valid lanes,
+which only the per-chunk scrub cadence cleanses. Open hardening:
+
+- **Chunk-parity regression test** (recommended): small mapped
+  advective model, K steps at `chunk_size=1` vs `chunk_size=2`,
+  assert bitwise-equal and finite (CPU is enough — the fault class is
+  backend-independent). The suite's only mapped+chunked test file
+  pins `chunk_size=1` (`test_fv_fusion_guards.py`), so the class is
+  currently untested.
+- **Pad-inf audit/guard**: seal the remaining unguarded members like
+  `_divide_by_jacobian` (~free, bitwise on valid cells) — the known
+  ones are the `MetricScaled` divides (`mapped.py:219-222`) — and/or
+  a debug-mode all-finite-*storage* assertion at carry boundaries so
+  a recurrence fails loudly instead of cadence-dependently.
 
 ## Finite-volume nonhydro — decisions and validation
 
@@ -157,45 +133,97 @@ the scoping §10–§13). Open:
   2026-07-17 (entry in [`done.md`](done.md); research + rulings in
   [`../research/stretched_terrain_combined.md`](../research/stretched_terrain_combined.md)).
   Open:
-  - **`EnergyMetric`/eigenmodes weight `ps` by the flat extent on
-    charts** — terrain energy diagnostics are physically
-    inconsistent (model-layer, outside the hydrostatic package;
-    flagged by the terrain build).
-  - **Variable-depth implicit + split-explicit free surfaces**
-    (H3): taught errors on charts today; need the variable-csqr 2D
-    solve (hydrostatic plan §7). The barotropic volume-vs-energy
-    tension is documented in the plan §8 (energy chosen; exact
-    volume needs variable-`c²`).
+  - **`EnergyMetric` `ps` weight + eigen-channel measure** — the
+    metric-side remainder after the physical-integral default
+    ([`../decisions/physical_integral_default.md`](../decisions/physical_integral_default.md))
+    fixed the `u`/`v`/`b` legs: `inner`'s `ps` term carries **no**
+    depth factor at all (wrong on *flat* grids with depth != 1 too —
+    probed skew 9.6e-2 at depth 2, machine-zero with the `H/c^2`
+    weight; hidden by depth-1 test grids), and needs the per-column
+    `H(x, y)/c^2` field weight on terrain. The eigen-channel
+    `_bounded_measure` uses the flat extent (correct only unmapped);
+    stretched-z maps need the J-weighted measure, and genuine
+    terrain a taught error naming the real cause (today the
+    Hermiticity-residual gate catches it with a misleading
+    "non-conservative term" message). Caveat for the fix: the
+    baroclinic KE-PE pair is exactly adjoint in the *computational*
+    product, the barotropic pair in the *physical* one (decision
+    record §3) — no single metric is exactly conserved on terrain.
+  - **Variable-depth split-explicit free surface** (H3 residual):
+    still a taught error on charts. The *implicit* half shipped
+    2026-07-18 (multigrid_generalization_plan phase B: the
+    volume-exact variable-csqr solve, resolving the plan §8
+    volume-vs-energy tension for the implicit variant); the
+    subcycle's terrain transport form is the remaining half.
+  - **Hydrostatic walled-horizontal gap** (found 2026-07-18,
+    generalization plan phase B; root cause pinned 2026-07-18): the
+    hydrostatic package does not assemble on walled *horizontal*
+    grids. The staggering itself is fine — the Velocity-role bind
+    derivation does tag the wall-normal velocity
+    (`Inner(x, bc=(DIRICHLET, DIRICHLET))`) per axis. The seam is
+    `ScalarField.to` (and its mirror `HaloTracer.to`,
+    `decomposition/halo.py`): neither has an arm for a *tag-only*
+    factor difference (same node set, BC-siblings). Since nodal
+    operator outputs are BC-free (owner decision), every gradient
+    chain lands on the bare face factor, and `.to`-ing it onto the
+    tagged velocity mis-classifies as a node-set conversion and
+    resolves `('interpolate', <bare face>)` — a row that
+    (correctly) does not exist. Periodic axes carry no tags and the
+    bounded vertical is reached only by reductions, so only walled
+    horizontals fire it. Measured with the arm patched in
+    experimentally: **ExplicitFreeSurface runs green** on walls
+    x/y/x+y, advection on/off, immersed mask included — the arm is
+    the whole gap for the explicit model. Two module-level
+    follow-ons remain behind it: (1) `ImplicitFreeSurface`'s
+    `_flat_spectral` keys its div leg on the bare grad codomain
+    (`composed._expand_div`); the walled operator needs the
+    Dirichlet-tagged keying plus the DCT solve on the
+    Neumann-tagged solve space (all seeded rows exist: diff
+    N-Center→Inner, diff D-Inner→Center, Cosine transform; the nh2
+    walled spectral solve F4 is the precedent). (2)
+    `SplitExplicitFreeSurface` declares its barotropic auxiliaries
+    (`ubar_prev`) on the bare space while runtime snapshots carry
+    the tag (declaration resolves before role tagging). Fix order:
+    the two-line sibling arm in both `.to`s (unblocks explicit +
+    immersed), then the implicit tagged solve, then the
+    split-explicit declaration derivation. The new barotropic
+    solver's wall closure is proven at the solver level
+    (self-adjoint 8.8e-16, cancellation exact).
   - **`MetricScaled` divides** (`mapped.py:219-222`) share the
     masked-singularity structure but are empirically reverse-safe;
-    guard only if a composition exposes them (VJP-fix audit).
-  - **GPU validation** of the new stretched+terrain paths (the
-    standing 4-GPU baseline re-record shipped 2026-07-17 without a
-    stretched+terrain-combined bench case, so this stays open — validate
-    separately). Single-GPU leg done 2026-07-17 (gpu4 campaign
-    wrap-up): `test_mapped_pressure_stretched.py` +
-    `test_stretched_mesh.py` green on a real A100 (CUDA, fusion
-    workaround set). Open remainder: the multi-GPU leg.
-- **Close the FV-vs-nodal step-time gap where it exists.** FV is at
-  parity with nodal on flat periodic grids (0.997–1.003×, bitwise-
-  identical output) but slower on walled rows (+1…+10% on 1 GPU,
-  largest at small sizes) and on the 4-GPU mapped case (~16% vs ~1%
-  on 1 GPU) — attributed at the T7 re-record to lowering/fusion, not
-  arithmetic: the `flux_diff @ reconstruct` composition
-  (`spatial/operators/flux_diff.py`) fuses down to the nodal kernels
-  only where the stencil pattern is uniform; boundary-special rows
-  (one-sided reconstruction, `Outer`/`Inner` shapes, zero-padded wall
-  fluxes) and the GSPMD partitioner break that. Investigate whether
-  the gap can be engineered away: dump/compare HLO for a walled FV
-  row vs its nodal sibling to identify the unfused extra passes; try
-  a pattern-uniform edge formulation (fold the one-sided rows into a
-  single padded stencil pass instead of edge-correction ops); check
-  the 4-GPU mapped partitioner interaction separately. Guard: the
-  nodal sibling cases in `benchmarks/baselines/step-*.json` are the
-  measuring stick (warmed interleaved probes per the perf
-  methodology); success = walled/mapped FV within noise of nodal.
-  Compiler-artifact class — deltas may shift with jax upgrades, so
-  re-measure the gap before investing.
+    guard only if a composition exposes them (VJP-fix audit). Note
+    2026-07-18: the same pad-`inf` structure was the *forward*
+    chunk≥2 NaN (see the mapped chunk-NaN hardening entry) — the
+    forward exposure is one composition away too.
+  - **GPU validation** of the new stretched+terrain paths. Single-GPU
+    leg done 2026-07-17. Multi-GPU leg run 2026-07-18 (4x A100,
+    addendum in
+    [`../research/stretched_terrain_combined.md`](../research/stretched_terrain_combined.md)):
+    the **core** paths validate on multi-GPU — the N2 measure-adjoint
+    hop, plain-CG stopgap and differentiability pass forced-4, the
+    terrain hydrostatic core/free-surface files pass, and the realistic
+    3D model (Leg B single-process + Leg C real `srun -n 4`) is
+    device-count-invariant to the iterative CG tolerance floor (per-step
+    ~2.4e-6 at `tol=1e-10`, ~2.1e-8 at `tol=1e-14`; there is no exact
+    spectral solve on a mapped grid, so machine-precision parity does
+    not apply). Re-checked against post-GM-D9 dev `33707661`
+    (addendum §Re-check). Two open remainders:
+    - **The stretched-column multigrid preconditioner is still broken
+      on multi-GPU** (4-device-only; 1-GPU clean). On current dev the
+      full-3-D-coarsening default (GM-D9) is 4-GPU parity-clean, but a
+      stretched base column auto-falls-back to the **semicoarsening**
+      hierarchy (its coarse `MappedIntervalMesh` is not
+      jit-constructible), and semicoarsening's coarse-level horizontal
+      roll/gather resharding mis-partitions on 4 devices (asym
+      `3.5e-3`, rel up to `0.96`; bit-identical on forced-CPU-4, kernel-
+      independent). See the multigrid section below (semicoarsening
+      multi-device parity) for evidence and scope. Plain-CG is the
+      working multi-GPU route for stretched+terrain today.
+    - **A lone bounded 1D `MappedIntervalMesh` sharded across 4 devices**
+      corrupts its staggered FD / flux telescoping
+      (`validation/test_stretched_mesh.py`, 2 tests). Degenerate config
+      (a real model keeps the mapped column undistributed); needs a
+      supported-vs-unsupported ruling.
 
 [`../plans/active/fv_nonhydro_scoping.md`](../plans/active/fv_nonhydro_scoping.md)
 
@@ -207,9 +235,6 @@ cells in every dimension (stages I0–I4 shipped 2026-07-17; entry in
 [`../plans/active/immersed_partial_cells_plan.md`](../plans/active/immersed_partial_cells_plan.md)).
 Open, none blocking:
 
-- **Biased/upwind/WENO advection on immersed grids** — taught error
-  today; needs the graded-fallback closure keyed on masks (the wall
-  precedent, `graded.py`).
 - **Mapped + immersed composition** — taught error; the mapped and
   masked PCGs are not composed.
 - **Partial-bottom-cell hydrostatic pressure gradient** — the
@@ -450,17 +475,6 @@ recorded route
 §3, numbers in
 [`../research/mapped_jacobian_spike.md`](../research/mapped_jacobian_spike.md)).
 
-## Coefficient-space product/power rows — needs an owner call
-
-*Small in code, but a semantics decision, not a missing row.*
-Elementwise multiplication of two Fourier-coefficient fields is *not*
-the product of the represented functions (it is a convolution), so
-registering it under the same `("multiply", space)` kind invites silent
-nonsense. Needs an owner ruling first; it blocks nothing. The last open
-item of the Phase-2 grid follow-ups (the rest landed — see
-[`done.md`](done.md)).
-[`../plans/active/phase2_grid_followups.md`](../plans/active/phase2_grid_followups.md)
-
 ## Mapped-solve residual levers — measured, none currently worth taking
 
 *The parent line — "multi-device compile and execution cost", formerly
@@ -492,25 +506,54 @@ V-cycle kernel swap it called for shipped 2026-07-18 (merge
 [`../research/multigrid_kernel_study.md`](../research/multigrid_kernel_study.md)
 §Addendum). Open, none blocking:
 
-- **cuSPARSE kernel under GSPMD (multi-device) — unvalidated.** The
-  line smoother's `method="auto"` resolves to the batched
+- **cuSPARSE kernel under GSPMD (multi-device) — HLO/perf leg only.**
+  The line smoother's `method="auto"` resolves to the batched
   `lax.linalg.tridiagonal_solve` (cuSPARSE) on any GPU backend,
-  including sharded multi-GPU runs. A custom call's GSPMD
-  partitioning is not guaranteed: XLA may all-gather the batch axes
-  instead of partitioning them (correct but slow). Validate on real
-  4×A100 (parity + no unexpected all-gathers in the HLO); until
-  then a multi-device run that sees them should set
-  `multigrid_tridiagonal_method="pcr"` (pure jax, partitions
-  cleanly). Caveat documented in `banded.py`.
-- **Mapped GPU wall-clock still behind spectral after the swap** —
-  measured in-model: parity at 128³ (0.975×), 0.67× at 512³; the
-  1.5× GB-2 bar stays unmet and the 128³-study projection "likelier
-  at larger n" is refuted at 512³. The study-ranked residual levers
-  (fewer coarse sweeps; cheaper mapped operator applies — now the
-  dominant V-cycle cost) are unclaimed; take only with a concrete
-  mapped-GPU production driver. Immersed remains the case where
-  multigrid wins (study projection 1.3–2.0×, in-model post-swap
-  standing unmeasured).
+  including sharded multi-GPU runs. The **parity** leg is now
+  validated on real 4×A100: the full-3-D-coarsening default solve is
+  bit-parity-clean 1-vs-4 with `method="auto"` (→cuSPARSE) — the GB-5
+  forced-4 tests pass on hardware (2026-07-18, dev `33707661`) — and a
+  kernel sweep showed the remaining multi-device failures are
+  **kernel-independent** (auto/cusparse/pcr/scan behave identically),
+  so they are not a cuSPARSE custom-call defect. Still open: confirm
+  the custom call's GSPMD partitioning does not **all-gather** the
+  batch axes (correct but slow) — an HLO/perf inspection, not
+  correctness; a run that sees all-gathers can set
+  `multigrid_tridiagonal_method="pcr"` (pure jax, partitions cleanly).
+  Caveat documented in `banded.py`.
+- **Semicoarsening V-cycle multi-device parity — broken.** The
+  semicoarsening hierarchy (horizontal-only coarsening + full-vertical
+  line smoother) mis-partitions on ≥2 devices: 1-GPU clean, 4-GPU
+  wrong (V-cycle asymmetry `3.5e-3`, solve residual stuck, forced-4
+  parity rel up to `0.96`). Reproduces **bit-identically on
+  forced-CPU-4** and is **kernel-independent**, so it is neither
+  jax#39100 (fusion workaround set) nor the cuSPARSE caveat. Mechanism:
+  the coarse-level horizontal roll/gather reshards
+  `{devices=[1,4]}->{[2,1,2] replicate}` (involuntary rematerialization,
+  Shardy `b/433785288`) when a coarsened horizontal extent no longer
+  divides the device count. Scope: this is the **auto-fallback path**
+  (GM-D9) taken for a stretched-base column, a Chebyshev vertical, an
+  indivisible `n_z`, or the immersed `uniform_spacing` limit — so the
+  stretched+terrain multigrid preconditioner is broken on multi-GPU
+  (plain-CG is the working route). Evidence
+  (`../research/stretched_terrain_combined.md` §GPU addendum + §Re-check):
+  `test_mapped_pressure_stretched.py` 4 multigrid tests,
+  `test_mapped_pressure_multigrid.py`
+  `converges_under_both_coarsenings[False]` +
+  `full_and_semi_coarsening_agree_on_the_solution`. Regression window
+  T8 `5af2e370` → `c4497db5`; first-bad-commit unbisected. These
+  unmarked 4-device-only failures also breach the house
+  "unmarked tests pass on any device count" rule (single-device CI
+  never sees them). Separately,
+  `test_multigrid_hlo_grows_with_the_level_count` asserts single-device
+  HLO structure that sharding legitimately perturbs (passes on 1 GPU) —
+  a test needing a device pin/marker, not a numerics bug.
+- **Residual mapped-GPU levers, unclaimed** — fewer coarse sweeps;
+  cheaper mapped operator applies (the finest level dominates the
+  post-swap V-cycle: one sweep = 15.7 ms cuSPARSE solve + 12.0 ms
+  operator apply at 512³). Take only with a concrete driver toward
+  the 1.5× GB-2 bar. Immersed remains the projected outright win
+  (1.3–2.0×), in-model post-swap standing unmeasured.
 
 ## Differentiable run surface — `model.propagator()`
 
@@ -526,7 +569,7 @@ has to be invented, only assembled:
   remat=None)` returning a pure `(theta, state=None) -> State`.
   Name resolution reuses the `update_parameters` machinery verbatim
   (binding table -> `(slot, attr)` -> `_replace_leaf`,
-  `model.py:1628`) but builds a carry *transformer* instead of
+  `model.py:1822`/`1835`) but builds a carry *transformer* instead of
   committing; `wrt` names bound parameters (incl. `TIME_STEP`) or
   PROGNOSTIC fields (IC differentiation splices
   `state[name].storage`).
@@ -552,6 +595,12 @@ has to be invented, only assembled:
   (`/ w.to(v)`, `/ w_1`, `/ w_2`) share the masked-0/0 class the
   Sadourny PV division was cured of; guard like
   `_potential_vorticity` when that path meets an adjoint.
+
+Closure plan (investigation-backed, 2026-07-18):
+[`../plans/active/differentiability_plan.md`](../plans/active/differentiability_plan.md)
+— phases: record hygiene, coriolis VJP seals + coverage, the
+propagator surface itself (naming/materialized-param/frozen-L
+gaps resolved there), tangent deferred.
 ---
 
 # Long-term goals

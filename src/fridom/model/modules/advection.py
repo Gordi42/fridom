@@ -223,6 +223,7 @@ import jax.numpy as jnp
 import numpy as np
 
 import fridom as fr
+from fridom.framework.utils import dtype_real
 from fridom.model.modules.moving_geometry import mapping_params
 from fridom.spatial.bc import BC
 from fridom.spatial.decomposition.halo import HaloSpec
@@ -230,6 +231,7 @@ from fridom.spatial.errors import SpaceMismatchError
 from fridom.spatial.fields.scalar_field import (
     _bc_siblings,  # the BC-sibling seam of retag/.to
 )
+from fridom.spatial.immersed_domain import Slip
 from fridom.spatial.operators.base import (
     Operator,
     OperatorRequirements,
@@ -243,6 +245,7 @@ from fridom.spatial.operators.graded import (
     WALL_RUNGS,
     Rung,
     RungSpec,
+    apply_graded_mask,
     apply_graded_walls,
     biased_offset,
     biased_specs,
@@ -255,13 +258,14 @@ from fridom.spatial.operators.interned import interned
 from fridom.spatial.operators.reconstruct import (
     apply_fv_staggered,
     fv_reach_or,
+    wall_slots_addressable,
 )
 from fridom.spatial.operators.select import Where
 from fridom.spatial.operators.staggering import (
+    footprint_reach,
     mapped_factor,
     mapped_mesh,
     mapped_order_hint,
-    window_reach,
 )
 from fridom.spatial.operators.weno import (
     _shu_row,  # the exact-rational coefficient seam
@@ -274,6 +278,7 @@ from fridom.spatial.scalars import Scalars
 from fridom.spatial.spaces.average import AverageSpace, CellAvg
 from fridom.spatial.spaces.constant import ConstantSpace
 from fridom.spatial.spaces.nodal import NodalSpace, NodeSet
+from fridom.spatial.spaces.trace import Side
 
 if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Callable, Mapping
@@ -512,6 +517,13 @@ def _safe_ratio(
         The ratio on the divide's structure, finite (0) in the
         never-valid padding.
     """
+    if (getattr(num, "storage", None) is None
+            or getattr(den, "storage", None) is None):
+        # halo-trace stand-in (no data): the plain quotient flows the
+        # space and ghost demand; the VJP seal is a runtime concern,
+        # absent here (the H7 slice term traces on the flat, unimmersed
+        # path, so this branch fires only under the halo accounting).
+        return num / den
     bad = den.storage == 0.0
     safe = jnp.where(bad, 1.0, den.storage)
     ratio = jnp.where(bad, 0.0, num.storage / safe)
@@ -877,16 +889,22 @@ class _CenteredFaceInterpolation(SeparableOperator):
         """
         size = self._size
         row = _centered_row(size)
+        domain = f.function_space.bare.factor(axis)
+        shift = _wall_shift(domain)
 
         def kernel(arr: Array, axis_index: int) -> Array:
             return _weighted_windows(arr, axis_index, row)
 
+        immersed = getattr(f.grid, "immersed", None)
+        if immersed is not None:
+            rungs, sel = _centered_mask_ladder(size, shift)
+            return _immersed_graded_face(
+                self, f, axis, shift, size, centered_offset(size) + shift,
+                kernel, rungs, sel, immersed)
         interior = apply_fv_staggered(self, f, axis, size, kernel,
                                       metadata=f.metadata)
-        domain = f.function_space.bare.factor(axis)
         if self._boundary == "none" or domain.mesh.periodic:
             return interior
-        shift = _wall_shift(domain)
         rungs = tuple(
             Rung(width, centered_offset(width),
                  _centered_kernel(width))
@@ -994,6 +1012,282 @@ def _rung_kernel(
     if spec.family == "centered":
         return _centered_kernel(spec.width)
     return _biased_kernel(spec.width, bias, weighting)
+
+
+# ================================================================
+#  Mask-keyed graded closure (immersed grids)
+# ================================================================
+#: the halo-synced ``{0, 1}`` wet mask is thresholded back to boolean
+#: after the real-dtype exchange (the sync has no boolean negation)
+_MASK_WET = 0.5
+
+
+def _biased_mask_ladder(
+    order: int,
+    shift: int,
+    bias: Literal["left", "right"],
+    weighting: Literal["linear", "weno"],
+    wall: Literal["upwind1", "centered2"],
+) -> tuple[tuple[Rung, ...], tuple[tuple[int, int], ...]]:
+    """
+    Reduced biased rungs and per-rung union-window selector specs.
+
+    Description
+    -----------
+    The mask-path ladder of a biased reconstruction: the reduced value
+    rungs (`biased_specs`, the same bias-specific windows the wall path
+    builds) and the sign-independent **union** selector windows (size
+    ``p + 1``, offset ``p // 2``) — one for the interior kernel (index 0)
+    and one per reduced rung. A ``wall="centered2"`` bottom rung keeps its
+    symmetric window as its own selector.
+
+    Parameters
+    ----------
+    order : int
+        The interior odd formal order.
+    shift : int
+        The cell-frame shift (0 or 1).
+    bias : Literal["left", "right"]
+        The upwind bias side of the value rungs.
+    weighting : Literal["linear", "weno"]
+        The stencil weighting.
+    wall : Literal["upwind1", "centered2"]
+        The bottom (wall-adjacent) rung.
+
+    Returns
+    -------
+    tuple[tuple[Rung, ...], tuple[tuple[int, int], ...]]
+        The reduced value rungs and the ``K + 1`` union selector specs.
+    """
+    specs = biased_specs(order, shift, wall)
+    rungs = tuple(
+        Rung(spec.width, spec_offset(spec, bias),
+             _rung_kernel(spec, bias, weighting))
+        for spec in specs)
+    sel: list[tuple[int, int]] = [(order + 1, order // 2)]
+    for spec in specs:
+        if spec.family == "centered":
+            sel.append((spec.width, centered_offset(spec.width)))
+        else:
+            sel.append((spec.width + 1, spec.width // 2))
+    return rungs, tuple(sel)
+
+
+def _centered_mask_ladder(
+    size: int, shift: int,
+) -> tuple[tuple[Rung, ...], tuple[tuple[int, int], ...]]:
+    """
+    Reduced centered rungs and per-rung selector specs (mask path).
+
+    Description
+    -----------
+    The mask-path ladder of the centered velocity interpolation: the
+    reduced symmetric value rungs (`centered_ladder`) and their selector
+    windows (the symmetric window is its own union), plus the interior
+    window at index 0.
+
+    Parameters
+    ----------
+    size : int
+        The interior even stencil size.
+    shift : int
+        The cell-frame shift (0 or 1).
+
+    Returns
+    -------
+    tuple[tuple[Rung, ...], tuple[tuple[int, int], ...]]
+        The reduced value rungs and the ``K + 1`` selector specs.
+    """
+    widths = centered_ladder(size, shift)
+    rungs = tuple(
+        Rung(width, centered_offset(width), _centered_kernel(width))
+        for width in widths)
+    sel: list[tuple[int, int]] = [(size, centered_offset(size))]
+    sel.extend((width, centered_offset(width)) for width in widths)
+    return rungs, tuple(sel)
+
+
+def _fill_wall_slots(
+    f: FieldLike, axis: str, n_true: int, value: float,
+) -> FieldLike:
+    """
+    Set the two ``axis`` wall ghost slots of ``f`` to ``value``.
+
+    Description
+    -----------
+    The static-index sibling of ``reconstruct.wall_zeroed_operand`` used
+    to exempt the physical-wall structural zeros of a ``shift = 1`` dual
+    operand from the selector's wetness demand: the interior-face storage
+    keeps its ``n_true`` DOFs at ``[width, width + n_true)`` and the two
+    wall faces are the ghost slots ``width - 1`` / ``width + n_true``.
+    Gated by the caller on `wall_slots_addressable` (``axis`` local,
+    halo >= 1).
+
+    Parameters
+    ----------
+    f : FieldLike
+        The present-mask field on a bounded interior-face factor.
+    axis : str
+        The bounded coordinate axis.
+    n_true : int
+        The interior-face count (the operand's true shape).
+    value : float
+        The fill value (``1.0`` marks the wall slot present/exempt).
+
+    Returns
+    -------
+    FieldLike
+        ``f`` with its two ``axis`` wall ghost slots set to ``value``.
+    """
+    bare = f.function_space.bare
+    axis_index = bare.names.index(axis)
+    width = f.grid.decomposition.halo[axis]
+    storage = f._data  # noqa: SLF001 — documented storage seam
+    ndim = storage.ndim
+    left: list[object] = [slice(None)] * ndim
+    left[axis_index] = width - 1
+    right: list[object] = [slice(None)] * ndim
+    right[axis_index] = width + n_true
+    storage = storage.at[tuple(left)].set(value).at[tuple(right)].set(
+        value)
+    return f.with_storage(storage)
+
+
+def _present_mask(
+    op: Operator, immersed: object, operand_space: object,
+    axis: str, shift: int,
+) -> FieldLike:
+    """
+    Build the selector present-mask on the operand space (GA-D1).
+
+    Description
+    -----------
+    The wet-or-exempt mask the union selectors window: ``shift = 0``
+    (cell operand) uses the descriptor's own slip (present == wet, no
+    exemption); ``shift = 1`` (dual face operand) uses the ``FREE_SLIP``
+    (OR) combination so a face adjacent to at least one wet cell is
+    present — the wall-side structural zeros are exempt from the wetness
+    demand. The mask is materialized zero-padded (``store`` pads, it does
+    not sync), so its ghost layers are **halo-synced** here
+    (`_ensure_valid`: periodic wrap / shard exchange) before it is
+    windowed — otherwise the union products near a periodic or shard
+    boundary would read dry ghosts and grade spuriously. On a bounded
+    axis the two physical-wall ghost slots are then set present
+    (`_fill_wall_slots`, after the sync), reproducing the wall path's
+    exempt Dirichlet cells.
+
+    Parameters
+    ----------
+    op : Operator
+        The reconstruction operator (its `_required_halo` triggers and
+        sizes the sync).
+    immersed : ImmersedDomain
+        The grid's immersed descriptor.
+    operand_space : SpaceLike
+        The (laid-out) operand space.
+    axis : str
+        The reconstruction axis.
+    shift : int
+        The cell-frame shift (0 or 1).
+
+    Returns
+    -------
+    FieldLike
+        The real, halo-synced ``{0, 1}`` present-mask on ``operand_space``.
+    """
+    slip = Slip.FREE_SLIP if shift == 1 else None
+    mask = immersed.mask(operand_space, slip=slip)
+    present = mask.with_storage(
+        mask._data.astype(dtype_real()))  # noqa: SLF001
+    present = _ensure_valid(present, _required_halo(op, operand_space))
+    if shift == 1:
+        factor = operand_space.bare.factor(axis)
+        if (not factor.mesh.periodic
+                and wall_slots_addressable(present, axis)):
+            present = _fill_wall_slots(
+                present, axis, factor.shape[0], 1.0)
+    # the sync odd-reflects a wall-Dirichlet operand's physical ghosts
+    # (interior 1 -> -1 beyond the wall); threshold back to {0, 1} so the
+    # union-window product reads a beyond-wall slot as absent (not a
+    # sign-cancelling -1) — the exempt wall cell itself was set present
+    # above, past the reflected ones
+    return present.with_storage(
+        (present._data > _MASK_WET).astype(  # noqa: SLF001 — storage seam
+            dtype_real()))
+
+
+def _immersed_graded_face(
+    op: Operator,
+    f: FieldLike,
+    axis: str,
+    shift: int,
+    size: int,
+    m0: int,
+    kernel: Callable[[Array, int], Array],
+    rungs: tuple[Rung, ...],
+    sel_specs: tuple[tuple[int, int], ...],
+    immersed: object,
+) -> FieldLike:
+    """
+    Pre-mask, run the interior pass, and select the widest wet rung.
+
+    Description
+    -----------
+    The shared immersed tail of the biased / centered face kernels
+    (GA-D2): the operand is pre-masked to exact zeros at dry DOFs (a
+    ``jnp.where``, NaN-safe and VJP-sealing), the interior kernel runs
+    over the pre-masked storage, and `graded.apply_graded_mask` selects
+    per output face the widest rung whose union window is entirely
+    present.
+
+    Parameters
+    ----------
+    op : Operator
+        The reconstruction/interpolation operator.
+    f : FieldLike
+        The raw operand field.
+    axis : str
+        The reconstruction axis.
+    shift : int
+        The cell-frame shift (0 or 1).
+    size : int
+        The interior stencil size (order for biased, size for centered).
+    m0 : int
+        The interior window alignment.
+    kernel : Callable[[Array, int], Array]
+        The interior array kernel.
+    rungs : tuple[Rung, ...]
+        The reduced value rungs (widest first, bottom last).
+    sel_specs : tuple[tuple[int, int], ...]
+        The per-rung union selector specs (interior at index 0).
+    immersed : ImmersedDomain
+        The grid's immersed descriptor.
+
+    Returns
+    -------
+    FieldLike
+        The mask-graded face field on the operator's codomain.
+    """
+    # sync both the operand and its wet mask to the negotiated ghosts
+    # before windowing: the pre-mask reads the mask's ghost layers (a
+    # periodic wrap / shard neighbour, dry-exterior at a bounded wall),
+    # and ``immersed.mask`` is zero-padded (``store`` never syncs). The
+    # mask is cast to real first — the halo exchange has no boolean neg
+    required = _required_halo(op, f.function_space)
+    raw = immersed.mask(f.function_space)
+    wet = _ensure_valid(
+        raw.with_storage(raw._data.astype(dtype_real())),  # noqa: SLF001
+        required)
+    f = _ensure_valid(f, required)
+    masked = f.with_storage(jnp.where(
+        wet._data > _MASK_WET,  # noqa: SLF001 — storage seam
+        f._data,  # noqa: SLF001 — documented storage seam
+        jnp.zeros_like(f._data)))  # noqa: SLF001 — storage seam
+    interior = apply_fv_staggered(op, masked, axis, size, kernel,
+                                  metadata=masked.metadata, align=m0)
+    present = _present_mask(op, immersed, f.function_space, axis, shift)
+    return apply_graded_mask(op, masked, axis, interior, rungs,
+                             sel_specs, shift, present)
 
 
 @final
@@ -1168,8 +1462,8 @@ class _BiasedFaceReconstruction(SeparableOperator):
         try:
             m0 = (biased_offset(self._order, self._bias)
                   + _wall_shift(domain))
-            reach = window_reach(domain, self.codomain(domain),
-                                 self._order, m0)
+            self.codomain(domain)  # SpaceMismatchError on a Fourier row
+            reach = footprint_reach(self._order, m0)
         except SpaceMismatchError:
             reach = (fallback, fallback)
         return OperatorRequirements(reach=reach)
@@ -1213,6 +1507,13 @@ class _BiasedFaceReconstruction(SeparableOperator):
         shift = _wall_shift(domain)
         m0 = biased_offset(order, bias) + shift
         kernel = _biased_kernel(order, bias, weighting)
+        immersed = getattr(f.grid, "immersed", None)
+        if immersed is not None:
+            rungs, sel = _biased_mask_ladder(
+                order, shift, bias, weighting, self._wall)
+            return _immersed_graded_face(
+                self, f, axis, shift, order, m0, kernel, rungs, sel,
+                immersed)
         interior = apply_fv_staggered(self, f, axis, order, kernel,
                                       metadata=f.metadata, align=m0)
         if self._boundary == "none" or domain.mesh.periodic:
@@ -1661,8 +1962,8 @@ class _FVBiasedReconstruction(SeparableOperator):
         fallback = self._order // 2 + 1
         try:
             m0 = biased_offset(self._order, self._bias)
-            reach = window_reach(domain, self.codomain(domain),
-                                 self._order, m0)
+            self.codomain(domain)  # SpaceMismatchError on a Fourier row
+            reach = footprint_reach(self._order, m0)
         except SpaceMismatchError:
             reach = (fallback, fallback)
         return OperatorRequirements(reach=reach)
@@ -1700,6 +2001,13 @@ class _FVBiasedReconstruction(SeparableOperator):
         weighting = self._weighting
         m0 = biased_offset(order, bias)  # primal frame, shift 0
         kernel = _biased_kernel(order, bias, weighting)
+        immersed = getattr(f.grid, "immersed", None)
+        if immersed is not None:
+            rungs, sel = _biased_mask_ladder(
+                order, 0, bias, weighting, self._wall)
+            return _immersed_graded_face(
+                self, f, axis, 0, order, m0, kernel, rungs, sel,
+                immersed)
         interior = apply_fv_staggered(self, f, axis, order, kernel,
                                       metadata=f.metadata, align=m0)
         domain = f.function_space.bare.factor(axis)
@@ -1850,6 +2158,67 @@ def _outer_to_inner(src: object, dst: object) -> bool:
             and dst.node_set is NodeSet.INNER)
 
 
+#: H7 surface-flux slice lowering (``_FluxFormAdvection._apply_correction``):
+#: ``None`` (the default) resolves per scheme via each class's
+#: ``_surface_flux_lowering`` ClassVar — ``"scatter"`` for the centered flux
+#: form, ``"embed"`` for the biased/upwind family — because the lowering is
+#: scheme-dependent in wall-clock (2026-07-18 single-A100 A/B: scatter wins
+#: centered -16% vs off at 2048^2 x 64, embed wins weno5 +5.8% vs off where
+#: scatter costs +16%; ``design/plans/active/boundary_trace_plan.md`` §9).
+#: ``"scatter"`` — the fully-2D row-scatter-add of the boundary term (the
+#: FV-native lowering, and the ``surface_flux`` closure runs FV by default in
+#: the hydrostatic model); ``"embed"`` — the sparse-3D ``embed`` of the
+#: boundary term plus the pre-slice full-3D ``q * A(1)`` AXPY (nodal only; an
+#: FV component's ``embed`` lands on the co-located nodal ``Center``, not
+#: ``CellAvg``, so it falls back to ``"scatter"``). Both are exact; setting an
+#: explicit string forces one lowering globally (the A/B knob — semantics for
+#: explicit strings unchanged).
+_SURFACE_FLUX_LOWERING: str | None = None
+
+
+def _is_surface_seam(v: ScalarField, axis: str) -> bool:
+    """Whether ``v`` sits on the both-boundary ``Outer`` face along ``axis``.
+
+    Description
+    -----------
+    The exact structural condition under which the advective flux drops
+    the boundary face (the ``_outer_to_inner`` seam of ``_flux_space``,
+    and the FV ``CellAvg -> Inner`` reconstruction): the advecting
+    velocity is the diagnosed hydrostatic ``w`` on the vertical ``Outer``
+    faces. A static (space-only) predicate, so it branches the tendency
+    graph at trace time. Holds today only for the hydrostatic diagnosed
+    ``w`` (vertical), so the slice correction is the surface term of that
+    one axis; every other advecting velocity is on ``Center`` / a face
+    sibling of the flux space and contributes no dropped boundary face.
+    """
+    factor = v.function_space.bare.factor(axis)
+    return isinstance(factor, NodalSpace) and factor.node_set is NodeSet.OUTER
+
+
+def _is_cell_collocated(space: object) -> bool:
+    """Whether every non-constant factor is a cell node set (Center/CellAvg).
+
+    Description
+    -----------
+    The slice-form eligibility discriminant on an immersed grid: a cell
+    scalar (buoyancy / an FV tracer) shares the continuity control volume,
+    so its masked ``A(1)`` telescopes to the surface term in every cell
+    (the boundary-only property the slice form needs). A staggered C-grid
+    velocity (``Right(x) (x) Center(y) (x) Center(z)``) does not: the
+    momentum control volume's masked continuity is not discretely
+    divergence-free near a cut side wall, so its ``A(1)`` carries genuine
+    interior terms the slice form would drop — such a component takes the
+    full-3D fallback. Off an immersed grid every component is boundary-only
+    (centered interpolation preserves the exact interior divergence-free
+    property) and this gate is not consulted.
+    """
+    factors = [f for f in space.bare.factors
+               if not isinstance(f, ConstantSpace)]
+    return bool(factors) and all(
+        (isinstance(f, NodalSpace) and f.node_set is NodeSet.CENTER)
+        or isinstance(f, CellAvg) for f in factors)
+
+
 # ================================================================
 #  The shared flux-form scaffolding (module-private)
 # ================================================================
@@ -1880,13 +2249,12 @@ class _FluxFormAdvection(fr.model.Module):
     AUXILIARY fields ``background_<component>`` on each velocity
     component's own space.
 
-    The constant-preserving **surface closure** adds the correction
-    :math:`-q\,A(\mathbf 1)` to every ADVECTED component's tendency,
+    The constant-preserving **surface closure** subtracts the correction
+    :math:`q\,A(\mathbf 1)` from every ADVECTED component's tendency,
     where :math:`A(\mathbf 1)` is the module's own advective operator
     applied to a constant — a lean divergence of the interpolated face
-    velocities, accumulated in the same flux loop (``_transport``).
-    On a bounded vertical axis the diagnosed ``w`` lives on the
-    both-boundary ``Outer`` faces and the flux uses only its interior
+    velocities. On a bounded vertical axis the diagnosed ``w`` lives on
+    the both-boundary ``Outer`` faces and the flux uses only its interior
     ``Inner`` restriction, so :math:`A(\mathbf 1)` is machine-zero in
     every interior cell but ``w(0)/dz`` in the surface cell (the dropped
     surface velocity — the free surface's :math:`\partial_t\eta`).
@@ -1895,7 +2263,12 @@ class _FluxFormAdvection(fr.model.Module):
     constant in every cell: the Oceananigans-equivalent linear-free-
     surface treatment. Tracer content is then exchanged with the moving
     surface rather than conserved to roundoff (the ``ps`` equation no
-    longer carries the whole surface volume flux).
+    longer carries the whole surface volume flux). Wherever that
+    ``A(\mathbf 1)`` is provably boundary-only (a flat, unimmersed or
+    cell-collocated component) the correction is evaluated directly as
+    the 2D surface trace (``_surface_correction``, the slice form),
+    reserving the full-3D accumulation for the cases where the interior
+    does not telescope (:meth:`_surface_correction`).
 
     ``surface_flux`` is tri-state: ``True`` / ``False`` force the
     closure on / off; the default ``None`` **auto-resolves at bind** —
@@ -1940,6 +2313,29 @@ class _FluxFormAdvection(fr.model.Module):
     #: reach across dry cells; the graded-mask closure is designed-for
     #: (IP-D8)
     _supports_immersed: ClassVar[bool] = True
+
+    #: whether the surface-flux slice may relocate the traced surface
+    #: velocity onto a staggered (face-collocated) component's flux
+    #: column. The slice's :meth:`_surface_boundary_term` moves the
+    #: ``Outer`` surface ``w`` onto ``q``'s column with the plain
+    #: two-point ``.to`` interpolation; the exactness of the slice's
+    #: top-row ``A(1)`` needs that relocation to match the scheme's own
+    #: advecting-velocity face interpolation (:meth:`_velocity_face`).
+    #: The centered scheme's velocity face *is* the two-point ``.to``,
+    #: so it holds; the biased subclasses interpolate the velocity with
+    #: an ``(order - 1)``-point centered row (``_CenteredFaceInterpolation``)
+    #: that only coincides with ``.to`` at ``order == 3``, so they set
+    #: this ``False`` and their staggered momentum takes the exact
+    #: full-3D fallback (a cell-collocated tracer needs no horizontal
+    #: relocation and keeps the slice regardless — see
+    #: :meth:`_slice_valid`).
+    _slice_relocation_exact: ClassVar[bool] = True
+
+    #: the per-scheme H7 surface-flux lowering used when the module-level
+    #: ``_SURFACE_FLUX_LOWERING`` is ``None``: the centered flux form wins
+    #: with ``"scatter"`` (the biased family overrides this to ``"embed"``;
+    #: 2026-07-18 A/B, boundary_trace_plan.md §9)
+    _surface_flux_lowering: ClassVar[str] = "scatter"
 
     def __init__(
         self,
@@ -2727,54 +3123,43 @@ class _FluxFormAdvection(fr.model.Module):
         corrected — a background velocity with a nonzero surface value
         would still drop its boundary face; today no such background
         exists.
+
+        The correction is evaluated as the **direct boundary term**
+        (:meth:`_surface_correction`, the slice form) wherever
+        :math:`A(\mathbf 1)` is provably boundary-only — its
+        ``O(N^2)`` surface trace replaces the ``O(N)`` full-3D
+        telescoping sum, reclaiming most of the closure's step
+        overhead. Where the boundary-only property does not hold (a
+        mapped column, a staggered momentum component on an immersed
+        grid, or a forced closure on a grid without the ``Outer`` seam)
+        the exact full-3D form is kept (byte-identical to the pre-slice
+        behavior).
         """
         ro = ctx.params[fr.model.params.SCALING_ROSSBY]
         params = self._geometry_params(state)
         out: dict[str, ScalarField] = {}
         for qname in self._advected:
             q = state[qname]
-            res, corr = self._transport(state, q, params)
-            tend = ro * self._immersed_scale(res, q)
-            if corr is not None:
-                # subtract q * A(1), A(1) = ro * scale(div of the face
-                # velocities): advect through the boundary face with the
-                # one-sided face value (machine-exact constancy)
-                tend = tend - q * (ro * self._immersed_scale(corr, q))
+            tend = ro * self._immersed_scale(
+                self._transport(state, q, params), q)
+            if self._surface_flux_on:
+                tend = self._surface_correction(
+                    state, q, tend, ro, params)
             out[qname] = tend
         return out
 
     def _transport(
         self, state: object, q: ScalarField, params: dict | None,
-    ) -> tuple[ScalarField, ScalarField | None]:
-        r"""Per-axis flux loop: transport of ``q`` and :math:`A(\mathbf 1)`.
+    ) -> ScalarField:
+        r"""Per-axis flux loop: the advective divergence of ``q``.
 
         Description
         -----------
         For every advecting axis it forms the flux ``v_face * face(q)``,
         weights it by the open-area fraction (immersed), and differences
-        it back onto ``q``'s space, accumulating ``-sum_axis`` in the
-        first return — the advective divergence, **before** the Rossby
-        and volume-fraction scalings the caller applies.
-
-        When the surface closure is active it accumulates, **in the same
-        loop and reusing the interpolated velocity face**, the second
-        return: the un-scaled constant divergence :math:`A(\mathbf 1)`.
-        Every reconstruction in the family preserves constants, so the
-        face value of a ones field is *exactly* ``1`` and the correction
-        flux is just the (immersed-weighted) velocity face ``v_face`` — a
-        lean divergence of the advecting velocity, one extra
-        ``_flux_divergence`` per axis rather than a second advection pass
-        (``q`` enters only through its space). It is machine-zero in
-        every interior cell (the diagnosed velocity is discretely
-        divergence-free there) and nonzero only in a boundary cell whose
-        ``Outer -> Inner`` restriction dropped the boundary-face velocity
-        (the free surface's ``w(0)/dz`` at the top; exactly zero at the
-        flat-bottom seeded ``w = 0``). For a staggered ``q`` (``u``,
-        ``v``) ``_velocity_face`` interpolates that surface velocity onto
-        ``q``'s own column automatically. ``_advect`` scales it and
-        subtracts ``q`` times it, telescoping the surface-cell constancy
-        violation to roundoff. ``None`` when the closure is off — the
-        first return is then byte-for-byte the plain flux-form one.
+        it back onto ``q``'s space, accumulating ``-sum_axis`` — the
+        advective divergence, **before** the Rossby and volume-fraction
+        scalings the caller applies.
 
         Parameters
         ----------
@@ -2787,13 +3172,10 @@ class _FluxFormAdvection(fr.model.Module):
 
         Returns
         -------
-        tuple[ScalarField, ScalarField | None]
-            The accumulated advective divergence, and the un-scaled
-            :math:`A(\mathbf 1)` correction divergence (``None`` when the
-            surface closure is off).
+        ScalarField
+            The accumulated advective divergence on ``q``'s space.
         """
         res = None
-        corr = None
         for axis, vname in self._axis_velocity:
             v = state[vname]
             flux_space = self._flux_space(q, v, axis)
@@ -2806,13 +3188,235 @@ class _FluxFormAdvection(fr.model.Module):
             divergence = self._flux_divergence(
                 q, flux, axis, params)
             res = -divergence if res is None else res - divergence
-            if self._surface_flux_on:
-                # A(1): face(1) == 1 exactly, so the flux is the reused
-                # velocity face -- one extra divergence per axis
-                cflux = self._immersed_flux(v_face, flux_space)
-                cdiv = self._flux_divergence(q, cflux, axis, params)
-                corr = -cdiv if corr is None else corr - cdiv
-        return res, corr
+        return res
+
+    # ------------------------------------------------------------
+    #  The constancy-preserving surface closure (H7)
+    # ------------------------------------------------------------
+    def _surface_correction(
+        self,
+        state: object,
+        q: ScalarField,
+        tend: ScalarField,
+        ro: object,
+        params: dict | None,
+    ) -> ScalarField:
+        r"""Subtract the surface correction :math:`q\,A(\mathbf 1)`.
+
+        Description
+        -----------
+        Routes between two exact spellings of the constancy-preserving
+        correction:
+
+        - the **slice form** (:meth:`_surface_boundary_term` +
+          :meth:`_apply_correction`) — used wherever
+          :math:`A(\mathbf 1)` is provably boundary-only, i.e. the
+          advecting velocity is discretely divergence-free and drops a
+          boundary face (:meth:`_slice_valid`). :math:`A(\mathbf 1)`
+          then telescopes to the dropped surface face in the boundary
+          row and is machine-zero elsewhere, so the direct 2D trace of
+          that surface term is exact and cheap.
+        - the **full-3D form** (:meth:`_correction_full`) — the
+          pre-slice AXPY ``tend - q * A(1)`` with the un-scaled
+          :math:`A(\mathbf 1)` accumulated over the axes, the exact
+          scheme-applied-to-a-constant. Kept for the cases where the
+          slice's 2D trace is not exact: a mapped column (the physical
+          divergence is not the flux-form continuity the diagnosis
+          enforces), a staggered momentum component on an immersed grid
+          (the momentum control volume's masked continuity is not
+          divergence-free near a cut side wall), a staggered momentum
+          component under a **biased** scheme (its ``(order - 1)``-point
+          velocity interpolation relocates the surface ``w`` onto the
+          momentum column differently from the slice's two-point ``.to``,
+          so the slice's top-row ``A(1)`` would use the wrong surface
+          ``w``), and a forced closure on a grid carrying no ``Outer``
+          seam at all (``div(v)`` is a genuine interior field).
+        """
+        seam = tuple(
+            (axis, vname) for axis, vname in self._axis_velocity
+            if _is_surface_seam(state[vname], axis))
+        if seam and self._slice_valid(q):
+            for axis, vname in seam:
+                a1 = self._surface_boundary_term(q, state[vname], axis)
+                tend = self._apply_correction(tend, q, a1, axis, ro)
+            return tend
+        corr = self._correction_full(state, q, params)
+        return tend - q * (ro * self._immersed_scale(corr, q))
+
+    def _slice_valid(self, q: ScalarField) -> bool:
+        r"""Whether ``q``'s slice-form :math:`A(\mathbf 1)` is exact.
+
+        Description
+        -----------
+        ``True`` for a cell-collocated tracer on any flat grid (it needs
+        no horizontal relocation of the surface ``w``, so the slice is
+        exact for every scheme), and for a staggered momentum component
+        on a flat, unimmersed grid **only** when the scheme relocates the
+        surface velocity onto the momentum column exactly as its own
+        advecting-velocity face does (:attr:`_slice_relocation_exact` —
+        the centered scheme's two-point ``.to``). ``False`` on a mapped /
+        moving column, for a staggered momentum component on an immersed
+        grid (the masked momentum continuity is not divergence-free near
+        a cut side wall), and for a staggered momentum component under a
+        biased scheme (its ``(order - 1)``-point velocity interpolation
+        does not match the slice's two-point ``.to``, so the slice's
+        top-row ``A(1)`` would use the wrong surface ``w`` — a genuine
+        constancy break at ``order > 3``). The false branches take the
+        exact full-3D fallback — see :meth:`_surface_correction`.
+        """
+        if self._column is not None:
+            return False
+        if _is_cell_collocated(q.function_space):
+            return True
+        return self._immersed is None and self._slice_relocation_exact
+
+    def _correction_full(
+        self, state: object, q: ScalarField, params: dict | None,
+    ) -> ScalarField:
+        r"""Accumulate the un-scaled full-3D :math:`A(\mathbf 1)` fallback.
+
+        Description
+        -----------
+        Per advecting axis, ``face(1) == 1`` exactly (every
+        reconstruction preserves constants), so the correction flux is
+        the (immersed-weighted) interpolated velocity face itself: a
+        lean divergence of the advecting velocity, one extra
+        ``_flux_divergence`` per axis, accumulated as ``-sum_axis``. The
+        caller scales it (``ro`` and the wet-volume fraction) and
+        subtracts ``q`` times it. Byte-identical to the pre-slice
+        in-loop accumulation.
+        """
+        corr = None
+        for axis, vname in self._axis_velocity:
+            v = state[vname]
+            flux_space = self._flux_space(q, v, axis)
+            v_face = self._velocity_face(v, flux_space)
+            cflux = self._immersed_flux(v_face, flux_space)
+            cdiv = self._flux_divergence(q, cflux, axis, params)
+            corr = -cdiv if corr is None else corr - cdiv
+        return corr
+
+    def _surface_boundary_term(
+        self, q: ScalarField, v: ScalarField, axis: str,
+    ) -> ScalarField:
+        r"""Build the 2D surface term of :math:`A(\mathbf 1)` on ``q``'s row.
+
+        Description
+        -----------
+        The boundary row of the vertical ``_flux_divergence`` restricted
+        to its dropped surface face: ``alpha_top * w(0) / dz_top``, a 2D
+        ``Trace`` on ``q``'s co-located ``Center`` boundary row.
+
+        - ``w(0)`` is the surface value of the advecting velocity
+          (``v.trace``, the ``Outer`` boundary DOF), horizontally
+          interpolated onto ``q``'s flux column (``.to`` — the trace of
+          a tensor-product interpolation commutes with the interpolation
+          of the trace, so this is exact). The ``Outer``-parent surface
+          face value is relocated onto ``q``'s ``Center`` cell row (the
+          face -> cell hop ``_flux_divergence`` performs implicitly)
+          through the sanctioned ``as_profile`` / ``adopt`` retag bridge.
+        - ``alpha_top`` (immersed only) is the surface-face open-area
+          weight, which the diagnosed ``w`` carries as the **top cell**
+          fraction (``HydrostaticCore._masked_w_faces`` overrides the
+          min-rule ``Outer`` fraction there), so it is
+          ``fraction(q.space)`` traced at the wall; it cancels against
+          the wet-volume divide of :meth:`_immersed_scale_2d`, leaving
+          ``w(0)/dz`` on a wet cell and exactly ``0`` on a dry one.
+        - ``dz_top`` is the primal cell width the flux difference divides
+          by (``grid.measure`` on ``q``'s cell space — static mesh
+          geometry, the constant ``dx`` on a uniform mesh and the
+          stretched cell width on a mapped-``z`` mesh), traced at the
+          wall. The divide is VJP-sealed (``_safe_ratio``, the
+          double-``jnp.where``): mandatory for the masked-singularity
+          shape even though the cell width is strictly positive on every
+          valid row (AGENTS.md differentiability policy).
+
+        Only reached on a flat grid (``self._column is None``), so no
+        mapped ``1/J`` factor and no ``params`` enter (:meth:`_slice_valid`).
+        """
+        flux_space = self._flux_space(q, v, axis)
+        outer_factor = v.function_space.bare.factor(axis)
+        outer_space = flux_space.bare.replace(
+            **{axis: outer_factor}).with_layout(flux_space.layout)
+        w0 = v.trace(axis, Side.HIGH)
+        target = outer_space.bare.replace(
+            **{axis: w0.function_space.bare.factor(axis)}).with_layout(
+            flux_space.layout)
+        # horizontal interpolation onto q's flux column (identity for a
+        # collocated tracer, Center -> Right for a staggered component),
+        # then relocate the Outer surface face onto q's Center cell row
+        w0 = w0.to(target).as_profile(axis).adopt(
+            axis, NodeSet.CENTER, Side.HIGH)
+        num = w0
+        if self._immersed is not None:
+            num = self._immersed.fraction(q.function_space).trace(
+                axis, Side.HIGH) * w0
+        dz_top = q.grid.measure(q.function_space, axis).trace(
+            axis, Side.HIGH)
+        return _safe_ratio(num, dz_top)
+
+    def _apply_correction(
+        self,
+        tend: ScalarField,
+        q: ScalarField,
+        a1: ScalarField,
+        axis: str,
+        ro: object,
+    ) -> ScalarField:
+        r"""Subtract ``q * ro * scale(A(1)|top)`` via the selected lowering.
+
+        Description
+        -----------
+        Two exact lowerings: ``"embed"`` materializes ``A(1)|top``
+        sparsely back into its parent row and runs the pre-slice full-3D
+        ``q * A(1)`` AXPY (nodal only — an FV component's ``embed`` lands
+        on the co-located nodal ``Center``, not ``CellAvg``, so it falls
+        back to ``"scatter"``); ``"scatter"`` keeps everything 2D and
+        row-scatter-adds the negated correction into ``tend``'s boundary
+        row. Both give the same tendency. The lowering is chosen
+        per-scheme (``scatter`` for the centered flux form, ``embed`` for
+        the biased/upwind family) via the class ``_surface_flux_lowering``
+        default, globally overridable by the module-level
+        ``_SURFACE_FLUX_LOWERING`` (an explicit string forces one lowering
+        for all schemes).
+        """
+        lowering = (self._surface_flux_lowering
+                    if _SURFACE_FLUX_LOWERING is None
+                    else _SURFACE_FLUX_LOWERING)
+        if lowering == "embed" and not _is_average_space(q.function_space):
+            # embed lands on the BC-free parent Center row; retag onto q's
+            # own (possibly wall-tagged) cell factor for the AXPY (data
+            # untouched — the boundary row is a structural interior DOF)
+            corr3d = a1.embed(axis)
+            corr3d = corr3d.retag(corr3d.function_space.replace(
+                **{axis: q.function_space.bare.factor(axis)}))
+            return tend - q * (ro * self._immersed_scale(corr3d, q))
+        corr2d = q.trace(axis, Side.HIGH) * a1
+        corr2d = self._immersed_scale_2d(corr2d, q, axis)
+        return fr.spatial.operators.scatter_add(tend, -(ro * corr2d))
+
+    def _immersed_scale_2d(
+        self, corr2d: ScalarField, q: ScalarField, axis: str,
+    ) -> ScalarField:
+        r"""Divide a 2D boundary correction by the wet top-cell fraction.
+
+        Description
+        -----------
+        The 2D twin of :meth:`_immersed_scale`: the surface-row divide by
+        the cell volume fraction ``theta_top = fraction(q.space)`` traced
+        at the wall, guarded so a dry top cell (``theta == 0``, numerator
+        identically ``0``) stays exactly ``0`` — the double-``jnp.where``
+        that seals the VJP under ``jax.grad``. A no-op off an immersed
+        grid.
+        """
+        if self._immersed is None:
+            return corr2d
+        theta = self._immersed.fraction(q.function_space).trace(
+            axis, Side.HIGH)
+        wet = theta.data > 0.0
+        scaled = jnp.where(
+            wet, corr2d.data / jnp.where(wet, theta.data, 1.0), 0.0)
+        return corr2d.with_data(scaled)
 
     # ------------------------------------------------------------
     #  The background-split terms
@@ -3197,10 +3801,30 @@ class UpwindAdvection(_FluxFormAdvection):
     #: (taught rejection at bind)
     _supports_mapped: ClassVar[bool] = False
 
-    #: the wide biased windows reach across dry cells; the graded-mask
-    #: near-wall closure keyed on the wet region is designed-for
-    #: (IP-D8) — taught rejection at bind on an immersed grid
-    _supports_immersed: ClassVar[bool] = False
+    #: the wide biased windows reach across dry cells, but the graded-mask
+    #: near-wall closure keys the ladder on the wet region (GA-D1..D6):
+    #: at bind the ``boundary="graded"`` kernels install and the mask
+    #: path selects, per output face, the widest rung whose union window
+    #: is entirely wet (`graded.apply_graded_mask`)
+    _supports_immersed: ClassVar[bool] = True
+
+    #: the biased velocity face is an ``(order - 1)``-point centered
+    #: interpolation (:meth:`_velocity_face`), not the two-point ``.to``
+    #: the surface-flux slice's trace uses to relocate ``w`` onto a
+    #: staggered column, so the slice's top-row ``A(1)`` for a momentum
+    #: component would use the wrong surface ``w`` (exact only at
+    #: ``order == 3``, where ``order - 1 == 2``). Staggered momentum
+    #: therefore takes the exact full-3D correction (:meth:`_slice_valid`);
+    #: a cell-collocated tracer keeps the cheap slice (no relocation).
+    _slice_relocation_exact: ClassVar[bool] = False
+
+    #: the biased/upwind family (incl. WENO) wins with ``"embed"`` when
+    #: ``_SURFACE_FLUX_LOWERING`` is ``None`` -- scatter costs +16% at
+    #: 2048^2 x 64 where embed is +5.8% vs off (2026-07-18 A/B, §9).
+    #: Provisional: that A/B predates the staggered-momentum reroute
+    #: above (only cell-collocated tracers still take the slice here),
+    #: so the biased default awaits a post-reroute re-measure
+    _surface_flux_lowering: ClassVar[str] = "embed"
 
     def __init__(
         self,
@@ -3322,6 +3946,11 @@ class UpwindAdvection(_FluxFormAdvection):
         grid = table.grid
         if self._walled:
             self._check_walled_extent(grid)
+        if self._walled or self._immersed is not None:
+            # the graded signature also carries the mask-keyed closure
+            # on an immersed grid (GA-D4); ``_check_walled_extent`` does
+            # not apply on the mask path (any alpha>0 face has two wet
+            # neighbours, so the bottom rung is always legal)
             self._install_kernels("graded")
         need = self._order // 2 + 1
         current = dict(grid.decomposition.halo.widths)
@@ -3368,6 +3997,25 @@ class UpwindAdvection(_FluxFormAdvection):
     def wall(self) -> Literal["upwind1", "centered2"]:
         """Bottom rung of the graded near-wall ladder."""
         return self._wall
+
+    @property
+    def extra_halo(self) -> HaloSpec | None:
+        """The biased kernels' ``order // 2 + 1`` halo on an immersed grid.
+
+        Description
+        -----------
+        On an immersed grid the mask-keyed reconstruction reads the
+        ``order // 2 + 1`` biased window per axis and halo tracing is
+        disabled (the concrete pre-mask / selectors the trace cannot
+        follow), so the demand is declared here (GA-D3) — wider than the
+        base's order-2 centered fraction stencil for ``order = 5``. Off an
+        immersed grid the biased schemes reject a mapped column at bind, so
+        there is no extra halo (the flat path stays fully halo-traced).
+        """
+        if self._immersed is None:
+            return None
+        return HaloSpec(dict.fromkeys(
+            self._halo_axes, self._order // 2 + 1))
 
     # ------------------------------------------------------------
     #  The upwind face values
@@ -3701,6 +4349,13 @@ class WENOAdvection(UpwindAdvection):
         ScalarField
             The WENO upwind-biased face value of ``q``.
         """
+        if getattr(q.grid, "immersed", None) is not None:
+            # the selected-input one-pass optimization is deferred on
+            # immersed grids (GA-D2): the both-then-select spelling routes
+            # each bias through the mask-keyed reconstruction (the sign
+            # select stays outermost, every rung is mask-graded), an exact
+            # designed-for perf lever for a later band-restricted pass
+            return super()._face_value(q, v_face, axis, flux_space)
         selected = self._selected
         if isinstance(q.function_space.bare.factor(axis),
                       AverageSpace):

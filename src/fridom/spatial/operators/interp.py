@@ -282,11 +282,13 @@ class LinearInterp(SeparableOperator):
         OperatorRequirements
             The per-factor requirements record.
         """
-        reach = reach_or(self, domain, _INTERP_SIZE, 1)
         if self._boundary == "one_sided":
-            # the boundary patches write static physical-edge
-            # indices: negotiation must keep the axis undistributed
-            return OperatorRequirements(reach=reach, layout="local")
+            # the boundary patches write static physical-edge indices
+            # from wider one-sided true-DOF stencils, so the interior
+            # midpoint reach does not describe them: keep the symmetric
+            # declaration, and demand the axis undistributed
+            return OperatorRequirements(halo=1, layout="local")
+        reach = reach_or(self, domain, _INTERP_SIZE, 1)
         return OperatorRequirements(reach=reach)
 
     def eigenvalues(

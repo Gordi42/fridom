@@ -31,7 +31,13 @@ def make_model(*, periodic_y=True, periodic_z=True, family=None):
                                      periodic=periodic_y, name="y")
     mz = fr.spatial.meshes.IntervalMesh(N, (0.0, 2 * np.pi),
                                      periodic=periodic_z, name="z")
-    grid = fr.spatial.Grid((mx, my, mz))
+    # device_ids=(0,) keeps every axis local on any device count: the
+    # prescribed-spectra ICs and eigenmode projections synthesize through
+    # the naive (GSPMD) transform, which is a Tier-1 taught error on a
+    # sharded transform axis. A follow-up phase re-legalizes the 3-D
+    # channel synthesis on several devices; until then the math is tested
+    # single-device (unchanged on the default suite).
+    grid = fr.spatial.Grid((mx, my, mz), device_ids=(0,))
     # family=None follows the grid default: since the 2026-07-16 ruling
     # a periodic OR walled grid is finite-volume by default (only mapped
     # / immersed stay nodal), so the family=None b of the stratification

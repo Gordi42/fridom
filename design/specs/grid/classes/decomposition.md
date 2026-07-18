@@ -823,6 +823,6 @@ order) is kept in §5.1.
   rationale is preserved (the check is mechanical at every
   consumption site); results-neutrality was verified by the
   untouched PDE-validation and bitwise 1-vs-4 gates. Work item:
-  [`../../../plans/active/phase2_grid_followups.md`](../../../plans/active/phase2_grid_followups.md) item 8;
+  [`../../../plans/done/phase2_grid_followups.md`](../../../plans/done/phase2_grid_followups.md) item 8;
   roadmap: task 1.8.
 

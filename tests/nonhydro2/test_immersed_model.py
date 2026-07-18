@@ -7,6 +7,7 @@ equivalence), an all-wet immersed model reproduces the unimmersed run
 (gate d), the theta-weighted tracer is conserved to machine zero
 (gate f), and the family / advection taught errors are pinned (gate h).
 """
+import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
@@ -14,6 +15,9 @@ import pytest
 import fridom.nonhydro2 as nh
 from fridom.model.modules.coriolis import FPlaneCoriolis
 from fridom.nonhydro2.modules.core import resolve_model_family
+from fridom.nonhydro2.modules.immersed_pressure import (
+    ImmersedPressureSolver,
+)
 from fridom.spatial.grid import Grid
 from fridom.spatial.immersed_domain import ImmersedDomain
 from fridom.spatial.meshes.interval import IntervalMesh
@@ -32,6 +36,50 @@ def _is_fv(model):
     return any(
         isinstance(f, AverageSpace)
         for f in model.state["w"].function_space.bare.factors)
+
+
+def _warm_start_box_model():
+    """Build a small immersed FV model with a random provisional IC."""
+    n = 12
+    box = lambda x, y, z: (  # noqa: E731
+        (x > 1.0) & (x < 5.0) & (y > 1.0) & (y < 5.0)
+        & (z > 0.2) & (z < 0.8)).astype(float)
+    grid = Grid(_periodic(n, length=TWO_PI),
+                immersed=ImmersedDomain(box))
+    model = nh.Model(grid=grid, dt=0.01, advection=False,
+                     coriolis=FPlaneCoriolis(f0=1.0),
+                     pressure_iterations=40)
+    rng = np.random.default_rng(0)
+    model.set_fields(**{
+        k: 0.2 * rng.standard_normal(model.state[k].data.shape)
+        for k in ("u", "v", "w", "b")})
+    return model
+
+
+def test_warm_start_matches_zero_start_over_a_run(monkeypatch):
+    # Phase E (GE-1) at the model level: warm start is always-on, so a
+    # forced zero-start (x0 dropped in the immersed projection) is the
+    # reference. Over a multi-step run the two land on the same state
+    # to the pressure-tolerance level — warm start never changes the
+    # converged solution, only the achieved iteration count.
+    warm = _warm_start_box_model()
+    warm.advance(3)
+    # force the zero start: re-trace after clearing the compilation
+    # cache so the monkeypatched project (x0 stripped) is picked up
+    jax.clear_caches()
+    orig_project = ImmersedPressureSolver.project
+    monkeypatch.setattr(
+        ImmersedPressureSolver, "project",
+        lambda self, vel, x0=None: orig_project(self, vel))  # noqa: ARG005
+    cold = _warm_start_box_model()
+    cold.advance(3)
+    assert not warm.panicked
+    assert not cold.panicked
+    for name in ("u", "v", "w", "b"):
+        w = np.asarray(warm.state[name].data)
+        c = np.asarray(cold.state[name].data)
+        scale = float(np.abs(c).max())
+        assert float(np.abs(w - c).max()) <= 1e-6 * scale
 
 
 # ================================================================
@@ -80,12 +128,34 @@ def test_mapped_plus_immersed_fv_is_a_taught_error():
         resolve_model_family("fv", grid)
 
 
-def test_biased_advection_on_immersed_is_a_taught_error():
-    grid = Grid(_periodic(), immersed=ImmersedDomain(
-        lambda x, y, z: x * 0.0 + 1.0))  # noqa: ARG005
-    with pytest.raises(NotImplementedError, match="immersed"):
-        nh.Model(grid=grid, dt=0.02, coriolis=FPlaneCoriolis(f0=1.0),
-                 advection=nh.UpwindAdvection(3))
+@pytest.mark.parametrize(
+    "advection", [nh.UpwindAdvection(3), nh.WENOAdvection(5)])
+def test_biased_advection_on_immersed_binds_and_steps(advection):
+    # the biased schemes gained the mask-keyed graded closure (GA-D6):
+    # an immersed nonhydro2 model with UpwindAdvection/WENOAdvection binds
+    # (the mask path replaces the wall closure) and steps finite, keeping
+    # the dry-DOF hygiene the fraction weighting guarantees. A fresh grid
+    # per scheme — the order-5 halo (3) exceeds the order-3 one (2), so a
+    # shared frozen grid would fault the "most demanding model first" rule
+    n = 12
+    box = lambda x, y, z: (  # noqa: E731
+        (x > 1.0) & (x < 5.0) & (y > 1.0) & (y < 5.0)
+        & (z > 0.2) & (z < 0.8)).astype(float)
+    grid = Grid(_periodic(n), immersed=ImmersedDomain(box))
+    model = nh.Model(grid=grid, dt=0.01, advection=advection,
+                     coriolis=FPlaneCoriolis(f0=1.0),
+                     pressure_iterations=15)
+    rng = np.random.default_rng(0)
+    model.set_fields(**{
+        k: 0.2 * rng.standard_normal(model.state[k].data.shape)
+        for k in ("u", "v", "w", "b")})
+    model.advance(6)
+    assert not model.panicked
+    for name in ("u", "v", "w", "b"):
+        field = model.state[name]
+        mask = grid.immersed.mask(field.function_space)
+        dry = np.asarray(field.data) * (1.0 - np.asarray(mask.data))
+        assert np.abs(dry).max() == 0.0
 
 
 # ================================================================

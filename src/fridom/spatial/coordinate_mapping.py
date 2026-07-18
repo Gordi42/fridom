@@ -77,6 +77,7 @@ from fridom.spatial.spaces.constant import ConstantSpace
 from fridom.spatial.spaces.tensor_product import (
     TensorProductSpace,
 )
+from fridom.spatial.spaces.trace import TraceSpace
 
 if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Callable, Mapping
@@ -964,6 +965,16 @@ class CoordinateMapping:
                     f"metric {name!r} involves coordinate "
                     f"{coord!r}, but the requested space is "
                     "constant along it")
+            if isinstance(factor, TraceSpace):
+                # a value error (bad space choice), not a type error
+                raise ValueError(  # noqa: TRY004
+                    f"metric {name!r} involves coordinate "
+                    f"{coord!r}, but the requested space is a boundary "
+                    "trace along it; a trace carries no per-factor "
+                    "metric. The boundary-row (e.g. top-cell) metric is "
+                    "obtained by tracing the full metric field along "
+                    "that axis, never by querying the metric on the "
+                    "trace factor")
             if isinstance(factor, CoefficientSpace):
                 # a value error (bad space choice), not a type error
                 raise ValueError(  # noqa: TRY004

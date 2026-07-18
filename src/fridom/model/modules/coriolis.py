@@ -245,7 +245,9 @@ def chart_rotation(
     }
 
 
-@term(advances=("u", "v"), linear=True, name="coriolis")
+@term(advances=("u", "v"), linear=True, name="coriolis",
+      linear_params=(CORIOLIS_F0, CORIOLIS_BETA),
+      linear_fields=("f_coriolis",))
 def _coriolis(self, state, ctx) -> dict:  # noqa: ANN001
     r"""``du/dt = f v``; ``dv/dt = -f u`` as pure field arithmetic.
 
@@ -512,18 +514,6 @@ class FPlaneCoriolis(Module):
             return ctx.params[CORIOLIS_F0]
         return None
 
-    def time_dependent_linear_parameters(self) -> tuple[str, ...]:
-        """Report a ramped ``coriolis.f0`` feeding the linear rotation.
-
-        A time-dependent ``f0`` lives inside this module's
-        ``linear=True`` rotation term, so a frozen-``L`` (exponential)
-        stepper must refuse it (AR-D7); a plain-float ``f0`` reports
-        nothing.
-        """
-        if isinstance(self.f0, TimeDependent):
-            return (str(CORIOLIS_F0),)
-        return ()
-
     def bind(self, table) -> None:  # noqa: ANN001
         """Reject chart-coupled grids (metric-blind rotation).
 
@@ -697,21 +687,6 @@ class BetaPlaneCoriolis(Module):
             return None
         time = getattr(ctx.clock, "time", ctx.clock)
         return _BETA_BLEND.evaluate(self, state, time)
-
-    def time_dependent_linear_parameters(self) -> tuple[str, ...]:
-        """Report a ramped ``f0``/``beta`` feeding the linear rotation.
-
-        A time-dependent ``f0`` or ``beta`` lives inside this module's
-        ``linear=True`` rotation term, so a frozen-``L`` (exponential)
-        stepper must refuse it (AR-D7); a fully plain-float module
-        reports nothing.
-        """
-        names: list[str] = []
-        if isinstance(self.f0, TimeDependent):
-            names.append(str(CORIOLIS_F0))
-        if isinstance(self.beta, TimeDependent):
-            names.append(str(CORIOLIS_BETA))
-        return tuple(names)
 
     def bind(self, table) -> None:  # noqa: ANN001
         """Reject chart-coupled grids (metric-blind rotation).
@@ -982,7 +957,8 @@ class RotationCoriolis(Module):
     # ================================================================
     #  The rotation term (linear)
     # ================================================================
-    @term(advances=("u", "v"), linear=True, name="coriolis")
+    @term(advances=("u", "v"), linear=True, name="coriolis",
+          linear_fields=("f_coriolis",))
     def coriolis(self, state, ctx) -> dict:  # noqa: ANN001, ARG002
         r"""``du = G vbar / W_1``; ``dv = -(G u)bar / W_2``.
 

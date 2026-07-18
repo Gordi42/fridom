@@ -43,6 +43,7 @@ from fridom.nonhydro2.params import DSQR
 from fridom.nonhydro2.state import State
 from fridom.spatial.bc import BC
 from fridom.spatial.coordinate_mapping import CoordinateMapping
+from fridom.spatial.decomposition.halo import HaloSpec
 from fridom.spatial.fields.vector_field import VectorField
 from fridom.spatial.grid import Grid
 from fridom.spatial.immersed_domain import ImmersedDomain
@@ -58,7 +59,7 @@ DT = 0.02
 def make_grid(n=N, length=2 * np.pi):
     return Grid(tuple(
         IntervalMesh(n, (0.0, length), periodic=True, name=name)
-        for name in ("x", "y", "z")))
+        for name in ("x", "y", "z")), device_ids=(0,))
 
 
 def divergence(model):
@@ -185,9 +186,9 @@ def test_pressure_preconditioner_plumbs_through_the_preset():
                          multigrid_levels=5)
     assert core._pressure_preconditioner == "multigrid"
     assert core._multigrid_levels == 5
-    # defaults: the spectral preconditioner, five levels
+    # defaults: the spectral preconditioner, floor-limited depth (None)
     assert DynamicalCore()._pressure_preconditioner == "spectral"
-    assert DynamicalCore()._multigrid_levels == 5
+    assert DynamicalCore()._multigrid_levels is None
     # the nh.Model factory forwards both knobs to the dynamical core
     model = nh.Model(coriolis=fplane(), grid=make_grid(), advection=False,
                      pressure_preconditioner="multigrid",
@@ -196,6 +197,12 @@ def test_pressure_preconditioner_plumbs_through_the_preset():
               if type(m).__name__ == "DynamicalCore")
     assert dc._pressure_preconditioner == "multigrid"
     assert dc._multigrid_levels == 4
+    # the None default forwards along Model -> DynamicalCore too
+    default = nh.Model(coriolis=fplane(), grid=make_grid(),
+                       advection=False)
+    dc_default = next(m for m in default._carry.modules
+                      if type(m).__name__ == "DynamicalCore")
+    assert dc_default._multigrid_levels is None
 
 
 def test_pressure_preconditioner_is_static_treedef_aux():
@@ -213,6 +220,33 @@ def test_pressure_preconditioner_is_static_treedef_aux():
     scan_method = jax.tree_util.tree_structure(
         DynamicalCore(multigrid_tridiagonal_method="scan"))
     assert spectral != scan_method
+    # the full-coarsening knob (GM-D9) is a static aux too
+    semicoarsen = jax.tree_util.tree_structure(
+        DynamicalCore(multigrid_coarsen_vertical=False))
+    assert spectral != semicoarsen
+
+
+def test_multigrid_coarsen_vertical_plumbs_through_the_preset():
+    # GM-D9: the full-coarsening knob defaults True and forwards
+    # Model -> DynamicalCore -> MappedPressureSolver
+    core = DynamicalCore(pressure_preconditioner="multigrid",
+                         multigrid_coarsen_vertical=False)
+    assert core._multigrid_coarsen_vertical is False
+    # the owner-ratified default is full 3-D coarsening (True)
+    assert DynamicalCore()._multigrid_coarsen_vertical is True
+    # the nh.Model factory forwards the knob to the dynamical core
+    model = nh.Model(coriolis=fplane(), grid=make_grid(), advection=False,
+                     pressure_preconditioner="multigrid",
+                     multigrid_coarsen_vertical=False)
+    dc = next(m for m in model._carry.modules
+              if type(m).__name__ == "DynamicalCore")
+    assert dc._multigrid_coarsen_vertical is False
+    # the True default forwards along Model -> DynamicalCore too
+    default = nh.Model(coriolis=fplane(), grid=make_grid(),
+                       advection=False)
+    dc_default = next(m for m in default._carry.modules
+                      if type(m).__name__ == "DynamicalCore")
+    assert dc_default._multigrid_coarsen_vertical is True
 
 
 def test_multigrid_tridiagonal_method_plumbs_through_the_preset():
@@ -377,7 +411,7 @@ def test_eigenmodes_from_model_rejects_an_immersed_grid():
         tuple(IntervalMesh(8, (0.0, 2 * np.pi), periodic=True, name=n)
               for n in ("x", "y", "z")),
         immersed=ImmersedDomain(
-            lambda x, y, z: x * 0.0 + 1.0))  # noqa: ARG005
+            lambda x, y, z: x * 0.0 + 1.0), device_ids=(0,))  # noqa: ARG005
     model = nh.Model(grid=grid, dt=0.02, advection=False,
                      coriolis=FPlaneCoriolis(f0=1.0))
     with pytest.raises(NotImplementedError, match="immersed"):
@@ -641,7 +675,7 @@ def test_odd_grid_columns_are_bitwise_the_composed_formula():
     # family is the single composed column, bitwise
     grid = Grid(tuple(
         IntervalMesh(9, (0.0, 2 * np.pi), periodic=True, name=name)
-        for name in ("x", "y", "z")))
+        for name in ("x", "y", "z")), device_ids=(0,))
     em = nh.eigenmodes.Eigenmodes(grid, f0=1.5, n2=3.0, dsqr=2.0)
     columns = em._columns(0)
     assert len(columns) == 1
@@ -800,7 +834,7 @@ def make_walled_grid(n=N, lz=LZ):
         IntervalMesh(n, (0.0, 2 * np.pi), periodic=True, name="y"),
         IntervalMesh(n, (0.0, lz), periodic=False, name="z"),
     )
-    return Grid(meshes), meshes
+    return Grid(meshes, device_ids=(0,)), meshes
 
 
 def walled_coords(n=N, lz=LZ):
@@ -909,7 +943,7 @@ def make_walled_y_grid(n=N):
     mx = IntervalMesh(n, (0.0, 2 * np.pi), periodic=True, name="x")
     my = IntervalMesh(n, (0.0, 1.0), periodic=False, name="y")
     mz = IntervalMesh(n, (0.0, 2 * np.pi), periodic=True, name="z")
-    return Grid((mx, my, mz))
+    return Grid((mx, my, mz), device_ids=(0,))
 
 
 def test_meridional_stratification_rejects_a_constant():
@@ -1137,7 +1171,7 @@ def _make_terrain_model(init, *modules):
         IntervalMesh(N, (0.0, 2 * np.pi), periodic=True, name="x"),
         IntervalMesh(N, (0.0, 2 * np.pi), periodic=True, name="y"),
         IntervalMesh(N, (0.0, 1.0), periodic=False, name="z"),
-    ), mapping=mapping)
+    ), mapping=mapping, device_ids=(0,))
     # family="nodal" is explicit: dynamic geometry (the MovingGeometry
     # seam these tests exercise) is a nodal-only feature — the ALE
     # correction is nodal-only, so the 2026-07-17 mapped auto flip keeps
@@ -1181,3 +1215,58 @@ def test_projection_reads_the_current_mapping_parameters():
     # and the current values genuinely differ from the defaults
     assert not np.allclose(np.asarray(moving.state["w"].data),
                            np.asarray(stale.state["w"].data))
+
+
+# ================================================================
+#  Derived extra_halo (pressure_solver_halo.md §5, option 1)
+# ================================================================
+def test_core_extra_halo_is_none_before_bind():
+    # the projection's halo substitute is derived at bind, not a
+    # literal; an unassembled core has none yet
+    assert DynamicalCore().extra_halo is None
+
+
+def test_core_derives_width_one_triperiodic():
+    # div and grad are order-2 staggered differences on opposite sides
+    # of the spectral transform barrier: max(1, 1) = 1, not the old
+    # scalar-summed literal 2
+    model = nh.Model(grid=make_grid(), dt=DT, coriolis=fplane(),
+                     advection=False)
+    core = model.module(DynamicalCore)
+    assert dict(core.extra_halo.widths) == {"x": 1, "y": 1, "z": 1}
+    halo = model.grid.decomposition.halo
+    assert all(halo[a] == 1 for a in ("x", "y", "z"))
+
+
+def test_core_derives_width_one_walled():
+    grid, _ = make_walled_grid()
+    model = nh.Model(grid=grid, dt=DT, coriolis=fplane(), advection=False)
+    core = model.module(DynamicalCore)
+    # the bounded axis derives 1 too (the div leg carries the reach the
+    # bounded gradient shrinks away)
+    assert dict(core.extra_halo.widths) == {"x": 1, "y": 1, "z": 1}
+
+
+def test_derived_width_matches_forced_width_two_bitwise():
+    def run():
+        model = nh.Model(grid=make_grid(16), dt=0.005, dsqr=0.5,
+                         coriolis=fplane(), advection=CenteredAdvection())
+        rng = np.random.default_rng(0)
+        model.set_fields(**{c: 0.05 * rng.standard_normal(model.state[c].shape)
+                            for c in ("u", "v", "w", "b")})
+        model.run(steps=10, progress=False)
+        return {c: np.asarray(model.state[c].data)
+                for c in ("u", "v", "w", "b")}
+
+    derived = run()
+    orig = DynamicalCore.__dict__.get("extra_halo")
+    try:
+        DynamicalCore.extra_halo = property(
+            lambda self: (None if self._extra_halo is None
+                          else HaloSpec(dict.fromkeys(self._coords, 2))))
+        forced = run()
+    finally:
+        DynamicalCore.extra_halo = orig
+    md = max(float(np.max(np.abs(derived[c] - forced[c])))
+             for c in ("u", "v", "w", "b"))
+    assert md == 0.0  # the narrowing is bit-transparent on the spectral path

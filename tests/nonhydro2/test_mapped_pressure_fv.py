@@ -23,6 +23,10 @@ from fridom.spatial.bc import BC
 from fridom.spatial.coordinate_mapping import CoordinateMapping
 from fridom.spatial.grid import Grid
 from fridom.spatial.meshes.interval import IntervalMesh
+from fridom.spatial.operators.krylov import (
+    _computational_integral,
+    _computational_mean,
+)
 from fridom.spatial.spaces.average import CellAvg
 from fridom.spatial.spaces.nodal import NodeSet
 
@@ -65,7 +69,7 @@ def build_fv(n=N, init=depth, **kwargs):
 
 def dot(a, b):
     """Return the measure-weighted inner product CG uses."""
-    return float(jnp.sum((a * b).integrate().data))
+    return float(jnp.sum(_computational_integral(a * b).data))
 
 
 def fv_space(mx, ms):
@@ -173,7 +177,7 @@ def test_constant_h_preconditioner_is_exact_fv():
     # a constant-metric mapping: one FV iteration converges
     solver, grid, mx, ms = build_fv(init=flat_depth, iterations=1)
     rhs = grid.random.normal(fv_space(mx, ms), seed=7)
-    rhs = rhs - rhs.mean()
+    rhs = rhs - _computational_mean(rhs)
     p, _info = solver.krylov().solve(rhs)
     residual = solver.apply(p) - rhs
     rel = (float(jnp.abs(residual.data).max())
@@ -188,13 +192,13 @@ def test_solve_converges_on_a_sloped_column_fv():
     # fixed-iteration mode: pinned for determinism
     solver, grid, mx, ms = build_fv(tolerance=None)
     rhs = grid.random.normal(fv_space(mx, ms), seed=9)
-    rhs = rhs - rhs.mean()
+    rhs = rhs - _computational_mean(rhs)
     p = solver.solve(rhs)
     residual = solver.apply(p) - rhs
     rel = (float(jnp.abs(residual.data).max())
            / float(jnp.abs(rhs.data).max()))
     assert rel < 1e-10
-    assert float(jnp.abs(p.mean().data.ravel()[0])) < 1e-12
+    assert float(jnp.abs(_computational_mean(p).data.ravel()[0])) < 1e-12
 
 
 def test_pcg_convergence_is_resolution_independent_fv():
@@ -206,7 +210,7 @@ def test_pcg_convergence_is_resolution_independent_fv():
         # fixed-iteration mode: pinned for determinism
         solver, grid, mx, ms = build_fv(n=n, iterations=25, tolerance=None)
         rhs = grid.random.normal(fv_space(mx, ms), seed=9)
-        rhs = rhs - rhs.mean()
+        rhs = rhs - _computational_mean(rhs)
         p = solver.solve(rhs)
         residuals.append(
             float(jnp.abs((solver.apply(p) - rhs).data).max())
@@ -215,14 +219,20 @@ def test_pcg_convergence_is_resolution_independent_fv():
 
 
 def test_pcg_residual_matches_nodal_bitwise():
-    # since the FV and nodal operators + preconditioners are the same
-    # numbers, the CG iterates are bit-identical -> the solved pressure
-    # is bitwise equal (the strongest form of the cross-family gate)
+    # the FV and nodal operators + preconditioners are the same
+    # numbers, so the CG iterates agree to machine precision. The FV
+    # measure-weighted inner product reassociates with the storage
+    # width (its pairwise-reduction tree depends on the padded length),
+    # so once two-sided halo accounting narrows the FV grid to width 1
+    # the FV and nodal reductions differ by ~2 ULP (nodal is width-
+    # invariant; on the pre-tightening width 2 the two were bit-equal).
+    # The physics is unchanged -- the residual gate above still holds --
+    # so the cross-family gate is to machine precision, not the bit.
     fv, grid_fv, mx_fv, ms_fv = build_fv(iterations=12)
     nod, grid_nod, mx_nod, ms_nod = build_solver("nodal", iterations=12)
     data = np.asarray(grid_fv.random.normal(
         fv_space(mx_fv, ms_fv), seed=9).data)
-    data = data - data.mean()
+    data = data - data.mean()  # host-side numpy mean (not a field verb)
     rhs_fv = grid_fv.create_field(
         fv_space(mx_fv, ms_fv),
         init=lambda x, sigma: 0.0 * x * sigma).with_data(
@@ -231,8 +241,9 @@ def test_pcg_residual_matches_nodal_bitwise():
         mx_nod.center * ms_nod.center,
         init=lambda x, sigma: 0.0 * x * sigma).with_data(
             jnp.asarray(data))
-    assert np.array_equal(np.asarray(fv.solve(rhs_fv).data),
-                          np.asarray(nod.solve(rhs_nod).data))
+    assert np.allclose(np.asarray(fv.solve(rhs_fv).data),
+                       np.asarray(nod.solve(rhs_nod).data),
+                       rtol=0.0, atol=1e-14)
 
 
 # ================================================================
@@ -360,10 +371,12 @@ def test_mapped_fv_model_conserves_physical_buoyancy():
     tau = model.tendency(
         state, constraints=False,
         filter=fr.model.term_predicates.owned_by(CenteredAdvection))
-    grid = model.state["b"].grid
-    jac = grid.metric(model.state["b"].function_space, "dzp_dz")
+    # the physical (volume-weighted) buoyancy content is now the plain
+    # seeded verb on this maps= terrain grid (the physical-integral-
+    # default flip): tau["b"].integrate() already carries the column
+    # Jacobian, so hand-multiplying dzp_dz would double-count
     weighted = float(np.asarray(
-        (tau["b"] * jac).integrate().data).ravel()[0])
+        tau["b"].integrate().data).ravel()[0])
     scale = float(np.sum(np.abs(np.asarray(tau["b"].data))))
     assert abs(weighted) < 1e-11 * (scale + 1.0)
 
