@@ -410,11 +410,23 @@ Findings from the campaign:
   min after the srun commit; current dev refuses too-thin z
   shards and runs thick z-sharded weno5. The investigation
   found a **distinct silent bug instead**: z-sharded
-  hydrostatic runs diverge at the shard-seam z-levels (b rel
-  ~5e-2 over 20 steps; centered has only b off, u/v bit-exact;
-  localized around the diagnosed-w `.to(b)` seam face after
-  the CumulativeIntegral reshard round-trip; x-sharded is
-  bit-exact) — fix in flight on `fix/hydro-z-shard-seam`.
+  hydrostatic runs diverged at the shard-seam z-levels (b rel
+  ~5e-2 over 20 steps; x-sharded bit-exact). FIXED 2026-07-19
+  (merge `ef1a4d08`): the defect was `Restriction`
+  (`Outer -> Inner`, the vertical advective flux's w
+  relocation) reading one slot above each output while
+  declaring a zero halo footprint, so `_ensure_valid` never
+  synced the seam ghost (the initially-suspected restoring
+  `w.to(b)` interpolation was disproven — it declares its
+  reach and was bit-exact; u/v only looked correct because a
+  horizontal interp synced z as a side-effect). Fix = the
+  `(0, 1)` `requirements` declaration on the operator (the
+  contract's home); single-device and x-sharded results
+  bitwise-unchanged; z-shard parity regression tests added
+  (`tests/hydrostatic/test_z_shard_parity.py`). Residual
+  (roadmap): weno5 momentum keeps a ~1e-5 z-seam from
+  `WenoReconstruction`'s vertical footprint exceeding the
+  negotiated z-halo of 2 — owner-governed halo-cap territory.
 
 **Remaining (owner-gated GPU work; the roadmap entry tracks it):**
 step-guard checkpoint whenever Silvano next batches one (his own
