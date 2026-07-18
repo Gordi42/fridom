@@ -1,0 +1,6 @@
+jax.device_count() = 4; devices = [CudaDevice(id=0), CudaDevice(id=1), CudaDevice(id=2), CudaDevice(id=3)]
+method=auto(default)    vcycle_asym=3.493e-03 (<= 3.10e-14? False)  solve_rel_resid=2.867e-01 (<1e-8? False)
+method=cusparse         vcycle_asym=3.493e-03 (<= 3.10e-14? False)  solve_rel_resid=2.867e-01 (<1e-8? False)
+method=pcr              vcycle_asym=3.493e-03 (<= 3.10e-14? False)  solve_rel_resid=2.867e-01 (<1e-8? False)
+method=scan             vcycle_asym=3.493e-03 (<= 3.10e-14? False)  solve_rel_resid=2.867e-01 (<1e-8? False)
+EXIT=0
