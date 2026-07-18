@@ -594,15 +594,18 @@ def _signature(em: ChannelEigenmodesBase) -> StateSignature:
 def fourier_ops(em: ChannelEigenmodesBase) -> tuple[Fourier, ...]:
     """Per-axis Fourier transforms, the half-spectrum axis first.
 
-    The engine's ``rfftn`` read-out halves the *last* periodic axis
-    (``em.periodic_axis``), so the real-to-complex stage must run on
-    that axis: applying it first (and its inverse last) reproduces
-    the engine's coefficient layout — full spectra on the remaining
-    periodic axes, half spectrum on the last one.
+    The engine's ``rfftn`` read-out halves the designated periodic
+    axis (``em.periodic_axis`` -- the last periodic axis by default,
+    a local axis re-designated by the layout when the last one is
+    sharded), so the real-to-complex stage must run on that axis:
+    applying it first (and its inverse last) reproduces the engine's
+    coefficient layout -- full spectra on the remaining periodic
+    axes, half spectrum on the designated one.
     """
     periodic = tuple(
         name for name in em.grid.names if name != em.bounded_axis)
-    order = (periodic[-1], *periodic[:-1])
+    half = em.periodic_axis
+    order = (half, *(name for name in periodic if name != half))
     return tuple(Fourier(em.grid, axes=(axis,)) for axis in order)
 
 
