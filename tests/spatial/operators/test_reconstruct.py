@@ -65,7 +65,7 @@ def test_requirements(recon, mx):
 # ================================================================
 def _symbol_matches_operator(op, mesh, dom_space, seed=5):
     """Symbol in coeff space == coeff image of the physical output."""
-    grid = Grid((mesh,))
+    grid = Grid((mesh,), device_ids=(0,))
     axis = mesh.names[0]
     f = grid.random.normal(dom_space, seed=seed)
     t_in = grid.dispatch.resolve("transform", dom_space)
@@ -88,7 +88,7 @@ def test_symbol_matches_operator(recon, n, dom):
 
 
 def test_symbol_is_the_one_hat_retagging_symbol(recon, mx):
-    grid = Grid((mx,))
+    grid = Grid((mx,), device_ids=(0,))
     sym = recon["x"].eigenvalues(grid, mx.fourier(origin=mx.cell_avg))
     # retags Fourier(CellAvg) -> Fourier(Right)
     assert sym.space.origin is mx.cell_avg
@@ -105,7 +105,7 @@ def test_symbol_is_the_one_hat_retagging_symbol(recon, mx):
 def test_symbol_matches_the_nodal_interp_numbers(recon, mx):
     # scoping study §1: at 2nd order the FV reconstruction is bitwise
     # the nodal LinearInterp two-point mean
-    grid = Grid((mx,))
+    grid = Grid((mx,), device_ids=(0,))
     fv = recon["x"].eigenvalues(grid, mx.fourier(origin=mx.cell_avg))
     nodal = LinearInterp()["x"].eigenvalues(
         grid, mx.fourier(origin=mx.center))
@@ -114,7 +114,7 @@ def test_symbol_matches_the_nodal_interp_numbers(recon, mx):
 
 
 def test_eigenvalues_thread_bare_or_fourier_factor(recon, mx):
-    grid = Grid((mx,))
+    grid = Grid((mx,), device_ids=(0,))
     bare = recon["x"].eigenvalues(grid, mx.cell_avg)
     coeff = recon["x"].eigenvalues(grid, mx.fourier(origin=mx.cell_avg))
     assert coeff.space is bare.space
@@ -132,18 +132,19 @@ def test_codomain_retags_a_fourier_factor(recon, mx):
 def test_eigenvalues_raise_on_the_target_variant(mx):
     outer = LinearReconstruction(target=NodeSet.OUTER)
     with pytest.raises(EigenbasisError, match="target="):
-        outer["x"].eigenvalues(Grid((mx,)), mx.cell_avg)
+        outer["x"].eigenvalues(Grid((mx,), device_ids=(0,)), mx.cell_avg)
 
 
 def test_eigenvalues_raise_on_bounded_and_mapped(recon, my):
     with pytest.raises(EigenbasisError, match="periodic"):
-        recon["y"].eigenvalues(Grid((my,)), my.cell_avg)
+        recon["y"].eigenvalues(Grid((my,), device_ids=(0,)), my.cell_avg)
     mapped = MappedIntervalMesh(
         8, (0.0, 1.0),
         lambda s: s + 0.1 * jnp.sin(2 * jnp.pi * s) / (2 * jnp.pi),
         periodic=True, name="w")
     with pytest.raises(EigenbasisError, match="periodic"):
-        recon["w"].eigenvalues(Grid((mapped,)), mapped.cell_avg)
+        recon["w"].eigenvalues(
+            Grid((mapped,), device_ids=(0,)), mapped.cell_avg)
 
 
 # ================================================================
@@ -192,7 +193,7 @@ def test_codomain_rejects_neumann_inner(recon, my):
 def test_apply_walled_dirichlet_inner_consumes_the_claim(recon, my):
     # the interior cells are bitwise the two-point mean; the wall cells
     # use the homogeneous Dirichlet zero
-    grid = Grid((my,))
+    grid = Grid((my,), device_ids=(0,))
     inner_dir = my.nodal(NodeSet.INNER, bc=BC.DIRICHLET)
     f = grid.random.normal(inner_dir, seed=8)
     out = recon["y"]._apply_factor(f, "y")
@@ -241,7 +242,7 @@ def test_periodic_cell_avg_to_right_converges(recon):
     errors = []
     for n in (16, 32):
         mesh = IntervalMesh(n, (0.0, 1.0), name="x")
-        grid = Grid((mesh,))
+        grid = Grid((mesh,), device_ids=(0,))
         f = grid.create_field(
             mesh.cell_avg, init=lambda x: jnp.sin(2 * jnp.pi * x))
         g = recon["x"](f)
@@ -255,7 +256,7 @@ def test_periodic_cell_avg_to_right_converges(recon):
 def test_right_to_cell_avg_is_exact_on_linears(recon, mx):
     # the cell average of a linear equals the mean of its face
     # values; the first cell consumes the periodic wrap ghost
-    grid = Grid((mx,))
+    grid = Grid((mx,), device_ids=(0,))
     f = grid.create_field(mx.right, data=jnp.arange(8.0))
     g = recon["x"](f)
     assert g.function_space.bare is mx.cell_avg
@@ -266,7 +267,7 @@ def test_right_to_cell_avg_is_exact_on_linears(recon, mx):
 
 
 def test_bounded_outer_to_cell_avg_is_exact_on_linears(recon, my):
-    grid = Grid((my,))
+    grid = Grid((my,), device_ids=(0,))
     f = grid.create_field(my.outer, init=lambda y: 3.0 * y - 1.0)
     g = recon["y"](f)
     assert g.function_space.bare is my.cell_avg
@@ -275,7 +276,7 @@ def test_bounded_outer_to_cell_avg_is_exact_on_linears(recon, my):
 
 
 def test_bounded_center_to_face_avg_is_exact_on_linears(recon, my):
-    grid = Grid((my,))
+    grid = Grid((my,), device_ids=(0,))
     f = grid.create_field(my.center, init=lambda y: 2.0 * y + 1.0)
     g = recon["y"](f)
     assert g.function_space.bare is my.face_avg
@@ -287,7 +288,7 @@ def test_outer_variant_is_ungrounded_under_r1(my):
     # the wall faces are undefined on the (always BC-free) CellAvg
     # (R1, boundary_plan.md): the application raises loudly; a
     # one-sided reconstruction variant is designed-for
-    grid = Grid((my,))
+    grid = Grid((my,), device_ids=(0,))
     outer = LinearReconstruction(target=NodeSet.OUTER)
     f = grid.create_field(my.cell_avg, init=lambda y: 4.0 * y)
     with pytest.raises(SpaceMismatchError, match="one-sided"):
@@ -295,7 +296,7 @@ def test_outer_variant_is_ungrounded_under_r1(my):
 
 
 def test_metadata_is_kept(recon, mx):
-    grid = Grid((mx,))
+    grid = Grid((mx,), device_ids=(0,))
     f = grid.create_field(mx.cell_avg, name="q", units="kg")
     assert recon["x"](f).name == "q"  # same quantity
 
@@ -304,7 +305,8 @@ def test_reconstruct_needs_the_negotiated_halo(recon, mx):
     # the reach check is frame-independent (per-block stencil reach,
     # never storage bounds), so it raises identically on the
     # single-shard frame and on blocked multi-device frames
-    bare = Grid((mx,), dispatch=OperatorRegistry({}))  # halo 0
+    bare = Grid((mx,), dispatch=OperatorRegistry({}),
+                device_ids=(0,))  # halo 0
     f = bare.create_field(mx.cell_avg)
     with pytest.raises(ValueError, match="halo width 0"):
         recon["x"](f)
@@ -314,7 +316,7 @@ def test_reconstruct_needs_the_negotiated_halo(recon, mx):
 #  Registry rows and the .to sugar
 # ================================================================
 def test_to_reconstructs_average_sources(mx):
-    grid = Grid((mx,))
+    grid = Grid((mx,), device_ids=(0,))
     f = grid.create_field(mx.cell_avg, data=jnp.arange(8.0))
     g = f.to(mx.right)
     assert g.function_space.bare is mx.right
@@ -322,7 +324,7 @@ def test_to_reconstructs_average_sources(mx):
 
 def test_to_averages_nodal_sources(mx):
     # nodal -> average resolves the seeded ("average", ...) rows
-    grid = Grid((mx,))
+    grid = Grid((mx,), device_ids=(0,))
     f = grid.create_field(mx.right, data=jnp.arange(8.0))
     assert f.to(mx.cell_avg).function_space.bare is mx.cell_avg
     h = grid.create_field(mx.center, data=jnp.arange(8.0))
@@ -332,7 +334,7 @@ def test_to_averages_nodal_sources(mx):
 def test_to_rejects_dual_family_transfer(mx):
     # CellAvg -> FaceAvg needs the designed-for dual transfer; the
     # registered reconstruct codomain (Right) does not match
-    grid = Grid((mx,))
+    grid = Grid((mx,), device_ids=(0,))
     f = grid.create_field(mx.cell_avg)
     with pytest.raises(SpaceMismatchError, match="lands on"):
         f.to(mx.face_avg)
@@ -342,7 +344,7 @@ def test_average_under_interpolate_kind(mx, my):
     # G4: the reconstruct instance is seeded under the interpolate kind
     # for the average family so composed._interp_onto can hop a
     # CellAvg/FaceAvg component; codomain is the staggering face
-    grid = Grid((mx, my))
+    grid = Grid((mx, my), device_ids=(0,))
     op = grid.dispatch.resolve("interpolate", mx.cell_avg)
     assert isinstance(op, LinearReconstruction)
     assert op.codomain(mx.cell_avg) is mx.right  # periodic
@@ -367,7 +369,7 @@ def test_average_interpolate_kind_converges():
         for n in (16, 32, 64):
             mesh = IntervalMesh(n, (0.0, 1.0), periodic=periodic,
                                 name="x")
-            grid = Grid((mesh,))
+            grid = Grid((mesh,), device_ids=(0,))
             f = grid.create_field(mesh.cell_avg, init=field)
             op = grid.dispatch.resolve("interpolate", mesh.cell_avg)
             g = op["x"](f)
@@ -434,7 +436,7 @@ def test_deconvolution_rejects_bc_structured_center(deconv, my):
 
 def test_deconvolution_is_identity_retag(deconv, mx):
     # the data is untouched (a 2nd-order identity) on both directions
-    grid = Grid((mx,))
+    grid = Grid((mx,), device_ids=(0,))
     f = grid.create_field(mx.cell_avg, data=jnp.arange(8.0), name="q")
     g = deconv["x"](f)
     assert g.function_space.bare is mx.center
@@ -447,7 +449,7 @@ def test_deconvolution_is_identity_retag(deconv, mx):
 
 def test_deconvolution_works_on_bounded_axis(deconv, my):
     # co-located conversion needs no exterior values (R1 does not bite)
-    grid = Grid((my,))
+    grid = Grid((my,), device_ids=(0,))
     f = grid.create_field(my.cell_avg, data=jnp.arange(8.0))
     g = deconv["y"](f)
     assert g.function_space.bare is my.center
@@ -462,7 +464,7 @@ def test_deconvolution_is_second_order_vs_midpoint():
     errors = []
     for n in (16, 32, 64, 128):
         mesh = IntervalMesh(n, (0.0, 1.0), name="x")
-        grid = Grid((mesh,))
+        grid = Grid((mesh,), device_ids=(0,))
         dx = 1.0 / n
         xl = np.arange(n) * dx
         # (1/dx) int_cell sin(2 pi x) dx
@@ -482,7 +484,7 @@ def test_deconvolution_is_second_order_vs_midpoint():
 def test_to_colocated_deconvolution_round_trips(mx):
     # .to reads the "deconvolve" kind for a co-located average<->nodal
     # pair (G3); the round trip is an exact identity
-    grid = Grid((mx,))
+    grid = Grid((mx,), device_ids=(0,))
     p = grid.create_field(mx.cell_avg, data=jnp.arange(8.0))
     center = p.to(mx.center)
     assert center.function_space.bare is mx.center
@@ -559,7 +561,7 @@ def test_one_sided_requirements_demand_a_local_axis(outer, recon, my):
 def test_one_sided_outer_is_exact_on_constants_and_linears(outer, my):
     # every face (interior AND both walls) reproduces a linear exactly
     # at machine precision on a uniform bounded axis
-    grid = Grid((my,))
+    grid = Grid((my,), device_ids=(0,))
     for poly in (lambda y: 3.0 + 0.0 * y, lambda y: 2.0 * y - 1.0):
         f = grid.create_field(my.cell_avg, init=poly)
         g = outer["y"](f)
@@ -572,7 +574,7 @@ def test_one_sided_outer_is_exact_on_constants_and_linears(outer, my):
 def test_one_sided_wall_faces_are_linear_extrapolation(outer, my):
     # the two wall faces are the one-sided (3 c0 - c1) / 2 closure of
     # the two nearest interior cell averages (uniform axis)
-    grid = Grid((my,))
+    grid = Grid((my,), device_ids=(0,))
     f = grid.create_field(my.cell_avg,
                           init=lambda y: jnp.sin(1.3 * y) + 0.2 * y)
     g = outer["y"](f)
@@ -584,7 +586,7 @@ def test_one_sided_wall_faces_are_linear_extrapolation(outer, my):
 def test_one_sided_interior_matches_inner_bitwise(outer, recon, my):
     # the interior faces of the Outer result are the standard symmetric
     # CellAvg -> Inner reconstruction, bit for bit (consistency gate)
-    grid = Grid((my,))
+    grid = Grid((my,), device_ids=(0,))
     f = grid.create_field(my.cell_avg,
                           init=lambda y: jnp.sin(1.3 * y) + 0.2 * y)
     g = outer["y"](f)
@@ -599,7 +601,7 @@ def test_one_sided_outer_wall_converges(outer):
     errors = []
     for n in (16, 32, 64, 128):
         mesh = IntervalMesh(n, (0.0, 1.0), periodic=False, name="y")
-        grid = Grid((mesh,))
+        grid = Grid((mesh,), device_ids=(0,))
         f = grid.create_field(mesh.cell_avg,
                               init=lambda y: jnp.exp(jnp.sin(3.0 * y)))
         g = outer["y"](f)
@@ -616,7 +618,7 @@ def test_one_sided_outer_on_a_stretched_axis(outer, recon, mw):
     # non-uniform geometry: the wall weights come from the cell widths,
     # so the walls stay exact on linears (constants exact everywhere);
     # the interior keeps the symmetric mean (bitwise vs CellAvg -> Inner)
-    grid = Grid((mw,))
+    grid = Grid((mw,), device_ids=(0,))
     y_o = grid.evaluation_nodes(mw.outer).data
     const = grid.create_field(mw.cell_avg, init=lambda y: 5.0 + 0.0 * y)
     g_c = outer["y"](const)
@@ -641,7 +643,7 @@ def test_one_sided_outer_stretched_wall_converges(outer):
     for n in (16, 32, 64, 128):
         mesh = MappedIntervalMesh(n, (0.0, 1.0), mapping,
                                   periodic=False, name="y")
-        grid = Grid((mesh,))
+        grid = Grid((mesh,), device_ids=(0,))
         f = grid.create_field(mesh.cell_avg,
                               init=lambda y: jnp.exp(jnp.sin(3.0 * y)))
         g = outer["y"](f)
@@ -657,14 +659,14 @@ def test_one_sided_outer_stretched_wall_converges(outer):
 def test_one_sided_outer_needs_enough_cells(outer):
     # the two-point wall stencil needs at least two cells
     mesh = IntervalMesh(1, (0.0, 1.0), periodic=False, name="y")
-    grid = Grid((mesh,))
+    grid = Grid((mesh,), device_ids=(0,))
     f = grid.create_field(mesh.cell_avg, init=lambda y: y)
     with pytest.raises(NotImplementedError, match="needs 2 cells"):
         outer["y"](f)
 
 
 def test_one_sided_metadata_is_kept(outer, my):
-    grid = Grid((my,))
+    grid = Grid((my,), device_ids=(0,))
     f = grid.create_field(my.cell_avg, name="q", units="kg")
     assert outer["y"](f).name == "q"  # same quantity
 
@@ -673,7 +675,7 @@ def test_outer_variant_is_not_a_default_to_row(my):
     # the Outer codomain is reached per-instance (opt-in), never a
     # seeded row: .to(outer) resolves the default reconstruct (-> Inner)
     # and mismatches, exactly like the nodal target=OUTER interp
-    grid = Grid((my,))
+    grid = Grid((my,), device_ids=(0,))
     f = grid.create_field(my.cell_avg, init=lambda y: y)
     with pytest.raises(SpaceMismatchError, match="lands on"):
         f.to(my.outer)
@@ -696,7 +698,7 @@ def inner_dir(my):
 
 def test_walled_face_windowed_equals_true_frame(recon, my, inner_dir):
     # the load-bearing invariant: the two spellings agree bit for bit
-    grid = Grid((my,))
+    grid = Grid((my,), device_ids=(0,))
     f = grid.random.normal(inner_dir, seed=4)
     fast = recon["y"]._reconstruct_walled_face_windowed(f, "y")
     slow = recon["y"]._reconstruct_walled_face_true_frame(f, "y")
@@ -710,7 +712,7 @@ def test_walled_face_windowed_equals_true_frame(recon, my, inner_dir):
 def test_walled_face_windowed_keeps_periodic_halo_claim(recon, mx, my):
     # the mechanism: the windowed path keeps the periodic-x claim, the
     # true-frame store() drops it; the bounded axis is consumed by both
-    grid = Grid((mx, my))
+    grid = Grid((mx, my), device_ids=(0,))
     space = mx.cell_avg * my.nodal(NodeSet.INNER, bc=BC.DIRICHLET)
     f0 = grid.random.normal(space, seed=2)
     f = type(f0)(f0.grid, f0.function_space, f0._data, f0.metadata,
@@ -726,7 +728,7 @@ def test_walled_face_falls_back_when_walls_unaddressable(recon, my):
     # the empty-registry grid negotiates no halo: _apply_factor routes
     # the walled-face reconstruction to the true-frame fallback and
     # still lands the exact claim-consuming mean
-    bare = Grid((my,), dispatch=OperatorRegistry({}))
+    bare = Grid((my,), dispatch=OperatorRegistry({}), device_ids=(0,))
     inner = my.nodal(NodeSet.INNER, bc=BC.DIRICHLET)
     f = bare.random.normal(inner, seed=7)
     assert wall_slots_addressable(f, "y") is False
@@ -747,7 +749,7 @@ def test_walled_face_windowed_grad_is_finite_and_matches_fd(
     # storage (no divide/sqrt), so jax.grad is finite and matches a
     # central FD -- the storage-frame respelling keeps it so.
     def loss(c):
-        grid = Grid((my,))
+        grid = Grid((my,), device_ids=(0,))
         f = grid.random.normal(inner_dir, seed=8) * c
         return jnp.sum(recon["y"](f).data ** 2)
 

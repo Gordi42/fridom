@@ -76,7 +76,7 @@ def build_hierarchy(n, dim, num_levels, *, omega=0.8, coarse_sweeps=8,
     """Return (grid, space, apply_A, vcycle) for a flat Poisson tower."""
     names = tuple("xyz"[:dim])
     grid = Grid(tuple(
-        IntervalMesh(n, (0.0, 1.0), name=nm) for nm in names))
+        IntervalMesh(n, (0.0, 1.0), name=nm) for nm in names), device_ids=(0,))
     grids = [grid]
     spaces = [cell_space(grid)]
     for _ in range(num_levels - 1):
@@ -232,7 +232,7 @@ def test_preconditioned_cg_hlo_is_flat_in_the_iteration_count():
 # ================================================================
 def test_asymmetric_sweeps_raise():
     _, _, _, _ = build_hierarchy(8, 3, 2)  # warm the builders
-    grid = Grid((IntervalMesh(8, (0.0, 1.0), name="x"),))
+    grid = Grid((IntervalMesh(8, (0.0, 1.0), name="x"),), device_ids=(0,))
     space = cell_space(grid)
     level = MultigridLevel(
         laplacian(("x",)),
@@ -243,7 +243,7 @@ def test_asymmetric_sweeps_raise():
 
 
 def test_interior_level_needs_a_transfer():
-    grid = Grid((IntervalMesh(8, (0.0, 1.0), name="x"),))
+    grid = Grid((IntervalMesh(8, (0.0, 1.0), name="x"),), device_ids=(0,))
     space = cell_space(grid)
     level = MultigridLevel(
         laplacian(("x",)),
@@ -259,7 +259,7 @@ def test_empty_levels_raise():
 
 
 def test_coarsest_level_must_have_no_transfer():
-    grid = Grid((IntervalMesh(8, (0.0, 1.0), name="x"),))
+    grid = Grid((IntervalMesh(8, (0.0, 1.0), name="x"),), device_ids=(0,))
     space = cell_space(grid)
     transfer = GridTransfer(grid, grid.coarsened(2), order=2)
     level = MultigridLevel(
@@ -271,7 +271,7 @@ def test_coarsest_level_must_have_no_transfer():
 
 
 def test_non_positive_sweeps_raise():
-    grid = Grid((IntervalMesh(8, (0.0, 1.0), name="x"),))
+    grid = Grid((IntervalMesh(8, (0.0, 1.0), name="x"),), device_ids=(0,))
     space = cell_space(grid)
     level = MultigridLevel(
         laplacian(("x",)),
@@ -354,7 +354,7 @@ def mapped_line_hierarchy(nx, nz, num_levels):
         mx = IntervalMesh(nx_, (0.0, 1.0), periodic=True, name="x")
         ms = MappedIntervalMesh(nz, (0.0, 1.0), _mapped_stretch,
                                 periodic=True, name="sigma")
-        return Grid((mx, ms))
+        return Grid((mx, ms), device_ids=(0,))
     grids = [build(nx)]
     for _ in range(num_levels - 1):
         grids.append(grids[-1].coarsened({"x": 2}))

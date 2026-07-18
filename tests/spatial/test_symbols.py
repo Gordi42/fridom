@@ -35,7 +35,7 @@ NW = 8
 def kit_2d():
     mx = IntervalMesh(N2, (0.0, 1.0), name="x")
     my = IntervalMesh(N2, (0.0, 2.0), name="y")
-    grid = Grid((mx, my))
+    grid = Grid((mx, my), device_ids=(0,))
     spaces = {"u": mx.right * my.center,
               "v": mx.center * my.right,
               "p": mx.center * my.center}
@@ -47,7 +47,7 @@ def kit_3d():
     mx = IntervalMesh(N3, (0.0, 1.0), name="x")
     my = IntervalMesh(N3, (0.0, 1.0), name="y")
     mz = IntervalMesh(N3, (0.0, 1.0), name="z")
-    grid = Grid((mx, my, mz))
+    grid = Grid((mx, my, mz), device_ids=(0,))
     spaces = {"u": mx.right * my.center * mz.center,
               "v": mx.center * my.right * mz.center,
               "w": mx.center * my.center * mz.right,
@@ -62,7 +62,7 @@ def kit_walled():
     mx = IntervalMesh(NW, (0.0, 1.0), name="x")
     my = IntervalMesh(NW, (0.0, 2.0), name="y")
     mz = IntervalMesh(NW, (0.0, 1.0), periodic=False, name="z")
-    grid = Grid((mx, my, mz))
+    grid = Grid((mx, my, mz), device_ids=(0,))
     hor = mx.center * my.center
     spaces = {
         "w": hor * mz.nodal(NodeSet.INNER, bc=BC.DIRICHLET),

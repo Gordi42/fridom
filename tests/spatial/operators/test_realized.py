@@ -39,7 +39,7 @@ def laplacian_2d():
 def setup_2d():
     mx = IntervalMesh(N, (0.0, 1.0), name="x")
     my = IntervalMesh(N, (0.0, 2.0), name="y")
-    grid = Grid((mx, my))
+    grid = Grid((mx, my), device_ids=(0,))
     lap = laplacian_2d()
     rhs = grid.create_field(
         init=lambda x, y: jnp.sin(4 * jnp.pi * x) * jnp.cos(jnp.pi * y))

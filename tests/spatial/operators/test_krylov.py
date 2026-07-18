@@ -40,7 +40,7 @@ def build_grid(nx=16, ny=16):
     """Build a 2D periodic grid on the unit square."""
     mx = fr.spatial.meshes.IntervalMesh(nx, (0.0, 1.0), name="x")
     my = fr.spatial.meshes.IntervalMesh(ny, (0.0, 1.0), name="y")
-    return fr.spatial.Grid((mx, my))
+    return fr.spatial.Grid((mx, my), device_ids=(0,))
 
 
 def spectral_pieces(grid, space, sign=-1.0):
