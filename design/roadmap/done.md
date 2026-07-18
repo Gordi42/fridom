@@ -96,6 +96,34 @@ Implementation record:
 
 ## Landed since, outside the numbered tasks
 
+- **Mapped + advection + chunked scan non-finite — root-caused,
+  already fixed** (2026-07-18 investigation; the fix itself landed
+  2026-07-17 in `44b5cb8d`) — the open-roadmap fault (recorded from
+  the CG GPU measurement at `b77f8582`: mapped advective runs
+  non-finite at `chunk_size ≥ 2` while the same steps run finite one
+  at a time) was the unguarded mapped velocity-correction `flux / J`
+  planting `inf` in the never-valid storage padding: the per-chunk
+  `_scrub_ghost_storage` cleansed it at chunk=1, while inside a
+  chunk≥2 scan the carry seal refills only negotiated halo lanes, so
+  the next step's masked wall arithmetic hit `0·inf = NaN` and the CG
+  dot products globalized it (u/v/w/p 100 % non-finite at it=2, b one
+  step behind). **Never a GPU or compiler fault**: CPU reproduces the
+  signature bit-identically at n=64 (the "on GPU" title was an
+  observation artifact — the CPU leg was never run; the
+  `multi_output_fusion` non-fix is thereby explained). Fixed
+  *accidentally* by the velocity-correction **VJP** guard `44b5cb8d`
+  ("the forward projection is untouched" — it was the forward fault
+  too); adjacent-commit bisect (`30f4a624` broken → `44b5cb8d`
+  fixed), and HEAD runs chunk=2 bit-identical to chunk=1 through
+  it=22 at 256³. Bonus finding: the bench config itself (unclosed
+  inviscid centered advection) blows up physically at it≈24
+  (t≈0.12), cadence/backend-independent and bit-identical across the
+  254 intervening commits — the original chunk=1 "control" looked
+  finite only because it stopped earlier. Hardening residuals
+  (chunk-parity test, `MetricScaled` pad-inf audit) tracked in
+  [`open.md`](open.md). Record:
+  [`mapped_chunk_nonfinite_rootcause.md`](../research/mapped_chunk_nonfinite_rootcause.md).
+
 - **Storage-halo width recovered — two-sided (interval) halo
   accounting** (2026-07-18, probe merge `a8a9aefb`, implementation
   merge `40a24df8`) — the "n+8 vs nominal n+6" roadmap question

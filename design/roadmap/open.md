@@ -98,27 +98,26 @@ contraction shipped 2026-07-18 (merge `e60259de`, entry in
 Evidence, provenance probes, and the full re-attribution history:
 [`../research/multidevice_test_faults.md`](../research/multidevice_test_faults.md).
 
-## Mapped + advection + chunked scan goes non-finite on GPU
+## Mapped chunk-NaN hardening — residuals
 
-Found 2026-07-17 while GPU-measuring the CG tolerance (A100, jax
-0.10.2, dev `b77f8582` — predates the tolerance work). A
-terrain-following mapped nonhydro2 run with advection **on** goes
-non-finite whenever `chunk_size >= 2`, at 256³ and even at dt=0.005
-(2.5e-4 physical) — while the *same* steps run finite one at a time
-(`chunk_size = 1`). Flat + advective + chunked is fine; mapped +
-linear + chunked is fine; only the mapped advective step inside the
-scanned chunk breaks, which points at a scanned-chunk
-compilation/fusion fault, not physics. The known
-`--xla_disable_hlo_passes=multi_output_fusion` workaround does **not**
-fix it (so it is not jax#39100). Distinct from the mapped
-reverse-mode NaN (that is a VJP-only masked singularity; this is the
-forward primal). Work: bisect the module set (advection scheme ×
-mapped metric terms) to a minimal repro, check CPU vs GPU and
-chunk-length sensitivity, then either a fridom-side restructuring or
-an upstream repro. Evidence: the CG-tolerance GPU measurement
-(research record
-[`../research/cg_stopping_criterion.md`](../research/cg_stopping_criterion.md),
-GPU addendum).
+The 2026-07-17 "mapped + advection + chunked scan goes non-finite on
+GPU" fault itself is resolved (entry in [`done.md`](done.md); record
+[`../research/mapped_chunk_nonfinite_rootcause.md`](../research/mapped_chunk_nonfinite_rootcause.md)).
+The hazard class outlives the instance — any unguarded storage-frame
+divide by a zero-padded factor plants `inf` in never-valid lanes,
+which only the per-chunk scrub cadence cleanses. Open hardening:
+
+- **Chunk-parity regression test** (recommended): small mapped
+  advective model, K steps at `chunk_size=1` vs `chunk_size=2`,
+  assert bitwise-equal and finite (CPU is enough — the fault class is
+  backend-independent). The suite's only mapped+chunked test file
+  pins `chunk_size=1` (`test_fv_fusion_guards.py`), so the class is
+  currently untested.
+- **Pad-inf audit/guard**: seal the remaining unguarded members like
+  `_divide_by_jacobian` (~free, bitwise on valid cells) — the known
+  ones are the `MetricScaled` divides (`mapped.py:219-222`) — and/or
+  a debug-mode all-finite-*storage* assertion at carry boundaries so
+  a recurrence fails loudly instead of cadence-dependently.
 
 ## Finite-volume nonhydro — decisions and validation
 
@@ -192,7 +191,10 @@ the scoping §10–§13). Open:
     (self-adjoint 8.8e-16, cancellation exact).
   - **`MetricScaled` divides** (`mapped.py:219-222`) share the
     masked-singularity structure but are empirically reverse-safe;
-    guard only if a composition exposes them (VJP-fix audit).
+    guard only if a composition exposes them (VJP-fix audit). Note
+    2026-07-18: the same pad-`inf` structure was the *forward*
+    chunk≥2 NaN (see the mapped chunk-NaN hardening entry) — the
+    forward exposure is one composition away too.
   - **GPU validation** of the new stretched+terrain paths (the
     standing 4-GPU baseline re-record shipped 2026-07-17 without a
     stretched+terrain-combined bench case, so this stays open — validate
