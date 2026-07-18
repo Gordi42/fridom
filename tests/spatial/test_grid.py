@@ -355,8 +355,33 @@ def test_negotiate_returns_a_resharding_report(grid):
     assert report.new is grid.decomposition.default_layout
 
 
-def test_negotiate_honors_an_explicit_halo(grid):
+def test_negotiate_honors_an_explicit_halo(mx, my):
+    # pin to one device so no shardability cap engages: on a sharded
+    # grid the explicit halo would be capped to the shortest-shard
+    # extent (established, deliberate semantics), which would mask the
+    # "negotiate honors the explicit width" claim. The uncapped honoring
+    # is what this test asserts, so it must run where no cap applies --
+    # and stays unmarked (passes at any device count).
+    grid = Grid((mx, my), device_ids=(0,))
     grid.negotiate(halo=HaloSpec({"x": 3}))
+    assert grid.decomposition.halo["x"] == 3
+    assert grid.decomposition.halo["y"] == 0
+
+
+@pytest.mark.multi_device
+def test_negotiate_caps_an_explicit_halo_on_a_sharded_axis():
+    # the sharded counterpart: on a genuinely sharded axis the explicit
+    # halo is capped to the shortest-shard extent (shortest shard - 1),
+    # and negotiate records the capped width, not the requested one.
+    # nx = 4 * device_count keeps the shortest shard 4 cells for any
+    # device count >= 2, so the cap is 3 and x still shards.
+    nx = 4 * jax.device_count()
+    grid = Grid((
+        IntervalMesh(nx, (0.0, 1.0), name="x"),
+        IntervalMesh(nx, (0.0, 2.0), periodic=False, name="y")))
+    assert dict(grid.decomposition.default_layout.device_axes) == {
+        "x": "devices"}
+    grid.negotiate(halo=HaloSpec({"x": 20}))
     assert grid.decomposition.halo["x"] == 3
     assert grid.decomposition.halo["y"] == 0
 
@@ -574,9 +599,14 @@ def test_init_signature_validated(grid):
         grid.create_field(init=lambda x, y, z: x + y + z)
 
 
-def test_init_on_coefficient_space_composes_the_transform(grid1d,
-                                                          mx):
+def test_init_on_coefficient_space_composes_the_transform(mx):
     # discretize = transform o discretize-on-origin (rules 3.10)
+    # pin to one device: the host-side Fourier forward needs every axis
+    # local (under floor-1 sharding x=8 would shard the transform axis
+    # and the change-of-representation path refuses to run); the
+    # transform values are single-controller, so this is unmarked and
+    # holds at any device count.
+    grid1d = Grid((mx,), device_ids=(0,))
     coeff = mx.fourier(origin=mx.center)
     f = grid1d.create_field(
         coeff, init=lambda x: jnp.sin(2 * jnp.pi * x), name="f")
@@ -589,7 +619,10 @@ def test_init_on_coefficient_space_composes_the_transform(grid1d,
     assert jnp.allclose(f.data, expected, atol=1e-14)
 
 
-def test_init_on_complex_full_spectrum_space(grid1d, mx):
+def test_init_on_complex_full_spectrum_space(mx):
+    # pin to one device: host-side Fourier forward needs a local
+    # transform axis (see above); unmarked, holds at any device count.
+    grid1d = Grid((mx,), device_ids=(0,))
     coeff = mx.fourier(origin=mx.center.as_complex())
     f = grid1d.create_field(
         coeff, init=lambda x: jnp.exp(2j * jnp.pi * x))
@@ -601,8 +634,10 @@ def test_init_on_complex_full_spectrum_space(grid1d, mx):
 
 
 def test_init_on_multi_axis_coefficient_space(mx):
+    # pin to one device: host-side Fourier forward needs local
+    # transform axes; unmarked, holds at any device count.
     mp = IntervalMesh(4, (0.0, 2.0), name="p")
-    grid = Grid((mx, mp))
+    grid = Grid((mx, mp), device_ids=(0,))
     space = (mx.fourier(origin=mx.center)
              * mp.fourier(origin=mp.center.as_complex()))
 
@@ -617,9 +652,12 @@ def test_init_on_multi_axis_coefficient_space(mx):
     assert jnp.allclose(f.data, reference.data)
 
 
-def test_init_on_mixed_coefficient_nodal_space(grid, mx, my):
+def test_init_on_mixed_coefficient_nodal_space(mx, my):
     # only the coefficient factor's axis is transformed; the nodal
-    # factor stays collocated
+    # factor stays collocated. Pin to one device: the host-side Fourier
+    # forward needs a local transform axis; unmarked, holds at any
+    # device count.
+    grid = Grid((mx, my), device_ids=(0,))
     space = mx.fourier(origin=mx.center) * my.center
 
     def init(x, y):
@@ -635,9 +673,13 @@ def test_init_on_mixed_coefficient_nodal_space(grid, mx, my):
 
 def test_init_on_unreachable_coefficient_mix_raises(mx):
     # both axes requested as half spectra: the rfftn schedule puts
-    # the half spectrum on the first-listed axis only
+    # the half spectrum on the first-listed axis only. Pin to one
+    # device so the transform runs and raises the intended
+    # SpaceMismatchError (a sharded transform axis would raise the
+    # taught cannot-run error first); unmarked, holds at any device
+    # count.
     mp = IntervalMesh(4, (0.0, 2.0), name="p")
-    grid = Grid((mx, mp))
+    grid = Grid((mx, mp), device_ids=(0,))
     both_half = (mx.fourier(origin=mx.center)
                  * mp.fourier(origin=mp.center))
     with pytest.raises(SpaceMismatchError, match="half spectrum"):
@@ -789,9 +831,12 @@ def test_quadrature_face_avg_is_guarded(grid1d, mx):
                             order=2)
 
 
-def test_quadrature_rides_through_to_an_average_origin(grid1d, mx):
+def test_quadrature_rides_through_to_an_average_origin(mx):
     # discretize = transform o discretize-on-origin: order= reaches
-    # the CellAvg origin discretize before the Fourier forward
+    # the CellAvg origin discretize before the Fourier forward. Pin to
+    # one device: the host-side Fourier forward needs a local transform
+    # axis; unmarked, holds at any device count.
+    grid1d = Grid((mx,), device_ids=(0,))
     coeff = mx.fourier(origin=mx.cell_avg)
 
     def init(x):
