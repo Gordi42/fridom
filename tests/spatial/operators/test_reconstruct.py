@@ -60,6 +60,18 @@ def test_requirements(recon, mx):
     assert recon.requirements(mx.cell_avg).layout == "any"
 
 
+def test_bounded_reconstruction_publishes_a_footprint_reach(recon, my):
+    # fix/walled-shard-halo-validity: the FV reconstruction
+    # CellAvg -> Inner on a bounded axis shrinks the codomain, so its
+    # boundary exterior reach cancels toward the wall; the requirements
+    # must instead publish the per-shard stencil footprint (nonzero on
+    # the reached side), or a sharded walled operand's inter-shard halo
+    # is never synced before the flux difference (silent wrong physics)
+    reach = recon.requirements(my.cell_avg).reach
+    assert reach == (0, 1)
+    assert reach != (0, 0)
+
+
 # ================================================================
 #  Fourier symbols (eigenvalues) — scoping study gap G1
 # ================================================================

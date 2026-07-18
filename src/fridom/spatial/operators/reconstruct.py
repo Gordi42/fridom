@@ -62,8 +62,8 @@ from fridom.spatial.operators.spectral import (
 )
 from fridom.spatial.operators.staggering import (
     first_node_offset,
+    footprint_reach,
     require_local_axis,
-    window_reach,
 )
 from fridom.spatial.operators.stencil_kernels import (
     apply_stencil,
@@ -196,16 +196,20 @@ def fv_reach(
     domain: FunctionSpace, codomain: FunctionSpace, size: int,
 ) -> tuple[int, int]:
     """
-    Per-side reach of a midpoint-aligned ``size``-point FV kernel.
+    Per-shard footprint of a midpoint-aligned ``size``-point FV kernel.
 
     Description
     -----------
-    The average-family twin of ``staggering.exterior_reach``:
-    :func:`staggering.window_reach` at the midpoint alignment computed
-    with :func:`fv_node_offset` (so ``CellAvg``/``FaceAvg`` factors
-    align at their quadrature points). Nodal factors give the same
-    reach as ``exterior_reach``. Biased kernels pass their explicit
-    alignment to ``window_reach`` directly instead.
+    The average-family twin of ``staggering.reach_or``'s footprint:
+    :func:`staggering.footprint_reach` at the midpoint alignment
+    computed with :func:`fv_node_offset` (so ``CellAvg``/``FaceAvg``
+    factors align at their quadrature points). This is the per-shard
+    halo-exchange demand the FV requirements must publish; it drops
+    the global codomain/domain length difference that
+    :func:`staggering.window_reach` folds in (correct for the
+    boundary-legality reach, wrong for the sharded exchange — see
+    :func:`staggering.footprint_reach`). Biased kernels pass their
+    explicit alignment to ``footprint_reach`` directly instead.
 
     Parameters
     ----------
@@ -219,11 +223,11 @@ def fv_reach(
     Returns
     -------
     tuple[int, int]
-        The (below, above) reach in slots (>= 0).
+        The (below, above) footprint reach in slots (>= 0).
     """
     delta = fv_node_offset(codomain) - fv_node_offset(domain)
     m0 = -int(delta - (size - 1) / 2)
-    return window_reach(domain, codomain, size, m0)
+    return footprint_reach(size, m0)
 
 
 def fv_reach_or(
