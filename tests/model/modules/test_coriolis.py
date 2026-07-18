@@ -53,7 +53,8 @@ def make_channel(csqr, coriolis):
     my = fr.spatial.meshes.IntervalMesh(N, (0.0, 1.0), periodic=False,
                                      name="y")
     return sw.Model(
-        grid=fr.spatial.Grid((mx, my)), csqr=csqr, rossby_number=0.2,
+        grid=fr.spatial.Grid((mx, my), device_ids=(0,)),
+        csqr=csqr, rossby_number=0.2,
         coriolis=coriolis, advection=False,
         time_stepper=fr.model.time_steppers.AdamBashforth(5e-3, order=3))
 
@@ -142,7 +143,7 @@ def test_unweighted_rotation_does_work_against_a_varying_metric():
     my = fr.spatial.meshes.IntervalMesh(N, (0.0, 1.0), periodic=False,
                                      name="y")
     model = fr.model.Model(
-        grid=fr.spatial.Grid((mx, my)),
+        grid=fr.spatial.Grid((mx, my), device_ids=(0,)),
         modules=(
             sw.modules.DynamicalCore(csqr=csqr_fn,
                                      rossby_number=0.2),
@@ -167,7 +168,7 @@ LAT_MAX = float(np.deg2rad(80.0))
 def sphere_grid(nlon=2 * N, nlat=N):
     """Lat-lon sphere chart (unit radius, polar caps excluded)."""
     return fr.spatial.spherical.Grid(
-        (nlon, nlat), lat_extent=(-LAT_MAX, LAT_MAX))
+        (nlon, nlat), lat_extent=(-LAT_MAX, LAT_MAX), device_ids=(0,))
 
 
 # ================================================================
@@ -184,7 +185,7 @@ def chart_grid(m_1, m_2, chart):
     """Build an orthogonal-chart grid (diagonal index moves)."""
     return fr.spatial.Grid(
         (m_1, m_2), mapping=fr.spatial.CoordinateMapping(
-            chart={"X": chart}, orthogonal=True))
+            chart={"X": chart}, orthogonal=True), device_ids=(0,))
 
 
 def torus_grid(na=2 * N, nb=N):
@@ -549,7 +550,7 @@ def _r1_grid():
                                         name="x")
     my = fr.spatial.meshes.IntervalMesh(N, (0.0, 1.0), periodic=False,
                                         name="y")
-    return fr.spatial.Grid((mx, my))
+    return fr.spatial.Grid((mx, my), device_ids=(0,))
 
 
 def _r1_channel(grid, f0, order=3):

@@ -49,7 +49,7 @@ def grid():
         N, (0.0, 1.0), periodic=True, name="x")
     my = fr.spatial.meshes.IntervalMesh(
         N, (0.0, 1.0), periodic=False, name="y")
-    return fr.spatial.Grid((mx, my))
+    return fr.spatial.Grid((mx, my), device_ids=(0,))
 
 
 def _model(grid, stepper, rossby=0.2, *, filtered):

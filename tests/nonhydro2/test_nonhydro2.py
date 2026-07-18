@@ -59,7 +59,7 @@ DT = 0.02
 def make_grid(n=N, length=2 * np.pi):
     return Grid(tuple(
         IntervalMesh(n, (0.0, length), periodic=True, name=name)
-        for name in ("x", "y", "z")))
+        for name in ("x", "y", "z")), device_ids=(0,))
 
 
 def divergence(model):
@@ -411,7 +411,7 @@ def test_eigenmodes_from_model_rejects_an_immersed_grid():
         tuple(IntervalMesh(8, (0.0, 2 * np.pi), periodic=True, name=n)
               for n in ("x", "y", "z")),
         immersed=ImmersedDomain(
-            lambda x, y, z: x * 0.0 + 1.0))  # noqa: ARG005
+            lambda x, y, z: x * 0.0 + 1.0), device_ids=(0,))  # noqa: ARG005
     model = nh.Model(grid=grid, dt=0.02, advection=False,
                      coriolis=FPlaneCoriolis(f0=1.0))
     with pytest.raises(NotImplementedError, match="immersed"):
@@ -675,7 +675,7 @@ def test_odd_grid_columns_are_bitwise_the_composed_formula():
     # family is the single composed column, bitwise
     grid = Grid(tuple(
         IntervalMesh(9, (0.0, 2 * np.pi), periodic=True, name=name)
-        for name in ("x", "y", "z")))
+        for name in ("x", "y", "z")), device_ids=(0,))
     em = nh.eigenmodes.Eigenmodes(grid, f0=1.5, n2=3.0, dsqr=2.0)
     columns = em._columns(0)
     assert len(columns) == 1
@@ -834,7 +834,7 @@ def make_walled_grid(n=N, lz=LZ):
         IntervalMesh(n, (0.0, 2 * np.pi), periodic=True, name="y"),
         IntervalMesh(n, (0.0, lz), periodic=False, name="z"),
     )
-    return Grid(meshes), meshes
+    return Grid(meshes, device_ids=(0,)), meshes
 
 
 def walled_coords(n=N, lz=LZ):
@@ -943,7 +943,7 @@ def make_walled_y_grid(n=N):
     mx = IntervalMesh(n, (0.0, 2 * np.pi), periodic=True, name="x")
     my = IntervalMesh(n, (0.0, 1.0), periodic=False, name="y")
     mz = IntervalMesh(n, (0.0, 2 * np.pi), periodic=True, name="z")
-    return Grid((mx, my, mz))
+    return Grid((mx, my, mz), device_ids=(0,))
 
 
 def test_meridional_stratification_rejects_a_constant():
@@ -1171,7 +1171,7 @@ def _make_terrain_model(init, *modules):
         IntervalMesh(N, (0.0, 2 * np.pi), periodic=True, name="x"),
         IntervalMesh(N, (0.0, 2 * np.pi), periodic=True, name="y"),
         IntervalMesh(N, (0.0, 1.0), periodic=False, name="z"),
-    ), mapping=mapping)
+    ), mapping=mapping, device_ids=(0,))
     # family="nodal" is explicit: dynamic geometry (the MovingGeometry
     # seam these tests exercise) is a nodal-only feature — the ALE
     # correction is nodal-only, so the 2026-07-17 mapped auto flip keeps

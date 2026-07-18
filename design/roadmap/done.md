@@ -75,7 +75,7 @@ Implementation record:
 
 | #   | Task | Outcome |
 |-----|------|---------|
-| 2.1 | Design: model composition (2026-07-08) | Decisions D1–D5 in [`../specs/model/`](../specs/model/00_overview.md); grid follow-ups filed as [`../plans/active/phase2_grid_followups.md`](../plans/active/phase2_grid_followups.md). |
+| 2.1 | Design: model composition (2026-07-08) | Decisions D1–D5 in [`../specs/model/`](../specs/model/00_overview.md); grid follow-ups filed as [`../plans/done/phase2_grid_followups.md`](../plans/done/phase2_grid_followups.md). |
 | 2.2 | Field registration + parameters in modules | `Module` declares `FieldMetadata`; parameters live in modules (`FPlaneCoriolis`/`BetaPlaneCoriolis`, `ConstantStratification`, shallow-water `csqr`, Rossby scaling). |
 | 2.3 | Modules modify anything | Modules and grid in the traced state; direct `Model(...)` assembly over a single `modules=` tuple (D4). |
 | 2.4 | Single `jax.jit` for the full run | Chunked `lax.scan` (`step_chunk`, AOT-compiled, donated carry); trace-friendly `Clock`; per-step NaN reduction + chunk-boundary abort; `fr.ops.Session` + `Model.run()`. |
@@ -95,6 +95,27 @@ Implementation record:
 | 3.8 | **Generalized adiabatic ramping** (2026-07-17) | Deform a model between reference and target operator configurations, `L(s) = (1-rho(s)) L_ref + rho(s) L_target`, with shared terms never computed twice (blend taxonomy: untouched / affine-parameter / term-weight; decisions AR-D1..D9, driving consumer the Rosenau et al. JFM draft). Shipped R1–R6: time-dependent scalar parameters + the declarative AR-D7 ETDRK4 taught error; `FieldBlend` (author-level affine field blends; ramped Coriolis `f0(t) + beta(t)·y`, static paths bit-identical); `fr.transforms.AdiabaticRamping` (four legs `.down`/`.backward`, `replace()`, window + composition protocol surfaces, AR-D6 irreversibility guard); `OptimalBalance` rebuilt *on* the legs bit-identically; phase-neutral `AdiabaticProjection` (backward–forward; forward–forward counter-example pinned) + `relative_imbalance`; docs page + double-ramp example. Post-landing audit verified the stretched-exponential leakage law to roundoff (`log eta = -2.52 sqrt(tau)`, R² 0.997; [`../research/adiabatic_leakage_scaling.md`](../research/adiabatic_leakage_scaling.md)) and pinned it as a regression shard. Example content review deferred at owner instruction — open in [`open.md`](open.md). Record: [`../plans/done/adiabatic_ramping.md`](../plans/done/adiabatic_ramping.md). |
 
 ## Landed since, outside the numbered tasks
+
+- **Coefficient-space product/power rows — ruled closed by design**
+  (owner-ratified 2026-07-18) — the open-roadmap semantics question
+  ("should coefficient-space fields get `("multiply"|"divide"|"power"|
+  "abs", space)` rows?") is settled: coefficient-space `ScalarField`s
+  are a **vector space, not an algebra**. Only transform-commuting
+  operations are field arithmetic (add/sub of same-space fields,
+  scalar multiply/divide — already exact); an elementwise product of
+  two coefficient fields is a **convolution** of the represented
+  functions, not their product, so those elementwise rows are
+  **permanently absent by design**, not an "iteration 1" deferral.
+  Per-mode (diagonal) coefficient algebra lives on `Symbol`; the
+  pointwise function product lives in nodal space; `Convolution` and
+  the zero-mode `ConstantBroadcast` stay reserved distinct kinds,
+  unbuilt until a consumer exists (the census found **zero**
+  coefficient×coefficient product consumers). Shipped: taught-error
+  rewording of the coefficient-space dunders/guards
+  (`spatial/fields/scalar_field.py`) + pinned tests, spec note, and
+  the `products.py` docstring line. **This closed the last open item
+  of the Phase-2 grid follow-ups.** Record:
+  [`coefficient_space_arithmetic_semantics.md`](../research/coefficient_space_arithmetic_semantics.md).
 
 - **Mapped + advection + chunked scan non-finite — root-caused,
   already fixed** (2026-07-18 investigation; the fix itself landed
@@ -629,6 +650,23 @@ Implementation record:
   [`open.md`](open.md). Record +
   per-stage corrections:
   [`../plans/active/immersed_partial_cells_plan.md`](../plans/active/immersed_partial_cells_plan.md).
+- **Biased/upwind/WENO advection on immersed grids** (2026-07-18,
+  merge `02663933`) — the first immersed residual closed: the
+  IP-D8 taught error replaced by the **mask-keyed graded ladder**
+  (`graded.apply_graded_mask`), generalizing the wall closure's rung
+  ladder from index-distance keying to per-face distance-to-dry
+  selectors (static union-window products of the boolean masks;
+  pre-masked operand; full-array rungs + trace-time-constant
+  `jnp.where` select — the PALM precompute-and-select precedent,
+  subsuming NEMO/MITgcm difference-zeroing). Covers both families
+  (FV `_FVBiasedReconstruction`, nodal `_BiasedFaceReconstruction`
+  both shifts, centered velocity interp, WENO both-then-select).
+  Keystone gate: **staircase advection tendency ≡ walled graded FV
+  at machine zero** (up3/up5 exactly 0.0, weno5 1.4e-17); all-wet ≡
+  unimmersed bitwise on both families; θ-mass ≤ 1e-12 on genuine
+  partials; autodiff FD-matched; forced-4 green. Plan + decisions +
+  corrections:
+  [`../plans/active/immersed_graded_advection_plan.md`](../plans/active/immersed_graded_advection_plan.md).
 - **Variable boundary forcing — wind stress, surface buoyancy flux**
   (2026-07-17, merge `24ee6fd0`) — prescribed wall-face fluxes as
   tendency contributions in the wall-adjacent cell

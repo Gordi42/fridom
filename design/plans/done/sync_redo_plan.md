@@ -25,7 +25,7 @@ the iteration-1 sync-after-every-operator placement with
 **consumption-side sync with trace-time halo-validity tracking**.
 Decision record: [`../../specs/grid/classes/decomposition.md`](../../specs/grid/classes/decomposition.md#open-questions)
 (the per-step sync-amplification entry); work item 8 in
-[`../active/phase2_grid_followups.md`](../active/phase2_grid_followups.md); ROADMAP task
+[`../done/phase2_grid_followups.md`](../done/phase2_grid_followups.md); ROADMAP task
 1.8. Branch: `framework2-sync-redo` (off `dev`); the swap is
 results-neutral, so the concurrently running model-layer
 implementation needs no edits and no coordination beyond merge order
@@ -211,7 +211,7 @@ multi-device widths (small-mesh shardability, cap logic);
 benchmarks; docs flip: `../../specs/grid/classes/decomposition.md` (contract section
 + decision record → implemented), `../../specs/grid/classes/operators_base.md`
 application path, `../../specs/grid/04_decomposition.md`, ROADMAP 1.8 → done,
-`../active/phase2_grid_followups.md` items 1, 6 (flag), 8 → done.
+`../done/phase2_grid_followups.md` items 1, 6 (flag), 8 → done.
 
 Single agent (or in-session), sequential — this touches the hot core
 files; parallel waves would only add merge risk against the running
@@ -264,5 +264,5 @@ The model-layer agent works on its own branch against the current
 the field surface is unchanged, merge order is free. Preferred:
 land `framework2-sync-redo` → `dev` after gates, model branch
 rebases and inherits the speedup. Only shared-file risk: ROADMAP
-row 1.8 and `../active/phase2_grid_followups.md` status flips (line-disjoint
+row 1.8 and `../done/phase2_grid_followups.md` status flips (line-disjoint
 from model edits; trivial conflicts at worst).

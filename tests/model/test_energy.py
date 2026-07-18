@@ -47,13 +47,13 @@ DT = 0.02
 def nh_grid(n=8, length=2 * np.pi):
     return Grid(tuple(
         IntervalMesh(n, (0.0, length), periodic=True, name=name)
-        for name in ("x", "y", "z")))
+        for name in ("x", "y", "z")), device_ids=(0,))
 
 
 def sw_grid(n=16):
     return Grid((
         IntervalMesh(n, (0.0, 1.0), periodic=True, name="x"),
-        IntervalMesh(n, (0.0, 1.0), periodic=True, name="y")))
+        IntervalMesh(n, (0.0, 1.0), periodic=True, name="y")), device_ids=(0,))
 
 
 def collocated_nh_state(grid):
@@ -346,7 +346,8 @@ def test_spectral_inner_is_linear():
 def _walled_sw_grid(n=8):
     return Grid((
         IntervalMesh(n, (0.0, 1.0), periodic=True, name="x"),
-        IntervalMesh(n, (0.0, 1.0), periodic=False, name="y")))
+        IntervalMesh(n, (0.0, 1.0), periodic=False, name="y")),
+        device_ids=(0,))
 
 
 def varying_sw_model(csqr_fn, grid=None):
@@ -363,7 +364,8 @@ def varying_nh_model(n2_fn):
     grid = Grid((
         IntervalMesh(8, (0.0, 2 * np.pi), periodic=True, name="x"),
         IntervalMesh(8, (0.0, 1.0), periodic=False, name="y"),
-        IntervalMesh(8, (0.0, 2 * np.pi), periodic=True, name="z")))
+        IntervalMesh(8, (0.0, 2 * np.pi), periodic=True, name="z")),
+        device_ids=(0,))
     return nh.Model(
         grid=grid, dt=DT, advection=False, dsqr=2.0,
         coriolis=FPlaneCoriolis(f0=1.0),
@@ -511,7 +513,8 @@ def hydro_grid(nx=4, nz=8, depth=1.0):
     return Grid((
         IntervalMesh(nx, (0.0, 1.0), periodic=True, name="x"),
         IntervalMesh(nx, (0.0, 1.0), periodic=True, name="y"),
-        IntervalMesh(nz, (0.0, depth), periodic=False, name="z")))
+        IntervalMesh(nz, (0.0, depth), periodic=False, name="z")),
+        device_ids=(0,))
 
 
 def test_from_model_hydrostatic_weights():
