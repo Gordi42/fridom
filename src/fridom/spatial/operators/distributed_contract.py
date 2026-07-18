@@ -50,8 +50,10 @@ win). The plan declines (returns None -- the caller keeps the existing
 GSPMD path or the taught error) on a single device, a non-1-D mesh, a
 layout that shards nothing / only the bounded axis, a channel without
 exactly two periodic axes (the 2-D channel, or a hypothetical >3-D one),
-or a layout that shards the half (``rfft``) axis itself (incompatible
-with the engine's fixed half-spectrum frame under one reshard).
+or a layout that shards the half (``rfft``) axis itself (the local
+rfft needs real data on an unsharded axis; defensive -- the engine
+designates a **local** half axis at build time, so a 3-D channel never
+builds a basis in that frame).
 """
 from __future__ import annotations
 
@@ -363,8 +365,9 @@ def build_distributed_contraction(
     mesh is not 1-D, the layout shards nothing or only the bounded axis,
     the channel does not have exactly two periodic axes (the 2-D channel,
     or a >3-D one), or the layout shards the half axis itself (the
-    ``rfft`` would need real data on the sharded axis, unreachable under
-    one reshard).
+    ``rfft`` would need real data on the sharded axis; defensive --
+    ``channel_eigenpairs`` designates a local half axis at build time,
+    so a 3-D channel does not reach this decline).
 
     Parameters
     ----------
@@ -398,8 +401,9 @@ def build_distributed_contraction(
     (a_name, axis_name) = device_axes[0]
     # decline when the sharded coordinate is the bounded axis (the
     # existing GSPMD path already handles that), a non-periodic axis, or
-    # the engine's fixed half (rfft) axis -- the rfft would need real
-    # data on the sharded axis, unreachable under one reshard.
+    # the designated half (rfft) axis -- the rfft would need real data
+    # on the sharded axis (defensive: the engine designates a local
+    # half axis at build time, so a 3-D channel never presents this).
     if a_name not in periodic or a_name == periodic_axis:
         return None
     shards = int(mesh.shape[axis_name])
