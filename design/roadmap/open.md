@@ -102,22 +102,24 @@ Evidence, provenance probes, and the full re-attribution history:
 
 The 2026-07-17 "mapped + advection + chunked scan goes non-finite on
 GPU" fault itself is resolved (entry in [`done.md`](done.md); record
-[`../research/mapped_chunk_nonfinite_rootcause.md`](../research/mapped_chunk_nonfinite_rootcause.md)).
-The hazard class outlives the instance — any unguarded storage-frame
-divide by a zero-padded factor plants `inf` in never-valid lanes,
-which only the per-chunk scrub cadence cleanses. Open hardening:
+[`../research/mapped_chunk_nonfinite_rootcause.md`](../research/mapped_chunk_nonfinite_rootcause.md)),
+and the chunk-parity regression that pins the class shipped with this
+change (entry in [`done.md`](done.md)). One hardening item is held:
 
-- **Chunk-parity regression test** (recommended): small mapped
-  advective model, K steps at `chunk_size=1` vs `chunk_size=2`,
-  assert bitwise-equal and finite (CPU is enough — the fault class is
-  backend-independent). The suite's only mapped+chunked test file
-  pins `chunk_size=1` (`test_fv_fusion_guards.py`), so the class is
-  currently untested.
-- **Pad-inf audit/guard**: seal the remaining unguarded members like
-  `_divide_by_jacobian` (~free, bitwise on valid cells) — the known
-  ones are the `MetricScaled` divides (`mapped.py:219-222`) — and/or
-  a debug-mode all-finite-*storage* assertion at carry boundaries so
-  a recurrence fails loudly instead of cadence-dependently.
+- **MetricScaled pad-inf seal — held pending owner decision D4.** The
+  seal is implemented and reviewed on local branch
+  `fix/pad-inf-hardening` (commit `76eb9461`): `_sealed_divide`
+  applied to both `MetricScaled` divide branches, bitwise on valid
+  cells, pad storage kept finite, VJP finite, with operator tests. It
+  is **not landed**: dev `93049651` documents the deferral in
+  `mapped.py`, and because the divide sits in the every-step pressure
+  solve the "~free" cost claim is unproven there. The seal is
+  **defensive-only** today — the 4-combination red-check proved the
+  historical chunk fault detonates via `_divide_by_jacobian` (already
+  sealed on dev) and **not** via `MetricScaled`: reverting only the
+  `MetricScaled` seal keeps the parity test green, so nothing is
+  unguarded now. Owner decision D4: measure the seal's step cost and
+  land `76eb9461`, or accept the deferral and delete the branch.
 
 ## Finite-volume nonhydro — decisions and validation
 
