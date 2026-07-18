@@ -181,7 +181,11 @@ def numeric_eigenpairs(
             "dense-column channel tier); otherwise use the model's "
             "analytic eigenmodes (e.g. nh.Eigenmodes), which handle "
             "walled verticals.")
-    metric = EnergyMetric.from_model(model, at_time=at_time)
+    # snapshot=True is defensive here (allow_field_weights defaults
+    # False, so a time_dependent field weight cannot arise), but the
+    # translation-invariant probe wants a frozen metric explicitly.
+    metric = EnergyMetric.from_model(
+        model, at_time=at_time, snapshot=True)
     lin = linearize(model)
     prog, base0 = _rest_background(lin, at_time)
     weights = _metric_weights(metric, prog)

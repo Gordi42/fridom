@@ -29,6 +29,9 @@ from fridom.framework.utils import jaxify
 from fridom.model.halo_demand import derive_extra_halo
 from fridom.model.modules.moving_geometry import mapping_params
 from fridom.nonhydro2.diagnostics import DIAGNOSTICS
+from fridom.nonhydro2.modules.composed_pressure import (
+    ComposedPressureSolver,
+)
 from fridom.nonhydro2.modules.immersed_pressure import (
     ImmersedPressureSolver,
 )
@@ -120,39 +123,26 @@ def _fv_capable(grid: Grid) -> bool:  # noqa: ARG001
 
 def _require_fv_capable(grid: Grid) -> None:
     """
-    Raise the FV-deferral taught error on a mapped + immersed grid.
+    FV capability check for the resolved family (now unconditional).
 
     Description
     -----------
     Explicit ``family="fv"`` (or a ``Grid(family="fv")`` default) is
     served on periodic, walled (stage F4), mapped terrain-following
-    (stage F5) *and* immersed cut-cell (stage I2) grids — the FV C-grid
-    covers every geometry iteration 2 supports. The one combination it
-    does not is a grid that declares **both** a mapped column and an
-    immersed domain (plan §6, a designed-for composition): a taught
-    error, never a silent unmasked or unmapped run.
+    (stage F5), immersed cut-cell (stage I2) *and* — since the
+    mapped + immersed composition (plan stage M2, decisions MI-D2/D4) —
+    a grid that declares **both** a mapped column and an immersed
+    domain: the composed cut-cell metric PCG
+    (:class:`~fridom.nonhydro2.modules.composed_pressure.ComposedPressureSolver`)
+    serves it, so the taught error the composition previously raised is
+    lifted. The FV C-grid now covers every geometry iteration 2
+    supports; nothing is rejected here.
 
     Parameters
     ----------
     grid : Grid
-        The assembled grid.
-
-    Raises
-    ------
-    NotImplementedError
-        If the grid declares both a mapped column and an immersed
-        domain.
+        The assembled grid (unused: FV serves every grid).
     """
-    mapping = getattr(grid, "mapping", None)
-    mapped_column = mapping is not None and bool(
-        getattr(mapping, "column_corrections", None))
-    if mapped_column and getattr(grid, "immersed", None) is not None:
-        raise NotImplementedError(
-            "family='fv' on a grid that declares both a terrain-"
-            "following mapped column and an immersed domain is a "
-            "designed-for composition (immersed-partial-cells plan §6): "
-            "the mapped PCG and the masked PCG are not yet composed. "
-            "Use one geometry or the other.")
 
 
 def _require_nodal_capable(grid: Grid) -> None:
@@ -381,14 +371,20 @@ class DynamicalCore(fr.model.Module):
         ``pressure_iterations`` the maximum budget and sits well above
         the residual floor (~1e-14); ``None`` is the opt-out that runs
         the fixed count (default: 1e-8).
-    pressure_preconditioner : str, optional
+    pressure_preconditioner : str | None, optional
         The PCG preconditioner of the fixed-iteration pressure solve
-        (B4): ``"spectral"`` (the flat separable spectral inverse) or
-        ``"multigrid"`` (the semicoarsened geometric-multigrid V-cycle).
-        Consumed on a mapped or immersed grid; the flat spectral solve
-        is exact and ignores it (a flat grid never raises on the knob).
-        Static (a treedef aux, part of the module fingerprint), like
-        ``single_precision_solve`` (default: ``"spectral"``).
+        (B4): ``"spectral"`` (the flat separable spectral inverse),
+        ``"multigrid"`` (the geometric-multigrid V-cycle) or ``"none"``.
+        ``None`` (the default) is **auto**: a mapped or immersed grid
+        resolves to ``"spectral"`` (byte-identical to the previous
+        explicit default), a composed mapped + immersed grid resolves to
+        ``"multigrid"`` (MI-D3: the masked spectral fold does not
+        converge in the default budget on a genuine cut chart, the
+        multigrid V-cycle does). An explicit string is honoured on every
+        route unchanged. Consumed on a mapped / immersed / composed grid;
+        the flat spectral solve is exact and ignores it. Static (a
+        treedef aux, part of the module fingerprint), like
+        ``single_precision_solve`` (default: None).
     multigrid_levels : int | None, optional
         The multigrid depth when ``pressure_preconditioner="multigrid"``;
         ignored otherwise. ``None`` (the default) coarsens to the
@@ -458,7 +454,7 @@ class DynamicalCore(fr.model.Module):
         single_precision_solve: bool = False,
         pressure_iterations: int = 30,
         pressure_tolerance: float | None = 1e-8,
-        pressure_preconditioner: str = "spectral",
+        pressure_preconditioner: str | None = None,
         multigrid_levels: int | None = None,
         multigrid_tridiagonal_method: str = "auto",
         multigrid_coarsen_vertical: bool = True,
@@ -667,6 +663,34 @@ class DynamicalCore(fr.model.Module):
                      name="projection"),
         )
 
+    def _resolved_preconditioner(self, *, composed: bool) -> str:
+        """Resolve the ``None`` = auto PCG preconditioner per route.
+
+        Description
+        -----------
+        An explicit ``pressure_preconditioner`` string is honoured
+        unchanged on every route. ``None`` (the default) is auto: a
+        composed mapped + immersed grid resolves to ``"multigrid"`` (the
+        MI-D3 ratified default, the masked spectral fold not converging
+        in the default budget on a genuine cut chart), every other route
+        (mapped, immersed) to ``"spectral"`` — byte-identical to the
+        previous explicit default.
+
+        Parameters
+        ----------
+        composed : bool
+            Whether the grid declares both a mapped column and an
+            immersed domain (the composed route).
+
+        Returns
+        -------
+        str
+            The concrete preconditioner name for the solver.
+        """
+        if self._pressure_preconditioner is not None:
+            return self._pressure_preconditioner
+        return "multigrid" if composed else "spectral"
+
     def _project(
         self, state: State, ctx: StepContext,
     ) -> dict[str, object]:
@@ -696,14 +720,21 @@ class DynamicalCore(fr.model.Module):
         (terrain-following / boundary-fitted, stage C3) the whole
         stage routes to :meth:`_project_mapped`; on an immersed
         (cut-cell) grid it routes to :meth:`_project_immersed` (stage
-        I2); a flat/unmapped/unimmersed grid takes exactly the code
-        path below (zero behavior change).
+        I2); on a grid that declares **both** (mapped column *and*
+        immersed domain) it routes to :meth:`_project_composed` (the
+        composed cut-cell metric solve, stage M2); a
+        flat/unmapped/unimmersed grid takes exactly the code path below
+        (zero behavior change).
         """
         grid = state["u"].grid
         mapping = getattr(grid, "mapping", None)
-        if mapping is not None and mapping.column_corrections:
+        mapped_column = mapping is not None and mapping.column_corrections
+        immersed = getattr(grid, "immersed", None) is not None
+        if mapped_column and immersed:
+            return self._project_composed(state, ctx)
+        if mapped_column:
             return self._project_mapped(state, ctx)
-        if getattr(grid, "immersed", None) is not None:
+        if immersed:
             return self._project_immersed(state, ctx)
         dsqr = ctx.params[DSQR]
         vel = VectorField({
@@ -780,7 +811,7 @@ class DynamicalCore(fr.model.Module):
             iterations=self._pressure_iterations,
             tolerance=self._pressure_tolerance,
             single_precision=self._single_precision_solve,
-            preconditioner=self._pressure_preconditioner,
+            preconditioner=self._resolved_preconditioner(composed=False),
             multigrid_levels=self._multigrid_levels,
             multigrid_tridiagonal_method=(
                 self._multigrid_tridiagonal_method),
@@ -843,11 +874,68 @@ class DynamicalCore(fr.model.Module):
             iterations=self._pressure_iterations,
             tolerance=self._pressure_tolerance,
             single_precision=self._single_precision_solve,
-            preconditioner=self._pressure_preconditioner,
+            preconditioner=self._resolved_preconditioner(composed=False),
             multigrid_levels=self._multigrid_levels,
             multigrid_tridiagonal_method=(
                 self._multigrid_tridiagonal_method),
             multigrid_agglomerate=self._multigrid_agglomerate)
+        p, corr = solver.project(vel, x0=state["p"] * ctx.stage_dt)
+        return {
+            "u": state["u"] - corr["x"].retag(state["u"]),
+            "v": state["v"] - corr["y"].retag(state["v"]),
+            "w": state["w"] - corr[self._vertical].retag(state["w"]),
+            "p": p / ctx.stage_dt,
+        }
+
+    def _project_composed(
+        self, state: State, ctx: StepContext,
+    ) -> dict[str, object]:
+        r"""Project on a composed mapped + immersed grid (stage M2).
+
+        Description
+        -----------
+        The composed twin of :meth:`_project_mapped` and
+        :meth:`_project_immersed`: the divergence, the elliptic
+        operator, and the gradient subtraction all come from one
+        :class:`~fridom.nonhydro2.modules.composed_pressure.ComposedPressureSolver`
+        — the mapped J-weighted metric operator with the immersed
+        open-area fractions inserted as diagonal face / corner weights
+        (MI-D2), solved by fixed-iteration PCG (the fraction-weighted
+        multigrid V-cycle or the wet-masked spectral inverse
+        preconditions, projected onto the wet-region-constant
+        nullspace), and the boolean-masked, flux-consistent velocity
+        corrections, so the projection removes exactly the masked
+        divergence the operator measures (to the CG residual). The
+        stored diagnostic keeps the ``p = phi / ctx.stage_dt``
+        normalization and is masked to zero under the topography; the
+        vertical weight ``1/dsqr`` rides the solver's ``weights`` seam.
+
+        Dynamic geometry threads the CURRENT mapping-parameter fields
+        through ``params=`` (as :meth:`_project_mapped`); the immersed
+        wet region is static (plan §6). Warm start (Phase E): the PCG
+        is seeded with the previous step's potential
+        ``x0 = state["p"] * ctx.stage_dt``.
+        """
+        dsqr = ctx.params[DSQR]
+        grid = state["u"].grid
+        vel = {
+            "x": state["u"],
+            "y": state["v"],
+            self._vertical: state["w"],
+        }
+        solver = ComposedPressureSolver(
+            grid,
+            state["p"].function_space,
+            weights={self._vertical: 1.0 / dsqr},
+            iterations=self._pressure_iterations,
+            tolerance=self._pressure_tolerance,
+            single_precision=self._single_precision_solve,
+            preconditioner=self._resolved_preconditioner(composed=True),
+            multigrid_levels=self._multigrid_levels,
+            multigrid_tridiagonal_method=(
+                self._multigrid_tridiagonal_method),
+            multigrid_coarsen_vertical=self._multigrid_coarsen_vertical,
+            params=mapping_params(state, grid))
         p, corr = solver.project(vel, x0=state["p"] * ctx.stage_dt)
         return {
             "u": state["u"] - corr["x"].retag(state["u"]),

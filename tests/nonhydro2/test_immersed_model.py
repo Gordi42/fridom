@@ -107,10 +107,11 @@ def test_immersed_model_installs_maskstate_and_is_fv():
     assert any(type(m).__name__ == "MaskState" for m in model.modules)
 
 
-def test_mapped_plus_immersed_fv_is_a_taught_error():
-    # the one FV combination iteration 2 does not serve: a grid that
-    # declares both a terrain-following mapped column and an immersed
-    # domain (plan §6) — the mapped and masked PCGs are not composed
+def test_mapped_plus_immersed_fv_is_served():
+    # the mapped + immersed composition (plan stage M2, MI-D2/D4) is now
+    # served on FV: a grid that declares both a terrain-following mapped
+    # column and an immersed domain resolves to "fv" (the composed
+    # cut-cell metric PCG), no longer a taught error
     from fridom.spatial.coordinate_mapping import (  # noqa: PLC0415
         CoordinateMapping,
     )
@@ -124,8 +125,8 @@ def test_mapped_plus_immersed_fv_is_a_taught_error():
         mapping=mapping,
         immersed=ImmersedDomain(
             lambda x, y, z: x * 0.0 + 1.0))  # noqa: ARG005
-    with pytest.raises(NotImplementedError, match="both"):
-        resolve_model_family("fv", grid)
+    assert resolve_model_family("fv", grid) == "fv"
+    assert resolve_model_family(None, grid) == "fv"
 
 
 @pytest.mark.parametrize(

@@ -108,7 +108,10 @@ from fridom.spatial.operators.multigrid_hierarchy import (
 from fridom.spatial.operators.multigrid_hierarchy import (
     validate_agglomerate as _validate_agglomerate,
 )
-from fridom.spatial.operators.staggering import uniform_spacing
+from fridom.spatial.operators.staggering import (
+    mapped_factor,
+    uniform_spacing,
+)
 
 if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Callable, Mapping
@@ -294,11 +297,13 @@ class ImmersedPressureSolver:
         if mapping is not None and getattr(
                 mapping, "column_corrections", None):
             raise NotImplementedError(
-                "mapped + immersed pressure solve is a designed-for "
-                "composition (immersed-partial-cells plan §6): this "
-                "grid declares both a terrain-following mapped column "
-                "and an immersed domain, which iteration 2 does not "
-                "support — use one or the other")
+                "mapped + immersed pressure solve is served by the "
+                "composed cut-cell metric solver (mapped + immersed "
+                "composition plan, stage M2): this grid declares both a "
+                "terrain-following mapped column and an immersed domain, "
+                "so the flat masked ImmersedPressureSolver does not apply "
+                "— use ComposedPressureSolver (the DynamicalCore routes a "
+                "composed grid there automatically)")
         self._grid = grid
         self._space: SpaceLike = space.bare
         self._vertical = vertical
@@ -308,6 +313,17 @@ class ImmersedPressureSolver:
         self._single_precision = bool(single_precision)
         self._immersed = immersed
         self._axes: tuple[str, ...] = self._space.active_axis_names
+        # a stretched vertical column (its factor rides a
+        # ``MappedIntervalMesh``, a non-None ``coordinate_map``): the
+        # ``apply`` legs already stagger through the stretch-aware
+        # ``diff`` rows and CG's inner product is the physical
+        # ``grid.measure`` (so the operator stays self-adjoint), but the
+        # analytic diagonal / vertical bands read the physical widths
+        # instead of a constant ``dz`` (plan §6, the stretch-aware bands
+        # fix that first lets a stretched-z immersed model assemble with
+        # the multigrid preconditioner)
+        self._stretched_vertical: bool = mapped_factor(
+            self._space.factor(vertical))
         require_solver_halo(
             grid, self._axes, solver="ImmersedPressureSolver")
         self._resolve_flux_rows(grid.dispatch)
@@ -533,13 +549,25 @@ class ImmersedPressureSolver:
         storage = self._axis_storage()
         diagonal: jax.Array | None = None
         for a in self._axes:
-            h = uniform_spacing(self._space.factor(a))
             periodic = bool(getattr(
                 self._space.factor(a).mesh, "periodic", False))
             weight = (1.0 / self._dsqr) if a == self._vertical else 1.0
-            leg = -weight * _adjacent_face_sum(
-                self._alpha[a].data, storage[a],
-                periodic=periodic) / (h * h)
+            if a == self._vertical and self._stretched_vertical:
+                # the stretched column reads the physical widths (plan
+                # §6): the gradient leg divides by the dual center-to-
+                # center width ``m_inner``, the flux difference by the
+                # primal cell width ``m_cell`` -- the exact diagonal of
+                # ``D(alpha/dsqr G)`` on the stretched measure
+                m_cell = self._grid.measure(self._space, a).data
+                m_inner = self._grid.measure(self._face[a], a).data
+                leg = -weight * _adjacent_face_sum(
+                    self._alpha[a].data / m_inner, storage[a],
+                    periodic=periodic) / m_cell
+            else:
+                h = uniform_spacing(self._space.factor(a))
+                leg = -weight * _adjacent_face_sum(
+                    self._alpha[a].data, storage[a],
+                    periodic=periodic) / (h * h)
             diagonal = leg if diagonal is None else diagonal + leg
         template = self._grid.create_field(self._space)
         return template.with_data(
@@ -580,16 +608,31 @@ class ImmersedPressureSolver:
                 f"column; the {vertical!r} axis is periodic")
         storage = self._axis_storage()
         z_axis = storage[vertical]
-        dz = uniform_spacing(self._space.factor(vertical))
         alpha_z = self._alpha[vertical].data
-        scale = 1.0 / (self._dsqr * dz * dz)
         edge = list(alpha_z.shape)
         edge[z_axis] = 1
         zeros = jnp.zeros(edge, dtype=alpha_z.dtype)
-        lower_data = jnp.concatenate(
-            [zeros, alpha_z], axis=z_axis) * scale
-        upper_data = jnp.concatenate(
-            [alpha_z, zeros], axis=z_axis) * scale
+        if self._stretched_vertical:
+            # the measure-weighted vertical band on a stretched column
+            # (plan §6): ``upper[c] = alpha_z_f / (dsqr m_inner_f
+            # m_cell_c)`` (and ``lower[c]`` the sub-face partner) -- the
+            # exact vertical off-diagonal of ``D(alpha/dsqr G)`` on the
+            # physical widths, Euclidean-asymmetric but self-adjoint
+            # under the physical cell measure (the inner product CG uses)
+            m_cell = self._grid.measure(self._space, vertical).data
+            m_inner = self._grid.measure(self._face[vertical], vertical).data
+            band = alpha_z / (self._dsqr * m_inner)
+            lower_data = jnp.concatenate(
+                [zeros, band], axis=z_axis) / m_cell
+            upper_data = jnp.concatenate(
+                [band, zeros], axis=z_axis) / m_cell
+        else:
+            dz = uniform_spacing(self._space.factor(vertical))
+            scale = 1.0 / (self._dsqr * dz * dz)
+            lower_data = jnp.concatenate(
+                [zeros, alpha_z], axis=z_axis) * scale
+            upper_data = jnp.concatenate(
+                [alpha_z, zeros], axis=z_axis) * scale
         diag = self.diagonal()
         shape = diag.data.shape
         lower = diag.with_data(jnp.broadcast_to(lower_data, shape))

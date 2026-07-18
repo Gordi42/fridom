@@ -367,10 +367,13 @@ class BalanceExpansion(StateTransform):
         self._quadratic = model.variant(
             term_filter=term_filter,
             name="BalanceExpansion/nonlinear")
+        # snapshot=True is load-bearing: the balance expansion pins the
+        # metric to its frozen eigenbasis (TDF-D6), so a time_dependent
+        # field weight must be baked at at_time, not sourced off state.
         self._metric = EnergyMetric.from_model(
             model, at_time=self._at_time,
             require_constant_coriolis=False,
-            allow_field_weights=True)
+            allow_field_weights=True, snapshot=True)
         if lint:
             self._lint_quadraticity()
 

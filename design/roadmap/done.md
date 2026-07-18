@@ -1803,3 +1803,34 @@ Implementation record:
   comparison ladder: the pre-fix se rungs ran near-zero-velocity
   flows while Oceananigans got the full IC (wall-time ratios are
   data-independent, physics trajectories were not comparable).
+
+- **Z-sharded hydrostatic seam divergence — FIXED** (2026-07-19, merge
+  `ef1a4d08`, branch `fix/hydro-z-shard-seam`). Found while
+  root-causing the owner's "why can't weno5 run z-sharded" question:
+  the crash itself was the shardability-cap negotiation bug already
+  fixed by `a802fbea` (registry-sourced cap floor blind to trace-only
+  weno reconstructions), but z-sharded runs that DID run were silently
+  wrong — buoyancy diverged rel ~5e-2 over 20 steps exactly at the
+  shard-seam z-levels (deterministic, halo-width-independent;
+  x-sharded bit-exact, which is why the 2026-07-18 srun validation at
+  64x64x16 never saw it). Mechanism (third hypothesis; the
+  investigation's `w.to(b)` localization was disproven by
+  instrumenting `_ensure_valid`): `Restriction` (`Outer -> Inner`,
+  the vertical advective flux's relocation of the diagnosed `w` onto
+  interior flux faces) reads `Outer[m+1]` — one slot above each
+  output — but declared no `requirements`, inheriting halo 0, so the
+  operand's seam ghost was never synced and the last interior face of
+  every shard read the reshard's zero fill. u/v only looked bit-exact
+  because their horizontal interpolation's sync filled z as a
+  side-effect. Fix: the `(0, 1)` footprint declaration on the
+  operator (same `reach_or` pattern as every sibling; Restriction was
+  the unique offender — sweep confirmed all other `SeparableOperator`s
+  declare theirs, and nonhydro2 never applies Restriction).
+  Single-device and x-sharded results bitwise-unchanged (HLO gains a
+  local ghost-fill; outputs identical); centered z-shard parity now
+  1e-11-tight all fields, weno5 b 2.4e-4 → ~1e-7. Regression:
+  `tests/hydrostatic/test_z_shard_parity.py` (forced-4, centered +
+  weno5, demonstrated red pre-fix) + footprint/seam/autodiff tests in
+  `test_restrict.py`. Residual in `open.md`: the weno5 momentum
+  ~1e-5 z-seam (`WenoReconstruction` vertical footprint vs the
+  negotiated z-halo of 2 — halo-cap machinery, owner-governed).

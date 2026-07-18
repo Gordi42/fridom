@@ -233,3 +233,71 @@ actually run any stretched-or-terrain immersed model.
 - Supplied (dynamic) mapping parameters are not handled in the
   fraction (static geometry only) — moving terrain + immersed
   stays designed-for.
+
+**M2+M3+M4 shipped 2026-07-19** (merge `48ac9052`; branch
+`feat/mapped-immersed-solve`). `ComposedPressureSolver`
+(`nonhydro2/modules/composed_pressure.py`, a `MappedPressureSolver`
+subclass), `_project_composed` routing, both taught sites lifted,
+stretch-aware immersed `diagonal`/`vertical_bands`, the
+fraction-weighted composed multigrid + wet-masked spectral fallback,
+and the M4 advection conservation fix. Gates: operator symmetry
+**5.28e-16** on a genuine cut chart; wet-constant nullspace exact
+0.0; all-wet ≡ mapped **bitwise**; deep-interior ≡ mapped
+**bitwise**; identity-chart + mask ≡ flat immersed ≤ 1e-12;
+`apply ≡ div(correction)` 7.1e-15; post-projection masked divergence
+1.8e-15 (multigrid, steep chart); `Σ θ J V q` with active cross
+terms **4.4e-16**; stretched-z immersed model now assembles and
+steps (multigrid 1.7e-15) — the §6 model-level blocker is closed;
+autodiff FD-match; forced-4 green; ruff clean.
+
+Corrections / spellings selected by the gates:
+
+1. **MI-D2 spelling correction — corner-α, not whole-K-row face-α.**
+   Weighting the whole assembled face flux by `α_face` puts
+   different scalars on the two halves of one adjoint pair
+   (asymmetric on genuine partials). The symmetric spelling: face α
+   on each **direct** leg, and a single shared **corner α**
+   (min-of-4, on `Right_a × Inner_b`) **inside** each cross hop,
+   between the transpose-paired interpolations. §4 anticipated
+   exactly this arbitration.
+2. **Projector**: the wet-constant is removed in the
+   **computational** measure (matching CG's `_dot`), not the
+   J-weighted physical one.
+3. **MI-D4**: the correction divides by `α_a·J` / `α_base` (sealed
+   double-where), not boolean-mask-only — required for
+   `apply ≡ div(correction)` exactness on the metric cross.
+4. **M4**: the conservation gate caught a real 1.17e-3 drift — the
+   reduced cross flux is now gated by the base-face fraction
+   (no-op without a mask; mapped advection byte-identical).
+5. **MI-D3 auto default**: `pressure_preconditioner` is now
+   `None`=auto (flat/mapped/immersed resolve to their previous
+   spectral defaults byte-identically; composed resolves to
+   multigrid — masked spectral does not converge in the 30-iter
+   budget on cut charts, ~200 iters measured vs multigrid ~15).
+6. **Manufactured-Poisson gate substituted**: the standalone masked
+   chart Poisson solve is preconditioner/small-cell limited
+   (`min_fraction=0` sliver pathologies stall even plain CG); the
+   2nd-order claim rides the equivalence gates (all-wet ≡ mapped
+   bitwise, identity ≡ immersed, deep-interior ≡ mapped bitwise)
+   and the physically-relevant divergence RHS reaching machine
+   zero.
+
+Seam verdicts: analytic-H fractions suffice (static maps share the
+same `H` callable between fraction quadrature and operator metric —
+exactly consistent; discrete/moving `H` rejected by the composed
+multigrid); `order=None` collocation on charts is now a **taught
+error** at the composed ctor (`order >= 2` required — collocation
+mis-places the physical center); min-rule α confirmed by the
+symmetry gate.
+
+Open (flag to owner): (a) the advection cross is gated by the
+**base-face** α while the pressure cross uses the **corner** α —
+both internally consistent (conservation vs symmetry), different
+placements for the "same" metric cross, worth a sanity ruling;
+(b) robust preconditioning for pathological `min_fraction=0` sliver
+geometries is a follow-up (the model's own per-step RHS is
+well-behaved); (c) real multi-process (`srun -n N`) not exercised
+(forced-4 only, per the no-GPU-jobs rule); (d) uniform tracer
+through a full projected step is O(h²)-inexact identically for pure
+mapped and pure immersed too — a baseline projection-method
+property, not composed-specific.

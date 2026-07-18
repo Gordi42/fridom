@@ -297,8 +297,9 @@ def test_fv_capable_flags():
     # True on EVERY grid — periodic, walled, static mapped, immersed,
     # AND a dynamically driven mapping (the ALE mesh-velocity
     # correction is now family-aware, so moving geometry runs on FV
-    # wherever a static mapped one does). The one unserved composition
-    # (mapped + immersed) is a taught error in _require_fv_capable.
+    # wherever a static mapped one does). Since the mapped + immersed
+    # composition (plan stage M2) FV serves every geometry iteration 2
+    # supports — _require_fv_capable rejects nothing.
     assert _fv_capable(periodic_grid())
     assert _fv_capable(walled_grid())
     assert _fv_capable(mapped_grid())

@@ -130,6 +130,17 @@ Remaining, per
 - **Ratifications (owner)** — verify-side capping of explicit `halo=`
   (shipped behavior, consistent with negotiate) and the
   `_cap_for_sharding` over-reach onto non-sharded axes.
+- **weno5 momentum z-seam (~1e-5) on z-sharded layouts** — the
+  residual of the 2026-07-19 seam fix (entry in
+  [`done.md`](done.md)): `WenoReconstruction`'s vertical
+  footprint exceeds the negotiated z-halo of 2 on a z-sharded
+  layout, leaving a ~1e-5 seam error in u/v (buoyancy is fixed;
+  a z-halo >= 3 cures it in probe runs). This lives in the
+  owner-governed halo negotiation/cap machinery (the same family
+  as the two ratification items above), so it is deliberately
+  left for an owner call rather than patched around; the
+  z-shard parity test pins the current behavior (b tight,
+  momenta finite-only) and documents the residual in-code.
 
 ## Finite-volume nonhydro — decisions and validation
 
@@ -197,10 +208,10 @@ cells in every dimension (stages I0–I4 shipped 2026-07-17; entry in
 [`../plans/active/immersed_partial_cells_plan.md`](../plans/active/immersed_partial_cells_plan.md)).
 Open, none blocking:
 
-- **Mapped + immersed composition** — taught error (chart/terrain
-  only; stretched+immersed fractions are correct and pinned, but no
-  model assembles either composition until the M2/M3 solve); plan
-  ratified, M0+M1 shipped, in progress
+- **Mapped + immersed composition** — **core shipped** (M0–M4:
+  chart fractions, composed solve + multigrid, advection proof —
+  nonhydro2 mapped+immersed and stretched+immersed models run);
+  remaining: M5 hydrostatic wet-column extension, in progress
   ([`../plans/active/mapped_immersed_composition_plan.md`](../plans/active/mapped_immersed_composition_plan.md)).
 - **Partial-bottom-cell hydrostatic pressure gradient** — the
   Pacanowski–Gnanadesikan refinement; the current unweighted `p_hyd`
