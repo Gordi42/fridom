@@ -301,7 +301,7 @@ def test_boundary_rows_are_finite_and_reduced(my):
 #  Periodic path matches plain WENO (no walls to reduce)
 # ================================================================
 def test_periodic_matches_plain_weno(mx):
-    grid = Grid((mx,))
+    grid = Grid((mx,), device_ids=(0,))
     grid.negotiate(halo=HaloSpec({"x": 3}))
     rng = np.random.default_rng(3)
     f = grid.create_field(mx.cell_avg,
