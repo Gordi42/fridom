@@ -56,11 +56,11 @@ def sw_model(n=16, *, f0=1.0, csqr=1.0, device_ids=None):
         time_stepper=AdamBashforth(5e-3, order=3))
 
 
-def nh_model(n=8, *, f0=1.0, n2=1.0, dsqr=1.0):
+def nh_model(n=8, *, f0=1.0, n2=1.0, dsqr=1.0, device_ids=None):
     """Return a triply-periodic nonhydro model (explicit dsqr, N2, f)."""
     grid = Grid(tuple(
         IntervalMesh(n, (0.0, 2 * np.pi), periodic=True, name=nm)
-        for nm in ("x", "y", "z")))
+        for nm in ("x", "y", "z")), device_ids=device_ids)
     return Model(
         grid=grid,
         modules=(
@@ -156,7 +156,12 @@ def test_nonhydro_spectrum_matches_the_analytic_discrete(f0, n2, dsqr):
     # The energy-metric eigensolve reproduces the analytic DISCRETE
     # dispersion to machine precision on every mode except the k = 0
     # mean (the analytic ports mask its physical inertial +/- f to 0).
-    model = nh_model(n=8, f0=f0, n2=n2, dsqr=dsqr)
+    # Pin to one device: the analytic reference below builds
+    # nh.eigenmodes.Eigenmodes, whose naive forward transform the
+    # Tier-1 guard rejects on a sharded transform axis. numeric
+    # eigenpairs are device-count invariant, so the comparison is
+    # unchanged (see test_numeric_eigenpairs_are_device_count_invariant).
+    model = nh_model(n=8, f0=f0, n2=n2, dsqr=dsqr, device_ids=(0,))
     ne = numeric_eigenpairs(model)
     omega = np.asarray(ne.omega).reshape(-1, 4)
 

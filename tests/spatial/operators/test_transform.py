@@ -31,9 +31,14 @@ TWO_PI = 2.0 * jnp.pi
 
 @pytest.fixture
 def grid2d():
+    # Pinned to one device: these transform-behaviour tests run the
+    # naive forward/backward compute path, which the Tier-1 guard
+    # rejects on a sharded transform axis. device_ids=(0,) leaves
+    # every axis local so the math is exercised at any device count
+    # (the dedicated guard tests build their own multi-device grids).
     mx = IntervalMesh(8, (0.0, 1.0), name="x")
     my = IntervalMesh(6, (0.0, 2.0), name="y")
-    return Grid((mx, my))
+    return Grid((mx, my), device_ids=(0,))
 
 
 @pytest.fixture
