@@ -1536,6 +1536,68 @@ class Grid:
             values, axis=tuple(range(ndim, ndim + n_quad_axes)))
         return jnp.broadcast_to(reduced, space.shape)
 
+    def _cell_quadrature_fields(
+        self,
+        cell_space: SpaceLike,
+        order: int,
+    ) -> tuple[dict[str, jax.Array], jax.Array, tuple[int, ...]]:
+        r"""
+        Per-cell tensor Gauss-Legendre nodes and weights, unreduced.
+
+        Description
+        -----------
+        The raw quadrature structure the average-family per-cell rule
+        (:meth:`_quadrature_discretize`) builds internally, exposed
+        without the ``init(nodes) * weight`` reduction so a caller can
+        weight the integrand itself — the seam the immersed chart
+        fraction (MI-D1) uses to fold in the column Jacobian before
+        the sum. Every factor of ``cell_space`` is a ``CellAvg`` (the
+        immersed cell space), so each contributes an ``order``-point
+        rule placed inside every cell by that cell's own **physical**
+        edges (:func:`_cell_quadrature`, the mesh ``coordinate_map``
+        seam) — so a stretched axis is quadratured on its own scale,
+        exactly as the separable average is.
+
+        The node arrays and the weight carry ``ndim`` leading cell
+        axes and ``ndim`` trailing quadrature axes (one per factor);
+        ``quad_axes`` names the trailing block the caller reduces
+        over. The unit-sum reference weights make the tensor weight an
+        **average** over the computational cell, so a ratio of two
+        weighted sums (``sum(w J chi) / sum(w J)``) is the
+        Jacobian-weighted physical-volume average irrespective of the
+        common cell measure.
+
+        Parameters
+        ----------
+        cell_space : SpaceLike
+            The laid-out target cell space (all ``CellAvg`` factors).
+        order : int
+            The Gauss-Legendre point count per cell (``>= 2``).
+
+        Returns
+        -------
+        tuple[dict[str, jax.Array], jax.Array, tuple[int, ...]]
+            The per-coordinate physical node arrays (keyed by
+            coordinate name), the tensor weight, and the quadrature
+            axes to reduce over.
+        """
+        ref_nodes, ref_weights = _gauss_legendre_unit(order)
+        factors = cell_space.factors
+        ndim = len(factors)
+        node_by_name: dict[str, jax.Array] = {}
+        weight = jnp.ones((), dtype=dtype_real())
+        for q, factor in enumerate(factors):
+            nodes, weights = _cell_quadrature(
+                factor, ref_nodes, ref_weights)
+            node_shape = [1] * (2 * ndim)
+            node_shape[q] = nodes.shape[0]
+            node_shape[ndim + q] = nodes.shape[1]
+            node_by_name[factor.names[0]] = nodes.reshape(node_shape)
+            weight_shape = [1] * (2 * ndim)
+            weight_shape[ndim + q] = weights.shape[0]
+            weight = weight * weights.reshape(weight_shape)
+        return node_by_name, weight, tuple(range(ndim, 2 * ndim))
+
     def _transform_discretize(
         self,
         space: SpaceLike,
