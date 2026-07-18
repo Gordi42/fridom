@@ -2007,6 +2007,23 @@ class _FluxFormAdvection(fr.model.Module):
     #: (IP-D8)
     _supports_immersed: ClassVar[bool] = True
 
+    #: whether the surface-flux slice may relocate the traced surface
+    #: velocity onto a staggered (face-collocated) component's flux
+    #: column. The slice's :meth:`_surface_boundary_term` moves the
+    #: ``Outer`` surface ``w`` onto ``q``'s column with the plain
+    #: two-point ``.to`` interpolation; the exactness of the slice's
+    #: top-row ``A(1)`` needs that relocation to match the scheme's own
+    #: advecting-velocity face interpolation (:meth:`_velocity_face`).
+    #: The centered scheme's velocity face *is* the two-point ``.to``,
+    #: so it holds; the biased subclasses interpolate the velocity with
+    #: an ``(order - 1)``-point centered row (``_CenteredFaceInterpolation``)
+    #: that only coincides with ``.to`` at ``order == 3``, so they set
+    #: this ``False`` and their staggered momentum takes the exact
+    #: full-3D fallback (a cell-collocated tracer needs no horizontal
+    #: relocation and keeps the slice regardless — see
+    #: :meth:`_slice_valid`).
+    _slice_relocation_exact: ClassVar[bool] = True
+
     def __init__(
         self,
         background: Mapping[str, Callable | float] | None = None,
@@ -2888,14 +2905,19 @@ class _FluxFormAdvection(fr.model.Module):
           that surface term is exact and cheap.
         - the **full-3D form** (:meth:`_correction_full`) — the
           pre-slice AXPY ``tend - q * A(1)`` with the un-scaled
-          :math:`A(\mathbf 1)` accumulated over the axes. Kept
-          byte-identical for the cases where the interior does not
-          cancel: a mapped column (the physical divergence is not the
-          flux-form continuity the diagnosis enforces), a staggered
-          momentum component on an immersed grid (the momentum control
-          volume's masked continuity is not divergence-free near a cut
-          side wall), and a forced closure on a grid carrying no
-          ``Outer`` seam at all (``div(v)`` is a genuine interior field).
+          :math:`A(\mathbf 1)` accumulated over the axes, the exact
+          scheme-applied-to-a-constant. Kept for the cases where the
+          slice's 2D trace is not exact: a mapped column (the physical
+          divergence is not the flux-form continuity the diagnosis
+          enforces), a staggered momentum component on an immersed grid
+          (the momentum control volume's masked continuity is not
+          divergence-free near a cut side wall), a staggered momentum
+          component under a **biased** scheme (its ``(order - 1)``-point
+          velocity interpolation relocates the surface ``w`` onto the
+          momentum column differently from the slice's two-point ``.to``,
+          so the slice's top-row ``A(1)`` would use the wrong surface
+          ``w``), and a forced closure on a grid carrying no ``Outer``
+          seam at all (``div(v)`` is a genuine interior field).
         """
         seam = tuple(
             (axis, vname) for axis, vname in self._axis_velocity
@@ -2909,21 +2931,31 @@ class _FluxFormAdvection(fr.model.Module):
         return tend - q * (ro * self._immersed_scale(corr, q))
 
     def _slice_valid(self, q: ScalarField) -> bool:
-        r"""Whether ``q``'s :math:`A(\mathbf 1)` is boundary-only.
+        r"""Whether ``q``'s slice-form :math:`A(\mathbf 1)` is exact.
 
         Description
         -----------
-        ``True`` on a flat (non-column) grid for any component off an
-        immersed grid, and for a cell-collocated tracer on an immersed
-        grid (:func:`_is_cell_collocated`); ``False`` on a mapped /
-        moving column and for a staggered momentum component on an
-        immersed grid. The false branches take the exact full-3D
-        fallback — see :meth:`_surface_correction`.
+        ``True`` for a cell-collocated tracer on any flat grid (it needs
+        no horizontal relocation of the surface ``w``, so the slice is
+        exact for every scheme), and for a staggered momentum component
+        on a flat, unimmersed grid **only** when the scheme relocates the
+        surface velocity onto the momentum column exactly as its own
+        advecting-velocity face does (:attr:`_slice_relocation_exact` —
+        the centered scheme's two-point ``.to``). ``False`` on a mapped /
+        moving column, for a staggered momentum component on an immersed
+        grid (the masked momentum continuity is not divergence-free near
+        a cut side wall), and for a staggered momentum component under a
+        biased scheme (its ``(order - 1)``-point velocity interpolation
+        does not match the slice's two-point ``.to``, so the slice's
+        top-row ``A(1)`` would use the wrong surface ``w`` — a genuine
+        constancy break at ``order > 3``). The false branches take the
+        exact full-3D fallback — see :meth:`_surface_correction`.
         """
         if self._column is not None:
             return False
-        return (self._immersed is None
-                or _is_cell_collocated(q.function_space))
+        if _is_cell_collocated(q.function_space):
+            return True
+        return self._immersed is None and self._slice_relocation_exact
 
     def _correction_full(
         self, state: object, q: ScalarField, params: dict | None,
@@ -3454,6 +3486,16 @@ class UpwindAdvection(_FluxFormAdvection):
     #: near-wall closure keyed on the wet region is designed-for
     #: (IP-D8) — taught rejection at bind on an immersed grid
     _supports_immersed: ClassVar[bool] = False
+
+    #: the biased velocity face is an ``(order - 1)``-point centered
+    #: interpolation (:meth:`_velocity_face`), not the two-point ``.to``
+    #: the surface-flux slice's trace uses to relocate ``w`` onto a
+    #: staggered column, so the slice's top-row ``A(1)`` for a momentum
+    #: component would use the wrong surface ``w`` (exact only at
+    #: ``order == 3``, where ``order - 1 == 2``). Staggered momentum
+    #: therefore takes the exact full-3D correction (:meth:`_slice_valid`);
+    #: a cell-collocated tracer keeps the cheap slice (no relocation).
+    _slice_relocation_exact: ClassVar[bool] = False
 
     def __init__(
         self,
