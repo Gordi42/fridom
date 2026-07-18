@@ -337,12 +337,14 @@ def test_identity_chart_raise_index_is_the_identity_map():
 #  Gates: halo trace, jit, device-count invariance
 # ================================================================
 def test_laplace_beltrami_halo_trace_is_pinned():
-    # the deepest sync-free path per axis: one staggered diff (1)
-    # followed by one cross-term interpolation hop (1) on the
-    # periodic axes — the raise leg's off-diagonal chains ride
-    # between the grad and div differences, and every metric scale
-    # is pointwise (halo-neutral); traced through the existing
-    # tracer machinery with no special-casing
+    # the deepest sync-free path per axis: one staggered diff
+    # composed with one cross-term interpolation hop on the
+    # periodic axes — two half-cell moves, one whole cell under
+    # the two-sided interval accounting — the raise leg's
+    # off-diagonal chains ride between the grad and div
+    # differences, and every metric scale is pointwise
+    # (halo-neutral); traced through the existing tracer
+    # machinery with no special-casing
     grid, mu, mv = build_torus(16)
     space = (mu.center * mv.center).bare
 
@@ -350,8 +352,8 @@ def test_laplace_beltrami_halo_trace_is_pinned():
         return grid.dispatch.resolve("laplacian", space)(f)
 
     spec = trace_halo(tendency, (space,), grid.dispatch)
-    assert spec["u"] == 2
-    assert spec["v"] == 2
+    assert spec["u"] == 1
+    assert spec["v"] == 1
 
 
 def test_chart_laplacian_traces_through_jit(compile_counter):
