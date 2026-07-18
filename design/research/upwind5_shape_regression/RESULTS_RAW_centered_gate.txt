@@ -1,0 +1,84 @@
+===== n128_narrow_run1.txt =====
+CHECK n=128 variant=narrow scheme=centered widths={'x': 1, 'y': 1, 'z': 1} derived_storage=(130, 130, 130)
+RESULT n=128 variant=narrow scheme=centered widths={'x': 1, 'y': 1, 'z': 1} storage=(130, 130, 130) med=1.150 ms/step min=1.135 max=1.219 first_advance=2.3s reps=[1.219, 1.21, 1.15, 1.135, 1.136] mem={'temp_MB': 210.382496, 'arg_MB': 228.488085, 'out_MB': 228.488269}
+
+===== n128_narrow_run2.txt =====
+CHECK n=128 variant=narrow scheme=centered widths={'x': 1, 'y': 1, 'z': 1} derived_storage=(130, 130, 130)
+RESULT n=128 variant=narrow scheme=centered widths={'x': 1, 'y': 1, 'z': 1} storage=(130, 130, 130) med=1.149 ms/step min=1.137 max=1.218 first_advance=0.5s reps=[1.218, 1.211, 1.149, 1.137, 1.137] mem={'temp_MB': 210.382496, 'arg_MB': 228.488085, 'out_MB': 228.488269}
+
+===== n128_stock_run1.txt =====
+CHECK n=128 variant=stock scheme=centered widths={'x': 2, 'y': 2, 'z': 2} derived_storage=(132, 132, 132)
+RESULT n=128 variant=stock scheme=centered widths={'x': 2, 'y': 2, 'z': 2} storage=(132, 132, 132) med=1.110 ms/step min=1.109 max=1.178 first_advance=1.0s reps=[1.178, 1.151, 1.109, 1.109, 1.11] mem={'temp_MB': 219.441568, 'arg_MB': 239.196757, 'out_MB': 239.196941}
+
+===== n128_stock_run2.txt =====
+CHECK n=128 variant=stock scheme=centered widths={'x': 2, 'y': 2, 'z': 2} derived_storage=(132, 132, 132)
+RESULT n=128 variant=stock scheme=centered widths={'x': 2, 'y': 2, 'z': 2} storage=(132, 132, 132) med=1.180 ms/step min=1.119 max=1.185 first_advance=0.5s reps=[1.185, 1.18, 1.181, 1.14, 1.119] mem={'temp_MB': 219.441568, 'arg_MB': 239.196757, 'out_MB': 239.196941}
+
+===== n128_stock_run3.txt =====
+CHECK n=128 variant=stock scheme=centered widths={'x': 2, 'y': 2, 'z': 2} derived_storage=(132, 132, 132)
+RESULT n=128 variant=stock scheme=centered widths={'x': 2, 'y': 2, 'z': 2} storage=(132, 132, 132) med=1.114 ms/step min=1.103 max=1.169 first_advance=0.5s reps=[1.169, 1.11, 1.114, 1.114, 1.103] mem={'temp_MB': 219.441568, 'arg_MB': 239.196757, 'out_MB': 239.196941}
+
+===== n192_narrow_run1_linear.txt =====
+CHECK n=192 variant=narrow scheme=linear widths={'x': 1, 'y': 1, 'z': 1} derived_storage=(194, 194, 194)
+RESULT n=192 variant=narrow scheme=linear widths={'x': 1, 'y': 1, 'z': 1} storage=(194, 194, 194) med=2.300 ms/step min=2.299 max=2.320 first_advance=1.7s reps=[2.32, 2.3, 2.299, 2.299, 2.3] mem={'temp_MB': 523.905688, 'arg_MB': 759.344021, 'out_MB': 759.344205}
+
+===== n192_narrow_run1.txt =====
+CHECK n=192 variant=narrow scheme=centered widths={'x': 1, 'y': 1, 'z': 1} derived_storage=(194, 194, 194)
+RESULT n=192 variant=narrow scheme=centered widths={'x': 1, 'y': 1, 'z': 1} storage=(194, 194, 194) med=3.218 ms/step min=3.215 max=3.224 first_advance=2.7s reps=[3.215, 3.215, 3.218, 3.22, 3.224] mem={'temp_MB': 699.441824, 'arg_MB': 759.344021, 'out_MB': 759.344205}
+
+===== n192_narrow_run2_linear.txt =====
+CHECK n=192 variant=narrow scheme=linear widths={'x': 1, 'y': 1, 'z': 1} derived_storage=(194, 194, 194)
+RESULT n=192 variant=narrow scheme=linear widths={'x': 1, 'y': 1, 'z': 1} storage=(194, 194, 194) med=2.298 ms/step min=2.295 max=2.304 first_advance=0.5s reps=[2.304, 2.298, 2.295, 2.296, 2.298] mem={'temp_MB': 523.905688, 'arg_MB': 759.344021, 'out_MB': 759.344205}
+
+===== n192_narrow_run2.txt =====
+CHECK n=192 variant=narrow scheme=centered widths={'x': 1, 'y': 1, 'z': 1} derived_storage=(194, 194, 194)
+RESULT n=192 variant=narrow scheme=centered widths={'x': 1, 'y': 1, 'z': 1} storage=(194, 194, 194) med=3.203 ms/step min=3.198 max=3.205 first_advance=0.6s reps=[3.203, 3.198, 3.205, 3.203, 3.203] mem={'temp_MB': 699.441824, 'arg_MB': 759.344021, 'out_MB': 759.344205}
+
+===== n192_stock_run1_linear.txt =====
+CHECK n=192 variant=stock scheme=linear widths={'x': 2, 'y': 2, 'z': 2} derived_storage=(196, 196, 196)
+RESULT n=192 variant=stock scheme=linear widths={'x': 2, 'y': 2, 'z': 2} storage=(196, 196, 196) med=2.328 ms/step min=2.319 max=2.356 first_advance=1.9s reps=[2.356, 2.319, 2.326, 2.33, 2.328] mem={'temp_MB': 538.186392, 'arg_MB': 783.071829, 'out_MB': 783.072013}
+
+===== n192_stock_run1.txt =====
+CHECK n=192 variant=stock scheme=centered widths={'x': 2, 'y': 2, 'z': 2} derived_storage=(196, 196, 196)
+RESULT n=192 variant=stock scheme=centered widths={'x': 2, 'y': 2, 'z': 2} storage=(196, 196, 196) med=3.069 ms/step min=3.065 max=3.074 first_advance=0.6s reps=[3.074, 3.069, 3.065, 3.067, 3.071] mem={'temp_MB': 719.510944, 'arg_MB': 783.071829, 'out_MB': 783.072013}
+
+===== n192_stock_run2_linear.txt =====
+CHECK n=192 variant=stock scheme=linear widths={'x': 2, 'y': 2, 'z': 2} derived_storage=(196, 196, 196)
+RESULT n=192 variant=stock scheme=linear widths={'x': 2, 'y': 2, 'z': 2} storage=(196, 196, 196) med=2.326 ms/step min=2.324 max=2.373 first_advance=0.5s reps=[2.373, 2.326, 2.325, 2.324, 2.333] mem={'temp_MB': 538.186392, 'arg_MB': 783.071829, 'out_MB': 783.072013}
+
+===== n192_stock_run2.txt =====
+CHECK n=192 variant=stock scheme=centered widths={'x': 2, 'y': 2, 'z': 2} derived_storage=(196, 196, 196)
+RESULT n=192 variant=stock scheme=centered widths={'x': 2, 'y': 2, 'z': 2} storage=(196, 196, 196) med=3.099 ms/step min=3.085 max=3.108 first_advance=0.7s reps=[3.091, 3.099, 3.108, 3.101, 3.085] mem={'temp_MB': 719.510944, 'arg_MB': 783.071829, 'out_MB': 783.072013}
+
+===== n256_narrow_run1.txt =====
+CHECK n=256 variant=narrow scheme=centered widths={'x': 1, 'y': 1, 'z': 1} derived_storage=(258, 258, 258)
+RESULT n=256 variant=narrow scheme=centered widths={'x': 1, 'y': 1, 'z': 1} storage=(258, 258, 258) med=7.688 ms/step min=7.682 max=7.692 first_advance=2.4s reps=[7.691, 7.683, 7.692, 7.688, 7.682] mem={'temp_MB': 2058.175904, 'arg_MB': 1786.045333, 'out_MB': 1786.045517}
+
+===== n256_narrow_run2.txt =====
+CHECK n=256 variant=narrow scheme=centered widths={'x': 1, 'y': 1, 'z': 1} derived_storage=(258, 258, 258)
+RESULT n=256 variant=narrow scheme=centered widths={'x': 1, 'y': 1, 'z': 1} storage=(258, 258, 258) med=7.693 ms/step min=7.690 max=7.698 first_advance=0.9s reps=[7.69, 7.691, 7.697, 7.698, 7.693] mem={'temp_MB': 2058.175904, 'arg_MB': 1786.045333, 'out_MB': 1786.045517}
+
+===== n256_stock_run1.txt =====
+CHECK n=256 variant=stock scheme=centered widths={'x': 2, 'y': 2, 'z': 2} derived_storage=(260, 260, 260)
+RESULT n=256 variant=stock scheme=centered widths={'x': 2, 'y': 2, 'z': 2} storage=(260, 260, 260) med=7.518 ms/step min=7.515 max=7.522 first_advance=0.9s reps=[7.518, 7.522, 7.52, 7.515, 7.518] mem={'temp_MB': 2103.24368, 'arg_MB': 1827.904085, 'out_MB': 1827.904269}
+
+===== n256_stock_run2.txt =====
+CHECK n=256 variant=stock scheme=centered widths={'x': 2, 'y': 2, 'z': 2} derived_storage=(260, 260, 260)
+RESULT n=256 variant=stock scheme=centered widths={'x': 2, 'y': 2, 'z': 2} storage=(260, 260, 260) med=7.521 ms/step min=7.510 max=7.916 first_advance=0.9s reps=[7.526, 7.916, 7.521, 7.51, 7.511] mem={'temp_MB': 2103.24368, 'arg_MB': 1827.904085, 'out_MB': 1827.904269}
+
+===== n512_narrow_run1.txt =====
+CHECK n=512 variant=narrow scheme=centered widths={'x': 1, 'y': 1, 'z': 1} derived_storage=(514, 514, 514)
+RESULT n=512 variant=narrow scheme=centered widths={'x': 1, 'y': 1, 'z': 1} storage=(514, 514, 514) med=63.874 ms/step min=63.869 max=63.887 first_advance=5.4s reps=[63.869, 63.887, 63.872, 63.874, 63.875] mem={'temp_MB': 16285.066656, 'arg_MB': 14122.861461, 'out_MB': 14122.861645}
+
+===== n512_narrow_run2.txt =====
+CHECK n=512 variant=narrow scheme=centered widths={'x': 1, 'y': 1, 'z': 1} derived_storage=(514, 514, 514)
+RESULT n=512 variant=narrow scheme=centered widths={'x': 1, 'y': 1, 'z': 1} storage=(514, 514, 514) med=63.873 ms/step min=63.860 max=63.877 first_advance=3.8s reps=[63.86, 63.877, 63.873, 63.874, 63.862] mem={'temp_MB': 16285.066656, 'arg_MB': 14122.861461, 'out_MB': 14122.861645}
+
+===== n512_stock_run1.txt =====
+CHECK n=512 variant=stock scheme=centered widths={'x': 2, 'y': 2, 'z': 2} derived_storage=(516, 516, 516)
+RESULT n=512 variant=stock scheme=centered widths={'x': 2, 'y': 2, 'z': 2} storage=(516, 516, 516) med=61.829 ms/step min=61.801 max=61.838 first_advance=3.6s reps=[61.831, 61.811, 61.838, 61.829, 61.801] mem={'temp_MB': 16463.279008, 'arg_MB': 14288.362069, 'out_MB': 14288.362253}
+
+===== n512_stock_run2.txt =====
+CHECK n=512 variant=stock scheme=centered widths={'x': 2, 'y': 2, 'z': 2} derived_storage=(516, 516, 516)
+RESULT n=512 variant=stock scheme=centered widths={'x': 2, 'y': 2, 'z': 2} storage=(516, 516, 516) med=61.809 ms/step min=61.793 max=61.821 first_advance=3.6s reps=[61.809, 61.82, 61.821, 61.793, 61.808] mem={'temp_MB': 16463.279008, 'arg_MB': 14288.362069, 'out_MB': 14288.362253}
+
