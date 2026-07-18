@@ -42,6 +42,11 @@ class StandInSpace:
     mesh: object = _PERIODIC_MESH
 
     @property
+    def collapses_axis(self):
+        # a full stand-in factor: not a collapsed (constant/trace) axis
+        return False
+
+    @property
     def factors(self):
         return (self,)
 

@@ -274,6 +274,7 @@ from fridom.spatial.scalars import Scalars
 from fridom.spatial.spaces.average import AverageSpace, CellAvg
 from fridom.spatial.spaces.constant import ConstantSpace
 from fridom.spatial.spaces.nodal import NodalSpace, NodeSet
+from fridom.spatial.spaces.trace import Side
 
 if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Callable, Mapping
@@ -512,6 +513,13 @@ def _safe_ratio(
         The ratio on the divide's structure, finite (0) in the
         never-valid padding.
     """
+    if (getattr(num, "storage", None) is None
+            or getattr(den, "storage", None) is None):
+        # halo-trace stand-in (no data): the plain quotient flows the
+        # space and ghost demand; the VJP seal is a runtime concern,
+        # absent here (the H7 slice term traces on the flat, unimmersed
+        # path, so this branch fires only under the halo accounting).
+        return num / den
     bad = den.storage == 0.0
     safe = jnp.where(bad, 1.0, den.storage)
     ratio = jnp.where(bad, 0.0, num.storage / safe)
@@ -1850,6 +1858,60 @@ def _outer_to_inner(src: object, dst: object) -> bool:
             and dst.node_set is NodeSet.INNER)
 
 
+#: H7 surface-flux slice lowering (``_FluxFormAdvection._apply_correction``):
+#: ``"scatter"`` — the fully-2D row-scatter-add of the boundary term (the
+#: FV-native default, and the ``surface_flux`` closure runs FV by default in
+#: the hydrostatic model); ``"embed"`` — the sparse-3D ``embed`` of the
+#: boundary term plus the pre-slice full-3D ``q * A(1)`` AXPY (nodal only; an
+#: FV component's ``embed`` lands on the co-located nodal ``Center``, not
+#: ``CellAvg``, so it falls back to ``"scatter"``). Both are exact; the GPU
+#: A/B pick between them is the owner's (boundary_trace_plan.md §6).
+_SURFACE_FLUX_LOWERING = "scatter"
+
+
+def _is_surface_seam(v: ScalarField, axis: str) -> bool:
+    """Whether ``v`` sits on the both-boundary ``Outer`` face along ``axis``.
+
+    Description
+    -----------
+    The exact structural condition under which the advective flux drops
+    the boundary face (the ``_outer_to_inner`` seam of ``_flux_space``,
+    and the FV ``CellAvg -> Inner`` reconstruction): the advecting
+    velocity is the diagnosed hydrostatic ``w`` on the vertical ``Outer``
+    faces. A static (space-only) predicate, so it branches the tendency
+    graph at trace time. Holds today only for the hydrostatic diagnosed
+    ``w`` (vertical), so the slice correction is the surface term of that
+    one axis; every other advecting velocity is on ``Center`` / a face
+    sibling of the flux space and contributes no dropped boundary face.
+    """
+    factor = v.function_space.bare.factor(axis)
+    return isinstance(factor, NodalSpace) and factor.node_set is NodeSet.OUTER
+
+
+def _is_cell_collocated(space: object) -> bool:
+    """Whether every non-constant factor is a cell node set (Center/CellAvg).
+
+    Description
+    -----------
+    The slice-form eligibility discriminant on an immersed grid: a cell
+    scalar (buoyancy / an FV tracer) shares the continuity control volume,
+    so its masked ``A(1)`` telescopes to the surface term in every cell
+    (the boundary-only property the slice form needs). A staggered C-grid
+    velocity (``Right(x) (x) Center(y) (x) Center(z)``) does not: the
+    momentum control volume's masked continuity is not discretely
+    divergence-free near a cut side wall, so its ``A(1)`` carries genuine
+    interior terms the slice form would drop — such a component takes the
+    full-3D fallback. Off an immersed grid every component is boundary-only
+    (centered interpolation preserves the exact interior divergence-free
+    property) and this gate is not consulted.
+    """
+    factors = [f for f in space.bare.factors
+               if not isinstance(f, ConstantSpace)]
+    return bool(factors) and all(
+        (isinstance(f, NodalSpace) and f.node_set is NodeSet.CENTER)
+        or isinstance(f, CellAvg) for f in factors)
+
+
 # ================================================================
 #  The shared flux-form scaffolding (module-private)
 # ================================================================
@@ -1880,13 +1942,12 @@ class _FluxFormAdvection(fr.model.Module):
     AUXILIARY fields ``background_<component>`` on each velocity
     component's own space.
 
-    The constant-preserving **surface closure** adds the correction
-    :math:`-q\,A(\mathbf 1)` to every ADVECTED component's tendency,
+    The constant-preserving **surface closure** subtracts the correction
+    :math:`q\,A(\mathbf 1)` from every ADVECTED component's tendency,
     where :math:`A(\mathbf 1)` is the module's own advective operator
     applied to a constant — a lean divergence of the interpolated face
-    velocities, accumulated in the same flux loop (``_transport``).
-    On a bounded vertical axis the diagnosed ``w`` lives on the
-    both-boundary ``Outer`` faces and the flux uses only its interior
+    velocities. On a bounded vertical axis the diagnosed ``w`` lives on
+    the both-boundary ``Outer`` faces and the flux uses only its interior
     ``Inner`` restriction, so :math:`A(\mathbf 1)` is machine-zero in
     every interior cell but ``w(0)/dz`` in the surface cell (the dropped
     surface velocity — the free surface's :math:`\partial_t\eta`).
@@ -1895,7 +1956,12 @@ class _FluxFormAdvection(fr.model.Module):
     constant in every cell: the Oceananigans-equivalent linear-free-
     surface treatment. Tracer content is then exchanged with the moving
     surface rather than conserved to roundoff (the ``ps`` equation no
-    longer carries the whole surface volume flux).
+    longer carries the whole surface volume flux). Wherever that
+    ``A(\mathbf 1)`` is provably boundary-only (a flat, unimmersed or
+    cell-collocated component) the correction is evaluated directly as
+    the 2D surface trace (``_surface_correction``, the slice form),
+    reserving the full-3D accumulation for the cases where the interior
+    does not telescope (:meth:`_surface_correction`).
 
     ``surface_flux`` is tri-state: ``True`` / ``False`` force the
     closure on / off; the default ``None`` **auto-resolves at bind** —
@@ -2727,54 +2793,43 @@ class _FluxFormAdvection(fr.model.Module):
         corrected — a background velocity with a nonzero surface value
         would still drop its boundary face; today no such background
         exists.
+
+        The correction is evaluated as the **direct boundary term**
+        (:meth:`_surface_correction`, the slice form) wherever
+        :math:`A(\mathbf 1)` is provably boundary-only — its
+        ``O(N^2)`` surface trace replaces the ``O(N)`` full-3D
+        telescoping sum, reclaiming most of the closure's step
+        overhead. Where the boundary-only property does not hold (a
+        mapped column, a staggered momentum component on an immersed
+        grid, or a forced closure on a grid without the ``Outer`` seam)
+        the exact full-3D form is kept (byte-identical to the pre-slice
+        behavior).
         """
         ro = ctx.params[fr.model.params.SCALING_ROSSBY]
         params = self._geometry_params(state)
         out: dict[str, ScalarField] = {}
         for qname in self._advected:
             q = state[qname]
-            res, corr = self._transport(state, q, params)
-            tend = ro * self._immersed_scale(res, q)
-            if corr is not None:
-                # subtract q * A(1), A(1) = ro * scale(div of the face
-                # velocities): advect through the boundary face with the
-                # one-sided face value (machine-exact constancy)
-                tend = tend - q * (ro * self._immersed_scale(corr, q))
+            tend = ro * self._immersed_scale(
+                self._transport(state, q, params), q)
+            if self._surface_flux_on:
+                tend = self._surface_correction(
+                    state, q, tend, ro, params)
             out[qname] = tend
         return out
 
     def _transport(
         self, state: object, q: ScalarField, params: dict | None,
-    ) -> tuple[ScalarField, ScalarField | None]:
-        r"""Per-axis flux loop: transport of ``q`` and :math:`A(\mathbf 1)`.
+    ) -> ScalarField:
+        r"""Per-axis flux loop: the advective divergence of ``q``.
 
         Description
         -----------
         For every advecting axis it forms the flux ``v_face * face(q)``,
         weights it by the open-area fraction (immersed), and differences
-        it back onto ``q``'s space, accumulating ``-sum_axis`` in the
-        first return — the advective divergence, **before** the Rossby
-        and volume-fraction scalings the caller applies.
-
-        When the surface closure is active it accumulates, **in the same
-        loop and reusing the interpolated velocity face**, the second
-        return: the un-scaled constant divergence :math:`A(\mathbf 1)`.
-        Every reconstruction in the family preserves constants, so the
-        face value of a ones field is *exactly* ``1`` and the correction
-        flux is just the (immersed-weighted) velocity face ``v_face`` — a
-        lean divergence of the advecting velocity, one extra
-        ``_flux_divergence`` per axis rather than a second advection pass
-        (``q`` enters only through its space). It is machine-zero in
-        every interior cell (the diagnosed velocity is discretely
-        divergence-free there) and nonzero only in a boundary cell whose
-        ``Outer -> Inner`` restriction dropped the boundary-face velocity
-        (the free surface's ``w(0)/dz`` at the top; exactly zero at the
-        flat-bottom seeded ``w = 0``). For a staggered ``q`` (``u``,
-        ``v``) ``_velocity_face`` interpolates that surface velocity onto
-        ``q``'s own column automatically. ``_advect`` scales it and
-        subtracts ``q`` times it, telescoping the surface-cell constancy
-        violation to roundoff. ``None`` when the closure is off — the
-        first return is then byte-for-byte the plain flux-form one.
+        it back onto ``q``'s space, accumulating ``-sum_axis`` — the
+        advective divergence, **before** the Rossby and volume-fraction
+        scalings the caller applies.
 
         Parameters
         ----------
@@ -2787,13 +2842,10 @@ class _FluxFormAdvection(fr.model.Module):
 
         Returns
         -------
-        tuple[ScalarField, ScalarField | None]
-            The accumulated advective divergence, and the un-scaled
-            :math:`A(\mathbf 1)` correction divergence (``None`` when the
-            surface closure is off).
+        ScalarField
+            The accumulated advective divergence on ``q``'s space.
         """
         res = None
-        corr = None
         for axis, vname in self._axis_velocity:
             v = state[vname]
             flux_space = self._flux_space(q, v, axis)
@@ -2806,13 +2858,214 @@ class _FluxFormAdvection(fr.model.Module):
             divergence = self._flux_divergence(
                 q, flux, axis, params)
             res = -divergence if res is None else res - divergence
-            if self._surface_flux_on:
-                # A(1): face(1) == 1 exactly, so the flux is the reused
-                # velocity face -- one extra divergence per axis
-                cflux = self._immersed_flux(v_face, flux_space)
-                cdiv = self._flux_divergence(q, cflux, axis, params)
-                corr = -cdiv if corr is None else corr - cdiv
-        return res, corr
+        return res
+
+    # ------------------------------------------------------------
+    #  The constancy-preserving surface closure (H7)
+    # ------------------------------------------------------------
+    def _surface_correction(
+        self,
+        state: object,
+        q: ScalarField,
+        tend: ScalarField,
+        ro: object,
+        params: dict | None,
+    ) -> ScalarField:
+        r"""Subtract the surface correction :math:`q\,A(\mathbf 1)`.
+
+        Description
+        -----------
+        Routes between two exact spellings of the constancy-preserving
+        correction:
+
+        - the **slice form** (:meth:`_surface_boundary_term` +
+          :meth:`_apply_correction`) — used wherever
+          :math:`A(\mathbf 1)` is provably boundary-only, i.e. the
+          advecting velocity is discretely divergence-free and drops a
+          boundary face (:meth:`_slice_valid`). :math:`A(\mathbf 1)`
+          then telescopes to the dropped surface face in the boundary
+          row and is machine-zero elsewhere, so the direct 2D trace of
+          that surface term is exact and cheap.
+        - the **full-3D form** (:meth:`_correction_full`) — the
+          pre-slice AXPY ``tend - q * A(1)`` with the un-scaled
+          :math:`A(\mathbf 1)` accumulated over the axes. Kept
+          byte-identical for the cases where the interior does not
+          cancel: a mapped column (the physical divergence is not the
+          flux-form continuity the diagnosis enforces), a staggered
+          momentum component on an immersed grid (the momentum control
+          volume's masked continuity is not divergence-free near a cut
+          side wall), and a forced closure on a grid carrying no
+          ``Outer`` seam at all (``div(v)`` is a genuine interior field).
+        """
+        seam = tuple(
+            (axis, vname) for axis, vname in self._axis_velocity
+            if _is_surface_seam(state[vname], axis))
+        if seam and self._slice_valid(q):
+            for axis, vname in seam:
+                a1 = self._surface_boundary_term(q, state[vname], axis)
+                tend = self._apply_correction(tend, q, a1, axis, ro)
+            return tend
+        corr = self._correction_full(state, q, params)
+        return tend - q * (ro * self._immersed_scale(corr, q))
+
+    def _slice_valid(self, q: ScalarField) -> bool:
+        r"""Whether ``q``'s :math:`A(\mathbf 1)` is boundary-only.
+
+        Description
+        -----------
+        ``True`` on a flat (non-column) grid for any component off an
+        immersed grid, and for a cell-collocated tracer on an immersed
+        grid (:func:`_is_cell_collocated`); ``False`` on a mapped /
+        moving column and for a staggered momentum component on an
+        immersed grid. The false branches take the exact full-3D
+        fallback — see :meth:`_surface_correction`.
+        """
+        if self._column is not None:
+            return False
+        return (self._immersed is None
+                or _is_cell_collocated(q.function_space))
+
+    def _correction_full(
+        self, state: object, q: ScalarField, params: dict | None,
+    ) -> ScalarField:
+        r"""Accumulate the un-scaled full-3D :math:`A(\mathbf 1)` fallback.
+
+        Description
+        -----------
+        Per advecting axis, ``face(1) == 1`` exactly (every
+        reconstruction preserves constants), so the correction flux is
+        the (immersed-weighted) interpolated velocity face itself: a
+        lean divergence of the advecting velocity, one extra
+        ``_flux_divergence`` per axis, accumulated as ``-sum_axis``. The
+        caller scales it (``ro`` and the wet-volume fraction) and
+        subtracts ``q`` times it. Byte-identical to the pre-slice
+        in-loop accumulation.
+        """
+        corr = None
+        for axis, vname in self._axis_velocity:
+            v = state[vname]
+            flux_space = self._flux_space(q, v, axis)
+            v_face = self._velocity_face(v, flux_space)
+            cflux = self._immersed_flux(v_face, flux_space)
+            cdiv = self._flux_divergence(q, cflux, axis, params)
+            corr = -cdiv if corr is None else corr - cdiv
+        return corr
+
+    def _surface_boundary_term(
+        self, q: ScalarField, v: ScalarField, axis: str,
+    ) -> ScalarField:
+        r"""Build the 2D surface term of :math:`A(\mathbf 1)` on ``q``'s row.
+
+        Description
+        -----------
+        The boundary row of the vertical ``_flux_divergence`` restricted
+        to its dropped surface face: ``alpha_top * w(0) / dz_top``, a 2D
+        ``Trace`` on ``q``'s co-located ``Center`` boundary row.
+
+        - ``w(0)`` is the surface value of the advecting velocity
+          (``v.trace``, the ``Outer`` boundary DOF), horizontally
+          interpolated onto ``q``'s flux column (``.to`` — the trace of
+          a tensor-product interpolation commutes with the interpolation
+          of the trace, so this is exact). The ``Outer``-parent surface
+          face value is relocated onto ``q``'s ``Center`` cell row (the
+          face -> cell hop ``_flux_divergence`` performs implicitly)
+          through the sanctioned ``as_profile`` / ``adopt`` retag bridge.
+        - ``alpha_top`` (immersed only) is the surface-face open-area
+          weight, which the diagnosed ``w`` carries as the **top cell**
+          fraction (``HydrostaticCore._masked_w_faces`` overrides the
+          min-rule ``Outer`` fraction there), so it is
+          ``fraction(q.space)`` traced at the wall; it cancels against
+          the wet-volume divide of :meth:`_immersed_scale_2d`, leaving
+          ``w(0)/dz`` on a wet cell and exactly ``0`` on a dry one.
+        - ``dz_top`` is the primal cell width the flux difference divides
+          by (``grid.measure`` on ``q``'s cell space — static mesh
+          geometry, the constant ``dx`` on a uniform mesh and the
+          stretched cell width on a mapped-``z`` mesh), traced at the
+          wall. The divide is VJP-sealed (``_safe_ratio``, the
+          double-``jnp.where``): mandatory for the masked-singularity
+          shape even though the cell width is strictly positive on every
+          valid row (AGENTS.md differentiability policy).
+
+        Only reached on a flat grid (``self._column is None``), so no
+        mapped ``1/J`` factor and no ``params`` enter (:meth:`_slice_valid`).
+        """
+        flux_space = self._flux_space(q, v, axis)
+        outer_factor = v.function_space.bare.factor(axis)
+        outer_space = flux_space.bare.replace(
+            **{axis: outer_factor}).with_layout(flux_space.layout)
+        w0 = v.trace(axis, Side.HIGH)
+        target = outer_space.bare.replace(
+            **{axis: w0.function_space.bare.factor(axis)}).with_layout(
+            flux_space.layout)
+        # horizontal interpolation onto q's flux column (identity for a
+        # collocated tracer, Center -> Right for a staggered component),
+        # then relocate the Outer surface face onto q's Center cell row
+        w0 = w0.to(target).as_profile(axis).adopt(
+            axis, NodeSet.CENTER, Side.HIGH)
+        num = w0
+        if self._immersed is not None:
+            num = self._immersed.fraction(q.function_space).trace(
+                axis, Side.HIGH) * w0
+        dz_top = q.grid.measure(q.function_space, axis).trace(
+            axis, Side.HIGH)
+        return _safe_ratio(num, dz_top)
+
+    def _apply_correction(
+        self,
+        tend: ScalarField,
+        q: ScalarField,
+        a1: ScalarField,
+        axis: str,
+        ro: object,
+    ) -> ScalarField:
+        r"""Subtract ``q * ro * scale(A(1)|top)`` via the selected lowering.
+
+        Description
+        -----------
+        Two exact lowerings (``_SURFACE_FLUX_LOWERING``): ``"embed"``
+        materializes ``A(1)|top`` sparsely back into its parent row and
+        runs the pre-slice full-3D ``q * A(1)`` AXPY (nodal only — an FV
+        component's ``embed`` lands on the co-located nodal ``Center``,
+        not ``CellAvg``, so it falls back to ``"scatter"``);
+        ``"scatter"`` (the default) keeps everything 2D and
+        row-scatter-adds the negated correction into ``tend``'s boundary
+        row. Both give the same tendency.
+        """
+        if (_SURFACE_FLUX_LOWERING == "embed"
+                and not _is_average_space(q.function_space)):
+            # embed lands on the BC-free parent Center row; retag onto q's
+            # own (possibly wall-tagged) cell factor for the AXPY (data
+            # untouched — the boundary row is a structural interior DOF)
+            corr3d = a1.embed(axis)
+            corr3d = corr3d.retag(corr3d.function_space.replace(
+                **{axis: q.function_space.bare.factor(axis)}))
+            return tend - q * (ro * self._immersed_scale(corr3d, q))
+        corr2d = q.trace(axis, Side.HIGH) * a1
+        corr2d = self._immersed_scale_2d(corr2d, q, axis)
+        return fr.spatial.operators.scatter_add(tend, -(ro * corr2d))
+
+    def _immersed_scale_2d(
+        self, corr2d: ScalarField, q: ScalarField, axis: str,
+    ) -> ScalarField:
+        r"""Divide a 2D boundary correction by the wet top-cell fraction.
+
+        Description
+        -----------
+        The 2D twin of :meth:`_immersed_scale`: the surface-row divide by
+        the cell volume fraction ``theta_top = fraction(q.space)`` traced
+        at the wall, guarded so a dry top cell (``theta == 0``, numerator
+        identically ``0``) stays exactly ``0`` — the double-``jnp.where``
+        that seals the VJP under ``jax.grad``. A no-op off an immersed
+        grid.
+        """
+        if self._immersed is None:
+            return corr2d
+        theta = self._immersed.fraction(q.function_space).trace(
+            axis, Side.HIGH)
+        wet = theta.data > 0.0
+        scaled = jnp.where(
+            wet, corr2d.data / jnp.where(wet, theta.data, 1.0), 0.0)
+        return corr2d.with_data(scaled)
 
     # ------------------------------------------------------------
     #  The background-split terms

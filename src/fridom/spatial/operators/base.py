@@ -594,7 +594,7 @@ class BinaryOperator(Operator, ABC):
         if reach != (0, 0):
             required = {name: reach
                         for factor in codomain.factors
-                        if not isinstance(factor, ConstantSpace)
+                        if not factor.collapses_axis
                         for name in factor.names}
             operands = tuple(_ensure_valid(o, required)
                              for o in operands)
@@ -1615,7 +1615,7 @@ def _required_halo(
         return {}
     return {name: reach
             for factor in bare.factors
-            if not isinstance(factor, ConstantSpace)
+            if not factor.collapses_axis
             for name in factor.names}
 
 

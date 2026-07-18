@@ -60,6 +60,13 @@ from fridom.spatial.meshes.structured_1d import (
     StructuredMesh1D,
 )
 from fridom.spatial.operators.base import OperatorRequirements
+from fridom.spatial.operators.boundary import (
+    AsProfile,
+    BoundaryEmbed,
+    BoundaryScatterAdd,
+    BoundaryScatterSet,
+    BoundaryTrace,
+)
 from fridom.spatial.operators.chebyshev import Chebyshev
 from fridom.spatial.operators.composed import (
     Curl,
@@ -139,6 +146,7 @@ from fridom.spatial.spaces.nodal import NodalSpace, NodeSet
 from fridom.spatial.spaces.tensor_product import (
     TensorProductSpace,
 )
+from fridom.spatial.spaces.trace import Side, TraceSpace
 
 if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Callable
@@ -1214,6 +1222,14 @@ class Grid:
             raise ValueError(  # noqa: TRY004
                 f"factor {factor!r} is constant along {name!r}; "
                 "constant factors carry no measure")
+        if isinstance(factor, TraceSpace):
+            # a value error (bad name choice), not a type error
+            raise ValueError(  # noqa: TRY004
+                f"factor {factor!r} is a boundary trace along "
+                f"{name!r}; a trace carries no per-factor measure. "
+                "The boundary-row (e.g. top-cell) measure is obtained "
+                "by tracing the full measure field along that axis, "
+                "never by querying the measure on the trace factor")
         if isinstance(factor, CoefficientSpace):
             raise ValueError(  # noqa: TRY004 — value, not type
                 f"coefficient factor {factor!r} carries no metric "
@@ -2356,6 +2372,9 @@ def _default_registry(
     power = Power()
     abs_op = Abs()
     select = Where()
+    boundary_ops = (BoundaryTrace(Side.HIGH), BoundaryEmbed(),
+                    AsProfile(), BoundaryScatterAdd(),
+                    BoundaryScatterSet())
     entries: dict[DispatchKey, Operator] = {}
     for mesh in meshes:
         nodal = _family_spaces(mesh, _NODAL_FACTORIES)
@@ -2406,6 +2425,8 @@ def _default_registry(
             fv_derivative,
             (integral, multiply, divide, power, select, abs_op))
         _seed_cumint_rows(entries, mesh, cumint)
+        _seed_boundary_rows(entries, nodal + average + tagged,
+                            boundary_ops)
         resolver = _declared_space_resolver(mesh)
         if resolver is not None:
             entries[("declared_space", mesh)] = resolver
@@ -2956,6 +2977,57 @@ def _seed_cumint_rows(
     for space in _family_spaces(mesh, ("center", "cell_avg")):
         for variant in (space, space.as_complex()):
             entries[("cumint", variant)] = cumint
+
+
+def _seed_boundary_rows(
+    entries: dict[DispatchKey, Operator],
+    spaces: tuple[FunctionSpace, ...],
+    boundary_ops: tuple[Operator, ...],
+) -> None:
+    """
+    Seed the boundary trace / embed / scatter / as_profile rows.
+
+    Description
+    -----------
+    The boundary machinery (plan §3), probe-driven and self-unseeding.
+    Every full nodal / FV ``CellAvg`` factor that carries a boundary
+    row (``FaceAvg`` and periodic factors do not) gets the full-factor
+    rows — ``("trace", ...)`` (the default ``Side.HIGH`` surface trace;
+    a specific side is constructed directly through ``f.trace``) and
+    ``("scatter_add", ...)`` / ``("scatter_set", ...)``; and, for each
+    side its trace resolves, the trace-factor rows ``("embed", trace)``
+    and ``("as_profile", trace)``. A ``Side.HIGH`` Dirichlet-eliminated
+    origin self-unseeds (its default trace is ill-posed); the LOW-only
+    trace space it would embed from is already seeded off the BC-free
+    sibling (traces are BC-free). Each row is seeded for the real space
+    and its complex variant.
+
+    Parameters
+    ----------
+    entries : dict[DispatchKey, Operator]
+        The entry table being built (mutated in place).
+    spaces : tuple[FunctionSpace, ...]
+        The candidate full factor spaces (nodal, average, tagged).
+    boundary_ops : tuple[Operator, ...]
+        ``(trace_high, embed, as_profile, scatter_add, scatter_set)``.
+    """
+    trace_high, embed, as_profile, scatter_add, scatter_set = boundary_ops
+    for space in spaces:
+        for variant in (space, space.as_complex()):
+            try:
+                trace_high.codomain(variant)
+            except (SpaceMismatchError, ValueError):
+                continue  # no boundary row (or HIGH is eliminated)
+            entries[("trace", variant)] = trace_high
+            entries[("scatter_add", variant)] = scatter_add
+            entries[("scatter_set", variant)] = scatter_set
+            for side in (Side.LOW, Side.HIGH):
+                try:
+                    trace_space = BoundaryTrace(side).codomain(variant)
+                except (SpaceMismatchError, ValueError):
+                    continue  # that wall's DOF is eliminated
+                entries[("embed", trace_space)] = embed
+                entries[("as_profile", trace_space)] = as_profile
 
 
 def _seed_reconstruct_rows(

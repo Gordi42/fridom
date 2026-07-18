@@ -237,8 +237,27 @@ class FunctionSpace(ABC):
         """Whether this factor is the constant/broadcast factor.
 
         The public predicate replacing ``isinstance(x,
-        ConstantSpace)``; ``False`` on every non-constant space,
-        overridden to ``True`` in ``ConstantSpace``.
+        ConstantSpace)`` at the *broadcast-sanction* sites (join,
+        symbol, composition); ``False`` on every non-constant space,
+        overridden to ``True`` in ``ConstantSpace``. A ``TraceSpace``
+        keeps this ``False`` — the design win: a trace must never
+        broadcast into the interior.
+        """
+        return False
+
+    @property
+    def collapses_axis(self) -> bool:
+        """Whether this factor collapses its axis to a size-1 slot.
+
+        The *storage/locality/dispatch* half of the constancy split
+        (``boundary_trace_plan.md`` §2): a collapsed factor is
+        replicated, size-1, halo-free, and skipped by the per-factor
+        dispatch resolution — the behaviour the hot path needs.
+        ``True`` on both ``ConstantSpace`` and ``TraceSpace``, so
+        storage/dispatch code reads this instead of
+        ``isinstance(x, ConstantSpace)``; ``False`` everywhere else.
+        Orthogonal to ``is_constant`` (the broadcast sanction), which
+        is ``True`` on ``ConstantSpace`` only.
         """
         return False
 

@@ -25,10 +25,12 @@ from fridom.spatial.operators.finite_difference import (
     FiniteDifference,
 )
 from fridom.spatial.operators.movement import Reshard
-from fridom.spatial.spaces.nodal import NodeSet
+from fridom.spatial.spaces.constant import ConstantSpace
+from fridom.spatial.spaces.nodal import NodalSpace, NodeSet
 from fridom.spatial.spaces.tensor_product import (
     TensorProductSpace,
 )
+from fridom.spatial.spaces.trace import Side, TraceSpace
 
 
 @pytest.fixture
@@ -388,3 +390,38 @@ def test_vector_tracer_components_view(grid, space):
     tracer = HaloTracer(space, grid.dispatch)
     vec = VectorTracer({"u": tracer})
     assert vec.components == {"u": tracer}
+
+
+# ================================================================
+#  Boundary verbs (trace / embed / as_profile / adopt) + measure stub
+# ================================================================
+def test_trace_forwarder_lands_on_the_trace_space(grid, space):
+    traced = HaloTracer(space, grid.dispatch).trace("y", Side.HIGH)
+    factor = traced.function_space.bare.factor("y")
+    assert isinstance(factor, TraceSpace)
+    assert factor.side is Side.HIGH
+    assert factor.parent_node_set is NodeSet.CENTER
+
+
+def test_tracer_grid_measure_is_a_space_only_stub(grid, space):
+    tracer = HaloTracer(space, grid.dispatch)
+    measure = tracer.grid.measure(space, "y")
+    assert isinstance(measure, HaloTracer)
+    # the querying factor is kept; every other factor -> ConstantSpace
+    assert measure.function_space.bare.factor("y") is space.bare.factor("y")
+    assert isinstance(
+        measure.function_space.bare.factor("x"), ConstantSpace)
+
+
+def test_boundary_verbs_round_trip_through_the_tracer(grid, space):
+    tracer = HaloTracer(space, grid.dispatch)
+    profile = tracer.trace("y", Side.HIGH).as_profile("y")
+    assert isinstance(
+        profile.function_space.bare.factor("y"), ConstantSpace)
+    readopted = profile.adopt("y", NodeSet.CENTER, Side.HIGH)
+    assert isinstance(
+        readopted.function_space.bare.factor("y"), TraceSpace)
+    embedded = readopted.embed("y")
+    factor = embedded.function_space.bare.factor("y")
+    assert isinstance(factor, NodalSpace)
+    assert factor.node_set is NodeSet.CENTER

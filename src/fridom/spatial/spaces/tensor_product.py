@@ -23,6 +23,7 @@ from fridom.spatial.interning import InternTable
 from fridom.spatial.scalars import Scalars, Variance
 from fridom.spatial.spaces.constant import ConstantSpace
 from fridom.spatial.spaces.function_space import FunctionSpace
+from fridom.spatial.spaces.trace import TraceSpace
 
 if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Iterator
@@ -466,6 +467,11 @@ def join_factor(
     on the same mesh) and real → complex promotion (a factor lifts
     to its ``as_complex()`` variant). The join is the least upper
     bound: full factor beats ``ConstantSpace``; complex beats real.
+    A ``TraceSpace`` is explicitly *not* broadcast-related to a
+    ``ConstantSpace`` (relocating a bulk-constant value onto the
+    boundary is auto-magic, ``boundary_trace_plan.md`` §2): the join
+    returns None so field arithmetic raises, and the sanctioned
+    bridge is the explicit ``as_profile`` / ``adopt`` retag instead.
 
     Parameters
     ----------
@@ -486,6 +492,13 @@ def join_factor(
         return None
     a_constant = isinstance(a, ConstantSpace)
     b_constant = isinstance(b, ConstantSpace)
+    # a Trace never joins a Constant: implicitly lifting a
+    # bulk-constant value onto the boundary row is auto-magic (use
+    # as_profile / adopt). Trace ⊔ full and Trace ⊔ different-locator
+    # Trace already reject via the distinct-factor fall-through below.
+    if (a_constant and isinstance(b, TraceSpace)) or (
+            b_constant and isinstance(a, TraceSpace)):
+        return None
     if a_constant and not b_constant:
         base = b
     elif b_constant and not a_constant:

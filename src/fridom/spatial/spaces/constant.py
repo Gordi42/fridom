@@ -47,6 +47,11 @@ class ConstantSpace(FunctionSpace):
         return True
 
     @property
+    def collapses_axis(self) -> bool:
+        """Always ``True``: a constant collapses its axis to size 1."""
+        return True
+
+    @property
     def shape(self) -> tuple[int, ...]:
         """Always (1,): a single broadcast DOF."""
         return (1,)
