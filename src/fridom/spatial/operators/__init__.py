@@ -35,6 +35,7 @@ if TYPE_CHECKING:  # pragma: no cover
         mixed,
         movement,
         multigrid,
+        multigrid_hierarchy,
         products,
         realized,
         reconstruct,
@@ -115,6 +116,7 @@ if TYPE_CHECKING:  # pragma: no cover
         MultigridVCycle,
         VerticalLineJacobi,
     )
+    from .multigrid_hierarchy import coarsen_levels
     from .realized import (
         BoundTransform,
         RealizedComposite,
@@ -276,6 +278,7 @@ all_imports_by_origin = {
         "DampedJacobi",
         "VerticalLineJacobi",
     ],
+    f"{base}.multigrid_hierarchy": ["coarsen_levels"],
     f"{base}.cumulative": ["CumulativeIntegral"],
     f"{base}.verbs": ["diff", "interpolate", "integrate", "cumint",
                       "physical_diff", "embed", "as_profile",

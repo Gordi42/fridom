@@ -16,13 +16,18 @@ import numpy as np
 import pytest
 
 from fridom.nonhydro2.modules.core import fv_cgrid_overrides
-from fridom.nonhydro2.modules.pressure import SpectralPressureSolver
+from fridom.nonhydro2.modules.pressure import (
+    SpectralPressureSolver,
+    is_fv,
+    rediscretize_fv_coarse,
+)
 from fridom.spatial.bc import BC
 from fridom.spatial.fields.scalar_field import ScalarField
 from fridom.spatial.fields.vector_field import VectorField
 from fridom.spatial.grid import Grid
 from fridom.spatial.meshes.interval import IntervalMesh
 from fridom.spatial.operators.composed import Divergence, Gradient
+from fridom.spatial.operators.registry import check_override_key
 from fridom.spatial.spaces.average import CellAvg
 from fridom.spatial.spaces.nodal import NodeSet
 
@@ -192,3 +197,40 @@ def test_walled_fv_solve_lands_in_the_mean_free_gauge():
     solver = SpectralPressureSolver(grid, space, vertical="z")
     p = solver.solve(rhs, dsqr=jnp.asarray(1.0))
     assert float(jnp.abs(p.mean().data.ravel()[0])) < 1e-13
+
+
+# ================================================================
+#  Coarse-grid FV re-discretization (multigrid hierarchy callback)
+# ================================================================
+# The ``rediscretize_fv_coarse`` callback the FV pressure solvers hand to
+# ``spatial.operators.multigrid_hierarchy.coarsen_levels``: the promoted
+# builder is model-agnostic, so re-establishing the FV C-grid ``diff``
+# profile on each coarse grid (MG-D6) lives here, on the nonhydro2 side.
+def test_is_fv_detects_the_cell_average_family():
+    _grid, (mx, my, mz) = make_periodic_grid()
+    fv_space = mx.cell_avg * my.cell_avg * mz.cell_avg
+    nodal_space = mx.center * my.center * mz.center
+    assert is_fv(fv_space) is True
+    assert is_fv(nodal_space) is False
+
+
+def test_rediscretize_fv_coarse_merges_the_profile():
+    grid, _meshes = make_periodic_grid(n=16)
+    coarse = grid.coarsened({"x": 2, "y": 2})
+    # Grid.coarsened drops the model dispatch overrides (MG-D6)
+    assert coarse.override_keys == frozenset()
+    rediscretize_fv_coarse(coarse)
+    wanted = {check_override_key(key)
+              for key in fv_cgrid_overrides(coarse.factors)}
+    assert set(coarse.override_keys) >= wanted
+
+
+def test_rediscretize_fv_coarse_is_idempotent():
+    grid, _meshes = make_periodic_grid(n=16)
+    coarse = grid.coarsened({"x": 2, "y": 2})
+    rediscretize_fv_coarse(coarse)
+    dispatch_after_first = coarse.dispatch
+    # a second call is a no-op: the profile is merged exactly once, so
+    # the registry object is unchanged (no growing layer stack)
+    rediscretize_fv_coarse(coarse)
+    assert coarse.dispatch is dispatch_after_first

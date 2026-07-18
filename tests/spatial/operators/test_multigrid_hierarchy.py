@@ -1,26 +1,27 @@
-"""Tests for the semicoarsened multigrid hierarchy builder (B3).
+"""Tests for the multigrid hierarchy builder (B3, GM-D5).
 
-The degradation logic (semicoarsen the horizontal axes, keep the
-vertical, floor at four cells, stop at indivisibility, cap at
-``max_levels``, degrade to one smoothing-only level on a tiny grid),
-the restricted-space-is-the-coarse-operator-space contract, and the
-idempotent finite-volume re-discretization of the coarse grids.
+The coarsening logic (semicoarsen the horizontal axes keeping the
+vertical, or coarsen the vertical too under ``coarsen_vertical``; floor
+at four cells, stop at indivisibility, cap at ``max_levels``, degrade to
+one smoothing-only level on a tiny grid), the graceful degradation of a
+non-coarsenable (Chebyshev) vertical, the ``rediscretize`` callback seam,
+and the restricted-space-is-the-coarse-operator-space contract. The
+model-specific FV re-discretization is exercised on the nonhydro2 side
+(``tests/nonhydro2/test_pressure_fv.py``).
 """
 from itertools import pairwise
 
 import numpy as np
 
-from fridom.nonhydro2.modules.core import fv_cgrid_overrides
-from fridom.nonhydro2.modules.multigrid_hierarchy import (
+from fridom.spatial.grid import Grid
+from fridom.spatial.meshes.chebyshev import ChebyshevMesh
+from fridom.spatial.meshes.interval import IntervalMesh
+from fridom.spatial.meshes.mapped_interval import MappedIntervalMesh
+from fridom.spatial.operators.multigrid_hierarchy import (
     MIN_COARSE_CELLS,
     _coarsenable_factors,
-    _is_fv,
-    _rediscretize,
     coarsen_levels,
 )
-from fridom.spatial.grid import Grid
-from fridom.spatial.immersed_domain import ImmersedDomain
-from fridom.spatial.meshes.interval import IntervalMesh
 from fridom.spatial.operators.transfer import GridTransfer
 
 TWO_PI = 2.0 * np.pi
@@ -38,18 +39,28 @@ def nodal_grid(nx, ny, nz):
     return grid, space
 
 
-def fv_immersed_grid(nx, ny, nz):
-    """Build an FV (CellAvg) immersed grid, FV diff profile merged."""
+def mapped_z_grid(nx, ny, nz):
+    """Build a nodal grid with a mapped (sigma) vertical."""
+    sigma = MappedIntervalMesh(nz, (0.0, 1.0), lambda s: s ** 1.5,
+                               periodic=False, name="z")
     meshes = (
         IntervalMesh(nx, (0.0, TWO_PI), periodic=True, name="x"),
         IntervalMesh(ny, (0.0, TWO_PI), periodic=True, name="y"),
-        IntervalMesh(nz, (0.0, 1.0), periodic=False, name="z"))
-    slope = lambda x, y, z: (z > 0.3).astype(float)  # noqa: ARG005, E731
-    grid = Grid(meshes, immersed=ImmersedDomain(slope))
-    grid.merge_overrides(fv_cgrid_overrides(grid.factors))
-    factors = [mesh.cell_avg for mesh in grid.factors]
-    space = grid._laid_out(factors[0] * factors[1] * factors[2])
+        sigma)
+    grid = Grid(meshes)
+    space = (grid.factors[0].center * grid.factors[1].center
+             * grid.factors[2].center)
     return grid, space
+
+
+def profile_grid(nx, ny, vertical_mesh):
+    """Build an (x, y) nodal grid with a constant-z Profile space."""
+    grid = Grid((
+        IntervalMesh(nx, (0.0, TWO_PI), periodic=True, name="x"),
+        IntervalMesh(ny, (0.0, TWO_PI), periodic=True, name="y"),
+        vertical_mesh))
+    mx, my, mz = grid.factors
+    return grid, mx.center * my.center * mz.constant
 
 
 def shapes(levels):
@@ -58,7 +69,7 @@ def shapes(levels):
 
 
 # ================================================================
-#  Semicoarsening and the coarse-cell floor
+#  Semicoarsening and the coarse-cell floor (default)
 # ================================================================
 def test_semicoarsening_keeps_the_vertical():
     grid, space = nodal_grid(16, 16, 8)
@@ -133,6 +144,67 @@ def test_uneven_horizontal_axes_coarsen_independently():
 
 
 # ================================================================
+#  Full coarsening: coarsen_vertical (GM-D9 capability)
+# ================================================================
+def test_coarsen_vertical_coarsens_all_axes_uniform_z():
+    # 64^3 -> 4^3 with the vertical coarsening under the same floor
+    grid, space = nodal_grid(64, 64, 64)
+    levels = coarsen_levels(grid, space, vertical="z",
+                            coarsen_vertical=True)
+    assert shapes(levels) == [
+        (64, 64, 64), (32, 32, 32), (16, 16, 16), (8, 8, 8), (4, 4, 4)]
+    assert levels[-1][2] is None
+
+
+def test_coarsen_vertical_on_a_mapped_z_grid():
+    # the mapped (sigma) column coarsens just like the horizontals
+    grid, space = mapped_z_grid(16, 16, 16)
+    levels = coarsen_levels(grid, space, vertical="z",
+                            coarsen_vertical=True)
+    assert shapes(levels) == [(16, 16, 16), (8, 8, 8), (4, 4, 4)]
+
+
+def test_coarsen_vertical_odd_nz_stops_but_horizontals_continue():
+    # z: 20 -> 10 -> 5 (odd, indivisible) stops at 5; the horizontals
+    # keep halving 64 -> 32 -> 16 -> 8 -> 4 past that point
+    grid, space = nodal_grid(64, 64, 20)
+    levels = coarsen_levels(grid, space, vertical="z",
+                            coarsen_vertical=True)
+    assert shapes(levels) == [
+        (64, 64, 20), (32, 32, 10), (16, 16, 5), (8, 8, 5), (4, 4, 5)]
+
+
+def test_coarsen_vertical_default_is_semicoarsening():
+    # coarsen_vertical defaults False: the vertical stays full (MG-D4)
+    grid, space = nodal_grid(16, 16, 16)
+    levels = coarsen_levels(grid, space, vertical="z")
+    assert shapes(levels) == [(16, 16, 16), (8, 8, 16), (4, 4, 16)]
+
+
+def test_chebyshev_vertical_falls_back_without_error():
+    # a Chebyshev vertical cannot coarsen (GM-D9 graceful degradation):
+    # even with coarsen_vertical the z axis stays full, x/y still halve
+    cheb = ChebyshevMesh(16, (0.0, 1.0), name="z")
+    grid, space = profile_grid(16, 16, cheb)
+    levels = coarsen_levels(grid, space, vertical="z",
+                            coarsen_vertical=True)
+    # the constant-z Profile factor keeps shape 1 throughout
+    assert shapes(levels) == [(16, 16, 1), (8, 8, 1), (4, 4, 1)]
+    assert levels[-1][2] is None
+
+
+# ================================================================
+#  vertical=None: no axis is designated vertical
+# ================================================================
+def test_vertical_none_designates_no_vertical():
+    # None excludes no axis, so every axis coarsens (no coarsen_vertical
+    # needed) — equivalent to full coarsening
+    grid, space = nodal_grid(16, 16, 16)
+    levels = coarsen_levels(grid, space, vertical=None)
+    assert shapes(levels) == [(16, 16, 16), (8, 8, 8), (4, 4, 4)]
+
+
+# ================================================================
 #  Transfers and the restricted-space contract
 # ================================================================
 def test_only_the_last_level_has_no_transfer():
@@ -154,11 +226,53 @@ def test_restricted_space_is_the_next_operator_space():
 
 
 # ================================================================
+#  The rediscretize callback seam (model-agnostic here)
+# ================================================================
+def test_rediscretize_callback_runs_on_each_coarse_grid():
+    grid, space = nodal_grid(16, 16, 8)
+    seen = []
+    coarsen_levels(grid, space, vertical="z", max_levels=3,
+                   rediscretize=seen.append)
+    # 3 levels -> 2 coarse grids built -> the callback fires twice, each
+    # on a coarser grid (never the fine grid)
+    assert len(seen) == 2
+    assert all(g is not grid for g in seen)
+
+
+def test_rediscretize_none_is_a_no_op():
+    grid, space = nodal_grid(16, 16, 8)
+    # the default rediscretize=None simply skips the callback
+    levels = coarsen_levels(grid, space, vertical="z", max_levels=3)
+    assert shapes(levels) == [(16, 16, 8), (8, 8, 8), (4, 4, 8)]
+
+
+# ================================================================
 #  Coarse-axis selection (unit)
 # ================================================================
 def test_coarsenable_factors_selects_horizontal_only():
     grid, _ = nodal_grid(16, 16, 8)
     assert _coarsenable_factors(grid, "z") == {"x": 2, "y": 2}
+
+
+def test_coarsenable_factors_coarsen_vertical_includes_z():
+    grid, _ = nodal_grid(16, 16, 8)
+    assert _coarsenable_factors(grid, "z", coarsen_vertical=True) == {
+        "x": 2, "y": 2, "z": 2}
+
+
+def test_coarsenable_factors_vertical_none_includes_every_axis():
+    grid, _ = nodal_grid(16, 16, 8)
+    assert _coarsenable_factors(grid, None) == {"x": 2, "y": 2, "z": 2}
+
+
+def test_coarsenable_factors_skips_non_coarsenable_vertical():
+    cheb = ChebyshevMesh(16, (0.0, 1.0), name="z")
+    grid, _ = profile_grid(16, 16, cheb)
+    # a Chebyshev vertical is not coarsenable, so it is skipped even
+    # under coarsen_vertical (the horizontals still qualify)
+    assert _coarsenable_factors(grid, "z", coarsen_vertical=True) == {
+        "x": 2, "y": 2}
+    assert cheb.coarsenable is False
 
 
 def test_coarsenable_factors_honors_floor_and_parity():
@@ -175,52 +289,5 @@ def test_coarsenable_factors_skips_non_structured_and_multiname():
         factors = (FakeMesh(("q",)), FakeMesh(("a", "b")))
 
     # a non-StructuredMesh1D single-name mesh and a multi-name mesh are
-    # both skipped (they cannot semicoarsen)
+    # both skipped (they cannot coarsen)
     assert _coarsenable_factors(FakeGrid(), "z") == {}
-
-
-# ================================================================
-#  Finite-volume re-discretization of the coarse grids (idempotent)
-# ================================================================
-def test_is_fv_detects_the_cell_average_family():
-    _grid, fv_space = fv_immersed_grid(8, 8, 8)
-    _ngrid, nodal_space = nodal_grid(8, 8, 8)
-    assert _is_fv(fv_space) is True
-    assert _is_fv(nodal_space) is False
-
-
-def test_nodal_hierarchy_needs_no_rediscretization():
-    grid, space = nodal_grid(16, 16, 8)
-    levels = coarsen_levels(grid, space, vertical="z", max_levels=3)
-    # a nodal coarse grid resolves diff on the registry defaults, so no
-    # override profile is merged (override_keys stays empty)
-    for coarse_grid, _s, _t in levels[1:]:
-        assert coarse_grid.override_keys == frozenset()
-
-
-def test_fv_coarse_grids_are_rediscretized():
-    grid, space = fv_immersed_grid(16, 16, 8)
-    levels = coarsen_levels(grid, space, vertical="z", max_levels=3)
-    wanted = {*fv_cgrid_overrides(levels[1][0].factors)}
-    # the coarse grid carries the FV diff profile (re-discretization)
-    assert set(levels[1][0].override_keys) >= wanted
-
-
-def test_rediscretize_is_idempotent():
-    grid, _space = fv_immersed_grid(16, 16, 8)
-    coarse = grid.coarsened({"x": 2, "y": 2})
-    _rediscretize(coarse, fv=True)
-    dispatch_after_first = coarse.dispatch
-    # a second call is a no-op: the profile is merged exactly once, so
-    # the registry object is unchanged (no growing layer stack)
-    _rediscretize(coarse, fv=True)
-    assert coarse.dispatch is dispatch_after_first
-
-
-def test_rediscretize_skips_nodal_grids():
-    grid, _space = nodal_grid(16, 16, 8)
-    coarse = grid.coarsened({"x": 2, "y": 2})
-    dispatch_before = coarse.dispatch
-    _rediscretize(coarse, fv=False)
-    assert coarse.dispatch is dispatch_before
-    assert coarse.override_keys == frozenset()
