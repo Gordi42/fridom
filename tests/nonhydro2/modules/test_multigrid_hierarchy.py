@@ -98,6 +98,33 @@ def test_max_levels_caps_the_depth():
     assert shapes(levels) == [(16, 16, 8), (8, 8, 8)]
 
 
+def test_none_coarsens_to_the_floor():
+    # floor-limited depth (the default): 64 -> 32 -> 16 -> 8 -> 4 is a
+    # five-level chain, halving each horizontal axis down to the floor
+    grid, space = nodal_grid(64, 64, 8)
+    levels = coarsen_levels(grid, space, vertical="z", max_levels=None)
+    assert shapes(levels) == [
+        (64, 64, 8), (32, 32, 8), (16, 16, 8), (8, 8, 8), (4, 4, 8)]
+    assert levels[-1][2] is None
+
+
+def test_none_is_the_default_argument():
+    # omitting max_levels floors identically to an explicit None
+    grid, space = nodal_grid(64, 64, 8)
+    levels = coarsen_levels(grid, space, vertical="z")
+    assert shapes(levels) == [
+        (64, 64, 8), (32, 32, 8), (16, 16, 8), (8, 8, 8), (4, 4, 8)]
+
+
+def test_none_degrades_to_one_level_on_a_tiny_grid():
+    # floor-limited depth still yields a smoothing-only level when the
+    # grid cannot coarsen at all (4x4 halves below the four-cell floor)
+    grid, space = nodal_grid(4, 4, 8)
+    levels = coarsen_levels(grid, space, vertical="z", max_levels=None)
+    assert len(levels) == 1
+    assert levels[0][2] is None
+
+
 def test_uneven_horizontal_axes_coarsen_independently():
     # x can coarsen further than y: 16->8->4 while 8->4->(2 blocked)
     grid, space = nodal_grid(16, 8, 8)
