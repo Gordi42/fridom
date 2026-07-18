@@ -434,6 +434,22 @@ def test_multigrid_hierarchy_shape_and_degradation():
     assert len(tiny._build_vcycle().levels) == 1
 
 
+def test_multigrid_levels_defaults_to_floor_limited_depth():
+    # the None default (omitted) stores None and forwards to a
+    # floor-limited hierarchy: n=16 semicoarsens x, y 16 -> 8 -> 4, a
+    # three-level V-cycle, while an int still caps the depth (cap 2)
+    grid, space = _box_bounded(n=16)
+    default = ImmersedPressureSolver(
+        grid, space, vertical="z", dsqr=0.5, iterations=5,
+        preconditioner="multigrid")
+    assert default._multigrid_levels is None
+    assert len(default._build_vcycle().levels) == 3
+    capped = ImmersedPressureSolver(
+        grid, space, vertical="z", dsqr=0.5, iterations=5,
+        preconditioner="multigrid", multigrid_levels=2)
+    assert len(capped._build_vcycle().levels) == 2
+
+
 def test_multigrid_tridiagonal_method_is_stored_and_forwarded():
     # the knob is stored and reaches every level's line smoother
     grid, space = _box_bounded(n=16)

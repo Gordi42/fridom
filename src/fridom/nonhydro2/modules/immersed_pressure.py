@@ -207,13 +207,16 @@ class ImmersedPressureSolver:
         semicoarsening the horizontal axes with vertical line smoothing
         and the per-level wet-mean projection). Any other value raises
         ``ValueError`` (default: ``"spectral"``).
-    multigrid_levels : int, optional
-        The **maximum** number of multigrid levels when
-        ``preconditioner="multigrid"``; the builder floors every
-        horizontal axis at four cells and stops at indivisibility, so
-        the realized count is smaller on a small grid (a grid too small
-        for any coarsening degrades to a one-level, smoothing-only
-        cycle). Ignored for the spectral preconditioner (default: 5).
+    multigrid_levels : int | None, optional
+        The multigrid depth when ``preconditioner="multigrid"``. ``None``
+        (the default) coarsens to the four-cell horizontal floor
+        (floor-limited depth, h-independent iteration counts at every
+        size); an ``int`` is a **maximum** cap as before. Either way the
+        builder floors every horizontal axis at four cells and stops at
+        indivisibility, so the realized count is smaller on a small grid
+        (a grid too small for any coarsening degrades to a one-level,
+        smoothing-only cycle). Ignored for the spectral preconditioner
+        (default: None).
     multigrid_tridiagonal_method : str, optional
         The vertical-line tridiagonal kernel of the multigrid smoother,
         forwarded to
@@ -246,7 +249,7 @@ class ImmersedPressureSolver:
         tolerance: float | None = 1e-8,
         single_precision: bool = False,
         preconditioner: str = "spectral",
-        multigrid_levels: int = 5,
+        multigrid_levels: int | None = None,
         multigrid_tridiagonal_method: str = "auto",
     ) -> None:
         """Resolve the flux rows and fetch the fraction fields."""

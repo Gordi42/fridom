@@ -15,11 +15,14 @@ Semicoarsening (MG-D4)
 ----------------------
 Only the **horizontal** axes coarsen — by a factor of 2 per level — and
 the vertical mesh stays at full resolution, paired with the vertical
-line smoother. ``multigrid_levels`` is a **maximum**: the builder floors
-every horizontal axis at :data:`MIN_COARSE_CELLS` cells and stops at
-indivisibility, so it degrades gracefully on a small grid (a grid too
-small for any coarsening yields a one-level, smoothing-only hierarchy —
-which the V-cycle runs as fixed coarse sweeps, never an error).
+line smoother. ``multigrid_levels`` defaults to ``None`` — floor-limited
+depth: the builder coarsens all the way to the floor, which restores
+h-independent iteration counts at every size. An ``int`` caps the count
+as a **maximum**. Either way the builder floors every horizontal axis at
+:data:`MIN_COARSE_CELLS` cells and stops at indivisibility, so it
+degrades gracefully on a small grid (a grid too small for any coarsening
+yields a one-level, smoothing-only hierarchy — which the V-cycle runs as
+fixed coarse sweeps, never an error).
 
 Re-discretization on the coarse grid (MG-D6)
 --------------------------------------------
@@ -143,7 +146,7 @@ def coarsen_levels(
     fine_space: SpaceLike,
     *,
     vertical: str,
-    max_levels: int,
+    max_levels: int | None = None,
     order: int = 2,
 ) -> list[tuple[Grid, SpaceLike, GridTransfer | None]]:
     r"""
@@ -151,8 +154,9 @@ def coarsen_levels(
 
     Description
     -----------
-    Finest-first (index 0 is ``fine_grid`` / ``fine_space``), at most
-    ``max_levels`` entries. Each step coarsens the qualifying horizontal
+    Finest-first (index 0 is ``fine_grid`` / ``fine_space``); ``None``
+    coarsens to the floor, an ``int`` caps the chain at that many
+    entries. Each step coarsens the qualifying horizontal
     axes (:func:`_coarsenable_factors`) by 2, builds the down-transfer
     with :class:`~fridom.spatial.operators.transfer.GridTransfer`, and
     derives the next level's pressure space as
@@ -171,9 +175,11 @@ def coarsen_levels(
         The finest level's (cell) pressure space.
     vertical : str
         The vertical coordinate name (kept at full resolution).
-    max_levels : int
-        The maximum number of levels (>= 1); the realized count may be
-        smaller when the grid floors first.
+    max_levels : int | None, optional
+        ``None`` coarsens all the way to the floor (floor-limited
+        depth); an ``int`` (>= 1) caps the number of levels, in which
+        case the realized count may still be smaller when the grid
+        floors first (default: None).
     order : int, optional
         The transfer-pair order forwarded to ``GridTransfer``
         (default: 2).
@@ -187,7 +193,7 @@ def coarsen_levels(
     fv = _is_fv(fine_space)
     levels: list[tuple[Grid, SpaceLike, GridTransfer | None]] = []
     grid, space = fine_grid, fine_space
-    while len(levels) + 1 < max_levels:
+    while max_levels is None or len(levels) + 1 < max_levels:
         factors = _coarsenable_factors(grid, vertical)
         if not factors:
             break
