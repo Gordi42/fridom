@@ -180,14 +180,20 @@ JAX_PLATFORMS=cuda srun -n 4 --gpu-bind=none .venv/bin/python your_script.py
   (`friction.nu`, `dt`, an initial field) is exact to
   finite-difference precision, including the CG pressure solve (see
   `design/research/jax_grad_run_investigation.md` for the status,
-  the kernel recipe, and the known hazards). This is a tested
-  invariant, not an accident: treat a NaN gradient as a bug.
+  the kernel recipe, and the known hazards). The supported public
+  spelling is `Model.propagator(wrt=..., steps=..., remat=...)`,
+  which returns a pure `(theta, state=None) -> ModelState` callable
+  (a NaN gradient through it is a bug). This is a tested invariant,
+  not an accident.
 - New or changed step-path code (tendency modules, closures,
   spatial operators used in tendencies, time steppers) ships one
   small autodiff regression test in its mirrored test file:
-  `jax.grad` of a quadratic loss through a short run via the pure
-  kernel (`fridom.model.model._chunk_body`; pattern:
-  `tests/model/test_model_autodiff.py`) is finite and matches a
+  `jax.grad` of a quadratic loss through a short run — via the
+  public `Model.propagator` surface (pattern:
+  `tests/model/test_model_propagator.py`), or the underlying pure
+  kernel `fridom.model.model._chunk_body` directly (pattern:
+  `tests/model/test_model_autodiff.py`, still valid — the existing
+  `_chunk_body` shards are unaffected) — is finite and matches a
   central finite difference to rtol 1e-4. Keep it cheap: <=16^2/8^3
   grids, <=10 steps, one test per feature — a few seconds of
   compile. Host-side code (io, reporting, assembly) is exempt.
