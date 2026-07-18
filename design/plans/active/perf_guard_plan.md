@@ -223,12 +223,12 @@ consume the owner's cluster usage limits.
    job on the A100 partition that runs the gpu1 and gpu4 legs with the
    required XLA flags, then `compare --fail-on-regression` against the
    committed baselines, writing JSON + markdown next to a red/green
-   marker. Guarded by `timeout`. Invoked **by hand** as the
-   **pre-merge protocol**: binding for perf-sensitive merges
-   (anything touching step-path lowering: `spatial/operators/`,
-   `spatial/decomposition/`, `model/time_steppers/`, tendency
-   modules, `model/model.py`) — one AGENTS.md line under the merge
-   gate, codifying what the campaigns already do by hand.
+   marker. Guarded by `timeout`. Invoked **by hand** as an
+   **owner-batched checkpoint** (ruling §5.5, amending the original
+   per-merge-protocol proposal): Silvano decides when a checkpoint
+   is due (e.g. after ~10 merges), runs against the last-guarded
+   baselines, and on RED studies the batch. Agents never submit it
+   on their own initiative — one AGENTS.md line states this.
 2. **No alerting infrastructure**: the operator watches the run; the
    red/green marker + report in the results dir are the record.
 3. **Result retention** (owner ruling §5.4): every guard run appends
@@ -264,6 +264,18 @@ numbers and is postponed indefinitely.
    are encoded in the test, §1.5/§4.1).
 4. **Retain results privately**: guard runs keep their JSON in an
    untracked results dir on DKRZ; no public series, no dashboard.
+5. **Guard cadence is owner-batched, never per-merge** (added
+   later on 2026-07-18, amending the §4.3 pre-merge-protocol
+   proposal after its first contact with reality): the initial
+   AGENTS.md "perf merge gate" line made a green guard run a
+   requirement for perf-sensitive merges, and parallel agents
+   immediately began submitting guard runs unprompted — exactly
+   the unsupervised GPU spend ruling 1 exists to prevent. Retracted
+   same day. The standing policy: Silvano batches checkpoints
+   (e.g. one run per ~10 merges, against the last-guarded
+   baselines; RED → study/bisect the batch, then fix or accept +
+   re-record); agents submit GPU jobs only when Silvano explicitly
+   asks in chat.
 
 ## 6. Closure criteria for the roadmap item
 
@@ -273,9 +285,9 @@ The item moves to `done.md` when:
   green on CPU default + forced-4 leg; gpu-marked legs green on the
   A100 suite);
 - G2 `compare` hardening is on `dev` with mirrored tests;
-- G3 script + AGENTS.md merge-gate line are on `dev` and one full
+- G3 script + AGENTS.md guard-policy line are on `dev` and one full
   `step_guard.sbatch` run has been executed green on the A100 node
-  (manually submitted, per §5.1);
+  (manually submitted, per §5.1/§5.5);
 - the roadmap entry is rewritten to record the §2/§3/§5 rulings (PR
   CI gates structure, DKRZ gates time, manual-trigger only) so the
   "wire it into GitHub CI" framing does not resurface.
