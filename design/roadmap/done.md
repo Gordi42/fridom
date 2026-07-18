@@ -140,9 +140,18 @@ Implementation record:
   inviscid centered advection) blows up physically at it≈24
   (t≈0.12), cadence/backend-independent and bit-identical across the
   254 intervening commits — the original chunk=1 "control" looked
-  finite only because it stopped earlier. Hardening residuals
-  (chunk-parity test, `MetricScaled` pad-inf audit) tracked in
-  [`open.md`](open.md). Record:
+  finite only because it stopped earlier. The **chunk-cadence parity
+  regression shipped with this merge**
+  (`test_mapped_advection_chunk_cadence_parity` in
+  `tests/model/test_step_chunk.py`): a terrain-following advective
+  model stepped four times at `chunk_size` 1 vs 2 must stay finite and
+  agree to `rtol 1e-12`. Red-checked — reverting the
+  `_divide_by_jacobian` guard reproduces `PanicError` at it=2 already
+  at n=8 (a smaller floor than the n=64 recorded above). Not bitwise:
+  CPU scan-length grouping reassociates FP at ~3e-15, while the GPU
+  256³ measurement above was bitwise. The remaining hardening residual
+  (the held `MetricScaled` pad-inf seal, owner decision D4) is tracked
+  in [`open.md`](open.md). Record:
   [`mapped_chunk_nonfinite_rootcause.md`](../research/mapped_chunk_nonfinite_rootcause.md).
 
 - **Storage-halo width recovered — two-sided (interval) halo
