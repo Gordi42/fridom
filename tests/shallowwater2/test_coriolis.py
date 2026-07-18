@@ -146,16 +146,18 @@ def set_random(model, seed=11):
     return model
 
 
-def energy_rate(model, diagnostic):
+def energy_rate(model, diagnostic, t=None):
     """Semi-discrete d/dt of a diagnostic under the FULL tendency.
 
     The exact directional derivative of the discrete functional along
     the discrete tendency (a jvp — no stepping, no differencing error),
     with **every** term included: the Coriolis production is what this
-    gate is about.
+    gate is about. ``t`` selects the stage clock the tendency is
+    evaluated at (its SELF_UPDATE stages run first at ``t``), so a
+    ramped-f model is probed at its stage-time f (default: None -> t=0).
     """
     z = model.state
-    dz = model.tendency(z)
+    dz = model.tendency(z, t=t)
 
     def total(data):
         state = z.replace(**{name: z[name].with_data(data[name])
@@ -168,11 +170,11 @@ def energy_rate(model, diagnostic):
     return float(jax.jvp(total, (primal,), (tangent,))[1])
 
 
-def relative_production(model):
+def relative_production(model, t=None):
     """Return the etot_full production rate, scaled by its parts."""
-    rate = energy_rate(model, sw.diagnostics.etot_full)
+    rate = energy_rate(model, sw.diagnostics.etot_full, t)
     scale = sum(
-        abs(energy_rate(model, diagnostic))
+        abs(energy_rate(model, diagnostic, t))
         for diagnostic in (sw.diagnostics.ekin_full,
                            sw.diagnostics.epot_full))
     return abs(rate) / scale
@@ -543,9 +545,16 @@ def test_conserving_ramped_beta_declares_the_blend_ingredients():
     model = _conserving_beta_channel(fr.model.Ramp(0.0, 2.0, period=1.0))
     for name in ("f_coriolis", "f_coriolis_const", "f_coriolis_grad"):
         assert name in model.state
+    module = model.module(sw.modules.NonlinearBetaPlaneCoriolis)
+    # route B inherits the marked f_coriolis + the blend SELF_UPDATE
+    # stage through the _blend_active-gated properties (TDF-D11)
+    decls = {d.name: d for d in module.field_declarations}
+    assert decls["f_coriolis"].time_dependent
+    (stage,) = module.stages
+    assert stage.kind is fr.model.StageKind.SELF_UPDATE
+    assert stage.writes == ("f_coriolis",)
     # route B carries the rotation in N, so it reports no time-dependent
     # LINEAR parameter (unlike the linear beta module)
-    module = model.module(sw.modules.NonlinearBetaPlaneCoriolis)
     assert module.time_dependent_linear_parameters() == ()
 
 
@@ -557,16 +566,39 @@ def test_conserving_f_plane_rejects_a_ramped_f0():
             f0=fr.model.Ramp(0.0, 1.0, period=1.0))
 
 
-def test_correction_rejects_a_ramped_beta_linear_module():
-    # route A subtracts the frozen f_coriolis snapshot; pairing it with a
-    # ramped (blend-active) linear module double-counts the ramp
-    with pytest.raises(ValueError, match="ramped f\\(y\\) FieldBlend"):
-        sw.Model(
-            grid=flat_grid(periodic_y=False), csqr=CSQR, rossby_number=RO,
-            coriolis=sw.modules.BetaPlaneCoriolis(
-                f0=F0, beta=fr.model.Ramp(0.0, 2.0, period=1.0)),
-            modules_extra=(sw.modules.CoriolisEnergyCorrection(),),
-            advection=True, time_stepper=stepper())
+def test_correction_supports_a_ramped_beta_linear_module():
+    """TDF-D11 lift: route A under a ramped beta telescopes and conserves.
+
+    The old refusal is lifted: the linear module's SELF_UPDATE stage
+    rewrites the carried f_coriolis to the stage-time blend before any
+    term runs, so the linear rotation and the correction read the SAME
+    fresh f. The total telescopes to the exact route-B conserving
+    rotation (the ramp is counted once), and the thickness-weighted
+    energy is conserved at every stage time.
+    """
+    ramp = fr.model.Ramp(0.0, 2.0, period=0.05, curve="exp")
+    model_a = sw.Model(
+        grid=flat_grid(periodic_y=False), csqr=CSQR, rossby_number=RO,
+        coriolis=sw.modules.BetaPlaneCoriolis(f0=F0, beta=ramp),
+        modules_extra=(sw.modules.CoriolisEnergyCorrection(),),
+        advection=True, time_stepper=stepper())
+    set_random(model_a)
+    # the invariant closes to machine zero at every stage time
+    for t in (0.0, 0.02, 0.05):
+        assert relative_production(model_a, t) < 1e-13
+    # and the total is the exact route-B conserving rotation, to rounding
+    z = sw.State({c: model_a.state[c] for c in NAMES})
+    model_b = _conserving_beta_channel(ramp)
+    model_b.set_fields(**{c: np.asarray(z[c].data) for c in NAMES})
+    z_b = sw.State({c: model_b.state[c] for c in NAMES})
+    for t in (0.0, 0.02, 0.05):
+        got = model_a.tendency(z, t=t)
+        want = model_b.tendency(z_b, t=t)
+        for c in NAMES:
+            scale = float(np.max(np.abs(np.asarray(want[c].data)))) or 1.0
+            assert np.max(np.abs(
+                np.asarray(got[c].data)
+                - np.asarray(want[c].data))) / scale < 1e-12
 
 
 @pytest.mark.multi_device
