@@ -137,19 +137,6 @@ the scoping §10–§13). Open:
   2026-07-17 (entry in [`done.md`](done.md); research + rulings in
   [`../research/stretched_terrain_combined.md`](../research/stretched_terrain_combined.md)).
   Open:
-  - **`EnergyMetric` `ps` weight + eigen-channel measure** — the
-    metric-side remainder after the physical-integral default
-    ([`../decisions/physical_integral_default.md`](../decisions/physical_integral_default.md))
-    fixed the `u`/`v`/`b` legs: `inner`'s `ps` term carries **no**
-    depth factor at all (wrong on *flat* grids with depth != 1 too —
-    probed skew 9.6e-2 at depth 2, machine-zero with the `H/c^2`
-    weight; hidden by depth-1 test grids), and needs the per-column
-    `H(x, y)/c^2` field weight on terrain. The eigen-channel
-    `_bounded_measure` uses the flat extent (correct only unmapped);
-    stretched-z maps need the J-weighted measure, and genuine
-    terrain a taught error naming the real cause (today the
-    Hermiticity-residual gate catches it with a misleading
-    "non-conservative term" message).
   - **Terrain buoyancy slope-advection term missing** — the root of
     the apparent baroclinic/barotropic product asymmetry (research:
     [`../research/energy_metric_asymmetry.md`](../research/energy_metric_asymmetry.md)):
