@@ -151,7 +151,7 @@ Implementation record:
   masked-singularity class is CLOSED across the step path. AGENTS.md's
   differentiability policy now names `Model.propagator` the canonical
   pattern (the private `_chunk_body` shards stay valid). **Owner-review
-  notes (item 1 owner-ratified 2026-07-19; 2–4 still unratified):**
+  notes (items 1–4 owner-ratified 2026-07-19):**
   (1) D4 was executed as a *seal*, not the plan's
   approved comment-only watch-item — the premise was DISPROVEN: the
   `MetricScaled` divides fire live (walled/sphere IC-grad through
@@ -166,10 +166,26 @@ Implementation record:
   fields are caught by the materialized refusal, so refusal
   completeness is identical today, but when TDF wave 2 makes
   linear-consumed fields recomputed-in-trace the frozen-L set must
-  learn `linear_fields`. (4) the materialized refusal over-refuses a
-  differentiable param that merely shares an owner with a materialized
-  field (e.g. sw `scaling.rossby`); in-trace rematerialization is the
-  recorded follow-on. Phase 3 (D5 `TangentPropagator`, `jax.jvp` of
+  learn `linear_fields` (verified against the shipped TDF merges
+  `bb2fb96f`/`ceb9db75`/`3d2d1e1a` 2026-07-19: law params are not
+  `wrt`-bindable and a recomputed-in-trace linear-consumed field fails
+  assembly via the `time_dependent`-marker guard, so no live hole —
+  the deferral is forward-looking hardening for `n2(z,t)`/TDF-D7).
+  (4) the materialized refusal over-refuses a differentiable param that
+  merely shares an owner with a materialized field (e.g. sw
+  `scaling.rossby`); in-trace rematerialization is the recorded
+  follow-on. The candidate `nonhydro.dsqr` frozen-L hole — a
+  stratification-free nonhydro2 ETDRK4 model slipping
+  `wrt=("nonhydro.dsqr",)` past both refusals (`dsqr` enters L through
+  the pressure-projection CONSTRAINT, not a `linear=True` term) — was
+  investigated 2026-07-19 and is **unreachable**: ETDRK4's mandatory
+  eigenbasis needs `stratification.n2` for the energy metric
+  (`energy.py:340-355`), so no strat-free nonhydro2 ETDRK4 model is
+  constructible, and every constructible one's stratification module
+  class-declares `DSQR` in a `buoyancy_force` `linear_params`, keeping
+  `nonhydro.dsqr` in the refusal set (empirically refused under ETDRK4,
+  accepted under `AdamBashforth`; no code change). Phase 3 (D5
+  `TangentPropagator`, `jax.jvp` of
   `model.tendency`) is **deferred** — no consumer (NNMD descoped); the
   shared name-resolution piece already shipped, so it stays a small
   lift ([`open.md`](open.md) sized-deferred). Record:
