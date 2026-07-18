@@ -71,6 +71,7 @@ if TYPE_CHECKING:  # pragma: no cover
         FunctionSpace,
     )
     from fridom.spatial.spaces.tensor_product import SpaceLike
+    from fridom.spatial.spaces.trace import Side
 
 # Python scalars entering field arithmetic (bool counts as int)
 _SCALAR_TYPES = int | float | complex
@@ -463,6 +464,122 @@ class ScalarField:
             The derivative on the registered operator's codomain.
         """
         return Dispatched("diff")[name](self)
+
+    def trace(
+        self, name: str, side: Side, depth: int = 0,
+    ) -> ScalarField:
+        """
+        Boundary-adjacent row along ``name`` as a 2D trace field.
+
+        Description
+        -----------
+        Builds and applies
+        :class:`~fridom.spatial.operators.boundary.BoundaryTrace` for
+        the requested side directly (the side cannot ride a
+        single-kind dispatch key). ``Side.LOW`` traces the ``x_min``
+        wall, ``Side.HIGH`` the ``x_max`` wall; the result is a
+        non-broadcasting ``TraceSpace`` factor. Nodal and FV
+        ``CellAvg`` factors only (rejections in ``BoundaryTrace``).
+
+        Parameters
+        ----------
+        name : str
+            The bounded coordinate name to trace along.
+        side : Side
+            The boundary side (``Side.LOW`` / ``Side.HIGH``).
+        depth : int, optional
+            The signed true-node index from the side; only ``0`` (the
+            boundary row) is implemented (default: 0).
+
+        Returns
+        -------
+        ScalarField
+            The 2D boundary-trace field.
+        """
+        from fridom.spatial.operators.boundary import (  # noqa: PLC0415 — keep boundary off the field-core import path
+            BoundaryTrace,
+        )
+        return BoundaryTrace(side, depth)[name](self)
+
+    def embed(self, name: str) -> ScalarField:
+        """
+        Sparse-materialize a 2D trace back into its parent row.
+
+        Description
+        -----------
+        Thin forwarder to the seeded verb (D3):
+        ``fr.operators.embed[name](self)`` — the mutual VJP of
+        :meth:`trace` (boundary row set, zeros elsewhere; side/parent
+        ride the operand's ``TraceSpace``).
+
+        Parameters
+        ----------
+        name : str
+            The traced coordinate name to expand back to full.
+
+        Returns
+        -------
+        ScalarField
+            The sparse full field on the parent node set.
+        """
+        return Dispatched("embed")[name](self)
+
+    def as_profile(self, name: str) -> ScalarField:
+        """
+        Bridge a boundary trace into the Constant-z machinery.
+
+        Description
+        -----------
+        Thin forwarder to the seeded verb (D3):
+        ``fr.operators.as_profile[name](self)`` — the *opt-in* retag
+        Trace -> ``ConstantSpace`` (broadcast sanction). Exact, data
+        untouched.
+
+        Parameters
+        ----------
+        name : str
+            The traced coordinate name to retag as constant.
+
+        Returns
+        -------
+        ScalarField
+            The field on the ``ConstantSpace`` (Profile) factor.
+        """
+        return Dispatched("as_profile")[name](self)
+
+    def adopt(
+        self, name: str, node_set: NodeSet, side: Side,
+    ) -> ScalarField:
+        """
+        Retag a ``ConstantSpace`` factor as a boundary trace.
+
+        Description
+        -----------
+        Builds and applies
+        :class:`~fridom.spatial.operators.boundary.Adopt` (the reverse
+        of :meth:`as_profile`) — locates a constant factor on the given
+        wall (e.g. a wind-stress input file). Exact, data untouched;
+        the node set and side cannot ride a single-kind dispatch key,
+        so the operator is constructed directly.
+
+        Parameters
+        ----------
+        name : str
+            The coordinate name of the ``ConstantSpace`` factor.
+        node_set : NodeSet
+            The parent node set to locate the trace on.
+        side : Side
+            The boundary side (``Side.LOW`` / ``Side.HIGH``).
+
+        Returns
+        -------
+        ScalarField
+            The field on the boundary ``TraceSpace`` factor.
+        """
+        from fridom.spatial.operators.boundary import (  # noqa: PLC0415 — keep boundary off the field-core import path
+            Adopt,
+        )
+        return Adopt(node_set, side, name)(self)
 
     def to(self, target: ScalarField | SpaceLike) -> ScalarField:
         """
