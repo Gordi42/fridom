@@ -290,3 +290,38 @@ FFT-norm constant (refuted with `norm=None`); (2) the failing transform
 is the `fftn` full-spectrum stage over the sharded x-axis
 (`fourier.py:256`), not `rfftn` — the earlier note cited the `rfftn`
 z-stage.
+
+## Item 1, GPU mechanism — real fix shipped (2026-07-18)
+
+The deferred "real fix" landed (merge `e60259de`): the projection now
+**runs** on a grid sharding a periodic axis, via a fused
+`jax.shard_map` lowering
+(`spatial/operators/distributed_contract.py`) that keeps every FFT
+axis device-local when its transform runs — the distributed-FFT
+lowering (and its c64 twiddles) is never emitted. Not the generic
+slab planner: on the channel's two-stage periodic transform
+`_distributed_geometry` would run fully complex (`h=None`),
+incompatible with the engine's half-spectrum `q` frame, so the
+lowering pins the half axis to the engine's `rfftn` frame and
+transposes on the half **coefficient** extent (`n//2+1`, padded, empty
+trailing pad shards allowed — transient lanes, zero-padded `q`/`w`).
+Measured on 4× A100 (n=16 nonhydro channel): many-vs-`device_ids=(0,)`
+max abs diff 1.08e-14, idempotency 4.9e-15, HLO all-to-all only,
+0 warm recompiles, finite reverse-mode gradients. The taught skip
+(`_reject_sharded_projection`) narrows to the remainder the lowering
+declines: 2-D channel, the half axis itself sharded, non-1-D mesh.
+The upstream fault itself is unchanged (the fridom-free repro still
+fires on jax 0.10.2, re-verified 2026-07-18) — the two issue drafts
+still await the owner's go-ahead.
+
+**Two further pre-existing item-1 faults surfaced by the validation**
+(both reproduce on the pre-merge dev tip; the whole-file 4-GPU
+eigen-surface run fails identically with and without the fix): (a) a
+**setup `GridFrozenError`** — on small sharded grids the
+`linearize(model)` probe's halo demand exceeds the frozen halo, so
+`channel_eigenpairs` cannot build the basis at all; (b) a **`mode()` /
+synthesis crash** — the backward-only synthesis paths (`mode`,
+`channel_random_state`) still hit the sharded-FFT fault, as they do
+not route through the fused contraction. Tracked in
+`roadmap/open.md`; the shipped projection fix is validated by
+dedicated tests on non-freezing grids (n=12/16).

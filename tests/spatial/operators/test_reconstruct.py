@@ -1,9 +1,11 @@
 """Tests for fridom.spatial.operators.reconstruct."""
+import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
 
 from fridom.spatial.bc import BC
+from fridom.spatial.decomposition.halo import HaloSpec
 from fridom.spatial.errors import SpaceMismatchError
 from fridom.spatial.grid import Grid
 from fridom.spatial.meshes.interval import IntervalMesh
@@ -16,6 +18,7 @@ from fridom.spatial.operators.reconstruct import (
     LinearDeconvolution,
     LinearReconstruction,
     fv_node_offset,
+    wall_slots_addressable,
 )
 from fridom.spatial.operators.registry import OperatorRegistry
 from fridom.spatial.operators.spectral import fourier_wavenumbers
@@ -674,3 +677,84 @@ def test_outer_variant_is_not_a_default_to_row(my):
     f = grid.create_field(my.cell_avg, init=lambda y: y)
     with pytest.raises(SpaceMismatchError, match="lands on"):
         f.to(my.outer)
+
+
+# ================================================================
+#  Storage-frame windowed walled-face reconstruction (step-gap fix)
+# ================================================================
+# The claim-consuming Inner(DIRICHLET) -> CellAvg reconstruction (the
+# w.to(b) seam) has two byte-for-byte equivalent spellings
+# (design/research/fv_nodal_step_gap.md): the storage-frame windowed
+# fast path (impose the zero wall value in the ghost slots, run the
+# ordinary window) and the true-frame fallback (unpad, pad the zero
+# walls, interpolate, store). The fast path keeps the operand's
+# periodic-axis halo claims, which the true-frame store() drops.
+@pytest.fixture
+def inner_dir(my):
+    return my.nodal(NodeSet.INNER, bc=BC.DIRICHLET)
+
+
+def test_walled_face_windowed_equals_true_frame(recon, my, inner_dir):
+    # the load-bearing invariant: the two spellings agree bit for bit
+    grid = Grid((my,))
+    f = grid.random.normal(inner_dir, seed=4)
+    fast = recon["y"]._reconstruct_walled_face_windowed(f, "y")
+    slow = recon["y"]._reconstruct_walled_face_true_frame(f, "y")
+    assert fast.function_space.bare is slow.function_space.bare
+    assert fast.function_space.bare is my.cell_avg
+    # bitwise by construction; forced-CPU FP reassociation is the only
+    # reason a tight allclose would be needed (backend gotcha)
+    assert jnp.array_equal(fast.data, slow.data)
+
+
+def test_walled_face_windowed_keeps_periodic_halo_claim(recon, mx, my):
+    # the mechanism: the windowed path keeps the periodic-x claim, the
+    # true-frame store() drops it; the bounded axis is consumed by both
+    grid = Grid((mx, my))
+    space = mx.cell_avg * my.nodal(NodeSet.INNER, bc=BC.DIRICHLET)
+    f0 = grid.random.normal(space, seed=2)
+    f = type(f0)(f0.grid, f0.function_space, f0._data, f0.metadata,
+                 halo_valid=HaloSpec({"x": 1, "y": 0}))
+    fast = recon["y"]._reconstruct_walled_face_windowed(f, "y")
+    slow = recon["y"]._reconstruct_walled_face_true_frame(f, "y")
+    assert fast.halo_valid["x"] == 1
+    assert slow.halo_valid["x"] == 0
+    assert fast.halo_valid["y"] == 0
+
+
+def test_walled_face_falls_back_when_walls_unaddressable(recon, my):
+    # the empty-registry grid negotiates no halo: _apply_factor routes
+    # the walled-face reconstruction to the true-frame fallback and
+    # still lands the exact claim-consuming mean
+    bare = Grid((my,), dispatch=OperatorRegistry({}))
+    inner = my.nodal(NodeSet.INNER, bc=BC.DIRICHLET)
+    f = bare.random.normal(inner, seed=7)
+    assert wall_slots_addressable(f, "y") is False
+    out = recon["y"]._apply_factor(f, "y")
+    direct = recon["y"]._reconstruct_walled_face_true_frame(f, "y")
+    assert out.function_space.bare is my.cell_avg
+    assert jnp.array_equal(out.data, direct.data)
+    faces = np.asarray(f.data)
+    got = np.asarray(out.data)
+    np.testing.assert_array_equal(got[0], 0.5 * faces[0])
+    np.testing.assert_array_equal(got[-1], 0.5 * faces[-1])
+
+
+def test_walled_face_windowed_grad_is_finite_and_matches_fd(
+        recon, my, inner_dir):
+    # reverse-mode gate (AGENTS.md diff policy): the windowed walled-face
+    # reconstruction is a linear two-point mean over the wall-zeroed
+    # storage (no divide/sqrt), so jax.grad is finite and matches a
+    # central FD -- the storage-frame respelling keeps it so.
+    def loss(c):
+        grid = Grid((my,))
+        f = grid.random.normal(inner_dir, seed=8) * c
+        return jnp.sum(recon["y"](f).data ** 2)
+
+    c0 = 1.3
+    grad = float(jax.grad(loss)(c0))
+    assert bool(jnp.isfinite(grad))
+    assert grad != 0.0
+    h = 1e-4
+    fd = float((loss(c0 + h) - loss(c0 - h)) / (2.0 * h))
+    assert abs(grad - fd) <= 1e-4 * abs(fd)

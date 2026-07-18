@@ -96,6 +96,41 @@ Implementation record:
 
 ## Landed since, outside the numbered tasks
 
+- **Channel eigenmodes run multi-GPU — fused distributed contraction**
+  (2026-07-18, merge `e60259de`) — the projection/`f(L)` application
+  (`_eigenbasis._contract_planes`) no longer rejects a grid that
+  shards a periodic axis: a new fused lowering
+  ([`distributed_contract.py`](../../src/fridom/spatial/operators/distributed_contract.py),
+  the sibling of the fused spectral solve) runs forward / per-plane
+  `Q diag(w) Qᴴ M` contraction / backward in **one `jax.shard_map`
+  region** so every FFT axis is device-local when its transform runs
+  — the upstream XLA:GPU distributed-FFT c64-twiddle fault
+  ([`../research/multidevice_test_faults.md`](../research/multidevice_test_faults.md))
+  is never reached. Geometry is engine-constrained (the half axis is
+  fixed to the engine's `rfftn` frame, never relocated; the transpose
+  partner is the half **coefficient** axis, padded on its `n//2+1`
+  extent with empty trailing pad shards allowed — the lanes are
+  transient, and zero-padded `q`/`w` make their output exactly zero),
+  which is why the generic `_distributed_geometry` (fully-complex
+  `h=None` on a two-stage transform) could not serve it. `q`/weights
+  enter as `in_specs`-sliced arguments (per-device basis memory ÷
+  device count; plan memoized per grid, 0 warm recompiles). Measured
+  (4× A100, n=16 nonhydro channel): many-vs-`device_ids=(0,)` max abs
+  diff **1.08e-14**, idempotency 4.9e-15, HLO all-to-all only (no
+  all-gather/all-reduce), reverse-mode gradients finite. Covers
+  nonhydro2, shallowwater2, and hydrostatic through the shared base;
+  the taught `NotImplementedError` narrows to the unsupported
+  remainder (2-D channel's single periodic axis, the half axis itself
+  sharded, non-1-D mesh). Single-device and bounded-axis-sharded
+  paths byte-for-byte unchanged; the pressure-solve path untouched
+  (perf merge gate: non-perf-sensitive — the new module is imported
+  only by `_eigenbasis.py`, nothing on the step path). Tests on the
+  forced-4 CI leg (`test_distributed_contract.py`,
+  `test_eigenbasis_distributed.py`); the sharded-periodic rejection
+  test flipped to a runs-and-matches gate. Two **pre-existing**
+  multi-device eigenbasis faults surfaced (setup `GridFrozenError`,
+  `mode()` synthesis crash) stay open in [`open.md`](open.md).
+
 - **Stretched + terrain-following combined — answered and shipped**
   (2026-07-17, merges `1c8614c0`, `0a887fa9`, `d338538c`, `4906b8db`,
   `7fba1bfe`) — the roadmap correctness question resolved
@@ -940,6 +975,31 @@ Implementation record:
   `tests/model/closures/test_diffusion_fv.py` (24 tests); gates:
   closures suite 150 green, nonhydro2 596 green, ruff clean.
 
+- **FV-vs-nodal step-time gap — closed** (2026-07-18, branch
+  `perf/fv-walled-storage-frame`; record
+  [`../research/fv_nodal_step_gap.md`](../research/fv_nodal_step_gap.md)).
+  Re-measure first corrected the folklore: the gap was **4-GPU-only**
+  (1-GPU FV/nodal parity everywhere; the T7 "+1…+10% gpu1 walled" was
+  FV-vs-old-FD-baseline) — walled n=256 +3.9%, mapped n=128 +8..9%,
+  n=256 +16..18%, all in the CG-iteration-independent part.
+  HLO-attributed and causally confirmed (monkeypatch A/B): the two FV
+  walled special branches' true-frame excursion
+  (`f.data` → `jnp.pad` → `store`) made the SPMD partitioner
+  materialize a transposed `{2,1,0}` layout and reroute the
+  periodic-axis halo collective-permutes through it (58 vs 26
+  transposed collectives; claim-loss/refill hypothesis refuted —
+  collective counts equal). Fix: storage-frame windowed spelling
+  (wall-zero ghost writes + the ordinary `apply_fv_staggered` window,
+  sealed measure divide), gated `wall_slots_addressable`, true-frame
+  kept as the distributed-axis fallback. **4-GPU FV/nodal after:
+  walled 1.003/0.995, mapped 1.002–1.008** (from 1.04–1.18); flat +
+  1-GPU unchanged; physics bitwise both device counts; step-guard
+  green; ratchet baseline re-recorded (counts up, wall-clock down).
+  Residuals in the record §4: 1-GPU mapped-256 +1.6% (sealed-divide
+  cost; `custom_jvp` is the lever if ever needed), distributed walled
+  axis keeps the slow spelling, stale gpu1 mapped baseline replaced
+  in the follow-up re-record.
+
 - **Cold-compile HLO volume — closed as a measured negative**
   (2026-07-18) — the HLO-volume remainder of the 2026-07-16
   time-to-first-step entry above. Four-way campaign (census refresh,
@@ -961,3 +1021,39 @@ Implementation record:
   the async two-tier chunk compile, tracked in
   [`open.md`](open.md). Record (incl. do-not-revisit list):
   [`../research/hlo_volume.md`](../research/hlo_volume.md).
+
+- **Performance guard — deterministic CI gates + hardened compare +
+  manual A100 guard** (2026-07-18, plan + owner rulings:
+  [`../plans/active/perf_guard_plan.md`](../plans/active/perf_guard_plan.md))
+  — the buildable surface of the "wire the benchmark harness as a CI
+  gate" item, after the research verdict that a wall-clock gate in
+  GitHub CI is malpractice (shared-runner noise ~2.7% CoV; no
+  surveyed project PR-gates on timing) and the rulings: PR CI gates
+  *structure*, the A100 node gates *time*, manual-trigger only.
+  Shipped: **G1** six fast-path guards — multigrid line-smoother
+  per-level isinstance + steep/sloped convergence budgets (a locally
+  swapped point smoother stalls at rel ~1 / 1.7e-4 vs 3.2e-9 /
+  1e-15, so the budgets bite), tridiagonal auto→pcr/cusparse
+  end-to-end wiring + pcr HLO while-absence (scan positive control),
+  WENO selected-input jaxpr div-halving (3 vs 6, 4 vs 8 — both
+  sides computed in-test, never hardcoded), carry-donation
+  `is_deleted()` guard (the compile-pin was already covered),
+  periodic FV=nodal per-op HLO equality (measured **byte-identical**
+  compiled HLO), walled 1.0153 / mapped 1.0116 FV/nodal op-count
+  **ratchet** (+10% band, regen via `FRIDOM_REGEN_FV_RATCHET=1`,
+  committed CPU/1-device baseline, failure message cites the
+  compiler-artifact caveat), and the uniform-mesh scalar-dx fold
+  (no field-shaped divisor in the jaxpr; mapped positive control).
+  **G2** `compare` hardened: environment guard on
+  backend/device_count/device_kind/jax_version (missing field =
+  mismatch, exit 2, `--allow-env-mismatch` downgrade),
+  min-estimator statistic (noise is one-sided), per-case
+  `max(threshold, 3·CoV_base)` tolerance with the winning rule
+  shown per case. **G3** `benchmarks/ci/step_guard.sbatch` + README
+  (mirrors the T7 baseline-record invocation exactly; results are
+  retained, never deleted) + the AGENTS.md **perf merge gate**
+  line. Combined gates on merged dev: 382 passed / 14 skipped
+  (gpu-only + multi-device + ratchet self-skips), ruff clean. Open
+  remainder tracked in [`open.md`](open.md): the first green,
+  manually submitted guard run on the A100 node and the gpu-marked
+  cusparse legs.

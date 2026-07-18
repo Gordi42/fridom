@@ -4,6 +4,8 @@ import jax.numpy as jnp
 import pytest
 
 from fridom.spatial.bc import BC
+from fridom.spatial.decomposition.halo import HaloSpec
+from fridom.spatial.decomposition.layout import Layout
 from fridom.spatial.errors import SpaceMismatchError
 from fridom.spatial.grid import Grid
 from fridom.spatial.meshes.interval import IntervalMesh
@@ -26,7 +28,9 @@ from fridom.spatial.operators.flux_diff import (
 )
 from fridom.spatial.operators.reconstruct import (
     LinearReconstruction,
+    wall_slots_addressable,
 )
+from fridom.spatial.operators.registry import OperatorRegistry
 from fridom.spatial.operators.spectral import fourier_wavenumbers
 from fridom.spatial.operators.spectral_solve import SpectralSolve
 from fridom.spatial.spaces.average import CellAvg
@@ -635,11 +639,15 @@ def test_mapped_fv_diff_converges_at_second_order():
 
 def test_mapped_inner_flux_diff_grad_is_finite_and_matches_fd(
         flux, mapped_bounded):
-    # reverse-mode gate (AGENTS.md diff policy): the Inner-branch
-    # divide is TRUE-frame (``data / measure.data``) by the strictly-
-    # positive primal cell widths -- no zero-ghost denominator, so it
-    # never sees the masked singularity the codomain-measure divide
-    # does. jax.grad through it is finite and matches a central FD.
+    # reverse-mode gate (AGENTS.md diff policy) for the homogeneous
+    # Inner arm's mapped divide. On a local axis this runs the
+    # storage-frame windowed fast path, whose divide is the VJP-sealed
+    # ``divide_by_codomain_measure`` (double-``jnp.where``): the bounded
+    # measure carries exactly-zero ghost slots, so the seal is what
+    # keeps the reverse pass off the ``0/0 -> NaN`` singularity. The
+    # true-frame fallback divides by the strictly-positive primal
+    # widths instead. jax.grad through it is finite and matches a
+    # central FD either way.
     mesh = mapped_bounded
 
     def loss(c):
@@ -654,3 +662,170 @@ def test_mapped_inner_flux_diff_grad_is_finite_and_matches_fd(
     h = 1e-4
     fd = float((loss(c0 + h) - loss(c0 - h)) / (2.0 * h))
     assert abs(grad - fd) <= 1e-4 * abs(fd)
+
+
+# ================================================================
+#  Storage-frame windowed Inner arm (the FV-vs-nodal step-gap fix)
+# ================================================================
+# The homogeneous Inner -> CellAvg divergence has two byte-for-byte
+# equivalent spellings (design/research/fv_nodal_step_gap.md): the
+# storage-frame windowed fast path (impose the zero wall flux in the
+# ghost slots, run the ordinary window) and the true-frame fallback
+# (unpad, pad the zero fluxes, difference, store). The fast path keeps
+# the operand's periodic-axis halo claims, which the true-frame
+# store() drops -- the claim loss that reroutes the multi-device halo
+# collectives and opens the step gap.
+def test_wall_slots_addressable_gates_the_fast_path(mx, my):
+    grid = Grid((mx, my))  # periodic x, walled y
+    inner = mx.cell_avg * my.nodal(NodeSet.INNER, bc=BC.DIRICHLET)
+    f = grid.random.normal(inner, seed=1)
+    # a local walled axis with a negotiated halo: the fast path
+    assert wall_slots_addressable(f, "y") is True
+    # a device-distributed walled axis: fall back (the static
+    # physical-edge writes need the axis on one shard)
+    f_dist = type(f)(f.grid, inner.with_layout(Layout({"y": "d0"})),
+                     f._data, f.metadata)
+    assert wall_slots_addressable(f_dist, "y") is False
+    # a layout sharding a *different* axis leaves y local
+    f_yloc = type(f)(f.grid, inner.with_layout(Layout({"x": "d0"})),
+                     f._data, f.metadata)
+    assert wall_slots_addressable(f_yloc, "y") is True
+    # an un-negotiated (halo-0) axis: fall back (no ghost slots exist)
+    bare = Grid((my,), dispatch=OperatorRegistry({}))
+    g = bare.create_field(my.nodal(NodeSet.INNER, bc=BC.DIRICHLET))
+    assert wall_slots_addressable(g, "y") is False
+
+
+def test_inner_diff_windowed_equals_true_frame(flux, my):
+    # the load-bearing invariant: the two spellings agree bit for bit
+    # on identical inputs (same weighted sums per output cell)
+    grid = Grid((my,))
+    inner = my.nodal(NodeSet.INNER, bc=BC.DIRICHLET)
+    f = grid.random.normal(inner, seed=4)
+    fast = flux["y"]._inner_diff_windowed(f, "y")
+    slow = flux["y"]._inner_diff_true_frame(f, "y")
+    assert fast.function_space.bare is slow.function_space.bare
+    assert fast.function_space.bare is my.cell_avg
+    # bitwise by construction; a tight allclose would only be needed
+    # under forced-CPU FP reassociation (multi-device backend gotcha)
+    assert jnp.array_equal(fast.data, slow.data)
+
+
+def test_mapped_inner_diff_windowed_equals_true_frame(
+        flux, mapped_bounded):
+    # the mapped divide agrees too: the VJP-sealed codomain-measure
+    # divide is bitwise the true-frame primal-width divide on every
+    # valid cell (the seal only touches the discarded zero ghosts)
+    grid = Grid((mapped_bounded,))
+    inner = mapped_bounded.nodal(NodeSet.INNER, bc=BC.DIRICHLET)
+    f = grid.random.normal(inner, seed=6)
+    fast = flux["v"]._inner_diff_windowed(f, "v")
+    slow = flux["v"]._inner_diff_true_frame(f, "v")
+    assert jnp.array_equal(fast.data, slow.data)
+
+
+def test_inner_diff_windowed_keeps_the_periodic_halo_claim(flux, mx, my):
+    # the mechanism of the fix: the windowed path keeps the operand's
+    # periodic-x halo claim, which the true-frame store() drops on
+    # every axis; the bounded applied axis is consumed by both
+    grid = Grid((mx, my))
+    inner = mx.cell_avg * my.nodal(NodeSet.INNER, bc=BC.DIRICHLET)
+    f0 = grid.random.normal(inner, seed=2)
+    f = type(f0)(f0.grid, f0.function_space, f0._data, f0.metadata,
+                 halo_valid=HaloSpec({"x": 1, "y": 0}))
+    fast = flux["y"]._inner_diff_windowed(f, "y")
+    slow = flux["y"]._inner_diff_true_frame(f, "y")
+    assert fast.halo_valid["x"] == 1   # periodic claim kept
+    assert slow.halo_valid["x"] == 0   # store() dropped it
+    assert fast.halo_valid["y"] == 0   # bounded axis consumed
+
+
+def test_apply_factor_falls_back_when_walls_unaddressable(flux, my):
+    # the empty-registry grid negotiates no halo, so the windowed path
+    # is unavailable and _apply_factor routes to the true-frame
+    # fallback (which needs no ghost) -- still the exact homogeneous
+    # divergence
+    bare = Grid((my,), dispatch=OperatorRegistry({}))
+    inner = my.nodal(NodeSet.INNER, bc=BC.DIRICHLET)
+    f = bare.random.normal(inner, seed=7)
+    assert wall_slots_addressable(f, "y") is False
+    out = flux["y"]._apply_factor(f, "y")
+    direct = flux["y"]._inner_diff_true_frame(f, "y")
+    assert out.function_space.bare is my.cell_avg
+    assert jnp.array_equal(out.data, direct.data)
+    # the homogeneous no-normal-flow contract holds: the wall cells
+    # difference against an exact zero, not the BC-free ghost
+    dy = my.dx
+    assert jnp.allclose(out.data[0], f.data[0] / dy)
+    assert jnp.allclose(out.data[-1], -f.data[-1] / dy)
+
+
+# ================================================================
+#  Scalar-dx fold: uniform meshes divide by no measure field (gap F)
+# ================================================================
+def _walk_eqns(jaxpr):
+    """Yield every equation of a jaxpr and all nested sub-jaxprs."""
+    for eqn in jaxpr.eqns:
+        yield eqn
+        for value in eqn.params.values():
+            for sub in _nested_jaxprs(value):
+                yield from _walk_eqns(sub)
+
+
+def _nested_jaxprs(value):
+    """Jaxpr objects reachable from one equation-parameter value."""
+    inner = getattr(value, "jaxpr", None)  # ClosedJaxpr -> its Jaxpr
+    if inner is not None:
+        return [inner]
+    if hasattr(value, "eqns"):              # a bare Jaxpr
+        return [value]
+    if isinstance(value, (tuple, list)):    # e.g. cond branches
+        return [j for v in value for j in _nested_jaxprs(v)]
+    return []
+
+
+def _field_div_divisors(closed_jaxpr, ndim_threshold):
+    """``div`` eqns whose divisor is a traced array of field rank.
+
+    A scalar cell width folds into the static stencil weights and never
+    reaches the jaxpr as an array divisor; a materialized measure field
+    appears as a traced ``Var`` of the storage rank. "Field-shaped" is
+    ``ndim >= ndim_threshold`` (the grid's dimensionality), which admits
+    the measure field and excludes any 0-d scalar.
+    """
+    hits = []
+    for eqn in _walk_eqns(closed_jaxpr.jaxpr):
+        if eqn.primitive.name != "div":
+            continue
+        divisor = eqn.invars[1]
+        aval = getattr(divisor, "aval", None)
+        if (type(divisor).__name__ == "Var" and aval is not None
+                and aval.ndim >= ndim_threshold):
+            hits.append(aval.shape)
+    return hits
+
+
+def test_uniform_mesh_folds_scalar_dx_no_field_division():
+    # F: on a uniform mesh the constant cell width folds into the static
+    # weights (staggering.uniform_spacing scalar fast path), so the
+    # traced FV derivative (flux_diff @ reconstruct) divides by NO
+    # materialized measure field. Traced under jax.jit so the walker
+    # must descend into the pjit sub-jaxpr to inspect the (absent)
+    # division -- exercising the nested-jaxpr walk.
+    umesh = IntervalMesh(16, (0.0, 1.0), name="x")
+    ugrid = Grid((umesh,))
+    uf = ugrid.random.normal(umesh.cell_avg, seed=3)
+    uniform = jax.make_jaxpr(
+        jax.jit(lambda fld: fld.diff("x").data))(uf)
+    assert _field_div_divisors(uniform, len(ugrid.factors)) == []
+
+    # detector sanity: a mapped mesh DOES divide by its codomain measure
+    # field (staggering.divide_by_codomain_measure), so the uniform
+    # assertion above is not vacuously true.
+    mmesh = MappedIntervalMesh(16, (0.0, 1.0), _wavy_map, periodic=True,
+                               name="w")
+    mgrid = Grid((mmesh,))
+    mf = mgrid.random.normal(mmesh.cell_avg, seed=3)
+    mapped = jax.make_jaxpr(
+        jax.jit(lambda fld: fld.diff("w").data))(mf)
+    assert _field_div_divisors(mapped, len(mgrid.factors))

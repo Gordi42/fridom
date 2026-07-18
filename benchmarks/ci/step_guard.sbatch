@@ -30,17 +30,17 @@
 #  "NVIDIA A100-SXM4-80GB", node l50109.lvt.dkrz.de).
 #SBATCH --job-name=fridom-step-guard
 #SBATCH --partition=gpu
-# TODO(Silvano): confirm the GPU accounting account. `sacctmgr show
-# assoc user=$USER` lists uo0780 / uo0780_gpu (and ka1125 / ka1125_gpu).
-# The work dir is /work/uo0780/..., so uo0780_gpu is the best guess for
-# the GPU budget; change if the guard job is rejected on account.
+# Account confirmed 2026-07-18: jobs 26346485/26346504 ran and were
+# accounted under uo0780_gpu.
 #SBATCH --account=uo0780_gpu
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --gres=gpu:a100_80:4
 #SBATCH --exclusive
 #SBATCH --time=04:00:00
-#SBATCH --output=step-guard-%j.out
+# Relative to the submit dir — submit from the repo root (see README)
+# so the SLURM log lands in the retained results dir.
+#SBATCH --output=benchmarks/results/step-guard-%j.out
 
 set -euo pipefail
 

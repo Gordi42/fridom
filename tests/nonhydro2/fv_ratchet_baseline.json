@@ -1,0 +1,12 @@
+{
+  "mapped|cpu|1": {
+    "fv_ops": 3565,
+    "nodal_ops": 3461,
+    "ratio": 1.030049118751806
+  },
+  "walled_x|cpu|1": {
+    "fv_ops": 1337,
+    "nodal_ops": 1308,
+    "ratio": 1.02217125382263
+  }
+}

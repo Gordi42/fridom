@@ -24,6 +24,7 @@ if TYPE_CHECKING:  # pragma: no cover
         composed,
         cumulative,
         dealias,
+        distributed_contract,
         distributed_solve,
         finite_difference,
         flux_diff,
@@ -83,6 +84,7 @@ if TYPE_CHECKING:  # pragma: no cover
         VarianceRetag,
     )
     from .cumulative import CumulativeIntegral
+    from .distributed_contract import resolve_distributed_contraction
     from .distributed_solve import resolve_distributed_solve
     from .finite_difference import FiniteDifference
     from .flux_diff import (
@@ -140,6 +142,7 @@ all_modules_by_origin = {
         "banded",
         "symbol",
         "realized",
+        "distributed_contract",
         "distributed_solve",
         "spectral_solve",
         "finite_difference",
@@ -203,6 +206,7 @@ all_imports_by_origin = {
     f"{base}.weno": ["WenoReconstruction"],
     f"{base}.restrict": ["Restriction"],
     f"{base}.select": ["Where"],
+    f"{base}.distributed_contract": ["resolve_distributed_contraction"],
     f"{base}.distributed_solve": ["resolve_distributed_solve"],
     f"{base}.spectral_solve": ["SpectralSolve"],
     f"{base}.realized": [
