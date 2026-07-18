@@ -78,40 +78,43 @@ memory ceiling, time-to-first-step, WENO throughput (entries in
   on the boundary-adjacent 2D slice only; needs a DSL
   slice/restriction path on the advecting-velocity faces.
 
-## Channel eigenmodes on multi-device — two upstream repros to file
+## Channel eigenmodes on multi-device — remaining gaps
 
-The fridom-side work shipped (2026-07-17, T5): the channel projection now
-fails loudly with a taught `NotImplementedError` on a grid that shards a
-periodic axis, instead of dying in the HLO verifier — see
-[`done.md`](done.md). Both underlying faults are **upstream**
-(jax/jaxlib 0.10.2; the earlier "fridom-side c64/c128 dtype mix" reading
-is refuted — the traced jaxpr carries zero complex64), and both now have
-a minimal fridom-free repro + a drafted jax issue awaiting the owner's
-go-ahead to file:
+The projection now **runs** multi-GPU: the fused distributed
+contraction shipped 2026-07-18 (merge `e60259de`, entry in
+[`done.md`](done.md)). Still open:
 
-- **GPU (T5).** Not the FFT-norm constant (refuted: reproduces with
-  `norm=None`). XLA:GPU/GSPMD lowers a **sharded-transform-axis** FFT
-  through its distributed Cooley-Tukey decomposition whose
-  **twiddle-factor** constants are `complex64` against `complex128`
-  data; the HLO verifier rejects `multiply c64[] c128[]`. Not covered by
-  `multi_output_fusion`. Repro + issue:
-  [`../research/artifacts/channel_fftnorm_gpu/`](../research/artifacts/channel_fftnorm_gpu/).
-- **CPU (T5b).** A batched-`eigh` heap corruption in jaxlib's CPU LAPACK
-  on many-core hosts (not the `sort` lowering; that was aliasing).
-  Repro + issue:
-  [`../research/artifacts/channel_sort_segfault/`](../research/artifacts/channel_sort_segfault/).
-
-Remaining open work:
-
-- **File the two jax issues** (owner go-ahead required — the drafts are
-  ready).
-- **Optional real GPU fix** (make the projection *run* multi-device,
-  not just skip): route the channel transforms through the slab /
-  distributed-transform lowering the spectral solver already uses
-  (`operators/distributed_solve.py`), so each transform axis is
-  device-local when its FFT runs — the `with_sharding_constraint`
-  "replicate the transform axis" workaround is proven bit-for-bit exact
-  vs the single-device result. Bigger blast radius; deferred.
+- **File the two upstream jax issues** (owner go-ahead required — the
+  drafts are ready). Both faults are jax/jaxlib 0.10.2:
+  - **GPU (T5).** XLA:GPU/GSPMD lowers a sharded-transform-axis FFT
+    through its distributed Cooley-Tukey decomposition whose
+    twiddle-factor constants are `complex64` against `complex128`
+    data; the HLO verifier rejects `multiply c64[] c128[]`. Repro +
+    issue:
+    [`../research/artifacts/channel_fftnorm_gpu/`](../research/artifacts/channel_fftnorm_gpu/).
+    (Fridom no longer hits it on the 3-D channel — the fused lowering
+    keeps FFT axes local — but the unsupported remainder below and any
+    naive consumer still would.)
+  - **CPU (T5b).** A batched-`eigh` heap corruption in jaxlib's CPU
+    LAPACK on many-core hosts. Repro + issue:
+    [`../research/artifacts/channel_sort_segfault/`](../research/artifacts/channel_sort_segfault/).
+- **Unsupported sharded-periodic remainder** (kept on the narrowed
+  taught `NotImplementedError`): the 2-D channel (a single periodic
+  axis has no transpose partner), a layout that shards the engine's
+  half (`rfft`) axis itself (would need a second transpose pair — the
+  rfft needs real data on a local axis), and non-1-D meshes. Wants a
+  consumer before it wants code.
+- **Pre-existing multi-device eigenbasis faults surfaced by the
+  2026-07-18 validation** (both reproduce on the pre-merge dev; the
+  existing multi-device eigen tests hit them before reaching the
+  projection):
+  - **Setup `GridFrozenError`:** on small sharded grids the
+    `linearize(model)` probe's halo demand exceeds the frozen halo, so
+    `channel_eigenpairs` cannot even build the basis.
+  - **`mode()` / synthesis sharded-FFT crash:** the backward-only
+    synthesis path (`mode`, `channel_random_state`) still crashes on a
+    sharded periodic axis; it does not route through the fused
+    contraction (out of its scope — a candidate follow-on).
 
 Evidence, provenance probes, and the full re-attribution history:
 [`../research/multidevice_test_faults.md`](../research/multidevice_test_faults.md).

@@ -96,6 +96,41 @@ Implementation record:
 
 ## Landed since, outside the numbered tasks
 
+- **Channel eigenmodes run multi-GPU — fused distributed contraction**
+  (2026-07-18, merge `e60259de`) — the projection/`f(L)` application
+  (`_eigenbasis._contract_planes`) no longer rejects a grid that
+  shards a periodic axis: a new fused lowering
+  ([`distributed_contract.py`](../../src/fridom/spatial/operators/distributed_contract.py),
+  the sibling of the fused spectral solve) runs forward / per-plane
+  `Q diag(w) Qᴴ M` contraction / backward in **one `jax.shard_map`
+  region** so every FFT axis is device-local when its transform runs
+  — the upstream XLA:GPU distributed-FFT c64-twiddle fault
+  ([`../research/multidevice_test_faults.md`](../research/multidevice_test_faults.md))
+  is never reached. Geometry is engine-constrained (the half axis is
+  fixed to the engine's `rfftn` frame, never relocated; the transpose
+  partner is the half **coefficient** axis, padded on its `n//2+1`
+  extent with empty trailing pad shards allowed — the lanes are
+  transient, and zero-padded `q`/`w` make their output exactly zero),
+  which is why the generic `_distributed_geometry` (fully-complex
+  `h=None` on a two-stage transform) could not serve it. `q`/weights
+  enter as `in_specs`-sliced arguments (per-device basis memory ÷
+  device count; plan memoized per grid, 0 warm recompiles). Measured
+  (4× A100, n=16 nonhydro channel): many-vs-`device_ids=(0,)` max abs
+  diff **1.08e-14**, idempotency 4.9e-15, HLO all-to-all only (no
+  all-gather/all-reduce), reverse-mode gradients finite. Covers
+  nonhydro2, shallowwater2, and hydrostatic through the shared base;
+  the taught `NotImplementedError` narrows to the unsupported
+  remainder (2-D channel's single periodic axis, the half axis itself
+  sharded, non-1-D mesh). Single-device and bounded-axis-sharded
+  paths byte-for-byte unchanged; the pressure-solve path untouched
+  (perf merge gate: non-perf-sensitive — the new module is imported
+  only by `_eigenbasis.py`, nothing on the step path). Tests on the
+  forced-4 CI leg (`test_distributed_contract.py`,
+  `test_eigenbasis_distributed.py`); the sharded-periodic rejection
+  test flipped to a runs-and-matches gate. Two **pre-existing**
+  multi-device eigenbasis faults surfaced (setup `GridFrozenError`,
+  `mode()` synthesis crash) stay open in [`open.md`](open.md).
+
 - **Stretched + terrain-following combined — answered and shipped**
   (2026-07-17, merges `1c8614c0`, `0a887fa9`, `d338538c`, `4906b8db`,
   `7fba1bfe`) — the roadmap correctness question resolved
