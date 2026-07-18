@@ -86,6 +86,19 @@ def _model(kind, *, fv_tracer=True, surface_flux=True):
         modules_extra=extra)
 
 
+def _weno_model():
+    # WENO5 needs order+1 = 6 cells on the walled z axis; no FV tracer
+    # (the biased family opts out of immersed/FV — nodal momentum only).
+    grid = fr.spatial.Grid((
+        IM(6, (0.0, 1.0), periodic=True, name="x"),
+        IM(6, (0.0, 1.0), periodic=True, name="y"),
+        IM(6, (0.0, 1.0), periodic=False, name="z")))
+    return hy.Model(
+        grid=grid, dt=1e-3, csqr=1.0,
+        stratification=hy.ConstantStratification(n2=1.0),
+        advection=WENOAdvection(order=5))
+
+
 class _Ctx:
     params = {fr.model.params.SCALING_ROSSBY: 1.0}  # noqa: RUF012
 
@@ -176,6 +189,47 @@ def test_slice_correction_interior_is_exactly_zero(kind):
         assert np.abs(contrib[..., -1]).max() > 1e-6, qname
         checked += 1
     assert checked > 0
+
+
+def _advect_under(module, state, lowering, monkeypatch):
+    """Return ``module._advect`` with a forced global lowering."""
+    with monkeypatch.context() as m:
+        m.setattr(adv_mod, "_SURFACE_FLUX_LOWERING", lowering)
+        return module._advect(state, _Ctx)
+
+
+def test_weno_lowering_equivalence(monkeypatch):
+    # the biased/upwind family (WENO) takes the ``embed`` lowering of the
+    # surface correction (nodal momentum). Both lowerings feed the same
+    # 2D boundary term through ``_apply_correction``, so scatter and embed
+    # give the same tendency — and the ``None`` default (embed for WENO)
+    # matches the forced-embed result. Small walled grid; the slice ->
+    # full equivalence is a separate property tested (centered) above.
+    model = _weno_model()
+    module = next(m for m in model.modules
+                  if isinstance(m, WENOAdvection))
+    assert module._surface_flux_on is True
+    assert module._surface_flux_lowering == "embed"
+    state = _diagnosed_state(model)
+    scatter = _advect_under(module, state, "scatter", monkeypatch)
+    embed = _advect_under(module, state, "embed", monkeypatch)
+    default = module._advect(state, _Ctx)  # None -> per-scheme embed
+    for qname in module._advected:
+        s = np.asarray(scatter[qname].data)
+        e = np.asarray(embed[qname].data)
+        d = np.asarray(default[qname].data)
+        np.testing.assert_allclose(s, e, rtol=1e-13, atol=1e-13)
+        np.testing.assert_allclose(d, e, rtol=1e-13, atol=1e-13)
+
+
+def test_lowering_default_resolves_per_scheme():
+    # with the module-level override at its ``None`` default, each scheme
+    # resolves its own ``_surface_flux_lowering`` ClassVar: scatter for
+    # the centered flux form, embed for the biased/upwind family.
+    assert adv_mod._SURFACE_FLUX_LOWERING is None
+    assert CenteredAdvection()._surface_flux_lowering == "scatter"
+    assert UpwindAdvection(order=3)._surface_flux_lowering == "embed"
+    assert WENOAdvection(order=5)._surface_flux_lowering == "embed"
 
 
 # ================================================================
