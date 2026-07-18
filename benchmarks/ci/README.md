@@ -111,7 +111,16 @@ methodology: re-measure the flagged case(s) to rule out A100 thermal
 jitter (small-`n` and `sw_sphere` cases carry 2–6% noise — a single
 reading can collapse on re-measure), then attribute the change to the
 responsible commit before deciding whether it is a real regression or
-an intended, to-be-re-baselined move. See
+an intended, to-be-re-baselined move.
+
+**Node-to-node variance is a confirmed false-RED cause.** Observed
+2026-07-18: `sw_flat[n=1024]` read 14.5 ms (l50051) and 15.4 ms
+(l50163) on identical code, tight reps each — a +7% wholesale shift
+past the 5% global tolerance from the node alone. When a RED does not
+attribute to a commit, re-run pinned to the node the baseline was
+recorded on (`sbatch -w <node> benchmarks/ci/step_guard.sbatch`); the
+baseline JSON records its node in `metadata.hostname`, matching the
+"same node" rule of the baseline lifecycle below. See
 [`design/plans/active/perf_guard_plan.md`](../../design/plans/active/perf_guard_plan.md)
 (§1.3, §4.3) and `benchmarks/README.md` "Measurement traps".
 
