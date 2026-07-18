@@ -47,16 +47,23 @@ memory ceiling, time-to-first-step, WENO throughput (entries in
   real top-row error (~15–17% u/v) for order-5 biased staggered
   momentum (`81995781` — biased momentum now takes the exact
   full-3D correction; constancy-oracle record in plan §9).
-  Remaining, all owner-gated GPU work: (a) post-reroute weno5
-  ladder re-measure — overhead vs off and embed-vs-scatter for
-  the remaining tracer slice (the biased `"embed"` default is
-  provisional, in-code note); (b) real multi-host validation of
-  trace/scatter under `srun -n 4 --gpu-bind=none` (forced-4 is
-  green; plan §4 gate); (c) the `surface_flux=False` opt-out path
+  Real multi-host validation (plan §4 gate) is **met** (2026-07-18
+  evening, owner-requested: `srun -n 4` bitwise/1e-15 vs 1-GPU,
+  both schemes; record in plan §9 — including the multi-process
+  compile-cache deadlock it exposed and fixed, `94786a7c`).
+  Remaining: (a) post-reroute weno5 ladder re-measure — overhead
+  vs off and embed-vs-scatter for the remaining tracer slice (the
+  biased `"embed"` default is provisional, in-code note;
+  owner-gated GPU); (b) the `surface_flux=False` opt-out path
   reads +28–48% over its pre-H7 cost at big rungs (plan §9 flag)
-  — decide whether the legacy opt-out is worth chasing. Step-guard
-  checkpointing stays on Silvano's own batch cadence (never
-  agent-initiated).
+  — decide whether the legacy opt-out is worth chasing; (c)
+  **owner ruling needed:** split-explicit models drop the
+  barotropic part of a velocity IC entirely (plan §9 validation
+  finding — z-independent `set_fields` velocity vanishes from the
+  whole carry in one step; intended rest-start semantics or an IC
+  gap? Also means the se ladder rungs ran near-zero-velocity
+  flows while oc got the full IC). Step-guard checkpointing stays
+  on Silvano's own batch cadence (never agent-initiated).
 
 ## Channel eigenmodes on multi-device — remaining gaps
 

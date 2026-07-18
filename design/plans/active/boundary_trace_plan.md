@@ -367,10 +367,43 @@ advected ladder configs.
   off), but it inflates "vs off" denominators — the oc ratios
   above are the denominator-free evidence.
 
+**Real multi-host validation (2026-07-18 evening, owner-requested)
+— §4 gate MET.** Protocol: hydrostatic ladder physics
+(split-explicit, surface flux on, purely baroclinic ICs) at
+64×64×16, 20 steps; full gathered global true state (u, v, b, ps
+via `export.gathered_values`) compared between a single-GPU
+reference and a real `srun -n 4 --gpu-bind=none` +
+`jax.distributed.initialize` run (one A100 per process; jobs
+26351875/26352067, node l50024, commit `33707661`). Results:
+`centered` (scatter lowering) **bitwise identical**; `weno5`
+(embed tracer slice + full-3D biased momentum) max rel 9.2e-16
+on u/v/b, 1.9e-14 on ps — tolerance 1e-11 beaten by three orders.
+Findings from the campaign:
+
+- **Default persistent compile cache deadlocked every real
+  multi-process GPU run** (rank 0 at its first step collective,
+  other ranks inside build compiles; XLA:GPU shard-autotuning
+  cross-rank compile rendezvous never completes once per-rank
+  cache state diverges). Fixed the same evening: `configure()`
+  detects a real multi-process launch and leaves the cache off
+  (merge `e4e54cfc`, reconciled onto dev in `94786a7c`; explicit
+  `FRIDOM_JAX_CACHE_DIR` still honored with a documented
+  `--xla_gpu_shard_autotuning=false` requirement; AGENTS.md
+  recipe updated).
+- **Split-explicit models do not carry the barotropic part of a
+  velocity IC** — a z-independent `set_fields` velocity vanishes
+  from the entire carry after one step (max|u| 0.98 → 2.6e-4 in
+  5 steps; nothing in the FS subsystem holds it). Possibly the
+  intended init semantics (barotropic mode starts at rest), but
+  it means the se comparison-ladder rungs effectively ran
+  near-zero-velocity flows while Oceananigans got the full IC —
+  needs an owner ruling (roadmap notes it).
+- weno5 hydro cannot run multi-device on shallow grids that
+  shard z (nz=8: negotiated z-halo < the 6-point stencil; same
+  under forced-4, pre-existing; fine at nz=16 with x/y sharded).
+
 **Remaining (owner-gated GPU work; the roadmap entry tracks it):**
 step-guard checkpoint whenever Silvano next batches one (his own
 trigger, never agent-initiated); post-reroute weno5 ladder
 re-measure (overhead vs off + embed-vs-scatter for the tracer
-slice); real multi-host `srun -n 4 --gpu-bind=none` validation of
-trace/scatter (§4 — forced-4 is green, multi-process is not
-proven).
+slice).
