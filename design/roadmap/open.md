@@ -107,11 +107,29 @@ contraction shipped 2026-07-18 (merge `e60259de`, entry in
     LAPACK on many-core hosts. Repro + issue:
     [`../research/artifacts/channel_sort_segfault/`](../research/artifacts/channel_sort_segfault/).
 - **Unsupported sharded-periodic remainder** (kept on the narrowed
-  taught `NotImplementedError`): the 2-D channel (a single periodic
-  axis has no transpose partner), a layout that shards the engine's
-  half (`rfft`) axis itself (would need a second transpose pair — the
-  rfft needs real data on a local axis), and non-1-D meshes. Wants a
-  consumer before it wants code.
+  taught `NotImplementedError`) — solution paths investigated
+  2026-07-18
+  ([`../research/eigen_remainder_investigation.md`](../research/eigen_remainder_investigation.md)):
+  - *Half axis sharded* (low exposure — only extents whose first
+    periodic axis is indivisible by P): layout-aware half-axis
+    re-designation lets the shipped fused kernel serve it with roles
+    swapped; **prototype validated on 4×A100** (many-vs-one 8.5e-15,
+    all gates green), patches ready in
+    [`../research/artifacts/eigen_remainder/`](../research/artifacts/eigen_remainder/)
+    awaiting the owner's go-ahead to land (plus the stale-docstring
+    trim noted in the record).
+  - *2-D channel* (highest exposure — the **default** for any 2-D
+    channel on >1 device): recommend a gather path scoped to 2-D
+    (exact, negligible cost at every size the dense engine can build;
+    `em.q` is already replicated). A bounded-partner psum kernel was
+    proven exact but shelved — its ×P basis-slicing edge only pays in
+    a regime the dense `eigh` cannot reach. Needs owner ratification,
+    then implementation.
+  - *Non-1-D meshes*: **unreachable today** (the decomposition
+    negotiates only single-axis layouts; a hand-built 2-axis mesh dies
+    at decomposition build) — keep the defensive decline. The pencil
+    primitive (per-mesh-axis `all_to_all` in one 2-D-mesh `shard_map`)
+    is proven composable for the day a 2-D backend lands.
 - **Pre-existing multi-device eigenbasis faults surfaced by the
   2026-07-18 validation** (both reproduce on the pre-merge dev; the
   existing multi-device eigen tests hit them before reaching the
