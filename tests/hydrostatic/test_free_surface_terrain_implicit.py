@@ -48,7 +48,8 @@ def plain_grid(n, nz=8):
 
 
 def model(grid, *, eps=1.0, csqr=3.0, dt=0.05, iterations=30,
-          tolerance=1e-8, f0=0.5):
+          tolerance=1e-8, f0=0.5, preconditioner="spectral",
+          multigrid_levels=None):
     """Return a linear hydrostatic model on the implicit free surface."""
     return hy.Model(
         grid=grid, dt=dt, csqr=csqr,
@@ -56,7 +57,9 @@ def model(grid, *, eps=1.0, csqr=3.0, dt=0.05, iterations=30,
         coriolis=hy.FPlaneCoriolis(f0=f0), advection=False,
         free_surface=hy.ImplicitFreeSurface(
             epsilon=eps, pressure_iterations=iterations,
-            pressure_tolerance=tolerance),
+            pressure_tolerance=tolerance,
+            pressure_preconditioner=preconditioner,
+            multigrid_levels=multigrid_levels),
         time_stepper=fr.model.time_steppers.AdamBashforth(dt, order=2))
 
 
@@ -207,3 +210,90 @@ def test_grad_through_terrain_implicit_run_matches_fd():
     fd = (float(loss(ps_leaf + eps * direction))
           - float(loss(ps_leaf - eps * direction))) / (2.0 * eps)
     assert directional == pytest.approx(fd, rel=1e-4)
+
+
+# ================================================================
+#  Phase C: the multigrid-preconditioned terrain solve (GC-1..GC-3)
+# ================================================================
+@pytest.mark.parametrize("eps", [0.0, 1.0])
+def test_terrain_multigrid_model_assembles_and_steps_finite(eps):
+    grid = terrain_grid(16, a=0.8)
+    m = model(grid, eps=eps, preconditioner="multigrid")
+    fs = m.module(hy.ImplicitFreeSurface)
+    assert fs.pressure_preconditioner == "multigrid"
+    assert fs._column == ("zp", "z")
+    rng = np.random.default_rng(50)
+    fields = {k: 0.2 * rng.standard_normal(m.state[k].shape)
+              for k in ("u", "v")}
+    if eps > 0:
+        fields["ps"] = 0.2 * rng.standard_normal(m.state["ps"].shape)
+    m.set_fields(**fields)
+    m.advance(6)
+    assert not m.panicked
+    assert bool(jnp.isfinite(m.state["ps"].data).all())
+
+
+def test_terrain_multigrid_matches_spectral_solution():
+    # the two preconditioners are two routes to the same solve, so a
+    # single CONSTRAINT-stage call agrees to the CG tolerance
+    grid = terrain_grid(32, a=0.8)
+    ms = model(grid, eps=1.0, iterations=60, tolerance=1e-8)
+    mm = model(grid, eps=1.0, iterations=60, tolerance=1e-8,
+               preconditioner="multigrid")
+    rng = np.random.default_rng(51)
+    ic = {k: rng.standard_normal(ms.state[k].shape)
+          for k in ("u", "v", "ps")}
+    ms.set_fields(**ic)
+    mm.set_fields(**ic)
+    ctx = ctx_of(3.0, 0.05)
+    ps_s = np.asarray(
+        ms.module(hy.ImplicitFreeSurface)._barotropic_solve(
+            ms.state, ctx)["ps"].data)
+    ps_m = np.asarray(
+        mm.module(hy.ImplicitFreeSurface)._barotropic_solve(
+            mm.state, ctx)["ps"].data)
+    ps_s = ps_s - ps_s.mean()
+    ps_m = ps_m - ps_m.mean()
+    rel = np.abs(ps_s - ps_m).max() / max(np.abs(ps_s).max(), 1e-30)
+    assert rel <= 1e-6
+
+
+# ---- GC-3: forced-4-device parity of the multigrid terrain solve --
+def _mg_depth(x, y):
+    """Steep separable terrain depth H(x, y) for the forced-4 gate."""
+    return 1.0 + 0.8 * jnp.sin(2 * jnp.pi * x) * jnp.cos(2 * jnp.pi * y)
+
+
+def _terrain_mg_solve(nx, device_ids):
+    """Run the mg terrain barotropic solve on the given devices."""
+    grid = fr.spatial.Grid((
+        IM(nx, (0.0, 1.0), periodic=True, name="x"),
+        IM(nx, (0.0, 1.0), periodic=True, name="y"),
+        IM(8, (-1.0, 0.0), periodic=False, name="z")),
+        mapping=CoordinateMapping(maps={"zp": lambda z, H: z * H},
+                                  params={"H": _mg_depth}),
+        device_ids=device_ids)
+    m = model(grid, eps=1.0, iterations=12, tolerance=1e-8,
+              preconditioner="multigrid")
+    rng = np.random.default_rng(52)
+    m.set_fields(**{k: rng.standard_normal(m.state[k].shape)
+                    for k in ("u", "v", "ps")})
+    fs = m.module(hy.ImplicitFreeSurface)
+    out = fs._barotropic_solve(m.state, ctx_of(3.0, 0.05))
+    return np.asarray(out["ps"].data)
+
+
+@pytest.mark.multi_device
+@pytest.mark.parametrize(
+    "nx", [pytest.param(16, id="aligned-x16"),
+           pytest.param(12, id="replicated-x12-coarse6")])
+def test_forced4_terrain_multigrid_matches_single_device(nx):
+    # MG-D5: the tiny 2-D coarse levels (x=12 coarsens 12 -> 6, and 6
+    # does not divide four devices, so the coarse level lives replicated
+    # on the same mesh) must produce the single-device result bitwise-
+    # close through every level's smoother, transfer and inner product
+    ids = tuple(range(jax.device_count()))
+    one = _terrain_mg_solve(nx, (0,))
+    many = _terrain_mg_solve(nx, ids)
+    scale = np.max(np.abs(one))
+    assert np.max(np.abs(one - many)) / scale < 1e-8
