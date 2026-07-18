@@ -38,7 +38,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from fridom.framework.utils import dtype_real
+from fridom.framework.utils import dtype_comp, dtype_real
 from fridom.model.eigen_channel import channel_eigenpairs
 from fridom.model.eigenstates import (
     envelope_scale,
@@ -1193,6 +1193,57 @@ def _ordered_family_columns(
     return sorted((int(c) for c in cols), key=key)
 
 
+def _backward_synthesis(
+    em: ChannelEigenmodesBase,
+    coeffs: Mapping[str, jax.Array],
+    templates: Mapping[str, ScalarField],
+) -> dict[str, ScalarField]:
+    r"""
+    Inverse-transform store-frame coefficient columns to real fields.
+
+    Description
+    -----------
+    The shared backward tail of the channel synthesis features
+    (:func:`_synthesize_column`, :func:`channel_random_state`): each
+    component's coefficient column is already built in the engine's
+    store frame (the periodic axes Fourier-transformed — the
+    designated half axis on its ``rfft`` half spectrum, the other
+    periodic axis full — the bounded axis nodal), on the coefficient
+    space of ``templates[name]``.
+
+    On a grid whose default layout shards a periodic (Fourier) axis
+    the plain (GSPMD) transform hits the upstream XLA:GPU
+    distributed-FFT lowering fault, so the 3-D channel routes the
+    inverse through the fused ``jax.shard_map`` synthesis entry
+    (:meth:`~fridom.spatial.operators.distributed_contract.ContractPlan.synthesize`),
+    which keeps every FFT axis device-local and returns the fields on
+    the grid's own layout (no host gather). The single-device path —
+    and the genuinely-unsupported remainder the fused lowering
+    declines (the 2-D channel's single periodic axis, a
+    bounded-axis-sharded or non-1-D layout) — keep the plain per-axis
+    backward transform below, bit-for-bit unchanged; on a sharded
+    remainder that path raises the transform's Tier-1 taught error.
+    """
+    plan = resolve_distributed_contraction(
+        em.grid, bounded_axis=em.bounded_axis,
+        periodic_axis=em.periodic_axis, components=em.components,
+        slices=em.slices)
+    if plan is not None:
+        return plan.synthesize(coeffs, templates)
+    ops = fourier_ops(em)
+    fields = {}
+    for name in em.components:
+        coeff = templates[name]
+        for op in ops:
+            coeff = op.forward(coeff)
+        coeff = coeff.with_data(
+            jnp.asarray(coeffs[name]).astype(coeff.data.dtype))
+        for op in reversed(ops):
+            coeff = op.backward(coeff)
+        fields[name] = coeff.real
+    return fields
+
+
 def _synthesize_column(
     em: ChannelEigenmodesBase,
     slots: tuple[int, ...],
@@ -1205,19 +1256,22 @@ def _synthesize_column(
     -----------
     Places the stacked column ``values`` on the ``slots`` plane of
     the engine's partial-Fourier coefficient layout and inverse
-    transforms. On the self-conjugate planes of the half-spectrum
+    transforms (:func:`_backward_synthesis` — the fused distributed
+    inverse on a sharded 3-D channel, the plain per-axis transform
+    otherwise). On the self-conjugate planes of the half-spectrum
     axis the placement splits into the conjugate pair across the
     full periodic axes (the ``(v/2, conj(v)/2)`` closure), so the
     backward synthesis is exactly real.
     """
     grid = em.grid
-    ops = fourier_ops(em)
     periodic = tuple(
         n for n in grid.names if n != em.bounded_axis)
     half_n = _axis_cells(grid, em.periodic_axis)
     half_slot = slots[periodic.index(em.periodic_axis)]
     self_conj = half_slot == 0 or (half_n % 2 == 0
                                    and half_slot == half_n // 2)
+    b_arr = grid.names.index(em.periodic_axis)
+    n_b = half_n // 2 + 1
     index: list[object] = [slice(None)] * len(grid.names)
     for name, slot in zip(periodic, slots, strict=True):
         index[grid.names.index(name)] = slot
@@ -1226,24 +1280,23 @@ def _synthesize_column(
         if name != em.periodic_axis:
             n = _axis_cells(grid, name)
             partner[grid.names.index(name)] = (n - slot) % n
-    fields = {}
+    templates = {
+        name: grid.create_field(em.spaces[name], name=name)
+        for name in em.components}
+    coeffs = {}
     for name in em.components:
-        coeff = grid.create_field(em.spaces[name], name=name)
-        for op in ops:
-            coeff = op.forward(coeff)
-        seg = values[em.slices[name]].astype(coeff.data.dtype)
-        data = jnp.zeros(coeff.data.shape, dtype=coeff.data.dtype)
+        shape = list(templates[name].data.shape)
+        shape[b_arr] = n_b
+        seg = values[em.slices[name]].astype(dtype_comp())
+        data = jnp.zeros(tuple(shape), dtype=dtype_comp())
         if self_conj:
             data = data.at[tuple(index)].add(0.5 * seg)
             data = data.at[tuple(partner)].add(
                 0.5 * jnp.conj(seg))
         else:
             data = data.at[tuple(index)].set(seg)
-        coeff = coeff.with_data(data)
-        for op in reversed(ops):
-            coeff = op.backward(coeff)
-        fields[name] = coeff.real
-    return fields
+        coeffs[name] = data
+    return _backward_synthesis(em, coeffs, templates)
 
 
 def channel_random_state(
@@ -1356,18 +1409,14 @@ def channel_random_state(
     gains = jnp.asarray(amp) * jnp.exp(1j * theta)
     z = jnp.einsum("...dj,...j->...d", jnp.asarray(em.q), gains)
     bounded_pos = grid.names.index(em.bounded_axis)
-    ops = fourier_ops(em)
-    fields = {}
-    for name in em.components:
-        coeff = grid.create_field(em.spaces[name], name=name)
-        for op in ops:
-            coeff = op.forward(coeff)
-        data = jnp.moveaxis(
-            z[..., em.slices[name]], -1, bounded_pos)
-        coeff = coeff.with_data(data.astype(coeff.data.dtype))
-        for op in reversed(ops):
-            coeff = op.backward(coeff)
-        fields[name] = coeff.real
+    templates = {
+        name: grid.create_field(em.spaces[name], name=name)
+        for name in em.components}
+    coeffs = {
+        name: jnp.moveaxis(
+            z[..., em.slices[name]], -1, bounded_pos).astype(dtype_comp())
+        for name in em.components}
+    fields = _backward_synthesis(em, coeffs, templates)
     return normalize_max_component(
         fields, _horizontal_velocities(em))
 
