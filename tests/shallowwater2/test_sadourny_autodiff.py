@@ -18,7 +18,10 @@ import pytest
 import fridom as fr
 import fridom.shallowwater2 as sw
 from fridom.model.model import _chunk_body
-from fridom.shallowwater2.modules.sadourny import _potential_vorticity
+from fridom.shallowwater2.modules.sadourny import (
+    _potential_vorticity,
+    _sealed_metric_divide,
+)
 from fridom.spatial.grid import Grid
 from fridom.spatial.immersed_domain import ImmersedDomain
 from fridom.spatial.meshes.interval import IntervalMesh
@@ -206,3 +209,65 @@ def test_immersed_reverse_grad_wrt_ic_is_finite_and_matches_fd():
     fd = (float(loss(p_leaf + eps * direction))
           - float(loss(p_leaf - eps * direction))) / (2.0 * eps)
     assert directional == pytest.approx(fd, rel=1e-4)
+
+
+# ================================================================
+#  The chart (metric) path: the sqg_p kinetic-energy divide, guarded
+# ================================================================
+# ``_advect_chart`` divides the chart kinetic energy by the centre
+# metric ``sqrt_g`` (``sqg_p``). On a walled chart (the lat-lon sphere's
+# polar caps) that weight is an exact zero in the never-valid
+# storage/halo padding, where the numerator vanishes too, so the bare
+# quotient is a masked ``0/0`` whose reverse-mode VJP is a NaN poison —
+# the same class as the PV divide above. ``_sealed_metric_divide`` guards
+# the denominator; this proves the guard removes the padding NaN while
+# leaving the valid interior bitwise identical.
+LAT_MAX = float(np.deg2rad(80.0))
+
+
+def sphere_advecting_model(*, csqr=0.7, rossby=0.4):
+    """Return a tiny nonlinear Sadourny model on the lat-lon sphere."""
+    grid = fr.spatial.spherical.Grid(
+        (16, 8), radius=1.0, lat_extent=(-LAT_MAX, LAT_MAX),
+        device_ids=(0,))
+    model = sw.Model(
+        grid=grid, coords=("lon", "lat"), csqr=csqr,
+        rossby_number=rossby, coriolis=None, advection=True,
+        time_stepper=fr.model.time_steppers.AdamBashforth(2e-3, order=3))
+    rng = np.random.default_rng(3)
+    model.set_fields(
+        u=0.1 * rng.standard_normal(model.state["u"].shape),
+        v=0.1 * rng.standard_normal(model.state["v"].shape),
+        p=0.03 * rng.standard_normal(model.state["p"].shape))
+    return model
+
+
+def test_sealed_metric_divide_removes_padding_nan():
+    """The sqg_p guard eliminates the ghost 0/0 without touching cells."""
+    model = sphere_advecting_model()
+    grid = model.grid
+    state = model._carry.state
+    u, v, p = state["u"], state["v"], state["p"]
+
+    # reconstruct the chart kinetic-energy divide exactly as
+    # ``_advect_chart`` builds it (numerator and denominator both an
+    # exact zero in the walled polar/halo padding)
+    sqg_u = grid.metric(u.function_space.bare, "sqrt_g")
+    sqg_v = grid.metric(v.function_space.bare, "sqrt_g")
+    sqg_p = grid.metric(p.function_space.bare, "sqrt_g")
+    g_uu = grid.metric(u.function_space.bare, "g_lonlon")
+    g_vv = grid.metric(v.function_space.bare, "g_latlat")
+    ekin_num = 0.5 * (((sqg_u * g_uu) * (u * u)).to(p)
+                      + ((sqg_v * g_vv) * (v * v)).to(p))
+
+    bare = ekin_num / sqg_p                    # the un-guarded quotient
+    guarded = _sealed_metric_divide(ekin_num, sqg_p)
+
+    # the bug: exact zeros in the padded denominator -> NaN in storage
+    assert int((np.asarray(sqg_p.storage) == 0.0).sum()) > 0
+    assert bool(np.isnan(np.asarray(bare.storage)).any())
+    # the fix: no NaN anywhere in the guarded storage
+    assert not bool(np.isnan(np.asarray(guarded.storage)).any())
+    # and the valid interior is bitwise identical (only padding changed)
+    assert np.array_equal(np.asarray(bare.data),
+                          np.asarray(guarded.data))
