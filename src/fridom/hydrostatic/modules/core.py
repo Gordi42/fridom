@@ -60,7 +60,7 @@ from typing import TYPE_CHECKING
 import jax.numpy as jnp
 
 import fridom as fr
-from fridom.framework.utils import jaxify, modify_array
+from fridom.framework.utils import jaxify
 from fridom.hydrostatic.diagnostics import DIAGNOSTICS
 from fridom.hydrostatic.modules.terrain import (
     discover_column,
@@ -72,8 +72,11 @@ from fridom.model.roles import Velocity
 from fridom.spatial.decomposition.halo import HaloSpec
 from fridom.spatial.fields.scalar_field import _bc_siblings
 from fridom.spatial.operators.cumulative import CumulativeIntegral
+from fridom.spatial.operators.verbs import scatter_set
 from fridom.spatial.spaces.average import AverageSpace
+from fridom.spatial.spaces.nodal import NodeSet
 from fridom.spatial.spaces.tensor_product import TensorProductSpace
+from fridom.spatial.spaces.trace import Side
 
 if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Callable
@@ -413,6 +416,18 @@ class HydrostaticCore(fr.model.Module):
         face needs no override: the running sum seeds ``transport == 0``
         there, so ``w`` is zero irrespective of ``alpha_z``.
 
+        The surface override rides the sanctioned boundary machinery
+        (``design/plans/active/boundary_trace_plan.md`` §3) rather than
+        raw ``.data`` surgery: the surface cell fraction is a
+        ``Side.HIGH`` boundary trace of ``theta_cell`` (on the
+        ``Center`` cells), relocated onto the vertical ``Outer`` face
+        set through the sanctioned Constant bridge (``as_profile`` ->
+        ``adopt``) — the explicit cross-node-set relocation the strict
+        space algebra otherwise refuses — then ``scatter_set`` overwrites
+        the ``Outer`` surface face of ``alpha_z``. The path is a pure
+        slice + two retags + a row-scatter (all native VJPs, no
+        ``.data``), so the diagnosed ``w`` is bitwise unchanged.
+
         Parameters
         ----------
         immersed : object
@@ -425,16 +440,16 @@ class HydrostaticCore(fr.model.Module):
         object
             The ``alpha_z`` field with the surface face overridden.
         """
-        w_space = state["w"].function_space
-        alpha_z = immersed.fraction(w_space)
+        vertical = self._vertical
+        alpha_z = immersed.fraction(state["w"].function_space)
         theta_cell = immersed.fraction(state["p_hyd"].function_space)
-        z_axis = next(
-            i for i, f in enumerate(w_space.bare.factors)
-            if self._vertical in f.names)
-        az = jnp.moveaxis(alpha_z.data, z_axis, 0)
-        tc = jnp.moveaxis(theta_cell.data, z_axis, 0)
-        az = modify_array(az, -1, tc[-1])  # surface face = surface cell
-        return alpha_z.with_data(jnp.moveaxis(az, 0, z_axis))
+        # surface (top) face fraction = surface cell fraction: trace the
+        # top Center cell, relocate it onto the Outer face set (the
+        # sanctioned Constant bridge), and overwrite the surface face.
+        surface = (theta_cell.trace(vertical, Side.HIGH)
+                   .as_profile(vertical)
+                   .adopt(vertical, NodeSet.OUTER, Side.HIGH))
+        return scatter_set(alpha_z, surface)
 
     def _diagnose_p_hyd(
         self, state: State, ctx: StepContext,  # noqa: ARG002
