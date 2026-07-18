@@ -208,10 +208,10 @@ cells in every dimension (stages I0–I4 shipped 2026-07-17; entry in
 [`../plans/active/immersed_partial_cells_plan.md`](../plans/active/immersed_partial_cells_plan.md)).
 Open, none blocking:
 
-- **Mapped + immersed composition** — taught error (chart/terrain
-  only; stretched+immersed fractions are correct and pinned, but no
-  model assembles either composition until the M2/M3 solve); plan
-  ratified, M0+M1 shipped, in progress
+- **Mapped + immersed composition** — **core shipped** (M0–M4:
+  chart fractions, composed solve + multigrid, advection proof —
+  nonhydro2 mapped+immersed and stretched+immersed models run);
+  remaining: M5 hydrostatic wet-column extension, in progress
   ([`../plans/active/mapped_immersed_composition_plan.md`](../plans/active/mapped_immersed_composition_plan.md)).
 - **Partial-bottom-cell hydrostatic pressure gradient** — the
   Pacanowski–Gnanadesikan refinement; the current unweighted `p_hyd`
