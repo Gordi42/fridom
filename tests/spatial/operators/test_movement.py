@@ -59,16 +59,18 @@ def test_the_base_syncs_at_consumption(f):
     # operand (the exchange is memoized in the external identity
     # cache, NOT written onto the treedef-participating operand), and
     # the result's ghost slots are kernel-computed — valid to the
-    # claimed depth, wrap-consistent there on this periodic mesh
+    # two-sided claimed depth. The Center -> Right difference reaches
+    # [0,+1], consuming only the high side, so the low side keeps its
+    # w valid layers and the high side drops to w - 1
     w = f.grid.decomposition.halo["x"]
     assert f.halo_valid["x"] == 0
     d = f.diff("x")
     assert f.halo_valid["x"] == 0  # operand treedef stable (direction a)
-    valid = d.halo_valid["x"]
-    assert valid == w - 1
-    if valid:  # the claimed layers wrap like a synced field's
+    lo, hi = d.halo_valid.interval("x")
+    assert (lo, hi) == (w, max(w - 1, 0))
+    if lo:  # the low claimed layers wrap like a synced field's
         assert jnp.array_equal(
-            d._data[w - valid:w], d._data[-w - valid:-w])
+            d._data[w - lo:w], d._data[-w - lo:-w])
 
 
 # ================================================================

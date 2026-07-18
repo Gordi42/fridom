@@ -144,6 +144,25 @@ def test_fv_default_biased_is_bitwise_identical_to_nodal(advection):
             err_msg=f"FV vs nodal biased diverged on {c!r}")
 
 
+@pytest.mark.parametrize("advection", [
+    pytest.param(lambda: nh.UpwindAdvection(5), id="upwind5"),
+    pytest.param(lambda: nh.WENOAdvection(5), id="weno5"),
+])
+def test_biased_advection_negotiates_the_two_sided_width(advection):
+    # two-sided halo accounting (perf/halo-interval): the biased-5
+    # reconstruction's asymmetric window composes with the flux
+    # difference to width 3 (storage n+6) on every axis, not the
+    # scalar-sum 4 (n+8). The DynamicalCore extra_halo (symmetric 2)
+    # does not cap 3. FV and nodal families both tighten to 3.
+    for family in ("nodal", "fv"):
+        model = nh.Model(coriolis=FPlaneCoriolis(f0=1.0),
+                         grid=periodic_grid(), dt=DT, dsqr=2.0,
+                         rossby_number=1.0, advection=advection(),
+                         family=family)
+        for name in ("x", "y", "z"):
+            assert model.grid.decomposition.halo[name] == 3
+
+
 def test_fv_default_state_is_finite_volume():
     model = nh.Model(coriolis=FPlaneCoriolis(f0=1.0),
                      grid=periodic_grid(), dt=DT)

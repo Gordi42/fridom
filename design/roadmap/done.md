@@ -96,6 +96,41 @@ Implementation record:
 
 ## Landed since, outside the numbered tasks
 
+- **Storage-halo width recovered — two-sided (interval) halo
+  accounting** (2026-07-18, probe merge `a8a9aefb`, implementation
+  merge `40a24df8`) — the "n+8 vs nominal n+6" roadmap question
+  resolved: the extra layer was the halo trace **summing symmetrized
+  scalar reaches** along the sync-free advection chain (biased
+  reconstruct 3 + flux-diff 1 → width 4), losing the biased window's
+  asymmetry; the true Minkowski-composed footprint of
+  `flux_diff ∘ reconstruct` is 3/side (not staggering, not
+  even-rounding — upwind3's odd width 3 refutes that reading).
+  `HaloSpec`/`OperatorRequirements`/trace/`halo_valid` now carry
+  per-name two-sided reaches (symmetric max presented to storage;
+  per-op reaches derived from implemented kernel geometry, not
+  hardcoded). upwind5/weno5 negotiate width 3 → storage `n+6`
+  (−5.7% step bytes @96³, −3.0% @192³; compiled `memory_analysis`
+  tracks `(n+6)³/(n+8)³` to 4 s.f.); per-step sync counts identical
+  to dev (scalar-validity control re-syncs 28 vs 16 — the two-sided
+  runtime validity is load-bearing); narrow-vs-wide same-code parity
+  **bitwise** (0.0, upwind5 and centered, 32³×10). The empirical
+  probe first proved the width-3 floor (width 2 fails the taught
+  dry-run guard) and that forcing a narrow store *without* interval
+  validity trades bytes for mid-chain re-syncs. Bonus fixes: immersed
+  fraction/mask and coordinate-measure caches re-keyed on the
+  negotiated halo (latent stale-array bug under wider
+  re-negotiation); bounded shrinking stencils claim reach 0; one FV
+  mapped-pressure "bitwise" assertion honestly relaxed to 1e-14
+  (width-coincidental pairwise-reduction tie on dev). Gates:
+  new-stack suites 6329 passed / 0 failed post dev-merge (FV
+  fusion-guard ratchet included), forced-4 decomposition 334 passed,
+  3 autodiff files green, reblock HLO golden regenerated (pure shape
+  shift), ruff clean. Centered stays width 2 at the assembled model
+  (`DynamicalCore.extra_halo = 2` floor) — remainder tracked in
+  [`open.md`](open.md). Record:
+  [`storage_halo_width.md`](../research/storage_halo_width.md)
+  (probe scripts + RESULTS under `storage_halo_width/probe/`).
+
 - **Half-axis-sharded 3-D channel served — layout-aware half-axis
   re-designation** (2026-07-18, merge `feade7fa`; coverage follow-up
   merge `964a9117`) — the last remainder case with a fast path: when
@@ -344,8 +379,14 @@ Implementation record:
   and the in-model GB-2 step **beats spectral 1.23× at 256³
   (237.8 vs 291.6 ms) and 1.22× at 512³ (1873.3 vs 2277.9 ms)**
   (physics equivalence 2–5e-11). GB-2 (≥1.5×) still unmet at every
-  measured size. Follow-up (floor-depth default, src change not
-  made): [`open.md`](open.md).
+  measured size. **Floor-limited depth shipped as the default the
+  same day** (owner-ratified; merge `b8b165f1`):
+  `multigrid_levels: int | None = None` on `nh.Model` /
+  `DynamicalCore` / both pressure solvers / `coarsen_levels` — None
+  (default) coarsens to the 4-cell horizontal floor, an int stays an
+  explicit cap; default-path 512³ in-model validation 2000.1 ms/step
+  (1.14× vs spectral; realized depth 8 — one borderline CG iteration
+  above the hand-capped L=7 row, physics 1.3e-10).
 - **Multigrid V-cycle kernel swap** (2026-07-18, merge `0ece46b1`) —
   `banded.tridiagonal_solve_along_axis` grew a host-static
   `method` knob with three interchangeable kernels: `"scan"` (the
@@ -514,6 +555,25 @@ Implementation record:
   patch stays in [`open.md`](open.md); HLO-volume reduction and the
   comparison-suite metric fix are closed (entries below). Record:
   [`../research/time_to_first_step.md`](../research/time_to_first_step.md).
+
+- **Async two-tier chunk compile** (2026-07-18) — the time-to-first-
+  step §3c follow-up, now landed behind the default-off knob
+  `Model(async_chunk_compile=True)`. On a chunk cache miss whose
+  natural unroll > 1, `step_chunk` lowers the full-unroll chunk on the
+  calling thread (a `Lowered` holds HLO, not the donated carry's
+  buffers), synchronously compiles a cheap `force_unroll=1` variant of
+  the same length, serves it while the full executable compiles in a
+  daemon thread (`.compile()` releases the GIL), and swaps the cache
+  entry to the full executable at a later chunk boundary — both tiers
+  share the `out_shardings` pin, so the swap is reshard-free. Measured
+  (single GPU, from the prototype): first advance −24..31% (256³/64³),
+  steady-state per-step bitwise-unchanged after the swap; a background
+  compile failure re-raises on the next `step_chunk` call. The shipped
+  version drops the prototype's `eager1` mode (measured strictly worse)
+  and serves the length-C unroll-1 tier. Forced-4 CPU keeps the
+  bitwise-equality invariant (no `single_device` mark needed). Record:
+  [`../research/time_to_first_step.md`](../research/time_to_first_step.md)
+  §3c.
 
 - **WENO selected-input one-pass reconstruction** (2026-07-16, merge of
   `perf/weno-selected-input`) — gap 3 of the Oceananigans reference

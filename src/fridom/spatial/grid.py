@@ -34,6 +34,7 @@ from fridom.framework.utils import dtype_real
 from fridom.spatial.bc import BC, BCStructure
 from fridom.spatial.decomposition.decomposition import (
     ReshardingReport,
+    _cap_for_sharding,
     _registry_halo,
     negotiate,
 )
@@ -312,7 +313,12 @@ class Grid:
         # object also lets the operator-level sync memo hit
         # (operators/base.py), removing the per-application exchange
         # of freshly built measures.
-        self._measures: dict[tuple[SpaceLike, str], ScalarField] = {}
+        # keyed on the negotiated halo too: the stored measure is
+        # padded to the storage frame, so a re-negotiation to a wider
+        # halo (a module's extra_halo) must re-materialize, not reuse
+        # the provisionally-narrower field.
+        self._measures: dict[
+            tuple[SpaceLike, str, object], ScalarField] = {}
         # coarse sibling grids memoized per (normalized factors,
         # device_ids): grid STRUCTURE caching (MG-D3/D5), so a
         # multigrid hierarchy rebuilt on every solver trace re-uses the
@@ -775,6 +781,21 @@ class Grid:
                 "the grid is frozen but carries no negotiation "
                 "fingerprint")
         demand = self._demanded_halo(state_spaces, tendency, halo)
+        # Symmetric verify-cap (task 1.8): the negotiate path lowers
+        # traced widths through ``_cap_for_sharding`` before freeze
+        # records them, so the fingerprint holds capped widths on a
+        # sharded grid. Recompute the demand through the SAME cap with
+        # the SAME arguments (the frozen device count, the registry
+        # floor, the meshes) so verify compares capped-vs-capped and
+        # the ``Model.variant`` subset lemma holds; on a single device
+        # the cap is identity and the record holds the raw demand.
+        devices = self._decomposition.device_count
+        if devices > 1:
+            demand = _cap_for_sharding(
+                self.factors, demand,
+                _registry_halo(self._names, self._dispatch,
+                               state_spaces),
+                devices)
         problems = _halo_violations(demand, record.halo)
         adopted: list[SpaceLike] = []
         for space in state_spaces or ():
@@ -1183,7 +1204,8 @@ class Grid:
         """
         space = self._laid_out(space)
         name = _pick_factor_name(space, name)
-        cached = self._measures.get((space, name))
+        key = (space, name, self._decomposition.halo)
+        cached = self._measures.get(key)
         if cached is not None:
             return cached
         factor = space.factor(name)
@@ -1210,7 +1232,7 @@ class Grid:
         field = ScalarField(self, result, stored,
                             FieldMetadata.create(name=f"d{name}"))
         if not isinstance(stored, jax.core.Tracer):
-            self._measures[(space, name)] = field
+            self._measures[key] = field
         return field
 
     def metric(

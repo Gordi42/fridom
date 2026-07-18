@@ -27,6 +27,7 @@ import numpy as np
 import pytest
 
 from fridom.spatial.bc import BC
+from fridom.spatial.decomposition.halo import HaloSpec
 from fridom.spatial.errors import SpaceMismatchError
 from fridom.spatial.grid import Grid
 from fridom.spatial.meshes.interval import IntervalMesh
@@ -48,8 +49,13 @@ def mesh():
 @pytest.fixture
 def grid(mesh):
     # one device pinned: the fill assertions index the single-shard
-    # storage frame (blocked variants live in the multi-device suite)
-    return Grid((mesh,), device_ids=(0,))
+    # storage frame (blocked variants live in the multi-device suite).
+    # Negotiate width 2 so the two-ghost-layer mirror-fill assertions
+    # have both layers: two-sided accounting narrows the bounded
+    # provisional (Center -> Inner reads no exterior slot) to 1.
+    g = Grid((mesh,), device_ids=(0,))
+    g.negotiate(halo=HaloSpec({"y": 2}))
+    return g
 
 
 # ================================================================

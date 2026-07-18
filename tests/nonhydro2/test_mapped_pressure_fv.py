@@ -215,9 +215,15 @@ def test_pcg_convergence_is_resolution_independent_fv():
 
 
 def test_pcg_residual_matches_nodal_bitwise():
-    # since the FV and nodal operators + preconditioners are the same
-    # numbers, the CG iterates are bit-identical -> the solved pressure
-    # is bitwise equal (the strongest form of the cross-family gate)
+    # the FV and nodal operators + preconditioners are the same
+    # numbers, so the CG iterates agree to machine precision. The FV
+    # measure-weighted inner product reassociates with the storage
+    # width (its pairwise-reduction tree depends on the padded length),
+    # so once two-sided halo accounting narrows the FV grid to width 1
+    # the FV and nodal reductions differ by ~2 ULP (nodal is width-
+    # invariant; on the pre-tightening width 2 the two were bit-equal).
+    # The physics is unchanged -- the residual gate above still holds --
+    # so the cross-family gate is to machine precision, not the bit.
     fv, grid_fv, mx_fv, ms_fv = build_fv(iterations=12)
     nod, grid_nod, mx_nod, ms_nod = build_solver("nodal", iterations=12)
     data = np.asarray(grid_fv.random.normal(
@@ -231,8 +237,9 @@ def test_pcg_residual_matches_nodal_bitwise():
         mx_nod.center * ms_nod.center,
         init=lambda x, sigma: 0.0 * x * sigma).with_data(
             jnp.asarray(data))
-    assert np.array_equal(np.asarray(fv.solve(rhs_fv).data),
-                          np.asarray(nod.solve(rhs_nod).data))
+    assert np.allclose(np.asarray(fv.solve(rhs_fv).data),
+                       np.asarray(nod.solve(rhs_nod).data),
+                       rtol=0.0, atol=1e-14)
 
 
 # ================================================================

@@ -72,12 +72,16 @@ def test_physical_depth_matches_the_analytic_depth():
 
 def test_physical_depth_equals_the_jacobian_integral_seam():
     # the free surface's in-trace depth agrees with the wired
-    # Integral(jacobian=) seam (the canonical physical column extent)
+    # Integral(jacobian=) seam (the canonical physical column extent).
+    # Build the model first: it re-negotiates the grid to the
+    # hydrostatic core's extra_halo, so ``one`` must be created on the
+    # frozen (final-width) grid, not the provisionally-narrower base.
     grid = _terrain_grid(12)
+    fs = _bound_fs(_model(grid))
     coll = fr.spatial.Collocated().resolve(grid)
     one = grid.create_field(coll, data=jnp.ones(coll.shape))
     seam = Integral(jacobian=("zp",))["z"](one)
-    mine = _bound_fs(_model(grid))._physical_depth(one)
+    mine = fs._physical_depth(one)
     assert np.allclose(np.asarray(mine.data), np.asarray(seam.data),
                        atol=1e-13)
 

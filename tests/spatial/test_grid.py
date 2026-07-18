@@ -152,14 +152,15 @@ def test_dispatch_defaults_to_seeded_registry_and_is_settable(mx):
 def test_decomposition_is_single_device_provisional_halo(mx, my):
     # provisional negotiation: halo = per-operator max over the
     # seeded registry; the widest entry is the two-factor
-    # FV-derivative chain (reconstruct + flux_diff, width 1 each).
+    # FV-derivative chain (reconstruct [0,+1] then flux_diff [-1,0]),
+    # whose two-sided composed window [-1,+1] is width 1.
     # Pinned to one device: the assertions read the single-shard
     # storage frame.
     dec = Grid((mx, my), device_ids=(0,)).decomposition
-    assert dec.halo["x"] == 2
-    assert dec.halo["y"] == 2
+    assert dec.halo["x"] == 1
+    assert dec.halo["y"] == 1
     space = mx.center * my.center
-    assert dec.storage_shape(space) == (8 + 4, 4 + 4)
+    assert dec.storage_shape(space) == (8 + 2, 4 + 2)
     assert dec.default_layout.device_axes == ()
 
 
@@ -376,7 +377,13 @@ def test_negotiate_tendency_requires_state_spaces(grid):
         grid.negotiate(tendency=lambda state: state)
 
 
-def test_freeze_ends_the_assembly_phase(grid):
+def test_freeze_ends_the_assembly_phase(mx, my):
+    # pin to one device so the larger-demand raise is genuine at any
+    # device count: on a sharded grid the shardable-cap would absorb
+    # halo={x: 99} to the shard extent (width above the floor is
+    # satisfiable via runtime re-sync), so the raw comparison must be
+    # exercised on a non-sharding grid
+    grid = Grid((mx, my), device_ids=(0,))
     grid.freeze()
     # satisfiable demands verify against the frozen record ...
     report = grid.negotiate()

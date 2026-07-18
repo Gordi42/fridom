@@ -41,6 +41,7 @@ from fridom.spatial.operators.spectral import (
 from fridom.spatial.operators.staggering import (
     apply_staggered,
     patch_one_sided_edges,
+    reach_or,
     require_dof_preserving_bc,
     require_grounded_bounded_sides,
     require_local_axis,
@@ -258,10 +259,18 @@ class LinearInterp(SeparableOperator):
 
     def requirements(
         self,
-        domain: FunctionSpace,  # noqa: ARG002 — fixed two-point halo
+        domain: FunctionSpace,
     ) -> OperatorRequirements:
         """
-        Declare halo = 1, layout "any".
+        Declare reach ``(below, above)``, halo = 1.
+
+        Description
+        -----------
+        Two-point interpolation is one-sided per direction: a
+        ``Center -> Right`` average reaches one cell up, a
+        ``Right -> Center`` one cell down. The two-sided reach keeps a
+        composed chain (interp then difference) from over-provisioning;
+        the symmetric ``halo`` stays 1.
 
         Parameters
         ----------
@@ -274,10 +283,13 @@ class LinearInterp(SeparableOperator):
             The per-factor requirements record.
         """
         if self._boundary == "one_sided":
-            # the boundary patches write static physical-edge
-            # indices: negotiation must keep the axis undistributed
+            # the boundary patches write static physical-edge indices
+            # from wider one-sided true-DOF stencils, so the interior
+            # midpoint reach does not describe them: keep the symmetric
+            # declaration, and demand the axis undistributed
             return OperatorRequirements(halo=1, layout="local")
-        return OperatorRequirements(halo=1)
+        reach = reach_or(self, domain, _INTERP_SIZE, 1)
+        return OperatorRequirements(reach=reach)
 
     def eigenvalues(
         self,

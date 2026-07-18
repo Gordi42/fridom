@@ -43,6 +43,7 @@ from fridom.spatial.operators.interned import interned
 from fridom.spatial.operators.reconstruct import (
     apply_fv_staggered,
     factor_codomain,
+    fv_reach_or,
     wall_slots_addressable,
     wall_zeroed_operand,
 )
@@ -326,11 +327,17 @@ class FluxDifference(SeparableOperator):
         return _mesh_space(domain, "cell_avg", "flux_diff")
 
     def requirements(
-        self,
-        domain: FunctionSpace,  # noqa: ARG002 — fixed two-point halo
+        self, domain: FunctionSpace,
     ) -> OperatorRequirements:
         """
-        Declare halo = 1, layout "any".
+        Declare reach ``(below, above)``, halo = 1.
+
+        Description
+        -----------
+        The two-point flux difference is one-sided per direction (a
+        ``Right -> CellAvg`` divergence reaches one cell down), so the
+        two-sided reach keeps a composed FV derivative chain from
+        over-provisioning; the symmetric ``halo`` stays 1.
 
         Parameters
         ----------
@@ -342,7 +349,8 @@ class FluxDifference(SeparableOperator):
         OperatorRequirements
             The per-factor requirements record.
         """
-        return OperatorRequirements(halo=1)
+        return OperatorRequirements(
+            reach=fv_reach_or(self, domain, _DIFF_SIZE, 1))
 
     def eigenvalues(
         self,
@@ -575,11 +583,17 @@ class DualFluxDifference(SeparableOperator):
         return _mesh_space(domain, "face_avg", "flux_diff")
 
     def requirements(
-        self,
-        domain: FunctionSpace,  # noqa: ARG002 — fixed two-point halo
+        self, domain: FunctionSpace,
     ) -> OperatorRequirements:
         """
-        Declare halo = 1, layout "any".
+        Declare reach ``(below, above)``, halo = 1.
+
+        Description
+        -----------
+        The two-point flux difference is one-sided per direction (a
+        ``Right -> CellAvg`` divergence reaches one cell down), so the
+        two-sided reach keeps a composed FV derivative chain from
+        over-provisioning; the symmetric ``halo`` stays 1.
 
         Parameters
         ----------
@@ -591,7 +605,8 @@ class DualFluxDifference(SeparableOperator):
         OperatorRequirements
             The per-factor requirements record.
         """
-        return OperatorRequirements(halo=1)
+        return OperatorRequirements(
+            reach=fv_reach_or(self, domain, _DIFF_SIZE, 1))
 
     def eigenvalues(
         self,
@@ -706,11 +721,17 @@ class FaceDifference(SeparableOperator):
         return _mesh_space(domain, attr, "face_diff")
 
     def requirements(
-        self,
-        domain: FunctionSpace,  # noqa: ARG002 — fixed two-point halo
+        self, domain: FunctionSpace,
     ) -> OperatorRequirements:
         """
-        Declare halo = 1, layout "any".
+        Declare reach ``(below, above)``, halo = 1.
+
+        Description
+        -----------
+        The two-point flux difference is one-sided per direction (a
+        ``Right -> CellAvg`` divergence reaches one cell down), so the
+        two-sided reach keeps a composed FV derivative chain from
+        over-provisioning; the symmetric ``halo`` stays 1.
 
         Parameters
         ----------
@@ -722,7 +743,8 @@ class FaceDifference(SeparableOperator):
         OperatorRequirements
             The per-factor requirements record.
         """
-        return OperatorRequirements(halo=1)
+        return OperatorRequirements(
+            reach=fv_reach_or(self, domain, _DIFF_SIZE, 1))
 
     def eigenvalues(
         self,

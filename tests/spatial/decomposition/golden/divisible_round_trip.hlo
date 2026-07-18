@@ -1,12 +1,12 @@
-HloModule <m> is_scheduled=true, entry_computation_layout={(f64[9]{0})->f64[9]{0}}, allow_spmd_sharding_propagation_to_output={true}, num_partitions=4
-%fused_computation (param_0.2: f64[9]) -> f64[9] {
-  %param_0.2 = f64[9]{0} parameter(0)
-  %slice.4 = f64[4]{0} slice(%param_0.2), slice={[2:6]}, metadata={op_name="jit(<lambda>)/jit(gather_local)/shard_map/slice" stack_frame_id=<n>}
+HloModule <m> is_scheduled=true, entry_computation_layout={(f64[7]{0})->f64[7]{0}}, allow_spmd_sharding_propagation_to_output={true}, num_partitions=4
+%fused_computation (param_0.2: f64[7]) -> f64[7] {
+  %param_0.2 = f64[7]{0} parameter(0)
+  %slice.4 = f64[4]{0} slice(%param_0.2), slice={[1:5]}, metadata={op_name="jit(<lambda>)/jit(gather_local)/shard_map/slice" stack_frame_id=<n>}
   %constant.6 = f64[] constant(0), metadata={op_name="jit(<lambda>)/jit(scatter_local)/shard_map/jit(_pad)/convert_element_type" stack_frame_id=<n>}
-  ROOT %pad.5 = f64[9]{0} pad(%slice.4, %constant.6), padding=2_3, metadata={op_name="jit(<lambda>)/jit(scatter_local)/shard_map/jit(_pad)/pad" stack_frame_id=<n>}
+  ROOT %pad.5 = f64[7]{0} pad(%slice.4, %constant.6), padding=1_2, metadata={op_name="jit(<lambda>)/jit(scatter_local)/shard_map/jit(_pad)/pad" stack_frame_id=<n>}
 }
 
-ENTRY %main.3_spmd (param.2: f64[9]) -> f64[9] {
-  %param.2 = f64[9]{0} parameter(0), sharding={devices=[4]<=[4]}, metadata={op_name="s"}
-  ROOT %slice_pad_fusion = f64[9]{0} fusion(%param.2), kind=kLoop, calls=%fused_computation, metadata={op_name="jit(<lambda>)/jit(scatter_local)/shard_map/jit(_pad)/pad" stack_frame_id=<n>}
+ENTRY %main.3_spmd (param.2: f64[7]) -> f64[7] {
+  %param.2 = f64[7]{0} parameter(0), sharding={devices=[4]<=[4]}, metadata={op_name="s"}
+  ROOT %slice_pad_fusion = f64[7]{0} fusion(%param.2), kind=kLoop, calls=%fused_computation, metadata={op_name="jit(<lambda>)/jit(scatter_local)/shard_map/jit(_pad)/pad" stack_frame_id=<n>}
 }

@@ -40,46 +40,76 @@ if TYPE_CHECKING:  # pragma: no cover
     from fridom.spatial.spaces.tensor_product import SpaceLike
 
 
+#: a per-side reach, ``(below, above)`` in the factor's index space
+Interval = tuple[int, int]
+#: a symmetric width ``w`` is the interval ``(w, w)``
+Widthish = int | Interval
+
+
+def _as_interval(value: Widthish) -> Interval:
+    """Normalize a scalar width or a ``(lo, hi)`` pair to an interval."""
+    lo, hi = (value, value) if isinstance(value, int) else value
+    if lo < 0 or hi < 0:
+        raise ValueError(
+            f"halo reach must be >= 0 per side, got {(lo, hi)!r}")
+    return (int(lo), int(hi))
+
+
 @dataclass(frozen=True, init=False)
 class HaloSpec:
 
     """
-    Negotiated ghost-layer widths, one per coordinate name.
+    Per-coordinate-name ghost reach, two-sided ``(below, above)``.
 
     Description
     -----------
-    Storage is a sorted ``tuple[tuple[str, int], ...]``, not a
-    mapping: frozen dataclasses used as jit-cache-key components must
-    be hashable. The constructor accepts any ``Mapping[str, int]``
-    and normalizes, so value-equal mappings produce equal (and
-    equally hashing) specs. ``grow`` and ``merge_max`` are the two
-    accumulation rules of the halo-accounting trace: sequential
-    un-synced applications *add*, parallel expression branches *max*.
+    Storage is a sorted ``tuple[tuple[str, tuple[int, int]], ...]``,
+    not a mapping: frozen dataclasses used as jit-cache-key components
+    must be hashable. Each name carries a per-side reach ``(lo, hi)``
+    — the depth read below/above the true region in the factor's
+    index space — so the halo accounting keeps the *asymmetry* of
+    staggered stencils (a biased reconstruction reaches further one
+    way) instead of collapsing to a symmetric maximum too early.
+
+    The constructor accepts a scalar width ``w`` (the symmetric
+    ``(w, w)``) or an explicit ``(lo, hi)`` pair per name and
+    normalizes; value-equal mappings produce equal (and equally
+    hashing) specs. Ghost *storage* stays symmetric: ``__getitem__``
+    and :attr:`widths` present the per-side maximum, the width a
+    symmetric halo must hold, so the negotiated storage width and
+    every storage consumer read the same scalar as before.
+
+    ``grow``/``consume`` are the sequential rules (a chain of
+    un-synced applications adds reaches per side / a stencil leaves
+    that many fewer valid layers per side); ``merge_max``/``merge_min``
+    are the parallel rules (independent branches max their demand /
+    a combined field claims the min validity every operand had).
 
     Parameters
     ----------
-    widths : Mapping[str, int]
-        Per-coordinate-name ghost widths; all widths must be >= 0.
+    widths : Mapping[str, int | tuple[int, int]]
+        Per-coordinate-name reach: a scalar symmetric width or an
+        explicit ``(below, above)`` pair; all values must be >= 0.
     """
 
-    widths: tuple[tuple[str, int], ...]
+    intervals: tuple[tuple[str, Interval], ...]
 
-    def __init__(self, widths: Mapping[str, int]) -> None:
-        """Normalize the mapping to sorted tuple storage (hashable)."""
-        items = []
-        for name in sorted(widths):
-            width = widths[name]
-            if width < 0:
-                raise ValueError(
-                    f"halo width along {name!r} must be >= 0, "
-                    f"got {width}")
-            items.append((name, int(width)))
-        object.__setattr__(self, "widths", tuple(items))
+    def __init__(self, widths: Mapping[str, Widthish]) -> None:
+        """Normalize the mapping to sorted interval storage (hashable)."""
+        items = [(name, _as_interval(widths[name]))
+                 for name in sorted(widths)]
+        object.__setattr__(self, "intervals", tuple(items))
+
+    @property
+    def widths(self) -> tuple[tuple[str, int], ...]:
+        """Per-name symmetric storage width (the per-side maximum)."""
+        return tuple((name, max(lo, hi))
+                     for name, (lo, hi) in self.intervals)
 
     @classmethod
     def zero(cls, names: tuple[str, ...]) -> HaloSpec:
         """
-        Build a spec with width 0 on every name.
+        Build a spec with reach 0 on every name.
 
         Parameters
         ----------
@@ -95,7 +125,14 @@ class HaloSpec:
 
     def __getitem__(self, name: str) -> int:
         """
-        Return the width along `name`.
+        Return the symmetric storage width along `name`.
+
+        Description
+        -----------
+        The per-side maximum ``max(lo, hi)`` — the width a symmetric
+        ghost halo must hold to cover the reach. Storage consumers
+        (the decomposition, the stencil bounds checks) read this;
+        per-side validity queries use :meth:`interval`.
 
         Parameters
         ----------
@@ -105,85 +142,162 @@ class HaloSpec:
         Returns
         -------
         int
-            The ghost width along `name`.
+            The symmetric ghost width along `name`.
 
         Raises
         ------
         KeyError
             If `name` is not covered by this spec.
         """
-        for key, width in self.widths:
-            if key == name:
-                return width
-        raise KeyError(name)
+        lo, hi = self.interval(name)
+        return max(lo, hi)
 
-    def grow(self, name: str, by: int) -> HaloSpec:
+    def interval(self, name: str) -> Interval:
         """
-        Return a new spec with `name` widened by `by`.
-
-        Description
-        -----------
-        The *sequential* accumulation rule: un-synced composition
-        chains add their per-operator widths.
+        Return the two-sided reach ``(below, above)`` along `name`.
 
         Parameters
         ----------
         name : str
             A coordinate name covered by this spec.
-        by : int
-            The additional width; must be >= 0.
+
+        Returns
+        -------
+        tuple[int, int]
+            The per-side reach along `name`.
+
+        Raises
+        ------
+        KeyError
+            If `name` is not covered by this spec.
+        """
+        for key, iv in self.intervals:
+            if key == name:
+                return iv
+        raise KeyError(name)
+
+    def covers(self, name: str, reach: Interval) -> bool:
+        """
+        Whether this spec's reach along `name` covers `reach` per side.
+
+        Description
+        -----------
+        Missing names count as ``(0, 0)``. Used by the consumption-side
+        sync check: an operand is valid for an application iff its
+        claimed validity covers the application's reach on *both*
+        sides — a spare low side does not pay for a short high side.
+
+        Parameters
+        ----------
+        name : str
+            A coordinate name.
+        reach : tuple[int, int]
+            The demanded ``(below, above)`` reach.
+
+        Returns
+        -------
+        bool
+            True iff ``below`` and ``above`` are both met.
+        """
+        try:
+            lo, hi = self.interval(name)
+        except KeyError:
+            lo, hi = 0, 0
+        return lo >= reach[0] and hi >= reach[1]
+
+    def grow(self, name: str, by: Widthish) -> HaloSpec:
+        """
+        Return a new spec with `name`'s reach grown by `by` per side.
+
+        Description
+        -----------
+        The *sequential* accumulation rule: un-synced composition
+        chains add their per-operator reaches (a Minkowski sum of the
+        offset windows). A scalar `by` grows both sides symmetrically.
+
+        Parameters
+        ----------
+        name : str
+            A coordinate name covered by this spec.
+        by : int | tuple[int, int]
+            The additional reach; each side must be >= 0.
 
         Returns
         -------
         HaloSpec
             The widened spec; `self` is unchanged.
         """
-        if by < 0:
+        add_lo, add_hi = (by, by) if isinstance(by, int) else by
+        if add_lo < 0 or add_hi < 0:
             raise ValueError(f"grow amount must be >= 0, got {by}")
-        merged = dict(self.widths)
-        merged[name] = self[name] + by
+        lo, hi = self.interval(name)
+        merged = dict(self.intervals)
+        merged[name] = (lo + add_lo, hi + add_hi)
         return HaloSpec(merged)
 
-    def consume(self, name: str, by: int) -> HaloSpec:
+    def consume(self, name: str, by: Widthish) -> HaloSpec:
         """
-        Return a new spec with `name` lowered by `by` (floor 0).
+        Return a new spec with `name`'s reach lowered by `by` (floor 0).
 
         Description
         -----------
-        The *validity* counterpart of ``grow`` (task 1.8): a stencil
-        application of reach ``by`` along ``name`` leaves ``by``
-        fewer valid ghost layers on its result. Names other than
-        `name` carry over.
+        The *validity* counterpart of ``grow`` (task 1.8): a stencil of
+        reach ``(below, above)`` leaves that many fewer valid ghost
+        layers on its result, per side. Names other than `name` carry
+        over.
 
         Parameters
         ----------
         name : str
             A coordinate name covered by this spec.
-        by : int
-            The consumed depth; must be >= 0.
+        by : int | tuple[int, int]
+            The consumed reach; each side must be >= 0.
 
         Returns
         -------
         HaloSpec
             The lowered spec; `self` is unchanged.
         """
-        if by < 0:
-            raise ValueError(
-                f"consume amount must be >= 0, got {by}")
-        merged = dict(self.widths)
-        merged[name] = max(self[name] - by, 0)
+        sub_lo, sub_hi = _as_interval(by)
+        lo, hi = self.interval(name) if name in self else (0, 0)
+        merged = dict(self.intervals)
+        merged[name] = (max(lo - sub_lo, 0), max(hi - sub_hi, 0))
+        return HaloSpec(merged)
+
+    def reset(self, name: str) -> HaloSpec:
+        """
+        Return a new spec with `name`'s reach set to ``(0, 0)``.
+
+        Description
+        -----------
+        The full-consume shorthand: a free re-sync point (a bounded
+        stencil, a retag, a re-block) drops all claimed validity along
+        the affected axis.
+
+        Parameters
+        ----------
+        name : str
+            A coordinate name.
+
+        Returns
+        -------
+        HaloSpec
+            The spec with `name` zeroed (added if absent).
+        """
+        merged = dict(self.intervals)
+        merged[name] = (0, 0)
         return HaloSpec(merged)
 
     def merge_max(self, other: HaloSpec) -> HaloSpec:
         """
-        Return the pointwise maximum of two specs.
+        Return the per-side maximum of two specs.
 
         Description
         -----------
         The *parallel* accumulation rule: independent tendency terms
-        contribute their maximum, not their sum. The result covers
-        the union of the two name sets; a name missing from one spec
-        counts as width 0.
+        contribute their maximum reach per side, not their sum. The
+        result covers the union of the two name sets; a name missing
+        from one spec counts as ``(0, 0)``.
 
         Parameters
         ----------
@@ -193,11 +307,12 @@ class HaloSpec:
         Returns
         -------
         HaloSpec
-            The pointwise-maximum spec over the union of names.
+            The per-side maximum over the union of names.
         """
-        merged = dict(self.widths)
-        for name, width in other.widths:
-            merged[name] = max(merged.get(name, 0), width)
+        merged = dict(self.intervals)
+        for name, (lo, hi) in other.intervals:
+            mlo, mhi = merged.get(name, (0, 0))
+            merged[name] = (max(mlo, lo), max(mhi, hi))
         return HaloSpec(merged)
 
     def over(self, names: tuple[str, ...]) -> HaloSpec:
@@ -206,10 +321,10 @@ class HaloSpec:
 
         Description
         -----------
-        Names missing from this spec count as width 0. Used to stamp
-        a field's halo validity from the decomposition-wide
-        negotiated widths (task 1.8): validity specs canonically
-        cover exactly the field's space names.
+        Names missing from this spec count as ``(0, 0)``. Used to stamp
+        a field's halo validity from the decomposition-wide negotiated
+        widths (task 1.8): validity specs canonically cover exactly the
+        field's space names.
 
         Parameters
         ----------
@@ -221,19 +336,44 @@ class HaloSpec:
         HaloSpec
             The restricted spec over `names`.
         """
-        widths = dict(self.widths)
-        return HaloSpec({name: widths.get(name, 0) for name in names})
+        current = dict(self.intervals)
+        return HaloSpec({name: current.get(name, (0, 0))
+                         for name in names})
+
+    def symmetric(self) -> HaloSpec:
+        """
+        Return the spec with every reach widened to its per-side max.
+
+        Description
+        -----------
+        The collapse to symmetric storage: ``(lo, hi) -> (m, m)`` with
+        ``m = max(lo, hi)``. The negotiated *storage* width is symmetric
+        (the halo holds the same layers on both sides), so the trace's
+        two-sided demand collapses here before it enters the
+        decomposition.
+
+        Returns
+        -------
+        HaloSpec
+            The symmetric spec.
+        """
+        return HaloSpec({name: max(lo, hi)
+                         for name, (lo, hi) in self.intervals})
+
+    def __contains__(self, name: str) -> bool:
+        """Whether `name` is covered by this spec."""
+        return any(key == name for key, _ in self.intervals)
 
     def merge_min(self, other: HaloSpec) -> HaloSpec:
         """
-        Return the pointwise minimum of two specs.
+        Return the per-side minimum of two specs.
 
         Description
         -----------
         The combination rule of halo *validity* (task 1.8): a field
         built from several operands can only claim ghost layers every
-        operand had. The result covers the union of the two name
-        sets; a name missing from one spec counts as width 0.
+        operand had, per side. The result covers the union of the two
+        name sets; a name missing from one spec counts as ``(0, 0)``.
 
         Parameters
         ----------
@@ -243,12 +383,15 @@ class HaloSpec:
         Returns
         -------
         HaloSpec
-            The pointwise-minimum spec over the union of names.
+            The per-side minimum over the union of names.
         """
-        mine = dict(self.widths)
-        theirs = dict(other.widths)
+        mine = dict(self.intervals)
+        theirs = dict(other.intervals)
         return HaloSpec({
-            name: min(mine.get(name, 0), theirs.get(name, 0))
+            name: (min(mine.get(name, (0, 0))[0],
+                       theirs.get(name, (0, 0))[0]),
+                   min(mine.get(name, (0, 0))[1],
+                       theirs.get(name, (0, 0))[1]))
             for name in mine.keys() | theirs.keys()})
 
 
@@ -428,15 +571,15 @@ class HaloTracer:
                       else space.factor(axis))
             if isinstance(factor, ConstantSpace):
                 return self._depth  # identity application
-            return self._depth.grow(axis, op.requirements(factor).halo)
-        halo = op.requirements(space).halo
+            return self._depth.grow(axis, op.requirements(factor).reach)
+        reach = op.requirements(space).reach
         depth = self._depth
-        if halo:
+        if reach != (0, 0):
             for factor in space.factors:
                 if isinstance(factor, ConstantSpace):
                     continue
                 for name in factor.names:
-                    depth = depth.grow(name, halo)
+                    depth = depth.grow(name, reach)
         return depth
 
     def _trace_apply(self, op: Operator) -> HaloTracer:
@@ -465,12 +608,12 @@ class HaloTracer:
             return result
         reset = getattr(op, "_trace_reset_names", None)
         if reset is not None:
-            widths = dict(self._depth.widths)
+            depth = self._depth
             for name in reset(self._space):
-                widths[name] = 0
+                depth = depth.reset(name)
             codomain = _laid_out_like(
                 resolve_codomain(op, self._space), self._space)
-            return self._child(codomain, HaloSpec(widths))
+            return self._child(codomain, depth)
         grown = self._grown(op)
         self._record(grown)
         codomain = _laid_out_like(
@@ -502,10 +645,11 @@ class HaloTracer:
             return grown
         if getattr(factor.mesh, "periodic", False):
             return grown
-        widths = dict(grown.widths)
-        if axis in widths and grown[axis] != self._depth[axis]:
-            widths[axis] = 0  # the stencil consumed a bounded axis
-        return HaloSpec(widths)
+        prior = (self._depth.interval(axis)
+                 if axis in self._depth else (0, 0))
+        if axis in grown and grown.interval(axis) != prior:
+            return grown.reset(axis)  # stencil consumed a bounded axis
+        return grown
 
     def _trace_apply_nary(
         self, op: Operator, operands: tuple[object, ...],
@@ -528,14 +672,14 @@ class HaloTracer:
                 depth = depth.merge_max(operand._depth)  # noqa: SLF001
             spaces.append(operand.function_space)
         codomain = op.codomain(*(space.bare for space in spaces))
-        halo = op.requirements(codomain).halo
-        if halo:
+        reach = op.requirements(codomain).reach
+        if reach != (0, 0):
             for factor in codomain.factors:
                 if isinstance(factor, ConstantSpace):
                     continue
                 for name in factor.names:
                     depth = depth.merge_max(
-                        HaloSpec({name: 0})).grow(name, halo)
+                        HaloSpec({name: 0})).grow(name, reach)
         self._record(depth)
         codomain = _laid_out_like(codomain, self._space)
         return self._child(codomain,
@@ -685,9 +829,8 @@ class HaloTracer:
         else:
             target = dst
         target = _laid_out_like(target, self._space)
-        widths = dict(self._depth.over(tuple(target.names)).widths)
-        widths[name] = 0
-        return self._child(target, HaloSpec(widths))
+        depth = self._depth.over(tuple(target.names)).reset(name)
+        return self._child(target, depth)
 
     def _broadcast_factor(
         self, name: str, dst: SpaceLike,
@@ -1033,4 +1176,6 @@ def trace_halo(
         state = (tracers[0] if len(tracers) == 1
                  else VectorTracer(tracers))
     tendency(state)
-    return recorder.spec
+    # storage is symmetric: collapse the two-sided sync-free demand to
+    # the per-side maximum width the negotiated halo must hold
+    return recorder.spec.symmetric()

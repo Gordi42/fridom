@@ -36,17 +36,19 @@ memory ceiling, time-to-first-step, WENO throughput (entries in
   on a 4-GPU allocation. New runs report the honest `compile_s`
   metric (chunk metric fixed 2026-07-18; entry in
   [`done.md`](done.md)).
-- **Async two-tier chunk compile** (optional, interactive-UX). Measured
-  (first advance −24..31%, steady state bitwise-unchanged), default-off
-  patch preserved, unlanded.
-  [`../research/time_to_first_step.md`](../research/time_to_first_step.md)
-- **Storage-halo width probe.** Biased order-5 pads storage to `n+8`
-  per axis where the nominal reach needs `n+6` (centered: `n+4` vs
-  `n+2`) — ~6% inflation on every upwind5 buffer, est. 2–3 ms/step
-  @192³ on RTX-3060-class hardware. A core staggering-policy
-  question, parity-sensitive, unprobed
-  ([`../research/upwind5_revisit.md`](../research/upwind5_revisit.md)
-  §6).
+- **Storage-halo width — remainders.** The biased +1 layer is
+  recovered: two-sided (interval) halo accounting shipped 2026-07-18,
+  upwind5/weno5 storage `n+8 → n+6`, bitwise parity, sync-count
+  invariant (entry in [`done.md`](done.md); record
+  [`../research/storage_halo_width.md`](../research/storage_halo_width.md)).
+  Still open: (a) the centered family stays at `n+4` — its traced
+  chain tightens to width 1 but `DynamicalCore.extra_halo = 2` floors
+  the assembled model at 2; revisit the floor (twin of the reverted
+  shallow-water `extra_halo` item,
+  [`../plans/active/perf_geometry_merge_plan.md`](../plans/active/perf_geometry_merge_plan.md)
+  §1.3); (b) GPU wall-clock A/B of the narrowed biased step —
+  manual protocol, owner-triggered (est. 2–3 ms/step @192³ on
+  RTX-3060-class, −3.0% step bytes @192³).
 - **Hydro surface-flux correction: slice-only `A(1)`.** The H7
   constancy-preserving surface advective flux (owner-ratified
   default, [`../plans/active/hydrostatic_model_plan.md`](../plans/active/hydrostatic_model_plan.md)
@@ -480,20 +482,6 @@ V-cycle kernel swap it called for shipped 2026-07-18 (merge
   then a multi-device run that sees them should set
   `multigrid_tridiagonal_method="pcr"` (pure jax, partitions
   cleanly). Caveat documented in `banded.py`.
-- **Multigrid depth default — adopt floor-limited depth.** The
-  size-scaling investigation
-  ([`../research/multigrid_depth_scaling.md`](../research/multigrid_depth_scaling.md),
-  2026-07-18) showed the `multigrid_levels=5` default *caps* the
-  hierarchy and breaks h-independence from 256³ up (iterations
-  10 → 27 at 512³: the coarsest level outgrows its 8 sweeps); at
-  floor-scaled depth (L=6/L=7) multigrid beats spectral in-model
-  1.23× at 256³ / 1.22× at 512³ (GB-2 ≥1.5× still unmet). Proposed
-  src change (not made): default `multigrid_levels` to floor-limited
-  depth (`None` → coarsen to the 4-cell horizontal floor, an int
-  stays as an explicit cap) — measured free (per-cycle cost and
-  memory unchanged L=5 → L=8 at 512³). Until adopted, mapped
-  multigrid runs at n ≥ 256³ should pass the depth by hand (6 at
-  256³, 7 at 512³).
 - **Residual mapped-GPU levers, unclaimed** — fewer coarse sweeps;
   cheaper mapped operator applies (the finest level dominates the
   post-swap V-cycle: one sweep = 15.7 ms cuSPARSE solve + 12.0 ms
