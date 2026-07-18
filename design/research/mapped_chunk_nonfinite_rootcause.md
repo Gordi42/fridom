@@ -141,12 +141,16 @@ masked-singularity poison this is the *forward* twin of).
   the parity test green. The `MetricScaled` seal is therefore
   **defensive-only** — nothing routes the historical fault through it
   today.
-- **D4 hold.** Consequently the `MetricScaled` pad-inf seal is **not
-  landed**. It is implemented and reviewed on local branch
-  `fix/pad-inf-hardening` (commit `76eb9461`: `_sealed_divide` on both
-  divide branches, bitwise on valid cells, finite pad storage, finite
-  VJP, operator tests), but held pending owner decision **D4** — dev
-  `93049651` documents the deferral in `mapped.py`, and because the
-  divide sits in the every-step pressure solve its "~free" cost is
-  unproven. Decision: measure the seal's step cost and land `76eb9461`,
-  or accept the deferral and delete the branch.
+- **D4 hold — resolved (2026-07-19).** The hold was overtaken the
+  same evening: the differentiability campaign disproved the
+  defensive-only premise for the **reverse** pass (a chart sw2
+  IC-grad NaNs through the very same divides; the forward analysis
+  above stands) and shipped its own seal, dev merge `7fdbc900`
+  (`_sealed_metric_divide` on both branches, 4 operator tests +
+  sphere-chart autodiff regression), with a measured cost proof of
+  exactly 0.000% added FLOPs/bytes on the mapped PCG step (the
+  static-geometry mask constant-folds, the singular quotient is
+  DCE'd). The owner ratified the seal 2026-07-19. The held local
+  branch `fix/pad-inf-hardening` was verified fully redundant (same
+  double-`where` seal at the same two sites; its tests a subset) and
+  deleted (tip `69b3a9e8`). No hardening residual remains.

@@ -299,8 +299,8 @@ into the roadmap's sized-deferred section.
 - **D4 — `MetricScaled` canary.** Comment-only (recommended) or also
   a direct grad canary test pinning today's reverse-safety.
   [Resolved 2026-07-18 (`7fdbc900`): neither — a live NaN forced a
-  full seal, not a canary; owner ratification of the reversal still
-  owed. §10.]
+  full seal, not a canary; the reversal was owner-ratified
+  2026-07-19. §10.]
 - **D5 — Phase 2 sequencing.** Recommended: land 5.3 items 1-4
   independent of TDF, with the frozen-L refusal in its conservative
   fallback form if TDF wave 1 has not merged yet, upgraded to the
@@ -350,7 +350,7 @@ The campaign executed in one day; every phase merged to dev.
   the canonical differentiability pattern (the private `_chunk_body`
   shards stay valid).
 
-**D4 premise reversal (owner ratification owed).** §4/§8's approved
+**D4 premise reversal (owner-ratified 2026-07-19).** §4/§8's approved
 "comment-only watch-item" for the `MetricScaled` reciprocal /
 coefficient divides (`spatial/operators/mapped.py`) was DISPROVEN:
 they fire live — walled/sphere chart sw2 IC-grad through `_chunk_body`

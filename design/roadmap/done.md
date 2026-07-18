@@ -151,7 +151,8 @@ Implementation record:
   masked-singularity class is CLOSED across the step path. AGENTS.md's
   differentiability policy now names `Model.propagator` the canonical
   pattern (the private `_chunk_body` shards stay valid). **Owner-review
-  notes (unratified):** (1) D4 was executed as a *seal*, not the plan's
+  notes (item 1 owner-ratified 2026-07-19; 2–4 still unratified):**
+  (1) D4 was executed as a *seal*, not the plan's
   approved comment-only watch-item — the premise was DISPROVEN: the
   `MetricScaled` divides fire live (walled/sphere IC-grad through
   `_chunk_body` NaNs, isolated by bisection, fires with `coriolis=None`
@@ -254,9 +255,11 @@ Implementation record:
   `_divide_by_jacobian` guard reproduces `PanicError` at it=2 already
   at n=8 (a smaller floor than the n=64 recorded above). Not bitwise:
   CPU scan-length grouping reassociates FP at ~3e-15, while the GPU
-  256³ measurement above was bitwise. The remaining hardening residual
-  (the held `MetricScaled` pad-inf seal, owner decision D4) is tracked
-  in [`open.md`](open.md). Record:
+  256³ measurement above was bitwise. The last hardening residual —
+  the held `MetricScaled` pad-inf seal, owner decision D4 — closed
+  2026-07-19: the differentiability campaign's own seal (`7fdbc900`,
+  live reverse-NaN + 0.000%-FLOPs cost proof) was owner-ratified and
+  the redundant held branch deleted; nothing remains open. Record:
   [`mapped_chunk_nonfinite_rootcause.md`](../research/mapped_chunk_nonfinite_rootcause.md).
 
 - **Storage-halo width recovered — two-sided (interval) halo
