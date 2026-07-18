@@ -1,5 +1,5 @@
 ---
-status: active
+status: done
 date: 2026-07-18
 ---
 
@@ -314,3 +314,49 @@ covered by keeping the error surface and the existing refusal tests
 byte-compatible; (iii) per-substage cost — a 1-D profile FMA-scale
 recompute, negligible; full-3-D laws are possible but priced at one
 field evaluation per substage (documented, not optimized).
+
+## Landed
+
+All three waves shipped 2026-07-18.
+
+- **Wave 1 — structural frozen-`L` guard** (`refactor/linear-term-guard`,
+  merge `bb2fb96f`; 11 files, +636/−68). TDF-D4 in full.
+- **Wave 2 — mechanism + consumers** (`feat/time-dependent-fields`,
+  merge `ceb9db75`; 14 files, +1424/−78). TDF-D1/D2/D3/D7/D8.
+- **Wave 3 — honesty sweep + records** (`chore/td-fields-honesty`,
+  this merge). TDF-D6 + roadmap hygiene + this move to `plans/done/`.
+
+**Lowering notes (as shipped).**
+
+- *Wave 1:* the structural frozen-`L` sweep lives in the base-class
+  default of `Module.time_dependent_linear_parameters`, not in the
+  assembly guard — the guard call-site, per-module offender
+  attribution, `TimeDependentLinearOperatorError` and its message stay
+  byte-compatible; resolution is module-local, so cross-module
+  dependencies (the `dsqr` case) are reported by the **owning** module
+  (`DynamicalCore`), and `tendency_terms()`-built terms stay unguarded
+  unless the owner overrides the hook. See the "Lowering note (Wave 1,
+  as shipped)" section above.
+- *Wave 2:* the `(coords, t)` recompute core and `ProfileFunction` were
+  extracted into `model/scheduled_field.py` and `MovingGeometry` was
+  re-expressed on the shared helper **bitwise** (its tests are the
+  regression gate); the `time_dependent` marker rides
+  `FieldDeclaration` → `FieldRecord`, the `SELF_UPDATE` coverage lint
+  keys off `Stage(writes=)` with the "owner has at least one
+  `SELF_UPDATE` stage" fallback, and the law-valued `f`/`csqr` paths
+  materialize their `t=0` snapshot via the `default=` builder while the
+  per-substage stage rewrites the field at stage time. (Wave 2 did not
+  add a separate lowering-note block to this plan; this is that
+  one-line summary.)
+
+**Open remainders** (trimmed into
+[`../../roadmap/open.md`](../../roadmap/open.md)):
+
+1. Nonhydro `n2(z, t)` law-valued path (TDF-D7) — `ConstantStratification`
+   does not yet accept a `ProfileFunction`; a named follow-up.
+2. `FieldBlend` unification (TDF-D9) — the affine-blend `f_coriolis`
+   still evaluates term-side (AR-D2); re-basing it on the `SELF_UPDATE`
+   rewrite path is an owner decision, logged as an open question.
+3. A re-diagonalization contract for the analysis tools — explicitly
+   **out of scope** per TDF-D6; the eigen/energy surfaces stay
+   time-frozen with documented `at_time` snapshot semantics.

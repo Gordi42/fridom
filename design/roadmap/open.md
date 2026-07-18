@@ -303,56 +303,36 @@ Records: [`../plans/active/cutover_parity_plan.md`](../plans/active/cutover_pari
 [`../plans/active/cutover_checklist.md`](../plans/active/cutover_checklist.md)
 (the executable swap list).
 
-## Time-dependent parameters **and time-dependent fields**
+## Time-dependent fields — remaining follow-ups
 
-Requested by Silvano, 2026-07-14 (while landing `ETDRK4`).
+The general non-affine time-dependent field mechanism
+(`ProfileFunction` + the `SELF_UPDATE` recompute), the `dsqr` AR-D7
+cross-module wiring, and the `ETDRK4` answer (refuse a time-dependent
+`L`) shipped across three waves — see the done.md entry and
+[`../plans/done/time_dependent_fields.md`](../plans/done/time_dependent_fields.md).
+What remains:
 
-Today a `Ramp` reaches only the *scalar* parameter leaves. `f` and
-`csqr` are not scalars: they are materialized at assembly into
-AUXILIARY **fields** (`FPlaneCoriolis._f_default` /
-`DynamicalCore._csqr_default` call `jnp.full(space.shape, self.f0)`),
-so `FPlaneCoriolis(f0=Ramp(...))` raises a bare `TypeError` from
-`jnp.full`. Two levels are wanted, and the second is the real ask:
-
-1. **Time-dependent scalars** — `f0`, `csqr`, ... accept a
-   `TimeDependent` and resolve at stage time (`resolve_at`). Mostly a
-   matter of routing the declaration's `default=` through the
-   time-dependent path instead of freezing it once, plus a taught error
-   where a consumer needs a frozen snapshot.
-2. **Time-dependent fields** — `f(y, t)`, `csqr(y, t)`: a *profile* that
-   itself evolves. This is not just a leaf swap. An AUXILIARY field is
-   carry-resident and its treedef must stay scan-stable, so the
-   time-dependence has to enter either as a stage that rewrites the
-   field (a `SELF_UPDATE`/`DIAGNOSE` kind) or as a declaration-level
-   "recompute from `(coords, t)` each step" contract. Which of those is
-   right is the design question; the coverage lint and the halo/GAP-B
-   rules both bear on it.
-
-Level 1 and the *affine-blend* subset of level 2 (a field that moves
-along an affine path in declared scalars, e.g.
-`f(y,t) = f0(t) + beta(t) * y`) **shipped 2026-07-17** as stages
-R1/R2 of
-[`../plans/done/adiabatic_ramping.md`](../plans/done/adiabatic_ramping.md).
-What stays open **here**: the general case (profiles with non-affine
-time dependence), plus one small follow-up from that landing —
-`dsqr`'s AR-D7 report is cross-module (owned by `DynamicalCore`,
-consumed by `ConstantStratification.buoyancy_force`) and is
-documented but not wired.
-
-**Interaction with the exponential stepper** (the reason this surfaced):
-`ETDRK4` freezes `L` in an eigenbasis snapshot. Anything time-dependent
-that lives in `N` is already correct (the `Ramp` on `scaling.rossby`
-is tested). But a time-dependent `f`/`csqr` lives in **L**, and
-`L(t1)`/`L(t2)` do not commute, so `exp(L dt)` stops being the
-propagator — the stepper would silently integrate a stale operator. Any
-design here must say what `ETDRK4` does about it. The measured fallback
-is recorded in
-[`../research/exponential_stepper.md`](../research/exponential_stepper.md)
-§5: keep the stiff time-independent part (gravity) in the eigenbasis,
-leave the time-dependent part in the tendency — still 52.7x AB3, capped
-by the inertial rather than the gravity CFL. Note also that a
-time-dependent `L` has no fixed eigenbasis at all, so the discrete
-eigenanalysis is itself undefined in that regime.
+1. **Nonhydro `n2(z, t)` law-valued path (TDF-D7).** The Coriolis
+   `f(y, t)` and shallow-water `csqr(y, t)` law paths shipped;
+   `ConstantStratification` does not yet accept a `ProfileFunction`
+   for a non-affine `n2(z, t)` profile. A named follow-up, deliberately
+   out of the shipped plan's scope.
+2. **`FieldBlend` unification (TDF-D9, owner decision).** The
+   affine-blend `f_coriolis` still evaluates term-side (AR-D2), which
+   leaves the known IO-staleness wart (`f_coriolis` IO shows the `t=0`
+   snapshot). Re-basing it on the `SELF_UPDATE` rewrite path would fix
+   that too, but relitigates an owner-ratified ruling and changes
+   tested behavior — logged as an open question for the owner, nothing
+   more.
+3. **A re-diagonalization contract for the analysis tools — declined
+   (TDF-D6).** The eigen/analysis surfaces (`eigenbasis` /
+   `ChannelEigenmodes` / `Eigenmodes.from_model`, the `EnergyMetric`
+   weights) stay deliberately time-frozen: they snapshot `f`/`csqr`/
+   `dsqr` at a fixed `at_time` (docstrings now say so). A contract that
+   makes them track a time-dependent `L` is explicitly out of scope —
+   a time-dependent `L` has no fixed eigenbasis, so the discrete
+   eigenanalysis is undefined in that regime. Recorded here only so the
+   decision is not silently lost.
 
 ## Adiabatic-ramping docs — example review (deferred at landing)
 
