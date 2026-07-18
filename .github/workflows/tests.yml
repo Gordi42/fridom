@@ -77,6 +77,8 @@ jobs:
           tests/model/test_end_to_end.py \
           tests/model/test_model.py \
           tests/model/test_eigenbasis_distributed.py \
+          tests/model/test_eigen.py \
+          tests/spatial/test_freeze_fingerprint.py \
           tests/nonhydro2/test_distributed_projection.py -q \
           --cov --cov-append --cov-report=
 

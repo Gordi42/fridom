@@ -31,17 +31,31 @@ COMPONENTS = ("u", "v", "p")
 CSQR = 2.0
 
 
+def _one_device_grid(*, periodic_y=True):
+    # device_ids=(0,) twin of the conftest make_grid: the analytic IC
+    # synthesis and eigenmode projections go through the naive (GSPMD)
+    # transform, a Tier-1 taught error on a sharded transform axis (see
+    # transform.py). Pinning to one device tests the math at any device
+    # count (the default single-device suite is unchanged).
+    mx = fr.spatial.meshes.IntervalMesh(N, (0.0, 1.0),
+                                     periodic=True, name="x")
+    my = fr.spatial.meshes.IntervalMesh(N, (0.0, 1.0),
+                                     periodic=periodic_y, name="y")
+    return fr.spatial.Grid((mx, my), device_ids=(0,))
+
+
 @pytest.fixture(scope="module")
 def periodic():
     """One linear periodic model + analytic eigenmodes (shared)."""
-    model = make_model(csqr=CSQR, f0=1.5, advection=False)
+    model = make_model(_one_device_grid(), csqr=CSQR, f0=1.5,
+                       advection=False)
     return model, sw.eigenmodes.from_model(model)
 
 
 @pytest.fixture(scope="module")
 def channel():
     """One walled channel model + labeled eigenbasis (shared)."""
-    model = make_model(make_grid(periodic_y=False), csqr=CSQR,
+    model = make_model(_one_device_grid(periodic_y=False), csqr=CSQR,
                        f0=1.5, advection=False)
     return model, sw.eigenbasis(model)
 
@@ -223,13 +237,31 @@ def test_channel_random_state_is_deterministic(channel):
                      sw.random_vortical(eb, seed=5))
 
 
+@pytest.mark.multi_device
+def test_channel_random_state_on_a_sharded_grid_is_a_taught_error(
+        forced_devices):
+    # known test debt: the channel random-state synthesis projects
+    # through the naive (GSPMD) transform, so on a grid that shards the
+    # periodic axis the Tier-1 guard raises. The determinism math above
+    # runs at any device count via the device_ids=(0,) channel fixture.
+    if forced_devices is not None:
+        assert jax.device_count() == forced_devices
+    model = make_model(make_grid(periodic_y=False), csqr=CSQR,
+                       f0=1.5, advection=False)
+    eb = sw.eigenbasis(model)
+    with pytest.raises(NotImplementedError,
+                       match="cannot run on this grid"):
+        sw.random_vortical(eb, seed=4)
+
+
 # ================================================================
 #  single_wave (the SingleWave port)
 # ================================================================
 @pytest.fixture(scope="module")
 def wave_setup():
     """One linear periodic model with a wave-resolving time step."""
-    model = make_model(csqr=CSQR, f0=1.5, advection=False, dt=1e-3)
+    model = make_model(_one_device_grid(), csqr=CSQR, f0=1.5,
+                       advection=False, dt=1e-3)
     return model, sw.eigenmodes.from_model(model)
 
 
@@ -356,28 +388,36 @@ def test_eddy_taught_errors(periodic, channel):
 # ================================================================
 #  Multi-device: same seed, any device count
 # ================================================================
+def test_random_state_is_deterministic_on_one_device():
+    # the single-device math: the same seed realizes the same state, a
+    # different seed a different one (device-count invariance is dead
+    # test debt now the sharded path is a Tier-1 taught error, asserted
+    # below). device_ids=(0,) keeps this valid at any device count.
+    model = make_model(_one_device_grid(), csqr=CSQR, f0=1.5,
+                       advection=False)
+    em = sw.eigenmodes.from_model(model)
+    assert _same(sw.random_vortical(em, seed=21),
+                 sw.random_vortical(em, seed=21))
+    assert not _same(sw.random_vortical(em, seed=21),
+                     sw.random_vortical(em, seed=22))
+
+
 @pytest.mark.multi_device
-def test_random_state_is_device_count_invariant(forced_devices):
-    # the phases are keyed on global DOF indices and the transforms
-    # compose under the decomposition, so the same seed realizes
-    # the same state on any device layout
+def test_random_state_on_a_sharded_grid_is_a_taught_error(
+        forced_devices):
+    # known test debt: the analytic random-state synthesis projects
+    # through the naive (GSPMD) transform, so on a grid that shards a
+    # periodic (transform) axis the Tier-1 guard raises instead of
+    # silently all-gathering (CPU) / crashing the distributed-FFT
+    # lowering (GPU) -- device-count invariance is no longer claimed.
     if forced_devices is not None:
         assert jax.device_count() == forced_devices
-    results = {}
-    for tag, device_ids in (("many", None), ("one", (0,))):
-        mx = fr.spatial.meshes.IntervalMesh(N, (0.0, 1.0),
-                                         periodic=True, name="x")
-        my = fr.spatial.meshes.IntervalMesh(N, (0.0, 1.0),
-                                         periodic=True, name="y")
-        model = make_model(
-            fr.spatial.Grid((mx, my), device_ids=device_ids),
-            csqr=CSQR, f0=1.5, advection=False)
-        em = sw.eigenmodes.from_model(model)
-        results[tag] = sw.random_vortical(em, seed=21)
-        if tag == "many":
-            data = results[tag]["u"]._data
-            assert len(data.sharding.device_set) == jax.device_count()
-    assert max(
-        float(np.abs(np.asarray(results["many"][c].data)
-                     - np.asarray(results["one"][c].data)).max())
-        for c in COMPONENTS) < 1e-12
+    mx = fr.spatial.meshes.IntervalMesh(N, (0.0, 1.0),
+                                     periodic=True, name="x")
+    my = fr.spatial.meshes.IntervalMesh(N, (0.0, 1.0),
+                                     periodic=True, name="y")
+    model = make_model(fr.spatial.Grid((mx, my)), csqr=CSQR, f0=1.5,
+                       advection=False)
+    with pytest.raises(NotImplementedError,
+                       match="cannot run on this grid"):
+        sw.eigenmodes.from_model(model)

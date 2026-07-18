@@ -486,7 +486,11 @@ def test_warm_eager_solve_adds_zero_compiles(compile_counter):
 
 
 @pytest.mark.multi_device
-def test_mismatched_layouts_fall_back_to_the_composite():
+def test_mismatched_layout_is_a_tier_one_taught_error():
+    # a foreign operand layout the slab cannot serve would fall back to
+    # the naive replicated composite; that composite shards a transform
+    # axis, so the Tier-1 guard rejects it (deliberate, no reroute — the
+    # solve is only defined on the layout the slab was negotiated for)
     grid = make_grid((16, 16, 16))
     decomp = grid.decomposition
     rhs = grid.create_field(data=rng_data((16, 16, 16)))
@@ -495,10 +499,9 @@ def test_mismatched_layouts_fall_back_to_the_composite():
     assert solve.slab is not None
     moved = rhs.reshard(decomp.layout_for(("x",)))
     assert not solve.slab.applies(moved)
-    # the replicated composite serves the foreign layout
-    assert np.allclose(np.asarray(solve(moved).data),
-                       np.asarray(solve(rhs).data),
-                       rtol=1e-12, atol=1e-14)
+    with pytest.raises(NotImplementedError,
+                       match="cannot run on this grid"):
+        solve(moved)
 
 
 # ================================================================
@@ -529,19 +532,33 @@ def test_walled_mixed_resolves_to_a_staged_slab_solve():
 
 
 @pytest.mark.multi_device
-def test_walled_mixed_solve_matches_the_replicated_composite():
+def test_walled_mixed_slab_matches_a_one_device_reference():
+    # the fused slab still solves the mixed walled system, but the naive
+    # replicated composite that used to be the reference now shards a
+    # transform axis and is a Tier-1 taught error (no reroute), so the
+    # reference is an explicit device_ids=(0,) solve instead
+    data = rng_data((16, 16, 16), seed=1)
     grid = make_walled_grid((16, 16, 16))
-    rhs = grid.create_field(data=rng_data((16, 16, 16), seed=1))
+    rhs = grid.create_field(data=data)
     solve_space = _bc_sibling(rhs.function_space.bare, BC.NEUMANN)
     solve = SpectralSolve(
         walled_laplacian_on(grid, solve_space), grid, solve_space)
     assert solve.slab is not None
     operand = rhs.retag(solve_space)
-    # the fused slab (solve.__call__) vs the replicated composite on
-    # the same operand — the walled column keeps a Fourier axis, so
-    # the composite gathers cleanly on the multi-device mesh
+    # the naive composite gathers a sharded transform axis -> rejected
+    with pytest.raises(NotImplementedError,
+                       match="cannot run on this grid"):
+        solve.composite(operand)
+    # the one-device reference: every axis local, so the composite the
+    # slab reproduces is legal there
+    one_grid = make_walled_grid((16, 16, 16), device_ids=(0,))
+    one_rhs = one_grid.create_field(data=data)
+    one_space = _bc_sibling(one_rhs.function_space.bare, BC.NEUMANN)
+    one_solve = SpectralSolve(
+        walled_laplacian_on(one_grid, one_space), one_grid, one_space)
+    one_operand = one_rhs.retag(one_space)
     assert np.allclose(np.asarray(solve(operand).data),
-                       np.asarray(solve.composite(operand).data),
+                       np.asarray(one_solve(one_operand).data),
                        rtol=1e-11, atol=1e-13)
 
 
