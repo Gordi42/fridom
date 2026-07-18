@@ -96,6 +96,34 @@ Implementation record:
 
 ## Landed since, outside the numbered tasks
 
+- **Half-axis-sharded 3-D channel served — layout-aware half-axis
+  re-designation** (2026-07-18, merge `feade7fa`; coverage follow-up
+  merge `964a9117`) — the last remainder case with a fast path: when
+  the default layout shards the engine's half (`rfft`) axis (reachable
+  only when an earlier periodic axis is indivisible by P — see the
+  exposure survey), `channel_eigenpairs` now designates a **local**
+  periodic axis as the half axis (`_designate_half_axis`), so the
+  shipped fused contraction serves the layout with roles swapped —
+  zero new collective code, and the basis is *built* directly in the
+  chosen frame (no runtime re-layout). Byte-identical whenever the
+  last periodic axis is local (single device and all
+  previously-served layouts). Touched: the pick + Fourier-axis
+  ordering (`model/eigen_channel.py`), `fourier_ops`
+  (`model/_eigenbasis.py`), the nh Leray labeler
+  `_constrained_column` generalization
+  (`nonhydro2/channel_eigenmodes.py`), stale-remainder docstring trim,
+  a GPU-scoped end-to-end regression test + a CPU-safe pick unit test
+  (forced-4 CI leg). Gates: frame freedom proven single-device
+  (both frames agree ≤ 2.5e-14); 4×A100 many-vs-one 8.5e-15,
+  idempotency 1.4e-14, HLO all-to-all present / all-gather absent;
+  per-test outcomes across the 8 mirrored/adjacent eigen test files
+  **byte-identical to base dev** on the 4-GPU node (334 outcomes, the
+  only delta the new passing test; the pre-existing multi-device
+  setup faults unchanged); ruff clean. Non-perf-sensitive (build-time
+  pick + projection utilities; step path untouched) — no guard run.
+  Record: [`eigen_remainder_investigation.md`](../research/eigen_remainder_investigation.md)
+  (the validated patches it archived landed as this merge).
+
 - **Channel eigenmodes run multi-GPU — fused distributed contraction**
   (2026-07-18, merge `e60259de`) — the projection/`f(L)` application
   (`_eigenbasis._contract_planes`) no longer rejects a grid that

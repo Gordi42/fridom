@@ -1,8 +1,11 @@
 # The sharded-periodic channel remainder: anatomy and solution paths
 
-**Date:** 2026-07-18. **Status:** investigation complete; solutions
-probed, one prototyped and validated (unmerged — patches in
-[`artifacts/eigen_remainder/`](artifacts/eigen_remainder/)).
+**Date:** 2026-07-18. **Status:** investigation complete; the
+half-axis re-designation (§3.1) **landed** the same day (merge
+`feade7fa`, coverage follow-up `964a9117`) — the patches in
+[`artifacts/eigen_remainder/`](artifacts/eigen_remainder/) are the
+archived evidence of what landed. The 2-D gather path (§3.2) remains
+recommended-not-implemented.
 **Context:** follow-on to the fused distributed contraction (merge
 `e60259de`, `multidevice_test_faults.md` §"Item 1, GPU mechanism —
 real fix shipped"). All GPU numbers: 4×A100, jax/jaxlib 0.10.2.
@@ -121,11 +124,12 @@ no runtime re-layout of the basis exists at all.
   kernel verbatim. Documented as the fallback if a layout ever *needs*
   the half spectrum pinned to a sharded axis.
 
-Landing note (doc hygiene): once re-designation lands, the "half axis
-itself sharded" clauses in `distributed_contract.py` and
-`_reject_sharded_projection` become unreachable for the 3-D channel
-and should be trimmed to the then-reachable remainder (2-D channel,
-non-1-D mesh).
+Landing note (doc hygiene): with re-designation landed, the "half
+axis itself sharded" clauses in `distributed_contract.py` and
+`_reject_sharded_projection` are unreachable for the 3-D channel;
+they were trimmed to defensive notes in the landing merge
+(`feade7fa`), the taught error now naming only the reachable
+remainder (2-D channel, non-1-D mesh).
 
 ### 3.2 2-D channel → **gather fallback preferred; psum kernel proven but shelved**
 
@@ -177,7 +181,7 @@ declines stay.
 
 | case | exposure | recommendation | status |
 |---|---|---|---|
-| half axis sharded | low (indivisible-first-periodic extents only) | layout-aware half-axis re-designation | prototype validated, patches ready |
+| half axis sharded | low (indivisible-first-periodic extents only) | layout-aware half-axis re-designation | **landed** (merge `feade7fa`) |
 | 2-D channel | default for 2-D on >1 device | gather path scoped to 2-D | probed both mechanisms; needs owner ratification + implementation |
 | non-1-D mesh | unreachable | keep defensive decline | pencil primitive proven, recorded |
 

@@ -109,15 +109,10 @@ contraction shipped 2026-07-18 (merge `e60259de`, entry in
 - **Unsupported sharded-periodic remainder** (kept on the narrowed
   taught `NotImplementedError`) — solution paths investigated
   2026-07-18
-  ([`../research/eigen_remainder_investigation.md`](../research/eigen_remainder_investigation.md)):
-  - *Half axis sharded* (low exposure — only extents whose first
-    periodic axis is indivisible by P): layout-aware half-axis
-    re-designation lets the shipped fused kernel serve it with roles
-    swapped; **prototype validated on 4×A100** (many-vs-one 8.5e-15,
-    all gates green), patches ready in
-    [`../research/artifacts/eigen_remainder/`](../research/artifacts/eigen_remainder/)
-    awaiting the owner's go-ahead to land (plus the stale-docstring
-    trim noted in the record).
+  ([`../research/eigen_remainder_investigation.md`](../research/eigen_remainder_investigation.md));
+  the half-axis-sharded 3-D case **shipped** the same day
+  (layout-aware half-axis re-designation, merge `feade7fa` — entry in
+  [`done.md`](done.md)). Still the remainder:
   - *2-D channel* (highest exposure — the **default** for any 2-D
     channel on >1 device): recommend a gather path scoped to 2-D
     (exact, negligible cost at every size the dense engine can build;
