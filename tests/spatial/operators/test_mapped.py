@@ -1,5 +1,7 @@
 """Tests for fridom.spatial.operators.mapped."""
+import jax
 import jax.numpy as jnp
+import numpy as np
 import pytest
 
 from fridom.spatial.coordinate_mapping import CoordinateMapping
@@ -362,3 +364,92 @@ def test_metric_scaled_params_property_and_application(grid, mx,
     x = grid.evaluation_nodes(space, "x").data
     expected = jnp.broadcast_to(2.0 * depth(x), out.data.shape)
     assert jnp.allclose(out.data, expected)
+
+
+# ================================================================
+#  MetricScaled: reverse-mode VJP seal (chart metric ghost ring)
+# ================================================================
+# ``grid.metric`` returns an unsynced field whose never-valid storage
+# padding is an exact zero (``store`` zero-fills the halo); on a chart
+# the metric divides therefore feed the reciprocal an exact-0
+# denominator ring. The forward quotient there is a masked 0/0 the
+# post-application sync strips, but its reverse VJP (``-num/den**2`` at
+# ``den == 0``) is ``0 * inf = NaN`` — the poison ``_sealed_metric_divide``
+# cures. Both branches (reciprocal, coefficient) share the seal.
+def _unit_field(grid, space):
+    """Return a ones-valued field on ``space`` (padding zero-filled)."""
+    return grid.create_field(
+        space, init=lambda x, sigma: 1.0 + 0 * x + 0 * sigma)
+
+
+def test_reciprocal_seal_removes_padding_nan(grid, mx, ms):
+    """The reciprocal seal kills the metric 0/0; valid cells bitwise."""
+    space = mx.center * ms.center
+    f = _unit_field(grid, space)
+    metric = grid.metric(space, "dz_dsigma")
+    bare = f / metric                          # the un-sealed reciprocal
+    sealed = MetricScaled(Identity(), denominator="dz_dsigma")(f)
+    # the bug: exact zeros in the unsynced metric padding -> NaN storage
+    assert int((np.asarray(metric.storage) == 0.0).sum()) > 0
+    assert bool(np.isnan(np.asarray(bare.storage)).any())
+    # the fix: no NaN, and the valid interior is bitwise identical
+    assert not bool(np.isnan(np.asarray(sealed.storage)).any())
+    assert np.array_equal(np.asarray(bare.data),
+                          np.asarray(sealed.data))
+
+
+def test_coefficient_seal_removes_padding_nan(grid, mx, ms):
+    """The coefficient seal (num/den) guards the same padding ring."""
+    space = mx.center * ms.center
+    f = _unit_field(grid, space)
+    coeff = (grid.metric(space, "dz_dx")
+             / grid.metric(space, "dz_dsigma"))
+    bare = f * coeff                           # the un-sealed coefficient
+    sealed = MetricScaled(Identity(), numerator="dz_dx",
+                          denominator="dz_dsigma")(f)
+    assert bool(np.isnan(np.asarray(bare.storage)).any())
+    assert not bool(np.isnan(np.asarray(sealed.storage)).any())
+    assert np.array_equal(np.asarray(bare.data),
+                          np.asarray(sealed.data))
+
+
+def test_reciprocal_seal_makes_the_reverse_vjp_finite(grid, mx, ms):
+    """Grad through the bare reciprocal NaNs; the seal is finite."""
+    space = mx.center * ms.center
+    f = _unit_field(grid, space)
+    d0 = f.storage
+
+    def bare_loss(d):
+        return jnp.sum(
+            (f.with_storage(d)
+             / grid.metric(space, "dz_dsigma")).data ** 2)
+
+    def sealed_loss(d):
+        return jnp.sum(MetricScaled(
+            Identity(), denominator="dz_dsigma")(
+                f.with_storage(d)).data ** 2)
+
+    assert bool(np.isnan(np.asarray(jax.grad(bare_loss)(d0))).any())
+    assert bool(np.all(np.isfinite(
+        np.asarray(jax.grad(sealed_loss)(d0)))))
+
+
+def test_coefficient_seal_makes_the_reverse_vjp_finite(grid, mx, ms):
+    """Grad through the bare coefficient NaNs; the seal is finite."""
+    space = mx.center * ms.center
+    f = _unit_field(grid, space)
+    d0 = f.storage
+
+    def bare_loss(d):
+        coeff = (grid.metric(space, "dz_dx")
+                 / grid.metric(space, "dz_dsigma"))
+        return jnp.sum((f.with_storage(d) * coeff).data ** 2)
+
+    def sealed_loss(d):
+        return jnp.sum(MetricScaled(
+            Identity(), numerator="dz_dx",
+            denominator="dz_dsigma")(f.with_storage(d)).data ** 2)
+
+    assert bool(np.isnan(np.asarray(jax.grad(bare_loss)(d0))).any())
+    assert bool(np.all(np.isfinite(
+        np.asarray(jax.grad(sealed_loss)(d0)))))
