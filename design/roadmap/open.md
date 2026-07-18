@@ -90,20 +90,38 @@ contraction shipped 2026-07-18 (merge `e60259de`, entry in
     at decomposition build) — keep the defensive decline. The pencil
     primitive (per-mesh-axis `all_to_all` in one 2-D-mesh `shard_map`)
     is proven composable for the day a 2-D backend lands.
-- **Pre-existing multi-device eigenbasis faults surfaced by the
-  2026-07-18 validation** (both reproduce on the pre-merge dev; the
-  existing multi-device eigen tests hit them before reaching the
-  projection):
-  - **Setup `GridFrozenError`:** on small sharded grids the
-    `linearize(model)` probe's halo demand exceeds the frozen halo, so
-    `channel_eigenpairs` cannot even build the basis.
-  - **`mode()` / synthesis sharded-FFT crash:** the backward-only
-    synthesis path (`mode`, `channel_random_state`) still crashes on a
-    sharded periodic axis; it does not route through the fused
-    contraction (out of its scope — a candidate follow-on).
+Both pre-existing eigenbasis faults surfaced by the 2026-07-18
+validation are **fixed** (entries in [`done.md`](done.md)): the setup
+`GridFrozenError` was a negotiate/verify cap asymmetry (record:
+[`../research/halo_sharding_invariants.md`](../research/halo_sharding_invariants.md)
+§1) and the `mode()`/synthesis crash is closed by the fused
+backward-only synthesis on 3-D channels (the 2-D channel is the
+ratification item above).
 
 Evidence, provenance probes, and the full re-attribution history:
 [`../research/multidevice_test_faults.md`](../research/multidevice_test_faults.md).
+
+## Naive GSPMD transform path — phased illegality (phases 2+)
+
+Owner-approved 2026-07-18; phases 0–1 shipped the same day (Tier-1
+taught guard at the `Transform` seam; 3-D channel synthesis reroute —
+entries in [`done.md`](done.md), record:
+[`../research/gspmd_naive_transform_illegality.md`](../research/gspmd_naive_transform_illegality.md)).
+Remaining, per
+[`../plans/active/gspmd_transform_illegality_plan.md`](../plans/active/gspmd_transform_illegality_plan.md):
+
+- **Phase 2** — the 2-D channel gather path (the ratification item in
+  the section above; covers projection *and* synthesis).
+- **Phase 3** — a standalone distributed `Transform` apply consuming
+  the unconsumed `distributed_*_plan`s (L): re-legalizes eigenmode and
+  state transforms, the exponential stepper, and the Krylov spectral
+  apply on sharded grids; converts the residual marked-test debt.
+- **Tier-2 decision (owner)** — whether all-local naive transforms on
+  a multi-device mesh (silent all-gather) also become illegal, with an
+  allow-replicated escape for Chebyshev/mismatched-layout solves.
+- **Ratifications (owner)** — verify-side capping of explicit `halo=`
+  (shipped behavior, consistent with negotiate) and the
+  `_cap_for_sharding` over-reach onto non-sharded axes.
 
 ## Mapped chunk-NaN hardening — residuals
 
