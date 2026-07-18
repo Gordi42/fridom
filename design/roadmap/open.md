@@ -54,26 +54,27 @@ memory ceiling, time-to-first-step, WENO throughput (entries in
   would recover the +2.3-4.3% by pinning width 2). The mechanism
   record shows measure-and-pin is the only lever — no free XLA flag
   exists, and the sweet spot is size- and scheme-dependent.
-- **Hydro surface-flux correction: slice-only `A(1)` — GPU
-  measurement remaining.** The H7 closure cost +18–49% on
-  `se_centered` / +11–36% on `se_weno5` (resweep 2026-07-17,
-  0.79–0.88 oc/fridom). The slice rewrite **shipped 2026-07-18**
-  (dev `4adcc933`, phases 1–3 of
-  [`../plans/active/boundary_trace_plan.md`](../plans/active/boundary_trace_plan.md)):
-  `TraceSpace` boundary machinery + `A(1)` as a 2D boundary trace
-  where boundary-only (flat uniform/stretched grids, collocated
-  tracers on immersed grids — the comparison-ladder cases); mapped
-  columns and immersed staggered momentum route to an exact full-3D
-  fallback (measured non-boundary-only, plan §6 note). Remaining,
-  all owner-gated GPU work: (a) step-guard batch checkpoint over
-  the merge (`benchmarks/ci/step_guard.sbatch`); (b) A/B the two
-  lowerings (`advection._SURFACE_FLUX_LOWERING`, default
-  `"scatter"`, alt `"embed"`) and keep the winner; (c) re-run the
-  `se_centered`/`im_centered` comparison ladder — item closes when
-  overhead vs `surface_flux=False` is single-digit and centered
-  hydro is back near oc break-even (plan §8); (d) real multi-host
-  validation of trace/scatter under `srun -n 4 --gpu-bind=none`
-  (forced-4 is green; plan §4 gate).
+- **Hydro surface-flux correction — weno re-measure + multi-host
+  remaining.** The centered §8 criteria are **met** (arm sweep
+  2026-07-18, owner-requested; record in
+  [`../plans/active/boundary_trace_plan.md`](../plans/active/boundary_trace_plan.md)
+  §9): overhead vs `surface_flux=False` single-digit-to-negative
+  on `se_centered`, oc/fridom 0.92–1.04 top rungs, `im_centered`
+  0.99–1.12 with all rungs stable; per-scheme lowering default
+  landed (`893e82a8`). Same-day slice-exactness audit fixed a
+  real top-row error (~15–17% u/v) for order-5 biased staggered
+  momentum (`81995781` — biased momentum now takes the exact
+  full-3D correction; constancy-oracle record in plan §9).
+  Remaining, all owner-gated GPU work: (a) post-reroute weno5
+  ladder re-measure — overhead vs off and embed-vs-scatter for
+  the remaining tracer slice (the biased `"embed"` default is
+  provisional, in-code note); (b) real multi-host validation of
+  trace/scatter under `srun -n 4 --gpu-bind=none` (forced-4 is
+  green; plan §4 gate); (c) the `surface_flux=False` opt-out path
+  reads +28–48% over its pre-H7 cost at big rungs (plan §9 flag)
+  — decide whether the legacy opt-out is worth chasing. Step-guard
+  checkpointing stays on Silvano's own batch cadence (never
+  agent-initiated).
 
 ## Channel eigenmodes on multi-device — remaining gaps
 

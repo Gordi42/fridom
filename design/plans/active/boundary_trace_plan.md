@@ -324,8 +324,53 @@ factors before interval accounting runs).
   patch coverage was verified by construction per phase and rides
   the CI gate.
 
+**GPU measurements (2026-07-18 arm sweep, owner-requested; single
+A100 l50042, commit `c4497db5`, JSONs in the out-of-tree
+`benchmarks/comparison/results/fridom-hydro-gpu1-slice-{off,scatter,embed}.json`):**
+three arms (`surface_flux=False` / scatter / embed) over the
+advected ladder configs.
+
+- **Centered — §8 met.** Overhead vs off: `se_centered`
+  +2.6/+4.4/−8.6/−15.6/−16.0% across the ladder (scatter);
+  oc/fridom back to 0.92/0.98/1.04 at the top three rungs, and
+  `im_centered` runs 0.99–1.12 (faster than oc at the top rungs,
+  all five rungs stable; its off arm reproduces the documented
+  pre-H7 instability at rf ≥ 23). Vs the pre-slice shipped state
+  (`565eaa51`): −13..−17% se, −19..−23% im.
+- **A/B verdict is per-scheme:** scatter wins centered everywhere;
+  on the (pre-reroute, see below) all-slice weno5, embed won
+  (+1.4..+5.8% vs off; scatter +8.7..+16.3%). Landed as a
+  per-scheme default (`_surface_flux_lowering` ClassVar; module
+  `_SURFACE_FLUX_LOWERING: str | None = None` is now a global
+  override knob), merge `893e82a8`.
+- **Slice-exactness audit (same day) — scope narrowed again.** The
+  constancy oracle convicted the slice for order-5 biased
+  **staggered momentum**: `_surface_boundary_term` relocates the
+  traced surface `w` onto the momentum column with the two-point
+  `.to`, while the biased schemes interpolate velocity faces with
+  an `(order−1)`-point centered row — coincident only at order 3.
+  Shipped impact (dev `4adcc933`..`81995781`): WENO5/Upwind5 u/v
+  top-row tendency erred by ~15–17%, single top layer, interior
+  bit-exact; buoyancy/tracers, order-3 biased and centered
+  unaffected. Fixed in merge `81995781`
+  (`_slice_relocation_exact` ClassVar): biased staggered momentum
+  routes to the exact full-3D `_correction_full`, tracers keep the
+  slice, centered bit-identical; constancy + autodiff regressions
+  added. Consequence: the weno5 arm numbers above measured the
+  pre-reroute all-slice path — post-reroute weno5 overhead and its
+  lowering choice are unmeasured (the biased embed default is
+  marked provisional in-code).
+- **Flag:** the `surface_flux=False` opt-out's absolute cost at
+  the ≥512²×64 rungs is +28–48% above its pre-H7 record (rf21
+  matches exactly, so not the node); some 07-17→07-18 respelling
+  hit the legacy opt-out path. Cosmetic for defaults (nobody runs
+  off), but it inflates "vs off" denominators — the oc ratios
+  above are the denominator-free evidence.
+
 **Remaining (owner-gated GPU work; the roadmap entry tracks it):**
-step-guard batch checkpoint over the merge; A/B the two lowerings
-and keep the winner; comparison-ladder re-run against §8's closing
-criteria; real multi-host `srun -n 4 --gpu-bind=none` validation of
-trace/scatter (§4 — forced-4 is green, multi-process is not proven).
+step-guard checkpoint whenever Silvano next batches one (his own
+trigger, never agent-initiated); post-reroute weno5 ladder
+re-measure (overhead vs off + embed-vs-scatter for the tracer
+slice); real multi-host `srun -n 4 --gpu-bind=none` validation of
+trace/scatter (§4 — forced-4 is green, multi-process is not
+proven).
