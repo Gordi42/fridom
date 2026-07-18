@@ -67,6 +67,16 @@ if TYPE_CHECKING:  # pragma: no cover
 HORIZONTAL_FACTOR = 2
 #: the coarse-cell floor per axis: no axis coarsens below it
 MIN_COARSE_CELLS = 4
+#: the conservative replicate-size guard for agglomeration (MG-D10):
+#: a still-shardable coarse level whose replicated per-device footprint
+#: would exceed this is kept sharded, so a huge device-count run never
+#: replicates a level that still holds real work. ~4 MiB of float64
+#: (e.g. 32 x 32 x 512 cells) — deep coarse levels sit far below it.
+_AGGLOMERATE_MAX_BYTES = 4 * 1024 * 1024
+#: float64 itemsize used for the conservative replicate-size guard
+#: (an over-estimate for a single-precision solve, i.e. more
+#: conservative about replicating — never under-counts the footprint)
+_REPLICATE_ITEMSIZE = 8
 
 
 # ================================================================
@@ -125,6 +135,102 @@ def _coarsenable_factors(
 
 
 # ================================================================
+#  Agglomeration switch (MG-D10)
+# ================================================================
+def validate_agglomerate(agglomerate: int | None) -> int | None:
+    """
+    Validate the agglomeration threshold knob.
+
+    Description
+    -----------
+    ``None`` (agglomeration off) passes through; otherwise the
+    threshold must be a positive integer plane count (booleans
+    rejected). ``tau = 1`` is valid but effectively off — a per-shard
+    extent is always at least one plane, so the switch never fires
+    below it.
+
+    Parameters
+    ----------
+    agglomerate : int | None
+        The user knob (``None`` or the plane threshold ``tau``).
+
+    Returns
+    -------
+    int | None
+        The validated knob (unchanged).
+
+    Raises
+    ------
+    ValueError
+        If ``agglomerate`` is not ``None`` and not a positive integer.
+    """
+    if agglomerate is None:
+        return None
+    if isinstance(agglomerate, bool) or not isinstance(agglomerate, int):
+        raise TypeError(
+            "multigrid_agglomerate must be None or a positive integer "
+            f"plane threshold, got {agglomerate!r}")
+    if agglomerate < 1:
+        raise ValueError(
+            "multigrid_agglomerate must be a positive integer plane "
+            f"threshold (or None to disable), got {agglomerate}")
+    return agglomerate
+
+
+def _should_agglomerate(coarse: Grid, tau: int) -> bool:
+    r"""
+    Whether ``coarse`` (and every level below it) should replicate.
+
+    Description
+    -----------
+    The coarse-grid agglomeration switch (MG-D10): a candidate coarse
+    level crosses the switch when its shortest would-be per-shard
+    extent along any sharded axis is **below** ``tau`` planes **and**
+    its replicated per-device footprint stays under
+    :data:`_AGGLOMERATE_MAX_BYTES`. A level the ordinary negotiation
+    already replicates (no sharded axis) or a single-device
+    decomposition crosses too (``Layout({})`` either way, so
+    replicating from here down is a no-op there). A still-shardable
+    level whose extent clears ``tau``, or one small-per-shard but too
+    large to replicate (the bytes guard), stays sharded — so a huge
+    device-count run never replicates a level that still holds real
+    work, and coarsening may still reach the switch at a deeper,
+    smaller level.
+
+    Parameters
+    ----------
+    coarse : Grid
+        The candidate coarse grid (negotiated with its ordinary
+        shard-or-replicate layout).
+    tau : int
+        The per-shard extent threshold (planes); the switch fires
+        below it.
+
+    Returns
+    -------
+    bool
+        Whether to replicate this level and every level below it.
+    """
+    decomposition = coarse.decomposition
+    device_count = decomposition.device_count
+    if device_count <= 1:
+        return True
+    axes = decomposition.default_layout.device_axes
+    if not axes:
+        return True  # already replicated by the ordinary negotiation
+    sizes = {name: getattr(mesh, "n_cells", None)
+             for mesh in coarse.factors for name in mesh.names}
+    extents = [-(-sizes[name] // device_count)
+               for name, _ in axes if sizes.get(name) is not None]
+    if not extents or min(extents) >= tau:
+        return False
+    cells = 1
+    for mesh in coarse.factors:
+        cells *= getattr(mesh, "n_cells", 1) or 1
+    return cells * _REPLICATE_ITEMSIZE <= _AGGLOMERATE_MAX_BYTES
+
+
+# ================================================================
 #  The hierarchy builder
 # ================================================================
 def coarsen_levels(
@@ -136,6 +242,7 @@ def coarsen_levels(
     max_levels: int | None = None,
     order: int = 2,
     rediscretize: Callable[[Grid], None] | None = None,
+    agglomerate: int | None = None,
 ) -> list[tuple[Grid, SpaceLike, GridTransfer | None]]:
     r"""
     Assemble the coarsened ``(grid, space, transfer)`` chain.
@@ -181,6 +288,17 @@ def coarsen_levels(
     rediscretize : Callable[[Grid], None] | None, optional
         Idempotent per-coarse-grid callback re-establishing the model's
         dispatch overrides (default: None, no re-discretization).
+    agglomerate : int | None, optional
+        The coarse-grid agglomeration threshold ``tau`` in planes
+        (MG-D10): from the first coarse level whose shortest would-be
+        per-shard extent falls **below** ``tau`` (and that is small
+        enough to replicate, :data:`_AGGLOMERATE_MAX_BYTES`), that
+        level and every level below it are built **fully replicated**
+        (``Grid.coarsened(replicated=True)``) so the redundant coarse
+        compute runs collective-free instead of paying a ring halo
+        exchange to shard one or two planes. ``None`` disables
+        agglomeration (the ordinary shard-or-replicate negotiation at
+        every level); a no-op on one device (default: None).
 
     Returns
     -------
@@ -190,12 +308,19 @@ def coarsen_levels(
     """
     levels: list[tuple[Grid, SpaceLike, GridTransfer | None]] = []
     grid, space = fine_grid, fine_space
+    agglomerated = False
     while max_levels is None or len(levels) + 1 < max_levels:
         factors = _coarsenable_factors(
             grid, vertical, coarsen_vertical=coarsen_vertical)
         if not factors:
             break
-        coarse = grid.coarsened(factors)
+        if agglomerate is not None and not agglomerated:
+            # peek at the ordinary (shard-or-replicate) coarse level to
+            # decide whether the switch fires here; below the switch
+            # every level is built replicated (MG-D10)
+            agglomerated = _should_agglomerate(
+                grid.coarsened(factors), agglomerate)
+        coarse = grid.coarsened(factors, replicated=agglomerated)
         if rediscretize is not None:
             rediscretize(coarse)
         transfer = GridTransfer(grid, coarse, order=order)

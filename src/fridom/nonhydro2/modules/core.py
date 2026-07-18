@@ -49,6 +49,9 @@ from fridom.spatial.operators.flux_diff import (
     FaceDifference,
     FluxDifference,
 )
+from fridom.spatial.operators.multigrid_hierarchy import (
+    validate_agglomerate,
+)
 from fridom.spatial.space_patterns import FAMILIES
 from fridom.spatial.spaces.average import CellAvg
 from fridom.spatial.spaces.nodal import NodeSet
@@ -414,6 +417,17 @@ class DynamicalCore(fr.model.Module):
         restores pure semicoarsening. Consumed only for a mapped grid
         with ``pressure_preconditioner="multigrid"``. Static in the
         fingerprint (default: True).
+    multigrid_agglomerate : int | None, optional
+        The coarse-grid agglomeration threshold ``tau`` in planes
+        (MG-D10), forwarded to the mapped and immersed solvers. From
+        the first coarse level whose shortest would-be per-shard extent
+        falls below ``tau`` (and that is small enough to replicate),
+        that level and every level below it are built fully replicated,
+        so the redundant coarse compute runs collective-free instead of
+        paying a ring halo exchange to shard one or two planes. ``None``
+        (the default) disables agglomeration; a no-op on one device.
+        Consumed only for ``pressure_preconditioner="multigrid"``.
+        Static in the fingerprint (default: None).
     family : str | None, optional
         The discretization family of the whole core state (FV-D3,
         stage F3): ``"fv"`` declares ``u, v, w, p`` on the
@@ -448,6 +462,7 @@ class DynamicalCore(fr.model.Module):
         multigrid_levels: int | None = None,
         multigrid_tridiagonal_method: str = "auto",
         multigrid_coarsen_vertical: bool = True,
+        multigrid_agglomerate: int | None = None,
         family: str | None = None,
     ) -> None:
         """Store the core parameter leaves and the geometry names."""
@@ -467,6 +482,8 @@ class DynamicalCore(fr.model.Module):
         self._multigrid_tridiagonal_method = validate_tridiagonal_method(
             multigrid_tridiagonal_method)
         self._multigrid_coarsen_vertical = bool(multigrid_coarsen_vertical)
+        self._multigrid_agglomerate = validate_agglomerate(
+            multigrid_agglomerate)
         self._family = family
         # the projection's derived halo substitute (V-N2), computed
         # once at bind from the C-grid ``div`` / ``grad`` rows the stage
@@ -768,6 +785,7 @@ class DynamicalCore(fr.model.Module):
             multigrid_tridiagonal_method=(
                 self._multigrid_tridiagonal_method),
             multigrid_coarsen_vertical=self._multigrid_coarsen_vertical,
+            multigrid_agglomerate=self._multigrid_agglomerate,
             params=mapping_params(state, grid))
         # one metric derivation for the whole projection: divergence,
         # solve and correction share the solver's per-solve memo (it
@@ -828,7 +846,8 @@ class DynamicalCore(fr.model.Module):
             preconditioner=self._pressure_preconditioner,
             multigrid_levels=self._multigrid_levels,
             multigrid_tridiagonal_method=(
-                self._multigrid_tridiagonal_method))
+                self._multigrid_tridiagonal_method),
+            multigrid_agglomerate=self._multigrid_agglomerate)
         p, corr = solver.project(vel, x0=state["p"] * ctx.stage_dt)
         return {
             "u": state["u"] - corr["x"].retag(state["u"]),

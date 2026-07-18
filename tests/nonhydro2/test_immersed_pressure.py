@@ -21,6 +21,7 @@ from fridom.spatial.immersed_domain import ImmersedDomain
 from fridom.spatial.meshes.interval import IntervalMesh
 from fridom.spatial.operators.banded import _resolve_tridiagonal_method
 from fridom.spatial.operators.multigrid import VerticalLineJacobi
+from fridom.spatial.operators.multigrid_hierarchy import coarsen_levels
 
 TWO_PI = 2.0 * np.pi
 
@@ -629,3 +630,137 @@ def test_auto_method_wires_to_cusparse_on_gpu():
         preconditioner="multigrid", multigrid_levels=3)
     assert mg._multigrid_tridiagonal_method == "auto"
     assert _resolved_level_methods(mg) == {"cusparse"}
+
+
+# ================================================================
+#  Coarse-grid agglomeration (MG-D10)
+# ================================================================
+def _mg_agg_solver(n=16, nz=8, *, agglomerate, device_ids=None,
+                   iterations=100):
+    """Semicoarsened multigrid solver on a walled-z sloped immersed grid.
+
+    Self-contained (the oversized-module rule): the walled vertical
+    stays full under semicoarsening, so the coarse levels keep sharding
+    a horizontal axis at a tiny per-shard extent — the case agglomerate
+    targets. The ``scan`` kernel is backend-portable (cpu suite).
+    """
+    meshes = (
+        IntervalMesh(n, (0.0, TWO_PI), periodic=True, name="x"),
+        IntervalMesh(n, (0.0, TWO_PI), periodic=True, name="y"),
+        IntervalMesh(nz, (0.0, 1.0), periodic=False, name="z"))
+    slope = lambda x, y, z: jnp.clip(  # noqa: E731
+        ((0.6 + 0.15 * jnp.sin(y) + 0.1 * z) - x / TWO_PI) * 8 + 0.5,
+        0.0, 1.0)
+    grid = Grid(meshes, immersed=ImmersedDomain(slope, order=4),
+                device_ids=device_ids)
+    grid.merge_overrides(fv_cgrid_overrides(grid.factors))
+    space = _cell_space(grid)
+    solver = ImmersedPressureSolver(
+        grid, space, vertical="z", dsqr=0.5, iterations=iterations,
+        tolerance=1e-8, preconditioner="multigrid",
+        multigrid_tridiagonal_method="scan",
+        multigrid_agglomerate=agglomerate)
+    return grid, space, solver
+
+
+def _smooth_compatible_rhs(grid, solver):
+    """Build a decomposition-invariant compatible rhs.
+
+    The divergence of a smooth velocity (built from ``init=`` functions
+    so it is identical across device counts) lands in the range of the
+    masked divergence — a compatible right-hand side the CG converges.
+    """
+    vel = {
+        a: grid.create_field(
+            solver._alpha[a].function_space,
+            init=lambda x, y, z: (
+                jnp.sin(x) * jnp.cos(y) + 0.3 * jnp.cos(2.0 * z)))
+        for a in solver.axes}
+    return solver.divergence(vel)
+
+
+def _coarse_shard_extents(chain, device_count):
+    """Return each coarse level's min sharded per-shard extent.
+
+    Index > 0 (the coarse levels); ``None`` marks a replicated,
+    no-sharded-axis coarse level.
+    """
+    out = []
+    for grid, _space, _t in chain[1:]:
+        axes = dict(grid.decomposition.default_layout.device_axes)
+        if not axes:
+            out.append(None)
+            continue
+        sizes = {name: mesh.n_cells
+                 for mesh in grid.factors for name in mesh.names}
+        out.append(min(-(-sizes[name] // device_count) for name in axes))
+    return out
+
+
+def test_multigrid_agglomerate_is_validated():
+    grid, space = _box_bounded(n=8)
+    with pytest.raises(ValueError, match="positive integer"):
+        ImmersedPressureSolver(
+            grid, space, vertical="z", dsqr=0.5, iterations=5,
+            preconditioner="multigrid", multigrid_agglomerate=0)
+    with pytest.raises(TypeError, match="None or a positive integer"):
+        ImmersedPressureSolver(
+            grid, space, vertical="z", dsqr=0.5, iterations=5,
+            preconditioner="multigrid", multigrid_agglomerate=True)
+
+
+def test_multigrid_agglomerate_is_stored():
+    grid, space = _box_bounded(n=8)
+    on = ImmersedPressureSolver(
+        grid, space, vertical="z", dsqr=0.5, iterations=5,
+        preconditioner="multigrid", multigrid_agglomerate=4)
+    assert on._multigrid_agglomerate == 4
+    off = ImmersedPressureSolver(
+        grid, space, vertical="z", dsqr=0.5, iterations=5,
+        preconditioner="multigrid")
+    assert off._multigrid_agglomerate is None
+
+
+@pytest.mark.multi_device
+def test_multigrid_agglomerate_replicates_tiny_coarse_levels():
+    # capability: the semicoarsened coarse levels stay sharded at a tiny
+    # per-shard extent (extent < the device count); agglomerate=4
+    # replicates every such level while keeping the floor depth and
+    # leaving the above-threshold levels sharded
+    p = jax.device_count()
+    _g, _s, off = _mg_agg_solver(agglomerate=None)
+    off_chain = coarsen_levels(off._grid, off._space, vertical="z")
+    on_chain = coarsen_levels(off._grid, off._space, vertical="z",
+                              agglomerate=4)
+    assert len(off_chain) == len(on_chain)  # floor depth preserved
+    off_ext = _coarse_shard_extents(off_chain, p)
+    on_ext = _coarse_shard_extents(on_chain, p)
+    assert any(e is not None and e < 4 for e in off_ext), off_ext
+    assert all(e is None or e >= 4 for e in on_ext), on_ext
+
+
+@pytest.mark.multi_device
+def test_multigrid_agglomerate_matches_off_and_single_device():
+    # parity: agglomerate ON solves the identical problem to identical
+    # iteration counts, agreeing with the OFF and single-device solves
+    # to the multi-device reduction-reassociation floor (the coarse
+    # projection reduces over a replicated array instead of a sharded
+    # one, well below the 1e-8 solve tolerance)
+    ids = tuple(range(jax.device_count()))
+
+    def solve(agglomerate, device_ids):
+        grid, _space, solver = _mg_agg_solver(
+            agglomerate=agglomerate, device_ids=device_ids)
+        rhs = _smooth_compatible_rhs(grid, solver)
+        p, info = solver.solve_info(rhs)
+        return np.asarray(p.data), int(info["iterations"]), float(
+            info["residual_norm"])
+
+    p_ref, it_ref, rn_ref = solve(None, (0,))
+    p_off, it_off, _rn_off = solve(None, ids)
+    p_on, it_on, _rn_on = solve(4, ids)
+    assert rn_ref < 1e-6           # the reference actually converged
+    assert it_off == it_on == it_ref
+    scale = max(np.max(np.abs(p_ref)), 1e-30)
+    assert np.max(np.abs(p_off - p_ref)) / scale < 1e-8
+    assert np.max(np.abs(p_on - p_ref)) / scale < 1e-8

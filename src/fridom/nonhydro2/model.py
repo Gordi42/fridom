@@ -45,6 +45,7 @@ def Model(  # noqa: N802 — a factory that mirrors fr.model.Model's surface
     multigrid_levels: int | None = None,
     multigrid_tridiagonal_method: str = "auto",
     multigrid_coarsen_vertical: bool = True,
+    multigrid_agglomerate: int | None = None,
     modules_extra: Sequence[fr.model.Module] = (),
     time_stepper: TimeStepper | None = None,
     dt: float = 1.0,
@@ -130,6 +131,17 @@ def Model(  # noqa: N802 — a factory that mirrors fr.model.Model's surface
         cannot (a Chebyshev vertical, an indivisible ``n_z``); ``False``
         restores pure semicoarsening. Consumed only on a mapped grid with
         ``pressure_preconditioner="multigrid"`` (default: True).
+    multigrid_agglomerate : int | None, optional
+        The coarse-grid agglomeration threshold ``tau`` in planes
+        (MG-D10), forwarded to the dynamical core and on to the mapped
+        and immersed solvers. From the first coarse level whose shortest
+        would-be per-shard extent falls below ``tau`` (and that is small
+        enough to replicate), that level and every level below it are
+        built fully replicated, so the redundant coarse compute runs
+        collective-free instead of paying a ring halo exchange to shard
+        one or two planes. ``None`` (the default) disables
+        agglomeration; a no-op on one device. Consumed only for
+        ``pressure_preconditioner="multigrid"`` (default: None).
     modules_extra : Sequence[fr.model.Module], optional
         Additional modules (tracers, closures) (default: ()).
     time_stepper : TimeStepper | None, optional
@@ -218,7 +230,8 @@ def Model(  # noqa: N802 — a factory that mirrors fr.model.Model's surface
                       multigrid_tridiagonal_method=(
                           multigrid_tridiagonal_method),
                       multigrid_coarsen_vertical=(
-                          multigrid_coarsen_vertical)),
+                          multigrid_coarsen_vertical),
+                      multigrid_agglomerate=multigrid_agglomerate),
     ]
     # rotation is opt-in: coriolis=None installs no module at all
     if coriolis is not None:

@@ -11,16 +11,21 @@ model-specific FV re-discretization is exercised on the nonhydro2 side
 """
 from itertools import pairwise
 
+import jax
 import numpy as np
+import pytest
 
 from fridom.spatial.grid import Grid
 from fridom.spatial.meshes.chebyshev import ChebyshevMesh
 from fridom.spatial.meshes.interval import IntervalMesh
 from fridom.spatial.meshes.mapped_interval import MappedIntervalMesh
+from fridom.spatial.operators import multigrid_hierarchy
 from fridom.spatial.operators.multigrid_hierarchy import (
     MIN_COARSE_CELLS,
     _coarsenable_factors,
+    _should_agglomerate,
     coarsen_levels,
+    validate_agglomerate,
 )
 from fridom.spatial.operators.transfer import GridTransfer
 
@@ -291,3 +296,135 @@ def test_coarsenable_factors_skips_non_structured_and_multiname():
     # a non-StructuredMesh1D single-name mesh and a multi-name mesh are
     # both skipped (they cannot coarsen)
     assert _coarsenable_factors(FakeGrid(), "z") == {}
+
+
+# ================================================================
+#  Coarse-grid agglomeration (MG-D10)
+# ================================================================
+def _sharded_coarse_extents(levels, device_count):
+    """Per coarse level (index > 0), the min sharded per-shard extent.
+
+    ``None`` marks a replicated (no sharded axis) coarse level.
+    """
+    out = []
+    for grid, _space, _t in levels[1:]:
+        axes = dict(grid.decomposition.default_layout.device_axes)
+        if not axes:
+            out.append(None)
+            continue
+        sizes = {name: mesh.n_cells
+                 for mesh in grid.factors for name in mesh.names}
+        out.append(min(-(-sizes[name] // device_count) for name in axes))
+    return out
+
+
+def test_validate_agglomerate_accepts_none_and_positive_int():
+    assert validate_agglomerate(None) is None
+    assert validate_agglomerate(1) == 1
+    assert validate_agglomerate(4) == 4
+
+
+def test_validate_agglomerate_rejects_zero_and_negative():
+    with pytest.raises(ValueError, match="positive integer"):
+        validate_agglomerate(0)
+    with pytest.raises(ValueError, match="positive integer"):
+        validate_agglomerate(-2)
+
+
+def test_validate_agglomerate_rejects_bool_and_float():
+    with pytest.raises(TypeError, match="None or a positive integer"):
+        validate_agglomerate(True)  # noqa: FBT003 — testing bool rejection
+    with pytest.raises(TypeError, match="None or a positive integer"):
+        validate_agglomerate(4.0)
+
+
+def test_agglomerate_none_matches_the_default_chain():
+    # agglomerate=None is the ordinary shard-or-replicate hierarchy:
+    # identical shapes and grid identities to omitting the argument
+    grid, space = nodal_grid(32, 32, 16)
+    base = coarsen_levels(grid, space, vertical="z")
+    same = coarsen_levels(grid, space, vertical="z", agglomerate=None)
+    assert shapes(base) == shapes(same)
+    assert all(a[0] is b[0] for a, b in zip(base, same, strict=True))
+
+
+def test_agglomerate_preserves_floor_depth():
+    # the switch replaces sharding with replication; it never changes
+    # the number of levels (floor depth stays grid-size-driven)
+    grid, space = nodal_grid(32, 32, 16)
+    off = coarsen_levels(grid, space, vertical="z")
+    on = coarsen_levels(grid, space, vertical="z", agglomerate=4)
+    assert shapes(off) == shapes(on)
+
+
+def test_agglomerate_is_a_noop_on_one_device():
+    # on one device every level is already Layout({}); the knob changes
+    # nothing (the mechanism reuses the natural replicated layout)
+    if jax.device_count() != 1:
+        pytest.skip("single-device semantics")
+    grid, space = nodal_grid(32, 32, 16)
+    off = coarsen_levels(grid, space, vertical="z")
+    on = coarsen_levels(grid, space, vertical="z", agglomerate=4)
+    assert shapes(off) == shapes(on)
+    for _g, _s, _t in on:
+        assert not dict(_g.decomposition.default_layout.device_axes)
+
+
+@pytest.mark.multi_device
+def test_agglomerate_replicates_below_the_switch():
+    # the semicoarsened hierarchy keeps a divisible vertical, so its
+    # coarse levels stay sharded at a tiny per-shard extent; agglomerate
+    # replaces every sharded coarse level whose extent is below tau with
+    # a replicated one, and leaves the above-threshold levels sharded
+    p = jax.device_count()
+    grid, space = nodal_grid(32, 32, 32)
+    off = coarsen_levels(grid, space, vertical="z")
+    on = coarsen_levels(grid, space, vertical="z", agglomerate=4)
+    off_ext = _sharded_coarse_extents(off, p)
+    on_ext = _sharded_coarse_extents(on, p)
+    # OFF exposes at least one sharded coarse level below the threshold
+    assert any(e is not None and e < 4 for e in off_ext), off_ext
+    # ON has no sharded coarse level with extent below the threshold
+    assert all(e is None or e >= 4 for e in on_ext), on_ext
+    # once replicated, every deeper level stays replicated (monotone)
+    first_repl = next(i for i, e in enumerate(on_ext) if e is None)
+    assert all(e is None for e in on_ext[first_repl:])
+
+
+@pytest.mark.multi_device
+def test_agglomerate_transfer_across_switch_round_trips():
+    # the restrict/prolong pair across the shard->replicate boundary is
+    # finite (the all-gather / local-slice reshard the field factory
+    # inserts must round-trip)
+    grid, space = nodal_grid(32, 32, 32)
+    levels = coarsen_levels(grid, space, vertical="z", agglomerate=4)
+    for fine_grid, fine_space, transfer in levels[:-1]:
+        f = fine_grid.create_field(fine_space)
+        f = f.with_data(f.data + 1.0)
+        r = transfer.restrict(f)
+        p = transfer.prolong(r)
+        assert bool(np.isfinite(np.asarray(r.data)).all())
+        assert bool(np.isfinite(np.asarray(p.data)).all())
+
+
+@pytest.mark.multi_device
+def test_agglomerate_bytes_guard_keeps_large_levels_sharded(monkeypatch):
+    # a level small enough per shard but too large to replicate stays
+    # sharded (the conservative bytes guard); a one-byte guard blocks
+    # every agglomeration, so the chain matches the un-agglomerated one
+    monkeypatch.setattr(multigrid_hierarchy, "_AGGLOMERATE_MAX_BYTES", 1)
+    grid, space = nodal_grid(32, 32, 32)
+    off = coarsen_levels(grid, space, vertical="z")
+    guarded = coarsen_levels(grid, space, vertical="z", agglomerate=4)
+    p = jax.device_count()
+    assert (_sharded_coarse_extents(off, p)
+            == _sharded_coarse_extents(guarded, p))
+
+
+def test_should_agglomerate_single_device_is_true():
+    # on one device the switch always fires (Layout({}) either way)
+    if jax.device_count() != 1:
+        pytest.skip("single-device semantics")
+    grid, _ = nodal_grid(8, 8, 8)
+    coarse = grid.coarsened({"x": 2, "y": 2})
+    assert _should_agglomerate(coarse, 4) is True

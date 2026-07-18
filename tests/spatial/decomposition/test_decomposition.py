@@ -114,6 +114,33 @@ def test_allow_replicated_does_not_change_auto_fallback():
     assert decomp.device_count == 1
 
 
+def test_force_replicated_overrides_a_shardable_axis():
+    # force_replicated keeps the replicated-only Layout({}) over the
+    # full device set even when a factor would still shard — the
+    # coarse-grid agglomeration seam (MG-D10).
+    if jax.device_count() < 2:
+        pytest.skip("needs several devices to shard")
+    ids = tuple(range(jax.device_count()))
+    nx = 4 * jax.device_count()  # comfortably shardable (4 per shard)
+    grid = Grid((IntervalMesh(nx, (0.0, 1.0), name="x"),))
+    ordinary = negotiate(grid, grid.dispatch, device_ids=ids)
+    assert dict(ordinary.default_layout.device_axes) == {"x": "devices"}
+    forced = negotiate(grid, grid.dispatch, device_ids=ids,
+                       force_replicated=True)
+    assert forced.layouts == (Layout({}),)
+    assert forced.device_count == jax.device_count()
+
+
+def test_force_replicated_keeps_the_replicated_layout_when_auto():
+    # with auto device selection force_replicated still yields the
+    # replicated-only layout over whatever devices are present (on one
+    # device this is the ordinary single-device layout — a clean no-op)
+    grid = Grid((IntervalMesh(8, (0.0, 1.0), name="x"),))
+    decomp = negotiate(grid, grid.dispatch, force_replicated=True)
+    assert decomp.layouts == (Layout({}),)
+    assert decomp.device_count == jax.device_count()
+
+
 def test_grid_coarsened_replicates_below_the_floor():
     # a coarse level whose only axis no longer shards lives replicated
     # on the same device mesh (MG-D5), instead of raising.
