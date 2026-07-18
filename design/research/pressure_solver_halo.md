@@ -101,6 +101,21 @@ is the halo literal — and that fails loudly (order 6 → reach 3 > 2).
 | sw2 gravity, non-orthogonal chart | diff + cross-interp hop | 2 | 2 (tight) |
 | sw2 Sadourny / Coriolis corrections (`sadourny.py:630`, `coriolis.py:544`) | vorticity corner chain (diff→interp→interp) | **2** | 2 (tight) |
 
+> **Correction (2026-07-18, found at implementation).** Two cells
+> above over-count. (i) sw2 non-orthogonal chart: the true reach is
+> **1**, not 2 — the cross-interpolation (face→centre) is
+> opposite-biased to the gradient difference (centre→face) it
+> re-aligns, so the two-sided window telescopes
+> `[0,+1] ⊕ [-1,0] = [-1,+1]`; the "2" was symmetrize-then-sum, the
+> very over-counting §1 of `storage_halo_width.md` diagnosed.
+> Bitwise-verified at width 1 on three sheared charts (width 0 fails
+> the stencil guard). (ii) The hydrostatic *immersed* path (grouped
+> under the terrain row) has **no vertical stencil** — the masked
+> continuity's column integral is a reduction — so its demand is
+> (1,1,**0**); width-0 vertical runs bitwise. The shipped derivation
+> (`model/halo_demand.py`, entry in `../roadmap/done.md`) encodes
+> both.
+
 The key accounting subtlety, and why the projection's sum-of-parts
 "1 + 1 = 2" intuition over-counts: div and grad sit on opposite sides
 of a **global transform, which acts as a runtime validity barrier** —

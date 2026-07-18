@@ -36,26 +36,24 @@ memory ceiling, time-to-first-step, WENO throughput (entries in
   on a 4-GPU allocation. New runs report the honest `compile_s`
   metric (chunk metric fixed 2026-07-18; entry in
   [`done.md`](done.md)).
-- **Derived `extra_halo` + storage-width follow-ups.** Research done
-  2026-07-18 (records
+- **Storage-width follow-ups.** The research, the derived
+  `extra_halo` implementation, and both GPU gates shipped 2026-07-18
+  (records
   [`../research/pressure_solver_halo.md`](../research/pressure_solver_halo.md),
-  [`../research/storage_halo_gpu_ab.md`](../research/storage_halo_gpu_ab.md);
-  outcomes in [`done.md`](done.md)). Open work:
-  (a) implement the derived declaration ("structure declared, numbers
-  derived", `pressure_solver_halo.md` §5 opt. 1 / §7): nonhydro2 core
-  2→1, hydrostatic core terrain 2→1, sw2 orthogonal-chart gravity
-  2→1 — realizes centered flat storage `n+4 → n+2`, and ships only
-  behind a fresh-process GPU step A/B (the shape-luck gate,
-  `storage_halo_gpu_ab.md` §3);
-  (b) `bench_step` prices no biased advection — add
+  [`../research/storage_halo_gpu_ab.md`](../research/storage_halo_gpu_ab.md),
+  [`../research/upwind5_shape_regression.md`](../research/upwind5_shape_regression.md);
+  entries in [`done.md`](done.md)). Open:
+  (a) `bench_step` prices no biased advection — add
   `nh_flat_advective_upwind5` / `_weno5` cases (append-only; baseline
-  at the next owner-batched guard run) so ±10-20% GPU swings in this
-  family stop being guard-invisible;
-  (c) owner call: a supported storage-width floor knob to pin lucky
-  shapes (192³ upwind5 at width 4 is ~12% faster on A100);
-  (d) optional one-line width assert at the CG diagonal builders
-  (closes the only consumption-guard bypass,
-  `pressure_solver_halo.md` §7.2).
+  at the next owner-batched guard run) so storage-shape GPU swings in
+  this family stay guard-visible — the centered default is now also
+  exposed (the shipped `n+4 → n+2` narrowing costs a uniform
+  +2.3-4.3% on A100, priced and accepted at landing);
+  (b) owner call: a supported storage-width floor knob to pin lucky
+  shapes (192³ upwind5 at width 4 ~12% faster; centered flagships
+  would recover the +2.3-4.3% by pinning width 2). The mechanism
+  record shows measure-and-pin is the only lever — no free XLA flag
+  exists, and the sweet spot is size- and scheme-dependent.
 - **Hydro surface-flux correction: slice-only `A(1)` — GPU
   measurement remaining.** The H7 closure cost +18–49% on
   `se_centered` / +11–36% on `se_weno5` (resweep 2026-07-17,

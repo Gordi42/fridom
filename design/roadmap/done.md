@@ -172,6 +172,54 @@ Implementation record:
   [`pressure_solver_halo.md`](../research/pressure_solver_halo.md)
   (probes under `pressure_solver_halo/`).
 
+- **Storage-shape "luck" root-caused — loop-emitter remainder + DRAM
+  stride, no free mitigation** (2026-07-18, merge `70f88db0`): the
+  192³ upwind5 n+6-slower-than-n+8 regression is *not* kernel
+  mis-selection — the step is GPU-bound (the contrary nsys read was a
+  CUDA-graph tracing artifact; profile with `--cuda-graph-trace=node`)
+  and the whole gap lives in the advection loop fusions on padded
+  storage: (A) a bounds-checked remainder tail when the padded flat
+  count is not divisible by 512 (200³ is, 198³ is not) on the
+  register-capped flux fusions, and (B) the larger effect, a
+  DRAM-partition stride penalty on the elementwise fusions (39% vs
+  54% achieved DRAM at identical access/occupancy). No exploitable
+  rule (208³ ÷512 yet slow; centered's sweet spot is 196³, not 200³)
+  and no free flag (`multi_output_fusion` off equalizes by slowing
+  the fast shape 22%); the only lever is measure-and-pin per flagship
+  config. The reported instability was concurrent-tenant
+  contamination — on a dedicated GPU slow shapes are deterministically
+  slow. The centered `n+4 → n+2` gate executed the same day (§8b):
+  uniform +2.3-4.3% at 128³-512³, worst at 192³ as predicted, while
+  args bytes drop 1.2-4.5%; a linear pair on the *identical* 194³
+  storage is −1.2% *faster* (the sign is the scheme's fusion
+  population). Record:
+  [`upwind5_shape_regression.md`](../research/upwind5_shape_regression.md)
+  (probes + raw + gate harness under `upwind5_shape_regression/`).
+
+- **Derived `extra_halo` shipped — pressure-solver halo from bound
+  operators** (2026-07-18, merged in `b931452c` — the merge landed
+  under a parallel session's design-commit message in the shared
+  checkout; parents `70b012d8` + `feat/derived-extra-halo`
+  `8a92c8b8`): the three over-declaring cores now declare their
+  stage's dataflow *structure* and derive the numbers from the merged
+  registry rows the stage applies (`model/halo_demand.py`: within-leg
+  Minkowski sum, per-side max across transform barriers, symmetric
+  collapse; `nonhydro2.DynamicalCore` gained the `bind` this needs).
+  Negotiated widths: nonhydro2 flat spectral + mapped CG 2→**1**
+  (centered/linear storage `n+4 → n+2`), hydrostatic terrain 2→**1**
+  and immersed 2→**(1,1,0)** (no vertical stencil), sw2 chart gravity
+  2→**1** — including non-orthogonal charts: the research table's "2
+  (tight)" was symmetrize-then-sum over-counting; the cross-interp
+  telescopes against the gradient bias (`[0,+1] ⊕ [-1,0] = [-1,+1]`),
+  bitwise-verified on three sheared charts. Parity: bitwise on all
+  spectral/hydro paths, 8.3e-17 mapped CG, 8.7e-19 sw sphere. The CG
+  diagonal builders (the one consumption-guard bypass) now assert
+  solved-axis width ≥ 1 at build. Gates: mirrored + model suite
+  (2133) + forced-4 decomposition green, ruff clean; GPU gate run
+  *before* landing (entry above) — ships on memory/tightness/CPU
+  grounds with the centered +2.3-4.3% priced in, width-pin knob as
+  the flagship recovery (tracked in [`open.md`](open.md)).
+
 - **Upstream jax issues filed for the two T5 faults** (2026-07-18,
   owner-filed) —
   [jax-ml/jax#39291](https://github.com/jax-ml/jax/issues/39291)
