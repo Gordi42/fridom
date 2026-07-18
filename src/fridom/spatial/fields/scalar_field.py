@@ -594,7 +594,10 @@ class ScalarField:
         source ``"reconstruct"``, nodal -> average ``"average"``,
         coefficient -> coefficient ``"interpolate"``), resolves
         ``(kind, source_factor)`` in the grid registry, and applies
-        the bound operator. A registered codomain that is a
+        the bound operator. A factor that is a BC-sibling of the
+        target (same node set, tag-only difference) needs no
+        conversion and adopts the requested tag via ``retag``. A
+        registered codomain that is a
         BC-sibling of the requested target factor (nodal operator
         outputs are BC-free; owner decision) adopts the requested
         tag via ``retag``; any other disagreement raises
@@ -630,6 +633,13 @@ class ScalarField:
                 continue
             if isinstance(src, ConstantSpace):
                 result = _broadcast_factor(result, name, dst)
+                continue
+            if _bc_siblings(src, dst):
+                # tag-only difference (same node set): no conversion,
+                # just adopt the requested sibling tag (retag resets
+                # halo validity on this axis — the ghost policy
+                # changed with the tag)
+                result = result.retag(dst)  # single-factor shorthand
                 continue
             kind = _conversion_kind(src, dst)
             op = self._grid.dispatch.resolve(kind, src)[name]
