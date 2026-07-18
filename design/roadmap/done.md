@@ -629,10 +629,35 @@ Implementation record:
   not this kernel). *Corrected same day: the "deficit widens with
   n / spectral stays default at every size" conclusion was the
   `multigrid_levels=5` depth cap — see the size-scaling entry
-  above.* Open residue (cuSPARSE-under-GSPMD validation,
-  residual mapped-GPU levers): [`open.md`](open.md). Evidence:
+  above.* Open residue (residual mapped-GPU levers): [`open.md`](open.md);
+  the cuSPARSE-under-GSPMD leg is now closed (entry below). Evidence:
   [`../research/multigrid_kernel_study.md`](../research/multigrid_kernel_study.md)
-  §Addendum.
+  §§Addendum, Addendum 2.
+- **cuSPARSE-under-GSPMD HLO/perf leg + immersed post-swap standing —
+  measured** (2026-07-18) — closed the two residues the kernel-swap
+  entry above left open, on real 4× A100 (jax 0.10.2, dev `0c950a33`).
+  **cuSPARSE under GSPMD**: XLA partitions the batched custom call
+  cleanly along the sharded batch axes — per-shard operands
+  (`f64[(128/4)·128, 128, 1]` down to `f64[4, 4, 1]`) at every one of
+  the six full-3-D-coarsening levels, with no feeding collective (the
+  module's all-gathers are the projection global-mean and a `take`
+  index gather, neither a cuSPARSE operand), both in a minimal
+  standalone jit and in the in-model `jit__chunk_body`. Parity 1-vs-4
+  and cuSPARSE-vs-pcr ~1e-14, CG iterations flat 10; 4-GPU timings
+  mg-cuSPARSE 1.11× at 512³ but 0.37× at 128³ (per-level collective
+  latency), and **pcr fits 512³ multi-device** (12.1 GiB/dev — the
+  one-GPU ≥ 76 GiB wall is sharded away). The `banded.py` multi-device
+  caveat is rewritten to record the validated partitioning (observed
+  XLA lowering, not a contract; pcr stays the portable kernel).
+  **Immersed post-swap standing**: mg-cuSPARSE 1.09×/1.12× at 128³/256³
+  at the production budget=100 — the study's projected 1.3–2.0× was a
+  budget=30 artifact (at budget=100 spectral converges at 71–73 iters);
+  mg is the only converged option below budget ≈70. GB-2 (≥ 1.5×) stays
+  unmet at every size/device count. Data + scripts + HLO excerpts:
+  [`../research/artifacts/multigrid_gspmd_validation/`](../research/artifacts/multigrid_gspmd_validation/);
+  narrative:
+  [`../research/multigrid_kernel_study.md`](../research/multigrid_kernel_study.md)
+  Addendum 2.
 - **Immersed partial cells — all dimensions, all three models**
   (2026-07-17, merges `ee257bc0` I0+I1, `b447b8e5` I2, `a5aec29d` I4,
   `3858d977` I3, plus the autodiff regression gates) — the immersed

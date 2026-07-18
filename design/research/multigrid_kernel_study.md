@@ -360,6 +360,10 @@ Corrections to this record's synthesis, from the measured runs:
   GPU the cuSPARSE default is also the memory-viable kernel
   (peak 43.8 GiB vs spectral 28.5 at 512^3); PCR remains the portable
   CPU/TPU + multi-device-safe kernel.
+  *Scoped single-GPU-only (Addendum 2, 2026-07-18): PCR **does** fit
+  512^3 on 4 A100s — under 4-way sharding its live set shrinks ~4x to
+  peak 12.1 GiB/dev (vs cuSPARSE 9.6, spectral 7.3), so it is a viable
+  multi-device 512^3 kernel; the >= 76 GiB wall is one-GPU-only.*
 - **The "free IMEX side benefit" claim above is WRONG**:
   `model/implicit.py` uses the dense `solve_along_axis`, not
   `tridiagonal_solve_along_axis`; switching IMEX to the tridiagonal
@@ -372,3 +376,155 @@ correctness is unit-covered instead. Immersed post-swap in-model
 standing was not re-measured (the 1.3-2.0x win above remains a
 substitution projection). Multi-device cuSPARSE-under-GSPMD validation
 is an open residue (roadmap).
+*Both now measured (Addendum 2, 2026-07-18): multi-device
+cuSPARSE-under-GSPMD is validated on 4 A100s (partitions cleanly, no
+all-gather; 1.11x at 512^3 / 0.37x at 128^3), and the immersed
+post-swap standing is measured at ~1.1x (not 1.3-2.0x — that was a
+budget=30 artifact; at production budget=100 spectral converges).*
+
+---
+
+## Addendum 2 (2026-07-18) — cuSPARSE under GSPMD on 4xA100; immersed in-model standing
+
+Closes the two residues the first addendum left open: the multi-device
+cuSPARSE-under-GSPMD HLO/perf leg (the `banded.py` caveat's worry) and
+the immersed post-swap in-model standing (previously a substitution
+projection).
+
+Environment: node l50009, 4x A100-SXM4-80GB, jax 0.10.2, float64,
+dev @ `0c950a33` (clean). All 4-device runs used
+`XLA_FLAGS=--xla_disable_hlo_passes=multi_output_fusion` (jax#39100);
+single-GPU legs pinned `CUDA_VISIBLE_DEVICES=0`; default allocator.
+GB-2 mapped case: steep terrain `H(x)=1+0.8 sin(x)` (ratio 9), linear
+nonhydro2, FV auto, dsqr=0.25, FPlane f0=1, AB3, dt=0.02, budget 100,
+tol 1e-8, `multigrid_levels=None` (floor depth). ms/step = median of
+6x20, compile excluded. Full data + scripts:
+[`artifacts/multigrid_gspmd_validation/`](artifacts/multigrid_gspmd_validation/)
+(`results.md` authoritative).
+
+### Sharding layout
+
+The production 4-GPU model shards the **x axis** 4-way; y and z (the
+tridiagonal solve axis) stay local:
+`u f64[128,128,128] NamedSharding P('devices',None,None) shard=[32,128,128]`.
+The z line solve therefore batches over the sharded x and the local y —
+exactly the custom-call partitioning question.
+
+### HLO verdict — cuSPARSE is PARTITIONED, no all-gather
+
+Minimal standalone jit (`minimal_hlo.py`, n=128, solve axis z): the
+cuSPARSE custom call receives the **per-shard** batch
+`f64[4096,128,1]` — `4096 = (128/4)*128`, not the full `16384` — and
+the module has **zero collectives** (`grep -E 'all-gather|all-reduce|
+all-to-all|collective-permute|reduce-scatter'` -> none):
+
+```
+%custom-call = f64[4096,128,1]{1,2,0} custom-call(
+    %loop_dynamic_update_slice_fusion, %bitcast.18.0,
+    %loop_dynamic_update_slice_fusion.1, %bitcast.59.0),
+    custom_call_target="cusparse_gtsv2_ffi",
+    operand_layout_constraints={f64[4096,128]{1,0}, f64[4096,128]{1,0},
+        f64[4096,128]{1,0}, f64[4096,128,1]{1,2,0}},
+    frontend_attributes={num_batch_dims="1"}, ...
+ROOT %bitcast.31.0 = f64[32,128,128]{2,1,0} bitcast(%custom-call)
+```
+
+In-model 4-GPU 128^3 step (`jit__chunk_body`): 54 `cusparse_gtsv2_ffi`
+custom calls, **all per-shard** across the 6 full-3D-coarsening levels
+(`inmodel_hlo_excerpt.txt`):
+
+| level shape | cuSPARSE batch call | = (x/4)*y , z |
+|---|---|---|
+| 128x128x128 | `f64[4096,128,1]`  | 32*128 , 128 |
+| 64x64x64    | `f64[1024,64,1]`   | 16*64 , 64 |
+| 32x32x32    | `f64[256,32,1]`    | 8*32 , 32 |
+| 16x16x16    | `f64[64,16,1]`     | 4*16 , 16 |
+| 8x8x8       | `f64[16,8,1]`      | 2*8 , 8 |
+| 4x4x4       | `f64[4,4,1]` (x24) | 1*4 , 4 |
+
+The module's collective all-gathers (an `f64[4]` projection global-mean
+reduction and an `s32[8]` index-gather for a `jnp.take` in the
+projection while-body) feed **no** cuSPARSE operand — every cuSPARSE
+operand is a `loop_dynamic_update_slice_fusion` / `bitcast`. The
+remaining collectives (all-reduce, collective-permute) are the CG
+measure-weighted inner products and the halo exchanges, inherent to the
+sharded elliptic solve, not the tridiagonal kernel. pcr partitions
+cleanly by construction (756-line unroll, zero collectives).
+
+**Verdict: XLA partitions the batched cuSPARSE custom call cleanly along
+the sharded batch axis at every multigrid level; the `banded.py` caveat's
+worry does not materialize on jax 0.10.2 / this XLA.** This is observed
+lowering behaviour, not an API contract — pcr stays the portable kernel.
+
+### Parity and iterations (4 GPU vs 1 GPU)
+
+Max relative difference over {u,v,w,b} after 20 steps:
+
+| pair | 128^3 | 512^3 |
+|---|---|---|
+| 4GPU cuSPARSE vs 4GPU pcr      | 1.93e-14 | 9.02e-14 |
+| 4GPU cuSPARSE vs 1GPU cuSPARSE | 2.17e-14 | 9.38e-14 |
+| 4GPU cuSPARSE vs 4GPU spectral | 2.36e-10 | 4.67e-10 |
+
+cuSPARSE/pcr agree ~1e-14 (kernel-identical); device-count invariant
+~1e-13; physics vs spectral ~1e-10 (CG dot reorder across shards). CG
+iterations flat **10** at both sizes, kernel- and device-count-
+independent.
+
+### Timing, 4 GPU (ms/step median of 6x20; compile s; peak GiB/dev)
+
+| n | preconditioner | ms/step | vs spectral | compile s | peak GiB/dev |
+|---|---|---|---|---|---|
+| 128^3 | spectral    | 32.31 | 1.00x | 5.6  | 0.14 |
+| 128^3 | mg-cuSPARSE | 86.39 | **0.37x** | 50.8 | 0.17 |
+| 128^3 | mg-pcr      | 87.17 | 0.37x | 57.2 | 0.20 |
+| 512^3 | spectral    | 600.5 | 1.00x | 27   | 7.3  |
+| 512^3 | mg-cuSPARSE | 539.8 | **1.11x** | 251  | 9.6  |
+| 512^3 | mg-pcr      | 774.5 | 0.78x | 280  | 12.1 |
+
+- **128^3: spectral wins decisively on 4 GPUs (mg 0.37x).** The V-cycle's
+  per-level halo/collective latency dominates and does not amortize over
+  only 32-cell x-shards — mg-cuSPARSE at 4 GPUs (86.4 ms) is even slower
+  than its own 1-GPU 42.0 ms; interconnect latency under GSPMD swamps the
+  small problem.
+- **512^3: mg-cuSPARSE BEATS spectral 1.11x on 4 GPUs** (single-GPU was
+  1.22x; the collective overhead narrows but does not erase the win).
+  mg-pcr is ~1.43x slower than mg-cuSPARSE (cuSPARSE > pcr, as the kernel
+  shootout found).
+- **pcr FITS at 512^3 on 4 GPUs** (12.1 GiB/dev): the 1-GPU >= 76 GiB live
+  set shrinks ~4x under sharding, so pcr is a viable multi-device 512^3
+  kernel (it OOMs only on one GPU — the first addendum's "PCR does not fit
+  512^3" is single-GPU-only, scoped there).
+
+GB-2 (>= 1.5x) is unmet at every measured size/device count: spectral
+stays an excellent 4-GPU default at <= 128^3; mg-cuSPARSE is the faster
+mapped option at 512^3, but by 1.11x, not the 1.5x bar.
+
+### Immersed post-swap in-model standing (1 GPU)
+
+Canonical tilted-slope geometry (mirrors
+`tests/nonhydro2/test_immersed_pressure.py` `slope`, order-4 quadrature,
+genuine partials, wet frac 0.706). GB-2 protocol, budget 100, tol 1e-8.
+
+| n | preconditioner | ms/step | iters | rel residual | speedup |
+|---|---|---|---|---|---|
+| 128^3 | spectral    | 66.47 | 73 | 9.13e-09 (converged) | 1.00x |
+| 128^3 | mg-cuSPARSE | 60.81 | 20 | 6.28e-09 | **1.09x** |
+| 256^3 | spectral    | 482.15 | 71 | 9.85e-09 (converged) | 1.00x |
+| 256^3 | mg-cuSPARSE | 430.15 | 21 | 6.88e-09 | **1.12x** |
+
+**Correction to the Synthesis' "immersed wins outright 1.3-2.0x".** That
+projection was relative to the study's **budget=30**, at which spectral
+(needing 71-73 iters) cannot converge and mg wins categorically. At the
+production **budget=100** spectral **does** converge (71-73 iters, relres
+~9e-9 < 1e-8), so the win shrinks to measured ~1.1x: mg converges in
+~3.5x fewer CG iters (20-21 vs 71-73) but each immersed mg V-cycle
+(semicoarsening + line smoother + per-level wet-mean) is ~3x costlier
+than a spectral CG iteration, netting ~1.1x (flat/slightly rising with n).
+Budget-sensitive verdict: below budget ~70, spectral fails and mg is the
+**only** converged option (categorical win); at budget=100 both converge
+and mg is ~1.1x faster. In-model trajectories match ~1e-10.
+
+Caveat: the HLO/parity/iteration runs (correctness, not timing) were
+taken under light contention from two other pytest sessions on the node;
+every ms/step timing was taken on `nvidia-smi`-verified-idle GPUs.

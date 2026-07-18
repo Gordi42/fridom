@@ -1,0 +1,8 @@
+n=128 mode=both devices=4
+--- parity: 20 steps from the record IC ---
+  4GPU cusparse vs 4GPU pcr   : 1.928e-14
+  4GPU cusparse vs 1GPU cusparse: 2.167e-14
+  4GPU cusparse vs 4GPU spectral: 2.357e-10
+--- iterations: production CG on random mean-free RHS, tol 1e-8 ---
+  cusparse : 4GPU iters=10 (resid 4.24e-08) | 1GPU iters=10 (resid 4.24e-08)
+  pcr      : 4GPU iters=10 (resid 4.24e-08) | 1GPU iters=10 (resid 4.24e-08)

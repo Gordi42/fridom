@@ -48,7 +48,7 @@ from fridom.model.assembly import _collect_terms, assemble
 from fridom.model.clock import Clock
 from fridom.model.context import StepContext
 from fridom.model.declarations import Lifecycle
-from fridom.model.errors import AssemblyError
+from fridom.model.errors import AssemblyError, MissingParameterError
 from fridom.model.io.snapshots import (
     FORMAT_VERSION,
     SnapshotManifest,
@@ -83,13 +83,14 @@ from fridom.spatial.fields.scalar_field import ScalarField
 from fridom.spatial.fields.vector_field import VectorField
 
 if TYPE_CHECKING:  # pragma: no cover
-    from collections.abc import Callable, Iterator
+    from collections.abc import Callable, Iterator, Sequence
     from pathlib import Path
 
     from fridom.model.assembly import (
         AssemblyArtifacts,
         AssemblyRecord,
         Fingerprint,
+        ParameterBinding,
     )
     from fridom.model.field_table import (
         FieldRecord,
@@ -641,6 +642,8 @@ def _chunk_body(
     model_state: ModelState,
     stepper: TimeStepper,
     force_unroll: int | None = None,
+    *,
+    remat: bool = False,
 ) -> ModelState:
     """
     Trace one chunk: ``lax.scan`` of the composed step body.
@@ -660,6 +663,14 @@ def _chunk_body(
     never the stepper's. NOTE (wave-5 seam): the S6 ctx carries no
     tendency sums yet — the treatment partition threads them at
     2.5.
+
+    ``remat`` (keyword-only, default off) wraps the scan body in
+    ``jax.checkpoint`` and forces ``unroll=1``: under reverse-mode
+    autodiff the per-step forward pass is then re-run during
+    backprop instead of held on the tape, trading recompute for
+    O(n_steps) tape memory (the ``Model.propagator(remat=True)``
+    knob). It is a no-op forward, so primal values are unchanged;
+    the compiled ``advance`` path never sets it.
     """
     schedule = record.schedule
     run_diagnostics = bool(
@@ -697,6 +708,11 @@ def _chunk_body(
     # length-C tier served while the full executable compiles.
     base_unroll = (int(stepper.scan_unroll) if force_unroll is None
                    else int(force_unroll))
+    # remat checkpoints each step (adjoint tape -> recompute) and
+    # forces unroll=1, so the checkpointed body IS one step.
+    if remat:
+        one_step = jax.checkpoint(one_step)
+        base_unroll = 1
     unroll = max(1, min(base_unroll, n))
     # the scan init must carry the body's fixed-point treedef: state
     # sealed to full validity, all other claims zeroed
@@ -1241,6 +1257,85 @@ class DiagnosticsNamespace:
         """Summary repr listing the bound diagnostics."""
         return (f"<diagnostics: "
                 f"{', '.join(sorted(self._entries())) or 'none'}>")
+
+
+# ================================================================
+#  propagator: wrt-target resolution and the identity splice
+# ================================================================
+class _WrtTarget(NamedTuple):
+
+    """
+    One resolved ``propagator`` differentiation target.
+
+    Description
+    -----------
+    Where a ``theta`` leaf splices into the ``(carry, stepper)`` tree.
+    ``kind`` is ``"module"`` (a module parameter, ``slot``/``attr``),
+    ``"stepper"`` (the time-stepper leaf ``attr``), or ``"field"`` (a
+    PROGNOSTIC initial condition, spliced at ``carry.state[name].
+    storage``).
+
+    Parameters
+    ----------
+    kind : str
+        One of ``"module"``, ``"stepper"``, ``"field"``.
+    slot : int
+        The module tuple index (``-1`` for stepper/field targets).
+    attr : str
+        The provider's dynamic-leaf attribute ("" for field targets).
+    name : str
+        The wrt name (a dotted parameter name or a field name).
+    """
+
+    kind: str
+    slot: int
+    attr: str
+    name: str
+
+
+def _live_leaf(
+    target: _WrtTarget, carry: ModelState, stepper: TimeStepper,
+) -> object:
+    """Return one target's live leaf in ``(carry, stepper)``."""
+    if target.kind == "field":
+        return carry.state[target.name].storage
+    if target.kind == "stepper":
+        return getattr(stepper, target.attr)
+    return getattr(carry.modules[target.slot], target.attr)
+
+
+def _splice_targets(
+    carry: ModelState,
+    stepper: TimeStepper,
+    targets: tuple[_WrtTarget, ...],
+    theta: tuple[object, ...],
+) -> tuple[ModelState, TimeStepper]:
+    """
+    Splice ``theta`` leaves into ``(carry, stepper)`` by identity.
+
+    Description
+    -----------
+    Generalizes the ``test_model_autodiff`` pattern to any mix of
+    module-parameter, stepper and initial-field targets: each target's
+    live leaf is located by object identity in the flattened tree and
+    replaced with the traced ``theta`` value, so reverse-mode autodiff
+    flows straight into the carry ``_chunk_body`` scans over. The
+    treedef is untouched, so the substitution never disturbs the
+    scan's fixed-point carry structure.
+    """
+    leaves, treedef = jax.tree_util.tree_flatten((carry, stepper))
+    new_leaves = list(leaves)
+    for target, value in zip(targets, theta, strict=True):
+        live = _live_leaf(target, carry, stepper)
+        matches = [i for i, ref in enumerate(leaves) if ref is live]
+        if len(matches) != 1:  # pragma: no cover — structural invariant
+            raise RuntimeError(
+                f"propagator could not locate a unique leaf for wrt "
+                f"target {target.name!r} ({len(matches)} matches); the "
+                "carry structure changed underneath the resolver")
+        new_leaves[matches[0]] = value
+    carry2, stepper2 = jax.tree_util.tree_unflatten(treedef, new_leaves)
+    return carry2, stepper2
 
 
 # ================================================================
@@ -1935,6 +2030,220 @@ class Model:
         self._panicked = False
         self._panic_it = None
         self._host_elapsed = np.float64(0.0)
+
+    # ================================================================
+    #  The differentiable run surface (propagator)
+    # ================================================================
+    def propagator(
+        self,
+        *,
+        wrt: Sequence[str] = (),
+        steps: int,
+        remat: bool | None = None,
+    ) -> Callable[..., ModelState]:
+        r"""
+        Build a pure, differentiable ``theta -> ModelState`` run.
+
+        Description
+        -----------
+        The supported spelling for reverse-mode autodiff through a
+        model run (the private ``_chunk_body`` recipe of
+        ``design/research/jax_grad_run_investigation.md``, made
+        public). Returns a callable ``run(theta, state=None)`` that
+        advances ``steps`` steps from the committed carry (snapshotted
+        at build) and returns the final ``ModelState`` — carry
+        donation OFF and no host panic sync, so the caller may wrap it
+        directly in ``jax.jit`` / ``jax.grad`` / ``jax.value_and_grad``
+        (a NaN gradient is a bug, not an expected outcome). The panic
+        pair rides the returned carry; the returned state is
+        ``result.state``.
+
+        ``theta`` is a tuple aligned with ``wrt``: each value is
+        spliced by identity into its target leaf (a module parameter, a
+        stepper leaf such as ``stepper.dt``, or a PROGNOSTIC initial
+        field), so ``jax.grad(lambda th: loss(run(th)))(theta0)`` is
+        the gradient of the loss with respect to those leaves. The
+        stepper starts from a FRESH warm-up (``_fresh_stepper_state``),
+        so the gradient includes the multistep ramp; ``state=None``
+        integrates the committed state, and a supplied ``State`` splices
+        its PROGNOSTIC components in first.
+
+        A ``wrt`` name is refused, host-side at build, with a taught
+        error when it cannot yield a correct gradient: an unknown name,
+        an identity-defaulted constant (no leaf to differentiate), a
+        parameter frozen into ``exp(L dt)`` by an exponential stepper
+        (silently stale), or a parameter whose owner materializes
+        AUXILIARY coefficient fields (splicing the scalar leaf leaves
+        the field stale — a silently-zero gradient). See
+        :class:`fridom.transforms.Propagator` for the unrelated host
+        ``State -> State`` run transform (Tier-2, not differentiable).
+
+        Parameters
+        ----------
+        wrt : Sequence[str], optional
+            Differentiation targets, in ``theta`` order: dotted bound
+            parameter names (``"mixing.kappa"``, ``fr.params.TIME_STEP``)
+            or PROGNOSTIC field names (``"b"``). Empty ``wrt`` builds a
+            pure forward run taking ``theta=()`` (default: ()).
+        steps : int
+            The number of steps to advance (a positive int).
+        remat : bool | None, optional
+            Checkpoint the scan body (``jax.checkpoint``, unroll 1) so
+            the reverse pass recomputes each step instead of taping it —
+            trades compute for O(``steps``) adjoint memory. ``None`` /
+            ``False`` keep the plain scan (default: None).
+
+        Returns
+        -------
+        Callable
+            ``run(theta=(), state=None) -> ModelState``, a pure
+            function of ``theta`` (and the optional initial ``state``).
+
+        Raises
+        ------
+        ValueError
+            If ``steps`` is not a positive int.
+        MissingParameterError
+            If a ``wrt`` name is neither a bound parameter nor a
+            PROGNOSTIC field.
+        AssemblyError
+            If a ``wrt`` parameter is an identity-defaulted constant,
+            frozen into ``L`` by the stepper, or owned by a module that
+            materializes AUXILIARY fields.
+        NotImplementedError
+            If the composition declares no PROGNOSTIC state.
+        """
+        if isinstance(steps, bool) or not isinstance(steps, int) \
+                or steps < 1:
+            raise ValueError(
+                f"propagator steps must be a positive int, got {steps!r}")
+        if not self._artifacts.field_table.prognostic:
+            raise NotImplementedError(
+                "propagator() needs a PROGNOSTIC state to advance; this "
+                "composition declares none (stage-only schedules land "
+                "with wave 5)")
+        wrt = tuple(wrt)
+        targets = self._resolve_wrt_targets(wrt)
+        record = self._artifacts.record
+        base_carry = _copy_leaves(self._carry)
+        base_stepper = self._stepper
+        fresh = self._fresh_stepper_state()
+        remat_on = bool(remat)
+
+        def run(
+            theta: Sequence[object] = (),
+            state: VectorField | None = None,
+        ) -> ModelState:
+            """Advance ``steps`` steps as a pure function of ``theta``."""
+            theta = tuple(theta)
+            if len(theta) != len(wrt):
+                raise ValueError(
+                    f"propagator expected {len(wrt)} theta value(s) for "
+                    f"wrt={wrt}, got {len(theta)}")
+            carry = base_carry
+            if state is not None:
+                carry = self._carry_with_state(carry, state)
+            carry = carry.replace(stepper_state=fresh)
+            carry, stepper = _splice_targets(
+                carry, base_stepper, targets, theta)
+            return _chunk_body(record, steps, carry, stepper,
+                               remat=remat_on)
+
+        return run
+
+    def _resolve_wrt_targets(
+        self, wrt: tuple[str, ...],
+    ) -> tuple[_WrtTarget, ...]:
+        """Resolve/validate every ``wrt`` name (the taught refusals)."""
+        table = self._binding_table
+        prognostic = self._artifacts.field_table.prognostic
+        remat_owners = {
+            entry.owner
+            for entry in self._artifacts.remat_table.entries}
+        freezes = bool(getattr(
+            self._stepper, "freezes_linear_operator", False))
+        l_feeding = self._l_feeding_names() if freezes else frozenset()
+        targets: list[_WrtTarget] = []
+        for name in wrt:
+            if name in table:
+                targets.append(self._resolve_param_target(
+                    name, table[name], remat_owners, l_feeding))
+            elif name in prognostic:
+                targets.append(_WrtTarget("field", -1, "", str(name)))
+            else:
+                bound = ", ".join(table.names) or "none"
+                fields = ", ".join(prognostic) or "none"
+                raise MissingParameterError(
+                    f"propagator wrt target {str(name)!r} is neither a "
+                    "bound parameter nor a PROGNOSTIC field; bound "
+                    f"parameters: {bound}; prognostic fields: {fields}")
+        return tuple(targets)
+
+    def _resolve_param_target(
+        self,
+        name: str,
+        entry: ParameterBinding,
+        remat_owners: set[int],
+        l_feeding: frozenset[str],
+    ) -> _WrtTarget:
+        """Refuse a non-differentiable parameter, or build its target."""
+        if entry.slot is None:
+            raise AssemblyError(
+                f"propagator cannot differentiate {str(name)!r}: it is "
+                "an identity-defaulted constant (no provider owns a "
+                "leaf, so there is nothing to differentiate); provide "
+                "it from a module, or re-assemble")
+        # frozen-L before materialized: an L-parameter is stale under an
+        # exponential stepper regardless of a stepper swap, so it earns
+        # the more specific message (and the materialized refusal, which
+        # also fires under a non-freezing stepper, otherwise masks it).
+        if str(name) in l_feeding:
+            raise AssemblyError(
+                f"propagator cannot differentiate {str(name)!r}: it "
+                "feeds the linear operator L, which "
+                f"{type(self._stepper).__name__} freezes into an "
+                "eigenbasis at assembly (freezes_linear_operator=True), "
+                "so exp(L dt) is a snapshot and the gradient would be "
+                "silently stale. Differentiating an L-frozen parameter "
+                "is a v1 limitation (design/plans/active/"
+                "time_dependent_fields.md, TDF-D4)")
+        if entry.slot != "stepper" and entry.slot in remat_owners:
+            fields = ", ".join(
+                entry_.field
+                for entry_ in self._artifacts.remat_table.entries
+                if entry_.owner == entry.slot)
+            owner = type(self._carry.modules[entry.slot]).__name__
+            raise AssemblyError(
+                f"propagator cannot differentiate {str(name)!r}: its "
+                f"owner modules[{entry.slot}] ({owner}) materializes "
+                f"AUXILIARY coefficient field(s) ({fields}) at "
+                "assembly, and splicing the scalar leaf alone leaves "
+                "those fields stale, so the gradient would be silently "
+                "zero. Materialized-owner parameters are refused in v1 "
+                "(in-trace rematerialization is the planned unlock, "
+                "design/plans/active/differentiability_plan.md 5.2)")
+        if entry.slot == "stepper":
+            return _WrtTarget("stepper", -1, entry.attr, str(name))
+        return _WrtTarget("module", entry.slot, entry.attr, str(name))
+
+    def _l_feeding_names(self) -> frozenset[str]:
+        """Union of every module's linear-operator parameter names."""
+        names: set[str] = set()
+        for module in self._carry.modules:
+            names.update(module.linear_operator_parameters())
+        return frozenset(names)
+
+    def _carry_with_state(
+        self, carry: ModelState, state: VectorField,
+    ) -> ModelState:
+        """Splice a supplied State's PROGNOSTIC fields into ``carry``."""
+        table = self._artifacts.field_table
+        incumbent = carry.state
+        updates = {
+            name: self._rehome(incumbent[name], state[name],
+                               f"propagator state[{name}]")
+            for name in table.prognostic if name in state}
+        return carry.replace(state=incumbent.replace(**updates))
 
     # ================================================================
     #  The run loop (section 6.3)
