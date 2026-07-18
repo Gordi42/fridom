@@ -272,6 +272,27 @@ def _declared_members(cls: type) -> dict[str, Any]:
     return members
 
 
+def _declared_linear_terms(cls: type) -> Iterator[TendencyTerm]:
+    """
+    Yield a module class's DECLARED ``linear=True`` terms, in order.
+
+    Description
+    -----------
+    The shared walk of the two linear-operator honesty seams
+    (``time_dependent_linear_parameters`` and
+    ``linear_operator_parameters``): the ``@fr.term``-stamped methods
+    of ``cls`` in definition order, all of them, independent of any
+    ``term_filter`` or schedule. Under a frozen-``L`` (exponential)
+    stepper the linear terms are filtered OUT of the tendency but are
+    still integrated by ``exp(L dt)``, so both seams must consult the
+    declarations, not the schedule.
+    """
+    for member in _declared_members(cls).values():
+        term = getattr(member, TERM_ATTRIBUTE, None)
+        if isinstance(term, TendencyTerm) and term.linear:
+            yield term
+
+
 # ================================================================
 #  Module
 # ================================================================
@@ -452,10 +473,7 @@ class Module:
         """
         names: list[str] = []
         seen: set[str] = set()
-        for member in _declared_members(type(self)).values():
-            term = getattr(member, TERM_ATTRIBUTE, None)
-            if not isinstance(term, TendencyTerm) or not term.linear:
-                continue
+        for term in _declared_linear_terms(type(self)):
             for name in term.linear_params:
                 leaf = self._linear_dependency_leaf(name)
                 if isinstance(leaf, TimeDependent) and name not in seen:
@@ -469,6 +487,38 @@ class Module:
                     names.append(name)
                     seen.add(name)
         return tuple(names)
+
+    def linear_operator_parameters(self) -> tuple[str, ...]:
+        """
+        Dotted names of every parameter the linear operator depends on.
+
+        Description
+        -----------
+        The time-dependence-BLIND sibling of
+        ``time_dependent_linear_parameters``: the union of
+        ``linear_params`` declared across this module's DECLARED
+        ``linear=True`` terms, regardless of whether each currently
+        resolves to a plain constant or an ``fr.Ramp`` curve. Where the
+        assembly guard fires only on time-dependent ``L`` couplings (a
+        stale ramp), the differentiable-run surface
+        (``Model.propagator``) needs the WHOLE set: a gradient with
+        respect to ANY parameter frozen into ``exp(L dt)`` is silently
+        stale, time-dependent or not. Same declared-term walk, same
+        ``@fr.term`` seam; ``linear_fields`` are handled by the
+        propagator's materialized-owner refusal (their coefficient
+        fields ride the re-materialization table) and are not repeated
+        here.
+
+        Returns
+        -------
+        tuple[str, ...]
+            The declared ``linear_params`` names, declaration order,
+            de-duplicated.
+        """
+        return tuple(dict.fromkeys(
+            str(name)
+            for term in _declared_linear_terms(type(self))
+            for name in term.linear_params))
 
     def _linear_dependency_leaf(self, name: str) -> object:
         """Resolve a ``linear_params`` name to this module's own leaf."""

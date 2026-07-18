@@ -15,6 +15,13 @@ by construction), so two transforms never share a model; a Ramp-valued
 ``updates=`` slot (OB's ramped legs) and a ``backward`` dt sign flip
 are assembly-time variant updates. Tier 2: a host object with the
 inherited trace guard (``TraceError`` on tracer input).
+
+Not to be confused with the lowercase method ``Model.propagator`` —
+the differentiable ``theta -> ModelState`` run surface (a pure kernel
+callable for ``jax.grad``, no host driver). This class is the host
+``State -> State`` transform that runs ``advance`` internally and
+refuses a tracer; ``Model.propagator`` is the traceable pure-function
+counterpart.
 """
 from __future__ import annotations
 
