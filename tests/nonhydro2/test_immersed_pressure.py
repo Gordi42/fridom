@@ -19,9 +19,13 @@ from fridom.spatial.coordinate_mapping import CoordinateMapping
 from fridom.spatial.grid import Grid
 from fridom.spatial.immersed_domain import ImmersedDomain
 from fridom.spatial.meshes.interval import IntervalMesh
+from fridom.spatial.operators.banded import _resolve_tridiagonal_method
 from fridom.spatial.operators.multigrid import VerticalLineJacobi
 
 TWO_PI = 2.0 * np.pi
+
+#: whether the default jax backend is a GPU (gates the cusparse leg)
+_ON_GPU = jax.default_backend() == "gpu"
 
 
 def _fv_grid(meshes, immersed):
@@ -498,3 +502,97 @@ def test_projection_property_removes_the_wet_mean():
     # idempotent
     again = project(pf)
     assert float(jnp.abs((again - pf).data).max()) < 1e-12
+
+
+# ================================================================
+#  Perf-guard gap A: the vertical-line smoother on EVERY level
+# ================================================================
+def _sloped_partial_solver(n=16, nz=8, iterations=18, levels=3):
+    """Sloping-bottom immersed FV multigrid solver with partial cells.
+
+    Bounded z (line-smoothable) and genuine fractional cell fractions
+    (order-4 quadrature of the indicator), so the anisotropy smoother
+    is exercised on the cut-cell geometry multigrid exists for.
+    """
+    meshes = (
+        IntervalMesh(n, (0.0, TWO_PI), periodic=True, name="x"),
+        IntervalMesh(n, (0.0, TWO_PI), periodic=True, name="y"),
+        IntervalMesh(nz, (0.0, 1.0), periodic=False, name="z"))
+    slope = lambda x, y, z: jnp.clip(  # noqa: E731
+        ((0.55 + 0.12 * jnp.sin(y) + 0.1 * x / TWO_PI) - z) * 8 + 0.5,
+        0.0, 1.0)
+    grid = _fv_grid(meshes, ImmersedDomain(slope, order=4))
+    space = _cell_space(grid)
+    solver = ImmersedPressureSolver(
+        grid, space, vertical="z", dsqr=0.7, iterations=iterations,
+        preconditioner="multigrid", multigrid_levels=levels,
+        tolerance=None)
+    return grid, space, solver
+
+
+def test_every_level_smoother_is_a_vertical_line_jacobi():
+    # a silent swap to a point (isotropic) smoother looks faster per
+    # V-cycle but stalls on partial-cell columns (the budget guard
+    # below). Pin the anisotropy smoother on every level built the
+    # production way — host-side, no compile.
+    grid, space = _box_bounded(n=16)
+    mg = ImmersedPressureSolver(
+        grid, space, vertical="z", dsqr=0.5, iterations=5,
+        preconditioner="multigrid", multigrid_levels=3)
+    levels = mg._build_vcycle().levels
+    assert levels
+    assert all(isinstance(level.smoother, VerticalLineJacobi)
+               for level in levels)
+
+
+def test_sloped_immersed_multigrid_converges_within_budget():
+    # perf-guard gap A convergence budget: the vertical-line V-cycle
+    # drives the sloped partial-cell Poisson below tolerance in a small
+    # PCG budget. A point-smoother swap stalls here (rel ~1e-4,
+    # measured), so this fails loudly if the anisotropy smoother is lost.
+    _grid, _space, solver = _sloped_partial_solver(iterations=18)
+    vel = _random_velocity(solver, seed=6)
+    rhs = solver.divergence(vel)
+    p = jax.jit(solver.solve)(rhs)
+    residual = solver.apply(p) - rhs
+    rel = (float(jnp.abs(residual.data).max())
+           / float(jnp.abs(rhs.data).max()))
+    assert rel < 1e-8
+
+
+# ================================================================
+#  Perf-guard gap B: the "auto" knob resolves end to end
+# ================================================================
+def _resolved_level_methods(solver):
+    """Resolve every level smoother's kernel against the backend."""
+    vcycle = solver._build_vcycle()
+    assert vcycle.levels
+    assert all(level.smoother.method == "auto"
+               for level in vcycle.levels)
+    return {_resolve_tridiagonal_method(level.smoother.method)
+            for level in vcycle.levels}
+
+
+@pytest.mark.skipif(_ON_GPU, reason="pcr is the off-GPU resolution")
+def test_auto_method_wires_to_pcr_off_gpu():
+    # end-to-end wiring: the model default "auto" reaches every level's
+    # smoother and resolves (host-side) to the portable pcr kernel off a
+    # GPU — a silent loss costs 9-18x on the CG solve
+    grid, space = _box_bounded(n=16)
+    mg = ImmersedPressureSolver(
+        grid, space, vertical="z", dsqr=0.5, iterations=5,
+        preconditioner="multigrid", multigrid_levels=3)
+    assert mg._multigrid_tridiagonal_method == "auto"
+    assert _resolved_level_methods(mg) == {"pcr"}
+
+
+@pytest.mark.skipif(not _ON_GPU, reason="cusparse needs a CUDA GPU")
+def test_auto_method_wires_to_cusparse_on_gpu():
+    # the GPU leg of the same wiring: "auto" resolves to the batched
+    # cuSPARSE kernel on a CUDA backend (runs on the A100 suite)
+    grid, space = _box_bounded(n=16)
+    mg = ImmersedPressureSolver(
+        grid, space, vertical="z", dsqr=0.5, iterations=5,
+        preconditioner="multigrid", multigrid_levels=3)
+    assert mg._multigrid_tridiagonal_method == "auto"
+    assert _resolved_level_methods(mg) == {"cusparse"}

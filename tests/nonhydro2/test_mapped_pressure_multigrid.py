@@ -40,10 +40,15 @@ from fridom.nonhydro2.modules.mapped_pressure import MappedPressureSolver
 from fridom.spatial.coordinate_mapping import CoordinateMapping
 from fridom.spatial.grid import Grid
 from fridom.spatial.meshes.interval import IntervalMesh
+from fridom.spatial.operators.banded import _resolve_tridiagonal_method
+from fridom.spatial.operators.multigrid import VerticalLineJacobi
 
 TWO_PI = 2.0 * np.pi
 DSQR = 0.25
 NZ = 8
+
+#: whether the default jax backend is a GPU (gates the cusparse leg)
+_ON_GPU = jax.default_backend() == "gpu"
 
 
 # ================================================================
@@ -54,19 +59,24 @@ def depth(x):
     return 1.0 + 0.5 * jnp.sin(x)
 
 
-def build_grid(nx=16, nz=NZ, *, device_ids=None):
+def steep_depth(x):
+    """Steep periodic water depth (ratio 9) — the anisotropic case."""
+    return 1.0 + 0.8 * jnp.sin(x)
+
+
+def build_grid(nx=16, nz=NZ, *, depth_fn=depth, device_ids=None):
     """Terrain-following 2D grid ``zp = sigma * H(x)`` (x periodic)."""
     mx = IntervalMesh(nx, (0.0, TWO_PI), periodic=True, name="x")
     ms = IntervalMesh(nz, (0.0, 1.0), periodic=False, name="sigma")
     mapping = CoordinateMapping(maps={"zp": lambda sigma, H: sigma * H},
-                                params={"H": depth})
+                                params={"H": depth_fn})
     return Grid((mx, ms), mapping=mapping, device_ids=device_ids), mx, ms
 
 
 def build_solver(nx=16, *, iterations, levels, method="auto",
-                 device_ids=None):
+                 depth_fn=depth, device_ids=None):
     """Return a multigrid-preconditioned mapped solver and its grid."""
-    grid, mx, ms = build_grid(nx, device_ids=device_ids)
+    grid, mx, ms = build_grid(nx, depth_fn=depth_fn, device_ids=device_ids)
     space = mx.center * ms.center
     solver = MappedPressureSolver(
         grid, space, iterations=iterations,
@@ -230,3 +240,65 @@ def test_mapped_solver_rejects_unknown_tridiagonal_method():
             grid, space, iterations=3, weights={"sigma": 1.0 / DSQR},
             preconditioner="multigrid",
             multigrid_tridiagonal_method="thomas")
+
+
+# ================================================================
+#  Perf-guard gap A: the vertical-line smoother on EVERY level
+# ================================================================
+def test_every_level_smoother_is_a_vertical_line_jacobi():
+    # a silent swap to a point (isotropic) smoother looks faster per
+    # V-cycle but stalls on steep mapped columns (the budget guard
+    # below). Pin the anisotropy smoother on every level built the
+    # production way — host-side, no compile.
+    solver, _, _ = build_solver(iterations=6, levels=3)
+    vcycle = solver._build_vcycle({})
+    assert vcycle.levels
+    assert all(isinstance(level.smoother, VerticalLineJacobi)
+               for level in vcycle.levels)
+
+
+def test_steep_mapped_multigrid_converges_within_budget():
+    # perf-guard gap A convergence budget: the vertical-line V-cycle
+    # drives the steep (depth-ratio-9) mapped Poisson below tolerance in
+    # a small PCG budget. A point-smoother swap stalls here (rel ~1,
+    # measured), so this fails loudly if the anisotropy smoother is lost.
+    solver, grid, space = build_solver(
+        iterations=13, levels=3, depth_fn=steep_depth)
+    rhs = mean_free_rhs(grid, space)
+    p = jax.jit(solver.solve)(rhs)
+    residual = solver.apply(p) - rhs
+    rel = (float(jnp.abs(residual.data).max())
+           / float(jnp.abs(rhs.data).max()))
+    assert rel < 1e-7
+
+
+# ================================================================
+#  Perf-guard gap B: the "auto" knob resolves end to end
+# ================================================================
+def _resolved_level_methods(solver):
+    """Resolve every level smoother's kernel against the backend."""
+    vcycle = solver._build_vcycle({})
+    assert vcycle.levels
+    assert all(level.smoother.method == "auto"
+               for level in vcycle.levels)
+    return {_resolve_tridiagonal_method(level.smoother.method)
+            for level in vcycle.levels}
+
+
+@pytest.mark.skipif(_ON_GPU, reason="pcr is the off-GPU resolution")
+def test_auto_method_wires_to_pcr_off_gpu():
+    # end-to-end wiring: the model default "auto" reaches every level's
+    # smoother and resolves (host-side) to the portable pcr kernel off a
+    # GPU — a silent loss costs 9-18x on the CG solve
+    solver, _, _ = build_solver(iterations=3, levels=3)
+    assert solver._multigrid_tridiagonal_method == "auto"
+    assert _resolved_level_methods(solver) == {"pcr"}
+
+
+@pytest.mark.skipif(not _ON_GPU, reason="cusparse needs a CUDA GPU")
+def test_auto_method_wires_to_cusparse_on_gpu():
+    # the GPU leg of the same wiring: "auto" resolves to the batched
+    # cuSPARSE kernel on a CUDA backend (runs on the A100 suite)
+    solver, _, _ = build_solver(iterations=3, levels=3)
+    assert solver._multigrid_tridiagonal_method == "auto"
+    assert _resolved_level_methods(solver) == {"cusparse"}
