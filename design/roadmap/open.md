@@ -464,6 +464,18 @@ V-cycle kernel swap it called for shipped 2026-07-18 (merge
   via the `Grid.coarsened` memo); (d) `multi_device` markers for the
   parity-test victims (unmarked 4-device-only failures are invisible
   to single-device CI).
+- **Coarse-level agglomeration — PLANNED (concrete driver: census +
+  scalability floor).** The 4-GPU 128³ 0.37× deficit is now
+  count-attributed: a collective census (2026-07-18, kernel study
+  [Addendum 3](../research/multigrid_kernel_study.md)) found the two
+  coarsest levels (1–2 planes per shard) fire ~33% of the halo
+  collective-permutes — ~860 sub-KB latency-only permutes/step, ~9–14 ms
+  of the ~34 ms 4-GPU overhead — and the depth-scaling record shows a
+  P-device sharded axis cannot coarsen below P cells, capping V-cycle
+  depth and breaking h-independence at large P. Both drivers are served
+  by one lever — replicate the deep levels below a per-shard-extent
+  threshold — now planned and prototyping on `feat/multigrid-agglomeration`
+  ([`../plans/active/multigrid_agglomeration_plan.md`](../plans/active/multigrid_agglomeration_plan.md)).
 - **Residual mapped-GPU levers, unclaimed** — fewer coarse sweeps;
   cheaper mapped operator applies (the finest level dominates the
   post-swap V-cycle: one sweep = 15.7 ms cuSPARSE solve + 12.0 ms
@@ -473,8 +485,9 @@ V-cycle kernel swap it called for shipped 2026-07-18 (merge
   128³/256³ at the production budget=100, where spectral also converges
   (71–73 iters) — the 1.3–2.0× projection was a budget=30 artifact, and
   mg is the only converged option below budget ≈70. On 4 GPUs
-  mg-cuSPARSE is 1.11× at 512³ but 0.37× at 128³ (per-level collective
-  latency), so any lever hunt is large-n / multi-GPU-aware.
+  mg-cuSPARSE is 1.11× at 512³ (bandwidth-amortized) — the large-n end
+  where the collective count is a smaller fraction, so any remaining
+  lever hunt there is large-n / multi-GPU-aware.
 
 ## TangentPropagator — the D5 forward-mode surface
 

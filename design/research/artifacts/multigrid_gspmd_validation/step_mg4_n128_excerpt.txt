@@ -1,0 +1,67 @@
+# TRIMMED excerpt of the optimized 4-GPU mg-cuSPARSE step module.
+#
+# Source module (NOT checked in, 16 MB / 101849 lines):
+#   step_mg4_n128.txt = module jit__chunk_body.sm_8.0_gpu_after_optimizations
+#   GB-2 steep-mapped nonhydro2, n=128, 4x A100, x sharded 4-way, jax 0.10.2.
+# Regenerate: JAX_PLATFORMS=cuda \
+#   XLA_FLAGS="--xla_disable_hlo_passes=multi_output_fusion --xla_dump_to=DIR" \
+#   srun -n 1 --gpu-bind=none .venv/bin/python dump_hlo.py 128 multigrid cusparse 100
+#   then census.py DIR/<module> 10   (parser attributes each collective by
+#   computation + structural region; counts op DEFINITIONS not references).
+# Full census + tables: census_collective_report.md.
+#
+# This file keeps only the load-bearing lines: the ONE while (CG masked
+# scan, known_trip_count=99), the ONE conditional (skip/real), one
+# representative collective-permute-start per multigrid level (halo +
+# inter-level transfer payload), representative all-reduces, and the single
+# all-gather. Left/right x-halos are SEPARATE collective-permute ops (never
+# fused): forward ring {{0,1},{1,2},{2,3},{3,0}} and reverse ring
+# {{0,3},{1,0},{2,1},{3,2}}; the 3-pair non-wraparound variants are the
+# restriction/prolongation transfers.
+
+===== module structure: the ONE while + the ONE conditional =====
+
+# CG masked scan: known_trip_count=99 (budget 100 minus the peeled iter 1).
+# Carry tuple holds every unrolled V-cycle level's working arrays (128->4).
+%while.483 = (s64[], f64[32,128,128], ... f64[6,1,5]) while(%tuple.5403), condition=%region_421.2033_spmd.clone, body=%region_282.2032_spmd.clone, backend_config={"known_trip_count":{"n":"99"}, ...}
+
+# tolerance branch: true=converged=SKIP (region_283, pure tuple pass-through,
+# 0 collectives / 0 FLOPs), false=not-converged=REAL (region_284, one CG
+# iteration = one fully-unrolled 6-level V-cycle + operator apply + dots).
+%conditional.2 = (f64[32,128,128], f64[32,128,128], f64[32,128,128], f64[], f64[]) conditional(%wrapped_compare, %tuple.5347.0, %tuple.5348.0), true_computation=%region_283.1447_spmd, false_computation=%region_284.2031_spmd
+
+===== representative collective-permute-start per level (x-halo exchange) =====
+# payload f64[hx, Y, Z], storage Y = true + 2 ghosts (130/66/34/18/10/6 for
+# levels 128/64/32/16/8/4). Forward (left) halo ring shown; the reverse
+# (right) halo is a separate op with pairs {{0,3},{1,0},{2,1},{3,2}}.
+
+# L128 (finest), hx=1 plane/shard:
+%collective-permute-start.76 = (f64[1,130,130], f64[1,130,130]) collective-permute-start(%loop_slice_fusion.198), channel_id=1, source_target_pairs={{0,1},{1,2},{2,3},{3,0}}
+# L64:
+%collective-permute-start.92 = (f64[1,66,66], f64[1,66,66]) collective-permute-start(%loop_slice_fusion.162), channel_id=1, source_target_pairs={{0,1},{1,2},{2,3},{3,0}}
+# L32:
+%collective-permute-start.102 = (f64[1,34,34], f64[1,34,34]) collective-permute-start(%loop_slice_fusion.138), channel_id=1, source_target_pairs={{0,1},{1,2},{2,3},{3,0}}
+# L16:
+%collective-permute-start.118 = (f64[1,18,18], f64[1,18,18]) collective-permute-start(%loop_slice_fusion.114), channel_id=1, source_target_pairs={{0,1},{1,2},{2,3},{3,0}}
+# L8 (2 planes per shard across 4 devices):
+%collective-permute-start.<L8> = (f64[1,10,10], f64[1,10,10]) collective-permute-start(...), channel_id=1, source_target_pairs={{0,1},...}
+# L4 (coarsest: 1 plane per shard; a single non-wraparound pair remains):
+%collective-permute-start.21 = (f64[1,4,4], f64[1,4,4]) collective-permute-start(%bitcast.254.0), channel_id=669, source_target_pairs={{3,0}}
+# L4 coarse halo (2-plane concatenated), non-wraparound 3-pair:
+%collective-permute-start.26 = (f64[2,6,6], f64[2,6,6]) collective-permute-start(%input_concatenate_fusion.12), channel_id=685, source_target_pairs={{0,1},{1,2},{2,3}}
+
+===== inter-level transfer collective-permutes (true-size, no ghost pad) =====
+# restriction/prolongation exchanges = the L* rows in the report table.
+%collective-permute-start.1 = (f64[1,64,64], f64[1,64,64]) collective-permute-start(%loop_slice_fusion.240), channel_id=593, source_target_pairs={{0,1},{1,2},{2,3}}
+%collective-permute-start.4 = (f64[1,32,32], f64[1,32,32]) collective-permute-start(%loop_slice_fusion.299), channel_id=612, source_target_pairs={{0,1},{1,2},{2,3}}
+%collective-permute-start.11 = (f64[1,16,16], f64[1,16,16]) collective-permute-start(%loop_slice_fusion.311), channel_id=631, source_target_pairs={{0,1},{1,2},{2,3}}
+
+===== representative all-reduces (CG + per-level wet/mean projection dots) =====
+%all-reduce-start = f64[128,128] all-reduce-start(%input_reduce_fusion.19), channel_id=578, replica_groups=mesh['axis_0'=4,'axis_1'=1,'axis_2'=1] {'axis_0'}, use_global_device_ids=true, to_apply=%region_285.1469.clone
+%all-reduce-start.12 = f64[8192] all-reduce-start(%wrapped_concatenate.30), channel_id=592, replica_groups={{0,1,2,3}}, use_global_device_ids=true, to_apply=%add.570.clone
+
+===== the ONLY all-gather in the whole step (32 B, global-mean projection) =====
+# f64[1]->f64[4] over axis_0=4; feeds NO cusparse operand and NO mg transfer.
+# (The morning record's "second all-gather, s32[8] index gather" is a LOCAL
+#  gather op, not a collective -- it does not appear here.)
+%all-gather-start = (f64[1]{0}, f64[4]{0}) all-gather-start(%bitcast.843.0), channel_id=981, replica_groups=mesh['axis_0'=4] {'axis_0'}, dimensions={0}, use_global_device_ids=true
