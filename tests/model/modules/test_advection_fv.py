@@ -174,7 +174,11 @@ def test_fv_reconstruction_properties_requirements_interning():
     assert op.weighting == "weno"
     assert op.boundary == "none"
     assert op.wall == "upwind1"
-    assert op.requirements(mx.cell_avg).halo == 3 // 2 + 1
+    # two-sided reach: the left-biased order-3 window on CellAvg->Right
+    # is [-1,+1] (m0 = biased_offset(3, "left") = 1), so halo 1 -- the
+    # true kernel reach, tighter than the symmetric order//2+1 = 2
+    assert op.requirements(mx.cell_avg).reach == (1, 1)
+    assert op.requirements(mx.cell_avg).halo == 1
     # every constructor arg round-trips through the properties
     op5 = _FVBiasedReconstruction(5, "right", "linear", "graded",
                                   "centered2")
