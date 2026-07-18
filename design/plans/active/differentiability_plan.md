@@ -1,6 +1,12 @@
 # Differentiability — closure plan
 
-Status: **proposed** (2026-07-18, not yet started). Produced by a
+Status: **executed / complete** (shipped 2026-07-18). Phases 0–2 and
+the two extra seals the campaign flushed out all landed the same day
+(merges `45629c35`, `93049651`, `7fdbc900`, `39fe604c`, `dfd8ce0a`);
+phase 3 (the D5 tangent surface) is deferred to the roadmap. The
+outcome record — per-phase merges, the D4 premise reversal, the two
+extra divides, and the Phase-2 deviations — is in §10; the plan body
+below is retained as the historical design record. Produced by a
 three-track investigation in one session: a verification of every
 claim in the roadmap's `model.propagator()` entry against the code, a
 step-path VJP hazard sweep, and a full design-record inventory of
@@ -132,6 +138,12 @@ metric whose exact-0 ghost ring survives to the divide) and pointing
 at the audit. Optional cheap canary: a direct grad test of the
 reciprocal branch on a mapped grid pinning today's safety (§8, owner
 call D4).
+
+[Outcome 2026-07-18 (`7fdbc900`): reversed — the "watch-item only"
+premise was DISPROVEN. Both divides fire live (walled/sphere IC-grad
+through `_chunk_body` NaNs, fires with `coriolis=None`); sealed via
+`_sealed_metric_divide` at 0.000% added FLOPs/bytes on the mapped PCG
+step. See §10.]
 
 **Sequencing constraint:** the in-flight `refactor/linear-term-guard`
 worktree (time-dependent-fields wave 1) is editing `coriolis.py`.
@@ -286,10 +298,16 @@ into the roadmap's sized-deferred section.
   a follow-on/probe — or require in-trace remat in v1.
 - **D4 — `MetricScaled` canary.** Comment-only (recommended) or also
   a direct grad canary test pinning today's reverse-safety.
+  [Resolved 2026-07-18 (`7fdbc900`): neither — a live NaN forced a
+  full seal, not a canary; owner ratification of the reversal still
+  owed. §10.]
 - **D5 — Phase 2 sequencing.** Recommended: land 5.3 items 1-4
   independent of TDF, with the frozen-L refusal in its conservative
   fallback form if TDF wave 1 has not merged yet, upgraded to the
   TDF-D4 map when it lands.
+  [Done 2026-07-18 (`dfd8ce0a`): landed with the frozen-L refusal on
+  the TDF-D4 `linear_params` map (`linear_fields`-fed params covered
+  by the materialized refusal — §10 note 3). §10.]
 
 ## 9. Sequencing summary
 
@@ -304,3 +322,81 @@ Phase 3 (tangent)  — deferred (no consumer).
 Phases 1 and 2 are ordinary `<type>/<topic>` branches with mirrored
 tests and the merge gate; Phase 0 is design-only except the
 `banded.py` docstring (rides Phase 1).
+
+## 10. Outcome record (2026-07-18)
+
+The campaign executed in one day; every phase merged to dev.
+
+**Per-phase merges.**
+
+- Phase 0 (records) — `45629c35`: the three stale records corrected
+  (jax_grad_run_investigation addendum for the mapped-pressure seal
+  `ee350bda`; fv_nonhydro_scoping + hydrostatic_model_plan dated
+  in-place notes). §3 item 4 (`banded.py` docstring) was a no-op —
+  already fixed on dev (`4d3a9dcb`).
+- Phase 1 (coriolis seals) — `93049651`: H1-H3 sealed via new
+  `_safe_metric_divide` (double-`where` + halo-trace escape hatch);
+  3 autodiff regressions — weighted-rotation IC-grad FD 1.2e-13 on an
+  immersed grid (flat walled does NOT trigger H1, immersed dry cells
+  do), chart-rotation term-level FD 1.35e-11.
+- MetricScaled seal — `7fdbc900`: the D4 reversal (below).
+- Sadourny + conserving Coriolis — `39fe604c`: two further firing
+  divides (below).
+- Phase 2 (surface) — `dfd8ce0a`:
+  `Model.propagator(*, wrt=(), steps, remat=None)` → pure
+  `(theta, state=None) -> ModelState`; forward parity with `advance`
+  bitwise (maxdiff 0.0); 17 tests in
+  `tests/model/test_model_propagator.py`; AGENTS.md policy now names it
+  the canonical differentiability pattern (the private `_chunk_body`
+  shards stay valid).
+
+**D4 premise reversal (owner ratification owed).** §4/§8's approved
+"comment-only watch-item" for the `MetricScaled` reciprocal /
+coefficient divides (`spatial/operators/mapped.py`) was DISPROVEN:
+they fire live — walled/sphere chart sw2 IC-grad through `_chunk_body`
+NaNs, isolated by bisection (fires even with `coriolis=None`). Sealed
+both branches via `_sealed_metric_divide`. Cost proof: exactly 0.000%
+added FLOPs/bytes at 16³/32³ on the mapped PCG step (static-geometry
+mask constant-folds, singular quotient DCE'd); the ALE metric tangent
+is handled by construction. Grounds for overriding the plan: the live
+NaN + the roadmap's own "guard when a composition exposes them"
+trigger + the zero-cost proof. Tests: 4 operator-level in
+`test_mapped.py` + new `tests/shallowwater2/test_spherical_autodiff.py`
+(IC-grad FD 1.5e-11).
+
+**Two extra divides the campaign flushed out** (`39fe604c`). The
+MetricScaled work exposed two more masked-singularity divides of the
+same class: sw2 `sadourny.py` `ekin_num / sqg_p` chart kinetic energy
+(a `_sealed_metric_divide` helper) and sw2 `coriolis.py`
+`f.to(corner) / h.to(corner)` in `conserving_rotation` (flat and chart
+sites; new `_safe_pv_divide`), covering `CoriolisEnergyCorrection` and
+all `Nonlinear{FPlane,BetaPlane,Rotation}Coriolis` routes. A
+package-wide sweep of the sw2/nonhydro2/hydrostatic tendency modules
+then verdict-tabled every other metric/thickness divide as
+already-sealed or cannot-fire: **the masked-singularity class is
+CLOSED across the step path.** Tests: adv=True sphere grad FD-matched;
+bare-vs-guarded proofs in `test_sadourny_autodiff.py` and
+`test_coriolis.py`.
+
+**Phase-2 deviations (owner-review notes).**
+
+1. **Ordering.** The surface checks frozen-L *before* materialized
+   (more specific message); every reachable L-param today is also
+   materialized, so the order is cosmetic.
+2. **Frozen-L set = `linear_params`-only.** Params feeding L via
+   `linear_fields` AUX fields are caught by the materialized refusal,
+   so refusal completeness is identical today. Forward-looking: when
+   TDF wave 2 makes linear-consumed fields recomputed-in-trace (no
+   longer remat-owned), the frozen-L set must learn `linear_fields`.
+3. **Materialized-owner conservatism.** The materialized refusal
+   over-refuses a differentiable param that merely shares an owner with
+   a materialized field (e.g. sw `scaling.rossby`); in-trace
+   rematerialization is the recorded follow-on.
+
+**Phase 3 (D5 `TangentPropagator`) deferred.** No consumer (NNMD
+descoped); the shared name-resolution piece shipped with Phase 2, so
+it stays a small lift. Tracked in the roadmap's sized-deferred section
+(§5.4).
+
+**Remaining open in-plan: none.** The tangent surface is deferred on
+the roadmap, not held in this plan.
