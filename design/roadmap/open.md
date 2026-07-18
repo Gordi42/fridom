@@ -51,19 +51,27 @@ memory ceiling, time-to-first-step, WENO throughput (entries in
   evening, owner-requested: `srun -n 4` bitwise/1e-15 vs 1-GPU,
   both schemes; record in plan §9 — including the multi-process
   compile-cache deadlock it exposed and fixed, `94786a7c`).
-  Remaining: (a) post-reroute weno5 ladder re-measure — overhead
-  vs off and embed-vs-scatter for the remaining tracer slice (the
-  biased `"embed"` default is provisional, in-code note;
-  owner-gated GPU); (b) the `surface_flux=False` opt-out path
-  reads +28–48% over its pre-H7 cost at big rungs (plan §9 flag)
-  — decide whether the legacy opt-out is worth chasing; (c)
-  **owner ruling needed:** split-explicit models drop the
-  barotropic part of a velocity IC entirely (plan §9 validation
-  finding — z-independent `set_fields` velocity vanishes from the
-  whole carry in one step; intended rest-start semantics or an IC
-  gap? Also means the se ladder rungs ran near-zero-velocity
-  flows while oc got the full IC). Step-guard checkpointing stays
-  on Silvano's own batch cadence (never agent-initiated).
+  Remaining (sharpened by the 2026-07-19 analysis of the
+  remainders job 26350823 — that job raced parallel dev merges in
+  the shared checkout, so its weno5 arms ran at three commits and
+  the scatter arm lost 4/5 rungs to a mid-merge conflict at
+  child-import time; centered arms clean at `33707661`):
+  (a) post-reroute weno5 ladder re-measure — the only clean
+  same-commit A/B pair (rf=28) has embed +1.0% over scatter, so
+  the provisional biased `"embed"` default stands, but a
+  definitive verdict needs a clean re-run (owner-gated GPU,
+  ~20 min); (b) the `surface_flux=False` opt-out is now measured
+  SLOWER than the scatter default (up to −16% for the default at
+  big rungs) and +48% over the pre-H7 point (default: +24%) —
+  the linear rungs are bitwise-stable across every measurement,
+  so it is advective-path only; either the dirty-tree pre-H7
+  baseline is invalid or a real change entered
+  `c669ec6f..565eaa51` — owner decision: one-rung bisect (small
+  GPU job) or won't-chase (oc parity 0.92–1.04 holds either
+  way). The (c) barotropic-IC finding was **ruled an IC gap and
+  fixed** 2026-07-19 (entry in [`done.md`](done.md)). Step-guard
+  checkpointing stays on Silvano's own batch cadence (never
+  agent-initiated).
 
 ## Channel eigenmodes on multi-device — remaining gaps
 

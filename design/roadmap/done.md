@@ -1718,3 +1718,29 @@ Implementation record:
   the `FieldBlend`-unification question, and the declined
   re-diagonalization contract. Plan:
   [`../plans/done/time_dependent_fields.md`](../plans/done/time_dependent_fields.md).
+
+- **Split-explicit barotropic-IC gap — ruled + fixed** (2026-07-19,
+  merge `f3d96306`, branch `fix/split-explicit-barotropic-ic`). The
+  2026-07-18 srun-validation finding — a z-independent `set_fields`
+  velocity vanished from the whole carry in one step (max|u| 0.98 →
+  2.6e-4) — was ruled an **IC gap** by the owner (not rest-start
+  semantics). Mechanism: `hy.SplitExplicitFreeSurface` declares the
+  barotropic transports `U, V` PROGNOSTIC (zero-initialized at build)
+  and nothing projected the IC's depth mean into them, so the first
+  CONSTRAINT stage replaced the depth mean of `u, v` with
+  `U/H = 0`. Fix: a minimal host-side IC hook —
+  `Module.derive_initial_fields(state, provided)` (base no-op),
+  called by `Model.set_fields` after the user's fields are applied
+  and re-homed identically; the split-explicit override seeds
+  `U = ubar/(1/H)` (immersed: `ubar_wet * H_col`, land columns 0)
+  exactly as the subcycle commit computes, iff the velocity was set
+  without its transport (an explicit `U`/`V` is respected bitwise; a
+  ps-only call derives nothing). Entirely outside the jit step path
+  (differentiability policy exempt). Tests: seed-equality to 1e-13 +
+  3-step survival, explicit-override, ps-only, immersed
+  transport-depth consistency; forced-4 green. Scoping verified:
+  the explicit/implicit variants carry no slaved barotropic
+  prognostic — this was the only module with the gap. Caveat for the
+  comparison ladder: the pre-fix se rungs ran near-zero-velocity
+  flows while Oceananigans got the full IC (wall-time ratios are
+  data-independent, physics trajectories were not comparable).
