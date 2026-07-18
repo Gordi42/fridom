@@ -215,6 +215,17 @@ class MetricScaled(Operator):
             return f.grid.metric(out.function_space, name,
                                  params=self._params)
 
+        # These reciprocal divides (H4/H5, plan §4) are a masked
+        # singularity: on a bounded (walled/immersed) axis the metric
+        # denominator ``sqrt_g`` is an exact zero in the never-valid
+        # padding, so the reverse VJP (``-num/den**2`` at ``den == 0``)
+        # is ``0 * inf = NaN``. The exposure condition IS reachable — a
+        # ``jax.grad`` w.r.t. an initial-condition field on a walled
+        # chart model (e.g. shallow water on the lat-lon sphere) NaNs
+        # here. The seal is the same double-``jnp.where`` as the coriolis
+        # metric divides (``model/modules/coriolis._safe_metric_divide``)
+        # but is left off pending the owner cost decision (this divide is
+        # in the every-step pressure solve; guard §4 H4/H5 / owner D4).
         if self._numerator is None:
             return out / metric(self._denominator)
         coeff = metric(self._numerator)
