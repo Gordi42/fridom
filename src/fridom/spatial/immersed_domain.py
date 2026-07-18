@@ -58,6 +58,7 @@ from fridom.spatial.spaces.tensor_product import TensorProductSpace
 if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Callable
 
+    from fridom.spatial.coordinate_mapping import CoordinateMapping
     from fridom.spatial.grid import Grid
     from fridom.spatial.spaces.function_space import (
         FunctionSpace,
@@ -463,7 +464,7 @@ class ImmersedDomain:
         return wet.astype(dtype_real())
 
     def _quadrature_cells(self, space: SpaceLike) -> jax.Array:
-        """
+        r"""
         Per-cell Gauss-Legendre quadrature of the declared indicator.
 
         Description
@@ -472,7 +473,14 @@ class ImmersedDomain:
         the cell-average space of the target meshes (rules section
         3.10): each cell is quadratured on its **own** physical edges
         (the mesh ``coordinate_map`` seam), so a stretched axis
-        averages each cell on its own scale. The result is clipped to
+        averages each cell on its own scale. On a grid whose mapping
+        declares column corrections (a terrain/chart column) the
+        separable per-axis average is the *chart-parameter* average,
+        not the physical wet-volume fraction, so the chart path
+        (:meth:`_chart_quadrature_cells`, MI-D1) is taken instead: the
+        indicator is sampled at the mapped physical node positions and
+        the quadrature is weighted by the column Jacobian
+        ``theta = int J chi / int J``. The result is clipped to
         [0, 1] (a declared indicator that overshoots is a user bug,
         not a geometry — the clip keeps ``theta`` a valid fraction).
 
@@ -492,9 +500,73 @@ class ImmersedDomain:
         cell_space = (avg[0] if len(avg) == 1
                       else TensorProductSpace.of(*avg))
         cell_space = grid._laid_out(cell_space)  # noqa: SLF001 — seam
-        theta = grid._discretize(  # noqa: SLF001 — grid seam
-            cell_space, self._init, self._order)
+        mapping = grid.mapping
+        if mapping is not None and mapping.column_corrections:
+            theta = self._chart_quadrature_cells(cell_space, mapping)
+        else:
+            theta = grid._discretize(  # noqa: SLF001 — grid seam
+                cell_space, self._init, self._order)
         return jnp.clip(theta, 0.0, 1.0)
+
+    def _chart_quadrature_cells(
+        self,
+        cell_space: SpaceLike,
+        mapping: CoordinateMapping,
+    ) -> jax.Array:
+        r"""
+        Jacobian-weighted physical wet-volume fraction on a chart.
+
+        Description
+        -----------
+        The designed-for chart path (MI-D1) of the per-cell fraction:
+        on a grid whose mapping declares column corrections the
+        physical volume element ``J = |partial m / partial b|`` varies
+        within a cell, so the wet fraction is the **physical**
+        wet-volume average
+
+        .. math::
+
+            theta_c = \frac{\int_{cell} J\,chi\;dV}
+                           {\int_{cell} J\;dV},
+
+        a tensor Gauss-Legendre quadrature over the cell whose nodes
+        are placed at the mapped physical positions (the indicator is
+        an object in physical space) and whose weights carry the
+        column Jacobian. The node placement and reference weights come
+        from the grid's own per-cell quadrature
+        (:meth:`~fridom.spatial.grid.Grid._cell_quadrature_fields`);
+        the mapped positions and ``J`` from the mapping's own map
+        callable and its exact ``jax.jvp`` derivative
+        (:meth:`~fridom.spatial.coordinate_mapping.CoordinateMapping._column_correction`)
+        — fraction and operator consume one discretized geometry.
+        Normalizing by the quadrature of ``J`` itself keeps
+        ``theta in [0, 1]`` and an all-wet chart exactly ``1.0``.
+
+        Parameters
+        ----------
+        cell_space : SpaceLike
+            The laid-out cell-average target space.
+        mapping : CoordinateMapping
+            The grid's coordinate mapping (column corrections truthy).
+
+        Returns
+        -------
+        jax.Array
+            The physical wet-volume cell fraction, one axis per factor.
+        """
+        grid = self._bound_grid()
+        node_by_name, weight, quad_axes = (
+            grid._cell_quadrature_fields(  # noqa: SLF001 — grid seam
+                cell_space, self._order))
+        physical, jacobian = (
+            mapping._column_correction(  # noqa: SLF001 — mapping seam
+                node_by_name))
+        chi = jnp.asarray(self._init(**physical))
+        weighted = jacobian * weight
+        numerator = jnp.sum(chi * weighted, axis=quad_axes)
+        denominator = jnp.sum(weighted, axis=quad_axes)
+        theta = numerator / denominator
+        return jnp.broadcast_to(theta, cell_space.shape)
 
     def _floor(self, theta: jax.Array) -> jax.Array:
         r"""

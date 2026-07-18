@@ -1197,3 +1197,114 @@ class CoordinateMapping:
             The declared orthogonality of the embedding chart.
         """
         return self._orthogonal
+
+    # ================================================================
+    #  Chart quadrature seam (immersed cut-cell fractions, MI-D1)
+    # ================================================================
+    def _column_correction(
+        self,
+        node_by_name: Mapping[str, jax.Array],
+    ) -> tuple[dict[str, jax.Array], jax.Array]:
+        r"""
+        Physical node positions and column volume Jacobian.
+
+        Description
+        -----------
+        The chart seam behind the Jacobian-weighted immersed fraction
+        (MI-D1): given the per-coordinate node placements of a cell
+        quadrature (each coordinate's own **mesh-physical** placement,
+        :meth:`~fridom.spatial.grid.Grid._cell_quadrature_fields`),
+        replace every single-base column's base coordinate with its
+        **mapped physical position** ``m = M(b, params)`` and return
+        the product of the column Jacobians ``J = |partial M /
+        partial b|`` at those nodes. The map derivative is the exact
+        ``jax.jvp`` tangent of the same declared map callable the
+        ``d<m>_d<b>`` / ``sqrt_g`` metric rows carry (one geometry —
+        the fraction and the operator consume the same discretized
+        ``J``), and the parameters are the static-default callables
+        evaluated at the coupled coordinates' physical node positions.
+
+        The volume element the per-axis physical placement already
+        captures (the separable mesh stretch) is **not** repeated
+        here: ``J`` is only the extra column factor, so
+        ``sum(w J chi) / sum(w J)`` over a physical-placement
+        quadrature is the exact physical wet-volume fraction on a
+        stretched base column too (the per-axis average supplies the
+        mesh stretch, ``J`` the column coupling).
+
+        Parameters
+        ----------
+        node_by_name : Mapping[str, jax.Array]
+            The per-coordinate node coordinates (each on its own
+            mesh-physical placement), broadcastable together.
+
+        Returns
+        -------
+        tuple[dict[str, jax.Array], jax.Array]
+            The physical node positions (``node_by_name`` with each
+            base coordinate replaced by its mapped value) and the
+            product of the column Jacobians at the nodes.
+        """
+        physical = dict(node_by_name)
+        columns: dict[str, str] = {}
+        for mapped, base in self.column_corrections.values():
+            columns.setdefault(mapped, base)
+        jacobian: jax.Array | None = None
+        for mapped, base in columns.items():
+            decl = self._maps[mapped]
+            args = {
+                name: (self._param_at_nodes(name, node_by_name)
+                       if name in decl.params
+                       else jnp.asarray(node_by_name[name]))
+                for name in decl.order}
+            primals = tuple(args[name] for name in decl.order)
+            tangents = tuple(
+                jnp.ones_like(args[name]) if name == base
+                else jnp.zeros_like(args[name])
+                for name in decl.order)
+
+            def positional(
+                    *a: jax.Array, _decl: _Declared = decl) -> object:
+                return _decl.fn(
+                    **dict(zip(_decl.order, a, strict=True)))
+
+            value, tangent = jax.jvp(positional, primals, tangents)
+            physical[base] = jnp.asarray(value)
+            column_j = jnp.abs(jnp.asarray(tangent))
+            jacobian = (column_j if jacobian is None
+                        else jacobian * column_j)
+        return physical, jacobian
+
+    def _param_at_nodes(
+        self,
+        name: str,
+        node_by_name: Mapping[str, jax.Array],
+    ) -> jax.Array:
+        """
+        Evaluate a parameter's static default at the given nodes.
+
+        Description
+        -----------
+        The chart-quadrature parameter evaluator (MI-D1): the static
+        default callable sampled directly at the coupled coordinates'
+        physical node positions. The immersed geometry is static, so
+        the ``params=`` dynamic-field overload does not apply here;
+        every declared parameter carries a static default callable (a
+        ``params=`` entry), so the lookup always resolves.
+
+        Parameters
+        ----------
+        name : str
+            The parameter name.
+        node_by_name : Mapping[str, jax.Array]
+            The per-coordinate node coordinates.
+
+        Returns
+        -------
+        jax.Array
+            The parameter value at the nodes.
+        """
+        coords = self._param_coords[name]
+        default = self._params[name]
+        return jnp.asarray(
+            default(**{c: node_by_name[c] for c in coords}))

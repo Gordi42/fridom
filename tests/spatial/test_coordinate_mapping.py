@@ -799,3 +799,34 @@ def test_constant_supplied_param_is_a_structural_zero(grid, mx,
     # the value-reading metrics see the supplied constant
     jac = grid.metric(space, "dz_dsigma", params={"H": h})
     assert jnp.allclose(jac.data, 0.8)
+
+
+# ================================================================
+#  Chart quadrature seam (immersed cut-cell fractions, MI-D1)
+# ================================================================
+def test_column_correction_physical_and_jacobian():
+    # the immersed chart-fraction seam: replace the base coordinate
+    # with its mapped physical position and return the column Jacobian
+    # dM/db. For zp = sigma * H(x): sigma -> sigma * H(x), J = H(x)
+    # (the coupled coordinate x is left at its physical placement).
+    mapping = CoordinateMapping(
+        maps={"zp": lambda sigma, H: sigma * H}, params={"H": depth})
+    Grid((IntervalMesh(N, (0.0, float(TWO_PI)), name="x"),
+          IntervalMesh(N, (0.0, 1.0), name="sigma")), mapping=mapping)
+    x = jnp.array([0.3, 1.1, 2.0])[:, None]
+    sigma = jnp.array([0.25, 0.75])[None, :]
+    physical, jac = mapping._column_correction({"x": x, "sigma": sigma})
+    assert jnp.allclose(physical["x"], jnp.broadcast_to(x, jac.shape))
+    assert jnp.allclose(physical["sigma"], sigma * depth(x))
+    assert jnp.allclose(jac, jnp.broadcast_to(depth(x), jac.shape))
+
+
+def test_column_correction_jacobian_is_the_map_derivative():
+    # the Jacobian is the exact jvp tangent of the map along its base,
+    # so a nonlinear column zp = sigma**2 gives J = 2 sigma at the node.
+    mapping = CoordinateMapping(maps={"zp": lambda sigma: sigma ** 2})
+    Grid((IntervalMesh(8, (0.0, 1.0), name="sigma"),), mapping=mapping)
+    sigma = jnp.array([0.1, 0.4, 0.9])
+    physical, jac = mapping._column_correction({"sigma": sigma})
+    assert jnp.allclose(physical["sigma"], sigma ** 2)
+    assert jnp.allclose(jac, 2.0 * sigma)
