@@ -192,9 +192,17 @@ def _constrained_column(
     template = model.state
     names = model.grid.names
     bounded = names.index(basis.bounded_axis)
-    axes = tuple(i for i in range(len(names)) if i != bounded)
-    n_kz = column.shape[1]
-    n_last = template[basis.components[0]].data.shape[axes[-1]]
+    periodic = [i for i in range(len(names)) if i != bounded]
+    # the half (rfft) axis is the engine's designated periodic axis --
+    # the last periodic axis by default, but a local axis when the
+    # layout shards the last one; honour that pick rather than assuming
+    # the last periodic axis carries the half spectrum.
+    half_grid = names.index(basis.periodic_axis)
+    p_half = periodic.index(half_grid)  # its plane-frame position
+    # order the read axes so rfftn halves the designated half axis
+    read_axes = (*(i for i in periodic if i != half_grid), half_grid)
+    n_half = column.shape[p_half]
+    n_half_full = template[basis.components[0]].data.shape[half_grid]
     reads = []
     for factor in (1.0, 1j):
         fields = {}
@@ -203,29 +211,33 @@ def _constrained_column(
             shape = template[name].data.shape
             full = np.zeros(shape, dtype=complex)
             key = [slice(None)] * len(shape)
-            key[axes[-1]] = slice(0, n_kz)
+            key[half_grid] = slice(0, n_half)
             # the plane axes keep relative grid order, so moving the
             # segment axis to the bounded slot restores array order
             full[tuple(key)] = np.moveaxis(factor * seg, -1, bounded)
-            fields[name] = np.real(np.fft.ifftn(full, axes=axes))
+            fields[name] = np.real(
+                np.fft.ifftn(full, axes=tuple(periodic)))
         state = template.replace(**{
             name: template[name].with_data(fields[name])
             for name in basis.components})
         out = model.constrain(state, t=at_time)
         reads.append({
             name: np.moveaxis(
-                np.fft.rfftn(np.asarray(out[name].data), axes=axes),
+                np.fft.rfftn(np.asarray(out[name].data), axes=read_axes),
                 bounded, -1)
             for name in basis.components})
     r1, r2 = reads
     result = np.zeros_like(column)
     self_conj = [0]
-    if n_last % 2 == 0:
-        self_conj.append(n_kz - 1)
+    if n_half_full % 2 == 0:
+        self_conj.append(n_half - 1)
     for name in basis.components:
         planes = 2.0 * r1[name]
         for ikz in self_conj:
-            planes[:, ikz] = r1[name][:, ikz] - 1j * r2[name][:, ikz]
+            idx = [slice(None)] * planes.ndim
+            idx[p_half] = ikz
+            planes[tuple(idx)] = (r1[name][tuple(idx)]
+                                  - 1j * r2[name][tuple(idx)])
         result[..., basis.slices[name]] = planes
     return result
 

@@ -54,8 +54,9 @@ def fresh(grid):
 def test_stencil_kernel_consumes_reach_on_its_axis(grid, synced):
     w = grid.decomposition.halo["x"]
     d = FiniteDifference(order=2)["x"]._apply(synced)
-    # 2-point staggered window: per-side maximum reach 1
-    assert d.halo_valid["x"] == w - 1
+    # 2-point Center -> Right window [0,+1]: consumes only the high
+    # side, so the low side keeps its w valid layers (two-sided)
+    assert d.halo_valid.interval("x") == (w, max(w - 1, 0))
     assert d.halo_valid["y"] == grid.decomposition.halo["y"]
 
 
@@ -67,18 +68,23 @@ def test_stencil_kernel_floors_at_zero(fresh):
 def test_interp_consumes_like_a_stencil(grid, synced):
     w = grid.decomposition.halo["y"]
     i = LinearInterp()["y"]._apply(synced)
-    assert i.halo_valid["y"] == w - 1
+    # Center -> Right window [0,+1]: only the high side is consumed
+    assert i.halo_valid.interval("y") == (w, max(w - 1, 0))
     assert i.halo_valid["x"] == grid.decomposition.halo["x"]
 
 
 def test_chained_kernels_consume_stepwise(grid, synced):
-    # validity threads through raw kernel chains without any sync
+    # validity threads through raw kernel chains without any sync.
+    # Center -> Right [0,+1] then Right -> Center [-1,0]: the first
+    # consumes the high side, the second the low side, so after two
+    # both sides are down by one (the diffusion-tightening effect)
     w = grid.decomposition.halo["x"]
     op = FiniteDifference(order=2)["x"]
     once = op._apply(synced)
     twice = op._apply(once)
-    assert once.halo_valid["x"] == w - 1
-    assert twice.halo_valid["x"] == max(w - 2, 0)
+    assert once.halo_valid.interval("x") == (w, max(w - 1, 0))
+    assert twice.halo_valid.interval("x") == (max(w - 1, 0),
+                                              max(w - 1, 0))
 
 
 # ================================================================
@@ -105,5 +111,6 @@ def test_divide_claims_the_operand_minimum(grid, synced):
 def test_public_application_returns_the_kernel_claim(grid, fresh):
     d = fresh.diff("x")
     w = grid.decomposition.halo
-    assert d.halo_valid["x"] == w["x"] - 1
+    # Center -> Right consumes only the high side (two-sided claim)
+    assert d.halo_valid.interval("x") == (w["x"], max(w["x"] - 1, 0))
     assert d.halo_valid["y"] == w["y"]

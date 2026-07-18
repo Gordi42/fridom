@@ -173,19 +173,67 @@ def first_node_offset(factor: FunctionSpace) -> float:
         left=factor, operation="stencil alignment")
 
 
+def window_reach(
+    domain: FunctionSpace, codomain: FunctionSpace,
+    size: int, m0: int,
+) -> tuple[int, int]:
+    """
+    Per-side reach (in slots) of a kernel aligned at ``m0``.
+
+    Description
+    -----------
+    The window-alignment calculus of ``apply_staggered`` /
+    ``apply_fv_staggered`` read off directly: a ``size``-point kernel
+    whose output slot ``t`` lands at storage index ``t + m0`` reads
+    ``m0`` slots beyond the true region on the left and
+    ``(n_out - n_in) + size - 1 - m0`` on the right. Both are clamped
+    to ``>= 0``. This is the two-sided twin of the storage-bounds
+    check; the caller supplies ``m0`` (the midpoint value for a
+    centered kernel, the biased offset for a WENO kernel), so the
+    reach is exact for both.
+
+    Parameters
+    ----------
+    domain : FunctionSpace
+        The bare 1D domain factor.
+    codomain : FunctionSpace
+        The bare 1D codomain factor.
+    size : int
+        The stencil size (number of input points per output).
+    m0 : int
+        The window alignment (output slot ``t`` fills index ``t + m0``).
+
+    Returns
+    -------
+    tuple[int, int]
+        The (below, above) reach in slots (>= 0).
+    """
+    below = max(0, m0)
+    above = max(
+        0, (codomain.shape[0] - domain.shape[0]) + size - 1 - m0)
+    return below, above
+
+
+def _midpoint_m0(
+    domain: FunctionSpace, codomain: FunctionSpace, size: int,
+) -> int:
+    """Window alignment of a midpoint-staggered ``size``-point kernel."""
+    delta = first_node_offset(codomain) - first_node_offset(domain)
+    return -int(delta - (size - 1) / 2)
+
+
 def exterior_reach(
     domain: FunctionSpace, codomain: FunctionSpace, size: int,
 ) -> tuple[int, int]:
     """
-    Per-side exterior reach (in slots) of an aligned kernel.
+    Per-side exterior reach (in slots) of a midpoint-aligned kernel.
 
     Description
     -----------
-    How many input slots beyond the true region the true-shape
-    output of a ``size``-point staggered kernel reads on each side
-    — the window-alignment calculus of ``apply_staggered``, applied
-    to the boundary windows. A positive reach means the signature
-    needs exterior values there.
+    :func:`window_reach` at the midpoint alignment — how many input
+    slots beyond the true region the true-shape output of a
+    ``size``-point staggered kernel reads on each side. A positive
+    reach means the signature needs exterior values there.
 
     Parameters
     ----------
@@ -201,13 +249,47 @@ def exterior_reach(
     tuple[int, int]
         The (left, right) exterior reach in slots (>= 0).
     """
-    delta = (first_node_offset(codomain)
-             - first_node_offset(domain))
-    m0 = -int(delta - (size - 1) / 2)
-    left = max(0, m0)
-    right = max(
-        0, (codomain.shape[0] - domain.shape[0]) + size - 1 - m0)
-    return left, right
+    return window_reach(
+        domain, codomain, size, _midpoint_m0(domain, codomain, size))
+
+
+def reach_or(
+    op: object, domain: FunctionSpace, size: int, fallback: int,
+) -> tuple[int, int]:
+    """
+    Midpoint ``exterior_reach``, or the symmetric fallback.
+
+    Description
+    -----------
+    The reach helper for a nodal-staggered operator's two-sided
+    ``requirements``: resolves the codomain factor and returns the
+    exact ``(below, above)`` reach when the factors are
+    staggered-nodal, and the symmetric ``(fallback, fallback)``
+    otherwise — a ``Fourier`` retag row, or a product/whole-space
+    query where the operator has no 1D signature — whose ghost reach
+    is the declared symmetric ``fallback`` and whose physical stencil
+    geometry is not defined.
+
+    Parameters
+    ----------
+    op : object
+        The operator (its ``codomain`` resolves the codomain factor).
+    domain : FunctionSpace
+        The bare domain factor.
+    size : int
+        The stencil size.
+    fallback : int
+        The symmetric width to use when the geometry is undefined.
+
+    Returns
+    -------
+    tuple[int, int]
+        The two-sided reach.
+    """
+    try:
+        return exterior_reach(domain, op.codomain(domain), size)
+    except SpaceMismatchError:
+        return (fallback, fallback)
 
 
 def require_grounded_bounded_sides(
@@ -697,14 +779,16 @@ def apply_staggered(
     # halo-validity claim (task 1.8, stage B): the kernel computed
     # every output ghost slot its window reaches, so on a *periodic*
     # axis the result keeps the operand's valid layers minus the
-    # per-side maximum reach (stencils commute with the wrap fill).
-    # On bounded axes the claim is zero: stenciling the input's
-    # BC-structured/extrapolated fill is not the BC-consistent fill
-    # of the *output* field, so those ghost slots must be refilled
-    # at the next consumption.
+    # per-side reach ``(m0, reach_right)`` (stencils commute with the
+    # wrap fill; the low side keeps its spare when the stencil only
+    # reaches high, and vice versa). On bounded axes the claim is
+    # zero: stenciling the input's BC-structured/extrapolated fill is
+    # not the BC-consistent fill of the *output* field, so those ghost
+    # slots must be refilled at the next consumption.
     if getattr(domain_factor.mesh, "periodic", False):
-        valid = f.halo_valid.consume(axis, max(m0, reach_right, 0))
+        valid = f.halo_valid.consume(
+            axis, (max(m0, 0), max(reach_right, 0)))
     else:
-        valid = f.halo_valid.consume(axis, f.halo_valid[axis])
+        valid = f.halo_valid.reset(axis)
     return type(f)(f.grid, codomain, data, metadata,
                    halo_valid=valid)

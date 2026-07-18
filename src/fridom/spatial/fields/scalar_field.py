@@ -357,7 +357,8 @@ class ScalarField:
             new_space = dst_bare.with_layout(
                 self._function_space.layout)
         halo_valid = HaloSpec({
-            name: 0 if name in retagged else self._halo_valid[name]
+            name: ((0, 0) if name in retagged
+                   else self._halo_valid.interval(name))
             for name in new_space.names})
         return ScalarField(self._grid, new_space, self._data,
                            self._metadata, halo_valid=halo_valid)
@@ -1228,8 +1229,8 @@ def _scalar_shift(
     if isinstance(value, complex):
         space = _promoted_space(space)
     valid = HaloSpec({
-        name: (f.halo_valid[name]
-               if getattr(factor.mesh, "periodic", False) else 0)
+        name: (f.halo_valid.interval(name)
+               if getattr(factor.mesh, "periodic", False) else (0, 0))
         for factor in space.factors
         for name in factor.names})
     return type(f)(f.grid, space,

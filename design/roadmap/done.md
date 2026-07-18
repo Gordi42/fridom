@@ -96,6 +96,110 @@ Implementation record:
 
 ## Landed since, outside the numbered tasks
 
+- **Storage-halo width recovered — two-sided (interval) halo
+  accounting** (2026-07-18, probe merge `a8a9aefb`, implementation
+  merge `40a24df8`) — the "n+8 vs nominal n+6" roadmap question
+  resolved: the extra layer was the halo trace **summing symmetrized
+  scalar reaches** along the sync-free advection chain (biased
+  reconstruct 3 + flux-diff 1 → width 4), losing the biased window's
+  asymmetry; the true Minkowski-composed footprint of
+  `flux_diff ∘ reconstruct` is 3/side (not staggering, not
+  even-rounding — upwind3's odd width 3 refutes that reading).
+  `HaloSpec`/`OperatorRequirements`/trace/`halo_valid` now carry
+  per-name two-sided reaches (symmetric max presented to storage;
+  per-op reaches derived from implemented kernel geometry, not
+  hardcoded). upwind5/weno5 negotiate width 3 → storage `n+6`
+  (−5.7% step bytes @96³, −3.0% @192³; compiled `memory_analysis`
+  tracks `(n+6)³/(n+8)³` to 4 s.f.); per-step sync counts identical
+  to dev (scalar-validity control re-syncs 28 vs 16 — the two-sided
+  runtime validity is load-bearing); narrow-vs-wide same-code parity
+  **bitwise** (0.0, upwind5 and centered, 32³×10). The empirical
+  probe first proved the width-3 floor (width 2 fails the taught
+  dry-run guard) and that forcing a narrow store *without* interval
+  validity trades bytes for mid-chain re-syncs. Bonus fixes: immersed
+  fraction/mask and coordinate-measure caches re-keyed on the
+  negotiated halo (latent stale-array bug under wider
+  re-negotiation); bounded shrinking stencils claim reach 0; one FV
+  mapped-pressure "bitwise" assertion honestly relaxed to 1e-14
+  (width-coincidental pairwise-reduction tie on dev). Gates:
+  new-stack suites 6329 passed / 0 failed post dev-merge (FV
+  fusion-guard ratchet included), forced-4 decomposition 334 passed,
+  3 autodiff files green, reblock HLO golden regenerated (pure shape
+  shift), ruff clean. Centered stays width 2 at the assembled model
+  (`DynamicalCore.extra_halo = 2` floor) — remainder tracked in
+  [`open.md`](open.md). Record:
+  [`storage_halo_width.md`](../research/storage_halo_width.md)
+  (probe scripts + RESULTS under `storage_halo_width/probe/`).
+
+- **Storage-halo GPU A/B executed — shape-luck verdict** (2026-07-18,
+  owner-requested, single A100-80GB): compiled bytes track
+  `(n+6)³/(n+8)³` to 4 s.f. at every size, but wall-clock is
+  per-(scheme, size) XLA:GPU kernel-selection luck, ±10-20% in *both*
+  directions — upwind5 +12-18% @192³ yet −3-14% @512³, weno5 +5-17%
+  @256³/512³, 128³/256³-upwind5 neutral, centered A/A noise ~0.3%.
+  The 192³ width scan (w3-w6 uniform + per-axis) refutes both the
+  bytes-monotone and the alignment reading: only the uniform 200³
+  (width-4) shape is fast, so there is no padding rule to chase.
+  Cross-checked against real pre-merge dev (detached worktree at
+  `4c287c12`): forced-wide new code compiles byte-identical to old
+  dev (persistent-cache-served). Narrowing kept (memory −3%, CPU
+  faster, GPU mixed); follow-ups (biased `bench_step` cases, optional
+  width-floor knob) tracked in [`open.md`](open.md). Record:
+  [`storage_halo_gpu_ab.md`](../research/storage_halo_gpu_ab.md)
+  (harness + raw results under `storage_halo_gpu_ab/`).
+
+- **Pressure-solver halo demand researched — "silently wrong"
+  disproven, true demand 1, derivation design** (2026-07-18): every
+  default pressure/constraint solver path needs **1**/side, not the
+  declared 2 — the nonhydro2 projection's div and grad are 2-point
+  legs on opposite sides of a global transform that acts as a runtime
+  validity barrier (legs merge by max, not Minkowski sum);
+  empirically forcing the declaration to 1 is bitwise on the periodic
+  and walled spectral paths, ~1 ulp on mapped CG, and the hydrostatic
+  surface solve already declares 1. The owner's stale-declaration
+  fear does not hold: under-provisioning fails **loudly** (registry
+  consumption guards; the physics floor keeps width ≥ 1 in any
+  runnable model), and the spectral symbol derives from the same
+  registry rows the stage applies, so an operator swap cannot
+  silently desync. Also over-declared: hydrostatic core terrain 2→1,
+  sw2 orthogonal-chart gravity 2→1 (Sadourny/Coriolis corner-chain 2s
+  are genuine). Design: derived `extra_halo` ("structure declared,
+  numbers derived") is feasible — the declaration is read after
+  `bind` and the dispatch merge, so it can resolve the bound operator
+  rows and compose their two-sided `reach`. Implementation (and the
+  centered `n+4 → n+2` it unlocks, GPU-gated) tracked in
+  [`open.md`](open.md). Record:
+  [`pressure_solver_halo.md`](../research/pressure_solver_halo.md)
+  (probes under `pressure_solver_halo/`).
+
+- **Half-axis-sharded 3-D channel served — layout-aware half-axis
+  re-designation** (2026-07-18, merge `feade7fa`; coverage follow-up
+  merge `964a9117`) — the last remainder case with a fast path: when
+  the default layout shards the engine's half (`rfft`) axis (reachable
+  only when an earlier periodic axis is indivisible by P — see the
+  exposure survey), `channel_eigenpairs` now designates a **local**
+  periodic axis as the half axis (`_designate_half_axis`), so the
+  shipped fused contraction serves the layout with roles swapped —
+  zero new collective code, and the basis is *built* directly in the
+  chosen frame (no runtime re-layout). Byte-identical whenever the
+  last periodic axis is local (single device and all
+  previously-served layouts). Touched: the pick + Fourier-axis
+  ordering (`model/eigen_channel.py`), `fourier_ops`
+  (`model/_eigenbasis.py`), the nh Leray labeler
+  `_constrained_column` generalization
+  (`nonhydro2/channel_eigenmodes.py`), stale-remainder docstring trim,
+  a GPU-scoped end-to-end regression test + a CPU-safe pick unit test
+  (forced-4 CI leg). Gates: frame freedom proven single-device
+  (both frames agree ≤ 2.5e-14); 4×A100 many-vs-one 8.5e-15,
+  idempotency 1.4e-14, HLO all-to-all present / all-gather absent;
+  per-test outcomes across the 8 mirrored/adjacent eigen test files
+  **byte-identical to base dev** on the 4-GPU node (334 outcomes, the
+  only delta the new passing test; the pre-existing multi-device
+  setup faults unchanged); ruff clean. Non-perf-sensitive (build-time
+  pick + projection utilities; step path untouched) — no guard run.
+  Record: [`eigen_remainder_investigation.md`](../research/eigen_remainder_investigation.md)
+  (the validated patches it archived landed as this merge).
+
 - **Channel eigenmodes run multi-GPU — fused distributed contraction**
   (2026-07-18, merge `e60259de`) — the projection/`f(L)` application
   (`_eigenbasis._contract_planes`) no longer rejects a grid that
@@ -302,6 +406,28 @@ Implementation record:
   FD-matched to rel-err ~6e-12 against gate 1e-4, nodal + FV). The
   new-stack step path is now reverse-differentiable on **all** grid
   types — flat, walled, mapped, immersed — with no known exception.
+- **Multigrid size-scaling root cause: the depth cap, not the
+  algorithm** (2026-07-18, measurement-only; record
+  [`../research/multigrid_depth_scaling.md`](../research/multigrid_depth_scaling.md))
+  — the post-swap "deficit vs spectral widens with n" verdict was an
+  artifact of the fixed `multigrid_levels=5` default: h-independence
+  breaks once the coarsest level outgrows its 8 sweeps (iterations
+  10 → 15 → 27 at 128/256/512³ while spectral stays flat 36;
+  per-iteration cost is healthy — 42× per 64× more cells vs
+  spectral's 54×, the cost ratio *improving* 3.14× → 2.45×). At
+  floor-scaled depth (coarsest 8×8×n_z; L=6 at 256³, L=7 at 512³):
+  flat **10** iterations at every size, per-cycle cost unchanged,
+  and the in-model GB-2 step **beats spectral 1.23× at 256³
+  (237.8 vs 291.6 ms) and 1.22× at 512³ (1873.3 vs 2277.9 ms)**
+  (physics equivalence 2–5e-11). GB-2 (≥1.5×) still unmet at every
+  measured size. **Floor-limited depth shipped as the default the
+  same day** (owner-ratified; merge `b8b165f1`):
+  `multigrid_levels: int | None = None` on `nh.Model` /
+  `DynamicalCore` / both pressure solvers / `coarsen_levels` — None
+  (default) coarsens to the 4-cell horizontal floor, an int stays an
+  explicit cap; default-path 512³ in-model validation 2000.1 ms/step
+  (1.14× vs spectral; realized depth 8 — one borderline CG iteration
+  above the hand-capped L=7 row, physics 1.3e-10).
 - **Multigrid V-cycle kernel swap** (2026-07-18, merge `0ece46b1`) —
   `banded.tridiagonal_solve_along_axis` grew a host-static
   `method` knob with three interchangeable kernels: `"scan"` (the
@@ -330,7 +456,10 @@ Implementation record:
   corrections to the study record: the projected 128³ post-swap
   1.17× measured as 0.975×, and the "free IMEX side benefit" was
   wrong (`model/implicit.py` uses the dense `solve_along_axis`,
-  not this kernel). Open residue (cuSPARSE-under-GSPMD validation,
+  not this kernel). *Corrected same day: the "deficit widens with
+  n / spectral stays default at every size" conclusion was the
+  `multigrid_levels=5` depth cap — see the size-scaling entry
+  above.* Open residue (cuSPARSE-under-GSPMD validation,
   residual mapped-GPU levers): [`open.md`](open.md). Evidence:
   [`../research/multigrid_kernel_study.md`](../research/multigrid_kernel_study.md)
   §Addendum.
@@ -467,6 +596,25 @@ Implementation record:
   patch stays in [`open.md`](open.md); HLO-volume reduction and the
   comparison-suite metric fix are closed (entries below). Record:
   [`../research/time_to_first_step.md`](../research/time_to_first_step.md).
+
+- **Async two-tier chunk compile** (2026-07-18) — the time-to-first-
+  step §3c follow-up, now landed behind the default-off knob
+  `Model(async_chunk_compile=True)`. On a chunk cache miss whose
+  natural unroll > 1, `step_chunk` lowers the full-unroll chunk on the
+  calling thread (a `Lowered` holds HLO, not the donated carry's
+  buffers), synchronously compiles a cheap `force_unroll=1` variant of
+  the same length, serves it while the full executable compiles in a
+  daemon thread (`.compile()` releases the GIL), and swaps the cache
+  entry to the full executable at a later chunk boundary — both tiers
+  share the `out_shardings` pin, so the swap is reshard-free. Measured
+  (single GPU, from the prototype): first advance −24..31% (256³/64³),
+  steady-state per-step bitwise-unchanged after the swap; a background
+  compile failure re-raises on the next `step_chunk` call. The shipped
+  version drops the prototype's `eager1` mode (measured strictly worse)
+  and serves the length-C unroll-1 tier. Forced-4 CPU keeps the
+  bitwise-equality invariant (no `single_device` mark needed). Record:
+  [`../research/time_to_first_step.md`](../research/time_to_first_step.md)
+  §3c.
 
 - **WENO selected-input one-pass reconstruction** (2026-07-16, merge of
   `perf/weno-selected-input`) — gap 3 of the Oceananigans reference
@@ -1062,3 +1210,27 @@ Implementation record:
   [`open.md`](open.md). Record:
   [`../research/time_to_first_step.md`](../research/time_to_first_step.md)
   §1 + the bench repo README (Metrics).
+
+- **Performance guard — CLOSED: first checkpoint green** (2026-07-18,
+  completing the entry above; full first-day log in
+  [`../plans/active/perf_guard_plan.md`](../plans/active/perf_guard_plan.md)
+  §7) — the remaining criterion (one green, manually submitted
+  `step_guard.sbatch` run) is met by run 26346802→26347156's
+  measurements judged green: gpu1 exit 0 (39 ok, 1 faster), gpu4
+  exit 0 (40 ok). The day's four runs told the whole story: run 1
+  RED = **true positive** (tiny-nodal shift from the FV
+  storage-frame spelling; attributed + re-baselined by the owning
+  session), runs 3–4 RED = **false alarms from a per-process slow
+  mode** (~0.8 ms/chunk, every sample in the affected subprocess
+  uniformly high, a different random tiny case each run; proven
+  benign by a two-fresh-process probe reading baseline level and by
+  zero `src/` delta between runs 3 and 4). Fix (owner-ratified):
+  `compare` verdicts now also require an **absolute 1.2 ms/chunk
+  floor** (symmetric for faster/slower; suppressions annotated
+  `(floor)` in reports) — the floor is the harness's declared
+  resolution limit, large cases unaffected. The re-adjudicated run
+  even exposed one baseline entry recorded from a slow-mode process
+  (advective_nodal[32] −9.6% `(floor)`), motivating the optional
+  future upgrade noted in the plan: min-across-2–3-processes for
+  sub-16 ms cases. Guard cadence stands per ruling §5.5:
+  owner-batched checkpoints, never per-merge, agents never submit.

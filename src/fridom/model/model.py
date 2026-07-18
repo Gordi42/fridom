@@ -33,6 +33,7 @@ from __future__ import annotations
 import logging
 import math
 import os
+import threading
 import time
 from collections.abc import Mapping
 from functools import partial
@@ -639,6 +640,7 @@ def _chunk_body(
     n: int,
     model_state: ModelState,
     stepper: TimeStepper,
+    force_unroll: int | None = None,
 ) -> ModelState:
     """
     Trace one chunk: ``lax.scan`` of the composed step body.
@@ -689,8 +691,13 @@ def _chunk_body(
 
     # unroll by the stepper's carry period (e.g. the AB tendency
     # ring): the structural ring shift becomes dataflow renaming
-    # instead of per-step buffer copies (TimeStepper.scan_unroll)
-    unroll = max(1, min(int(stepper.scan_unroll), n))
+    # instead of per-step buffer copies (TimeStepper.scan_unroll).
+    # force_unroll is the async two-tier transient override: it
+    # replaces the stepper's preference with a CHEAP unroll for the
+    # length-C tier served while the full executable compiles.
+    base_unroll = (int(stepper.scan_unroll) if force_unroll is None
+                   else int(force_unroll))
+    unroll = max(1, min(base_unroll, n))
     # the scan init must carry the body's fixed-point treedef: state
     # sealed to full validity, all other claims zeroed
     init = ModelState(
@@ -717,6 +724,20 @@ _CHUNK_EXECUTABLES: Final[dict[tuple, Any]] = {}
 #: per-key compile accounting: key -> (seconds, memory analysis)
 _CHUNK_COMPILE_LOG: Final[dict[tuple, tuple[float, object]]] = {}
 
+#: guards writes to the two shared chunk dicts. Only meaningful
+#: because the async two-tier holder runs a daemon compile thread
+#: that swaps its executable in at a later chunk boundary — the lock
+#: keeps that read-modify-write invariant honest.
+_CHUNK_LOCK: Final[threading.Lock] = threading.Lock()
+
+
+def _memory_analysis(compiled: Any) -> object:
+    """One compiled executable's memory analysis (None if absent)."""
+    try:
+        return compiled.memory_analysis()
+    except Exception:  # noqa: BLE001 — backend-optional report
+        return None  # pragma: no cover
+
 
 def _leaf_signature(leaf: object) -> tuple:
     """One leaf's contribution to the compiled-chunk cache key."""
@@ -731,19 +752,27 @@ def _leaf_sharding(leaf: object) -> jax.sharding.Sharding | None:
     return leaf.sharding if isinstance(leaf, jax.Array) else None
 
 
-def _compile_chunk(
+def _lower_chunk(
     record: AssemblyRecord,
     carry: ModelState,
     stepper: TimeStepper,
     n: int,
+    force_unroll: int | None = None,
 ) -> Any:
     """
-    Lower + compile one chunk, pinned to the carry's shardings.
+    Trace + lower one chunk to a ``Lowered`` (no XLA compile yet).
 
     Description
     -----------
-    The chunk is compiled as a sharding **fixed-point**: its output
-    carry is pinned (``out_shardings``) to the INPUT carry's per-leaf
+    The carry-live half of :func:`_compile_chunk`: it captures the HLO
+    module and donation/sharding intent from the carry's avals, holding
+    NO reference to the carry's live buffers. The returned ``Lowered``
+    can therefore be ``.compile()``-d on a background thread AFTER the
+    main thread has already donated (consumed) the carry — the ordering
+    the async two-tier scheme relies on.
+
+    The chunk is pinned as a sharding **fixed-point**: its output carry
+    is pinned (``out_shardings``) to the INPUT carry's per-leaf
     shardings. Without the pin a scan-internal reshard — e.g. the
     replicated tendency XLA produces for a spatially-uniform term,
     shifted into the AdamBashforth history ring — leaves the ring
@@ -754,16 +783,42 @@ def _compile_chunk(
     negotiated layout, so repeated advances key ONE entry on any
     device count.
 
+    ``force_unroll`` (the async two-tier transient override) replaces
+    the stepper's unroll for the cheap tier; both tiers share the same
+    ``out_shardings`` pin, so swapping the full executable in for the
+    cheap one at a chunk boundary is reshard-free.
+    """
+    out_shardings = jax.tree_util.tree_map(_leaf_sharding, carry)
+    jitted = jax.jit(
+        _chunk_body, static_argnums=(0, 1, 4), donate_argnums=(2,),
+        out_shardings=out_shardings)
+    return jitted.lower(record, n, carry, stepper, force_unroll)
+
+
+def _compile_chunk(
+    record: AssemblyRecord,
+    carry: ModelState,
+    stepper: TimeStepper,
+    n: int,
+    force_unroll: int | None = None,
+) -> Any:
+    """
+    Lower + compile one chunk, pinned to the carry's shardings.
+
+    Description
+    -----------
     The record and chunk length are static; the carry is donated; the
     stepper is a loop-invariant NON-donated input. The jit object is
     ephemeral (one per cache miss) — the shared cache is
     :data:`_CHUNK_EXECUTABLES`, keyed below, not jax's internal one.
+    Lowering (:func:`_lower_chunk`) and XLA ``.compile()`` are split so
+    the async two-tier scheme can lower on the (carry-live) main thread
+    and run only the slow compile off-thread; the sharding fixed-point
+    rationale lives on :func:`_lower_chunk`. ``force_unroll`` overrides
+    the stepper's unroll for the cheap transient tier.
     """
-    out_shardings = jax.tree_util.tree_map(_leaf_sharding, carry)
-    jitted = jax.jit(
-        _chunk_body, static_argnums=(0, 1), donate_argnums=(2,),
-        out_shardings=out_shardings)
-    return jitted.lower(record, n, carry, stepper).compile()
+    return _lower_chunk(
+        record, carry, stepper, n, force_unroll).compile()
 
 
 def _chunk_key(
@@ -778,11 +833,108 @@ def _chunk_key(
             tuple(_leaf_signature(leaf) for leaf in leaves))
 
 
+class _TwoTier:
+
+    """
+    Serve a cheap chunk executable until the full one compiles.
+
+    Description
+    -----------
+    The async two-tier holder: on a chunk cache miss it serves the
+    CHEAP tier — a low-unroll (``force_unroll=1``) length-C executable
+    — on the calling thread while a daemon thread XLA-compiles the
+    full-unroll length-C executable from a pre-built ``Lowered``. Once
+    ready, :meth:`settled` hands back the full executable so the caller
+    can swap it into the cache; steady state is then bitwise the
+    single-tier baseline with no holder indirection. A compile
+    exception in the daemon is captured and re-raised by :meth:`settled`
+    on the next call.
+
+    Parameters
+    ----------
+    cheap : Any
+        The already-compiled cheap-tier executable (served now).
+    lowered_full : Any
+        The full-unroll ``Lowered`` whose ``.compile()`` runs on the
+        daemon thread (the carry is already consumed at this point).
+    """
+
+    def __init__(self, cheap: Any, lowered_full: Any) -> None:
+        """Start the background full-compile; see the class doc."""
+        self._cheap = cheap
+        self._full: Any = None
+        self._full_compile_s: float | None = None
+        self._full_memory: object = None
+        self._error: BaseException | None = None
+        self._lock = threading.Lock()
+        self._thread = threading.Thread(
+            target=self._compile_full, args=(lowered_full,),
+            name="fridom-chunk-compile", daemon=True)
+        self._thread.start()
+
+    def _compile_full(self, lowered_full: Any) -> None:
+        """Daemon body: XLA-compile the full executable off-thread."""
+        started = time.perf_counter()
+        try:
+            compiled = lowered_full.compile()
+        except BaseException as exc:  # noqa: BLE001 — re-raised on call
+            with self._lock:
+                self._error = exc
+            return
+        seconds = time.perf_counter() - started
+        memory = _memory_analysis(compiled)
+        with self._lock:
+            self._full_compile_s = seconds
+            self._full_memory = memory
+            self._full = compiled
+
+    def settled(self) -> Any:
+        """
+        Return the full executable if ready, else ``None``.
+
+        Description
+        -----------
+        The fast path is a plain attribute load under the GIL (no
+        lock): steady state after the swap never reaches here. A
+        background compile exception is re-raised on the next call so
+        the failure surfaces to the run loop rather than being lost on
+        the daemon thread.
+
+        Returns
+        -------
+        Any
+            The compiled full executable, or ``None`` while pending.
+        """
+        full = self._full  # atomic ref load (GIL); no lock on hot path
+        if full is not None:
+            return full
+        if self._error is not None:
+            with self._lock:
+                raise self._error
+        return None
+
+    def serve_cheap(
+        self, carry: ModelState, stepper: TimeStepper,
+    ) -> ModelState:
+        """Run the cheap length-C executable on the donated carry."""
+        return self._cheap(carry, stepper)
+
+    def compile_log(self) -> tuple[float, object]:
+        """Return the full tier's (seconds, memory), settled (tests)."""
+        return (self._full_compile_s, self._full_memory)
+
+    def wait(self) -> None:
+        """Block until the background full-compile finishes (tests)."""
+        self._thread.join()
+
+
 def step_chunk(
     record: AssemblyRecord,
     carry: ModelState,
     stepper: TimeStepper,
     n: int,
+    *,
+    async_compile: bool = False,
 ) -> ModelState:
     """
     Run one compiled chunk of ``n`` steps (donating the carry).
@@ -799,6 +951,15 @@ def step_chunk(
     the caller must drop its reference; the stepper is passed
     non-donated.
 
+    When ``async_compile`` is set and a miss's natural unroll is > 1
+    (so ``n > 1`` too), the miss serves a cheap ``force_unroll=1``
+    length-C executable via a :class:`_TwoTier` holder while the full
+    executable compiles on a daemon thread, then swaps the cache entry
+    to the full executable at a later chunk boundary — so steady state
+    is the single-tier baseline with no holder indirection and the
+    compile log records the full tier's numbers. Compiled lengths stay
+    {C, 1}; the length-1 tails always take the synchronous path.
+
     Parameters
     ----------
     record : AssemblyRecord
@@ -809,6 +970,9 @@ def step_chunk(
         The loop-invariant, non-donated stepper pytree.
     n : int
         The static chunk length.
+    async_compile : bool, optional
+        Serve a cheap unroll-1 tier while the full-unroll executable
+        compiles off-thread (default: False).
 
     Returns
     -------
@@ -816,18 +980,43 @@ def step_chunk(
         The advanced carry.
     """
     key = _chunk_key(record, carry, stepper, n)
-    compiled = _CHUNK_EXECUTABLES.get(key)
-    if compiled is None:
+    entry = _CHUNK_EXECUTABLES.get(key)
+    if entry is not None:
+        if type(entry) is _TwoTier:
+            full = entry.settled()   # raises any background error
+            if full is None:
+                return entry.serve_cheap(carry, stepper)
+            with _CHUNK_LOCK:        # swap out the holder indirection
+                _CHUNK_EXECUTABLES[key] = full
+                _CHUNK_COMPILE_LOG[key] = entry.compile_log()
+            return full(carry, stepper)
+        return entry(carry, stepper)
+    natural = max(1, min(int(stepper.scan_unroll), n))
+    if not async_compile or natural <= 1 or n <= 1:
+        # legacy synchronous single-tier compile
         started = time.perf_counter()
         compiled = _compile_chunk(record, carry, stepper, n)
         seconds = time.perf_counter() - started
-        try:
-            memory = compiled.memory_analysis()
-        except Exception:  # noqa: BLE001 — backend-optional report
-            memory = None  # pragma: no cover
-        _CHUNK_EXECUTABLES[key] = compiled
+        memory = _memory_analysis(compiled)
+        with _CHUNK_LOCK:
+            _CHUNK_EXECUTABLES[key] = compiled
+            _CHUNK_COMPILE_LOG[key] = (seconds, memory)
+        return compiled(carry, stepper)
+    # async two-tier: lower the FULL chunk on THIS thread while the
+    # carry is still live (a Lowered holds HLO, not buffers), then
+    # compile the cheap unroll-1 tier and serve it while the full one
+    # compiles off-thread. The log entry is replaced with the full
+    # tier's numbers at swap time.
+    lowered_full = _lower_chunk(record, carry, stepper, n)
+    started = time.perf_counter()
+    cheap = _compile_chunk(record, carry, stepper, n, force_unroll=1)
+    seconds = time.perf_counter() - started
+    memory = _memory_analysis(cheap)
+    holder = _TwoTier(cheap, lowered_full)
+    with _CHUNK_LOCK:
+        _CHUNK_EXECUTABLES[key] = holder
         _CHUNK_COMPILE_LOG[key] = (seconds, memory)
-    return compiled(carry, stepper)
+    return holder.serve_cheap(carry, stepper)
 
 
 def chunk_cache_size() -> int:
@@ -1103,6 +1292,13 @@ class Model:
         max_chunk auto ~256 knob at the Model level; ``run()``'s
         trigger-driven plan subdivides it at wave 5]
         (default: 256).
+    async_chunk_compile : bool, optional
+        When True, a first advance on a not-yet-compiled configuration
+        serves a cheap unroll-1 chunk executable while the full-unroll
+        one compiles in a background thread, cutting time-to-first-
+        step; the cache entry swaps to the full executable at a later
+        chunk boundary. Steady-state results and performance are
+        unchanged (default: False).
     """
 
     def __init__(
@@ -1115,6 +1311,7 @@ class Model:
         state_type: type | None = None,
         name: str | None = None,
         chunk_size: int = _DEFAULT_CHUNK,
+        async_chunk_compile: bool = False,
         term_filter: Callable | None = None,
     ) -> None:
         """Assemble (steps 1-7, 9) and allocate the carry (step 8)."""
@@ -1122,6 +1319,10 @@ class Model:
                 chunk_size, int) or chunk_size < 1:
             raise ValueError(
                 f"chunk_size must be an int >= 1, got {chunk_size!r}")
+        if not isinstance(async_chunk_compile, bool):
+            raise ValueError(  # noqa: TRY004 — mirror chunk_size check
+                "async_chunk_compile must be a bool, got "
+                f"{async_chunk_compile!r}")
         for stream in io:
             if isinstance(stream, Snapshots):
                 raise IOCollisionError(
@@ -1137,6 +1338,7 @@ class Model:
         self._name = name
         self._io = tuple(io)
         self._chunk_size = chunk_size
+        self._async_chunk_compile = async_chunk_compile
         # -- step 8: allocate the carry ---------------------------
         state = self._allocate_state(modules)
         # built once: a cached zero-template BUILDER (structure
@@ -1419,6 +1621,11 @@ class Model:
     def chunk_size(self) -> int:
         """advance()'s host-sync granularity C."""
         return self._chunk_size
+
+    @property
+    def async_chunk_compile(self) -> bool:
+        """Whether the first advance serves a cheap async tier."""
+        return self._async_chunk_compile
 
     def __repr__(self) -> str:
         """Return the assembly report's header."""
@@ -1806,8 +2013,9 @@ class Model:
             if debug_nan:
                 self._debug_carry = _copy_leaves(self._carry)
                 self._debug_steps = length
-            carry = step_chunk(record, self._carry, self._stepper,
-                               length)
+            carry = step_chunk(
+                record, self._carry, self._stepper, length,
+                async_compile=self._async_chunk_compile)
             self._carry = carry
             done += length
             # the authoritative host-side float64 clock
@@ -2354,7 +2562,8 @@ class Model:
             time_stepper=stepper,
             state_type=self._artifacts.record.state_type,
             name=variant_name, term_filter=term_filter,
-            chunk_size=self._chunk_size)
+            chunk_size=self._chunk_size,
+            async_chunk_compile=self._async_chunk_compile)
 
     # ================================================================
     #  Persistence (section 6.4)

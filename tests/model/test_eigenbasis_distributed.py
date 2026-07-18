@@ -41,6 +41,7 @@ from fridom.model._eigenbasis import (
     _contract_planes,
     _project_masked,
 )
+from fridom.model.eigen_channel import _designate_half_axis
 from fridom.spatial.fields.vector_field import VectorField
 from fridom.spatial.grid import Grid
 from fridom.spatial.meshes.interval import IntervalMesh
@@ -217,6 +218,28 @@ def make_nh_channel(device_ids=None):
         time_stepper=fr.model.time_steppers.AdamBashforth(5e-3, order=3))
 
 
+def make_nh_channel_last_axis(device_ids=None):
+    """Walled-y nh channel whose layout shards the LAST periodic axis.
+
+    x is periodic but its cell count (10) is indivisible by 4 (rank 2),
+    so it stays LOCAL; z is periodic and divisible (rank 0), so it is
+    the default sharded axis -- the engine's default half (rfft) axis.
+    The engine re-designates the half axis to the local x, so the
+    shipped fused contraction serves the layout (a = z sharded / full,
+    b = x local / rfft half).
+    """
+    meshes = tuple(
+        IntervalMesh(n, (0.0, 1.0 if name == "y" else 2 * np.pi),
+                     periodic=(name != "y"), name=name)
+        for name, n in (("x", 10), ("y", 8), ("z", 12)))
+    return nh.Model(
+        grid=Grid(meshes, device_ids=device_ids),
+        advection=False, dsqr=2.0,
+        coriolis=nh.FPlaneCoriolis(f0=1.5),
+        stratification=nh.ConstantStratification(n2=3.0),
+        time_stepper=fr.model.time_steppers.AdamBashforth(5e-3, order=3))
+
+
 def nh_state(model, fields):
     """Write the shared random fields onto the model's nh state."""
     model.set_fields(**fields)
@@ -309,6 +332,48 @@ def test_real_grad_is_finite_through_the_projection(
 
 
 @pytest.mark.multi_device
+def test_channel_reprojects_when_last_periodic_axis_is_sharded(
+        forced_devices):
+    # the remainder case: the default layout shards the LAST periodic
+    # axis z (the engine's default half/rfft axis), which the fused
+    # contraction cannot serve in the fixed frame. The engine
+    # re-designates the half axis to the local x, so the shipped kernel
+    # serves the layout with roles swapped (a = z, b = x) -- instead of
+    # the taught NotImplementedError. GPU-scoped (real eigenbasis eigh).
+    if jax.default_backend() == "cpu":
+        pytest.skip(
+            "real channel eigenbasis build runs a batched eigh that "
+            "heap-corrupts jaxlib's CPU LAPACK on many-core hosts "
+            "(T5b); the real-eigenbasis path is GPU-scoped")
+    if forced_devices is not None:
+        assert jax.device_count() == forced_devices
+    many = make_nh_channel_last_axis()
+    assert many.grid.decomposition.default_layout.device_axes == (
+        ("z", "devices"),)
+    eb_many = nh.eigenbasis(many)
+    # the half axis moved off the sharded last periodic axis
+    assert eb_many.periodic_axis == "x"
+    assert bool((np.asarray(eb_many.labels) != -1).all())
+    rng = np.random.default_rng(31)
+    fields = {c: rng.standard_normal(np.asarray(many.state[c].data).shape)
+              for c in NH_COMPONENTS}
+    z_many = nh_state(many, fields)
+    assert z_many["u"]._data.sharding.spec[2] == "devices"
+    proj = eb_many.projector("vortical")
+    out_many = proj(z_many)
+    assert not any(
+        np.iscomplexobj(np.asarray(out_many[c].data))
+        for c in NH_COMPONENTS)
+    assert absmax(proj(out_many), out_many, NH_COMPONENTS) <= 1e-11
+    # the replicated one-device reference (default half axis z)
+    one = make_nh_channel_last_axis(device_ids=(0,))
+    eb_one = nh.eigenbasis(one)
+    assert eb_one.periodic_axis == "z"
+    out_one = eb_one.projector("vortical")(nh_state(one, fields))
+    assert absmax(out_many, out_one, NH_COMPONENTS) <= 1e-11
+
+
+@pytest.mark.multi_device
 def test_real_two_dimensional_channel_keeps_the_taught_error(
         forced_devices):
     # a real sw 2-D channel (single periodic axis) keeps the taught
@@ -336,3 +401,25 @@ def test_real_two_dimensional_channel_keeps_the_taught_error(
     z = sw.State({c: model.state[c] for c in eb.components})
     with pytest.raises(NotImplementedError, match="shards a periodic axis"):
         eb.projector("wave")(z)
+
+
+@pytest.mark.multi_device
+def test_half_axis_designation_prefers_a_local_periodic_axis(
+        forced_devices):
+    # the pick itself is pure Python (no eigensolve), so this runs on
+    # any backend -- including the forced-4 CPU suite, which otherwise
+    # skips the GPU-scoped real-eigenbasis re-designation test above.
+    if forced_devices is not None:
+        assert jax.device_count() == forced_devices
+    many = make_nh_channel_last_axis()
+    assert not many.grid.decomposition.default_layout.is_local("z")
+    assert _designate_half_axis(many.grid, ("x", "z")) == "x"
+    # the default pick (the last periodic axis) stays whenever that
+    # axis is local: divisible x is the default sharded axis here.
+    meshes = tuple(
+        IntervalMesh(n, (0.0, 1.0 if name == "y" else 2 * np.pi),
+                     periodic=(name != "y"), name=name)
+        for name, n in (("x", 12), ("y", 8), ("z", 12)))
+    divisible = Grid(meshes)
+    assert divisible.decomposition.default_layout.is_local("z")
+    assert _designate_half_axis(divisible, ("x", "z")) == "z"

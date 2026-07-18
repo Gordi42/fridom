@@ -86,11 +86,19 @@ class OperatorRequirements:
     instance per applied factor. Composites accumulate it along their
     chains (halo sums), sums combine it across terms (halo maxes).
 
+    The ghost demand is two-sided: ``reach`` is the ``(below, above)``
+    depth read in the factor's index space, so a staggered stencil's
+    asymmetry survives the accounting (a chain adds reaches per side,
+    not symmetric maxima). ``halo`` is the symmetric collapse
+    ``max(below, above)`` — the width a symmetric storage halo must
+    hold — and stays the API every storage consumer reads. Passing a
+    scalar ``halo`` alone means the symmetric ``(halo, halo)``; passing
+    ``reach`` sets ``halo`` to its per-side maximum.
+
     Parameters
     ----------
     halo : int, optional
-        Ghost-layer depth needed along this factor's axis
-        (default: 0).
+        Symmetric ghost-layer depth (default: 0).
     layout : Literal["any", "local", "transpose"], optional
         "any" works on a sharded axis via halo exchange; "local"
         needs the factor's axis undistributed; "transpose" is
@@ -98,11 +106,22 @@ class OperatorRequirements:
     collective : bool, optional
         Informational: the operator performs a cross-shard reduction;
         negotiation treats it as no-constraint (default: False).
+    reach : tuple[int, int] | None, optional
+        Explicit ``(below, above)`` reach; None means the symmetric
+        ``(halo, halo)`` (default: None).
     """
 
     halo: int = 0
     layout: Literal["any", "local", "transpose"] = "any"
     collective: bool = False
+    reach: tuple[int, int] | None = None
+
+    def __post_init__(self) -> None:
+        """Reconcile ``halo`` (symmetric) and ``reach`` (two-sided)."""
+        if self.reach is None:
+            object.__setattr__(self, "reach", (self.halo, self.halo))
+        else:
+            object.__setattr__(self, "halo", max(self.reach))
 
 
 class EigenbasisError(TypeError):
@@ -571,9 +590,9 @@ class BinaryOperator(Operator, ABC):
         # consumption-side sync check (task 1.8): every operand,
         # against the whole-space requirement (the n-ary twin of
         # HaloTracer._trace_apply_nary)
-        halo = self.requirements(codomain).halo
-        if halo:
-            required = {name: halo
+        reach = self.requirements(codomain).reach
+        if reach != (0, 0):
+            required = {name: reach
                         for factor in codomain.factors
                         if not factor.collapses_axis
                         for name in factor.names}
@@ -1054,17 +1073,18 @@ class OperatorSum(Operator):
         return first
 
     def requirements(self, domain: SpaceLike) -> OperatorRequirements:
-        """Per-axis MAX over the terms (rules 3.6)."""
-        halo = 0
+        """Per-side MAX of reaches over the terms (rules 3.6)."""
+        lo = hi = 0
         layout: Literal["any", "local", "transpose"] = "any"
         collective = False
         for term in self._terms:
             req = term.requirements(domain)
-            halo = max(halo, req.halo)
+            lo = max(lo, req.reach[0])
+            hi = max(hi, req.reach[1])
             layout = _merge_layout(layout, req.layout)
             collective = collective or req.collective
         return OperatorRequirements(
-            halo=halo, layout=layout, collective=collective)
+            reach=(lo, hi), layout=layout, collective=collective)
 
     def eigenvalues(self, grid: object, space: SpaceLike) -> object:
         """SUM of the term symbols (rules 3.7)."""
@@ -1555,15 +1575,19 @@ def _finalize(
     return result
 
 
-def _required_halo(op: Operator, space: SpaceLike) -> dict[str, int]:
+def _required_halo(
+    op: Operator, space: SpaceLike,
+) -> dict[str, tuple[int, int]]:
     """
-    Per-name ghost depth one application of ``op`` consumes.
+    Per-name two-sided reach one application of ``op`` consumes.
 
     Description
     -----------
     The runtime twin of ``HaloTracer._grown`` (task 1.8): per-axis
     for separable kernels (their sole applied factor), every
-    bindable axis for whole-space operators (conservative).
+    bindable axis for whole-space operators (conservative). The reach
+    is two-sided ``(below, above)`` so an asymmetric stencil demands
+    validity only on the side it reads.
 
     Parameters
     ----------
@@ -1574,8 +1598,8 @@ def _required_halo(op: Operator, space: SpaceLike) -> dict[str, int]:
 
     Returns
     -------
-    dict[str, int]
-        Positive per-name depths; empty for halo-0 applications.
+    dict[str, tuple[int, int]]
+        Nonzero per-name reaches; empty for reach-0 applications.
     """
     bare = space.bare
     if isinstance(op, SeparableOperator):
@@ -1584,19 +1608,19 @@ def _required_halo(op: Operator, space: SpaceLike) -> dict[str, int]:
                   else bare.factor(axis))
         if isinstance(factor, ConstantSpace):
             return {}
-        halo = op.requirements(factor).halo
-        return {axis: halo} if halo else {}
-    halo = op.requirements(bare).halo
-    if not halo:
+        reach = op.requirements(factor).reach
+        return {axis: reach} if reach != (0, 0) else {}
+    reach = op.requirements(bare).reach
+    if reach == (0, 0):
         return {}
-    return {name: halo
+    return {name: reach
             for factor in bare.factors
             if not factor.collapses_axis
             for name in factor.names}
 
 
 def _ensure_valid(
-    f: FieldLike, required: dict[str, int],
+    f: FieldLike, required: dict[str, tuple[int, int]],
 ) -> FieldLike:
     """
     Sync the operand iff its ghost validity is below ``required``.
@@ -1605,18 +1629,21 @@ def _ensure_valid(
     -----------
     The consumption-side sync placement (task 1.8): a trace-time
     check of static Python attributes — zero runtime cost under jit.
-    A triggered sync fills every axis to the negotiated widths, and
-    the synced field is memoized in an external identity-keyed cache
-    (:data:`_SYNC_CACHE`) — never written back onto the operand, whose
-    ``halo_valid`` is treedef-participating static aux — so further
-    consumers of the same field reuse it: n readers pay one exchange.
+    Validity is two-sided, so a spare low side does not pay for a short
+    high side (an asymmetric stencil chain runs sync-free at the tight
+    negotiated width). A triggered sync fills every axis to the
+    negotiated widths, and the synced field is memoized in an external
+    identity-keyed cache (:data:`_SYNC_CACHE`) — never written back onto
+    the operand, whose ``halo_valid`` is treedef-participating static
+    aux — so further consumers of the same field reuse it: n readers
+    pay one exchange.
 
     Parameters
     ----------
     f : FieldLike
         The operand field.
-    required : dict[str, int]
-        Per-name depths this application consumes.
+    required : dict[str, tuple[int, int]]
+        Per-name two-sided reaches this application consumes.
 
     Returns
     -------
@@ -1625,16 +1652,14 @@ def _ensure_valid(
     """
     if not required:
         return f
-    valid = dict(f.halo_valid.widths)
-    if all(valid.get(name, 0) >= depth
-           for name, depth in required.items()):
+    if all(f.halo_valid.covers(name, reach)
+           for name, reach in required.items()):
         return f
     cached = _sync_cache_get(f)
-    if cached is not None:
-        cvalid = dict(cached.halo_valid.widths)
-        if all(cvalid.get(name, 0) >= depth
-               for name, depth in required.items()):
-            return cached
+    if cached is not None and all(
+            cached.halo_valid.covers(name, reach)
+            for name, reach in required.items()):
+        return cached
     synced = _sync_node()(f)
     if synced is not f:
         _memoize_sync(f, synced)
@@ -1706,19 +1731,21 @@ def _merge_layout(
 def _chain_requirements(
     factors: tuple[Operator, ...], domain: SpaceLike,
 ) -> OperatorRequirements:
-    """Accumulate requirements along a chain (halo sums, rules 3.6)."""
+    """Accumulate requirements along a chain (reaches add, rules 3.6)."""
     space = domain.bare
-    halo = 0
+    lo = hi = 0
     layout: Literal["any", "local", "transpose"] = "any"
     collective = False
     for op in reversed(factors):
         req = op.requirements(space)
-        halo += req.halo
+        # per-side sum: Minkowski sum of the composed offset windows
+        lo += req.reach[0]
+        hi += req.reach[1]
         layout = _merge_layout(layout, req.layout)
         collective = collective or req.collective
         space = resolve_codomain(op, space)
     return OperatorRequirements(
-        halo=halo, layout=layout, collective=collective)
+        reach=(lo, hi), layout=layout, collective=collective)
 
 
 def _chain_eigenvalues(

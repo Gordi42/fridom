@@ -139,11 +139,17 @@ def test_face_codomain_rejects_other_node_sets():
         op.codomain(mx.face_avg)
 
 
-@pytest.mark.parametrize(("order", "halo"), [(3, 2), (5, 3)])
+# the left-biased Center -> Right window is [-order//2, +order//2],
+# symmetric of reach order//2 (m0 = biased_offset = order//2): halo 1
+# for order 3, 2 for order 5 -- the true per-direction reach, tighter
+# than the both-bias envelope order//2+1. The negotiation still sees
+# the right bias (reach up to +order//2+1) and widens to it.
+@pytest.mark.parametrize(("order", "halo"), [(3, 1), (5, 2)])
 def test_biased_operator_requirements(order, halo):
     mx = IntervalMesh(8, (0.0, 1.0), name="x")
     op = _BiasedFaceReconstruction(order, "left", "weno")
     assert op.requirements(mx.center).halo == halo
+    assert op.requirements(mx.center).reach == (order // 2, order // 2)
     interp = _CenteredFaceInterpolation(order - 1)
     assert interp.requirements(mx.center).halo == (order - 1) // 2
 

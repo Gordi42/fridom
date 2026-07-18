@@ -28,6 +28,7 @@ from fridom.model.report import (
     AssemblyReport,
 )
 from fridom.model.terms import Treatment, term
+from fridom.spatial.decomposition.halo import HaloSpec
 from fridom.spatial.grid import Grid
 from fridom.spatial.meshes.interval import IntervalMesh
 from fridom.spatial.operators.finite_difference import (
@@ -88,13 +89,29 @@ class Override(Module):
     dispatch: ClassVar = {
         ("diff", Collocated()): FiniteDifference(order=4)}
 
+    # the order-4 override reaches two cells; declare its ghost width
+    # explicitly (the trace does not propagate a bare-Module dispatch
+    # override's reach into the negotiation the way a full model's
+    # tendency does, and two-sided accounting no longer over-provisions
+    # the provisional registry width to cover it incidentally)
+    @property
+    def extra_halo(self):
+        return HaloSpec({"x": 2})
+
 
 # ================================================================
 #  Fixtures
 # ================================================================
 def make_grid():
-    return Grid((IntervalMesh(8, (0.0, 1.0), periodic=True,
+    # the composer dry-run (assembly step 6) runs at the provisional
+    # width before the trace/extra_halo negotiation (step 7), so an
+    # order-4 dispatch override needs the provisional to already cover
+    # it. Two-sided accounting narrows the bare provisional to 1, so
+    # negotiate width 2 up front (the pre-tightening provisional value).
+    grid = Grid((IntervalMesh(8, (0.0, 1.0), periodic=True,
                               name="x"),))
+    grid.negotiate(halo=HaloSpec({"x": 2}))
+    return grid
 
 
 @pytest.fixture

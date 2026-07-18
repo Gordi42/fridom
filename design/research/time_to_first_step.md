@@ -103,7 +103,10 @@ cache lives in `src/fridom/_compile_cache.py`, env knobs
 `FRIDOM_DISABLE_COMPILE_CACHE` / `FRIDOM_JAX_CACHE_DIR`, per-rank
 subdirs under an initialized `jax.distributed`, and the test suite's
 conftest keeps precedence). Post-merge 64³ GPU: cold TTFS 7.5→5.05 s,
-warm 2.83 s, per-step unchanged. 3c remains a patch only.
+warm 2.83 s, per-step unchanged. **3c LANDED 2026-07-18** behind the
+default-off `Model(async_chunk_compile=True)` knob (the shipped version
+drops the `eager1` mode — measured strictly worse — and serves the lenC
+unroll-1 tier).
 
 ### 3a. dry_run under `jax.eval_shape` — kills bucket 1 (~3 s → ~0.1 s)
 
@@ -162,6 +165,18 @@ a default-off flag for interactive use; the ~0.9 s step-body compile is
 the floor no unroll trick beats. Sharp edges recorded in the patch:
 donation ordering, out_shardings pin shared by both tiers (swap is
 reshard-free), background-failure propagation on next call.
+
+**LANDED 2026-07-18** behind the default-off knob
+`Model(async_chunk_compile=True)` (`step_chunk(..., async_compile=)`,
+`_TwoTier` holder, `_lower_chunk`/`_compile_chunk` split, module-level
+`_CHUNK_LOCK` guarding the swap). The shipped version drops the `eager1`
+mode (measured strictly worse) and serves the lenC unroll-1 tier only;
+the prototype's global `_ASYNC_CFG` config is gone (the knob rides the
+`Model`). Miss dispatch: async only when `async_compile` and the
+natural unroll > 1 and n > 1, else the legacy synchronous single-tier
+compile; the length-1 tails always take the sync path. Forced-4 CPU
+kept the bitwise-equality invariant (no `single_device` mark needed).
+Tests: `tests/model/test_step_chunk_async.py`.
 
 ### Rejected: permanent lower unroll
 

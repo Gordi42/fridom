@@ -42,7 +42,7 @@ def Model(  # noqa: N802 — a factory that mirrors fr.model.Model's surface
     pressure_iterations: int = 30,
     pressure_tolerance: float | None = 1e-8,
     pressure_preconditioner: str = "spectral",
-    multigrid_levels: int = 5,
+    multigrid_levels: int | None = None,
     multigrid_tridiagonal_method: str = "auto",
     modules_extra: Sequence[fr.model.Module] = (),
     time_stepper: TimeStepper | None = None,
@@ -103,10 +103,12 @@ def Model(  # noqa: N802 — a factory that mirrors fr.model.Model's surface
         semicoarsened geometric-multigrid V-cycle). Consumed on a mapped
         or immersed grid; a flat grid uses the exact spectral solve and
         ignores it (default: ``"spectral"``).
-    multigrid_levels : int, optional
-        The maximum multigrid level count when
-        ``pressure_preconditioner="multigrid"`` (floored on small
-        grids); ignored otherwise (default: 5).
+    multigrid_levels : int | None, optional
+        The multigrid depth when ``pressure_preconditioner="multigrid"``;
+        ignored otherwise. ``None`` (the default) coarsens to the
+        four-cell horizontal floor (floor-limited depth, h-independent
+        iteration counts at every size); an ``int`` is a maximum cap as
+        before (floored on small grids either way) (default: None).
     multigrid_tridiagonal_method : str, optional
         The vertical-line tridiagonal kernel of the multigrid smoother
         (``"auto"`` / ``"cusparse"`` / ``"pcr"`` / ``"scan"``),
