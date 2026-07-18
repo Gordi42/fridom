@@ -27,10 +27,12 @@ if TYPE_CHECKING:  # pragma: no cover
         galerkin,
         nodal,
         tensor_product,
+        trace,
     )
 
     # import all functions
     from .composition import compose_spaces, union_spaces
+    from .trace import Side, TraceSpace
 
 # ================================================================
 #  Setup lazy loading
@@ -47,11 +49,13 @@ all_modules_by_origin = {
         "constant",
         "tensor_product",
         "composition",
+        "trace",
     ],
 }
 
 all_imports_by_origin = {
     f"{base}.composition": ["compose_spaces", "union_spaces"],
+    f"{base}.trace": ["Side", "TraceSpace"],
 }
 
 setup(__name__, all_modules_by_origin, all_imports_by_origin)

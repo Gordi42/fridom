@@ -52,7 +52,6 @@ from fridom.spatial.decomposition.decomposition import (
 )
 from fridom.spatial.spaces.average import CellAvg, FaceAvg
 from fridom.spatial.spaces.coefficient import CoefficientSpace
-from fridom.spatial.spaces.constant import ConstantSpace
 from fridom.spatial.spaces.nodal import NodalSpace, NodeSet
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -291,12 +290,13 @@ class TensorDecomposition(Decomposition):
 
         Description
         -----------
-        ``ConstantSpace`` and coefficient factors structurally carry
-        width 0 (their halo exchange is skipped by construction);
-        other factors read the negotiated per-name width, with names
-        outside the spec carrying 0.
+        Collapsed factors (``ConstantSpace`` / ``TraceSpace``) and
+        coefficient factors structurally carry width 0 (their halo
+        exchange is skipped by construction); other factors read the
+        negotiated per-name width, with names outside the spec
+        carrying 0.
         """
-        if isinstance(factor, ConstantSpace | CoefficientSpace):
+        if isinstance(factor, CoefficientSpace) or factor.collapses_axis:
             return 0
         try:
             return self._halo[name]
@@ -311,15 +311,15 @@ class TensorDecomposition(Decomposition):
         Description
         -----------
         1 unless the name is layout-mapped to a multi-device axis
-        and the factor is ghost-shardable: ``ConstantSpace`` factors
-        are replicated in every layout and coefficient factors stay
-        device-local (iteration-1 LOCAL preference), so both are
-        never blocked.
+        and the factor is ghost-shardable: collapsed factors
+        (``ConstantSpace`` / ``TraceSpace``) are replicated in every
+        layout and coefficient factors stay device-local (iteration-1
+        LOCAL preference), so both are never blocked.
         """
         axis = dict(layout.device_axes).get(name)
         if axis is None:
             return 1
-        if isinstance(factor, ConstantSpace | CoefficientSpace):
+        if isinstance(factor, CoefficientSpace) or factor.collapses_axis:
             return 1
         return int(self._device_mesh.shape[axis])
 
@@ -622,7 +622,8 @@ class TensorDecomposition(Decomposition):
         axes = dict(layout.device_axes)
         spec = []
         for name, _, factor in self._axis_entries(space):
-            if isinstance(factor, ConstantSpace | CoefficientSpace):
+            if (isinstance(factor, CoefficientSpace)
+                    or factor.collapses_axis):
                 spec.append(None)
             else:
                 spec.append(axes.get(name))

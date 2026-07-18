@@ -19,6 +19,7 @@ if TYPE_CHECKING:  # pragma: no cover
     from . import (
         banded,
         base,
+        boundary,
         chebyshev,
         combinators,
         composed,
@@ -67,6 +68,14 @@ if TYPE_CHECKING:  # pragma: no cover
         UnaryOperator,
         Zero,
         resolve_codomain,
+    )
+    from .boundary import (
+        Adopt,
+        AsProfile,
+        BoundaryEmbed,
+        BoundaryScatterAdd,
+        BoundaryScatterSet,
+        BoundaryTrace,
     )
     from .chebyshev import Chebyshev
     from .composed import (
@@ -122,11 +131,15 @@ if TYPE_CHECKING:  # pragma: no cover
     from .transfer import GridTransfer
     from .trig import Cosine, Sine
     from .verbs import (
+        as_profile,
         cumint,
         diff,
+        embed,
         integrate,
         interpolate,
         physical_diff,
+        scatter_add,
+        scatter_set,
     )
     from .weno import WenoReconstruction
 
@@ -138,6 +151,7 @@ base = "fridom.spatial.operators"
 all_modules_by_origin = {
     base: [
         "base",
+        "boundary",
         "registry",
         "banded",
         "symbol",
@@ -205,6 +219,14 @@ all_imports_by_origin = {
         "LinearDeconvolution", "LinearReconstruction"],
     f"{base}.weno": ["WenoReconstruction"],
     f"{base}.restrict": ["Restriction"],
+    f"{base}.boundary": [
+        "BoundaryTrace",
+        "BoundaryEmbed",
+        "BoundaryScatterAdd",
+        "BoundaryScatterSet",
+        "AsProfile",
+        "Adopt",
+    ],
     f"{base}.select": ["Where"],
     f"{base}.distributed_contract": ["resolve_distributed_contraction"],
     f"{base}.distributed_solve": ["resolve_distributed_solve"],
@@ -256,7 +278,8 @@ all_imports_by_origin = {
     ],
     f"{base}.cumulative": ["CumulativeIntegral"],
     f"{base}.verbs": ["diff", "interpolate", "integrate", "cumint",
-                      "physical_diff"],
+                      "physical_diff", "embed", "as_profile",
+                      "scatter_add", "scatter_set"],
 }
 
 setup(__name__, all_modules_by_origin, all_imports_by_origin)

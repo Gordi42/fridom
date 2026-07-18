@@ -56,24 +56,26 @@ memory ceiling, time-to-first-step, WENO throughput (entries in
   (d) optional one-line width assert at the CG diagonal builders
   (closes the only consumption-guard bypass,
   `pressure_solver_halo.md` §7.2).
-- **Hydro surface-flux correction: slice-only `A(1)`.** The H7
-  constancy-preserving surface advective flux (owner-ratified
-  default, [`../plans/active/hydrostatic_model_plan.md`](../plans/active/hydrostatic_model_plan.md)
-  §H7) costs +18–49% on `se_centered` and +11–36% on `se_weno5`
-  hydro steps in the comparison suite (worst at 2048²×64, resweep
-  2026-07-17), flipping centered hydro from ~break-even to
-  0.79–0.88 oc/fridom; `*_linear` configs unaffected. The correction
-  `−q·A(1)` is mathematically nonzero **only in boundary-adjacent
-  cells**, yet is evaluated as full-3D flux divergences (one per
-  advected field per axis, memory-bound; face-velocity reuse is
-  already XLA-CSE'd — measured perf-neutral). Lever: evaluate `A(1)`
-  on the boundary-adjacent 2D slice only; needs a DSL
-  slice/restriction path on the advecting-velocity faces.
-  **Plan accepted 2026-07-18** (owner picked the same-mesh
-  non-broadcasting `TraceSpace` architecture over ConstantSpace reuse
-  / PointMesh activation): design, decision record, and phasing in
-  [`../plans/active/boundary_trace_plan.md`](../plans/active/boundary_trace_plan.md);
-  implementation not started.
+- **Hydro surface-flux correction: slice-only `A(1)` — GPU
+  measurement remaining.** The H7 closure cost +18–49% on
+  `se_centered` / +11–36% on `se_weno5` (resweep 2026-07-17,
+  0.79–0.88 oc/fridom). The slice rewrite **shipped 2026-07-18**
+  (dev `4adcc933`, phases 1–3 of
+  [`../plans/active/boundary_trace_plan.md`](../plans/active/boundary_trace_plan.md)):
+  `TraceSpace` boundary machinery + `A(1)` as a 2D boundary trace
+  where boundary-only (flat uniform/stretched grids, collocated
+  tracers on immersed grids — the comparison-ladder cases); mapped
+  columns and immersed staggered momentum route to an exact full-3D
+  fallback (measured non-boundary-only, plan §6 note). Remaining,
+  all owner-gated GPU work: (a) step-guard batch checkpoint over
+  the merge (`benchmarks/ci/step_guard.sbatch`); (b) A/B the two
+  lowerings (`advection._SURFACE_FLUX_LOWERING`, default
+  `"scatter"`, alt `"embed"`) and keep the winner; (c) re-run the
+  `se_centered`/`im_centered` comparison ladder — item closes when
+  overhead vs `surface_flux=False` is single-digit and centered
+  hydro is back near oc break-even (plan §8); (d) real multi-host
+  validation of trace/scatter under `srun -n 4 --gpu-bind=none`
+  (forced-4 is green; plan §4 gate).
 
 ## Channel eigenmodes on multi-device — remaining gaps
 
@@ -81,20 +83,6 @@ The projection now **runs** multi-GPU: the fused distributed
 contraction shipped 2026-07-18 (merge `e60259de`, entry in
 [`done.md`](done.md)). Still open:
 
-- **File the two upstream jax issues** (owner go-ahead required — the
-  drafts are ready). Both faults are jax/jaxlib 0.10.2:
-  - **GPU (T5).** XLA:GPU/GSPMD lowers a sharded-transform-axis FFT
-    through its distributed Cooley-Tukey decomposition whose
-    twiddle-factor constants are `complex64` against `complex128`
-    data; the HLO verifier rejects `multiply c64[] c128[]`. Repro +
-    issue:
-    [`../research/artifacts/channel_fftnorm_gpu/`](../research/artifacts/channel_fftnorm_gpu/).
-    (Fridom no longer hits it on the 3-D channel — the fused lowering
-    keeps FFT axes local — but the unsupported remainder below and any
-    naive consumer still would.)
-  - **CPU (T5b).** A batched-`eigh` heap corruption in jaxlib's CPU
-    LAPACK on many-core hosts. Repro + issue:
-    [`../research/artifacts/channel_sort_segfault/`](../research/artifacts/channel_sort_segfault/).
 - **Unsupported sharded-periodic remainder** (kept on the narrowed
   taught `NotImplementedError`) — solution paths investigated
   2026-07-18

@@ -172,6 +172,31 @@ Implementation record:
   [`pressure_solver_halo.md`](../research/pressure_solver_halo.md)
   (probes under `pressure_solver_halo/`).
 
+- **Upstream jax issues filed for the two T5 faults** (2026-07-18,
+  owner-filed) —
+  [jax-ml/jax#39291](https://github.com/jax-ml/jax/issues/39291)
+  (T5: SPMD-partitioned FFT emits `complex64` twiddles for a
+  `complex128` transform, HLO verifier rejects the mixed multiply) and
+  [jax-ml/jax#39292](https://github.com/jax-ml/jax/issues/39292)
+  (T5b: batched-`eigh` heap corruption from nested Eigen×OpenBLAS
+  thread oversubscription). Pre-filing validation on the day-of-release
+  jax 0.11.0: **both still reproduce** (changelog touches neither
+  path). New findings folded into the reports: the FFT fault
+  reproduces **without GPUs** (`JAX_PLATFORMS=cpu` +
+  `--xla_force_host_platform_device_count=4`, identical verifier
+  error), so it sits in the backend-agnostic SPMD partitioner and the
+  filed repro needs no hardware; the eigh threshold scales with host
+  thread count (256-thread node: batch 144; 128-core login node: batch
+  144 passes, 1024 crashes — 0.10.2 SIGABRT, 0.11.0 SIGSEGV). Prior-art
+  sweep found no existing upstream report of either root cause
+  (closest context: jax#15680 sharded-FFT all-gather for T5;
+  OpenBLAS #2839/#4216/#5639 for T5b's mechanism, all closed as
+  config-expected — cited as evidence the nesting is jax-side).
+  Final drafts (owner voice, trimmed to repro + evidence) live with
+  the repro scripts:
+  [`channel_fftnorm_gpu/`](../research/artifacts/channel_fftnorm_gpu/),
+  [`channel_sort_segfault/`](../research/artifacts/channel_sort_segfault/).
+
 - **Half-axis-sharded 3-D channel served — layout-aware half-axis
   re-designation** (2026-07-18, merge `feade7fa`; coverage follow-up
   merge `964a9117`) — the last remainder case with a fast path: when

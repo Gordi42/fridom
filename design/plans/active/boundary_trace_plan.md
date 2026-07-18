@@ -1,7 +1,8 @@
 # Boundary trace / scatter machinery (`TraceSpace`) — plan
 
-Status: **accepted, not started** (owner picked Option B in session,
-2026-07-18). Immediate consumer: the H7 hydrostatic surface-flux
+Status: **phases 1–3 shipped** (dev merge `4adcc933`, 2026-07-18;
+outcome record in §9). Remaining: the owner-gated GPU items in §9.
+Owner picked Option B in session, 2026-07-18. Immediate consumer: the H7 hydrostatic surface-flux
 correction's slice-only `A(1)`
 ([roadmap entry](../../roadmap/open.md), Oceananigans-gap list;
 [`hydrostatic_model_plan.md`](hydrostatic_model_plan.md) §H7).
@@ -269,3 +270,62 @@ oc/fridom ratio back to ~break-even), all Phase-1/2 gates green, and
 the machinery is documented as the sanctioned boundary path (module
 docstrings pointing future boundary consumers at
 trace/scatter-add instead of `.data` surgery).
+
+## 9. Implementation outcome (2026-07-18)
+
+Phases 1–3 shipped the same day the plan was accepted (dev merge
+`4adcc933`; branch commits `99b585bd`/`286f24d3` Phase 1a,
+`253b0918` Phase 1b, `947e53e5`+`322661ab` Phase 2, `a6d2fb14`
+Phase 3). Combined gates green: ~5,600 tests across
+`tests/spatial` + `tests/model` + `tests/hydrostatic` + smoke,
+forced-4 multi-device, ruff zero — including two mid-flight `dev`
+merges (interval halo accounting, Tier-1 transform guard; no
+semantic conflicts, the `collapses_axis` skip excludes collapsed
+factors before interval accounting runs).
+
+**Findings that amend the design above:**
+
+- **Slice-form scope (amends §6).** The slice form equals the old
+  full-3D correction only where `A(1)` is genuinely boundary-only:
+  flat (uniform/stretched-z) grids, and collocated tracers on
+  immersed grids (~1e-16 agreement). Measured NOT boundary-only:
+  terrain-mapped columns (interior `A(1)` mass ≈1.7 — the mapped
+  physical divergence differs from the flux-form continuity the
+  w-diagnosis enforces) and immersed staggered momentum (≈0.78).
+  Those route per-component to an exact full-3D fallback
+  (`_correction_full`, byte-identical to the old accumulation).
+  The comparison-ladder configs (flat `se_/im_centered`) all take
+  the slice path. The denominator on the slice path is the primal
+  `grid.measure` cell width (what `flux_diff` divides by), not a
+  mapped `1/J` metric — mapped never reaches the slice path.
+- **Lowering switch:** `advection._SURFACE_FLUX_LOWERING`, default
+  `"scatter"` (fully-2D, FV-native); `"embed"` is nodal-only (an FV
+  `CellAvg` trace embeds onto nodal `Center`) and falls back to
+  scatter for FV. GPU A/B pending (below).
+- **Operator-set deltas (amend §3):** `BoundaryTrace` also traces FV
+  `CellAvg` (recorded as `parent_node_set=CENTER`, so scatter into a
+  `CellAvg` tendency works natively) and rejects `FaceAvg`
+  (bounded dual cells never touch the wall). `Adopt` is a
+  whole-space `UnaryOperator`, not separable (the separable base
+  short-circuits to identity on Constant axes). `BoundaryEmbed`
+  needs no Dirichlet guard (its codomain is the BC-free parent).
+  Trace is seeded with a default `Side.HIGH` variant; specific
+  sides are built directly by `f.trace(name, side)`. The halo
+  tracer gained trace/embed/as_profile/adopt forwarders (the H7
+  closure is halo-traced on the flat path).
+- **Cross-node-set boundary writes** (Phase 3): moving a boundary
+  value between node sets (Center cell → Outer face) must route
+  trace → `as_profile` → `adopt` → `scatter_set` — sanctioned,
+  exact (the `_masked_w_faces` rewrite is bitwise on all five
+  immersed grid classes tested), but a three-verb chain; if a
+  second cross-set consumer appears, add a convenience verb
+  (`trace_as(node_set, side)`) — recorded as deferred.
+- Local `--cov` SIGABRTs under jax on this cluster (C tracer);
+  patch coverage was verified by construction per phase and rides
+  the CI gate.
+
+**Remaining (owner-gated GPU work; the roadmap entry tracks it):**
+step-guard batch checkpoint over the merge; A/B the two lowerings
+and keep the winner; comparison-ladder re-run against §8's closing
+criteria; real multi-host `srun -n 4 --gpu-bind=none` validation of
+trace/scatter (§4 — forced-4 is green, multi-process is not proven).

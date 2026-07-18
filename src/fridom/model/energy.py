@@ -64,7 +64,6 @@ from fridom.model.params import (
 from fridom.model.time_dependent import resolve_at
 from fridom.spatial.fields.scalar_field import ScalarField
 from fridom.spatial.spaces.coefficient import CoefficientSpace
-from fridom.spatial.spaces.constant import ConstantSpace
 
 if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Mapping
@@ -361,7 +360,7 @@ class EnergyMetric:
         coefficient = any(
             isinstance(f, CoefficientSpace) for f in factors)
         physical = any(
-            not isinstance(f, CoefficientSpace | ConstantSpace)
+            not (isinstance(f, CoefficientSpace) or f.collapses_axis)
             for f in factors)
         if coefficient and physical:
             raise NotImplementedError(
