@@ -152,8 +152,9 @@ def test_biased_advection_negotiates_the_two_sided_width(advection):
     # two-sided halo accounting (perf/halo-interval): the biased-5
     # reconstruction's asymmetric window composes with the flux
     # difference to width 3 (storage n+6) on every axis, not the
-    # scalar-sum 4 (n+8). The DynamicalCore extra_halo (symmetric 2)
-    # does not cap 3. FV and nodal families both tighten to 3.
+    # scalar-sum 4 (n+8). The DynamicalCore extra_halo (derived,
+    # symmetric 1) does not cap 3. FV and nodal families both tighten
+    # to 3.
     for family in ("nodal", "fv"):
         model = nh.Model(coriolis=FPlaneCoriolis(f0=1.0),
                          grid=periodic_grid(), dt=DT, dsqr=2.0,

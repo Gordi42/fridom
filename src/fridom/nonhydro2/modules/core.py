@@ -26,6 +26,7 @@ from typing import TYPE_CHECKING
 
 import fridom as fr
 from fridom.framework.utils import jaxify
+from fridom.model.halo_demand import derive_extra_halo
 from fridom.model.modules.moving_geometry import mapping_params
 from fridom.nonhydro2.diagnostics import DIAGNOSTICS
 from fridom.nonhydro2.modules.immersed_pressure import (
@@ -38,7 +39,6 @@ from fridom.nonhydro2.modules.pressure import SpectralPressureSolver
 from fridom.nonhydro2.params import DSQR, ROSSBY
 from fridom.nonhydro2.state import State
 from fridom.spatial.bc import BC
-from fridom.spatial.decomposition.halo import HaloSpec
 from fridom.spatial.fields.vector_field import VectorField
 from fridom.spatial.operators.banded import validate_tridiagonal_method
 from fridom.spatial.operators.composed import (
@@ -57,6 +57,7 @@ if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Mapping
 
     from fridom.model.context import StepContext
+    from fridom.spatial.decomposition.halo import HaloSpec
     from fridom.spatial.grid import Grid
     from fridom.spatial.operators.base import Operator
     from fridom.spatial.operators.registry import DispatchKey
@@ -451,6 +452,10 @@ class DynamicalCore(fr.model.Module):
         self._multigrid_tridiagonal_method = validate_tridiagonal_method(
             multigrid_tridiagonal_method)
         self._family = family
+        # the projection's derived halo substitute (V-N2), computed
+        # once at bind from the C-grid ``div`` / ``grad`` rows the stage
+        # applies; None until bound (assembly reads it only post-bind).
+        self._extra_halo: HaloSpec | None = None
 
     # ================================================================
     #  Field declarations
@@ -486,6 +491,47 @@ class DynamicalCore(fr.model.Module):
                 lifecycle=fr.model.Lifecycle.DIAGNOSTIC,
                 long_name="Pressure", units="m^2/s^2"),
         )
+
+    # ================================================================
+    #  Bind (step 4): derive the projection's halo substitute
+    # ================================================================
+    def bind(self, table: object) -> None:
+        r"""Derive the pressure projection's ``extra_halo`` (V-N2).
+
+        Description
+        -----------
+        The projection is a whole-domain spectral / CG solve wrapping
+        raw arrays the halo trace cannot follow, so the module declares
+        its own ghost width. That width is not a literal: it is the
+        two-sided reach of the very C-grid ``div`` / ``grad`` rows the
+        stage applies (:meth:`_project`), composed across the global
+        transform **barrier** by per-side max (never sum). ``div`` and
+        ``grad`` are order-2 staggered differences (reach 1) on opposite
+        sides of the transform, so the derived width is ``max(1, 1) =
+        1`` — half the old hardcoded 2 (``pressure_solver_halo.md`` §3,
+        §5). A registry ``diff`` override moves the value automatically,
+        in both the declaration and the discrete eigenvalue (one source
+        of truth). Runs once at bind (the merged registry is visible);
+        the value is read at assembly steps 5 / 7.
+        """
+        grid = table.grid  # type: ignore[attr-defined]
+        registry = grid.dispatch
+        p = table["p"].space  # type: ignore[index]
+        vel = tuple(table[name].space  # type: ignore[index]
+                    for name in ("u", "v", "w"))
+        div_leg: dict[str, list[tuple[str, object]]] = {}
+        grad_leg: dict[str, list[tuple[str, object]]] = {}
+        for axis in self._coords:
+            centre = p.factor(axis)
+            # ``grad`` differences the pressure centre onto the face;
+            # ``div`` differences the face-normal velocity back — the
+            # two legs the transform separates.
+            grad_leg[axis] = [("diff", centre)]
+            face = next(vs.factor(axis) for vs in vel
+                        if vs.factor(axis) is not centre)
+            div_leg[axis] = [("diff", face)]
+        self._extra_halo = derive_extra_halo(
+            registry, self._coords, [div_leg, grad_leg])
 
     # ================================================================
     #  The FV C-grid diff profile (grid-aware dispatch hook, F3)
@@ -548,16 +594,20 @@ class DynamicalCore(fr.model.Module):
     #  The pressure-projection CONSTRAINT stage (S4)
     # ================================================================
     @property
-    def extra_halo(self) -> HaloSpec:
+    def extra_halo(self) -> HaloSpec | None:
         """Exempt the (global, spectral) projection from the halo trace.
 
         Description
         -----------
         The projection is a whole-domain spectral solve wrapping raw
         arrays (``Fourier``/``.data``); it declares its FD-stencil halo
-        here (V-N2) rather than being traced.
+        here (V-N2) rather than being traced. The value is **derived**
+        at :meth:`bind` from the ``div`` / ``grad`` rows the stage
+        applies (per-side max across the transform barrier — width 1 on
+        the default C-grid), not a literal. ``None`` before bind
+        (assembly reads it only post-bind).
         """
-        return HaloSpec(dict.fromkeys(self._coords, 2))
+        return self._extra_halo
 
     @property
     def stages(self) -> tuple[fr.model.Stage, ...]:
