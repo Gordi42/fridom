@@ -18,30 +18,42 @@ optimization; both respect the same true-shape ``data`` /
 
 The multigrid vertical-line smoother (``operators/multigrid.py``,
 decision MG-D7) needs a *diagonal-varying* tridiagonal per off-axis
-column, so it does not materialize the dense band: the
-:func:`tridiagonal_solve_along_axis` Thomas kernel solves one distinct
-symmetric tridiagonal per column in a single :func:`jax.lax.scan`
-(forward elimination, back substitution), batched over the off-axis
-columns. It is reverse-mode differentiable through the ``scan`` (no
-``custom_vjp``) and does **no pivoting**: the caller guarantees a
-non-singular column (the line smoother substitutes ``diag -> 1`` on
-dry/zero-diagonal cells). ``jax.lax.linalg.tridiagonal_solve`` is
-deliberately avoided — its autodiff / batching support is
-backend-uneven; the ``scan`` Thomas is the portable kernel.
+column, so it does not materialize the dense band:
+:func:`tridiagonal_solve_along_axis` solves one distinct tridiagonal
+per column, batched over the off-axis columns, through one of three
+interchangeable kernels chosen by its ``method`` argument. All three
+compute the same ``T^{-1}`` to machine precision (agreement ~1e-18, the
+multigrid kernel study) and are natively reverse-mode differentiable,
+no ``custom_vjp``:
+
+- ``"scan"`` — the reference batched Thomas algorithm: a forward-
+  elimination and a back-substitution :func:`jax.lax.scan`. Portable
+  and exact, but its ``2 * N`` sequential scan-loop launches make it
+  latency-bound on the GPU (~2.75 ms/solve, batch-independent).
+- ``"pcr"`` — pure-jax parallel cyclic reduction: ``ceil(log2 N)``
+  data-parallel passes, portable to any backend, ~7x the ``scan`` on
+  the GPU. The portable default off the GPU.
+- ``"cusparse"`` — the batched
+  :func:`jax.lax.linalg.tridiagonal_solve` (cuSPARSE
+  ``gtsv2StridedBatch``), one distinct system per column; the fastest
+  kernel, but it requires a CUDA GPU jax backend.
+
+``method="auto"`` resolves — host-side, never a traced branch — to
+``"cusparse"`` on a GPU backend and ``"pcr"`` elsewhere. No kernel
+pivots: the caller guarantees a non-singular column (the line smoother
+substitutes ``diag -> 1`` on dry/zero-diagonal cells). The older
+warning that ``jax.lax.linalg.tridiagonal_solve`` must be avoided for
+uneven autodiff support is refuted by the kernel study — it
+differentiates with respect to the rhs and the diagonal in jax 0.10.2.
 """
 # Wave 9B: lifted out of model/implicit.py (plan section 5, decision C)
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
+import jax
 import jax.numpy as jnp
 from jax import lax
 
 from fridom.framework.utils import dtype_real
-
-if TYPE_CHECKING:  # pragma: no cover
-    import jax
-
 
 # ================================================================
 #  Band assembly
@@ -207,75 +219,122 @@ def solve_along_axis(
 
 
 # ================================================================
-#  Per-column Thomas solve (distinct tridiagonal per off-axis column)
+#  Per-column tridiagonal solve (distinct tridiagonal per column)
 # ================================================================
-def tridiagonal_solve_along_axis(
-    lower: jax.Array,
-    diag: jax.Array,
-    upper: jax.Array,
-    data: jax.Array,
-    axis_index: int,
-) -> jax.Array:
-    r"""
-    Solve one symmetric tridiagonal per column along ``axis_index``.
+#: the interchangeable per-column tridiagonal kernels; ``"auto"``
+#: resolves against the jax backend (host-static, never traced)
+_TRIDIAGONAL_METHODS: tuple[str, ...] = (
+    "auto", "cusparse", "pcr", "scan")
+
+
+def validate_tridiagonal_method(method: str) -> str:
+    """
+    Return `method` if it names a known kernel, else raise.
 
     Description
     -----------
-    The batched Thomas algorithm: a distinct tridiagonal ``T`` (the
-    per-cell ``lower``/``diag``/``upper`` bands) is solved against
-    ``data`` along ``axis_index``, batched over every off-axis column.
-    Unlike :func:`solve_along_axis` no dense band is materialized —
-    the multigrid vertical-line smoother's ``T`` varies from column to
-    column (MG-D7). Implemented as one forward-elimination
-    :func:`jax.lax.scan` (the modified super-diagonal and right-hand
-    side) and one reverse back-substitution ``scan``, so the whole
-    solve is reverse-mode differentiable with no ``custom_vjp``.
-
-    The band arrays broadcast against ``data``: ``lower[i]`` is the
-    sub-diagonal coupling of cell ``i`` to ``i - 1`` and ``upper[i]``
-    the super-diagonal coupling to ``i + 1``, both along
-    ``axis_index``. The Neumann ends ``lower[0]`` and ``upper[N - 1]``
-    are unused (the recurrence seeds them with a zero carry), so the
-    caller may leave them at zero.
-
-    Precondition: **no pivoting** is performed, so every column's
-    tridiagonal must be non-singular (diagonally dominant is
-    sufficient). A dry / zero-diagonal column must be sanitized by the
-    caller — the vertical-line smoother substitutes ``diag -> 1`` and
-    ``rhs -> 0`` there through the double-``jnp.where`` guard, which
-    also keeps the reverse pass NaN-free.
+    The name-only validation of the :func:`tridiagonal_solve_along_axis`
+    ``method`` argument — no backend query, so a solver can validate the
+    knob eagerly at construction (a typo fails at assembly, not at first
+    trace) without prematurely rejecting ``"cusparse"`` on a host that
+    happens to build the model on the CPU. The backend resolution lives
+    in :func:`_resolve_tridiagonal_method`, called at solve time.
 
     Parameters
     ----------
-    lower : jax.Array
-        The sub-diagonal band (same shape as ``data``; ``lower[0]``
-        along ``axis_index`` unused).
-    diag : jax.Array
-        The main diagonal band (same shape as ``data``; non-zero on
-        every solved cell).
-    upper : jax.Array
-        The super-diagonal band (same shape as ``data``;
-        ``upper[N - 1]`` along ``axis_index`` unused).
-    data : jax.Array
-        The right-hand side; its ``axis_index`` axis has length ``N``.
-    axis_index : int
-        The storage-frame index of the solve axis.
+    method : str
+        The requested kernel name.
 
     Returns
     -------
-    jax.Array
-        The per-column solution ``x`` (same shape as ``data``).
+    str
+        The validated `method`.
+
+    Raises
+    ------
+    ValueError
+        If `method` is not one of the accepted kernel names.
     """
-    lo = jnp.moveaxis(lower, axis_index, 0)
-    di = jnp.moveaxis(diag, axis_index, 0)
-    up = jnp.moveaxis(upper, axis_index, 0)
-    rhs = jnp.moveaxis(data, axis_index, 0)
-    shape = rhs.shape
-    size = shape[0]
-    lo = jnp.broadcast_to(lo, shape).reshape(size, -1)
-    di = jnp.broadcast_to(di, shape).reshape(size, -1)
-    up = jnp.broadcast_to(up, shape).reshape(size, -1)
-    rhs = rhs.reshape(size, -1)
+    if method not in _TRIDIAGONAL_METHODS:
+        raise ValueError(
+            "tridiagonal method must be one of "
+            f"{_TRIDIAGONAL_METHODS}, got {method!r}")
+    return method
+
+
+def _resolve_tridiagonal_method(method: str) -> str:
+    """
+    Resolve `method` to a concrete kernel against the jax backend.
+
+    Description
+    -----------
+    Validates the name, then maps ``"auto"`` to ``"cusparse"`` on a GPU
+    backend and ``"pcr"`` elsewhere, and rejects an explicit
+    ``"cusparse"`` request when the default backend is not a CUDA GPU.
+    Host-side (the backend query is static), so the kernel choice is a
+    Python constant, never a traced branch.
+
+    Parameters
+    ----------
+    method : str
+        The requested kernel name (``"auto"`` / ``"cusparse"`` /
+        ``"pcr"`` / ``"scan"``).
+
+    Returns
+    -------
+    str
+        A concrete kernel name (``"cusparse"`` / ``"pcr"`` / ``"scan"``).
+
+    Raises
+    ------
+    ValueError
+        If `method` is unknown, or ``"cusparse"`` is requested without a
+        CUDA GPU jax backend.
+    """
+    validate_tridiagonal_method(method)
+    backend = jax.default_backend()
+    if method == "auto":
+        return "cusparse" if backend == "gpu" else "pcr"
+    if method == "cusparse" and backend != "gpu":
+        raise ValueError(
+            "the cusparse tridiagonal kernel requires a CUDA GPU jax "
+            f"backend, but the current backend is {backend!r}; use "
+            "method='pcr' (pure-jax, portable to any backend) or "
+            "method='auto' (cusparse on a GPU, pcr elsewhere)")
+    return method
+
+
+def _shift_down(arr: jax.Array, span: int, fill: float) -> jax.Array:
+    """Bring row ``i - span`` to row ``i`` (fill the top ``span`` rows)."""
+    size = arr.shape[0]
+    return jnp.pad(
+        arr, ((span, 0), (0, 0)), constant_values=fill)[:size]
+
+
+def _shift_up(arr: jax.Array, span: int, fill: float) -> jax.Array:
+    """Bring row ``i + span`` to row ``i`` (fill the last ``span`` rows)."""
+    return jnp.pad(
+        arr, ((0, span), (0, 0)), constant_values=fill)[span:]
+
+
+def _tridiagonal_scan(
+    lower: jax.Array,
+    diag: jax.Array,
+    upper: jax.Array,
+    rhs: jax.Array,
+) -> jax.Array:
+    """
+    Solve per column with the reference batched Thomas scan.
+
+    Description
+    -----------
+    The reference kernel on the ``(n, batch)`` layout:
+    one forward-elimination :func:`jax.lax.scan` (the modified
+    super-diagonal and right-hand side) and one reverse
+    back-substitution ``scan``. Kept verbatim as the reference kernel
+    (exact reproducibility of the prior scan-Thomas results); the ends
+    ``lower[0]`` / ``upper[-1]`` are no-ops against the zero carries.
+    """
     batch = rhs.shape[1]
     zero = jnp.zeros((batch,), dtype=rhs.dtype)
 
@@ -293,7 +352,7 @@ def tridiagonal_solve_along_axis(
         return (c_new, d_new), (c_new, d_new)
 
     _, (c_star, d_star) = lax.scan(
-        eliminate, (zero, zero), (lo, di, up, rhs))
+        eliminate, (zero, zero), (lower, diag, upper, rhs))
 
     def substitute(
         x_next: jax.Array, row: tuple[jax.Array, jax.Array],
@@ -304,5 +363,190 @@ def tridiagonal_solve_along_axis(
 
     _, solved = lax.scan(
         substitute, zero, (c_star, d_star), reverse=True)
+    return solved
+
+
+def _tridiagonal_pcr(
+    lower: jax.Array,
+    diag: jax.Array,
+    upper: jax.Array,
+    rhs: jax.Array,
+) -> jax.Array:
+    r"""
+    Parallel cyclic reduction on the ``(n, batch)`` layout.
+
+    Description
+    -----------
+    Log-depth (``ceil(log2 n)`` passes, host-unrolled at trace time)
+    cyclic reduction for arbitrary ``n`` — not only powers of two. Each
+    pass eliminates the ``i - span`` and ``i + span`` neighbours of
+    every row against the shifted equations; the out-of-range ends are
+    filled ``diag -> 1``, ``lower/upper/rhs -> 0`` so those eliminations
+    are exact no-ops and every division stays non-singular (no
+    ``jnp.where`` guard needed, so the reverse pass is NaN-free). The
+    ends ``lower[0]`` / ``upper[-1]`` are zeroed up front, which makes
+    the row-0 / row-``(n - 1)`` eliminations no-ops too. Pure jax, so it
+    is portable to any backend and partitions cleanly along the batch.
+    """
+    a = lower.at[0].set(0.0)
+    b = diag
+    c = upper.at[-1].set(0.0)
+    d = rhs
+    size = a.shape[0]
+    span = 1
+    while span < size:
+        a_m = _shift_down(a, span, 0.0)
+        b_m = _shift_down(b, span, 1.0)
+        c_m = _shift_down(c, span, 0.0)
+        d_m = _shift_down(d, span, 0.0)
+        a_p = _shift_up(a, span, 0.0)
+        b_p = _shift_up(b, span, 1.0)
+        c_p = _shift_up(c, span, 0.0)
+        d_p = _shift_up(d, span, 0.0)
+        alpha = -a / b_m
+        gamma = -c / b_p
+        a = alpha * a_m
+        c = gamma * c_p
+        b = b + alpha * c_m + gamma * a_p
+        d = d + alpha * d_m + gamma * d_p
+        span *= 2
+    return d / b
+
+
+def _tridiagonal_cusparse(
+    lower: jax.Array,
+    diag: jax.Array,
+    upper: jax.Array,
+    rhs: jax.Array,
+) -> jax.Array:
+    r"""
+    Batched cuSPARSE ``gtsv2StridedBatch`` on the ``(n, batch)`` layout.
+
+    Description
+    -----------
+    The batched :func:`jax.lax.linalg.tridiagonal_solve` — one distinct
+    system per column, the batch as the leading dim (**never** the
+    single-system form with the batch folded into the RHS width, a
+    pathological ``O(nrhs)`` trap). The bands transpose to ``(batch,
+    n)`` and the rhs to ``(batch, n, 1)``; the API requires ``dl[.., 0]
+    == du[.., -1] == 0``, so both are zeroed explicitly (our contract
+    lets the caller leave those ends arbitrary). Requires a CUDA GPU
+    backend; caught host-side by :func:`_resolve_tridiagonal_method`.
+    """
+    dl = lower.T.at[:, 0].set(0.0)
+    dd = diag.T
+    du = upper.T.at[:, -1].set(0.0)
+    b = rhs.T[..., None]
+    solved = lax.linalg.tridiagonal_solve(dl, dd, du, b)
+    return solved[..., 0].T
+
+
+def tridiagonal_solve_along_axis(
+    lower: jax.Array,
+    diag: jax.Array,
+    upper: jax.Array,
+    data: jax.Array,
+    axis_index: int,
+    method: str = "auto",
+) -> jax.Array:
+    r"""
+    Solve one tridiagonal per column along ``axis_index``.
+
+    Description
+    -----------
+    A distinct tridiagonal ``T`` (the per-cell ``lower``/``diag``/
+    ``upper`` bands) is solved against ``data`` along ``axis_index``,
+    batched over every off-axis column. Unlike :func:`solve_along_axis`
+    no dense band is materialized — the multigrid vertical-line
+    smoother's ``T`` varies from column to column (MG-D7). Three
+    interchangeable kernels compute the same ``T^{-1}`` to machine
+    precision (agreement ~1e-18, the multigrid kernel study) and are all
+    natively reverse-mode differentiable (no ``custom_vjp``), selected
+    by `method`:
+
+    - ``"scan"`` — the reference batched Thomas algorithm, one
+      forward-elimination and one back-substitution
+      :func:`jax.lax.scan`. Portable and exact, but its ``2 * N``
+      sequential scan launches make it latency-bound on the GPU (kept
+      verbatim as the reference kernel).
+    - ``"pcr"`` — pure-jax parallel cyclic reduction: ``ceil(log2 N)``
+      data-parallel passes, portable to any backend (the portable
+      default off the GPU).
+    - ``"cusparse"`` — the batched
+      :func:`jax.lax.linalg.tridiagonal_solve` (cuSPARSE
+      ``gtsv2StridedBatch``), one distinct system per column; the
+      fastest kernel, but it requires a CUDA GPU jax backend.
+
+    ``method="auto"`` (the default) resolves — host-side, never a traced
+    branch — to ``"cusparse"`` on a GPU backend and ``"pcr"`` elsewhere.
+
+    The band arrays broadcast against ``data``: ``lower[i]`` is the
+    sub-diagonal coupling of cell ``i`` to ``i - 1`` and ``upper[i]``
+    the super-diagonal coupling to ``i + 1``, both along ``axis_index``.
+    The ends ``lower[0]`` and ``upper[N - 1]`` are unused — the ``scan``
+    seeds them against a zero carry, ``pcr`` / ``cusparse`` zero them
+    explicitly — so the caller may leave them at any value.
+
+    Precondition: **no pivoting** is performed, so every column's
+    tridiagonal must be non-singular (diagonally dominant is
+    sufficient; the reduced systems of a DD system stay DD). A dry /
+    zero-diagonal column must be sanitized by the caller — the
+    vertical-line smoother substitutes ``diag -> 1`` and ``rhs -> 0``
+    there through the double-``jnp.where`` guard, which also keeps the
+    reverse pass NaN-free.
+
+    Multi-device caveat: on a sharded (multi-device) run the
+    ``"cusparse"`` path lowers to a custom call whose GSPMD partitioning
+    is unvalidated, while the pure-jax ``"pcr"`` / ``"scan"`` kernels
+    partition cleanly along the batch axes — a multi-device run that
+    sees unexpected all-gathers should prefer ``method="pcr"``.
+
+    Parameters
+    ----------
+    lower : jax.Array
+        The sub-diagonal band (broadcasts against ``data``; ``lower[0]``
+        along ``axis_index`` unused).
+    diag : jax.Array
+        The main diagonal band (broadcasts against ``data``; non-zero on
+        every solved cell).
+    upper : jax.Array
+        The super-diagonal band (broadcasts against ``data``;
+        ``upper[N - 1]`` along ``axis_index`` unused).
+    data : jax.Array
+        The right-hand side; its ``axis_index`` axis has length ``N``.
+    axis_index : int
+        The storage-frame index of the solve axis.
+    method : str, optional
+        The kernel: ``"auto"``, ``"cusparse"``, ``"pcr"`` or ``"scan"``
+        (default: ``"auto"``).
+
+    Returns
+    -------
+    jax.Array
+        The per-column solution ``x`` (same shape as ``data``).
+
+    Raises
+    ------
+    ValueError
+        If `method` is not a known kernel name, or ``method="cusparse"``
+        is requested without a CUDA GPU jax backend.
+    """
+    resolved = _resolve_tridiagonal_method(method)
+    lo = jnp.moveaxis(lower, axis_index, 0)
+    di = jnp.moveaxis(diag, axis_index, 0)
+    up = jnp.moveaxis(upper, axis_index, 0)
+    rhs = jnp.moveaxis(data, axis_index, 0)
+    shape = rhs.shape
+    size = shape[0]
+    lo = jnp.broadcast_to(lo, shape).reshape(size, -1)
+    di = jnp.broadcast_to(di, shape).reshape(size, -1)
+    up = jnp.broadcast_to(up, shape).reshape(size, -1)
+    rhs = rhs.reshape(size, -1)
+    if resolved == "scan":
+        solved = _tridiagonal_scan(lo, di, up, rhs)
+    elif resolved == "pcr":
+        solved = _tridiagonal_pcr(lo, di, up, rhs)
+    else:  # "cusparse"
+        solved = _tridiagonal_cusparse(lo, di, up, rhs)
     solved = solved.reshape(shape)
     return jnp.moveaxis(solved, 0, axis_index)
