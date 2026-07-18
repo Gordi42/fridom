@@ -683,26 +683,30 @@ def _reject_sharded_projection(em: ChannelEigenmodesBase) -> None:
     Description
     -----------
     The multi-device channel projection is served by the fused
-    ``jax.shard_map`` lowering
+    ``jax.shard_map`` lowerings
     (:func:`~fridom.spatial.operators.distributed_contract.resolve_distributed_contraction`)
-    whenever at least two periodic axes exist on a 1-D device mesh
-    (the 3-D channel): the engine designates a **local** periodic axis
-    as the half (``rfft``) axis at build time
-    (``eigen_channel._designate_half_axis``), so the sharded axis is
-    always the kernel's transpose partner. This taught skip covers the
-    genuinely-unsupported remainder that the lowering declines while a
-    periodic axis is still sharded: a single periodic axis (the 2-D
-    channel — no transpose partner) or a non-1-D device mesh. Left to
-    the plain
-    (GSPMD) transform, those hit the upstream XLA:GPU distributed-FFT
-    lowering fault (``complex64`` twiddle constants multiplied against
-    ``complex128`` cuFFT data — the HLO verifier rejects the mixed
-    multiply, jax/jaxlib 0.10.x, independent of the FFT normalization
-    and not covered by ``multi_output_fusion``), so raise a taught
-    error here instead of dying deep in the verifier. The
-    single-device path is unaffected — including a ``device_ids=(0,)``
-    grid on a multi-device host, whose layout leaves every axis local.
-    See ``design/research/multidevice_test_faults.md``.
+    on a 1-D device mesh: the 3-D channel (two periodic axes) through
+    :class:`~fridom.spatial.operators.distributed_contract.ContractPlan`
+    (the engine designates a **local** periodic axis as the half
+    (``rfft``) axis, so the sharded axis is the transpose partner), and
+    the 2-D channel (one periodic axis) through the transpose pipeline
+    of :class:`~fridom.spatial.operators.distributed_contract.Channel2DPlan`
+    (it parks the shardedness on the bounded axis so the local ``rfft``
+    can run). This taught skip covers the genuinely-unsupported
+    remainder those lowerings decline while a periodic axis is still
+    sharded: a **non-1-D device mesh** (a pencil decomposition -- one
+    transpose can never localize both FFT axes; unreachable today, the
+    decomposition builder rejects it) or a hypothetical >3-D channel.
+    Left to the plain (GSPMD) transform, those hit the upstream XLA:GPU
+    distributed-FFT lowering fault (``complex64`` twiddle constants
+    multiplied against ``complex128`` cuFFT data -- the HLO verifier
+    rejects the mixed multiply, jax/jaxlib 0.10.x, independent of the
+    FFT normalization and not covered by ``multi_output_fusion``), so
+    raise a taught error here instead of dying deep in the verifier.
+    The single-device path is unaffected -- including a
+    ``device_ids=(0,)`` grid on a multi-device host, whose layout
+    leaves every axis local. See
+    ``design/research/multidevice_test_faults.md``.
 
     Parameters
     ----------
@@ -712,8 +716,8 @@ def _reject_sharded_projection(em: ChannelEigenmodesBase) -> None:
     Raises
     ------
     NotImplementedError
-        When a periodic axis is sharded and the fused lowering
-        declines (the unsupported remainder above).
+        When a periodic axis is sharded and the fused lowerings
+        decline (the unsupported remainder above).
     """
     layout = em.grid.decomposition.default_layout
     sharded = tuple(
@@ -723,18 +727,16 @@ def _reject_sharded_projection(em: ChannelEigenmodesBase) -> None:
         raise NotImplementedError(
             "the channel eigenmode projection cannot run on this grid "
             f"that shards a periodic axis {sharded!r} across devices: "
-            "the fused distributed contraction serves the 3-D channel "
-            "(at least two periodic axes on a 1-D device mesh; the "
-            "engine designates a local half axis at build time), but "
-            "this layout is the unsupported remainder (a single "
-            "periodic axis — the 2-D channel — or a non-1-D mesh), and "
-            "the "
-            "plain GSPMD transform would hit an upstream XLA:GPU "
-            "distributed-FFT lowering fault (complex64 twiddle "
-            "constants multiplied against complex128 data — the HLO "
-            "verifier rejects the mixed-precision multiply, jax/jaxlib "
-            "0.10.x). Build the channel model on a single device "
-            "(Grid(..., device_ids=(0,))) to use the eigenbasis "
+            "the fused distributed contractions serve the 3-D channel "
+            "(two periodic axes) and the 2-D channel (one periodic "
+            "axis) on a 1-D device mesh, but this layout is the "
+            "unsupported remainder (a non-1-D device mesh, or a >3-D "
+            "channel), and the plain GSPMD transform would hit an "
+            "upstream XLA:GPU distributed-FFT lowering fault (complex64 "
+            "twiddle constants multiplied against complex128 data -- "
+            "the HLO verifier rejects the mixed-precision multiply, "
+            "jax/jaxlib 0.10.x). Build the channel model on a single "
+            "device (Grid(..., device_ids=(0,))) to use the eigenbasis "
             "projections; see "
             "design/research/multidevice_test_faults.md.")
 
@@ -769,11 +771,12 @@ def _contract_planes(
     which keeps every FFT axis device-local when its transform runs
     and realizes ``Q diag(w) Q^H M`` per shard — bit-for-bit the
     single-device result, ``w`` the explicit complex weight diagonal
-    (``scale`` and ``w`` encode the same mask / weight). The
+    (``scale`` and ``w`` encode the same mask / weight). Both the 3-D
+    channel (``ContractPlan``) and the 2-D channel (``Channel2DPlan``,
+    the transpose pipeline) are served on a 1-D mesh. The
     single-device and bounded-axis-sharded paths keep the
     ``scale``-driven body below unchanged. The genuinely-unsupported
-    remainder (a single periodic axis — the 2-D channel — or a
-    non-1-D mesh) is rejected upfront
+    remainder (a non-1-D mesh, or a >3-D channel) is rejected upfront
     (:func:`_reject_sharded_projection`).
 
     The backward half-spectrum synthesis returns the real part: for
@@ -1213,16 +1216,18 @@ def _backward_synthesis(
 
     On a grid whose default layout shards a periodic (Fourier) axis
     the plain (GSPMD) transform hits the upstream XLA:GPU
-    distributed-FFT lowering fault, so the 3-D channel routes the
-    inverse through the fused ``jax.shard_map`` synthesis entry
-    (:meth:`~fridom.spatial.operators.distributed_contract.ContractPlan.synthesize`),
-    which keeps every FFT axis device-local and returns the fields on
-    the grid's own layout (no host gather). The single-device path —
-    and the genuinely-unsupported remainder the fused lowering
-    declines (the 2-D channel's single periodic axis, a
-    bounded-axis-sharded or non-1-D layout) — keep the plain per-axis
-    backward transform below, bit-for-bit unchanged; on a sharded
-    remainder that path raises the transform's Tier-1 taught error.
+    distributed-FFT lowering fault, so the sharded channel routes the
+    inverse through the fused ``jax.shard_map`` synthesis entries
+    (:meth:`~fridom.spatial.operators.distributed_contract.ContractPlan.synthesize`
+    for the 3-D channel,
+    :meth:`~fridom.spatial.operators.distributed_contract.Channel2DPlan.synthesize`
+    for the 2-D channel), which keep every FFT axis device-local and
+    return the fields on the grid's own layout (no host gather). The
+    single-device path — and the genuinely-unsupported remainder the
+    fused lowerings decline (a bounded-axis-sharded or non-1-D layout)
+    — keep the plain per-axis backward transform below, bit-for-bit
+    unchanged; on a sharded remainder that path raises the transform's
+    Tier-1 taught error.
     """
     plan = resolve_distributed_contraction(
         em.grid, bounded_axis=em.bounded_axis,

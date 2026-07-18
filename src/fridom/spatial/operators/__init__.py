@@ -27,6 +27,7 @@ if TYPE_CHECKING:  # pragma: no cover
         dealias,
         distributed_contract,
         distributed_solve,
+        distributed_transform,
         finite_difference,
         flux_diff,
         fourier,
@@ -96,6 +97,7 @@ if TYPE_CHECKING:  # pragma: no cover
     from .cumulative import CumulativeIntegral
     from .distributed_contract import resolve_distributed_contraction
     from .distributed_solve import resolve_distributed_solve
+    from .distributed_transform import resolve_distributed_transform
     from .finite_difference import FiniteDifference
     from .flux_diff import (
         DualFluxDifference,
@@ -160,6 +162,7 @@ all_modules_by_origin = {
         "realized",
         "distributed_contract",
         "distributed_solve",
+        "distributed_transform",
         "spectral_solve",
         "finite_difference",
         "interp",
@@ -232,6 +235,7 @@ all_imports_by_origin = {
     f"{base}.select": ["Where"],
     f"{base}.distributed_contract": ["resolve_distributed_contraction"],
     f"{base}.distributed_solve": ["resolve_distributed_solve"],
+    f"{base}.distributed_transform": ["resolve_distributed_transform"],
     f"{base}.spectral_solve": ["SpectralSolve"],
     f"{base}.realized": [
         "RealizedMap",

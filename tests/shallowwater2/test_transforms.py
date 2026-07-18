@@ -36,11 +36,12 @@ COMPONENTS = ("u", "v", "p")
 
 def _pinned_grid(*, periodic_y=True):
     # device_ids=(0,) twin of the conftest make_grid: the analytic
-    # projections synthesize through the naive (GSPMD) transform, and the
-    # 2-D-channel fused contraction declines a single periodic axis, so
-    # both are a Tier-1 taught error on a sharded axis (see transform.py
-    # / _eigenbasis._reject_sharded_projection). Pinning to one device
-    # tests the math at any device count (single-device suite unchanged).
+    # projections synthesize through the naive (GSPMD) transform, a
+    # Tier-1 taught error on a sharded transform axis (see transform.py).
+    # (The numeric 2-D-channel eigenbasis projection is served on a
+    # sharded axis by Channel2DPlan; the analytic path is not.) Pinning
+    # to one device tests the math at any device count (single-device
+    # suite unchanged).
     mx = fr.spatial.meshes.IntervalMesh(N, (0.0, 1.0),
                                      periodic=True, name="x")
     my = fr.spatial.meshes.IntervalMesh(N, (0.0, 1.0),
@@ -425,28 +426,42 @@ def test_projection_rest_zero_completes_a_passive_tracer():
 # ================================================================
 #  The sharded multi-device application (forced-devices gate)
 # ================================================================
-@pytest.mark.multi_device
-def test_channel_projection_on_a_sharded_grid_is_a_taught_error(
-        forced_devices):
-    # known test debt: a 2-D channel has a single periodic axis, so the
-    # fused distributed contraction declines it (it serves the 3-D
-    # channel; see test_eigenbasis_distributed.py) and the projection
-    # falls to the naive transform -> the taught error. Device-count
-    # invariance is not available for the 2-D channel; the projection
-    # math is tested at any device count via the device_ids=(0,) channel.
-    if forced_devices is not None:
-        assert jax.device_count() == forced_devices
+def _sharded_channel_model(device_ids=None):
+    """Return a walled-y sw 2-D channel model (x periodic; y bounded)."""
     mx = fr.spatial.meshes.IntervalMesh(N, (0.0, 1.0),
                                      periodic=True, name="x")
     my = fr.spatial.meshes.IntervalMesh(N, (0.0, 1.0),
                                      periodic=False, name="y")
-    model = make_model(fr.spatial.Grid((mx, my)), advection=False)
+    return make_model(fr.spatial.Grid((mx, my), device_ids=device_ids),
+                      advection=False)
+
+
+@pytest.mark.multi_device
+def test_channel_projection_on_a_sharded_grid_matches_one_device(
+        forced_devices):
+    # the 2-D channel (single periodic axis) is now served by the
+    # transpose pipeline (Channel2DPlan): the sharded projection matches
+    # the replicated one-device reference and lands real
+    if forced_devices is not None:
+        assert jax.device_count() == forced_devices
+    many = _sharded_channel_model()
+    one = _sharded_channel_model(device_ids=(0,))
+    assert many.grid.decomposition.default_layout.device_axes == (
+        ("x", "devices"),)
     rng = np.random.default_rng(12)
-    model.set_fields(u=rng.standard_normal((N, N)),
-                     v=rng.standard_normal((N, N - 1)),
-                     p=rng.standard_normal((N, N)))
-    z = sw.State({c: model.state[c] for c in COMPONENTS})
-    proj = sw.transforms.VorticalProjection(sw.eigenbasis(model))
-    with pytest.raises(NotImplementedError,
-                       match="cannot run on this grid"):
-        proj(z)
+    fields = {"u": rng.standard_normal((N, N)),
+              "v": rng.standard_normal((N, N - 1)),
+              "p": rng.standard_normal((N, N))}
+    many.set_fields(**fields)
+    one.set_fields(**fields)
+    z_many = sw.State({c: many.state[c] for c in COMPONENTS})
+    z_one = sw.State({c: one.state[c] for c in COMPONENTS})
+    assert z_many["u"]._data.sharding.spec[0] == "devices"
+    pm = sw.transforms.VorticalProjection(sw.eigenbasis(many))(z_many)
+    po = sw.transforms.VorticalProjection(sw.eigenbasis(one))(z_one)
+    for c in COMPONENTS:
+        assert not np.iscomplexobj(np.asarray(pm[c].data))
+    absmax = max(float(np.abs(np.asarray(pm[c].data)
+                              - np.asarray(po[c].data)).max())
+                 for c in COMPONENTS)
+    assert absmax <= 1e-11

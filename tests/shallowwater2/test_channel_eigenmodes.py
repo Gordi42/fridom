@@ -81,12 +81,11 @@ def make_walled_model(*, csqr=CSQR, coriolis=None):
                                      name="x")
     my = fr.spatial.meshes.IntervalMesh(N, (0.0, LY), periodic=False,
                                      name="y")
-    # device_ids=(0,) keeps every axis local: the channel eigenmode
-    # synthesis / projection goes through the naive (GSPMD) transform
-    # (the 2-D-channel fused contraction declines a single periodic
-    # axis), a Tier-1 taught error on a sharded axis (see transform.py /
-    # _eigenbasis._reject_sharded_projection). The math is tested at any
-    # device count; the sharded taught error is asserted below.
+    # device_ids=(0,) keeps every axis local -- the oracle battery
+    # compares against single-device closed forms. The sharded 2-D
+    # channel is served by the transpose pipeline (Channel2DPlan) and
+    # checked for device-count invariance in
+    # test_varying_projection_on_a_sharded_grid_matches_one_device.
     return sw.Model(
         grid=fr.spatial.Grid((mx, my), device_ids=(0,)), csqr=csqr,
         rossby_number=0.2,
@@ -950,12 +949,11 @@ def make_varying_model(csqr=csqr_profile, device_ids=(0,)):
     installed is named explicitly here — the labeler's physics rests
     on it.
 
-    ``device_ids=(0,)`` by default keeps every axis local: the channel
-    synthesis / projection goes through the naive transform (a Tier-1
-    taught error on a sharded axis; see transform.py). The sharded taught
-    error is asserted by
-    ``test_varying_projection_on_a_sharded_grid_is_a_taught_error``,
-    which passes ``device_ids=None``.
+    ``device_ids=(0,)`` by default keeps every axis local. Under a
+    sharded (``device_ids=None``) layout the channel projection /
+    synthesis is served by the transpose pipeline (Channel2DPlan);
+    ``test_varying_projection_on_a_sharded_grid_matches_one_device``
+    checks the sharded result against this one-device reference.
     """
     mx = fr.spatial.meshes.IntervalMesh(N, (0.0, LX), periodic=True,
                                      name="x")
@@ -1114,24 +1112,35 @@ def test_varying_periodic_grid_is_a_taught_error():
 
 
 @pytest.mark.multi_device
-def test_varying_projection_on_a_sharded_grid_is_a_taught_error(
+def test_varying_projection_on_a_sharded_grid_matches_one_device(
         forced_devices):
-    # known test debt: a shallow-water channel has a single periodic
-    # axis, so the fused distributed contraction declines it (it serves
-    # the 3-D channel; see test_eigenbasis_distributed.py) and the
-    # varying-csqr projector falls to the naive transform -> the taught
-    # error. Device-count invariance is not available for the 2-D
-    # channel; the projection math is tested at any device count via the
-    # device_ids=(0,) default.
+    # a varying-csqr(y) 2-D channel (single periodic axis) is served on a
+    # sharded axis by the transpose pipeline (Channel2DPlan); the sharded
+    # frequency-threshold projection matches the replicated one-device
+    # reference (the varying metric rides em.metric, sampled per
+    # component)
     if forced_devices is not None:
         assert jax.device_count() == forced_devices
     rng = np.random.default_rng(41)
-    model = make_varying_model(device_ids=None)
-    model.set_fields(u=rng.standard_normal((N, N)),
-                     v=rng.standard_normal((N, N - 1)),
-                     p=rng.standard_normal((N, N)))
-    z = sw.State({c: model.state[c] for c in ("u", "v", "p")})
-    em = sw.eigenbasis(model)
-    with pytest.raises(NotImplementedError,
-                       match="cannot run on this grid"):
-        em.projector(lambda om, _labels: jnp.abs(om) < 1.0)(z)
+    fields = {"u": rng.standard_normal((N, N)),
+              "v": rng.standard_normal((N, N - 1)),
+              "p": rng.standard_normal((N, N))}
+    many = make_varying_model(device_ids=None)
+    one = make_varying_model(device_ids=(0,))
+    assert many.grid.decomposition.default_layout.device_axes == (
+        ("x", "devices"),)
+    many.set_fields(**fields)
+    one.set_fields(**fields)
+    z_many = sw.State({c: many.state[c] for c in ("u", "v", "p")})
+    z_one = sw.State({c: one.state[c] for c in ("u", "v", "p")})
+    assert z_many["u"]._data.sharding.spec[0] == "devices"
+
+    def slow(om, _labels):
+        return jnp.abs(om) < 1.0
+
+    pm = sw.eigenbasis(many).projector(slow)(z_many)
+    po = sw.eigenbasis(one).projector(slow)(z_one)
+    absmax = max(float(np.abs(np.asarray(pm[c].data)
+                              - np.asarray(po[c].data)).max())
+                 for c in ("u", "v", "p"))
+    assert absmax <= 1e-11
