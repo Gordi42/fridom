@@ -39,9 +39,14 @@ F0, N2, DSQR = 1.5, 3.0, 2.0
 
 
 def make_grid(n=8, length=2 * np.pi):
+    # device_ids=(0,) keeps every axis local: the analytic WaveVortex
+    # projections synthesize through the naive (GSPMD) transform, a
+    # Tier-1 taught error on a sharded transform axis (see transform.py).
+    # The sharded fused-projection path is covered separately by
+    # test_channel_projection_runs_on_a_sharded_periodic_axis.
     return Grid(tuple(
         IntervalMesh(n, (0.0, length), periodic=True, name=name)
-        for name in ("x", "y", "z")))
+        for name in ("x", "y", "z")), device_ids=(0,))
 
 
 def _model():
@@ -251,7 +256,7 @@ def test_projection_rest_zero_completes_a_passive_tracer():
 # ================================================================
 #  The channel (engine) path: labeled family projections
 # ================================================================
-def make_channel_model(*, walled="y", beta=None, device_ids=None,
+def make_channel_model(*, walled="y", beta=None, device_ids=(0,),
                        n=N, family=None):
     """Build the linear nonhydro channel with one bounded axis.
 
@@ -260,6 +265,13 @@ def make_channel_model(*, walled="y", beta=None, device_ids=None,
     point-value C-grid. Since stage F5 the analytic walled-vertical
     eigenmode kit runs on both families (see
     ``test_eigenbasis_topology_gates``).
+
+    ``device_ids=(0,)`` by default keeps every axis local: the eigenbasis
+    build and the analytic channel synthesis go through the naive (GSPMD)
+    transform (a Tier-1 taught error on a sharded axis; see transform.py).
+    The sharded fused-contraction projection path is exercised explicitly
+    by ``test_channel_projection_runs_on_a_sharded_periodic_axis``, which
+    passes ``device_ids=None``.
     """
     meshes = tuple(
         IntervalMesh(n, (0.0, 1.0 if name == walled else 2 * np.pi),

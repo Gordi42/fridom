@@ -81,8 +81,15 @@ def make_walled_model(*, csqr=CSQR, coriolis=None):
                                      name="x")
     my = fr.spatial.meshes.IntervalMesh(N, (0.0, LY), periodic=False,
                                      name="y")
+    # device_ids=(0,) keeps every axis local: the channel eigenmode
+    # synthesis / projection goes through the naive (GSPMD) transform
+    # (the 2-D-channel fused contraction declines a single periodic
+    # axis), a Tier-1 taught error on a sharded axis (see transform.py /
+    # _eigenbasis._reject_sharded_projection). The math is tested at any
+    # device count; the sharded taught error is asserted below.
     return sw.Model(
-        grid=fr.spatial.Grid((mx, my)), csqr=csqr, rossby_number=0.2,
+        grid=fr.spatial.Grid((mx, my), device_ids=(0,)), csqr=csqr,
+        rossby_number=0.2,
         coriolis=coriolis, advection=False,
         time_stepper=fr.model.time_steppers.AdamBashforth(5e-3, order=3))
 
@@ -935,13 +942,20 @@ def csqr_profile(y):
     return 1.0 + 0.5 * jnp.tanh(4.0 * (y - 0.5))
 
 
-def make_varying_model(csqr=csqr_profile, device_ids=None):
+def make_varying_model(csqr=csqr_profile, device_ids=(0,)):
     """Build a varying-depth walled channel (f-plane rotation).
 
     Rotation is opt-in (coriolis=None is no rotation at all), so the
     f0 = 1 thickness-weighted f-plane the old implicit preset default
     installed is named explicitly here — the labeler's physics rests
     on it.
+
+    ``device_ids=(0,)`` by default keeps every axis local: the channel
+    synthesis / projection goes through the naive transform (a Tier-1
+    taught error on a sharded axis; see transform.py). The sharded taught
+    error is asserted by
+    ``test_varying_projection_on_a_sharded_grid_is_a_taught_error``,
+    which passes ``device_ids=None``.
     """
     mx = fr.spatial.meshes.IntervalMesh(N, (0.0, LX), periodic=True,
                                      name="x")
@@ -1100,25 +1114,24 @@ def test_varying_periodic_grid_is_a_taught_error():
 
 
 @pytest.mark.multi_device
-def test_varying_projection_is_device_count_invariant(forced_devices):
-    # the sharded gate: the varying-csqr projector application (the
-    # profile-weighted metric contraction included) matches the
-    # explicit one-device grid
+def test_varying_projection_on_a_sharded_grid_is_a_taught_error(
+        forced_devices):
+    # known test debt: a shallow-water channel has a single periodic
+    # axis, so the fused distributed contraction declines it (it serves
+    # the 3-D channel; see test_eigenbasis_distributed.py) and the
+    # varying-csqr projector falls to the naive transform -> the taught
+    # error. Device-count invariance is not available for the 2-D
+    # channel; the projection math is tested at any device count via the
+    # device_ids=(0,) default.
     if forced_devices is not None:
         assert jax.device_count() == forced_devices
     rng = np.random.default_rng(41)
-    fields = {"u": rng.standard_normal((N, N)),
-              "v": rng.standard_normal((N, N - 1)),
-              "p": rng.standard_normal((N, N))}
-    results = {}
-    for tag, device_ids in (("many", None), ("one", (0,))):
-        model = make_varying_model(device_ids=device_ids)
-        model.set_fields(**fields)
-        z = sw.State({c: model.state[c] for c in ("u", "v", "p")})
-        em = sw.eigenbasis(model)
-        results[tag] = em.projector(
-            lambda om, _labels: jnp.abs(om) < 1.0)(z)
-    assert max(
-        float(np.abs(np.asarray(results["many"][c].data)
-                     - np.asarray(results["one"][c].data)).max())
-        for c in ("u", "v", "p")) < 1e-11
+    model = make_varying_model(device_ids=None)
+    model.set_fields(u=rng.standard_normal((N, N)),
+                     v=rng.standard_normal((N, N - 1)),
+                     p=rng.standard_normal((N, N)))
+    z = sw.State({c: model.state[c] for c in ("u", "v", "p")})
+    em = sw.eigenbasis(model)
+    with pytest.raises(NotImplementedError,
+                       match="cannot run on this grid"):
+        em.projector(lambda om, _labels: jnp.abs(om) < 1.0)(z)
