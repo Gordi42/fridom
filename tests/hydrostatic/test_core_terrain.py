@@ -384,14 +384,17 @@ def test_terrain_model_assembles_and_runs():
 def test_terrain_core_derives_the_stencil_halo():
     # the terrain DIAGNOSE stages and slope-corrected pressure gradient
     # multiply metric fields the halo trace cannot follow, so the core
-    # declares its own width -- DERIVED (not a literal 2) from the
-    # order-2 rows the stages apply: 1 on every coordinate. The vertical
-    # is 1 because the slope gradient reads a column neighbour (the
-    # face->centre re-alignment interp), which the shrinking bounded
-    # centre->face diff alone would miss.
+    # declares its own width -- DERIVED (not a literal) from the order-2
+    # rows the stages apply: 1 on each horizontal coordinate. The
+    # vertical is 2: the slope gradient composes the column derivative
+    # (centre->face diff) with the face->centre re-alignment interp, and
+    # each staggered row publishes its per-shard footprint 1 (the fix in
+    # b57e3e78: a bounded stencil's exterior reach cancels to 0 at the
+    # wall, but a sharded interior slot reads a neighbour), so the pair
+    # sums to 2.
     model = _model(_terrain_grid(8))
     core = model.module(hy.HydrostaticCore)
-    assert dict(core.extra_halo.widths) == {"x": 1, "y": 1, "z": 1}
+    assert dict(core.extra_halo.widths) == {"x": 1, "y": 1, "z": 2}
 
 
 # ================================================================
