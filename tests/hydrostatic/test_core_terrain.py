@@ -25,7 +25,6 @@ from fridom.model.model import _chunk_body
 from fridom.spatial.coordinate_mapping import CoordinateMapping
 from fridom.spatial.immersed_domain import ImmersedDomain
 from fridom.spatial.operators.cumulative import CumulativeIntegral
-from fridom.spatial.operators.integrate import Integral
 from fridom.spatial.spaces.constant import ConstantSpace
 
 IM = fr.spatial.meshes.IntervalMesh
@@ -240,55 +239,126 @@ def test_flat_pressure_gradient_is_the_plain_difference():
                           np.asarray(expect_u.data))
 
 
-# ================================================================
-#  H4 (baroclinic leg): the KE<->PE conversion conserves to roundoff
-# ================================================================
-def test_baroclinic_energy_conversion_is_conserved_to_roundoff():
-    # <X, M dX/dt> of the pressure-gradient + stratification pair
-    # (ps = 0, no rotation) under the model's own (plain) energy metric
-    # vanishes to machine precision on a RESOLVED (smooth) state: the
-    # slope-corrected pressure gradient (coefficient on the column-face
-    # space) is the EXACT discrete adjoint of the flux-form continuity
-    # that diagnoses w, so the surface-energy cancellation survives the
-    # J-weighted vertical exactly. (Unlike the flat model, the identity
-    # is exact only in the resolved regime -- grid-scale noise breaks
-    # the interpolation-transpose pairing; smooth is the physical
-    # analog of the flat random-field test.)
-    grid = _terrain_grid(16)
+def test_flat_restoring_is_the_plain_minus_n2_w():
+    # on a flat grid the stratification's terrain branch is off
+    # (column is None): db/dt is the plain -N^2 w.to(b), byte-for-byte,
+    # with no slope-advection term.
+    grid = _flat_grid(8)
     model = _model(grid)
-    u = _smooth(grid, model.state["u"].function_space,
-                lambda **c: jnp.sin(2 * jnp.pi * c["x"]) * jnp.cos(3 * c["z"])
-                + 0.5 * jnp.sin(4 * jnp.pi * c["y"]) * (c["z"] + 0.5))
-    v = _smooth(grid, model.state["v"].function_space,
-                lambda **c: jnp.cos(2 * jnp.pi * c["y"]) * jnp.sin(2 * c["z"])
-                + 0.3 * jnp.cos(2 * jnp.pi * c["x"]))
-    b = _smooth(grid, model.state["b"].function_space,
-                lambda **c: jnp.cos(2 * jnp.pi * c["x"]) * jnp.cos(c["z"])
-                + 0.4 * jnp.sin(2 * jnp.pi * c["y"]) * jnp.cos(2 * c["z"]))
-    model.set_fields(u=u.data, v=v.data, b=b.data,
-                     ps=np.zeros(model.state["ps"].shape))
+    strat = model.module(hy.ConstantStratification)
+    assert strat._column is None
+    assert strat.extra_halo is None
+    rng = np.random.default_rng(5)
+    model.set_fields(
+        u=rng.standard_normal(model.state["u"].shape),
+        v=rng.standard_normal(model.state["v"].shape),
+        b=rng.standard_normal(model.state["b"].shape),
+        ps=np.zeros(model.state["ps"].shape))
     st = model.state
     dX = model.tendency(st)
+    core = model.module(hy.HydrostaticCore)
+    w = core._diagnose_w(st, None)["w"]
+    expect = -(N2 * w.to(st["b"]))
+    assert np.array_equal(np.asarray(dX["b"].data),
+                          np.asarray(expect.data))
 
-    def integ(f):
-        # the model's own PLAIN (computational) energy metric: the
-        # seeded f.integrate() verb is Jacobian-weighted on this terrain
-        # grid (the physical-integral-default flip), but the baroclinic
-        # KE<->PE skew identity is the exact discrete adjoint pairing
-        # under the PLAIN measure only (this test's docstring), so the
-        # inner product is pinned to the raw computational Integral()
-        space = f.function_space.bare
-        reduced = f
-        for name in space.names:
-            if isinstance(space.factor(name), ConstantSpace):
-                continue
-            reduced = Integral()[name](reduced)
-        return float(reduced.data.ravel()[0])
-    terms = [integ(st["u"] * dX["u"]), integ(st["v"] * dX["v"]),
-             integ((st["b"] / N2) * dX["b"])]
-    skew = sum(terms)
-    scale = sum(abs(t) for t in terms)
-    assert abs(skew) < 1e-12 * scale
+
+# ================================================================
+#  H4 (baroclinic leg): the KE<->PE conversion is energy-consistent
+#      under the PHYSICAL metric to second order once the buoyancy
+#      couples to the physical vertical velocity (the missing
+#      slope-advection term; energy_metric_asymmetry.md)
+# ================================================================
+def _broadband(grid, space, seed):
+    """Return a resolved band-limited random field sampled on `space`."""
+    xs = {a: np.asarray(_nodes(grid, space, a)) for a in ("x", "y", "z")}
+    rng = np.random.default_rng(seed)
+    out = 0.0
+    for kx in range(1, 5):
+        for kz in range(1, 5):
+            amp = rng.standard_normal(2) / (kx * kz)
+            out = (out
+                   + amp[0] * np.sin(2 * np.pi * kx * xs["x"])
+                   * np.cos(kz * np.pi * xs["z"])
+                   + amp[1] * np.cos(2 * np.pi * kx * xs["y"])
+                   * np.sin(kz * np.pi * (xs["z"] + 1.0)))
+    return np.broadcast_to(
+        out, np.broadcast_shapes(*(v.shape for v in xs.values())))
+
+
+def _broadband2d(grid, space, seed):
+    """Return a resolved band-limited random surface field (the ps leg)."""
+    xs = {a: np.asarray(_nodes(grid, space, a)) for a in ("x", "y")}
+    rng = np.random.default_rng(seed)
+    out = 0.0
+    for kx in range(1, 5):
+        amp = rng.standard_normal(2) / kx
+        out = (out + amp[0] * np.sin(2 * np.pi * kx * xs["x"])
+               + amp[1] * np.cos(2 * np.pi * kx * xs["y"]))
+    return np.broadcast_to(
+        out, np.broadcast_shapes(*(v.shape for v in xs.values())))
+
+
+def _phys_skew(model, seeds_x, seeds_y):
+    """Bilinear physical-metric skew of the linear tendency operator L.
+
+    ``<X, L Y>_M + <Y, L X>_M`` (relative to the exchange scale) under
+    the hand-built PHYSICAL metric M: the u/v/b legs J-weighted at their
+    faces / cell (the seeded ``integrate``), the ps leg lifted to the
+    3D b space so the plain J-weighted volume integral supplies the
+    per-column physical depth ``H/c^2`` (NOT ``EnergyMetric``, whose ps
+    weight is fixed elsewhere). Independent broadband states X, Y (all
+    components, fixed seeds) — robust to the state-selection accident of
+    the old single-mode gate.
+    """
+    grid = model.state["b"].grid
+    fields = ("u", "v", "b", "ps")
+
+    def state_and_tendency(seeds):
+        model.set_fields(
+            u=_broadband(grid, model.state["u"].function_space, seeds[0]),
+            v=_broadband(grid, model.state["v"].function_space, seeds[1]),
+            b=_broadband(grid, model.state["b"].function_space, seeds[2]),
+            ps=_broadband2d(grid, model.state["ps"].function_space,
+                            seeds[3]))
+        snap = {n: model.state[n].with_data(jnp.asarray(model.state[n].data))
+                for n in fields}
+        return snap, model.tendency(model.state)
+
+    x_state, lx = state_and_tendency(seeds_x)
+    y_state, ly = state_and_tendency(seeds_y)
+    p3 = model.state["b"].function_space
+
+    def jint(f):
+        return float(f.integrate().data.ravel()[0])
+
+    def pairing(a, db):
+        return (jint(a["u"] * db["u"]) + jint(a["v"] * db["v"])
+                + jint((a["b"] / N2) * db["b"])
+                + jint((a["ps"].to(p3) / CSQR) * db["ps"].to(p3)))
+
+    # bilinear cross terms <X, L Y>_M + <Y, L X>_M (not the diagonal)
+    xy, yx = pairing(x_state, ly), pairing(y_state, lx)
+    return abs(xy + yx) / (abs(xy) + abs(yx))
+
+
+def test_baroclinic_energy_conversion_collapses_under_physical_metric():
+    # The KE<->PE exchange (baroclinic pressure gradient <-> buoyancy
+    # restoring) is skew under the PHYSICAL (Jacobian-weighted) metric
+    # only once the buoyancy couples to the *physical* vertical velocity
+    # w_true = J*omega + u Zx + v Zy -- the slope-advection term this
+    # module adds. The pre-fix operator leaks O(slope) here,
+    # RESOLUTION-INDEPENDENT (the old single-mode gate passed by
+    # state-selection accident: single modes sit in the leak's null
+    # set). With the analytic slope term the physical-metric skew
+    # converges at ~second order (the exact discrete adjoint would make
+    # it machine-zero, but it bakes the grid quadrature into the
+    # buoyancy tendency and fights the C-grid staggering -- see the
+    # record addendum in energy_metric_asymmetry.md; the shipped physics
+    # is the local w_true, invariant O(h^2), not roundoff).
+    models = [_model(_terrain_grid(n)) for n in (16, 32, 64)]
+    skews = [_phys_skew(m, (1, 2, 3, 4), (5, 6, 7, 8)) for m in models]
+    assert np.all(_orders(skews) > ORDER_FLOOR)
 
 
 # ================================================================
@@ -397,4 +467,36 @@ def test_grad_wrt_initial_buoyancy_is_finite_and_matches_fd(advection):
     eps = 1e-4
     fd = (float(loss(leaf + eps * direction))
           - float(loss(leaf - eps * direction))) / (2.0 * eps)
+    assert directional == pytest.approx(fd, rel=1e-4)
+
+
+def test_grad_wrt_initial_velocity_via_propagator_matches_fd():
+    # the slope-advection term feeds the initial velocity into the
+    # buoyancy tendency (-N^2 (u Zx + v Zy)); grad of a quadratic loss
+    # w.r.t. the initial zonal velocity through a short terrain run --
+    # via the PUBLIC Model.propagator surface (AGENTS differentiability
+    # policy) -- is finite and matches a central finite difference. The
+    # slope metrics are finite (no 1/J), so the new term adds no VJP
+    # singularity of its own.
+    grid = _terrain_grid(8)
+    model = _model(grid, coriolis=hy.FPlaneCoriolis(f0=1.0), dt=1e-2)
+    rng = np.random.default_rng(7)
+    model.set_fields(
+        u=0.1 * rng.standard_normal(model.state["u"].shape),
+        v=0.1 * rng.standard_normal(model.state["v"].shape),
+        b=0.1 * rng.standard_normal(model.state["b"].shape),
+        ps=np.zeros(model.state["ps"].shape))
+    run = model.propagator(wrt=("u",), steps=6)
+    u0 = model._carry.state["u"].storage
+
+    def loss(field):
+        return sum(jnp.sum(f.data ** 2) for f in run((field,)).state)
+
+    grad = np.asarray(jax.grad(loss)(u0))
+    assert bool(np.all(np.isfinite(grad)))
+    direction = jnp.asarray(rng.standard_normal(u0.shape), dtype=u0.dtype)
+    directional = float(jnp.vdot(jnp.asarray(grad), direction))
+    eps = 1e-4
+    fd = (float(loss(u0 + eps * direction))
+          - float(loss(u0 - eps * direction))) / (2.0 * eps)
     assert directional == pytest.approx(fd, rel=1e-4)

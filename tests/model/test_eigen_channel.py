@@ -763,9 +763,10 @@ def test_label_with_rejects_a_non_integer_labeler(basis):
 # ================================================================
 def test_bounded_measure_constant_factor():
     # a hydrostatic channel: ps is a fr.Profile (constant along the
-    # bounded z axis), so _bounded_measure gives it the FULL depth H as
-    # its measure -> metric[ps] = H/csqr; a genuine nodal component (u)
-    # defers to ScalarField.measure -> the per-cell width dz = H/nz.
+    # bounded z axis). Its physical column depth H rides the ENERGY
+    # WEIGHT now (H/csqr), so _bounded_measure gives it UNIT measure and
+    # metric[ps] = H/csqr; a genuine nodal component (u) defers to
+    # ScalarField.measure -> the per-cell width dz = H/nz.
     nz, depth, csqr = 8, 1.0, 10.0
     grid = fr.spatial.Grid((
         fr.spatial.meshes.IntervalMesh(4, (0.0, 1.0), periodic=True,
@@ -786,3 +787,62 @@ def test_bounded_measure_constant_factor():
     # a nodal u entry is the uniform dual-cell width dz = H/nz
     assert float(metric[basis.slices["u"]][0]) == pytest.approx(
         depth / nz)
+
+
+# ================================================================
+#  Mapped vertical columns: physical measure (stretched-z) + the
+#  terrain taught error
+# ================================================================
+def _hydro_channel(grid, csqr=10.0, n2=1.0):
+    return hy.Model(
+        grid=grid, dt=0.02, csqr=csqr, advection=False,
+        coriolis=hy.FPlaneCoriolis(f0=0.3),
+        stratification=hy.ConstantStratification(n2=n2),
+        free_surface=hy.ExplicitFreeSurface())
+
+
+def _cmap_stretch_grid(nz=8):
+    # a horizontally-uniform NONLINEAR vertical map zp = 2(z + 0.3 z^2)
+    # on base z in [-1, 0]: the base measure is NOT the physical one, so
+    # the metric needs the Jacobian weighting to stay Hermitian
+    return fr.spatial.Grid((
+        fr.spatial.meshes.IntervalMesh(4, (0.0, 1.0), periodic=True,
+                                       name="x"),
+        fr.spatial.meshes.IntervalMesh(4, (0.0, 1.0), periodic=True,
+                                       name="y"),
+        fr.spatial.meshes.IntervalMesh(nz, (-1.0, 0.0), periodic=False,
+                                       name="z")),
+        mapping=fr.spatial.CoordinateMapping(
+            maps={"zp": lambda z, a: a * (z + 0.3 * z * z)},
+            params={"a": lambda x, y: 2.0 + 0.0 * (x + y)}))
+
+
+def _terrain_channel_grid(nz=8, a=0.2):
+    def depth(x, y):
+        return 1.0 + a * jnp.sin(2 * jnp.pi * x) * jnp.cos(2 * jnp.pi * y)
+    return fr.spatial.Grid((
+        fr.spatial.meshes.IntervalMesh(4, (0.0, 1.0), periodic=True,
+                                       name="x"),
+        fr.spatial.meshes.IntervalMesh(4, (0.0, 1.0), periodic=True,
+                                       name="y"),
+        fr.spatial.meshes.IntervalMesh(nz, (-1.0, 0.0), periodic=False,
+                                       name="z")),
+        mapping=fr.spatial.CoordinateMapping(
+            maps={"zp": lambda z, H: z * H}, params={"H": depth}))
+
+
+def test_stretched_z_channel_uses_the_physical_measure():
+    # a nonlinear vertical map's base measure is not physical; the
+    # J-weighted bounded measure keeps H = iMS Hermitian and the
+    # eigenvectors M-orthonormal under the physical product
+    basis = channel_eigenpairs(_hydro_channel(_cmap_stretch_grid()))
+    assert basis.hermiticity_error < 1e-12
+    assert float(basis.orthonormality_error()) < 1e-11
+
+
+def test_terrain_column_is_a_taught_error():
+    # a horizontally-varying column depth H(x, y) gives each column a
+    # different bounded-axis eigenproblem: refuse it by name (not the
+    # misleading Hermiticity-residual message)
+    with pytest.raises(ValueError, match="terrain-following column"):
+        channel_eigenpairs(_hydro_channel(_terrain_channel_grid()))

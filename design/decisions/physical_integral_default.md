@@ -108,7 +108,16 @@ passed, 0 failed.
   remainder of the roadmap item, plus the eigen-channel
   `_bounded_measure` physical measure (stretched-z) and a terrain
   taught error replacing the misleading Hermiticity-residual message.
+  **Shipped 2026-07-18** (`59b6047a`/`72427813`; entry in
+  [`../roadmap/done.md`](../roadmap/done.md)): the depth rides the
+  `ps` *weight* (`H/c²`), the eigen engine's constant leg drops to
+  unit measure to avoid the double-count, and the nodal eigen measure
+  is J-weighted.
 - The terrain buoyancy slope-advection term
-  (`−N²(u·Zₓ + v·Z_y)`, missing from `stratification.restoring`) —
-  the root of the apparent product asymmetry; research record
+  (`−N²(u·Zₓ + v·Z_y)`, the root of the apparent product asymmetry)
+  **shipped** 2026-07-18 — `stratification.restoring` now couples `b`
+  to the physical `w_true = Jω + u·Zₓ + v·Z_y` on terrain (analytic
+  spelling; the exact adjoint was proven machine-zero but fights the
+  staggering). Entry in [`../roadmap/done.md`](../roadmap/done.md),
+  addendum in
   [`../research/energy_metric_asymmetry.md`](../research/energy_metric_asymmetry.md).

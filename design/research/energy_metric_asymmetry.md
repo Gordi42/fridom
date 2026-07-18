@@ -1,5 +1,5 @@
 ---
-status: research complete, options presented
+status: implemented (option 1, analytic spelling) — see §4 addendum
 date: 2026-07-18
 ---
 
@@ -122,3 +122,78 @@ also a labeling/documentation issue for output.
 Follow-ups: n-scaling probe of the nonhydro2 mapped leak (same recipe
 as §1.4) and an audit of its mapped w/buoyancy convention; the "w is
 Jω" output-labeling question.
+
+## 4. Outcome (2026-07-18, `fix/terrain-buoyancy-slope-term`)
+
+**Implemented: option 1, the analytic spelling.**
+`ConstantStratification.restoring` now couples `b` to the physical
+vertical velocity `w_true = Jω + u·Zₓ + v·Z_y` on a terrain column —
+the added half is `−N²(u·Zₓ + v·Z_y)` with `Zᵢ = d<mapped>_d<axis>`
+sampled at the `b` cell and `u`/`v` interpolated onto it (`u.to(b)`).
+Finite metric multiply (no `1/J`, no reverse-mode singularity to
+seal); vanishes at rest; byte-identical on flat grids
+(`self._column is None`). The module discovers the column itself
+(`discover_column`, mirroring the core) and declares its own
+`extra_halo` (`x:1, y:1, z:0` — the horizontal `u.to(b)`/`v.to(b)`
+interps; the `w.to(b)` Outer→Center interp is vertically reach-0)
+because the term reads `grid.metric` fields the halo tracer cannot
+follow.
+
+**Why analytic and not the preferred exact adjoint.** The exact
+discrete adjoint *was* attempted and *does* work: a probe built the
+metric-adjoint of the slope-correction operator `corr` via
+`jax.linear_transpose` sandwiched with the physical quadrature weights
+(`S = −(N²/W_b)·corrᵀ(W_u·u, W_v·v)`) and drove the **bilinear
+physical-metric skew to machine-zero (~2e-16) for arbitrary random
+states** — proving that the plain-z-gradient ↔ `Jω`-restoring pair
+(couplings 1↔2) is *already* exactly skew on terrain (the J-weighted
+`p_hyd` center-cumint `C_J(b) = C(J⊙b)` and the flux-form `Jω`
+telescope exactly under the physical measure), so only the slope
+correction `corr` (coupling 3) lacked its partner, and `corr`'s exact
+adjoint (coupling 4) closes the pair. But that spelling **fights the
+staggering** and was not shipped:
+
+- it bakes the grid **quadrature weights** `W_u, W_b` into the buoyancy
+  tendency — a buoyancy RHS that depends on the integration measure is
+  a transpose-designed artifact, not a physical discretization, and it
+  couples this fix to the still-in-flux physical-measure definition (the
+  `EnergyMetric` `ps` weight is being fixed on a parallel branch);
+- it requires transposing the C-grid interpolation chain and the FTC
+  diff — either `jax.linear_transpose` of the pressure-gradient
+  machinery **every step** (≈2× the PG cost, fragile, couples the
+  stratification module to the core's private internals), or
+  hand-assembled adjoint-interpolation rows that only reduce to
+  reverse-`.to()` on uniform-periodic-horizontal / uniform-z columns and
+  carry boundary/measure-ratio corrections on walled/stretched columns;
+- it is against the differentiability policy's spirit (keep the step
+  path clean primal operations, no explicit transpose machinery).
+
+The analytic form is the actual physics (`db/dt = −N² w_true`), local,
+cheap, trivially forward+reverse differentiable, and delivers the full
+**correctness** fix (right continuum limit). It conserves the physical
+energy to O(h²) rather than to roundoff, but the scheme is already
+stable (§1.3, imaginary spectrum), so the machine-zero property is a
+diagnostic nicety, not a correctness need. (If the exact machine-zero
+invariant is later wanted, the recipe above is proven — it is an
+engineering/robustness call, recorded here so it need not be
+re-derived.)
+
+**Gates** (`tests/hydrostatic/test_core_terrain.py`). The accidental
+smooth single-mode gate `test_baroclinic_energy_conversion_is_conserved
+_to_roundoff` (computational metric) is replaced by
+`test_baroclinic_energy_conversion_collapses_under_physical_metric`:
+the **bilinear** skew `⟨X, L Y⟩_M + ⟨Y, L X⟩_M` on independent
+broadband random states X, Y (all components, fixed seeds) under the
+hand-built physical metric M (u/v/b legs J-weighted, `ps` leg lifted to
+3D so the volume integral supplies `H/c²`). Pre-fix skew is
+resolution-independent (~0.76/0.83/0.85 at n = 16/32/64); with the
+term it collapses at ~2nd order — **1.8e-1 / 2.6e-2 / 5.7e-3**
+(orders 2.7 / 2.2, asserted `> 1.7`). Plus: rest-state regression (the
+term vanishes at u = v = 0), flat byte-identity, and a
+`Model.propagator` autodiff gate (grad wrt initial `u`, which the new
+term feeds into `db/dt`; finite + central-FD-matched to rtol 1e-4).
+
+Corrects the stretched+terrain done-entry over-claim ("baroclinic
+energy legs machine-precision"): that held only for single-mode states.
+Remaining: the "w is Jω" **output labeling** (now the sole open bullet)
+and the nonhydro2 mapped cousin leak (§1.6, its own roadmap item).

@@ -391,16 +391,21 @@ def channel_eigenpairs(
         half_axis)
     periodic_axes = tuple(names.index(name) for name in ordered_names)
 
+    lin = linearize(model)
+    prog, base0 = _rest_background(lin, at_time)
+    column = _bounded_column(model.grid, bounded_axis)
+    if column is not None:
+        _reject_terrain_column(
+            base0, prog, bounded_axis, periodic_names, column)
+
     metric = EnergyMetric.from_model(
         model, at_time=at_time, require_constant_coriolis=False,
         allow_field_weights=True)
-    lin = linearize(model)
-    prog, base0 = _rest_background(lin, at_time)
     weights = _metric_weights(metric, prog, allow_fields=True)
 
     slices = _segment_slices(base0, prog, bounded_index)
     metric_diag = _metric_diagonal(
-        base0, prog, weights, bounded_axis, bounded_index)
+        base0, prog, weights, bounded_axis, bounded_index, column)
     if not bool(jnp.all(jnp.isfinite(metric_diag)
                         & (metric_diag > 0.0))):
         raise ValueError(
@@ -451,17 +456,20 @@ def _metric_diagonal(
     weights: tuple[object, ...],
     bounded_axis: str,
     bounded_index: int,
+    column: tuple[str, str] | None,
 ) -> jax.Array:
     r"""
     Stack the diagonal metric ``M[(c, j)] = w_c(j) \mu_c(j)``.
 
     Description
     -----------
-    Per component the energy weight times the bounded-axis measure on
-    the component's own node set (dual cell widths on faces — the
-    per-node quadrature the skew-adjointness holds under). The
-    uniform periodic-axis measure is a common scalar factor and drops
-    out of the pencil.
+    Per component the energy weight times the **physical** bounded-axis
+    measure on the component's own node set (dual cell widths on faces —
+    the per-node quadrature the skew-adjointness holds under). On a
+    ``maps=`` vertical column (``column`` set) the per-node measure is
+    Jacobian-weighted (:func:`_bounded_measure`), so the pencil is
+    Hermitian under the physical product. The uniform periodic-axis
+    measure is a common scalar factor and drops out of the pencil.
 
     A field-valued (profile) weight is sampled **on the component's
     own node set** through ``.to`` — the identical sampling the
@@ -473,7 +481,7 @@ def _metric_diagonal(
     """
     parts = []
     for name, weight in zip(prog, weights, strict=True):
-        mu = _bounded_measure(base0[name], bounded_axis)
+        mu = _bounded_measure(base0[name], bounded_axis, column)
         if isinstance(weight, ScalarField):
             sampled = weight.to(base0[name])
             data = np.broadcast_to(np.asarray(sampled.data),
@@ -490,26 +498,134 @@ def _metric_diagonal(
 
 def _bounded_measure(
     field: ScalarField, bounded_axis: str,
+    column: tuple[str, str] | None,
 ) -> jax.Array:
-    r"""Per-node bounded-axis measure of a component (depth H if constant).
+    r"""Per-node **physical** bounded-axis measure of a component.
 
     Description
     -----------
     The quadrature weight per bounded-axis node the metric diagonal
     stacks. A component that is **constant along the bounded axis** (a
-    ``fr.Profile`` barotropic field — the hydrostatic ``ps``, which is a
-    single depth-integrated DOF) carries no per-cell measure; its energy
-    is weighted by the **full extent** ``H`` of the bounded axis (the
-    depth integral ``(1/2) H |ps|^2 / c^2`` the free-surface energy pairs
-    with the depth-mean divergence). Every genuine nodal/face component
-    defers to ``ScalarField.measure`` (the dual-cell quadrature).
+    ``fr.Profile`` barotropic field — the hydrostatic ``ps``, a single
+    depth-integrated DOF) carries **unit** measure: its physical column
+    depth ``H`` now rides the energy *weight* (``H/c^2`` in
+    ``EnergyMetric``), so folding the depth in here too would
+    double-count it. Every genuine nodal/face component defers to
+    ``ScalarField.measure`` (the dual-cell quadrature).
+
+    On a ``maps=`` vertical column (``column`` set) the nodal measure
+    is multiplied by the column Jacobian ``J = d<mapped>_d<base>``
+    sampled at the component's own bounded-axis nodes — the physical
+    per-node vertical extent ``\mathrm{d}z_{phys} = J\,\mathrm{d}z``.
+    A ``MappedIntervalMesh`` stretch carries its stretch in
+    ``grid.measure`` already (``column`` is ``None`` there), so its
+    ``ScalarField.measure`` is physical unweighted. The horizontally
+    varying (terrain) case is refused upstream in
+    :func:`channel_eigenpairs`.
     """
     factor = field.function_space.factor(bounded_axis)
     if getattr(factor, "is_constant", False):
-        lo, hi = factor.mesh.extent
-        return jnp.asarray([float(hi - lo)], dtype=dtype_real())
-    return jnp.asarray(
+        return jnp.asarray([1.0], dtype=dtype_real())
+    mu = jnp.asarray(
         field.measure(bounded_axis).data, dtype=dtype_real()).ravel()
+    if column is None:
+        return mu
+    return mu * _column_jacobian_profile(field, bounded_axis, column)
+
+
+def _column_jacobian_profile(
+    field: ScalarField, bounded_axis: str, column: tuple[str, str],
+) -> jax.Array:
+    r"""Column Jacobian ``J`` along the bounded axis at ``field``'s nodes.
+
+    Description
+    -----------
+    Reads the ``d<mapped>_d<base>`` metric row on the component's own
+    space and slices its profile along the bounded axis (the map is
+    horizontally uniform for the stretched-z case this serves — the
+    terrain case is refused upstream, so the horizontal index is
+    immaterial).
+    """
+    mapped, base = column
+    jac = field.grid.metric(field.function_space.bare, f"d{mapped}_d{base}")
+    data = np.asarray(jac.data)
+    bounded_index = field.function_space.bare.names.index(bounded_axis)
+    index: list[int | slice] = [0] * data.ndim
+    index[bounded_index] = slice(None)
+    return jnp.asarray(data[tuple(index)], dtype=dtype_real()).ravel()
+
+
+def _bounded_column(
+    grid: object, bounded_axis: str,
+) -> tuple[str, str] | None:
+    r"""Return the ``(mapped, base)`` vertical column, or ``None``.
+
+    Description
+    -----------
+    ``None`` off a ``maps=`` grid (a flat mesh, or a stretched-only
+    ``MappedIntervalMesh`` whose stretch already rides ``grid.measure``).
+    A single-base analytic column whose base is the bounded axis
+    (``zp = z * H(x, y)``) returns its ``(mapped, base)`` pair.
+    """
+    mapping = getattr(grid, "mapping", None)
+    if mapping is None:
+        return None
+    entry = mapping.column_corrections.get(bounded_axis)
+    if entry is None or entry[1] != bounded_axis:
+        return None
+    return entry
+
+
+def _reject_terrain_column(
+    base0: VectorField,
+    prog: tuple[str, ...],
+    bounded_axis: str,
+    periodic_names: tuple[str, ...],
+    column: tuple[str, str],
+) -> None:
+    r"""Refuse a genuinely terrain-following column (taught error).
+
+    Description
+    -----------
+    The dense channel factorization shares one bounded-axis block per
+    periodic wavenumber, which holds only when the column Jacobian is
+    **constant along the periodic axes**. A vertical map that varies
+    with horizontal position (a terrain ``H(x, y)``) gives each column
+    a different bounded-axis eigenproblem, so the engine cannot serve
+    it. A horizontally-uniform stretched-z map passes. Naming the real
+    cause replaces the misleading Hermiticity-residual message the
+    varying metric would otherwise trip.
+    """
+    ref = next(
+        (base0[name] for name in prog
+         if not getattr(base0[name].function_space.factor(bounded_axis),
+                        "is_constant", False)),
+        None)
+    if ref is None:  # pragma: no cover — a channel always has a nodal leg
+        return
+    mapped, base = column
+    jac = np.asarray(
+        ref.grid.metric(ref.function_space.bare, f"d{mapped}_d{base}").data)
+    bare = ref.function_space.bare.names
+    horiz = tuple(bare.index(name) for name in periodic_names
+                  if name in bare)
+    if not horiz:  # pragma: no cover — a channel always has a periodic axis
+        return
+    spread = float(np.max(np.abs(
+        np.max(jac, axis=horiz, keepdims=True)
+        - np.min(jac, axis=horiz, keepdims=True))))
+    scale = float(np.max(np.abs(jac)))
+    if spread > 1e-10 * max(scale, 1.0):
+        raise ValueError(
+            "channel_eigenpairs cannot serve a terrain-following column "
+            f"whose depth varies with horizontal position (the column "
+            f"Jacobian d{mapped}_d{base} varies along the periodic axes "
+            f"{periodic_names!r}): each horizontal column then has a "
+            "different bounded-axis eigenproblem, so the dense per-mode "
+            "channel factorization (one shared block per periodic "
+            "wavenumber) does not apply. A stretched-z map (a vertical "
+            "map independent of x, y) is supported; a genuine terrain "
+            "grid is out of scope")
 
 
 # ================================================================
