@@ -96,6 +96,41 @@ Implementation record:
 
 ## Landed since, outside the numbered tasks
 
+- **Storage-halo width recovered — two-sided (interval) halo
+  accounting** (2026-07-18, probe merge `a8a9aefb`, implementation
+  merge `40a24df8`) — the "n+8 vs nominal n+6" roadmap question
+  resolved: the extra layer was the halo trace **summing symmetrized
+  scalar reaches** along the sync-free advection chain (biased
+  reconstruct 3 + flux-diff 1 → width 4), losing the biased window's
+  asymmetry; the true Minkowski-composed footprint of
+  `flux_diff ∘ reconstruct` is 3/side (not staggering, not
+  even-rounding — upwind3's odd width 3 refutes that reading).
+  `HaloSpec`/`OperatorRequirements`/trace/`halo_valid` now carry
+  per-name two-sided reaches (symmetric max presented to storage;
+  per-op reaches derived from implemented kernel geometry, not
+  hardcoded). upwind5/weno5 negotiate width 3 → storage `n+6`
+  (−5.7% step bytes @96³, −3.0% @192³; compiled `memory_analysis`
+  tracks `(n+6)³/(n+8)³` to 4 s.f.); per-step sync counts identical
+  to dev (scalar-validity control re-syncs 28 vs 16 — the two-sided
+  runtime validity is load-bearing); narrow-vs-wide same-code parity
+  **bitwise** (0.0, upwind5 and centered, 32³×10). The empirical
+  probe first proved the width-3 floor (width 2 fails the taught
+  dry-run guard) and that forcing a narrow store *without* interval
+  validity trades bytes for mid-chain re-syncs. Bonus fixes: immersed
+  fraction/mask and coordinate-measure caches re-keyed on the
+  negotiated halo (latent stale-array bug under wider
+  re-negotiation); bounded shrinking stencils claim reach 0; one FV
+  mapped-pressure "bitwise" assertion honestly relaxed to 1e-14
+  (width-coincidental pairwise-reduction tie on dev). Gates:
+  new-stack suites 6329 passed / 0 failed post dev-merge (FV
+  fusion-guard ratchet included), forced-4 decomposition 334 passed,
+  3 autodiff files green, reblock HLO golden regenerated (pure shape
+  shift), ruff clean. Centered stays width 2 at the assembled model
+  (`DynamicalCore.extra_halo = 2` floor) — remainder tracked in
+  [`open.md`](open.md). Record:
+  [`storage_halo_width.md`](../research/storage_halo_width.md)
+  (probe scripts + RESULTS under `storage_halo_width/probe/`).
+
 - **Half-axis-sharded 3-D channel served — layout-aware half-axis
   re-designation** (2026-07-18, merge `feade7fa`; coverage follow-up
   merge `964a9117`) — the last remainder case with a fast path: when

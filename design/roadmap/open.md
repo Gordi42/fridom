@@ -36,13 +36,19 @@ memory ceiling, time-to-first-step, WENO throughput (entries in
   on a 4-GPU allocation. New runs report the honest `compile_s`
   metric (chunk metric fixed 2026-07-18; entry in
   [`done.md`](done.md)).
-- **Storage-halo width probe.** Biased order-5 pads storage to `n+8`
-  per axis where the nominal reach needs `n+6` (centered: `n+4` vs
-  `n+2`) — ~6% inflation on every upwind5 buffer, est. 2–3 ms/step
-  @192³ on RTX-3060-class hardware. A core staggering-policy
-  question, parity-sensitive, unprobed
-  ([`../research/upwind5_revisit.md`](../research/upwind5_revisit.md)
-  §6).
+- **Storage-halo width — remainders.** The biased +1 layer is
+  recovered: two-sided (interval) halo accounting shipped 2026-07-18,
+  upwind5/weno5 storage `n+8 → n+6`, bitwise parity, sync-count
+  invariant (entry in [`done.md`](done.md); record
+  [`../research/storage_halo_width.md`](../research/storage_halo_width.md)).
+  Still open: (a) the centered family stays at `n+4` — its traced
+  chain tightens to width 1 but `DynamicalCore.extra_halo = 2` floors
+  the assembled model at 2; revisit the floor (twin of the reverted
+  shallow-water `extra_halo` item,
+  [`../plans/active/perf_geometry_merge_plan.md`](../plans/active/perf_geometry_merge_plan.md)
+  §1.3); (b) GPU wall-clock A/B of the narrowed biased step —
+  manual protocol, owner-triggered (est. 2–3 ms/step @192³ on
+  RTX-3060-class, −3.0% step bytes @192³).
 - **Hydro surface-flux correction: slice-only `A(1)`.** The H7
   constancy-preserving surface advective flux (owner-ratified
   default, [`../plans/active/hydrostatic_model_plan.md`](../plans/active/hydrostatic_model_plan.md)
