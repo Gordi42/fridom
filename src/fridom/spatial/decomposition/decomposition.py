@@ -686,8 +686,9 @@ def negotiate(
     """
     names = tuple(grid.names)
     meshes = tuple(grid.factors)
-    spec = _negotiated_halo(names, registry, state_spaces=state_spaces,
-                            tendency=tendency, halo=halo)
+    spec, floor = _negotiated_halo(
+        names, registry, state_spaces=state_spaces,
+        tendency=tendency, halo=halo)
 
     if device_ids is None:
         ids = tuple(range(len(jax.devices())))
@@ -698,9 +699,7 @@ def negotiate(
 
     layouts: tuple[Layout, ...] = (Layout({}),)
     if len(ids) > 1:
-        spec = _cap_for_sharding(
-            meshes, spec,
-            _registry_halo(names, registry, state_spaces), len(ids))
+        spec = _cap_for_sharding(meshes, spec, floor, len(ids))
         shardable = _shardable_names(meshes, spec, len(ids))
         if shardable:
             layouts = (*(Layout({name: _DEVICE_AXIS})
@@ -733,9 +732,9 @@ def _negotiated_halo(
     ),
     tendency: Callable[..., object] | None,
     halo: HaloSpec | None,
-) -> HaloSpec:
+) -> tuple[HaloSpec, HaloSpec]:
     """
-    Resolve the negotiated halo widths.
+    Resolve the negotiated halo widths and the per-application floor.
 
     Description
     -----------
@@ -747,21 +746,33 @@ def _negotiated_halo(
     maximum applies (per-application; exact as a *floor* under the
     consumption-side contract, task 1.8 — any width >= every single
     application is correct, wider only saves exchanges).
+
+    The second return is the per-application width **floor** for
+    :func:`_cap_for_sharding`: the registry per-application maximum
+    (:func:`_registry_halo`) combined (``merge_max``) with the trace
+    floor — the widest single-*application* reach among the operators
+    that actually fired. The wide advection reconstructions are
+    trace-only (never registered), so the registry alone under-reports
+    their reach; sourcing the floor from the trace keeps the cap from
+    squeezing a single stencil's ghosts below what it reads at once.
     """
     spec: HaloSpec | None = None
+    floor = _registry_halo(names, registry, state_spaces)
     if tendency is not None:
         if state_spaces is None:
             raise ValueError(
                 "tracing a tendency needs state_spaces= to build "
                 "the tracer state")
-        traced = trace_halo(tendency, state_spaces, registry)
+        traced, traced_floor = trace_halo(
+            tendency, state_spaces, registry, with_floor=True)
         spec = HaloSpec.zero(names).merge_max(traced)
+        floor = floor.merge_max(traced_floor)
     if halo is not None:
         spec = (HaloSpec.zero(names) if spec is None
                 else spec).merge_max(halo)
     if spec is None:
-        spec = _registry_halo(names, registry, state_spaces)
-    return spec
+        spec = floor
+    return spec, floor
 
 
 def _registry_halo(

@@ -788,22 +788,21 @@ class Grid:
             raise GridFrozenError(
                 "the grid is frozen but carries no negotiation "
                 "fingerprint")
-        demand = self._demanded_halo(state_spaces, tendency, halo)
+        demand, floor = self._demanded_halo(
+            state_spaces, tendency, halo)
         # Symmetric verify-cap (task 1.8): the negotiate path lowers
         # traced widths through ``_cap_for_sharding`` before freeze
         # records them, so the fingerprint holds capped widths on a
         # sharded grid. Recompute the demand through the SAME cap with
-        # the SAME arguments (the frozen device count, the registry
-        # floor, the meshes) so verify compares capped-vs-capped and
-        # the ``Model.variant`` subset lemma holds; on a single device
-        # the cap is identity and the record holds the raw demand.
+        # the SAME arguments (the frozen device count, the per-
+        # application floor, the meshes) so verify compares
+        # capped-vs-capped and the ``Model.variant`` subset lemma
+        # holds; on a single device the cap is identity and the
+        # record holds the raw demand.
         devices = self._decomposition.device_count
         if devices > 1:
             demand = _cap_for_sharding(
-                self.factors, demand,
-                _registry_halo(self._names, self._dispatch,
-                               state_spaces),
-                devices)
+                self.factors, demand, floor, devices)
         problems = _halo_violations(demand, record.halo)
         adopted: list[SpaceLike] = []
         for space in state_spaces or ():
@@ -839,16 +838,21 @@ class Grid:
         state_spaces: tuple[SpaceLike, ...] | None,
         tendency: Callable[..., object] | None,
         halo: HaloSpec | None,
-    ) -> HaloSpec:
+    ) -> tuple[HaloSpec, HaloSpec]:
         """
-        Resolve the demanded halo under the merge_max rule.
+        Resolve the demanded halo and its per-application floor.
 
         Description
         -----------
-        The verify-side twin of the negotiation's halo resolution:
-        the traced `tendency` demand when supplied (else the
-        per-operator registry maximum scoped to `state_spaces`),
-        merged per-coordinate max with the `halo=` extra spec.
+        The verify-side twin of the negotiation's halo resolution
+        (:func:`_negotiated_halo`): the traced `tendency` demand when
+        supplied (else the per-operator registry maximum scoped to
+        `state_spaces`), merged per-coordinate max with the `halo=`
+        extra spec. The second return is the per-application width
+        **floor** — the registry per-application maximum combined
+        (``merge_max``) with the trace floor (the widest single
+        application reach among the operators that fired) — so the
+        symmetric verify-cap squeezes exactly as negotiate does.
 
         Parameters
         ----------
@@ -861,22 +865,27 @@ class Grid:
 
         Returns
         -------
-        HaloSpec
-            The demanded per-name ghost widths.
+        tuple[HaloSpec, HaloSpec]
+            The demanded per-name ghost widths and the per-application
+            floor.
         """
+        floor = _registry_halo(self._names, self._dispatch,
+                               state_spaces)
         if tendency is not None:
             if state_spaces is None:
                 raise ValueError(
                     "tracing a tendency needs state_spaces= to "
                     "build the tracer state")
-            demand = HaloSpec.zero(self._names).merge_max(
-                trace_halo(tendency, state_spaces, self._dispatch))
+            traced, traced_floor = trace_halo(
+                tendency, state_spaces, self._dispatch,
+                with_floor=True)
+            demand = HaloSpec.zero(self._names).merge_max(traced)
+            floor = floor.merge_max(traced_floor)
         else:
-            demand = _registry_halo(self._names, self._dispatch,
-                                    state_spaces)
+            demand = floor
         if halo is not None:
             demand = demand.merge_max(halo)
-        return demand
+        return demand, floor
 
     def sync(
         self,
