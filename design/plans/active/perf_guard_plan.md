@@ -279,3 +279,30 @@ The item moves to `done.md` when:
 - the roadmap entry is rewritten to record the §2/§3/§5 rulings (PR
   CI gates structure, DKRZ gates time, manual-trigger only) so the
   "wire it into GitHub CI" framing does not resurface.
+
+## 7. First run log (2026-07-18)
+
+- **Jobs**: 26346485 (`step_guard.sbatch`, node l50103, 15:39 min,
+  RED) and 26346504 (gpu-marked cusparse legs, 2 passed in 4 s on a
+  real A100). Account `uo0780_gpu` confirmed by both; the TODO in
+  the script header is cleared.
+- **gpu4 leg**: 40/40 ok. **gpu1 leg**: every large case within
+  ±0.6%; the mapped `iters=30` rows read −40..55% *faster*
+  (the cuSPARSE tridiagonal swap landing after the T7 baselines —
+  correctly reported as `faster`, non-blocking); RED came from the
+  tiny (9 ms) nodal cases at +8.5..9.0% vs T7.
+- **Verdict: true positive.** The stored samples are tight within
+  each process (±0.01 ms/step); an independent parallel-session
+  guard run (job 26346547, different node, minutes later) reproduced
+  the same readings, and that session's own baseline re-record
+  agreed — the shift was real, caused by the FV storage-frame
+  spelling, and the baselines were re-recorded on `dev`
+  (`f87ea9d7`, "step baselines re-recorded post FV storage-frame
+  spelling") per the T7 attribution policy.
+- **Lesson folded back** (README + script): run the guard from a
+  quiescent checkout — both first runs executed `dirty=True` while
+  a parallel session re-recorded baselines in the same tree; the
+  result metadata records `commit`/`dirty`, and a dirty run is not
+  evidence. The SLURM log now lands in the retained results dir.
+- **Open**: the one green run (§6), expected against the
+  re-recorded baselines from a quiescent tree.

@@ -16,9 +16,18 @@ sbatch benchmarks/ci/step_guard.sbatch    # submit from the repo root
 ```
 
 Submit from the repository root: the script resolves the repo from
-`$SLURM_SUBMIT_DIR`. Watch the job's output (`step-guard-<jobid>.out`
-in the submit dir); there is no alerting — the terminal output and the
-marker file are the record (owner ruling §5.2).
+`$SLURM_SUBMIT_DIR`. Watch the job's output
+(`benchmarks/results/step-guard-<jobid>.out`); there is no alerting —
+the terminal output and the marker file are the record (owner ruling
+§5.2).
+
+**Run from a quiescent checkout.** The job imports the repo state at
+each case's subprocess launch, so parallel sessions merging onto
+`dev` (or dirtying the tree — including an in-flight baseline
+re-record) mid-run corrupt the comparison. The result JSON records
+`commit` and `dirty`; a `dirty=True` run is not evidence. Lesson from
+the first run, 2026-07-18: two guard runs interleaved with a parallel
+session's baseline re-record and read a shifted tree.
 
 Local sanity check without touching SLURM or GPUs:
 
