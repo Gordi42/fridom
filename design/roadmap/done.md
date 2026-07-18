@@ -96,6 +96,32 @@ Implementation record:
 
 ## Landed since, outside the numbered tasks
 
+- **Stretched+terrain GPU validation — complete; semicoarsening
+  multi-device break root-caused and closed** (2026-07-18) — the
+  multi-GPU leg validated the core stretched+terrain paths (N2
+  measure-adjoint hop, plain-CG, differentiability, terrain
+  hydrostatic files, realistic 3D model device-invariant to the CG
+  tolerance floor under single-process GSPMD AND real `srun -n 4`;
+  addendum in
+  [`stretched_terrain_combined.md`](../research/stretched_terrain_combined.md)),
+  and its two remainders turned out to be one bug and are **closed**:
+  the semicoarsening V-cycle multi-device parity break was bisected
+  to `4ca61a96` (interval halo accounting halved registry widths →
+  previously-replicated coarse levels silently flipped to
+  **sigma-sharded**), which exposed the latent bounded-axis
+  `(0,0)`-exterior-reach sync hole — the corrupt op was the
+  coarse-level mapped operator apply at sigma shard seams, the line
+  solve was always clean; the lone sharded bounded 1-D
+  `MappedIntervalMesh` failures were the same hole. Cured by the
+  invariants campaign's `b57e3e78` (per-shard `footprint_reach`);
+  verified: forced-CPU-4 all victims green (23/23 stretched +
+  lone-1D), **real 4x A100 three-file battery 47 passed / 1 skipped**
+  (9 failed the previous day). Coarse levels remain sigma-sharded by
+  negotiation — now machine-precision-correct (`1.6e-15..5.2e-14`
+  vcycle parity incl. stretched 16/shard) — so the residue is
+  perf/hardening only (open.md, multigrid section). Record:
+  [`semicoarsen_multidevice_regression.md`](../research/semicoarsen_multidevice_regression.md).
+
 - **Coefficient-space product/power rows — ruled closed by design**
   (owner-ratified 2026-07-18) — the open-roadmap semantics question
   ("should coefficient-space fields get `("multiply"|"divide"|"power"|

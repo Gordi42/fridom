@@ -218,35 +218,6 @@ the scoping §10–§13). Open:
     2026-07-18: the same pad-`inf` structure was the *forward*
     chunk≥2 NaN (see the mapped chunk-NaN hardening entry) — the
     forward exposure is one composition away too.
-  - **GPU validation** of the new stretched+terrain paths. Single-GPU
-    leg done 2026-07-17. Multi-GPU leg run 2026-07-18 (4x A100,
-    addendum in
-    [`../research/stretched_terrain_combined.md`](../research/stretched_terrain_combined.md)):
-    the **core** paths validate on multi-GPU — the N2 measure-adjoint
-    hop, plain-CG stopgap and differentiability pass forced-4, the
-    terrain hydrostatic core/free-surface files pass, and the realistic
-    3D model (Leg B single-process + Leg C real `srun -n 4`) is
-    device-count-invariant to the iterative CG tolerance floor (per-step
-    ~2.4e-6 at `tol=1e-10`, ~2.1e-8 at `tol=1e-14`; there is no exact
-    spectral solve on a mapped grid, so machine-precision parity does
-    not apply). Re-checked against post-GM-D9 dev `33707661`
-    (addendum §Re-check). Two open remainders:
-    - **The stretched-column multigrid preconditioner is still broken
-      on multi-GPU** (4-device-only; 1-GPU clean). On current dev the
-      full-3-D-coarsening default (GM-D9) is 4-GPU parity-clean, but a
-      stretched base column auto-falls-back to the **semicoarsening**
-      hierarchy (its coarse `MappedIntervalMesh` is not
-      jit-constructible), and semicoarsening's coarse-level horizontal
-      roll/gather resharding mis-partitions on 4 devices (asym
-      `3.5e-3`, rel up to `0.96`; bit-identical on forced-CPU-4, kernel-
-      independent). See the multigrid section below (semicoarsening
-      multi-device parity) for evidence and scope. Plain-CG is the
-      working multi-GPU route for stretched+terrain today.
-    - **A lone bounded 1D `MappedIntervalMesh` sharded across 4 devices**
-      corrupts its staggered FD / flux telescoping
-      (`validation/test_stretched_mesh.py`, 2 tests). Degenerate config
-      (a real model keeps the mapped column undistributed); needs a
-      supported-vs-unsupported ruling.
 
 [`../plans/active/fv_nonhydro_scoping.md`](../plans/active/fv_nonhydro_scoping.md)
 
@@ -509,33 +480,27 @@ V-cycle kernel swap it called for shipped 2026-07-18 (merge
 [`../research/multigrid_kernel_study.md`](../research/multigrid_kernel_study.md)
 §§Addendum, Addendum 2). Open, none blocking:
 
-- **Semicoarsening V-cycle multi-device parity — broken.** The
-  semicoarsening hierarchy (horizontal-only coarsening + full-vertical
-  line smoother) mis-partitions on ≥2 devices: 1-GPU clean, 4-GPU
-  wrong (V-cycle asymmetry `3.5e-3`, solve residual stuck, forced-4
-  parity rel up to `0.96`). Reproduces **bit-identically on
-  forced-CPU-4** and is **kernel-independent**, so it is neither
-  jax#39100 (fusion workaround set) nor the cuSPARSE caveat. Mechanism:
-  the coarse-level horizontal roll/gather reshards
-  `{devices=[1,4]}->{[2,1,2] replicate}` (involuntary rematerialization,
-  Shardy `b/433785288`) when a coarsened horizontal extent no longer
-  divides the device count. Scope: this is the **auto-fallback path**
-  (GM-D9) taken for a stretched-base column, a Chebyshev vertical, an
-  indivisible `n_z`, or the immersed `uniform_spacing` limit — so the
-  stretched+terrain multigrid preconditioner is broken on multi-GPU
-  (plain-CG is the working route). Evidence
-  (`../research/stretched_terrain_combined.md` §GPU addendum + §Re-check):
-  `test_mapped_pressure_stretched.py` 4 multigrid tests,
-  `test_mapped_pressure_multigrid.py`
-  `converges_under_both_coarsenings[False]` +
-  `full_and_semi_coarsening_agree_on_the_solution`. Regression window
-  T8 `5af2e370` → `c4497db5`; first-bad-commit unbisected. These
-  unmarked 4-device-only failures also breach the house
-  "unmarked tests pass on any device count" rule (single-device CI
-  never sees them). Separately,
-  `test_multigrid_hlo_grows_with_the_level_count` asserts single-device
-  HLO structure that sharding legitimately perturbs (passes on 1 GPU) —
-  a test needing a device pin/marker, not a numerics bug.
+- **Semicoarsening coarse-level layout — perf/hardening follow-ups.**
+  The multi-device parity break itself is **closed** (root-caused,
+  cured, verified on real 4x A100 — entry in [`done.md`](done.md),
+  record
+  [`../research/semicoarsen_multidevice_regression.md`](../research/semicoarsen_multidevice_regression.md)),
+  but the layout that exposed it remains the negotiated choice: every
+  real semicoarsening config still **sigma-shards its coarsest level**
+  (correct to machine precision since `b57e3e78`, yet one coarse sweep
+  lowers to ~181 collective-permutes on the smallest, most
+  latency-bound grid). Follow-ups, none blocking: (a) owner call —
+  prefer replication for coarse levels (demote/exclude the hierarchy
+  `vertical` in the coarse-level shardability ranking, or replicate
+  below a cell-count floor); measure the coarse-level timing first;
+  (b) a hierarchy-builder warning when a level's layout shards the
+  line-smoother axis (future negotiation-policy drift fails loudly);
+  (c) stretched-base eager hierarchy pre-warm so stretched columns
+  take the full-coarsening default (its coarsest level replicates
+  naturally, and the `MappedIntervalMesh`-ctor jit limit is bypassed
+  via the `Grid.coarsened` memo); (d) `multi_device` markers for the
+  parity-test victims (unmarked 4-device-only failures are invisible
+  to single-device CI).
 - **Residual mapped-GPU levers, unclaimed** — fewer coarse sweeps;
   cheaper mapped operator applies (the finest level dominates the
   post-swap V-cycle: one sweep = 15.7 ms cuSPARSE solve + 12.0 ms
