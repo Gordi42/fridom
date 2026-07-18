@@ -368,14 +368,20 @@ class DynamicalCore(fr.model.Module):
         ``pressure_iterations`` the maximum budget and sits well above
         the residual floor (~1e-14); ``None`` is the opt-out that runs
         the fixed count (default: 1e-8).
-    pressure_preconditioner : str, optional
+    pressure_preconditioner : str | None, optional
         The PCG preconditioner of the fixed-iteration pressure solve
-        (B4): ``"spectral"`` (the flat separable spectral inverse) or
-        ``"multigrid"`` (the semicoarsened geometric-multigrid V-cycle).
-        Consumed on a mapped or immersed grid; the flat spectral solve
-        is exact and ignores it (a flat grid never raises on the knob).
-        Static (a treedef aux, part of the module fingerprint), like
-        ``single_precision_solve`` (default: ``"spectral"``).
+        (B4): ``"spectral"`` (the flat separable spectral inverse),
+        ``"multigrid"`` (the geometric-multigrid V-cycle) or ``"none"``.
+        ``None`` (the default) is **auto**: a mapped or immersed grid
+        resolves to ``"spectral"`` (byte-identical to the previous
+        explicit default), a composed mapped + immersed grid resolves to
+        ``"multigrid"`` (MI-D3: the masked spectral fold does not
+        converge in the default budget on a genuine cut chart, the
+        multigrid V-cycle does). An explicit string is honoured on every
+        route unchanged. Consumed on a mapped / immersed / composed grid;
+        the flat spectral solve is exact and ignores it. Static (a
+        treedef aux, part of the module fingerprint), like
+        ``single_precision_solve`` (default: None).
     multigrid_levels : int | None, optional
         The multigrid depth when ``pressure_preconditioner="multigrid"``;
         ignored otherwise. ``None`` (the default) coarsens to the
@@ -434,7 +440,7 @@ class DynamicalCore(fr.model.Module):
         single_precision_solve: bool = False,
         pressure_iterations: int = 30,
         pressure_tolerance: float | None = 1e-8,
-        pressure_preconditioner: str = "spectral",
+        pressure_preconditioner: str | None = None,
         multigrid_levels: int | None = None,
         multigrid_tridiagonal_method: str = "auto",
         multigrid_coarsen_vertical: bool = True,
@@ -640,6 +646,34 @@ class DynamicalCore(fr.model.Module):
                      name="projection"),
         )
 
+    def _resolved_preconditioner(self, *, composed: bool) -> str:
+        """Resolve the ``None`` = auto PCG preconditioner per route.
+
+        Description
+        -----------
+        An explicit ``pressure_preconditioner`` string is honoured
+        unchanged on every route. ``None`` (the default) is auto: a
+        composed mapped + immersed grid resolves to ``"multigrid"`` (the
+        MI-D3 ratified default, the masked spectral fold not converging
+        in the default budget on a genuine cut chart), every other route
+        (mapped, immersed) to ``"spectral"`` — byte-identical to the
+        previous explicit default.
+
+        Parameters
+        ----------
+        composed : bool
+            Whether the grid declares both a mapped column and an
+            immersed domain (the composed route).
+
+        Returns
+        -------
+        str
+            The concrete preconditioner name for the solver.
+        """
+        if self._pressure_preconditioner is not None:
+            return self._pressure_preconditioner
+        return "multigrid" if composed else "spectral"
+
     def _project(
         self, state: State, ctx: StepContext,
     ) -> dict[str, object]:
@@ -760,7 +794,7 @@ class DynamicalCore(fr.model.Module):
             iterations=self._pressure_iterations,
             tolerance=self._pressure_tolerance,
             single_precision=self._single_precision_solve,
-            preconditioner=self._pressure_preconditioner,
+            preconditioner=self._resolved_preconditioner(composed=False),
             multigrid_levels=self._multigrid_levels,
             multigrid_tridiagonal_method=(
                 self._multigrid_tridiagonal_method),
@@ -822,7 +856,7 @@ class DynamicalCore(fr.model.Module):
             iterations=self._pressure_iterations,
             tolerance=self._pressure_tolerance,
             single_precision=self._single_precision_solve,
-            preconditioner=self._pressure_preconditioner,
+            preconditioner=self._resolved_preconditioner(composed=False),
             multigrid_levels=self._multigrid_levels,
             multigrid_tridiagonal_method=(
                 self._multigrid_tridiagonal_method))
@@ -877,7 +911,7 @@ class DynamicalCore(fr.model.Module):
             iterations=self._pressure_iterations,
             tolerance=self._pressure_tolerance,
             single_precision=self._single_precision_solve,
-            preconditioner=self._pressure_preconditioner,
+            preconditioner=self._resolved_preconditioner(composed=True),
             multigrid_levels=self._multigrid_levels,
             multigrid_tridiagonal_method=(
                 self._multigrid_tridiagonal_method),

@@ -41,7 +41,7 @@ def Model(  # noqa: N802 — a factory that mirrors fr.model.Model's surface
     advection: fr.model.Module | bool = True,
     pressure_iterations: int = 30,
     pressure_tolerance: float | None = 1e-8,
-    pressure_preconditioner: str = "spectral",
+    pressure_preconditioner: str | None = None,
     multigrid_levels: int | None = None,
     multigrid_tridiagonal_method: str = "auto",
     multigrid_coarsen_vertical: bool = True,
@@ -97,13 +97,15 @@ def Model(  # noqa: N802 — a factory that mirrors fr.model.Model's surface
         :class:`ConjugateGradient`). The default ``1e-8`` makes
         ``pressure_iterations`` the maximum budget; ``None`` is the
         opt-out that runs the fixed count (default: 1e-8).
-    pressure_preconditioner : str, optional
+    pressure_preconditioner : str | None, optional
         The PCG preconditioner of the fixed-iteration pressure solve
-        (B4), forwarded to the dynamical core: ``"spectral"`` (the flat
-        separable spectral inverse) or ``"multigrid"`` (the
-        semicoarsened geometric-multigrid V-cycle). Consumed on a mapped
-        or immersed grid; a flat grid uses the exact spectral solve and
-        ignores it (default: ``"spectral"``).
+        (B4), forwarded to the dynamical core: ``"spectral"``,
+        ``"multigrid"`` or ``"none"``. ``None`` (the default) is auto —
+        a mapped or immersed grid resolves to ``"spectral"``, a composed
+        mapped + immersed grid to ``"multigrid"`` (MI-D3); an explicit
+        string is honoured unchanged. Consumed on a mapped / immersed /
+        composed grid; a flat grid uses the exact spectral solve and
+        ignores it (default: None).
     multigrid_levels : int | None, optional
         The multigrid depth when ``pressure_preconditioner="multigrid"``;
         ignored otherwise. ``None`` (the default) coarsens to the

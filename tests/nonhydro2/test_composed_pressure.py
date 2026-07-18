@@ -17,6 +17,7 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
+import fridom.nonhydro2 as nh
 from fridom.nonhydro2.modules.composed_pressure import (
     ComposedPressureSolver,
 )
@@ -508,6 +509,47 @@ def test_preconditioner_knob_rejects_unknown():
 def test_default_preconditioner_is_multigrid():
     _grid, _space, solver = build_composed(preconditioner="multigrid")
     assert solver._preconditioner_kind == "multigrid"
+
+
+def test_composed_model_default_preconditioner_reaches_machine_zero():
+    # the None = auto default resolves a composed grid to multigrid
+    # (MI-D3), which -- unlike the masked spectral fold -- converges in
+    # the default 30-iteration budget: a plain nh.Model on a composed
+    # grid projects the masked divergence to machine zero out of the box
+    n = 8
+    mx = IntervalMesh(n, (0.0, TWO_PI), periodic=True, name="x")
+    my = IntervalMesh(n, (0.0, TWO_PI), periodic=True, name="y")
+    mz = IntervalMesh(n, (0.0, 1.0), periodic=False, name="z")
+    mapping = CoordinateMapping(
+        maps={"zp": lambda z, H: z * H},
+        params={"H": lambda x: 1.0 + 0.4 * jnp.sin(x)})
+    grid = Grid(
+        (mx, my, mz), mapping=mapping,
+        immersed=ImmersedDomain(
+            lambda x, y, z: jnp.clip(  # noqa: ARG005
+                (z - 0.15 - 0.1 * jnp.sin(x)) * 6 + 0.5, 0.0, 1.0),
+            order=4, min_fraction=0.1))
+    # no pressure_preconditioner passed -> None = auto -> multigrid
+    model = nh.Model(grid=grid, dt=0.01, advection=False,
+                     coriolis=nh.FPlaneCoriolis(f0=1.0),
+                     pressure_tolerance=None, dsqr=0.5)
+    core = next(m for m in model._carry.modules
+                if type(m).__name__ == "DynamicalCore")
+    assert core._pressure_preconditioner is None
+    assert core._resolved_preconditioner(composed=True) == "multigrid"
+    rng = np.random.default_rng(1)
+    model.set_fields(**{
+        c: rng.standard_normal(model.state[c].data.shape)
+        for c in ("u", "v", "w", "b")})
+    model.advance(2)
+    assert not model.panicked
+    solver = ComposedPressureSolver(
+        model.state["u"].grid, model.state["p"].function_space,
+        iterations=1, weights={"z": 1.0 / 0.5})
+    div = solver.divergence({
+        "x": model.state["u"], "y": model.state["v"],
+        "z": model.state["w"]})
+    assert float(jnp.abs(div.data).max()) < 1e-9
 
 
 def test_collocation_mask_on_a_chart_is_a_taught_error():
