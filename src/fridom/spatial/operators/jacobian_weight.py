@@ -34,7 +34,6 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from fridom.spatial.spaces.coefficient import CoefficientSpace
-from fridom.spatial.spaces.constant import ConstantSpace
 
 if TYPE_CHECKING:  # pragma: no cover
     from jax import Array
@@ -52,10 +51,11 @@ def resolves(space: FunctionSpace | object,
     -----------
     The chart-reduction guard (rules 3.13): an embedding chart's
     ``sqrt_g`` enters an increment only while every named chart
-    coordinate is still contributed by a non-constant,
-    non-coefficient factor of the operand space. A field born
-    constant (or lone-factor) along a chart coordinate carries no
-    geometry and contracts against the plain computational measure.
+    coordinate is still contributed by a non-collapsed (non-constant,
+    non-trace), non-coefficient factor of the operand space. A field
+    born constant, traced, or lone-factor along a chart coordinate
+    carries no geometry and contracts against the plain computational
+    measure.
 
     Parameters
     ----------
@@ -67,7 +67,7 @@ def resolves(space: FunctionSpace | object,
     Returns
     -------
     bool
-        True iff every name is contributed by a non-constant,
+        True iff every name is contributed by a non-collapsed,
         non-coefficient factor of ``space``.
     """
     for name in names:
@@ -75,7 +75,7 @@ def resolves(space: FunctionSpace | object,
             factor = space.factor(name)
         except KeyError:
             return False
-        if isinstance(factor, ConstantSpace | CoefficientSpace):
+        if isinstance(factor, CoefficientSpace) or factor.collapses_axis:
             return False
     return True
 

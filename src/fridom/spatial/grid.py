@@ -138,6 +138,7 @@ from fridom.spatial.spaces.nodal import NodalSpace, NodeSet
 from fridom.spatial.spaces.tensor_product import (
     TensorProductSpace,
 )
+from fridom.spatial.spaces.trace import TraceSpace
 
 if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Callable
@@ -1192,6 +1193,14 @@ class Grid:
             raise ValueError(  # noqa: TRY004
                 f"factor {factor!r} is constant along {name!r}; "
                 "constant factors carry no measure")
+        if isinstance(factor, TraceSpace):
+            # a value error (bad name choice), not a type error
+            raise ValueError(  # noqa: TRY004
+                f"factor {factor!r} is a boundary trace along "
+                f"{name!r}; a trace carries no per-factor measure. "
+                "The boundary-row (e.g. top-cell) measure is obtained "
+                "by tracing the full measure field along that axis, "
+                "never by querying the measure on the trace factor")
         if isinstance(factor, CoefficientSpace):
             raise ValueError(  # noqa: TRY004 — value, not type
                 f"coefficient factor {factor!r} carries no metric "

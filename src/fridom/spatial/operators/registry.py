@@ -52,7 +52,6 @@ from fridom.spatial.operators.base import (
 )
 from fridom.spatial.scalars import Scalars
 from fridom.spatial.spaces.average import CellAvg, FaceAvg
-from fridom.spatial.spaces.constant import ConstantSpace
 from fridom.spatial.spaces.function_space import FunctionSpace
 from fridom.spatial.spaces.nodal import NodalSpace
 from fridom.spatial.spaces.tensor_product import (
@@ -435,11 +434,13 @@ class OperatorRegistry:
 
         Description
         -----------
-        Form 1: the exact (interned) product key. Form 2: drop
-        ``ConstantSpace`` factors and resolve per factor — all
-        factors must yield the **same operator instance**, otherwise
-        the product is genuinely mixed and raises. Form 3: the
-        kind-only entry. Within each form, overrides beat defaults.
+        Form 1: the exact (interned) product key. Form 2: drop the
+        collapsed factors (``ConstantSpace`` / ``TraceSpace``) and
+        resolve per factor — all factors must yield the **same
+        operator instance**, otherwise the product is genuinely mixed
+        and raises. Form 3: the kind-only entry. Within each form,
+        overrides beat defaults. Dropping trace factors is what lets a
+        horizontal/pointwise op bind on a ``Trace``-carrying product.
 
         Parameters
         ----------
@@ -458,7 +459,7 @@ class OperatorRegistry:
             if entry is not None:
                 return _materialize(entry)
         factors = tuple(f for f in product.factors
-                        if not isinstance(f, ConstantSpace))
+                        if not f.collapses_axis)
         if factors:
             resolved = [self._lookup_factor(kind, f) for f in factors]
             if all(r is not None for r in resolved):

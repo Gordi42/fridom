@@ -33,9 +33,10 @@ Owning class doc: ``design/specs/grid/classes/grid.md``, section 4
   ``k<name>`` (matching ``grid.wavenumbers`` naming), with
   ``representation: "wavenumber"`` (``"mode_index"`` for bases that
   are not wavenumber-indexed, e.g. Chebyshev).
-- **Constant factors are squeezed**: a ``ConstantSpace`` axis is a
-  broadcast placeholder (rules section 3.3) and does not appear in
-  the exported dims.
+- **Collapsed factors are squeezed**: a size-1 ``ConstantSpace``
+  (broadcast placeholder, rules section 3.3) or ``TraceSpace``
+  (boundary row) axis does not appear in the exported dims — a
+  traced boundary field exports as the 2D slice it represents.
 - **Data path**: values are gathered to the global true shape via
   ``decomposition.gather`` (halo and padding never leave the
   decomposition layer); coordinates come from
@@ -60,7 +61,6 @@ from fridom.spatial.spaces.coefficient import (
     ChebyshevSpace,
     CoefficientSpace,
 )
-from fridom.spatial.spaces.constant import ConstantSpace
 from fridom.spatial.spaces.nodal import NodalSpace
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -133,9 +133,10 @@ class ExportLayout:
     nor ``xarray`` (see ``gather_free_output_plan.md``).
 
     Storage-axis mapping: ``dims``/``coords`` describe the *exported*
-    axes only. Constant factors (``ConstantSpace``, broadcast
-    placeholders) are squeezed out, so the exported axes are a subset
-    of the field's storage axes (one per ``space.factors`` entry).
+    axes only. Collapsed factors (``ConstantSpace`` broadcast
+    placeholders and ``TraceSpace`` boundary rows) are squeezed out,
+    so the exported axes are a subset of the field's storage axes
+    (one per ``space.factors`` entry).
     ``kept_axes[i]`` is the storage-axis position of ``dims[i]``; the
     dropped positions are exactly the squeezed constant factors, and
     ``shape[i] == len(coords[dims[i]])`` is that axis' global true
@@ -255,7 +256,7 @@ def export_layout(
             raise NotImplementedError(
                 f"xarray export of the multi-axis factor {factor!r} "
                 "is not defined in iteration 1")
-        if isinstance(factor, ConstantSpace):
+        if factor.collapses_axis:
             continue
         name = factor.names[0]
         attrs: dict[str, object] = {}

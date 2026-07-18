@@ -575,7 +575,7 @@ class BinaryOperator(Operator, ABC):
         if halo:
             required = {name: halo
                         for factor in codomain.factors
-                        if not isinstance(factor, ConstantSpace)
+                        if not factor.collapses_axis
                         for name in factor.names}
             operands = tuple(_ensure_valid(o, required)
                              for o in operands)
@@ -1591,7 +1591,7 @@ def _required_halo(op: Operator, space: SpaceLike) -> dict[str, int]:
         return {}
     return {name: halo
             for factor in bare.factors
-            if not isinstance(factor, ConstantSpace)
+            if not factor.collapses_axis
             for name in factor.names}
 
 

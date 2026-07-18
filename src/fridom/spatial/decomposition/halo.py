@@ -433,7 +433,7 @@ class HaloTracer:
         depth = self._depth
         if halo:
             for factor in space.factors:
-                if isinstance(factor, ConstantSpace):
+                if factor.collapses_axis:
                     continue
                 for name in factor.names:
                     depth = depth.grow(name, halo)
@@ -531,7 +531,7 @@ class HaloTracer:
         halo = op.requirements(codomain).halo
         if halo:
             for factor in codomain.factors:
-                if isinstance(factor, ConstantSpace):
+                if factor.collapses_axis:
                     continue
                 for name in factor.names:
                     depth = depth.merge_max(
