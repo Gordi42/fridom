@@ -134,10 +134,22 @@ the scoping §10–§13). Open:
   2026-07-17 (entry in [`done.md`](done.md); research + rulings in
   [`../research/stretched_terrain_combined.md`](../research/stretched_terrain_combined.md)).
   Open:
-  - **`EnergyMetric`/eigenmodes weight `ps` by the flat extent on
-    charts** — terrain energy diagnostics are physically
-    inconsistent (model-layer, outside the hydrostatic package;
-    flagged by the terrain build).
+  - **`EnergyMetric` `ps` weight + eigen-channel measure** — the
+    metric-side remainder after the physical-integral default
+    ([`../decisions/physical_integral_default.md`](../decisions/physical_integral_default.md))
+    fixed the `u`/`v`/`b` legs: `inner`'s `ps` term carries **no**
+    depth factor at all (wrong on *flat* grids with depth != 1 too —
+    probed skew 9.6e-2 at depth 2, machine-zero with the `H/c^2`
+    weight; hidden by depth-1 test grids), and needs the per-column
+    `H(x, y)/c^2` field weight on terrain. The eigen-channel
+    `_bounded_measure` uses the flat extent (correct only unmapped);
+    stretched-z maps need the J-weighted measure, and genuine
+    terrain a taught error naming the real cause (today the
+    Hermiticity-residual gate catches it with a misleading
+    "non-conservative term" message). Caveat for the fix: the
+    baroclinic KE-PE pair is exactly adjoint in the *computational*
+    product, the barotropic pair in the *physical* one (decision
+    record §3) — no single metric is exactly conserved on terrain.
   - **Variable-depth split-explicit free surface** (H3 residual):
     still a taught error on charts. The *implicit* half shipped
     2026-07-18 (multigrid_generalization_plan phase B: the
