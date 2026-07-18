@@ -36,24 +36,6 @@ memory ceiling, time-to-first-step, WENO throughput (entries in
   on a 4-GPU allocation. New runs report the honest `compile_s`
   metric (chunk metric fixed 2026-07-18; entry in
   [`done.md`](done.md)).
-- **Storage-width follow-ups.** The research, the derived
-  `extra_halo` implementation, and both GPU gates shipped 2026-07-18
-  (records
-  [`../research/pressure_solver_halo.md`](../research/pressure_solver_halo.md),
-  [`../research/storage_halo_gpu_ab.md`](../research/storage_halo_gpu_ab.md),
-  [`../research/upwind5_shape_regression.md`](../research/upwind5_shape_regression.md);
-  entries in [`done.md`](done.md)). Open:
-  (a) `bench_step` prices no biased advection — add
-  `nh_flat_advective_upwind5` / `_weno5` cases (append-only; baseline
-  at the next owner-batched guard run) so storage-shape GPU swings in
-  this family stay guard-visible — the centered default is now also
-  exposed (the shipped `n+4 → n+2` narrowing costs a uniform
-  +2.3-4.3% on A100, priced and accepted at landing);
-  (b) owner call: a supported storage-width floor knob to pin lucky
-  shapes (192³ upwind5 at width 4 ~12% faster; centered flagships
-  would recover the +2.3-4.3% by pinning width 2). The mechanism
-  record shows measure-and-pin is the only lever — no free XLA flag
-  exists, and the sweet spot is size- and scheme-dependent.
 - **Hydro surface-flux correction — weno re-measure + multi-host
   remaining.** The centered §8 criteria are **met** (arm sweep
   2026-07-18, owner-requested; record in

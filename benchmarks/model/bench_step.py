@@ -75,6 +75,10 @@ SIZES_NH_MAPPED = [32] + ([128, 256] if ON_GPU else [])
 #: this prices the padded balanced all-to-all against the 256 divisible
 #: step (the CI cpu smoke uses the small prime 31).
 SIZES_NH_PRIME = [31] + ([257] if ON_GPU else [])
+#: the biased-advection cases add 192: the measured knife-edge size of
+#: the storage-shape sensitivity (upwind5 got +12-18% there from a
+#: 2-cell storage change; ``design/research/upwind5_shape_regression.md``).
+SIZES_NH_BIASED = [32] + ([192, 256, 512] if ON_GPU else [])
 SIZES_SW = [64] + ([1024, 2048] if ON_GPU else [])
 
 TWO_PI = 2.0 * np.pi
@@ -115,14 +119,17 @@ def _depth(x):
 
 def _nh_model(n: int, *, mapped: bool, periodic_x: bool = True,
               periodic_z: bool = False,
-              iters: int = 30, advection: bool = False,
+              iters: int = 30,
+              advection: bool | fr.model.Module = False,
               family: str | None = None):
     """Nonhydrostatic f-plane model with a jet-like IC.
 
-    ``advection`` switches the momentum/buoyancy advection on. It also
-    switches ``dt`` to a CFL-scaled value: centered advection carries no
-    dissipation, so the linear cases' fixed ``dt = 0.02`` goes
-    non-finite at 512^3 and the model panics mid-timing.
+    ``advection`` switches the momentum/buoyancy advection on — pass
+    ``True`` for the centered default or an advection module instance
+    for a specific scheme. Any truthy value also switches ``dt`` to a
+    CFL-scaled value: centered advection carries no dissipation, so the
+    linear cases' fixed ``dt = 0.02`` goes non-finite at 512^3 and the
+    model panics mid-timing.
     """
     mx = fr.spatial.meshes.IntervalMesh(n, (0.0, TWO_PI),
                                         periodic=periodic_x, name="x")
@@ -232,6 +239,47 @@ def nh_flat_advective_nodal(n):
     """
     model = _nh_model(n, mapped=False, periodic_z=True, advection=True,
                       family="nodal")
+    return _stepping_case(model, float(n) ** 3)
+
+
+@benchmark_case(params={"n": SIZES_NH_BIASED}, reps=5, warmup=0,
+                measure_compile=False)
+def nh_flat_advective_upwind5(n):
+    """Advective step with 5th-order upwind momentum/buoyancy advection.
+
+    The biased/WENO family had NO case here until 2026-07-18, so the
+    two largest advection perf events of that period — the weno5
+    selected-input rewrite (-39/-46% at 256^3/512^3,
+    ``design/research/stencil_lowering.md``) and the ±10-20%
+    storage-shape swings of the halo narrowings
+    (``design/research/upwind5_shape_regression.md``) — were invisible
+    to the guard. These kernels sit on an XLA:GPU loop-emitter knife
+    edge keyed on the exact padded storage shape (launch remainder +
+    DRAM stride), so any change that moves ghost widths or fusion
+    boundaries must be priced HERE, at 192^3 among the sizes (the
+    measured worst case), not only on the centered case. The order is
+    pinned (5) so the workload is stable across default changes.
+    Baseline recorded at the next owner-batched guard run.
+    """
+    model = _nh_model(n, mapped=False, periodic_z=True,
+                      advection=nh.UpwindAdvection(5))
+    return _stepping_case(model, float(n) ** 3)
+
+
+@benchmark_case(params={"n": SIZES_NH_BIASED}, reps=5, warmup=0,
+                measure_compile=False)
+def nh_flat_advective_weno5(n):
+    """Advective step with weno5 momentum/buoyancy advection.
+
+    The nonlinear-weight sibling of ``nh_flat_advective_upwind5`` (see
+    there for why this family needs its own cases): weno5 compiles to a
+    different fusion population with its own storage-shape sweet spots
+    (+5-17% at 256^3/512^3 from the same 2-cell narrowing that left
+    128^3 neutral), so upwind5 cannot stand in for it. Order pinned
+    (5); baseline recorded at the next owner-batched guard run.
+    """
+    model = _nh_model(n, mapped=False, periodic_z=True,
+                      advection=nh.WENOAdvection(5))
     return _stepping_case(model, float(n) ** 3)
 
 
