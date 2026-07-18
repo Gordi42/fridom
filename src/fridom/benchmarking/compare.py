@@ -11,6 +11,98 @@ from fridom.benchmarking.result import (  # noqa: TC001
 
 DEFAULT_THRESHOLD = 0.05
 
+# the noise-derived tolerance band is K times the baseline's own
+# coefficient of variation; K = 3 is a ~3-sigma band on the per-case
+# jitter (measured A100 CoV: 2-6% on small cases, <0.5% on large ones)
+NOISE_TOLERANCE_K = 3.0
+
+# metadata fields that must match between the two runs for a
+# comparison to be meaningful (a cpu run compared against a gpu
+# baseline otherwise produces nonsense deltas silently)
+ENV_GUARD_FIELDS = ("backend", "device_count", "device_kind", "jax_version")
+
+
+# ================================================================
+#  Environment guard
+# ================================================================
+@dataclass
+class EnvMismatch:
+
+    """
+    A single mismatched environment field between two runs.
+
+    Parameters
+    ----------
+    field : str
+        The name of the mismatched metadata field.
+    base : object | None
+        The field value of the base run (None if absent).
+    new : object | None
+        The field value of the new run (None if absent).
+    """
+
+    field: str
+    base: object | None
+    new: object | None
+
+
+def env_mismatches(
+    base: RunMetadata, new: RunMetadata,
+) -> list[EnvMismatch]:
+    """
+    Find environment fields that differ between two runs.
+
+    Description
+    -----------
+    Compares the base and new metadata on the fields in
+    ``ENV_GUARD_FIELDS`` (backend, device_count, device_kind,
+    jax_version). A missing field (None on either side) counts as a
+    mismatch, so an incompletely recorded run never silently passes
+    the guard.
+
+    Parameters
+    ----------
+    base : RunMetadata
+        The metadata of the base run.
+    new : RunMetadata
+        The metadata of the new run.
+
+    Returns
+    -------
+    list[EnvMismatch]
+        One entry per mismatched field, in ``ENV_GUARD_FIELDS`` order;
+        empty if the environments match.
+    """
+    mismatches = []
+    for name in ENV_GUARD_FIELDS:
+        base_val = getattr(base, name)
+        new_val = getattr(new, name)
+        if base_val is None or new_val is None or base_val != new_val:
+            mismatches.append(EnvMismatch(name, base_val, new_val))
+    return mismatches
+
+
+def format_env_mismatches(mismatches: list[EnvMismatch]) -> str:
+    """
+    Render environment mismatches as a human-readable block.
+
+    Parameters
+    ----------
+    mismatches : list[EnvMismatch]
+        The mismatched fields to render.
+
+    Returns
+    -------
+    str
+        A multi-line description listing every mismatched field with
+        both values.
+    """
+    lines = ["environment mismatch between base and new run:"]
+    lines.extend(
+        f"  {m.field}: base={m.base!r} new={m.new!r}" for m in mismatches
+    )
+    return "\n".join(lines)
+
 
 # ================================================================
 #  Value formatting
@@ -42,6 +134,23 @@ def _format_rel(value: float | None) -> str:
     if value is None:
         return "-"
     return f"{value:+.1%}"
+
+
+def _format_tolerance(
+    case: CaseComparison, status: str, threshold: float,
+) -> str:
+    """
+    Render the effective tolerance and the rule that set it.
+
+    Description
+    -----------
+    Only comparable cases (ok/slower/faster) have a tolerance band;
+    added, removed, and errored cases render as "-".
+    """
+    if status not in ("ok", "slower", "faster"):
+        return "-"
+    tol, rule = case.effective_tolerance(threshold)
+    return f"{tol:.1%} ({rule})"
 
 
 def _describe_run(mdata: RunMetadata) -> str:
@@ -114,11 +223,70 @@ class CaseComparison:
 
     @property
     def wall(self) -> MetricDelta:
-        """The change of the median wall time."""
+        """
+        The change of the minimum wall time.
+
+        Description
+        -----------
+        Environmental noise is one-sided: it only ever adds time, so
+        the minimum over a case's samples is the least-contaminated
+        estimator of its true cost (Chen & Revels, HPEC 2016). The
+        rel/status/regression logic is all computed on this minimum;
+        the median is still shown per run by ``format_suite``.
+        """
         return MetricDelta(
-            self.base.wall_median if self.base else None,
-            self.new.wall_median if self.new else None,
+            self.base.wall_min if self.base else None,
+            self.new.wall_min if self.new else None,
         )
+
+    @property
+    def cov_base(self) -> float:
+        """
+        The coefficient of variation of the base wall times.
+
+        Description
+        -----------
+        Defined as ``std(base.wall_times) / mean(base.wall_times)``.
+        Degenerate cases (no base, empty/single-sample times, or a
+        zero mean) yield 0.0 so the noise-derived tolerance falls back
+        to the global threshold.
+        """
+        if self.base is None:
+            return 0.0
+        if len(self.base.wall_times) < 2:  # noqa: PLR2004
+            return 0.0
+        mean = self.base.wall_mean
+        if not mean:
+            return 0.0
+        return self.base.wall_std / mean
+
+    def effective_tolerance(
+        self, threshold: float = DEFAULT_THRESHOLD,
+    ) -> tuple[float, str]:
+        """
+        Return the per-case tolerance band and the rule that set it.
+
+        Description
+        -----------
+        The band is ``max(threshold, NOISE_TOLERANCE_K * cov_base)``:
+        the global threshold, widened to a noise-derived band whenever
+        the baseline's own jitter exceeds it.
+
+        Parameters
+        ----------
+        threshold : float, optional
+            The global relative wall-time threshold (default: 0.05).
+
+        Returns
+        -------
+        tuple[float, str]
+            The effective tolerance and the rule that set it, one of
+            "global" (the flat threshold) or "noise" (the CoV band).
+        """
+        noise = NOISE_TOLERANCE_K * self.cov_base
+        if noise > threshold:
+            return noise, "noise"
+        return threshold, "global"
 
     @property
     def compile(self) -> MetricDelta:
@@ -140,11 +308,19 @@ class CaseComparison:
         """
         Classify the case comparison.
 
+        Description
+        -----------
+        The comparison uses the per-case effective tolerance
+        (``effective_tolerance``), not the bare ``threshold``: a case
+        whose minimum wall time moved by less than its own noise band
+        counts as "ok" even past the global threshold, and vice versa.
+
         Parameters
         ----------
         threshold : float, optional
-            The relative wall-time change above which a case counts
-            as slower/faster (default: 0.05).
+            The global relative wall-time change above which a case
+            counts as slower/faster, before the per-case noise band is
+            applied (default: 0.05).
 
         Returns
         -------
@@ -161,9 +337,10 @@ class CaseComparison:
         if self.new is None:
             return "removed"
         rel = self.wall.rel
-        if rel is not None and rel > threshold:
+        tol, _ = self.effective_tolerance(threshold)
+        if rel is not None and rel > tol:
             return "slower"
-        if rel is not None and rel < -threshold:
+        if rel is not None and rel < -tol:
             return "faster"
         return "ok"
 
@@ -356,7 +533,7 @@ def format_comparison(
         The rendered report.
     """
     header = [
-        "case", "wall (base)", "wall (new)", "d wall", "d compile",
+        "case", "wall (base)", "wall (new)", "d wall", "tol", "d compile",
         "d memory", "status",
     ]
     rows = []
@@ -369,6 +546,7 @@ def format_comparison(
             _format_seconds(case.wall.base),
             _format_seconds(case.wall.new),
             _format_rel(case.wall.rel),
+            _format_tolerance(case, status, threshold),
             _format_rel(case.compile.rel),
             _format_rel(case.memory.rel),
             status,

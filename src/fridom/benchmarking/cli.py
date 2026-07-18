@@ -2,13 +2,16 @@
 from __future__ import annotations
 
 import argparse
+import sys
 from datetime import UTC, datetime
 from pathlib import Path
 
 from fridom.benchmarking.compare import (
     DEFAULT_THRESHOLD,
     compare,
+    env_mismatches,
     format_comparison,
+    format_env_mismatches,
     format_suite,
 )
 from fridom.benchmarking.result import SuiteResult
@@ -58,8 +61,22 @@ def _cmd_run(args: argparse.Namespace) -> int:
 
 def _cmd_compare(args: argparse.Namespace) -> int:
     """Compare two benchmark suite results."""
-    comparison = compare(
-        SuiteResult.load(args.base), SuiteResult.load(args.new))
+    base = SuiteResult.load(args.base)
+    new = SuiteResult.load(args.new)
+    mismatches = env_mismatches(base.metadata, new.metadata)
+    if mismatches:
+        message = format_env_mismatches(mismatches)
+        if not args.allow_env_mismatch:
+            print(message, file=sys.stderr)
+            print(
+                "refusing to compare mismatched environments; "
+                "pass --allow-env-mismatch to override",
+                file=sys.stderr)
+            return 2
+        print("WARNING: comparing across mismatched environments; "
+              "deltas may be meaningless", file=sys.stderr)
+        print(message, file=sys.stderr)
+    comparison = compare(base, new)
     print(format_comparison(
         comparison, threshold=args.threshold, markdown=args.markdown))
     if args.fail_on_regression and comparison.regressions(args.threshold):
@@ -125,8 +142,13 @@ def build_parser() -> argparse.ArgumentParser:
     comp.add_argument("new", help="the new result JSON")
     comp.add_argument(
         "--threshold", type=float, default=DEFAULT_THRESHOLD,
-        help="relative wall-time change flagged as slower/faster "
+        help="global relative wall-time change flagged as "
+             "slower/faster; widened per case to a noise-derived band "
              f"(default: {DEFAULT_THRESHOLD})")
+    comp.add_argument(
+        "--allow-env-mismatch", action="store_true",
+        help="downgrade an environment mismatch (backend, device "
+             "count/kind, jax version) from a hard error to a warning")
     comp.add_argument(
         "--markdown", action="store_true",
         help="render the report as a markdown table")

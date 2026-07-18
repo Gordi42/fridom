@@ -41,10 +41,16 @@ def suite_dir(tmp_path):
     return tmp_path
 
 
-def save_suite(path, results):
-    mdata = RunMetadata(commit="a" * 40, backend="cpu",
-                        device_kind="cpu", device_count=1)
-    SuiteResult(metadata=mdata, results=results).save(path)
+def save_suite(path, results, **metadata):
+    fields = {
+        "commit": "a" * 40,
+        "backend": "cpu",
+        "device_kind": "cpu",
+        "device_count": 1,
+        "jax_version": "0.10.2",
+    }
+    fields.update(metadata)
+    SuiteResult(metadata=RunMetadata(**fields), results=results).save(path)
 
 
 # ================================================================
@@ -165,6 +171,55 @@ def test_compare_threshold_and_markdown(tmp_path, capsys):
     ])
     assert exit_code == 0
     assert "| case |" in capsys.readouterr().out
+
+
+def test_compare_env_mismatch_hard_error(tmp_path, capsys):
+    save_suite(tmp_path / "base.json",
+               [BenchmarkResult(name="a", wall_times=[1.0])], backend="gpu")
+    save_suite(tmp_path / "new.json",
+               [BenchmarkResult(name="a", wall_times=[2.0])], backend="cpu")
+
+    exit_code = main([
+        "compare", str(tmp_path / "base.json"), str(tmp_path / "new.json"),
+        "--fail-on-regression",
+    ])
+    captured = capsys.readouterr()
+    # nonzero exit distinct from the regression code, no comparison table
+    assert exit_code == 2
+    assert "environment mismatch" in captured.err
+    assert "backend" in captured.err
+    assert captured.out == ""
+
+
+def test_compare_env_mismatch_missing_field(tmp_path, capsys):
+    save_suite(tmp_path / "base.json",
+               [BenchmarkResult(name="a", wall_times=[1.0])])
+    save_suite(tmp_path / "new.json",
+               [BenchmarkResult(name="a", wall_times=[1.0])],
+               jax_version=None)
+
+    exit_code = main([
+        "compare", str(tmp_path / "base.json"), str(tmp_path / "new.json"),
+    ])
+    assert exit_code == 2
+    assert "jax_version" in capsys.readouterr().err
+
+
+def test_compare_allow_env_mismatch(tmp_path, capsys):
+    save_suite(tmp_path / "base.json",
+               [BenchmarkResult(name="a", wall_times=[1.0])], backend="gpu")
+    save_suite(tmp_path / "new.json",
+               [BenchmarkResult(name="a", wall_times=[1.0])], backend="cpu")
+
+    exit_code = main([
+        "compare", str(tmp_path / "base.json"), str(tmp_path / "new.json"),
+        "--allow-env-mismatch",
+    ])
+    captured = capsys.readouterr()
+    # downgraded to a warning; the comparison still runs
+    assert exit_code == 0
+    assert "WARNING" in captured.err
+    assert "case" in captured.out
 
 
 # ================================================================
