@@ -1,5 +1,5 @@
 ---
-status: draft
+status: active
 date: 2026-07-18
 ---
 
@@ -63,10 +63,17 @@ implied).
   `pressure_iterations`/`pressure_tolerance`. The taught error to
   remove is `ImplicitFreeSurface.bind` (free_surface.py:684-695).
 
-## 1. Decisions (proposed — owner ratification pending)
+## 1. Decisions (owner-ratified 2026-07-18)
+
+*Owner ratification 2026-07-18: the plan and all recommendations are
+ratified as proposed — GM-D1 resolves to option 1 (volume-exact);
+GM-D9 was ruled the same day (full 3-D coarsening default). Phase E
+(warm-started pressure solves) was added at the same ratification on
+the owner's question.*
 
 **GM-D1 — the terrain operator is the volume-exact ("variable-csqr")
-form; the energy-form is the recorded alternative. NEEDS OWNER RULING.**
+form; the energy-form is the recorded alternative. RATIFIED: option 1
+(owner, 2026-07-18).**
 With `T*` the *un-normalized* post-advance transport divergence
 `∫[∂x(Ju) + ∂y(Jv)] dz`, `H_a(x,y) = ∫J dz` on the a-face, `H_ref` the
 constant vertical mesh extent, and `g = csqr / H_ref`:
@@ -231,6 +238,24 @@ n_z, immersed solver) keep semicoarsening without error.
 Gate GD-3: a research record with the full table including the
 multi-device leg; step-baseline impact is left to the owner's batched
 guard checkpoints (perf-guard policy).
+
+**Phase E — warm-started pressure solves (owner-requested
+2026-07-18).** Thread the existing, currently-unused `x0` seam
+(`ConjugateGradient.__call__(rhs, x0=None)`, already plumbed through
+both pressure solvers' `solve`) to the three iterative call sites: the
+mapped and immersed projections pass the previous stored pressure
+rescaled to the stage increment (`x0 = state["p"] · ctx.stage_dt`; the
+zero-initialized first step is unchanged), and the implicit free
+surface passes the previous `ps`. The stopping test is RHS-relative
+and the masked-scan early exit is measured real, so saved achieved
+iterations are wall time (estimate: ~2–3 of 10 multigrid iterations,
+~9–13 of 36 spectral-preconditioned, flow-dependent; never negative —
+correctness is start-independent).
+Gate GE-1: warm-started solves match the zero-start solution within
+tolerance; the mean gauge stays enforced under a non-mean-free `x0`;
+the autodiff regressions stay green.
+Gate GE-2: a measured step-time / achieved-iteration reduction on the
+GB-2 config, recorded in the implementation record.
 
 ## 3. Risks
 
