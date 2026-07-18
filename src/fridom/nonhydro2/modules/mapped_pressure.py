@@ -391,10 +391,12 @@ class MappedPressureSolver:
         The PCG preconditioner (B3/B4): ``"spectral"`` (the flat
         separable spectral inverse at folded coefficients),
         ``"multigrid"`` (the geometric-multigrid V-cycle assembled by
-        :meth:`_build_vcycle`, semicoarsening the horizontal axes with
-        vertical line smoothing — its vertical bands and diagonal read
-        the ``grid.measure`` widths, so it is the **stretched**-column
-        preconditioner too, N3), or ``"none"`` (unpreconditioned CG —
+        :meth:`_build_vcycle`, coarsening the mapped column too by
+        default with vertical line smoothing, see
+        ``multigrid_coarsen_vertical`` — its vertical bands and diagonal
+        read the ``grid.measure`` widths, so it is the
+        **stretched**-column preconditioner too, N3), or ``"none"``
+        (unpreconditioned CG —
         the N1 plain-CG correctness stopgap; slow, not a production
         route). A stretched base column with ``"spectral"`` raises
         ``NotImplementedError`` at construction (N1: the separable
@@ -420,6 +422,28 @@ class MappedPressureSolver:
         validated at construction; the backend requirement of
         ``"cusparse"`` is checked at solve time. Ignored for the
         spectral preconditioner (default: ``"auto"``).
+    multigrid_coarsen_vertical : bool, optional
+        Whether the multigrid V-cycle coarsens the mapped column too
+        (full 3-D coarsening), forwarded to :meth:`_build_vcycle`'s
+        :func:`~fridom.spatial.operators.multigrid_hierarchy.coarsen_levels`.
+        ``True`` — the **ratified default** (GM-D9, owner 2026-07-18) —
+        coarsens the vertical alongside the horizontal axes wherever the
+        vertical mesh supports it: the spike measured identical
+        10-iteration convergence at 128/256/512^3 on the GB-2 steep
+        mapped protocol and -6..-11% per CG iteration (the saving grows
+        with n, since semicoarsening's coarse levels keep the full n_z),
+        with the vertical-line smoother kept at every level. The
+        coarsening degrades gracefully: a vertical whose mesh cannot
+        coarsen — a ``ChebyshevMesh`` (``coarsenable=False``), an
+        indivisible ``n_z`` (below the ``n % 2 == 0 and n // 2 >= 4``
+        floor), or a **stretched** base column (a ``MappedIntervalMesh``
+        vertical, :attr:`_stretched_base`, whose host-validated coarse
+        construction cannot run under the solve trace) — automatically
+        stays full while the horizontals continue, so no configuration
+        errors on the knob. ``False`` restores pure
+        horizontal semicoarsening (the mapped column kept at full
+        resolution at every level). Ignored for the spectral
+        preconditioner (default: True).
     """
 
     def __init__(
@@ -435,6 +459,7 @@ class MappedPressureSolver:
         preconditioner: str = "spectral",
         multigrid_levels: int | None = None,
         multigrid_tridiagonal_method: str = "auto",
+        multigrid_coarsen_vertical: bool = True,
     ) -> None:
         """Discover the mapped column and resolve the static rows."""
         if preconditioner not in _PRECONDITIONERS:
@@ -445,6 +470,7 @@ class MappedPressureSolver:
         self._multigrid_levels = multigrid_levels
         self._multigrid_tridiagonal_method = validate_tridiagonal_method(
             multigrid_tridiagonal_method)
+        self._multigrid_coarsen_vertical = bool(multigrid_coarsen_vertical)
         mapping = getattr(grid, "mapping", None)
         if mapping is None:
             raise ValueError(
@@ -1394,19 +1420,27 @@ class MappedPressureSolver:
 
     def _build_vcycle(self, cache: MetricCache) -> MultigridVCycle:
         r"""
-        Assemble the semicoarsened multigrid V-cycle preconditioner.
+        Assemble the multigrid V-cycle preconditioner.
 
         Description
         -----------
-        The ``preconditioner="multigrid"`` seam (B3, MG-D4/D6/D8): the
-        horizontal axes semicoarsen (never the mapped column ``base``),
-        each level re-instantiates this solver class on its coarse grid
-        (re-discretization of the metrics on the coarse spaces), the
-        transfers are the order-2 ``GridTransfer`` pair, the smoother is
-        vertical-line Jacobi at :data:`_LINE_OMEGA`, and every level
-        projects out the constants (mean-free). The finest level re-uses
-        ``self`` and the shared ``cache``; the coarse levels each carry
-        their own per-solve metric memo, re-derived on the coarse grid.
+        The ``preconditioner="multigrid"`` seam (B3, MG-D4/D6/D8/GM-D9):
+        by default (``multigrid_coarsen_vertical=True``, the ratified
+        GM-D9 flip) the mapped column ``base`` coarsens alongside the
+        horizontal axes wherever its mesh supports it — full 3-D
+        coarsening, degrading to horizontal semicoarsening automatically
+        where the vertical cannot coarsen (a Chebyshev mesh, an
+        indivisible ``n_z``); with ``multigrid_coarsen_vertical=False``
+        the column stays full at every level (pure semicoarsening).
+        Either way each level re-instantiates this solver class on its
+        coarse grid (re-discretization of the metrics on the coarse
+        spaces), the transfers are the order-2 ``GridTransfer`` pair, the
+        smoother is vertical-line Jacobi at :data:`_LINE_OMEGA` (kept at
+        every level — a point smoother fails under both semi- and full
+        coarsening, spike 2), and every level projects out the constants
+        (mean-free). The finest level re-uses ``self`` and the shared
+        ``cache``; the coarse levels each carry their own per-solve
+        metric memo, re-derived on the coarse grid.
 
         Static maps only (iteration 1): a moving geometry threads
         grid-bound parameter fields through ``params=``, which the
@@ -1437,8 +1471,22 @@ class MappedPressureSolver:
                 "parameter fields through params= (moving geometry), "
                 "which the coarse re-derivation cannot re-bind — use "
                 "preconditioner='spectral' with a moving geometry")
+        # GM-D9 full coarsening, with the graceful semicoarsening
+        # fallback for a *stretched* base column: a MappedIntervalMesh
+        # vertical (:attr:`_stretched_base`, N2/N3) coarsens through
+        # ``mesh.coarsened`` -> ``MappedIntervalMesh.__init__``, whose
+        # host-side ``_validate_mapping`` samples the map with ``numpy``
+        # — which cannot run inside the solve's jit trace (the ``jnp``
+        # map stages into the trace as a tracer, not a host array). The
+        # spike measured full coarsening on the *uniform* base terrain
+        # column only (``zp = sigma H(x, y)``, sigma uniform); the
+        # stretched base is the rarer N2/N3 case and stays semicoarsened
+        # automatically, like a Chebyshev vertical or an indivisible n_z.
+        coarsen_vertical = (self._multigrid_coarsen_vertical
+                            and not self._stretched_base)
         chain = coarsen_levels(
             self._grid, self._space, vertical=self._base,
+            coarsen_vertical=coarsen_vertical,
             max_levels=self._multigrid_levels,
             rediscretize=(rediscretize_fv_coarse
                           if is_fv(self._space) else None))

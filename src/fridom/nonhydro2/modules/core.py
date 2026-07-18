@@ -399,6 +399,20 @@ class DynamicalCore(fr.model.Module):
         construction; consumed only for
         ``pressure_preconditioner="multigrid"``. Static in the
         fingerprint (default: ``"auto"``).
+    multigrid_coarsen_vertical : bool, optional
+        Whether the mapped multigrid V-cycle coarsens the vertical
+        column too (full 3-D coarsening), forwarded to the
+        :class:`MappedPressureSolver` (only — the immersed solver keeps
+        semicoarsening, out of GM-D9's scope). ``True`` — the
+        owner-ratified default (GM-D9, 2026-07-18) — coarsens the
+        vertical alongside the horizontals wherever the vertical mesh
+        supports it (identical 10-iteration convergence, -6..-11% per CG
+        iteration at 128/256/512^3 on the GB-2 mapped protocol),
+        degrading to horizontal semicoarsening automatically where it
+        cannot (a Chebyshev vertical, an indivisible ``n_z``); ``False``
+        restores pure semicoarsening. Consumed only for a mapped grid
+        with ``pressure_preconditioner="multigrid"``. Static in the
+        fingerprint (default: True).
     family : str | None, optional
         The discretization family of the whole core state (FV-D3,
         stage F3): ``"fv"`` declares ``u, v, w, p`` on the
@@ -432,6 +446,7 @@ class DynamicalCore(fr.model.Module):
         pressure_preconditioner: str = "spectral",
         multigrid_levels: int | None = None,
         multigrid_tridiagonal_method: str = "auto",
+        multigrid_coarsen_vertical: bool = True,
         family: str | None = None,
     ) -> None:
         """Store the core parameter leaves and the geometry names."""
@@ -450,6 +465,7 @@ class DynamicalCore(fr.model.Module):
         self._multigrid_levels = multigrid_levels
         self._multigrid_tridiagonal_method = validate_tridiagonal_method(
             multigrid_tridiagonal_method)
+        self._multigrid_coarsen_vertical = bool(multigrid_coarsen_vertical)
         self._family = family
 
     # ================================================================
@@ -684,6 +700,7 @@ class DynamicalCore(fr.model.Module):
             multigrid_levels=self._multigrid_levels,
             multigrid_tridiagonal_method=(
                 self._multigrid_tridiagonal_method),
+            multigrid_coarsen_vertical=self._multigrid_coarsen_vertical,
             params=mapping_params(state, grid))
         # one metric derivation for the whole projection: divergence,
         # solve and correction share the solver's per-solve memo (it
