@@ -1,0 +1,97 @@
+HloModule jit_f, is_scheduled=true, entry_computation_layout={(f64[32,128,128]{2,1,0}, f64[32,128,128]{2,1,0}, f64[32,128,128]{2,1,0}, f64[32,128,128]{2,1,0})->f64[32,128,128]{2,1,0}}, allow_spmd_sharding_propagation_to_parameters={false,false,false,false}, allow_spmd_sharding_propagation_to_output={true}, num_partitions=4, frontend_attributes={fingerprint_before_lhs="ee88ab3c83c08cb5b5545a759b1df40c"}
+
+FileNames
+1 "/tmp/claude-100698/-work-uo0780-u301533-fridom-fridom-dev/4f23fac6-d4e9-4088-a855-5ccf5ca6a06b/scratchpad/minimal_hlo.py"
+2 "/work/uo0780/u301533/fridom/fridom-dev/src/fridom/spatial/operators/banded.py"
+
+FunctionNames
+1 "<module>"
+2 "make.<locals>.f"
+3 "tridiagonal_solve_along_axis"
+4 "_tridiagonal_cusparse"
+
+FileLocations
+1 {file_name_id=1 function_name_id=1 line=43 end_line=43 column=54 end_column=54}
+2 {file_name_id=1 function_name_id=2 line=36 end_line=36 column=15 end_column=15}
+3 {file_name_id=2 function_name_id=3 line=550 end_line=550 column=17 end_column=17}
+4 {file_name_id=2 function_name_id=4 line=436 end_line=436 column=9 end_column=9}
+5 {file_name_id=2 function_name_id=4 line=438 end_line=438 column=9 end_column=9}
+6 {file_name_id=2 function_name_id=4 line=440 end_line=440 column=13 end_column=13}
+7 {file_name_id=2 function_name_id=4 line=437 end_line=437 column=9 end_column=9}
+8 {file_name_id=2 function_name_id=3 line=552 end_line=552 column=11 end_column=11}
+
+StackFrames
+1 {file_location_id=1 parent_frame_id=1}
+2 {file_location_id=2 parent_frame_id=2}
+3 {file_location_id=3 parent_frame_id=3}
+4 {file_location_id=4 parent_frame_id=4}
+5 {file_location_id=5 parent_frame_id=4}
+6 {file_location_id=6 parent_frame_id=4}
+7 {file_location_id=7 parent_frame_id=4}
+8 {file_location_id=8 parent_frame_id=3}
+
+
+%fused_dynamic_update_slice (param_0.7: f64[32,128,128], param_1.11: f64[32,128,1], param_2.14: pred[]) -> f64[4096,128] {
+  %param_0.7 = f64[32,128,128]{2,1,0} parameter(0)
+  %bitcast.9.1 = f64[4096,128]{1,0} bitcast(%param_0.7), metadata={op_name="jit(f)/transpose" stack_frame_id=4}
+  %param_2.14 = pred[] parameter(2)
+  %broadcast.74.1 = pred[32,128,1]{2,1,0} broadcast(%param_2.14), dimensions={}, metadata={op_name="broadcast.56"}
+  %constant_70_clone_2 = f64[] constant(0)
+  %broadcast.75.1 = f64[32,128,1]{2,1,0} broadcast(%constant_70_clone_2), dimensions={}, metadata={op_name="broadcast.58"}
+  %param_1.11 = f64[32,128,1]{2,1,0} parameter(1)
+  %select.11.1 = f64[32,128,1]{2,1,0} select(%broadcast.74.1, %broadcast.75.1, %param_1.11), metadata={op_name="select.6"}
+  %bitcast.1.1 = f64[4096,1]{1,0} bitcast(%select.11.1), metadata={op_name="select.6"}
+  %constant_68_clone_3 = s32[] constant(0)
+  ROOT %dynamic-update-slice.6.1 = f64[4096,128]{1,0} dynamic-update-slice(%bitcast.9.1, %bitcast.1.1, %constant_68_clone_3, %constant_68_clone_3), metadata={op_name="jit(f)/scatter" stack_frame_id=4}
+}
+
+%fused_dynamic_update_slice.1 (param_0.8: f64[32,128,128]) -> f64[4096,128] {
+  %param_0.8 = f64[32,128,128]{2,1,0} parameter(0)
+  %bitcast.21.1 = f64[4096,128]{1,0} bitcast(%param_0.8), metadata={op_name="jit(f)/transpose" stack_frame_id=5}
+  %constant_70_clone_3 = f64[] constant(0)
+  %broadcast.73.1 = f64[4096,1]{1,0} broadcast(%constant_70_clone_3), dimensions={}, metadata={op_name="reshape.60"}
+  %constant_68_clone_4 = s32[] constant(0)
+  %constant_67_clone_3 = s32[] constant(127)
+  ROOT %dynamic-update-slice.7.1 = f64[4096,128]{1,0} dynamic-update-slice(%bitcast.21.1, %broadcast.73.1, %constant_68_clone_4, %constant_67_clone_3), metadata={op_name="jit(f)/scatter" stack_frame_id=5}
+}
+
+%region_0.0 (reduce.4: pred[], reduce.5: pred[]) -> pred[] {
+  %reduce.5 = pred[] parameter(1), metadata={op_name="reduce.2"}
+  %reduce.4 = pred[] parameter(0), metadata={op_name="reduce.2"}
+  ROOT %and.6.0 = pred[] and(%reduce.4, %reduce.5), metadata={op_name="and"}
+}
+
+%fused_reduce () -> pred[] {
+  %iota.6.1 = s32[2]{0} iota(), iota_dimension=0, metadata={op_name="iota"}
+  %constant_67_clone_2 = s32[] constant(127)
+  %broadcast.66.1 = s32[2]{0} broadcast(%constant_67_clone_2), dimensions={}, metadata={op_name="broadcast.33"}
+  %multiply.6.1 = s32[2]{0} multiply(%iota.6.1, %broadcast.66.1), metadata={op_name="multiply"}
+  %constant_68_clone_2 = s32[] constant(0)
+  %broadcast.67.1 = s32[2]{0} broadcast(%constant_68_clone_2), dimensions={}, metadata={op_name="broadcast.45"}
+  %compare.12.1 = pred[2]{0} compare(%multiply.6.1, %broadcast.67.1), direction=GE, metadata={op_name="compare.7"}
+  %constant_69_clone_2 = pred[] constant(true)
+  ROOT %reduce.6.1 = pred[] reduce(%compare.12.1, %constant_69_clone_2), dimensions={0}, to_apply=%region_0.0, metadata={op_name="reduce.2"}
+}
+
+%wrapped_slice_computation (param_0.9: f64[32,128,128]) -> f64[32,128,1] {
+  %param_0.9 = f64[32,128,128]{2,1,0} parameter(0)
+  ROOT %slice.39.1 = f64[32,128,1]{2,1,0} slice(%param_0.9), slice={[0:32], [0:128], [0:1]}, metadata={op_name="slice.34"}
+}
+
+ENTRY %main.0_spmd (param.4: f64[32,128,128], param.5: f64[32,128,128], param.6: f64[32,128,128], param.7: f64[32,128,128]) -> f64[32,128,128] {
+  %input_reduce_fusion = pred[] fusion(), kind=kInput, calls=%fused_reduce, metadata={op_name="reduce.2"}, backend_config={"device_type":"DEVICE_TYPE_INVALID","force_earliest_schedule":false,"native_emitter_backend_config":{"type":"NATIVE_EMITTER_TYPE_INVALID","unroll_factor":0},"operation_queue_id":"0","reification_cost":[]}
+  %param.7 = f64[32,128,128]{2,1,0} parameter(3), sharding={devices=[4,1,1]<=[4]}, metadata={op_name="b"}
+  %bitcast.59.0 = f64[4096,128,1]{1,2,0} bitcast(%param.7)
+  %param.6 = f64[32,128,128]{2,1,0} parameter(2), sharding={devices=[4,1,1]<=[4]}, metadata={op_name="up"}
+  %copy.6 = f64[32,128,128]{2,1,0} copy(%param.6)
+  %param.5 = f64[32,128,128]{2,1,0} parameter(1), sharding={devices=[4,1,1]<=[4]}, metadata={op_name="di"}
+  %bitcast.18.0 = f64[4096,128]{1,0} bitcast(%param.5), metadata={op_name="jit(f)/transpose" stack_frame_id=7}
+  %param.4 = f64[32,128,128]{2,1,0} parameter(0), sharding={devices=[4,1,1]<=[4]}, metadata={op_name="lo"}
+  %copy.5 = f64[32,128,128]{2,1,0} copy(%param.4)
+  %wrapped_slice = f64[32,128,1]{2,1,0} fusion(%copy.5), kind=kLoop, calls=%wrapped_slice_computation, metadata={op_name="slice.34"}, backend_config={"device_type":"DEVICE_TYPE_INVALID","force_earliest_schedule":false,"native_emitter_backend_config":{"type":"NATIVE_EMITTER_TYPE_INVALID","unroll_factor":0},"operation_queue_id":"0","reification_cost":[]}
+  %loop_dynamic_update_slice_fusion = f64[4096,128]{1,0} fusion(%copy.5, %wrapped_slice, %input_reduce_fusion), kind=kLoop, calls=%fused_dynamic_update_slice, metadata={op_name="jit(f)/scatter" stack_frame_id=4}, backend_config={"device_type":"DEVICE_TYPE_INVALID","force_earliest_schedule":false,"native_emitter_backend_config":{"type":"NATIVE_EMITTER_TYPE_INVALID","unroll_factor":0},"operation_queue_id":"0","reification_cost":[]}
+  %loop_dynamic_update_slice_fusion.1 = f64[4096,128]{1,0} fusion(%copy.6), kind=kLoop, calls=%fused_dynamic_update_slice.1, metadata={op_name="jit(f)/scatter" stack_frame_id=5}, backend_config={"device_type":"DEVICE_TYPE_INVALID","force_earliest_schedule":false,"native_emitter_backend_config":{"type":"NATIVE_EMITTER_TYPE_INVALID","unroll_factor":0},"operation_queue_id":"0","reification_cost":[]}
+  %custom-call = f64[4096,128,1]{1,2,0} custom-call(%loop_dynamic_update_slice_fusion, %bitcast.18.0, %loop_dynamic_update_slice_fusion.1, %bitcast.59.0), custom_call_target="cusparse_gtsv2_ffi", operand_layout_constraints={f64[4096,128]{1,0}, f64[4096,128]{1,0}, f64[4096,128]{1,0}, f64[4096,128,1]{1,2,0}}, api_version=API_VERSION_TYPED_FFI, frontend_attributes={num_batch_dims="1"}, metadata={op_name="jit(f)/tridiagonal_solve" stack_frame_id=6}, backend_config={}
+  ROOT %bitcast.31.0 = f64[32,128,128]{2,1,0} bitcast(%custom-call), metadata={op_name="jit(f)/transpose" stack_frame_id=8}
+}
+

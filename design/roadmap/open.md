@@ -513,23 +513,8 @@ The semicoarsened V-cycle preconditioner shipped 2026-07-17 and the
 V-cycle kernel swap it called for shipped 2026-07-18 (merge
 `0ece46b1`; both entries in [`done.md`](done.md), measurements in
 [`../research/multigrid_kernel_study.md`](../research/multigrid_kernel_study.md)
-§Addendum). Open, none blocking:
+§§Addendum, Addendum 2). Open, none blocking:
 
-- **cuSPARSE kernel under GSPMD (multi-device) — HLO/perf leg only.**
-  The line smoother's `method="auto"` resolves to the batched
-  `lax.linalg.tridiagonal_solve` (cuSPARSE) on any GPU backend,
-  including sharded multi-GPU runs. The **parity** leg is now
-  validated on real 4×A100: the full-3-D-coarsening default solve is
-  bit-parity-clean 1-vs-4 with `method="auto"` (→cuSPARSE) — the GB-5
-  forced-4 tests pass on hardware (2026-07-18, dev `33707661`) — and a
-  kernel sweep showed the remaining multi-device failures are
-  **kernel-independent** (auto/cusparse/pcr/scan behave identically),
-  so they are not a cuSPARSE custom-call defect. Still open: confirm
-  the custom call's GSPMD partitioning does not **all-gather** the
-  batch axes (correct but slow) — an HLO/perf inspection, not
-  correctness; a run that sees all-gathers can set
-  `multigrid_tridiagonal_method="pcr"` (pure jax, partitions cleanly).
-  Caveat documented in `banded.py`.
 - **Semicoarsening V-cycle multi-device parity — broken.** The
   semicoarsening hierarchy (horizontal-only coarsening + full-vertical
   line smoother) mis-partitions on ≥2 devices: 1-GPU clean, 4-GPU
@@ -561,8 +546,13 @@ V-cycle kernel swap it called for shipped 2026-07-18 (merge
   cheaper mapped operator applies (the finest level dominates the
   post-swap V-cycle: one sweep = 15.7 ms cuSPARSE solve + 12.0 ms
   operator apply at 512³). Take only with a concrete driver toward
-  the 1.5× GB-2 bar. Immersed remains the projected outright win
-  (1.3–2.0×), in-model post-swap standing unmeasured.
+  the 1.5× GB-2 bar. Immersed in-model post-swap standing is now
+  measured (2026-07-18, kernel study Addendum 2): mg 1.09×/1.12× at
+  128³/256³ at the production budget=100, where spectral also converges
+  (71–73 iters) — the 1.3–2.0× projection was a budget=30 artifact, and
+  mg is the only converged option below budget ≈70. On 4 GPUs
+  mg-cuSPARSE is 1.11× at 512³ but 0.37× at 128³ (per-level collective
+  latency), so any lever hunt is large-n / multi-GPU-aware.
 
 ## Differentiable run surface — `model.propagator()`
 
