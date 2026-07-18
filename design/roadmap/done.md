@@ -330,6 +330,22 @@ Implementation record:
   FD-matched to rel-err ~6e-12 against gate 1e-4, nodal + FV). The
   new-stack step path is now reverse-differentiable on **all** grid
   types — flat, walled, mapped, immersed — with no known exception.
+- **Multigrid size-scaling root cause: the depth cap, not the
+  algorithm** (2026-07-18, measurement-only; record
+  [`../research/multigrid_depth_scaling.md`](../research/multigrid_depth_scaling.md))
+  — the post-swap "deficit vs spectral widens with n" verdict was an
+  artifact of the fixed `multigrid_levels=5` default: h-independence
+  breaks once the coarsest level outgrows its 8 sweeps (iterations
+  10 → 15 → 27 at 128/256/512³ while spectral stays flat 36;
+  per-iteration cost is healthy — 42× per 64× more cells vs
+  spectral's 54×, the cost ratio *improving* 3.14× → 2.45×). At
+  floor-scaled depth (coarsest 8×8×n_z; L=6 at 256³, L=7 at 512³):
+  flat **10** iterations at every size, per-cycle cost unchanged,
+  and the in-model GB-2 step **beats spectral 1.23× at 256³
+  (237.8 vs 291.6 ms) and 1.22× at 512³ (1873.3 vs 2277.9 ms)**
+  (physics equivalence 2–5e-11). GB-2 (≥1.5×) still unmet at every
+  measured size. Follow-up (floor-depth default, src change not
+  made): [`open.md`](open.md).
 - **Multigrid V-cycle kernel swap** (2026-07-18, merge `0ece46b1`) —
   `banded.tridiagonal_solve_along_axis` grew a host-static
   `method` knob with three interchangeable kernels: `"scan"` (the
@@ -358,7 +374,10 @@ Implementation record:
   corrections to the study record: the projected 128³ post-swap
   1.17× measured as 0.975×, and the "free IMEX side benefit" was
   wrong (`model/implicit.py` uses the dense `solve_along_axis`,
-  not this kernel). Open residue (cuSPARSE-under-GSPMD validation,
+  not this kernel). *Corrected same day: the "deficit widens with
+  n / spectral stays default at every size" conclusion was the
+  `multigrid_levels=5` depth cap — see the size-scaling entry
+  above.* Open residue (cuSPARSE-under-GSPMD validation,
   residual mapped-GPU levers): [`open.md`](open.md). Evidence:
   [`../research/multigrid_kernel_study.md`](../research/multigrid_kernel_study.md)
   §Addendum.

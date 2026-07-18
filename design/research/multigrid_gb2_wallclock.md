@@ -86,7 +86,13 @@ CPU-relevant as measured. The swap shipped 2026-07-18 (merge
 `0ece46b1`); measured in-model it delivers 12.9× at 128³ (parity with
 spectral, 0.975×) and 2.2× at 512³ (0.67× vs spectral — the deficit
 widens with n, so this gate stays failed at every measured size; see
-the kernel study's Addendum).
+the kernel study's Addendum). Same-day follow-up
+([`multigrid_depth_scaling.md`](multigrid_depth_scaling.md)): the
+widening was the `multigrid_levels=5` depth cap (h-independence
+breaks once the coarsest level outgrows its 8 sweeps); at
+floor-scaled depth multigrid beats spectral in-model 1.23× at 256³
+(L=6) and 1.22× at 512³ (L=7). The ≥1.5× gate itself remains unmet
+at every measured size.
 
 ## Measurement-fairness verification (why budget=100 is honest here)
 

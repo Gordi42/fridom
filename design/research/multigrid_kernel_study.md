@@ -345,6 +345,14 @@ Corrections to this record's synthesis, from the measured runs:
   scan kernel's batch-independent latency being amortized, not of the
   algorithm. GB-2 (>=1.5x) stays unmet at every measured size; spectral
   stays the mapped GPU production default.
+  *Corrected same day
+  ([`multigrid_depth_scaling.md`](multigrid_depth_scaling.md)): the
+  widening was the `multigrid_levels=5` depth cap breaking
+  h-independence (10 -> 27 iterations at 512^3), not the algorithm or
+  the kernels; at floor-scaled depth (L=7 at 512^3) iterations are
+  flat 10 and the in-model step beats spectral 1.22x-1.23x from 256^3
+  up. GB-2 (>=1.5x) still unmet; the "spectral stays default at every
+  size" conclusion no longer holds at scaled depth.*
 - **PCR does not fit 512^3 mapped on one A100-80GB**: the XLA live set
   after rematerialization is >= 76 GiB (the 9 host-unrolled passes'
   shifted temporaries stay live inside the CG scan) -> RESOURCE_EXHAUSTED
