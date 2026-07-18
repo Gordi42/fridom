@@ -250,6 +250,51 @@ class ChannelEigenbasis:
         return jnp.max(jnp.abs(gram - identity))
 
 
+def _designate_half_axis(
+    grid: object, periodic_names: tuple[str, ...],
+) -> str:
+    r"""
+    Choose the periodic axis that carries the rfft half spectrum.
+
+    Description
+    -----------
+    The half-spectrum axis is an engine convention, not physics: any
+    periodic axis can carry it (the coefficient frame is free — the
+    contracted physical field is invariant). The default is the
+    **last** periodic axis (grid order), which keeps single-device
+    programs and every already-served multi-device layout
+    byte-identical. When the grid's default layout **shards that last
+    periodic axis** -- the layout the fused distributed contraction
+    cannot serve in the fixed frame, because its local rfft needs real
+    data on an unsharded axis -- a local periodic axis is designated
+    instead, so the sharded axis carries a full spectrum (the
+    transpose partner ``a``) and the rfft runs on the local half axis
+    ``b``. All-local (single-device) layouts always keep the default,
+    so the pick only ever moves on a layout the fixed frame could not
+    serve.
+
+    Parameters
+    ----------
+    grid : object
+        The grid carrying the decomposition and default layout.
+    periodic_names : tuple[str, ...]
+        The periodic coordinate names, in grid order.
+
+    Returns
+    -------
+    str
+        The designated half (``rfft``) axis name.
+    """
+    default = periodic_names[-1]
+    layout = grid.decomposition.default_layout
+    if layout.is_local(default):
+        return default
+    for name in periodic_names:
+        if layout.is_local(name):
+            return name
+    return default
+
+
 def channel_eigenpairs(
     model: Model, *, at_time: float = 0.0, chunk: int | None = None,
 ) -> ChannelEigenbasis:
@@ -326,8 +371,18 @@ def channel_eigenpairs(
     names = model.grid.names
     bounded_axis = bounded[0]
     bounded_index = names.index(bounded_axis)
-    periodic_axes = tuple(
-        names.index(name) for name in names if name != bounded_axis)
+    periodic_names = tuple(
+        name for name in names if name != bounded_axis)
+    half_axis = _designate_half_axis(model.grid, periodic_names)
+    # order the Fourier axes so the half (rfft) axis is transformed
+    # last: jnp.fft.rfftn halves the last axis in ``axes=``. The
+    # default pick is the last periodic axis (grid order), so this is
+    # byte-identical to grid order unless a layout re-designation moved
+    # the half axis off a sharded last periodic axis.
+    ordered_names = (
+        *(name for name in periodic_names if name != half_axis),
+        half_axis)
+    periodic_axes = tuple(names.index(name) for name in ordered_names)
 
     metric = EnergyMetric.from_model(
         model, at_time=at_time, require_constant_coriolis=False,
@@ -362,7 +417,7 @@ def channel_eigenpairs(
     omega, q = _generalized_eigh_diag(hamiltonian, metric_diag, chunk)
     return ChannelEigenbasis(
         omega, q, prog, slices, metric_diag,
-        periodic_axis=names[periodic_axes[-1]],
+        periodic_axis=half_axis,
         bounded_axis=bounded_axis,
         hermiticity_error=hermiticity_error)
 
