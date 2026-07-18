@@ -150,21 +150,12 @@ the scoping §10–§13). Open:
     terrain a taught error naming the real cause (today the
     Hermiticity-residual gate catches it with a misleading
     "non-conservative term" message).
-  - **Terrain buoyancy slope-advection term missing** — the root of
-    the apparent baroclinic/barotropic product asymmetry (research:
-    [`../research/energy_metric_asymmetry.md`](../research/energy_metric_asymmetry.md)):
-    `stratification.restoring` couples `b` to the contravariant flux
-    `Jω` where the physics needs the physical
-    `w = Jω + u·Zₓ + v·Z_y`, so terrain internal-wave physics is
-    O(slope)-wrong and no plain metric is conserved (probe: physical
-    skew resolution-INDEPENDENT ~0.1 at a=0.2; adding the term →
-    clean O(h²); spectrum purely imaginary either way — stable, not
-    growing). Preferred fix: the term spelled as the discrete adjoint
-    of the H2b slope-gradient pattern (baroclinic pair then exactly
-    physical-skew, one conserved metric); the smooth baroclinic gate
-    passes today by state-selection accident and must become a
-    bilinear random-state gate with the fix. Also flag: diagnosed
-    terrain "w" output is `Jω`, not physical w (labeling).
+  - **Terrain diagnosed "w" output labeling** — the slope-advection
+    buoyancy term shipped (`fix/terrain-buoyancy-slope-term`, entry in
+    [`done.md`](done.md)), so `b` now couples to the physical
+    `w = Jω + u·Zₓ + v·Z_y` internally; the diagnosed **output** field
+    `w` still carries the contravariant flux `Jω`, not the physical
+    vertical velocity — an output/documentation question only.
   - **nonhydro2 mapped energy leak — un-diagnosed cousin** (research
     §1.6 of
     [`../research/energy_metric_asymmetry.md`](../research/energy_metric_asymmetry.md)):

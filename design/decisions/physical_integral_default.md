@@ -109,6 +109,10 @@ passed, 0 failed.
   `_bounded_measure` physical measure (stretched-z) and a terrain
   taught error replacing the misleading Hermiticity-residual message.
 - The terrain buoyancy slope-advection term
-  (`−N²(u·Zₓ + v·Z_y)`, missing from `stratification.restoring`) —
-  the root of the apparent product asymmetry; research record
+  (`−N²(u·Zₓ + v·Z_y)`, the root of the apparent product asymmetry)
+  **shipped** 2026-07-18 — `stratification.restoring` now couples `b`
+  to the physical `w_true = Jω + u·Zₓ + v·Z_y` on terrain (analytic
+  spelling; the exact adjoint was proven machine-zero but fights the
+  staggering). Entry in [`../roadmap/done.md`](../roadmap/done.md),
+  addendum in
   [`../research/energy_metric_asymmetry.md`](../research/energy_metric_asymmetry.md).
