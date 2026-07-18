@@ -26,19 +26,18 @@ The closure design and its whole buildable surface shipped
 [`../plans/active/perf_guard_plan.md`](../plans/active/perf_guard_plan.md)
 — PR CI gates *structure*, the DKRZ A100 node gates *time*,
 manual-trigger only, **no automated cluster submissions**).
-Remaining (plan §6):
+Remaining (plan §6): **one green, manually submitted**
+`benchmarks/ci/step_guard.sbatch` run on the A100 node.
 
-- **One green, manually submitted**
-  `benchmarks/ci/step_guard.sbatch` run on the A100 node. The first
-  submission must confirm the `# TODO(Silvano): confirm`
-  `--account=uo0780_gpu` header value.
-- **The gpu-marked guard legs**
-  (`test_auto_method_wires_to_cusparse_on_gpu`, mapped + immersed)
-  green on the A100 suite — cheap to piggyback on the same node
-  session as the guard run.
-
-When both are green, move this entry to [`done.md`](done.md) and
-record the run in the plan.
+The first run (2026-07-18, job 26346485; log in plan §7) was RED by
+**true positive**: it caught the tiny-nodal-case shift from the FV
+storage-frame spelling, since attributed and re-baselined on `dev`
+(`f87ea9d7`) by the owning session — the guard mechanics, the
+`uo0780_gpu` account, and the gpu-marked cusparse legs (2 passed on
+a real A100, job 26346504) are all validated. The next quiescent
+guard run is expected green against the re-recorded baselines; when
+it is, move this entry to [`done.md`](done.md) and log it in the
+plan.
 
 ## Gaps against the Oceananigans reference comparison
 
