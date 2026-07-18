@@ -1580,3 +1580,32 @@ def test_override_keys_records_merged_overrides(mx):
     # a coarse sibling starts with an empty record (overrides do not
     # carry, so a re-discretizing caller merges its own profile once)
     assert grid.coarsened(2).override_keys == frozenset()
+
+
+# ================================================================
+#  Raw per-cell quadrature accessor (immersed chart-fraction seam)
+# ================================================================
+def test_cell_quadrature_fields_nodes_and_weights():
+    # the unreduced per-cell quadrature: per-coordinate physical node
+    # placements (each inside its own cell) and the unit-sum tensor
+    # weight, with the quadrature axes named for the caller to reduce.
+    mx = IntervalMesh(3, (0.0, 1.0), periodic=True, name="x")
+    my = IntervalMesh(2, (0.0, 2.0), periodic=False, name="y")
+    grid = Grid((mx, my))
+    order = 4
+    cell_space = grid._laid_out(mx.cell_avg * my.cell_avg)
+    nodes, weight, quad_axes = grid._cell_quadrature_fields(
+        cell_space, order)
+    assert set(nodes) == {"x", "y"}
+    # two leading cell axes + two trailing quadrature axes
+    assert nodes["x"].shape == (3, 1, order, 1)
+    assert nodes["y"].shape == (1, 2, 1, order)
+    assert weight.shape == (1, 1, order, order)
+    assert quad_axes == (2, 3)
+    # unit-sum tensor weight (an average over the computational cell)
+    assert float(jnp.sum(weight)) == pytest.approx(1.0)
+    # every x node lands inside its own unit cell [i/3, (i+1)/3]
+    xn = nodes["x"].reshape(3, order)
+    for i in range(3):
+        assert bool(jnp.all(xn[i] > i / 3.0))
+        assert bool(jnp.all(xn[i] < (i + 1) / 3.0))
