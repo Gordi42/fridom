@@ -243,11 +243,13 @@ class FiniteDifference(SeparableOperator):
             The per-factor requirements record.
         """
         half = self._order // 2
-        reach = reach_or(self, domain, self._order, half)
         if self._boundary == "one_sided":
-            # the boundary patches write static physical-edge
-            # indices: negotiation must keep the axis undistributed
-            return OperatorRequirements(reach=reach, layout="local")
+            # the boundary patches write static physical-edge indices
+            # from wider one-sided true-DOF stencils, so the interior
+            # midpoint reach does not describe them: keep the symmetric
+            # declaration, and demand the axis undistributed
+            return OperatorRequirements(halo=half, layout="local")
+        reach = reach_or(self, domain, self._order, half)
         return OperatorRequirements(reach=reach)
 
     def eigenvalues(

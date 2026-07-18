@@ -779,11 +779,12 @@ def apply_staggered(
     # halo-validity claim (task 1.8, stage B): the kernel computed
     # every output ghost slot its window reaches, so on a *periodic*
     # axis the result keeps the operand's valid layers minus the
-    # per-side maximum reach (stencils commute with the wrap fill).
-    # On bounded axes the claim is zero: stenciling the input's
-    # BC-structured/extrapolated fill is not the BC-consistent fill
-    # of the *output* field, so those ghost slots must be refilled
-    # at the next consumption.
+    # per-side reach ``(m0, reach_right)`` (stencils commute with the
+    # wrap fill; the low side keeps its spare when the stencil only
+    # reaches high, and vice versa). On bounded axes the claim is
+    # zero: stenciling the input's BC-structured/extrapolated fill is
+    # not the BC-consistent fill of the *output* field, so those ghost
+    # slots must be refilled at the next consumption.
     if getattr(domain_factor.mesh, "periodic", False):
         valid = f.halo_valid.consume(
             axis, (max(m0, 0), max(reach_right, 0)))
