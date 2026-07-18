@@ -514,7 +514,7 @@ has to be invented, only assembled:
   remat=None)` returning a pure `(theta, state=None) -> State`.
   Name resolution reuses the `update_parameters` machinery verbatim
   (binding table -> `(slot, attr)` -> `_replace_leaf`,
-  `model.py:1628`) but builds a carry *transformer* instead of
+  `model.py:1822`/`1835`) but builds a carry *transformer* instead of
   committing; `wrt` names bound parameters (incl. `TIME_STEP`) or
   PROGNOSTIC fields (IC differentiation splices
   `state[name].storage`).
@@ -540,6 +540,12 @@ has to be invented, only assembled:
   (`/ w.to(v)`, `/ w_1`, `/ w_2`) share the masked-0/0 class the
   Sadourny PV division was cured of; guard like
   `_potential_vorticity` when that path meets an adjoint.
+
+Closure plan (investigation-backed, 2026-07-18):
+[`../plans/active/differentiability_plan.md`](../plans/active/differentiability_plan.md)
+— phases: record hygiene, coriolis VJP seals + coverage, the
+propagator surface itself (naming/materialized-param/frozen-L
+gaps resolved there), tangent deferred.
 ---
 
 # Long-term goals
