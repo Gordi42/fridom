@@ -965,7 +965,7 @@ def _immersed_weighted_model():
                                         name="x"),
          fr.spatial.meshes.IntervalMesh(12, (0.0, 12.0), periodic=True,
                                         name="y")),
-        immersed=fr.spatial.ImmersedDomain(box))
+        immersed=fr.spatial.ImmersedDomain(box), device_ids=(0,))
     model = sw.Model(
         grid=grid, csqr=0.8, rossby_number=0.3,
         coriolis=FPlaneCoriolis(f0=1.0, metric_weight="csqr"),
