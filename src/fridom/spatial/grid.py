@@ -3028,7 +3028,8 @@ def _seed_cumint_rows(
     mesh : Mesh
         The 1D mesh whose center/cell-average families to seed.
     cumint : Operator
-        The shared ``CumulativeIntegral`` (Jacobian-tagged on charts).
+        The shared ``CumulativeIntegral`` (Jacobian-tagged on any
+        volume-element mapping — chart or maps=).
     """
     # ``_family_spaces`` skips the families a mesh does not carry
     # (a ``PointMesh`` has no Center, a ``ChebyshevMesh`` no CellAvg)
