@@ -19,26 +19,6 @@ entry is enough.
 
 # Next steps
 
-## Performance guard — final A100 validation
-
-The closure design and its whole buildable surface shipped
-2026-07-18 (entry in [`done.md`](done.md); plan + owner rulings:
-[`../plans/active/perf_guard_plan.md`](../plans/active/perf_guard_plan.md)
-— PR CI gates *structure*, the DKRZ A100 node gates *time*,
-manual-trigger only, **no automated cluster submissions**).
-Remaining (plan §6): **one green, manually submitted**
-`benchmarks/ci/step_guard.sbatch` run on the A100 node.
-
-The first run (2026-07-18, job 26346485; log in plan §7) was RED by
-**true positive**: it caught the tiny-nodal-case shift from the FV
-storage-frame spelling, since attributed and re-baselined on `dev`
-(`f87ea9d7`) by the owning session — the guard mechanics, the
-`uo0780_gpu` account, and the gpu-marked cusparse legs (2 passed on
-a real A100, job 26346504) are all validated. The next quiescent
-guard run is expected green against the re-recorded baselines; when
-it is, move this entry to [`done.md`](done.md) and log it in the
-plan.
-
 ## Gaps against the Oceananigans reference comparison
 
 The 2026-07 matched-protocol comparison against Oceananigans.jl
@@ -49,9 +29,13 @@ three trailing areas it identified are largely closed — single-GPU
 memory ceiling, time-to-first-step, WENO throughput (entries in
 [`done.md`](done.md)). Still open:
 
-- **Re-run the comparison suite** on post-fix dev (projected weno5
-  edge ~1.8x), and fix its chunk metric to report compile separately
-  (`_CHUNK_COMPILE_LOG`).
+- **Re-run the full comparison suite** on post-fix dev. The
+  2026-07-17 single-GPU recheck already re-measured the changed rows
+  (weno5 512³ 130.5 ms/step, oc edge 1.57×); what remains is the
+  full-table refresh — including the multi-GPU scaling rows — blocked
+  on a 4-GPU allocation. New runs report the honest `compile_s`
+  metric (chunk metric fixed 2026-07-18; entry in
+  [`done.md`](done.md)).
 - **Storage-halo width probe.** Biased order-5 pads storage to `n+8`
   per axis where the nominal reach needs `n+6` (centered: `n+4` vs
   `n+2`) — ~6% inflation on every upwind5 buffer, est. 2–3 ms/step
@@ -72,6 +56,11 @@ memory ceiling, time-to-first-step, WENO throughput (entries in
   already XLA-CSE'd — measured perf-neutral). Lever: evaluate `A(1)`
   on the boundary-adjacent 2D slice only; needs a DSL
   slice/restriction path on the advecting-velocity faces.
+  **Plan accepted 2026-07-18** (owner picked the same-mesh
+  non-broadcasting `TraceSpace` architecture over ConstantSpace reuse
+  / PointMesh activation): design, decision record, and phasing in
+  [`../plans/active/boundary_trace_plan.md`](../plans/active/boundary_trace_plan.md);
+  implementation not started.
 
 ## Channel eigenmodes on multi-device — remaining gaps
 
@@ -94,11 +83,24 @@ contraction shipped 2026-07-18 (merge `e60259de`, entry in
     LAPACK on many-core hosts. Repro + issue:
     [`../research/artifacts/channel_sort_segfault/`](../research/artifacts/channel_sort_segfault/).
 - **Unsupported sharded-periodic remainder** (kept on the narrowed
-  taught `NotImplementedError`): the 2-D channel (a single periodic
-  axis has no transpose partner), a layout that shards the engine's
-  half (`rfft`) axis itself (would need a second transpose pair — the
-  rfft needs real data on a local axis), and non-1-D meshes. Wants a
-  consumer before it wants code.
+  taught `NotImplementedError`) — solution paths investigated
+  2026-07-18
+  ([`../research/eigen_remainder_investigation.md`](../research/eigen_remainder_investigation.md));
+  the half-axis-sharded 3-D case **shipped** the same day
+  (layout-aware half-axis re-designation, merge `feade7fa` — entry in
+  [`done.md`](done.md)). Still the remainder:
+  - *2-D channel* (highest exposure — the **default** for any 2-D
+    channel on >1 device): recommend a gather path scoped to 2-D
+    (exact, negligible cost at every size the dense engine can build;
+    `em.q` is already replicated). A bounded-partner psum kernel was
+    proven exact but shelved — its ×P basis-slicing edge only pays in
+    a regime the dense `eigh` cannot reach. Needs owner ratification,
+    then implementation.
+  - *Non-1-D meshes*: **unreachable today** (the decomposition
+    negotiates only single-axis layouts; a hand-built 2-axis mesh dies
+    at decomposition build) — keep the defensive decline. The pencil
+    primitive (per-mesh-axis `all_to_all` in one 2-D-mesh `shard_map`)
+    is proven composable for the day a 2-D backend lands.
 - **Pre-existing multi-device eigenbasis faults surfaced by the
   2026-07-18 validation** (both reproduce on the pre-merge dev; the
   existing multi-device eigen tests hit them before reaching the
@@ -474,15 +476,26 @@ V-cycle kernel swap it called for shipped 2026-07-18 (merge
   then a multi-device run that sees them should set
   `multigrid_tridiagonal_method="pcr"` (pure jax, partitions
   cleanly). Caveat documented in `banded.py`.
-- **Mapped GPU wall-clock still behind spectral after the swap** —
-  measured in-model: parity at 128³ (0.975×), 0.67× at 512³; the
-  1.5× GB-2 bar stays unmet and the 128³-study projection "likelier
-  at larger n" is refuted at 512³. The study-ranked residual levers
-  (fewer coarse sweeps; cheaper mapped operator applies — now the
-  dominant V-cycle cost) are unclaimed; take only with a concrete
-  mapped-GPU production driver. Immersed remains the case where
-  multigrid wins (study projection 1.3–2.0×, in-model post-swap
-  standing unmeasured).
+- **Multigrid depth default — adopt floor-limited depth.** The
+  size-scaling investigation
+  ([`../research/multigrid_depth_scaling.md`](../research/multigrid_depth_scaling.md),
+  2026-07-18) showed the `multigrid_levels=5` default *caps* the
+  hierarchy and breaks h-independence from 256³ up (iterations
+  10 → 27 at 512³: the coarsest level outgrows its 8 sweeps); at
+  floor-scaled depth (L=6/L=7) multigrid beats spectral in-model
+  1.23× at 256³ / 1.22× at 512³ (GB-2 ≥1.5× still unmet). Proposed
+  src change (not made): default `multigrid_levels` to floor-limited
+  depth (`None` → coarsen to the 4-cell horizontal floor, an int
+  stays as an explicit cap) — measured free (per-cycle cost and
+  memory unchanged L=5 → L=8 at 512³). Until adopted, mapped
+  multigrid runs at n ≥ 256³ should pass the depth by hand (6 at
+  256³, 7 at 512³).
+- **Residual mapped-GPU levers, unclaimed** — fewer coarse sweeps;
+  cheaper mapped operator applies (the finest level dominates the
+  post-swap V-cycle: one sweep = 15.7 ms cuSPARSE solve + 12.0 ms
+  operator apply at 512³). Take only with a concrete driver toward
+  the 1.5× GB-2 bar. Immersed remains the projected outright win
+  (1.3–2.0×), in-model post-swap standing unmeasured.
 
 ## Differentiable run surface — `model.propagator()`
 

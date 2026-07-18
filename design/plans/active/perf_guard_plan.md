@@ -1,6 +1,6 @@
 ---
 title: Performance guard — closing the CI-gate roadmap item
-status: active (G1–G3 code on dev 2026-07-18; open: one green manual A100 guard run + gpu-marked legs)
+status: done (closed 2026-07-18; first checkpoint green under the floored verdict — §8)
 created: 2026-07-18
 owner: Silvano
 ---
@@ -223,12 +223,12 @@ consume the owner's cluster usage limits.
    job on the A100 partition that runs the gpu1 and gpu4 legs with the
    required XLA flags, then `compare --fail-on-regression` against the
    committed baselines, writing JSON + markdown next to a red/green
-   marker. Guarded by `timeout`. Invoked **by hand** as the
-   **pre-merge protocol**: binding for perf-sensitive merges
-   (anything touching step-path lowering: `spatial/operators/`,
-   `spatial/decomposition/`, `model/time_steppers/`, tendency
-   modules, `model/model.py`) — one AGENTS.md line under the merge
-   gate, codifying what the campaigns already do by hand.
+   marker. Guarded by `timeout`. Invoked **by hand** as an
+   **owner-batched checkpoint** (ruling §5.5, amending the original
+   per-merge-protocol proposal): Silvano decides when a checkpoint
+   is due (e.g. after ~10 merges), runs against the last-guarded
+   baselines, and on RED studies the batch. Agents never submit it
+   on their own initiative — one AGENTS.md line states this.
 2. **No alerting infrastructure**: the operator watches the run; the
    red/green marker + report in the results dir are the record.
 3. **Result retention** (owner ruling §5.4): every guard run appends
@@ -264,6 +264,18 @@ numbers and is postponed indefinitely.
    are encoded in the test, §1.5/§4.1).
 4. **Retain results privately**: guard runs keep their JSON in an
    untracked results dir on DKRZ; no public series, no dashboard.
+5. **Guard cadence is owner-batched, never per-merge** (added
+   later on 2026-07-18, amending the §4.3 pre-merge-protocol
+   proposal after its first contact with reality): the initial
+   AGENTS.md "perf merge gate" line made a green guard run a
+   requirement for perf-sensitive merges, and parallel agents
+   immediately began submitting guard runs unprompted — exactly
+   the unsupervised GPU spend ruling 1 exists to prevent. Retracted
+   same day. The standing policy: Silvano batches checkpoints
+   (e.g. one run per ~10 merges, against the last-guarded
+   baselines; RED → study/bisect the batch, then fix or accept +
+   re-record); agents submit GPU jobs only when Silvano explicitly
+   asks in chat.
 
 ## 6. Closure criteria for the roadmap item
 
@@ -273,9 +285,9 @@ The item moves to `done.md` when:
   green on CPU default + forced-4 leg; gpu-marked legs green on the
   A100 suite);
 - G2 `compare` hardening is on `dev` with mirrored tests;
-- G3 script + AGENTS.md merge-gate line are on `dev` and one full
+- G3 script + AGENTS.md guard-policy line are on `dev` and one full
   `step_guard.sbatch` run has been executed green on the A100 node
-  (manually submitted, per §5.1);
+  (manually submitted, per §5.1/§5.5);
 - the roadmap entry is rewritten to record the §2/§3/§5 rulings (PR
   CI gates structure, DKRZ gates time, manual-trigger only) so the
   "wire it into GitHub CI" framing does not resurface.
@@ -306,3 +318,42 @@ The item moves to `done.md` when:
   evidence. The SLURM log now lands in the retained results dir.
 - **Open**: the one green run (§6), expected against the
   re-recorded baselines from a quiescent tree.
+
+## 8. Closure log (2026-07-18, second half of the day)
+
+- **Runs 3–4** (jobs 26346802, 26347156; fresh baselines): each RED
+  on ONE rotating tiny gpu1 case (`sw_flat[1024]` +6.5%, then
+  `nh_flat_walled_x_nodal[32]` +8.1%) while everything else was ok
+  and gpu4 was 40/40 green both times.
+- **Probe** (job 26347131, owner-authorized): the flagged case
+  re-measured in two fresh processes read baseline level both
+  times. Zero `src/` changes between runs 3 and 4 (verified) while
+  the flagged case rotated — measurement, not code.
+- **Diagnosis: per-process slow mode.** Occasionally a case
+  subprocess runs uniformly ~0.8 ms/chunk high for its lifetime
+  (all 5 samples elevated; fresh process normal; plausibly an XLA
+  autotune kernel-variant draw or GPU clock state). Relative
+  tolerances cannot express an absolute mode: +0.8 ms is +8% on a
+  9 ms case (fires) and +0.3% on a 250 ms case (invisible). With
+  ~a dozen sub-16 ms cases per run, the strict gate reds nearly
+  every run with no regression present.
+- **Fix (owner-ratified, option "floor + re-judge"):**
+  `ABSOLUTE_FLOOR = 1.2e-3` s/chunk in `compare` — `slower`/
+  `faster` additionally require the absolute delta to exceed the
+  floor (symmetric); suppressions annotated `(floor)` in reports;
+  large cases untouched. Merged `4da84b3a` with tests. The floor is
+  the harness's declared resolution (~one kernel launch per step at
+  the 50-step chunk convention).
+- **Closure verdict:** run 26347156's recorded measurements
+  re-judged under the fixed rule — gpu1 exit 0 (39 ok, 1 faster),
+  gpu4 exit 0 (40 ok). §6's green-run criterion met (the verdict
+  step is offline post-processing of immutable recorded JSON; the
+  owner chose re-adjudication over a ceremonial re-run). Item moved
+  to `done.md`.
+- **Observed bonus:** the re-record baseline itself caught a
+  slow-mode process for `nh_flat_advective_nodal[32]` (run 4 reads
+  −9.6%, floor-suppressed). Optional future upgrade if the wobble
+  ever matters: record/measure sub-16 ms cases as min across 2–3
+  fresh processes (~+2–3 min/leg, no re-record needed). Longer
+  chunks would NOT help: the mode scales with work (uniform across
+  all samples), so the relative delta is chunk-length-invariant.

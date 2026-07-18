@@ -1,0 +1,216 @@
+From 64f94fecd14ccded21ffb5391db89f758e97dea5 Mon Sep 17 00:00:00 2001
+From: Gordi42 <silvano98@hotmail.de>
+Date: Sat, 18 Jul 2026 13:45:44 +0200
+Subject: [PATCH 1/2] model: layout-aware half-axis re-designation for the 3-D
+ channel
+
+When the grid's default layout shards the last periodic axis (the
+engine's default half/rfft axis), designate a local periodic axis as
+the half axis instead, so the shipped fused distributed contraction
+serves the layout with roles swapped (sharded axis carries a full
+spectrum, local axis the rfft half). Single-device and all
+already-served layouts stay byte-identical (default pick unchanged
+whenever the last periodic axis is not sharded).
+
+- eigen_channel._designate_half_axis: the layout-aware pick; reorder
+  the rfftn read-out axes so the chosen axis is halved.
+- _eigenbasis.fourier_ops: order the half axis first via
+  em.periodic_axis instead of hardcoding the last periodic axis.
+- nonhydro2.channel_eigenmodes._constrained_column: honour
+  basis.periodic_axis in the Leray half-frame reconstruction instead
+  of assuming the last periodic axis.
+
+Frame-freedom verified single-device (half=z vs forced half=x agree to
+2.5e-14 on all family projections).
+
+Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01WbkKu8DbCpvsasGAonuBzG
+---
+ src/fridom/model/_eigenbasis.py            | 15 +++---
+ src/fridom/model/eigen_channel.py          | 61 ++++++++++++++++++++--
+ src/fridom/nonhydro2/channel_eigenmodes.py | 30 +++++++----
+ 3 files changed, 88 insertions(+), 18 deletions(-)
+
+diff --git a/src/fridom/model/_eigenbasis.py b/src/fridom/model/_eigenbasis.py
+index f2c32b53..a38d5a75 100644
+--- a/src/fridom/model/_eigenbasis.py
++++ b/src/fridom/model/_eigenbasis.py
+@@ -594,15 +594,18 @@ def _signature(em: ChannelEigenmodesBase) -> StateSignature:
+ def fourier_ops(em: ChannelEigenmodesBase) -> tuple[Fourier, ...]:
+     """Per-axis Fourier transforms, the half-spectrum axis first.
+ 
+-    The engine's ``rfftn`` read-out halves the *last* periodic axis
+-    (``em.periodic_axis``), so the real-to-complex stage must run on
+-    that axis: applying it first (and its inverse last) reproduces
+-    the engine's coefficient layout — full spectra on the remaining
+-    periodic axes, half spectrum on the last one.
++    The engine's ``rfftn`` read-out halves the designated periodic
++    axis (``em.periodic_axis`` -- the last periodic axis by default,
++    a local axis re-designated by the layout when the last one is
++    sharded), so the real-to-complex stage must run on that axis:
++    applying it first (and its inverse last) reproduces the engine's
++    coefficient layout -- full spectra on the remaining periodic
++    axes, half spectrum on the designated one.
+     """
+     periodic = tuple(
+         name for name in em.grid.names if name != em.bounded_axis)
+-    order = (periodic[-1], *periodic[:-1])
++    half = em.periodic_axis
++    order = (half, *(name for name in periodic if name != half))
+     return tuple(Fourier(em.grid, axes=(axis,)) for axis in order)
+ 
+ 
+diff --git a/src/fridom/model/eigen_channel.py b/src/fridom/model/eigen_channel.py
+index e0e084b9..66d8a1a9 100644
+--- a/src/fridom/model/eigen_channel.py
++++ b/src/fridom/model/eigen_channel.py
+@@ -250,6 +250,51 @@ class ChannelEigenbasis:
+         return jnp.max(jnp.abs(gram - identity))
+ 
+ 
++def _designate_half_axis(
++    grid: object, periodic_names: tuple[str, ...],
++) -> str:
++    r"""
++    Choose the periodic axis that carries the rfft half spectrum.
++
++    Description
++    -----------
++    The half-spectrum axis is an engine convention, not physics: any
++    periodic axis can carry it (the coefficient frame is free — the
++    contracted physical field is invariant). The default is the
++    **last** periodic axis (grid order), which keeps single-device
++    programs and every already-served multi-device layout
++    byte-identical. When the grid's default layout **shards that last
++    periodic axis** -- the layout the fused distributed contraction
++    cannot serve in the fixed frame, because its local rfft needs real
++    data on an unsharded axis -- a local periodic axis is designated
++    instead, so the sharded axis carries a full spectrum (the
++    transpose partner ``a``) and the rfft runs on the local half axis
++    ``b``. All-local (single-device) layouts always keep the default,
++    so the pick only ever moves on a layout the fixed frame could not
++    serve.
++
++    Parameters
++    ----------
++    grid : object
++        The grid carrying the decomposition and default layout.
++    periodic_names : tuple[str, ...]
++        The periodic coordinate names, in grid order.
++
++    Returns
++    -------
++    str
++        The designated half (``rfft``) axis name.
++    """
++    default = periodic_names[-1]
++    layout = grid.decomposition.default_layout
++    if layout.is_local(default):
++        return default
++    for name in periodic_names:
++        if layout.is_local(name):
++            return name
++    return default
++
++
+ def channel_eigenpairs(
+     model: Model, *, at_time: float = 0.0, chunk: int | None = None,
+ ) -> ChannelEigenbasis:
+@@ -326,8 +371,18 @@ def channel_eigenpairs(
+     names = model.grid.names
+     bounded_axis = bounded[0]
+     bounded_index = names.index(bounded_axis)
+-    periodic_axes = tuple(
+-        names.index(name) for name in names if name != bounded_axis)
++    periodic_names = tuple(
++        name for name in names if name != bounded_axis)
++    half_axis = _designate_half_axis(model.grid, periodic_names)
++    # order the Fourier axes so the half (rfft) axis is transformed
++    # last: jnp.fft.rfftn halves the last axis in ``axes=``. The
++    # default pick is the last periodic axis (grid order), so this is
++    # byte-identical to grid order unless a layout re-designation moved
++    # the half axis off a sharded last periodic axis.
++    ordered_names = (
++        *(name for name in periodic_names if name != half_axis),
++        half_axis)
++    periodic_axes = tuple(names.index(name) for name in ordered_names)
+ 
+     metric = EnergyMetric.from_model(
+         model, at_time=at_time, require_constant_coriolis=False,
+@@ -362,7 +417,7 @@ def channel_eigenpairs(
+     omega, q = _generalized_eigh_diag(hamiltonian, metric_diag, chunk)
+     return ChannelEigenbasis(
+         omega, q, prog, slices, metric_diag,
+-        periodic_axis=names[periodic_axes[-1]],
++        periodic_axis=half_axis,
+         bounded_axis=bounded_axis,
+         hermiticity_error=hermiticity_error)
+ 
+diff --git a/src/fridom/nonhydro2/channel_eigenmodes.py b/src/fridom/nonhydro2/channel_eigenmodes.py
+index 4316e1f3..a1f6580f 100644
+--- a/src/fridom/nonhydro2/channel_eigenmodes.py
++++ b/src/fridom/nonhydro2/channel_eigenmodes.py
+@@ -192,9 +192,17 @@ def _constrained_column(
+     template = model.state
+     names = model.grid.names
+     bounded = names.index(basis.bounded_axis)
+-    axes = tuple(i for i in range(len(names)) if i != bounded)
+-    n_kz = column.shape[1]
+-    n_last = template[basis.components[0]].data.shape[axes[-1]]
++    periodic = [i for i in range(len(names)) if i != bounded]
++    # the half (rfft) axis is the engine's designated periodic axis --
++    # the last periodic axis by default, but a local axis when the
++    # layout shards the last one; honour that pick rather than assuming
++    # the last periodic axis carries the half spectrum.
++    half_grid = names.index(basis.periodic_axis)
++    p_half = periodic.index(half_grid)  # its plane-frame position
++    # order the read axes so rfftn halves the designated half axis
++    read_axes = (*(i for i in periodic if i != half_grid), half_grid)
++    n_half = column.shape[p_half]
++    n_half_full = template[basis.components[0]].data.shape[half_grid]
+     reads = []
+     for factor in (1.0, 1j):
+         fields = {}
+@@ -203,29 +211,33 @@ def _constrained_column(
+             shape = template[name].data.shape
+             full = np.zeros(shape, dtype=complex)
+             key = [slice(None)] * len(shape)
+-            key[axes[-1]] = slice(0, n_kz)
++            key[half_grid] = slice(0, n_half)
+             # the plane axes keep relative grid order, so moving the
+             # segment axis to the bounded slot restores array order
+             full[tuple(key)] = np.moveaxis(factor * seg, -1, bounded)
+-            fields[name] = np.real(np.fft.ifftn(full, axes=axes))
++            fields[name] = np.real(
++                np.fft.ifftn(full, axes=tuple(periodic)))
+         state = template.replace(**{
+             name: template[name].with_data(fields[name])
+             for name in basis.components})
+         out = model.constrain(state, t=at_time)
+         reads.append({
+             name: np.moveaxis(
+-                np.fft.rfftn(np.asarray(out[name].data), axes=axes),
++                np.fft.rfftn(np.asarray(out[name].data), axes=read_axes),
+                 bounded, -1)
+             for name in basis.components})
+     r1, r2 = reads
+     result = np.zeros_like(column)
+     self_conj = [0]
+-    if n_last % 2 == 0:
+-        self_conj.append(n_kz - 1)
++    if n_half_full % 2 == 0:
++        self_conj.append(n_half - 1)
+     for name in basis.components:
+         planes = 2.0 * r1[name]
+         for ikz in self_conj:
+-            planes[:, ikz] = r1[name][:, ikz] - 1j * r2[name][:, ikz]
++            idx = [slice(None)] * planes.ndim
++            idx[p_half] = ikz
++            planes[tuple(idx)] = (r1[name][tuple(idx)]
++                                  - 1j * r2[name][tuple(idx)])
+         result[..., basis.slices[name]] = planes
+     return result
+ 
+-- 
+2.43.7
+

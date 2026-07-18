@@ -385,11 +385,13 @@ class DynamicalCore(fr.model.Module):
         is exact and ignores it (a flat grid never raises on the knob).
         Static (a treedef aux, part of the module fingerprint), like
         ``single_precision_solve`` (default: ``"spectral"``).
-    multigrid_levels : int, optional
-        The maximum multigrid level count when
-        ``pressure_preconditioner="multigrid"`` (the builder floors on
-        small grids); ignored otherwise. Static in the fingerprint
-        (default: 5).
+    multigrid_levels : int | None, optional
+        The multigrid depth when ``pressure_preconditioner="multigrid"``;
+        ignored otherwise. ``None`` (the default) coarsens to the
+        four-cell horizontal floor (floor-limited depth, h-independent
+        iteration counts at every size); an ``int`` is a maximum cap as
+        before (the builder floors on small grids either way). Static in
+        the fingerprint (default: None).
     multigrid_tridiagonal_method : str, optional
         The vertical-line tridiagonal kernel of the multigrid smoother
         (``"auto"`` / ``"cusparse"`` / ``"pcr"`` / ``"scan"``),
@@ -428,7 +430,7 @@ class DynamicalCore(fr.model.Module):
         pressure_iterations: int = 30,
         pressure_tolerance: float | None = 1e-8,
         pressure_preconditioner: str = "spectral",
-        multigrid_levels: int = 5,
+        multigrid_levels: int | None = None,
         multigrid_tridiagonal_method: str = "auto",
         family: str | None = None,
     ) -> None:

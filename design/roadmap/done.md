@@ -96,6 +96,34 @@ Implementation record:
 
 ## Landed since, outside the numbered tasks
 
+- **Half-axis-sharded 3-D channel served — layout-aware half-axis
+  re-designation** (2026-07-18, merge `feade7fa`; coverage follow-up
+  merge `964a9117`) — the last remainder case with a fast path: when
+  the default layout shards the engine's half (`rfft`) axis (reachable
+  only when an earlier periodic axis is indivisible by P — see the
+  exposure survey), `channel_eigenpairs` now designates a **local**
+  periodic axis as the half axis (`_designate_half_axis`), so the
+  shipped fused contraction serves the layout with roles swapped —
+  zero new collective code, and the basis is *built* directly in the
+  chosen frame (no runtime re-layout). Byte-identical whenever the
+  last periodic axis is local (single device and all
+  previously-served layouts). Touched: the pick + Fourier-axis
+  ordering (`model/eigen_channel.py`), `fourier_ops`
+  (`model/_eigenbasis.py`), the nh Leray labeler
+  `_constrained_column` generalization
+  (`nonhydro2/channel_eigenmodes.py`), stale-remainder docstring trim,
+  a GPU-scoped end-to-end regression test + a CPU-safe pick unit test
+  (forced-4 CI leg). Gates: frame freedom proven single-device
+  (both frames agree ≤ 2.5e-14); 4×A100 many-vs-one 8.5e-15,
+  idempotency 1.4e-14, HLO all-to-all present / all-gather absent;
+  per-test outcomes across the 8 mirrored/adjacent eigen test files
+  **byte-identical to base dev** on the 4-GPU node (334 outcomes, the
+  only delta the new passing test; the pre-existing multi-device
+  setup faults unchanged); ruff clean. Non-perf-sensitive (build-time
+  pick + projection utilities; step path untouched) — no guard run.
+  Record: [`eigen_remainder_investigation.md`](../research/eigen_remainder_investigation.md)
+  (the validated patches it archived landed as this merge).
+
 - **Channel eigenmodes run multi-GPU — fused distributed contraction**
   (2026-07-18, merge `e60259de`) — the projection/`f(L)` application
   (`_eigenbasis._contract_planes`) no longer rejects a grid that
@@ -302,6 +330,22 @@ Implementation record:
   FD-matched to rel-err ~6e-12 against gate 1e-4, nodal + FV). The
   new-stack step path is now reverse-differentiable on **all** grid
   types — flat, walled, mapped, immersed — with no known exception.
+- **Multigrid size-scaling root cause: the depth cap, not the
+  algorithm** (2026-07-18, measurement-only; record
+  [`../research/multigrid_depth_scaling.md`](../research/multigrid_depth_scaling.md))
+  — the post-swap "deficit vs spectral widens with n" verdict was an
+  artifact of the fixed `multigrid_levels=5` default: h-independence
+  breaks once the coarsest level outgrows its 8 sweeps (iterations
+  10 → 15 → 27 at 128/256/512³ while spectral stays flat 36;
+  per-iteration cost is healthy — 42× per 64× more cells vs
+  spectral's 54×, the cost ratio *improving* 3.14× → 2.45×). At
+  floor-scaled depth (coarsest 8×8×n_z; L=6 at 256³, L=7 at 512³):
+  flat **10** iterations at every size, per-cycle cost unchanged,
+  and the in-model GB-2 step **beats spectral 1.23× at 256³
+  (237.8 vs 291.6 ms) and 1.22× at 512³ (1873.3 vs 2277.9 ms)**
+  (physics equivalence 2–5e-11). GB-2 (≥1.5×) still unmet at every
+  measured size. Follow-up (floor-depth default, src change not
+  made): [`open.md`](open.md).
 - **Multigrid V-cycle kernel swap** (2026-07-18, merge `0ece46b1`) —
   `banded.tridiagonal_solve_along_axis` grew a host-static
   `method` knob with three interchangeable kernels: `"scan"` (the
@@ -330,7 +374,10 @@ Implementation record:
   corrections to the study record: the projected 128³ post-swap
   1.17× measured as 0.975×, and the "free IMEX side benefit" was
   wrong (`model/implicit.py` uses the dense `solve_along_axis`,
-  not this kernel). Open residue (cuSPARSE-under-GSPMD validation,
+  not this kernel). *Corrected same day: the "deficit widens with
+  n / spectral stays default at every size" conclusion was the
+  `multigrid_levels=5` depth cap — see the size-scaling entry
+  above.* Open residue (cuSPARSE-under-GSPMD validation,
   residual mapped-GPU levers): [`open.md`](open.md). Evidence:
   [`../research/multigrid_kernel_study.md`](../research/multigrid_kernel_study.md)
   §Addendum.
@@ -462,10 +509,10 @@ Implementation record:
   the <2 s goal) and a persistent compilation cache with
   `min_compile_time_secs=0` (warm TTFS −48%; jax's default threshold
   silently skips the 113 small compiles). Post-merge 64³ GPU: cold
-  TTFS 7.5→5.05 s, warm 2.83 s, per-step unchanged. Remainders (the
-  default-off async two-tier chunk-compile patch, HLO-volume
-  reduction, the comparison-suite metric fix) stay in
-  [`open.md`](open.md). Record:
+  TTFS 7.5→5.05 s, warm 2.83 s, per-step unchanged. Of the
+  remainders, only the default-off async two-tier chunk-compile
+  patch stays in [`open.md`](open.md); HLO-volume reduction and the
+  comparison-suite metric fix are closed (entries below). Record:
   [`../research/time_to_first_step.md`](../research/time_to_first_step.md).
 
 - **Async two-tier chunk compile** (2026-07-18) — the time-to-first-
@@ -1057,3 +1104,51 @@ Implementation record:
   remainder tracked in [`open.md`](open.md): the first green,
   manually submitted guard run on the A100 node and the gpu-marked
   cusparse legs.
+
+- **Comparison-suite chunk-metric fix — honest `compile_s`**
+  (2026-07-18, out-of-tree bench repo only; no fridom src change) —
+  the metric-fix remainder of the 2026-07-16 time-to-first-step
+  entry above. The fridom harnesses (`fridom/bench_compare.py`,
+  `fridom_hydro/bench_hydro.py`,
+  `fridom_multi/bench_{multi,maxfit}.py`) now report `compile_s` —
+  the AOT chunk-compile seconds fridom records in
+  `_CHUNK_COMPILE_LOG`, read as a before/after delta around the
+  first advance (the log is process-global; a sweep touches it many
+  times) — beside the unchanged, now explicitly-flagged-as-conflated
+  `first_advance_s`. `analyze.py`/`analyze_hydro.py` render three
+  distinct columns (fridom compile / fridom 1st-adv / oc 1st-step —
+  the old table put oc's first `time_step!` under a column titled
+  "oc compile s"), keep pre-fix JSONs rendering (`—†` + footnote),
+  and both reports regenerate cleanly against the existing results.
+  Smoke-verified: 64³ linear compile 1.70 s vs first-advance 2.46 s
+  (single A100) and 1.19 s vs 19.0 s (CPU); hydro 256²×32 CPU 0.82 s
+  vs 84.7 s (the artifact vividly). The multi-GPU scripts were edited
+  by careful reading only (no 4-GPU allocation) and get exercised at
+  the next full sweep — tracked with the suite re-run in
+  [`open.md`](open.md). Record:
+  [`../research/time_to_first_step.md`](../research/time_to_first_step.md)
+  §1 + the bench repo README (Metrics).
+
+- **Performance guard — CLOSED: first checkpoint green** (2026-07-18,
+  completing the entry above; full first-day log in
+  [`../plans/active/perf_guard_plan.md`](../plans/active/perf_guard_plan.md)
+  §7) — the remaining criterion (one green, manually submitted
+  `step_guard.sbatch` run) is met by run 26346802→26347156's
+  measurements judged green: gpu1 exit 0 (39 ok, 1 faster), gpu4
+  exit 0 (40 ok). The day's four runs told the whole story: run 1
+  RED = **true positive** (tiny-nodal shift from the FV
+  storage-frame spelling; attributed + re-baselined by the owning
+  session), runs 3–4 RED = **false alarms from a per-process slow
+  mode** (~0.8 ms/chunk, every sample in the affected subprocess
+  uniformly high, a different random tiny case each run; proven
+  benign by a two-fresh-process probe reading baseline level and by
+  zero `src/` delta between runs 3 and 4). Fix (owner-ratified):
+  `compare` verdicts now also require an **absolute 1.2 ms/chunk
+  floor** (symmetric for faster/slower; suppressions annotated
+  `(floor)` in reports) — the floor is the harness's declared
+  resolution limit, large cases unaffected. The re-adjudicated run
+  even exposed one baseline entry recorded from a slow-mode process
+  (advective_nodal[32] −9.6% `(floor)`), motivating the optional
+  future upgrade noted in the plan: min-across-2–3-processes for
+  sub-16 ms cases. Guard cadence stands per ruling §5.5:
+  owner-batched checkpoints, never per-merge, agents never submit.

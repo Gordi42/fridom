@@ -56,7 +56,7 @@ number is `wall / extras["steps"]`.
 
 ### How `compare` decides
 
-`compare` hardens the raw threshold check three ways so an on-device
+`compare` hardens the raw threshold check four ways so an on-device
 comparison is honest:
 
 1. **Environment guard.** Before comparing any case it checks that the
@@ -79,6 +79,18 @@ comparison is honest:
    cases) is given its own noise-derived band, so the flat 5% is
    neither too tight nor too loose. The report shows the effective
    tolerance and which rule set it (`global` vs `noise`) per case.
+4. **Absolute floor.** A case is `slower`/`faster` only if it also
+   clears an absolute delta of `ABSOLUTE_FLOOR` (1.2 ms per measured
+   chunk), on top of the relative band. A measured per-process slow
+   mode adds ~0.8 ms per 50-step chunk to every sample of one random
+   subprocess each run (a fresh process reads normal); on sub-16 ms
+   cases that is +5..9%, past the relative band, so the guard would red
+   with no real regression — and the relative tolerance cannot express
+   it because the mode is absolute. The floor is well below any real
+   tiny-case regression, so it never masks one, and the suppression is
+   symmetric (a spurious `faster` from a contaminated baseline is
+   equally meaningless). Floor-suppressed cases render `(floor)` in the
+   tol column, so the suppression stays visible rather than silent.
 
 CI smoke-runs every suite (`--first-only --reps 1`, smallest sizes,
 cpu) so the case files cannot go stale. **No timing assertions run in
