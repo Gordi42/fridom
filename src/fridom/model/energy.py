@@ -183,10 +183,17 @@ class EnergyMetric:
         -----------
         :math:`\sum_c \mathrm{reduce}(\overline{a_c}\,(w_c\,b_c))`
         over the weighted components. A physical/nodal state reduces
-        through ``integrate`` (``grid.measure`` quadrature); a
+        through the seeded ``integrate`` verb, so on a grid whose
+        mapping derives a volume element the reduction is the
+        **physical** (Jacobian-weighted) energy — the intended metric
+        for the ``u`` / ``v`` / ``b`` legs on a terrain-following grid;
+        on a flat grid it is the plain ``grid.measure`` quadrature. A
         coefficient-space state reduces by Parseval (the per-mode sum
         times the transformed-axis volume, ``norm="forward"``). The
-        result is a single scalar (0-d ``jax`` array).
+        result is a single scalar (0-d ``jax`` array). (Known gap: the
+        depth-integrated ``ps`` leg still wants an explicit ``H`` weight
+        and the Parseval leg an ``sqrt_g`` factor on mapped grids — a
+        separate follow-up, not this change.)
 
         Parameters
         ----------
