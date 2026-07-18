@@ -217,8 +217,26 @@ Implementation record:
   solved-axis width ≥ 1 at build. Gates: mirrored + model suite
   (2133) + forced-4 decomposition green, ruff clean; GPU gate run
   *before* landing (entry above) — ships on memory/tightness/CPU
-  grounds with the centered +2.3-4.3% priced in, width-pin knob as
-  the flagship recovery (tracked in [`open.md`](open.md)).
+  grounds with the centered +2.3-4.3% priced in.
+
+- **Storage-width follow-ups closed — biased `bench_step` cases added,
+  width-floor knob REFUSED** (2026-07-18, owner rulings in chat):
+  `nh_flat_advective_upwind5` / `_weno5` cases added to
+  `benchmarks/model/bench_step.py` (append-only; order pinned at 5;
+  default family — biased FV assembly works now, the A/B record's
+  "blocked" note is stale) on a dedicated size grid `[32, 192, 256,
+  512]` that includes the measured 192³ knife-edge size, so the
+  biased/WENO fusion families' storage-shape sensitivity is
+  guard-visible from now on. Verified end-to-end on the A100 at all
+  sizes (per-step numbers reproduce the A/B: upwind5 6.26 @192³ /
+  123.6 ms @512³, weno5 6.94 / 138.8); **baseline recorded at the
+  owner's next batched guard run**, not before. The storage-width
+  floor knob is **refused** (owner, 2026-07-18): no public knob;
+  measure-and-pin stays a benchmark-internal technique (the forcing
+  monkeypatch in the research harnesses), and the shipped widths
+  stand as measured. Records:
+  [`upwind5_shape_regression.md`](../research/upwind5_shape_regression.md),
+  [`storage_halo_gpu_ab.md`](../research/storage_halo_gpu_ab.md) §4.
 
 - **Upstream jax issues filed for the two T5 faults** (2026-07-18,
   owner-filed) —
