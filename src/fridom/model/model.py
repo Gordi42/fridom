@@ -1803,10 +1803,55 @@ class Model:
             name: self._rehome(state[name], value,
                                f"set_fields({name})")
             for name, value in fields.items()}
+        new_state = self._derive_initial_fields(
+            state.replace(**updates), frozenset(fields))
         self._commit(self._carry.replace(
-            state=state.replace(**updates), panic=_fresh_panic()))
+            state=new_state, panic=_fresh_panic()))
         self._panicked = False
         self._panic_it = None
+
+    def _derive_initial_fields(
+        self, state: VectorField, provided: frozenset[str],
+    ) -> VectorField:
+        """
+        Apply module-derived IC updates for slaved PROGNOSTIC fields.
+
+        Description
+        -----------
+        After :meth:`set_fields` writes the user's ICs, each bound
+        module may seed the PROGNOSTIC components it owns that are
+        slaved to a just-set master (``Module.derive_initial_fields``,
+        the default a no-op — e.g. ``hy.SplitExplicitFreeSurface``
+        derives its barotropic transports ``U, V`` from the velocity
+        IC). The returned fields are re-homed exactly like the user's
+        own values; a module never overrides a component the user set
+        in the same call (it reads ``provided`` to gate). Host-side,
+        outside any jit trace.
+
+        Parameters
+        ----------
+        state : VectorField
+            The state after the user's fields are applied.
+        provided : frozenset[str]
+            The component names the user set in this ``set_fields``
+            call.
+
+        Returns
+        -------
+        VectorField
+            The state with the derived components applied (``state``
+            unchanged when no module derives anything).
+        """
+        derived: dict[str, ScalarField] = {}
+        for module in self._carry.modules:
+            derived.update(module.derive_initial_fields(state, provided))
+        if not derived:
+            return state
+        rehomed = {
+            name: self._rehome(state[name], value,
+                               f"set_fields(derived {name})")
+            for name, value in derived.items()}
+        return state.replace(**rehomed)
 
     def set_state(self, state: VectorField) -> None:
         """

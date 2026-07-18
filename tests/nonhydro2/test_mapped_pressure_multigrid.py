@@ -43,6 +43,7 @@ from fridom.spatial.meshes.interval import IntervalMesh
 from fridom.spatial.operators.banded import _resolve_tridiagonal_method
 from fridom.spatial.operators.krylov import _computational_mean
 from fridom.spatial.operators.multigrid import VerticalLineJacobi
+from fridom.spatial.operators.multigrid_hierarchy import coarsen_levels
 
 TWO_PI = 2.0 * np.pi
 DSQR = 0.25
@@ -75,7 +76,7 @@ def build_grid(nx=16, nz=NZ, *, depth_fn=depth, device_ids=None):
 
 
 def build_solver(nx=16, *, iterations, levels, method="auto",
-                 depth_fn=depth, device_ids=None):
+                 depth_fn=depth, device_ids=None, agglomerate=None):
     """Return a multigrid-preconditioned mapped solver and its grid."""
     grid, mx, ms = build_grid(nx, depth_fn=depth_fn, device_ids=device_ids)
     space = mx.center * ms.center
@@ -83,7 +84,8 @@ def build_solver(nx=16, *, iterations, levels, method="auto",
         grid, space, iterations=iterations,
         weights={"sigma": 1.0 / DSQR},
         preconditioner="multigrid", multigrid_levels=levels,
-        multigrid_tridiagonal_method=method)
+        multigrid_tridiagonal_method=method,
+        multigrid_agglomerate=agglomerate)
     return solver, grid, space
 
 
@@ -444,3 +446,81 @@ def test_auto_method_wires_to_cusparse_on_gpu():
     solver, _, _ = build_solver(iterations=3, levels=3)
     assert solver._multigrid_tridiagonal_method == "auto"
     assert _resolved_level_methods(solver) == {"cusparse"}
+
+
+# ================================================================
+#  Coarse-grid agglomeration (MG-D10)
+# ================================================================
+def _mapped_chain(solver, agglomerate):
+    """Return the solver's coarse chain (matching ``_build_vcycle``)."""
+    return coarsen_levels(
+        solver._grid, solver._space, vertical="sigma",
+        coarsen_vertical=True, max_levels=None, agglomerate=agglomerate)
+
+
+def _coarse_shard_extents(chain, device_count):
+    """Return each coarse level's min sharded per-shard extent.
+
+    Index > 0 (the coarse levels); ``None`` marks a replicated level.
+    """
+    out = []
+    for grid, _space, _t in chain[1:]:
+        axes = dict(grid.decomposition.default_layout.device_axes)
+        if not axes:
+            out.append(None)
+            continue
+        sizes = {name: mesh.n_cells
+                 for mesh in grid.factors for name in mesh.names}
+        out.append(min(-(-sizes[name] // device_count) for name in axes))
+    return out
+
+
+def test_mapped_multigrid_agglomerate_is_stored_and_validated():
+    solver, _, _ = build_solver(iterations=3, levels=None, agglomerate=4)
+    assert solver._multigrid_agglomerate == 4
+    default, _, _ = build_solver(iterations=3, levels=None)
+    assert default._multigrid_agglomerate is None
+    with pytest.raises(ValueError, match="positive integer"):
+        build_solver(iterations=3, levels=None, agglomerate=0)
+
+
+@pytest.mark.multi_device
+def test_mapped_multigrid_agglomerate_replicates_tiny_levels():
+    # capability: at forced devices the coarse levels shard a horizontal
+    # axis at a tiny per-shard extent; agglomerate=4 replicates every
+    # such level while preserving the floor depth
+    p = jax.device_count()
+    off, _g, _s = build_solver(nx=16, iterations=8, levels=None)
+    off_chain = _mapped_chain(off, None)
+    on_chain = _mapped_chain(off, 4)
+    assert len(off_chain) == len(on_chain)
+    off_ext = _coarse_shard_extents(off_chain, p)
+    on_ext = _coarse_shard_extents(on_chain, p)
+    assert any(e is not None and e < 4 for e in off_ext), off_ext
+    assert all(e is None or e >= 4 for e in on_ext), on_ext
+
+
+@pytest.mark.multi_device
+def test_mapped_multigrid_agglomerate_matches_off_and_single_device():
+    # parity: agglomerate ON matches the OFF and single-device solves to
+    # machine precision (the mapped coarse projections reassociate only
+    # negligibly here) with identical iteration counts
+    ids = tuple(range(jax.device_count()))
+
+    def solve(agglomerate, device_ids):
+        solver, grid, space = build_solver(
+            nx=16, iterations=30, levels=None, method="scan",
+            device_ids=device_ids, agglomerate=agglomerate)
+        rhs = mean_free_rhs(grid, space)
+        p, info = solver.krylov().solve(rhs)
+        return (np.asarray(p.data), int(info["iterations"]),
+                float(info["residual_norm"]))
+
+    p_ref, it_ref, rn_ref = solve(None, (0,))
+    p_off, it_off, _rn_off = solve(None, ids)
+    p_on, it_on, _rn_on = solve(4, ids)
+    assert rn_ref < 1e-6
+    assert it_off == it_on == it_ref
+    scale = max(np.max(np.abs(p_ref)), 1e-30)
+    assert np.max(np.abs(p_off - p_ref)) / scale < 1e-9
+    assert np.max(np.abs(p_on - p_ref)) / scale < 1e-9

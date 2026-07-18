@@ -1300,6 +1300,17 @@ class SplitExplicitFreeSurface(_FreeSurfaceBase):
       averaged ``U/H, V/H`` (a z-uniform correction, the same broadcast
       as the implicit variant), injecting the resolved barotropic mode.
 
+    **Initialization** (the IC hook, host-side): because ``U, V`` are
+    slaved to the depth mean of ``u, v``, ``set_fields`` seeds them from
+    the velocity IC (``derive_initial_fields``): setting ``u`` (resp.
+    ``v``) without the matching transport derives
+    ``U = \bar u / (1/H)`` (immersed:
+    ``\bar u_{\rm wet}\,H_{\rm col}``) — exactly the transport the
+    subcycle commit computes — so the CONSTRAINT no longer annihilates
+    the barotropic part of the IC on the first step. An explicitly-set
+    ``U`` (or ``V``) is respected; setting only ``ps`` leaves the
+    transports untouched.
+
     **Slow forcing** ``G`` (the depth mean of the baroclinic tendencies
     driving the barotropic momentum, held fixed across the subcycle):
 
@@ -1769,3 +1780,67 @@ class SplitExplicitFreeSurface(_FreeSurfaceBase):
             "u": u - du * self._face_wet_mask(u),
             "v": v - dv * self._face_wet_mask(v),
         }
+
+    # ================================================================
+    #  Initial-condition hook: seed U, V from the velocity IC
+    # ================================================================
+    def derive_initial_fields(
+        self, state: object, provided: frozenset[str],
+    ) -> dict[str, ScalarField]:
+        r"""Seed the barotropic transports from a just-set velocity IC.
+
+        Description
+        -----------
+        The prognostic transports ``U, V`` are diagnostically slaved to
+        the depth mean of ``u, v`` (the CONSTRAINT stage replaces that
+        depth mean with ``U/H, V/H`` every step). At model build they
+        are zero-initialized, so without this hook the first step would
+        annihilate the barotropic (z-independent) part of any velocity
+        IC. When ``set_fields`` sets ``u`` (resp. ``v``) WITHOUT the
+        matching transport, seed it as the transport whose barotropic
+        velocity equals the depth mean of the IC (see
+        :meth:`_barotropic_transport`) — exactly what the subcycle
+        commit computes. An explicitly-set ``U`` (or ``V``) is
+        respected; setting only ``ps`` leaves the transports untouched.
+
+        Parameters
+        ----------
+        state : VectorField
+            The state after the user's fields are applied.
+        provided : frozenset[str]
+            The component names the user set in this ``set_fields``
+            call.
+
+        Returns
+        -------
+        dict[str, ScalarField]
+            The derived ``U`` and/or ``V`` transports (empty when
+            neither velocity was set without its transport).
+        """
+        updates: dict[str, ScalarField] = {}
+        if "u" in provided and "U" not in provided:
+            updates["U"] = self._barotropic_transport(
+                state["u"], state["U"])
+        if "v" in provided and "V" not in provided:
+            updates["V"] = self._barotropic_transport(
+                state["v"], state["V"])
+        return updates
+
+    def _barotropic_transport(
+        self, vel: ScalarField, transport: ScalarField,
+    ) -> ScalarField:
+        r"""Return the depth-mean transport of ``vel`` on its face.
+
+        The transport whose barotropic velocity is the depth mean of
+        ``vel``: ``\bar u / (1/H)`` off an immersed grid (the flat depth
+        mean over ``self._inv_depth``), the wet transport
+        ``\bar u_{\rm wet}\,H_{\rm col}`` on it (transport-depth
+        consistent; a land column ``H_{\rm col} == 0`` yields 0).
+        Retagged onto ``transport`` (the declared ``U``/``V`` face) so
+        ``set_fields`` re-homes it like any incoming field.
+        """
+        if self._immersed is None:
+            return (vel.mean(self._vertical) / self._inv_depth).retag(
+                transport)
+        return (self._wet_depth_mean(vel)
+                * self._transport_depth(vel)).retag(transport)

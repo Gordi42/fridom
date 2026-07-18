@@ -299,8 +299,8 @@ into the roadmap's sized-deferred section.
 - **D4 — `MetricScaled` canary.** Comment-only (recommended) or also
   a direct grad canary test pinning today's reverse-safety.
   [Resolved 2026-07-18 (`7fdbc900`): neither — a live NaN forced a
-  full seal, not a canary; owner ratification of the reversal still
-  owed. §10.]
+  full seal, not a canary; the reversal was owner-ratified
+  2026-07-19. §10.]
 - **D5 — Phase 2 sequencing.** Recommended: land 5.3 items 1-4
   independent of TDF, with the frozen-L refusal in its conservative
   fallback form if TDF wave 1 has not merged yet, upgraded to the
@@ -350,7 +350,7 @@ The campaign executed in one day; every phase merged to dev.
   the canonical differentiability pattern (the private `_chunk_body`
   shards stay valid).
 
-**D4 premise reversal (owner ratification owed).** §4/§8's approved
+**D4 premise reversal (owner-ratified 2026-07-19).** §4/§8's approved
 "comment-only watch-item" for the `MetricScaled` reciprocal /
 coefficient divides (`spatial/operators/mapped.py`) was DISPROVEN:
 they fire live — walled/sphere chart sw2 IC-grad through `_chunk_body`
@@ -378,20 +378,48 @@ CLOSED across the step path.** Tests: adv=True sphere grad FD-matched;
 bare-vs-guarded proofs in `test_sadourny_autodiff.py` and
 `test_coriolis.py`.
 
-**Phase-2 deviations (owner-review notes).**
+**Phase-2 deviations (all owner-ratified 2026-07-19).**
 
-1. **Ordering.** The surface checks frozen-L *before* materialized
-   (more specific message); every reachable L-param today is also
-   materialized, so the order is cosmetic.
-2. **Frozen-L set = `linear_params`-only.** Params feeding L via
-   `linear_fields` AUX fields are caught by the materialized refusal,
-   so refusal completeness is identical today. Forward-looking: when
-   TDF wave 2 makes linear-consumed fields recomputed-in-trace (no
-   longer remat-owned), the frozen-L set must learn `linear_fields`.
-3. **Materialized-owner conservatism.** The materialized refusal
-   over-refuses a differentiable param that merely shares an owner with
-   a materialized field (e.g. sw `scaling.rossby`); in-trace
-   rematerialization is the recorded follow-on.
+1. **Ordering — RATIFIED as-is.** The surface checks frozen-L *before*
+   materialized (more specific message); every reachable L-param today
+   is also materialized, so the order is cosmetic.
+2. **Frozen-L set = `linear_params`-only — verified, no live hole.**
+   Params feeding L via `linear_fields` AUX fields are caught by the
+   materialized refusal, so refusal completeness is identical today.
+   Verified against the shipped TDF merges (`bb2fb96f`/`ceb9db75`/
+   `3d2d1e1a`) 2026-07-19: law parameters are not `wrt`-bindable (they
+   are not in `parameter_declarations`), and any ETDRK4 model carrying
+   a recomputed-in-trace linear-consumed field fails assembly via the
+   `time_dependent`-marker guard (`_check_frozen_linear_operator`). The
+   deferral stands as forward-looking hardening — when TDF wave 2 makes
+   linear-consumed fields recomputed-in-trace (no longer remat-owned),
+   the frozen-L set must learn `linear_fields`; revisit when `n2(z,t)`
+   (TDF-D7) ships.
+3. **Materialized-owner conservatism — RATIFIED.** The materialized
+   refusal over-refuses a differentiable param that merely shares an
+   owner with a materialized field (e.g. sw `scaling.rossby`); in-trace
+   rematerialization stays the recorded follow-on.
+
+**`nonhydro.dsqr` frozen-L reachability (verdict 2026-07-19:
+UNREACHABLE).** The candidate cross-module hole — `DynamicalCore`
+overrides `time_dependent_linear_parameters()` but not the time-blind
+`linear_operator_parameters()`, and `dsqr` enters `L` through the
+pressure-projection CONSTRAINT stage (not a `linear=True` term), so a
+stratification-free nonhydro2 ETDRK4 model would slip
+`wrt=("nonhydro.dsqr",)` past both propagator refusals — is not
+reachable. ETDRK4 mandatorily takes an eigenbasis; `nh.eigenbasis` ->
+`channel_eigenpairs` -> `EnergyMetric.from_model` unconditionally needs
+`stratification.n2` for any nonhydro model (`energy.py:340-355`), so no
+strat-free nonhydro2 ETDRK4 model is constructible (the eigenbasis
+build raises). Every constructible one carries
+`ConstantStratification`/`MeridionalStratification`, both of which
+class-declare a `buoyancy_force` `linear=True` term with `DSQR` in
+`linear_params` (`stratification.py:112`/`:229`), so
+`linear_operator_parameters()` always lists `nonhydro.dsqr` and the
+frozen-L refusal fires. Empirically confirmed: refused under ETDRK4,
+accepted under `AdamBashforth`; the frozen eigenbasis `omega` genuinely
+varies with `dsqr` (max delta 0.13 for a 0.5 change), so the refusal is
+protective, not spurious. No code change.
 
 **Phase 3 (D5 `TangentPropagator`) deferred.** No consumer (NNMD
 descoped); the shared name-resolution piece shipped with Phase 2, so

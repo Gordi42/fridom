@@ -229,8 +229,27 @@ def test_transforms_reject_immersed():
         hy.transforms.VorticalProjection.from_model(model)
 
 
-def test_biased_advection_rejected_on_immersed():
-    with pytest.raises(NotImplementedError, match="immersed"):
-        hy.Model(
-            grid=_immersed_grid(_flat_bottom), dt=0.01,
-            advection=fr.model.modules.UpwindAdvection(3))
+@pytest.mark.single_device
+def test_biased_advection_accepted_on_immersed():
+    # GA-D6 (merge 02663933): the biased schemes now run on immersed
+    # grids through the mask-keyed graded ladder, so the hydrostatic
+    # nodal route accepts UpwindAdvection / WENOAdvection where IP-D8
+    # used to reject them at bind. The staircase / all-wet nodal
+    # equivalence of this path is gated in
+    # tests/model/modules/test_advection_immersed_graded.py; here we
+    # pin only that the model assembles and a short run stays finite
+    # (single-device: n=8 caps the order-3 halo on a 4-way shard).
+    model = hy.Model(
+        grid=_immersed_grid(_flat_bottom), dt=0.01,
+        advection=fr.model.modules.UpwindAdvection(3))
+    assert any(
+        type(m).__name__ == "UpwindAdvection" for m in model.modules)
+    rng = np.random.default_rng(0)
+    model.set_fields(**{
+        k: 0.1 * rng.standard_normal(model.state[k].data.shape)
+        for k in ("u", "v", "b")})
+    model.advance(4)
+    assert not model.panicked
+    assert all(
+        bool(jnp.all(jnp.isfinite(model.state[k].data)))
+        for k in ("u", "v", "b"))

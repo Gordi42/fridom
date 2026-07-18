@@ -445,7 +445,11 @@ custom calls, **all per-shard** across the 6 full-3D-coarsening levels
 The module's collective all-gathers (an `f64[4]` projection global-mean
 reduction and an `s32[8]` index-gather for a `jnp.take` in the
 projection while-body) feed **no** cuSPARSE operand — every cuSPARSE
-operand is a `loop_dynamic_update_slice_fusion` / `bitcast`. The
+operand is a `loop_dynamic_update_slice_fusion` / `bitcast`.
+*Correction (Addendum 3, same day): there is only **one** collective
+all-gather — the `f64[4]` global mean. The `s32[8]` "index-gather" is a
+**local** `gather` op, not a collective; the census parser confirms a
+single all-gather in the whole step.* The
 remaining collectives (all-reduce, collective-permute) are the CG
 measure-weighted inner products and the halo exchanges, inherent to the
 sharded elliptic solve, not the tridiagonal kernel. pcr partitions
@@ -528,3 +532,187 @@ and mg is ~1.1x faster. In-model trajectories match ~1e-10.
 Caveat: the HLO/parity/iteration runs (correctness, not timing) were
 taken under light contention from two other pytest sessions on the node;
 every ms/step timing was taken on `nvidia-smi`-verified-idle GPUs.
+
+---
+
+## Addendum 3 (2026-07-18) — collective census of the 4-GPU step; why small-n multi-GPU mg is slow
+
+Addendum 2 measured mg-cuSPARSE at **0.37x** spectral on 4 A100s at
+128^3 (86.4 vs 32.3 ms/step) but only *asserted* per-level collective
+latency as the cause. This census counts it. A parser
+(`census.py`) walks each optimized-HLO step module, builds its
+call graph, and attributes every collective op **definition** (not
+operand reference) to the computation it lives in and to a structural
+region (outside the CG while / inside the conditional's real branch /
+inside the skip branch). Full report + tables + the trimmed module
+excerpts:
+[`artifacts/multigrid_gspmd_validation/census_collective_report.md`](artifacts/multigrid_gspmd_validation/census_collective_report.md).
+
+Environment: node l50009, 4x A100-SXM4-80GB, jax 0.10.2, float64, dev
+checkout (no repo edits), `XLA_FLAGS=--xla_disable_hlo_passes=multi_output_fusion`
+(jax#39100). GB-2 steep-mapped nonhydro2 (`H(x)=1+0.8 sin(x)`), n=128,
+FV auto, dsqr=0.25, budget 100, tol 1e-8, `multigrid_levels=None` (floor
+depth = 6 levels, full-3D coarsening 128->4). x sharded 4-way; y, z
+local. Step HLO dumped with `model.advance(1)` so the outer time-scan
+collapses and the module is exactly one step.
+
+### Module structure
+
+Both mg and spectral modules are **exactly one `while`** (the CG masked
+scan, `known_trip_count=99` = budget 100 minus the peeled first
+iteration) and **one `conditional`** (the tolerance real/skip branch).
+The 6-level V-cycle is **fully unrolled** straight-line code inside the
+conditional's real branch — it is not a loop. The skip branch (taken
+once convergence is reached) is a **bare tuple pass-through: 0
+collectives, 0 FLOPs** (verified directly for both modules). Achieved
+production CG iterations (random mean-free RHS, tol 1e-8): mg **10**,
+spectral **36**.
+
+Regions: *outside-while* = executed once/step (setup, tendency, the
+peeled first CG iteration, final projection); *real/trip* = the
+conditional's collective-bearing branch = one CG iteration = one V-cycle
++ one operator apply + the dot products.
+
+### Collectives per V-cycle (= one real mg CG trip), by kind and level
+
+262 collective-permute + 26 all-reduce = **288 collectives per real
+trip**. No all-gather, no all-to-all in-loop. CPs are attributed to a
+level by the Y-extent of the moved x-plane payload `f64[hx,Y,Z]`
+(storage Y = true + 2 ghosts: 130/66/34/18/10/6 for levels
+128/64/32/16/8/4). `L*` rows are the true-size inter-level
+restriction/prolongation transfer exchanges. Left and right x-halos are
+**separate** collective-permute ops, never fused.
+
+| level | CP per V-cycle | bytes each |
+|---|---|---|
+| L128  | 44 | 134160 |
+| L64   | 33 |  34320 |
+| L64*  |  5 |  32768 |
+| L32   | 42 |   8976 |
+| L32*  |  5 |   8192 |
+| L16   | 42 |   2448 |
+| L16*  |  5 |   2048 |
+| L8    | 33 |    720 |
+| L8*   |  7 |    512 |
+| L4    | 24 |    576 |
+| L4*   | 22 |    128 |
+| **TOTAL CP** | **262** | |
+
+The 26 all-reduces per trip are the CG dot products (`<p,Ap>`, `<r,z>`)
+and the per-level wet/mean projection reductions, all global 4-shard
+reductions carrying ~9.7 MB/step total — not the bottleneck.
+
+### Collectives executed per STEP — mg vs spectral
+
+mg-cuSPARSE (10 iters = 1 peel + 9 real trips + 90 zero-cost skips):
+
+| kind | outside/step | per real trip | executed/step | bytes/step |
+|---|---|---|---|---|
+| collective-permute | 572 | 262 | **2930** | 89.8 MB |
+| all-reduce         |  54 |  26 |  **288** |  9.7 MB |
+| all-gather         |   1 |   0 |    **1** |  32 B |
+| all-to-all         |   0 |   0 |    0 | 0 |
+| **TOTAL**          | 627 | 288 | **3219** | **99.4 MB** |
+
+spectral (36 iters = 1 peel + 35 real trips + 64 skips; per real trip
+11 CP + 3 all-reduce + 2 all-to-all = 16):
+
+| kind | outside/step | per real trip | executed/step | bytes/step |
+|---|---|---|---|---|
+| collective-permute | 53 | 11 | **438** |  58.6 MB |
+| all-reduce         |  8 |  3 | **113** |  19.8 MB |
+| all-to-all         |  4 |  2 |  **74** | 315.2 MB |
+| all-gather         |  0 |  0 |   0 | 0 |
+| **TOTAL**          | 65 | 16 | **625** | **393.6 MB** |
+
+**mg issues 5.1x MORE collectives than spectral (3219 vs 625) while
+moving 4x FEWER bytes (99 vs 394 MB).** Per CG iteration mg is 288 vs
+spectral's 16 — an **18x** higher per-iteration collective count that
+mg's 3.6x iteration advantage (10 vs 36) comes nowhere near offsetting.
+mg = hundreds-to-thousands of tiny latency-bound collectives; spectral =
+tens of large bandwidth-bound ones (its 74 all-to-all FFT transposes,
+~4.26 MB each, carry 80% of its bytes). **Exactly one** all-gather
+exists in the whole mg step: the `f64[4]` (32 B) global-mean projection
+gather; it touches no cuSPARSE operand and no mg transfer. (Corrects
+Addendum 2 / `results.md`: the "second all-gather, s32[8] index gather"
+is a **local** `gather` op, not a collective.) The 1-GPU mg module has
+**zero** collectives — every collective above is sharding overhead, none
+intrinsic to the kernels.
+
+### The per-collective cost: ~10 microseconds, latency-floored
+
+The 1-GPU mg module has zero collectives and runs 42.0 ms/step
+(Addendum 2). Census-day 4-GPU mg is 75.7 ms (probe below; a lighter
+node than Addendum 2's 86.4). The **~34 ms 4-GPU-minus-1-GPU gap** is
+therefore pure collective overhead, spread across the **3219**
+executed collectives -> **~10 us per collective**. That is the
+NVLink/NCCL small-message latency floor (a bidirectional NVLink hop is
+sub-microsecond, but the fixed per-collective launch + rendezvous
+dominates once each message is under a kilobyte), and it is
+**count-dominated, not launch-bloat**: the payloads are tiny (99.4 MB /
+3219 = ~31 KB average, and the coarse-level CPs move <1 KB). The mg
+step pays for issuing thousands of collectives, not for the bytes they
+carry.
+
+### No-op trips exonerated (the budget=100 masked scan)
+
+The tolerance masked scan computes `converged = rr_c <= threshold` from
+the residual **already carried** in the scan state — the predicate needs
+no collective, and the `<r,r>` reduction lives inside the real branch.
+`lax.cond` lowers to a real stablehlo `conditional` (not a compute-both
+`select`), and its skip branch is a bare tuple pass-through, so the 90
+post-convergence trips each execute **0 collectives, 0 FLOPs**. A timing
+probe (GPUs verified idle) prices what the budget=100 setting *does*
+cost — pure `while`-loop plumbing:
+
+| budget | scan trips (skip) | median ms/step |
+|---|---|---|
+| 100 | 99 (90 skip) | 75.72 |
+|  15 | 14 (5 skip)  | 72.75 |
+
+Delta **2.97 ms** for 85 extra no-op trips ~= **35 us/trip** (scalar
+predicate + `get-tuple-element`/`copy` of the multi-level carry tuple),
+**not collectives**. Dropping 85 no-op trips recovers only ~3 of the
+~34 ms overhead — the budget is not the source of the slowdown.
+
+### Conviction: the two coarsest levels fire ~33% of the halo permutes
+
+At floor depth the V-cycle coarsens x to 8 (L8) and 4 (L4) cells total —
+**2 and 1 planes per shard** across 4 devices. Each such level still
+pays a full ring halo exchange per smoother sweep: per V-cycle
+L8 = 40 CP (33 + 7 `L8*`), L4 = 46 CP (24 + 22 `L4*`) = **~86 of the 262
+per-trip CPs (33%)**, each moving **<1 KB**. Over 10 V-cycles/step that
+is **~860 sub-kilobyte latency-only collective-permutes**. This is
+structural, not a bug: the coarse grids have almost nothing left to
+shard 4 ways, but the halo machinery fires regardless.
+
+### Conclusion
+
+The 128^3 4-GPU mg deficit is **count x latency of a deeply-coarsened
+sharded V-cycle**: 3219 collectives/step, ~10 us each latency-floored,
+~34 ms of overhead that the 1-GPU kernel (zero collectives) never pays.
+It is not the cuSPARSE kernel (Addendum 2: cleanly partitioned, no
+all-gather), not the no-op trips (35 us/trip plumbing, ~3 ms total), and
+not bandwidth (mg moves 4x fewer bytes than the winning spectral). The
+single largest recoverable slice is the ~33% of halo permutes fired by
+the two coarsest levels on 1-2 per-shard planes — **~9-14 ms of the
+~34 ms recoverable at 128^3** by not sharding levels below a per-shard
+extent threshold (agglomerate them to replicated layout, where the halo
+runs local and issues no collective). This motivates the coarse-level
+agglomeration plan:
+[`../plans/active/multigrid_agglomeration_plan.md`](../plans/active/multigrid_agglomeration_plan.md).
+This addendum also hypothesized a **capability** driver — a P-device
+sharded axis cannot coarsen below P cells, so large device counts cap
+V-cycle depth and break h-independence. *That did NOT reproduce: the
+prototype (plan §4, shipped `9e08493f`) found floor depth is already
+reached at forced 16/32 devices, because layout negotiation (MG-D5
+`allow_replicated`) already replicates below the shardability floor —
+no crash, no empty shards, no depth cap. The earlier 10 -> 27
+h-independence break
+([`multigrid_depth_scaling.md`](multigrid_depth_scaling.md)) was the
+fixed `multigrid_levels=5` cap, not a device-count effect. The
+reproduced driver is **latency only**: in semicoarsen/immersed
+hierarchies the sharded axis flips x -> z as the horizontals coarsen,
+so the coarse levels stay z-sharded at 2 planes/shard — the sub-KB
+regime above, reproduced at P = 16. Agglomeration's value is making that
+replication deliberate and threshold-driven, not curing a crash.*

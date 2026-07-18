@@ -235,3 +235,54 @@ def test_grad_through_multigrid_solve_is_finite_and_matches_fd():
     fd = (float(loss(u_leaf + eps * direction))
           - float(loss(u_leaf - eps * direction))) / (2.0 * eps)
     assert directional == pytest.approx(fd, rel=1e-4)
+
+
+# ================================================================
+#  grad through the multigrid solve with agglomeration ON (MG-D10)
+# ================================================================
+def immersed_mg_model(*, agglomerate, dt=0.01, pressure_iterations=8):
+    """Return a tiny immersed model whose masked CG uses agglomeration.
+
+    The multigrid preconditioner runs with coarse-grid agglomeration
+    ON. On one device the switch is inert (every coarse level is already
+    Layout({})); in the multi-device suite the coarse levels replicate
+    across the switch, so the restrict all-gather / prolong local-slice
+    reshard is on the differentiated path. Either way a NaN gradient is
+    a bug (the differentiability policy, knob ON).
+    """
+    grid = Grid(
+        (IM(8, (0.0, 6.0), periodic=False, name="x"),
+         IM(8, (0.0, TWO_PI), periodic=True, name="y"),
+         IM(6, (0.0, 1.0), periodic=False, name="z")),
+        immersed=ImmersedDomain(_slope, order=2, min_fraction=0.1))
+    model = nh.Model(
+        grid=grid, dt=dt, advection=True,
+        coriolis=nh.FPlaneCoriolis(f0=1.0),
+        pressure_iterations=pressure_iterations,
+        pressure_preconditioner="multigrid",
+        multigrid_tridiagonal_method="scan",
+        multigrid_agglomerate=agglomerate)
+    rng = np.random.default_rng(0)
+    model.set_fields(**{
+        k: 0.2 * rng.standard_normal(model.state[k].data.shape)
+        for k in ("u", "v", "w", "b")})
+    return model
+
+
+def test_grad_with_agglomerate_on_is_finite_and_matches_fd():
+    """Agglomerated multigrid solve: grad w.r.t. the IC is FD-matched."""
+    model = immersed_mg_model(agglomerate=2)
+    u_leaf = model._carry.state["u"].storage
+    loss = leaf_loss(model, u_leaf, n_steps=4)
+
+    grad = np.asarray(jax.grad(loss)(u_leaf))
+    assert bool(np.all(np.isfinite(grad)))
+
+    rng = np.random.default_rng(1)
+    direction = jnp.asarray(rng.standard_normal(u_leaf.shape),
+                            dtype=u_leaf.dtype)
+    directional = float(jnp.vdot(jnp.asarray(grad), direction))
+    eps = 1e-4
+    fd = (float(loss(u_leaf + eps * direction))
+          - float(loss(u_leaf - eps * direction))) / (2.0 * eps)
+    assert directional == pytest.approx(fd, rel=1e-4)

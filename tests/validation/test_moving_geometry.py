@@ -13,6 +13,7 @@ and the oscillating terrain-following column (stable, divergence at
 tolerance, compile-once across the whole run while the geometry
 values sweep, forced-4 device-count invariance).
 """
+import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
@@ -29,6 +30,7 @@ from fridom.nonhydro2.modules.mapped_pressure import (
 from fridom.spatial.coordinate_mapping import CoordinateMapping
 from fridom.spatial.grid import Grid
 from fridom.spatial.meshes.interval import IntervalMesh
+from fridom.spatial.operators.integrate import Integral
 
 N = 8
 DT = 0.01
@@ -87,6 +89,29 @@ def terrain_fields(n=N):
     }, (x, y, z)
 
 
+def _reproduces_static(got, want, name):
+    """Frozen-motion == static reproduction, backend-aware.
+
+    The static-geometry model and the frozen-motion model compile two
+    DIFFERENT HLO programs (the moving pipeline threads params= and a
+    bitwise-zero ALE tendency through every metric derivation). On the
+    CPU backend the two programs lower identically, so the reproduction
+    is BITWISE — the valuable pin, kept here (and what CI enforces). On
+    GPU, XLA autotuning is free to pick different kernels for the two
+    physically equivalent programs, and the reassociated FP arithmetic
+    then differs at the last bits: measured worst 5.7e-15 relative
+    (6.1e-17 absolute), accumulating sub-linearly to that over the
+    20-step window. That is roundoff, not physics, so the GPU contract
+    is a tolerance with ~10x headroom on the measured absolute drift.
+    """
+    got = np.asarray(got)
+    want = np.asarray(want)
+    if jax.default_backend() == "cpu":
+        assert np.array_equal(got, want), name
+    else:
+        assert np.allclose(got, want, rtol=0.0, atol=1e-15), name
+
+
 def test_frozen_motion_reproduces_the_static_run_bitwise():
     # the schedule freezes the static default (H_dot == 0 exactly
     # through the jvp), so the dynamic pipeline — MovingGeometry
@@ -106,11 +131,9 @@ def test_frozen_motion_reproduces_the_static_run_bitwise():
         model.set_fields(**fields)
         model.advance(20)
     for c in ("u", "v", "w", "b", "p"):
-        want = np.asarray(static.state[c].data)
-        assert np.array_equal(
-            np.asarray(without_ale.state[c].data), want), c
-        assert np.array_equal(
-            np.asarray(with_ale.state[c].data), want), c
+        want = static.state[c].data
+        _reproduces_static(without_ale.state[c].data, want, c)
+        _reproduces_static(with_ale.state[c].data, want, c)
 
 
 # ================================================================
@@ -260,6 +283,20 @@ def channel_fields(n=N):
             "b": 0.01 * (2.0 + np.cos(np.pi * z))}, (x, y, z)
 
 
+def _sigma_frame_integral(field):
+    # Raw computational (sigma-frame) full reduction — the escape
+    # hatch. The seeded ``.integrate()`` verb is now physical
+    # (Jacobian-weighted) AND reads the grid's REFERENCE geometry, not
+    # the live morph state; these diagnostics weight by the
+    # CURRENT-geometry Jacobian themselves (params-aware ``jac``
+    # below), so they reduce through the unweighted raw ``Integral()``
+    # to measure exactly int(J q dV) at the morphed geometry.
+    result = field
+    for name in field.function_space.bare.names:
+        result = Integral()[name](result)
+    return result
+
+
 def channel_diagnostics(model):
     """Return (|mapped div|, volume, tracer content) of the state."""
     state = model.state
@@ -272,8 +309,8 @@ def channel_diagnostics(model):
         "x": state["u"], "y": state["v"], "z": state["w"]})
     jac = grid.metric(state["b"].function_space, "dyp_dy",
                       params=params)
-    volume = float(jnp.sum(jac.integrate().data))
-    tracer = float(jnp.sum((state["b"] * jac).integrate().data))
+    volume = float(jnp.sum(_sigma_frame_integral(jac).data))
+    tracer = float(jnp.sum(_sigma_frame_integral(state["b"] * jac).data))
     return float(jnp.abs(div.data).max()), volume, tracer
 
 
@@ -434,11 +471,9 @@ def test_fv_frozen_motion_reproduces_the_static_run_bitwise():
         model.set_fields(**fields)
         model.advance(20)
     for c in ("u", "v", "w", "b", "p"):
-        want = np.asarray(static.state[c].data)
-        assert np.array_equal(
-            np.asarray(without_ale.state[c].data), want), c
-        assert np.array_equal(
-            np.asarray(with_ale.state[c].data), want), c
+        want = static.state[c].data
+        _reproduces_static(without_ale.state[c].data, want, c)
+        _reproduces_static(with_ale.state[c].data, want, c)
 
 
 @pytest.mark.single_device

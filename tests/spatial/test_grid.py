@@ -1582,6 +1582,50 @@ def test_override_keys_records_merged_overrides(mx):
     assert grid.coarsened(2).override_keys == frozenset()
 
 
+def test_coarsened_replicated_is_a_distinct_memo_entry(grid):
+    # the replicated flag is part of the memo key (MG-D10): the sharded
+    # and replicated coarse siblings are distinct, each memoized
+    sharded = grid.coarsened(2)
+    replicated = grid.coarsened(2, replicated=True)
+    assert replicated is not sharded
+    assert grid.coarsened(2, replicated=True) is replicated
+
+
+def test_coarsened_replicated_is_inert_on_one_device():
+    # on one device the coarse sibling is Layout({}) either way, so the
+    # flag changes nothing observable (a clean no-op)
+    if jax.device_count() != 1:
+        pytest.skip("single-device semantics")
+    grid = Grid((IntervalMesh(8, (0.0, 1.0), name="x"),
+                 IntervalMesh(8, (0.0, 2.0), name="y")))
+    sharded = grid.coarsened(2)
+    replicated = grid.coarsened(2, replicated=True)
+    assert (dict(sharded.decomposition.default_layout.device_axes)
+            == dict(replicated.decomposition.default_layout.device_axes)
+            == {})
+
+
+@pytest.mark.multi_device
+def test_coarsened_replicated_forces_a_local_layout():
+    # a coarse grid that would still shard is instead negotiated fully
+    # replicated (Layout({})) when replicated=True — the agglomeration
+    # seam (MG-D10). nx = 4 * device_count keeps x shardable after one
+    # coarsening (2 * device_count cells, 2 per shard).
+    nx = 4 * jax.device_count()
+    grid = Grid((IntervalMesh(nx, (0.0, 1.0), name="x"),
+                 IntervalMesh(nx, (0.0, 2.0), name="y")))
+    sharded = grid.coarsened(2)
+    replicated = grid.coarsened(2, replicated=True)
+    # the ordinary coarse sibling still shards a periodic axis
+    assert dict(sharded.decomposition.default_layout.device_axes)
+    # the replicated one shards nothing (every axis device-local)
+    assert not dict(replicated.decomposition.default_layout.device_axes)
+    # both keep the full device set (agglomeration replicates in place,
+    # never falls back to one device)
+    assert (replicated.decomposition.device_count
+            == sharded.decomposition.device_count == jax.device_count())
+
+
 # ================================================================
 #  Raw per-cell quadrature accessor (immersed chart-fraction seam)
 # ================================================================

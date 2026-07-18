@@ -619,6 +619,7 @@ def negotiate(
     halo: HaloSpec | None = None,
     device_ids: tuple[int, ...] | None = None,
     allow_replicated: bool = False,
+    force_replicated: bool = False,
 ) -> Decomposition:
     """
     Choose a backend and layouts from mesh traits + operator demands.
@@ -676,6 +677,16 @@ def negotiate(
         replicated coarse level of a multigrid hierarchy (MG-D5). The
         auto-selection single-device fallback is untouched
         (default: False).
+    force_replicated : bool, optional
+        Keep the full device set with the replicated-only layout
+        (``Layout({})``) **even when a factor would still shard** —
+        the coarse-grid agglomeration seam (MG-D10): above a still-
+        shardable but tiny-per-shard coarse level the multigrid
+        hierarchy replicates outright so the redundant coarse compute
+        runs collective-free (local-axis halo path) instead of paying
+        a ring halo exchange to shard one or two planes. The capped
+        halo geometry matches a naturally-replicated level of the same
+        grid (default: False).
 
     Returns
     -------
@@ -701,7 +712,12 @@ def negotiate(
     if len(ids) > 1:
         spec = _cap_for_sharding(meshes, spec, floor, len(ids))
         shardable = _shardable_names(meshes, spec, len(ids))
-        if shardable:
+        if force_replicated:
+            pass  # agglomeration: keep ``Layout({})`` over the full
+            # device set even though `shardable` may be non-empty
+            # (MG-D10); the capped `spec` above keeps the storage
+            # geometry identical to a naturally-replicated level
+        elif shardable:
             layouts = (*(Layout({name: _DEVICE_AXIS})
                          for name in shardable), Layout({}))
         elif explicit and not allow_replicated:

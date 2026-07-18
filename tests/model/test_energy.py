@@ -9,6 +9,7 @@ models plus its structural gates.
 """
 from types import SimpleNamespace
 
+import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
@@ -19,7 +20,9 @@ import fridom.nonhydro2 as nh
 import fridom.shallowwater2 as sw
 from fridom.model.energy import (
     EnergyMetric,
+    StateSourcedWeight,
     _read_scalar,
+    _reciprocal,
 )
 from fridom.model.modules.coriolis import (
     BetaPlaneCoriolis,
@@ -640,3 +643,146 @@ def test_hydrostatic_ps_weight_on_a_walled_channel():
     model = _hydro_model(grid, csqr=4.0)
     metric = EnergyMetric.from_model(model, require_constant_coriolis=False)
     assert metric.weights["ps"] == pytest.approx(2.0 / 4.0)
+
+
+# ================================================================
+#  State-sourced (time-dependent) field weights (TDF-D10)
+# ================================================================
+_CHANNEL = {"require_constant_coriolis": False, "allow_field_weights": True}
+
+
+def _affine_csqr_law(c0=1.0, s=0.5):
+    """c^2(y, t) = c0 + s*t + 0.1*y — a time_dependent ProfileFunction."""
+    return fr.model.ProfileFunction(
+        lambda y, t, c0, s: c0 + s * t + 0.1 * y, params=(c0, s))
+
+
+def tracking_sw_model(grid=None, *, order=3, dt=5e-3):
+    """Build a walled sw channel whose csqr is a time_dependent field."""
+    return sw.Model(
+        grid=_walled_sw_grid() if grid is None else grid,
+        csqr=_affine_csqr_law(), rossby_number=0.2, advection=False,
+        coriolis=None,
+        time_stepper=fr.model.time_steppers.AdamBashforth(dt, order=order))
+
+
+def _seed_sw(model, seed):
+    rng = np.random.default_rng(seed)
+    model.set_fields(**{
+        c: rng.standard_normal(np.asarray(model.state[c].data).shape)
+        for c in ("u", "v", "p")})
+
+
+def test_static_profile_is_snapshot_agnostic():
+    # a static csqr(y) profile is NOT time_dependent, so snapshot=False
+    # bakes the field exactly like snapshot=True — weights and numbers
+    # bit-identical, no state-sourced descriptor
+    model = varying_sw_model(csqr_tanh)
+    live = EnergyMetric.from_model(model, snapshot=False, **_CHANNEL)
+    frozen = EnergyMetric.from_model(model, snapshot=True, **_CHANNEL)
+    assert isinstance(live.weights["u"], ScalarField)
+    assert isinstance(frozen.weights["u"], ScalarField)
+    np.testing.assert_array_equal(
+        np.asarray(live.weights["u"].data),
+        np.asarray(frozen.weights["u"].data))
+    _seed_sw(model, 7)
+    z = sw.State({c: model.state[c] for c in ("u", "v", "p")})
+    assert complex(live.inner(z, z)) == complex(frozen.inner(z, z))
+    assert float(live.norm(z)) == float(frozen.norm(z))
+
+
+def test_state_sourced_metric_tracks_stage_time():
+    # one state-sourced metric, built once, matches a per-time baked
+    # oracle at two distinct stage times — it tracks csqr off the state
+    model = tracking_sw_model()
+    _seed_sw(model, 3)
+    metric = EnergyMetric.from_model(model, **_CHANNEL)  # snapshot=False
+    assert isinstance(metric.weights["u"], StateSourcedWeight)
+    assert metric.weights["u"].field == "csqr"
+    assert metric.weights["v"] is metric.weights["u"]
+    assert metric.weights["p"] == 1.0
+
+    # apply resolves the descriptor off the operand's own csqr
+    mz = metric.apply(model.state)
+    csqr0 = model.state["csqr"]
+    np.testing.assert_allclose(
+        np.asarray(mz["u"].data),
+        np.asarray((csqr0.to(model.state["u"]) * model.state["u"]).data))
+
+    # sample 1
+    model.advance(2)
+    oracle1 = EnergyMetric.from_model(model, snapshot=True, **_CHANNEL)
+    m1 = float(metric.norm(model.state))
+    i1 = complex(metric.inner(model.state, model.state))
+    assert m1 == pytest.approx(float(oracle1.norm(model.state)), rel=1e-12)
+    assert i1 == pytest.approx(
+        complex(oracle1.inner(model.state, model.state)), rel=1e-12)
+
+    # sample 2 (later): same metric, a fresh per-time oracle
+    model.advance(3)
+    oracle2 = EnergyMetric.from_model(model, snapshot=True, **_CHANNEL)
+    m2 = float(metric.norm(model.state))
+    assert m2 == pytest.approx(float(oracle2.norm(model.state)), rel=1e-12)
+
+    # the two samples genuinely differ (csqr and state both evolved)
+    assert abs(m1 - m2) > 1e-9
+
+
+def test_state_sourced_apply_missing_source_is_taught():
+    # a bare (u, v, p) bundle carries the weighted u/v but not the csqr
+    # source: a taught error naming the snapshot spelling
+    model = tracking_sw_model()
+    _seed_sw(model, 1)
+    metric = EnergyMetric.from_model(model, **_CHANNEL)
+    bundle = sw.State({c: model.state[c] for c in ("u", "v", "p")})
+    with pytest.raises(ValueError, match="snapshot=True"):
+        metric.apply(bundle)
+
+
+def test_snapshot_true_freezes_the_time_dependent_weight():
+    # snapshot=True reproduces the old t=0-baked behaviour: a plain
+    # field weight, frozen — it does NOT track the stage time
+    model = tracking_sw_model()
+    _seed_sw(model, 5)
+    frozen = EnergyMetric.from_model(model, snapshot=True, **_CHANNEL)
+    assert isinstance(frozen.weights["u"], ScalarField)
+    np.testing.assert_array_equal(
+        np.asarray(frozen.weights["u"].data),
+        np.asarray(model.state["csqr"].data))
+
+    # at t=0 the state-sourced metric agrees with the frozen bake
+    live = EnergyMetric.from_model(model, **_CHANNEL)
+    z0 = sw.State({c: model.state[c] for c in ("u", "v", "p", "csqr")})
+    assert float(live.norm(z0)) == pytest.approx(float(frozen.norm(z0)))
+
+    # advance: the frozen metric keeps the t=0 csqr while the live one
+    # tracks, so they now disagree (the staleness snapshot=True opts into)
+    model.advance(4)
+    assert float(frozen.norm(model.state)) != pytest.approx(
+        float(live.norm(model.state)), rel=1e-9)
+
+
+def test_state_sourced_norm_is_differentiable():
+    # the reciprocal weight 1/N^2 is a genuine divide (no seal); grad
+    # through the state-sourced norm must be finite (TDF-D8 spirit)
+    model = varying_nh_model(lambda y: 1.0 + 2.0 * y * y)
+    metric = EnergyMetric({
+        "u": 1.0, "v": 1.0, "w": 2.0,
+        "b": StateSourcedWeight("n2", _reciprocal)})
+    # seed nonzero fields so the energy is strictly positive (the norm's
+    # sqrt has an infinite derivative at zero energy, unrelated to 1/N^2)
+    rng = np.random.default_rng(0)
+    model.set_fields(**{
+        c: rng.standard_normal(np.asarray(model.state[c].data).shape)
+        for c in ("u", "v", "w", "b")})
+    base = {c: jnp.asarray(np.asarray(model.state[c].data))
+            for c in ("u", "v", "w", "b")}
+
+    def loss(scale):
+        state = model.state.replace(**{
+            c: model.state[c].with_data(scale * base[c])
+            for c in ("u", "v", "w", "b")})
+        return metric.norm(state)
+
+    g = jax.grad(loss)(1.3)
+    assert np.isfinite(float(g))

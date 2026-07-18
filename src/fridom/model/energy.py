@@ -39,6 +39,18 @@ applied. ``from_model`` assembles field weights only when the
 caller opts in (``allow_field_weights=True``, the channel engine);
 translation-invariant consumers keep the taught rejection.
 
+A field weight whose source field is declared ``time_dependent`` (a
+``ProfileFunction`` ``csqr(y, t)`` / ``N^2(y, t)``) is stored not as
+the ``t = 0`` snapshot but as a **state-sourced weight** descriptor
+(:class:`StateSourcedWeight`): "read component ``csqr`` off the
+operand, weight is that field (or its reciprocal)". :meth:`apply` /
+:meth:`inner` resolve it from the operand — which, post-TDF, carries
+its own stage-time values — so the metric is evaluated at the
+measured state's own time with no clock plumbing (TDF-D10). The
+frozen-snapshot spelling is ``from_model(..., snapshot=True)`` (the
+eigen/channel family, which needs the metric matching a frozen
+basis).
+
 Reduction (iteration 1): :meth:`inner` returns a single scalar (a 0-d
 ``jax`` array — a global inner product is inherently a number, and the
 choice is uniform across the two node families). A **physical/nodal**
@@ -52,6 +64,7 @@ scope.
 """
 from __future__ import annotations
 
+from dataclasses import dataclass
 from types import MappingProxyType
 from typing import TYPE_CHECKING
 
@@ -67,7 +80,7 @@ from fridom.spatial.operators.integrate import Integral
 from fridom.spatial.spaces.coefficient import CoefficientSpace
 
 if TYPE_CHECKING:  # pragma: no cover
-    from collections.abc import Mapping
+    from collections.abc import Callable, Mapping
 
     import jax
 
@@ -92,6 +105,55 @@ _HYDRO_CSQR = "hydrostatic.csqr"
 Weight = float | int | complex
 
 
+# ----------------------------------------------------------------
+#  State-sourced weight (TDF-D10): a field weight whose source is a
+#  ``time_dependent`` AUXILIARY field is not baked at build time but
+#  resolved off the operand's own stage-time state at apply time.
+#  The transforms are module-level (hashable by identity), so the
+#  descriptor stays a frozen, static host object — never a pytree.
+# ----------------------------------------------------------------
+def _identity(field: ScalarField) -> ScalarField:
+    """Identity weight transform (the ``csqr`` velocity weight)."""
+    return field
+
+
+def _reciprocal(field: ScalarField) -> ScalarField:
+    """Reciprocal weight transform (the ``1/N^2`` buoyancy weight)."""
+    return 1.0 / field
+
+
+@dataclass(frozen=True)
+class StateSourcedWeight:
+
+    r"""
+    A field weight read off the operand state at apply time (TDF-D10).
+
+    Description
+    -----------
+    The stored form of a field weight whose source field is declared
+    ``time_dependent`` (a ``ProfileFunction`` ``csqr(y, t)`` /
+    ``N^2(y, t)``). Rather than baking the ``t = 0`` snapshot into the
+    metric, the descriptor names the source component and the transform
+    that turns it into the weight; :meth:`EnergyMetric.apply` /
+    :meth:`EnergyMetric.inner` read ``operand[field]`` and apply ``fn``,
+    so the metric tracks the measured state's own stage time with no
+    clock plumbing. Frozen (hashable, not a pytree) so it composes with
+    the static host-side metric.
+
+    Parameters
+    ----------
+    field : str
+        The source component read off the operand (``"csqr"`` / ``"n2"``).
+    fn : Callable
+        The weight transform applied to the resolved source field
+        (:func:`_identity` for ``csqr``, :func:`_reciprocal` for
+        ``1/N^2``).
+    """
+
+    field: str
+    fn: Callable[[ScalarField], ScalarField]
+
+
 class EnergyMetric:
 
     r"""
@@ -108,13 +170,15 @@ class EnergyMetric:
 
     Parameters
     ----------
-    weights : Mapping[str, float | ScalarField]
-        Per-component energy weights; scalars or one-DOF constant
-        fields (the ``diag(M)`` entries).
+    weights : Mapping[str, float | ScalarField | StateSourcedWeight]
+        Per-component energy weights; scalars, one-DOF constant fields
+        (the ``diag(M)`` entries), or a state-sourced descriptor
+        resolved off the operand at apply time.
     """
 
     def __init__(
-        self, weights: Mapping[str, Weight | ScalarField],
+        self,
+        weights: Mapping[str, Weight | ScalarField | StateSourcedWeight],
     ) -> None:
         """Store a copy of the per-component weight map."""
         if not weights:
@@ -127,7 +191,9 @@ class EnergyMetric:
     #  Properties
     # ================================================================
     @property
-    def weights(self) -> Mapping[str, Weight | ScalarField]:
+    def weights(
+        self,
+    ) -> Mapping[str, Weight | ScalarField | StateSourcedWeight]:
         """Read-only per-component weight map (``diag(M)``)."""
         return MappingProxyType(self._weights)
 
@@ -148,12 +214,17 @@ class EnergyMetric:
         A field-valued (profile) weight is sampled on the
         component's own node set through ``.to`` before the
         pointwise scaling — the same sampling the tendency uses for
-        the coefficient.
+        the coefficient. A **state-sourced** weight (TDF-D10) is first
+        resolved off ``state`` itself: its source field must be present
+        (the ``if name in state`` skip keeps unweighted components out,
+        then the source read is gated on it) or a taught error names
+        the snapshot spelling.
 
         Parameters
         ----------
         state : VectorField
-            The state (or any component collection) to weight.
+            The state (or any component collection) to weight; also the
+            operand a state-sourced weight resolves from.
 
         Returns
         -------
@@ -162,7 +233,7 @@ class EnergyMetric:
             components replaced, others passed through unchanged.
         """
         scaled = {
-            name: _weigh(weight, state[name])
+            name: _weigh(self._resolve(weight, state), state[name])
             for name, weight in self._weights.items()
             if name in state}
         return state.replace(**scaled)
@@ -200,12 +271,19 @@ class EnergyMetric:
         wants an ``sqrt_g`` factor on mapped grids — a separate
         follow-up, not this change.)
 
+        A **state-sourced** weight (TDF-D10) resolves off ``b`` — the
+        operand the weight multiplies (``= a`` for :meth:`norm`) — so
+        the energy is measured at ``b``'s own stage time. A cross-time
+        inner product (``a`` and ``b`` at different times) is not an
+        energy and is out of scope; ``b`` alone sources the weight.
+
         Parameters
         ----------
         a : VectorField
             The left operand (conjugated).
         b : VectorField
-            The right operand (weighted).
+            The right operand (weighted); also the operand a
+            state-sourced weight resolves from.
 
         Returns
         -------
@@ -215,9 +293,13 @@ class EnergyMetric:
         spectral = self._is_spectral(a[self.component_names[0]])
         total = jnp.asarray(0.0 + 0.0j)
         for name, weight in self._weights.items():
+            # the weight multiplies b, so a state-sourced weight
+            # resolves off b (= a for norm); a cross-time inner product
+            # is not an energy and is out of scope.
+            resolved = self._resolve(weight, b)
             a_c, b_c = a[name], b[name]
             if spectral:
-                if isinstance(weight, ScalarField):
+                if isinstance(resolved, ScalarField):
                     raise NotImplementedError(
                         "a coefficient-space state has no Parseval "
                         "reduction under a varying (field-valued) "
@@ -225,10 +307,10 @@ class EnergyMetric:
                         "in the transformed basis; reduce the "
                         "physical state instead")
                 volume = _spectral_volume(a_c)
-                contrib = weight * volume * jnp.sum(
+                contrib = resolved * volume * jnp.sum(
                     jnp.conj(a_c.data) * b_c.data)
             else:
-                term = a_c.conj() * _weigh(weight, b_c)
+                term = a_c.conj() * _weigh(resolved, b_c)
                 contrib = jnp.sum(term.integrate().data)
             total = total + contrib
         return total
@@ -260,6 +342,7 @@ class EnergyMetric:
         at_time: float = 0.0,
         require_constant_coriolis: bool = True,
         allow_field_weights: bool = False,
+        snapshot: bool = False,
     ) -> EnergyMetric:
         r"""
         Build the energy metric from an assembled model's parameters.
@@ -289,16 +372,28 @@ class EnergyMetric:
         the field weights sampled per component wherever the metric
         is applied.
 
-        The weights are baked once here and never re-read from the
+        Scalar weights are baked once here and never re-read from the
         live state: a ``Ramp`` scalar is frozen at ``at_time``
-        (default 0.0), and a profile field weight is captured as the
-        ``model.state`` snapshot at build time (whatever ``csqr`` /
-        ``N^2`` held then — the ``t = 0`` materialized profile).
-        :meth:`apply` / :meth:`inner` reuse those baked weights, so a
-        time-dependent weight (a ramped scalar, or a ``time_dependent``
-        ``csqr`` / ``N^2`` profile) does NOT track its stage-time
-        values — the metric is a fixed-time analysis surface, not an
-        evaluation-time read (TDF-D6).
+        (default 0.0) — the deliberate constancy of the adiabatic-
+        ramping reference metrics (a clock is not readable off a bare
+        component bundle). A **static** profile field weight is
+        likewise captured as the ``model.state`` snapshot at build
+        time.
+
+        A field weight whose source field is declared
+        ``time_dependent`` (a ``ProfileFunction`` ``csqr`` / ``N^2``,
+        marked on its ``FieldRecord``) is stored **state-sourced** by
+        default (TDF-D10): the metric holds a :class:`StateSourcedWeight`
+        descriptor, and :meth:`apply` / :meth:`inner` read the source
+        component off the operand — which, post-TDF, carries its own
+        stage-time values — so the metric is automatically evaluated at
+        the measured state's own time. Pass ``snapshot=True`` for the
+        frozen-analysis spelling: it reproduces today's build-time
+        baking everywhere (whatever ``csqr`` / ``N^2`` held at
+        ``at_time``), the metric a frozen eigen/channel basis needs
+        (TDF-D6, no re-diagonalization). The hydrostatic terrain depth
+        weight ``H(x, y)`` is grid-metric-derived, not state-resident,
+        and keeps snapshot semantics regardless.
 
         The weights themselves never involve the Coriolis parameter
         (rotation does no work), so a consumer that tolerates a
@@ -324,6 +419,12 @@ class EnergyMetric:
             enter the metric as a field weight; ``False`` keeps the
             taught rejection for translation-invariant consumers
             (default: False).
+        snapshot : bool, optional
+            Whether to freeze a ``time_dependent`` field weight at its
+            build-time value (``at_time``) instead of storing the
+            state-sourced descriptor; the eigen/channel family passes
+            ``True`` so a frozen basis keeps its matching frozen metric
+            (TDF-D6, default: False).
 
         Returns
         -------
@@ -350,9 +451,11 @@ class EnergyMetric:
                 n2_field = _profile_field(
                     model, "n2", str(STRATIFICATION_N2),
                     allowed=allow_field_weights)
+                b_weight = _weight_or_source(
+                    model, "n2", 1.0 / n2_field, _reciprocal,
+                    snapshot=snapshot)
                 weights = {
-                    "u": 1.0, "v": 1.0, "w": dsqr,
-                    "b": 1.0 / n2_field}
+                    "u": 1.0, "v": 1.0, "w": dsqr, "b": b_weight}
         elif _CSQR in params:
             csqr = _read_scalar(params, _CSQR, at_time)
             if csqr == 0.0:
@@ -366,7 +469,10 @@ class EnergyMetric:
         elif _state_field(model, "csqr") is not None:
             csqr_field = _profile_field(
                 model, "csqr", _CSQR, allowed=allow_field_weights)
-            weights = {"u": csqr_field, "v": csqr_field, "p": 1.0}
+            csqr_weight = _weight_or_source(
+                model, "csqr", csqr_field, _identity, snapshot=snapshot)
+            weights = {
+                "u": csqr_weight, "v": csqr_weight, "p": 1.0}
         else:
             raise ValueError(
                 "unrecognized model energy: expected a "
@@ -377,6 +483,36 @@ class EnergyMetric:
     # ================================================================
     #  Internals
     # ================================================================
+    @staticmethod
+    def _resolve(
+        weight: Weight | ScalarField | StateSourcedWeight,
+        operand: VectorField,
+    ) -> Weight | ScalarField:
+        r"""Resolve a state-sourced weight off ``operand``; else pass through.
+
+        Description
+        -----------
+        The TDF-D10 resolution seam: a :class:`StateSourcedWeight`
+        reads its source component off ``operand`` and applies its
+        transform, yielding a ``ScalarField`` that flows into the
+        existing ``_weigh`` / Parseval branches exactly like a baked
+        field weight. A scalar or already-baked field weight passes
+        through unchanged. A missing source component (an eigenmode
+        basis vector, a bare ``(u, v, p)`` bundle) is a taught error
+        naming the snapshot spelling.
+        """
+        if not isinstance(weight, StateSourcedWeight):
+            return weight
+        if weight.field not in operand:
+            raise ValueError(
+                f"the state-sourced energy weight reads component "
+                f"{weight.field!r} off the operand, but the operand "
+                f"does not carry it (an eigenmode basis vector or a "
+                f"bare component bundle has no such field). Build the "
+                f"metric with EnergyMetric.from_model(..., "
+                f"snapshot=True) to freeze the weight at build time")
+        return weight.fn(operand[weight.field])
+
     @staticmethod
     def _is_spectral(field: ScalarField) -> bool:
         """Whether a field's reduction is Parseval (else physical)."""
@@ -598,6 +734,32 @@ def _weigh(
     if isinstance(weight, ScalarField):
         return weight.to(field) * field
     return weight * field
+
+
+def _weight_or_source(
+    model: Model,
+    name: str,
+    baked: Weight | ScalarField,
+    fn: Callable[[ScalarField], ScalarField],
+    *,
+    snapshot: bool,
+) -> Weight | ScalarField | StateSourcedWeight:
+    r"""Return a state-sourced descriptor for a marked field, else ``baked``.
+
+    Description
+    -----------
+    The TDF-D10 build-time switch: a field weight whose source field is
+    declared ``time_dependent`` (the ``FieldRecord.time_dependent``
+    flag, read off ``model.field_table[name]`` — the composed record,
+    not the ``model.state`` field, which carries no such attribute) is
+    stored as a :class:`StateSourcedWeight` so the metric tracks the
+    operand's stage time. ``snapshot=True``, or a non-marked (static)
+    profile, keeps the pre-baked weight bit-identically.
+    """
+    if not snapshot and getattr(
+            model.field_table[name], "time_dependent", False):
+        return StateSourcedWeight(name, fn)
+    return baked
 
 
 def _state_field(model: Model, name: str) -> ScalarField | None:

@@ -78,6 +78,15 @@ def test_etdrk4_refuses_a_ramped_dsqr():
     assert "exponential_stepper.md" in str(ex.value)
 
 
+def test_core_stores_and_validates_multigrid_agglomerate():
+    """Thread and validate the MG-D10 agglomeration knob on the core."""
+    assert nh.DynamicalCore(
+        dsqr=2.0, multigrid_agglomerate=4)._multigrid_agglomerate == 4
+    assert nh.DynamicalCore(dsqr=2.0)._multigrid_agglomerate is None
+    with pytest.raises(ValueError, match="positive integer"):
+        nh.DynamicalCore(dsqr=2.0, multigrid_agglomerate=0)
+
+
 def test_ramped_dsqr_assembles_and_advances_under_adam_bashforth():
     """A re-reading stepper handles L(t): the ramped dsqr model runs."""
     ramp = fr.model.Ramp(1.0, 2.0, period=6 * DT, curve="cosine")

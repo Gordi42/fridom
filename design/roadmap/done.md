@@ -151,7 +151,8 @@ Implementation record:
   masked-singularity class is CLOSED across the step path. AGENTS.md's
   differentiability policy now names `Model.propagator` the canonical
   pattern (the private `_chunk_body` shards stay valid). **Owner-review
-  notes (unratified):** (1) D4 was executed as a *seal*, not the plan's
+  notes (items 1–4 owner-ratified 2026-07-19):**
+  (1) D4 was executed as a *seal*, not the plan's
   approved comment-only watch-item — the premise was DISPROVEN: the
   `MetricScaled` divides fire live (walled/sphere IC-grad through
   `_chunk_body` NaNs, isolated by bisection, fires with `coriolis=None`
@@ -165,10 +166,26 @@ Implementation record:
   fields are caught by the materialized refusal, so refusal
   completeness is identical today, but when TDF wave 2 makes
   linear-consumed fields recomputed-in-trace the frozen-L set must
-  learn `linear_fields`. (4) the materialized refusal over-refuses a
-  differentiable param that merely shares an owner with a materialized
-  field (e.g. sw `scaling.rossby`); in-trace rematerialization is the
-  recorded follow-on. Phase 3 (D5 `TangentPropagator`, `jax.jvp` of
+  learn `linear_fields` (verified against the shipped TDF merges
+  `bb2fb96f`/`ceb9db75`/`3d2d1e1a` 2026-07-19: law params are not
+  `wrt`-bindable and a recomputed-in-trace linear-consumed field fails
+  assembly via the `time_dependent`-marker guard, so no live hole —
+  the deferral is forward-looking hardening for `n2(z,t)`/TDF-D7).
+  (4) the materialized refusal over-refuses a differentiable param that
+  merely shares an owner with a materialized field (e.g. sw
+  `scaling.rossby`); in-trace rematerialization is the recorded
+  follow-on. The candidate `nonhydro.dsqr` frozen-L hole — a
+  stratification-free nonhydro2 ETDRK4 model slipping
+  `wrt=("nonhydro.dsqr",)` past both refusals (`dsqr` enters L through
+  the pressure-projection CONSTRAINT, not a `linear=True` term) — was
+  investigated 2026-07-19 and is **unreachable**: ETDRK4's mandatory
+  eigenbasis needs `stratification.n2` for the energy metric
+  (`energy.py:340-355`), so no strat-free nonhydro2 ETDRK4 model is
+  constructible, and every constructible one's stratification module
+  class-declares `DSQR` in a `buoyancy_force` `linear_params`, keeping
+  `nonhydro.dsqr` in the refusal set (empirically refused under ETDRK4,
+  accepted under `AdamBashforth`; no code change). Phase 3 (D5
+  `TangentPropagator`, `jax.jvp` of
   `model.tendency`) is **deferred** — no consumer (NNMD descoped); the
   shared name-resolution piece already shipped, so it stays a small
   lift ([`open.md`](open.md) sized-deferred). Record:
@@ -254,9 +271,11 @@ Implementation record:
   `_divide_by_jacobian` guard reproduces `PanicError` at it=2 already
   at n=8 (a smaller floor than the n=64 recorded above). Not bitwise:
   CPU scan-length grouping reassociates FP at ~3e-15, while the GPU
-  256³ measurement above was bitwise. The remaining hardening residual
-  (the held `MetricScaled` pad-inf seal, owner decision D4) is tracked
-  in [`open.md`](open.md). Record:
+  256³ measurement above was bitwise. The last hardening residual —
+  the held `MetricScaled` pad-inf seal, owner decision D4 — closed
+  2026-07-19: the differentiability campaign's own seal (`7fdbc900`,
+  live reverse-NaN + 0.000%-FLOPs cost proof) was owner-ratified and
+  the redundant held branch deleted; nothing remains open. Record:
   [`mapped_chunk_nonfinite_rootcause.md`](../research/mapped_chunk_nonfinite_rootcause.md).
 
 - **Storage-halo width recovered — two-sided (interval) halo
@@ -802,6 +821,49 @@ Implementation record:
   narrative:
   [`../research/multigrid_kernel_study.md`](../research/multigrid_kernel_study.md)
   Addendum 2.
+- **Coarse-level agglomeration — replicate the deep multigrid levels**
+  (2026-07-19, merge `9e08493f`) — the census-driven lever (kernel-study
+  Addendum 3): coarse V-cycle levels below a per-shard-extent threshold
+  are built with a replicated layout (MG-D5 `Layout({})` end to end, no
+  new comm pattern), so their smoother/operator/projection issue zero
+  collectives and the cross-boundary reshard rides
+  `jax.device_put` on restrict / a local slice on prolong. Knob
+  `multigrid_agglomerate: int | None = None` (`τ`, default OFF) on
+  `nh.Model` → `DynamicalCore` → both mapped/immersed solvers; the switch
+  fires at the first level whose shortest would-be per-shard extent `< τ`
+  **and** whose replicated per-device footprint `≤ 4 MiB`. Builder in
+  `spatial/operators/multigrid_hierarchy.py`
+  (`negotiate(force_replicated=)`, `Grid.coarsened(replicated=)`,
+  `coarsen_levels(agglomerate=τ)`). Gates green at forced 4/16 host
+  devices (CPU): parity — identical CG iterations ON vs OFF vs 1-device
+  (mapped 10, immersed 17); **not** bitwise multi-device (the coarse
+  mean projection reduces over a replicated array, so the last bits
+  reassociate) but below the `1e-8` solve tolerance and **ON no worse
+  than OFF** vs the 1-device truth (mapped model drift 3.4e-16; immersed
+  ON-vs-1dev 1.7e-11 < OFF-vs-1dev 3.5e-11); one-device knob is a bitwise
+  no-op. Capability — ON replicates a below-`τ` sharded coarse level at
+  the same floor depth. Autodiff — `jax.grad` through a short ON immersed
+  run finite + central-FD matched (reshard is a pure relayout). CPU
+  forced-4 HLO census confirms the targeted collectives vanish: the
+  coarse sub-KB z-halo permutes 24→0 and the vertical-line-smoother
+  column-transpose all-to-alls 6→0 per V-cycle. **Two corrections to the
+  plan's motivation** (record §4): (1) the *capability* claim — "a
+  P-device sharded axis cannot coarsen below P cells; depth capped" —
+  did **not** reproduce: at forced 16/32 devices floor depth is already
+  reached, because layout negotiation (MG-D5 `allow_replicated`) already
+  replicates below the shardability floor with no crash, no empty shards,
+  no depth cap (the earlier h-independence break was the fixed
+  `multigrid_levels=5` cap, not device count). (2) The reproduced driver
+  is **latency only**: in semicoarsen/immersed hierarchies the sharded
+  axis flips x→z as horizontals coarsen, and the coarse levels stay
+  z-sharded at 2 planes/shard — the census's sub-KB regime. The GPU
+  wall-clock leg, the `τ` sweep, the replicated-reduction folding
+  question and the default-on decision remain open (open.md, multigrid
+  section). Record:
+  [`../plans/active/multigrid_agglomeration_plan.md`](../plans/active/multigrid_agglomeration_plan.md)
+  §4; driver:
+  [`../research/multigrid_kernel_study.md`](../research/multigrid_kernel_study.md)
+  Addendum 3.
 - **Immersed partial cells — all dimensions, all three models**
   (2026-07-17, merges `ee257bc0` I0+I1, `b447b8e5` I2, `a5aec29d` I4,
   `3858d977` I3, plus the autodiff regression gates) — the immersed
@@ -1715,3 +1777,60 @@ Implementation record:
   the `FieldBlend`-unification question, and the declined
   re-diagonalization contract. Plan:
   [`../plans/done/time_dependent_fields.md`](../plans/done/time_dependent_fields.md).
+
+- **Split-explicit barotropic-IC gap — ruled + fixed** (2026-07-19,
+  merge `f3d96306`, branch `fix/split-explicit-barotropic-ic`). The
+  2026-07-18 srun-validation finding — a z-independent `set_fields`
+  velocity vanished from the whole carry in one step (max|u| 0.98 →
+  2.6e-4) — was ruled an **IC gap** by the owner (not rest-start
+  semantics). Mechanism: `hy.SplitExplicitFreeSurface` declares the
+  barotropic transports `U, V` PROGNOSTIC (zero-initialized at build)
+  and nothing projected the IC's depth mean into them, so the first
+  CONSTRAINT stage replaced the depth mean of `u, v` with
+  `U/H = 0`. Fix: a minimal host-side IC hook —
+  `Module.derive_initial_fields(state, provided)` (base no-op),
+  called by `Model.set_fields` after the user's fields are applied
+  and re-homed identically; the split-explicit override seeds
+  `U = ubar/(1/H)` (immersed: `ubar_wet * H_col`, land columns 0)
+  exactly as the subcycle commit computes, iff the velocity was set
+  without its transport (an explicit `U`/`V` is respected bitwise; a
+  ps-only call derives nothing). Entirely outside the jit step path
+  (differentiability policy exempt). Tests: seed-equality to 1e-13 +
+  3-step survival, explicit-override, ps-only, immersed
+  transport-depth consistency; forced-4 green. Scoping verified:
+  the explicit/implicit variants carry no slaved barotropic
+  prognostic — this was the only module with the gap. Caveat for the
+  comparison ladder: the pre-fix se rungs ran near-zero-velocity
+  flows while Oceananigans got the full IC (wall-time ratios are
+  data-independent, physics trajectories were not comparable).
+
+- **Z-sharded hydrostatic seam divergence — FIXED** (2026-07-19, merge
+  `ef1a4d08`, branch `fix/hydro-z-shard-seam`). Found while
+  root-causing the owner's "why can't weno5 run z-sharded" question:
+  the crash itself was the shardability-cap negotiation bug already
+  fixed by `a802fbea` (registry-sourced cap floor blind to trace-only
+  weno reconstructions), but z-sharded runs that DID run were silently
+  wrong — buoyancy diverged rel ~5e-2 over 20 steps exactly at the
+  shard-seam z-levels (deterministic, halo-width-independent;
+  x-sharded bit-exact, which is why the 2026-07-18 srun validation at
+  64x64x16 never saw it). Mechanism (third hypothesis; the
+  investigation's `w.to(b)` localization was disproven by
+  instrumenting `_ensure_valid`): `Restriction` (`Outer -> Inner`,
+  the vertical advective flux's relocation of the diagnosed `w` onto
+  interior flux faces) reads `Outer[m+1]` — one slot above each
+  output — but declared no `requirements`, inheriting halo 0, so the
+  operand's seam ghost was never synced and the last interior face of
+  every shard read the reshard's zero fill. u/v only looked bit-exact
+  because their horizontal interpolation's sync filled z as a
+  side-effect. Fix: the `(0, 1)` footprint declaration on the
+  operator (same `reach_or` pattern as every sibling; Restriction was
+  the unique offender — sweep confirmed all other `SeparableOperator`s
+  declare theirs, and nonhydro2 never applies Restriction).
+  Single-device and x-sharded results bitwise-unchanged (HLO gains a
+  local ghost-fill; outputs identical); centered z-shard parity now
+  1e-11-tight all fields, weno5 b 2.4e-4 → ~1e-7. Regression:
+  `tests/hydrostatic/test_z_shard_parity.py` (forced-4, centered +
+  weno5, demonstrated red pre-fix) + footprint/seam/autodiff tests in
+  `test_restrict.py`. Residual in `open.md`: the weno5 momentum
+  ~1e-5 z-seam (`WenoReconstruction` vertical footprint vs the
+  negotiated z-halo of 2 — halo-cap machinery, owner-governed).

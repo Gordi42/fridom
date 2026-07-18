@@ -574,6 +574,58 @@ class Module:
         return
 
     # ================================================================
+    #  Initial-condition hook (host-side, at set_fields)
+    # ================================================================
+
+    def derive_initial_fields(
+        self,
+        state: Any,  # noqa: ARG002
+        provided: frozenset[str],  # noqa: ARG002
+    ) -> dict[str, Any]:
+        """
+        Return PROGNOSTIC updates slaved to a just-set IC.
+
+        Description
+        -----------
+        A host-side hook `Model.set_fields` calls on every module
+        after it writes the user's initial conditions and before the
+        commit, once per ``set_fields`` call. It lets a module seed
+        the PROGNOSTIC fields it owns that are diagnostically slaved
+        to another component the user set — the fields ``set_fields``
+        would otherwise leave zero-initialized. A module returns a
+        name -> field mapping of the components to overwrite;
+        ``set_fields`` re-homes and applies them exactly like the
+        user's own values.
+
+        ``provided`` is the set of names the user set in this very
+        ``set_fields`` call, so a module can respect an explicit
+        value: derive a slaved field ONLY when its master was set and
+        the slaved component was NOT (never clobber a component the
+        user set by hand).
+
+        Runs host-side (eager, outside any jit trace); the default is
+        a no-op (``{}``). Modules with slaved PROGNOSTIC transports
+        override it (``hy.SplitExplicitFreeSurface`` seeds ``U, V``
+        from the velocity IC).
+
+        Parameters
+        ----------
+        state : VectorField
+            The model state after the user's fields are applied
+            (reads the just-set masters and the incumbent slaved
+            components).
+        provided : frozenset[str]
+            The component names the user set in this ``set_fields``
+            call.
+
+        Returns
+        -------
+        dict[str, ScalarField]
+            Name -> field updates to apply; empty for no derivation.
+        """
+        return {}
+
+    # ================================================================
     #  Terms and stages (D3) — collected post-bind, step 5
     # ================================================================
 

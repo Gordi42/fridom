@@ -398,9 +398,12 @@ def channel_eigenpairs(
         _reject_terrain_column(
             base0, prog, bounded_axis, periodic_names, column)
 
+    # snapshot=True is load-bearing: this dense-column engine extracts
+    # the field weights and pins them to its frozen basis (TDF-D6), so
+    # the metric must bake the profile, not source it off the state.
     metric = EnergyMetric.from_model(
         model, at_time=at_time, require_constant_coriolis=False,
-        allow_field_weights=True)
+        allow_field_weights=True, snapshot=True)
     weights = _metric_weights(metric, prog, allow_fields=True)
 
     slices = _segment_slices(base0, prog, bounded_index)

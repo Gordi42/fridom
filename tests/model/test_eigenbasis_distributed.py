@@ -40,6 +40,7 @@ from fridom.model._eigenbasis import (
     _apply_weighted,
     _contract_planes,
     _project_masked,
+    _reject_sharded_projection,
 )
 from fridom.model.eigen_channel import _designate_half_axis
 from fridom.spatial.fields.vector_field import VectorField
@@ -176,26 +177,90 @@ def test_grad_is_finite_through_contract_planes(forced_devices):
     assert float(jnp.linalg.norm(grad)) > 0.0
 
 
+def make_bare_2d_channel(nx, ny, device_ids=None):
+    """Return a walled-y 2-D channel grid (x periodic; y bounded)."""
+    return Grid((
+        IntervalMesh(nx, (0.0, 2 * np.pi), periodic=True, name="x"),
+        IntervalMesh(ny, (0.0, 1.0), periodic=False, name="y")),
+        device_ids=device_ids)
+
+
+def synthetic_basis_2d(nx, ny, seed):
+    """Synthetic (q, metric, slices) on the 2-D-channel rfft frame."""
+    rng = np.random.default_rng(seed)
+    dim = 2 * ny
+    n_kx = nx // 2 + 1
+    q = jnp.asarray(rng.standard_normal((n_kx, dim, dim))
+                    + 1j * rng.standard_normal((n_kx, dim, dim)))
+    metric = jnp.asarray(rng.uniform(0.5, 1.5, dim))
+    slices = {"u": slice(0, ny), "v": slice(ny, dim)}
+    return q, metric, slices
+
+
 @pytest.mark.multi_device
-def test_single_periodic_axis_keeps_the_taught_error(forced_devices):
-    # a 2-D channel (x periodic, y walled) shards its ONLY periodic axis:
-    # the fused lowering has no transpose partner and declines, so the
-    # narrowed taught error fires
+def test_single_periodic_axis_matches_one_device(forced_devices):
+    # a 2-D channel (x periodic, y walled) shards its ONLY periodic axis;
+    # the transpose pipeline (Channel2DPlan) now serves it, so the fused
+    # many-device _project_masked reproduces the replicated one-device
+    # path bit-for-bit (to floating point) and lands real
     if forced_devices is not None:
         assert jax.device_count() == forced_devices
-    grid = Grid((
-        IntervalMesh(16, (0.0, 2 * np.pi), periodic=True, name="x"),
-        IntervalMesh(8, (0.0, 1.0), periodic=False, name="y")))
-    assert grid.decomposition.default_layout.device_axes == (
+    nx, ny = 16, 8
+    rng = np.random.default_rng(21)
+    data = {name: rng.standard_normal((nx, ny))
+            for name in STUB_COMPONENTS}
+    q, metric, slices = synthetic_basis_2d(nx, ny, seed=22)
+    mask = jnp.asarray(rng.integers(
+        0, 2, (nx // 2 + 1, 2 * ny)).astype(bool))
+
+    g_many = make_bare_2d_channel(nx, ny)
+    assert g_many.decomposition.default_layout.device_axes == (
         ("x", "devices"),)
-    q = jnp.zeros((16 // 2 + 1, 16, 16), dtype=complex)
-    metric = jnp.ones(16)
-    slices = {"u": slice(0, 8), "v": slice(8, 16)}
-    em = stub_em(grid, q, metric, slices, periodic_axis="x")
-    data = {name: np.zeros((16, 8)) for name in STUB_COMPONENTS}
-    mask = jnp.zeros((16 // 2 + 1, 16), dtype=bool)
+    out_many = _project_masked(
+        stub_em(g_many, q, metric, slices, periodic_axis="x"), mask,
+        make_state(g_many, data))
+    g_one = make_bare_2d_channel(nx, ny, device_ids=(0,))
+    out_one = _project_masked(
+        stub_em(g_one, q, metric, slices, periodic_axis="x"), mask,
+        make_state(g_one, data))
+    for name in STUB_COMPONENTS:
+        assert not np.iscomplexobj(np.asarray(out_many[name].data))
+    assert absmax(out_many, out_one, STUB_COMPONENTS) <= 1e-11
+
+
+@pytest.mark.multi_device
+def test_non_1d_mesh_keeps_the_taught_error(forced_devices):
+    # the genuinely-unsupported remainder: a projection whose grid shards
+    # a periodic axis but whose fused lowering declines (here a stubbed
+    # non-1-D device mesh) still raises the narrowed taught error
+    if forced_devices is not None:
+        assert jax.device_count() == forced_devices
+
+    class _PencilMesh:
+        axis_names = ("rows", "cols")
+
+    class _PencilLayout:
+        device_axes = (("x", "rows"),)
+
+        @staticmethod
+        def is_local(name):
+            return name != "x"
+
+    class _PencilDecomp:
+        device_count = 4
+        device_mesh = _PencilMesh()
+        default_layout = _PencilLayout()
+
+    class _PencilGrid:
+        decomposition = _PencilDecomp()
+        names = ("x", "y")
+
+    q, metric, slices = synthetic_basis_2d(16, 8, seed=23)
+    em = SimpleNamespace(
+        grid=_PencilGrid(), bounded_axis="y", periodic_axis="x",
+        components=STUB_COMPONENTS, slices=slices, q=q, metric=metric)
     with pytest.raises(NotImplementedError, match="shards a periodic axis"):
-        _project_masked(em, mask, make_state(grid, data))
+        _reject_sharded_projection(em)
 
 
 # ================================================================
@@ -373,34 +438,53 @@ def test_channel_reprojects_when_last_periodic_axis_is_sharded(
     assert absmax(out_many, out_one, NH_COMPONENTS) <= 1e-11
 
 
+def _make_sw_2d_channel(device_ids=None):
+    """Return a walled-y sw 2-D channel model (x=16 shards, y=8)."""
+    return sw.Model(
+        grid=Grid((
+            IntervalMesh(16, (0.0, 2 * np.pi), periodic=True, name="x"),
+            IntervalMesh(8, (0.0, 1.0), periodic=False, name="y")),
+            device_ids=device_ids),
+        csqr=0.7, rossby_number=0.2, advection=False,
+        coriolis=sw.modules.FPlaneCoriolis(f0=1.0),
+        time_stepper=fr.model.time_steppers.AdamBashforth(5e-3, order=3))
+
+
 @pytest.mark.multi_device
-def test_real_two_dimensional_channel_keeps_the_taught_error(
-        forced_devices):
-    # a real sw 2-D channel (single periodic axis) keeps the taught
-    # error on the sharded grid; GPU-scoped (batch-9 eigh, but the setup
-    # still runs the batched eigh path guarded above for the nh case)
+def test_real_two_dimensional_channel_matches_one_device(forced_devices):
+    # a real sw 2-D channel (single periodic axis) is now served by the
+    # transpose pipeline (Channel2DPlan): the many-device projection
+    # matches the replicated one-device reference, lands real and is
+    # idempotent. GPU-scoped (batch-9 eigh, T5b).
     if forced_devices is not None:
         assert jax.device_count() == forced_devices
     if jax.default_backend() == "cpu":
         pytest.skip(
             "real sw channel eigenbasis build is GPU-scoped (T5b)")
-    model = sw.Model(
-        grid=Grid((
-            IntervalMesh(16, (0.0, 2 * np.pi), periodic=True, name="x"),
-            IntervalMesh(8, (0.0, 1.0), periodic=False, name="y"))),
-        csqr=0.7, rossby_number=0.2, advection=False,
-        coriolis=sw.modules.FPlaneCoriolis(f0=1.0),
-        time_stepper=fr.model.time_steppers.AdamBashforth(5e-3, order=3))
-    assert model.grid.decomposition.default_layout.device_axes == (
+    many = _make_sw_2d_channel()
+    one = _make_sw_2d_channel(device_ids=(0,))
+    assert many.grid.decomposition.default_layout.device_axes == (
         ("x", "devices"),)
-    eb = sw.eigenbasis(model)
+    eb_many = sw.eigenbasis(many)
+    eb_one = sw.eigenbasis(one)
     rng = np.random.default_rng(3)
-    model.set_fields(**{
-        c: rng.standard_normal(np.asarray(model.state[c].data).shape)
-        for c in eb.components})
-    z = sw.State({c: model.state[c] for c in eb.components})
-    with pytest.raises(NotImplementedError, match="shards a periodic axis"):
-        eb.projector("wave")(z)
+    fields = {
+        c: rng.standard_normal(np.asarray(many.state[c].data).shape)
+        for c in eb_many.components}
+    many.set_fields(**fields)
+    one.set_fields(**fields)
+    z_many = sw.State({c: many.state[c] for c in eb_many.components})
+    z_one = sw.State({c: one.state[c] for c in eb_one.components})
+    assert z_many[eb_many.components[0]]._data.sharding.spec[0] == "devices"
+    for sel in ("wave", "vortical"):
+        pm = eb_many.projector(sel)(z_many)
+        po = eb_one.projector(sel)(z_one)
+        assert not any(
+            np.iscomplexobj(np.asarray(pm[c].data))
+            for c in eb_many.components)
+        assert absmax(pm, po, eb_many.components) <= 1e-11
+        assert absmax(eb_many.projector(sel)(pm), pm,
+                      eb_many.components) <= 1e-11
 
 
 @pytest.mark.multi_device

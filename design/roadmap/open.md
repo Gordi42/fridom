@@ -51,19 +51,27 @@ memory ceiling, time-to-first-step, WENO throughput (entries in
   evening, owner-requested: `srun -n 4` bitwise/1e-15 vs 1-GPU,
   both schemes; record in plan §9 — including the multi-process
   compile-cache deadlock it exposed and fixed, `94786a7c`).
-  Remaining: (a) post-reroute weno5 ladder re-measure — overhead
-  vs off and embed-vs-scatter for the remaining tracer slice (the
-  biased `"embed"` default is provisional, in-code note;
-  owner-gated GPU); (b) the `surface_flux=False` opt-out path
-  reads +28–48% over its pre-H7 cost at big rungs (plan §9 flag)
-  — decide whether the legacy opt-out is worth chasing; (c)
-  **owner ruling needed:** split-explicit models drop the
-  barotropic part of a velocity IC entirely (plan §9 validation
-  finding — z-independent `set_fields` velocity vanishes from the
-  whole carry in one step; intended rest-start semantics or an IC
-  gap? Also means the se ladder rungs ran near-zero-velocity
-  flows while oc got the full IC). Step-guard checkpointing stays
-  on Silvano's own batch cadence (never agent-initiated).
+  Remaining (sharpened by the 2026-07-19 analysis of the
+  remainders job 26350823 — that job raced parallel dev merges in
+  the shared checkout, so its weno5 arms ran at three commits and
+  the scatter arm lost 4/5 rungs to a mid-merge conflict at
+  child-import time; centered arms clean at `33707661`):
+  (a) post-reroute weno5 ladder re-measure — the only clean
+  same-commit A/B pair (rf=28) has embed +1.0% over scatter, so
+  the provisional biased `"embed"` default stands, but a
+  definitive verdict needs a clean re-run (owner-gated GPU,
+  ~20 min); (b) the `surface_flux=False` opt-out is now measured
+  SLOWER than the scatter default (up to −16% for the default at
+  big rungs) and +48% over the pre-H7 point (default: +24%) —
+  the linear rungs are bitwise-stable across every measurement,
+  so it is advective-path only; either the dirty-tree pre-H7
+  baseline is invalid or a real change entered
+  `c669ec6f..565eaa51` — owner decision: one-rung bisect (small
+  GPU job) or won't-chase (oc parity 0.92–1.04 holds either
+  way). The (c) barotropic-IC finding was **ruled an IC gap and
+  fixed** 2026-07-19 (entry in [`done.md`](done.md)). Step-guard
+  checkpointing stays on Silvano's own batch cadence (never
+  agent-initiated).
 
 ## Channel eigenmodes on multi-device — remaining gaps
 
@@ -122,6 +130,17 @@ Remaining, per
 - **Ratifications (owner)** — verify-side capping of explicit `halo=`
   (shipped behavior, consistent with negotiate) and the
   `_cap_for_sharding` over-reach onto non-sharded axes.
+- **weno5 momentum z-seam (~1e-5) on z-sharded layouts** — the
+  residual of the 2026-07-19 seam fix (entry in
+  [`done.md`](done.md)): `WenoReconstruction`'s vertical
+  footprint exceeds the negotiated z-halo of 2 on a z-sharded
+  layout, leaving a ~1e-5 seam error in u/v (buoyancy is fixed;
+  a z-halo >= 3 cures it in probe runs). This lives in the
+  owner-governed halo negotiation/cap machinery (the same family
+  as the two ratification items above), so it is deliberately
+  left for an owner call rather than patched around; the
+  z-shard parity test pins the current behavior (b tight,
+  momenta finite-only) and documents the residual in-code.
 
 ## Finite-volume nonhydro — decisions and validation
 
@@ -464,6 +483,30 @@ V-cycle kernel swap it called for shipped 2026-07-18 (merge
   via the `Grid.coarsened` memo); (d) `multi_device` markers for the
   parity-test victims (unmarked 4-device-only failures are invisible
   to single-device CI).
+- **Coarse-level agglomeration — remaining follow-ups.** The mechanism
+  (replicate coarse levels below a per-shard-extent threshold, knob
+  `multigrid_agglomerate` default OFF) **shipped** 2026-07-19 (merge
+  `9e08493f`; entry in [`done.md`](done.md), record
+  [`../plans/active/multigrid_agglomeration_plan.md`](../plans/active/multigrid_agglomeration_plan.md)
+  §4). CPU forced-device HLO confirms the census's flagged latency
+  collectives vanish (coarse z-halo permutes 24→0, column-transpose
+  all-to-alls 6→0). Open, none blocking:
+  - **GPU wall-clock leg** — the census's projected ~9–14 ms/step
+    recovery at 128³ is **not** wall-clock-validated: the named 4×A100
+    allocation was dead at run time and per AGENTS.md no new GPU job
+    was submitted. Needs a live 4-GPU allocation (owner-provided).
+  - **`tau` sweep** — `tau ∈ {2,4,8}` unrun; `tau = 4` is the default
+    on structural grounds (catches the 1–2-plane coarse levels), to be
+    pinned by the GPU sweep above.
+  - **Replicated-reduction folding** — on CPU, XLA GSPMD re-partitions
+    the replicated coarse levels' projection sums into all-reduces
+    rather than folding them to local sums, so all-reduce/all-gather
+    counts *rose* and the total collective count is net flat (the win
+    is removing the largest-payload all-to-alls and tiniest sub-KB
+    permutes, not the raw count). Whether a `with_sharding_constraint`
+    hint folds them on GPU is open.
+  - **Default-on decision (owner)** — whether agglomeration becomes the
+    multi-device mg default, gated on the GPU sweep.
 - **Residual mapped-GPU levers, unclaimed** — fewer coarse sweeps;
   cheaper mapped operator applies (the finest level dominates the
   post-swap V-cycle: one sweep = 15.7 ms cuSPARSE solve + 12.0 ms
@@ -473,8 +516,9 @@ V-cycle kernel swap it called for shipped 2026-07-18 (merge
   128³/256³ at the production budget=100, where spectral also converges
   (71–73 iters) — the 1.3–2.0× projection was a budget=30 artifact, and
   mg is the only converged option below budget ≈70. On 4 GPUs
-  mg-cuSPARSE is 1.11× at 512³ but 0.37× at 128³ (per-level collective
-  latency), so any lever hunt is large-n / multi-GPU-aware.
+  mg-cuSPARSE is 1.11× at 512³ (bandwidth-amortized) — the large-n end
+  where the collective count is a smaller fraction, so any remaining
+  lever hunt there is large-n / multi-GPU-aware.
 
 ## TangentPropagator — the D5 forward-mode surface
 

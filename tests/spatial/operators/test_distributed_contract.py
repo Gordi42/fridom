@@ -126,10 +126,11 @@ def test_single_device_declines():
 
 
 @pytest.mark.multi_device
-def test_two_dimensional_channel_declines(forced_devices):
-    # a single periodic axis (x periodic, y bounded) has no transpose
-    # partner: the fused lowering declines (the 2-D channel stays on the
-    # taught error)
+def test_two_dimensional_channel_resolves_to_channel2d(forced_devices):
+    # a single periodic axis (x periodic, y bounded) is served by the
+    # transpose pipeline of Channel2DPlan (through the bounded axis); it
+    # no longer declines. Full parity/HLO coverage lives in
+    # test_distributed_contract_channel2d.py.
     if forced_devices is not None:
         assert jax.device_count() == forced_devices
     grid = Grid((
@@ -137,10 +138,14 @@ def test_two_dimensional_channel_declines(forced_devices):
         IntervalMesh(8, (0.0, 1.0), periodic=False, name="y")))
     assert grid.decomposition.default_layout.device_axes == (
         ("x", "devices"),)
-    assert resolve_distributed_contraction(
+    plan = resolve_distributed_contraction(
         grid, bounded_axis="y", periodic_axis="x",
         components=COMPONENTS,
-        slices={"c0": slice(0, 8), "c1": slice(8, 16)}) is None
+        slices={"c0": slice(0, 8), "c1": slice(8, 16)})
+    from fridom.spatial.operators.distributed_contract import (  # noqa: PLC0415
+        Channel2DPlan,
+    )
+    assert isinstance(plan, Channel2DPlan)
 
 
 @pytest.mark.multi_device

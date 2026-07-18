@@ -1,0 +1,31 @@
+# TRIMMED excerpt of the optimized 4-GPU SPECTRAL step module.
+#
+# Source module (NOT checked in, 1.8 MB / 13516 lines):
+#   step_sp4_n128.txt = module jit__chunk_body.sm_8.0_gpu_after_optimizations
+#   GB-2 steep-mapped nonhydro2, n=128, 4x A100, x sharded 4-way, jax 0.10.2.
+# Regenerate: JAX_PLATFORMS=cuda \
+#   XLA_FLAGS="--xla_disable_hlo_passes=multi_output_fusion --xla_dump_to=DIR" \
+#   srun -n 1 --gpu-bind=none .venv/bin/python dump_hlo.py 128 spectral auto 100
+#   then census.py DIR/<module> 36.
+# Full census + tables: census_collective_report.md.
+#
+# Same one-while / one-conditional structure as mg. Per real CG trip:
+# 11 collective-permute + 3 all-reduce + 2 all-to-all = 16 collectives
+# (vs mg's 288). The 2 all-to-alls are the distributed-FFT transposes
+# (c128, ~4.26 MB each) that carry ~80% of spectral's per-step bytes.
+
+===== module structure: the ONE while + the ONE conditional =====
+%while.104 = (s64[], f64[32,128,128], ... c128[128,65,32]) while(%tuple.559), condition=%region_61.265_spmd.clone, body=%region_45.264_spmd.clone, backend_config={"known_trip_count":{"n":"99"}, ...}
+# true=converged=SKIP (region_46, pure tuple pass-through, 0 collectives),
+# false=real (region_47) = one spectral CG iteration.
+%conditional.2 = (f64[32,128,128], f64[32,128,128], f64[32,128,128], f64[], f64[]) conditional(%wrapped_compare, %tuple.536.0, %tuple.538.0), true_computation=%region_46.208_spmd, false_computation=%region_47.263_spmd
+
+===== the 2 all-to-all FFT transposes per trip (c128, the bandwidth movers) =====
+ROOT %all_to_all.72.1 = c128[32,65,128]{1,0,2} all-to-all(%param_0.3685), channel_id=1, replica_groups={{0,1,2,3}}, dimensions={2}
+ROOT %all_to_all.76.1 = c128[128,65,32]{2,1,0} all-to-all(%param_0.3686), channel_id=1, replica_groups={{0,1,2,3}}, dimensions={0}
+
+===== representative collective-permute (x-halo) + all-reduce (CG dots) =====
+%collective-permute-start = (f64[1,130,130], f64[1,130,130]) collective-permute-start(%bitcast.3835.0), channel_id=1, source_target_pairs={{0,1},{1,2},{2,3},{3,0}}
+%collective-permute-start.1 = (f64[1,130,130], f64[1,130,130]) collective-permute-start(%bitcast.3839.0), channel_id=1, source_target_pairs={{0,3},{1,0},{2,1},{3,2}}
+%all-reduce-start = f64[128,128] all-reduce-start(%bitcast.3768.0), channel_id=85, replica_groups=mesh['axis_0'=4,'axis_1'=1,'axis_2'=1] {'axis_0'}, use_global_device_ids=true, to_apply=%region_48.230.clone
+%all-reduce-start.1 = f64[16385] all-reduce-start(%wrapped_concatenate.6), channel_id=86, replica_groups=mesh['axis_0'=4,'axis_1'=1,'axis_2'=1] {'axis_0'}, use_global_device_ids=true, to_apply=%region_51.243.clone

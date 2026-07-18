@@ -392,18 +392,50 @@ Findings from the campaign:
   recipe updated).
 - **Split-explicit models do not carry the barotropic part of a
   velocity IC** — a z-independent `set_fields` velocity vanishes
-  from the entire carry after one step (max|u| 0.98 → 2.6e-4 in
-  5 steps; nothing in the FS subsystem holds it). Possibly the
-  intended init semantics (barotropic mode starts at rest), but
-  it means the se comparison-ladder rungs effectively ran
-  near-zero-velocity flows while Oceananigans got the full IC —
-  needs an owner ruling (roadmap notes it).
-- weno5 hydro cannot run multi-device on shallow grids that
-  shard z (nz=8: negotiated z-halo < the 6-point stencil; same
-  under forced-4, pre-existing; fine at nz=16 with x/y sharded).
+  from the entire carry after one step (max|u| 0.98 → 2.6e-4;
+  nothing in the FS subsystem holds it). RESOLVED 2026-07-19:
+  the owner ruled it an IC gap; `set_fields` now seeds `U, V`
+  from the velocity's depth mean via the
+  `Module.derive_initial_fields` hook (merge `f3d96306`;
+  roadmap `done.md` entry). Pre-fix se ladder rungs ran
+  near-zero-velocity flows while Oceananigans got the full IC
+  (ratios are data-independent; trajectories were not
+  comparable).
+- weno5 hydro "cannot run multi-device on shallow z-sharded
+  grids" — ROOT-CAUSED 2026-07-19 (owner-asked): the crash was
+  a shardability-cap negotiation bug (cap floor sourced from
+  the registry, blind to the trace-only weno reconstructions,
+  so a thin sharded z was capped below the stencil reach and
+  wrongly accepted), already fixed on dev by `a802fbea` — 44
+  min after the srun commit; current dev refuses too-thin z
+  shards and runs thick z-sharded weno5. The investigation
+  found a **distinct silent bug instead**: z-sharded
+  hydrostatic runs diverged at the shard-seam z-levels (b rel
+  ~5e-2 over 20 steps; x-sharded bit-exact). FIXED 2026-07-19
+  (merge `ef1a4d08`): the defect was `Restriction`
+  (`Outer -> Inner`, the vertical advective flux's w
+  relocation) reading one slot above each output while
+  declaring a zero halo footprint, so `_ensure_valid` never
+  synced the seam ghost (the initially-suspected restoring
+  `w.to(b)` interpolation was disproven — it declares its
+  reach and was bit-exact; u/v only looked correct because a
+  horizontal interp synced z as a side-effect). Fix = the
+  `(0, 1)` `requirements` declaration on the operator (the
+  contract's home); single-device and x-sharded results
+  bitwise-unchanged; z-shard parity regression tests added
+  (`tests/hydrostatic/test_z_shard_parity.py`). Residual
+  (roadmap): weno5 momentum keeps a ~1e-5 z-seam from
+  `WenoReconstruction`'s vertical footprint exceeding the
+  negotiated z-halo of 2 — owner-governed halo-cap territory.
 
 **Remaining (owner-gated GPU work; the roadmap entry tracks it):**
 step-guard checkpoint whenever Silvano next batches one (his own
 trigger, never agent-initiated); post-reroute weno5 ladder
 re-measure (overhead vs off + embed-vs-scatter for the tracer
-slice).
+slice) — a first attempt (job 26350823, 2026-07-18) was
+compromised by parallel dev merges racing the shared checkout
+(arms at three commits, 4/5 scatter rungs lost to a mid-merge
+conflict at child-import time); its one clean same-commit pair
+has embed +1.0% over scatter at rf=28, so the provisional embed
+default stands pending a clean re-run (details in the roadmap
+entry).
