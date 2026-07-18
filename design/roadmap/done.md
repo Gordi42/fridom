@@ -920,3 +920,25 @@ Implementation record:
   (bitwise vs nodal). Tests:
   `tests/model/closures/test_diffusion_fv.py` (24 tests); gates:
   closures suite 150 green, nonhydro2 596 green, ruff clean.
+
+- **Cold-compile HLO volume — closed as a measured negative**
+  (2026-07-18) — the HLO-volume remainder of the 2026-07-16
+  time-to-first-step entry above. Four-way campaign (census refresh,
+  frame plumbing, advection batching, mapped/CG body): the motivating
+  numbers were stale — weno5 chunk compile is 4.37 s, not 8.5–10 s
+  (the selected-input landing already delivered −38%), and the mapped
+  "16–18 s vs 2–3 s" was the first-advance-wall metric artifact
+  (today: ~3.8 s vs 1.3 s GPU, size-independent) — and every
+  remaining reduction buys a measured runtime regression: the seal
+  DUS spelling is the runtime-optimal one (+2.8 ms/step
+  alternatives), pads fold at jax lowering (69 jaxpr → 9 HLO),
+  call-dedup of the 12 flux kernels is erased by XLA's CallInliner
+  (−37% unopt, ±0 compile), true batching needs a stacked state
+  (temp 0→571 MB, 2.6–8× kernel time, shapes diverge on
+  walled/mapped), and the multigrid V-cycle is structurally linear
+  in levels with the cuSPARSE auto-default already smallest+fastest.
+  Compile tracks *optimized* HLO (unopt is unroll-invariant) —
+  corrected in the record. The one honest cold-start lever left is
+  the async two-tier chunk compile, tracked in
+  [`open.md`](open.md). Record (incl. do-not-revisit list):
+  [`../research/hlo_volume.md`](../research/hlo_volume.md).

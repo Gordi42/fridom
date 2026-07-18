@@ -58,11 +58,6 @@ memory ceiling, time-to-first-step, WENO throughput (entries in
 - **Re-run the comparison suite** on post-fix dev (projected weno5
   edge ~1.8x), and fix its chunk metric to report compile separately
   (`_CHUNK_COMPILE_LOG`).
-- **Cold-compile HLO volume.** Step-body compile scales ~O(ops^1.35);
-  HLO-volume reduction is the only cold-start lever for weno5
-  (~8.5–10 s honest compile) and for the mapped solve's 16–18 s cold
-  compile (vs 2–3 s flat, 2026-07-13 — the same HLO-volume problem in
-  the CG body).
 - **Async two-tier chunk compile** (optional, interactive-UX). Measured
   (first advance −24..31%, steady state bitwise-unchanged), default-off
   patch preserved, unlanded.
