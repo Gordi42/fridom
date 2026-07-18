@@ -942,3 +942,39 @@ Implementation record:
   the async two-tier chunk compile, tracked in
   [`open.md`](open.md). Record (incl. do-not-revisit list):
   [`../research/hlo_volume.md`](../research/hlo_volume.md).
+
+- **Performance guard — deterministic CI gates + hardened compare +
+  manual A100 guard** (2026-07-18, plan + owner rulings:
+  [`../plans/active/perf_guard_plan.md`](../plans/active/perf_guard_plan.md))
+  — the buildable surface of the "wire the benchmark harness as a CI
+  gate" item, after the research verdict that a wall-clock gate in
+  GitHub CI is malpractice (shared-runner noise ~2.7% CoV; no
+  surveyed project PR-gates on timing) and the rulings: PR CI gates
+  *structure*, the A100 node gates *time*, manual-trigger only.
+  Shipped: **G1** six fast-path guards — multigrid line-smoother
+  per-level isinstance + steep/sloped convergence budgets (a locally
+  swapped point smoother stalls at rel ~1 / 1.7e-4 vs 3.2e-9 /
+  1e-15, so the budgets bite), tridiagonal auto→pcr/cusparse
+  end-to-end wiring + pcr HLO while-absence (scan positive control),
+  WENO selected-input jaxpr div-halving (3 vs 6, 4 vs 8 — both
+  sides computed in-test, never hardcoded), carry-donation
+  `is_deleted()` guard (the compile-pin was already covered),
+  periodic FV=nodal per-op HLO equality (measured **byte-identical**
+  compiled HLO), walled 1.0153 / mapped 1.0116 FV/nodal op-count
+  **ratchet** (+10% band, regen via `FRIDOM_REGEN_FV_RATCHET=1`,
+  committed CPU/1-device baseline, failure message cites the
+  compiler-artifact caveat), and the uniform-mesh scalar-dx fold
+  (no field-shaped divisor in the jaxpr; mapped positive control).
+  **G2** `compare` hardened: environment guard on
+  backend/device_count/device_kind/jax_version (missing field =
+  mismatch, exit 2, `--allow-env-mismatch` downgrade),
+  min-estimator statistic (noise is one-sided), per-case
+  `max(threshold, 3·CoV_base)` tolerance with the winning rule
+  shown per case. **G3** `benchmarks/ci/step_guard.sbatch` + README
+  (mirrors the T7 baseline-record invocation exactly; results are
+  retained, never deleted) + the AGENTS.md **perf merge gate**
+  line. Combined gates on merged dev: 382 passed / 14 skipped
+  (gpu-only + multi-device + ratchet self-skips), ruff clean. Open
+  remainder tracked in [`open.md`](open.md): the first green,
+  manually submitted guard run on the A100 node and the gpu-marked
+  cusparse legs.

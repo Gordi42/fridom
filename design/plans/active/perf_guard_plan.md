@@ -1,6 +1,6 @@
 ---
 title: Performance guard — closing the CI-gate roadmap item
-status: active (owner rulings recorded in §5, 2026-07-18; G1–G3 unimplemented)
+status: active (G1–G3 code on dev 2026-07-18; open: one green manual A100 guard run + gpu-marked legs)
 created: 2026-07-18
 owner: Silvano
 ---
