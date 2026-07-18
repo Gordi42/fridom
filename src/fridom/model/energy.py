@@ -284,6 +284,17 @@ class EnergyMetric:
         the field weights sampled per component wherever the metric
         is applied.
 
+        The weights are baked once here and never re-read from the
+        live state: a ``Ramp`` scalar is frozen at ``at_time``
+        (default 0.0), and a profile field weight is captured as the
+        ``model.state`` snapshot at build time (whatever ``csqr`` /
+        ``N^2`` held then — the ``t = 0`` materialized profile).
+        :meth:`apply` / :meth:`inner` reuse those baked weights, so a
+        time-dependent weight (a ramped scalar, or a ``time_dependent``
+        ``csqr`` / ``N^2`` profile) does NOT track its stage-time
+        values — the metric is a fixed-time analysis surface, not an
+        evaluation-time read (TDF-D6).
+
         The weights themselves never involve the Coriolis parameter
         (rotation does no work), so a consumer that tolerates a
         varying ``f`` — the dense-column channel probe — passes
