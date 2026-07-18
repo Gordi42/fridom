@@ -101,7 +101,7 @@ the f-plane (constant ``f``) the residual is zero to rounding.
 """
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+import jax.numpy as jnp
 
 from fridom.model.declarations import FieldReference
 from fridom.model.module import Module
@@ -117,11 +117,9 @@ from fridom.model.params import SCALING_ROSSBY
 from fridom.model.terms import term
 from fridom.model.time_dependent import TimeDependent
 from fridom.spatial.decomposition.halo import HaloSpec
+from fridom.spatial.fields.scalar_field import ScalarField
 from fridom.spatial.fields.vector_field import VectorField
 from fridom.spatial.scalars import Variance
-
-if TYPE_CHECKING:  # pragma: no cover
-    from fridom.spatial.fields.scalar_field import ScalarField
 
 #: the linear Coriolis family (the modules carrying ``f v`` as a
 #: ``linear=True`` term); the conserving modules below subclass them
@@ -249,6 +247,36 @@ def check_rotation_modules(modules: object) -> None:
             f"Coriolis module, but this model carries {names}")
 
 
+def _safe_pv_divide(
+    numerator: ScalarField, thickness: ScalarField,
+) -> ScalarField:
+    r"""Return ``numerator / thickness`` with the divide VJP-sealed.
+
+    Description
+    -----------
+    The conserving Coriolis ``f``-part of the potential vorticity,
+    :math:`f / \bar h`, divides by the corner thickness ``h``. On a
+    walled grid (the lat-lon sphere's polar caps, a closed basin) that
+    thickness is an **exact zero** in the never-valid corner/halo
+    padding, where the numerator vanishes too, so the bare quotient is a
+    masked ``0/0``. The forward pass strips those cells (sealed/stripped
+    before any output), but reverse-mode autodiff does not: the quotient
+    VJP (:math:`-\mathrm{num}/h^2` with ``h == 0``) turns the zero
+    cotangent of a sealed cell into ``0 * inf = NaN`` and poisons every
+    gradient with a data path through the rotation — the same masked
+    singularity ``SadournyAdvection._potential_vorticity`` cures for the
+    advective PV divide (this is that same ``f``-part). Replacing the
+    exact-zero denominators by 1 keeps the ratio finite there; valid
+    cells (``h != 0``) divide by the true thickness and are bitwise
+    unchanged, forward and reverse.
+    """
+    guarded = jnp.where(thickness.storage == 0.0, 1.0, thickness.storage)
+    safe = ScalarField(
+        thickness.grid, thickness.function_space, guarded,
+        thickness.metadata, halo_valid=thickness.halo_valid)
+    return numerator / safe
+
+
 def conserving_rotation(
     state: object, *, coords: tuple[str, str], rossby: object,
     f_field: object = None,
@@ -309,7 +337,9 @@ def conserving_rotation(
     if u.grid.chart_coords is None:
         f_u = (u * h.to(u)).to(corner)             # F^u, corner
         f_v = (v * h.to(v)).to(corner)             # F^v, corner
-        q_f = f.to(corner) / h.to(corner)          # the f-part of q
+        # the f-part of q; the divide is VJP-sealed (h == 0 in the
+        # walled/halo padding poisons the reverse pass — _safe_pv_divide)
+        q_f = _safe_pv_divide(f.to(corner), h.to(corner))
         return {
             "u": (f_v * q_f).to(u),
             "v": -((f_u * q_f).to(v)),
@@ -344,7 +374,7 @@ def _conserving_chart(
     sqg_v = grid.metric(v.function_space.bare, "sqrt_g")
     f_u = (sqg_u * (u * h.to(u))).to(corner)       # F^lambda
     f_v = (sqg_v * (v * h.to(v))).to(corner)       # F^phi
-    q_f = f.to(corner) / h.to(corner)
+    q_f = _safe_pv_divide(f.to(corner), h.to(corner))
     cov = Variance.COVARIANT
     t_u = ((f_v * q_f).to(u)).with_variance(cov)
     t_v = (-((f_u * q_f).to(v))).with_variance(cov)
