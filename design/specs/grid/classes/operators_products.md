@@ -393,6 +393,42 @@ receives the padded nodal fields as keyword arguments matching
 a lazy expression graph is **rejected** (§3.12); XLA CSE remains the
 backstop for redundant backwards.
 
+### Coefficient spaces — ruled 2026-07-18
+
+Coefficient-space `ScalarField`s form a **vector space, not an
+algebra** (owner-ratified 2026-07-18). Only transform-commuting
+operations are field arithmetic — add/subtract of same-space fields
+and scalar multiply/divide — and those already work (they bypass the
+registry). An elementwise product of two coefficient fields is a
+**convolution** of the represented functions, not their product, so
+`("multiply", coefficient-space)` has **no elementwise row by
+design**; likewise `("divide"|"power"|"abs", coefficient-space)` are
+permanently absent (a quotient or per-mode magnitude of spectra has no
+representation-independent realization). These are no longer
+"iteration 1" deferrals — the dunders raise a teaching `DispatchError`
+that points at the two honest paths.
+
+Pointwise per-mode coefficient manipulation is **diagonal-operator
+algebra** and lives on `Symbol` (`spatial/operators/symbol.py`): its
+`*`/`+`/`**`/`1/.` are the diagonal algebra, and `Symbol × field`
+apply is guarded to fields constant on every transformed factor —
+the one regime where a coefficient multiply is exact (the
+`1/dsqr`/`N²(z)` pressure-solve weight). The pointwise **function**
+product lives in nodal space (transform back, multiply, transform
+forward — the pseudospectral doctrine, with dealiasing).
+
+`Convolution` (the true function product in coefficient space, above)
+stays a **reserved, distinct kind**, never registered under
+`("multiply", space)`; it is unbuilt until a consumer exists.
+Likewise the zero-mode **`ConstantBroadcast`** into a coefficient
+space (scalar-add / constant broadcast) stays unbuilt: it is the
+zero-mode update, not a field operation, and a constant is not even
+representable in a Sine basis — so scalar-add can never be a
+basis-uniform field op. The consumer census (2026-07-18) found **zero
+sites** wanting a coefficient×coefficient product. Full record and
+evidence:
+[`../../../research/coefficient_space_arithmetic_semantics.md`](../../../research/coefficient_space_arithmetic_semantics.md).
+
 ---
 
 ## Reductions
@@ -440,6 +476,21 @@ Exact on average spaces. The result broadcasts back via
 algebra. There is no unweighted `sum` operator (`f.data.sum()` is the
 escape hatch). The cross-shard sum is declared through
 `collective=True` (informational, no layout constraint).
+
+**Physical by default on a mapped grid (§3.13).** The optional
+`jacobian=` family makes the reduction contract additionally against
+the metric Jacobian: the seeded `("integrate", …)` rows carry it on
+**any** mapping deriving a volume element — an embedding `chart=`
+(`sqrt_g`) or an analytic `maps=` column (`d<mapped>_d<base>`,
+`grid._reduction_jacobian`) — so `f.integrate()` / `f.mean()` are the
+physical reduction on both forms alike. Constructing `Integral()`
+directly (`jacobian=None`) is the **computational escape hatch** that
+implementation-layer code (a CG solver's SPD inner product) uses to
+stay in the plain measure. Because a `maps=` column Jacobian varies
+over the map's parameter axes, the seeded `f.integrate()` verb reduces
+a column's single base axis **first** (else the metric evaluates on a
+collapsed axis and a taught error fires); flat and embedding-`chart=`
+grids keep the plain space order.
 
 Scope of the default rows: **nodal and average factors only**.
 Coefficient factors deliberately have no `("integrate", ...)` default

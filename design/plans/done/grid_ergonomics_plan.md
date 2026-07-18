@@ -15,13 +15,13 @@ date: 2026-07-15
 > conveniences). Dogfooded: the five `sphere_grid` test helpers and the
 > `sw.Model` spherical docstring now use `spherical.Grid`, with the
 > spherical-shallow-water assertions as the (green) parity gate. Closes
-> open item #1 of [`phase2_grid_followups.md`](../active/phase2_grid_followups.md).
+> open item #1 of [`phase2_grid_followups.md`](../done/phase2_grid_followups.md).
 
 > **Sized 2026-07-15: SMALL (~1-2 days, ~200-350 LOC incl. tests).**
 > Ergonomics, not blocking. Sibling to the just-landed chart-ergonomics
 > work ([`chart_ergonomics_plan.md`](chart_ergonomics_plan.md),
 > E2 `orthogonal=True`) and to open item #1 of
-> [`phase2_grid_followups.md`](../active/phase2_grid_followups.md) (the unbuilt
+> [`phase2_grid_followups.md`](../done/phase2_grid_followups.md) (the unbuilt
 > `cartesian.Grid` convenience). This plan builds the spherical
 > convenience the owner asked for and settles the cartesian one at the
 > same time so the two stay consistent.

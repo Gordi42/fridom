@@ -911,4 +911,6 @@ gate isolates the step path with a projection-free toy core. Same
 class as the hazards in
 [`../../research/jax_grad_run_investigation.md`](../../research/jax_grad_run_investigation.md)
 §"Remaining hazards" (`mapped_pressure.py:748`, `/ jacobian`); a
-roadmap follow-up, not part of this closure.
+roadmap follow-up, not part of this closure. [Update 2026-07-18:
+closed by `ee350bda` as the guarded `_divide_by_jacobian`; see
+[`differentiability_plan.md`](differentiability_plan.md).]

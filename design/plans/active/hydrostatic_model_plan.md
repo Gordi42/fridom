@@ -371,7 +371,10 @@ not the base of a single-base analytic column; immersed **and** terrain
 together. **Known gaps (reported, not gated):** nonlinear advection on
 a terrain grid is forward-finite but **not** reverse-safe (the shared
 nodal mapped divergence divides `Z/J` unguarded — a shared-advection
-fix); and `EnergyMetric`/`eigenmodes` on a terrain grid use the plain
+fix). [Update 2026-07-18: sealed via the shared `_safe_ratio`
+double-where (grad=FD at 9e-10); the hydrostatic terrain autodiff
+gate now runs `advection=True`. See done.md.] And
+`EnergyMetric`/`eigenmodes` on a terrain grid use the plain
 (extent) ps weight and so are physically inconsistent (energy
 diagnostics off a chart, unfixed here).
 

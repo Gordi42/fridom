@@ -61,7 +61,8 @@ def _channel(f0):
     my = fr.spatial.meshes.IntervalMesh(
         16, (0.0, 1.0), periodic=False, name="y")
     return sw.Model(
-        grid=fr.spatial.Grid((mx, my)), csqr=CSQR, rossby_number=0.2,
+        grid=fr.spatial.Grid((mx, my), device_ids=(0,)),
+        csqr=CSQR, rossby_number=0.2,
         coriolis=sw.modules.FPlaneCoriolis(f0=f0), advection=False,
         time_stepper=fr.model.time_steppers.AdamBashforth(DT, order=3))
 

@@ -26,7 +26,7 @@ TWO_PI = 2.0 * jnp.pi
 
 def _periodic_grid(n):
     mesh = IntervalMesh(n, (0.0, 1.0), name="x")
-    return Grid((mesh,)), mesh
+    return Grid((mesh,), device_ids=(0,)), mesh
 
 
 def _sin_field(grid):
@@ -92,7 +92,7 @@ def test_products_route_through_the_real_registry():
 # ================================================================
 def test_bounded_diff_is_exterior_free_and_gated():
     mesh = IntervalMesh(16, (0.0, 1.0), periodic=False, name="y")
-    grid = Grid((mesh,))
+    grid = Grid((mesh,), device_ids=(0,))
     f = grid.create_field(init=lambda y: y * (1.0 - y))
     df = f.diff("y")
     assert df.function_space.bare is mesh.inner

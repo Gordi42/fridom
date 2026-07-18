@@ -1,0 +1,10 @@
+jax.device_count() = 1; devices = [CudaDevice(id=0)]
+state['u'] sharding: NamedSharding(mesh=Mesh('devices': 1, axis_types=(Auto,)), spec=P(None, None, None), memory_kind=device)
+  addressable shards: 1 of 1 devices
+panicked after 30 steps: False
+  final u: shape=(32, 32, 16) max_abs=5.356883e-01
+  final v: shape=(32, 32, 16) max_abs=3.637829e-01
+  final w: shape=(32, 32, 15) max_abs=6.180781e-02
+  final b: shape=(32, 32, 16) max_abs=4.981491e-01
+saved reference .npy (ref) to /work/uo0780/u301533/fridom/fridom-dev/.claude/worktrees/agent-a35d2cf0d179c137f/design/research/artifacts/stretched_terrain_gpu4
+EXIT=0

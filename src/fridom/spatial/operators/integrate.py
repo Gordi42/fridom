@@ -14,20 +14,29 @@ transform back first. There is no unweighted ``sum`` operator
 (``f.data.sum()`` is the escape hatch). ``CumulativeIntegral``
 (``"cumint"``) is deferred within Wave 3 (see the wave report).
 
-Chart grids (coordinate-systems plan, stage C2): quadrature weights
-reuse the metric measures (rules 3.13), so on a grid whose
-``CoordinateMapping`` carries an embedding chart the seeded rows hold
-``Integral(jacobian=<chart coords>)`` — the computational measure
-times the ``sqrt_g`` Jacobian on the querying space,
-:math:`\int f\,\sqrt{g}\,du\,dv`. The Jacobian enters exactly once
-per area integral: on the reduction of a chart coordinate while the
-operand space still resolves *every* chart coordinate (the first
-chart reduction of a sequential ``f.integrate()``); once a chart
-factor is constant the remaining reductions contract against the
-plain computational measure. A field *born* constant along a chart
-coordinate therefore integrates against the computational measure
-only — consistent with the flat-grid convention that constant
-factors carry no geometry.
+Mapped grids (coordinate-systems plan, stage C2): quadrature weights
+reuse the metric measures (rules 3.13), so on **any** grid whose
+``CoordinateMapping`` derives a volume element the seeded rows hold
+``Integral(jacobian=<family>)`` — the computational measure times the
+metric Jacobian on the querying space (``grid._reduction_jacobian``).
+Both mapping forms reduce physically alike: an embedding ``chart=``
+grid carries the ``sqrt_g`` area element
+:math:`\int f\,\sqrt{g}\,du\,dv` on the chart's base coordinates, and
+an analytic ``maps=`` (terrain-following) grid the column Jacobian
+``d<mapped>_d<base>`` on the mapped physical coordinates
+:math:`\int f\,\mathrm{d}z_p`. For an embedding chart the Jacobian
+enters exactly once per area integral: on the reduction of a chart
+coordinate while the operand space still resolves *every* chart
+coordinate (the first chart reduction of a sequential
+``f.integrate()``); once a chart factor is constant the remaining
+reductions contract against the plain computational measure. A field
+*born* constant along a chart coordinate therefore integrates against
+the computational measure only — consistent with the flat-grid
+convention that constant factors carry no geometry. (The ``maps=``
+column Jacobian instead varies over the map's *parameter* axes, so the
+seeded ``f.integrate()`` verb reduces the single base axis first —
+``scalar_field._bases_first`` — and a chartless multi-base analytic
+map, deriving no unambiguous column, keeps the computational measure.)
 
 The ``jacobian=`` names *chart coordinates* (``jacobian_weight``);
 besides an embedding chart's base coordinates above, a name may be an

@@ -56,7 +56,7 @@ def adjoint_rel(transfer, seed=0):
      pytest.param(9, 3, id="odd-x3"),
      pytest.param(8, 4, id="even-x4")])
 def test_adjoint_periodic(order, n, factor):
-    fine = Grid((IntervalMesh(n, (0.0, 1.0), name="x"),))
+    fine = Grid((IntervalMesh(n, (0.0, 1.0), name="x"),), device_ids=(0,))
     transfer = GridTransfer(fine, fine.coarsened(factor), order=order)
     assert adjoint_rel(transfer) < 1e-14
 
@@ -64,7 +64,7 @@ def test_adjoint_periodic(order, n, factor):
 @pytest.mark.parametrize("order", [1, 2])
 def test_adjoint_bounded(order):
     fine = Grid((IntervalMesh(8, (0.0, 1.0), periodic=False,
-                              name="x"),))
+                              name="x"),), device_ids=(0,))
     transfer = GridTransfer(fine, fine.coarsened(2), order=order)
     assert adjoint_rel(transfer) < 1e-14
 
@@ -73,7 +73,7 @@ def test_adjoint_bounded(order):
 @pytest.mark.parametrize("kind", ["center", "cell_avg"])
 def test_adjoint_2d_both_families(order, kind):
     fine = Grid((IntervalMesh(8, (0.0, 1.0), name="x"),
-                 IntervalMesh(6, (0.0, 2.0), name="y")))
+                 IntervalMesh(6, (0.0, 2.0), name="y")), device_ids=(0,))
     transfer = GridTransfer(fine, fine.coarsened(2), order=order)
     coarse_field = random_field(transfer.coarse, 5, kind)
     fine_field = random_field(transfer.fine, 4, kind)
@@ -86,7 +86,7 @@ def test_adjoint_2d_both_families(order, kind):
 def test_adjoint_semicoarsened(order):
     # x coarsened, y kept at full resolution (MG-D4)
     fine = Grid((IntervalMesh(8, (0.0, 1.0), name="x"),
-                 IntervalMesh(6, (0.0, 2.0), name="y")))
+                 IntervalMesh(6, (0.0, 2.0), name="y")), device_ids=(0,))
     transfer = GridTransfer(fine, fine.coarsened({"x": 2}), order=order)
     assert transfer.ratios == {"x": 2, "y": 1}
     assert adjoint_rel(transfer) < 1e-14
@@ -96,7 +96,7 @@ def test_adjoint_semicoarsened(order):
 def test_adjoint_mapped_stretch(order):
     mesh = MappedIntervalMesh(8, (0.0, 1.0), lambda s: s ** 1.5,
                               periodic=False, name="z")
-    fine = Grid((mesh,))
+    fine = Grid((mesh,), device_ids=(0,))
     transfer = GridTransfer(fine, fine.coarsened(2), order=order)
     assert adjoint_rel(transfer) < 1e-14
 
@@ -107,7 +107,7 @@ def test_adjoint_on_immersed_grid(order):
         lambda x, y: ((x < 0.7) & (y >= 0.0)).astype(float))
     fine = Grid((IntervalMesh(8, (0.0, 1.0), name="x"),
                  IntervalMesh(8, (0.0, 2.0), name="y")),
-                immersed=immersed)
+                immersed=immersed, device_ids=(0,))
     transfer = GridTransfer(fine, fine.coarsened(2), order=order)
     # adjoint in the plain (geometry) measure-weighted product; the
     # transfer is geometric, not mask-aware, in iteration 1
@@ -121,7 +121,7 @@ def test_adjoint_on_immersed_grid(order):
 @pytest.mark.parametrize("order", [1, 2])
 def test_restrict_conserves_the_integral(order):
     fine = Grid((IntervalMesh(8, (0.0, 1.0), name="x"),
-                 IntervalMesh(8, (0.0, 2.0), name="y")))
+                 IntervalMesh(8, (0.0, 2.0), name="y")), device_ids=(0,))
     transfer = GridTransfer(fine, fine.coarsened(2), order=order)
     field = random_field(fine, 11)
     restricted = transfer.restrict(field)
@@ -133,7 +133,7 @@ def test_restrict_conserves_the_integral(order):
 @pytest.mark.parametrize("periodic", [True, False])
 def test_prolong_preserves_constants(order, periodic):
     fine = Grid((IntervalMesh(8, (0.0, 1.0), periodic=periodic,
-                              name="x"),))
+                              name="x"),), device_ids=(0,))
     coarse = fine.coarsened(2)
     transfer = GridTransfer(fine, coarse, order=order)
     ones = coarse.create_field(cell_space(coarse),
@@ -148,7 +148,7 @@ def test_prolong_preserves_constants(order, periodic):
 @pytest.mark.parametrize("periodic", [True, False])
 def test_order1_restrict_is_left_inverse_of_prolong(periodic):
     fine = Grid((IntervalMesh(8, (0.0, 1.0), periodic=periodic,
-                              name="x"),))
+                              name="x"),), device_ids=(0,))
     coarse = fine.coarsened(2)
     transfer = GridTransfer(fine, coarse, order=1)
     x = random_field(coarse, 21)
@@ -158,7 +158,7 @@ def test_order1_restrict_is_left_inverse_of_prolong(periodic):
 
 def test_order2_round_trip_is_not_identity():
     # only order 1 is a left inverse; order 2 is not (documented)
-    fine = Grid((IntervalMesh(8, (0.0, 1.0), name="x"),))
+    fine = Grid((IntervalMesh(8, (0.0, 1.0), name="x"),), device_ids=(0,))
     coarse = fine.coarsened(2)
     transfer = GridTransfer(fine, coarse, order=2)
     x = random_field(coarse, 22)
@@ -170,8 +170,8 @@ def test_order2_round_trip_is_not_identity():
 #  Prolong / restrict on a hand-built independent grid pair
 # ================================================================
 def test_pair_from_independent_grids():
-    fine = Grid((IntervalMesh(8, (0.0, 1.0), name="x"),))
-    coarse = Grid((IntervalMesh(4, (0.0, 1.0), name="x"),))
+    fine = Grid((IntervalMesh(8, (0.0, 1.0), name="x"),), device_ids=(0,))
+    coarse = Grid((IntervalMesh(4, (0.0, 1.0), name="x"),), device_ids=(0,))
     transfer = GridTransfer(fine, coarse, order=1)
     assert transfer.ratios == {"x": 2}
     assert adjoint_rel(transfer) < 1e-14
@@ -182,7 +182,7 @@ def test_pair_from_independent_grids():
 # ================================================================
 @pytest.mark.parametrize("order", [1, 2])
 def test_grad_through_restrict_matches_fd(order):
-    fine = Grid((IntervalMesh(8, (0.0, 1.0), name="x"),))
+    fine = Grid((IntervalMesh(8, (0.0, 1.0), name="x"),), device_ids=(0,))
     coarse = fine.coarsened(2)
     transfer = GridTransfer(fine, coarse, order=order)
     x0 = jax.random.normal(jax.random.PRNGKey(31), (8,))
@@ -204,7 +204,7 @@ def test_grad_through_restrict_matches_fd(order):
 
 @pytest.mark.parametrize("order", [1, 2])
 def test_grad_through_prolong_matches_fd(order):
-    fine = Grid((IntervalMesh(8, (0.0, 1.0), name="x"),))
+    fine = Grid((IntervalMesh(8, (0.0, 1.0), name="x"),), device_ids=(0,))
     coarse = fine.coarsened(2)
     transfer = GridTransfer(fine, coarse, order=order)
     x0 = jax.random.normal(jax.random.PRNGKey(32), (4,))
@@ -228,27 +228,27 @@ def test_grad_through_prolong_matches_fd(order):
 #  Construction and input validation (taught errors)
 # ================================================================
 def test_rejects_bad_order():
-    fine = Grid((IntervalMesh(8, (0.0, 1.0), name="x"),))
+    fine = Grid((IntervalMesh(8, (0.0, 1.0), name="x"),), device_ids=(0,))
     with pytest.raises(ValueError, match="order"):
         GridTransfer(fine, fine.coarsened(2), order=3)
 
 
 def test_rejects_mismatched_names():
-    fine = Grid((IntervalMesh(8, (0.0, 1.0), name="x"),))
-    other = Grid((IntervalMesh(4, (0.0, 1.0), name="y"),))
+    fine = Grid((IntervalMesh(8, (0.0, 1.0), name="x"),), device_ids=(0,))
+    other = Grid((IntervalMesh(4, (0.0, 1.0), name="y"),), device_ids=(0,))
     with pytest.raises(ValueError, match="same coordinate names"):
         GridTransfer(fine, other)
 
 
 def test_rejects_non_integer_ratio():
-    fine = Grid((IntervalMesh(8, (0.0, 1.0), name="x"),))
-    coarse = Grid((IntervalMesh(3, (0.0, 1.0), name="x"),))
+    fine = Grid((IntervalMesh(8, (0.0, 1.0), name="x"),), device_ids=(0,))
+    coarse = Grid((IntervalMesh(3, (0.0, 1.0), name="x"),), device_ids=(0,))
     with pytest.raises(ValueError, match="positive integer"):
         GridTransfer(fine, coarse)
 
 
 def test_restrict_rejects_a_field_off_the_fine_grid():
-    fine = Grid((IntervalMesh(8, (0.0, 1.0), name="x"),))
+    fine = Grid((IntervalMesh(8, (0.0, 1.0), name="x"),), device_ids=(0,))
     coarse = fine.coarsened(2)
     transfer = GridTransfer(fine, coarse)
     with pytest.raises(ValueError, match="fine grid"):
@@ -256,7 +256,7 @@ def test_restrict_rejects_a_field_off_the_fine_grid():
 
 
 def test_prolong_rejects_a_field_off_the_coarse_grid():
-    fine = Grid((IntervalMesh(8, (0.0, 1.0), name="x"),))
+    fine = Grid((IntervalMesh(8, (0.0, 1.0), name="x"),), device_ids=(0,))
     coarse = fine.coarsened(2)
     transfer = GridTransfer(fine, coarse)
     with pytest.raises(ValueError, match="coarse grid"):
@@ -264,7 +264,7 @@ def test_prolong_rejects_a_field_off_the_coarse_grid():
 
 
 def test_rejects_a_complex_field():
-    fine = Grid((IntervalMesh(8, (0.0, 1.0), name="x"),))
+    fine = Grid((IntervalMesh(8, (0.0, 1.0), name="x"),), device_ids=(0,))
     coarse = fine.coarsened(2)
     transfer = GridTransfer(fine, coarse)
     field = random_field(fine, 1).as_complex()
@@ -273,7 +273,7 @@ def test_rejects_a_complex_field():
 
 
 def test_rejects_a_staggered_face_field():
-    fine = Grid((IntervalMesh(8, (0.0, 1.0), name="x"),))
+    fine = Grid((IntervalMesh(8, (0.0, 1.0), name="x"),), device_ids=(0,))
     coarse = fine.coarsened(2)
     transfer = GridTransfer(fine, coarse)
     face = fine.create_field(fine.factors[0].right)
@@ -282,7 +282,7 @@ def test_rejects_a_staggered_face_field():
 
 
 def test_metadata_is_carried_across_the_transfer():
-    fine = Grid((IntervalMesh(8, (0.0, 1.0), name="x"),))
+    fine = Grid((IntervalMesh(8, (0.0, 1.0), name="x"),), device_ids=(0,))
     coarse = fine.coarsened(2)
     transfer = GridTransfer(fine, coarse)
     field = random_field(fine, 1).with_metadata(name="theta")
@@ -371,7 +371,7 @@ def sigma_profile_pair(nx, ny, nz, factor=2):
                                periodic=False, name="z")
     fine = Grid((IntervalMesh(nx, (0.0, 1.0), name="x"),
                  IntervalMesh(ny, (0.0, 2.0), name="y"),
-                 sigma))
+                 sigma), device_ids=(0,))
     coarse = fine.coarsened({"x": factor, "y": factor})
     return fine, coarse
 
