@@ -211,8 +211,10 @@ cells in every dimension (stages I0–I4 shipped 2026-07-17; entry in
 [`../plans/active/immersed_partial_cells_plan.md`](../plans/active/immersed_partial_cells_plan.md)).
 Open, none blocking:
 
-- **Mapped + immersed composition** — taught error; the mapped and
-  masked PCGs are not composed.
+- **Mapped + immersed composition** — taught error (chart/terrain
+  only; stretched+immersed already works ungated); plan ratified and
+  in progress
+  ([`../plans/active/mapped_immersed_composition_plan.md`](../plans/active/mapped_immersed_composition_plan.md)).
 - **Partial-bottom-cell hydrostatic pressure gradient** — the
   Pacanowski–Gnanadesikan refinement; the current unweighted `p_hyd`
   cumsum is 2nd-order away from partial bottom cells only.
