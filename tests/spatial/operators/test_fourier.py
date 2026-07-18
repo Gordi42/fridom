@@ -14,13 +14,13 @@ TWO_PI = 2.0 * jnp.pi
 
 def _grid1d(n=8):
     mesh = IntervalMesh(n, (0.0, 1.0), name="x")
-    return Grid((mesh,)), mesh
+    return Grid((mesh,), device_ids=(0,)), mesh
 
 
 def _grid2d(nx=8, ny=6):
     mx = IntervalMesh(nx, (0.0, 1.0), name="x")
     my = IntervalMesh(ny, (0.0, 2.0), name="y")
-    return Grid((mx, my)), mx, my
+    return Grid((mx, my), device_ids=(0,)), mx, my
 
 
 # ================================================================
@@ -75,7 +75,7 @@ def test_three_axis_real_shape_table():
     mx = IntervalMesh(4, (0.0, 1.0), name="x")
     my = IntervalMesh(4, (0.0, 1.0), name="y")
     mz = IntervalMesh(4, (0.0, 1.0), name="z")
-    grid = Grid((mx, my, mz))
+    grid = Grid((mx, my, mz), device_ids=(0,))
     coeff = Fourier(grid).forward(grid.create_field())
     space = coeff.function_space.bare
     assert space.shape == (3, 4, 4)
@@ -255,7 +255,7 @@ def test_truncation_mask_is_designed_for():
 
 def test_fourier_rejects_bounded_meshes():
     mesh = IntervalMesh(8, (0.0, 1.0), periodic=False, name="x")
-    grid = Grid((mesh,))
+    grid = Grid((mesh,), device_ids=(0,))
     f = grid.create_field(mesh.center)
     with pytest.raises(SpaceMismatchError, match="no Fourier"):
         Fourier(grid).forward(f)
@@ -268,7 +268,7 @@ def _grid3d(nx=8, ny=6, nz=5):
     mx = IntervalMesh(nx, (0.0, 1.0), name="x")
     my = IntervalMesh(ny, (0.0, 2.0), name="y")
     mz = IntervalMesh(nz, (0.0, 3.0), name="z")
-    return Grid((mx, my, mz))
+    return Grid((mx, my, mz), device_ids=(0,))
 
 
 def _force_staged(monkeypatch):

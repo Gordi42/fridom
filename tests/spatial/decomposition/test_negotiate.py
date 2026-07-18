@@ -494,3 +494,44 @@ def test_layout_for_reaches_a_pencil(grid):
     decomp = grid.decomposition
     pencil = decomp.layout_for(("x",))
     assert pencil.is_local("x")
+
+
+# ================================================================
+#  Per-application floor disqualifies a would-shard-too-small axis
+#  (cap-floor per application): a wide single-application stencil the
+#  cap cannot satisfy DISQUALIFIES the axis at negotiation instead of
+#  sharding then raising at term evaluation
+# ================================================================
+@pytest.mark.multi_device
+def test_wide_stencil_too_small_to_shard_collapses():
+    # a wide stencil (FD order 6, per-application reach 3) on a small
+    # periodic axis cannot shard: over N devices the shortest shard
+    # holds 2 cells, below the reach-3 ghost one application needs at
+    # once. The trace-sourced per-application floor keeps the cap from
+    # dropping below 3, so the shardability bar DISQUALIFIES the axis
+    # and the auto-selected grid collapses to a single device (rather
+    # than sharding with halo 1 and raising when the stencil fires).
+    n = jax.device_count() * 2
+    grid = Grid((IntervalMesh(n, (0.0, 1.0), name="x"),))
+    space = grid.create_field().function_space
+    fd6 = FiniteDifference(order=6)
+    decomp = negotiate(grid, grid.dispatch, state_spaces=(space,),
+                       tendency=fd6["x"])
+    assert decomp.device_count == 1
+    assert decomp.layouts == (Layout({}),)
+
+
+@pytest.mark.multi_device
+def test_narrow_stencil_on_the_same_small_axis_still_shards():
+    # the companion: the SAME small axis shards for a reach-1 stencil
+    # (per-application floor 1, shortest shard 2 >= 1 + 1). The
+    # disqualification above is specifically the wide per-application
+    # reach, not the axis size -- reach-1 chains keep sharding exactly
+    # as before (the n = 2 * device_count analogue of the n=8 channel)
+    n = jax.device_count() * 2
+    grid = Grid((IntervalMesh(n, (0.0, 1.0), name="x"),))
+    space = grid.create_field().function_space
+    decomp = negotiate(grid, grid.dispatch, state_spaces=(space,),
+                       tendency=lambda state: state.diff("x"))
+    assert dict(decomp.default_layout.device_axes) == {"x": "devices"}
+    assert decomp.device_count == jax.device_count()

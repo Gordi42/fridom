@@ -120,3 +120,33 @@ reproduced in full above and in the roadmap entry. Related records:
 — where the item was first observed; its linear-only measurement
 stands), the differentiability policy in `AGENTS.md` (the
 masked-singularity poison this is the *forward* twin of).
+
+## Addendum (2026-07-18): hardening landing
+
+- **Regression floor n=8.** The chunk-cadence parity regression
+  (`test_mapped_advection_chunk_cadence_parity`,
+  `tests/model/test_step_chunk.py`) red-checks by reverting the
+  `_divide_by_jacobian` guard: it raises `PanicError` at it=2 already
+  at **n=8**, a smaller detonation floor than the n=64 recorded in the
+  fault matrix above.
+- **HEAD-parity claim is backend-qualified.** The "HEAD chunk parity
+  is bitwise at 256³" statement is a **GPU** measurement. On **CPU**
+  the two scan-length groupings reassociate FP at ~1e-15, so the
+  shipped test asserts finite + `allclose (rtol 1e-12, atol 1e-13)`,
+  not bitwise. Bitwise parity is a GPU-only property here.
+- **Site-attribution matrix.** The 4-combination red-check (guard on/off
+  × `_divide_by_jacobian` / `MetricScaled`) localizes the fault site
+  to **`_divide_by_jacobian`**: reverting only its guard reproduces
+  the detonation, while reverting only the `MetricScaled` seal keeps
+  the parity test green. The `MetricScaled` seal is therefore
+  **defensive-only** — nothing routes the historical fault through it
+  today.
+- **D4 hold.** Consequently the `MetricScaled` pad-inf seal is **not
+  landed**. It is implemented and reviewed on local branch
+  `fix/pad-inf-hardening` (commit `76eb9461`: `_sealed_divide` on both
+  divide branches, bitwise on valid cells, finite pad storage, finite
+  VJP, operator tests), but held pending owner decision **D4** — dev
+  `93049651` documents the deferral in `mapped.py`, and because the
+  divide sits in the every-step pressure solve its "~free" cost is
+  unproven. Decision: measure the seal's step cost and land `76eb9461`,
+  or accept the deferral and delete the branch.

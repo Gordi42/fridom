@@ -19,7 +19,7 @@ N = 8
 @pytest.fixture
 def bounded():
     mesh = IntervalMesh(N, (0.0, 1.0), periodic=False, name="x")
-    return Grid((mesh,)), mesh
+    return Grid((mesh,), device_ids=(0,)), mesh
 
 
 def _dirichlet_center(mesh):
@@ -233,7 +233,7 @@ def test_dct2_odd_length_uses_the_extension_fallback():
     # an odd column has no even/odd interleave, so both directions
     # keep the length-2n extension spelling; the round trip still holds.
     mesh = IntervalMesh(7, (0.0, 1.0), periodic=False, name="x")
-    grid = Grid((mesh,))
+    grid = Grid((mesh,), device_ids=(0,))
     space = mesh.nodal(NodeSet.CENTER, bc=BC.NEUMANN)
     f = grid.random.normal(space, seed=17)
     op = Cosine(grid)
@@ -323,7 +323,7 @@ def test_sine_rejects_bc_free_origins(bounded):
 
 def test_sine_rejects_periodic_meshes():
     mesh = IntervalMesh(N, (0.0, 1.0), name="x")
-    grid = Grid((mesh,))
+    grid = Grid((mesh,), device_ids=(0,))
     f = grid.create_field(mesh.center)
     with pytest.raises(SpaceMismatchError):
         Sine(grid).forward(f)
@@ -367,7 +367,7 @@ def test_padded_top_mode_survives_the_pad_trim_pair(bounded):
 
 def test_cosine_rejects_periodic_meshes():
     mesh = IntervalMesh(N, (0.0, 1.0), name="x")
-    grid = Grid((mesh,))
+    grid = Grid((mesh,), device_ids=(0,))
     with pytest.raises(SpaceMismatchError, match="no DCT"):
         Cosine(grid).codomain(mesh.center)
 

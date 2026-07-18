@@ -119,7 +119,7 @@ if TYPE_CHECKING:  # pragma: no cover
 
     from jax import Array
 
-    from fridom.spatial.operators.base import FieldLike
+    from fridom.spatial.operators.base import FieldLike, Operator
 
 
 class Rung(NamedTuple):
@@ -638,3 +638,143 @@ def apply_graded_walls(
 
     return type(f)(f.grid, interior.function_space, data, f.metadata,
                    halo_valid=interior.halo_valid)
+
+
+# ================================================================
+#  Mask-keyed graded closure (immersed grids)
+# ================================================================
+#: the all-wet product of a ``{0, 1}`` present-mask window is 1.0 iff
+#: every slot is present; anything below this threshold has a dry slot
+_PRESENT_THRESHOLD = 0.5
+
+
+def _window_all_wet(size: int) -> Callable[[Array, int], Array]:
+    """
+    Windowed all-wet product kernel over a boolean-as-float mask.
+
+    Description
+    -----------
+    The mask-keyed sibling of the value kernels: a ``size``-wide sliding
+    window whose output is the product of the window slots (``1.0`` iff
+    every slot is wet, ``0.0`` otherwise). The axis shrinks by
+    ``size - 1`` exactly like the value rungs, so the same
+    ``apply_fv_staggered`` alignment lands the selector on the output
+    face its rung serves.
+
+    Parameters
+    ----------
+    size : int
+        The window width in operand cells.
+
+    Returns
+    -------
+    Callable[[Array, int], Array]
+        The ``(mask_storage, axis_index) -> windowed_product`` kernel.
+    """
+    def kernel(arr: Array, axis_index: int) -> Array:
+        out_len = arr.shape[axis_index] - size + 1
+        index: list[slice] = [slice(None)] * arr.ndim
+        product: Array | None = None
+        for offset in range(size):
+            index[axis_index] = slice(offset, offset + out_len)
+            term = arr[tuple(index)]
+            product = term if product is None else product * term
+        return product
+
+    return kernel
+
+
+def apply_graded_mask(
+    op: Operator,
+    f: FieldLike,
+    axis: str,
+    interior: FieldLike,
+    rungs: Sequence[Rung],
+    sel_specs: Sequence[tuple[int, int]],
+    shift: int,
+    present: FieldLike,
+) -> FieldLike:
+    r"""
+    Select, per output face, the widest wet rung of the ladder (immersed).
+
+    Description
+    -----------
+    The mask-keyed sibling of :func:`apply_graded_walls` (decisions
+    GA-D1/D2 of ``immersed_graded_advection_plan.md``). On an immersed
+    grid dry DOFs may sit anywhere, so there is no static two-wall index
+    partition; instead every rung is evaluated **full-array** over the
+    pre-masked operand ``f`` and the face value is a nested ``jnp.where``
+    over per-rung selector fields, widest first.
+
+    - Each reduced ``rung`` is run through the same
+      :func:`~fridom.spatial.operators.reconstruct.apply_fv_staggered`
+      plumbing as the interior pass (``align = rung.offset + shift``), so
+      its window arithmetic is identical to the wall path's
+      ``_rung_value``.
+    - The selector of the rung at ``sel_specs[i] = (size, offset)`` is the
+      windowed all-wet product of ``present`` (the sign-independent
+      **union** window; :func:`_window_all_wet`), a static
+      trace-time-constant field: ``d >= t`` for that rung is exactly its
+      union window being entirely present. ``present`` marks a slot wet
+      **or** structurally exempt (the wall-side zero of the ``shift = 1``
+      dual direction), so a face-aligned staircase reproduces the wall
+      ladder by construction. The bottom rung (``sel_specs[-1]``) carries
+      no selector — it is the unconditional fallback (any ``alpha > 0``
+      face has two wet neighbours, so it is always legal).
+
+    Because ``present`` is a superset of the pre-mask, the selected rung's
+    window reads only wet real values and structural zeros — bitwise the
+    wall path where the wet region is face-aligned. The pre-mask (dry ->
+    exact zero) reproduces the synthesized Dirichlet zeros, is NaN-safe,
+    and seals the reverse VJP at dead slots.
+
+    Parameters
+    ----------
+    op : Operator
+        The (bound) separable kernel (resolves the codomain / alignment).
+    f : FieldLike
+        The **pre-masked** operand field (dry slots zeroed).
+    axis : str
+        The resolved coordinate axis.
+    interior : FieldLike
+        The widest-rung (interior kernel) output field, on the codomain.
+    rungs : Sequence[Rung]
+        The reduced ladder, widest first and bottom (wall-adjacent) last
+        (``K = len(rungs)``); the interior is prepended implicitly.
+    sel_specs : Sequence[tuple[int, int]]
+        Per-rung union-window ``(size, offset)``, one for the interior
+        (index 0) and one per reduced rung (length ``K + 1``); the last
+        (bottom) entry is unused.
+    shift : int
+        The cell-frame shift (0 or 1).
+    present : FieldLike
+        The selector present-mask on the operand space (wet-or-exempt),
+        as a real ``{0, 1}`` field.
+
+    Returns
+    -------
+    FieldLike
+        ``interior`` with every face replaced by its widest wet rung.
+    """
+    from fridom.spatial.operators.reconstruct import (  # noqa: PLC0415
+        apply_fv_staggered,
+    )
+
+    values = [interior._data]  # noqa: SLF001 — documented storage seam
+    for rung in rungs:
+        reduced = apply_fv_staggered(
+            op, f, axis, rung.size, rung.kernel, metadata=None,
+            align=rung.offset + shift)
+        values.append(reduced._data)  # noqa: SLF001 — storage seam
+    selectors: list[Array] = []
+    for size, offset in sel_specs[:-1]:
+        sel = apply_fv_staggered(
+            op, present, axis, size, _window_all_wet(size),
+            metadata=None, align=offset + shift)
+        wet = sel._data > _PRESENT_THRESHOLD  # noqa: SLF001 — storage seam
+        selectors.append(wet)
+    data = values[-1]
+    for i in range(len(selectors) - 1, -1, -1):
+        data = jnp.where(selectors[i], values[i], data)
+    return type(f)(f.grid, interior.function_space, data,
+                   interior.metadata, halo_valid=interior.halo_valid)

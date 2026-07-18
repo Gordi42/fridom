@@ -495,11 +495,18 @@ def tridiagonal_solve_along_axis(
     there through the double-``jnp.where`` guard, which also keeps the
     reverse pass NaN-free.
 
-    Multi-device caveat: on a sharded (multi-device) run the
-    ``"cusparse"`` path lowers to a custom call whose GSPMD partitioning
-    is unvalidated, while the pure-jax ``"pcr"`` / ``"scan"`` kernels
-    partition cleanly along the batch axes — a multi-device run that
-    sees unexpected all-gathers should prefer ``method="pcr"``.
+    Multi-device note: on a sharded (multi-device) run the
+    ``"cusparse"`` path lowers to a custom call, and XLA partitions it
+    cleanly along the sharded batch axes — validated 2026-07-18 on
+    4x A100 (jax 0.10.2): the custom call receives per-shard operands at
+    every multigrid level with no feeding collective (no all-gather),
+    both in a minimal standalone jit and in the in-model
+    ``jit__chunk_body`` step (record:
+    ``design/research/multigrid_kernel_study.md`` Addendum 2). This is an
+    observed XLA lowering behaviour, not an API contract; the pure-jax
+    ``"pcr"`` / ``"scan"`` kernels partition cleanly by construction, so
+    ``method="pcr"`` stays the portable choice for a run that ever sees
+    an unexpected all-gather feed the batch axes.
 
     Parameters
     ----------

@@ -47,16 +47,23 @@ memory ceiling, time-to-first-step, WENO throughput (entries in
   real top-row error (~15–17% u/v) for order-5 biased staggered
   momentum (`81995781` — biased momentum now takes the exact
   full-3D correction; constancy-oracle record in plan §9).
-  Remaining, all owner-gated GPU work: (a) post-reroute weno5
-  ladder re-measure — overhead vs off and embed-vs-scatter for
-  the remaining tracer slice (the biased `"embed"` default is
-  provisional, in-code note); (b) real multi-host validation of
-  trace/scatter under `srun -n 4 --gpu-bind=none` (forced-4 is
-  green; plan §4 gate); (c) the `surface_flux=False` opt-out path
+  Real multi-host validation (plan §4 gate) is **met** (2026-07-18
+  evening, owner-requested: `srun -n 4` bitwise/1e-15 vs 1-GPU,
+  both schemes; record in plan §9 — including the multi-process
+  compile-cache deadlock it exposed and fixed, `94786a7c`).
+  Remaining: (a) post-reroute weno5 ladder re-measure — overhead
+  vs off and embed-vs-scatter for the remaining tracer slice (the
+  biased `"embed"` default is provisional, in-code note;
+  owner-gated GPU); (b) the `surface_flux=False` opt-out path
   reads +28–48% over its pre-H7 cost at big rungs (plan §9 flag)
-  — decide whether the legacy opt-out is worth chasing. Step-guard
-  checkpointing stays on Silvano's own batch cadence (never
-  agent-initiated).
+  — decide whether the legacy opt-out is worth chasing; (c)
+  **owner ruling needed:** split-explicit models drop the
+  barotropic part of a velocity IC entirely (plan §9 validation
+  finding — z-independent `set_fields` velocity vanishes from the
+  whole carry in one step; intended rest-start semantics or an IC
+  gap? Also means the se ladder rungs ran near-zero-velocity
+  flows while oc got the full IC). Step-guard checkpointing stays
+  on Silvano's own batch cadence (never agent-initiated).
 
 ## Channel eigenmodes on multi-device — remaining gaps
 
@@ -102,22 +109,24 @@ Evidence, provenance probes, and the full re-attribution history:
 
 The 2026-07-17 "mapped + advection + chunked scan goes non-finite on
 GPU" fault itself is resolved (entry in [`done.md`](done.md); record
-[`../research/mapped_chunk_nonfinite_rootcause.md`](../research/mapped_chunk_nonfinite_rootcause.md)).
-The hazard class outlives the instance — any unguarded storage-frame
-divide by a zero-padded factor plants `inf` in never-valid lanes,
-which only the per-chunk scrub cadence cleanses. Open hardening:
+[`../research/mapped_chunk_nonfinite_rootcause.md`](../research/mapped_chunk_nonfinite_rootcause.md)),
+and the chunk-parity regression that pins the class shipped with this
+change (entry in [`done.md`](done.md)). One hardening item is held:
 
-- **Chunk-parity regression test** (recommended): small mapped
-  advective model, K steps at `chunk_size=1` vs `chunk_size=2`,
-  assert bitwise-equal and finite (CPU is enough — the fault class is
-  backend-independent). The suite's only mapped+chunked test file
-  pins `chunk_size=1` (`test_fv_fusion_guards.py`), so the class is
-  currently untested.
-- **Pad-inf audit/guard**: seal the remaining unguarded members like
-  `_divide_by_jacobian` (~free, bitwise on valid cells) — the known
-  ones are the `MetricScaled` divides (`mapped.py:219-222`) — and/or
-  a debug-mode all-finite-*storage* assertion at carry boundaries so
-  a recurrence fails loudly instead of cadence-dependently.
+- **MetricScaled pad-inf seal — held pending owner decision D4.** The
+  seal is implemented and reviewed on local branch
+  `fix/pad-inf-hardening` (commit `76eb9461`): `_sealed_divide`
+  applied to both `MetricScaled` divide branches, bitwise on valid
+  cells, pad storage kept finite, VJP finite, with operator tests. It
+  is **not landed**: dev `93049651` documents the deferral in
+  `mapped.py`, and because the divide sits in the every-step pressure
+  solve the "~free" cost claim is unproven there. The seal is
+  **defensive-only** today — the 4-combination red-check proved the
+  historical chunk fault detonates via `_divide_by_jacobian` (already
+  sealed on dev) and **not** via `MetricScaled`: reverting only the
+  `MetricScaled` seal keeps the parity test green, so nothing is
+  unguarded now. Owner decision D4: measure the seal's step cost and
+  land `76eb9461`, or accept the deferral and delete the branch.
 
 ## Finite-volume nonhydro — decisions and validation
 
@@ -235,9 +244,6 @@ cells in every dimension (stages I0–I4 shipped 2026-07-17; entry in
 [`../plans/active/immersed_partial_cells_plan.md`](../plans/active/immersed_partial_cells_plan.md)).
 Open, none blocking:
 
-- **Biased/upwind/WENO advection on immersed grids** — taught error
-  today; the mask-keyed graded ladder is planned and in progress
-  ([`../plans/active/immersed_graded_advection_plan.md`](../plans/active/immersed_graded_advection_plan.md)).
 - **Mapped + immersed composition** — taught error; the mapped and
   masked PCGs are not composed.
 - **Partial-bottom-cell hydrostatic pressure gradient** — the
@@ -478,17 +484,6 @@ recorded route
 §3, numbers in
 [`../research/mapped_jacobian_spike.md`](../research/mapped_jacobian_spike.md)).
 
-## Coefficient-space product/power rows — needs an owner call
-
-*Small in code, but a semantics decision, not a missing row.*
-Elementwise multiplication of two Fourier-coefficient fields is *not*
-the product of the represented functions (it is a convolution), so
-registering it under the same `("multiply", space)` kind invites silent
-nonsense. Needs an owner ruling first; it blocks nothing. The last open
-item of the Phase-2 grid follow-ups (the rest landed — see
-[`done.md`](done.md)).
-[`../plans/active/phase2_grid_followups.md`](../plans/active/phase2_grid_followups.md)
-
 ## Mapped-solve residual levers — measured, none currently worth taking
 
 *The parent line — "multi-device compile and execution cost", formerly
@@ -518,23 +513,8 @@ The semicoarsened V-cycle preconditioner shipped 2026-07-17 and the
 V-cycle kernel swap it called for shipped 2026-07-18 (merge
 `0ece46b1`; both entries in [`done.md`](done.md), measurements in
 [`../research/multigrid_kernel_study.md`](../research/multigrid_kernel_study.md)
-§Addendum). Open, none blocking:
+§§Addendum, Addendum 2). Open, none blocking:
 
-- **cuSPARSE kernel under GSPMD (multi-device) — HLO/perf leg only.**
-  The line smoother's `method="auto"` resolves to the batched
-  `lax.linalg.tridiagonal_solve` (cuSPARSE) on any GPU backend,
-  including sharded multi-GPU runs. The **parity** leg is now
-  validated on real 4×A100: the full-3-D-coarsening default solve is
-  bit-parity-clean 1-vs-4 with `method="auto"` (→cuSPARSE) — the GB-5
-  forced-4 tests pass on hardware (2026-07-18, dev `33707661`) — and a
-  kernel sweep showed the remaining multi-device failures are
-  **kernel-independent** (auto/cusparse/pcr/scan behave identically),
-  so they are not a cuSPARSE custom-call defect. Still open: confirm
-  the custom call's GSPMD partitioning does not **all-gather** the
-  batch axes (correct but slow) — an HLO/perf inspection, not
-  correctness; a run that sees all-gathers can set
-  `multigrid_tridiagonal_method="pcr"` (pure jax, partitions cleanly).
-  Caveat documented in `banded.py`.
 - **Semicoarsening V-cycle multi-device parity — broken.** The
   semicoarsening hierarchy (horizontal-only coarsening + full-vertical
   line smoother) mis-partitions on ≥2 devices: 1-GPU clean, 4-GPU
@@ -566,8 +546,13 @@ V-cycle kernel swap it called for shipped 2026-07-18 (merge
   cheaper mapped operator applies (the finest level dominates the
   post-swap V-cycle: one sweep = 15.7 ms cuSPARSE solve + 12.0 ms
   operator apply at 512³). Take only with a concrete driver toward
-  the 1.5× GB-2 bar. Immersed remains the projected outright win
-  (1.3–2.0×), in-model post-swap standing unmeasured.
+  the 1.5× GB-2 bar. Immersed in-model post-swap standing is now
+  measured (2026-07-18, kernel study Addendum 2): mg 1.09×/1.12× at
+  128³/256³ at the production budget=100, where spectral also converges
+  (71–73 iters) — the 1.3–2.0× projection was a budget=30 artifact, and
+  mg is the only converged option below budget ≈70. On 4 GPUs
+  mg-cuSPARSE is 1.11× at 512³ but 0.37× at 128³ (per-level collective
+  latency), so any lever hunt is large-n / multi-GPU-aware.
 
 ## Differentiable run surface — `model.propagator()`
 

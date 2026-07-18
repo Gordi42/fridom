@@ -32,7 +32,7 @@ def mz():
 
 @pytest.fixture
 def walled(mz):
-    return Grid((mz,))
+    return Grid((mz,), device_ids=(0,))
 
 
 @pytest.fixture
@@ -175,7 +175,7 @@ def test_codomain_rejects_dirichlet_dropped_membership(interp, my):
 #  Application
 # ================================================================
 def test_periodic_center_to_right_wraps(interp, mx):
-    grid = Grid((mx,))
+    grid = Grid((mx,), device_ids=(0,))
     f = grid.create_field(data=jnp.arange(8.0))
     g = interp["x"](f)
     assert g.function_space.bare is mx.right
@@ -185,7 +185,7 @@ def test_periodic_center_to_right_wraps(interp, mx):
 
 
 def test_bounded_center_to_inner(interp, my):
-    grid = Grid((my,))
+    grid = Grid((my,), device_ids=(0,))
     f = grid.create_field(data=jnp.arange(8.0))
     g = interp["y"](f)
     assert g.function_space.bare is my.inner
@@ -193,7 +193,7 @@ def test_bounded_center_to_inner(interp, my):
 
 
 def test_bounded_outer_variant_demands_a_closure(my):
-    grid = Grid((my,))
+    grid = Grid((my,), device_ids=(0,))
     outer = LinearInterp(target=NodeSet.OUTER)
     # the wall faces are undefined on a BC-free bounded operand
     # (R1, boundary_plan.md); the legal outs are a declared BC
@@ -257,7 +257,7 @@ def test_bc_tagged_interpolate_is_registry_resolvable(walled, mz):
 
 
 def test_metadata_is_preserved(interp, mx):
-    grid = Grid((mx,))
+    grid = Grid((mx,), device_ids=(0,))
     f = grid.create_field(name="u", units="m/s")
     g = interp["x"](f)
     assert g.metadata == f.metadata  # same-quantity rule
@@ -267,7 +267,7 @@ def test_metadata_is_preserved(interp, mx):
 #  Eigenvalue symbol (the one_hat averaging diagonal)
 # ================================================================
 def test_eigenvalues_matches_the_apply(interp, mx):
-    grid = Grid((mx,))
+    grid = Grid((mx,), device_ids=(0,))
     ft = grid.dispatch.resolve("transform", mx.center)
     f = grid.create_field(
         init=lambda x: jnp.sin(2 * jnp.pi * x)
@@ -282,7 +282,7 @@ def test_eigenvalues_matches_the_apply(interp, mx):
 
 
 def test_eigenvalues_nyquist_is_an_exact_structural_zero(interp, mx):
-    grid = Grid((mx,))
+    grid = Grid((mx,), device_ids=(0,))
     sym = interp["x"].eigenvalues(grid, mx.center)
     # cos(pi/2) = 0 exactly: the snapped Nyquist leaf is a structural
     # zero, so ``Symbol.inverse`` regularizes it (no ~1e-17 residue)
@@ -292,11 +292,11 @@ def test_eigenvalues_nyquist_is_an_exact_structural_zero(interp, mx):
 def test_eigenvalues_raise_on_the_wrong_boundary(interp, my, mx):
     # BC-free bounded factors diagonalize in no seeded basis
     with pytest.raises(EigenbasisError, match="periodic"):
-        interp["y"].eigenvalues(Grid((my,)), my.center)
+        interp["y"].eigenvalues(Grid((my,), device_ids=(0,)), my.center)
     # the target= variant has no diagonalizing symbol in iteration 1
     with pytest.raises(EigenbasisError, match="target="):
         LinearInterp(target=NodeSet.OUTER)["x"].eigenvalues(
-            Grid((mx,)), mx.center)
+            Grid((mx,), device_ids=(0,)), mx.center)
 
 
 # ================================================================

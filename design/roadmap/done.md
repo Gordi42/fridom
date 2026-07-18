@@ -75,7 +75,7 @@ Implementation record:
 
 | #   | Task | Outcome |
 |-----|------|---------|
-| 2.1 | Design: model composition (2026-07-08) | Decisions D1–D5 in [`../specs/model/`](../specs/model/00_overview.md); grid follow-ups filed as [`../plans/active/phase2_grid_followups.md`](../plans/active/phase2_grid_followups.md). |
+| 2.1 | Design: model composition (2026-07-08) | Decisions D1–D5 in [`../specs/model/`](../specs/model/00_overview.md); grid follow-ups filed as [`../plans/done/phase2_grid_followups.md`](../plans/done/phase2_grid_followups.md). |
 | 2.2 | Field registration + parameters in modules | `Module` declares `FieldMetadata`; parameters live in modules (`FPlaneCoriolis`/`BetaPlaneCoriolis`, `ConstantStratification`, shallow-water `csqr`, Rossby scaling). |
 | 2.3 | Modules modify anything | Modules and grid in the traced state; direct `Model(...)` assembly over a single `modules=` tuple (D4). |
 | 2.4 | Single `jax.jit` for the full run | Chunked `lax.scan` (`step_chunk`, AOT-compiled, donated carry); trace-friendly `Clock`; per-step NaN reduction + chunk-boundary abort; `fr.ops.Session` + `Model.run()`. |
@@ -95,6 +95,27 @@ Implementation record:
 | 3.8 | **Generalized adiabatic ramping** (2026-07-17) | Deform a model between reference and target operator configurations, `L(s) = (1-rho(s)) L_ref + rho(s) L_target`, with shared terms never computed twice (blend taxonomy: untouched / affine-parameter / term-weight; decisions AR-D1..D9, driving consumer the Rosenau et al. JFM draft). Shipped R1–R6: time-dependent scalar parameters + the declarative AR-D7 ETDRK4 taught error; `FieldBlend` (author-level affine field blends; ramped Coriolis `f0(t) + beta(t)·y`, static paths bit-identical); `fr.transforms.AdiabaticRamping` (four legs `.down`/`.backward`, `replace()`, window + composition protocol surfaces, AR-D6 irreversibility guard); `OptimalBalance` rebuilt *on* the legs bit-identically; phase-neutral `AdiabaticProjection` (backward–forward; forward–forward counter-example pinned) + `relative_imbalance`; docs page + double-ramp example. Post-landing audit verified the stretched-exponential leakage law to roundoff (`log eta = -2.52 sqrt(tau)`, R² 0.997; [`../research/adiabatic_leakage_scaling.md`](../research/adiabatic_leakage_scaling.md)) and pinned it as a regression shard. Example content review deferred at owner instruction — open in [`open.md`](open.md). Record: [`../plans/done/adiabatic_ramping.md`](../plans/done/adiabatic_ramping.md). |
 
 ## Landed since, outside the numbered tasks
+
+- **Coefficient-space product/power rows — ruled closed by design**
+  (owner-ratified 2026-07-18) — the open-roadmap semantics question
+  ("should coefficient-space fields get `("multiply"|"divide"|"power"|
+  "abs", space)` rows?") is settled: coefficient-space `ScalarField`s
+  are a **vector space, not an algebra**. Only transform-commuting
+  operations are field arithmetic (add/sub of same-space fields,
+  scalar multiply/divide — already exact); an elementwise product of
+  two coefficient fields is a **convolution** of the represented
+  functions, not their product, so those elementwise rows are
+  **permanently absent by design**, not an "iteration 1" deferral.
+  Per-mode (diagonal) coefficient algebra lives on `Symbol`; the
+  pointwise function product lives in nodal space; `Convolution` and
+  the zero-mode `ConstantBroadcast` stay reserved distinct kinds,
+  unbuilt until a consumer exists (the census found **zero**
+  coefficient×coefficient product consumers). Shipped: taught-error
+  rewording of the coefficient-space dunders/guards
+  (`spatial/fields/scalar_field.py`) + pinned tests, spec note, and
+  the `products.py` docstring line. **This closed the last open item
+  of the Phase-2 grid follow-ups.** Record:
+  [`coefficient_space_arithmetic_semantics.md`](../research/coefficient_space_arithmetic_semantics.md).
 
 - **Mapped + advection + chunked scan non-finite — root-caused,
   already fixed** (2026-07-18 investigation; the fix itself landed
@@ -119,9 +140,18 @@ Implementation record:
   inviscid centered advection) blows up physically at it≈24
   (t≈0.12), cadence/backend-independent and bit-identical across the
   254 intervening commits — the original chunk=1 "control" looked
-  finite only because it stopped earlier. Hardening residuals
-  (chunk-parity test, `MetricScaled` pad-inf audit) tracked in
-  [`open.md`](open.md). Record:
+  finite only because it stopped earlier. The **chunk-cadence parity
+  regression shipped with this merge**
+  (`test_mapped_advection_chunk_cadence_parity` in
+  `tests/model/test_step_chunk.py`): a terrain-following advective
+  model stepped four times at `chunk_size` 1 vs 2 must stay finite and
+  agree to `rtol 1e-12`. Red-checked — reverting the
+  `_divide_by_jacobian` guard reproduces `PanicError` at it=2 already
+  at n=8 (a smaller floor than the n=64 recorded above). Not bitwise:
+  CPU scan-length grouping reassociates FP at ~3e-15, while the GPU
+  256³ measurement above was bitwise. The remaining hardening residual
+  (the held `MetricScaled` pad-inf seal, owner decision D4) is tracked
+  in [`open.md`](open.md). Record:
   [`mapped_chunk_nonfinite_rootcause.md`](../research/mapped_chunk_nonfinite_rootcause.md).
 
 - **Storage-halo width recovered — two-sided (interval) halo
@@ -599,10 +629,35 @@ Implementation record:
   not this kernel). *Corrected same day: the "deficit widens with
   n / spectral stays default at every size" conclusion was the
   `multigrid_levels=5` depth cap — see the size-scaling entry
-  above.* Open residue (cuSPARSE-under-GSPMD validation,
-  residual mapped-GPU levers): [`open.md`](open.md). Evidence:
+  above.* Open residue (residual mapped-GPU levers): [`open.md`](open.md);
+  the cuSPARSE-under-GSPMD leg is now closed (entry below). Evidence:
   [`../research/multigrid_kernel_study.md`](../research/multigrid_kernel_study.md)
-  §Addendum.
+  §§Addendum, Addendum 2.
+- **cuSPARSE-under-GSPMD HLO/perf leg + immersed post-swap standing —
+  measured** (2026-07-18) — closed the two residues the kernel-swap
+  entry above left open, on real 4× A100 (jax 0.10.2, dev `0c950a33`).
+  **cuSPARSE under GSPMD**: XLA partitions the batched custom call
+  cleanly along the sharded batch axes — per-shard operands
+  (`f64[(128/4)·128, 128, 1]` down to `f64[4, 4, 1]`) at every one of
+  the six full-3-D-coarsening levels, with no feeding collective (the
+  module's all-gathers are the projection global-mean and a `take`
+  index gather, neither a cuSPARSE operand), both in a minimal
+  standalone jit and in the in-model `jit__chunk_body`. Parity 1-vs-4
+  and cuSPARSE-vs-pcr ~1e-14, CG iterations flat 10; 4-GPU timings
+  mg-cuSPARSE 1.11× at 512³ but 0.37× at 128³ (per-level collective
+  latency), and **pcr fits 512³ multi-device** (12.1 GiB/dev — the
+  one-GPU ≥ 76 GiB wall is sharded away). The `banded.py` multi-device
+  caveat is rewritten to record the validated partitioning (observed
+  XLA lowering, not a contract; pcr stays the portable kernel).
+  **Immersed post-swap standing**: mg-cuSPARSE 1.09×/1.12× at 128³/256³
+  at the production budget=100 — the study's projected 1.3–2.0× was a
+  budget=30 artifact (at budget=100 spectral converges at 71–73 iters);
+  mg is the only converged option below budget ≈70. GB-2 (≥ 1.5×) stays
+  unmet at every size/device count. Data + scripts + HLO excerpts:
+  [`../research/artifacts/multigrid_gspmd_validation/`](../research/artifacts/multigrid_gspmd_validation/);
+  narrative:
+  [`../research/multigrid_kernel_study.md`](../research/multigrid_kernel_study.md)
+  Addendum 2.
 - **Immersed partial cells — all dimensions, all three models**
   (2026-07-17, merges `ee257bc0` I0+I1, `b447b8e5` I2, `a5aec29d` I4,
   `3858d977` I3, plus the autodiff regression gates) — the immersed
@@ -629,6 +684,23 @@ Implementation record:
   [`open.md`](open.md). Record +
   per-stage corrections:
   [`../plans/active/immersed_partial_cells_plan.md`](../plans/active/immersed_partial_cells_plan.md).
+- **Biased/upwind/WENO advection on immersed grids** (2026-07-18,
+  merge `02663933`) — the first immersed residual closed: the
+  IP-D8 taught error replaced by the **mask-keyed graded ladder**
+  (`graded.apply_graded_mask`), generalizing the wall closure's rung
+  ladder from index-distance keying to per-face distance-to-dry
+  selectors (static union-window products of the boolean masks;
+  pre-masked operand; full-array rungs + trace-time-constant
+  `jnp.where` select — the PALM precompute-and-select precedent,
+  subsuming NEMO/MITgcm difference-zeroing). Covers both families
+  (FV `_FVBiasedReconstruction`, nodal `_BiasedFaceReconstruction`
+  both shifts, centered velocity interp, WENO both-then-select).
+  Keystone gate: **staircase advection tendency ≡ walled graded FV
+  at machine zero** (up3/up5 exactly 0.0, weno5 1.4e-17); all-wet ≡
+  unimmersed bitwise on both families; θ-mass ≤ 1e-12 on genuine
+  partials; autodiff FD-matched; forced-4 green. Plan + decisions +
+  corrections:
+  [`../plans/active/immersed_graded_advection_plan.md`](../plans/active/immersed_graded_advection_plan.md).
 - **Variable boundary forcing — wind stress, surface buoyancy flux**
   (2026-07-17, merge `24ee6fd0`) — prescribed wall-face fluxes as
   tendency contributions in the wall-adjacent cell

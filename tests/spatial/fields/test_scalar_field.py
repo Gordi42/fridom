@@ -347,7 +347,7 @@ def test_mul_on_coefficient_space_raises(grid1d, mx):
     space = mx.fourier(origin=mx.center)
     a = grid1d.random.normal(space, seed=0)
     b = grid1d.random.normal(space, seed=1)
-    with pytest.raises(KeyError, match="multiply"):
+    with pytest.raises(KeyError, match="convolution"):
         _ = a * b
 
 
@@ -359,7 +359,7 @@ def test_div(f, g):
 def test_div_on_coefficient_space_raises(grid1d, mx):
     space = mx.fourier(origin=mx.center)
     a = grid1d.random.normal(space, seed=0)
-    with pytest.raises(KeyError, match="divide"):
+    with pytest.raises(KeyError, match="quotient of spectra"):
         _ = a / a
 
 
@@ -396,7 +396,7 @@ def test_complex_scalar_rtruediv_promotes(f):
 
 def test_rtruediv_on_coefficient_space_raises(grid1d, mx):
     a = grid1d.random.normal(mx.fourier(origin=mx.center), seed=0)
-    with pytest.raises(KeyError, match="divide"):
+    with pytest.raises(KeyError, match="quotient of spectra"):
         _ = 1.0 / a
 
 
@@ -407,7 +407,7 @@ def test_pow(f):
 
 def test_pow_on_coefficient_space_raises(grid1d, mx):
     a = grid1d.random.normal(mx.fourier(origin=mx.center), seed=0)
-    with pytest.raises(KeyError, match="power"):
+    with pytest.raises(KeyError, match="Symbol algebra"):
         _ = a ** 2
 
 
@@ -446,6 +446,12 @@ def test_abs_on_average_spaces(grid1d, mx):
     h = abs(a)
     assert h.function_space.bare is mx.cell_avg
     assert jnp.array_equal(h.data, jnp.abs(data))
+
+
+def test_abs_on_coefficient_space_raises(grid1d, mx):
+    a = grid1d.random.normal(mx.fourier(origin=mx.center), seed=0)
+    with pytest.raises(KeyError, match="spectral diagnostic"):
+        _ = abs(a)
 
 
 def test_constant_into_coefficient_lift_raises(grid1d, mx):
@@ -837,6 +843,59 @@ def test_to_from_constant_factor_broadcasts(grid, mx, my):
         mx.center * my.center,
         init=lambda x, y: 1.0 + y)  # noqa: ARG005 — init(**coords) by name
     assert jnp.allclose(lifted.data, full.data)
+
+
+# ================================================================
+#  Tag-only .to arm: BC-sibling factors need no conversion
+# ================================================================
+def test_to_bc_sibling_bare_to_tagged_retags_on_the_walled_axis(mx, my,
+                                                                grid, f):
+    # a bare walled Center and its Dirichlet sibling agree on node set;
+    # .to needs no operator, it adopts the tag (the crash the arm fixes:
+    # a bounded-face stencil output onto a wall-tagged sibling)
+    synced = grid.sync(f)
+    assert synced.halo_valid.interval("x") == (1, 1)
+    assert synced.halo_valid.interval("y") == (1, 1)
+    tagged = my.nodal(NodeSet.CENTER, bc=BC.DIRICHLET)
+    g = synced.to(tagged)  # single-factor shorthand on the walled y
+    assert g.function_space.bare is mx.center * tagged
+    assert g.grid is f.grid
+    assert g.metadata == f.metadata  # same-quantity rule
+    # point samples untouched
+    assert jnp.array_equal(g.data, synced.data)
+    # halo validity resets on the retagged axis only (ghost policy
+    # changed with the tag); the other axis carries over
+    assert g.halo_valid.interval("x") == (1, 1)
+    assert g.halo_valid.interval("y") == (0, 0)
+
+
+def test_to_bc_sibling_tagged_to_bare_retags_back(mx, my, grid, f):
+    tagged = my.nodal(NodeSet.CENTER, bc=BC.DIRICHLET)
+    g = grid.sync(f).to(tagged)
+    # the reverse tag-only .to drops the tag onto the bare sibling
+    back = g.to(my.center)
+    assert back.function_space.bare is mx.center * my.center
+    assert jnp.array_equal(back.data, f.data)
+    assert back.halo_valid.interval("x") == (1, 1)
+    assert back.halo_valid.interval("y") == (0, 0)
+
+
+def test_to_bc_sibling_on_a_lone_walled_factor(walled):
+    grid1d, mz = walled
+    a = grid1d.create_field(mz.center, init=lambda z: z**2)
+    tagged = mz.nodal(NodeSet.CENTER, bc=BC.DIRICHLET)
+    g = a.to(tagged)  # lone-factor tag-only .to
+    assert g.function_space.bare is tagged
+    assert jnp.array_equal(g.data, a.data)
+
+
+def test_to_different_factor_conversion_still_raises(my, f):
+    # the arm only short-circuits BC siblings; a genuinely different
+    # factor (Center -> Outer: different node set and shape) is not a
+    # sibling and still resolves through the registry, where the
+    # registered interpolate lands on Inner (not Outer) and raises
+    with pytest.raises(SpaceMismatchError, match="lands on"):
+        f.to(my.outer)
 
 
 # ================================================================

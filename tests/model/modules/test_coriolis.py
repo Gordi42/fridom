@@ -27,10 +27,12 @@ import fridom as fr
 import fridom.shallowwater2 as sw
 from fridom.model import term_predicates as terms
 from fridom.model.energy import EnergyMetric
+from fridom.model.model import _chunk_body
 from fridom.model.modules.coriolis import (
     BetaPlaneCoriolis,
     FPlaneCoriolis,
     RotationCoriolis,
+    _safe_metric_divide,
     chart_rotation,
     linear_rotation,
 )
@@ -51,7 +53,8 @@ def make_channel(csqr, coriolis):
     my = fr.spatial.meshes.IntervalMesh(N, (0.0, 1.0), periodic=False,
                                      name="y")
     return sw.Model(
-        grid=fr.spatial.Grid((mx, my)), csqr=csqr, rossby_number=0.2,
+        grid=fr.spatial.Grid((mx, my), device_ids=(0,)),
+        csqr=csqr, rossby_number=0.2,
         coriolis=coriolis, advection=False,
         time_stepper=fr.model.time_steppers.AdamBashforth(5e-3, order=3))
 
@@ -140,7 +143,7 @@ def test_unweighted_rotation_does_work_against_a_varying_metric():
     my = fr.spatial.meshes.IntervalMesh(N, (0.0, 1.0), periodic=False,
                                      name="y")
     model = fr.model.Model(
-        grid=fr.spatial.Grid((mx, my)),
+        grid=fr.spatial.Grid((mx, my), device_ids=(0,)),
         modules=(
             sw.modules.DynamicalCore(csqr=csqr_fn,
                                      rossby_number=0.2),
@@ -165,7 +168,7 @@ LAT_MAX = float(np.deg2rad(80.0))
 def sphere_grid(nlon=2 * N, nlat=N):
     """Lat-lon sphere chart (unit radius, polar caps excluded)."""
     return fr.spatial.spherical.Grid(
-        (nlon, nlat), lat_extent=(-LAT_MAX, LAT_MAX))
+        (nlon, nlat), lat_extent=(-LAT_MAX, LAT_MAX), device_ids=(0,))
 
 
 # ================================================================
@@ -182,7 +185,7 @@ def chart_grid(m_1, m_2, chart):
     """Build an orthogonal-chart grid (diagonal index moves)."""
     return fr.spatial.Grid(
         (m_1, m_2), mapping=fr.spatial.CoordinateMapping(
-            chart={"X": chart}, orthogonal=True))
+            chart={"X": chart}, orthogonal=True), device_ids=(0,))
 
 
 def torus_grid(na=2 * N, nb=N):
@@ -547,7 +550,7 @@ def _r1_grid():
                                         name="x")
     my = fr.spatial.meshes.IntervalMesh(N, (0.0, 1.0), periodic=False,
                                         name="y")
-    return fr.spatial.Grid((mx, my))
+    return fr.spatial.Grid((mx, my), device_ids=(0,))
 
 
 def _r1_channel(grid, f0, order=3):
@@ -871,3 +874,179 @@ def test_beta_plane_blend_is_device_count_invariant(forced_devices):
     assert max(
         float(np.abs(results["many"][c] - results["one"][c]).max())
         for c in ("u", "v", "p")) < 1e-11
+
+
+# ================================================================
+#  Reverse-mode autodiff through the metric-weight / chart divides
+# ================================================================
+# The weighted (H1) and chart (H2/H3) rotations divide a flux by a
+# metric weight that is an exact zero in the never-valid storage padding
+# and the immersed dry cells. The forward run strips those cells, but
+# reverse-mode autodiff does not: the bare quotient's VJP (-num/den^2 at
+# den = 0) turns the zero cotangent of a sealed cell into 0*inf = NaN and
+# poisons every gradient with a data path through the rotation.
+# ``_safe_metric_divide`` seals it (the double-``jnp.where`` pattern, the
+# ``advection._safe_ratio`` sibling). The AGENTS.md check is grad-through-
+# a-short-run finite AND matching a central finite difference to rtol
+# 1e-4; the immersed weighted rotation (H1) triggers the divide on its own
+# (the coriolis seal alone makes the run's IC gradient finite), while the
+# chart rotation (H2/H3) needs a walled chart axis, which co-fires the
+# separate ``MetricScaled`` reciprocal hazard (mapped.py, plan §4 H4/H5)
+# in the full pressure solve — so H2/H3 is exercised at the term level,
+# the smallest scope that isolates the coriolis divide.
+def _chunk_leaf_loss(model, leaf, n_steps):
+    """Return sum(u^2+v^2+p^2) after ``n_steps`` splicing one carry leaf.
+
+    Mirrors ``tests/model/test_model_autodiff.py``: the differentiation
+    variable is spliced into the flattened carry by object identity and
+    advanced through the pure, differentiable step kernel ``_chunk_body``
+    (the public ``advance`` path is not differentiable).
+    """
+    record = model._artifacts.record
+    stepper = model._stepper
+    leaves, treedef = jax.tree_util.tree_flatten(model._carry)
+    (idx,) = [i for i, ref in enumerate(leaves) if ref is leaf]
+
+    def loss(x):
+        new = list(leaves)
+        new[idx] = x
+        carry = jax.tree_util.tree_unflatten(treedef, new)
+        state = _chunk_body(record, n_steps, carry, stepper).state
+        return sum(jnp.sum(state[c].data ** 2) for c in ("u", "v", "p"))
+
+    return loss
+
+
+# ----------------------------------------------------------------
+#  The seal in isolation: a 0/0 denominator NaNs bare, finite guarded
+# ----------------------------------------------------------------
+def test_safe_metric_divide_seals_the_zero_denominator():
+    """The double-``jnp.where`` seal removes the ``0/0`` storage NaN.
+
+    Where the denominator storage is an exact zero the bare quotient is
+    a masked ``0/0 = NaN`` whose reverse VJP poisons the gradient; the
+    guarded divide pins those cells to 0 and leaves every valid cell
+    bitwise identical (the ``advection._safe_ratio`` sibling).
+    """
+    field = make_channel(0.7, FPlaneCoriolis(f0=F0)).state["u"]
+    storage = field.storage
+    zeros = (jnp.arange(storage.size).reshape(storage.shape) % 3) == 0
+    num = field.with_storage(jnp.where(zeros, 0.0, 1.0))
+    den = field.with_storage(jnp.where(zeros, 0.0, 2.0))
+
+    bare = num / den
+    guarded = _safe_metric_divide(num, den)
+
+    assert bool(np.isnan(np.asarray(bare.storage)).any())
+    assert not bool(np.isnan(np.asarray(guarded.storage)).any())
+    zeros_np = np.asarray(zeros)
+    got = np.asarray(guarded.storage)
+    assert np.array_equal(got[zeros_np], np.zeros(int(zeros_np.sum())))
+    assert np.array_equal(got[~zeros_np],
+                          np.full(int((~zeros_np).sum()), 0.5))
+
+
+# ----------------------------------------------------------------
+#  H1: weighted (metric_weight) rotation on an immersed grid
+# ----------------------------------------------------------------
+def _immersed_weighted_model():
+    """Return a tiny immersed weighted-rotation shallow-water model.
+
+    A dry box carves an interior wet region on a periodic grid; the
+    ``csqr`` energy-metric weight is an exact zero in the dry cells, so
+    the H1 divide ``... / w.to(v)`` is a masked ``0/0`` there. The grid
+    is flat (no chart), so the coriolis divide is the model's only
+    reverse hazard — sealing it alone makes the IC gradient finite.
+    """
+    box = lambda x, y: (  # noqa: E731
+        (x > 2) & (x < 10) & (y > 2) & (y < 10)).astype(float)
+    grid = fr.spatial.Grid(
+        (fr.spatial.meshes.IntervalMesh(12, (0.0, 12.0), periodic=True,
+                                        name="x"),
+         fr.spatial.meshes.IntervalMesh(12, (0.0, 12.0), periodic=True,
+                                        name="y")),
+        immersed=fr.spatial.ImmersedDomain(box), device_ids=(0,))
+    model = sw.Model(
+        grid=grid, csqr=0.8, rossby_number=0.3,
+        coriolis=FPlaneCoriolis(f0=1.0, metric_weight="csqr"),
+        advection=False,
+        time_stepper=fr.model.time_steppers.AdamBashforth(0.01, order=3))
+    rng = np.random.default_rng(0)
+    mask = np.asarray(
+        grid.immersed.mask(model.state["p"].function_space).data)
+    model.set_fields(
+        p=0.1 * rng.standard_normal(model.state["p"].data.shape) * mask,
+        u=0.1 * rng.standard_normal(model.state["u"].data.shape),
+        v=0.1 * rng.standard_normal(model.state["v"].data.shape))
+    return model
+
+
+def test_weighted_rotation_grad_wrt_ic_is_finite_and_matches_fd():
+    """Check grad through the immersed weighted run w.r.t. initial p.
+
+    Without the H1 seal the ``w.to(v)`` dry-cell zeros NaN this gradient
+    (verified: the bare quotient poisons every entry with a data path).
+    """
+    model = _immersed_weighted_model()
+    p_leaf = model._carry.state["p"].storage
+    loss = _chunk_leaf_loss(model, p_leaf, n_steps=8)
+
+    grad = np.asarray(jax.grad(loss)(p_leaf))
+    assert bool(np.all(np.isfinite(grad)))
+
+    rng = np.random.default_rng(3)
+    direction = jnp.asarray(rng.standard_normal(p_leaf.shape),
+                            dtype=p_leaf.dtype)
+    directional = float(jnp.vdot(jnp.asarray(grad), direction))
+    eps = 1e-4
+    fd = (float(loss(p_leaf + eps * direction))
+          - float(loss(p_leaf - eps * direction))) / (2.0 * eps)
+    assert directional == pytest.approx(fd, rel=1e-4)
+
+
+# ----------------------------------------------------------------
+#  H2/H3: chart rotation term (metric weights sqrt(g) g_ii)
+# ----------------------------------------------------------------
+def test_chart_rotation_term_grad_wrt_u_is_finite_and_matches_fd():
+    """Check the chart rotation term grad w.r.t. u (finite, FD-matched).
+
+    Term-level (not a full run): a walled chart axis is required to zero
+    the ``sqrt(g) g_ii`` denominators, and that same axis co-fires the
+    separate ``MetricScaled`` reverse hazard in the full pressure solve
+    (mapped.py, plan §4 H4/H5), which would NaN a full-run gradient
+    independent of the coriolis seal. Differentiating the rotation term
+    alone isolates the H2/H3 divide — without the seal the ``w_2``
+    dry/padding zeros NaN this gradient (verified against the bare
+    quotient).
+    """
+    coords = ("lon", "lat")
+    model = make_chart_model(
+        sphere_grid(),
+        RotationCoriolis(omega=(0.0, 0.0, OMEGA), coords=coords),
+        coords=coords)
+    rng = np.random.default_rng(4)
+    model.set_fields(
+        u=rng.standard_normal(model.state["u"].shape),
+        v=rng.standard_normal(model.state["v"].shape))
+    state = model.state
+    u0 = state["u"]
+    base = {name: state[name] for name in ("u", "v", "f_coriolis")}
+
+    def loss(storage):
+        spliced = dict(base)
+        spliced["u"] = u0.with_storage(storage)
+        dz = chart_rotation(spliced, coords=coords)
+        return sum(jnp.sum(dz[c].data ** 2) for c in ("u", "v"))
+
+    u_storage = u0.storage
+    grad = np.asarray(jax.grad(loss)(u_storage))
+    assert bool(np.all(np.isfinite(grad)))
+
+    rng2 = np.random.default_rng(5)
+    direction = jnp.asarray(rng2.standard_normal(u_storage.shape),
+                            dtype=u_storage.dtype)
+    directional = float(jnp.vdot(jnp.asarray(grad), direction))
+    eps = 1e-4
+    fd = (float(loss(u_storage + eps * direction))
+          - float(loss(u_storage - eps * direction))) / (2.0 * eps)
+    assert directional == pytest.approx(fd, rel=1e-4)
