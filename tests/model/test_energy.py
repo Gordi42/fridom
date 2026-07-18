@@ -542,3 +542,101 @@ def test_from_model_hydrostatic_rejects_zero_stratification():
               STRATIFICATION_N2: 0.0}
     with pytest.raises(ValueError, match="1/N"):
         EnergyMetric.from_model(SimpleNamespace(parameters=params))
+
+
+# ================================================================
+#  Hydrostatic ps depth weight H/c^2 (flat, stretched-z, terrain)
+# ================================================================
+def _hydro_model(grid, *, csqr=3.0, n2=2.0):
+    return hy.Model(
+        grid=grid, dt=DT, csqr=csqr, advection=False, coriolis=None,
+        stratification=hy.ConstantStratification(n2=n2),
+        free_surface=hy.ExplicitFreeSurface(),
+        time_stepper=fr.model.time_steppers.AdamBashforth(DT, order=3))
+
+
+def _terrain_hydro_grid(nx=8, nz=6, a=0.2):
+    def depth(x, y):
+        return 1.0 + a * jnp.sin(2 * jnp.pi * x) * jnp.cos(2 * jnp.pi * y)
+    return Grid((
+        IntervalMesh(nx, (0.0, 1.0), periodic=True, name="x"),
+        IntervalMesh(nx, (0.0, 1.0), periodic=True, name="y"),
+        IntervalMesh(nz, (-1.0, 0.0), periodic=False, name="z")),
+        mapping=fr.spatial.CoordinateMapping(
+            maps={"zp": lambda z, H: z * H}, params={"H": depth}),
+        device_ids=(0,))
+
+
+def _barotropic_bilinear_skew(metric, model):
+    """(<X,LY>_M + <Y,LX>_M)/(|.|+|.|) for random barotropic states."""
+    def _state(seed):
+        rng = np.random.default_rng(seed)
+        model.set_fields(
+            u=rng.standard_normal(model.state["u"].shape),
+            v=rng.standard_normal(model.state["v"].shape),
+            b=np.zeros(model.state["b"].shape),
+            ps=rng.standard_normal(model.state["ps"].shape))
+        return model.state, model.tendency(model.state)
+    x, lx = _state(101)
+    y, ly = _state(202)
+    xy = complex(metric.inner(x, ly))
+    yx = complex(metric.inner(y, lx))
+    return (xy + yx).real / (abs(xy) + abs(yx))
+
+
+@pytest.mark.parametrize("depth", [1.0, 2.0, 3.0])
+def test_hydrostatic_ps_weight_is_depth_over_csqr(depth):
+    # the ps weight carries the physical column depth H/c^2 (a scalar
+    # on a flat grid); depth != 1 was silently wrong before this weight
+    model = _hydro_model(hydro_grid(depth=depth), csqr=3.0)
+    metric = EnergyMetric.from_model(model, require_constant_coriolis=False)
+    assert metric.weights["ps"] == pytest.approx(depth / 3.0)
+
+
+@pytest.mark.parametrize("depth", [1.0, 2.0])
+def test_hydrostatic_barotropic_energy_is_skew_on_a_deep_grid(depth):
+    # barotropic energy conservation: with the H/c^2 ps weight the
+    # bilinear skew is machine-zero at any depth (it was O(1) at depth 2
+    # with the depth-blind 1/c^2 weight)
+    model = _hydro_model(hydro_grid(depth=depth))
+    metric = EnergyMetric.from_model(model, require_constant_coriolis=False)
+    assert abs(_barotropic_bilinear_skew(metric, model)) < 1e-12
+
+
+def test_hydrostatic_terrain_ps_weight_is_a_field():
+    # on a terrain-following grid H(x, y) varies horizontally, so the ps
+    # weight is field-valued and enters only with allow_field_weights
+    model = _hydro_model(_terrain_hydro_grid())
+    metric = EnergyMetric.from_model(
+        model, require_constant_coriolis=False, allow_field_weights=True)
+    assert isinstance(metric.weights["ps"], ScalarField)
+
+
+def test_hydrostatic_terrain_ps_weight_needs_the_opt_in():
+    model = _hydro_model(_terrain_hydro_grid())
+    with pytest.raises(ValueError, match="varies with horizontal"):
+        EnergyMetric.from_model(model, require_constant_coriolis=False)
+
+
+def test_hydrostatic_terrain_barotropic_energy_is_skew():
+    # the probe-proven exact barotropic physical skewness expressed
+    # through the public metric: with the H(x, y)/c^2 field weight the
+    # terrain barotropic subsystem conserves energy to round-off
+    model = _hydro_model(_terrain_hydro_grid())
+    metric = EnergyMetric.from_model(
+        model, require_constant_coriolis=False, allow_field_weights=True)
+    assert abs(_barotropic_bilinear_skew(metric, model)) < 1e-12
+
+
+def test_hydrostatic_ps_weight_on_a_walled_channel():
+    # a walled horizontal axis adds a second bounded axis; the depth
+    # axis is read off ps's own ConstantSpace factor, not "the bounded
+    # axis", so the channel still assembles with the H/c^2 weight
+    grid = Grid((
+        IntervalMesh(4, (0.0, 1.0), periodic=True, name="x"),
+        IntervalMesh(4, (0.0, 1.0), periodic=False, name="y"),
+        IntervalMesh(6, (0.0, 2.0), periodic=False, name="z")),
+        device_ids=(0,))
+    model = _hydro_model(grid, csqr=4.0)
+    metric = EnergyMetric.from_model(model, require_constant_coriolis=False)
+    assert metric.weights["ps"] == pytest.approx(2.0 / 4.0)

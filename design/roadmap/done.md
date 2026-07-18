@@ -96,6 +96,25 @@ Implementation record:
 
 ## Landed since, outside the numbered tasks
 
+- **`EnergyMetric` `ps` depth weight + eigen-channel physical
+  measure** (2026-07-18, `59b6047a`/`72427813` — the metric-side
+  remainder of the stretched+terrain item, after the physical-integral
+  default fixed the `u`/`v`/`b` legs). The hydrostatic `ps` weight is
+  now `H/c²`: the vertical physical extent on flat/stretched-only
+  grids (fixing the silent depth != 1 error — flat depth-2 bilinear
+  skew 1.0 → 7.5e-15), the column-Jacobian integral on `maps=`
+  columns (scalar on stretched-z, an `H(x, y)` field on terrain gated
+  behind `allow_field_weights`; terrain barotropic bilinear skew
+  −1.8e-15 through the public metric). The depth axis is read off
+  `ps`'s own `ConstantSpace` factor (walled-horizontal channels keep
+  assembling). The dense channel engine holds the depth in the same
+  weight: `_bounded_measure` gives the constant `ps` leg **unit**
+  measure (no double-count) and J-weights the nodal per-node measure,
+  so stretched-z channel eigenpairs are Hermitian/M-orthonormal under
+  the *physical* product (hermiticity 1.8e-16, orthonormality
+  3.1e-15); a genuinely terrain-following column is refused by name in
+  `channel_eigenpairs` (per-column eigenproblems — replacing the
+  misleading Hermiticity-residual message).
 - **Differentiability closure campaign — the public differentiable run
   surface plus the last VJP seals** (2026-07-18, executing
   [`../plans/active/differentiability_plan.md`](../plans/active/differentiability_plan.md))
