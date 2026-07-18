@@ -1109,3 +1109,27 @@ Implementation record:
   [`open.md`](open.md). Record:
   [`../research/time_to_first_step.md`](../research/time_to_first_step.md)
   §1 + the bench repo README (Metrics).
+
+- **Performance guard — CLOSED: first checkpoint green** (2026-07-18,
+  completing the entry above; full first-day log in
+  [`../plans/active/perf_guard_plan.md`](../plans/active/perf_guard_plan.md)
+  §7) — the remaining criterion (one green, manually submitted
+  `step_guard.sbatch` run) is met by run 26346802→26347156's
+  measurements judged green: gpu1 exit 0 (39 ok, 1 faster), gpu4
+  exit 0 (40 ok). The day's four runs told the whole story: run 1
+  RED = **true positive** (tiny-nodal shift from the FV
+  storage-frame spelling; attributed + re-baselined by the owning
+  session), runs 3–4 RED = **false alarms from a per-process slow
+  mode** (~0.8 ms/chunk, every sample in the affected subprocess
+  uniformly high, a different random tiny case each run; proven
+  benign by a two-fresh-process probe reading baseline level and by
+  zero `src/` delta between runs 3 and 4). Fix (owner-ratified):
+  `compare` verdicts now also require an **absolute 1.2 ms/chunk
+  floor** (symmetric for faster/slower; suppressions annotated
+  `(floor)` in reports) — the floor is the harness's declared
+  resolution limit, large cases unaffected. The re-adjudicated run
+  even exposed one baseline entry recorded from a slow-mode process
+  (advective_nodal[32] −9.6% `(floor)`), motivating the optional
+  future upgrade noted in the plan: min-across-2–3-processes for
+  sub-16 ms cases. Guard cadence stands per ruling §5.5:
+  owner-batched checkpoints, never per-merge, agents never submit.
