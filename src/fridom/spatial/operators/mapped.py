@@ -43,6 +43,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, ClassVar, final
 
+import jax.numpy as jnp
+
 from fridom.spatial.errors import SpaceMismatchError
 from fridom.spatial.operators.base import (
     EigenbasisError,
@@ -63,6 +65,61 @@ if TYPE_CHECKING:  # pragma: no cover
         OperatorRegistry,
     )
     from fridom.spatial.spaces.tensor_product import SpaceLike
+
+
+def _sealed_metric_divide(num: FieldLike, den: FieldLike) -> FieldLike:
+    r"""VJP-sealed field divide ``num / den`` (metric ghost-ring 0/0).
+
+    Description
+    -----------
+    On a bounded (walled / immersed / polar-capped) **chart** axis a
+    derived metric denominator — ``sqrt_g`` in the reciprocal branch,
+    ``d<mapped>_d<base>`` in the coefficient branch — is an exact zero
+    in the never-valid storage padding (``store`` fills the ghost ring
+    with zeros; broadcast constant factors carry no such ring). The
+    forward quotient there is a masked ``0/0``, stripped before any
+    output; reverse-mode autodiff is not spared — the quotient VJP
+    (:math:`-\mathrm{num}/\mathrm{den}^2` at ``den == 0``) turns the
+    zero cotangent of a sealed ghost slot into ``0 * inf = NaN`` and
+    poisons every gradient with a data path through the divide (a
+    ``jax.grad`` w.r.t. an initial field on a lat-lon sphere shallow-
+    water model NaNs here — the same masked singularity the Sadourny PV
+    divide and the coriolis metric weights cure). The double-
+    ``jnp.where`` seals the reverse pass — ``safe`` never divides by
+    zero and the ``bad`` slots return the constant 0 — while staying
+    bitwise identical on every valid cell (``den != 0``), forward and
+    reverse. The real ``num / den`` is built only for its structure
+    (the joined space, halo validity, metadata, and broadcast
+    alignment); its singular quotient array is discarded for the
+    guarded storage, so the singular divide-VJP is never taped. Keying
+    ``bad`` on the denominator's own storage and broadcasting through
+    the double-``jnp.where`` mirrors the staggering
+    ``divide_by_codomain_measure`` seal — the same operator layer
+    (AGENTS.md differentiability policy). No storage-less escape hatch
+    is needed: ``MetricScaled.__call__`` returns the target's tracer
+    result before reaching here, so the divide never runs under the
+    halo trace.
+
+    Parameters
+    ----------
+    num : FieldLike
+        The numerator field.
+    den : FieldLike
+        The metric denominator field (exact-zero ghost padding).
+
+    Returns
+    -------
+    FieldLike
+        The sealed quotient on the divide's structure, finite (0) in
+        the never-valid padding.
+    """
+    quotient = num / den
+    bad = den.storage == 0.0
+    safe = jnp.where(bad, 1.0, den.storage)
+    guarded = jnp.where(bad, 0.0, num.storage / safe)
+    return type(quotient)(
+        quotient.grid, quotient.function_space, guarded,
+        quotient.metadata, halo_valid=quotient.halo_valid)
 
 
 @final
@@ -215,22 +272,20 @@ class MetricScaled(Operator):
             return f.grid.metric(out.function_space, name,
                                  params=self._params)
 
-        # These reciprocal divides (H4/H5, plan §4) are a masked
-        # singularity: on a bounded (walled/immersed) axis the metric
-        # denominator ``sqrt_g`` is an exact zero in the never-valid
-        # padding, so the reverse VJP (``-num/den**2`` at ``den == 0``)
-        # is ``0 * inf = NaN``. The exposure condition IS reachable — a
-        # ``jax.grad`` w.r.t. an initial-condition field on a walled
-        # chart model (e.g. shallow water on the lat-lon sphere) NaNs
-        # here. The seal is the same double-``jnp.where`` as the coriolis
-        # metric divides (``model/modules/coriolis._safe_metric_divide``)
-        # but is left off pending the owner cost decision (this divide is
-        # in the every-step pressure solve; guard §4 H4/H5 / owner D4).
+        # The reciprocal divides are a masked singularity sealed by
+        # ``_sealed_metric_divide`` (chart bounded-axis ghost ring;
+        # differentiability plan §4, closed): the metric denominator's
+        # exact-0 storage padding NaNs the reverse VJP of a ``jax.grad``
+        # through a walled/sphere chart model, so the double-``jnp.where``
+        # keeps every valid cell bitwise identical while sealing the
+        # padding. This divide is in the every-step mapped pressure /
+        # metric-divergence path, so keep the seal cheap.
         if self._numerator is None:
-            return out / metric(self._denominator)
+            return _sealed_metric_divide(out, metric(self._denominator))
         coeff = metric(self._numerator)
         if self._denominator is not None:
-            coeff = coeff / metric(self._denominator)
+            coeff = _sealed_metric_divide(
+                coeff, metric(self._denominator))
         return out * coeff
 
 
