@@ -112,6 +112,58 @@ _U_HINT = ("velocities are declared by a dynamical-core module, "
            "e.g. nh.DynamicalCore or sw.DynamicalCore")
 
 
+def _safe_metric_divide(
+    num: ScalarField, den: ScalarField,
+) -> ScalarField:
+    r"""VJP-sealed metric divide ``num / den`` (masked ``0/0`` padding).
+
+    Description
+    -----------
+    The energy-metric weight (``linear_rotation``'s ``w.to(v)``) and the
+    chart metric weights (``chart_rotation``'s :math:`\sqrt g\,g_{ii}`)
+    are an exact zero in the never-valid storage padding (and, for the
+    velocity weight, the immersed dry cells): the outermost ring is
+    stripped before any output, so the forward ``0/0`` there is
+    harmless. Reverse-mode autodiff is not — the quotient VJP
+    (:math:`-\mathrm{num}/\mathrm{den}^2` with ``den == 0``) turns the
+    zero cotangent of a sealed cell into ``0 * inf = NaN`` and poisons
+    every gradient with a data path through the rotation, the same
+    masked singularity the Sadourny PV divide cures. Replacing the
+    exact-zero denominators by 1 keeps the result finite there; valid
+    cells (``den != 0``) divide by the true weight and are bitwise
+    unchanged, forward and reverse (the ``bad`` mask covers only the
+    padding). The same seal as ``advection._safe_ratio`` and the mapped
+    pressure operator's ``_divide_by_jacobian`` (AGENTS.md diff policy).
+
+    Parameters
+    ----------
+    num : ScalarField
+        The flux numerator.
+    den : ScalarField
+        The energy / chart metric weight denominator.
+
+    Returns
+    -------
+    ScalarField
+        The ratio on the divide's structure, finite (0) in the
+        never-valid padding.
+    """
+    if (getattr(num, "storage", None) is None
+            or getattr(den, "storage", None) is None):
+        # halo-trace stand-in (no data): the plain quotient flows the
+        # space and ghost demand; the VJP seal is a runtime concern,
+        # absent here (the metric-blind f-plane/beta-plane rotation is
+        # halo-traced, so this branch fires under the halo accounting).
+        return num / den
+    bad = den.storage == 0.0
+    safe = jnp.where(bad, 1.0, den.storage)
+    ratio = jnp.where(bad, 0.0, num.storage / safe)
+    # the field divide fixes the result's structure (space, merged halo
+    # validity); its raw quotient data is discarded for the guarded
+    # ratio, so the singular divide-VJP is never built.
+    return (num / den).with_storage(ratio)
+
+
 def linear_rotation(
     state: object,
     *,
@@ -180,9 +232,10 @@ def linear_rotation(
             "v": -((f_u * u).to(v)),
         }
     w = state[metric_weight]
+    flux = (w.to(u) * f_u * u).to(v)
     return {
         "u": f_u * v.to(u),
-        "v": -((w.to(u) * f_u * u).to(v)) / w.to(v),
+        "v": -_safe_metric_divide(flux, w.to(v)),
     }
 
 
@@ -240,8 +293,8 @@ def chart_rotation(
         w_1 = w_1 * w.to(u)
         w_2 = w_2 * w.to(v)
     return {
-        "u": flux_weight * v.to(u) / w_1,
-        "v": -((flux_weight * u).to(v)) / w_2,
+        "u": _safe_metric_divide(flux_weight * v.to(u), w_1),
+        "v": -_safe_metric_divide((flux_weight * u).to(v), w_2),
     }
 
 
