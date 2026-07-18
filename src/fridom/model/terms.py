@@ -117,6 +117,20 @@ class TendencyTerm:
         state-independent forcing is *not* linear. Consumers:
         ``fr.terms.linear``, ``fr.linearize``, the IMEX partition
         sanity. Default: ``False``.
+    linear_params : tuple[str, ...]
+        Declared parameter names the term's *linear operator* depends
+        on (TDF-D4): the honesty seam for a frozen-``L`` (exponential)
+        stepper. ``Module.time_dependent_linear_parameters`` resolves
+        each to the module's own leaf and reports it when the leaf is a
+        ``TimeDependent`` curve. Annotating a name that resolves to a
+        plain constant is free (the guard only fires on actual time
+        dependence), so a term lists every *potentially* time-dependent
+        parameter dependency. Default: ``()``.
+    linear_fields : tuple[str, ...]
+        Declared field names the term's linear operator depends on
+        (TDF-D4): resolved to the owning module's ``FieldDeclaration``
+        and reported when it carries the ``time_dependent`` marker
+        (a field-carried time dependence in ``L``). Default: ``()``.
 
     Raises
     ------
@@ -137,6 +151,8 @@ class TendencyTerm:
     transports: tuple[str, ...] = ()
     implicit: ImplicitOperator | None = None
     linear: bool = False
+    linear_params: tuple[str, ...] = ()
+    linear_fields: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         """Normalize name tuples and check local record validity."""
@@ -165,6 +181,11 @@ class TendencyTerm:
         if self.advances is not None:
             object.__setattr__(self, "advances", tuple(self.advances))
         object.__setattr__(self, "transports", tuple(self.transports))
+        object.__setattr__(
+            self, "linear_params",
+            tuple(str(name) for name in self.linear_params))
+        object.__setattr__(
+            self, "linear_fields", tuple(self.linear_fields))
 
     def __repr__(self) -> str:
         """Return a compact record repr (assembly logs terms)."""
@@ -180,6 +201,10 @@ class TendencyTerm:
             parts.append(f"implicit={type(self.implicit).__name__}")
         if self.linear:
             parts.append("linear=True")
+        if self.linear_params:
+            parts.append(f"linear_params={self.linear_params!r}")
+        if self.linear_fields:
+            parts.append(f"linear_fields={self.linear_fields!r}")
         return f"TendencyTerm({', '.join(parts)})"
 
 
@@ -195,6 +220,8 @@ def term(
     transports: Iterable[str] = (),
     implicit: ImplicitOperator | None = None,
     linear: bool = False,
+    linear_params: Iterable[str] = (),
+    linear_fields: Iterable[str] = (),
 ) -> Callable:
     """
     Stamp a module method as a ``TendencyTerm`` (``@fr.term``).
@@ -233,6 +260,13 @@ def term(
         Implicit-operator slot (default: None).
     linear : bool
         Strict linear-in-state tag (default: False).
+    linear_params : Iterable[str]
+        Parameter names the linear operator depends on, resolved by
+        ``Module.time_dependent_linear_parameters`` for the frozen-``L``
+        guard (TDF-D4); free to over-list (default: ()).
+    linear_fields : Iterable[str]
+        Field names the linear operator depends on, resolved against
+        the ``time_dependent`` declaration marker (default: ()).
 
     Returns
     -------
@@ -249,6 +283,8 @@ def term(
             transports=transports,
             implicit=implicit,
             linear=linear,
+            linear_params=tuple(linear_params),
+            linear_fields=tuple(linear_fields),
         )
         setattr(func, TERM_ATTRIBUTE, declaration)
         return func
