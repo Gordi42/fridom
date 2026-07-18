@@ -456,7 +456,11 @@ PCG build sites and mirrored on `nh.Model`. Default
 `multigrid_levels` re-pinned to **5** after the measurement campaign
 (`e047c496`): depth 3 gives 18 iterations at 64³ on the steep case —
 over the GB-2 gate — while 5 is a graceful maximum (4-cell floor)
-and flat at 13.*
+and flat at 13. Superseded 2026-07-18 (merge `b8b165f1`): the fixed
+pin caps depth on large grids and breaks h-independence from 256³ up
+([`../../research/multigrid_depth_scaling.md`](../../research/multigrid_depth_scaling.md));
+the default is now `None` = floor-limited depth, an int stays an
+explicit cap.*
 
 ### B5 — gates
 
@@ -517,8 +521,11 @@ collectives above the replication threshold.
   h-independence (10 → 27 iterations at 512³); at floor-scaled
   depth iterations are flat 10 at every size and multigrid beats
   spectral in-model 1.23× at 256³ (L=6) / 1.22× at 512³ (L=7) —
-  GB-2 (≥1.5×) still unmet, floor-depth default decision open
-  (roadmap). Immersed remains multigrid's win case (projection;
+  GB-2 (≥1.5×) still unmet. Floor-limited depth is the DEFAULT
+  since merge `b8b165f1` (same day, owner-ratified:
+  `multigrid_levels: int | None = None`, None = coarsen to the
+  4-cell floor, int = explicit cap — supersedes the §B4 levels=5
+  pin). Immersed remains multigrid's win case (projection;
   not re-measured post-swap).*
 - *GB-3: genuine partials (order = 4, min_fraction = 0.1): 15
   iterations at 16³ / 18 at 32³ to 1e-10 — inside the 30 budget with

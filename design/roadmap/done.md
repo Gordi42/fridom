@@ -344,8 +344,14 @@ Implementation record:
   and the in-model GB-2 step **beats spectral 1.23× at 256³
   (237.8 vs 291.6 ms) and 1.22× at 512³ (1873.3 vs 2277.9 ms)**
   (physics equivalence 2–5e-11). GB-2 (≥1.5×) still unmet at every
-  measured size. Follow-up (floor-depth default, src change not
-  made): [`open.md`](open.md).
+  measured size. **Floor-limited depth shipped as the default the
+  same day** (owner-ratified; merge `b8b165f1`):
+  `multigrid_levels: int | None = None` on `nh.Model` /
+  `DynamicalCore` / both pressure solvers / `coarsen_levels` — None
+  (default) coarsens to the 4-cell horizontal floor, an int stays an
+  explicit cap; default-path 512³ in-model validation 2000.1 ms/step
+  (1.14× vs spectral; realized depth 8 — one borderline CG iteration
+  above the hand-capped L=7 row, physics 1.3e-10).
 - **Multigrid V-cycle kernel swap** (2026-07-18, merge `0ece46b1`) —
   `banded.tridiagonal_solve_along_axis` grew a host-static
   `method` knob with three interchangeable kernels: `"scan"` (the

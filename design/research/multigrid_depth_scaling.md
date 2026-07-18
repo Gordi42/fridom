@@ -111,17 +111,25 @@ remains unmet at <=512^3, so spectral remains an excellent default —
 but multigrid at proper depth is now the *faster* mapped-GPU option
 at production sizes, not a robustness-only fallback.
 
-## Consequence: the `multigrid_levels=5` default (owner decision)
+## Consequence: floor-limited depth is now the default (ratified)
 
 The hierarchy builder already floors every horizontal axis at four
 cells and stops there, so `multigrid_levels` only ever *caps* depth —
 and the cap is what broke h-independence. Floor depth is measured
 free (per-cycle cost unchanged, L=8 == L=7 == L=5 per iteration).
-Recommendation: default the model knob to floor-limited depth (e.g.
-`multigrid_levels=None` -> coarsen to the floor, int retained as an
-explicit cap), which restores flat iterations at every size with no
-cost. Src change deliberately **not** made in this investigation;
-needs the usual branch + tests if adopted.
+Owner ratified the change same day; shipped as merge `b8b165f1`
+(branch `perf/multigrid-floor-depth`): `multigrid_levels: int | None
+= None` on `nh.Model` / `DynamicalCore` / `MappedPressureSolver` /
+`ImmersedPressureSolver` / `coarsen_levels` — `None` (the default)
+coarsens to the floor, an int keeps the maximum-cap meaning.
+Default-path in-model validation at 512^3 (no knob passed; realized
+depth 8): 2000.1 ms/step — 1.14x vs spectral, one V-cycle iteration
+(127 ms) above the hand-capped L=7 row. The depth-8 cycle is a
+slightly different preconditioner, and on the (smoother) in-model
+RHS its relative residual crosses 1e-8 one CG iteration later than
+depth 7's; the standalone random-RHS counts are identical (10) at
+both depths, so this is a borderline threshold crossing, not a cost
+or robustness regression. Physics matches spectral to 1.3e-10.
 
 ## Anomalies
 

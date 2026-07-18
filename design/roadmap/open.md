@@ -480,20 +480,6 @@ V-cycle kernel swap it called for shipped 2026-07-18 (merge
   then a multi-device run that sees them should set
   `multigrid_tridiagonal_method="pcr"` (pure jax, partitions
   cleanly). Caveat documented in `banded.py`.
-- **Multigrid depth default — adopt floor-limited depth.** The
-  size-scaling investigation
-  ([`../research/multigrid_depth_scaling.md`](../research/multigrid_depth_scaling.md),
-  2026-07-18) showed the `multigrid_levels=5` default *caps* the
-  hierarchy and breaks h-independence from 256³ up (iterations
-  10 → 27 at 512³: the coarsest level outgrows its 8 sweeps); at
-  floor-scaled depth (L=6/L=7) multigrid beats spectral in-model
-  1.23× at 256³ / 1.22× at 512³ (GB-2 ≥1.5× still unmet). Proposed
-  src change (not made): default `multigrid_levels` to floor-limited
-  depth (`None` → coarsen to the 4-cell horizontal floor, an int
-  stays as an explicit cap) — measured free (per-cycle cost and
-  memory unchanged L=5 → L=8 at 512³). Until adopted, mapped
-  multigrid runs at n ≥ 256³ should pass the depth by hand (6 at
-  256³, 7 at 512³).
 - **Residual mapped-GPU levers, unclaimed** — fewer coarse sweeps;
   cheaper mapped operator applies (the finest level dominates the
   post-swap V-cycle: one sweep = 15.7 ms cuSPARSE solve + 12.0 ms
