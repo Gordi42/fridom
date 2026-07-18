@@ -699,12 +699,13 @@ class ScalarField:
         the result broadcasts back via ``ConstantSpace`` (section 3.3),
         so ``f - f.integrate("x")`` stays in the strict algebra.
 
-        Single-base ``maps=`` column base axes reduce **first**
-        (:func:`_bases_first`, Hazard 1): the column Jacobian varies
-        over the map's parameter axes, so a base axis reduced after its
+        Jacobian-carrying axes reduce **first** (:func:`_bases_first`
+        over :func:`_jacobian_axes`): required for ``maps=`` column
+        base axes (Hazard 1 — the column Jacobian varies over the
+        map's parameter axes, so a base axis reduced after its
         parameters would evaluate the metric on a collapsed axis and
-        raise. Flat and embedding-chart grids keep the plain space
-        order.
+        raise), harmless for embedding-chart coordinates. Flat grids
+        keep the plain space order.
 
         Parameters
         ----------
@@ -718,7 +719,7 @@ class ScalarField:
         """
         space = self._function_space.bare
         selected = _bases_first(_reduction_names(space, names),
-                                _jacobian_base_axes(self._grid))
+                                _jacobian_axes(self._grid))
         result = self
         for name in selected:
             factor = space.factor(name)
@@ -744,13 +745,16 @@ class ScalarField:
         Jacobian rows (or when no selected name is a Jacobian-carrying
         base axis) the divisor is the product of the per-name
         ``grid.measure`` sums — the plain computational average, bitwise
-        the historical path. When a selected name **is** a ``maps=``
-        column base axis the divisor becomes the seeded (physical)
-        volume ``\int J\,\mathrm{d}V`` of the reduced factors — the same
-        ``ones`` field integrated through the Jacobian-weighted rows, so
-        a partial ``mean("z")`` on a terrain grid divides by the
-        per-column depth ``H(x, y)`` (a field, not a scalar) and the
-        full mean by the total physical volume. The division is
+        the historical path. When a selected name carries a Jacobian
+        weight (a ``maps=`` column base axis, an embedding-chart
+        coordinate — :func:`_jacobian_axes`) the divisor becomes the
+        seeded (physical) volume ``\int J\,\mathrm{d}V`` of the reduced
+        factors — the same ``ones`` field integrated through the
+        Jacobian-weighted rows, so a partial ``mean("z")`` on a terrain
+        grid divides by the per-column depth ``H(x, y)`` (a field, not
+        a scalar), the full mean by the total physical volume, and a
+        chart mean by the ``sqrt_g`` area — numerator and divisor
+        always share one measure. The division is
         double-``where`` guarded (differentiability policy): padding /
         halo columns integrate ``J = 0``, and a bare ``1 / 0`` would
         seal the value yet leave the VJP singular.
@@ -767,9 +771,9 @@ class ScalarField:
         """
         space = self._function_space.bare
         selected = _reduction_names(space, names)
-        base_axes = _jacobian_base_axes(self._grid)
+        jac_axes = _jacobian_axes(self._grid)
         integral = self.integrate(*selected)
-        if any(name in base_axes for name in selected):
+        if any(name in jac_axes for name in selected):
             # physical volume divisor (a field for a partial mean)
             ones = self.with_data(jnp.ones_like(self.data))
             volume = ones.integrate(*selected)
@@ -1078,35 +1082,42 @@ def _reduction_names(
     return tuple(dict.fromkeys(names))
 
 
-def _jacobian_base_axes(grid: Grid) -> tuple[str, ...]:
+def _jacobian_axes(grid: Grid) -> tuple[str, ...]:
     """
-    Return the single-base column axes carrying a reduction Jacobian.
+    Return the axes whose seeded reduction carries a Jacobian weight.
 
     Description
     -----------
-    The base axes a seeded ``maps=`` reduction weights by the column
-    Jacobian ``d<mapped>_d<base>`` — the axes that must reduce **first**
-    (rules section 3.13, Hazard 1): the column Jacobian varies over the
-    map's parameter axes, so reducing a parameter axis to
-    ``ConstantSpace`` before the base axis leaves the metric
-    unresolvable. An embedding ``chart=`` mapping carries no single-base
-    column (its ``sqrt_g`` enters on the first live chart reduction,
-    order-independent), and a chartless flat grid none at all, so both
-    return the empty tuple and the reduction order is untouched.
+    The names the seeded rows weight by the mapping's volume element
+    (rules section 3.13): an embedding ``chart=`` mapping's chart
+    coordinates (the ``sqrt_g`` element) or an analytic ``maps=``
+    mapping's single-base column base axes (each column's
+    ``d<mapped>_d<base>``). ``integrate`` fronts these in the
+    reduction order — required for ``maps=`` columns (Hazard 1: the
+    column Jacobian varies over the map's parameter axes, so a base
+    axis reduced after its parameters would evaluate the metric on a
+    collapsed axis and raise) and harmless for charts (``sqrt_g``
+    enters on the first live chart reduction, order-independent) —
+    and ``mean`` keys its physical-volume divisor on them. A flat
+    grid returns the empty tuple (the untouched fast path).
 
     Parameters
     ----------
     grid : Grid
-        The grid whose mapping supplies the columns.
+        The grid whose mapping supplies the volume element.
 
     Returns
     -------
     tuple[str, ...]
-        The single-base column base axes (order-stable), or empty.
+        The Jacobian-carrying reduction names (order-stable), or
+        empty.
     """
     mapping = grid.mapping
-    if mapping is None or mapping.chart_coords is not None:
+    if mapping is None:
         return ()
+    chart = mapping.chart_coords
+    if chart is not None:
+        return chart
     return tuple(dict.fromkeys(
         base for _mapped, base in mapping.column_corrections.values()))
 
@@ -1119,18 +1130,20 @@ def _bases_first(
 
     Description
     -----------
-    The Hazard-1 reordering (:func:`_jacobian_base_axes`): the column
+    The Hazard-1 reordering (:func:`_jacobian_axes`): ``maps=`` column
     base axes reduce before their parameter axes so the column Jacobian
-    is evaluated while every parameter axis is still alive. Relative
-    order is preserved within each group; with no base axes selected the
-    result is ``selected`` unchanged (the flat / chart fast path).
+    is evaluated while every parameter axis is still alive (fronting
+    embedding-chart coordinates alongside is harmless — ``sqrt_g`` is
+    order-independent). Relative order is preserved within each group;
+    with no Jacobian axes selected the result is ``selected`` unchanged
+    (the flat fast path).
 
     Parameters
     ----------
     selected : tuple[str, ...]
         The validated reduction names in space order.
     base_axes : tuple[str, ...]
-        The grid's Jacobian base axes.
+        The grid's Jacobian-carrying reduction names.
 
     Returns
     -------

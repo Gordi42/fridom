@@ -1134,6 +1134,33 @@ def test_terrain_full_mean_is_the_physical_volume_mean():
     assert abs(mean - comp) > 1e-3
 
 
+def test_chart_mean_divides_by_the_physical_area():
+    # the embedding-chart twin of the terrain mean: numerator and
+    # divisor share the sqrt_g measure (mapping-form unification)
+    mu = IntervalMesh(8, (0.0, 2.0 * jnp.pi), name="u")
+    mv = IntervalMesh(8, (0.0, 2.0 * jnp.pi), name="v")
+    mapping = CoordinateMapping(chart={"X": lambda u, v: (
+        (2.0 + 0.5 * jnp.cos(v)) * jnp.cos(u),
+        (2.0 + 0.5 * jnp.cos(v)) * jnp.sin(u),
+        0.5 * jnp.sin(v))})
+    grid = Grid((mu, mv), mapping=mapping)
+    space = grid.factors[0].center * grid.factors[1].center
+    f = grid.create_field(
+        space, init=lambda u, v: 1.0 + jnp.cos(v) + 0.0 * u)
+    sqrt_g = grid.metric(space.bare, "sqrt_g")
+    expected = float(_raw(f * sqrt_g).item()) / float(
+        _raw(sqrt_g).item())
+    assert float(f.mean().item()) == pytest.approx(expected, rel=1e-12)
+    # a constant's mean is the constant under any measure
+    c = grid.create_field(space, data=jnp.full(space.shape, 3.0))
+    assert float(c.mean().item()) == pytest.approx(3.0, rel=1e-12)
+    # genuinely different from the computational average: sqrt_g's
+    # cos(v) weighting does not cancel on the torus
+    ones = grid.create_field(space, data=jnp.ones(space.shape))
+    comp = float(_raw(f).item()) / float(_raw(ones).item())
+    assert abs(float(f.mean().item()) - comp) > 1e-3
+
+
 def test_flat_mean_is_bitwise_the_computational_average(grid):
     # off a mapped grid the mean keeps the plain computational divisor,
     # bitwise the historical path
