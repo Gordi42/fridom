@@ -441,6 +441,21 @@ algebra. There is no unweighted `sum` operator (`f.data.sum()` is the
 escape hatch). The cross-shard sum is declared through
 `collective=True` (informational, no layout constraint).
 
+**Physical by default on a mapped grid (§3.13).** The optional
+`jacobian=` family makes the reduction contract additionally against
+the metric Jacobian: the seeded `("integrate", …)` rows carry it on
+**any** mapping deriving a volume element — an embedding `chart=`
+(`sqrt_g`) or an analytic `maps=` column (`d<mapped>_d<base>`,
+`grid._reduction_jacobian`) — so `f.integrate()` / `f.mean()` are the
+physical reduction on both forms alike. Constructing `Integral()`
+directly (`jacobian=None`) is the **computational escape hatch** that
+implementation-layer code (a CG solver's SPD inner product) uses to
+stay in the plain measure. Because a `maps=` column Jacobian varies
+over the map's parameter axes, the seeded `f.integrate()` verb reduces
+a column's single base axis **first** (else the metric evaluates on a
+collapsed axis and a taught error fires); flat and embedding-`chart=`
+grids keep the plain space order.
+
 Scope of the default rows: **nodal and average factors only**.
 Coefficient factors deliberately have no `("integrate", ...)` default
 — resolving one raises `DispatchError` with the guidance "transform
