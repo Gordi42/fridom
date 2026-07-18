@@ -956,6 +956,31 @@ Implementation record:
   `tests/model/closures/test_diffusion_fv.py` (24 tests); gates:
   closures suite 150 green, nonhydro2 596 green, ruff clean.
 
+- **FV-vs-nodal step-time gap — closed** (2026-07-18, branch
+  `perf/fv-walled-storage-frame`; record
+  [`../research/fv_nodal_step_gap.md`](../research/fv_nodal_step_gap.md)).
+  Re-measure first corrected the folklore: the gap was **4-GPU-only**
+  (1-GPU FV/nodal parity everywhere; the T7 "+1…+10% gpu1 walled" was
+  FV-vs-old-FD-baseline) — walled n=256 +3.9%, mapped n=128 +8..9%,
+  n=256 +16..18%, all in the CG-iteration-independent part.
+  HLO-attributed and causally confirmed (monkeypatch A/B): the two FV
+  walled special branches' true-frame excursion
+  (`f.data` → `jnp.pad` → `store`) made the SPMD partitioner
+  materialize a transposed `{2,1,0}` layout and reroute the
+  periodic-axis halo collective-permutes through it (58 vs 26
+  transposed collectives; claim-loss/refill hypothesis refuted —
+  collective counts equal). Fix: storage-frame windowed spelling
+  (wall-zero ghost writes + the ordinary `apply_fv_staggered` window,
+  sealed measure divide), gated `wall_slots_addressable`, true-frame
+  kept as the distributed-axis fallback. **4-GPU FV/nodal after:
+  walled 1.003/0.995, mapped 1.002–1.008** (from 1.04–1.18); flat +
+  1-GPU unchanged; physics bitwise both device counts; step-guard
+  green; ratchet baseline re-recorded (counts up, wall-clock down).
+  Residuals in the record §4: 1-GPU mapped-256 +1.6% (sealed-divide
+  cost; `custom_jvp` is the lever if ever needed), distributed walled
+  axis keeps the slow spelling, stale gpu1 mapped baseline replaced
+  in the follow-up re-record.
+
 - **Cold-compile HLO volume — closed as a measured negative**
   (2026-07-18) — the HLO-volume remainder of the 2026-07-16
   time-to-first-step entry above. Four-way campaign (census refresh,

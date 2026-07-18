@@ -314,6 +314,105 @@ def apply_fv_staggered(
 
 
 # ================================================================
+#  Storage-frame wall imposition (the two FV walled special branches)
+# ================================================================
+def wall_slots_addressable(f: FieldLike, axis: str) -> bool:
+    r"""
+    Whether ``axis``'s two wall ghost slots are locally addressable.
+
+    Description
+    -----------
+    The gate of the storage-frame windowed spelling of the two FV
+    walled special branches — ``FluxDifference``'s homogeneous
+    ``Inner`` arm and :meth:`LinearReconstruction._reconstruct_walled_face`
+    (the ``w.to(b)`` seam). Both impose the zero wall value by writing
+    into two wall-adjacent ghost slots of the operand storage at
+    **static** indices (:func:`wall_zeroed_operand`), so the applied
+    axis must be device-local (the physical edges sit on one shard)
+    and carry at least one negotiated ghost layer (the slots exist).
+    Both hold for every benchmarked walled/mapped geometry — the
+    walled axis is local after shard-axis selection, and the two-point
+    stencils negotiate halo >= 1 — so the storage-frame spelling is
+    the rule and the true-frame fallback the exception (a distributed
+    walled axis or an un-negotiated halo).
+
+    Parameters
+    ----------
+    f : FieldLike
+        The operand field.
+    axis : str
+        The applied (bounded) coordinate axis.
+
+    Returns
+    -------
+    bool
+        True iff ``axis`` is undistributed and its negotiated halo
+        width is >= 1.
+    """
+    layout = f.function_space.layout
+    if layout is not None and not layout.is_local(axis):
+        return False
+    return dict(f.grid.decomposition.halo.widths).get(axis, 0) >= 1
+
+
+def _wall_plane_index(
+    axis_index: int, slot: int, ndim: int,
+) -> tuple:
+    """Index tuple selecting the ``slot`` hyperplane along an axis."""
+    index: list[object] = [slice(None)] * ndim
+    index[axis_index] = slot
+    return tuple(index)
+
+
+def wall_zeroed_operand(
+    f: FieldLike, axis: str, n_faces: int,
+) -> FieldLike:
+    r"""
+    Copy ``f`` with the two ``axis`` wall ghost slots set to exact zero.
+
+    Description
+    -----------
+    The storage-frame imposition of the homogeneous no-normal-flow
+    wall value shared by the two FV walled special branches. The
+    interior-face (``Inner``) column stores its ``n_faces`` true DOFs
+    at storage slots ``[width, width + n_faces)``; the two wall faces
+    are the ghost slots just outside — ``width - 1`` (left wall) and
+    ``width + n_faces`` (right wall). Writing an exact 0 there turns
+    the ``Inner`` storage into the ``Outer``-like ``n + 1``-face
+    column the ordinary windowed kernel differences/averages, with the
+    zero wall flux imposed exactly and never read from the BC-free
+    extrapolation ghost. Static-index plane writes, so the caller must
+    have gated on :func:`wall_slots_addressable` (``axis`` local,
+    halo >= 1).
+
+    Parameters
+    ----------
+    f : FieldLike
+        The operand field on a bounded ``Inner`` factor along ``axis``.
+    axis : str
+        The applied (bounded) coordinate axis.
+    n_faces : int
+        The interior-face count (the ``Inner`` factor's true shape).
+
+    Returns
+    -------
+    FieldLike
+        A field like ``f`` with the two wall ghost slots zeroed
+        (space, metadata, and halo-validity claim carried over).
+    """
+    bare = f.function_space.bare
+    axis_index = bare.names.index(axis)
+    width = f.grid.decomposition.halo[axis]
+    storage = f._data  # noqa: SLF001 — documented storage seam
+    ndim = storage.ndim
+    left = _wall_plane_index(axis_index, width - 1, ndim)
+    right = _wall_plane_index(axis_index, width + n_faces, ndim)
+    storage = storage.at[left].set(0.0).at[right].set(0.0)
+    return type(f)(f.grid, f.function_space, storage, f.metadata,
+                   halo_valid=f.halo_valid)
+
+
+# ================================================================
 #  One-sided wall reconstruction (the CellAvg -> Outer variant, R2)
 # ================================================================
 def _geometric_value_weights(
@@ -892,14 +991,99 @@ class LinearReconstruction(SeparableOperator):
         Description
         -----------
         The homogeneous Dirichlet tag claims the wall value 0, so the
-        ``n - 1`` interior faces are padded with an exact zero at each
-        wall (the ``n + 1`` Outer-like face column) and the two-point
-        Gauss mean lands the ``n`` cell averages. Interior cells read
-        only interior faces, so they are **bitwise** the BC-free
-        two-point mean; the two wall cells use the claimed zero. This
-        mirrors ``FluxDifference``'s Inner branch — the exact-zero wall
-        value is imposed here, never read from the BC-free ghost
-        extrapolation.
+        ``n - 1`` interior faces close the two-point Gauss mean onto
+        the ``n`` cell averages with an exact zero imposed at each
+        wall (never read from the BC-free ghost extrapolation).
+        Interior cells read only interior faces, so they are
+        **bitwise** the BC-free two-point mean; the two wall cells use
+        the claimed zero. This mirrors ``FluxDifference``'s Inner arm.
+
+        Two byte-for-byte equivalent spellings, gated by
+        :func:`wall_slots_addressable`:
+
+        - the storage-frame windowed fast path
+          (:meth:`_reconstruct_walled_face_windowed`): impose the zero
+          wall value in the storage ghost slots, then run the ordinary
+          ``apply_fv_staggered`` window (like nodal). It keeps the
+          operand's halo-validity claim on the periodic axes;
+        - the true-frame fallback
+          (:meth:`_reconstruct_walled_face_true_frame`): unpad,
+          ``jnp.pad`` the zero walls, interpolate, and ``store``. It
+          works on any layout but drops every axis's halo claim.
+
+        The fast path exists because the true-frame excursion is what
+        the multi-device step pays for: the SPMD partitioner
+        materializes the unpad -> pad -> store tensors in a transposed
+        layout and reroutes the periodic-axis halo collective-permutes
+        through it, opening the FV-vs-nodal step gap the storage-frame
+        spelling closes (``design/research/fv_nodal_step_gap.md``).
+
+        Parameters
+        ----------
+        f : FieldLike
+            The operand field on a Dirichlet-tagged ``Inner`` factor.
+        axis : str
+            The resolved (bounded) coordinate axis.
+
+        Returns
+        -------
+        FieldLike
+            The reconstructed field on the bare BC-free ``CellAvg``.
+        """
+        if wall_slots_addressable(f, axis):
+            return self._reconstruct_walled_face_windowed(f, axis)
+        return self._reconstruct_walled_face_true_frame(f, axis)
+
+    def _reconstruct_walled_face_windowed(
+        self, f: FieldLike, axis: str,
+    ) -> FieldLike:
+        """
+        Storage-frame windowed ``Inner(DIRICHLET) -> CellAvg`` mean.
+
+        Description
+        -----------
+        Impose the zero wall value in the two wall ghost slots of the
+        operand storage (:func:`wall_zeroed_operand`), then run the
+        ordinary :func:`apply_fv_staggered` window (``m0 = 1``,
+        reach 1 — the alignment calculus already handles
+        ``Inner -> CellAvg``). Bitwise the true-frame spelling on every
+        output cell, but the result keeps the operand's periodic-axis
+        halo-validity claims (only the applied bounded axis is
+        consumed), like the nodal staggering path — the reason it
+        exists (see :meth:`_reconstruct_walled_face`).
+
+        Parameters
+        ----------
+        f : FieldLike
+            The operand field on a Dirichlet-tagged ``Inner`` factor
+            with ``axis`` device-local and halo >= 1.
+        axis : str
+            The resolved (bounded) coordinate axis.
+
+        Returns
+        -------
+        FieldLike
+            The reconstructed field on the bare BC-free ``CellAvg``.
+        """
+        factor = f.function_space.bare.factor(axis)
+        operand = wall_zeroed_operand(f, axis, factor.shape[0])
+        return apply_fv_staggered(self, operand, axis, _RECON_SIZE,
+                                  linear_interp, metadata=f.metadata)
+
+    def _reconstruct_walled_face_true_frame(
+        self, f: FieldLike, axis: str,
+    ) -> FieldLike:
+        """
+        True-frame ``Inner(DIRICHLET) -> CellAvg`` mean (any layout).
+
+        Description
+        -----------
+        The layout-agnostic fallback of :meth:`_reconstruct_walled_face`
+        (a distributed walled axis or an un-negotiated halo): unpad the
+        ``n - 1`` interior faces, ``jnp.pad`` an exact zero at each wall
+        (the ``n + 1`` Outer-like column), interpolate the ``n`` cell
+        means, and ``store``. Correct on any layout, but the
+        ``store``-built result claims zero halo validity on every axis.
 
         Parameters
         ----------

@@ -174,27 +174,6 @@ the scoping §10–§13). Open:
     wrap-up): `test_mapped_pressure_stretched.py` +
     `test_stretched_mesh.py` green on a real A100 (CUDA, fusion
     workaround set). Open remainder: the multi-GPU leg.
-- **Close the FV-vs-nodal step-time gap where it exists.** FV is at
-  parity with nodal on flat periodic grids (0.997–1.003×, bitwise-
-  identical output) but slower on walled rows (+1…+10% on 1 GPU,
-  largest at small sizes) and on the 4-GPU mapped case (~16% vs ~1%
-  on 1 GPU) — attributed at the T7 re-record to lowering/fusion, not
-  arithmetic: the `flux_diff @ reconstruct` composition
-  (`spatial/operators/flux_diff.py`) fuses down to the nodal kernels
-  only where the stencil pattern is uniform; boundary-special rows
-  (one-sided reconstruction, `Outer`/`Inner` shapes, zero-padded wall
-  fluxes) and the GSPMD partitioner break that. Investigate whether
-  the gap can be engineered away: dump/compare HLO for a walled FV
-  row vs its nodal sibling to identify the unfused extra passes; try
-  a pattern-uniform edge formulation (fold the one-sided rows into a
-  single padded stencil pass instead of edge-correction ops); check
-  the 4-GPU mapped partitioner interaction separately. Guard: the
-  nodal sibling cases in `benchmarks/baselines/step-*.json` are the
-  measuring stick (warmed interleaved probes per the perf
-  methodology); success = walled/mapped FV within noise of nodal.
-  Compiler-artifact class — deltas may shift with jax upgrades, so
-  re-measure the gap before investing.
-
 [`../plans/active/fv_nonhydro_scoping.md`](../plans/active/fv_nonhydro_scoping.md)
 
 ## Immersed partial cells — residuals
