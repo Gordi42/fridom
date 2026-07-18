@@ -626,3 +626,17 @@ def test_hydrostatic_terrain_barotropic_energy_is_skew():
     metric = EnergyMetric.from_model(
         model, require_constant_coriolis=False, allow_field_weights=True)
     assert abs(_barotropic_bilinear_skew(metric, model)) < 1e-12
+
+
+def test_hydrostatic_ps_weight_on_a_walled_channel():
+    # a walled horizontal axis adds a second bounded axis; the depth
+    # axis is read off ps's own ConstantSpace factor, not "the bounded
+    # axis", so the channel still assembles with the H/c^2 weight
+    grid = Grid((
+        IntervalMesh(4, (0.0, 1.0), periodic=True, name="x"),
+        IntervalMesh(4, (0.0, 1.0), periodic=False, name="y"),
+        IntervalMesh(6, (0.0, 2.0), periodic=False, name="z")),
+        device_ids=(0,))
+    model = _hydro_model(grid, csqr=4.0)
+    metric = EnergyMetric.from_model(model, require_constant_coriolis=False)
+    assert metric.weights["ps"] == pytest.approx(2.0 / 4.0)

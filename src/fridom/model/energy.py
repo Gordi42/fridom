@@ -457,7 +457,7 @@ def _ps_depth_weight(
     same rejection the ``csqr(y)`` / ``N^2(y)`` profile weights carry.
     """
     grid = model.grid
-    vertical = _vertical_axis(grid)
+    vertical = _vertical_axis(model)
     column = _vertical_column(grid, vertical)
     if column is None:
         return _vertical_extent(grid, vertical) / csqr
@@ -477,17 +477,34 @@ def _ps_depth_weight(
     return depth * (1.0 / csqr)
 
 
-def _vertical_axis(grid: object) -> str:
-    """Return the single bounded (non-periodic) axis — the vertical."""
+def _vertical_axis(model: Model) -> str:
+    """Return the ``ps`` depth axis (its ``ConstantSpace`` factor).
+
+    Description
+    -----------
+    The vertical is the axis ``ps`` is constant along — read off the
+    barotropic ``ConstantSpace`` factor of its own function space, so
+    a grid with several bounded axes (a walled horizontal channel)
+    resolves correctly. Without a ``ps`` state field the single
+    bounded (non-periodic) axis is the fallback.
+    """
+    ps = _state_field(model, "ps")
+    if ps is not None:
+        constant = [
+            name for name in ps.function_space.bare.names
+            if getattr(ps.function_space.factor(name), "is_constant",
+                       False)]
+        if len(constant) == 1:
+            return constant[0]
     bounded = [
-        name for mesh in grid.factors
+        name for mesh in model.grid.factors
         if not getattr(mesh, "periodic", True)
         for name in mesh.names]
     if len(bounded) != 1:
         raise ValueError(
             "the hydrostatic energy metric needs exactly one bounded "
-            f"(vertical) axis for the ps depth weight; this grid "
-            f"bounds {bounded!r}")
+            "(vertical) axis for the ps depth weight when no "
+            f"z-constant 'ps' names it; this grid bounds {bounded!r}")
     return bounded[0]
 
 
