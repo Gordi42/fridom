@@ -36,6 +36,25 @@ The min-compile-time threshold
     sub-second construction compiles, which are exactly the ones this
     cache exists to serve.
 
+Multi-process launches (disabled by default)
+    Under a real multi-process launch (``srun -n N`` with
+    ``jax.distributed.initialize()`` before importing fridom) the default
+    cache is **not** enabled: ``configure()`` returns without touching
+    jax.config. XLA:GPU's shard autotuning (default-on for multi-process)
+    turns compilation into a cross-rank rendezvous, and a persistent
+    cache whose per-rank state diverges lets some ranks skip a compile
+    that others perform cold, so the rendezvous never completes and the
+    run deadlocks. Observed 2026-07-18 on Levante A100-80GB with jax
+    0.10.2: an ``srun -n 4`` run hung in the ``Model`` build (rank 0
+    reached its first step collective, ranks 1-3 hung inside build-time
+    compiles). Two independent fixes verified clean bitwise-correct runs:
+    disabling the cache (this new default), or keeping the cache and
+    adding ``--xla_gpu_shard_autotuning=false`` to ``XLA_FLAGS``.
+
+    The multi-process detection reads the distributed global state
+    directly and never initializes the backend (importing fridom must
+    not), so it is safe to run at import time.
+
 Environment knobs
     ``FRIDOM_DISABLE_COMPILE_CACHE=1``
         Disable the default entirely; ``configure()`` returns without
@@ -43,7 +62,10 @@ Environment knobs
     ``FRIDOM_JAX_CACHE_DIR``
         Override the cache directory. When unset the cache lives under
         ``$XDG_CACHE_HOME/fridom/jax`` (falling back to
-        ``~/.cache/fridom/jax``).
+        ``~/.cache/fridom/jax``). This override is honored even under a
+        multi-process launch (a deliberate user choice); pairing it with
+        a multi-process launch requires ``--xla_gpu_shard_autotuning=false``
+        in ``XLA_FLAGS`` to avoid the deadlock described above.
 
 ``configure()`` never clobbers an explicit configuration: if
 ``jax_compilation_cache_dir`` is already set — by the user, the test
@@ -66,13 +88,15 @@ def configure() -> None:
     -----------
     A no-op when ``FRIDOM_DISABLE_COMPILE_CACHE == "1"`` (returns
     before importing jax) or when a compilation cache directory is
-    already configured (never clobbers an explicit setting). Otherwise
-    points ``jax_compilation_cache_dir`` at the fridom cache location
-    (``FRIDOM_JAX_CACHE_DIR`` or the XDG default) and lowers the
-    persistent-cache thresholds to zero so sub-second compilations are
-    cached too. Under a real multi-process launch each rank writes to
-    its own subdirectory (jax's on-disk writes are not atomic). See the
-    module docstring for the full contract.
+    already configured (never clobbers an explicit setting). It is also
+    a no-op under a real multi-process launch unless
+    ``FRIDOM_JAX_CACHE_DIR`` is set — the persistent cache deadlocks the
+    XLA:GPU shard-autotuning compile rendezvous (see the module
+    docstring). Otherwise points ``jax_compilation_cache_dir`` at the
+    fridom cache location (``FRIDOM_JAX_CACHE_DIR`` or the XDG default)
+    and lowers the persistent-cache thresholds to zero so sub-second
+    compilations are cached too. See the module docstring for the full
+    contract.
     """
     if os.environ.get("FRIDOM_DISABLE_COMPILE_CACHE") == "1":
         return
@@ -83,10 +107,14 @@ def configure() -> None:
     if jax.config.jax_compilation_cache_dir is not None:
         return
 
+    # a real multi-process launch deadlocks with a divergent per-rank
+    # persistent cache (see the module docstring); only enable it there
+    # when the user deliberately overrides the directory.
+    override = os.environ.get("FRIDOM_JAX_CACHE_DIR")
+    if _is_multiprocess() and not override:
+        return
+
     cache_dir = _base_cache_dir()
-    subdir = _process_subdir()
-    if subdir is not None:
-        cache_dir = cache_dir / subdir
 
     # jax's LRUCache creates the directory on first write; nothing to
     # mkdir here. The 0-second threshold is load-bearing (see the
@@ -109,29 +137,28 @@ def _base_cache_dir() -> Path:
     return base / "fridom" / "jax"
 
 
-def _process_subdir() -> str | None:
+def _is_multiprocess() -> bool:
     """
-    Per-rank subdirectory under a real multi-host launch, else None.
+    Whether this is a real multi-process (multi-host) launch.
 
     Description
     -----------
-    jax's on-disk cache writes are not atomic, so a directory shared
-    across processes lets one rank read a half-written entry. The
-    documented fridom multi-host flow calls
+    The documented fridom multi-host flow calls
     ``jax.distributed.initialize()`` before importing fridom, so at
     ``configure()`` time a genuine multi-process run is already
-    detectable: give each rank its own ``proc<id>`` subdirectory. The
-    rank id is read off the distributed global state rather than
-    ``jax.process_index()`` (which would initialize the backend — import
-    fridom must not). Any failure of the detection falls back to the
-    single-process default (no subdirectory).
+    detectable from the distributed global state — read directly rather
+    than via ``jax.process_index()``/``jax.process_count()`` (which would
+    initialize the backend, and import fridom must not). Returns True
+    only when the distributed runtime is initialized with more than one
+    process. Any failure of the detection falls back to False (the
+    single-process default).
     """
     try:
         import jax  # noqa: PLC0415 — only needed on the enabled path
         if not jax.distributed.is_initialized():
-            return None
+            return False
         from jax._src import distributed  # noqa: PLC0415
-        process_id = distributed.global_state.process_id
+        num_processes = distributed.global_state.num_processes
     except Exception:  # noqa: BLE001 — detection is strictly best-effort
-        return None
-    return f"proc{process_id}"
+        return False
+    return num_processes > 1

@@ -1640,11 +1640,14 @@ def assemble(
     bare time-dependent parameter reads gated); (5) collect terms +
     stages into the `TendencyComposer` (static checks live there),
     the re-materialization table, and the merged ``extra_halo``;
-    (6) the composer dry run; (7) ``grid.negotiate(state_spaces=...,
-    tendency=..., halo=...)`` + ``grid.freeze()`` — or, on an
-    already-frozen grid, the verify path; (8) carry allocation is
-    NOT run here (wave 4.2); (9) build the `AssemblyRecord`, the
-    `Fingerprint`, and the `AssemblyReport`.
+    (6) a pre-validation negotiation that collapses any sharded axis
+    too small for a traced stencil (so the dry run validates on the
+    final halo, never a capped-too-narrow one), then the composer dry
+    run; (7) ``grid.negotiate(state_spaces=..., tendency=...,
+    halo=...)`` + ``grid.freeze()`` — or, on an already-frozen grid,
+    the verify path; (8) carry allocation is NOT run here (wave 4.2);
+    (9) build the `AssemblyRecord`, the `Fingerprint`, and the
+    `AssemblyReport`.
 
     Parameters
     ----------
@@ -1739,7 +1742,27 @@ def assemble(
         binding_table=binding_table, term_filter=term_filter)
     schedule = composer.schedule
 
-    # -- step 6: dry run -----------------------------------------
+    # -- step 6a: pre-validation collapse ------------------------
+    # Trace the composed tendency so the per-application halo floor
+    # DISQUALIFIES any sharded axis whose shortest shard cannot hold
+    # one stencil's ghosts, collapsing the grid to fewer/one device
+    # BEFORE the dry run validates the composition on that halo.
+    # Otherwise a wide trace-only stencil (e.g. the biased advection
+    # reconstruction, whose bind-time widening is capped back below
+    # its reach on a small sharded axis) evaluates against a halo too
+    # narrow for it and raises. The already-provisioned widths are
+    # carried in (as the ``halo=`` demand) so this pass only WIDENS
+    # or collapses, never narrows below the bind/construction halo —
+    # a chart-coupled (halo-trace-exempt) term keeps the ghost width
+    # its bind negotiated. The declared ``extra_halo`` raw-data
+    # bypass widths are NOT applied yet (they can exceed a small
+    # axis's syncable width, and the dry run's field syncs must stay
+    # within the provisional halo); they enter at step 7, after the
+    # dry run, exactly as before.
+    _negotiate(grid, table, schedule, modules, time_stepper,
+               binding_table, grid.decomposition.halo)
+
+    # -- step 6b: dry run ----------------------------------------
     # pass the assembly-time evaluated params so a term reading
     # ctx.params[...] resolves (an unbound name surfaces attributed
     # through the TermEvaluationError chain, not on an empty {})
