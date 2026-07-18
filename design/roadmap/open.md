@@ -67,16 +67,6 @@ memory ceiling, time-to-first-step, WENO throughput (entries in
   (first advance −24..31%, steady state bitwise-unchanged), default-off
   patch preserved, unlanded.
   [`../research/time_to_first_step.md`](../research/time_to_first_step.md)
-- **WENO selected-input follow-ups.** The pre-existing forced-4
-  knife-edge divergence test now also tips `weno5` (a kernel-shape
-  roundoff flip — see
-  [`../research/multidevice_test_faults.md`](../research/multidevice_test_faults.md)).
-  Negative results are recorded in
-  [`../research/stencil_lowering.md`](../research/stencil_lowering.md)
-  and — for upwind5: one-path spellings, XLA flags, Pallas — in
-  [`../research/upwind5_revisit.md`](../research/upwind5_revisit.md)
-  (the 2026-07-17 RTX 3060 re-baseline; entry in
-  [`done.md`](done.md)) — do not revisit them without reading both.
 - **Storage-halo width probe.** Biased order-5 pads storage to `n+8`
   per axis where the nominal reach needs `n+6` (centered: `n+4` vs
   `n+2`) — ~6% inflation on every upwind5 buffer, est. 2–3 ms/step

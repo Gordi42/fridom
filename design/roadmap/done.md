@@ -463,8 +463,18 @@ Implementation record:
   single-device serial reference to machine precision (max abs 2.3e-15,
   ≤5.2e-15 of field scale — sharded-vs-serial reduction roundoff), with
   the selected-input walled path asserted active on the sharded axis.
-  Remaining follow-ups (comparison re-run, the forced-4 knife-edge test)
-  stay in [`open.md`](open.md). Records:
+  Both follow-ups closed: the 2026-07-17 single-GPU suite recheck
+  confirmed the win in the suite itself (512³ weno5 186.8→130.5
+  ms/step, oc edge 1.10→1.57×; `results/recheck-2026-07-17/` in the
+  bench repo — the full-table refresh and chunk-metric fix remain a
+  separate [`open.md`](open.md) item), and the forced-4 knife-edge
+  divergence-gate flip for `weno5` was covered by the same
+  residual-vs-tendency bound (`cbfc032a`) that fixed the pre-existing
+  `upwind5` case — verified 2026-07-18, 12/12 green under forced-4
+  CPU on dev. Further negative results for upwind5 (one-path
+  spellings, XLA flags, Pallas) are in
+  [`../research/upwind5_revisit.md`](../research/upwind5_revisit.md);
+  do not revisit any of them without reading the records. Records:
   [`../research/stencil_lowering.md`](../research/stencil_lowering.md),
   A/B in
   [`../research/stencil_lowering/microbench/phase3/IMPLEMENTATION_AB.md`](../research/stencil_lowering/microbench/phase3/IMPLEMENTATION_AB.md).

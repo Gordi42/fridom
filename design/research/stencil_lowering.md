@@ -419,11 +419,16 @@ and the HaloTracer delegation.
   parity on both C-grid directions, both orders, periodic + z-walled,
   the v=0 tie), the existing weno/advection suites, and the A/B record
   [`stencil_lowering/microbench/phase3/IMPLEMENTATION_AB.md`](stencil_lowering/microbench/phase3/IMPLEMENTATION_AB.md).
-  **Multi-host validation closed 2026-07-17** (see below). Still open:
-  re-running the Oceananigans comparison, and the forced-4 knife-edge
-  divergence test that the kernel-shape roundoff now also tips for
-  `weno5` (report, do not retune — a pre-existing `upwind5` knife-edge
-  fails identically on the parent).
+  **Multi-host validation closed 2026-07-17** (see below). Both
+  remaining follow-ups are closed: the Oceananigans-suite recheck
+  (2026-07-17, single GPU, `results/recheck-2026-07-17/` in the bench
+  repo) reproduced the win in the suite — 512³ weno5 186.8→130.5
+  ms/step, oc edge 1.10→1.57× — and the forced-4 knife-edge
+  divergence gate is green for every scheme including `weno5`
+  (verified 2026-07-18, 12/12 forced-4 CPU on dev): the
+  residual-vs-tendency bound (`cbfc032a`) that fixed the pre-existing
+  `upwind5` flip covers the `weno5` parametrization too (see
+  [`multidevice_test_faults.md`](multidevice_test_faults.md) §2).
 
   **Multi-host (`srun -n 4`) confirmation of the walled selected path
   — 2026-07-17, dev `361c3133`, 4× A100-SXM4-80GB (DKRZ).** The
