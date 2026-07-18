@@ -20,6 +20,13 @@ Submit from the repository root: the script resolves the repo from
 in the submit dir); there is no alerting — the terminal output and the
 marker file are the record (owner ruling §5.2).
 
+The submitting checkout's `.venv` must carry the CUDA jax plugin:
+`uv sync --extra dev --extra cuda`. This bites **worktrees** in
+particular — a fresh worktree synced with `--extra dev` alone gets
+CPU-only jax, and both legs then die in seconds with `Backend 'cuda'
+is not in the list of known backends` and a spurious RED marker
+(observed 2026-07-18, job 26346286).
+
 Local sanity check without touching SLURM or GPUs:
 
 ```bash
