@@ -100,6 +100,8 @@ from fridom.model.field_blend import BlendIngredient, FieldBlend
 from fridom.model.module import Module
 from fridom.model.parameters import ParameterDeclaration, leaf
 from fridom.model.params import CORIOLIS_BETA, CORIOLIS_F0
+from fridom.model.scheduled_field import ProfileFunction, profile_coords
+from fridom.model.stages import Stage, StageKind
 from fridom.model.terms import term
 from fridom.model.time_dependent import TimeDependent, resolve_at
 from fridom.spatial.decomposition.halo import HaloSpec
@@ -581,7 +583,33 @@ class FPlaneCoriolis(Module):
     coriolis = _coriolis
 
 
-@partial(jaxify, dynamic=("f0", "beta"))
+def _check_profile_law(
+    f: object, f0: object, beta: object,
+) -> ProfileFunction | None:
+    """Validate a law-valued ``f`` (the general ``f(y,t)`` path, TDF-D7).
+
+    ``f`` is a ``ProfileFunction`` giving the complete Coriolis field
+    ``f(y,t)`` — it supersedes ``f0``/``beta`` (which stay inert
+    leaves), so a *time-dependent* ``f0``/``beta`` alongside it is an
+    ambiguous double source and is rejected. ``None`` keeps the affine
+    ``f0 + beta*y`` path unchanged.
+    """
+    if f is None:
+        return None
+    if not isinstance(f, ProfileFunction):
+        raise TypeError(
+            f"f={f!r} must be a fr.model.ProfileFunction giving the full "
+            "f(y,t) law; a constant/affine Coriolis parameter is the "
+            "f0/beta path")
+    if isinstance(f0, TimeDependent) or isinstance(beta, TimeDependent):
+        raise TypeError(
+            "a ProfileFunction f is the complete f(y,t) law and "
+            "supersedes f0/beta; it cannot be combined with a "
+            "time-dependent (Ramp) f0/beta — pass one or the other")
+    return f
+
+
+@partial(jaxify, dynamic=("f0", "beta", "_f_law"))
 class BetaPlaneCoriolis(Module):
 
     r"""
@@ -621,11 +649,16 @@ class BetaPlaneCoriolis(Module):
         (e.g. the variable-depth shallow-water ``"csqr"``); switches
         the rotation to the thickness-weighted flux form, the
         M-skew pairing under ``diag(w, w, ...)`` (default: None).
+    f : fr.model.ProfileFunction | None, optional
+        A complete non-affine law :math:`f(y,t)` (TDF-D7); supersedes
+        ``f0``/``beta`` and drives a ``time_dependent`` ``f_coriolis``
+        field rewritten each substage (default: None).
     """
 
     def __init__(
         self, f0: float = 1.0, beta: float = 0.0,
         *, meridional: str = "y", metric_weight: str | None = None,
+        f: ProfileFunction | None = None,
     ) -> None:
         r"""Store the leaves and the meridional coordinate name.
 
@@ -636,11 +669,21 @@ class BetaPlaneCoriolis(Module):
         from the assembly-materialized unit and meridional-coordinate
         profiles (see :data:`_BETA_BLEND`). The static (plain-float)
         path is untouched.
+
+        A ``ProfileFunction`` ``f`` gives the complete **non-affine**
+        law :math:`f(y,t)` (TDF-D7): the ``f_coriolis`` field is marked
+        ``time_dependent`` and rewritten every substage by a SELF_UPDATE
+        stage sampling the law at the stage clock; ``f0``/``beta`` become
+        inert. A frozen-``L`` (ETDRK4) stepper then refuses the model
+        automatically (the marker feeds the frozen-``L`` guard).
         """
         self.f0 = leaf(f0)
         self.beta = leaf(beta)
         self._meridional = meridional
         self._metric_weight = metric_weight
+        self._f_law = _check_profile_law(f, self.f0, self.beta)
+        #: grid coordinate names for the profile-path halo (set at bind)
+        self._halo_coords: tuple[str, ...] = ()
 
     parameter_declarations = (
         ParameterDeclaration(CORIOLIS_BETA, attr="beta",
@@ -667,6 +710,32 @@ class BetaPlaneCoriolis(Module):
         return _BETA_BLEND.is_active(self)
 
     @property
+    def _profile_active(self) -> bool:
+        """Whether a ``ProfileFunction`` drives ``f(y,t)`` (TDF-D7).
+
+        A host-side (structural) predicate on the ``f`` law type; the
+        general non-affine path is mutually exclusive with the affine
+        ``FieldBlend`` (``_check_profile_law`` rejects a Ramped
+        ``f0``/``beta`` alongside a law).
+        """
+        return self._f_law is not None
+
+    @property
+    def extra_halo(self) -> HaloSpec | None:
+        """The profile-path halo substitute (V-N2); ``None`` otherwise.
+
+        The SELF_UPDATE rewrites ``f_coriolis`` from raw sampled data
+        (``with_data``, halo-trace exempt), so on the law path the module
+        declares its rotation-term reach itself: one ghost cell per grid
+        axis covers the term's staggered ``.to`` averages (reach 1). The
+        static / affine-blend paths keep ``None`` and stay halo-traced
+        bit-identically.
+        """
+        if not self._profile_active:
+            return None
+        return HaloSpec(dict.fromkeys(self._halo_coords, 1))
+
+    @property
     def field_references(self) -> tuple[FieldReference, ...]:
         """u/v, plus the metric-weight field when configured."""
         return _rotation_references(self._metric_weight)
@@ -681,8 +750,18 @@ class BetaPlaneCoriolis(Module):
         (``f_coriolis_const``, ``f_coriolis_grad``); ``f_coriolis``
         itself stays declared as the ``t = 0`` snapshot (so downstream
         consumers and I/O keep a valid field), while the rotation term
-        reads the fresh stage-time blend.
+        reads the fresh stage-time blend. A ``ProfileFunction`` ``f``
+        (TDF-D7) declares the single ``f_coriolis`` field marked
+        ``time_dependent`` (materialized at ``t = 0``), rewritten each
+        substage by the SELF_UPDATE stage.
         """
+        if self._profile_active:
+            return (FieldDeclaration(
+                "f_coriolis", space=Profile(self._meridional),
+                lifecycle=Lifecycle.AUXILIARY,
+                default=self._f_profile_default,
+                long_name="Coriolis parameter", units="1/s",
+                time_dependent=True),)
         f_coriolis = FieldDeclaration(
             "f_coriolis", space=Profile(self._meridional),
             lifecycle=Lifecycle.AUXILIARY, default=self._f_default,
@@ -693,6 +772,49 @@ class BetaPlaneCoriolis(Module):
             space=Profile(self._meridional),
             long_name="Coriolis parameter blend ingredient",
             units="1/s"))
+
+    def _f_profile_default(
+        self, grid: object, space: object,
+    ) -> ScalarField:
+        r"""Owner-method default: sample the ``f(y,t)`` law at ``t = 0``.
+
+        Mirrors ``_f_default``'s ``resolve_at(..., 0.0)`` spelling for
+        the law path: the AUXILIARY field is materialized as the ``t = 0``
+        snapshot so it keeps a valid static treedef; the SELF_UPDATE
+        stage then rewrites it with the stage-time value each substage,
+        so this frozen value is never read at run time. No pre-syncing
+        (GAP-B).
+        """
+        coords = profile_coords(grid, space, (self._meridional,))
+        data = self._f_law.sample(coords, 0.0, space.shape)
+        return grid.create_field(space, data=data, name="f_coriolis")
+
+    # ================================================================
+    #  The SELF_UPDATE stage (law path only, S1 per substage)
+    # ================================================================
+    @property
+    def stages(self) -> tuple[Stage, ...]:
+        """The per-substage ``f(y,t)`` recompute (law path only)."""
+        if not self._profile_active:
+            return ()
+        return (Stage(
+            kind=StageKind.SELF_UPDATE, fn="_update_f_coriolis",
+            name="coriolis_f", reads=("f_coriolis",),
+            writes=("f_coriolis",)),)
+
+    def _update_f_coriolis(self, state: object, ctx: object) -> dict:
+        """Re-evaluate the ``f(y,t)`` law at the substage clock (TDF-D7).
+
+        SELF_UPDATE runs first in every substage (S1), so the rotation
+        term (and every ``f_coriolis`` consumer) reads the stage-time
+        field, consistent with ``eval_params``.
+        """
+        time = getattr(ctx.clock, "time", ctx.clock)
+        field = state["f_coriolis"]
+        space = field.function_space
+        coords = profile_coords(field.grid, space, (self._meridional,))
+        value = self._f_law.sample(coords, time, space.shape)
+        return {"f_coriolis": field.with_data(value)}
 
     def _f_default(self, grid: object, space: object) -> ScalarField:
         """Owner-method default: materialize ``f0 + beta*y`` at ``t=0``.
@@ -742,7 +864,7 @@ class BetaPlaneCoriolis(Module):
         return _BETA_BLEND.evaluate(self, state, time)
 
     def bind(self, table) -> None:  # noqa: ANN001
-        """Reject chart-coupled grids (metric-blind rotation).
+        """Reject chart-coupled grids; record the law-path halo axes.
 
         Raises
         ------
@@ -750,6 +872,8 @@ class BetaPlaneCoriolis(Module):
             If the grid carries an embedding chart.
         """
         _reject_chart_grid(self, table)
+        if self._profile_active:
+            self._halo_coords = tuple(table.grid.names)
 
     #: ``du/dt = f(y) v``; ``dv/dt = -f(y) u`` (shared rotation term).
     coriolis = _coriolis

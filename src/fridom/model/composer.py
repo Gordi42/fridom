@@ -370,6 +370,7 @@ class TendencyComposer:
         jax.eval_shape(_evaluate)
         _overlap_lint(schedule, writes)
         self._coverage_lint(writes)
+        self._time_dependent_field_lint()
 
     # ================================================================
     #  Collection internals
@@ -488,7 +489,8 @@ class TendencyComposer:
                 key=key, kind=stage.kind, slot=slot,
                 order=stage.order, index=index, fn=fn, gate=gate,
                 treatment=None, advances=stage.advances,
-                reads=stage.reads, implicit=None))
+                reads=stage.reads, writes=stage.writes,
+                implicit=None))
         return tuple(entries)
 
     def _stage_gate(
@@ -617,10 +619,56 @@ class TendencyComposer:
             return
         raise AssemblyError(message)
 
+    def _time_dependent_field_lint(self) -> None:
+        """Every ``time_dependent`` AUX field has an owner SELF_UPDATE stage.
+
+        Description
+        -----------
+        The TDF-D3 lint: a ``time_dependent``-marked AUXILIARY field
+        (``FieldDeclaration.time_dependent``) must be rewritten every
+        substage by a SELF_UPDATE stage of its OWNING module — nothing
+        else structurally guarantees a field that "evolves in time" ever
+        updates (the coverage lint covers PROGNOSTIC fields only, so this
+        is the lint gap the roadmap entry names). Resolution is per field
+        through the stage ``writes=`` declaration; an undeclared
+        (``writes=None``) SELF_UPDATE stage satisfies any of its owner's
+        marked fields — the documented fallback ("owner has at least one
+        SELF_UPDATE stage").
+        """
+        su_writes: dict[int, list[tuple[str, ...] | None]] = {}
+        for entry in self._schedule.kind_entries(StageKind.SELF_UPDATE):
+            su_writes.setdefault(entry.slot, []).append(entry.writes)
+        offenders = tuple(
+            f"{record.name} ({record.owner_type})"
+            for record in self._records
+            if record.lifecycle is Lifecycle.AUXILIARY
+            and getattr(record, "time_dependent", False)
+            and not _covered_by_self_update(
+                record.name, su_writes.get(record.owner)))
+        if offenders:
+            raise AssemblyError(
+                f"time_dependent AUXILIARY field(s) {offenders} are not "
+                "written by a SELF_UPDATE stage of their owning module "
+                "(TDF-D3): a field marked time_dependent evolves in time, "
+                "so its owner must recompute it every substage with an "
+                "fr.self_update stage (declare writes= naming the field, "
+                "or add the stage)")
+
 
 # ================================================================
 #  Module-level helpers
 # ================================================================
+def _covered_by_self_update(
+    name: str, stages: list[tuple[str, ...] | None] | None,
+) -> bool:
+    """Whether an owner SELF_UPDATE stage rewrites ``name`` (TDF-D3).
+
+    ``stages`` is the owner's SELF_UPDATE ``writes=`` declarations
+    (``None`` = the owner has none). An undeclared (``writes=None``)
+    stage covers any of its owner's marked fields (the fallback).
+    """
+    return stages is not None and any(
+        writes is None or name in writes for writes in stages)
 def _owned(
     records: tuple, lifecycle: Lifecycle,
 ) -> dict[int, tuple[str, ...]]:

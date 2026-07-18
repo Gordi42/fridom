@@ -118,6 +118,13 @@ class Stage:
         SELF_UPDATE only: state inputs — the V-H5 scheduling
         trigger; assembly-checked like a ``FieldReference``
         (default: ()).
+    writes : tuple[str, ...] | None
+        The AUXILIARY field names this stage rewrites; ``None`` leaves
+        it undeclared. Consumed by the ``time_dependent`` field lint
+        (TDF-D3): a ``time_dependent``-marked field must be written by a
+        SELF_UPDATE stage of its owner, resolved through ``writes=`` when
+        declared (else the lint falls back to "owner has at least one
+        SELF_UPDATE stage") (default: None).
 
     Raises
     ------
@@ -135,6 +142,7 @@ class Stage:
     order: int = 0
     advances: tuple[str, ...] = ()
     reads: tuple[str, ...] = ()
+    writes: tuple[str, ...] | None = None
     # cadence: SELF_UPDATE only — RESERVED (CS-1), not built.
 
     def __post_init__(self) -> None:
@@ -148,6 +156,8 @@ class Stage:
                 f"{self.fn!r}")
         object.__setattr__(self, "advances", tuple(self.advances))
         object.__setattr__(self, "reads", tuple(self.reads))
+        if self.writes is not None:
+            object.__setattr__(self, "writes", tuple(self.writes))
         if self.advances and self.kind not in (
                 StageKind.ADVANCE, StageKind.CONSTRAINT):
             raise ValueError(
@@ -166,6 +176,7 @@ def self_update(
     fn: Callable | None = None,
     *,
     reads: Iterable[str] = (),
+    writes: Iterable[str] | None = None,
     cadence: object = _CADENCE_RESERVED,
 ) -> Callable:
     """
@@ -213,6 +224,10 @@ def self_update(
     reads : Iterable[str]
         State inputs of the update — the V-H5 scheduling trigger
         (default: ()).
+    writes : Iterable[str] | None
+        AUXILIARY fields this update rewrites — the ``time_dependent``
+        field lint (TDF-D3); ``None`` leaves it undeclared (default:
+        None).
     cadence : object
         RESERVED (CS-1), not built — any value raises.
 
@@ -241,6 +256,7 @@ def self_update(
             fn=func,
             name=func.__name__,
             reads=tuple(reads),
+            writes=None if writes is None else tuple(writes),
         )
         setattr(func, STAGE_ATTRIBUTE, declaration)
         return func

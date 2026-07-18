@@ -38,15 +38,12 @@ from __future__ import annotations
 import inspect
 from typing import TYPE_CHECKING
 
-import jax
-import jax.numpy as jnp
-
-from fridom.framework.utils import dtype_real
 from fridom.model.declarations import (
     FieldDeclaration,
     Lifecycle,
 )
 from fridom.model.module import Module
+from fridom.model.scheduled_field import sample_law
 from fridom.model.stages import Stage, StageKind
 from fridom.model.terms import TendencyTerm, Treatment
 from fridom.spatial.decomposition.halo import HaloSpec
@@ -57,6 +54,8 @@ from fridom.spatial.spaces.nodal import NodeSet
 
 if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Callable, Mapping
+
+    import jax
 
     from fridom.spatial.fields.scalar_field import ScalarField
     from fridom.spatial.grid import Grid
@@ -205,14 +204,14 @@ class MovingGeometry(Module):
                 lifecycle=Lifecycle.AUXILIARY,
                 default=_value_default(name),
                 long_name=f"Mapping parameter {name}",
-                units="n/a"))
+                units="n/a", time_dependent=True))
             declarations.append(FieldDeclaration(
                 f"{name}_dot", space=Profile(*coords),
                 lifecycle=Lifecycle.AUXILIARY,
                 default=_dot_default(name),
                 long_name=f"Mapping parameter {name} time "
                           "derivative",
-                units="n/a"))
+                units="n/a", time_dependent=True))
         return tuple(declarations)
 
     # ================================================================
@@ -267,7 +266,7 @@ class MovingGeometry(Module):
             f"{name}_dot" for name in self._schedules)
         return (
             Stage(kind=StageKind.SELF_UPDATE, fn="_update_geometry",
-                  name="moving_geometry", reads=reads),
+                  name="moving_geometry", reads=reads, writes=reads),
         )
 
     def _update_geometry(self, state, ctx) -> dict:  # noqa: ANN001
@@ -327,17 +326,13 @@ class MovingGeometry(Module):
         schedule = self._schedules[name]
         coords = {c: grid.evaluation_nodes(space, c).data
                   for c in self._coords[name]}
-        t = jnp.asarray(time, dtype=dtype_real())
+        time_name = self._time
 
-        def at_time(tt: jax.Array) -> jax.Array:
-            return jnp.asarray(
-                schedule(**coords, **{self._time: tt}))
+        def call(cc: object, tt: jax.Array) -> jax.Array:
+            return schedule(**cc, **{time_name: tt})
 
-        value, dot = jax.jvp(at_time, (t,),
-                             (jnp.ones((), t.dtype),))
-        shape = space.shape
-        return (jnp.broadcast_to(value, shape),
-                jnp.broadcast_to(dot, shape))
+        return sample_law(call, coords, time, space.shape,
+                          derivative=True)
 
 
 def _value_default(name: str) -> Callable:
