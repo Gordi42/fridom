@@ -41,6 +41,7 @@ if TYPE_CHECKING:  # pragma: no cover
         results,
         roles,
         schedule,
+        scheduled_field,
         stages,
         term_predicates,
         terms,
@@ -80,6 +81,7 @@ if TYPE_CHECKING:  # pragma: no cover
         RunStatus,
         RunTargetError,
     )
+    from .scheduled_field import ProfileFunction
     from .stages import Stage, StageKind, self_update
     from .term_predicates import (
         linear_operator_gaps,
@@ -115,8 +117,8 @@ base = "fridom.model"
 all_modules_by_origin = {
     base: [
         "time_steppers", "closures", "declarations", "roles",
-        "parameters", "params", "time_dependent", "terms",
-        "term_predicates", "implicit", "stages", "context",
+        "parameters", "params", "time_dependent", "scheduled_field",
+        "terms", "term_predicates", "implicit", "stages", "context",
         "field_table", "assembly", "module", "composer", "schedule",
         "clock", "results", "report", "errors", "eigen",
         "eigen_channel", "modules", "transforms", "io", "ops",
@@ -133,6 +135,7 @@ all_imports_by_origin = {
     f"{base}.time_dependent": [
         "TimeDependent", "Ramp", "TimeFunction", "TimeSeries",
         "resolve_at"],
+    f"{base}.scheduled_field": ["ProfileFunction"],
     f"{base}.terms": [
         "TendencyTerm", "term", "Treatment", "EXPLICIT", "IMPLICIT"],
     f"{base}.stages": ["Stage", "StageKind", "self_update"],

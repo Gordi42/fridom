@@ -91,6 +91,11 @@ class FieldRecord:
         Owner consent for host ``set_aux`` writes (CS-1/CS-2).
     metadata : FieldMetadata
         The grid-layer annotation that survives allocation.
+    time_dependent : bool
+        AUXILIARY-field marker (TDF-D3): the field's values evolve in
+        time, so it must be rewritten every substage by its owner's
+        SELF_UPDATE stage (the ``time_dependent`` field lint) and the
+        frozen-``L`` guard reports it (default: False).
     """
 
     name: str
@@ -102,6 +107,7 @@ class FieldRecord:
     roles: frozenset[Role]
     host_writable: bool
     metadata: FieldMetadata
+    time_dependent: bool = False
 
     @classmethod
     def from_declaration(
@@ -147,7 +153,8 @@ class FieldRecord:
             lifecycle=declaration.lifecycle,
             roles=declaration.roles,
             host_writable=declaration.host_writable,
-            metadata=declaration.field_metadata())
+            metadata=declaration.field_metadata(),
+            time_dependent=declaration.time_dependent)
 
     def fingerprint_token(self) -> tuple:
         """

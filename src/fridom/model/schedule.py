@@ -118,6 +118,9 @@ class ScheduleEntry:
         stages this is the declared claim.
     reads : tuple[str, ...]
         SELF_UPDATE only: declared state inputs (V-H5).
+    writes : tuple[str, ...] | None
+        Declared rewritten AUXILIARY fields (SELF_UPDATE); ``None`` when
+        undeclared. Feeds the ``time_dependent`` field lint (TDF-D3).
     implicit : ImplicitOperator | None
         The implicit-operator slot (wave-5 solve seam; carried as
         static data now).
@@ -141,6 +144,7 @@ class ScheduleEntry:
     treatment: Treatment | None = None
     advances: tuple[str, ...] | None = None
     reads: tuple[str, ...] = ()
+    writes: tuple[str, ...] | None = None
     implicit: ImplicitOperator | None = None
     linear: bool = False
 
