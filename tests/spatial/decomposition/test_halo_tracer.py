@@ -360,6 +360,74 @@ def test_nary_op_with_halo_grows_the_codomain_axes(grid, space):
     assert widths(spec) == {"x": 1, "y": 1}
 
 
+# ================================================================
+#  Per-application floor (``with_floor=``): the width the
+#  shardability cap must never squeeze below (one stencil needs its
+#  ghosts at once; a multi-application chain may be re-synced)
+# ================================================================
+def test_trace_halo_without_floor_returns_the_bare_demand(grid, space):
+    # back-compat: the default (no flag) return is a single HaloSpec
+    result = trace_halo(lambda f: f.diff("x"), (space,), grid.dispatch)
+    assert isinstance(result, HaloSpec)
+    assert widths(result) == {"x": 1, "y": 0}
+
+
+def test_trace_floor_is_the_max_single_application_reach(grid, space):
+    # a single wide biased stencil (FD order 6, window [-2, +3],
+    # symmetric width 3) sets the per-application floor to 3 -- the
+    # cap must never squeeze one stencil's ghosts below the width it
+    # reads simultaneously
+    fd6 = FiniteDifference(order=6)
+    demand, floor = trace_halo(fd6["x"], (space,),
+                               grid.dispatch, with_floor=True)
+    assert widths(demand)["x"] == 3
+    # only axes an operator fired on contribute a floor; y is absent
+    assert widths(floor) == {"x": 3}
+
+
+def test_trace_floor_ignores_chain_accumulation(grid, space):
+    # a chain of two reach-1 applications accumulates to a width-2
+    # sync-free demand, but each single application reaches only 1:
+    # the floor tracks the per-application reach, so the cap may
+    # squeeze the CHAIN (a mid-chain re-sync repairs it) but never a
+    # single application. This preserves the n=8 chain-cap scenario.
+    class Smoother(UnaryOperator):
+        def codomain(self, domain):
+            return domain
+
+        def requirements(self, domain):  # noqa: ARG002
+            return OperatorRequirements(halo=1)
+
+        def _apply(self, f):  # pragma: no cover — tracer-only test
+            return f
+
+    op = Smoother()
+    demand, floor = trace_halo(lambda f: op(op(f)), (space,),
+                               grid.dispatch, with_floor=True)
+    assert widths(demand)["x"] == 2
+    assert widths(floor)["x"] == 1
+    assert widths(floor)["y"] == 1
+
+
+def test_trace_floor_of_an_nary_wide_product(grid, space):
+    # the n-ary interception hook records its per-application reach
+    # too: a halo-2 product's floor is 2 on every codomain axis
+    class WideProduct(BinaryOperator):
+        def codomain(self, domain_a, domain_b):  # noqa: ARG002
+            return domain_a
+
+        def requirements(self, domain):  # noqa: ARG002
+            return OperatorRequirements(halo=2)
+
+        def _apply(self, f, g, *more):  # noqa: ARG002 # pragma: no cover
+            return f
+
+    demand, floor = trace_halo(lambda f: WideProduct()(f, f),
+                               (space,), grid.dispatch, with_floor=True)
+    assert widths(demand) == {"x": 2, "y": 2}
+    assert widths(floor) == {"x": 2, "y": 2}
+
+
 def test_to_on_the_same_space_returns_self(grid, space):
     tracer = HaloTracer(space, grid.dispatch)
     assert tracer.to(space.bare) is tracer
