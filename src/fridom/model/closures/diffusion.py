@@ -56,10 +56,30 @@ friction closures) adds the wall-adjacent-cell correction
 zero wall value across the half cell — on top of the free-slip chain.
 Periodic axes take the exact periodic path (bit-identical to a
 purely periodic grid). The biharmonic closures apply the same wall
-treatment on both Laplacian passes (Griffies & Hallberg). The walled
-support is the **nodal** family (Center cells, Inner velocity faces);
-a finite-volume ``CellAvg`` target on a walled axis is rejected at
-bind (FV walled closures are future work).
+treatment on both Laplacian passes (Griffies & Hallberg).
+
+Both discretization families are supported. The **nodal** family
+(``Center`` cells, ``Inner`` velocity faces) is above. The
+**finite-volume** family (``CellAvg`` cells, the nonhydro2 default) is
+the *same chain* in conservative face-flux form: on a walled axis the
+FV C-grid ``diff`` profile staggers the cell average onto the nodal
+``Inner`` face (``CellAvg -> Inner``, ``FaceDifference``), so the
+interior flux lands on the very ``Inner`` face the nodal chain uses.
+The identical retag onto the Dirichlet ``Inner`` sibling then closes
+the divergence (``Inner[Dirichlet] -> CellAvg``, ``FluxDifference``)
+with the structural exact-zero wall flux — the FV no-flux tracer / the
+FV free-slip velocity wall — and no-slip adds the same wall-adjacent
+correction :math:`-2\,\nu\,u_1/\Delta n^2` with the wall cell's own
+measure width (the ghost fills are bit-identical to ``Center``). This
+face-exposing FV chain needs the FV C-grid dispatch profile (a
+``family="fv"`` model assembly); on a raw grid without it the
+collocated ``FVDerivative`` (``CellAvg -> CellAvg``) never surfaces the
+flux as a face field and cannot close a wall flux, so a walled
+``CellAvg`` target is rejected at bind with a taught error. Mapped /
+stretched FV columns take the same **along-sigma** semantics as the
+nodal family below (measure-weighted, order 2): the FV cell-width
+measure divide gives the metrically-exact physical operator and the
+measure-weighted no-flux integral machine zero.
 
 **Mapped / terrain-following grids** (stretched ``MappedIntervalMesh``
 factors, or a ``Grid(..., mapping=CoordinateMapping(maps=...))`` chart)
@@ -113,7 +133,8 @@ from fridom.model.roles import TRACER, Velocity
 from fridom.model.terms import TendencyTerm, Treatment
 from fridom.model.time_dependent import TimeDependent
 from fridom.spatial.bc import BC
-from fridom.spatial.spaces.nodal import NodeSet
+from fridom.spatial.spaces.average import CellAvg
+from fridom.spatial.spaces.nodal import NodalSpace, NodeSet
 
 if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Iterable
@@ -264,10 +285,17 @@ def _wall_treatment(
 
     Periodic factors take the exact periodic path; a Dirichlet-tagged
     ``Inner`` face (the wall-normal velocity) closes on its own tag; a
-    BC-free ``Center`` cell field (a tracer, a tangential velocity)
-    takes the flux-retag wall closure. Any other placement/BC — a
-    finite-volume ``CellAvg`` target, a fixed-value (Dirichlet) cell
-    wall, a bare face — is out of scope and rejected loudly.
+    BC-free ``Center`` cell field (nodal tracer / tangential velocity)
+    *and* a BC-free ``CellAvg`` cell field (the finite-volume tracer /
+    tangential velocity) both take the flux-retag wall closure — the FV
+    flux lands on the same nodal ``Inner`` face the nodal chain uses
+    (the FV C-grid diff profile staggers ``CellAvg -> Inner``), so the
+    two chains are structurally identical. Any other placement/BC — a
+    TAGGED (fixed-value) ``CellAvg`` cell wall, a fixed-value
+    (Dirichlet) ``Center`` cell wall, a bare face — is out of scope and
+    rejected loudly. The face-exposing FV diff row is verified
+    separately at bind (:func:`_probe_fv_face`); a BC-free ``CellAvg``
+    on a grid without that profile is rejected there.
     """
     if getattr(factor.mesh, "periodic", False):
         return _PERIODIC
@@ -277,15 +305,59 @@ def _wall_treatment(
         return _WALL_NORMAL
     if node_set is NodeSet.CENTER and factor.bc.is_free:
         return _TANGENTIAL
+    if isinstance(factor, CellAvg) and factor.bc.is_free:
+        return _TANGENTIAL
     raise NotImplementedError(
         f"{owner}: target {name!r} has an unsupported wall placement "
-        f"along {axis!r} ({factor!r}); the walled closure is the "
+        f"along {axis!r} ({factor!r}); the walled closure supports the "
         "nodal family — no-flux / free-slip / no-slip cell fields "
         "(BC-free Center) and the wall-normal velocity face "
-        "(Inner[Dirichlet]). A finite-volume (CellAvg) target, a "
-        "fixed-value (Dirichlet) cell wall, or a bare face is out of "
-        "scope (FV walled closures / the stage-2e inhomogeneous "
-        "boundary-data path are future work)")
+        "(Inner[Dirichlet]) — and the finite-volume family (BC-free "
+        "CellAvg cell fields, the FV tracer / tangential velocity). A "
+        "TAGGED (fixed-value Dirichlet) CellAvg cell wall, a fixed-value "
+        "(Dirichlet) Center cell wall, or a bare face is out of scope "
+        "(the stage-2e inhomogeneous boundary-data path is future work)")
+
+
+def _probe_fv_face(
+    grid: object, factor: object, axis: str, owner: str, name: str,
+) -> None:
+    """Verify the grid's FV ``diff`` row exposes a face-located flux.
+
+    Accepting a BC-free ``CellAvg`` factor as tangential is only sound
+    when the installed ``diff`` operator staggers the cell average onto
+    the nodal interior face (the FV C-grid dispatch profile of a
+    ``family="fv"`` model): the flux-retag closure then lands on the
+    same ``Inner`` face the nodal chain uses, retags onto its Dirichlet
+    sibling, and telescopes with the structural zero wall flux. On a
+    raw grid without that profile ``("diff", CellAvg)`` resolves to the
+    collocated ``FVDerivative`` composite (``CellAvg -> CellAvg``),
+    whose flux never surfaces as a face field, so the wall flux cannot
+    close — a taught rejection, never a silently wrong collocated run.
+    Only ``CellAvg`` factors pay this probe; nodal ``Center`` targets
+    keep the untouched nodal diff and never reach here.
+
+    Raises
+    ------
+    NotImplementedError
+        If the resolved ``diff`` codomain is not a BC-free nodal
+        ``Inner`` face.
+    """
+    op = grid.dispatch.resolve("diff", factor)
+    codomain = op.codomain(factor)
+    if not (isinstance(codomain, NodalSpace)
+            and codomain.node_set is NodeSet.INNER
+            and codomain.bc.is_free):
+        raise NotImplementedError(
+            f"{owner}: target {name!r} is a finite-volume (CellAvg) "
+            f"field on the walled axis {axis!r}, but the grid's diff "
+            f"operator for it does not expose a face-located flux "
+            f"(codomain {codomain!r}). The FV walled closure needs the "
+            "face-exposing FV C-grid dispatch profile — a family='fv' "
+            "model assembly, which staggers the cell average onto the "
+            "nodal interior face. The collocated FVDerivative chain of "
+            "a raw grid (no FV C-grid diff profile) cannot close a wall "
+            "flux; assemble the model with family='fv'.")
 
 
 # ================================================================
@@ -502,7 +574,9 @@ class _DiffusionClosure(ClosureBase):
         NotImplementedError
             If a target factor carries an unsupported wall placement
             (a fixed-value cell wall or a bare face; see
-            :func:`_wall_treatment`).
+            :func:`_wall_treatment`), or a walled BC-free ``CellAvg``
+            target sits on a grid without the face-exposing FV C-grid
+            dispatch profile (see :func:`_probe_fv_face`).
         AssemblyError
             If a ``*_v`` coefficient is given but no target carries
             the ``vertical`` coordinate, or a target has no
@@ -528,10 +602,20 @@ class _DiffusionClosure(ClosureBase):
                 ordered = (
                     [(a, False) for a in axes if a != self._vertical]
                     + [(a, True) for a in axes if a == self._vertical])
-            spec = tuple(
-                (a, is_v, _wall_treatment(
-                    space.bare.factor(a), owner, name, a))
-                for a, is_v in ordered)
+            spec_axes: list[tuple[str, bool, str]] = []
+            for a, is_v in ordered:
+                factor = space.bare.factor(a)
+                treatment = _wall_treatment(factor, owner, name, a)
+                # a bounded BC-free CellAvg is tangential only when the
+                # grid's FV diff row exposes a face-located flux (a
+                # family='fv' assembly); probe before trusting it (nodal
+                # Center targets keep the untouched nodal diff -- they
+                # never hit this branch, so pay no probe)
+                if (treatment == _TANGENTIAL
+                        and isinstance(factor, CellAvg)):
+                    _probe_fv_face(table.grid, factor, a, owner, name)
+                spec_axes.append((a, is_v, treatment))
+            spec = tuple(spec_axes)
             target_axes.append((name, spec))
         if has_v is not None and not any(
                 is_v for _, spec in target_axes
@@ -742,8 +826,9 @@ class HarmonicFriction(_DiffusionClosure):
     when given).
 
     On a walled grid the wall stress follows ``slip=``. The choice
-    applies to every velocity factor that is **tangential** (nodal
-    cell-centred, ``Center``) along a walled axis:
+    applies to every velocity factor that is **tangential** (a cell
+    field — nodal ``Center`` or finite-volume ``CellAvg``) along a
+    walled axis:
     ``slip="free"`` (the default) sets zero tangential wall stress —
     the structural zero wall flux, no spurious drag on a wall-parallel
     flow; ``slip="no"`` sets ``u = 0`` at the wall via the
