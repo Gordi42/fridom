@@ -222,10 +222,12 @@ def test_halo_trace_walks_the_expanded_composite(grid, mx, ms):
         return physical_diff["x"](u)
 
     spec = trace_halo(tendency, (space,), grid.dispatch)
-    # main term: one diff along x; correction: diff + interp
-    # accumulate along sigma (periodic chain), interp along x
+    # main term: one diff along x; correction: diff + interp accumulate
+    # along sigma (periodic chain), interp along x. Two-sided
+    # accounting composes the sigma chain's staggered windows to
+    # [-1,+1] = width 1 (not the scalar sum 2)
     assert spec["x"] == 1
-    assert spec["sigma"] == 2
+    assert spec["sigma"] == 1
 
 
 def test_halo_trace_of_the_column_derivative(grid, mx, ms):

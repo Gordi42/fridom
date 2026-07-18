@@ -163,8 +163,17 @@ class AlsoB(Module):
 #  Fixtures
 # ================================================================
 def make_grid():
-    return Grid((IntervalMesh(8, (0.0, 1.0), periodic=True,
+    # the composer dry-run (assembly step 6) runs at the provisional
+    # width before the trace/extra_halo negotiation (step 7), so an
+    # order-4 dispatch override registered by a module needs the
+    # provisional to already cover it. Two-sided halo accounting
+    # narrows the bare provisional to 1, so negotiate width 2 up front
+    # (the pre-tightening provisional value; every fingerprint
+    # assertion in this file is a >= lower bound).
+    grid = Grid((IntervalMesh(8, (0.0, 1.0), periodic=True,
                               name="x"),))
+    grid.negotiate(halo=HaloSpec({"x": 2}))
+    return grid
 
 
 @pytest.fixture
