@@ -1,0 +1,124 @@
+=== RUN 128 spectral auto @ 20:05:10 ===
+n=128 precond=spectral method=auto devices=4 device_ids=None
+{
+  "n": 128,
+  "precond": "spectral",
+  "method": "auto",
+  "device_ids": null,
+  "ndev": 4,
+  "median_ms": 32.31046209693886,
+  "min_ms": 30.37726119509898,
+  "max_ms": 39.85846859868616,
+  "compile_s": 5.648189089959487,
+  "all_ms": [
+    30.37726119509898,
+    31.651220796629783,
+    31.89302974496968,
+    32.727894448908046,
+    32.88188629667275,
+    39.85846859868616
+  ],
+  "peak_gib": [
+    [
+      0,
+      0.1365511417388916
+    ],
+    [
+      1,
+      0.13567662239074707
+    ],
+    [
+      2,
+      0.13567662239074707
+    ],
+    [
+      3,
+      0.13567662239074707
+    ]
+  ],
+  "maxu": 0.512151688299281
+}
+WROTE /tmp/claude-100698/-work-uo0780-u301533-fridom-fridom-dev/4f23fac6-d4e9-4088-a855-5ccf5ca6a06b/scratchpad/results_timing.jsonl
+=== RUN 128 multigrid cusparse @ 20:05:27 ===
+n=128 precond=multigrid method=cusparse devices=4 device_ids=None
+{
+  "n": 128,
+  "precond": "multigrid",
+  "method": "cusparse",
+  "device_ids": null,
+  "ndev": 4,
+  "median_ms": 86.3936666486552,
+  "min_ms": 77.67099889460951,
+  "max_ms": 92.55903990124352,
+  "compile_s": 50.81974279601127,
+  "all_ms": [
+    77.67099889460951,
+    83.01465540425852,
+    86.38696714770049,
+    86.40036614960991,
+    88.74747970257886,
+    92.55903990124352
+  ],
+  "peak_gib": [
+    [
+      0,
+      0.16454839706420898
+    ],
+    [
+      1,
+      0.1723923683166504
+    ],
+    [
+      2,
+      0.1723923683166504
+    ],
+    [
+      3,
+      0.1723923683166504
+    ]
+  ],
+  "maxu": 0.5121516883600788
+}
+WROTE /tmp/claude-100698/-work-uo0780-u301533-fridom-fridom-dev/4f23fac6-d4e9-4088-a855-5ccf5ca6a06b/scratchpad/results_timing.jsonl
+=== RUN 128 multigrid pcr @ 20:06:39 ===
+n=128 precond=multigrid method=pcr devices=4 device_ids=None
+{
+  "n": 128,
+  "precond": "multigrid",
+  "method": "pcr",
+  "device_ids": null,
+  "ndev": 4,
+  "median_ms": 87.17189774906728,
+  "min_ms": 78.24649644899182,
+  "max_ms": 92.40599899785593,
+  "compile_s": 57.15737270901445,
+  "all_ms": [
+    78.24649644899182,
+    82.82402445329353,
+    87.12747689569369,
+    87.21631860244088,
+    88.51394895464182,
+    92.40599899785593
+  ],
+  "peak_gib": [
+    [
+      0,
+      0.19530940055847168
+    ],
+    [
+      1,
+      0.19146943092346191
+    ],
+    [
+      2,
+      0.19146943092346191
+    ],
+    [
+      3,
+      0.19146943092346191
+    ]
+  ],
+  "maxu": 0.512151688360079
+}
+WROTE /tmp/claude-100698/-work-uo0780-u301533-fridom-fridom-dev/4f23fac6-d4e9-4088-a855-5ccf5ca6a06b/scratchpad/results_timing.jsonl
+ALL128 DONE

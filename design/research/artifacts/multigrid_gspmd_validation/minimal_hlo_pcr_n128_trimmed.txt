@@ -1,0 +1,53 @@
+# TRIMMED copy of minimal_hlo_pcr_n128.txt (original 756 lines, 83 KB).
+# The full file is a host-unrolled log-depth PCR (ceil(log2 128)=7 passes)
+# with no collectives; only the module header, the ENTRY head, and the
+# empty collectives grep are reproduced here (the unroll body is elided).
+# Regenerate verbatim with minimal_hlo.py (method=pcr, n=128, 4 devices).
+
+===== MODULE HEADER + FileNames/FunctionNames =====
+HloModule jit_f, is_scheduled=true, entry_computation_layout={(f64[32,128,128]{2,1,0}, f64[32,128,128]{2,1,0}, f64[32,128,128]{2,1,0}, f64[32,128,128]{2,1,0})->f64[32,128,128]{2,1,0}}, allow_spmd_sharding_propagation_to_parameters={false,false,false,false}, allow_spmd_sharding_propagation_to_output={true}, num_partitions=4, frontend_attributes={fingerprint_before_lhs="1cb5ea09d080acc7c5dcfd9f7c361479"}
+
+FileNames
+1 "/tmp/claude-100698/-work-uo0780-u301533-fridom-fridom-dev/4f23fac6-d4e9-4088-a855-5ccf5ca6a06b/scratchpad/minimal_hlo.py"
+2 "/work/uo0780/u301533/fridom/fridom-dev/src/fridom/spatial/operators/banded.py"
+
+FunctionNames
+1 "<module>"
+2 "make.<locals>.f"
+3 "tridiagonal_solve_along_axis"
+4 "_tridiagonal_pcr"
+5 "_shift_down"
+6 "_shift_up"
+
+FileLocations
+1 {file_name_id=1 function_name_id=1 line=43 end_line=43 column=54 end_column=54}
+2 {file_name_id=1 function_name_id=2 line=36 end_line=36 column=15 end_column=15}
+3 {file_name_id=2 function_name_id=3 line=548 end_line=548 column=17 end_column=17}
+4 {file_name_id=2 function_name_id=4 line=413 end_line=413 column=11 end_column=11}
+5 {file_name_id=2 function_name_id=4 line=410 end_line=410 column=12 end_column=12}
+
+===== ENTRY head (representative slice, lines 728-745) =====
+ENTRY %main.1_spmd (param.5: f64[32,128,128], param.6: f64[32,128,128], param.7: f64[32,128,128], param.4: f64[32,128,128]) -> f64[32,128,128] {
+  %param.7 = f64[32,128,128]{2,1,0} parameter(2), sharding={devices=[4,1,1]<=[4]}, metadata={op_name="up"}
+  %param.6 = f64[32,128,128]{2,1,0} parameter(1), sharding={devices=[4,1,1]<=[4]}, metadata={op_name="di"}
+  %param.5 = f64[32,128,128]{2,1,0} parameter(0), sharding={devices=[4,1,1]<=[4]}, metadata={op_name="lo"}
+  %param.4 = f64[32,128,128]{2,1,0} parameter(3), sharding={devices=[4,1,1]<=[4]}, metadata={op_name="b"}
+  %loop_divide_fusion.1 = f64[4096,128]{1,0} fusion(%param.6, %param.5), kind=kLoop, calls=%fused_divide.1, metadata={op_name="jit(f)/div" stack_frame_id=19}, backend_config={"device_type":"DEVICE_TYPE_INVALID","force_earliest_schedule":false,"native_emitter_backend_config":{"type":"NATIVE_EMITTER_TYPE_INVALID","unroll_factor":0},"operation_queue_id":"0","reification_cost":[]}
+  %loop_divide_fusion.2 = f64[4096,128]{1,0} fusion(%param.6, %param.7), kind=kLoop, calls=%fused_divide.2, metadata={op_name="jit(f)/div" stack_frame_id=28}, backend_config={"device_type":"DEVICE_TYPE_INVALID","force_earliest_schedule":false,"native_emitter_backend_config":{"type":"NATIVE_EMITTER_TYPE_INVALID","unroll_factor":0},"operation_queue_id":"0","reification_cost":[]}
+  %loop_multiply_fusion = f64[4096,128]{1,0} fusion(%loop_divide_fusion.2, %param.7), kind=kLoop, calls=%fused_multiply, metadata={op_name="jit(f)/mul" stack_frame_id=22}, backend_config={"device_type":"DEVICE_TYPE_INVALID","force_earliest_schedule":false,"native_emitter_backend_config":{"type":"NATIVE_EMITTER_TYPE_INVALID","unroll_factor":0},"operation_queue_id":"0","reification_cost":[]}
+  %loop_divide_fusion.4 = f64[4096,128]{1,0} fusion(%loop_multiply_fusion, %loop_divide_fusion.2, %param.5, %loop_divide_fusion.1, %param.7, /*index=5*/%param.6), kind=kLoop, calls=%fused_divide.4, metadata={op_name="jit(f)/div" stack_frame_id=28}, backend_config={"device_type":"DEVICE_TYPE_INVALID","force_earliest_schedule":false,"native_emitter_backend_config":{"type":"NATIVE_EMITTER_TYPE_INVALID","unroll_factor":0},"operation_queue_id":"0","reification_cost":[]}
+  %loop_divide_fusion.3 = f64[4096,128]{1,0} fusion(%loop_divide_fusion.2, %param.5, %loop_divide_fusion.1, %param.7, %param.6), kind=kLoop, calls=%fused_divide.3, metadata={op_name="jit(f)/div" stack_frame_id=19}, backend_config={"device_type":"DEVICE_TYPE_INVALID","force_earliest_schedule":false,"native_emitter_backend_config":{"type":"NATIVE_EMITTER_TYPE_INVALID","unroll_factor":0},"operation_queue_id":"0","reification_cost":[]}
+  %loop_divide_fusion.6 = f64[4096,128]{1,0} fusion(%loop_divide_fusion.4, %loop_divide_fusion.3, %loop_multiply_fusion, %loop_divide_fusion.2, %param.5, /*index=5*/%loop_divide_fusion.1, %param.7, %param.6), kind=kLoop, calls=%fused_divide.6, metadata={op_name="jit(f)/div" stack_frame_id=28}, backend_config={"device_type":"DEVICE_TYPE_INVALID","force_earliest_schedule":false,"native_emitter_backend_config":{"type":"NATIVE_EMITTER_TYPE_INVALID","unroll_factor":0},"operation_queue_id":"0","reification_cost":[]}
+  %loop_divide_fusion.5 = f64[4096,128]{1,0} fusion(%loop_divide_fusion.4, %loop_divide_fusion.3, %loop_multiply_fusion, %loop_divide_fusion.2, %param.5, /*index=5*/%loop_divide_fusion.1, %param.7, %param.6), kind=kLoop, calls=%fused_divide.5, metadata={op_name="jit(f)/div" stack_frame_id=19}, backend_config={"device_type":"DEVICE_TYPE_INVALID","force_earliest_schedule":false,"native_emitter_backend_config":{"type":"NATIVE_EMITTER_TYPE_INVALID","unroll_factor":0},"operation_queue_id":"0","reification_cost":[]}
+  %loop_add_fusion.3 = f64[4096,128]{1,0} fusion(%loop_divide_fusion.5, %loop_divide_fusion.6, %loop_divide_fusion.4, %loop_divide_fusion.3, %loop_multiply_fusion, /*index=5*/%loop_divide_fusion.2, %param.5, %loop_divide_fusion.1, %param.7, %param.6), kind=kLoop, calls=%fused_add.3, metadata={op_name="jit(f)/add" stack_frame_id=5}, backend_config={"device_type":"DEVICE_TYPE_INVALID","force_earliest_schedule":false,"native_emitter_backend_config":{"type":"NATIVE_EMITTER_TYPE_INVALID","unroll_factor":0},"operation_queue_id":"0","reification_cost":[]}
+  %loop_add_fusion = f64[4096,128]{1,0} fusion(%loop_divide_fusion.2, %param.4, %loop_divide_fusion.1), kind=kLoop, calls=%fused_add, metadata={op_name="jit(f)/add" stack_frame_id=8}, backend_config={"device_type":"DEVICE_TYPE_INVALID","force_earliest_schedule":false,"native_emitter_backend_config":{"type":"NATIVE_EMITTER_TYPE_INVALID","unroll_factor":0},"operation_queue_id":"0","reification_cost":[]}
+  %loop_multiply_fusion.1 = f64[4096,128]{1,0} fusion(%loop_divide_fusion.5, %loop_divide_fusion.3, %loop_divide_fusion.1, %param.5), kind=kLoop, calls=%fused_multiply.1, metadata={op_name="jit(f)/mul" stack_frame_id=25}, backend_config={"device_type":"DEVICE_TYPE_INVALID","force_earliest_schedule":false,"native_emitter_backend_config":{"type":"NATIVE_EMITTER_TYPE_INVALID","unroll_factor":0},"operation_queue_id":"0","reification_cost":[]}
+  %loop_add_fusion.1 = f64[4096,128]{1,0} fusion(%loop_add_fusion, %loop_divide_fusion.3, %loop_divide_fusion.4), kind=kLoop, calls=%fused_add.1, metadata={op_name="jit(f)/add" stack_frame_id=8}, backend_config={"device_type":"DEVICE_TYPE_INVALID","force_earliest_schedule":false,"native_emitter_backend_config":{"type":"NATIVE_EMITTER_TYPE_INVALID","unroll_factor":0},"operation_queue_id":"0","reification_cost":[]}
+  %loop_add_fusion.2 = f64[4096,128]{1,0} fusion(%loop_add_fusion.1, %loop_divide_fusion.5, %loop_divide_fusion.6), kind=kLoop, calls=%fused_add.2, metadata={op_name="jit(f)/add" stack_frame_id=8}, backend_config={"device_type":"DEVICE_TYPE_INVALID","force_earliest_schedule":false,"native_emitter_backend_config":{"type":"NATIVE_EMITTER_TYPE_INVALID","unroll_factor":0},"operation_queue_id":"0","reification_cost":[]}
+  %loop_divide_fusion.12 = f64[4096,128]{1,0} fusion(%loop_multiply_fusion.1, %loop_add_fusion.3), kind=kLoop, calls=%fused_divide.12, metadata={op_name="jit(f)/div" stack_frame_id=19}, backend_config={"device_type":"DEVICE_TYPE_INVALID","force_earliest_schedule":false,"native_emitter_backend_config":{"type":"NATIVE_EMITTER_TYPE_INVALID","unroll_factor":0},"operation_queue_id":"0","reification_cost":[]}
+        ...  [log-depth PCR unroll elided: 7 _shift_up/_shift_down
+             passes over the f64[4096,128] per-shard batch] ...
+
+===== collectives grep (empty = partitions cleanly, no all-gather) =====
+$ grep -E 'all-gather|all-reduce|all-to-all|collective-permute|reduce-scatter' minimal_hlo_pcr_n128.txt
+(no matches — zero collectives in the module)

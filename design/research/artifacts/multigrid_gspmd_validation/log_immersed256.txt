@@ -1,0 +1,59 @@
+E0718 20:43:44.553189 1587946 slow_operation_alarm.cc:73] Constant folding an instruction is taking > 1s:
+
+  %pad.2330 = f64[256,256,256]{2,1,0} pad(%constant.766, %constant.765), padding=0_0x0_0x0_1, metadata={op_name="jit(solve)/concatenate" stack_frame_id=3824}
+
+This isn't necessarily a bug; constant-folding is inherently a trade-off between compilation time and speed at runtime. XLA has some guards that attempt to keep constant folding from taking too long, but fundamentally you'll always be able to come up with an input program that takes a long time.
+
+If you'd like to file a bug, run with envvar XLA_FLAGS=--xla_dump_to=/tmp/foo and attach the results.
+E0718 20:43:44.630100 1587583 slow_operation_alarm.cc:140] The operation took 1.077022207s
+Constant folding an instruction is taking > 1s:
+
+  %pad.2330 = f64[256,256,256]{2,1,0} pad(%constant.766, %constant.765), padding=0_0x0_0x0_1, metadata={op_name="jit(solve)/concatenate" stack_frame_id=3824}
+
+This isn't necessarily a bug; constant-folding is inherently a trade-off between compilation time and speed at runtime. XLA has some guards that attempt to keep constant folding from taking too long, but fundamentally you'll always be able to come up with an input program that takes a long time.
+
+If you'd like to file a bug, run with envvar XLA_FLAGS=--xla_dump_to=/tmp/foo and attach the results.
+immersed n=256 devices=1
+partial cells: 6119586 entries; wet frac 0.706
+{
+  "tag": "spectral",
+  "n": 256,
+  "iters": 71,
+  "residual_norm": 1.8182006396961062e-05,
+  "rel_residual": 9.852233934129606e-09,
+  "median_ms": 482.1466476249043,
+  "min_ms": 482.1203489031177,
+  "max_ms": 482.18957770150155,
+  "compile_s": 15.33948312595021,
+  "all_ms": [
+    482.1203489031177,
+    482.1409404510632,
+    482.1414784004446,
+    482.15181684936397,
+    482.1550334454514,
+    482.18957770150155
+  ],
+  "maxu": 1.1105673928349473
+}
+{
+  "tag": "mg-cusparse",
+  "n": 256,
+  "iters": 21,
+  "residual_norm": 1.2705483007593785e-05,
+  "rel_residual": 6.88468522691999e-09,
+  "median_ms": 430.15214962360915,
+  "min_ms": 430.08326294948347,
+  "max_ms": 440.9153774031438,
+  "compile_s": 54.94281536096241,
+  "all_ms": [
+    430.08326294948347,
+    430.11066254694015,
+    430.11506004841067,
+    430.1892391988076,
+    435.1551032974385,
+    440.9153774031438
+  ],
+  "maxu": 1.1105673927770985
+}
+
+SUMMARY n=256: spectral 482.15 ms/step (iters 71, relres 9.85e-09) | mg-cusparse 430.15 ms/step (iters 21, relres 6.88e-09) | mg speedup 1.12x
