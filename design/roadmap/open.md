@@ -123,29 +123,6 @@ Remaining, per
   (shipped behavior, consistent with negotiate) and the
   `_cap_for_sharding` over-reach onto non-sharded axes.
 
-## Mapped chunk-NaN hardening — residuals
-
-The 2026-07-17 "mapped + advection + chunked scan goes non-finite on
-GPU" fault itself is resolved (entry in [`done.md`](done.md); record
-[`../research/mapped_chunk_nonfinite_rootcause.md`](../research/mapped_chunk_nonfinite_rootcause.md)),
-and the chunk-parity regression that pins the class shipped with this
-change (entry in [`done.md`](done.md)). One hardening item is held:
-
-- **MetricScaled pad-inf seal — held pending owner decision D4.** The
-  seal is implemented and reviewed on local branch
-  `fix/pad-inf-hardening` (commit `76eb9461`): `_sealed_divide`
-  applied to both `MetricScaled` divide branches, bitwise on valid
-  cells, pad storage kept finite, VJP finite, with operator tests. It
-  is **not landed**: dev `93049651` documents the deferral in
-  `mapped.py`, and because the divide sits in the every-step pressure
-  solve the "~free" cost claim is unproven there. The seal is
-  **defensive-only** today — the 4-combination red-check proved the
-  historical chunk fault detonates via `_divide_by_jacobian` (already
-  sealed on dev) and **not** via `MetricScaled`: reverting only the
-  `MetricScaled` seal keeps the parity test green, so nothing is
-  unguarded now. Owner decision D4: measure the seal's step cost and
-  land `76eb9461`, or accept the deferral and delete the branch.
-
 ## Finite-volume nonhydro — decisions and validation
 
 All FV stages (F0–F6) are shipped — every non-immersed grid serves
@@ -212,12 +189,6 @@ the scoping §10–§13). Open:
     interpolate row resolves — but the seam sits in the shared
     `coordinate_mapping` machinery, so the claim needs a
     per-call-site justification, not a blanket arm.
-  - **`MetricScaled` divides** (`mapped.py:219-222`) share the
-    masked-singularity structure but are empirically reverse-safe;
-    guard only if a composition exposes them (VJP-fix audit). Note
-    2026-07-18: the same pad-`inf` structure was the *forward*
-    chunk≥2 NaN (see the mapped chunk-NaN hardening entry) — the
-    forward exposure is one composition away too.
 
 [`../plans/active/fv_nonhydro_scoping.md`](../plans/active/fv_nonhydro_scoping.md)
 
@@ -513,52 +484,14 @@ V-cycle kernel swap it called for shipped 2026-07-18 (merge
   mg-cuSPARSE is 1.11× at 512³ but 0.37× at 128³ (per-level collective
   latency), so any lever hunt is large-n / multi-GPU-aware.
 
-## Differentiable run surface — `model.propagator()`
+## TangentPropagator — the D5 forward-mode surface
 
-Reverse-mode `jax.grad` through a run is exact and policy-tested
-(record:
-[`../research/jax_grad_run_investigation.md`](../research/jax_grad_run_investigation.md);
-AGENTS.md "Differentiability policy"), but the supported spelling is
-still the private kernel recipe (`_chunk_body` + leaf splicing by
-identity). The public surface is one composition away — nothing new
-has to be invented, only assembled:
-
-- **Surface**: `model.propagator(*, wrt=("friction.nu", ...), steps,
-  remat=None)` returning a pure `(theta, state=None) -> State`.
-  Name resolution reuses the `update_parameters` machinery verbatim
-  (binding table -> `(slot, attr)` -> `_replace_leaf`,
-  `model.py:1822`/`1835`) but builds a carry *transformer* instead of
-  committing; `wrt` names bound parameters (incl. `TIME_STEP`) or
-  PROGNOSTIC fields (IC differentiation splices
-  `state[name].storage`).
-- **Kernel**: `_chunk_body` without donation; `record` static,
-  stepper loop-invariant; no io, no `bool(panic)` host sync — the
-  panic pair rides the returned carry for functional inspection.
-- **`remat`**: optional `jax.checkpoint` on the scan body. Reverse
-  mode tapes O(steps) (measured ~1.4 MB/step at 8^3); production
-  adjoints need this knob. Requires a small hook in `_chunk_body`.
-- **Warm-up semantics**: default to a fresh stepper state (gradients
-  include the multistep warm-up ramp); document.
-- **Taught errors**: steppers with `freezes_linear_operator`
-  (ETDRK4) refuse `wrt` names owned by the frozen operator —
-  gradients w.r.t. a stale `exp(L dt)` snapshot are silently wrong.
-- **Follow-ons unlocked**: the D5 `TangentPropagator` (`jax.jvp` of
-  `model.tendency`,
-  [`../specs/model/04_run_loop_io.md`](../specs/model/04_run_loop_io.md))
-  shares the name-resolution piece; the AGENTS.md test-policy pattern
-  migrates from the private kernel to the public surface once it
-  exists.
-- **Residual hazards to sweep when first exercised under grad**: the
-  `metric_weight` divisions in `model/modules/coriolis.py`
-  (`/ w.to(v)`, `/ w_1`, `/ w_2`) share the masked-0/0 class the
-  Sadourny PV division was cured of; guard like
-  `_potential_vorticity` when that path meets an adjoint.
-
-Closure plan (investigation-backed, 2026-07-18):
-[`../plans/active/differentiability_plan.md`](../plans/active/differentiability_plan.md)
-— phases: record hygiene, coriolis VJP seals + coverage, the
-propagator surface itself (naming/materialized-param/frozen-L
-gaps resolved there), tangent deferred.
+*Small.* `jax.jvp` of `model.tendency` (spec
+[`../specs/model/04_run_loop_io.md`](../specs/model/04_run_loop_io.md));
+the shared name-resolution piece shipped with `Model.propagator` (the
+public reverse-mode surface — entry in [`done.md`](done.md)). **No
+consumer exists** (NNMD descoped); build when one appears. Plan §5.4:
+[`../plans/active/differentiability_plan.md`](../plans/active/differentiability_plan.md).
 ---
 
 # Long-term goals

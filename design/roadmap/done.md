@@ -96,6 +96,66 @@ Implementation record:
 
 ## Landed since, outside the numbered tasks
 
+- **Differentiability closure campaign — the public differentiable run
+  surface plus the last VJP seals** (2026-07-18, executing
+  [`../plans/active/differentiability_plan.md`](../plans/active/differentiability_plan.md))
+  — the masked-singularity VJP class is now **closed across the step
+  path** and `jax.grad` through a run has a public spelling. Five
+  merges. Record hygiene (`45629c35`): three stale records corrected
+  (jax_grad_run addendum for the mapped-pressure seal `ee350bda`;
+  fv_nonhydro_scoping + hydrostatic_model_plan dated in-place notes).
+  The three coriolis `metric_weight` divides sealed via new
+  `_safe_metric_divide` (`93049651`: H1 `linear_rotation` `/ w.to(v)`,
+  H2/H3 `chart_rotation` `/ w_1`, `/ w_2`; double-`where` + halo-trace
+  escape hatch, 3 autodiff regressions — immersed weighted-rotation
+  IC-grad FD 1.2e-13, chart-rotation term-level FD 1.35e-11). The
+  `MetricScaled` reciprocal/coefficient divides sealed via
+  `_sealed_metric_divide` (`7fdbc900`; see D4 note below). The Sadourny
+  chart kinetic-energy `ekin/sqg_p` and conserving-Coriolis
+  `f.to(corner)/h.to(corner)` PV divides sealed (`39fe604c`: a
+  `_sealed_metric_divide` helper and new `_safe_pv_divide`, covering
+  `CoriolisEnergyCorrection` and every
+  `Nonlinear{FPlane,BetaPlane,Rotation}Coriolis` route). And the public
+  surface `Model.propagator(*, wrt=(), steps, remat=None)` returning a
+  pure `(theta, state=None) -> ModelState` (`dfd8ce0a`): calls
+  `_chunk_body` directly (no donation, no host panic sync), splices
+  `wrt` bound-parameter / `TIME_STEP` / PROGNOSTIC leaves by identity,
+  defaults to a fresh stepper state (the warm-up ramp is in the
+  gradient), teaches four refusals (unknown name, identity-defaulted
+  constant, frozen-L under `freezes_linear_operator`, materialized
+  owner); `remat` is a keyword-only `jax.checkpoint` hook forcing
+  `unroll=1` (grad bitwise-equal to plain), forward parity with
+  `advance` bitwise (maxdiff 0.0), 17 tests in
+  `tests/model/test_model_propagator.py`. A package-wide sweep of the
+  sw2/nonhydro2/hydrostatic tendency modules then verdict-tabled every
+  other metric/thickness divide as already-sealed or cannot-fire — the
+  masked-singularity class is CLOSED across the step path. AGENTS.md's
+  differentiability policy now names `Model.propagator` the canonical
+  pattern (the private `_chunk_body` shards stay valid). **Owner-review
+  notes (unratified):** (1) D4 was executed as a *seal*, not the plan's
+  approved comment-only watch-item — the premise was DISPROVEN: the
+  `MetricScaled` divides fire live (walled/sphere IC-grad through
+  `_chunk_body` NaNs, isolated by bisection, fires with `coriolis=None`
+  too); grounds were the live NaN + the roadmap's own "guard when a
+  composition exposes them" trigger + a 0.000%-added-FLOP cost proof
+  (static-geometry mask constant-folds, singular quotient DCE'd; the
+  ALE metric tangent handled by construction). (2) the propagator
+  checks frozen-L *before* materialized (more specific message; every
+  reachable L-param today is also materialized). (3) the frozen-L set
+  is `linear_params`-only — params feeding L via `linear_fields` AUX
+  fields are caught by the materialized refusal, so refusal
+  completeness is identical today, but when TDF wave 2 makes
+  linear-consumed fields recomputed-in-trace the frozen-L set must
+  learn `linear_fields`. (4) the materialized refusal over-refuses a
+  differentiable param that merely shares an owner with a materialized
+  field (e.g. sw `scaling.rossby`); in-trace rematerialization is the
+  recorded follow-on. Phase 3 (D5 `TangentPropagator`, `jax.jvp` of
+  `model.tendency`) is **deferred** — no consumer (NNMD descoped); the
+  shared name-resolution piece already shipped, so it stays a small
+  lift ([`open.md`](open.md) sized-deferred). Record:
+  [`../plans/active/differentiability_plan.md`](../plans/active/differentiability_plan.md)
+  §10.
+
 - **Stretched+terrain GPU validation — complete; semicoarsening
   multi-device break root-caused and closed** (2026-07-18) — the
   multi-GPU leg validated the core stretched+terrain paths (N2
