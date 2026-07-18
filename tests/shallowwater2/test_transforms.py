@@ -34,8 +34,22 @@ from .conftest import N, make_grid, make_model
 COMPONENTS = ("u", "v", "p")
 
 
+def _pinned_grid(*, periodic_y=True):
+    # device_ids=(0,) twin of the conftest make_grid: the analytic
+    # projections synthesize through the naive (GSPMD) transform, and the
+    # 2-D-channel fused contraction declines a single periodic axis, so
+    # both are a Tier-1 taught error on a sharded axis (see transform.py
+    # / _eigenbasis._reject_sharded_projection). Pinning to one device
+    # tests the math at any device count (single-device suite unchanged).
+    mx = fr.spatial.meshes.IntervalMesh(N, (0.0, 1.0),
+                                     periodic=True, name="x")
+    my = fr.spatial.meshes.IntervalMesh(N, (0.0, 1.0),
+                                     periodic=periodic_y, name="y")
+    return fr.spatial.Grid((mx, my), device_ids=(0,))
+
+
 def _eig(f0=1.0, csqr=1.0):
-    model = make_model(csqr=csqr, f0=f0)
+    model = make_model(_pinned_grid(), csqr=csqr, f0=f0)
     return sw.eigenmodes.from_model(model), model
 
 
@@ -200,7 +214,7 @@ def test_projection_is_tier_one_and_costless():
 @pytest.fixture(scope="module")
 def channel():
     """One walled channel model + labeled eigenbasis (shared)."""
-    model = make_model(make_grid(periodic_y=False), advection=False)
+    model = make_model(_pinned_grid(periodic_y=False), advection=False)
     return model, sw.eigenbasis(model)
 
 
@@ -387,7 +401,7 @@ def test_projection_rest_zero_completes_a_passive_tracer():
     # a state extended by a prognostic passive tracer: the vortical
     # projection (rest="zero") returns the tracer as a zero field on
     # its own space, and the residual carries it fully (§10.7.2)
-    model = make_model(advection=False,
+    model = make_model(_pinned_grid(), advection=False,
                        modules_extra=(_PassiveTracer(),))
     _state(model, seed=11)
     rng = np.random.default_rng(12)
@@ -412,44 +426,27 @@ def test_projection_rest_zero_completes_a_passive_tracer():
 #  The sharded multi-device application (forced-devices gate)
 # ================================================================
 @pytest.mark.multi_device
-def test_channel_projection_is_device_count_invariant(forced_devices):
-    # the projector application composes under the domain
-    # decomposition: the partial-axis transforms and the per-plane
-    # contraction run on the sharded state (no host gather), and the
-    # result matches the explicit one-device grid
+def test_channel_projection_on_a_sharded_grid_is_a_taught_error(
+        forced_devices):
+    # known test debt: a 2-D channel has a single periodic axis, so the
+    # fused distributed contraction declines it (it serves the 3-D
+    # channel; see test_eigenbasis_distributed.py) and the projection
+    # falls to the naive transform -> the taught error. Device-count
+    # invariance is not available for the 2-D channel; the projection
+    # math is tested at any device count via the device_ids=(0,) channel.
     if forced_devices is not None:
         assert jax.device_count() == forced_devices
-
-    def build(device_ids):
-        mx = fr.spatial.meshes.IntervalMesh(N, (0.0, 1.0),
-                                         periodic=True, name="x")
-        my = fr.spatial.meshes.IntervalMesh(N, (0.0, 1.0),
-                                         periodic=False, name="y")
-        return make_model(fr.spatial.Grid((mx, my),
-                                       device_ids=device_ids),
-                          advection=False)
-
+    mx = fr.spatial.meshes.IntervalMesh(N, (0.0, 1.0),
+                                     periodic=True, name="x")
+    my = fr.spatial.meshes.IntervalMesh(N, (0.0, 1.0),
+                                     periodic=False, name="y")
+    model = make_model(fr.spatial.Grid((mx, my)), advection=False)
     rng = np.random.default_rng(12)
-    fields = {"u": rng.standard_normal((N, N)),
-              "v": rng.standard_normal((N, N - 1)),
-              "p": rng.standard_normal((N, N))}
-    results = {}
-    for tag, device_ids in (("many", None), ("one", (0,))):
-        model = build(device_ids)
-        model.set_fields(**fields)
-        z = sw.State({c: model.state[c] for c in COMPONENTS})
-        proj = sw.transforms.VorticalProjection(sw.eigenbasis(model))
-        results[tag] = proj(z)
-        if tag == "many":
-            # genuinely sharded in and out (x is the blocked factor)
-            assert z["u"]._data.sharding.spec[0] == "devices"
-            out = results[tag]["u"]._data
-            assert len(out.sharding.device_set) == jax.device_count()
-            assert out.sharding.spec[0] == "devices"
-            # idempotent on the sharded state
-            twice = proj(results[tag])
-            assert _absmax(twice, results[tag]) < 1e-12
-    assert max(
-        float(np.abs(np.asarray(results["many"][c].data)
-                     - np.asarray(results["one"][c].data)).max())
-        for c in COMPONENTS) < 1e-11
+    model.set_fields(u=rng.standard_normal((N, N)),
+                     v=rng.standard_normal((N, N - 1)),
+                     p=rng.standard_normal((N, N)))
+    z = sw.State({c: model.state[c] for c in COMPONENTS})
+    proj = sw.transforms.VorticalProjection(sw.eigenbasis(model))
+    with pytest.raises(NotImplementedError,
+                       match="cannot run on this grid"):
+        proj(z)

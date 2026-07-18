@@ -49,7 +49,11 @@ def make_sw_model(*, ro=0.1, periodic_y=True, coriolis=None, n=N):
     if coriolis is None:
         coriolis = sw.modules.FPlaneCoriolis(f0=1.0)
     return sw.Model(
-        grid=fr.spatial.Grid((mx, my)), csqr=1.0, rossby_number=ro,
+        # Pin to one device: the balance expansion projects through the
+        # naive change-of-representation transform, which raises the
+        # Tier-1 guard on a sharded transform axis (see transform.py).
+        grid=fr.spatial.Grid((mx, my), device_ids=(0,)),
+        csqr=1.0, rossby_number=ro,
         coriolis=coriolis, advection=True,
         time_stepper=fr.model.time_steppers.AdamBashforth(5e-3, order=3))
 
@@ -78,7 +82,10 @@ def make_nh_model(*, ro=0.05, walled=None, n=8, **kwargs):
             n, (0.0, 2 * np.pi), periodic=(name != walled), name=name)
         for name in ("x", "y", "z"))
     return nh.Model(
-        grid=fr.spatial.Grid(meshes), dt=0.02, rossby_number=ro,
+        # Pin to one device: the naive transform raises the Tier-1 guard
+        # on a sharded transform axis (see transform.py).
+        grid=fr.spatial.Grid(meshes, device_ids=(0,)),
+        dt=0.02, rossby_number=ro,
         dsqr=1.0, coriolis=nh.FPlaneCoriolis(f0=1.0),
         stratification=nh.ConstantStratification(n2=4.0), **kwargs)
 
@@ -335,7 +342,10 @@ def test_lint_skips_a_selection_with_zero_nonlinear_tendency():
     my = fr.spatial.meshes.IntervalMesh(N, (0.0, 1.0), periodic=True,
                                      name="y")
     quiet = sw.Model(
-        grid=fr.spatial.Grid((mx, my)), csqr=1.0, rossby_number=0.1,
+        # Pin to one device: the naive transform raises the Tier-1 guard
+        # on a sharded transform axis (see transform.py).
+        grid=fr.spatial.Grid((mx, my), device_ids=(0,)),
+        csqr=1.0, rossby_number=0.1,
         coriolis=sw.modules.FPlaneCoriolis(f0=1.0), advection=True,
         modules_extra=(ZeroQuadratic(),),
         time_stepper=fr.model.time_steppers.AdamBashforth(5e-3, order=3))
@@ -381,6 +391,11 @@ def test_residuals_vanish_on_degenerate_states(sw_setup):
 # ================================================================
 #  8. v1 regression: the old-stack shallow-water NNMD
 # ================================================================
+# single_device: this regression instantiates the OLD stack (swold),
+# whose Cartesian grid is not device-count invariant (its arrays scatter
+# into asymmetric per-rank halos under a forced multi-device suite,
+# independent of the new-stack Tier-1 transform guard).
+@pytest.mark.single_device
 def test_matches_the_v1_shallow_water_nnmd():
     # the old-stack NNMD (fr.projection.NNMD, hard-coded to the
     # shallow-water branch pairing — correct for SW) on a matched

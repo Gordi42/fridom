@@ -64,10 +64,14 @@ def walled(request):
     # nodal ones), so the FV eigenbasis is bit-identical to the nodal
     # one — asserted directly by
     # test_walled_fv_eigenbasis_is_bitwise_nodal.
+    # device_ids=(0,) pins to one device on any device count: the
+    # eigenmode projections synthesize through the naive (GSPMD)
+    # transform, a Tier-1 taught error on a sharded axis (transform.py).
     grid = Grid((
         IntervalMesh(N, (0.0, 2 * np.pi), periodic=True, name="x"),
         IntervalMesh(N, (0.0, 2 * np.pi), periodic=True, name="y"),
-        IntervalMesh(N, (0.0, LZ), periodic=False, name="z")))
+        IntervalMesh(N, (0.0, LZ), periodic=False, name="z")),
+        device_ids=(0,))
     model = nh.Model(
         grid=grid, dt=DT, advection=False, dsqr=DSQR,
         coriolis=FPlaneCoriolis(f0=F0),
@@ -175,9 +179,12 @@ def test_physical_spaces_match_the_model(walled):
 def test_periodic_kit_spaces_are_the_phase1_spaces():
     # regression: on a fully periodic grid the wall_bc channels are
     # inert and the kit resolves the identical interned spaces
+    # device_ids=(0,) pins to one device on any device count: the
+    # eigenmode projections synthesize through the naive (GSPMD)
+    # transform, a Tier-1 taught error on a sharded axis (transform.py).
     grid = Grid(tuple(
         IntervalMesh(N, (0.0, 2 * np.pi), periodic=True, name=name)
-        for name in ("x", "y", "z")))
+        for name in ("x", "y", "z")), device_ids=(0,))
     em = nh.eigenmodes.Eigenmodes(grid, f0=1.0, n2=3.0, dsqr=2.0)
     phase1 = {
         "u": fr.spatial.Staggered("x").resolve(grid),
@@ -195,9 +202,12 @@ def test_periodic_kit_spaces_are_the_phase1_spaces():
 def test_periodic_projector_path_is_bitwise_phase1():
     # the chart is identity on a periodic grid: the projector's data
     # path reproduces the Phase-1 formula bitwise
+    # device_ids=(0,) pins to one device on any device count: the
+    # eigenmode projections synthesize through the naive (GSPMD)
+    # transform, a Tier-1 taught error on a sharded axis (transform.py).
     grid = Grid(tuple(
         IntervalMesh(N, (0.0, 2 * np.pi), periodic=True, name=name)
-        for name in ("x", "y", "z")))
+        for name in ("x", "y", "z")), device_ids=(0,))
     em = nh.eigenmodes.Eigenmodes(grid, f0=1.0, n2=3.0, dsqr=2.0)
     rng = np.random.default_rng(3)
     template = em.q(0)
@@ -281,10 +291,14 @@ def test_walled_dispersion_continuum_limit():
     # relation (second-order discretization error); a finer
     # eigenmodes-only grid keeps the tolerance honest
     n = 16
+    # device_ids=(0,) pins to one device on any device count: the
+    # eigenmode projections synthesize through the naive (GSPMD)
+    # transform, a Tier-1 taught error on a sharded axis (transform.py).
     grid = Grid((
         IntervalMesh(n, (0.0, 2 * np.pi), periodic=True, name="x"),
         IntervalMesh(n, (0.0, 2 * np.pi), periodic=True, name="y"),
-        IntervalMesh(n, (0.0, LZ), periodic=False, name="z")))
+        IntervalMesh(n, (0.0, LZ), periodic=False, name="z")),
+        device_ids=(0,))
     em = nh.eigenmodes.Eigenmodes(grid, f0=F0, n2=N2, dsqr=DSQR)
     got = np.broadcast_to(np.real(np.asarray(em.omega(1).data)),
                           (n // 2 + 1, n, n - 1))
@@ -741,10 +755,14 @@ def test_walled_function_structural_zero_guard(walled):
 # ================================================================
 def _walled_from_model(family):
     """Build a fresh walled model + its from_model eigenmodes."""
+    # device_ids=(0,) pins to one device on any device count: the
+    # eigenmode projections synthesize through the naive (GSPMD)
+    # transform, a Tier-1 taught error on a sharded axis (transform.py).
     grid = Grid((
         IntervalMesh(N, (0.0, 2 * np.pi), periodic=True, name="x"),
         IntervalMesh(N, (0.0, 2 * np.pi), periodic=True, name="y"),
-        IntervalMesh(N, (0.0, LZ), periodic=False, name="z")))
+        IntervalMesh(N, (0.0, LZ), periodic=False, name="z")),
+        device_ids=(0,))
     model = nh.Model(
         grid=grid, dt=DT, advection=False, dsqr=DSQR,
         coriolis=FPlaneCoriolis(f0=F0),

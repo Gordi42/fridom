@@ -27,8 +27,21 @@ from .conftest import N, make_grid, make_model
 COMPONENTS = ("u", "v", "p")
 
 
+def _pinned_grid(n=N, *, periodic_x=True, periodic_y=True):
+    # device_ids=(0,) keeps every axis local: the analytic eigenmode
+    # projections synthesize through the naive (GSPMD) transform, a
+    # Tier-1 taught error on a sharded axis (see transform.py). The
+    # shared conftest.make_grid is left unpinned (other shallowwater2
+    # files run @pytest.mark.multi_device tests on it).
+    mx = fr.spatial.meshes.IntervalMesh(n, (0.0, 1.0),
+                                        periodic=periodic_x, name="x")
+    my = fr.spatial.meshes.IntervalMesh(n, (0.0, 1.0),
+                                        periodic=periodic_y, name="y")
+    return fr.spatial.Grid((mx, my), device_ids=(0,))
+
+
 def _eig(f0=1.0, csqr=1.0):
-    model = make_model(csqr=csqr, f0=f0)
+    model = make_model(csqr=csqr, f0=f0, grid=_pinned_grid())
     return sw.eigenmodes.from_model(model), model
 
 
@@ -280,7 +293,7 @@ def test_odd_grid_vortical_column_is_bitwise_the_composed_formula():
     # geostrophic column (and hence the projector action) is
     # bitwise the plain composed pre-Nyquist formula
     n = 9
-    em = sw.eigenmodes.Eigenmodes(make_grid(n=n), f0=1.5, csqr=2.0)
+    em = sw.eigenmodes.Eigenmodes(_pinned_grid(n=n), f0=1.5, csqr=2.0)
     x, y = em._axes
     k, a, ab = em.k, em.a, em.ab
     old = {
@@ -337,7 +350,8 @@ def test_vortical_projection_is_real_safe_on_the_even_grid():
 @pytest.fixture(scope="module")
 def mode_setup():
     """One linear periodic model + eigenmodes for the mode tests."""
-    model = make_model(csqr=2.0, f0=1.5, advection=False)
+    model = make_model(csqr=2.0, f0=1.5, advection=False,
+                       grid=_pinned_grid())
     return model, sw.eigenmodes.from_model(model)
 
 
@@ -453,7 +467,7 @@ def test_mode_errors(mode_setup):
     # the standard family is complete, the Nyquist strata included;
     # only degenerate parameters (f0 = 0 empties the geostrophic
     # mean) still hit the structural guard
-    degenerate = sw.eigenmodes.Eigenmodes(make_grid(), f0=0.0,
+    degenerate = sw.eigenmodes.Eigenmodes(_pinned_grid(), f0=0.0,
                                           csqr=1.0)
     with pytest.raises(ValueError, match="structurally"):
         degenerate.mode(0, {"x": 0, "y": 0})

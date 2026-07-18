@@ -440,6 +440,7 @@ class Transform(UnaryOperator, ABC):
             quantity).
         """
         self._check_grid(f, "forward")
+        self._reject_sharded_transform(f, "forward")
         plan = self.forward_plan(f.function_space)
         data = jnp.asarray(f.data)
         fused = self._forward_fused_kernel(data, plan)
@@ -467,6 +468,7 @@ class Transform(UnaryOperator, ABC):
             space when padded; metadata preserved).
         """
         self._check_grid(f, "backward")
+        self._reject_sharded_transform(f, "backward")
         plan = self.backward_plan(f.function_space)
         data = jnp.asarray(f.data)
         fused = self._backward_fused_kernel(data, plan)
@@ -1019,6 +1021,76 @@ class Transform(UnaryOperator, ABC):
                 "transforms are grid-bound; the operand was created "
                 "on a different grid",
                 left=self._grid, right=f.grid, operation=operation)
+
+    def _reject_sharded_transform(self, f: FieldLike,
+                                  operation: str) -> None:
+        r"""
+        Taught skip when a transform axis is sharded (Tier 1).
+
+        Description
+        -----------
+        ``forward``/``backward`` always run the single-device plan;
+        the safe distributed lowerings (``SlabPlan`` in
+        ``spatial.operators.distributed_solve``, ``ContractPlan`` in
+        ``spatial.operators.distributed_contract``) run their FFTs
+        inside their own ``jax.shard_map`` and bypass this seam, so
+        this guard fires only for a *naive* consumer that would run a
+        transform axis through the plain GSPMD path. That path would
+        silently all-gather the sharded axis (CPU) or crash in XLA's
+        distributed-FFT lowering (GPU, jaxlib 0.10.2 — ``complex64``
+        twiddle constants multiplied against ``complex128`` cuFFT
+        data, rejected by the HLO verifier). The predicate reads the
+        **operand's own** function-space layout (not the grid's
+        default), so a deliberately gathered/replicated field passes;
+        a sharded **non-transform** axis (Tier 2) is left legal (the
+        FFT axes are local, GSPMD needs no reshard). The check is
+        host-side Python on static layout metadata — a plain ``if``
+        outside any traced value. A ``device_ids=(0,)`` grid and a
+        grid too small to shard both collapse to one device and are
+        exempt. See ``design/research/multidevice_test_faults.md``.
+
+        Parameters
+        ----------
+        f : FieldLike
+            The operand field (carries its function-space layout).
+        operation : str
+            The calling direction (``"forward"`` / ``"backward"``),
+            for the error message.
+
+        Raises
+        ------
+        NotImplementedError
+            When the decomposition spans several devices and the
+            operand's layout shards at least one of this transform's
+            stage axes.
+        """
+        decomposition = self._grid.decomposition
+        if getattr(decomposition, "device_count", 1) <= 1:
+            return
+        layout = f.function_space.layout
+        if layout is None:
+            return
+        sharded = tuple(
+            axis for axis in self._stage_axes(f.function_space.bare)
+            if not layout.is_local(axis))
+        if not sharded:
+            return
+        raise NotImplementedError(
+            f"{type(self).__name__}.{operation} cannot run on this "
+            f"grid that shards the transform axis/axes {sharded!r} "
+            "across devices: the naive change-of-representation path "
+            "would silently all-gather the sharded axis (CPU) or "
+            "crash in XLA's distributed-FFT lowering (GPU, jaxlib "
+            "0.10.2 — complex64 twiddle constants multiplied against "
+            "complex128 cuFFT data, rejected by the HLO verifier). "
+            "The distributed spectral solve "
+            "(spatial.operators.distributed_solve) and the fused "
+            "channel projection (spatial.operators.distributed_"
+            "contract) run their transforms inside a jax.shard_map "
+            "and are unaffected. For host-side spectral analysis "
+            "features build the grid on a single device "
+            "(Grid(..., device_ids=(0,)), which leaves every axis "
+            "local); see design/research/multidevice_test_faults.md.")
 
     def _stage_axes(self, bare: SpaceLike) -> tuple[str, ...]:
         """Transform axes present on ``bare``, constants dropped."""
