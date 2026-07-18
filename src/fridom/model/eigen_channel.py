@@ -328,6 +328,13 @@ def channel_eigenpairs(
     sampled per component on its own bounded-axis nodes (see
     :func:`_metric_diagonal`), and must be strictly positive.
 
+    The spectrum is a fixed-``at_time`` snapshot: a time-dependent
+    coefficient (a ``Ramp`` scalar, or a ``time_dependent`` ``csqr`` /
+    ``N^2`` profile field) is frozen at that instant (default 0.0) and
+    the returned eigenbasis does not evolve with the run. This is a
+    deliberately time-frozen analysis surface, not a re-diagonalization
+    contract (TDF-D6).
+
     Parameters
     ----------
     model : Model

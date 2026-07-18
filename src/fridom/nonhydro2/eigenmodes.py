@@ -1117,8 +1117,11 @@ def from_model(
     ``model.parameters`` with the constancy check — a
     ``BetaPlaneCoriolis`` model does not provide ``coriolis.f0`` and
     is rejected (not Fourier-diagonalizable); Ramp-valued parameters
-    are evaluated at ``at_time``. A grid with exactly one bounded
-    **horizontal** axis gets the numeric
+    are evaluated at ``at_time``. The eigenmodes are a fixed-``at_time``
+    snapshot — a time-dependent parameter is frozen at that instant
+    (default 0.0) and the modes do not evolve with the run (TDF-D6, a
+    deliberately time-frozen analysis surface). A grid with exactly one
+    bounded **horizontal** axis gets the numeric
     :class:`~fridom.nonhydro2.channel_eigenmodes.ChannelEigenmodes`
     (the labeled dense-column channel eigenbasis, beta-plane
     included). A multi-walled box is rejected.
