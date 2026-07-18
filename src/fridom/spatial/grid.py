@@ -258,6 +258,7 @@ class Grid:
         device_ids: tuple[int, ...] | None = None,
         family: str = "nodal",
         _allow_replicated: bool = False,
+        _force_replicated: bool = False,
     ) -> None:
         """Assemble a grid from pre-built, pre-named mesh factors."""
         meshes = tuple(meshes)
@@ -299,6 +300,11 @@ class Grid:
         # threaded through both negotiation calls so a coarse level
         # renegotiated in phase B stays replication-capable.
         self._allow_replicated: bool = _allow_replicated
+        # forced-replication flag (MG-D10 agglomeration): only
+        # ``Grid.coarsened(replicated=True)`` sets it, so the public
+        # constructor is unchanged; threaded through both negotiation
+        # calls so a re-negotiated coarse level stays replicated.
+        self._force_replicated: bool = _force_replicated
         self._frozen: bool = False
         # negotiation-fingerprint bookkeeping (grid lifecycle;
         # sealed by freeze())
@@ -313,7 +319,8 @@ class Grid:
         # iteration-1 sync-after-every-operator contract)
         self._decomposition: Decomposition = negotiate(
             self, self._dispatch, device_ids=device_ids,
-            allow_replicated=_allow_replicated)
+            allow_replicated=_allow_replicated,
+            force_replicated=_force_replicated)
         self._random: RandomFieldFactory = RandomFieldFactory(self)
         # measure fields are static mesh geometry (no params seam),
         # so they are memoized per (laid-out space, factor name) —
@@ -335,7 +342,7 @@ class Grid:
         # instead of missing on a fresh grid identity every solve.
         self._coarsened_grids: dict[
             tuple[tuple[tuple[str, int], ...],
-                  tuple[int, ...] | None], Grid] = {}
+                  tuple[int, ...] | None, bool], Grid] = {}
 
     # ================================================================
     #  Identity
@@ -426,6 +433,7 @@ class Grid:
         factors: Mapping[str, int] | int,
         *,
         device_ids: tuple[int, ...] | None = None,
+        replicated: bool = False,
     ) -> Grid:
         """
         Assemble the coarse sibling grid (multigrid / regrid levels).
@@ -446,12 +454,20 @@ class Grid:
         non-``StructuredMesh1D`` mesh raises.
 
         The result is **memoized** per ``(normalized factors,
-        device_ids)``: repeated calls with the same arguments return the
-        identical coarse ``Grid`` object, so a multigrid hierarchy
-        rebuilt on every solver trace re-uses one stable grid identity
-        per level (structure caching, MG-D3/D5 — the per-solve metric /
-        fraction *data* is never cached, it re-derives on the coarse
-        spaces every solve).
+        device_ids, replicated)``: repeated calls with the same
+        arguments return the identical coarse ``Grid`` object, so a
+        multigrid hierarchy rebuilt on every solver trace re-uses one
+        stable grid identity per level (structure caching, MG-D3/D5 —
+        the per-solve metric / fraction *data* is never cached, it
+        re-derives on the coarse spaces every solve).
+
+        With ``replicated=True`` the coarse sibling is negotiated
+        **fully replicated** (every axis device-local, ``Layout({})``)
+        over the same device set even when a factor would still shard —
+        the agglomeration seam (MG-D10): the multigrid hierarchy stops
+        sharding below a tiny-per-shard threshold and runs the coarse
+        levels redundantly on every device, replacing their ring halo
+        exchanges with the collective-free local-axis halo path.
 
         Parameters
         ----------
@@ -461,6 +477,11 @@ class Grid:
         device_ids : tuple[int, ...] | None, optional
             Override the device set; None inherits this grid's
             (default: None).
+        replicated : bool, optional
+            Negotiate the coarse sibling fully replicated over the
+            device set even when a factor would still shard (MG-D10
+            agglomeration); ``False`` keeps the ordinary
+            shard-or-replicate negotiation (default: False).
 
         Returns
         -------
@@ -476,7 +497,8 @@ class Grid:
             mesh.
         """
         factor_map = self._normalize_factors(factors)
-        memo_key = (tuple(sorted(factor_map.items())), device_ids)
+        memo_key = (tuple(sorted(factor_map.items())), device_ids,
+                    replicated)
         cached = self._coarsened_grids.get(memo_key)
         if cached is not None:
             return cached
@@ -505,7 +527,8 @@ class Grid:
             device_ids=(self._resolved_device_ids()
                         if device_ids is None else device_ids),
             family=self._default_family,
-            _allow_replicated=True)
+            _allow_replicated=True,
+            _force_replicated=replicated)
         self._coarsened_grids[memo_key] = coarse
         return coarse
 
@@ -714,7 +737,8 @@ class Grid:
             self, self._dispatch,
             state_spaces=state_spaces, tendency=tendency, halo=halo,
             device_ids=self._device_ids,
-            allow_replicated=self._allow_replicated)
+            allow_replicated=self._allow_replicated,
+            force_replicated=self._force_replicated)
         self._state_spaces = (
             frozenset() if state_spaces is None
             else frozenset(s.bare for s in state_spaces))

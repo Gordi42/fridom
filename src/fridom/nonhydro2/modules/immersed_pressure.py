@@ -102,7 +102,12 @@ from fridom.spatial.operators.multigrid import (
     VerticalBands,
     VerticalLineJacobi,
 )
-from fridom.spatial.operators.multigrid_hierarchy import coarsen_levels
+from fridom.spatial.operators.multigrid_hierarchy import (
+    coarsen_levels,
+)
+from fridom.spatial.operators.multigrid_hierarchy import (
+    validate_agglomerate as _validate_agglomerate,
+)
 from fridom.spatial.operators.staggering import uniform_spacing
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -229,6 +234,18 @@ class ImmersedPressureSolver:
         validated at construction; the backend requirement of
         ``"cusparse"`` is checked at solve time. Ignored for the
         spectral preconditioner (default: ``"auto"``).
+    multigrid_agglomerate : int | None, optional
+        The coarse-grid agglomeration threshold ``tau`` in planes
+        (MG-D10), forwarded to
+        :func:`~fridom.spatial.operators.multigrid_hierarchy.coarsen_levels`.
+        From the first coarse level whose shortest would-be per-shard
+        extent falls below ``tau`` (and that is small enough to
+        replicate) that level and every level below it are built fully
+        replicated, so the redundant coarse compute runs collective-
+        free instead of paying a ring halo exchange to shard one or two
+        planes. ``None`` (the default) disables agglomeration; a no-op
+        on one device. Ignored for the spectral preconditioner
+        (default: None).
 
     Raises
     ------
@@ -254,6 +271,7 @@ class ImmersedPressureSolver:
         preconditioner: str = "spectral",
         multigrid_levels: int | None = None,
         multigrid_tridiagonal_method: str = "auto",
+        multigrid_agglomerate: int | None = None,
     ) -> None:
         """Resolve the flux rows and fetch the fraction fields."""
         if preconditioner not in _PRECONDITIONERS:
@@ -264,6 +282,8 @@ class ImmersedPressureSolver:
         self._multigrid_levels = multigrid_levels
         self._multigrid_tridiagonal_method = validate_tridiagonal_method(
             multigrid_tridiagonal_method)
+        self._multigrid_agglomerate = _validate_agglomerate(
+            multigrid_agglomerate)
         immersed = getattr(grid, "immersed", None)
         if immersed is None:
             raise ValueError(
@@ -653,7 +673,8 @@ class ImmersedPressureSolver:
             self._grid, self._space, vertical=self._vertical,
             max_levels=self._multigrid_levels,
             rediscretize=(rediscretize_fv_coarse
-                          if is_fv(self._space) else None))
+                          if is_fv(self._space) else None),
+            agglomerate=self._multigrid_agglomerate)
         levels: list[MultigridLevel] = []
         for index, (grid, space, transfer) in enumerate(chain):
             solver = self if index == 0 else ImmersedPressureSolver(
