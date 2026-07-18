@@ -376,18 +376,13 @@ profiling nobody has done. Defer.
 
 Stages 0–4 shipped 2026-07-17 (walls free/no-slip on the nodal
 family, implicit no-slip rows, mapped along-σ, the `VerticalMixing`
-stretched/terrain gates, the measure-divide VJP seal; entry in
-[`done.md`](done.md), record
+stretched/terrain gates, the measure-divide VJP seal), and the FV
+walled lift shipped 2026-07-18 (walled `CellAvg` targets take the
+same flux-retag closure — both families now covered; entries in
+[`done.md`](done.md), record + §9 addendum
 [`../research/diffusion_walls_terrain_scoping.md`](../research/diffusion_walls_terrain_scoping.md)).
 Open:
 
-- **FV walled closures** — a `CellAvg` walled target is a taught
-  rejection (a `CellAvg[Dirichlet]` retag is a fixed-value fill, not
-  zero-flux; probed silently wrong at +32.0 on a constant tracer).
-  FV is the nonhydro2 default family, so walled default-FV models
-  still refuse these closures; the lift is the conservative FV
-  flux-form closure depositing the wall stress in the `Outer` flux
-  slot (record §3.1 opt C, §3.3 spelling b).
 - **Measure-aware implicit column** — the `VerticalMixing`
   stretched/terrain gates stand until the banded column learns
   `grid.measure` widths + the terrain Jacobian (the multigrid V-cycle

@@ -270,12 +270,15 @@ def test_biharmonic_tracer_biharmonic_conserves_and_runs():
 
 
 # ================================================================
-#  Finite-volume walled targets are out of scope (taught rejection)
+#  A walled CellAvg on a raw (non-FV-dispatch) core is taught-rejected
 # ================================================================
-def test_finite_volume_walled_target_is_a_taught_rejection():
-    # a CellAvg tracer on a walled axis is FV walled diffusion (future
-    # work): rejected at bind rather than run through the wrong
-    # collocated FVDerivative chain
+def test_finite_volume_walled_target_on_a_raw_core_is_rejected():
+    # a CellAvg tracer on a walled axis is now a supported family, BUT
+    # only when the grid carries the face-exposing FV C-grid dispatch
+    # profile. This raw core installs no such profile, so the closure's
+    # bind-time face probe rejects it (the collocated FVDerivative chain
+    # cannot close a wall flux) rather than running the wrong stencil.
+    # The full FV-dispatch acceptance path lives in test_diffusion_fv.py.
     class FVCore(Module):
         field_declarations = (
             fr.model.FieldDeclaration.tracer(
@@ -288,7 +291,7 @@ def test_finite_volume_walled_target_is_a_taught_rejection():
 
     grid = make_grid(names=("x",), periodic=False)
     with pytest.raises(NotImplementedError,
-                       match="unsupported wall placement"):
+                       match="does not expose a face-located flux"):
         Model(grid=grid, modules=(FVCore(), HarmonicDiffusion(1.0)),
               time_stepper=AdamBashforth(DT, order=2))
 

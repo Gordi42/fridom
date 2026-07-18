@@ -850,5 +850,31 @@ Implementation record:
   exact rates, conservation to machine zero, periodic path bitwise
   unchanged, autodiff regressions (free/no-slip × walled/stretched/
   terrain) vs central FD, 1697-test sweep green, ruff clean. FV
-  (`CellAvg`) walled targets are a taught rejection — residuals in
+  (`CellAvg`) walled targets were a taught rejection at this landing
+  (lifted next day, entry below) — remaining residuals in
   [`open.md`](open.md).
+- **FV walled diffusion/friction closures** (2026-07-18, branch
+  `feat/fv-walled-diffusion`) — the finite-volume residual of the
+  entry above: walled BC-free `CellAvg` targets (the nonhydro2
+  default family) now take the **same** flux-retag wall closure as
+  the nodal family, because under the FV C-grid `diff` profile the
+  interior flux stagger-lands on the same nodal `Inner` face and the
+  F4 `Inner[Dirichlet] → CellAvg` row closes it with the structural
+  zero wall flux — free-slip/no-flux verbatim, no-slip reusing the
+  wall-adjacent `-2 ν u₁/Δn²` correction unchanged (`CellAvg` ghosts
+  bit-identical to `Center`; `grid.measure` gives true per-cell
+  widths). New code is classification + a bind-time face-exposing
+  probe only: a raw grid (collocated `FVDerivative` profile) is
+  taught-rejected instead of running the wrong stencil; a tagged FV
+  cell wall cannot even be declared (space-layer C8 gate). Deliberate
+  deviation from the open.md lean: the `Outer`-flux-slot spelling
+  (§3.3-b) was **not** built (needs a new `CellAvg → Outer` row + a
+  wall-slot constructor; stays the open-boundaries Tier-2
+  unification) — record §9 addendum. Mapped/stretched FV columns
+  validated on the along-σ semantics rather than gated
+  (measure-weighted conservation machine-zero, terrain bitwise
+  H-independent, autodiff FD-exact walled + stretched); FV-vs-nodal
+  walled parity 1e-12; periodic FV chain got first numeric coverage
+  (bitwise vs nodal). Tests:
+  `tests/model/closures/test_diffusion_fv.py` (24 tests); gates:
+  closures suite 150 green, nonhydro2 596 green, ruff clean.
