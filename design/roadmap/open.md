@@ -154,10 +154,24 @@ the scoping §10–§13). Open:
     stretched-z maps need the J-weighted measure, and genuine
     terrain a taught error naming the real cause (today the
     Hermiticity-residual gate catches it with a misleading
-    "non-conservative term" message). Caveat for the fix: the
-    baroclinic KE-PE pair is exactly adjoint in the *computational*
-    product, the barotropic pair in the *physical* one (decision
-    record §3) — no single metric is exactly conserved on terrain.
+    "non-conservative term" message).
+  - **Terrain buoyancy slope-advection term missing** — the root of
+    the apparent baroclinic/barotropic product asymmetry (research:
+    [`../research/energy_metric_asymmetry.md`](../research/energy_metric_asymmetry.md)):
+    `stratification.restoring` couples `b` to the contravariant flux
+    `Jω` where the physics needs the physical
+    `w = Jω + u·Zₓ + v·Z_y`, so terrain internal-wave physics is
+    O(slope)-wrong and no plain metric is conserved (probe: physical
+    skew resolution-INDEPENDENT ~0.1 at a=0.2; adding the term →
+    clean O(h²); spectrum purely imaginary either way — stable, not
+    growing). Preferred fix: the term spelled as the discrete adjoint
+    of the H2b slope-gradient pattern (baroclinic pair then exactly
+    physical-skew, one conserved metric); the smooth baroclinic gate
+    passes today by state-selection accident and must become a
+    bilinear random-state gate with the fix. Also flag: diagnosed
+    terrain "w" output is `Jω`, not physical w (labeling). nonhydro2
+    mapped carries a smaller un-diagnosed cousin leak (n-scaling
+    untested).
   - **Variable-depth split-explicit free surface** (H3 residual):
     still a taught error on charts. The *implicit* half shipped
     2026-07-18 (multigrid_generalization_plan phase B: the
