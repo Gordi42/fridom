@@ -7,6 +7,7 @@ rule (small builders duplicated).
 """
 import inspect
 
+import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
@@ -17,9 +18,12 @@ from fridom.hydrostatic.params import CSQR
 from fridom.model.context import StepContext
 from fridom.model.errors import LinearOperatorGapError
 from fridom.model.implicit import VerticalDiffusion
+from fridom.model.model import _chunk_body
 from fridom.model.module import Module
 from fridom.model.terms import Treatment
+from fridom.spatial.immersed_domain import ImmersedDomain
 from fridom.spatial.operators.integrate import Integral
+from fridom.spatial.operators.spectral_solve import SpectralSolve
 from fridom.spatial.spaces.constant import ConstantSpace
 
 IM = fr.spatial.meshes.IntervalMesh
@@ -529,3 +533,310 @@ def test_cnab2_vertical_diffusion_then_surface_constraint():
     umax = float(np.max(np.abs(np.asarray(model.state["u"].data))))
     assert td0 == td1                 # composition treedef stable
     assert np.isfinite(umax)
+
+
+# ================================================================
+#  Walled horizontal grids (walled-horizontal gap, fix 2 of 3):
+#  the CONSTRAINT-stage spectral / CG solve on a bounded axis
+# ================================================================
+# (periodic-x, periodic-y) for each walled-horizontal configuration
+WALLS = {
+    "x": (False, True),
+    "y": (True, False),
+    "xy": (False, False),
+}
+
+
+def walled_grid(periodic, nx=8, ny=8, nz=4, depth=1.0):
+    """Return a horizontally (partly) walled, bounded-z grid."""
+    return fr.spatial.Grid((
+        IM(nx, (0.0, 1.0), periodic=periodic[0], name="x"),
+        IM(ny, (0.0, 1.0), periodic=periodic[1], name="y"),
+        IM(nz, (0.0, depth), periodic=False, name="z")))
+
+
+def walled_model(grid, *, epsilon=1.0, csqr=1.0, f0=0.5, n2=0.0, dt=1e-3,
+                 pressure_iterations=30):
+    """Return a linear implicit-free-surface hydrostatic model."""
+    return hy.Model(
+        grid=grid, dt=dt, csqr=csqr, advection=False,
+        free_surface=hy.ImplicitFreeSurface(
+            epsilon=epsilon, pressure_iterations=pressure_iterations),
+        stratification=hy.ConstantStratification(n2=n2),
+        coriolis=hy.FPlaneCoriolis(f0=f0),
+        time_stepper=fr.model.time_steppers.AdamBashforth(dt, order=3))
+
+
+@pytest.mark.parametrize("wall", list(WALLS), ids=list(WALLS))
+@pytest.mark.parametrize("epsilon", [1.0, 0.0])
+def test_implicit_assembles_and_runs_finite_on_walls(wall, epsilon):
+    # the barotropic Div @ Diag @ Grad solve expands on the Neumann-tagged
+    # wall sibling (before the fix it keyed the absent bare Inner(x) diff
+    # row and failed to assemble); both variants now run finite
+    model = walled_model(walled_grid(WALLS[wall]), epsilon=epsilon, f0=1.0)
+    rng = np.random.default_rng(0)
+    keys = ("u", "v", "b", "ps") if epsilon > 0 else ("u", "v", "b")
+    model.set_fields(**{k: 0.1 * rng.standard_normal(model.state[k].shape)
+                        for k in keys})
+    model.advance(10)
+    assert not model.panicked
+    for k in ("u", "v", "b"):
+        data = np.asarray(model.state[k].data)
+        assert bool(np.isfinite(data).all()), (wall, epsilon, k)
+
+
+@pytest.mark.parametrize("wall", list(WALLS), ids=list(WALLS))
+def test_rigid_lid_gauge_lands_on_the_constant_mode_on_walls(wall):
+    r"""``eps == 0`` zeros the DC (cosine) mode on a walled trig axis.
+
+    The ``where_zero=0.0`` gauge removes the ``k = 0`` spectral
+    coefficient; on a walled (Neumann / Cosine-II) axis that mode is the
+    constant, so the rigid-lid surface pressure comes out plain-mean-free
+    exactly as on a periodic axis. Measured ``|mean| / scale``: ``0``
+    (single wall) / ``~1.3e-17`` (xy); pinned well above.
+    """
+    model = walled_model(walled_grid(WALLS[wall]), epsilon=0.0, csqr=3.0,
+                         f0=0.5, dt=0.05)
+    rng = np.random.default_rng(1)
+    model.set_fields(u=rng.standard_normal(model.state["u"].shape),
+                     v=rng.standard_normal(model.state["v"].shape))
+    fs = model.module(hy.ImplicitFreeSurface)
+    ctx = StepContext(params={CSQR: jnp.asarray(3.0)},
+                      clock=jnp.asarray(0.0), dt=jnp.asarray(0.05),
+                      stage_dt=jnp.asarray(0.05))
+    ps = fs._barotropic_solve(model.state, ctx)["ps"]
+    data = np.asarray(ps.data)
+    assert bool(np.isfinite(data).all())
+    scale = float(np.max(np.abs(data)))
+    assert scale > 0.1                              # a genuine solution
+    assert abs(float(np.mean(data))) / scale < 1e-14
+
+
+def test_implicit_ps_volume_conserved_on_walls():
+    r"""``int(ps)`` drifts only at round-off on a walled implicit run.
+
+    The barotropic operator conserves the measure-weighted surface-
+    pressure integral: ``A ps = eps ps - dt'^2 div(c^2 grad ps)``, whose
+    divergence leg telescopes to zero on no-flux walls, so
+    ``int(A ps) = eps int(ps)`` and the constant mode carries through; the
+    right-hand-side divergence integrates to zero on the walls, so
+    ``int(ps)`` is invariant. Measured drift ``~8.7e-19``; pinned above.
+    """
+    model = walled_model(walled_grid(WALLS["xy"]), epsilon=1.0, csqr=2.0,
+                         f0=0.5)
+    rng = np.random.default_rng(0)
+    model.set_fields(**{k: 0.1 * rng.standard_normal(model.state[k].shape)
+                        for k in ("u", "v", "b", "ps")})
+
+    def volume():
+        return float(jnp.sum(model.state["ps"].integrate().data))
+
+    before = volume()
+    model.advance(20)
+    after = volume()
+    assert not model.panicked
+    assert abs(after - before) < 1e-14 * max(abs(before), 1.0)
+
+
+# ================================================================
+#  Mirror-symmetry physics gate (the channel image trick)
+# ================================================================
+def _mirror_grids(nx, ny=3, nz=4):
+    """Return (walled-x channel, doubled periodic-x) grid pair.
+
+    The walled channel stores ``nx`` cells over ``[0, 1]``; the doubled
+    domain stores ``2*nx`` cells over ``[0, 2]`` at the identical
+    ``dx = 1/nx`` so the two C-grids collocate on ``[0, 1]``.
+    """
+    walled = fr.spatial.Grid((
+        IM(nx, (0.0, 1.0), periodic=False, name="x"),
+        IM(ny, (0.0, 1.0), periodic=True, name="y"),
+        IM(nz, (0.0, 1.0), periodic=False, name="z")))
+    doubled = fr.spatial.Grid((
+        IM(2 * nx, (0.0, 2.0), periodic=True, name="x"),
+        IM(ny, (0.0, 1.0), periodic=True, name="y"),
+        IM(nz, (0.0, 1.0), periodic=False, name="z")))
+    return walled, doubled
+
+
+def test_implicit_channel_matches_the_mirror_image_run():
+    r"""A walled-x implicit channel equals its doubled periodic mirror.
+
+    Solid walls at ``x = 0, 1`` are the reflection symmetry of a
+    doubly-long periodic domain with a mirror-symmetric state: cell
+    scalars (``ps``) even-extended, the wall-normal velocity (``u``)
+    odd-extended (the two wall faces forced to zero). The CONSTRAINT-stage
+    projection (``f = 0``, ``N^2 = 0``, no advection) preserves the
+    symmetry exactly, so the walled run reproduces the periodic run
+    restricted to ``[0, 1]`` to round-off — the same C-grid correspondence
+    proven for the explicit variant (``test_free_surface_walled.py``).
+    Measured drift: ``ps ~3.2e-15``, ``u ~4.7e-16``; pinned honestly above.
+    """
+    nx, ny, nz, steps, dt = 6, 3, 4, 12, 2e-3
+    walled, doubled = _mirror_grids(nx, ny, nz)
+    mw = walled_model(walled, csqr=1.0, dt=dt)
+    mp = walled_model(doubled, csqr=1.0, dt=dt)
+
+    # walled initial condition (uniform in y, z), a genuine wave state
+    ps_cells = np.cos(np.pi * (np.arange(nx) + 0.5) / nx) + 0.3
+    u_faces = 0.2 * np.sin(np.pi * np.arange(1, nx) / nx)  # nx-1 faces
+    wps = np.zeros((nx, ny, 1))
+    wps[:, :, 0] = ps_cells[:, None]
+    wu = np.zeros((nx - 1, ny, nz))
+    wu[:] = u_faces[:, None, None]
+    mw.set_fields(ps=wps, u=wu)
+
+    # even extension of ps, odd extension of u (wall faces zeroed)
+    ps_ext = np.concatenate([ps_cells, ps_cells[::-1]])
+    u_ext = np.concatenate([u_faces, [0.0], -u_faces[::-1], [0.0]])
+    pps = np.zeros((2 * nx, ny, 1))
+    pps[:, :, 0] = ps_ext[:, None]
+    pu = np.zeros((2 * nx, ny, nz))
+    pu[:] = u_ext[:, None, None]
+    mp.set_fields(ps=pps, u=pu)
+
+    mw.advance(steps)
+    mp.advance(steps)
+    assert not mw.panicked
+    assert not mp.panicked
+
+    wps_f = np.asarray(mw.state["ps"].data)
+    pps_f = np.asarray(mp.state["ps"].data)
+    wu_f = np.asarray(mw.state["u"].data)
+    pu_f = np.asarray(mp.state["u"].data)
+    # ps cells and u interior faces restricted to the channel [0, 1]
+    ps_drift = np.abs(wps_f - pps_f[:nx]).max()
+    u_drift = np.abs(wu_f - pu_f[:nx - 1]).max()
+    assert ps_drift < 1e-12
+    assert u_drift < 1e-12
+
+
+# ================================================================
+#  Immersed (cut-cell) mask on a walled horizontal grid
+# ================================================================
+def _coast(x, y, z):  # noqa: ARG001
+    """Return a partial-coastline mask (open west, shelf elsewhere)."""
+    return ((z > 0.25) | (x < 0.6)).astype(float)
+
+
+def test_immersed_walled_rigid_lid_projects_divergence_free():
+    r"""The masked barotropic CG converges on a walled immersed grid.
+
+    The rigid-lid (``eps = 0``) constraint removes a large masked
+    depth-mean divergence to near machine zero on a fully
+    walled-horizontal cut-cell grid — the wall closure (the Dirichlet-
+    tagged flux legs) and the wet-column mask compose. Measured residual:
+    ``pre ~13``, ``post/uscale ~3.2e-9``; pinned at ``1e-7``.
+    """
+    grid = fr.spatial.Grid((
+        IM(8, (0.0, 1.0), periodic=False, name="x"),
+        IM(8, (0.0, 1.0), periodic=False, name="y"),
+        IM(4, (0.0, 1.0), periodic=False, name="z")),
+        immersed=ImmersedDomain(_coast))
+    model = walled_model(grid, epsilon=0.0, csqr=2.0, f0=0.5, dt=0.05,
+                         pressure_iterations=40)
+    rng = np.random.default_rng(1)
+    model.set_fields(u=rng.standard_normal(model.state["u"].shape),
+                     v=rng.standard_normal(model.state["v"].shape))
+    fs = model.module(hy.ImplicitFreeSurface)
+    ctx = StepContext(params={CSQR: jnp.asarray(2.0)},
+                      clock=jnp.asarray(0.0), dt=jnp.asarray(0.05),
+                      stage_dt=jnp.asarray(0.05))
+    pre = float(np.max(np.abs(np.asarray(
+        fs._depth_mean_div(model.state).data))))
+    out = fs._barotropic_solve(model.state, ctx)
+    post_state = model.state.replace(u=out["u"], v=out["v"])
+    post = float(np.max(np.abs(np.asarray(
+        fs._depth_mean_div(post_state).data))))
+    uscale = float(np.max(np.abs(np.asarray(out["u"].data))))
+    assert pre > 1.0                                # a genuine divergence
+    assert post / uscale < 1e-7                     # projected to ~zero
+    assert bool(np.isfinite(np.asarray(out["ps"].data)).all())
+
+
+def test_immersed_walled_free_surface_runs_finite():
+    """A walled immersed ``eps > 0`` implicit free surface stays finite."""
+    grid = fr.spatial.Grid((
+        IM(8, (0.0, 1.0), periodic=False, name="x"),
+        IM(8, (0.0, 1.0), periodic=False, name="y"),
+        IM(4, (0.0, 1.0), periodic=False, name="z")),
+        immersed=ImmersedDomain(_coast))
+    model = walled_model(grid, epsilon=1.0, csqr=1.0, f0=0.5,
+                         pressure_iterations=40)
+    rng = np.random.default_rng(0)
+    model.set_fields(**{k: 0.1 * rng.standard_normal(model.state[k].shape)
+                        for k in ("u", "v", "b", "ps")})
+    model.advance(10)
+    assert not model.panicked
+    assert all(bool(np.isfinite(np.asarray(model.state[k].data)).all())
+               for k in ("u", "v", "b"))
+
+
+# ================================================================
+#  Autodiff regression (differentiability policy)
+# ================================================================
+def test_grad_through_walled_implicit_run_matches_finite_difference():
+    r"""``jax.grad`` w.r.t. the initial ``ps`` on a walled-x implicit run.
+
+    The CONSTRAINT-stage spectral solve stays differentiable through the
+    wall retag seam. Differentiate the pure kernel ``_chunk_body`` w.r.t.
+    the initial surface pressure and match a random directional projection
+    to a central finite difference (measured relerr ``~5e-12``).
+    """
+    model = walled_model(walled_grid(WALLS["x"]), epsilon=1.0, csqr=1.0,
+                         f0=0.5, dt=2e-3)
+    rng = np.random.default_rng(1)
+    model.set_fields(ps=0.1 * rng.standard_normal(model.state["ps"].shape))
+    record = model._artifacts.record
+    carry = model._carry
+    stepper = model._stepper
+
+    leaf = carry.state["ps"].storage
+    leaves, treedef = jax.tree_util.tree_flatten(carry)
+    (idx,) = [i for i, ref in enumerate(leaves) if ref is leaf]
+
+    def loss(x):
+        new = list(leaves)
+        new[idx] = x
+        spliced = jax.tree_util.tree_unflatten(treedef, new)
+        final = _chunk_body(record, 10, spliced, stepper)
+        return sum(jnp.sum(f.data ** 2) for f in final.state)
+
+    grad = np.asarray(jax.grad(loss)(leaf))
+    assert bool(np.all(np.isfinite(grad)))
+
+    direction = jnp.asarray(
+        np.random.default_rng(2).standard_normal(leaf.shape),
+        dtype=leaf.dtype)
+    directional = float(jnp.vdot(jnp.asarray(grad), direction))
+    eps = 1e-4
+    fd = (float(loss(leaf + eps * direction))
+          - float(loss(leaf - eps * direction))) / (2.0 * eps)
+    assert directional == pytest.approx(fd, rel=1e-4)
+
+
+# ================================================================
+#  Periodic fast-path regression pin (the wall arm must not perturb it)
+# ================================================================
+def test_periodic_flat_spectral_takes_the_no_retag_fast_path():
+    r"""On a doubly-periodic grid the flat solve is the bare SpectralSolve.
+
+    The Neumann-sibling of a doubly-periodic solve space is the space
+    itself, so ``_flat_spectral`` short-circuits to ``SpectralSolve.solve``
+    directly (a bound method) with no retag wrapper — the byte-identical
+    fast path. A walled grid instead returns the plain retag closure.
+    """
+    grid = make_grid(8, 4)
+    model = make_model(grid, hy.ImplicitFreeSurface(epsilon=1.0))
+    fs = model.module(hy.ImplicitFreeSurface)
+    space = model.state["ps"].function_space.bare
+    solver = fs._flat_spectral(space, grid, csqr=4.0, dt=1e-2)
+    # the fast path returns the bound SpectralSolve.solve, not a closure
+    assert isinstance(getattr(solver, "__self__", None), SpectralSolve)
+
+    wgrid = walled_grid(WALLS["xy"])
+    wmodel = walled_model(wgrid, epsilon=1.0)
+    wfs = wmodel.module(hy.ImplicitFreeSurface)
+    wsolver = wfs._flat_spectral(
+        wmodel.state["ps"].function_space.bare, wgrid, csqr=1.0, dt=1e-3)
+    assert getattr(wsolver, "__self__", None) is None

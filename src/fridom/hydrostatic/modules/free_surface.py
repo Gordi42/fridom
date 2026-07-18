@@ -84,6 +84,8 @@ from fridom.hydrostatic.modules.barotropic_pressure import (
 )
 from fridom.hydrostatic.modules.barotropic_pressure import (
     BarotropicPressureSolver,
+    _dirichlet_mid,
+    _neumann_sibling,
 )
 from fridom.hydrostatic.modules.terrain import (
     discover_column,
@@ -100,6 +102,8 @@ from fridom.spatial.operators.krylov import ConjugateGradient
 from fridom.spatial.operators.spectral_solve import SpectralSolve
 
 if TYPE_CHECKING:  # pragma: no cover
+    from collections.abc import Callable
+
     from fridom.model.context import StepContext
     from fridom.spatial.fields.scalar_field import ScalarField
     from fridom.spatial.grid import Grid
@@ -921,9 +925,9 @@ class ImplicitFreeSurface(_FreeSurfaceBase):
         }
 
     def _flat_spectral(
-        self, solve_space: SpaceLike, grid: Grid, *,
+        self, space: SpaceLike, grid: Grid, *,
         csqr: object, dt: object,
-    ) -> SpectralSolve:
+    ) -> Callable[[ScalarField], ScalarField]:
         r"""Build the flat (mean-depth) ``(eps - dt'^2 div(c^2 grad))`` solve.
 
         Description
@@ -936,17 +940,43 @@ class ImplicitFreeSurface(_FreeSurfaceBase):
         On an unimmersed grid it is the whole solve; on an immersed grid
         it is the constant-coefficient (``H_tilde == 1``) preconditioner
         of the variable-coefficient PCG.
+
+        On a walled horizontal axis the trig-transform / operator rows key
+        on the BC-tagged origin (a BC-free bounded face defines no exterior
+        values, so ``('diff', Inner(x))`` deliberately does not exist), so
+        the expansion runs on the **Neumann-tagged sibling** of ``space``
+        (the surface-pressure parity at a rigid wall is even — the
+        Cosine-II basis) and each gradient codomain is Dirichlet-tagged
+        (the wall-normal gradient of an even pressure is odd, vanishing at
+        the wall) before the divergence legs, the mapped / terrain wall
+        closure. A doubly-periodic grid keeps the bare space (the interned
+        no-retag fast path) and is byte-identical to the old expansion. The
+        returned closure consumes and produces fields on the caller's
+        BC-free ``space``: on a walled grid it retags the operand onto the
+        sibling and the solution back; on a periodic grid it is
+        ``SpectralSolve.solve`` itself.
         """
+        solve_space = _neumann_sibling(space)
         axes = solve_space.active_axis_names
         neg = -(dt**2) * csqr
         grad_block = Gradient().expand(solve_space, grid)
-        mid = grad_block.codomains(solve_space)
+        mid = tuple(
+            _dirichlet_mid(sib, axis)
+            for axis, sib in zip(
+                axes, grad_block.codomains(solve_space), strict=True))
         div_block = Divergence().expand(mid, grid)
         diag = Diag(dict.fromkeys(axes, neg), axes=axes)
         laplacian = (div_block @ diag @ grad_block).scalar()
         # + epsilon * I: 1 (Helmholtz, non-singular) or 0 (Poisson)
         helmholtz = laplacian + Identity() * float(self._epsilon)
-        return SpectralSolve(helmholtz, grid, solve_space, where_zero=0.0)
+        solve = SpectralSolve(helmholtz, grid, solve_space, where_zero=0.0)
+        if solve_space is space:
+            return solve.solve
+
+        def apply(rhs: ScalarField) -> ScalarField:
+            return solve.solve(rhs.retag(solve_space)).retag(rhs)
+
+        return apply
 
     def _solve(
         self, rhs: ScalarField, *, csqr: object, dt: object,
@@ -975,9 +1005,9 @@ class ImplicitFreeSurface(_FreeSurfaceBase):
         ScalarField
             The surface pressure ``ps^{n+1}`` on ``rhs``'s space.
         """
-        solve_space: SpaceLike = rhs.function_space.bare
+        space: SpaceLike = rhs.function_space.bare
         return self._flat_spectral(
-            solve_space, rhs.grid, csqr=csqr, dt=dt).solve(rhs)
+            space, rhs.grid, csqr=csqr, dt=dt)(rhs)
 
     def _solve_immersed(
         self, rhs: ScalarField, state: object, *,
@@ -1034,25 +1064,34 @@ class ImplicitFreeSurface(_FreeSurfaceBase):
         registry = grid.dispatch
         zonal, meridional = self._horizontal
         vel = {zonal: state["u"], meridional: state["v"]}
-        # per-axis gradient/divergence legs (doubly-periodic horizontal:
-        # no wall Dirichlet tags) and the per-column coefficient
-        # c^2 H_tilde_a = c^2 (1/H) H_a on the a-face
+        # per-axis gradient/divergence legs and the per-column coefficient
+        # c^2 H_tilde_a = c^2 (1/H) H_a on the a-face. On a walled axis the
+        # divergence keys the Dirichlet-tagged face (the wall closure: zero
+        # normal barotropic transport through the wall), the flux is
+        # retagged onto it before the difference, and the per-column
+        # coefficient is retagged onto the BC-free gradient face so the
+        # same-space product joins (the velocity face carries its own wall
+        # BC). A periodic axis keeps the bare face and every retag is the
+        # identity (byte-identical to the doubly-periodic path).
         grad: dict[str, object] = {}
         div: dict[str, object] = {}
+        tagged: dict[str, SpaceLike] = {}
         coeff: dict[str, ScalarField] = {}
         for a in axes:
             g = registry.resolve("diff", solve_space.factor(a))[a]
             face = resolve_codomain(g, solve_space)
+            tag = _dirichlet_mid(face, a)
             grad[a] = g
-            div[a] = registry.resolve("diff", face.factor(a))[a]
-            coeff[a] = self._transport_depth(vel[a]) * (
-                csqr * self._inv_depth)
+            tagged[a] = tag
+            div[a] = registry.resolve("diff", tag.factor(a))[a]
+            coeff[a] = (self._transport_depth(vel[a]) * (
+                csqr * self._inv_depth)).retag(face)
 
         def apply(ps: ScalarField) -> ScalarField:
             out = self._epsilon * ps
             for a in axes:
                 flux = coeff[a] * grad[a](ps)
-                out = out - (dt**2) * div[a](flux)
+                out = out - (dt**2) * div[a](flux.retag(tagged[a]))
             return out
 
         spectral = self._flat_spectral(
@@ -1064,7 +1103,7 @@ class ImplicitFreeSurface(_FreeSurfaceBase):
         wet_measure = jnp.sum(wet.integrate().data)
 
         def precondition(r: ScalarField) -> ScalarField:
-            z = spectral.solve(r)
+            z = spectral(r)
             return z.with_data(z.data * cell_mask)
 
         def wet_projection(f: ScalarField) -> ScalarField:
