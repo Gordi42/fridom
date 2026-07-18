@@ -612,3 +612,71 @@ def test_projection_property_exposes_the_hook():
     assert cg.project_mean is False
     plain = ConjugateGradient(lambda f: f, iterations=1)
     assert plain.projection is None
+
+
+# ================================================================
+#  The CG inner product / nullspace projection stay COMPUTATIONAL on
+#  a mapped grid (Hazard 3: the physical-integral-default flip must
+#  not move the validated Krylov geometry)
+# ================================================================
+def _terrain_grid_and_space(n=16):
+    from fridom.spatial.coordinate_mapping import (  # noqa: PLC0415
+        CoordinateMapping,
+    )
+    mx = fr.spatial.meshes.IntervalMesh(n, (0.0, 2.0 * jnp.pi), name="x")
+    ms = fr.spatial.meshes.IntervalMesh(
+        n, (0.0, 1.0), periodic=False, name="sigma")
+    grid = fr.spatial.Grid((mx, ms), mapping=CoordinateMapping(
+        maps={"zp": lambda sigma, H: sigma * H},
+        params={"H": lambda x: 1.0 + 0.2 * jnp.sin(x)}))
+    return grid, mx.center * ms.center
+
+
+def test_cg_inner_product_is_computational_on_a_mapped_grid():
+    from fridom.spatial.operators.integrate import Integral  # noqa: PLC0415
+    grid, space = _terrain_grid_and_space()
+    a = grid.create_field(
+        space, init=lambda x, sigma: jnp.cos(sigma) + 0.3 * jnp.sin(x))
+    b = grid.create_field(
+        space, init=lambda x, sigma: jnp.sin(2.0 * sigma) + 0.1 * x)
+    cg = ConjugateGradient(lambda f: f, iterations=1)
+    dot = float(cg._dot(a, b))
+    # raw computational reference (plain measure, no Jacobian)
+    raw = Integral()["x"](Integral()["sigma"](a * b))
+    assert dot == pytest.approx(float(raw.item()), rel=1e-12)
+    # and NOT the seeded (Jacobian-weighted) physical inner product
+    physical = float((a * b).integrate().item())
+    assert abs(dot - physical) > 1e-3
+
+
+def test_cg_mean_projection_is_computational_on_a_mapped_grid():
+    from fridom.spatial.operators.integrate import Integral  # noqa: PLC0415
+    grid, space = _terrain_grid_and_space()
+    f = grid.create_field(
+        space, init=lambda x, sigma: jnp.cos(sigma) + 0.7 * jnp.sin(x))
+    cg = ConjugateGradient(lambda g: g, iterations=1, project_mean=True)
+    projected = cg._project(f)
+    # the projected field is COMPUTATIONAL-mean-free (its plain integral
+    # vanishes); a physical projection would instead zero the
+    # Jacobian-weighted integral, leaving this one nonzero
+    comp_int = float(Integral()["x"](Integral()["sigma"](
+        projected)).item())
+    assert comp_int == pytest.approx(0.0, abs=1e-12)
+    physical_int = float(projected.integrate().item())
+    assert abs(physical_int) > 1e-3
+
+
+def test_computational_helpers_skip_constant_factors():
+    # the pinned helpers' ConstantSpace short-circuit: on an already
+    # fully-reduced (all-constant) field both are the identity (covers
+    # the `continue` and the `total is None` branches)
+    from fridom.spatial.operators.krylov import (  # noqa: PLC0415
+        _computational_integral,
+        _computational_mean,
+    )
+    grid = build_grid(8, 8)
+    reduced = _computational_integral(rich_rhs(grid))  # single DOF
+    assert jnp.array_equal(
+        _computational_integral(reduced).data, reduced.data)
+    assert jnp.array_equal(
+        _computational_mean(reduced).data, reduced.data)
