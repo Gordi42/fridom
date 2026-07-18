@@ -108,11 +108,19 @@ class FieldDeclaration:
     nc_attrs : Mapping[str, str] | None, optional
         Extra netCDF attributes; normalized to sorted tuple pairs
         (default: None).
+    time_dependent : bool, optional
+        Marks an AUXILIARY field whose values evolve in time (TDF-D3):
+        a field-carried time dependence a lint/guard can see
+        structurally. AUXILIARY-only; any other lifecycle raises. This
+        flag is a pure marker in this wave — it carries no behaviour of
+        its own beyond being reported by the frozen-``L`` guard
+        (TDF-D4); the SELF_UPDATE recompute wiring is a later wave
+        (default: False).
     """
 
     __slots__ = ("_default", "_host_writable", "_lifecycle",
                  "_long_name", "_name", "_nc_attrs", "_roles",
-                 "_space", "_units")
+                 "_space", "_time_dependent", "_units")
 
     def __init__(
         self,
@@ -126,6 +134,7 @@ class FieldDeclaration:
         long_name: str = "Unnamed",
         units: str = "n/a",
         nc_attrs: Mapping[str, str] | None = None,
+        time_dependent: bool = False,
     ) -> None:
         """Normalize and locally validate the declaration."""
         self._name: str = _check_name(name)
@@ -151,6 +160,18 @@ class FieldDeclaration:
                 "DIAGNOSTIC only (CS-1); a PROGNOSTIC field is "
                 "advanced by the stepper, never host-written")
         self._host_writable: bool = host_writable
+        if not isinstance(time_dependent, bool):
+            raise TypeError(
+                f"field {name!r}: time_dependent must be a bool, "
+                f"got {time_dependent!r}")
+        if time_dependent and lifecycle is not Lifecycle.AUXILIARY:
+            raise ValueError(
+                f"field {name!r}: time_dependent marks an AUXILIARY "
+                "field whose values evolve in time (TDF-D3); a "
+                f"{lifecycle.name} field cannot carry it (a PROGNOSTIC "
+                "field is advanced by the stepper, a DIAGNOSTIC one is "
+                "recomputed each step)")
+        self._time_dependent: bool = time_dependent
         self._long_name: str = _check_str(name, "long_name",
                                           long_name)
         self._units: str = _check_str(name, "units", units)
@@ -204,6 +225,11 @@ class FieldDeclaration:
     def nc_attrs(self) -> tuple[tuple[str, str], ...]:
         """Extra netCDF attributes as sorted (key, value) pairs."""
         return self._nc_attrs
+
+    @property
+    def time_dependent(self) -> bool:
+        """Whether this AUXILIARY field's values evolve in time (TDF-D3)."""
+        return self._time_dependent
 
     @property
     def default_form(self) -> str:
@@ -408,6 +434,8 @@ class FieldDeclaration:
             parts.append(f"default={self._default!r}")
         if self._host_writable:
             parts.append("host_writable=True")
+        if self._time_dependent:
+            parts.append("time_dependent=True")
         return f"FieldDeclaration({', '.join(parts)})"
 
 
