@@ -606,6 +606,23 @@ class DynamicalCore(fr.model.Module):
                                 doc="Rossby number (nonlinear scaling)"),
     )
 
+    def time_dependent_linear_parameters(self) -> tuple[str, ...]:
+        """Report a ramped ``dsqr`` feeding the frozen linear operator.
+
+        ``dsqr`` enters ``L`` through the pressure projection, which is
+        a CONSTRAINT stage (S4) rather than a ``linear=True`` term, so
+        the structural term sweep (TDF-D4) cannot see it: a model
+        assembled without stratification would otherwise slip a ramped
+        ``dsqr`` past a frozen-``L`` (exponential) stepper silently. The
+        core owns the leaf, so it reports it here directly (and closes
+        the cross-module hole where a stratification term consumes but
+        does not own ``dsqr``).
+        """
+        names = list(super().time_dependent_linear_parameters())
+        if isinstance(self.dsqr, fr.model.TimeDependent):
+            names.append(str(DSQR))
+        return tuple(names)
+
     # ================================================================
     #  The pressure-projection CONSTRAINT stage (S4)
     # ================================================================

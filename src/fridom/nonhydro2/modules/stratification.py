@@ -108,26 +108,18 @@ class ConstantStratification(fr.model.Module):
         fr.model.ParameterReference(DSQR, hint="declared by nh.DynamicalCore"),
     )
 
-    def time_dependent_linear_parameters(self) -> tuple[str, ...]:
-        """Report a ramped ``n2`` feeding the linear restoring term.
-
-        A time-dependent ``n2`` (a spun-up stratification, ``fr.Ramp``)
-        is a **scalar** parameter read at stage time through
-        ``ctx.params`` — it advances correctly under ``AdamBashforth``
-        and every re-reading stepper. But it lives inside this module's
-        ``linear=True`` restoring term, so a frozen-``L`` (exponential)
-        stepper must refuse it (AR-D7), exactly as R1 does for a ramped
-        ``coriolis.f0``; a plain-float ``n2`` reports nothing. (``dsqr``
-        is provided by the core and also feeds a ``linear=True`` term
-        here; its ramped-``L`` report is a cross-module follow-up.)
-        """
-        if isinstance(self.n2, fr.model.TimeDependent):
-            return (str(fr.model.params.STRATIFICATION_N2),)
-        return ()
-
-    @fr.model.term(advances=("w",), linear=True)
+    @fr.model.term(advances=("w",), linear=True,
+                   linear_params=(fr.model.params.STRATIFICATION_N2, DSQR))
     def buoyancy_force(self, state, ctx) -> dict:  # noqa: ANN001
-        """``dw/dt += b / dsqr`` (buoyancy interpolated onto the w face)."""
+        """``dw/dt += b / dsqr`` (buoyancy interpolated onto the w face).
+
+        The two ``linear=True`` coupling terms depend on ``n2`` and the
+        core's ``dsqr``; both potentially-time-dependent parameters are
+        annotated here (TDF-D4) so the structural frozen-``L`` guard
+        reports a ramped ``n2``. ``dsqr`` lives on the core module, so
+        this local annotation is inert (the leaf is out of reach); a
+        ramped ``dsqr`` is reported by ``DynamicalCore`` itself.
+        """
         dsqr = ctx.params[DSQR]
         return {"w": state["b"].to(state["w"]) / dsqr}
 
@@ -234,13 +226,13 @@ class MeridionalStratification(fr.model.Module):
                 mer, inspect.Parameter.POSITIONAL_OR_KEYWORD)])
         return grid.create_field(space, init=init, name="n2")
 
-    @fr.model.term(advances=("w",), linear=True)
+    @fr.model.term(advances=("w",), linear=True, linear_params=(DSQR,))
     def buoyancy_force(self, state, ctx) -> dict:  # noqa: ANN001
         """``dw/dt += b / dsqr`` (buoyancy interpolated onto w)."""
         dsqr = ctx.params[DSQR]
         return {"w": state["b"].to(state["w"]) / dsqr}
 
-    @fr.model.term(advances=("b",), linear=True)
+    @fr.model.term(advances=("b",), linear=True, linear_fields=("n2",))
     def restoring(self, state, ctx) -> dict:  # noqa: ANN001, ARG002
         """``db/dt += -N^2(y) w``, with ``N^2`` sampled at ``b``.
 
