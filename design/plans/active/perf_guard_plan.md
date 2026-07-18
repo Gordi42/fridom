@@ -1,6 +1,6 @@
 ---
 title: Performance guard — closing the CI-gate roadmap item
-status: proposed (research done; awaiting owner ruling on §5)
+status: active (G1–G3 code on dev 2026-07-18; open: one green manual A100 guard run + gpu-marked legs)
 created: 2026-07-18
 owner: Silvano
 ---
@@ -20,7 +20,8 @@ built.** GitHub CI cannot honestly gate on the committed baselines
 The honest closure is three-legged: deterministic fast-path assertions
 as the *real* CI gate (§4.1), a hardened `compare` (§4.2), and the
 timing guard wired where it can honestly run — the DKRZ A100 node, as
-a scheduled/pre-merge protocol, never a PR-blocking check (§4.3).
+a **manually triggered** pre-merge protocol (owner ruling §5.1: no
+automated cluster submissions), never a PR-blocking check (§4.3).
 
 ## 1. What the investigation established
 
@@ -128,11 +129,16 @@ elision, and the eager multi-device kernel jit are guarded.
 | E | FV `flux_diff @ reconstruct` fusion on **uniform** rows | FV=nodal parity (0.997–1.003×) rests on full fusion; a lowering change could quietly unfuse the default path | differential compiled-op-count FV vs nodal sibling on the *periodic* case, same backend (4,5) |
 | F | scalar-`dx` fold on uniform meshes (`flux_diff.py` `_windowed_diff`) | uniform meshes must fold spacing to a static scalar, not divide by a measure field | jaxpr: no `div` by a materialized measure array on a uniform mesh (5, CPU-stable) |
 
-Deliberately **not** gated: the walled/mapped FV op-count gap — that
-is the separate "close the FV-vs-nodal step-time gap" roadmap item
-(compiler-artifact class; gating it now would fail on a known,
-accepted delta). Guard what is on the fast path today; do not encode
-today's known gap as a budget.
+The walled/mapped FV op-count gap is **ratcheted, not equalized**
+(owner ruling §5.3): record today's FV-vs-nodal op-count relationship
+on the walled/mapped rows and gate against *worsening*, with a
+tolerance band. Caveat, encoded in the test itself: this pins a
+compiler artifact, so a jax/jaxlib upgrade may move the counts for
+reasons unrelated to fridom — the failure message must direct the
+reader to re-measure and re-baseline the ratchet (single documented
+regen knob) before blaming the triggering change. The separate
+"FV-vs-nodal step-time gap" roadmap item still aims to eliminate the
+gap; when it does, the ratchet tightens to parity.
 
 ## 2. What would be bad practice (rejected options)
 
@@ -164,8 +170,9 @@ The PR gate and the timing guard are **different instruments**:
   *can* gate, byte-noise-free, via the six techniques in §1.5. This is
   the real CI gate, and it is the higher-value half of the item.
 - Continuous timing drift (fusion quality, kernel latency) is only
-  measurable on the A100 node. It gets a *protocol + schedule*, not a
-  PR check, per universal field practice (§1.4).
+  measurable on the A100 node. It gets a *manual protocol*, not a PR
+  check (per universal field practice, §1.4) and not a schedule
+  (owner ruling, §5.1).
 
 ## 4. The proposal
 
@@ -179,8 +186,11 @@ the mirrored-test rule: A,B in
 `tests/model/test_step_chunk.py` / `test_model_memory.py`; E,F in
 `tests/spatial/operators/test_flux_diff*.py` (E's differential
 op-count may need the forced-4 leg if the single-device compiled text
-is uninformative — decide at implementation). All CPU-stable except
-B's cusparse leg (gpu-marked, runs on the A100 suite) and possibly E.
+is uninformative — decide at implementation). E carries both the
+uniform-parity assert and the walled/mapped ratchet (§1.5, §5.3);
+the ratchet baselines regenerate behind one env knob, following the
+`FRIDOM_REGEN_HLO_GOLDEN` precedent. All CPU-stable except B's
+cusparse leg (gpu-marked, runs on the A100 suite) and possibly E.
 Estimated ~6 focused test additions; no `src/` changes.
 
 ### 4.2 G2 — harden `compare` (small `src/fridom/benchmarking` change)
@@ -204,57 +214,68 @@ first — see G4).
 
 ### 4.3 G3 — wire the timing guard where it can honestly run (DKRZ)
 
+**Manual-trigger only** (owner ruling §5.1): no scrontab, no cron, no
+CI-triggered submission, nothing that submits GPU jobs without a
+deliberate human/agent action — automated submissions can silently
+consume the owner's cluster usage limits.
+
 1. **`benchmarks/ci/step_guard.sbatch`** (+ short README): one SLURM
    job on the A100 partition that runs the gpu1 and gpu4 legs with the
    required XLA flags, then `compare --fail-on-regression` against the
    committed baselines, writing JSON + markdown next to a red/green
-   marker. Guarded by `timeout`, usable two ways:
-   - **pre-merge protocol**: binding for perf-sensitive merges
-     (anything touching step-path lowering: `spatial/operators/`,
-     `spatial/decomposition/`, `model/time_steppers/`, tendency
-     modules, `model/model.py`) — one AGENTS.md line under the merge
-     gate, codifying what the campaign already does by hand;
-   - **scheduled**: a weekly `scrontab` entry (owner-installed; entry
-     text in the README) so drift is caught even when no perf-labeled
-     change merges. On red: notification per §5.2.
-2. **Baseline lifecycle** stays as documented (re-record only on
+   marker. Guarded by `timeout`. Invoked **by hand** as the
+   **pre-merge protocol**: binding for perf-sensitive merges
+   (anything touching step-path lowering: `spatial/operators/`,
+   `spatial/decomposition/`, `model/time_steppers/`, tendency
+   modules, `model/model.py`) — one AGENTS.md line under the merge
+   gate, codifying what the campaigns already do by hand.
+2. **No alerting infrastructure**: the operator watches the run; the
+   red/green marker + report in the results dir are the record.
+3. **Result retention** (owner ruling §5.4): every guard run appends
+   its result JSON to an untracked results dir on DKRZ (the script
+   simply never deletes output). Nearly free, keeps machine-specific
+   numbers off the public repo, and accumulates the series that
+   change-point detection needs later (§4.4).
+4. **Baseline lifecycle** stays as documented (re-record only on
    intentional movement, same node, commit message with before/after);
    the G2 environment guard turns "jax upgraded / wrong node" from a
    silent nonsense-compare into a hard error.
 
-### 4.4 G4 — deferred (needs history, owner appetite)
+### 4.4 G4 — deferred
 
-Result-series retention (append each scheduled run's JSON to an
-untracked results dir or a `bench-results` branch), change-point
-detection over that series, optional public dashboard
-(Oceananigans-style). Not part of closing the roadmap item.
+Change-point detection over the retained series (once it is long
+enough to be informative) and any public dashboard. Not part of
+closing the roadmap item; a dashboard would publish machine-specific
+numbers and is postponed indefinitely.
 
-## 5. Owner decision points
+## 5. Owner rulings (2026-07-18)
 
-1. **G3 cadence**: pre-merge protocol only, or protocol + weekly
-   `scrontab`? (Recommended: both — the scrontab entry is one line
-   and catches drift between perf-labeled merges.)
-2. **Red-run notification channel**: DKRZ mail from the job epilogue
-   (simplest), `gh issue create` via a token on the cluster (most
-   visible; token hygiene on a shared filesystem is the cost), or
-   marker-file-only (weakest). Recommended: mail; issues can come
-   later with G4.
-3. **Gap E scope**: confirm gating only the *uniform* FV fusion and
-   leaving walled/mapped to the FV-gap roadmap item (recommended), vs
-   a ratchet on the current gap (rejected in §1.5).
-4. **G4 appetite**: whether a results series / dashboard is wanted at
-   all for a public repo with machine-specific numbers.
+1. **No automated GPU submissions to Levante — ever.** No scrontab,
+   no scheduled jobs, no auto-submission scripts: they can silently
+   eat cluster usage limits. The timing guard is manual-trigger only,
+   as the pre-merge protocol in §4.3. (This supersedes the proposal's
+   "protocol + weekly scrontab" recommendation.)
+2. **No alerting infrastructure** — follows from ruling 1: with no
+   unattended runs there is nothing to alert on; the run's terminal
+   output and the results-dir report suffice.
+3. **Gap E: ratchet the walled/mapped gap** in addition to the
+   uniform-parity guard (owner chose broader coverage over the
+   spurious-red risk; the compiler-artifact caveat and the regen knob
+   are encoded in the test, §1.5/§4.1).
+4. **Retain results privately**: guard runs keep their JSON in an
+   untracked results dir on DKRZ; no public series, no dashboard.
 
 ## 6. Closure criteria for the roadmap item
 
 The item moves to `done.md` when:
 
-- G1 assertions are on `dev` (all six gaps, green on CPU default +
-  forced-4 leg; gpu-marked legs green on the A100 suite);
+- G1 assertions are on `dev` (all six gaps, including the E ratchet,
+  green on CPU default + forced-4 leg; gpu-marked legs green on the
+  A100 suite);
 - G2 `compare` hardening is on `dev` with mirrored tests;
-- G3 script + AGENTS.md merge-gate line are on `dev`, one full
-  `step_guard.sbatch` run has been executed green on the A100 node,
-  and (if ruled in) the scrontab entry is installed;
-- the roadmap entry is rewritten to record the §2/§3 ruling (PR CI
-  gates structure, DKRZ gates time) so the "wire it into GitHub CI"
-  framing does not resurface.
+- G3 script + AGENTS.md merge-gate line are on `dev` and one full
+  `step_guard.sbatch` run has been executed green on the A100 node
+  (manually submitted, per §5.1);
+- the roadmap entry is rewritten to record the §2/§3/§5 rulings (PR
+  CI gates structure, DKRZ gates time, manual-trigger only) so the
+  "wire it into GitHub CI" framing does not resurface.

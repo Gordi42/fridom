@@ -51,8 +51,34 @@ Baselines are re-recorded with the same commands (`-o
 benchmarks/baselines/step-gpu<N>.json`) when a change *intentionally*
 moves the numbers; the commit message states the before/after and the
 device (baselines are machine-specific — the checked-in ones are from
-a DKRZ 4x A100-80GB node). Wall-time medians of repeated 50-step
-chunks; the per-step number is `wall / extras["steps"]`.
+a DKRZ 4x A100-80GB node). Repeated 50-step chunks; the per-step
+number is `wall / extras["steps"]`.
+
+### How `compare` decides
+
+`compare` hardens the raw threshold check three ways so an on-device
+comparison is honest:
+
+1. **Environment guard.** Before comparing any case it checks that the
+   two files agree on `backend`, `device_count`, `device_kind`, and
+   `jax_version` (a missing field counts as a mismatch). A mismatch is
+   a hard error with a nonzero exit and *no* comparison output — a cpu
+   run against a gpu baseline otherwise prints meaningless deltas
+   silently. `--allow-env-mismatch` downgrades this to a prominent
+   warning and proceeds.
+2. **Min estimator.** The compared statistic is the **minimum** of each
+   case's `wall_times`, not the median: environmental noise is
+   one-sided (it only ever adds time), so the minimum is the
+   least-contaminated estimate of the true cost (Chen & Revels, HPEC
+   2016). Per-run tables still show the median. Committed baselines
+   need no re-record — the full `wall_times` lists are stored.
+3. **Per-case tolerance.** The effective band is `max(--threshold,
+   3 * CoV_base)`, where `CoV_base = std/mean` of the baseline's own
+   samples. A stable large case is held to the flat `--threshold`; a
+   jittery small case (measured A100 jitter runs 2-6% on the small
+   cases) is given its own noise-derived band, so the flat 5% is
+   neither too tight nor too loose. The report shows the effective
+   tolerance and which rule set it (`global` vs `noise`) per case.
 
 CI smoke-runs every suite (`--first-only --reps 1`, smallest sizes,
 cpu) so the case files cannot go stale. **No timing assertions run in
