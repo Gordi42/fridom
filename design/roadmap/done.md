@@ -573,9 +573,10 @@ Implementation record:
   and full 3-D coarsening is the mapped-solver multigrid default
   (GM-D9: −4.3 % on top, parity 3.1e-10, automatic semicoarsening
   fallback for Chebyshev / indivisible n_z / stretched-base columns).
-  Residuals stay in `open.md`: the split-explicit chart variant, the
-  hydrostatic walled-horizontal gap (found in phase B), the real
-  multi-process 4-GPU leg.
+  Residuals stay in `open.md`: the split-explicit chart variant and
+  the real multi-process 4-GPU leg. The hydrostatic
+  walled-horizontal gap found in phase B was closed the same day
+  (flat + immersed; see its own entry below).
 - **Multigrid size-scaling root cause: the depth cap, not the
   algorithm** (2026-07-18, measurement-only; record
   [`../research/multigrid_depth_scaling.md`](../research/multigrid_depth_scaling.md))
@@ -1446,3 +1447,37 @@ Implementation record:
   future upgrade noted in the plan: min-across-2–3-processes for
   sub-16 ms cases. Guard cadence stands per ruling §5.5:
   owner-batched checkpoints, never per-merge, agents never submit.
+
+- **Hydrostatic walled-horizontal gap — closed (flat + immersed)**
+  (2026-07-18, found that morning as a multigrid-generalization
+  phase-B residual; root cause + three fixes same day; merges
+  `d26d3d9d` fix 1, `48e841ec` fix 3, `48a15c00` fix 2). The
+  recorded "staggering never wires wall BCs" diagnosis was wrong:
+  the Velocity-role bind derivation tags the wall-normal velocity
+  correctly per axis. The real seam was `ScalarField.to` (and its
+  mirror `HaloTracer.to`): no arm for a *tag-only* factor
+  difference (same node set, BC-siblings), so every BC-free
+  gradient output mis-classified as a node-set conversion and
+  resolved a deliberately-absent bare-face row. Fix 1 adds the
+  two-line sibling arm to both `.to`s (adopt via `retag`; fires
+  only where the old code guaranteed an error) — the whole gap for
+  `ExplicitFreeSurface`: walls x/y/x+y, advection on/off, immersed
+  included, mirror-symmetry vs a doubled periodic domain 5.6e-17,
+  volume drift 1.7e-18, autodiff FD-matched 3.7e-12
+  (`tests/hydrostatic/test_free_surface_walled.py`). Fix 2 ports
+  the nh2 F4 wall closure into `ImplicitFreeSurface._flat_spectral`
+  (solve on the `_neumann_sibling` space, `_dirichlet_mid` mid
+  legs, retag seam around `SpectralSolve`; immersed CG operator
+  retags its flux legs): periodic path bitwise-identical (sha256
+  state hash), mirror gate 3.2e-15, rigid-lid gauge 1.3e-17,
+  immersed+walled divergence 3.2e-9, autodiff 5.1e-12. Fix 3
+  wall-tags the split-explicit barotropic transports at
+  declaration (`wall_bc={staggered: DIRICHLET}` on the transport
+  `SpacePattern` — the same channel the Velocity role uses), after
+  which the subcycle needed no further seam: periodic path
+  sha256-identical, mirror gate exact 0.0, volume drift 3.5e-18,
+  autodiff 3.1e-12. Every free-surface variant now assembles and
+  runs on walled horizontal grids on flat and immersed geometry;
+  the one remaining layer (terrain chart + walled horizontal — a
+  genuine missing interpolate in the mapped slope gradient, not a
+  tag issue) is tracked in [`open.md`](open.md).

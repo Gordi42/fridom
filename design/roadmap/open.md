@@ -178,40 +178,22 @@ the scoping §10–§13). Open:
     volume-exact variable-csqr solve, resolving the plan §8
     volume-vs-energy tension for the implicit variant); the
     subcycle's terrain transport form is the remaining half.
-  - **Hydrostatic walled-horizontal gap** (found 2026-07-18,
-    generalization plan phase B; root cause pinned 2026-07-18): the
-    hydrostatic package does not assemble on walled *horizontal*
-    grids. The staggering itself is fine — the Velocity-role bind
-    derivation does tag the wall-normal velocity
-    (`Inner(x, bc=(DIRICHLET, DIRICHLET))`) per axis. The seam is
-    `ScalarField.to` (and its mirror `HaloTracer.to`,
-    `decomposition/halo.py`): neither has an arm for a *tag-only*
-    factor difference (same node set, BC-siblings). Since nodal
-    operator outputs are BC-free (owner decision), every gradient
-    chain lands on the bare face factor, and `.to`-ing it onto the
-    tagged velocity mis-classifies as a node-set conversion and
-    resolves `('interpolate', <bare face>)` — a row that
-    (correctly) does not exist. Periodic axes carry no tags and the
-    bounded vertical is reached only by reductions, so only walled
-    horizontals fire it. Measured with the arm patched in
-    experimentally: **ExplicitFreeSurface runs green** on walls
-    x/y/x+y, advection on/off, immersed mask included — the arm is
-    the whole gap for the explicit model. Two module-level
-    follow-ons remain behind it: (1) `ImplicitFreeSurface`'s
-    `_flat_spectral` keys its div leg on the bare grad codomain
-    (`composed._expand_div`); the walled operator needs the
-    Dirichlet-tagged keying plus the DCT solve on the
-    Neumann-tagged solve space (all seeded rows exist: diff
-    N-Center→Inner, diff D-Inner→Center, Cosine transform; the nh2
-    walled spectral solve F4 is the precedent). (2)
-    `SplitExplicitFreeSurface` declares its barotropic auxiliaries
-    (`ubar_prev`) on the bare space while runtime snapshots carry
-    the tag (declaration resolves before role tagging). Fix order:
-    the two-line sibling arm in both `.to`s (unblocks explicit +
-    immersed), then the implicit tagged solve, then the
-    split-explicit declaration derivation. The new barotropic
-    solver's wall closure is proven at the solver level
-    (self-adjoint 8.8e-16, cancellation exact).
+  - **Terrain + walled-horizontal** (the one remaining layer of the
+    walled-horizontal gap; the flat/immersed gap itself is closed —
+    entry in [`done.md`](done.md)): a hydrostatic model on a
+    sigma-chart terrain grid with a walled *horizontal* axis still
+    fails to assemble. This layer is a genuine missing conversion,
+    not a tag relabel: the mapped slope gradient
+    (`hydrostatic/modules/core.py` `_slope_gradient` →
+    `spatial/coordinate_mapping.py` `_at_space` → `field.to`)
+    needs to *interpolate* a wall-normal-face quantity along the
+    walled axis, and the BC-free `('interpolate', Inner(x))` row
+    (correctly) does not exist. Likely spelling: retag the
+    face quantity onto its Dirichlet sibling first (the odd-parity
+    claim of `_dirichlet_mid`), so the registered tagged
+    interpolate row resolves — but the seam sits in the shared
+    `coordinate_mapping` machinery, so the claim needs a
+    per-call-site justification, not a blanket arm.
   - **`MetricScaled` divides** (`mapped.py:219-222`) share the
     masked-singularity structure but are empirically reverse-safe;
     guard only if a composition exposes them (VJP-fix audit). Note
