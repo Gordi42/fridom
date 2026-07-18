@@ -394,3 +394,31 @@ def test_split_transport_depth_consistency_no_coast_leak():
     land_face = depth_u == 0.0
     u_land = np.asarray(model.state["U"].data)[land_face]
     assert float(np.abs(u_land).max()) == 0.0
+
+
+def test_split_ic_hook_derives_U_transport_depth_consistent():
+    # the IC hook seeds the barotropic transport U from a velocity IC:
+    # transport-depth consistent on wet columns
+    # (U == wet_depth_mean(u) * transport_depth(u)) and exactly 0 on the
+    # closed faces of a full-depth land column (x < 0.25).
+    def coast(x, y, z):  # noqa: ARG001
+        return (x > 0.25).astype(float)
+    grid = Grid(_meshes(8, 4, 1.0), immersed=ImmersedDomain(coast))
+    model = hy.Model(
+        grid=grid, dt=0.005, csqr=4.0,
+        free_surface=hy.SplitExplicitFreeSurface(substeps=8),
+        coriolis=hy.FPlaneCoriolis(f0=0.0), advection=False)
+    ushape = model.state["u"].data.shape
+    plane = np.random.default_rng(0).standard_normal((*ushape[:2], 1))
+    model.set_fields(u=np.broadcast_to(plane, ushape).copy())
+    fs = model.module(hy.SplitExplicitFreeSurface)
+    expected = np.asarray(
+        (fs._wet_depth_mean(model.state["u"])
+         * fs._transport_depth(model.state["u"])).data)
+    got = np.asarray(model.state["U"].data)
+    assert np.abs(got - expected).max() < 1e-13
+    # closed faces (land column, transport depth 0) carry exactly no U
+    depth_u = np.asarray(fs._transport_depth(model.state["u"]).data)
+    land = depth_u == 0.0
+    assert bool(land.any())
+    assert float(np.abs(got[land]).max()) == 0.0

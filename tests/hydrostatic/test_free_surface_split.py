@@ -791,3 +791,60 @@ def test_grad_through_walled_split_run_matches_finite_difference():
     fd = (float(loss(leaf + eps * direction))
           - float(loss(leaf - eps * direction))) / (2.0 * eps)
     assert directional == pytest.approx(fd, rel=1e-4)
+
+
+# ================================================================
+#  IC hook: barotropic transports seeded from the velocity IC
+# ================================================================
+# The prognostic U, V are diagnostically slaved to the depth mean of
+# u, v. set_fields seeds them from the velocity IC so the depth-mean
+# CONSTRAINT does not annihilate the barotropic (z-independent) part of
+# the IC on the first step (pre-fix: max|u| collapses ~4 orders of
+# magnitude within one step).
+def _z_uniform(model, name, seed):
+    """Return a z-independent random array on ``name``'s true shape."""
+    shape = model.state[name].shape
+    plane = np.random.default_rng(seed).standard_normal((*shape[:2], 1))
+    return np.broadcast_to(plane, shape).copy()
+
+
+def test_set_fields_seeds_U_V_from_the_velocity_ic():
+    depth = 2.0
+    model = make_model(make_grid(16, 8, depth=depth), SEFS(substeps=16))
+    model.set_fields(u=_z_uniform(model, "u", 0),
+                     v=_z_uniform(model, "v", 1))
+    # U, V == H * depth_mean(u, v) to machine precision
+    dmu = np.asarray(model.state["u"].data).mean(axis=2, keepdims=True)
+    dmv = np.asarray(model.state["v"].data).mean(axis=2, keepdims=True)
+    assert np.abs(np.asarray(model.state["U"].data)
+                  - depth * dmu).max() < 1e-13
+    assert np.abs(np.asarray(model.state["V"].data)
+                  - depth * dmv).max() < 1e-13
+    # the barotropic velocity survives a few steps (no collapse)
+    umax0 = float(np.abs(np.asarray(model.state["u"].data)).max())
+    model.advance(3)
+    assert not model.panicked
+    umax3 = float(np.abs(np.asarray(model.state["u"].data)).max())
+    assert umax3 > 0.5 * umax0
+
+
+def test_set_fields_respects_an_explicit_transport():
+    # setting both u and U keeps the user's U bitwise: the derivation
+    # applies only to a velocity set WITHOUT its transport.
+    model = make_model(make_grid(16, 4), SEFS(substeps=8))
+    u_ic = _z_uniform(model, "u", 3)
+    u_transport = np.random.default_rng(4).standard_normal(
+        model.state["U"].shape)
+    model.set_fields(u=u_ic, U=u_transport)
+    assert np.array_equal(np.asarray(model.state["U"].data), u_transport)
+    # V, set through neither u-derivation nor the user, stays zero
+    assert float(np.abs(np.asarray(model.state["V"].data)).max()) == 0.0
+
+
+def test_set_fields_ps_only_leaves_the_transports_untouched():
+    # a ps-only reset must not re-derive U, V from the incumbent u, v
+    # (the derivation is keyed on u/v being set in the same call).
+    model = make_model(make_grid(16, 4), SEFS(substeps=8))
+    model.set_fields(ps=mode_field(model, "ps", 1, 0, "cos").data)
+    assert float(np.abs(np.asarray(model.state["U"].data)).max()) == 0.0
+    assert float(np.abs(np.asarray(model.state["V"].data)).max()) == 0.0
