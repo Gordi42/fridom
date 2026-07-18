@@ -406,8 +406,11 @@ def test_maps_jacobian_matches_the_module_side_weighting():
     u = grid.create_field(
         space, init=lambda x, sigma: jnp.cos(sigma) + 0.0 * x)
     gate = Integral(jacobian=("zp",))["sigma"](u)
-    manual = (u * grid.metric(space.bare, "dzp_dsigma")).integrate(
-        "sigma")
+    # the module-side reference hand-weights, then reduces with the RAW
+    # computational Integral() (the seeded verb now Jacobian-weights on
+    # this terrain grid, so `.integrate` would double-count)
+    manual = Integral()["sigma"](
+        u * grid.metric(space.bare, "dzp_dsigma"))
     # route b (the wired seam) computes the same weighted integral as
     # route a (module-side weighting); the two differ only by
     # floating-point reassociation (weight*metric multiply order and,
@@ -436,14 +439,69 @@ def test_maps_jacobian_weighted_column_converges_to_the_physical():
 
 def test_maps_jacobian_is_no_longer_a_silent_noop():
     # the historical trap: jacobian=("zp",) once equalled the
-    # unweighted reduction (a silent no-op); it now weights by H
+    # unweighted reduction (a silent no-op); it now weights by H. The
+    # unweighted reduction is the RAW computational Integral() (the
+    # seeded `u.integrate("sigma")` verb is itself Jacobian-weighted
+    # now, so it equals `weighted`).
     grid, mx, ms = _terrain_grid(16)
     space = mx.center * ms.center
     u = grid.create_field(
         space, init=lambda x, sigma: jnp.cos(sigma) + 0.0 * x)
     weighted = Integral(jacobian=("zp",))["sigma"](u)
-    plain = u.integrate("sigma")
+    plain = Integral()["sigma"](u)
     assert not jnp.allclose(weighted.data, plain.data)
+    # and the seeded verb IS the weighted seam, bitwise
+    assert jnp.array_equal(u.integrate("sigma").data, weighted.data)
+
+
+# ================================================================
+#  The seeded f.integrate() verb is physical on a maps= grid
+#  (the physical-integral-default flip)
+# ================================================================
+def test_seeded_integrate_partial_matches_the_jacobian_seam():
+    # f.integrate("sigma") dispatches the seeded Jacobian-weighted row,
+    # bitwise the raw Integral(jacobian=("zp",)) seam
+    grid, mx, ms = _terrain_grid(16)
+    space = mx.center * ms.center
+    f = grid.create_field(
+        space, init=lambda x, sigma: jnp.cos(sigma) + 0.1 * x)
+    assert jnp.array_equal(
+        f.integrate("sigma").data,
+        Integral(jacobian=("zp",))["sigma"](f).data)
+
+
+def test_seeded_full_integrate_is_the_physical_volume_integral():
+    # f.integrate() == the raw computational integral of f * column
+    # Jacobian (the physical integral), not the plain sigma-measure sum
+    grid, mx, ms = _terrain_grid(16)
+    space = mx.center * ms.center
+    f = grid.create_field(
+        space, init=lambda x, sigma: jnp.cos(sigma) + 0.3 * jnp.sin(x))
+    physical = f.integrate()
+    jw = f * grid.metric(space.bare, "dzp_dsigma")
+    manual = Integral()["x"](Integral()["sigma"](jw))
+    assert jnp.allclose(physical.data, manual.data, atol=1e-13)
+    # genuinely different from the plain computational reduction
+    plain = Integral()["x"](Integral()["sigma"](f))
+    assert not jnp.allclose(physical.data, plain.data)
+
+
+def test_seeded_integrate_reduces_the_base_axis_first():
+    # Hazard 1: the joint reduction reorders the single-base column base
+    # axis ("sigma") ahead of its parameter axis ("x"), so the column
+    # Jacobian is evaluated while x is still alive; collapsing x first
+    # in a separate call is a taught error, never a silent number
+    grid, mx, ms = _terrain_grid(16)
+    space = mx.center * ms.center
+    f = grid.create_field(
+        space, init=lambda x, sigma: jnp.cos(sigma) + 0.2 * x)
+    joint = f.integrate("x", "sigma")
+    safe = f.integrate("sigma").integrate("x")
+    assert jnp.array_equal(joint.data, safe.data)
+    # user order does not matter: the verb reorders base-first
+    assert jnp.array_equal(f.integrate("sigma", "x").data, joint.data)
+    with pytest.raises(ValueError, match="reduce the base axis"):
+        f.integrate("x").integrate("sigma")
 
 
 def test_maps_jacobian_bogus_name_raises():

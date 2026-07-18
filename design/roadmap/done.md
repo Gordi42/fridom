@@ -75,7 +75,7 @@ Implementation record:
 
 | #   | Task | Outcome |
 |-----|------|---------|
-| 2.1 | Design: model composition (2026-07-08) | Decisions D1–D5 in [`../specs/model/`](../specs/model/00_overview.md); grid follow-ups filed as [`../plans/active/phase2_grid_followups.md`](../plans/active/phase2_grid_followups.md). |
+| 2.1 | Design: model composition (2026-07-08) | Decisions D1–D5 in [`../specs/model/`](../specs/model/00_overview.md); grid follow-ups filed as [`../plans/done/phase2_grid_followups.md`](../plans/done/phase2_grid_followups.md). |
 | 2.2 | Field registration + parameters in modules | `Module` declares `FieldMetadata`; parameters live in modules (`FPlaneCoriolis`/`BetaPlaneCoriolis`, `ConstantStratification`, shallow-water `csqr`, Rossby scaling). |
 | 2.3 | Modules modify anything | Modules and grid in the traced state; direct `Model(...)` assembly over a single `modules=` tuple (D4). |
 | 2.4 | Single `jax.jit` for the full run | Chunked `lax.scan` (`step_chunk`, AOT-compiled, donated carry); trace-friendly `Clock`; per-step NaN reduction + chunk-boundary abort; `fr.ops.Session` + `Model.run()`. |
@@ -95,6 +95,55 @@ Implementation record:
 | 3.8 | **Generalized adiabatic ramping** (2026-07-17) | Deform a model between reference and target operator configurations, `L(s) = (1-rho(s)) L_ref + rho(s) L_target`, with shared terms never computed twice (blend taxonomy: untouched / affine-parameter / term-weight; decisions AR-D1..D9, driving consumer the Rosenau et al. JFM draft). Shipped R1–R6: time-dependent scalar parameters + the declarative AR-D7 ETDRK4 taught error; `FieldBlend` (author-level affine field blends; ramped Coriolis `f0(t) + beta(t)·y`, static paths bit-identical); `fr.transforms.AdiabaticRamping` (four legs `.down`/`.backward`, `replace()`, window + composition protocol surfaces, AR-D6 irreversibility guard); `OptimalBalance` rebuilt *on* the legs bit-identically; phase-neutral `AdiabaticProjection` (backward–forward; forward–forward counter-example pinned) + `relative_imbalance`; docs page + double-ramp example. Post-landing audit verified the stretched-exponential leakage law to roundoff (`log eta = -2.52 sqrt(tau)`, R² 0.997; [`../research/adiabatic_leakage_scaling.md`](../research/adiabatic_leakage_scaling.md)) and pinned it as a regression shard. Example content review deferred at owner instruction — open in [`open.md`](open.md). Record: [`../plans/done/adiabatic_ramping.md`](../plans/done/adiabatic_ramping.md). |
 
 ## Landed since, outside the numbered tasks
+
+- **Coefficient-space product/power rows — ruled closed by design**
+  (owner-ratified 2026-07-18) — the open-roadmap semantics question
+  ("should coefficient-space fields get `("multiply"|"divide"|"power"|
+  "abs", space)` rows?") is settled: coefficient-space `ScalarField`s
+  are a **vector space, not an algebra**. Only transform-commuting
+  operations are field arithmetic (add/sub of same-space fields,
+  scalar multiply/divide — already exact); an elementwise product of
+  two coefficient fields is a **convolution** of the represented
+  functions, not their product, so those elementwise rows are
+  **permanently absent by design**, not an "iteration 1" deferral.
+  Per-mode (diagonal) coefficient algebra lives on `Symbol`; the
+  pointwise function product lives in nodal space; `Convolution` and
+  the zero-mode `ConstantBroadcast` stay reserved distinct kinds,
+  unbuilt until a consumer exists (the census found **zero**
+  coefficient×coefficient product consumers). Shipped: taught-error
+  rewording of the coefficient-space dunders/guards
+  (`spatial/fields/scalar_field.py`) + pinned tests, spec note, and
+  the `products.py` docstring line. **This closed the last open item
+  of the Phase-2 grid follow-ups.** Record:
+  [`coefficient_space_arithmetic_semantics.md`](../research/coefficient_space_arithmetic_semantics.md).
+
+- **Mapped + advection + chunked scan non-finite — root-caused,
+  already fixed** (2026-07-18 investigation; the fix itself landed
+  2026-07-17 in `44b5cb8d`) — the open-roadmap fault (recorded from
+  the CG GPU measurement at `b77f8582`: mapped advective runs
+  non-finite at `chunk_size ≥ 2` while the same steps run finite one
+  at a time) was the unguarded mapped velocity-correction `flux / J`
+  planting `inf` in the never-valid storage padding: the per-chunk
+  `_scrub_ghost_storage` cleansed it at chunk=1, while inside a
+  chunk≥2 scan the carry seal refills only negotiated halo lanes, so
+  the next step's masked wall arithmetic hit `0·inf = NaN` and the CG
+  dot products globalized it (u/v/w/p 100 % non-finite at it=2, b one
+  step behind). **Never a GPU or compiler fault**: CPU reproduces the
+  signature bit-identically at n=64 (the "on GPU" title was an
+  observation artifact — the CPU leg was never run; the
+  `multi_output_fusion` non-fix is thereby explained). Fixed
+  *accidentally* by the velocity-correction **VJP** guard `44b5cb8d`
+  ("the forward projection is untouched" — it was the forward fault
+  too); adjacent-commit bisect (`30f4a624` broken → `44b5cb8d`
+  fixed), and HEAD runs chunk=2 bit-identical to chunk=1 through
+  it=22 at 256³. Bonus finding: the bench config itself (unclosed
+  inviscid centered advection) blows up physically at it≈24
+  (t≈0.12), cadence/backend-independent and bit-identical across the
+  254 intervening commits — the original chunk=1 "control" looked
+  finite only because it stopped earlier. Hardening residuals
+  (chunk-parity test, `MetricScaled` pad-inf audit) tracked in
+  [`open.md`](open.md). Record:
+  [`mapped_chunk_nonfinite_rootcause.md`](../research/mapped_chunk_nonfinite_rootcause.md).
 
 - **Storage-halo width recovered — two-sided (interval) halo
   accounting** (2026-07-18, probe merge `a8a9aefb`, implementation
@@ -217,8 +266,26 @@ Implementation record:
   solved-axis width ≥ 1 at build. Gates: mirrored + model suite
   (2133) + forced-4 decomposition green, ruff clean; GPU gate run
   *before* landing (entry above) — ships on memory/tightness/CPU
-  grounds with the centered +2.3-4.3% priced in, width-pin knob as
-  the flagship recovery (tracked in [`open.md`](open.md)).
+  grounds with the centered +2.3-4.3% priced in.
+
+- **Storage-width follow-ups closed — biased `bench_step` cases added,
+  width-floor knob REFUSED** (2026-07-18, owner rulings in chat):
+  `nh_flat_advective_upwind5` / `_weno5` cases added to
+  `benchmarks/model/bench_step.py` (append-only; order pinned at 5;
+  default family — biased FV assembly works now, the A/B record's
+  "blocked" note is stale) on a dedicated size grid `[32, 192, 256,
+  512]` that includes the measured 192³ knife-edge size, so the
+  biased/WENO fusion families' storage-shape sensitivity is
+  guard-visible from now on. Verified end-to-end on the A100 at all
+  sizes (per-step numbers reproduce the A/B: upwind5 6.26 @192³ /
+  123.6 ms @512³, weno5 6.94 / 138.8); **baseline recorded at the
+  owner's next batched guard run**, not before. The storage-width
+  floor knob is **refused** (owner, 2026-07-18): no public knob;
+  measure-and-pin stays a benchmark-internal technique (the forcing
+  monkeypatch in the research harnesses), and the shipped widths
+  stand as measured. Records:
+  [`upwind5_shape_regression.md`](../research/upwind5_shape_regression.md),
+  [`storage_halo_gpu_ab.md`](../research/storage_halo_gpu_ab.md) §4.
 
 - **Upstream jax issues filed for the two T5 faults** (2026-07-18,
   owner-filed) —
@@ -479,6 +546,27 @@ Implementation record:
   FD-matched to rel-err ~6e-12 against gate 1e-4, nodal + FV). The
   new-stack step path is now reverse-differentiable on **all** grid
   types — flat, walled, mapped, immersed — with no known exception.
+- **Multigrid generalization: terrain implicit surface + coarsening
+  freedom + warm starts** (2026-07-18, plan
+  [`../plans/active/multigrid_generalization_plan.md`](../plans/active/multigrid_generalization_plan.md),
+  all five phases owner-ratified and shipped same day; merges
+  `51db9ba6` A, `70b012d8` E, `a0eb7027` D, `6e32b4b4` B,
+  `5e7a0eff` C) — closes the **H3 implicit** taught error:
+  `hy.ImplicitFreeSurface` now runs on sigma charts via the new
+  `BarotropicPressureSolver` (GM-D1 volume-exact variable-csqr
+  operator: volume drift ≤ 1e-12, correction cancellation 6e-16,
+  flat-limit exact, autodiff green), preconditioned by the flat
+  spectral inverse or the new 2-D point-Jacobi multigrid (iterations
+  11–13 h- **and** steepness-flat vs spectral's 27 at a=0.8;
+  forced-4 replicated-coarse-level parity green). All pressure/surface
+  CG solves warm-start from the previous step (GB-2 128³ step
+  −19.5 % multigrid / −16.8 % spectral, physics-neutral ≤ 3.5e-9),
+  and full 3-D coarsening is the mapped-solver multigrid default
+  (GM-D9: −4.3 % on top, parity 3.1e-10, automatic semicoarsening
+  fallback for Chebyshev / indivisible n_z / stretched-base columns).
+  Residuals stay in `open.md`: the split-explicit chart variant, the
+  hydrostatic walled-horizontal gap (found in phase B), the real
+  multi-process 4-GPU leg.
 - **Multigrid size-scaling root cause: the depth cap, not the
   algorithm** (2026-07-18, measurement-only; record
   [`../research/multigrid_depth_scaling.md`](../research/multigrid_depth_scaling.md))

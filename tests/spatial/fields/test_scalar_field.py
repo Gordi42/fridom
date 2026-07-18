@@ -1,12 +1,14 @@
 """Tests for fridom.spatial.fields.scalar_field."""
 import jax
 import jax.numpy as jnp
+import numpy as np
 import pytest
 
 from fridom.model.errors import (
     ImmutableStateError as ModelImmutableStateError,
 )
 from fridom.spatial.bc import BC
+from fridom.spatial.coordinate_mapping import CoordinateMapping
 from fridom.spatial.errors import (
     GridMismatchError,
     ImmutableStateError,
@@ -16,6 +18,7 @@ from fridom.spatial.fields.metadata import FieldMetadata
 from fridom.spatial.fields.scalar_field import ScalarField
 from fridom.spatial.grid import Grid
 from fridom.spatial.meshes.interval import IntervalMesh
+from fridom.spatial.operators.integrate import Integral
 from fridom.spatial.operators.registry import OperatorRegistry
 from fridom.spatial.scalars import Scalars, Variance
 from fridom.spatial.spaces.nodal import NodeSet
@@ -344,7 +347,7 @@ def test_mul_on_coefficient_space_raises(grid1d, mx):
     space = mx.fourier(origin=mx.center)
     a = grid1d.random.normal(space, seed=0)
     b = grid1d.random.normal(space, seed=1)
-    with pytest.raises(KeyError, match="multiply"):
+    with pytest.raises(KeyError, match="convolution"):
         _ = a * b
 
 
@@ -356,7 +359,7 @@ def test_div(f, g):
 def test_div_on_coefficient_space_raises(grid1d, mx):
     space = mx.fourier(origin=mx.center)
     a = grid1d.random.normal(space, seed=0)
-    with pytest.raises(KeyError, match="divide"):
+    with pytest.raises(KeyError, match="quotient of spectra"):
         _ = a / a
 
 
@@ -393,7 +396,7 @@ def test_complex_scalar_rtruediv_promotes(f):
 
 def test_rtruediv_on_coefficient_space_raises(grid1d, mx):
     a = grid1d.random.normal(mx.fourier(origin=mx.center), seed=0)
-    with pytest.raises(KeyError, match="divide"):
+    with pytest.raises(KeyError, match="quotient of spectra"):
         _ = 1.0 / a
 
 
@@ -404,7 +407,7 @@ def test_pow(f):
 
 def test_pow_on_coefficient_space_raises(grid1d, mx):
     a = grid1d.random.normal(mx.fourier(origin=mx.center), seed=0)
-    with pytest.raises(KeyError, match="power"):
+    with pytest.raises(KeyError, match="Symbol algebra"):
         _ = a ** 2
 
 
@@ -443,6 +446,12 @@ def test_abs_on_average_spaces(grid1d, mx):
     h = abs(a)
     assert h.function_space.bare is mx.cell_avg
     assert jnp.array_equal(h.data, jnp.abs(data))
+
+
+def test_abs_on_coefficient_space_raises(grid1d, mx):
+    a = grid1d.random.normal(mx.fourier(origin=mx.center), seed=0)
+    with pytest.raises(KeyError, match="spectral diagnostic"):
+        _ = abs(a)
 
 
 def test_constant_into_coefficient_lift_raises(grid1d, mx):
@@ -837,6 +846,59 @@ def test_to_from_constant_factor_broadcasts(grid, mx, my):
 
 
 # ================================================================
+#  Tag-only .to arm: BC-sibling factors need no conversion
+# ================================================================
+def test_to_bc_sibling_bare_to_tagged_retags_on_the_walled_axis(mx, my,
+                                                                grid, f):
+    # a bare walled Center and its Dirichlet sibling agree on node set;
+    # .to needs no operator, it adopts the tag (the crash the arm fixes:
+    # a bounded-face stencil output onto a wall-tagged sibling)
+    synced = grid.sync(f)
+    assert synced.halo_valid.interval("x") == (1, 1)
+    assert synced.halo_valid.interval("y") == (1, 1)
+    tagged = my.nodal(NodeSet.CENTER, bc=BC.DIRICHLET)
+    g = synced.to(tagged)  # single-factor shorthand on the walled y
+    assert g.function_space.bare is mx.center * tagged
+    assert g.grid is f.grid
+    assert g.metadata == f.metadata  # same-quantity rule
+    # point samples untouched
+    assert jnp.array_equal(g.data, synced.data)
+    # halo validity resets on the retagged axis only (ghost policy
+    # changed with the tag); the other axis carries over
+    assert g.halo_valid.interval("x") == (1, 1)
+    assert g.halo_valid.interval("y") == (0, 0)
+
+
+def test_to_bc_sibling_tagged_to_bare_retags_back(mx, my, grid, f):
+    tagged = my.nodal(NodeSet.CENTER, bc=BC.DIRICHLET)
+    g = grid.sync(f).to(tagged)
+    # the reverse tag-only .to drops the tag onto the bare sibling
+    back = g.to(my.center)
+    assert back.function_space.bare is mx.center * my.center
+    assert jnp.array_equal(back.data, f.data)
+    assert back.halo_valid.interval("x") == (1, 1)
+    assert back.halo_valid.interval("y") == (0, 0)
+
+
+def test_to_bc_sibling_on_a_lone_walled_factor(walled):
+    grid1d, mz = walled
+    a = grid1d.create_field(mz.center, init=lambda z: z**2)
+    tagged = mz.nodal(NodeSet.CENTER, bc=BC.DIRICHLET)
+    g = a.to(tagged)  # lone-factor tag-only .to
+    assert g.function_space.bare is tagged
+    assert jnp.array_equal(g.data, a.data)
+
+
+def test_to_different_factor_conversion_still_raises(my, f):
+    # the arm only short-circuits BC siblings; a genuinely different
+    # factor (Center -> Outer: different node set and shape) is not a
+    # sibling and still resolves through the registry, where the
+    # registered interpolate lands on Inner (not Outer) and raises
+    with pytest.raises(SpaceMismatchError, match="lands on"):
+        f.to(my.outer)
+
+
+# ================================================================
 #  BC-sibling retag seam (C6)
 # ================================================================
 @pytest.fixture
@@ -1067,3 +1129,127 @@ def test_item_of_a_complex_field_is_complex(f):
 def test_item_needs_a_one_dof_field(f):
     with pytest.raises(ValueError, match="one-DOF field"):
         f.item()
+
+
+# ================================================================
+#  mean() on a maps= terrain grid: the physical (Jacobian-weighted)
+#  divisor (the physical-integral-default flip)
+# ================================================================
+def _terrain_grid_2d(n):
+    # zp = sigma * H(x): a single-base terrain column (sigma the base
+    # axis, x the parameter axis the column Jacobian H varies over)
+    mx = IntervalMesh(n, (0.0, 2.0 * jnp.pi), name="x")
+    ms = IntervalMesh(n, (0.0, 1.0), periodic=False, name="sigma")
+    mapping = CoordinateMapping(
+        maps={"zp": lambda sigma, H: sigma * H},
+        params={"H": lambda x: 1.0 + 0.2 * jnp.sin(x)})
+    return Grid((mx, ms), mapping=mapping)
+
+
+def _raw(field, *names):
+    result = field
+    for name in (names or field.function_space.bare.names):
+        result = Integral()[name](result)
+    return result
+
+
+def test_terrain_partial_mean_is_the_physical_column_depth_mean():
+    # mean("sigma") divides the physical column integral by the
+    # per-column physical depth H(x) = int J dsigma -- a FIELD over x
+    grid = _terrain_grid_2d(16)
+    space = grid.factors[0].center * grid.factors[1].center
+    f = grid.create_field(
+        space, init=lambda x, sigma: jnp.cos(sigma) + 0.3 * jnp.sin(x))
+    mz = f.mean("sigma")
+    jac = grid.metric(space.bare, "dzp_dsigma")
+    num = _raw(f * jac, "sigma")
+    den = _raw(jac, "sigma")
+    expected = num.with_data(num.data / den.data)
+    assert jnp.allclose(mz.data, expected.data, atol=1e-13)
+    # the result is a per-column FIELD over x, not a scalar (partial
+    # mean lands on Constant(sigma) but keeps the x factor)
+    assert "x" in mz.function_space.bare.names
+    assert mz.data.size > 1
+    # (for zp = sigma * H the column Jacobian H(x) is constant along
+    # sigma and factors out, so this base-axis mean equals the plain
+    # sigma-mean numerically -- the full mean below shows the flip's
+    # genuine numeric effect, where H's x-variation does not cancel)
+
+
+def test_terrain_full_mean_is_the_physical_volume_mean():
+    grid = _terrain_grid_2d(16)
+    space = grid.factors[0].center * grid.factors[1].center
+    f = grid.create_field(
+        space, init=lambda x, sigma: 2.0 + jnp.cos(sigma) + jnp.sin(x))
+    mean = f.mean().item()
+    jac = grid.metric(space.bare, "dzp_dsigma")
+    physical_int = float(_raw(f * jac).item())
+    physical_vol = float(_raw(jac).item())
+    assert mean == pytest.approx(physical_int / physical_vol, rel=1e-12)
+    # genuinely different from the plain computational full mean: H(x)'s
+    # x-variation weights the average and does not cancel
+    ones = grid.create_field(space, data=jnp.ones(space.shape))
+    comp = float(_raw(f).item()) / float(_raw(ones).item())
+    assert abs(mean - comp) > 1e-3
+
+
+def test_chart_mean_divides_by_the_physical_area():
+    # the embedding-chart twin of the terrain mean: numerator and
+    # divisor share the sqrt_g measure (mapping-form unification)
+    mu = IntervalMesh(8, (0.0, 2.0 * jnp.pi), name="u")
+    mv = IntervalMesh(8, (0.0, 2.0 * jnp.pi), name="v")
+    mapping = CoordinateMapping(chart={"X": lambda u, v: (
+        (2.0 + 0.5 * jnp.cos(v)) * jnp.cos(u),
+        (2.0 + 0.5 * jnp.cos(v)) * jnp.sin(u),
+        0.5 * jnp.sin(v))})
+    grid = Grid((mu, mv), mapping=mapping)
+    space = grid.factors[0].center * grid.factors[1].center
+    f = grid.create_field(
+        space, init=lambda u, v: 1.0 + jnp.cos(v) + 0.0 * u)
+    sqrt_g = grid.metric(space.bare, "sqrt_g")
+    expected = float(_raw(f * sqrt_g).item()) / float(
+        _raw(sqrt_g).item())
+    assert float(f.mean().item()) == pytest.approx(expected, rel=1e-12)
+    # a constant's mean is the constant under any measure
+    c = grid.create_field(space, data=jnp.full(space.shape, 3.0))
+    assert float(c.mean().item()) == pytest.approx(3.0, rel=1e-12)
+    # genuinely different from the computational average: sqrt_g's
+    # cos(v) weighting does not cancel on the torus
+    ones = grid.create_field(space, data=jnp.ones(space.shape))
+    comp = float(_raw(f).item()) / float(_raw(ones).item())
+    assert abs(float(f.mean().item()) - comp) > 1e-3
+
+
+def test_flat_mean_is_bitwise_the_computational_average(grid):
+    # off a mapped grid the mean keeps the plain computational divisor,
+    # bitwise the historical path
+    field = grid.create_field(
+        init=lambda x, y: jnp.sin(2 * jnp.pi * x) + 0.5 * y)
+    space = field.function_space.bare
+    total = 1.0
+    for name in space.names:
+        total = total * float(grid.measure(space, name=name).data.sum())
+    expected = _raw(field).data / total
+    assert jnp.array_equal(field.mean().data, expected)
+
+
+def test_terrain_mean_is_differentiable():
+    # the double-`where` divisor guard keeps grad through mean("sigma")
+    # finite and matches a central finite difference (diff. policy)
+    grid = _terrain_grid_2d(8)
+    space = grid.factors[0].center * grid.factors[1].center
+
+    def loss(data):
+        f = grid.create_field(space, data=data)
+        return (f.mean("sigma").data ** 2).sum()
+
+    rng = jnp.asarray(
+        np.random.default_rng(0).standard_normal(space.shape))
+    g = jax.grad(loss)(rng)
+    assert bool(jnp.all(jnp.isfinite(g)))
+    eps = 1e-6
+    idx = (2, 3)
+    plus = rng.at[idx].add(eps)
+    minus = rng.at[idx].add(-eps)
+    fd = float((loss(plus) - loss(minus)) / (2 * eps))
+    assert float(g[idx]) == pytest.approx(fd, rel=1e-4, abs=1e-7)

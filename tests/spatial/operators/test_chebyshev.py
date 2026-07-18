@@ -18,7 +18,7 @@ N = 8
 @pytest.fixture
 def cheb():
     mesh = ChebyshevMesh(N, (-1.0, 1.0), name="z")
-    return Grid((mesh,)), mesh
+    return Grid((mesh,), device_ids=(0,)), mesh
 
 
 def _xi():
@@ -74,7 +74,7 @@ def test_mapped_extent_keeps_the_reference_coefficients():
     # the transform sees index space: coefficients are those of the
     # affine pullback onto [-1, 1] regardless of the physical extent
     mesh = ChebyshevMesh(N, (0.0, 2.0), name="z")
-    grid = Grid((mesh,))
+    grid = Grid((mesh,), device_ids=(0,))
     xi = _xi()
     f = grid.create_field(mesh.lobatto,
                           data=jnp.asarray(2 * xi ** 2 - 1))
@@ -107,7 +107,7 @@ def test_bc_structured_origins_are_designed_for(cheb):
 
 def test_interval_center_origins_raise():
     mesh = IntervalMesh(N, (0.0, 1.0), periodic=False, name="x")
-    grid = Grid((mesh,))
+    grid = Grid((mesh,), device_ids=(0,))
     f = grid.create_field(mesh.center)
     with pytest.raises(SpaceMismatchError, match="Gauss-Lobatto"):
         Chebyshev(grid).forward(f)
@@ -125,7 +125,7 @@ def test_padded_chebyshev_raises_at_construction(cheb):
 def test_interval_outer_origins_raise():
     # right node set but wrong mesh family: the factory error path
     mesh = IntervalMesh(N, (0.0, 1.0), periodic=False, name="x")
-    grid = Grid((mesh,))
+    grid = Grid((mesh,), device_ids=(0,))
     f = grid.create_field(mesh.outer)
     with pytest.raises(SpaceMismatchError, match="no Chebyshev"):
         Chebyshev(grid).forward(f)

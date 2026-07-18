@@ -88,20 +88,29 @@ Inner products
 --------------
 CG is correct only in the inner product under which ``A`` is
 symmetric positive definite. For the flux-form mapped Laplacian that
-is the **measure-weighted** :math:`L^2` product
-:math:`\langle a, b\rangle = \int a\,b \,\mathrm{d}V` (the mimetic
-``div``/``grad`` adjointness holds under the
-:math:`\sqrt{g}`-weighted product; SPD-ness is what licenses CG).
-Every inner product here is that product, evaluated through the
-field's own ``integrate`` machinery — which sums the **true DOFs**
-(``f.data``, halo/pad stripped) weighted by ``grid.measure`` and
-handles the cross-shard reduction. Routing the dot products through
-``integrate`` is therefore what keeps them halo-clean under domain
-decomposition: no halo or stagger-pad slot ever enters a sum (a leak
-would silently converge the solver to the wrong answer on several
-devices). On a uniform flat grid the measure is a constant XLA folds,
-so the weighting reduces to the plain Euclidean product up to a factor
-that cancels in the CG ratios.
+is the **plain computational measure** product
+:math:`\langle a, b\rangle = \int a\,b \,\mathrm{d}V` weighted by
+``grid.measure`` — the discrete flux-form operator is self-adjoint
+under ``diag(grid.measure)`` (mapped-pressure operator band
+assembly), so ``grid.measure`` is the product that licenses CG here,
+*not* the physical :math:`\sqrt{g}`-weighted product the continuous
+mimetic adjointness is stated in. Every inner product here is that
+product, evaluated through the **raw computational** ``Integral()``
+(``jacobian=None``, ``_COMPUTATIONAL``) per axis — which sums the
+**true DOFs** (``f.data``, halo/pad stripped) weighted by
+``grid.measure`` and handles the cross-shard reduction.
+
+Pinning to the raw ``Integral()`` — not the seeded ``f.integrate()``
+verb — is deliberate: on a mapping that derives a volume element the
+seeded reductions are Jacobian-weighted (physical), so the field verb
+would flip the CG product to :math:`\sqrt{g}`-weighted and change the
+validated Krylov geometry (the mapped operator is not SPD in that
+product). Routing the dot products through the raw ``Integral()`` also
+keeps them halo-clean under domain decomposition: no halo or
+stagger-pad slot ever enters a sum (a leak would silently converge the
+solver to the wrong answer on several devices). On a uniform flat grid
+the measure is a constant XLA folds, so the weighting reduces to the
+plain Euclidean product up to a factor that cancels in the CG ratios.
 
 Nullspace
 ---------
@@ -117,8 +126,9 @@ field-to-field projection installed at the same three sites (IP-D6:
 the immersed cut-cell operator's nullspace is the **wet-region**
 constant, projected as the wet-volume-weighted mean
 ``p - (int theta p dV)/(int theta dV)``). ``project_mean=True`` is the
-all-wet special case ``projection = lambda f: f - f.mean()``; passing
-both is a construction error.
+all-wet special case ``projection = lambda f: f - _computational_mean(
+f)`` (the computational-measure mean, pinned like the dot product);
+passing both is a construction error.
 
 The initial guess is zero unless an explicit ``x0`` is passed.
 
@@ -216,6 +226,9 @@ from typing import TYPE_CHECKING
 import jax.numpy as jnp
 from jax import lax
 
+from fridom.spatial.operators.integrate import Integral
+from fridom.spatial.spaces.constant import ConstantSpace
+
 if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Callable
 
@@ -232,6 +245,15 @@ if TYPE_CHECKING:  # pragma: no cover
     TolCarry = tuple[
         jax.Array, jax.Array, jax.Array, jax.Array, jax.Array,
         jax.Array]
+
+#: the raw computational-measure reduction (``jacobian=None``): the CG
+#: inner product and nullspace projection are pinned to it explicitly,
+#: NOT to the seeded ``f.integrate()`` / ``f.mean()`` verbs. On a
+#: mapping deriving a volume element those verbs are Jacobian-weighted
+#: (physical), but the flux-form mapped operator is SPD in the *plain*
+#: measure (``grid.measure``, module docstring), so flipping the CG
+#: product would change the validated Krylov geometry.
+_COMPUTATIONAL = Integral()
 
 
 def _guarded_ratio(num: jax.Array, den: jax.Array) -> jax.Array:
@@ -262,6 +284,74 @@ def _guarded_ratio(num: jax.Array, den: jax.Array) -> jax.Array:
     zero = den == 0.0
     safe = jnp.where(zero, 1.0, den)
     return jnp.where(zero, 0.0, num / safe)
+
+
+def _computational_integral(f: FieldLike) -> FieldLike:
+    r"""
+    Reduce every live factor by the raw computational ``Integral()``.
+
+    Description
+    -----------
+    The measure-weighted :math:`\int f\,\mathrm{d}V` of the plain
+    ``grid.measure`` quadrature, evaluated through the raw
+    ``Integral()`` (``jacobian=None``) per axis rather than the seeded
+    ``f.integrate()`` verb — so it stays computational even on a grid
+    whose seeded rows are Jacobian-weighted (``_COMPUTATIONAL``).
+    Reduces in space order (no base-axis reorder needed: the plain
+    measure carries no Jacobian).
+
+    Parameters
+    ----------
+    f : FieldLike
+        The operand field.
+
+    Returns
+    -------
+    FieldLike
+        The fully reduced (single-DOF) computational integral.
+    """
+    space = f.function_space.bare
+    result = f
+    for name in space.names:
+        if isinstance(space.factor(name), ConstantSpace):
+            continue
+        result = _COMPUTATIONAL[name](result)
+    return result
+
+
+def _computational_mean(f: FieldLike) -> FieldLike:
+    """
+    Remove the mean under the plain computational measure.
+
+    Description
+    -----------
+    The computational-measure twin of ``f.mean()`` (pinned like
+    ``_computational_integral``): the computational integral divided by
+    the product of the per-axis ``grid.measure`` sums, so the CG
+    nullspace projection ``f - _computational_mean(f)`` stays byte-for-
+    byte the pre-flip gauge on every grid.
+
+    Parameters
+    ----------
+    f : FieldLike
+        The operand field.
+
+    Returns
+    -------
+    FieldLike
+        The computational mean on the fully reduced space.
+    """
+    space = f.function_space.bare
+    result = _computational_integral(f)
+    total = None
+    for name in space.names:
+        if isinstance(space.factor(name), ConstantSpace):
+            continue
+        length = f.grid.measure(space, name=name).data.sum()
+        total = length if total is None else total * length
+    if total is None:
+        return result
+    return result.with_data(result.data / total)
 
 
 class ConjugateGradient:
@@ -436,10 +526,13 @@ class ConjugateGradient:
 
         Description
         -----------
-        Evaluated through the field's ``integrate`` (true DOFs times
-        ``grid.measure``, cross-shard sum included), so it is
-        halo-clean under decomposition and the product in which ``A``
-        is SPD (module docstring). Returns the 0-d scalar.
+        Evaluated through the raw computational ``Integral()`` (true
+        DOFs times ``grid.measure``, cross-shard sum included), so it
+        is halo-clean under decomposition and the product in which
+        ``A`` is SPD (module docstring). Pinned to the plain measure —
+        NOT the seeded ``f.integrate()`` verb, which is Jacobian-
+        weighted on a mapped grid — so the Krylov geometry is
+        unchanged there (``_COMPUTATIONAL``). Returns the 0-d scalar.
 
         Parameters
         ----------
@@ -453,14 +546,14 @@ class ConjugateGradient:
         jax.Array
             The 0-d weighted inner product.
         """
-        return jnp.sum((a * b).integrate().data)
+        return jnp.sum(_computational_integral(a * b).data)
 
     def _project(self, f: FieldLike) -> FieldLike:
         """Project out the nullspace (custom hook or weighted mean)."""
         if self._projection is not None:
             return self._projection(f)
         if self._project_mean:
-            return f - f.mean()
+            return f - _computational_mean(f)
         return f
 
     def _precondition(self, r: FieldLike) -> FieldLike:

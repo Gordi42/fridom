@@ -36,7 +36,7 @@ def my():
 
 @pytest.fixture
 def grid(mx, my):
-    return Grid((mx, my))
+    return Grid((mx, my), device_ids=(0,))
 
 
 def init(x, y):
@@ -177,7 +177,7 @@ def test_face_avg_labels(grid, mx, my):
 # ================================================================
 def test_fourier_coefficient_field():
     mesh = IntervalMesh(8, (0.0, 1.0), name="x")
-    grid = Grid((mesh,))
+    grid = Grid((mesh,), device_ids=(0,))
     space = mesh.fourier(origin=mesh.center)
     field = grid.create_field(
         space, init_coeff=lambda kx: jnp.exp(-0.1 * kx**2), name="c")
@@ -204,7 +204,7 @@ def test_mixed_fourier_product(grid):
 
 def test_chebyshev_mode_indices():
     mesh = ChebyshevMesh(8, (0.0, 1.0), name="z")
-    grid = Grid((mesh,))
+    grid = Grid((mesh,), device_ids=(0,))
     space = mesh.chebyshev(mesh.outer)
     da = grid.create_field(space).xr
     assert da.dims == ("kz",)
@@ -310,18 +310,21 @@ def test_export_is_device_count_invariant(forced_devices):
                               da_one.coords[dim].values)
 
 
-def test_spectral_export_is_device_count_invariant(forced_devices):
+@pytest.mark.multi_device
+def test_spectral_export_on_a_sharded_grid_is_a_taught_error(
+        forced_devices):
+    # Post Tier-1 guard: a naive Fourier export over a sharded transform
+    # axis is refused (it would silently all-gather the axis on CPU or
+    # crash XLA's distributed-FFT lowering on GPU). Device-count
+    # invariance is therefore not available for the naive spectral
+    # export; the single-device export math is covered by
+    # test_mixed_fourier_product on the device_ids=(0,) grid fixture.
     if forced_devices is not None:
         assert jax.device_count() == forced_devices
-    many, one = build_grid(None), build_grid((0,))
-    da_many = Fourier(many, axes=("x",)).forward(
-        many.create_field(init=init)).xr
-    da_one = Fourier(one, axes=("x",)).forward(
-        one.create_field(init=init)).xr
-    assert da_many.dims == da_one.dims == ("kx", "y")
-    assert np.array_equal(da_many.values, da_one.values)
-    assert np.array_equal(da_many.coords["kx"].values,
-                          da_one.coords["kx"].values)
+    many = build_grid(None)
+    with pytest.raises(NotImplementedError,
+                       match="cannot run on this grid"):
+        Fourier(many, axes=("x",)).forward(many.create_field(init=init))
 
 
 # ================================================================

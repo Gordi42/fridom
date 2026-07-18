@@ -1422,7 +1422,12 @@ def test_map_only_mappings_seed_no_metric_calculus(mapped_grid):
     registry = mapped_grid.dispatch
     assert not isinstance(registry.resolve("grad", space),
                           MetricGradient)
-    assert registry.resolve("integrate", mx.center).jacobian is None
+    # a single-base maps= grid derives a volume element, so the seeded
+    # reductions ARE Jacobian-weighted (the physical-integral-default
+    # flip) -- the mapped physical name "z" -- even though it seeds no
+    # embedding-chart vector calculus
+    assert registry.resolve("integrate", mx.center).jacobian == ("z",)
+    assert registry.resolve("cumint", mx.center).jacobian == ("z",)
     with pytest.raises(DispatchError, match="raise_index"):
         registry.resolve("raise_index", space)
 
@@ -1438,6 +1443,20 @@ def test_one_coordinate_charts_seed_the_jacobian_only(mx):
                           MetricGradient)
     with pytest.raises(DispatchError, match="raise_index"):
         grid.dispatch.resolve("raise_index", mx.center)
+
+
+def test_multi_base_maps_keep_the_computational_reductions(mx):
+    # a multi-base analytic map derives Jacobian metrics but no
+    # single-base column volume element, so the seeded reductions stay
+    # computational (jacobian=None): _reduction_jacobian's empty branch
+    ms = IntervalMesh(8, (0.0, 1.0), name="sigma")
+    mapping = CoordinateMapping(
+        maps={"z": lambda sigma, x: sigma * (1.0 + 0.2 * x)})
+    grid = Grid((mx, ms), mapping=mapping)
+    assert grid.dispatch.resolve(
+        "integrate", mx.center).jacobian is None
+    assert grid.dispatch.resolve(
+        "cumint", mx.center).jacobian is None
 
 
 # ================================================================

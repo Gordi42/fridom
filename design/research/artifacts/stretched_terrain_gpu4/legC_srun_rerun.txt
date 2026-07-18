@@ -1,0 +1,20 @@
+18:32:47: INFO: ################################################################################
+18:32:47: INFO: FRIDOM: Framework for Idealized Ocean Models
+18:32:47: INFO:  > Job starting on 2026.07.18 at 06:32:47 PM
+18:32:47: INFO:  > Running on 4 processes.
+18:32:47: INFO:  > Platform: gpu (4 device(s))
+18:32:47: INFO: ################################################################################
+18:32:47: INFO:                                                                                 
+18:32:47: INFO:                                                                                 
+18:32:47: INFO:                                                                                 
+process_count=4 device_count=4 local_devices=[CudaDevice(id=0)]
+config: steps=30 iters=80 tol=1e-10 tag=ref
+srun: forcing job termination
+srun: got SIGCONT
+srun: Job step aborted: Waiting up to 62 seconds for job step to finish.
+slurmstepd: error: *** STEP 26345262.4 ON l50054 CANCELLED AT 2026-07-18T18:37:39 ***
+srun: error: l50054: tasks 1-2: Killed
+srun: Terminating StepId=26345262.4
+srun: error: l50054: task 0: Killed
+srun: error: l50054: task 3: Killed
+SRUN_EXIT=124

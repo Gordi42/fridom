@@ -73,7 +73,7 @@ def _channel_model(dt, *, advection):
     mx = IntervalMesh(8, (0.0, 1.0), name="x")
     my = IntervalMesh(8, (0.0, 1.0), periodic=False, name="y")
     return sw.Model(
-        grid=Grid((mx, my)), csqr=CSQR, rossby_number=0.2,
+        grid=Grid((mx, my), device_ids=(0,)), csqr=CSQR, rossby_number=0.2,
         coriolis=sw.modules.BetaPlaneCoriolis(f0=F0, beta=BETA),
         advection=advection,
         time_stepper=fr.model.time_steppers.AdamBashforth(dt, order=3))
@@ -340,7 +340,8 @@ def test_rejects_a_model_with_a_linear_operator_gap():
     # rotation: require_linear_operator refuses it (the ramp would
     # integrate a different system than L describes)
     grid = Grid((IntervalMesh(8, (0.0, 1.0), name="x"),
-                 IntervalMesh(8, (0.0, 1.0), periodic=False, name="y")))
+                 IntervalMesh(8, (0.0, 1.0), periodic=False, name="y")),
+                device_ids=(0,))
     route_b = sw.Model(
         grid=grid, csqr=CSQR, rossby_number=0.2,
         coriolis=sw.modules.NonlinearBetaPlaneCoriolis(f0=F0, beta=BETA),
@@ -392,7 +393,8 @@ class _ToyLinearDrag(ClosureBase):
 
 def _toy_model():
     """Build a linear inertial oscillator carrying a linear closure."""
-    grid = Grid((IntervalMesh(8, (0.0, 1.0), periodic=True, name="x"),))
+    grid = Grid((IntervalMesh(8, (0.0, 1.0), periodic=True, name="x"),),
+                device_ids=(0,))
     return Model(
         grid=grid, modules=(_ToyRotation(), _ToyLinearDrag(fields=("u",))),
         time_stepper=ExplicitRungeKutta(2e-3, tableau=tableaus.RK4),

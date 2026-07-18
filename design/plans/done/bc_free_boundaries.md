@@ -12,7 +12,7 @@ date: 2026-07-07
 is the rule that landed (R1, merge `9a95202a`) — exterior reads on a
 BC-free bounded axis raise, and the extrapolation fill is gone. The
 text below is the original argument, kept as the record. Cross-refs:
-work item 11 in [`phase2_grid_followups.md`](../active/phase2_grid_followups.md);
+work item 11 in [`phase2_grid_followups.md`](../done/phase2_grid_followups.md);
 the BC-row API gap in [`../done/phase1_findings.md`](../../research/phase1_findings.md);
 the task-1.8 periodicity-gated validity claims in the
 [decomposition contract](../../specs/grid/classes/decomposition.md) (whose recorded

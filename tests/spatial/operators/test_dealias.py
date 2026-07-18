@@ -18,7 +18,7 @@ TWO_PI = 2.0 * jnp.pi
 
 def _grid(n=8):
     mesh = IntervalMesh(n, (0.0, 1.0), name="x")
-    return Grid((mesh,)), mesh
+    return Grid((mesh,), device_ids=(0,)), mesh
 
 
 # ================================================================

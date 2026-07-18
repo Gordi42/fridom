@@ -41,6 +41,7 @@ from fridom.spatial.coordinate_mapping import CoordinateMapping
 from fridom.spatial.grid import Grid
 from fridom.spatial.meshes.interval import IntervalMesh
 from fridom.spatial.operators.banded import _resolve_tridiagonal_method
+from fridom.spatial.operators.krylov import _computational_mean
 from fridom.spatial.operators.multigrid import VerticalLineJacobi
 
 TWO_PI = 2.0 * np.pi
@@ -92,7 +93,7 @@ def mean_free_rhs(grid, space):
         space,
         init=lambda x, sigma: jnp.exp(
             -((x - 3.0) ** 2 + (sigma - 0.5) ** 2) * 3.0))
-    return rhs - rhs.mean()
+    return rhs - _computational_mean(rhs)
 
 
 def hlo_line_count(*, iterations, levels):
@@ -305,7 +306,7 @@ def mean_free_rhs_3d(grid, space):
         space,
         init=lambda x, y, sigma: jnp.exp(
             -((x - 3.0) ** 2 + (y - 3.0) ** 2 + (sigma - 0.5) ** 2) * 3.0))
-    return rhs - rhs.mean()
+    return rhs - _computational_mean(rhs)
 
 
 def test_coarsen_vertical_defaults_true_and_is_stored():

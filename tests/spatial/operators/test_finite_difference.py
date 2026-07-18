@@ -42,7 +42,7 @@ def mz():
 
 @pytest.fixture
 def walled(mz):
-    return Grid((mz,))
+    return Grid((mz,), device_ids=(0,))
 
 
 @pytest.fixture
@@ -105,7 +105,7 @@ def test_requirements_halo_is_half_the_order(mx):
 
 
 def test_eigenvalues_is_the_ik_hat_retagging_symbol(fd, mx):
-    grid = Grid((mx,))
+    grid = Grid((mx,), device_ids=(0,))
     sym = fd["x"].eigenvalues(grid, mx.center)
     # retags Fourier(Center) -> Fourier(Right)
     assert sym.space.origin.node_set is NodeSet.CENTER
@@ -125,7 +125,7 @@ def test_eigenvalues_is_the_ik_hat_retagging_symbol(fd, mx):
 
 
 def test_bwd_fwd_composes_to_the_real_discrete_laplacian(mx):
-    grid = Grid((mx,))
+    grid = Grid((mx,), device_ids=(0,))
     # div @ grad collapses to the 1x1 block whose entry is bwd @ fwd
     entry = Laplacian().expand(mx.center, grid.dispatch).rows[0][0]
     sym = entry.eigenvalues(grid, mx.center)
@@ -144,11 +144,11 @@ def test_bwd_fwd_composes_to_the_real_discrete_laplacian(mx):
 def test_eigenvalues_raise_on_the_wrong_boundary(fd, my, mx):
     # bounded meshes diagonalize in the sine/cosine basis, not Fourier
     with pytest.raises(EigenbasisError, match="periodic"):
-        fd["y"].eigenvalues(Grid((my,)), my.center)
+        fd["y"].eigenvalues(Grid((my,), device_ids=(0,)), my.center)
     # higher orders are not grounded in iteration 1
     with pytest.raises(EigenbasisError, match="order 2"):
-        FiniteDifference(order=4)["x"].eigenvalues(Grid((mx,)),
-                                                   mx.center)
+        FiniteDifference(order=4)["x"].eigenvalues(
+            Grid((mx,), device_ids=(0,)), mx.center)
 
 
 def test_eigenvalues_thread_a_fourier_coefficient_factor(fd, mx):
@@ -156,7 +156,7 @@ def test_eigenvalues_thread_a_fourier_coefficient_factor(fd, mx):
     # is a legal operand and yields the same i k_hat symbol as the
     # nodal query (the origin fixes the staggering, its scalars fix the
     # spectrum layout)
-    grid = Grid((mx,))
+    grid = Grid((mx,), device_ids=(0,))
     nodal = fd.eigenvalues(grid, mx.center)
     coeff = fd.eigenvalues(grid, mx.fourier(origin=mx.center))
     assert coeff.space is nodal.space
@@ -235,7 +235,7 @@ def test_codomain_rejects_dirichlet_dropped_membership(fd, my):
 #  Application (window alignment over halo-extended storage)
 # ================================================================
 def test_periodic_center_to_right_derivative(fd, mx):
-    grid = Grid((mx,))
+    grid = Grid((mx,), device_ids=(0,))
     f = grid.create_field(init=lambda x: jnp.sin(2 * jnp.pi * x))
     df = fd["x"](f)
     assert df.function_space.bare is mx.right
@@ -247,7 +247,7 @@ def test_periodic_center_to_right_derivative(fd, mx):
 
 
 def test_periodic_right_to_center_uses_the_wrap_ghost(fd, mx):
-    grid = Grid((mx,))
+    grid = Grid((mx,), device_ids=(0,))
     g = grid.create_field(mx.right, data=jnp.arange(8.0))
     dg = fd["x"](g)
     assert dg.function_space.bare is mx.center
@@ -258,7 +258,7 @@ def test_periodic_right_to_center_uses_the_wrap_ghost(fd, mx):
 
 
 def test_bounded_center_to_inner_is_exact_on_quadratics(fd, my):
-    grid = Grid((my,))
+    grid = Grid((my,), device_ids=(0,))
     f = grid.create_field(init=lambda y: y * (2.0 - y))
     df = fd["y"](f)
     assert df.function_space.bare is my.inner
@@ -267,7 +267,7 @@ def test_bounded_center_to_inner_is_exact_on_quadratics(fd, my):
 
 
 def test_bounded_outer_to_center(fd, my):
-    grid = Grid((my,))
+    grid = Grid((my,), device_ids=(0,))
     f = grid.create_field(my.outer, init=lambda y: 3.0 * y)
     df = fd["y"](f)
     assert df.function_space.bare is my.center
@@ -275,7 +275,7 @@ def test_bounded_outer_to_center(fd, my):
 
 
 def test_bounded_inner_to_center_demands_a_closure(fd, my):
-    grid = Grid((my,))
+    grid = Grid((my,), device_ids=(0,))
     # du of y(2 - y) lives on inner faces; differencing it back to
     # centers needs the wall faces, which a BC-free bounded space
     # does not define (R1, boundary_plan.md) — the legal outs are a
@@ -376,7 +376,7 @@ def test_bc_tagged_diff_is_registry_resolvable(walled, mz):
 
 
 def test_result_metadata_is_default(fd, mx):
-    grid = Grid((mx,))
+    grid = Grid((mx,), device_ids=(0,))
     f = grid.create_field(name="u", units="m/s")
     assert fd["x"](f).name == "unnamed"  # new quantity
 
@@ -387,7 +387,7 @@ def test_separable_chain_applies_on_multi_axis_fields(fd, mx):
     # staggering kernels' codomain resolution stays unambiguous on
     # >= 2-D operands (operator_algebra_merge.md D5 bound variants)
     my2 = IntervalMesh(8, (0.0, 1.0), name="y")
-    grid = Grid((mx, my2))
+    grid = Grid((mx, my2), device_ids=(0,))
     f = grid.create_field(
         init=lambda x, y: jnp.sin(2 * jnp.pi * x)
         * jnp.cos(2 * jnp.pi * y))
@@ -407,7 +407,7 @@ def test_order_6_needs_a_wider_halo_than_negotiated(mx):
     # order-2 FV-derivative chain (reconstruct then flux-difference)
     # to its true composed window [-1, +1], width 1 (not the scalar
     # sum 2)
-    grid = Grid((mx,))
+    grid = Grid((mx,), device_ids=(0,))
     f = grid.create_field(init=lambda x: jnp.sin(2 * jnp.pi * x))
     wide = FiniteDifference(order=6)
     with pytest.raises(ValueError, match="halo width 1"):
@@ -532,7 +532,7 @@ def mapped_periodic():
 
 def test_mapped_diff_is_exact_on_linear_fields(fd, mapped_bounded):
     mesh = mapped_bounded
-    grid = Grid((mesh,))
+    grid = Grid((mesh,), device_ids=(0,))
     f = grid.create_field(mesh.center, init=lambda v: 3.0 * v + 1.0)
     df = fd["v"](f)
     assert df.function_space.bare is mesh.inner
@@ -548,7 +548,7 @@ def test_mapped_diff_is_exact_on_linear_fields(fd, mapped_bounded):
 def test_mapped_periodic_diff_divides_the_wrap_measure(
         fd, mapped_periodic):
     mesh = mapped_periodic
-    grid = Grid((mesh,))
+    grid = Grid((mesh,), device_ids=(0,))
     f = grid.create_field(mesh.center,
                           init=lambda w: jnp.sin(2 * jnp.pi * w))
     df = fd["w"](f)
@@ -564,7 +564,7 @@ def test_mapped_diff_converges_at_second_order():
     for n in (16, 32):
         mesh = MappedIntervalMesh(n, (0.0, 1.0), _tanh_map,
                                   name="v")
-        grid = Grid((mesh,))
+        grid = Grid((mesh,), device_ids=(0,))
         f = grid.create_field(mesh.center,
                               init=lambda v: jnp.sin(jnp.pi * v))
         df = FiniteDifference()["v"](f)
@@ -576,7 +576,7 @@ def test_mapped_diff_converges_at_second_order():
 
 def test_mapped_diff_higher_orders_are_deferred(mapped_periodic):
     mesh = mapped_periodic
-    grid = Grid((mesh,))
+    grid = Grid((mesh,), device_ids=(0,))
     f = grid.create_field(mesh.center)
     with pytest.raises(NotImplementedError, match="order 2"):
         FiniteDifference(order=4)["w"](f)
@@ -584,7 +584,7 @@ def test_mapped_diff_higher_orders_are_deferred(mapped_periodic):
 
 def test_mapped_diff_one_sided_closure_is_deferred(mapped_bounded):
     mesh = mapped_bounded
-    grid = Grid((mesh,))
+    grid = Grid((mesh,), device_ids=(0,))
     f = grid.create_field(mesh.inner)
     with pytest.raises(NotImplementedError, match="one-sided"):
         FiniteDifference(boundary="one_sided")["v"](f)

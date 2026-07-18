@@ -45,6 +45,29 @@ def test_basic_construction_and_attributes():
     assert decl.nc_attrs == (("standard_name", "buoyancy"),)
 
 
+def test_time_dependent_marker_is_auxiliary_only():
+    # the default is off, and existing declarations stay untouched
+    assert FieldDeclaration("q", space=Collocated()).time_dependent \
+        is False
+    # AUXILIARY may carry it (TDF-D3)
+    decl = FieldDeclaration(
+        "n2", space=Profile("z"), lifecycle=Lifecycle.AUXILIARY,
+        time_dependent=True)
+    assert decl.time_dependent is True
+    assert "time_dependent=True" in repr(decl)
+    # any other lifecycle raises
+    with pytest.raises(ValueError, match="AUXILIARY"):
+        FieldDeclaration("q", space=Collocated(), time_dependent=True)
+    with pytest.raises(ValueError, match="AUXILIARY"):
+        FieldDeclaration("q", space=Collocated(),
+                         lifecycle=Lifecycle.DIAGNOSTIC,
+                         time_dependent=True)
+    with pytest.raises(TypeError, match="time_dependent must be a bool"):
+        FieldDeclaration("n2", space=Profile("z"),
+                         lifecycle=Lifecycle.AUXILIARY,
+                         time_dependent="yes")
+
+
 def test_names_are_dot_free():
     with pytest.raises(ValueError, match="dot"):
         FieldDeclaration("mybgc.no3", space=Collocated())

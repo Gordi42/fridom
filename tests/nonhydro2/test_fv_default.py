@@ -54,11 +54,16 @@ def periodic_grid(n=N):
 
 
 def walled_grid(n=N):
+    # device_ids=(0,): the walled FV eigenmode build runs a transform,
+    # which the Tier-1 guard refuses on a sharded axis; keeping every
+    # axis local runs the naive math identically at any device count.
+    # periodic_grid stays unpinned (its wide-stencil forced-4 behaviour
+    # is under separate investigation).
     return Grid((
         IntervalMesh(n, (0.0, LENGTH), periodic=True, name="x"),
         IntervalMesh(n, (0.0, LENGTH), periodic=True, name="y"),
         IntervalMesh(n, (0.0, 1.0), periodic=False, name="z"),
-    ))
+    ), device_ids=(0,))
 
 
 def mapped_grid(n=N):

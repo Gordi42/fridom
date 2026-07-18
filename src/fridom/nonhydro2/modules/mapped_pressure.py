@@ -204,7 +204,10 @@ from fridom.spatial.operators.composed import (
     Divergence,
     Gradient,
 )
-from fridom.spatial.operators.krylov import ConjugateGradient
+from fridom.spatial.operators.krylov import (
+    ConjugateGradient,
+    _computational_mean,
+)
 from fridom.spatial.operators.multigrid import (
     MultigridLevel,
     MultigridVCycle,
@@ -242,8 +245,14 @@ _LINE_OMEGA = 0.8
 
 
 def _mean_free(field: ScalarField) -> ScalarField:
-    """Remove the measure-weighted mean (the constants nullspace)."""
-    return field - field.mean()
+    """Remove the measure-weighted mean (the constants nullspace).
+
+    Pinned to the plain computational measure (``_computational_mean``,
+    Hazard 3): the mapped operator is SPD in ``grid.measure``, so the
+    multigrid nullspace projection must not flip to the seeded
+    (Jacobian-weighted) ``field.mean()`` on a mapped grid.
+    """
+    return field - _computational_mean(field)
 
 
 # ================================================================
@@ -1360,7 +1369,15 @@ class MappedPressureSolver:
     def _mean_coefficients(
         self, cache: MetricCache | None = None,
     ) -> dict[str, jax.Array]:
-        """Fold the diagonal coefficients to their (0-d) means."""
+        """Fold the diagonal coefficients to their (0-d) means.
+
+        The representative constant per axis for the constant-metric
+        spectral preconditioner: the plain **computational** spatial
+        average (``_computational_mean``, Hazard 3), pinned so the
+        preconditioner is byte-identical to the pre-flip solver — the
+        seeded ``field.mean()`` would Jacobian-weight the fold on a
+        mapped grid.
+        """
         coeffs: dict[str, jax.Array] = {}
         for a in self._axes:
             if a == self._base:
@@ -1369,7 +1386,8 @@ class MappedPressureSolver:
                 field = self._weight(a) * self._metric(
                     self._face[a],
                     f"d{self._mapped}_d{self._base}", cache)
-            coeffs[a] = jnp.reshape(field.mean().data, ())
+            coeffs[a] = jnp.reshape(
+                _computational_mean(field).data, ())
         return coeffs
 
     def _preconditioner(
