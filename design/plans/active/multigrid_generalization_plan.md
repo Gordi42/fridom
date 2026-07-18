@@ -167,10 +167,19 @@ metric halo per horizontal coordinate (the `core.py` terrain/immersed
 precedent), replacing the flat path's 1-cell FD halo; flat grids keep
 1 cell.
 
-**GM-D9 — the semicoarsen-vs-full comparison is a measurement, not a
-default change.** Run on the GB-2 steep mapped protocol; the result
-lands in a research record; any change to the 3-D default requires a
-separate owner ruling.
+**GM-D9 — full 3-D coarsening becomes the mapped-solver default
+(owner-ratified 2026-07-18).** Originally scoped measurement-only; the
+owner ruled after spike 2 (§5: identical 10-iteration convergence at
+every size, −6..−11% per CG iteration, line smoother kept). The flip
+lands in Phase D behind its gates: the forced-4 / real multi-GPU leg
+must come back neutral-or-better first, and the builder must degrade
+gracefully where the vertical *cannot* coarsen — a Chebyshev vertical
+(`_make_refined` raises), an indivisible n_z, or the immersed solver's
+`uniform_spacing` limit — by keeping semicoarsening for that
+configuration automatically. The auto-fallback is safe by the
+prefer-explicit rule's own criterion: the choice is measured
+convergence-neutral and never physics-affecting (preconditioner cost
+only). Semicoarsening stays expressible via the knob.
 
 ## 2. Phases and gates
 
@@ -208,17 +217,20 @@ matches the flat-spectral one; SPD/symmetry checks green.
 Gate GC-3: forced-4-device parity for the multigrid path (MG-D5
 replication exercised on the 2-D hierarchy).
 
-**Phase D — semicoarsen vs full-coarsen: productionize + validate.**
-The single-GPU measurement is already done (spike 2, §5: identical 10
-iterations, −6..−11% per CG iteration, growing with n). Remaining
-work: the production `coarsen_vertical` knob (clean implementation +
-tests over the Phase A builder), forced-4 / real multi-GPU behavior
+**Phase D — full 3-D coarsening as the mapped default (GM-D9,
+owner-ratified).** The single-GPU measurement is done (spike 2, §5).
+Remaining work: the production `coarsen_vertical` knob over the
+Phase A builder (default: coarsen the vertical wherever the mesh
+supports it, with the automatic semicoarsening fallback of GM-D9),
+tests including the fallback configurations, and the multi-GPU leg.
+Gate GD-1: forced-4 / real multi-GPU parity and cost neutral-or-better
 (z is unsharded, so z-transfers are shard-local — expected neutral,
-must be verified), and the owner ruling on whether full coarsening
-becomes the mapped-solver default.
-Gate GD-1: a research record with the full table (including the
-multi-device leg) and the ruling recorded; the default changes only by
-that ruling.
+must be verified) before the default flips.
+Gate GD-2: graceful-degradation tests (Chebyshev vertical, indivisible
+n_z, immersed solver) keep semicoarsening without error.
+Gate GD-3: a research record with the full table including the
+multi-device leg; step-baseline impact is left to the owner's batched
+guard checkpoints (perf-guard policy).
 
 ## 3. Risks
 
