@@ -29,6 +29,7 @@ from fridom.nonhydro2.modules.mapped_pressure import (
 from fridom.spatial.coordinate_mapping import CoordinateMapping
 from fridom.spatial.grid import Grid
 from fridom.spatial.meshes.interval import IntervalMesh
+from fridom.spatial.operators.integrate import Integral
 
 N = 8
 DT = 0.01
@@ -260,6 +261,20 @@ def channel_fields(n=N):
             "b": 0.01 * (2.0 + np.cos(np.pi * z))}, (x, y, z)
 
 
+def _sigma_frame_integral(field):
+    # Raw computational (sigma-frame) full reduction — the escape
+    # hatch. The seeded ``.integrate()`` verb is now physical
+    # (Jacobian-weighted) AND reads the grid's REFERENCE geometry, not
+    # the live morph state; these diagnostics weight by the
+    # CURRENT-geometry Jacobian themselves (params-aware ``jac``
+    # below), so they reduce through the unweighted raw ``Integral()``
+    # to measure exactly int(J q dV) at the morphed geometry.
+    result = field
+    for name in field.function_space.bare.names:
+        result = Integral()[name](result)
+    return result
+
+
 def channel_diagnostics(model):
     """Return (|mapped div|, volume, tracer content) of the state."""
     state = model.state
@@ -272,8 +287,8 @@ def channel_diagnostics(model):
         "x": state["u"], "y": state["v"], "z": state["w"]})
     jac = grid.metric(state["b"].function_space, "dyp_dy",
                       params=params)
-    volume = float(jnp.sum(jac.integrate().data))
-    tracer = float(jnp.sum((state["b"] * jac).integrate().data))
+    volume = float(jnp.sum(_sigma_frame_integral(jac).data))
+    tracer = float(jnp.sum(_sigma_frame_integral(state["b"] * jac).data))
     return float(jnp.abs(div.data).max()), volume, tracer
 
 
