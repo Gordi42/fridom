@@ -92,6 +92,7 @@ from fridom.hydrostatic.modules.terrain import (
 from fridom.hydrostatic.params import CSQR
 from fridom.model.errors import AssemblyError
 from fridom.model.terms import Treatment
+from fridom.spatial.bc import BC
 from fridom.spatial.decomposition.halo import HaloSpec
 from fridom.spatial.operators.base import Identity, resolve_codomain
 from fridom.spatial.operators.composed import Diag, Divergence, Gradient
@@ -1463,11 +1464,25 @@ class SplitExplicitFreeSurface(_FreeSurfaceBase):
         vertical) on ``Dof.CONSTANT`` — exactly the space the depth mean
         ``u.mean(z)`` and ``ps.diff(staggered)`` land on (verified at
         assembly through the ``replace`` space check).
+
+        The staggered axis carries the impermeability wall condition
+        ``wall_bc[staggered] = BC.DIRICHLET`` — the very entry the
+        Velocity role derives for the momentum ``u`` it snapshots
+        (``FieldDeclaration.velocity`` -> ``_with_wall_dirichlet``, C8
+        topology-driven walls). On a bounded staggered axis this
+        resolves the face factor to the Dirichlet-tagged sibling
+        (``Inner(x, bc=(DIRICHLET, DIRICHLET))``), the honest claim
+        that the wall-normal transport vanishes at the wall, and it
+        keys the subcycle's ``div(U)`` on the registered walled diff
+        row. On a periodic staggered axis ``wall_bc`` is ignored at
+        resolution, so the periodic transport is byte-identically the
+        bare face factor of before (the interned no-retag fast path).
         """
         return fr.spatial.SpacePattern.create(
             default=fr.spatial.Dof.CONSTANT,
             tags={staggered: fr.spatial.Dof.STAGGERED,
-                  collocated: fr.spatial.Dof.COLLOCATED})
+                  collocated: fr.spatial.Dof.COLLOCATED},
+            wall_bc={staggered: BC.DIRICHLET})
 
     @property
     def field_declarations(
