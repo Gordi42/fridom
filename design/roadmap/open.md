@@ -190,8 +190,9 @@ cells in every dimension (stages I0–I4 shipped 2026-07-17; entry in
 Open, none blocking:
 
 - **Mapped + immersed composition** — taught error (chart/terrain
-  only; stretched+immersed already works ungated); plan ratified and
-  in progress
+  only; stretched+immersed fractions are correct and pinned, but no
+  model assembles either composition until the M2/M3 solve); plan
+  ratified, M0+M1 shipped, in progress
   ([`../plans/active/mapped_immersed_composition_plan.md`](../plans/active/mapped_immersed_composition_plan.md)).
 - **Partial-bottom-cell hydrostatic pressure gradient** — the
   Pacanowski–Gnanadesikan refinement; the current unweighted `p_hyd`
