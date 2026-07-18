@@ -223,6 +223,7 @@ import jax.numpy as jnp
 import numpy as np
 
 import fridom as fr
+from fridom.framework.utils import dtype_real
 from fridom.model.modules.moving_geometry import mapping_params
 from fridom.spatial.bc import BC
 from fridom.spatial.decomposition.halo import HaloSpec
@@ -230,6 +231,7 @@ from fridom.spatial.errors import SpaceMismatchError
 from fridom.spatial.fields.scalar_field import (
     _bc_siblings,  # the BC-sibling seam of retag/.to
 )
+from fridom.spatial.immersed_domain import Slip
 from fridom.spatial.operators.base import (
     Operator,
     OperatorRequirements,
@@ -243,6 +245,7 @@ from fridom.spatial.operators.graded import (
     WALL_RUNGS,
     Rung,
     RungSpec,
+    apply_graded_mask,
     apply_graded_walls,
     biased_offset,
     biased_specs,
@@ -255,6 +258,7 @@ from fridom.spatial.operators.interned import interned
 from fridom.spatial.operators.reconstruct import (
     apply_fv_staggered,
     fv_reach_or,
+    wall_slots_addressable,
 )
 from fridom.spatial.operators.select import Where
 from fridom.spatial.operators.staggering import (
@@ -885,16 +889,22 @@ class _CenteredFaceInterpolation(SeparableOperator):
         """
         size = self._size
         row = _centered_row(size)
+        domain = f.function_space.bare.factor(axis)
+        shift = _wall_shift(domain)
 
         def kernel(arr: Array, axis_index: int) -> Array:
             return _weighted_windows(arr, axis_index, row)
 
+        immersed = getattr(f.grid, "immersed", None)
+        if immersed is not None:
+            rungs, sel = _centered_mask_ladder(size, shift)
+            return _immersed_graded_face(
+                self, f, axis, shift, size, centered_offset(size) + shift,
+                kernel, rungs, sel, immersed)
         interior = apply_fv_staggered(self, f, axis, size, kernel,
                                       metadata=f.metadata)
-        domain = f.function_space.bare.factor(axis)
         if self._boundary == "none" or domain.mesh.periodic:
             return interior
-        shift = _wall_shift(domain)
         rungs = tuple(
             Rung(width, centered_offset(width),
                  _centered_kernel(width))
@@ -1002,6 +1012,282 @@ def _rung_kernel(
     if spec.family == "centered":
         return _centered_kernel(spec.width)
     return _biased_kernel(spec.width, bias, weighting)
+
+
+# ================================================================
+#  Mask-keyed graded closure (immersed grids)
+# ================================================================
+#: the halo-synced ``{0, 1}`` wet mask is thresholded back to boolean
+#: after the real-dtype exchange (the sync has no boolean negation)
+_MASK_WET = 0.5
+
+
+def _biased_mask_ladder(
+    order: int,
+    shift: int,
+    bias: Literal["left", "right"],
+    weighting: Literal["linear", "weno"],
+    wall: Literal["upwind1", "centered2"],
+) -> tuple[tuple[Rung, ...], tuple[tuple[int, int], ...]]:
+    """
+    Reduced biased rungs and per-rung union-window selector specs.
+
+    Description
+    -----------
+    The mask-path ladder of a biased reconstruction: the reduced value
+    rungs (`biased_specs`, the same bias-specific windows the wall path
+    builds) and the sign-independent **union** selector windows (size
+    ``p + 1``, offset ``p // 2``) — one for the interior kernel (index 0)
+    and one per reduced rung. A ``wall="centered2"`` bottom rung keeps its
+    symmetric window as its own selector.
+
+    Parameters
+    ----------
+    order : int
+        The interior odd formal order.
+    shift : int
+        The cell-frame shift (0 or 1).
+    bias : Literal["left", "right"]
+        The upwind bias side of the value rungs.
+    weighting : Literal["linear", "weno"]
+        The stencil weighting.
+    wall : Literal["upwind1", "centered2"]
+        The bottom (wall-adjacent) rung.
+
+    Returns
+    -------
+    tuple[tuple[Rung, ...], tuple[tuple[int, int], ...]]
+        The reduced value rungs and the ``K + 1`` union selector specs.
+    """
+    specs = biased_specs(order, shift, wall)
+    rungs = tuple(
+        Rung(spec.width, spec_offset(spec, bias),
+             _rung_kernel(spec, bias, weighting))
+        for spec in specs)
+    sel: list[tuple[int, int]] = [(order + 1, order // 2)]
+    for spec in specs:
+        if spec.family == "centered":
+            sel.append((spec.width, centered_offset(spec.width)))
+        else:
+            sel.append((spec.width + 1, spec.width // 2))
+    return rungs, tuple(sel)
+
+
+def _centered_mask_ladder(
+    size: int, shift: int,
+) -> tuple[tuple[Rung, ...], tuple[tuple[int, int], ...]]:
+    """
+    Reduced centered rungs and per-rung selector specs (mask path).
+
+    Description
+    -----------
+    The mask-path ladder of the centered velocity interpolation: the
+    reduced symmetric value rungs (`centered_ladder`) and their selector
+    windows (the symmetric window is its own union), plus the interior
+    window at index 0.
+
+    Parameters
+    ----------
+    size : int
+        The interior even stencil size.
+    shift : int
+        The cell-frame shift (0 or 1).
+
+    Returns
+    -------
+    tuple[tuple[Rung, ...], tuple[tuple[int, int], ...]]
+        The reduced value rungs and the ``K + 1`` selector specs.
+    """
+    widths = centered_ladder(size, shift)
+    rungs = tuple(
+        Rung(width, centered_offset(width), _centered_kernel(width))
+        for width in widths)
+    sel: list[tuple[int, int]] = [(size, centered_offset(size))]
+    sel.extend((width, centered_offset(width)) for width in widths)
+    return rungs, tuple(sel)
+
+
+def _fill_wall_slots(
+    f: FieldLike, axis: str, n_true: int, value: float,
+) -> FieldLike:
+    """
+    Set the two ``axis`` wall ghost slots of ``f`` to ``value``.
+
+    Description
+    -----------
+    The static-index sibling of ``reconstruct.wall_zeroed_operand`` used
+    to exempt the physical-wall structural zeros of a ``shift = 1`` dual
+    operand from the selector's wetness demand: the interior-face storage
+    keeps its ``n_true`` DOFs at ``[width, width + n_true)`` and the two
+    wall faces are the ghost slots ``width - 1`` / ``width + n_true``.
+    Gated by the caller on `wall_slots_addressable` (``axis`` local,
+    halo >= 1).
+
+    Parameters
+    ----------
+    f : FieldLike
+        The present-mask field on a bounded interior-face factor.
+    axis : str
+        The bounded coordinate axis.
+    n_true : int
+        The interior-face count (the operand's true shape).
+    value : float
+        The fill value (``1.0`` marks the wall slot present/exempt).
+
+    Returns
+    -------
+    FieldLike
+        ``f`` with its two ``axis`` wall ghost slots set to ``value``.
+    """
+    bare = f.function_space.bare
+    axis_index = bare.names.index(axis)
+    width = f.grid.decomposition.halo[axis]
+    storage = f._data  # noqa: SLF001 — documented storage seam
+    ndim = storage.ndim
+    left: list[object] = [slice(None)] * ndim
+    left[axis_index] = width - 1
+    right: list[object] = [slice(None)] * ndim
+    right[axis_index] = width + n_true
+    storage = storage.at[tuple(left)].set(value).at[tuple(right)].set(
+        value)
+    return f.with_storage(storage)
+
+
+def _present_mask(
+    op: Operator, immersed: object, operand_space: object,
+    axis: str, shift: int,
+) -> FieldLike:
+    """
+    Build the selector present-mask on the operand space (GA-D1).
+
+    Description
+    -----------
+    The wet-or-exempt mask the union selectors window: ``shift = 0``
+    (cell operand) uses the descriptor's own slip (present == wet, no
+    exemption); ``shift = 1`` (dual face operand) uses the ``FREE_SLIP``
+    (OR) combination so a face adjacent to at least one wet cell is
+    present — the wall-side structural zeros are exempt from the wetness
+    demand. The mask is materialized zero-padded (``store`` pads, it does
+    not sync), so its ghost layers are **halo-synced** here
+    (`_ensure_valid`: periodic wrap / shard exchange) before it is
+    windowed — otherwise the union products near a periodic or shard
+    boundary would read dry ghosts and grade spuriously. On a bounded
+    axis the two physical-wall ghost slots are then set present
+    (`_fill_wall_slots`, after the sync), reproducing the wall path's
+    exempt Dirichlet cells.
+
+    Parameters
+    ----------
+    op : Operator
+        The reconstruction operator (its `_required_halo` triggers and
+        sizes the sync).
+    immersed : ImmersedDomain
+        The grid's immersed descriptor.
+    operand_space : SpaceLike
+        The (laid-out) operand space.
+    axis : str
+        The reconstruction axis.
+    shift : int
+        The cell-frame shift (0 or 1).
+
+    Returns
+    -------
+    FieldLike
+        The real, halo-synced ``{0, 1}`` present-mask on ``operand_space``.
+    """
+    slip = Slip.FREE_SLIP if shift == 1 else None
+    mask = immersed.mask(operand_space, slip=slip)
+    present = mask.with_storage(
+        mask._data.astype(dtype_real()))  # noqa: SLF001
+    present = _ensure_valid(present, _required_halo(op, operand_space))
+    if shift == 1:
+        factor = operand_space.bare.factor(axis)
+        if (not factor.mesh.periodic
+                and wall_slots_addressable(present, axis)):
+            present = _fill_wall_slots(
+                present, axis, factor.shape[0], 1.0)
+    # the sync odd-reflects a wall-Dirichlet operand's physical ghosts
+    # (interior 1 -> -1 beyond the wall); threshold back to {0, 1} so the
+    # union-window product reads a beyond-wall slot as absent (not a
+    # sign-cancelling -1) — the exempt wall cell itself was set present
+    # above, past the reflected ones
+    return present.with_storage(
+        (present._data > _MASK_WET).astype(  # noqa: SLF001 — storage seam
+            dtype_real()))
+
+
+def _immersed_graded_face(
+    op: Operator,
+    f: FieldLike,
+    axis: str,
+    shift: int,
+    size: int,
+    m0: int,
+    kernel: Callable[[Array, int], Array],
+    rungs: tuple[Rung, ...],
+    sel_specs: tuple[tuple[int, int], ...],
+    immersed: object,
+) -> FieldLike:
+    """
+    Pre-mask, run the interior pass, and select the widest wet rung.
+
+    Description
+    -----------
+    The shared immersed tail of the biased / centered face kernels
+    (GA-D2): the operand is pre-masked to exact zeros at dry DOFs (a
+    ``jnp.where``, NaN-safe and VJP-sealing), the interior kernel runs
+    over the pre-masked storage, and `graded.apply_graded_mask` selects
+    per output face the widest rung whose union window is entirely
+    present.
+
+    Parameters
+    ----------
+    op : Operator
+        The reconstruction/interpolation operator.
+    f : FieldLike
+        The raw operand field.
+    axis : str
+        The reconstruction axis.
+    shift : int
+        The cell-frame shift (0 or 1).
+    size : int
+        The interior stencil size (order for biased, size for centered).
+    m0 : int
+        The interior window alignment.
+    kernel : Callable[[Array, int], Array]
+        The interior array kernel.
+    rungs : tuple[Rung, ...]
+        The reduced value rungs (widest first, bottom last).
+    sel_specs : tuple[tuple[int, int], ...]
+        The per-rung union selector specs (interior at index 0).
+    immersed : ImmersedDomain
+        The grid's immersed descriptor.
+
+    Returns
+    -------
+    FieldLike
+        The mask-graded face field on the operator's codomain.
+    """
+    # sync both the operand and its wet mask to the negotiated ghosts
+    # before windowing: the pre-mask reads the mask's ghost layers (a
+    # periodic wrap / shard neighbour, dry-exterior at a bounded wall),
+    # and ``immersed.mask`` is zero-padded (``store`` never syncs). The
+    # mask is cast to real first — the halo exchange has no boolean neg
+    required = _required_halo(op, f.function_space)
+    raw = immersed.mask(f.function_space)
+    wet = _ensure_valid(
+        raw.with_storage(raw._data.astype(dtype_real())),  # noqa: SLF001
+        required)
+    f = _ensure_valid(f, required)
+    masked = f.with_storage(jnp.where(
+        wet._data > _MASK_WET,  # noqa: SLF001 — storage seam
+        f._data,  # noqa: SLF001 — documented storage seam
+        jnp.zeros_like(f._data)))  # noqa: SLF001 — storage seam
+    interior = apply_fv_staggered(op, masked, axis, size, kernel,
+                                  metadata=masked.metadata, align=m0)
+    present = _present_mask(op, immersed, f.function_space, axis, shift)
+    return apply_graded_mask(op, masked, axis, interior, rungs,
+                             sel_specs, shift, present)
 
 
 @final
@@ -1221,6 +1507,13 @@ class _BiasedFaceReconstruction(SeparableOperator):
         shift = _wall_shift(domain)
         m0 = biased_offset(order, bias) + shift
         kernel = _biased_kernel(order, bias, weighting)
+        immersed = getattr(f.grid, "immersed", None)
+        if immersed is not None:
+            rungs, sel = _biased_mask_ladder(
+                order, shift, bias, weighting, self._wall)
+            return _immersed_graded_face(
+                self, f, axis, shift, order, m0, kernel, rungs, sel,
+                immersed)
         interior = apply_fv_staggered(self, f, axis, order, kernel,
                                       metadata=f.metadata, align=m0)
         if self._boundary == "none" or domain.mesh.periodic:
@@ -1708,6 +2001,13 @@ class _FVBiasedReconstruction(SeparableOperator):
         weighting = self._weighting
         m0 = biased_offset(order, bias)  # primal frame, shift 0
         kernel = _biased_kernel(order, bias, weighting)
+        immersed = getattr(f.grid, "immersed", None)
+        if immersed is not None:
+            rungs, sel = _biased_mask_ladder(
+                order, 0, bias, weighting, self._wall)
+            return _immersed_graded_face(
+                self, f, axis, 0, order, m0, kernel, rungs, sel,
+                immersed)
         interior = apply_fv_staggered(self, f, axis, order, kernel,
                                       metadata=f.metadata, align=m0)
         domain = f.function_space.bare.factor(axis)
@@ -3501,10 +3801,12 @@ class UpwindAdvection(_FluxFormAdvection):
     #: (taught rejection at bind)
     _supports_mapped: ClassVar[bool] = False
 
-    #: the wide biased windows reach across dry cells; the graded-mask
-    #: near-wall closure keyed on the wet region is designed-for
-    #: (IP-D8) — taught rejection at bind on an immersed grid
-    _supports_immersed: ClassVar[bool] = False
+    #: the wide biased windows reach across dry cells, but the graded-mask
+    #: near-wall closure keys the ladder on the wet region (GA-D1..D6):
+    #: at bind the ``boundary="graded"`` kernels install and the mask
+    #: path selects, per output face, the widest rung whose union window
+    #: is entirely wet (`graded.apply_graded_mask`)
+    _supports_immersed: ClassVar[bool] = True
 
     #: the biased velocity face is an ``(order - 1)``-point centered
     #: interpolation (:meth:`_velocity_face`), not the two-point ``.to``
@@ -3644,6 +3946,11 @@ class UpwindAdvection(_FluxFormAdvection):
         grid = table.grid
         if self._walled:
             self._check_walled_extent(grid)
+        if self._walled or self._immersed is not None:
+            # the graded signature also carries the mask-keyed closure
+            # on an immersed grid (GA-D4); ``_check_walled_extent`` does
+            # not apply on the mask path (any alpha>0 face has two wet
+            # neighbours, so the bottom rung is always legal)
             self._install_kernels("graded")
         need = self._order // 2 + 1
         current = dict(grid.decomposition.halo.widths)
@@ -3690,6 +3997,25 @@ class UpwindAdvection(_FluxFormAdvection):
     def wall(self) -> Literal["upwind1", "centered2"]:
         """Bottom rung of the graded near-wall ladder."""
         return self._wall
+
+    @property
+    def extra_halo(self) -> HaloSpec | None:
+        """The biased kernels' ``order // 2 + 1`` halo on an immersed grid.
+
+        Description
+        -----------
+        On an immersed grid the mask-keyed reconstruction reads the
+        ``order // 2 + 1`` biased window per axis and halo tracing is
+        disabled (the concrete pre-mask / selectors the trace cannot
+        follow), so the demand is declared here (GA-D3) — wider than the
+        base's order-2 centered fraction stencil for ``order = 5``. Off an
+        immersed grid the biased schemes reject a mapped column at bind, so
+        there is no extra halo (the flat path stays fully halo-traced).
+        """
+        if self._immersed is None:
+            return None
+        return HaloSpec(dict.fromkeys(
+            self._halo_axes, self._order // 2 + 1))
 
     # ------------------------------------------------------------
     #  The upwind face values
@@ -4023,6 +4349,13 @@ class WENOAdvection(UpwindAdvection):
         ScalarField
             The WENO upwind-biased face value of ``q``.
         """
+        if getattr(q.grid, "immersed", None) is not None:
+            # the selected-input one-pass optimization is deferred on
+            # immersed grids (GA-D2): the both-then-select spelling routes
+            # each bias through the mask-keyed reconstruction (the sign
+            # select stays outermost, every rung is mask-graded), an exact
+            # designed-for perf lever for a later band-restricted pass
+            return super()._face_value(q, v_face, axis, flux_space)
         selected = self._selected
         if isinstance(q.function_space.bare.factor(axis),
                       AverageSpace):
