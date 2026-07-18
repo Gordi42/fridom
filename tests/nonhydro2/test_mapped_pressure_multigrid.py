@@ -63,14 +63,16 @@ def build_grid(nx=16, nz=NZ, *, device_ids=None):
     return Grid((mx, ms), mapping=mapping, device_ids=device_ids), mx, ms
 
 
-def build_solver(nx=16, *, iterations, levels, device_ids=None):
+def build_solver(nx=16, *, iterations, levels, method="auto",
+                 device_ids=None):
     """Return a multigrid-preconditioned mapped solver and its grid."""
     grid, mx, ms = build_grid(nx, device_ids=device_ids)
     space = mx.center * ms.center
     solver = MappedPressureSolver(
         grid, space, iterations=iterations,
         weights={"sigma": 1.0 / DSQR},
-        preconditioner="multigrid", multigrid_levels=levels)
+        preconditioner="multigrid", multigrid_levels=levels,
+        multigrid_tridiagonal_method=method)
     return solver, grid, space
 
 
@@ -199,3 +201,32 @@ def test_forced4_multigrid_solve_matches_single_device(nx, levels):
     one, many = _solve_single_vs_forced(nx, levels=levels)
     scale = np.max(np.abs(one))
     assert np.max(np.abs(one - many)) / scale < 1e-8
+
+
+# ================================================================
+#  Tridiagonal-kernel knob threading (B4 plumbing)
+# ================================================================
+def test_multigrid_tridiagonal_method_is_stored_and_forwarded():
+    # the knob is stored and reaches every level's line smoother
+    solver, _, _ = build_solver(iterations=3, levels=2, method="pcr")
+    assert solver._multigrid_tridiagonal_method == "pcr"
+    vcycle = solver._build_vcycle({})
+    assert vcycle.levels
+    assert all(level.smoother.method == "pcr"
+               for level in vcycle.levels)
+
+
+def test_multigrid_tridiagonal_method_defaults_to_auto():
+    solver, _, _ = build_solver(iterations=3, levels=2)
+    assert solver._multigrid_tridiagonal_method == "auto"
+
+
+def test_mapped_solver_rejects_unknown_tridiagonal_method():
+    grid, mx, ms = build_grid()
+    space = mx.center * ms.center
+    with pytest.raises(ValueError,
+                       match="tridiagonal method must be one of"):
+        MappedPressureSolver(
+            grid, space, iterations=3, weights={"sigma": 1.0 / DSQR},
+            preconditioner="multigrid",
+            multigrid_tridiagonal_method="thomas")

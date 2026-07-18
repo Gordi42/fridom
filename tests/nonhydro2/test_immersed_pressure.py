@@ -430,6 +430,34 @@ def test_multigrid_hierarchy_shape_and_degradation():
     assert len(tiny._build_vcycle().levels) == 1
 
 
+def test_multigrid_tridiagonal_method_is_stored_and_forwarded():
+    # the knob is stored and reaches every level's line smoother
+    grid, space = _box_bounded(n=16)
+    mg = ImmersedPressureSolver(
+        grid, space, vertical="z", dsqr=0.5, iterations=5,
+        preconditioner="multigrid", multigrid_levels=3,
+        multigrid_tridiagonal_method="pcr")
+    assert mg._multigrid_tridiagonal_method == "pcr"
+    vcycle = mg._build_vcycle()
+    assert vcycle.levels
+    assert all(level.smoother.method == "pcr"
+               for level in vcycle.levels)
+    # the default resolves the kernel against the backend at solve time
+    default = ImmersedPressureSolver(
+        grid, space, vertical="z", dsqr=0.5, iterations=5)
+    assert default._multigrid_tridiagonal_method == "auto"
+
+
+def test_immersed_solver_rejects_unknown_tridiagonal_method():
+    grid, space = _box_bounded(n=8)
+    with pytest.raises(ValueError,
+                       match="tridiagonal method must be one of"):
+        ImmersedPressureSolver(
+            grid, space, vertical="z", dsqr=0.5, iterations=5,
+            preconditioner="multigrid",
+            multigrid_tridiagonal_method="thomas")
+
+
 def test_multigrid_matches_the_spectral_solve():
     # the multigrid-preconditioned PCG converges and agrees with the
     # spectral-preconditioned PCG on the WET region (dry cells are an

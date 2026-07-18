@@ -209,6 +209,29 @@ def test_pressure_preconditioner_is_static_treedef_aux():
     levels3 = jax.tree_util.tree_structure(
         DynamicalCore(multigrid_levels=3))
     assert spectral != levels3
+    # the tridiagonal-kernel knob is static too (distinct treedef)
+    scan_method = jax.tree_util.tree_structure(
+        DynamicalCore(multigrid_tridiagonal_method="scan"))
+    assert spectral != scan_method
+
+
+def test_multigrid_tridiagonal_method_plumbs_through_the_preset():
+    core = DynamicalCore(pressure_preconditioner="multigrid",
+                         multigrid_tridiagonal_method="pcr")
+    assert core._multigrid_tridiagonal_method == "pcr"
+    # the default resolves the kernel against the backend at solve time
+    assert DynamicalCore()._multigrid_tridiagonal_method == "auto"
+    # an unknown kernel name fails at assembly, not at first trace
+    with pytest.raises(ValueError,
+                       match="tridiagonal method must be one of"):
+        DynamicalCore(multigrid_tridiagonal_method="thomas")
+    # the nh.Model factory forwards the knob to the dynamical core
+    model = nh.Model(coriolis=fplane(), grid=make_grid(), advection=False,
+                     pressure_preconditioner="multigrid",
+                     multigrid_tridiagonal_method="scan")
+    dc = next(m for m in model._carry.modules
+              if type(m).__name__ == "DynamicalCore")
+    assert dc._multigrid_tridiagonal_method == "scan"
 
 
 def test_second_advance_with_both_options_compiles_nothing(
