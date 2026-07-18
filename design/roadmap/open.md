@@ -501,36 +501,31 @@ promote one only when its trigger appears:*
   Neumann-outer field enters a hot loop.
 ## Multigrid preconditioner — follow-up measurements
 
-The semicoarsened V-cycle preconditioner shipped 2026-07-17 (the
-"multigrid with vertical line smoothing" lever above, taken; entry in
-[`done.md`](done.md); record
-[`../plans/active/multigrid_pathway_plan.md`](../plans/active/multigrid_pathway_plan.md)
-§3). Open, none blocking:
+The semicoarsened V-cycle preconditioner shipped 2026-07-17 and the
+V-cycle kernel swap it called for shipped 2026-07-18 (merge
+`0ece46b1`; both entries in [`done.md`](done.md), measurements in
+[`../research/multigrid_kernel_study.md`](../research/multigrid_kernel_study.md)
+§Addendum). Open, none blocking:
 
-- **V-cycle kernel swap (candidate task)** — the GB-2 wall-clock leg
-  failed on the A100 (5.5–13.4× *slower* than spectral; entry in
-  [`done.md`](done.md), evidence
-  [`../research/multigrid_gb2_wallclock.md`](../research/multigrid_gb2_wallclock.md)),
-  and the same-day idealized kernel study
-  ([`../research/multigrid_kernel_study.md`](../research/multigrid_kernel_study.md))
-  pinned the cause: ~91% of the 53 ms V-cycle is the scan-Thomas
-  *lowering* (latency-bound, batch-independent 2.75 ms/solve = 2·n_z
-  sequential kernel launches), not the algorithm. The lever is a
-  kernel swap in the shared `banded.tridiagonal_solve_along_axis`:
-  PCR (~30 lines pure jax, portable, bit-identical solution so
-  convergence is unchanged, natively differentiable) or batched
-  `lax.linalg.tridiagonal_solve` (cuSPARSE, ~1.4× faster still,
-  CUDA-only → needs the PCR fallback; grad+vmap verified — the
-  banded.py:28-30 "backend-uneven" docstring is stale). Measured
-  end-to-end: mapped 128³ solve 9–13× faster → step at ~parity with
-  spectral (0.79–1.17×, still short of the 1.5× GB-2 bar at 128³;
-  likelier at 192³+, unmeasured); **immersed wins outright**
-  (1.3–2.0× and converges in 15–18 iters where spectral needs ~80
-  and busts the 30 budget). Chebyshev/point smoothers are **refuted**
-  as an alternative (fail even the isotropic control — line smoothing
-  is load-bearing for the semicoarsening hierarchy). Free side
-  benefit: the same swap speeds the IMEX implicit vertical-diffusion
-  solve (shared kernel).
+- **cuSPARSE kernel under GSPMD (multi-device) — unvalidated.** The
+  line smoother's `method="auto"` resolves to the batched
+  `lax.linalg.tridiagonal_solve` (cuSPARSE) on any GPU backend,
+  including sharded multi-GPU runs. A custom call's GSPMD
+  partitioning is not guaranteed: XLA may all-gather the batch axes
+  instead of partitioning them (correct but slow). Validate on real
+  4×A100 (parity + no unexpected all-gathers in the HLO); until
+  then a multi-device run that sees them should set
+  `multigrid_tridiagonal_method="pcr"` (pure jax, partitions
+  cleanly). Caveat documented in `banded.py`.
+- **Mapped GPU wall-clock still behind spectral after the swap** —
+  measured in-model: parity at 128³ (0.975×), 0.67× at 512³; the
+  1.5× GB-2 bar stays unmet and the 128³-study projection "likelier
+  at larger n" is refuted at 512³. The study-ranked residual levers
+  (fewer coarse sweeps; cheaper mapped operator applies — now the
+  dominant V-cycle cost) are unclaimed; take only with a concrete
+  mapped-GPU production driver. Immersed remains the case where
+  multigrid wins (study projection 1.3–2.0×, in-model post-swap
+  standing unmeasured).
 
 ## Differentiable run surface — `model.propagator()`
 

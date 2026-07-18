@@ -267,6 +267,38 @@ Implementation record:
   FD-matched to rel-err ~6e-12 against gate 1e-4, nodal + FV). The
   new-stack step path is now reverse-differentiable on **all** grid
   types — flat, walled, mapped, immersed — with no known exception.
+- **Multigrid V-cycle kernel swap** (2026-07-18, merge `0ece46b1`) —
+  `banded.tridiagonal_solve_along_axis` grew a host-static
+  `method` knob with three interchangeable kernels: `"scan"` (the
+  old reference Thomas, kept verbatim), `"pcr"` (pure-jax parallel
+  cyclic reduction, portable, arbitrary n) and `"cusparse"` (batched
+  `lax.linalg.tridiagonal_solve`, gtsv2StridedBatch); `"auto"` (the
+  default) resolves host-side to cuSPARSE on a GPU backend and PCR
+  elsewhere, and an explicit `"cusparse"` off-GPU raises a taught
+  ValueError. Threaded as `multigrid_tridiagonal_method` along the
+  `multigrid_levels` route (`nh.Model` → `DynamicalCore` → both
+  pressure solvers → `VerticalLineJacobi`), name-validated at
+  construction. All kernels agree to ~1e-18 (convergence-neutral)
+  and are natively reverse-differentiable; autodiff + garbage-ends +
+  non-power-of-two + dispatch tests shipped in the mirrored files.
+  Microbench (A100, n_z = 128, batch 128²): scan 2.80 →
+  pcr 0.37 → cusparse 0.20 ms/solve. In-model steep mapped
+  (GB-2 protocol): 128³ step 542.7 → **42.0** ms (12.9×; spectral
+  41.0 — parity, 0.975×); 512³ scan 7394 → cusparse **3402** ms
+  (2.2×; spectral 2278 — 0.67×, so the GB-2 1.5× bar stays unmet
+  and spectral stays the mapped GPU default; the study's "likelier
+  at larger n" projection is refuted at 512³). Physics equivalence
+  spectral↔cusparse ~5e-11 at both sizes. 512³ memory: spectral
+  28.5 / multigrid-cusparse 43.8 GiB peak (fits one A100-80GB);
+  the pcr variant OOMs at 512³ (XLA live set ≥ 76 GiB) — on GPU
+  the cuSPARSE default is also the memory-viable kernel. Two
+  corrections to the study record: the projected 128³ post-swap
+  1.17× measured as 0.975×, and the "free IMEX side benefit" was
+  wrong (`model/implicit.py` uses the dense `solve_along_axis`,
+  not this kernel). Open residue (cuSPARSE-under-GSPMD validation,
+  residual mapped-GPU levers): [`open.md`](open.md). Evidence:
+  [`../research/multigrid_kernel_study.md`](../research/multigrid_kernel_study.md)
+  §Addendum.
 - **Immersed partial cells — all dimensions, all three models**
   (2026-07-17, merges `ee257bc0` I0+I1, `b447b8e5` I2, `a5aec29d` I4,
   `3858d977` I3, plus the autodiff regression gates) — the immersed

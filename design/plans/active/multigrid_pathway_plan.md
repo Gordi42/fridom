@@ -504,7 +504,16 @@ collectives above the replication threshold.
   ~parity, immersed wins outright
   ([`../research/multigrid_kernel_study.md`](../research/multigrid_kernel_study.md)).
   Evidence:
-  [`../research/multigrid_gb2_wallclock.md`](../research/multigrid_gb2_wallclock.md).*
+  [`../research/multigrid_gb2_wallclock.md`](../research/multigrid_gb2_wallclock.md).
+  The swap SHIPPED 2026-07-18 (merge `0ece46b1`:
+  `method={"auto","cusparse","pcr","scan"}` on the banded kernel,
+  auto = cuSPARSE on GPU / PCR elsewhere, model knob
+  `multigrid_tridiagonal_method`). Measured in-model: 128³ step
+  542.7 → 42.0 ms (12.9×, parity with spectral at 0.975×); 512³
+  3402 vs spectral 2278 (0.67× — the deficit *widens* with n, so
+  GB-2 stays unmet at every size and spectral stays the mapped GPU
+  default; kernel-study Addendum). Immersed remains multigrid's
+  win case (projection; not re-measured post-swap).*
 - *GB-3: genuine partials (order = 4, min_fraction = 0.1): 15
   iterations at 16³ / 18 at 32³ to 1e-10 — inside the 30 budget with
   ≥ 12 margin; spectral needs ~80. The immersed count creeps with n
