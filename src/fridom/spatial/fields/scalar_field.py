@@ -689,10 +689,23 @@ class ScalarField:
         Thin forwarder to the seeded verb (D3): per name,
         ``fr.operators.integrate[name](self)`` resolves
         ``("integrate", factor)`` against ``grid.dispatch`` (rules
-        section 3.13). No names integrates every factor; reductions
-        along ``ConstantSpace`` factors are the identity; the result
-        broadcasts back via ``ConstantSpace`` (section 3.3), so
-        ``f - f.integrate("x")`` stays in the strict algebra.
+        section 3.13). On a mapping that derives a volume element the
+        seeded rows are Jacobian-weighted, so the reduction is the
+        **physical** integral on both mapping forms (an embedding
+        ``chart=`` ``sqrt_g`` element, an analytic ``maps=`` column
+        Jacobian) — identical to the raw ``Integral()`` only on flat /
+        computational grids. No names integrates every factor;
+        reductions along ``ConstantSpace`` factors are the identity;
+        the result broadcasts back via ``ConstantSpace`` (section 3.3),
+        so ``f - f.integrate("x")`` stays in the strict algebra.
+
+        Jacobian-carrying axes reduce **first** (:func:`_bases_first`
+        over :func:`_jacobian_axes`): required for ``maps=`` column
+        base axes (Hazard 1 — the column Jacobian varies over the
+        map's parameter axes, so a base axis reduced after its
+        parameters would evaluate the metric on a collapsed axis and
+        raise), harmless for embedding-chart coordinates. Flat grids
+        keep the plain space order.
 
         Parameters
         ----------
@@ -705,8 +718,10 @@ class ScalarField:
             The integral on the reduced space (default metadata).
         """
         space = self._function_space.bare
+        selected = _bases_first(_reduction_names(space, names),
+                                _jacobian_axes(self._grid))
         result = self
-        for name in _reduction_names(space, names):
+        for name in selected:
             factor = space.factor(name)
             if isinstance(factor, ConstantSpace):
                 continue  # identity reduction (section 3.13)
@@ -719,15 +734,30 @@ class ScalarField:
         return result
 
     def mean(self, *names: str) -> ScalarField:
-        """
+        r"""
         Integral divided by the integrated measure (sugar).
 
         Description
         -----------
-        ``f.integrate(*names)`` scaled by the reciprocal of the
-        total measure of the reduced factors (the per-name sums of
-        ``grid.measure``), so the mean of a constant is that
-        constant on every space family.
+        ``f.integrate(*names)`` scaled by the reciprocal of the total
+        measure of the reduced factors, so the mean of a constant is
+        that constant on every space family. On a grid seeding no
+        Jacobian rows (or when no selected name is a Jacobian-carrying
+        base axis) the divisor is the product of the per-name
+        ``grid.measure`` sums — the plain computational average, bitwise
+        the historical path. When a selected name carries a Jacobian
+        weight (a ``maps=`` column base axis, an embedding-chart
+        coordinate — :func:`_jacobian_axes`) the divisor becomes the
+        seeded (physical) volume ``\int J\,\mathrm{d}V`` of the reduced
+        factors — the same ``ones`` field integrated through the
+        Jacobian-weighted rows, so a partial ``mean("z")`` on a terrain
+        grid divides by the per-column depth ``H(x, y)`` (a field, not
+        a scalar), the full mean by the total physical volume, and a
+        chart mean by the ``sqrt_g`` area — numerator and divisor
+        always share one measure. The division is
+        double-``where`` guarded (differentiability policy): padding /
+        halo columns integrate ``J = 0``, and a bare ``1 / 0`` would
+        seal the value yet leave the VJP singular.
 
         Parameters
         ----------
@@ -741,7 +771,16 @@ class ScalarField:
         """
         space = self._function_space.bare
         selected = _reduction_names(space, names)
+        jac_axes = _jacobian_axes(self._grid)
         integral = self.integrate(*selected)
+        if any(name in jac_axes for name in selected):
+            # physical volume divisor (a field for a partial mean)
+            ones = self.with_data(jnp.ones_like(self.data))
+            volume = ones.integrate(*selected)
+            den = volume.data
+            safe = den != 0.0
+            inv = jnp.where(safe, 1.0 / jnp.where(safe, den, 1.0), 0.0)
+            return integral.with_data(integral.data * inv)
         total = None
         for name in selected:
             factor = space.factor(name)
@@ -1041,6 +1080,81 @@ def _reduction_names(
             f"no factors named {unknown}; this space's names are "
             f"{space.names}")
     return tuple(dict.fromkeys(names))
+
+
+def _jacobian_axes(grid: Grid) -> tuple[str, ...]:
+    """
+    Return the axes whose seeded reduction carries a Jacobian weight.
+
+    Description
+    -----------
+    The names the seeded rows weight by the mapping's volume element
+    (rules section 3.13): an embedding ``chart=`` mapping's chart
+    coordinates (the ``sqrt_g`` element) or an analytic ``maps=``
+    mapping's single-base column base axes (each column's
+    ``d<mapped>_d<base>``). ``integrate`` fronts these in the
+    reduction order — required for ``maps=`` columns (Hazard 1: the
+    column Jacobian varies over the map's parameter axes, so a base
+    axis reduced after its parameters would evaluate the metric on a
+    collapsed axis and raise) and harmless for charts (``sqrt_g``
+    enters on the first live chart reduction, order-independent) —
+    and ``mean`` keys its physical-volume divisor on them. A flat
+    grid returns the empty tuple (the untouched fast path).
+
+    Parameters
+    ----------
+    grid : Grid
+        The grid whose mapping supplies the volume element.
+
+    Returns
+    -------
+    tuple[str, ...]
+        The Jacobian-carrying reduction names (order-stable), or
+        empty.
+    """
+    mapping = grid.mapping
+    if mapping is None:
+        return ()
+    chart = mapping.chart_coords
+    if chart is not None:
+        return chart
+    return tuple(dict.fromkeys(
+        base for _mapped, base in mapping.column_corrections.values()))
+
+
+def _bases_first(
+    selected: tuple[str, ...], base_axes: tuple[str, ...],
+) -> tuple[str, ...]:
+    """
+    Stable-partition ``selected`` with Jacobian base axes first.
+
+    Description
+    -----------
+    The Hazard-1 reordering (:func:`_jacobian_axes`): ``maps=`` column
+    base axes reduce before their parameter axes so the column Jacobian
+    is evaluated while every parameter axis is still alive (fronting
+    embedding-chart coordinates alongside is harmless — ``sqrt_g`` is
+    order-independent). Relative order is preserved within each group;
+    with no Jacobian axes selected the result is ``selected`` unchanged
+    (the flat fast path).
+
+    Parameters
+    ----------
+    selected : tuple[str, ...]
+        The validated reduction names in space order.
+    base_axes : tuple[str, ...]
+        The grid's Jacobian-carrying reduction names.
+
+    Returns
+    -------
+    tuple[str, ...]
+        ``selected`` with base axes moved to the front, order stable.
+    """
+    if not base_axes:
+        return selected
+    bases = tuple(n for n in selected if n in base_axes)
+    rest = tuple(n for n in selected if n not in base_axes)
+    return bases + rest
 
 
 def _wrap(grid: Grid, space: SpaceLike,

@@ -19,7 +19,11 @@ from fridom.spatial.bc import BC
 from fridom.spatial.coordinate_mapping import CoordinateMapping
 from fridom.spatial.grid import Grid
 from fridom.spatial.meshes.interval import IntervalMesh
-from fridom.spatial.operators.krylov import ConjugateGradient
+from fridom.spatial.operators.krylov import (
+    ConjugateGradient,
+    _computational_integral,
+    _computational_mean,
+)
 from fridom.spatial.operators.multigrid import VerticalLineJacobi
 from fridom.spatial.spaces.nodal import NodeSet
 
@@ -54,7 +58,7 @@ def build_solver(n=N, init=depth, **kwargs):
 
 def dot(a, b):
     """Return the measure-weighted inner product CG uses."""
-    return float(jnp.sum((a * b).integrate().data))
+    return float(jnp.sum(_computational_integral(a * b).data))
 
 
 def random_velocity(grid, mx, ms, seeds=(1, 2)):
@@ -144,7 +148,7 @@ def test_constant_h_preconditioner_is_exact():
     solver, grid, mx, ms = build_solver(init=flat_depth,
                                         iterations=1)
     rhs = grid.random.normal(mx.center * ms.center, seed=7)
-    rhs = rhs - rhs.mean()
+    rhs = rhs - _computational_mean(rhs)
     p, _info = solver.krylov().solve(rhs)
     residual = solver.apply(p) - rhs
     rel = (float(jnp.abs(residual.data).max())
@@ -175,14 +179,14 @@ def test_solve_converges_on_a_sloped_column():
     # fixed-iteration mode: pinned for determinism
     solver, grid, mx, ms = build_solver(tolerance=None)
     rhs = grid.random.normal(mx.center * ms.center, seed=9)
-    rhs = rhs - rhs.mean()
+    rhs = rhs - _computational_mean(rhs)
     p = solver.solve(rhs)
     residual = solver.apply(p) - rhs
     rel = (float(jnp.abs(residual.data).max())
            / float(jnp.abs(rhs.data).max()))
     assert rel < 1e-10
     # the solve pins the mean-free gauge
-    assert float(jnp.abs(p.mean().data.ravel()[0])) < 1e-12
+    assert float(jnp.abs(_computational_mean(p).data.ravel()[0])) < 1e-12
 
 
 def test_single_precision_preconditioner_still_converges():
@@ -197,7 +201,7 @@ def test_single_precision_preconditioner_still_converges():
     mixed = MappedPressureSolver(grid, space, single_precision=True,
                                  **kw)
     rhs = grid.random.normal(space, seed=9)
-    rhs = rhs - rhs.mean()
+    rhs = rhs - _computational_mean(rhs)
     p_full = full.solve(rhs)
     p_mixed = mixed.solve(rhs)
     residual = mixed.apply(p_mixed) - rhs
@@ -214,7 +218,7 @@ def test_single_precision_preconditioner_still_converges():
 def test_solve_accepts_an_initial_guess():
     solver, grid, mx, ms = build_solver(iterations=4)
     rhs = grid.random.normal(mx.center * ms.center, seed=10)
-    rhs = rhs - rhs.mean()
+    rhs = rhs - _computational_mean(rhs)
 
     def rel_residual(p):
         residual = solver.apply(p) - rhs
@@ -269,7 +273,7 @@ def test_multigrid_matches_the_spectral_solve():
     mg = MappedPressureSolver(grid, space, preconditioner="multigrid",
                               multigrid_levels=3, **kw)
     rhs = grid.random.normal(space, seed=9)
-    rhs = rhs - rhs.mean()
+    rhs = rhs - _computational_mean(rhs)
     p_spec = jax.jit(spec.solve)(rhs)
     p_mg = jax.jit(mg.solve)(rhs)
     residual = mg.apply(p_mg) - rhs
@@ -404,7 +408,7 @@ def test_periodic_column_solves_without_retagging():
     solver = MappedPressureSolver(grid, space, iterations=20,
                                   tolerance=None)
     rhs = grid.random.normal(space, seed=13)
-    rhs = rhs - rhs.mean()
+    rhs = rhs - _computational_mean(rhs)
     p = solver.solve(rhs)
     residual = solver.apply(p) - rhs
     rel = (float(jnp.abs(residual.data).max())
@@ -487,7 +491,7 @@ def test_solve_matches_the_unmemoized_operator_to_rounding():
     # is now "identical to rounding" rather than "bitwise".
     solver, grid, mx, ms = build_solver(iterations=12)
     rhs = grid.random.normal(mx.center * ms.center, seed=15)
-    rhs = rhs - rhs.mean()
+    rhs = rhs - _computational_mean(rhs)
     reference = ConjugateGradient(
         solver.apply,  # no cache: every application re-derives
         preconditioner=solver._preconditioner(),
@@ -542,7 +546,7 @@ def test_moved_geometry_solves_differ_and_stay_correct():
         grid, mx, ms = build_grid()
         space = mx.center * ms.center
         rhs = grid.random.normal(space, seed=17)
-        rhs = rhs - rhs.mean()
+        rhs = rhs - _computational_mean(rhs)
         h = grid.create_field(mx.center, init=init)
         dynamic = MappedPressureSolver(
             grid, space, iterations=20,
@@ -550,7 +554,7 @@ def test_moved_geometry_solves_differ_and_stay_correct():
         static, sgrid, smx, sms = build_solver(init=init)
         static_rhs = sgrid.random.normal(
             smx.center * sms.center, seed=17)
-        static_rhs = static_rhs - static_rhs.mean()
+        static_rhs = static_rhs - _computational_mean(static_rhs)
         p_dyn = np.asarray(dynamic.solve(rhs).data)
         p_stat = np.asarray(static.solve(static_rhs).data)
         np.testing.assert_allclose(p_dyn, p_stat, rtol=1e-12,
@@ -807,7 +811,7 @@ def test_vertical_line_sweep_reduces_the_steep_residual():
     space = mx.center * ms.center
     smoother = VerticalLineJacobi(solver.vertical_bands(), omega=0.8)
     b = grid.random.normal(space, seed=7)
-    b = b - b.mean()
+    b = b - _computational_mean(b)
     x0 = grid.create_field(space)
     x1 = smoother.sweep(x0, b, solver.apply)
     r0 = b - solver.apply(x0)

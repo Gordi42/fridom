@@ -34,8 +34,10 @@ functionals — the user picks:
   invariant — the quantity to print in a nonlinear run.
 
 Every diagnostic returns a density at the cell centre; integrate it
-with ``field.integrate()`` (which carries the ``sqrt(g)`` area element
-on chart grids) and read the scalar with ``.item()``:
+with ``field.integrate()`` (which carries the metric Jacobian on any
+mapped grid — the ``sqrt(g)`` area element on an embedding ``chart=``
+grid, the column Jacobian on an analytic ``maps=`` grid) and read the
+scalar with ``.item()``:
 
 .. code-block:: python
 

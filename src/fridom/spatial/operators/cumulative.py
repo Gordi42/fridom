@@ -80,7 +80,13 @@ an analytic-``maps=`` physical coordinate ``p`` adds the column
 Jacobian ``d<p>_d<b>`` on its base axis ``b`` — the terrain-following
 running integral :math:`\int f\,dz_p`. Either way the physical
 running integral telescopes to the Jacobian-weighted ``Integral``
-(rules 3.13); a name off every chart raises a taught error.
+(rules 3.13); a name off every chart raises a taught error. Like the
+seeded ``Integral`` rows, the **seeded** ``("cumint", ...)`` rows are
+Jacobian-tagged on any mapping deriving a volume element — an
+embedding ``chart=`` or an analytic ``maps=`` grid alike
+(``grid._reduction_jacobian``) — so a running integral on a mapped
+grid is physical by default; raw ``CumulativeIntegral()`` (no
+``jacobian=``) stays the computational escape hatch.
 
 Decomposition
 -------------

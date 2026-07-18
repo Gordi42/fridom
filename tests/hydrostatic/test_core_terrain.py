@@ -25,6 +25,7 @@ from fridom.model.model import _chunk_body
 from fridom.spatial.coordinate_mapping import CoordinateMapping
 from fridom.spatial.immersed_domain import ImmersedDomain
 from fridom.spatial.operators.cumulative import CumulativeIntegral
+from fridom.spatial.operators.integrate import Integral
 from fridom.spatial.spaces.constant import ConstantSpace
 
 IM = fr.spatial.meshes.IntervalMesh
@@ -270,7 +271,19 @@ def test_baroclinic_energy_conversion_is_conserved_to_roundoff():
     dX = model.tendency(st)
 
     def integ(f):
-        return float(f.integrate().data.ravel()[0])
+        # the model's own PLAIN (computational) energy metric: the
+        # seeded f.integrate() verb is Jacobian-weighted on this terrain
+        # grid (the physical-integral-default flip), but the baroclinic
+        # KE<->PE skew identity is the exact discrete adjoint pairing
+        # under the PLAIN measure only (this test's docstring), so the
+        # inner product is pinned to the raw computational Integral()
+        space = f.function_space.bare
+        reduced = f
+        for name in space.names:
+            if isinstance(space.factor(name), ConstantSpace):
+                continue
+            reduced = Integral()[name](reduced)
+        return float(reduced.data.ravel()[0])
     terms = [integ(st["u"] * dX["u"]), integ(st["v"] * dX["v"]),
              integ((st["b"] / N2) * dX["b"])]
     skew = sum(terms)
