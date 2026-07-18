@@ -242,7 +242,10 @@ def test_defrag_enabled_reads_env(monkeypatch):
 
 def test_should_defragment_gating(monkeypatch):
     model = make_model()
-    # real backend here is cpu -> off regardless of the env
+    # force a cpu backend -> off regardless of the env (the gate keys
+    # on jax.default_backend(), so pin it rather than trust the ambient
+    # backend, which is gpu on a gpu host and would flip the assertion)
+    monkeypatch.setattr(jax, "default_backend", lambda: "cpu")
     monkeypatch.delenv("FRIDOM_DISABLE_DEFRAG", raising=False)
     assert model._should_defragment() is False
     # force a gpu backend: now the env decides
@@ -253,8 +256,11 @@ def test_should_defragment_gating(monkeypatch):
 
 
 def test_defrag_skipped_on_cpu_backend(monkeypatch):
-    # a real cpu advance neither defrags nor clears the pending flag
+    # a cpu advance neither defrags nor clears the pending flag; pin the
+    # cpu backend so the test holds on a gpu host too (the gate reads
+    # jax.default_backend(), which is gpu on a gpu host)
     model = make_model()
+    monkeypatch.setattr(jax, "default_backend", lambda: "cpu")
     calls = []
     monkeypatch.setattr(model, "_defragment_carry",
                         lambda: calls.append(1))
