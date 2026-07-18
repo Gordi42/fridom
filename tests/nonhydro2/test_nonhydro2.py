@@ -186,8 +186,16 @@ def test_pressure_preconditioner_plumbs_through_the_preset():
                          multigrid_levels=5)
     assert core._pressure_preconditioner == "multigrid"
     assert core._multigrid_levels == 5
-    # defaults: the spectral preconditioner, floor-limited depth (None)
-    assert DynamicalCore()._pressure_preconditioner == "spectral"
+    # default: None = auto (MI-D3). Non-composed routes resolve to the
+    # spectral preconditioner (byte-identical to the previous default), a
+    # composed mapped + immersed grid resolves to multigrid; an explicit
+    # string is honoured on every route unchanged.
+    default = DynamicalCore()
+    assert default._pressure_preconditioner is None
+    assert default._resolved_preconditioner(composed=False) == "spectral"
+    assert default._resolved_preconditioner(composed=True) == "multigrid"
+    explicit = DynamicalCore(pressure_preconditioner="spectral")
+    assert explicit._resolved_preconditioner(composed=True) == "spectral"
     assert DynamicalCore()._multigrid_levels is None
     # the nh.Model factory forwards both knobs to the dynamical core
     model = nh.Model(coriolis=fplane(), grid=make_grid(), advection=False,

@@ -633,6 +633,69 @@ def test_auto_method_wires_to_cusparse_on_gpu():
 
 
 # ================================================================
+#  Stretched vertical column (plan §6, the stretch-aware bands fix)
+# ================================================================
+def _stretch(z):
+    """Monotone vertical clustering (dS/dz in [0.85, 1.15] > 0)."""
+    return z + 0.15 * jnp.sin(2 * np.pi * z) / (2 * np.pi)
+
+
+def _stretched_immersed_solver(n=8, prec="multigrid", iterations=20):
+    """Return a stretched-z immersed FV solver (MappedIntervalMesh z)."""
+    from fridom.spatial.meshes.mapped_interval import (  # noqa: PLC0415
+        MappedIntervalMesh,
+    )
+    slope = lambda x, y, z: jnp.clip(  # noqa: E731, ARG005
+        (z - 0.2 - 0.1 * jnp.sin(x)) * 6 + 0.5, 0.0, 1.0)
+    meshes = (
+        IntervalMesh(n, (0.0, TWO_PI), periodic=True, name="x"),
+        IntervalMesh(n, (0.0, TWO_PI), periodic=True, name="y"),
+        MappedIntervalMesh(n, (0.0, 1.0), _stretch, periodic=False,
+                           name="z"))
+    grid = _fv_grid(meshes, ImmersedDomain(slope, order=4))
+    space = _cell_space(grid)
+    solver = ImmersedPressureSolver(
+        grid, space, vertical="z", dsqr=0.5, iterations=iterations,
+        tolerance=None, preconditioner=prec)
+    return grid, space, solver
+
+
+def test_stretched_vertical_is_detected():
+    _grid, _space, solver = _stretched_immersed_solver()
+    assert solver._stretched_vertical is True
+
+
+def test_stretched_immersed_diagonal_and_bands_are_probe_exact():
+    # the stretch-aware bands (plan §6): the analytic diagonal / vertical
+    # off-diagonals read the physical grid.measure widths, so they still
+    # match the p-coloured probe on a MappedIntervalMesh column
+    grid, space, solver = _stretched_immersed_solver()
+    diag_probe, lo_p, up_p = _probe_diag_and_zbands(grid, space, solver, 2)
+    diag = np.asarray(solver.diagonal().data)
+    scale = max(np.abs(diag_probe).max(), 1.0)
+    assert np.abs(diag_probe - diag).max() <= 1e-11 * scale
+    bands = solver.vertical_bands()
+    lo = np.asarray(bands.lower.data)
+    up = np.asarray(bands.upper.data)
+    assert np.abs(up[:, :, :-1] - up_p[:, :, :-1]).max() <= 1e-11 * scale
+    assert np.abs(lo[:, :, 1:] - lo_p[:, :, 1:]).max() <= 1e-11 * scale
+
+
+def test_stretched_immersed_multigrid_solve_converges():
+    # a stretched-z immersed model has no spectral transform, so the
+    # multigrid V-cycle is the only preconditioner; the stretch-aware
+    # bands make it assemble and converge (plan §6)
+    grid, _space, solver = _stretched_immersed_solver(iterations=25)
+    vel = {a: grid.random.normal(solver._face[a], seed=i)
+           for i, a in enumerate(solver.axes)}
+    rhs = solver.divergence(vel)
+    p = jax.jit(solver.solve)(rhs)
+    residual = solver.apply(p) - rhs
+    rel = (float(jnp.abs(residual.data).max())
+           / float(jnp.abs(rhs.data).max()))
+    assert rel < 1e-8
+
+# ================================================================
 #  Coarse-grid agglomeration (MG-D10)
 # ================================================================
 def _mg_agg_solver(n=16, nz=8, *, agglomerate, device_ids=None,

@@ -22,6 +22,7 @@ if TYPE_CHECKING:  # pragma: no cover
         WENOAdvection,
     )
 
+    from .composed_pressure import ComposedPressureSolver
     from .core import DynamicalCore
     from .gaussian_wave_maker import GaussianWaveMaker
     from .immersed_pressure import ImmersedPressureSolver
@@ -55,6 +56,7 @@ all_imports_by_origin = {
     f"{base}.pressure": ["SpectralPressureSolver"],
     f"{base}.mapped_pressure": ["MappedPressureSolver"],
     f"{base}.immersed_pressure": ["ImmersedPressureSolver"],
+    f"{base}.composed_pressure": ["ComposedPressureSolver"],
     f"{base}.gaussian_wave_maker": ["GaussianWaveMaker"],
     f"{base}.polarized_wave_maker": ["PolarizedWaveMaker"],
     f"{base}.smagorinsky_lilly": ["SmagorinskyLilly"],
