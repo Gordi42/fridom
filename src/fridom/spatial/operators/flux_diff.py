@@ -44,6 +44,8 @@ from fridom.spatial.operators.reconstruct import (
     apply_fv_staggered,
     factor_codomain,
     fv_reach_or,
+    wall_slots_addressable,
+    wall_zeroed_operand,
 )
 from fridom.spatial.operators.spectral import (
     finite_difference_symbol,
@@ -120,6 +122,7 @@ def _mesh_space(
 
 def _windowed_diff(
     op: SeparableOperator, f: FieldLike, axis: str,
+    *, operand: FieldLike | None = None,
 ) -> FieldLike:
     """
     Two-point difference via the aligned FV window machinery.
@@ -130,7 +133,33 @@ def _windowed_diff(
     weights (the constant special case); mapped meshes run the
     unit-spacing kernel and divide by the codomain's measure field
     (rules sections 2.7, 3.9).
+
+    ``operand`` overrides the field the kernel reads, while the
+    codomain, spacing, and measure divide still come from ``f`` (they
+    share a space, grid, and layout): the homogeneous ``Inner`` arm
+    feeds a wall-zeroed copy so the ordinary window imposes the exact
+    zero wall flux (:meth:`FluxDifference._inner_diff_windowed`).
+    ``None`` reads ``f`` directly (the ``Outer``/``Right``/dual/face
+    rows).
+
+    Parameters
+    ----------
+    op : SeparableOperator
+        The (bound) FV difference kernel.
+    f : FieldLike
+        The operand flux field (supplies codomain, spacing, measure).
+    axis : str
+        The resolved coordinate axis.
+    operand : FieldLike | None, optional
+        The field the kernel actually reads; None reads ``f``
+        (default: None).
+
+    Returns
+    -------
+    FieldLike
+        The flux-difference field (default metadata).
     """
+    operand = f if operand is None else operand
     factor = f.function_space.bare.factor(axis)
     mapped = mapped_factor(factor)
     spacing = 1.0 if mapped else uniform_spacing(factor)
@@ -139,7 +168,7 @@ def _windowed_diff(
         return staggered_diff(arr, axis_index, spacing=spacing,
                               order=_DIFF_SIZE)
 
-    result = apply_fv_staggered(op, f, axis, _DIFF_SIZE, kernel,
+    result = apply_fv_staggered(op, operand, axis, _DIFF_SIZE, kernel,
                                 metadata=None)
     if mapped:
         return divide_by_codomain_measure(result, f, axis)
@@ -365,9 +394,28 @@ class FluxDifference(SeparableOperator):
         -----------
         ``Outer``/``Right`` domains run the aligned window kernel
         (the periodic wrap ghost supplies the left face). The
-        ``Inner`` domain pads the true-shape fluxes with exact zeros
-        at both boundary faces (the homogeneous no-normal-flow
-        contract) before differencing.
+        homogeneous ``Inner`` domain imposes exact zeros at both
+        boundary faces (the no-normal-flow contract, never read from
+        the BC-free extrapolation ghost) before differencing, via one
+        of two byte-for-byte equivalent spellings gated by
+        :func:`wall_slots_addressable`:
+
+        - the storage-frame windowed fast path
+          (:meth:`_inner_diff_windowed`): impose the zero wall flux in
+          the storage ghost slots, then run the ordinary window (like
+          ``Outer``). It keeps the operand's periodic-axis
+          halo-validity claims;
+        - the true-frame fallback (:meth:`_inner_diff_true_frame`):
+          unpad, ``jnp.pad`` the zero fluxes, difference, and
+          ``store``. It works on any layout but drops every axis's
+          halo claim.
+
+        The fast path exists because that true-frame excursion is what
+        the multi-device step pays for: the SPMD partitioner
+        materializes the unpad -> pad -> store tensors in a transposed
+        layout and reroutes the periodic-axis halo collective-permutes
+        through it, opening the FV-vs-nodal step gap the storage-frame
+        spelling closes (``design/research/fv_nodal_step_gap.md``).
 
         Parameters
         ----------
@@ -381,12 +429,78 @@ class FluxDifference(SeparableOperator):
         FieldLike
             The flux-difference field (default metadata).
         """
-        bare = f.function_space.bare
-        factor = bare.factor(axis)
+        factor = f.function_space.bare.factor(axis)
         if factor.node_set is not NodeSet.INNER:
             return _windowed_diff(self, f, axis)
-        # homogeneous variant: exact zero boundary fluxes (the
-        # BC-free ghost extrapolation must never leak in here)
+        if wall_slots_addressable(f, axis):
+            return self._inner_diff_windowed(f, axis)
+        return self._inner_diff_true_frame(f, axis)
+
+    def _inner_diff_windowed(
+        self, f: FieldLike, axis: str,
+    ) -> FieldLike:
+        """
+        Storage-frame windowed homogeneous ``Inner -> CellAvg`` divergence.
+
+        Description
+        -----------
+        Impose the zero wall flux in the two wall ghost slots of the
+        operand storage (:func:`wall_zeroed_operand`), then run the
+        ordinary :func:`_windowed_diff` window (``m0 = 1``, reach 1).
+        On a mapped mesh the unit-spacing difference divides by the
+        codomain measure field (storage-frame, VJP-sealed). Bitwise
+        the true-frame spelling on every output cell, but the result
+        keeps the operand's periodic-axis halo-validity claims, like
+        the nodal staggering path — the reason it exists (see
+        :meth:`_apply_factor`).
+
+        Parameters
+        ----------
+        f : FieldLike
+            The operand flux field on an ``Inner`` factor with ``axis``
+            device-local and halo >= 1.
+        axis : str
+            The resolved (bounded) coordinate axis.
+
+        Returns
+        -------
+        FieldLike
+            The flux-difference field (default metadata).
+        """
+        factor = f.function_space.bare.factor(axis)
+        operand = wall_zeroed_operand(f, axis, factor.shape[0])
+        return _windowed_diff(self, f, axis, operand=operand)
+
+    def _inner_diff_true_frame(
+        self, f: FieldLike, axis: str,
+    ) -> FieldLike:
+        """
+        True-frame homogeneous ``Inner -> CellAvg`` divergence (any layout).
+
+        Description
+        -----------
+        The layout-agnostic fallback of :meth:`_apply_factor` (a
+        distributed walled axis or an un-negotiated halo): unpad the
+        interior fluxes, ``jnp.pad`` an exact zero at each wall, and
+        difference; a mapped mesh then divides by the codomain's primal
+        cell width (rules 2.7/3.9, true-shape) before the ``store``
+        routing. Correct on any layout, but the ``store``-built result
+        claims zero halo validity on every axis.
+
+        Parameters
+        ----------
+        f : FieldLike
+            The operand flux field on an ``Inner`` factor.
+        axis : str
+            The resolved (bounded) coordinate axis.
+
+        Returns
+        -------
+        FieldLike
+            The flux-difference field (default metadata).
+        """
+        bare = f.function_space.bare
+        factor = bare.factor(axis)
         codomain = factor_codomain(self, f.function_space, axis)
         axis_index = bare.names.index(axis)
         mapped = mapped_factor(factor)

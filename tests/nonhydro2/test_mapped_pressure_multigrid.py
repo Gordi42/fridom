@@ -231,6 +231,28 @@ def test_multigrid_tridiagonal_method_defaults_to_auto():
     assert solver._multigrid_tridiagonal_method == "auto"
 
 
+def test_multigrid_levels_defaults_to_floor_limited_depth():
+    # the None default (omitted) stores None and coarsens to the
+    # four-cell floor: nx=16 halves 16 -> 8 -> 4, a three-level V-cycle
+    grid, mx, ms = build_grid(nx=16)
+    space = mx.center * ms.center
+    solver = MappedPressureSolver(
+        grid, space, iterations=3, weights={"sigma": 1.0 / DSQR},
+        preconditioner="multigrid")
+    assert solver._multigrid_levels is None
+    vcycle = solver._build_vcycle({})
+    assert len(vcycle.levels) == 3
+
+
+def test_multigrid_levels_int_still_caps_the_depth():
+    # an explicit int truncates below the floor depth: cap 2 on the same
+    # nx=16 grid stops at two levels (16 -> 8), not the floor's three
+    solver, _, _ = build_solver(nx=16, iterations=3, levels=2)
+    assert solver._multigrid_levels == 2
+    vcycle = solver._build_vcycle({})
+    assert len(vcycle.levels) == 2
+
+
 def test_mapped_solver_rejects_unknown_tridiagonal_method():
     grid, mx, ms = build_grid()
     space = mx.center * ms.center

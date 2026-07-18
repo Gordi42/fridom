@@ -185,9 +185,9 @@ def test_pressure_preconditioner_plumbs_through_the_preset():
                          multigrid_levels=5)
     assert core._pressure_preconditioner == "multigrid"
     assert core._multigrid_levels == 5
-    # defaults: the spectral preconditioner, five levels
+    # defaults: the spectral preconditioner, floor-limited depth (None)
     assert DynamicalCore()._pressure_preconditioner == "spectral"
-    assert DynamicalCore()._multigrid_levels == 5
+    assert DynamicalCore()._multigrid_levels is None
     # the nh.Model factory forwards both knobs to the dynamical core
     model = nh.Model(coriolis=fplane(), grid=make_grid(), advection=False,
                      pressure_preconditioner="multigrid",
@@ -196,6 +196,12 @@ def test_pressure_preconditioner_plumbs_through_the_preset():
               if type(m).__name__ == "DynamicalCore")
     assert dc._pressure_preconditioner == "multigrid"
     assert dc._multigrid_levels == 4
+    # the None default forwards along Model -> DynamicalCore too
+    default = nh.Model(coriolis=fplane(), grid=make_grid(),
+                       advection=False)
+    dc_default = next(m for m in default._carry.modules
+                      if type(m).__name__ == "DynamicalCore")
+    assert dc_default._multigrid_levels is None
 
 
 def test_pressure_preconditioner_is_static_treedef_aux():

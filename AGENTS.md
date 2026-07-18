@@ -412,12 +412,13 @@ def fft(self, axes: tuple[int] | None = None) -> fr.FieldBase:
 - **Merge gate:** the mirrored tests for every edited source file (see
   Testing policy) and `uv run ruff check src tests` must pass before
   merging.
-- **Perf merge gate:** merges touching step-path lowering
-  (`spatial/operators/`, `spatial/decomposition/`,
-  `model/time_steppers/`, tendency modules, `model/model.py`)
-  additionally require a green, manually submitted
-  `benchmarks/ci/step_guard.sbatch` run on the DKRZ A100 node (see
-  `benchmarks/ci/README.md`).
+- **Perf guard (owner-triggered, never per-merge):** perf-sensitive
+  merges do **not** require a benchmark guard run. Silvano batches
+  guard checkpoints himself (`benchmarks/ci/step_guard.sbatch`,
+  e.g. after ~10 merges, against the last-guarded baselines; on
+  red he studies the batch). **Agents never submit GPU jobs** —
+  guard runs included — unless Silvano explicitly asks in chat
+  (see `benchmarks/ci/README.md`).
 - Land with `git merge --no-ff <branch>` onto `dev`, then **delete the
   branch and remove its worktree in the same session**. Never end a
   session with a leftover branch or worktree.

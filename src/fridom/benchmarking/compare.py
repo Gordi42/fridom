@@ -16,6 +16,20 @@ DEFAULT_THRESHOLD = 0.05
 # jitter (measured A100 CoV: 2-6% on small cases, <0.5% on large ones)
 NOISE_TOLERANCE_K = 3.0
 
+# an absolute floor (seconds, per measured chunk) below which a
+# wall-time delta is treated as noise regardless of its relative size.
+# A measured per-process slow mode adds ~0.8 ms per 50-step chunk
+# (A100, 2026-07-18): every sample in an affected subprocess lands
+# uniformly high, a fresh process reads normal, and it hits a random
+# case each run. On sub-16 ms cases that ~0.8 ms is +5..9%, past the
+# relative band, so the guard reds with no real regression; the
+# relative tolerance cannot express it because the mode is absolute.
+# The floor declares the harness's resolution limit (~one kernel launch
+# per step at the 50-step chunk convention in
+# benchmarks/model/bench_step.py); if the chunk length convention
+# changes, revisit this value.
+ABSOLUTE_FLOOR = 1.2e-3
+
 # metadata fields that must match between the two runs for a
 # comparison to be meaningful (a cpu run compared against a gpu
 # baseline otherwise produces nonsense deltas silently)
@@ -146,10 +160,20 @@ def _format_tolerance(
     -----------
     Only comparable cases (ok/slower/faster) have a tolerance band;
     added, removed, and errored cases render as "-".
+
+    The rule is normally "global" or "noise" (see
+    ``effective_tolerance``); it reads "floor" when the relative band
+    was exceeded but the absolute delta sat under ``ABSOLUTE_FLOOR``,
+    so the case is "ok" only because the floor suppressed it. Surfacing
+    it keeps floor suppressions visible in the report rather than
+    silent.
     """
     if status not in ("ok", "slower", "faster"):
         return "-"
     tol, rule = case.effective_tolerance(threshold)
+    rel = case.wall.rel
+    if status == "ok" and rel is not None and abs(rel) > tol:
+        rule = "floor"
     return f"{tol:.1%} ({rule})"
 
 
@@ -315,6 +339,15 @@ class CaseComparison:
         whose minimum wall time moved by less than its own noise band
         counts as "ok" even past the global threshold, and vice versa.
 
+        A case is flagged "slower"/"faster" only if the relative delta
+        clears the effective tolerance *and* the absolute delta of the
+        minima clears ``ABSOLUTE_FLOOR``. The floor suppresses the
+        per-process slow mode (see ``ABSOLUTE_FLOOR``), which the
+        relative band cannot express because it is absolute; it is well
+        below any real tiny-case regression, so it never masks one.
+        The suppression is symmetric: a spurious "faster" from a
+        slow-mode-contaminated baseline is equally meaningless.
+
         Parameters
         ----------
         threshold : float, optional
@@ -338,10 +371,12 @@ class CaseComparison:
             return "removed"
         rel = self.wall.rel
         tol, _ = self.effective_tolerance(threshold)
-        if rel is not None and rel > tol:
-            return "slower"
-        if rel is not None and rel < -tol:
-            return "faster"
+        if rel is not None:
+            abs_delta = self.wall.new - self.wall.base
+            if rel > tol and abs_delta > ABSOLUTE_FLOOR:
+                return "slower"
+            if rel < -tol and -abs_delta > ABSOLUTE_FLOOR:
+                return "faster"
         return "ok"
 
 

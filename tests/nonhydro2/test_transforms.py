@@ -507,17 +507,17 @@ def test_multiwalled_grids_are_rejected():
 #  The sharded multi-device application (forced-devices gate)
 # ================================================================
 @pytest.mark.multi_device
-def test_channel_projection_rejects_a_sharded_periodic_axis(forced_devices):
-    # The per-plane Fourier contraction cannot run when a periodic
-    # (transform) axis is sharded across devices: XLA's GSPMD
-    # distributed-FFT lowering synthesizes the twiddle-factor constants
-    # at complex64 against the complex128 cuFFT data and the HLO
-    # verifier rejects the mixed multiply (an upstream jax/jaxlib
-    # 0.10.x XLA:GPU fault, NOT the FFT norm and NOT covered by
-    # multi_output_fusion; see multidevice_test_faults.md). The engine
-    # rejects it upfront with a taught NotImplementedError instead of
-    # dying in the verifier. N = 16: below that the negotiation
-    # collapses the tiny 3-D blocks onto one device and no axis shards.
+def test_channel_projection_runs_on_a_sharded_periodic_axis(forced_devices):
+    # The 3-D channel shards a full periodic axis (x); the per-plane
+    # Fourier contraction now runs through the fused shard_map lowering
+    # (spatial.operators.distributed_contract) so every FFT axis is
+    # device-local when its transform runs -- instead of the plain GSPMD
+    # transform that hit the upstream XLA:GPU distributed-FFT fault
+    # (complex64 twiddle constants against complex128 data; see
+    # multidevice_test_faults.md). The many-device projection matches the
+    # explicit one-device reference to floating point, is idempotent, and
+    # lands real. N = 16: below that the negotiation collapses the tiny
+    # 3-D blocks onto one device and no axis shards.
     #
     # GPU-scoped: building the n=16 channel eigenbasis runs a
     # batch-144 63x63 eigh, which heap-corrupts jaxlib's CPU LAPACK on
@@ -538,18 +538,22 @@ def test_channel_projection_rejects_a_sharded_periodic_axis(forced_devices):
               "w": rng.standard_normal((n, n, n)),
               "b": rng.standard_normal((n, n, n))}
 
-    # many devices: x (a periodic axis) shards, so the projection is
-    # rejected loudly before it can reach the broken sharded FFT
+    # many devices: x (a full periodic axis) shards, and the fused
+    # distributed contraction runs the projection on the sharded grid
     many = make_channel_model(device_ids=None, n=n)
     many.set_fields(**fields)
     z_many = nh.State({c: many.state[c] for c in COMPONENTS})
     assert z_many["u"]._data.sharding.spec[0] == "devices"
     proj_many = nh.transforms.VorticalProjection(nh.eigenbasis(many))
-    with pytest.raises(NotImplementedError, match="shards a periodic axis"):
-        proj_many(z_many)
+    out_many = proj_many(z_many)
+    # the synthesis lands real (the Hermitian closure)
+    assert not any(
+        np.iscomplexobj(np.asarray(out_many[c].data)) for c in COMPONENTS)
+    # a genuine idempotent projector on the multi-device path
+    assert _absmax(proj_many(out_many), out_many) < 1e-11
 
-    # one device (device_ids=(0,)) on the same host: every axis is
-    # local, the gate does not fire, and the projection runs normally
+    # one device (device_ids=(0,)) on the same host: the replicated
+    # single-device reference the distributed path must reproduce
     one = make_channel_model(device_ids=(0,), n=n)
     one.set_fields(**fields)
     z_one = nh.State({c: one.state[c] for c in COMPONENTS})
@@ -557,5 +561,4 @@ def test_channel_projection_rejects_a_sharded_periodic_axis(forced_devices):
     out_one = proj_one(z_one)
     assert not any(
         np.iscomplexobj(np.asarray(out_one[c].data)) for c in COMPONENTS)
-    # the single-device projection is a genuine idempotent projector
-    assert _absmax(proj_one(out_one), out_one) < 1e-11
+    assert _absmax(out_many, out_one) < 1e-11

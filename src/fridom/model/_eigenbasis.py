@@ -51,6 +51,9 @@ from fridom.model.transforms.projection import (
 )
 from fridom.model.transforms.signature import StateSignature
 from fridom.spatial.fields.vector_field import VectorField
+from fridom.spatial.operators.distributed_contract import (
+    resolve_distributed_contraction,
+)
 from fridom.spatial.operators.fourier import Fourier
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -591,15 +594,18 @@ def _signature(em: ChannelEigenmodesBase) -> StateSignature:
 def fourier_ops(em: ChannelEigenmodesBase) -> tuple[Fourier, ...]:
     """Per-axis Fourier transforms, the half-spectrum axis first.
 
-    The engine's ``rfftn`` read-out halves the *last* periodic axis
-    (``em.periodic_axis``), so the real-to-complex stage must run on
-    that axis: applying it first (and its inverse last) reproduces
-    the engine's coefficient layout — full spectra on the remaining
-    periodic axes, half spectrum on the last one.
+    The engine's ``rfftn`` read-out halves the designated periodic
+    axis (``em.periodic_axis`` -- the last periodic axis by default,
+    a local axis re-designated by the layout when the last one is
+    sharded), so the real-to-complex stage must run on that axis:
+    applying it first (and its inverse last) reproduces the engine's
+    coefficient layout -- full spectra on the remaining periodic
+    axes, half spectrum on the designated one.
     """
     periodic = tuple(
         name for name in em.grid.names if name != em.bounded_axis)
-    order = (periodic[-1], *periodic[:-1])
+    half = em.periodic_axis
+    order = (half, *(name for name in periodic if name != half))
     return tuple(Fourier(em.grid, axes=(axis,)) for axis in order)
 
 
@@ -642,8 +648,9 @@ def _project_masked(
     with ``m`` the boolean column mask (amplitudes off the selection
     are zeroed exactly).
     """
+    weights = jnp.where(mask, 1.0, 0.0)
     return _contract_planes(
-        em, state, lambda amp: jnp.where(mask, amp, 0.0))
+        em, state, lambda amp: jnp.where(mask, amp, 0.0), weights)
 
 
 def _apply_weighted(
@@ -665,32 +672,37 @@ def _apply_weighted(
     with ``w = f(omega) * mask`` the complex column weights built by
     :func:`spectral_function` (exact zeros off the selection).
     """
-    return _contract_planes(em, state, lambda amp: weights * amp)
+    return _contract_planes(
+        em, state, lambda amp: weights * amp, weights)
 
 
 def _reject_sharded_projection(em: ChannelEigenmodesBase) -> None:
     r"""
-    Taught skip when a periodic (Fourier) axis is sharded.
+    Taught skip on an unsupported sharded-periodic channel layout.
 
     Description
     -----------
-    The per-plane contraction (:func:`_contract_planes`) Fourier
-    transforms the periodic axes. When the grid's default layout
-    shards one of those axes across devices, XLA's GSPMD
-    distributed-FFT lowering (a Cooley-Tukey split across devices,
-    ``fft_collective_permute``) synthesizes the transform's
-    twiddle-factor constants at ``complex64`` against the
-    ``complex128`` cuFFT data, and the HLO verifier rejects the
-    mixed-precision multiply (``multiply c64[] c128[]``, jax/jaxlib
-    0.10.x). This is an upstream XLA:GPU/GSPMD fault, independent of
-    the jax FFT normalization (it fires with ``norm=None``); it is
-    **not** the FFT-norm constant and **not** covered by the
-    ``multi_output_fusion`` workaround. Raise a taught error here so
-    the projection fails loudly instead of dying deep in the verifier.
-    The single-device path is unaffected — including a
-    ``device_ids=(0,)`` grid on a multi-device host, whose layout
-    leaves every axis local. See
-    ``design/research/multidevice_test_faults.md``.
+    The multi-device channel projection is served by the fused
+    ``jax.shard_map`` lowering
+    (:func:`~fridom.spatial.operators.distributed_contract.resolve_distributed_contraction`)
+    whenever at least two periodic axes exist on a 1-D device mesh
+    (the 3-D channel): the engine designates a **local** periodic axis
+    as the half (``rfft``) axis at build time
+    (``eigen_channel._designate_half_axis``), so the sharded axis is
+    always the kernel's transpose partner. This taught skip covers the
+    genuinely-unsupported remainder that the lowering declines while a
+    periodic axis is still sharded: a single periodic axis (the 2-D
+    channel — no transpose partner) or a non-1-D device mesh. Left to
+    the plain
+    (GSPMD) transform, those hit the upstream XLA:GPU distributed-FFT
+    lowering fault (``complex64`` twiddle constants multiplied against
+    ``complex128`` cuFFT data — the HLO verifier rejects the mixed
+    multiply, jax/jaxlib 0.10.x, independent of the FFT normalization
+    and not covered by ``multi_output_fusion``), so raise a taught
+    error here instead of dying deep in the verifier. The
+    single-device path is unaffected — including a ``device_ids=(0,)``
+    grid on a multi-device host, whose layout leaves every axis local.
+    See ``design/research/multidevice_test_faults.md``.
 
     Parameters
     ----------
@@ -700,7 +712,8 @@ def _reject_sharded_projection(em: ChannelEigenmodesBase) -> None:
     Raises
     ------
     NotImplementedError
-        When a periodic axis is sharded across devices.
+        When a periodic axis is sharded and the fused lowering
+        declines (the unsupported remainder above).
     """
     layout = em.grid.decomposition.default_layout
     sharded = tuple(
@@ -708,14 +721,20 @@ def _reject_sharded_projection(em: ChannelEigenmodesBase) -> None:
         if name != em.bounded_axis and not layout.is_local(name))
     if sharded:
         raise NotImplementedError(
-            "the channel eigenmode projection cannot run on a grid "
+            "the channel eigenmode projection cannot run on this grid "
             f"that shards a periodic axis {sharded!r} across devices: "
-            "the per-plane Fourier contraction hits an upstream "
-            "XLA:GPU/GSPMD distributed-FFT lowering fault (complex64 "
-            "twiddle constants multiplied against complex128 data — "
-            "the HLO verifier rejects the mixed-precision multiply, "
-            "jax/jaxlib 0.10.x). Build the channel model on a single "
-            "device (Grid(..., device_ids=(0,))) to use the eigenbasis "
+            "the fused distributed contraction serves the 3-D channel "
+            "(at least two periodic axes on a 1-D device mesh; the "
+            "engine designates a local half axis at build time), but "
+            "this layout is the unsupported remainder (a single "
+            "periodic axis — the 2-D channel — or a non-1-D mesh), and "
+            "the "
+            "plain GSPMD transform would hit an upstream XLA:GPU "
+            "distributed-FFT lowering fault (complex64 twiddle "
+            "constants multiplied against complex128 data — the HLO "
+            "verifier rejects the mixed-precision multiply, jax/jaxlib "
+            "0.10.x). Build the channel model on a single device "
+            "(Grid(..., device_ids=(0,))) to use the eigenbasis "
             "projections; see "
             "design/research/multidevice_test_faults.md.")
 
@@ -724,6 +743,7 @@ def _contract_planes(
     em: ChannelEigenmodesBase,
     state: VectorField,
     scale: Callable[[jax.Array], jax.Array],
+    weights: jax.Array,
 ) -> VectorField:
     r"""
     Per-plane column contraction ``Q scale(Q^H M z)`` on a state.
@@ -741,17 +761,38 @@ def _contract_planes(
     at application time — after labeling, whose degeneracy recovery
     may have rotated ``q`` in place.
 
+    On a grid whose default layout shards a periodic (Fourier) axis
+    the plain (GSPMD) transform hits an upstream XLA:GPU
+    distributed-FFT lowering fault, so the contraction is routed
+    through the fused ``jax.shard_map`` lowering
+    (:func:`~fridom.spatial.operators.distributed_contract.resolve_distributed_contraction`),
+    which keeps every FFT axis device-local when its transform runs
+    and realizes ``Q diag(w) Q^H M`` per shard — bit-for-bit the
+    single-device result, ``w`` the explicit complex weight diagonal
+    (``scale`` and ``w`` encode the same mask / weight). The
+    single-device and bounded-axis-sharded paths keep the
+    ``scale``-driven body below unchanged. The genuinely-unsupported
+    remainder (a single periodic axis — the 2-D channel — or a
+    non-1-D mesh) is rejected upfront
+    (:func:`_reject_sharded_projection`).
+
     The backward half-spectrum synthesis returns the real part: for
     conjugation-closed selections (and conjugation-symmetric
     weights) the result is exactly real up to floating point; a
     non-closed selection acts on the analytic signal (see
     :meth:`ChannelEigenmodesBase.projector`). Sharding-clean: the
     contraction is an einsum of the replicated basis against the
-    (decomposition-laid-out) coefficient planes — no host gather. A
-    grid that shards a periodic (Fourier) axis is rejected upfront
-    (:func:`_reject_sharded_projection`): the sharded-axis FFT hits an
-    upstream XLA distributed-FFT lowering fault.
+    (decomposition-laid-out) coefficient planes — no host gather.
     """
+    plan = resolve_distributed_contraction(
+        em.grid, bounded_axis=em.bounded_axis,
+        periodic_axis=em.periodic_axis, components=em.components,
+        slices=em.slices)
+    if plan is not None:
+        result = plan.apply(
+            {name: state[name] for name in em.components},
+            em.q, weights, em.metric)
+        return type(state)(result)
     _reject_sharded_projection(em)
     ops = fourier_ops(em)
     bounded = em.grid.names.index(em.bounded_axis)
