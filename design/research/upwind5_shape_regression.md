@@ -213,6 +213,37 @@ regression is not a bug and not a reason to withhold the memory win —
 it is the loop-emitter knife edge, and the mitigation (if wanted) is a
 width-pin, not a flag.
 
+## 8b. The centered gate, executed (same day)
+
+The §8 gate ran immediately after this record (same A100, fresh
+processes, harness [`ab_centered.py`](upwind5_shape_regression/), raw
+[`RESULTS_RAW_centered_gate.txt`](upwind5_shape_regression/); in every
+narrow run the negotiated width was verified to drop to {1,1,1} and
+storage to (n+2)³ before timing — the exact seam the derived
+declaration will use). Median (min) ms/step per fresh process:
+
+| size | stock (n+4) | narrow (n+2) | narrow vs stock |
+|---|---|---|---|
+| 128³ (132³→130³) | 1.110 (1.109) / 1.114 (1.103) | 1.150 (1.135) / 1.149 (1.137) | +2–3% (near noise) |
+| 192³ (196³→194³) | 3.069 (3.065) / 3.099 (3.085) | 3.218 (3.215) / 3.203 (3.198) | **+4.3%** |
+| 256³ (260³→258³) | 7.518 (7.515) / 7.521 (7.510) | 7.688 (7.682) / 7.693 (7.690) | +2.3% |
+| 512³ (516³→514³) | 61.829 (61.801) / 61.809 (61.793) | 63.874 (63.869) / 63.873 (63.860) | +3.3% |
+
+Compiled args bytes track the (n+2)³/(n+4)³ ghost-shell ratio to
+5 s.f. at every size (−1.2% to −4.5% of args). The §8 prediction
+**held**: 194³ is hostile and 192³ is the worst size — but the
+regression is mild and *uniformly signed* for centered (+2.3–4.3% at
+every production size), unlike upwind5's mixed-sign ±12-18%. The
+sharpest knife-edge datapoint yet: a linear-advection pair at 192³ on
+the **identical** 194³ storage is −1.2% *faster* (stock 2.328/2.326,
+narrow 2.300/2.298 ms/step) — the sign is a property of the scheme's
+fusion population, not of the shape alone. Gate consequence: the
+derived-declaration width drop cannot be justified on GPU wall-clock
+for the centered default (it prices in ~2–4% there); it ships, if it
+ships, on memory/tightness/CPU grounds with that cost recorded, and
+the recovery for a flagship centered config is the same width-pin
+knob as §6.
+
 ## 9. What was tried and refuted
 
 - **"A kernel gets mis-selected / different tile" (the working
