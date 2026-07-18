@@ -80,6 +80,11 @@ memory ceiling, time-to-first-step, WENO throughput (entries in
   already XLA-CSE'd — measured perf-neutral). Lever: evaluate `A(1)`
   on the boundary-adjacent 2D slice only; needs a DSL
   slice/restriction path on the advecting-velocity faces.
+  **Plan accepted 2026-07-18** (owner picked the same-mesh
+  non-broadcasting `TraceSpace` architecture over ConstantSpace reuse
+  / PointMesh activation): design, decision record, and phasing in
+  [`../plans/active/boundary_trace_plan.md`](../plans/active/boundary_trace_plan.md);
+  implementation not started.
 
 ## Channel eigenmodes on multi-device — remaining gaps
 
