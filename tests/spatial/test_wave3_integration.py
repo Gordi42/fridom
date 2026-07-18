@@ -246,6 +246,8 @@ def test_trace_halo_over_a_mixed_tendency():
     spec = trace_halo(tendency, spaces, grid.dispatch)
     # two-sided accounting: the periodic FV derivative composes to
     # width 1 (not the scalar sum 2); the bounded double difference
-    # shrinks the codomain each hop and reads no exterior slot (0)
+    # shrinks the codomain each hop so its exterior reach cancels to 0
+    # at the wall, but the per-shard footprint is 1 (the fix in
+    # b57e3e78: a sharded interior slot reads a neighbour)
     assert spec["x"] == 1
-    assert spec["y"] == 0
+    assert spec["y"] == 1

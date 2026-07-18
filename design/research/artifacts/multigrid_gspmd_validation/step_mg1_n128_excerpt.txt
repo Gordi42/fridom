@@ -1,0 +1,30 @@
+# TRIMMED excerpt of the optimized 1-GPU mg-cuSPARSE step module (baseline).
+#
+# Source module (NOT checked in, 6.9 MB / 71830 lines):
+#   step_mg1_n128.txt = module jit__chunk_body.sm_8.0_gpu_after_optimizations
+#   Same GB-2 steep-mapped nonhydro2 config, n=128, ONE A100 (no sharding).
+# Regenerate: JAX_PLATFORMS=cuda CUDA_VISIBLE_DEVICES=0 \
+#   XLA_FLAGS="--xla_dump_to=DIR" \
+#   .venv/bin/python dump_hlo.py 128 multigrid cusparse 100
+#   then census.py DIR/<module> 10.
+#
+# HEADLINE: the whole 1-GPU step module has ZERO collectives --
+#   grep -cE 'all-gather|all-reduce|all-to-all|collective-permute|reduce-scatter'
+#   step_mg1_n128.txt  ->  0
+# so every collective counted in the 4-GPU modules is pure sharding overhead,
+# none intrinsic to the cuSPARSE / V-cycle kernels. The 54 cusparse custom
+# calls carry the FULL (un-sharded) batch here -- e.g. finest f64[16384,128,1]
+# vs the 4-GPU per-shard f64[4096,128,1] -- confirming the 4-GPU calls are
+# cleanly partitioned n/4 along the sharded x batch, not all-gathered.
+
+===== module structure: same one-while + one-conditional, NO collectives =====
+%while.444 = (s64[], f64[128,128,128], ... ) while(...), backend_config={"known_trip_count":{"n":"99"}, ...}
+%cond.24 = (f64[128,128,128], f64[128,128,128], f64[128,128,128], f64[], f64[]) conditional(%wrapped_compare, %cond.23.0, %cond.22.0, ...)
+
+===== cuSPARSE custom-calls carry the FULL batch (no sharding) =====
+# level 128: f64[16384,128,1]   (4-GPU per-shard was f64[4096,128,1])
+# level  64: f64[4096,64,1]
+# level  32: f64[1024,32,1]
+# level  16: f64[256,16,1]
+# level   8: f64[64,8,1]
+# level   4: f64[16,4,1]  (x24 at the coarsest, matching the 4-GPU count)

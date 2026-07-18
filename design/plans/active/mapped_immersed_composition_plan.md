@@ -173,3 +173,63 @@ Direct physical face-area quadrature; closures on immersed grids
 geometry; level-set representation; interface-aware smoothers
 beyond line-Jacobi (Galerkin coarse operators recorded as the
 escalation if per-level re-discretization underperforms).
+
+## 6. Implementation record
+
+**M0+M1 shipped 2026-07-18** (merge `5bc27631`; branch
+`feat/immersed-chart-fractions`). `Grid._cell_quadrature_fields`
+(raw per-cell GL nodes + unit-sum tensor weights),
+`CoordinateMapping._column_correction`/`_param_at_nodes` (mapped
+physical positions + column Jacobian at given nodes, via the same
+`jvp`-along-base construction the operator metric rows use), and the
+chart branch of `ImmersedDomain._quadrature_cells`. Gates: chart
+fractions vs analytic geometry spectrally exact for smooth
+integrands (5.5e-17 at q=2), monotone convergence in q for a hard
+cut, terrain column `z = σ·H(x)` vs an independent numpy tensor
+oracle to 1e-12 (H genuinely x-coupled); identity chart ≡ unmapped
+**bitwise**; separable path bitwise-untouched; all-wet exactly 1.0;
+floor semantics pinned on charts; forced-4 device invariance
+(4-vs-1-device chart fractions ≤ 1e-12); 313+15 mirrored tests
+green; ruff clean.
+
+**Correction to §1 (the M0 premise).** "Stretched + immersed
+already works ungated" holds only at the **fraction/grid layer**
+(pinned there — stretched fractions are exact physical averages,
+bitwise-unchanged path). At **model level no composition assembles
+today**: the immersed solver's spectral preconditioner has no
+stretched-z transform (`DispatchError` on `CellAvg(z)`), and its
+multigrid `vertical_bands` raises on non-uniform widths — and a
+stretched-z *non-immersed* nonhydro2 fails the same way (bare
+separable stretch is generally unsupported by the flat spectral
+path; the supported stretched vertical is the mapped column, which
+is taught-errored with immersed until M2). Consequence: **M3 must
+make the composed solve serve the bare-stretch case too** (the
+stretch-aware `vertical_bands` fix, or routing bare stretch through
+the mapped diff-row operator; a plain-CG immersed fallback is the
+recorded alternative). The M2/M3 solve is the first path that will
+actually run any stretched-or-terrain immersed model.
+
+**Interpretations / seams recorded for M2:**
+
+- **MI-D1 "computational cell" is realized as physical-placement
+  averaging** (per-axis physical GL nodes, unit-sum weights — the
+  separable path's own convention); the ratio `Σ(wJχ)/Σ(wJ)` is
+  proven equal to the exact physical wet-volume fraction on a
+  stretched base (the mesh Jacobian rides the placement, `J`
+  carries only the column factor — no double count).
+- **J-consistency seam (feeds the freestream gate):** the fraction
+  evaluates the mapping's **analytic static-default parameter**
+  (e.g. `H(x)`) at quadrature nodes; the operator consumes the
+  **discrete/interpolated** parameter field at DOF nodes. Same map
+  callable, same autodiff; they coincide exactly for constant
+  parameters and differ by the parameter's discretization
+  otherwise. M2's freestream/GCL gate arbitrates: either build the
+  fraction from the discrete field pipeline or prove the gate holds
+  with the analytic spelling.
+- **`order=None` (collocation) on charts is unmapped** — it samples
+  the computational base center, not the mapped physical center.
+  M2 decision: require `order >= 2` for chart immersed domains, or
+  map the collocation point.
+- Supplied (dynamic) mapping parameters are not handled in the
+  fraction (static geometry only) — moving terrain + immersed
+  stays designed-for.

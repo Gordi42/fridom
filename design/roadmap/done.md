@@ -151,7 +151,8 @@ Implementation record:
   masked-singularity class is CLOSED across the step path. AGENTS.md's
   differentiability policy now names `Model.propagator` the canonical
   pattern (the private `_chunk_body` shards stay valid). **Owner-review
-  notes (unratified):** (1) D4 was executed as a *seal*, not the plan's
+  notes (item 1 owner-ratified 2026-07-19; 2–4 still unratified):**
+  (1) D4 was executed as a *seal*, not the plan's
   approved comment-only watch-item — the premise was DISPROVEN: the
   `MetricScaled` divides fire live (walled/sphere IC-grad through
   `_chunk_body` NaNs, isolated by bisection, fires with `coriolis=None`
@@ -254,9 +255,11 @@ Implementation record:
   `_divide_by_jacobian` guard reproduces `PanicError` at it=2 already
   at n=8 (a smaller floor than the n=64 recorded above). Not bitwise:
   CPU scan-length grouping reassociates FP at ~3e-15, while the GPU
-  256³ measurement above was bitwise. The remaining hardening residual
-  (the held `MetricScaled` pad-inf seal, owner decision D4) is tracked
-  in [`open.md`](open.md). Record:
+  256³ measurement above was bitwise. The last hardening residual —
+  the held `MetricScaled` pad-inf seal, owner decision D4 — closed
+  2026-07-19: the differentiability campaign's own seal (`7fdbc900`,
+  live reverse-NaN + 0.000%-FLOPs cost proof) was owner-ratified and
+  the redundant held branch deleted; nothing remains open. Record:
   [`mapped_chunk_nonfinite_rootcause.md`](../research/mapped_chunk_nonfinite_rootcause.md).
 
 - **Storage-halo width recovered — two-sided (interval) halo
@@ -1715,3 +1718,29 @@ Implementation record:
   the `FieldBlend`-unification question, and the declined
   re-diagonalization contract. Plan:
   [`../plans/done/time_dependent_fields.md`](../plans/done/time_dependent_fields.md).
+
+- **Split-explicit barotropic-IC gap — ruled + fixed** (2026-07-19,
+  merge `f3d96306`, branch `fix/split-explicit-barotropic-ic`). The
+  2026-07-18 srun-validation finding — a z-independent `set_fields`
+  velocity vanished from the whole carry in one step (max|u| 0.98 →
+  2.6e-4) — was ruled an **IC gap** by the owner (not rest-start
+  semantics). Mechanism: `hy.SplitExplicitFreeSurface` declares the
+  barotropic transports `U, V` PROGNOSTIC (zero-initialized at build)
+  and nothing projected the IC's depth mean into them, so the first
+  CONSTRAINT stage replaced the depth mean of `u, v` with
+  `U/H = 0`. Fix: a minimal host-side IC hook —
+  `Module.derive_initial_fields(state, provided)` (base no-op),
+  called by `Model.set_fields` after the user's fields are applied
+  and re-homed identically; the split-explicit override seeds
+  `U = ubar/(1/H)` (immersed: `ubar_wet * H_col`, land columns 0)
+  exactly as the subcycle commit computes, iff the velocity was set
+  without its transport (an explicit `U`/`V` is respected bitwise; a
+  ps-only call derives nothing). Entirely outside the jit step path
+  (differentiability policy exempt). Tests: seed-equality to 1e-13 +
+  3-step survival, explicit-override, ps-only, immersed
+  transport-depth consistency; forced-4 green. Scoping verified:
+  the explicit/implicit variants carry no slaved barotropic
+  prognostic — this was the only module with the gap. Caveat for the
+  comparison ladder: the pre-fix se rungs ran near-zero-velocity
+  flows while Oceananigans got the full IC (wall-time ratios are
+  data-independent, physics trajectories were not comparable).

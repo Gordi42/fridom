@@ -16,6 +16,15 @@ Scripts: `gb2_common.py` (builders/timing), `minimal_hlo.py`,
 `results_immersed.jsonl`, `log_*.txt`, `hlo_dump/`,
 `minimal_hlo_{cusparse,pcr}_n128.txt`.
 
+*Collective census follow-up (2026-07-18, same day; kernel-study
+Addendum 3, `../../multigrid_kernel_study.md`): why 128^3 4-GPU mg is
+0.37x. Added here: `census_collective_report.md` (full report),
+`census.py` (the HLO parser), `dump_hlo.py` (module dumper),
+`probe_budget.py` + `probe_budget_out.txt` (no-op-trip timing probe),
+`measure_iters.py` (CG iteration counts), and trimmed provenance
+excerpts `step_{mg4,sp4,mg1}_n128_excerpt.txt` (the full modules are
+16 / 1.8 / 6.9 MB, not checked in — regen commands in each header).*
+
 ---
 
 ## Sharding of the production model (4 GPU, n=128, mg-auto)
@@ -80,6 +89,14 @@ set ∩ all-gather-result set = ∅; every cusparse operand is a
 collectives (all-reduce, collective-permute) are the CG measure-weighted
 inner products and the halo/transfer exchanges — inherent to the sharded
 elliptic solve, not the tridiagonal kernel.
+
+*Census confirms exactly ONE collective all-gather in the whole step
+(the f64[4] global-mean projection). The `inmodel_hlo_excerpt.txt`
+header (and the kernel-study Addendum 2 as first written) says "2
+all-gather-start ops" — the second, the `s32[8]` index gather for the
+projection `jnp.take`, is a **local** `gather` op, not a collective, so
+the census parser (`census.py`) does not count it. Corrected in Addendum
+3.*
 
 **Verdict: XLA partitions the cuSPARSE batched custom-call cleanly along
 the sharded batch axis at every multigrid level; it does NOT all-gather.
