@@ -17,6 +17,7 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
+import fridom.nonhydro2 as nh
 from fridom.framework.utils import dtype_real, jaxify
 from fridom.model.declarations import FieldDeclaration
 from fridom.model.model import (
@@ -34,6 +35,7 @@ from fridom.model.terms import term
 from fridom.model.time_steppers.adam_bashforth import (
     AdamBashforth,
 )
+from fridom.spatial.coordinate_mapping import CoordinateMapping
 from fridom.spatial.decomposition.halo import HaloSpec
 from fridom.spatial.grid import Grid
 from fridom.spatial.meshes.interval import IntervalMesh
@@ -381,3 +383,81 @@ def test_chunk_seals_the_carry_at_the_boundary():
     assert chunk_cache_size() == before + 1
     text = list(_CHUNK_EXECUTABLES.values())[-1].as_text()
     assert "dynamic-update-slice" in text
+
+
+# ================================================================
+#  Mapped + advection chunk-cadence parity (pad-inf regression)
+# ================================================================
+TWO_PI = 2.0 * np.pi
+
+
+def _depth(x):
+    """Return a smooth periodic terrain depth H(x) (20% slope)."""
+    return 1.0 + 0.2 * jnp.sin(x)
+
+
+def mapped_advective_model(chunk_size):
+    """Return a tiny terrain-following nonhydro2 model, advection on.
+
+    ``zp = z * H(x)`` couples the vertical to ``x``, so every step runs
+    the mapped PCG projection and its flux-consistent velocity
+    correction (the ``F_i / J`` metric quotient). ``chunk_size`` sets
+    the scan-commit (ghost-scrub) cadence: at 1 the pad lanes are
+    scrubbed every step, at >= 2 the raw storage rides the in-chunk
+    carry (self-contained per the AGENTS oversized-module rule — the
+    file's flat toy builders do not serve a mapped grid).
+    """
+    n = 8
+    mx = IntervalMesh(n, (0.0, TWO_PI), periodic=True, name="x")
+    my = IntervalMesh(n, (0.0, TWO_PI), periodic=True, name="y")
+    mz = IntervalMesh(n, (0.0, 1.0), periodic=False, name="z")
+    mapping = CoordinateMapping(
+        maps={"zp": lambda z, H: z * H}, params={"H": _depth})
+    grid = Grid((mx, my, mz), mapping=mapping)
+    model = nh.Model(
+        grid=grid, dt=0.005, advection=True,
+        coriolis=nh.FPlaneCoriolis(f0=1.0), dsqr=0.25,
+        pressure_iterations=8, chunk_size=chunk_size)
+    model.set_fields(
+        u=lambda x, y, z: jnp.sin(x) * jnp.cos(y) + 0.0 * z,
+        v=lambda x, y, z: 0.3 * jnp.cos(x) + 0.0 * y + 0.0 * z,
+        b=lambda x, y, z: 0.01 * jnp.cos(np.pi * z)
+        + 0.0 * x + 0.0 * y)
+    return model
+
+
+def test_mapped_advection_chunk_cadence_parity():
+    r"""chunk_size 1 vs 2 agree (finite, tight tolerance) — pad-inf.
+
+    The regression pinning the mapped chunk-cadence invariant: the
+    mapped velocity correction ``F_i / J`` divides by the column
+    Jacobian, whose never-valid storage padding is zero-filled, so an
+    unguarded divide plants ``inf`` there. At chunk_size 1 the per-step
+    ghost scrub cleanses the pad lanes every step, but inside a
+    chunk_size >= 2 scan the raw storage rides the carry, so the pad
+    ``inf`` reaches the next in-chunk step's masked wall arithmetic
+    where ``0 * inf = NaN`` detonates — the CG dot products globalize
+    it and u/v/w/p go non-finite at iteration 2
+    (``design/research/mapped_chunk_nonfinite_rootcause.md``, sealed by
+    ``MappedPressureSolver._divide_by_jacobian``). Advancing the same
+    four steps at both cadences must therefore agree, and stay finite.
+
+    Parity is asserted as finite + a tight ``allclose``, **not**
+    bitwise: XLA reassociates floating point across the two scan-length
+    groupings on CPU (~1e-15 at this size — the record's
+    "bit-identical" claim was a GPU measurement at 256^3), ten orders
+    below the ``inf``/``NaN`` failure it guards. Reverting the seal
+    makes the chunk_size=2 leg raise ``PanicError`` at iteration 2
+    already at this n = 8 (the record only probed n = 64/256 — a
+    smaller-n floor, not a threshold change).
+    """
+    stepped = mapped_advective_model(chunk_size=1)
+    scanned = mapped_advective_model(chunk_size=2)
+    stepped.advance(4)
+    scanned.advance(4)
+    for name in stepped.state.component_names:
+        one = np.asarray(stepped.state[name].data)
+        two = np.asarray(scanned.state[name].data)
+        assert np.all(np.isfinite(one))
+        assert np.all(np.isfinite(two))
+        assert np.allclose(one, two, rtol=1e-12, atol=1e-13)

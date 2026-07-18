@@ -47,16 +47,23 @@ memory ceiling, time-to-first-step, WENO throughput (entries in
   real top-row error (~15–17% u/v) for order-5 biased staggered
   momentum (`81995781` — biased momentum now takes the exact
   full-3D correction; constancy-oracle record in plan §9).
-  Remaining, all owner-gated GPU work: (a) post-reroute weno5
-  ladder re-measure — overhead vs off and embed-vs-scatter for
-  the remaining tracer slice (the biased `"embed"` default is
-  provisional, in-code note); (b) real multi-host validation of
-  trace/scatter under `srun -n 4 --gpu-bind=none` (forced-4 is
-  green; plan §4 gate); (c) the `surface_flux=False` opt-out path
+  Real multi-host validation (plan §4 gate) is **met** (2026-07-18
+  evening, owner-requested: `srun -n 4` bitwise/1e-15 vs 1-GPU,
+  both schemes; record in plan §9 — including the multi-process
+  compile-cache deadlock it exposed and fixed, `94786a7c`).
+  Remaining: (a) post-reroute weno5 ladder re-measure — overhead
+  vs off and embed-vs-scatter for the remaining tracer slice (the
+  biased `"embed"` default is provisional, in-code note;
+  owner-gated GPU); (b) the `surface_flux=False` opt-out path
   reads +28–48% over its pre-H7 cost at big rungs (plan §9 flag)
-  — decide whether the legacy opt-out is worth chasing. Step-guard
-  checkpointing stays on Silvano's own batch cadence (never
-  agent-initiated).
+  — decide whether the legacy opt-out is worth chasing; (c)
+  **owner ruling needed:** split-explicit models drop the
+  barotropic part of a velocity IC entirely (plan §9 validation
+  finding — z-independent `set_fields` velocity vanishes from the
+  whole carry in one step; intended rest-start semantics or an IC
+  gap? Also means the se ladder rungs ran near-zero-velocity
+  flows while oc got the full IC). Step-guard checkpointing stays
+  on Silvano's own batch cadence (never agent-initiated).
 
 ## Channel eigenmodes on multi-device — remaining gaps
 
@@ -102,22 +109,24 @@ Evidence, provenance probes, and the full re-attribution history:
 
 The 2026-07-17 "mapped + advection + chunked scan goes non-finite on
 GPU" fault itself is resolved (entry in [`done.md`](done.md); record
-[`../research/mapped_chunk_nonfinite_rootcause.md`](../research/mapped_chunk_nonfinite_rootcause.md)).
-The hazard class outlives the instance — any unguarded storage-frame
-divide by a zero-padded factor plants `inf` in never-valid lanes,
-which only the per-chunk scrub cadence cleanses. Open hardening:
+[`../research/mapped_chunk_nonfinite_rootcause.md`](../research/mapped_chunk_nonfinite_rootcause.md)),
+and the chunk-parity regression that pins the class shipped with this
+change (entry in [`done.md`](done.md)). One hardening item is held:
 
-- **Chunk-parity regression test** (recommended): small mapped
-  advective model, K steps at `chunk_size=1` vs `chunk_size=2`,
-  assert bitwise-equal and finite (CPU is enough — the fault class is
-  backend-independent). The suite's only mapped+chunked test file
-  pins `chunk_size=1` (`test_fv_fusion_guards.py`), so the class is
-  currently untested.
-- **Pad-inf audit/guard**: seal the remaining unguarded members like
-  `_divide_by_jacobian` (~free, bitwise on valid cells) — the known
-  ones are the `MetricScaled` divides (`mapped.py:219-222`) — and/or
-  a debug-mode all-finite-*storage* assertion at carry boundaries so
-  a recurrence fails loudly instead of cadence-dependently.
+- **MetricScaled pad-inf seal — held pending owner decision D4.** The
+  seal is implemented and reviewed on local branch
+  `fix/pad-inf-hardening` (commit `76eb9461`): `_sealed_divide`
+  applied to both `MetricScaled` divide branches, bitwise on valid
+  cells, pad storage kept finite, VJP finite, with operator tests. It
+  is **not landed**: dev `93049651` documents the deferral in
+  `mapped.py`, and because the divide sits in the every-step pressure
+  solve the "~free" cost claim is unproven there. The seal is
+  **defensive-only** today — the 4-combination red-check proved the
+  historical chunk fault detonates via `_divide_by_jacobian` (already
+  sealed on dev) and **not** via `MetricScaled`: reverting only the
+  `MetricScaled` seal keeps the parity test green, so nothing is
+  unguarded now. Owner decision D4: measure the seal's step cost and
+  land `76eb9461`, or accept the deferral and delete the branch.
 
 ## Finite-volume nonhydro — decisions and validation
 
