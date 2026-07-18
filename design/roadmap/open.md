@@ -36,24 +36,6 @@ memory ceiling, time-to-first-step, WENO throughput (entries in
   on a 4-GPU allocation. New runs report the honest `compile_s`
   metric (chunk metric fixed 2026-07-18; entry in
   [`done.md`](done.md)).
-- **Storage-width follow-ups.** The research, the derived
-  `extra_halo` implementation, and both GPU gates shipped 2026-07-18
-  (records
-  [`../research/pressure_solver_halo.md`](../research/pressure_solver_halo.md),
-  [`../research/storage_halo_gpu_ab.md`](../research/storage_halo_gpu_ab.md),
-  [`../research/upwind5_shape_regression.md`](../research/upwind5_shape_regression.md);
-  entries in [`done.md`](done.md)). Open:
-  (a) `bench_step` prices no biased advection — add
-  `nh_flat_advective_upwind5` / `_weno5` cases (append-only; baseline
-  at the next owner-batched guard run) so storage-shape GPU swings in
-  this family stay guard-visible — the centered default is now also
-  exposed (the shipped `n+4 → n+2` narrowing costs a uniform
-  +2.3-4.3% on A100, priced and accepted at landing);
-  (b) owner call: a supported storage-width floor knob to pin lucky
-  shapes (192³ upwind5 at width 4 ~12% faster; centered flagships
-  would recover the +2.3-4.3% by pinning width 2). The mechanism
-  record shows measure-and-pin is the only lever — no free XLA flag
-  exists, and the sweet spot is size- and scheme-dependent.
 - **Hydro surface-flux correction — weno re-measure + multi-host
   remaining.** The centered §8 criteria are **met** (arm sweep
   2026-07-18, owner-requested; record in
@@ -156,11 +138,21 @@ the scoping §10–§13). Open:
     charts** — terrain energy diagnostics are physically
     inconsistent (model-layer, outside the hydrostatic package;
     flagged by the terrain build).
-  - **Variable-depth implicit + split-explicit free surfaces**
-    (H3): taught errors on charts today; need the variable-csqr 2D
-    solve (hydrostatic plan §7). The barotropic volume-vs-energy
-    tension is documented in the plan §8 (energy chosen; exact
-    volume needs variable-`c²`).
+  - **Variable-depth split-explicit free surface** (H3 residual):
+    still a taught error on charts. The *implicit* half shipped
+    2026-07-18 (multigrid_generalization_plan phase B: the
+    volume-exact variable-csqr solve, resolving the plan §8
+    volume-vs-energy tension for the implicit variant); the
+    subcycle's terrain transport form is the remaining half.
+  - **Hydrostatic walled-horizontal gap** (found 2026-07-18,
+    generalization plan phase B): the hydrostatic package does not
+    assemble on walled *horizontal* grids at all — the velocity
+    staggering never wires wall BCs for horizontal axes (a bare
+    velocity-face `.diff` fails on `Inner(y)`), hitting every
+    free-surface variant, flat and terrain alike. The new barotropic
+    solver's wall closure is proven at the solver level
+    (self-adjoint 8.8e-16, cancellation exact); a walled channel
+    *model* needs this upstream staggering work first.
   - **`MetricScaled` divides** (`mapped.py:219-222`) share the
     masked-singularity structure but are empirically reverse-safe;
     guard only if a composition exposes them (VJP-fix audit).

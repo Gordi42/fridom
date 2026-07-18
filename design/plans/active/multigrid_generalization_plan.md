@@ -382,6 +382,34 @@ construction is jit-incompatible (host-side `np.asarray` in
 terrain column. Making it jit-constructible is a possible later
 spatial-layer lever, recorded here, not claimed.
 
+### Phase B — terrain implicit surface (2026-07-18, merge `6e32b4b4`)
+New `hydrostatic/modules/barotropic_pressure.py`
+(`BarotropicPressureSolver`, ~530 lines, no nonhydro2 dependency);
+`_terrain_transport_div` factoring (raw `T*` shared with the explicit
+gravity term); terrain dispatch in `_barotropic_solve`; 2-cell terrain
+halo; taught error removed; warm start included. Gates: cancellation
+≤ 6e-16·pre, flat-limit rel 0.0 / 3.5e-17, volume drift ≤ 1e-12,
+self-adjoint ≤ 9e-16, autodiff FD-matched, 11–12 iterations on steep
+terrain within the default budget. **Finding (recorded in
+roadmap/open.md):** the hydrostatic package cannot assemble on walled
+*horizontal* grids at all (pre-existing staggering gap, every
+variant) — GB-4 proven at the solver level (walled operator
+self-adjoint 8.8e-16, cancellation 6.7e-16); the walled-channel
+*model* gate needs that upstream fix first.
+
+### Phase C — 2-D multigrid preconditioner (2026-07-18, merge `5e7a0eff`)
+`preconditioner={"spectral","multigrid"}` + `multigrid_levels` on the
+solver and `pressure_preconditioner` + `multigrid_levels` on
+`ImplicitFreeSurface`; exact analytic diagonal (validated against the
+2-colour probe), `DampedJacobi(ω=2/3)` V(1,1), coarse_sweeps=8,
+per-level chart re-derivation, plain-mean per-level projection at
+ε=0. Production iteration table reproduces the spike: multigrid
+11–13 flat over 64²–512² × a ∈ {0.4, 0.8} × ε ∈ {0, 1}; spectral 12 /
+27 at a = 0.4 / 0.8. GC-3 forced-4: 2 selected 2 passed, including a
+replicated-coarse-level case (MG-D5). Note: the ε=0 V-cycle is
+symmetric on A's range (mean-free inputs) — exactly what CG feeds it;
+the symmetry test feeds mean-free inputs (the mapped precedent).
+
 ## 7. Roadmap tie-in
 
 Closes the implicit half of the open.md item "Variable-depth implicit +

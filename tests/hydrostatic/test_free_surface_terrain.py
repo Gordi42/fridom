@@ -152,12 +152,24 @@ def test_flat_depth_mean_is_byte_identical():
 
 
 # ================================================================
-#  Deferred variants: taught errors on a terrain grid (H0/H3)
+#  The implicit free surface now engages on a terrain grid (H3; the
+#  volume-exact solve, GM-D1/D2) — the taught error is gone. The
+#  gates live in test_free_surface_terrain_implicit.py.
 # ================================================================
-def test_implicit_free_surface_is_a_taught_error_on_terrain():
+def test_implicit_free_surface_engages_on_terrain():
     grid = _terrain_grid(8)
-    with pytest.raises(NotImplementedError, match="terrain"):
-        _model(grid, free_surface=hy.ImplicitFreeSurface())
+    model = _model(grid, free_surface=hy.ImplicitFreeSurface())
+    assert "ps" in model.state.component_names
+    fs = model.module(hy.ImplicitFreeSurface)
+    assert fs._column == ("zp", "z")
+    rng = np.random.default_rng(0)
+    model.set_fields(
+        u=0.1 * rng.standard_normal(model.state["u"].shape),
+        v=0.1 * rng.standard_normal(model.state["v"].shape),
+        ps=0.1 * rng.standard_normal(model.state["ps"].shape))
+    model.advance(4)
+    assert not model.panicked
+    assert bool(jnp.isfinite(model.state["ps"].data).all())
 
 
 def test_split_free_surface_is_a_taught_error_on_terrain():

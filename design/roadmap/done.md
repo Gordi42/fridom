@@ -217,8 +217,26 @@ Implementation record:
   solved-axis width ≥ 1 at build. Gates: mirrored + model suite
   (2133) + forced-4 decomposition green, ruff clean; GPU gate run
   *before* landing (entry above) — ships on memory/tightness/CPU
-  grounds with the centered +2.3-4.3% priced in, width-pin knob as
-  the flagship recovery (tracked in [`open.md`](open.md)).
+  grounds with the centered +2.3-4.3% priced in.
+
+- **Storage-width follow-ups closed — biased `bench_step` cases added,
+  width-floor knob REFUSED** (2026-07-18, owner rulings in chat):
+  `nh_flat_advective_upwind5` / `_weno5` cases added to
+  `benchmarks/model/bench_step.py` (append-only; order pinned at 5;
+  default family — biased FV assembly works now, the A/B record's
+  "blocked" note is stale) on a dedicated size grid `[32, 192, 256,
+  512]` that includes the measured 192³ knife-edge size, so the
+  biased/WENO fusion families' storage-shape sensitivity is
+  guard-visible from now on. Verified end-to-end on the A100 at all
+  sizes (per-step numbers reproduce the A/B: upwind5 6.26 @192³ /
+  123.6 ms @512³, weno5 6.94 / 138.8); **baseline recorded at the
+  owner's next batched guard run**, not before. The storage-width
+  floor knob is **refused** (owner, 2026-07-18): no public knob;
+  measure-and-pin stays a benchmark-internal technique (the forcing
+  monkeypatch in the research harnesses), and the shipped widths
+  stand as measured. Records:
+  [`upwind5_shape_regression.md`](../research/upwind5_shape_regression.md),
+  [`storage_halo_gpu_ab.md`](../research/storage_halo_gpu_ab.md) §4.
 
 - **Upstream jax issues filed for the two T5 faults** (2026-07-18,
   owner-filed) —
@@ -479,6 +497,27 @@ Implementation record:
   FD-matched to rel-err ~6e-12 against gate 1e-4, nodal + FV). The
   new-stack step path is now reverse-differentiable on **all** grid
   types — flat, walled, mapped, immersed — with no known exception.
+- **Multigrid generalization: terrain implicit surface + coarsening
+  freedom + warm starts** (2026-07-18, plan
+  [`../plans/active/multigrid_generalization_plan.md`](../plans/active/multigrid_generalization_plan.md),
+  all five phases owner-ratified and shipped same day; merges
+  `51db9ba6` A, `70b012d8` E, `a0eb7027` D, `6e32b4b4` B,
+  `5e7a0eff` C) — closes the **H3 implicit** taught error:
+  `hy.ImplicitFreeSurface` now runs on sigma charts via the new
+  `BarotropicPressureSolver` (GM-D1 volume-exact variable-csqr
+  operator: volume drift ≤ 1e-12, correction cancellation 6e-16,
+  flat-limit exact, autodiff green), preconditioned by the flat
+  spectral inverse or the new 2-D point-Jacobi multigrid (iterations
+  11–13 h- **and** steepness-flat vs spectral's 27 at a=0.8;
+  forced-4 replicated-coarse-level parity green). All pressure/surface
+  CG solves warm-start from the previous step (GB-2 128³ step
+  −19.5 % multigrid / −16.8 % spectral, physics-neutral ≤ 3.5e-9),
+  and full 3-D coarsening is the mapped-solver multigrid default
+  (GM-D9: −4.3 % on top, parity 3.1e-10, automatic semicoarsening
+  fallback for Chebyshev / indivisible n_z / stretched-base columns).
+  Residuals stay in `open.md`: the split-explicit chart variant, the
+  hydrostatic walled-horizontal gap (found in phase B), the real
+  multi-process 4-GPU leg.
 - **Multigrid size-scaling root cause: the depth cap, not the
   algorithm** (2026-07-18, measurement-only; record
   [`../research/multigrid_depth_scaling.md`](../research/multigrid_depth_scaling.md))
