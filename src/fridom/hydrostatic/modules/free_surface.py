@@ -80,6 +80,9 @@ import numpy as np
 import fridom as fr
 from fridom.framework.utils import dtype_real, jaxify
 from fridom.hydrostatic.modules.barotropic_pressure import (
+    _PRECONDITIONERS as _BAROTROPIC_PRECONDITIONERS,
+)
+from fridom.hydrostatic.modules.barotropic_pressure import (
     BarotropicPressureSolver,
 )
 from fridom.hydrostatic.modules.terrain import (
@@ -654,6 +657,25 @@ class ImplicitFreeSurface(_FreeSurfaceBase):
         docstring). The default ``1e-8`` makes ``pressure_iterations``
         the maximum budget; ``None`` is the opt-out that runs the fixed
         count (default: 1e-8).
+    pressure_preconditioner : str, optional
+        The terrain barotropic PCG preconditioner (GM-D2, Phase C),
+        forwarded to
+        :class:`~fridom.hydrostatic.modules.barotropic_pressure.BarotropicPressureSolver`:
+        ``"spectral"`` (the flat mean-depth separable spectral inverse,
+        the default) or ``"multigrid"`` (the point-Jacobi
+        geometric-multigrid V-cycle, h- and steepness-flat on steep
+        terrain). **Consumed only on a terrain (sigma) grid** — the flat
+        spectral solve is exact on a Cartesian grid and iterates nothing,
+        and the immersed path keeps its own masked spectral
+        preconditioner. Any other value raises ``ValueError``
+        (default: ``"spectral"``).
+    multigrid_levels : int | None, optional
+        The multigrid depth when
+        ``pressure_preconditioner="multigrid"``, forwarded to the terrain
+        solver: ``None`` coarsens the horizontal axes to the four-cell
+        floor (the ratified floor-limited-depth semantics), an ``int``
+        caps the count as a maximum. Consumed only on a terrain grid with
+        the multigrid preconditioner (default: None).
     vertical : str, optional
         The vertical coordinate name the depth mean reduces over
         (default: ``"z"``).
@@ -685,6 +707,8 @@ class ImplicitFreeSurface(_FreeSurfaceBase):
         epsilon: float = 1.0,
         pressure_iterations: int = 30,
         pressure_tolerance: float | None = 1e-8,
+        pressure_preconditioner: str = "spectral",
+        multigrid_levels: int | None = None,
         vertical: str = "z",
         horizontal: tuple[str, str] = ("x", "y"),
     ) -> None:
@@ -704,9 +728,25 @@ class ImplicitFreeSurface(_FreeSurfaceBase):
                 "pressure_iterations is the fixed PCG budget of the "
                 "immersed barotropic solve (a positive int, consumed "
                 f"only on an immersed grid), got {pressure_iterations!r}")
+        if pressure_preconditioner not in _BAROTROPIC_PRECONDITIONERS:
+            raise ValueError(
+                "pressure_preconditioner is the terrain barotropic PCG "
+                f"preconditioner: one of {_BAROTROPIC_PRECONDITIONERS} "
+                "(consumed only on a terrain grid), got "
+                f"{pressure_preconditioner!r}")
+        if multigrid_levels is not None and (
+                isinstance(multigrid_levels, bool)
+                or not isinstance(multigrid_levels, int)
+                or multigrid_levels < 1):
+            raise ValueError(
+                "multigrid_levels is the terrain multigrid depth cap: a "
+                "positive int or None (floor-limited depth), got "
+                f"{multigrid_levels!r}")
         self._epsilon = float(epsilon)
         self._pressure_iterations = int(pressure_iterations)
         self._pressure_tolerance = pressure_tolerance
+        self._pressure_preconditioner = pressure_preconditioner
+        self._multigrid_levels = multigrid_levels
 
     # ================================================================
     #  Properties
@@ -725,6 +765,16 @@ class ImplicitFreeSurface(_FreeSurfaceBase):
     def pressure_tolerance(self) -> float | None:
         """The optional PCG convergence break (None = fixed count)."""
         return self._pressure_tolerance
+
+    @property
+    def pressure_preconditioner(self) -> str:
+        """The terrain barotropic PCG preconditioner (spectral/multigrid)."""
+        return self._pressure_preconditioner
+
+    @property
+    def multigrid_levels(self) -> int | None:
+        """The terrain multigrid depth cap (None = floor-limited)."""
+        return self._multigrid_levels
 
     # ================================================================
     #  Field declarations (lifecycle depends on epsilon)
@@ -1046,8 +1096,9 @@ class ImplicitFreeSurface(_FreeSurfaceBase):
         variable-coefficient and leaves the separable spectral fast path
         (GM-D1 option 1, volume-exact). It flips to the
         :class:`~fridom.hydrostatic.modules.barotropic_pressure.BarotropicPressureSolver`:
-        the SPD flux-form operator built by explicit field arithmetic,
-        the flat mean-depth spectral inverse as the preconditioner, and —
+        the SPD flux-form operator built by explicit field arithmetic, the
+        knob-selected ``pressure_preconditioner`` (the flat mean-depth
+        spectral inverse or the point-Jacobi multigrid V-cycle), and —
         for ``epsilon == 0`` (the singular rigid lid) — the plain-mean
         nullspace projection (GM-D7). The solver reuses this module's
         ``pressure_iterations`` / ``pressure_tolerance`` budget. On a flat
@@ -1076,7 +1127,9 @@ class ImplicitFreeSurface(_FreeSurfaceBase):
             self._vertical, epsilon=self._epsilon,
             inv_depth=self._inv_depth,
             iterations=self._pressure_iterations,
-            tolerance=self._pressure_tolerance)
+            tolerance=self._pressure_tolerance,
+            preconditioner=self._pressure_preconditioner,
+            multigrid_levels=self._multigrid_levels)
         return solver.solve(rhs, x0, csqr=csqr, dt=dt)
 
 

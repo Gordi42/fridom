@@ -77,11 +77,19 @@ import jax.numpy as jnp
 import fridom as fr
 from fridom.hydrostatic.modules.terrain import jacobian_name
 from fridom.spatial.bc import BC
+from fridom.spatial.fields.storage import factor_axes
 from fridom.spatial.operators.base import Identity, resolve_codomain
 from fridom.spatial.operators.composed import Diag, Divergence, Gradient
 from fridom.spatial.operators.integrate import Integral
 from fridom.spatial.operators.krylov import ConjugateGradient
+from fridom.spatial.operators.multigrid import (
+    DampedJacobi,
+    MultigridLevel,
+    MultigridVCycle,
+)
+from fridom.spatial.operators.multigrid_hierarchy import coarsen_levels
 from fridom.spatial.operators.spectral_solve import SpectralSolve
+from fridom.spatial.operators.staggering import uniform_spacing
 from fridom.spatial.spaces.nodal import NodalSpace
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -100,9 +108,61 @@ if TYPE_CHECKING:  # pragma: no cover
 #  reproduced locally so the hydrostatic package carries no
 #  nonhydro2 dependency — the "duplicate small builders" rule)
 # ================================================================
+#: the accepted ``preconditioner=`` choices (GM-D2, Phase B/C): the flat
+#: mean-depth spectral inverse (the default) or the point-Jacobi
+#: multigrid V-cycle over the Phase A coarsening machinery
+_PRECONDITIONERS = ("spectral", "multigrid")
+#: the damped point-Jacobi smoothing factor of the multigrid V-cycle
+#: (GM-D4: the isotropic 2-D solve space has no column, so the point
+#: smoother is load-bearing; 2/3 is the smoothing-optimal Laplacian value)
+_POINT_OMEGA = 2.0 / 3.0
+
+
 def _mean_free(field: ScalarField) -> ScalarField:
     """Remove the plain measure-weighted mean (the constants gauge)."""
     return field - field.mean()
+
+
+def _adjacent_face_sum(
+    data: jax.Array, axis: int, *, periodic: bool,
+) -> jax.Array:
+    r"""Sum the two face coefficients adjacent to each cell along ``axis``.
+
+    Description
+    -----------
+    The ``K_{f-} + K_{f+}`` cell field of a diagonal flux leg (the
+    ``MappedPressureSolver`` helper, duplicated locally so the
+    hydrostatic package carries no nonhydro2 dependency — the
+    "duplicate small builders" rule). A periodic axis wraps
+    (``jnp.roll``), a bounded axis drops the wall faces by zero-padding
+    the ``Inner`` face array back to the cell count (the Neumann
+    boundary rows the Dirichlet-tagged divergence drops in
+    :meth:`BarotropicPressureSolver._apply`). Face ``c`` lies at
+    ``c + 1/2`` (the right face of cell ``c``, the left face of cell
+    ``c + 1``).
+
+    Parameters
+    ----------
+    data : jax.Array
+        The face-coefficient array (true frame, along ``axis``).
+    axis : int
+        The frame axis of the differenced coordinate.
+    periodic : bool
+        Whether the axis wraps.
+
+    Returns
+    -------
+    jax.Array
+        The adjacent-face sum on the cell axis (length ``n_cells``).
+    """
+    if periodic:
+        return data + jnp.roll(data, 1, axis=axis)
+    edge = list(data.shape)
+    edge[axis] = 1
+    zeros = jnp.zeros(edge, dtype=data.dtype)
+    right = jnp.concatenate([data, zeros], axis=axis)
+    left = jnp.concatenate([zeros, data], axis=axis)
+    return right + left
 
 
 def _neumann_sibling(space: SpaceLike) -> SpaceLike:
@@ -215,6 +275,23 @@ class BarotropicPressureSolver:
     tolerance : float | None
         The PCG convergence break forwarded to
         :class:`ConjugateGradient`; ``None`` runs the fixed count.
+    preconditioner : str, optional
+        The PCG preconditioner (GM-D2, Phase C): ``"spectral"`` (the
+        flat mean-depth separable spectral inverse, the default —
+        exact on a flat chart, degrading with steepness) or
+        ``"multigrid"`` (the point-Jacobi geometric-multigrid V-cycle
+        assembled by :meth:`_build_vcycle`, h- and steepness-flat on
+        steep terrain). Any other value raises ``ValueError``
+        (default: ``"spectral"``).
+    multigrid_levels : int | None, optional
+        The multigrid depth when ``preconditioner="multigrid"``. ``None``
+        (the default) coarsens the horizontal axes to the four-cell floor
+        (the ratified floor-limited-depth semantics, h-independent
+        iteration counts at every size); an ``int`` is a **maximum** cap.
+        Either way the builder floors every horizontal axis at four cells
+        and stops at indivisibility, so the realized count is smaller on a
+        small grid. Ignored for the spectral preconditioner
+        (default: None).
     """
 
     def __init__(
@@ -228,8 +305,14 @@ class BarotropicPressureSolver:
         inv_depth: float,
         iterations: int,
         tolerance: float | None,
+        preconditioner: str = "spectral",
+        multigrid_levels: int | None = None,
     ) -> None:
         """Resolve the static flux legs; see the class docstring."""
+        if preconditioner not in _PRECONDITIONERS:
+            raise ValueError(
+                f"preconditioner must be one of {_PRECONDITIONERS}, got "
+                f"{preconditioner!r}")
         self._grid = grid
         self._space: SpaceLike = space.bare
         self._column = column
@@ -238,6 +321,8 @@ class BarotropicPressureSolver:
         self._inv_depth = inv_depth
         self._iterations = iterations
         self._tolerance = tolerance
+        self._preconditioner_kind = preconditioner
+        self._multigrid_levels = multigrid_levels
         self._jname = jacobian_name(column)
         self._axes: tuple[str, ...] = self._space.active_axis_names
         registry = grid.dispatch
@@ -331,6 +416,67 @@ class BarotropicPressureSolver:
         jac = self._grid.metric(self._coll.bare, self._jname)
         h_cell = Integral()[self._vertical](jac)
         return jnp.reshape(h_cell.mean().data, ())
+
+    # ================================================================
+    #  The exact operator diagonal (the point-Jacobi smoother, Phase C)
+    # ================================================================
+    def _axis_storage(self) -> dict[str, int]:
+        """Map each coordinate name to its true-frame array axis."""
+        return {factor.names[0]: axis
+                for factor, axis in factor_axes(self._space)}
+
+    def diagonal(
+        self, *, csqr: object, dt: object,
+    ) -> ScalarField:
+        r"""Return the exact diagonal of :meth:`operator` on the space.
+
+        Description
+        -----------
+        The analytic diagonal of the SPD flux form derived from the face
+        coefficient fields (never a probe): the mass term ``epsilon`` plus
+        the per-axis second-difference stiffness
+
+        .. math::
+
+            \varepsilon
+            + dt'^2\, \frac{c^2}{H_{ref}} \sum_a
+              \frac{H_a^{f-} + H_a^{f+}}{\Delta a^2},
+
+        with the wall faces dropped on a bounded axis
+        (:func:`_adjacent_face_sum` zero-pads the ``Inner`` faces, the
+        Neumann rows the Dirichlet-tagged divergence drops in
+        :meth:`_apply`). It is probe-exact: for the isotropic five-point
+        stencil a two-colour (red/black) checkerboard probe recovers it
+        (the diagonal exactness gate). Derived through ``grid.metric`` per
+        call, never cached — the smoother of the multigrid V-cycle
+        (:class:`~fridom.spatial.operators.multigrid.DampedJacobi`).
+
+        Parameters
+        ----------
+        csqr : object
+            The live squared-phase-speed leaf ``c^2``.
+        dt : object
+            The stage increment ``dt' = ctx.stage_dt``.
+
+        Returns
+        -------
+        ScalarField
+            The diagonal field on the surface-pressure solve space.
+        """
+        g = csqr * self._inv_depth
+        storage = self._axis_storage()
+        stiffness: jax.Array | None = None
+        for a in self._axes:
+            coeff = self._face_depth(a) * g
+            dx = uniform_spacing(self._space.factor(a))
+            periodic = getattr(self._space.factor(a).mesh, "periodic", True)
+            leg = _adjacent_face_sum(
+                coeff.data, storage[a], periodic=periodic) / (dx * dx)
+            stiffness = leg if stiffness is None else stiffness + leg
+        diag_data = self._epsilon + (dt ** 2) * stiffness
+        template = self._grid.create_field(self._space)
+        return template.with_data(
+            jnp.broadcast_to(diag_data, template.data.shape))
 
     # ================================================================
     #  The operator, its preconditioner, and the preconditioned solve
@@ -476,6 +622,67 @@ class BarotropicPressureSolver:
         hbar = self._mean_depth()
         return self._flat_spectral(csqr * hbar * self._inv_depth, dt)
 
+    def _build_vcycle(
+        self, *, csqr: object, dt: object,
+    ) -> MultigridVCycle:
+        r"""Assemble the point-Jacobi multigrid V-cycle preconditioner.
+
+        Description
+        -----------
+        The ``preconditioner="multigrid"`` seam (GM-D3/D4/D7, Phase C).
+        The hierarchy is the Phase A
+        :func:`~fridom.spatial.operators.multigrid_hierarchy.coarsen_levels`
+        chain: the horizontal axes coarsen by 2 per level to the four-cell
+        floor while the vertical stays full (``coarsen_vertical=False``,
+        MG-D3 — the ``Profile`` field's z is a ``ConstantSpace`` factor the
+        Phase A ``GridTransfer`` carries through untouched). Each coarse
+        level re-instantiates this solver class on its (3-D) coarse grid,
+        so the face depths ``H_a`` are **re-derived** from that level's own
+        chart through ``grid.metric`` (MG-D6 re-discretization, no Galerkin
+        coefficient restriction). Per level: the SPD :meth:`operator`
+        apply, a damped point-Jacobi smoother
+        (:class:`~fridom.spatial.operators.multigrid.DampedJacobi`) on the
+        exact :meth:`diagonal` at :data:`_POINT_OMEGA`, the plain-mean
+        nullspace projection for the ``epsilon = 0`` rigid lid (``None``
+        for a free surface, GM-D7), and the order-2 down-transfer. The
+        engine runs a symmetric ``V(1, 1)`` cycle with
+        ``coarse_sweeps = 8`` (the engine defaults). The finest level
+        re-uses ``self``; every level derives its metrics fresh per solve
+        (no cross-solve caching — the mapped precedent).
+
+        Parameters
+        ----------
+        csqr : object
+            The live squared-phase-speed leaf ``c^2``.
+        dt : object
+            The stage increment ``dt' = ctx.stage_dt``.
+
+        Returns
+        -------
+        MultigridVCycle
+            The V-cycle callable for the ``preconditioner=`` seam.
+        """
+        chain = coarsen_levels(
+            self._grid, self._space, vertical=self._vertical,
+            coarsen_vertical=False, max_levels=self._multigrid_levels)
+        projection = _mean_free if self._epsilon == 0.0 else None
+        levels: list[MultigridLevel] = []
+        for index, (grid, space, transfer) in enumerate(chain):
+            if index == 0:
+                solver = self
+            else:
+                solver = BarotropicPressureSolver(
+                    grid, space, self._column, self._vertical,
+                    epsilon=self._epsilon, inv_depth=self._inv_depth,
+                    iterations=self._iterations,
+                    tolerance=self._tolerance)
+            smoother = DampedJacobi(
+                solver.diagonal(csqr=csqr, dt=dt), omega=_POINT_OMEGA)
+            levels.append(MultigridLevel(
+                solver.operator(csqr=csqr, dt=dt),
+                smoother, projection, transfer))
+        return MultigridVCycle(tuple(levels))
+
     def krylov(
         self, *, csqr: object, dt: object,
     ) -> ConjugateGradient:
@@ -483,12 +690,15 @@ class BarotropicPressureSolver:
 
         Description
         -----------
-        PCG on the SPD :meth:`operator` with the flat mean-depth
-        :meth:`preconditioner`, the reused ``pressure_iterations`` /
-        ``pressure_tolerance`` budget, and — for the ``epsilon = 0``
-        rigid lid — the plain-mean nullspace projection (GM-D7; the RHS
-        is orthogonal to constants by telescoping of ``T^*``).
-        ``epsilon > 0`` is non-singular and passes no projection.
+        PCG on the SPD :meth:`operator` with the knob-selected
+        preconditioner — the flat mean-depth :meth:`preconditioner`
+        (``"spectral"``, the default) or the point-Jacobi multigrid
+        V-cycle (``"multigrid"``, :meth:`_build_vcycle`) — the reused
+        ``pressure_iterations`` / ``pressure_tolerance`` budget, and — for
+        the ``epsilon = 0`` rigid lid — the plain-mean nullspace
+        projection (GM-D7; the RHS is orthogonal to constants by
+        telescoping of ``T^*``). ``epsilon > 0`` is non-singular and
+        passes no projection.
 
         Parameters
         ----------
@@ -503,9 +713,13 @@ class BarotropicPressureSolver:
             The preconditioned CG solver.
         """
         projection = _mean_free if self._epsilon == 0.0 else None
+        if self._preconditioner_kind == "multigrid":
+            preconditioner = self._build_vcycle(csqr=csqr, dt=dt)
+        else:
+            preconditioner = self.preconditioner(csqr=csqr, dt=dt)
         return ConjugateGradient(
             self.operator(csqr=csqr, dt=dt),
-            preconditioner=self.preconditioner(csqr=csqr, dt=dt),
+            preconditioner=preconditioner,
             iterations=self._iterations,
             tolerance=self._tolerance,
             projection=projection)
