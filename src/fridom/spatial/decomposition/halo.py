@@ -296,6 +296,32 @@ class _TracerGrid:
     def __init__(self, dispatch: object) -> None:
         self.dispatch = dispatch
 
+    def measure(
+        self, space: SpaceLike, name: str | None = None,
+    ) -> HaloTracer:
+        """Space-only ``grid.measure`` stand-in (halo-0 static geometry).
+
+        Description
+        -----------
+        The measure is a fixed mesh-geometry field with no ghost
+        demand, so the halo trace needs only its **space** — the
+        querying factor kept, every other factor replaced by its
+        ``ConstantSpace`` (``grid.measure`` broadcasts exactly, rules
+        section 3.3). Returns a fresh depth-zero :class:`HaloTracer`
+        on that space so a flat-gated body's measure-based divide
+        (e.g. the H7 surface term's top-cell width) traces through
+        the boundary verbs without touching the decomposition.
+        """
+        bare = space.bare
+        if isinstance(bare, TensorProductSpace) and name is not None:
+            measure_space: SpaceLike = bare.replace(**{
+                n: bare.factor(n).mesh.constant
+                for n in bare.names if n != name})
+        else:
+            measure_space = bare
+        return HaloTracer(
+            _laid_out_like(measure_space, space), self.dispatch)
+
 
 def _laid_out_like(space: SpaceLike, reference: SpaceLike) -> SpaceLike:
     """Mimic the application path's layout re-attachment."""
@@ -710,6 +736,32 @@ class HaloTracer:
         target = _laid_out_like(target, self._space)
         return self._child(
             target, self._depth.over(tuple(target.names)))
+
+    def trace(
+        self, name: str, side: object, depth: int = 0,
+    ) -> HaloTracer:
+        """Boundary-adjacent row as a 2D trace; mirrors ScalarField.trace."""
+        from fridom.spatial.operators.boundary import (  # noqa: PLC0415 — keep boundary off the module import path
+            BoundaryTrace,
+        )
+        return BoundaryTrace(side, depth)[name](self)
+
+    def embed(self, name: str) -> HaloTracer:
+        """Sparse-materialize a trace back into its parent row (traced)."""
+        return Dispatched("embed")[name](self)
+
+    def as_profile(self, name: str) -> HaloTracer:
+        """Bridge a boundary trace into the Constant-z machinery (traced)."""
+        return Dispatched("as_profile")[name](self)
+
+    def adopt(
+        self, name: str, node_set: object, side: object,
+    ) -> HaloTracer:
+        """Retag a ConstantSpace factor as a boundary trace (traced)."""
+        from fridom.spatial.operators.boundary import (  # noqa: PLC0415 — keep boundary off the module import path
+            Adopt,
+        )
+        return Adopt(node_set, side, name)(self)
 
     def integrate(self, *names: str) -> HaloTracer:
         """Weighted integral; mirrors the ScalarField stub."""
