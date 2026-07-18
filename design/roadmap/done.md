@@ -532,6 +532,44 @@ Implementation record:
   hydrostatic terrain autodiff gate now runs `advection=True`).
   Residuals tracked in [`open.md`](open.md).
 
+- **Terrain buoyancy slope-advection term**
+  (`fix/terrain-buoyancy-slope-term`, 2026-07-18) — the terrain
+  hydrostatic buoyancy equation now couples `b` to the **physical**
+  vertical velocity `w_true = Jω + u·Zₓ + v·Z_y`
+  (`stratification.restoring`'s terrain branch adds the slope-advection
+  half `−N²(u·Zₓ + v·Z_y)`, absent since the sigma core landed). This
+  fixes the O(slope)-wrong terrain internal-wave physics and restores an
+  energy-consistent KE↔PE exchange under the physical (J-weighted)
+  metric — the root of the apparent baroclinic/barotropic asymmetry
+  ([`../research/energy_metric_asymmetry.md`](../research/energy_metric_asymmetry.md)).
+  It also **corrects the over-claim** in the stretched+terrain entry
+  above ("baroclinic energy legs machine-precision"): that gate passed
+  by *state-selection accident* (single-mode states sit in the leak's
+  null set); the pre-fix pair actually leaks O(slope), resolution-
+  independent. **Analytic spelling shipped, not the exact discrete
+  adjoint.** The adjoint was proven to reach machine-zero skew (a
+  probe confirmed the plain-z-gradient↔`Jω` pair is *already* exactly
+  skew on terrain, so `corr`'s exact metric-adjoint closes the pair for
+  arbitrary states) — but it bakes the grid quadrature weights into the
+  buoyancy tendency and requires transposing the C-grid interpolation
+  chain (`jax.linear_transpose` of the pressure-gradient machinery every
+  step, or measure-ratio adjoint rows that only reduce cleanly on
+  uniform-periodic/uniform-z columns), so it fights the staggering and
+  is against the differentiability policy's spirit. The local physical
+  `w_true` is the shipped form: manifestly the physics, cheap, trivially
+  reverse-differentiable, O(h²)-consistent (the full correctness fix —
+  right continuum limit). Gate: the accidental smooth single-mode
+  `test_baroclinic_energy_conversion` replaced by a **bilinear
+  random-state physical-skew gate** (independent broadband X, Y, all
+  components; hand-built physical metric, `ps` leg lifted for `H/c²`);
+  pre-fix ~0.8 flat in n, with the term it collapses at ~2nd order
+  (1.8e-1 / 2.6e-2 / 5.7e-3 at n = 16/32/64, orders 2.7 / 2.2). Rest
+  state preserved (term vanishes at u = v = 0), flat path byte-identical
+  (`self._column is None`), and a propagator autodiff gate (grad wrt
+  initial `u`, which the new term feeds into `db/dt`) is finite +
+  FD-matched. Follow-up in [`open.md`](open.md): the diagnosed-`w`
+  output labeling (`Jω` vs physical `w`).
+
 - **CG pressure solve — opt-in convergence tolerance**
   (2026-07-17) — a keyword-only `tolerance: float | None = None` on
   `ConjugateGradient`
