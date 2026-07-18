@@ -157,14 +157,39 @@ the scoping §10–§13). Open:
     volume-vs-energy tension for the implicit variant); the
     subcycle's terrain transport form is the remaining half.
   - **Hydrostatic walled-horizontal gap** (found 2026-07-18,
-    generalization plan phase B): the hydrostatic package does not
-    assemble on walled *horizontal* grids at all — the velocity
-    staggering never wires wall BCs for horizontal axes (a bare
-    velocity-face `.diff` fails on `Inner(y)`), hitting every
-    free-surface variant, flat and terrain alike. The new barotropic
+    generalization plan phase B; root cause pinned 2026-07-18): the
+    hydrostatic package does not assemble on walled *horizontal*
+    grids. The staggering itself is fine — the Velocity-role bind
+    derivation does tag the wall-normal velocity
+    (`Inner(x, bc=(DIRICHLET, DIRICHLET))`) per axis. The seam is
+    `ScalarField.to` (and its mirror `HaloTracer.to`,
+    `decomposition/halo.py`): neither has an arm for a *tag-only*
+    factor difference (same node set, BC-siblings). Since nodal
+    operator outputs are BC-free (owner decision), every gradient
+    chain lands on the bare face factor, and `.to`-ing it onto the
+    tagged velocity mis-classifies as a node-set conversion and
+    resolves `('interpolate', <bare face>)` — a row that
+    (correctly) does not exist. Periodic axes carry no tags and the
+    bounded vertical is reached only by reductions, so only walled
+    horizontals fire it. Measured with the arm patched in
+    experimentally: **ExplicitFreeSurface runs green** on walls
+    x/y/x+y, advection on/off, immersed mask included — the arm is
+    the whole gap for the explicit model. Two module-level
+    follow-ons remain behind it: (1) `ImplicitFreeSurface`'s
+    `_flat_spectral` keys its div leg on the bare grad codomain
+    (`composed._expand_div`); the walled operator needs the
+    Dirichlet-tagged keying plus the DCT solve on the
+    Neumann-tagged solve space (all seeded rows exist: diff
+    N-Center→Inner, diff D-Inner→Center, Cosine transform; the nh2
+    walled spectral solve F4 is the precedent). (2)
+    `SplitExplicitFreeSurface` declares its barotropic auxiliaries
+    (`ubar_prev`) on the bare space while runtime snapshots carry
+    the tag (declaration resolves before role tagging). Fix order:
+    the two-line sibling arm in both `.to`s (unblocks explicit +
+    immersed), then the implicit tagged solve, then the
+    split-explicit declaration derivation. The new barotropic
     solver's wall closure is proven at the solver level
-    (self-adjoint 8.8e-16, cancellation exact); a walled channel
-    *model* needs this upstream staggering work first.
+    (self-adjoint 8.8e-16, cancellation exact).
   - **`MetricScaled` divides** (`mapped.py:219-222`) share the
     masked-singularity structure but are empirically reverse-safe;
     guard only if a composition exposes them (VJP-fix audit).
@@ -501,7 +526,7 @@ has to be invented, only assembled:
   remat=None)` returning a pure `(theta, state=None) -> State`.
   Name resolution reuses the `update_parameters` machinery verbatim
   (binding table -> `(slot, attr)` -> `_replace_leaf`,
-  `model.py:1628`) but builds a carry *transformer* instead of
+  `model.py:1822`/`1835`) but builds a carry *transformer* instead of
   committing; `wrt` names bound parameters (incl. `TIME_STEP`) or
   PROGNOSTIC fields (IC differentiation splices
   `state[name].storage`).
@@ -527,6 +552,12 @@ has to be invented, only assembled:
   (`/ w.to(v)`, `/ w_1`, `/ w_2`) share the masked-0/0 class the
   Sadourny PV division was cured of; guard like
   `_potential_vorticity` when that path meets an adjoint.
+
+Closure plan (investigation-backed, 2026-07-18):
+[`../plans/active/differentiability_plan.md`](../plans/active/differentiability_plan.md)
+— phases: record hygiene, coriolis VJP seals + coverage, the
+propagator surface itself (naming/materialized-param/frozen-L
+gaps resolved there), tangent deferred.
 ---
 
 # Long-term goals

@@ -386,7 +386,8 @@ class DynamicalCore(fr.model.Module):
     # ================================================================
     #  Tendency terms (linear)
     # ================================================================
-    @fr.model.term(advances=("u", "v", "p"), linear=True)
+    @fr.model.term(advances=("u", "v", "p"), linear=True,
+                   linear_fields=("csqr",))
     def gravity(self, state, ctx) -> dict:  # noqa: ANN001, ARG002
         r"""Pressure gradient and geopotential divergence.
 

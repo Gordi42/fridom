@@ -404,34 +404,85 @@ class Module:
 
     def time_dependent_linear_parameters(self) -> tuple[str, ...]:
         """
-        Dotted names of time-dependent parameters feeding ``L``.
+        Dotted names of time-dependent parameters/fields feeding ``L``.
 
         Description
         -----------
         The honesty seam for a frozen-``L`` (exponential) stepper
-        (AR-D7): a module that carries a ``linear=True`` term and
-        currently reads a **time-dependent** scalar parameter in it
-        (an ``fr.Ramp`` on ``coriolis.f0``, say) reports that
-        parameter's dotted name here — the module author is the one
-        who knows the term/parameter coupling, so the check needs no
-        tracing. Assembly refuses such a model under a stepper that
-        freezes ``L`` in an eigenbasis
-        (``TimeStepper.freezes_linear_operator``), because
+        (AR-D7 / TDF-D4). The **structural default** walks this class's
+        DECLARED ``@fr.term`` terms — all of them, independent of any
+        ``term_filter`` or schedule — and for each ``linear=True`` term
+        resolves its declared dependencies against the module's own
+        leaves:
+
+        - each ``linear_params`` name resolves to the module's own leaf
+          (via ``parameter_declarations``, falling back to the leaf
+          whose attribute is the name's last dotted segment — the seam
+          that reaches a *consumed-but-not-provided* offset such as the
+          beta-plane's ``f0``), reported when the leaf is a
+          ``TimeDependent`` curve;
+        - each ``linear_fields`` name resolves to the module's own
+          ``FieldDeclaration``, reported when it carries the
+          ``time_dependent`` marker (TDF-D3).
+
+        The module author declares the term/dependency coupling on the
+        term (``@fr.term(..., linear=True, linear_params=(...),
+        linear_fields=(...))``); this default needs no tracing and runs
+        pre-bind (assembly resolves it against the live module). Assembly
+        refuses a non-empty report under a stepper that freezes ``L`` in
+        an eigenbasis (``TimeStepper.freezes_linear_operator``), because
         ``exp(L dt)`` would integrate a stale operator; every other
         stepper re-reads the tendency each step and is unaffected.
-        Default: no such coupling.
 
-        A parameter that lives only in a ``linear=False`` term (the
-        nonlinear scaling ``scaling.rossby``) is **not** reported —
-        it lives in ``N``, where an exponential stepper handles time
-        dependence correctly.
+        A dependency that lives only in a ``linear=False`` term (the
+        nonlinear scaling ``scaling.rossby``, the conserving rotation)
+        is **not** reported — it lives in ``N``, where an exponential
+        stepper handles time dependence correctly. A dependency the
+        module reads across a module boundary (its leaf lives on another
+        module) is out of this local default's reach and is reported by
+        that owning module instead (the ``dsqr`` case: reported by
+        ``DynamicalCore``). Modules that build their terms in a
+        ``tendency_terms`` override (rather than ``@fr.term``) are not
+        walked here; they override this hook if they need the guard.
 
         Returns
         -------
         tuple[str, ...]
-            The offending dotted parameter names, or ``()``.
+            The offending dotted parameter/field names, or ``()``.
         """
-        return ()
+        names: list[str] = []
+        seen: set[str] = set()
+        for member in _declared_members(type(self)).values():
+            term = getattr(member, TERM_ATTRIBUTE, None)
+            if not isinstance(term, TendencyTerm) or not term.linear:
+                continue
+            for name in term.linear_params:
+                leaf = self._linear_dependency_leaf(name)
+                if isinstance(leaf, TimeDependent) and name not in seen:
+                    names.append(name)
+                    seen.add(name)
+            for name in term.linear_fields:
+                declaration = self._field_declaration(name)
+                if (declaration is not None
+                        and declaration.time_dependent
+                        and name not in seen):
+                    names.append(name)
+                    seen.add(name)
+        return tuple(names)
+
+    def _linear_dependency_leaf(self, name: str) -> object:
+        """Resolve a ``linear_params`` name to this module's own leaf."""
+        for declaration in getattr(self, "parameter_declarations", ()):
+            if str(declaration.name) == name:
+                return getattr(self, declaration.attr, None)
+        return getattr(self, name.rsplit(".", 1)[-1], None)
+
+    def _field_declaration(self, name: str) -> Any:
+        """Resolve a ``linear_fields`` name to this module's declaration."""
+        for declaration in getattr(self, "field_declarations", ()):
+            if declaration.name == name:
+                return declaration
+        return None
 
     # ================================================================
     #  Assembly hook (host-side, runs once — step 4)
