@@ -116,9 +116,156 @@ and adds the threshold rule + the cross-boundary reshard.
 
 ## 4. Prototype results
 
-*Placeholder — a parallel agent is prototyping on branch
-`feat/multigrid-agglomeration`; it fills this section with the Phase 0
-probe findings and the Phase 1/2 outcomes.*
+Shipped on `feat/multigrid-agglomeration` (2026-07-19). Phases 0-2
+complete; Phase 3 (GPU wall-clock) skipped — the named allocation was
+dead (below). Default OFF, as designed.
+
+### Phase 0 — status quo at high forced device count (CPU)
+
+Probed forced 16 and 32 host devices, mg floor depth (`multigrid_levels
+= None`), on small mapped / immersed / semicoarsen grids. **Two
+corrections to the motivation's framing fall out:**
+
+- **No crash, no early stop, no empty shards — floor depth is reached
+  today at every device count.** The hierarchy builder coarsens to the
+  four-cell floor independent of P, and each coarse grid negotiates its
+  *own* valid layout, so `check_level_shardability` never fires. The
+  literal capability claim (§1, "a P-device sharded axis cannot coarsen
+  below P cells; depth capped by the device count") does **not**
+  reproduce: below the shardability floor the ordinary negotiation
+  already replicates (MG-D5 `allow_replicated`), and that is a universal
+  safety net. So the depth-cap / h-independence break is **not** a
+  device-count effect in this stack — it was the `multigrid_levels=5`
+  cap (already fixed, floor-depth default `b8b165f1`).
+- **The real, reproduced driver is latency.** In the semicoarsening /
+  immersed hierarchy the divisible full vertical stays shardable, so as
+  the horizontal axes coarsen below shardability the default sharded
+  axis **flips from x to the vertical z**, which then stays sharded at
+  **2 planes per shard** (extent 2 < P) all the way to the coarsest
+  level — exactly the census's sub-KB latency regime, reproduced at
+  P = 16. In full-3D coarsening the coarse levels instead replicate
+  naturally (no axis divides P), so the finest coarse levels are the
+  only tiny-shard exposure there. Agglomeration's value is therefore
+  **making the replication deliberate and threshold-driven** — replacing
+  every below-`tau` sharded coarse level (not only the strictly
+  unshardable ones) with a replicated one — rather than curing a crash.
+
+### Phase 1 — implementation (files + seam)
+
+Landed in **`src/fridom/spatial/operators/multigrid_hierarchy.py`** (the
+builder was promoted to `spatial` under GM-D5, not
+`nonhydro2/modules/`), reusing the MG-D5 replicated layout end to end —
+no new communication pattern:
+
+- `decomposition.negotiate(..., force_replicated=True)` returns the
+  replicated-only `Layout({})` over the **full** device set even when a
+  factor would still shard (the capped halo geometry matches a naturally
+  replicated level).
+- `Grid.__init__(_force_replicated=)` threads it to both negotiation
+  calls; `Grid.coarsened(replicated=)` sets it and extends the memo key.
+- `coarsen_levels(agglomerate=tau)` peeks at each ordinary coarse level
+  and, via `_should_agglomerate`, crosses the switch at the first level
+  whose shortest would-be per-shard extent `< tau` **and** whose
+  replicated per-device footprint `<= _AGGLOMERATE_MAX_BYTES` (a module
+  constant, **4 MiB** float64); that level and every level below it are
+  built `replicated=True`. `validate_agglomerate` guards the knob.
+- The cross-boundary reshard is **not hand-written**: the transfer
+  re-enters storage through `Grid.create_field` -> `store` -> `pad`,
+  whose `jax.device_put(..., target_sharding)` is the all-gather on
+  restrict (sharded fine -> replicated coarse) and the local slice on
+  prolong (replicated -> sharded). Below the switch every operator /
+  smoother / projection runs on a replicated array and issues zero
+  collectives (the local-axis halo path y/z already use).
+- Knob `multigrid_agglomerate: int | None = None` on `nh.Model` ->
+  `DynamicalCore` -> `MappedPressureSolver` / `ImmersedPressureSolver`,
+  house-style alongside `multigrid_levels`.
+
+### Phase 2 — gates (forced 4 and 16 host devices, CPU; all green)
+
+- **Parity (ON vs OFF, and vs the 1-device reference).** Identical CG
+  iteration counts in every case (mapped 10 = 10, immersed 17 = 17 =
+  17). The converged solutions are **not bitwise** ON vs OFF — the
+  coarse mean projection reduces over a replicated array (local sum)
+  instead of a sharded all-reduce, so the last bits reassociate — but
+  the difference sits far below the `1e-8` solve tolerance and **ON is
+  no less accurate than OFF against the 1-device truth**:
+  - mapped (full-3D and semicoarsen): machine precision — 6-step model
+    drift ON-vs-1dev `3.4e-16`, ON-vs-OFF `3.0e-16`.
+  - immersed (semicoarsen): at the reduction-reassociation floor —
+    single-solve ON-vs-1dev `2.2e-10`; 6-step model ON-vs-1dev
+    `1.7e-11` **<** OFF-vs-1dev `3.5e-11`.
+  On one device the knob is a bitwise no-op (`Layout({})` either way).
+  The plan's "machine-precision identical" is therefore precise for
+  mapped and should read, for immersed, **"identical iterations +
+  agreement below the solve tolerance, no less accurate than OFF."**
+- **Capability.** At forced devices OFF keeps a sharded coarse level
+  whose per-shard extent is below the device count (the semicoarsen
+  vertical at 2 planes/shard); ON replicates it — and every level below
+  — at the **same floor depth** (same level count), leaving the
+  above-`tau` levels sharded. Tested on immersed + mapped-full-3D +
+  mapped-semicoarsen and on the plain-nodal hierarchy.
+- **Autodiff.** `jax.grad` of a quadratic loss through a short run with
+  the knob **ON** (immersed multigrid solve) is finite and central-FD
+  matched to `rtol 1e-4` — the reshard is a pure relayout, no new
+  singular divide.
+- Mirrored tests for every touched file + `ruff check src tests` clean.
+
+### Phase 3 — GPU wall-clock: SKIPPED
+
+The named 4x A100 allocation (`jobid 26350895`) was **dead** at run time
+(`squeue`/`scontrol`: "Invalid job id specified"); per AGENTS.md no new
+GPU job was submitted. So the census's projected **~9-14 ms/step
+recovery at 128^3** is **not** wall-clock-validated, and the `tau in
+{2,4,8}` sweep is **not** run — `tau = 4` is the default on structural
+grounds (it catches the 1- and 2-plane coarse levels the census
+flagged), pending Phase 3.
+
+### Collective-count confirmation (CPU forced-4 HLO)
+
+The GPU census is unrun, but dumping the **optimized** HLO of the
+immersed semicoarsen solve at forced-4 host devices (n=32, `scan`
+smoother) and running the census parser confirms the structural change
+— per V-cycle (one real CG trip):
+
+| kind | OFF | ON | note |
+|---|---|---|---|
+| collective-permute | 219 | 189 | the sub-KB coarsest z-halos removed |
+| all-to-all | 6 | **0** | vertical-line-smoother column transposes |
+| all-reduce | 12 | 34 | replicated-level reductions + reshard |
+| all-gather | 32 | 44 | the switch-boundary reshards |
+
+- **The flagged latency collectives are gone.** In the semicoarsen /
+  immersed hierarchy OFF shards the *vertical* at the coarse levels, so
+  the `scan` vertical-line smoother must transpose each column to solve
+  along z — **6 small all-to-alls per V-cycle** (`f64[·,4,·,8]`, 256 B)
+  — and the coarsest levels fire the census's **sub-KB z-halo permutes**
+  (`f64[4,4,2]`×16 + `f64[4,4,3]`×8 = 24 tiny permutes/trip, 256-384 B).
+  ON replicates those levels: **every column transpose and every
+  sub-KB coarse z-halo disappears** (all-to-all 6 -> 0; the `f64[4,4,·]`
+  permutes 24 -> 0).
+- **The offset is a CPU-GSPMD folding gap.** ON adds restrict/prolong
+  reshard permutes plus all-gather/all-reduce because XLA on CPU
+  lowers the replicated coarse levels' reductions as partitioned
+  all-reduces rather than folding them to local sums, and the
+  switch-boundary all-gather is explicit. So the *total* collective
+  count is roughly flat on this backend/size — the win is the removal
+  of the **largest-payload (all-to-all) and tiniest-latency (sub-KB
+  permute) coarse-level collectives**, not the raw count. Whether a
+  `with_sharding_constraint` hint folds the replicated reductions on
+  GPU (and the net ms/step) is the unrun Phase 3 question.
+
+### Follow-ups surfaced by the prototype
+
+- **Replicated-reduction folding.** CPU GSPMD re-partitions the
+  replicated coarse levels' projection sums into all-reduces; a
+  `with_sharding_constraint` on the replicated level (or a manual
+  local reduce) may keep them device-local. Measure on GPU first.
+- **Phase 3 GPU sweep** (`tau in {2,4,8}`, 128^3/512^3/immersed,
+  ms/step + a GPU HLO census) remains the load-bearing perf gate;
+  needs an owner-provided allocation.
+- The "machine-precision identical" gate wording should be relaxed to
+  "identical iterations + agreement below the solve tolerance" for the
+  immersed reassociation floor (see the parity numbers above).
 
 ## 5. Open questions
 
