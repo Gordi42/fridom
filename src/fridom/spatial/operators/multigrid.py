@@ -56,7 +56,10 @@ from typing import TYPE_CHECKING, NamedTuple
 
 import jax.numpy as jnp
 
-from fridom.spatial.operators.banded import tridiagonal_solve_along_axis
+from fridom.spatial.operators.banded import (
+    tridiagonal_solve_along_axis,
+    validate_tridiagonal_method,
+)
 
 if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Callable
@@ -91,7 +94,7 @@ class VerticalBands(NamedTuple):
     measure** — ``m_cell[c - 1] * upper[c - 1] == m_cell[c] *
     lower[c]``, i.e. ``diag(m_cell) T`` is symmetric — which is CG's
     inner product, so the symmetric V-cycle argument (MG-D7) carries
-    over unchanged. The batched Thomas solve
+    over unchanged. The batched per-column solve
     (:func:`~fridom.spatial.operators.banded.tridiagonal_solve_along_axis`)
     needs no per-column symmetry.
 
@@ -212,15 +215,19 @@ class VerticalLineJacobi(Smoother):
     Description
     -----------
     The anisotropy smoother (MG-D4/D7): every column is relaxed at
-    once through the per-column symmetric tridiagonal ``T`` (the
-    :class:`VerticalBands`), solved by the batched Thomas kernel
+    once through the per-column tridiagonal ``T`` (the
+    :class:`VerticalBands`), solved by
     :func:`~fridom.spatial.operators.banded.tridiagonal_solve_along_axis`.
-    Because ``T`` carries the full diagonal, its columns are strictly
-    diagonally dominant on wet cells, so the pivot-free Thomas solve is
-    stable. Dry / zero-diagonal columns are sanitized with the
-    double-``jnp.where`` guard (``diag -> 1``, ``rhs -> 0``, output
-    forced to zero), which both keeps a dry column a no-op and keeps
-    the reverse-mode gradient NaN-free.
+    The kernel is selected by `method` (``"auto"`` picks the batched
+    cuSPARSE solve on a GPU and pure-jax parallel cyclic reduction
+    elsewhere; all kernels compute the same ``T^{-1}`` to machine
+    precision, so the choice is convergence-neutral). Because ``T``
+    carries the full diagonal, its columns are strictly diagonally
+    dominant on wet cells, so the pivot-free solve is stable. Dry /
+    zero-diagonal columns are sanitized with the double-``jnp.where``
+    guard (``diag -> 1``, ``rhs -> 0``, output forced to zero), which
+    both keeps a dry column a no-op and keeps the reverse-mode gradient
+    NaN-free.
 
     Parameters
     ----------
@@ -229,12 +236,19 @@ class VerticalLineJacobi(Smoother):
     omega : float, optional
         The damping factor (default: 0.8, the B0-spike optimum for the
         steep mapped column).
+    method : str, optional
+        The tridiagonal kernel forwarded to
+        :func:`~fridom.spatial.operators.banded.tridiagonal_solve_along_axis`
+        — ``"auto"``, ``"cusparse"``, ``"pcr"`` or ``"scan"``; validated
+        at construction (default: ``"auto"``).
     """
 
-    def __init__(self, bands: VerticalBands, omega: float = 0.8) -> None:
-        """Store the tridiagonal bands and the damping factor."""
+    def __init__(self, bands: VerticalBands, omega: float = 0.8,
+                 method: str = "auto") -> None:
+        """Store the tridiagonal bands, damping factor and kernel."""
         self._bands: VerticalBands = bands
         self._omega: float = float(omega)
+        self._method: str = validate_tridiagonal_method(method)
 
     @property
     def bands(self) -> VerticalBands:
@@ -246,10 +260,15 @@ class VerticalLineJacobi(Smoother):
         """The damping factor."""
         return self._omega
 
+    @property
+    def method(self) -> str:
+        """The tridiagonal kernel forwarded to the banded solve."""
+        return self._method
+
     def sweep(
         self, x: ScalarField, b: ScalarField, operator: FieldOp,
     ) -> ScalarField:
-        """Apply one damped vertical-line sweep (guarded Thomas solve)."""
+        """Apply one damped vertical-line sweep (guarded band solve)."""
         residual = b - operator(x)
         diag = self._bands.diag.data
         zero = diag == 0.0
@@ -257,7 +276,7 @@ class VerticalLineJacobi(Smoother):
         safe_rhs = jnp.where(zero, 0.0, residual.data)
         correction = tridiagonal_solve_along_axis(
             self._bands.lower.data, safe_diag, self._bands.upper.data,
-            safe_rhs, self._bands.axis)
+            safe_rhs, self._bands.axis, method=self._method)
         correction = jnp.where(zero, 0.0, correction)
         return x.with_data(x.data + self._omega * correction)
 

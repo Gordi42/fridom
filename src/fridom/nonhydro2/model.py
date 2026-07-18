@@ -43,6 +43,7 @@ def Model(  # noqa: N802 — a factory that mirrors fr.model.Model's surface
     pressure_tolerance: float | None = 1e-8,
     pressure_preconditioner: str = "spectral",
     multigrid_levels: int = 5,
+    multigrid_tridiagonal_method: str = "auto",
     modules_extra: Sequence[fr.model.Module] = (),
     time_stepper: TimeStepper | None = None,
     dt: float = 1.0,
@@ -106,6 +107,13 @@ def Model(  # noqa: N802 — a factory that mirrors fr.model.Model's surface
         The maximum multigrid level count when
         ``pressure_preconditioner="multigrid"`` (floored on small
         grids); ignored otherwise (default: 5).
+    multigrid_tridiagonal_method : str, optional
+        The vertical-line tridiagonal kernel of the multigrid smoother
+        (``"auto"`` / ``"cusparse"`` / ``"pcr"`` / ``"scan"``),
+        forwarded to the dynamical core; ``"auto"`` picks the batched
+        cuSPARSE solve on a GPU and pure-jax parallel cyclic reduction
+        elsewhere. Consumed only for
+        ``pressure_preconditioner="multigrid"`` (default: ``"auto"``).
     modules_extra : Sequence[fr.model.Module], optional
         Additional modules (tracers, closures) (default: ()).
     time_stepper : TimeStepper | None, optional
@@ -190,7 +198,9 @@ def Model(  # noqa: N802 — a factory that mirrors fr.model.Model's surface
                       pressure_iterations=pressure_iterations,
                       pressure_tolerance=pressure_tolerance,
                       pressure_preconditioner=pressure_preconditioner,
-                      multigrid_levels=multigrid_levels),
+                      multigrid_levels=multigrid_levels,
+                      multigrid_tridiagonal_method=(
+                          multigrid_tridiagonal_method)),
     ]
     # rotation is opt-in: coriolis=None installs no module at all
     if coriolis is not None:

@@ -13,14 +13,26 @@ import numpy as np
 import pytest
 
 from fridom.spatial.operators.banded import (
+    _resolve_tridiagonal_method,
     apply_along_axis,
     second_difference_matrix,
     solve_along_axis,
     tridiagonal_solve_along_axis,
     validate_boundary_conditions,
+    validate_tridiagonal_method,
 )
 
 N = 12
+
+#: whether the default jax backend is a GPU (gates the cusparse kernel)
+_ON_GPU = jax.default_backend() == "gpu"
+#: the cusparse kernel skipped off a GPU backend
+_CUSPARSE = pytest.param(
+    "cusparse",
+    marks=pytest.mark.skipif(
+        not _ON_GPU, reason="cusparse needs a CUDA GPU jax backend"))
+#: every kernel exercised on the current backend
+_ALL_METHODS = ["scan", "pcr", _CUSPARSE]
 
 
 def _dense_tridiagonal(lower, diag, upper):
@@ -279,3 +291,190 @@ def test_tridiagonal_solve_is_reverse_mode_differentiable():
     fd = (loss(2.0 + eps) - loss(2.0 - eps)) / (2 * eps)
     assert bool(jnp.isfinite(grad))
     assert abs(float(grad) - float(fd)) <= 1e-4 * abs(float(fd))
+
+
+# ================================================================
+#  Kernel selection: scan / pcr / cusparse (auto dispatch)
+# ================================================================
+@pytest.mark.parametrize("method", _ALL_METHODS)
+def test_tridiagonal_kernel_matches_dense_solve_along_axis(method):
+    # a column-uniform band: every kernel must reproduce the dense
+    # batched reference solve_along_axis (broadcast bands over the batch)
+    rng = np.random.default_rng(10)
+    lower, diag, upper = _random_bands(rng, (N, 1))
+    rhs = jnp.asarray(rng.standard_normal((N, 6)))
+    solved = tridiagonal_solve_along_axis(
+        lower, diag, upper, rhs, 0, method=method)
+    dense = jnp.asarray(
+        _dense_tridiagonal(lower[:, 0], diag[:, 0], upper[:, 0]))
+    expected = solve_along_axis(dense, rhs, 0)
+    assert np.allclose(np.asarray(solved), np.asarray(expected))
+
+
+@pytest.mark.parametrize("method", _ALL_METHODS)
+@pytest.mark.parametrize("size", [7, 12, 100])
+def test_tridiagonal_kernel_matches_per_column_dense(method, size):
+    # per-column-VARYING bands and non-power-of-two sizes (7, 100 — the
+    # PCR edge): each kernel solves each column's distinct tridiagonal
+    rng = np.random.default_rng(size)
+    shape = (size, 3, 4)
+    lower, diag, upper = _random_bands(rng, shape)
+    rhs = jnp.asarray(rng.standard_normal(shape))
+    solved = tridiagonal_solve_along_axis(
+        lower, diag, upper, rhs, 0, method=method)
+    for i in range(shape[1]):
+        for j in range(shape[2]):
+            dense = _dense_tridiagonal(
+                lower[:, i, j], diag[:, i, j], upper[:, i, j])
+            expected = np.linalg.solve(dense, np.asarray(rhs[:, i, j]))
+            assert np.allclose(np.asarray(solved[:, i, j]), expected)
+
+
+@pytest.mark.parametrize("method", _ALL_METHODS)
+@pytest.mark.parametrize("axis_index", [0, 1, 2])
+def test_tridiagonal_kernel_is_axis_agnostic(method, axis_index):
+    # solving along any storage axis matches solving along axis 0
+    rng = np.random.default_rng(30 + axis_index)
+    base = (N, 3, 4)
+    lower, diag, upper = _random_bands(rng, base)
+    rhs = jnp.asarray(rng.standard_normal(base))
+    ref = tridiagonal_solve_along_axis(
+        lower, diag, upper, rhs, 0, method=method)
+    lo = jnp.moveaxis(lower, 0, axis_index)
+    di = jnp.moveaxis(diag, 0, axis_index)
+    up = jnp.moveaxis(upper, 0, axis_index)
+    r = jnp.moveaxis(rhs, 0, axis_index)
+    out = tridiagonal_solve_along_axis(lo, di, up, r, axis_index,
+                                       method=method)
+    assert np.allclose(
+        np.asarray(jnp.moveaxis(out, axis_index, 0)), np.asarray(ref))
+
+
+@pytest.mark.parametrize("other", ["pcr", _CUSPARSE])
+def test_tridiagonal_kernels_agree_with_scan(other):
+    # cross-kernel agreement to near machine precision on a
+    # well-conditioned diagonally dominant system
+    rng = np.random.default_rng(40)
+    shape = (N, 5)
+    lower, diag, upper = _random_bands(rng, shape)
+    rhs = jnp.asarray(rng.standard_normal(shape))
+    ref = tridiagonal_solve_along_axis(
+        lower, diag, upper, rhs, 0, method="scan")
+    got = tridiagonal_solve_along_axis(
+        lower, diag, upper, rhs, 0, method=other)
+    assert np.allclose(np.asarray(got), np.asarray(ref),
+                       atol=1e-12, rtol=1e-12)
+
+
+@pytest.mark.parametrize("method", _ALL_METHODS)
+def test_tridiagonal_kernel_ignores_the_unused_ends(method):
+    # contract: garbage in the unused lower[0] / upper[-1] must not
+    # change the answer, for every kernel (they are zeroed internally)
+    rng = np.random.default_rng(50)
+    shape = (N, 4)
+    lower, diag, upper = _random_bands(rng, shape)
+    rhs = jnp.asarray(rng.standard_normal(shape))
+    clean = tridiagonal_solve_along_axis(
+        lower, diag, upper, rhs, 0, method=method)
+    dirty = tridiagonal_solve_along_axis(
+        lower.at[0].set(1e3), diag, upper.at[-1].set(-1e3), rhs, 0,
+        method=method)
+    assert np.allclose(np.asarray(clean), np.asarray(dirty))
+
+
+# ----------------------------------------------------------------
+#  Host-side method dispatch (backend query monkeypatched)
+# ----------------------------------------------------------------
+def test_resolve_auto_picks_pcr_off_gpu(monkeypatch):
+    monkeypatch.setattr(jax, "default_backend", lambda: "cpu")
+    assert _resolve_tridiagonal_method("auto") == "pcr"
+
+
+def test_resolve_auto_picks_cusparse_on_gpu(monkeypatch):
+    monkeypatch.setattr(jax, "default_backend", lambda: "gpu")
+    assert _resolve_tridiagonal_method("auto") == "cusparse"
+
+
+@pytest.mark.parametrize("method", ["pcr", "scan", "cusparse"])
+def test_resolve_passes_explicit_methods_on_gpu(method, monkeypatch):
+    monkeypatch.setattr(jax, "default_backend", lambda: "gpu")
+    assert _resolve_tridiagonal_method(method) == method
+
+
+def test_resolve_explicit_pcr_and_scan_off_gpu(monkeypatch):
+    monkeypatch.setattr(jax, "default_backend", lambda: "cpu")
+    assert _resolve_tridiagonal_method("pcr") == "pcr"
+    assert _resolve_tridiagonal_method("scan") == "scan"
+
+
+def test_resolve_cusparse_off_gpu_raises(monkeypatch):
+    monkeypatch.setattr(jax, "default_backend", lambda: "cpu")
+    with pytest.raises(ValueError,
+                       match="cusparse tridiagonal kernel requires"):
+        _resolve_tridiagonal_method("cusparse")
+
+
+def test_resolve_rejects_unknown_method():
+    with pytest.raises(ValueError,
+                       match="tridiagonal method must be one of"):
+        _resolve_tridiagonal_method("thomas")
+
+
+def test_validate_tridiagonal_method_returns_and_rejects():
+    assert validate_tridiagonal_method("pcr") == "pcr"
+    with pytest.raises(ValueError,
+                       match="tridiagonal method must be one of"):
+        validate_tridiagonal_method("bogus")
+
+
+def test_cusparse_kernel_runs_on_any_backend(monkeypatch):
+    # force the cusparse wrapper regardless of the real backend: jax's
+    # tridiagonal_solve has a CPU lowering in 0.10.2, so the helper
+    # executes and stays correct even off the GPU — this covers the
+    # cusparse code path under JAX_PLATFORMS=cpu, where the gpu-gated
+    # parametrizations skip
+    monkeypatch.setattr(jax, "default_backend", lambda: "gpu")
+    rng = np.random.default_rng(60)
+    shape = (N, 5)
+    lower, diag, upper = _random_bands(rng, shape)
+    rhs = jnp.asarray(rng.standard_normal(shape))
+    solved = tridiagonal_solve_along_axis(
+        lower, diag, upper, rhs, 0, method="cusparse")
+    for j in range(shape[1]):
+        dense = _dense_tridiagonal(lower[:, j], diag[:, j], upper[:, j])
+        expected = np.linalg.solve(dense, np.asarray(rhs[:, j]))
+        assert np.allclose(np.asarray(solved[:, j]), expected)
+
+
+# ----------------------------------------------------------------
+#  Reverse-mode differentiability of the swapped kernels
+# ----------------------------------------------------------------
+@pytest.mark.parametrize("method", ["pcr", _CUSPARSE])
+def test_tridiagonal_kernel_grad_matches_scan(method):
+    # jax.grad wrt the rhs AND the diag band is finite, matches the
+    # reference scan gradient, and matches a central finite difference
+    rng = np.random.default_rng(70)
+    shape = (8, 3)
+    lower, diag, upper = _random_bands(rng, shape)
+    rhs = jnp.asarray(rng.standard_normal(shape))
+
+    def loss(dia, right, kernel):
+        x = tridiagonal_solve_along_axis(
+            lower, dia, upper, right, 0, method=kernel)
+        return jnp.sum(x ** 2)
+
+    g_scan = jax.grad(lambda d, r: loss(d, r, "scan"),
+                      argnums=(0, 1))(diag, rhs)
+    g_new = jax.grad(lambda d, r: loss(d, r, method),
+                     argnums=(0, 1))(diag, rhs)
+    for scan_grad, new_grad in zip(g_scan, g_new, strict=True):
+        assert bool(jnp.all(jnp.isfinite(new_grad)))
+        assert np.allclose(np.asarray(new_grad), np.asarray(scan_grad),
+                           atol=1e-10, rtol=1e-8)
+    # central finite difference in a scalar rhs scale (policy check)
+    eps = 1e-6
+    scale_grad = jax.grad(
+        lambda s: loss(diag, s * rhs, method))(2.0)
+    fd = (loss(diag, (2.0 + eps) * rhs, method)
+          - loss(diag, (2.0 - eps) * rhs, method)) / (2 * eps)
+    assert abs(float(scale_grad) - float(fd)) <= 1e-4 * abs(float(fd))

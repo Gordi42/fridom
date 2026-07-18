@@ -298,6 +298,20 @@ def test_properties_expose_the_configuration():
     assert line.bands is bands
 
 
+def test_vertical_line_jacobi_exposes_the_tridiagonal_method():
+    # the kernel knob is accepted, stored, defaults to "auto", and an
+    # unknown name is rejected at construction (banded resolver reuse)
+    grid, space, _, _ = build_hierarchy(8, 3, 2)
+    d = diagonal_field(grid, space)
+    bands = VerticalBands(d, d, d, 0)
+    assert VerticalLineJacobi(bands).method == "auto"
+    assert VerticalLineJacobi(bands, method="pcr").method == "pcr"
+    assert VerticalLineJacobi(bands, method="scan").method == "scan"
+    with pytest.raises(ValueError,
+                       match="tridiagonal method must be one of"):
+        VerticalLineJacobi(bands, method="thomas")
+
+
 # ================================================================
 #  (h) N3: measure-weighted line smoothing on a stretched column
 # ================================================================

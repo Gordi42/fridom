@@ -17,26 +17,6 @@ actually remains. Status narrative ("shipped", "landed", "resolved",
 context about finished work is needed, one pointer to the `done.md`
 entry is enough.
 
-## Guiding target (end state)
-
-- **No ModelSettings**: a `Model` is assembled from a grid and modules;
-  every physical parameter (`f0`, `n2`, `csqr`, ...) lives in a module.
-- **Everything is one pytree**: modules can modify anything during
-  `update`, and the whole run is a single `jax.jit` call (no Python time
-  loop).
-- **Grid = function spaces**: fields live on function spaces, operators
-  map between spaces, mesh arrays are lazy, and new grid types
-  (stretched, spherical) slot into the same abstraction.
-- **Fields are ergonomic**: init from callables, dimension reduction
-  (`g = f.sel(x=a)`).
-- **Models**: nonhydro, shallowwater, and coupled multi-model runs
-  (multi-device, later multi-host).
-
-Phases 1 and 2 delivered the first four; the grid is `fridom.spatial`
-and the model layer is `fridom.model`.
-
----
-
 # Next steps
 
 ## Performance guard — wire the benchmark harness as a CI gate
@@ -56,6 +36,12 @@ storage-frame arithmetic — but the other fast paths remain unasserted.
 A change that pushes production off one of them would pass the suite
 and quietly cost ~2x at scale.
 [`../plans/active/perf_geometry_merge_plan.md`](../plans/active/perf_geometry_merge_plan.md)
+
+Closure design (2026-07-18, research done, owner rulings pending):
+[`../plans/active/perf_guard_plan.md`](../plans/active/perf_guard_plan.md)
+— PR CI gates *structure* (six new fast-path assertions), the DKRZ
+A100 node gates *time* (hardened `compare` + sbatch guard script);
+a wall-clock gate in GitHub CI is explicitly rejected there.
 
 ## Gaps against the Oceananigans reference comparison
 

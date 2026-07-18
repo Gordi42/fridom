@@ -40,6 +40,7 @@ from fridom.nonhydro2.state import State
 from fridom.spatial.bc import BC
 from fridom.spatial.decomposition.halo import HaloSpec
 from fridom.spatial.fields.vector_field import VectorField
+from fridom.spatial.operators.banded import validate_tridiagonal_method
 from fridom.spatial.operators.composed import (
     Divergence,
     Gradient,
@@ -389,6 +390,13 @@ class DynamicalCore(fr.model.Module):
         ``pressure_preconditioner="multigrid"`` (the builder floors on
         small grids); ignored otherwise. Static in the fingerprint
         (default: 5).
+    multigrid_tridiagonal_method : str, optional
+        The vertical-line tridiagonal kernel of the multigrid smoother
+        (``"auto"`` / ``"cusparse"`` / ``"pcr"`` / ``"scan"``),
+        forwarded to the mapped and immersed solvers and validated at
+        construction; consumed only for
+        ``pressure_preconditioner="multigrid"``. Static in the
+        fingerprint (default: ``"auto"``).
     family : str | None, optional
         The discretization family of the whole core state (FV-D3,
         stage F3): ``"fv"`` declares ``u, v, w, p`` on the
@@ -421,6 +429,7 @@ class DynamicalCore(fr.model.Module):
         pressure_tolerance: float | None = 1e-8,
         pressure_preconditioner: str = "spectral",
         multigrid_levels: int = 5,
+        multigrid_tridiagonal_method: str = "auto",
         family: str | None = None,
     ) -> None:
         """Store the core parameter leaves and the geometry names."""
@@ -437,6 +446,8 @@ class DynamicalCore(fr.model.Module):
         self._pressure_tolerance = pressure_tolerance
         self._pressure_preconditioner = pressure_preconditioner
         self._multigrid_levels = multigrid_levels
+        self._multigrid_tridiagonal_method = validate_tridiagonal_method(
+            multigrid_tridiagonal_method)
         self._family = family
 
     # ================================================================
@@ -659,6 +670,8 @@ class DynamicalCore(fr.model.Module):
             single_precision=self._single_precision_solve,
             preconditioner=self._pressure_preconditioner,
             multigrid_levels=self._multigrid_levels,
+            multigrid_tridiagonal_method=(
+                self._multigrid_tridiagonal_method),
             params=mapping_params(state, grid))
         # one metric derivation for the whole projection: divergence,
         # solve and correction share the solver's per-solve memo (it
@@ -710,7 +723,9 @@ class DynamicalCore(fr.model.Module):
             tolerance=self._pressure_tolerance,
             single_precision=self._single_precision_solve,
             preconditioner=self._pressure_preconditioner,
-            multigrid_levels=self._multigrid_levels)
+            multigrid_levels=self._multigrid_levels,
+            multigrid_tridiagonal_method=(
+                self._multigrid_tridiagonal_method))
         p, corr = solver.project(vel)
         return {
             "u": state["u"] - corr["x"].retag(state["u"]),
