@@ -223,14 +223,18 @@ def test_padded_case_has_an_empty_trailing_pad_shard(forced_devices):
 @pytest.mark.multi_device
 def test_indivisible_sharded_axis_uses_the_padded_even_frame(
         forced_devices):
-    # x=18 is indivisible over four devices (the small partner z=8 does
-    # not shard), so the sharded axis pads to the even frame: apply
-    # routes through unpad_even / pad_even instead of the true frame, and
-    # still matches the replicated reference
+    # x=18 is indivisible over four devices; the small partner z=6 is
+    # too short to shard (its shortest shard would be empty under the
+    # ceil/last-shard padding), so the sole shardable axis is the
+    # indivisible x, which pads to the even frame: apply routes through
+    # unpad_even / pad_even instead of the true frame, and still matches
+    # the replicated reference. (Under one-sided halo accounting a
+    # divisible z=8 partner *would* shard and steal the default axis; a
+    # non-qualifying z restores the indivisible-frame coverage.)
     if forced_devices is not None:
         assert jax.device_count() == forced_devices
     shards = jax.device_count()
-    nx, ny, nz = 18, NY, 8
+    nx, ny, nz = 18, NY, 6
     grid = make_channel_grid(nx, ny, nz)
     assert grid.decomposition.default_layout.device_axes == (
         ("x", "devices"),)
