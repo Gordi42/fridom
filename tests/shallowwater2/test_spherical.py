@@ -83,13 +83,20 @@ def test_assembles_with_the_sphere_staggering():
 
 def test_chart_model_keeps_the_exempt_halo():
     # on a chart grid the core's gravity term resolves metric-aware
-    # kinds the halo tracer cannot follow, so the module stays
-    # exempt through its extra_halo declaration: 2 per coordinate
-    # even without advection (the flat-gate must not leak here)
+    # kinds the halo tracer cannot follow, so the module stays exempt
+    # through its extra_halo declaration even without advection (the
+    # flat-gate must not leak here). The width is now DERIVED from the
+    # order-2 diff rows the term applies: 1 per coordinate, not the old
+    # literal 2 -- the lat-lon sphere is orthogonal (diagonal
+    # raise_index), so no cross-interp, and even a non-orthogonal chart
+    # derives 1 (the cross-interp telescopes two-sided;
+    # pressure_solver_halo.md).
     model = sphere_model(advection=False)
+    core = model.module(sw.modules.DynamicalCore)
+    assert core.extra_halo is not None  # exemption kept
     halo = model.grid.decomposition.halo
-    assert halo["lon"] == 2
-    assert halo["lat"] == 2
+    assert halo["lon"] == 1
+    assert halo["lat"] == 1
 
 
 def test_polar_cap_wall_has_no_normal_dof():
