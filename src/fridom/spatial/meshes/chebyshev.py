@@ -24,7 +24,6 @@ from fridom.spatial.decomposition.traits import (
 )
 from fridom.spatial.meshes.structured_1d import StructuredMesh1D
 from fridom.spatial.spaces.coefficient import ChebyshevSpace
-from fridom.spatial.spaces.constant import ConstantSpace
 from fridom.spatial.spaces.nodal import (
     NodalSpace,
     NodeSet,
@@ -172,11 +171,11 @@ class ChebyshevMesh(StructuredMesh1D):
         Returns
         -------
         MeshDecompositionTraits
-            ``(TRANSPOSE, LOCAL)``; ``(LOCAL,)`` for
-            ``ConstantSpace``.
+            ``(TRANSPOSE, LOCAL)``; ``(LOCAL,)`` for the collapsed
+            factors (``ConstantSpace`` / ``TraceSpace``).
         """
         self._check_owned(space)
-        if isinstance(space, ConstantSpace):
+        if space.collapses_axis:
             return MeshDecompositionTraits((HaloStrategy.LOCAL,))
         return MeshDecompositionTraits(
             (HaloStrategy.TRANSPOSE, HaloStrategy.LOCAL))
