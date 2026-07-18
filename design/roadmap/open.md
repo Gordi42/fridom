@@ -192,18 +192,19 @@ the scoping §10–§13). Open:
     device-count-invariant to the iterative CG tolerance floor (per-step
     ~2.4e-6 at `tol=1e-10`, ~2.1e-8 at `tol=1e-14`; there is no exact
     spectral solve on a mapped grid, so machine-precision parity does
-    not apply). Two open remainders:
-    - **The multigrid preconditioner multi-device parity is broken**
-      (GB-5 `test_forced4_multigrid_solve_matches_single_device` and the
-      stretched-column V-cycle): 1-GPU clean, 4-GPU wrong (asym `3.5e-3`,
-      rel up to `0.96`), reproduces **bit-identically on forced-CPU-4**
-      and across all tridiagonal kernels, so it is not the cuSPARSE-GSPMD
-      caveat and not jax#39100. Root cause is coarse-level horizontal
-      roll/gather resharding (`{devices=[1,4]}->{[2,1,2] replicate}`
-      involuntary rematerialization). **This is a broader
-      mapped-multigrid multi-device regression since the T8 validation
-      (`5af2e370`, 07-17), not stretched-specific** — first-bad-commit
-      not yet bisected.
+    not apply). Re-checked against post-GM-D9 dev `33707661`
+    (addendum §Re-check). Two open remainders:
+    - **The stretched-column multigrid preconditioner is still broken
+      on multi-GPU** (4-device-only; 1-GPU clean). On current dev the
+      full-3-D-coarsening default (GM-D9) is 4-GPU parity-clean, but a
+      stretched base column auto-falls-back to the **semicoarsening**
+      hierarchy (its coarse `MappedIntervalMesh` is not
+      jit-constructible), and semicoarsening's coarse-level horizontal
+      roll/gather resharding mis-partitions on 4 devices (asym
+      `3.5e-3`, rel up to `0.96`; bit-identical on forced-CPU-4, kernel-
+      independent). See the multigrid section below (semicoarsening
+      multi-device parity) for evidence and scope. Plain-CG is the
+      working multi-GPU route for stretched+terrain today.
     - **A lone bounded 1D `MappedIntervalMesh` sharded across 4 devices**
       corrupts its staggered FD / flux telescoping
       (`validation/test_stretched_mesh.py`, 2 tests). Degenerate config
@@ -504,16 +505,48 @@ V-cycle kernel swap it called for shipped 2026-07-18 (merge
 [`../research/multigrid_kernel_study.md`](../research/multigrid_kernel_study.md)
 §Addendum). Open, none blocking:
 
-- **cuSPARSE kernel under GSPMD (multi-device) — unvalidated.** The
-  line smoother's `method="auto"` resolves to the batched
+- **cuSPARSE kernel under GSPMD (multi-device) — HLO/perf leg only.**
+  The line smoother's `method="auto"` resolves to the batched
   `lax.linalg.tridiagonal_solve` (cuSPARSE) on any GPU backend,
-  including sharded multi-GPU runs. A custom call's GSPMD
-  partitioning is not guaranteed: XLA may all-gather the batch axes
-  instead of partitioning them (correct but slow). Validate on real
-  4×A100 (parity + no unexpected all-gathers in the HLO); until
-  then a multi-device run that sees them should set
-  `multigrid_tridiagonal_method="pcr"` (pure jax, partitions
-  cleanly). Caveat documented in `banded.py`.
+  including sharded multi-GPU runs. The **parity** leg is now
+  validated on real 4×A100: the full-3-D-coarsening default solve is
+  bit-parity-clean 1-vs-4 with `method="auto"` (→cuSPARSE) — the GB-5
+  forced-4 tests pass on hardware (2026-07-18, dev `33707661`) — and a
+  kernel sweep showed the remaining multi-device failures are
+  **kernel-independent** (auto/cusparse/pcr/scan behave identically),
+  so they are not a cuSPARSE custom-call defect. Still open: confirm
+  the custom call's GSPMD partitioning does not **all-gather** the
+  batch axes (correct but slow) — an HLO/perf inspection, not
+  correctness; a run that sees all-gathers can set
+  `multigrid_tridiagonal_method="pcr"` (pure jax, partitions cleanly).
+  Caveat documented in `banded.py`.
+- **Semicoarsening V-cycle multi-device parity — broken.** The
+  semicoarsening hierarchy (horizontal-only coarsening + full-vertical
+  line smoother) mis-partitions on ≥2 devices: 1-GPU clean, 4-GPU
+  wrong (V-cycle asymmetry `3.5e-3`, solve residual stuck, forced-4
+  parity rel up to `0.96`). Reproduces **bit-identically on
+  forced-CPU-4** and is **kernel-independent**, so it is neither
+  jax#39100 (fusion workaround set) nor the cuSPARSE caveat. Mechanism:
+  the coarse-level horizontal roll/gather reshards
+  `{devices=[1,4]}->{[2,1,2] replicate}` (involuntary rematerialization,
+  Shardy `b/433785288`) when a coarsened horizontal extent no longer
+  divides the device count. Scope: this is the **auto-fallback path**
+  (GM-D9) taken for a stretched-base column, a Chebyshev vertical, an
+  indivisible `n_z`, or the immersed `uniform_spacing` limit — so the
+  stretched+terrain multigrid preconditioner is broken on multi-GPU
+  (plain-CG is the working route). Evidence
+  (`../research/stretched_terrain_combined.md` §GPU addendum + §Re-check):
+  `test_mapped_pressure_stretched.py` 4 multigrid tests,
+  `test_mapped_pressure_multigrid.py`
+  `converges_under_both_coarsenings[False]` +
+  `full_and_semi_coarsening_agree_on_the_solution`. Regression window
+  T8 `5af2e370` → `c4497db5`; first-bad-commit unbisected. These
+  unmarked 4-device-only failures also breach the house
+  "unmarked tests pass on any device count" rule (single-device CI
+  never sees them). Separately,
+  `test_multigrid_hlo_grows_with_the_level_count` asserts single-device
+  HLO structure that sharding legitimately perturbs (passes on 1 GPU) —
+  a test needing a device pin/marker, not a numerics bug.
 - **Residual mapped-GPU levers, unclaimed** — fewer coarse sweeps;
   cheaper mapped operator applies (the finest level dominates the
   post-swap V-cycle: one sweep = 15.7 ms cuSPARSE solve + 12.0 ms

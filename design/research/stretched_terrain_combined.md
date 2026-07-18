@@ -624,3 +624,59 @@ completion (`panicked=False`).
   concurrent cache writers desync the ranks. Pointing the run at a
   private `JAX_COMPILATION_CACHE_DIR` makes it clean and reproducible.
   A test-environment artifact, not a fridom multi-process defect.
+
+### Re-check against dev 33707661 (2026-07-18, post-GM-D9)
+
+Between the runs above (dev `c4497db5`) and this re-check the
+multigrid-generalization merges landed on dev `33707661`: phase A
+coarsen-freedom (`51db9ba6`), phase E warm-start (`70b012d8`), and
+**GM-D9 phase D — full 3-D coarsening as the mapped-solver default**
+(`a0eb7027`), with an automatic fallback to semicoarsening where the
+vertical cannot coarsen (Chebyshev vertical, indivisible `n_z`, the
+immersed `uniform_spacing` limit, and — a GM-D9 deviation — a
+**stretched-base column**, whose coarse `MappedIntervalMesh` is not
+jit-constructible). Plan record:
+`design/plans/active/multigrid_generalization_plan.md` §Phase D.
+
+Authoritative re-run of the three multigrid/stretched files on current
+dev (node `l50009`, 4x A100, jax 0.10.2, same env,
+`.venv/bin/python -m pytest`, the three files together): **9 failed, 38
+passed, 1 skipped**. Failure-set migration from the `c4497db5` numbers
+above:
+
+- `test_mapped_pressure_stretched.py`: the **same 4** stretched-column
+  multigrid failures.
+- `test_mapped_pressure_multigrid.py`: my three (`GB-5` aligned-x16-3lvl,
+  replicated-x12-coarse6, steep-mapped budget) **now PASS**, as does
+  `[True]`. The 3 failures here are **different**:
+  `test_multigrid_hlo_grows_with_the_level_count`,
+  `test_multigrid_converges_under_both_coarsenings[False]`,
+  `test_full_and_semi_coarsening_agree_on_the_solution`.
+- `test_stretched_mesh.py`: the **same 2** lone-1D-mesh failures.
+- Single-GPU sanity (`CUDA_VISIBLE_DEVICES=0`): the 3 file-6 failures +
+  `[True]` all pass (4 passed) — so all three are **4-device-only**.
+
+Interpretation:
+
+1. **The GM-D9 full-3-D-coarsening default is 4-GPU parity-clean on
+   real hardware** (GB-5 both cases + steep budget + the `[True]`
+   full-coarsening case). The coarse-level horizontal roll/gather
+   resharding mechanism no longer bites the default, because
+   floor-limited full coarsening exhausts the vertical before the
+   horizontal extents stop dividing the device count.
+2. **The semicoarsening path stays multi-device-broken** — the
+   `c4497db5` mechanism and bit-identical forced-CPU-4 evidence above
+   stand — now visible in `[False]`, `full_and_semi…agree`, and the 4
+   stretched-column tests. This is not a niche knob: semicoarsening is
+   the **auto-fallback for stretched-base columns**, so the
+   stretched+terrain multigrid preconditioner specifically is **still
+   broken on multi-GPU**. Plain-CG remains the working multi-GPU route
+   (Legs B/C validated exactly that). Regression window still
+   T8 `5af2e370` → `c4497db5`; first-bad-commit unbisected.
+3. `test_multigrid_hlo_grows_with_the_level_count` is a different class:
+   it asserts single-device HLO structure (per-level program growth)
+   that sharding legitimately perturbs; it passes on 1 GPU. A test's
+   single-device assumption needing a device pin/marker, not numerics.
+4. Policy: these unmarked 4-device-only failures breach the house
+   "unmarked tests must pass on any device count" rule on current dev;
+   single-device CI never sees them, only GPU campaigns do.
