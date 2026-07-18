@@ -701,8 +701,18 @@ extent threshold (agglomerate them to replicated layout, where the halo
 runs local and issues no collective). This motivates the coarse-level
 agglomeration plan:
 [`../plans/active/multigrid_agglomeration_plan.md`](../plans/active/multigrid_agglomeration_plan.md).
-The lever is also a **capability** fix, not only latency: a P-device
+This addendum also hypothesized a **capability** driver — a P-device
 sharded axis cannot coarsen below P cells, so large device counts cap
-V-cycle depth, and depth caps break h-independence
-([`multigrid_depth_scaling.md`](multigrid_depth_scaling.md): iterations
-10 -> 27 at a capped depth).
+V-cycle depth and break h-independence. *That did NOT reproduce: the
+prototype (plan §4, shipped `9e08493f`) found floor depth is already
+reached at forced 16/32 devices, because layout negotiation (MG-D5
+`allow_replicated`) already replicates below the shardability floor —
+no crash, no empty shards, no depth cap. The earlier 10 -> 27
+h-independence break
+([`multigrid_depth_scaling.md`](multigrid_depth_scaling.md)) was the
+fixed `multigrid_levels=5` cap, not a device-count effect. The
+reproduced driver is **latency only**: in semicoarsen/immersed
+hierarchies the sharded axis flips x -> z as the horizontals coarsen,
+so the coarse levels stay z-sharded at 2 planes/shard — the sub-KB
+regime above, reproduced at P = 16. Agglomeration's value is making that
+replication deliberate and threshold-driven, not curing a crash.*

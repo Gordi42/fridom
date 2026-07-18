@@ -805,6 +805,49 @@ Implementation record:
   narrative:
   [`../research/multigrid_kernel_study.md`](../research/multigrid_kernel_study.md)
   Addendum 2.
+- **Coarse-level agglomeration — replicate the deep multigrid levels**
+  (2026-07-19, merge `9e08493f`) — the census-driven lever (kernel-study
+  Addendum 3): coarse V-cycle levels below a per-shard-extent threshold
+  are built with a replicated layout (MG-D5 `Layout({})` end to end, no
+  new comm pattern), so their smoother/operator/projection issue zero
+  collectives and the cross-boundary reshard rides
+  `jax.device_put` on restrict / a local slice on prolong. Knob
+  `multigrid_agglomerate: int | None = None` (`τ`, default OFF) on
+  `nh.Model` → `DynamicalCore` → both mapped/immersed solvers; the switch
+  fires at the first level whose shortest would-be per-shard extent `< τ`
+  **and** whose replicated per-device footprint `≤ 4 MiB`. Builder in
+  `spatial/operators/multigrid_hierarchy.py`
+  (`negotiate(force_replicated=)`, `Grid.coarsened(replicated=)`,
+  `coarsen_levels(agglomerate=τ)`). Gates green at forced 4/16 host
+  devices (CPU): parity — identical CG iterations ON vs OFF vs 1-device
+  (mapped 10, immersed 17); **not** bitwise multi-device (the coarse
+  mean projection reduces over a replicated array, so the last bits
+  reassociate) but below the `1e-8` solve tolerance and **ON no worse
+  than OFF** vs the 1-device truth (mapped model drift 3.4e-16; immersed
+  ON-vs-1dev 1.7e-11 < OFF-vs-1dev 3.5e-11); one-device knob is a bitwise
+  no-op. Capability — ON replicates a below-`τ` sharded coarse level at
+  the same floor depth. Autodiff — `jax.grad` through a short ON immersed
+  run finite + central-FD matched (reshard is a pure relayout). CPU
+  forced-4 HLO census confirms the targeted collectives vanish: the
+  coarse sub-KB z-halo permutes 24→0 and the vertical-line-smoother
+  column-transpose all-to-alls 6→0 per V-cycle. **Two corrections to the
+  plan's motivation** (record §4): (1) the *capability* claim — "a
+  P-device sharded axis cannot coarsen below P cells; depth capped" —
+  did **not** reproduce: at forced 16/32 devices floor depth is already
+  reached, because layout negotiation (MG-D5 `allow_replicated`) already
+  replicates below the shardability floor with no crash, no empty shards,
+  no depth cap (the earlier h-independence break was the fixed
+  `multigrid_levels=5` cap, not device count). (2) The reproduced driver
+  is **latency only**: in semicoarsen/immersed hierarchies the sharded
+  axis flips x→z as horizontals coarsen, and the coarse levels stay
+  z-sharded at 2 planes/shard — the census's sub-KB regime. The GPU
+  wall-clock leg, the `τ` sweep, the replicated-reduction folding
+  question and the default-on decision remain open (open.md, multigrid
+  section). Record:
+  [`../plans/active/multigrid_agglomeration_plan.md`](../plans/active/multigrid_agglomeration_plan.md)
+  §4; driver:
+  [`../research/multigrid_kernel_study.md`](../research/multigrid_kernel_study.md)
+  Addendum 3.
 - **Immersed partial cells — all dimensions, all three models**
   (2026-07-17, merges `ee257bc0` I0+I1, `b447b8e5` I2, `a5aec29d` I4,
   `3858d977` I3, plus the autodiff regression gates) — the immersed

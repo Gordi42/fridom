@@ -19,6 +19,13 @@ lever.
 
 ## 1. Motivation (two-fold)
 
+*The capability driver below was the plan's original hypothesis; §4
+records that it did **not** reproduce (MG-D5 already replicates below
+the shardability floor at any P, so floor depth is reached at forced
+16/32 devices with no depth cap). The reproduced driver is latency
+only. Read this bullet as the framing at planning time, corrected in
+§4.*
+
 - **Capability.** A P-device sharded axis cannot coarsen below P cells:
   the V-cycle depth is capped by the device count, not by the problem.
   [`../../research/multigrid_depth_scaling.md`](../../research/multigrid_depth_scaling.md)

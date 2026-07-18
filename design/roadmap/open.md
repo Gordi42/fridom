@@ -472,18 +472,30 @@ V-cycle kernel swap it called for shipped 2026-07-18 (merge
   via the `Grid.coarsened` memo); (d) `multi_device` markers for the
   parity-test victims (unmarked 4-device-only failures are invisible
   to single-device CI).
-- **Coarse-level agglomeration — PLANNED (concrete driver: census +
-  scalability floor).** The 4-GPU 128³ 0.37× deficit is now
-  count-attributed: a collective census (2026-07-18, kernel study
-  [Addendum 3](../research/multigrid_kernel_study.md)) found the two
-  coarsest levels (1–2 planes per shard) fire ~33% of the halo
-  collective-permutes — ~860 sub-KB latency-only permutes/step, ~9–14 ms
-  of the ~34 ms 4-GPU overhead — and the depth-scaling record shows a
-  P-device sharded axis cannot coarsen below P cells, capping V-cycle
-  depth and breaking h-independence at large P. Both drivers are served
-  by one lever — replicate the deep levels below a per-shard-extent
-  threshold — now planned and prototyping on `feat/multigrid-agglomeration`
-  ([`../plans/active/multigrid_agglomeration_plan.md`](../plans/active/multigrid_agglomeration_plan.md)).
+- **Coarse-level agglomeration — remaining follow-ups.** The mechanism
+  (replicate coarse levels below a per-shard-extent threshold, knob
+  `multigrid_agglomerate` default OFF) **shipped** 2026-07-19 (merge
+  `9e08493f`; entry in [`done.md`](done.md), record
+  [`../plans/active/multigrid_agglomeration_plan.md`](../plans/active/multigrid_agglomeration_plan.md)
+  §4). CPU forced-device HLO confirms the census's flagged latency
+  collectives vanish (coarse z-halo permutes 24→0, column-transpose
+  all-to-alls 6→0). Open, none blocking:
+  - **GPU wall-clock leg** — the census's projected ~9–14 ms/step
+    recovery at 128³ is **not** wall-clock-validated: the named 4×A100
+    allocation was dead at run time and per AGENTS.md no new GPU job
+    was submitted. Needs a live 4-GPU allocation (owner-provided).
+  - **`tau` sweep** — `tau ∈ {2,4,8}` unrun; `tau = 4` is the default
+    on structural grounds (catches the 1–2-plane coarse levels), to be
+    pinned by the GPU sweep above.
+  - **Replicated-reduction folding** — on CPU, XLA GSPMD re-partitions
+    the replicated coarse levels' projection sums into all-reduces
+    rather than folding them to local sums, so all-reduce/all-gather
+    counts *rose* and the total collective count is net flat (the win
+    is removing the largest-payload all-to-alls and tiniest sub-KB
+    permutes, not the raw count). Whether a `with_sharding_constraint`
+    hint folds them on GPU is open.
+  - **Default-on decision (owner)** — whether agglomeration becomes the
+    multi-device mg default, gated on the GPU sweep.
 - **Residual mapped-GPU levers, unclaimed** — fewer coarse sweeps;
   cheaper mapped operator applies (the finest level dominates the
   post-swap V-cycle: one sweep = 15.7 ms cuSPARSE solve + 12.0 ms
