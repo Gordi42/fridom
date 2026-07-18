@@ -16,6 +16,9 @@ from fridom.spatial.decomposition.tensor import (
 )
 from fridom.spatial.grid import Grid
 from fridom.spatial.meshes.interval import IntervalMesh
+from fridom.spatial.operators.finite_difference import (
+    FiniteDifference,
+)
 
 
 @pytest.fixture
@@ -41,6 +44,42 @@ def test_explicit_halo_wins_and_missing_names_are_zero(grid):
                        device_ids=(0,))
     assert decomp.halo["x"] == 4
     assert decomp.halo["y"] == 0
+
+
+def test_two_sided_accounting_tightens_the_biased_chain(grid):
+    # acceptance gate (perf/halo-interval): two-sided accounting
+    # negotiates the true composed offset window, not the scalar sum
+    # of symmetric halos. A wide biased stencil (FD order 6,
+    # Center -> Right window [-2,+3], halo 3) composed with a narrow
+    # flux-difference-like Right -> Center [-1,0] gives [-3,+3] =
+    # width 3 -- where scalar accounting summed 3 + 1 = 4. This is the
+    # same 4 -> 3 tightening upwind5/weno5 get (storage n+6, not n+8).
+    space = grid.create_field().function_space
+    fd6, fd2 = FiniteDifference(order=6), FiniteDifference(order=2)
+    assert fd6.requirements(space.bare.factor("x")).reach == (2, 3)
+
+    def tendency(state):
+        return fd2["x"](fd6["x"](state))
+
+    decomp = negotiate(grid, grid.dispatch, state_spaces=(space,),
+                       tendency=tendency, device_ids=(0,))
+    assert decomp.halo["x"] == 3
+
+
+def test_two_sided_accounting_tightens_the_centered_chain(grid):
+    # the width-1 gate: a centered / diffusion chain, Center -> Right
+    # [0,+1] then Right -> Center [-1,0], composes to [-1,+1] = width 1
+    # (scalar sum 2). This is the FV order-2 derivative and the nodal
+    # Laplacian tightening -- the "centered -> 1" acceptance value.
+    space = grid.create_field().function_space
+    fd2 = FiniteDifference(order=2)
+
+    def tendency(state):
+        return fd2["x"](fd2["x"](state))
+
+    decomp = negotiate(grid, grid.dispatch, state_spaces=(space,),
+                       tendency=tendency, device_ids=(0,))
+    assert decomp.halo["x"] == 1
 
 
 def test_registry_maximum_is_the_provisional_default(grid):
