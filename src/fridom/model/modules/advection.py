@@ -258,10 +258,10 @@ from fridom.spatial.operators.reconstruct import (
 )
 from fridom.spatial.operators.select import Where
 from fridom.spatial.operators.staggering import (
+    footprint_reach,
     mapped_factor,
     mapped_mesh,
     mapped_order_hint,
-    window_reach,
 )
 from fridom.spatial.operators.weno import (
     _shu_row,  # the exact-rational coefficient seam
@@ -1176,8 +1176,8 @@ class _BiasedFaceReconstruction(SeparableOperator):
         try:
             m0 = (biased_offset(self._order, self._bias)
                   + _wall_shift(domain))
-            reach = window_reach(domain, self.codomain(domain),
-                                 self._order, m0)
+            self.codomain(domain)  # SpaceMismatchError on a Fourier row
+            reach = footprint_reach(self._order, m0)
         except SpaceMismatchError:
             reach = (fallback, fallback)
         return OperatorRequirements(reach=reach)
@@ -1669,8 +1669,8 @@ class _FVBiasedReconstruction(SeparableOperator):
         fallback = self._order // 2 + 1
         try:
             m0 = biased_offset(self._order, self._bias)
-            reach = window_reach(domain, self.codomain(domain),
-                                 self._order, m0)
+            self.codomain(domain)  # SpaceMismatchError on a Fourier row
+            reach = footprint_reach(self._order, m0)
         except SpaceMismatchError:
             reach = (fallback, fallback)
         return OperatorRequirements(reach=reach)

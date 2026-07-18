@@ -126,9 +126,10 @@ def test_parallel_terms_max_merge(grid, space):
         return f.diff("x"), f.diff("y"), f * f
 
     spec = trace_halo(tendency, (space,), grid.dispatch)
-    # bounded Center -> Inner (diff y) shrinks the codomain and reads
-    # no exterior slot: reach 0
-    assert widths(spec) == {"x": 1, "y": 0}
+    # bounded Center -> Inner (diff y) shrinks the codomain: its
+    # exterior reach cancels to 0 at the wall, but the per-shard
+    # footprint is 1 (a sharded interior boundary reads a neighbor)
+    assert widths(spec) == {"x": 1, "y": 1}
 
 
 def test_to_conversions_trace_through_the_registry(grid, space, mx):
@@ -231,8 +232,10 @@ def test_mixed_operand_reflected_ops_survive(grid, space):
         return (field + f).diff("x"), (field * f).diff("y")
 
     spec = trace_halo(tendency, (space,), grid.dispatch)
-    # bounded Center -> Inner (diff y) reads no exterior slot: reach 0
-    assert widths(spec) == {"x": 1, "y": 0}
+    # bounded Center -> Inner (diff y): exterior reach is 0 at the
+    # wall, but the per-shard footprint is 1 (a sharded interior
+    # boundary reads one neighbor slot)
+    assert widths(spec) == {"x": 1, "y": 1}
 
 
 def test_scalar_arithmetic_keeps_the_tracer(grid, space):
@@ -251,8 +254,10 @@ def test_composite_chains_trace_factor_by_factor(grid, space):
 
     spec = trace_halo(tendency, (space,), grid.dispatch)
     # mixed-axis composite: each factor syncs, per-axis max is exact.
-    # bounded Center -> Inner (diff y) reads no exterior slot: reach 0
-    assert widths(spec) == {"x": 1, "y": 0}
+    # bounded Center -> Inner (diff y): exterior reach is 0 at the
+    # wall, but the per-shard footprint is 1 (a sharded interior
+    # boundary reads one neighbor slot)
+    assert widths(spec) == {"x": 1, "y": 1}
 
 
 # ================================================================
@@ -286,8 +291,10 @@ def test_trace_halo_wraps_multiple_spaces(grid, space):
         return du + du, dv
 
     spec = trace_halo(tendency, (space, space), grid.dispatch)
-    # bounded Center -> Inner (diff y) reads no exterior slot: reach 0
-    assert widths(spec) == {"x": 1, "y": 0}
+    # bounded Center -> Inner (diff y): exterior reach is 0 at the
+    # wall, but the per-shard footprint is 1 (a sharded interior
+    # boundary reads one neighbor slot)
+    assert widths(spec) == {"x": 1, "y": 1}
 
 
 def test_vector_tracer_arithmetic_is_componentwise(grid, space):

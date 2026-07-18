@@ -100,9 +100,10 @@ def test_traced_tendency_overrides_the_registry_maximum(grid):
     decomp = negotiate(grid, grid.dispatch, state_spaces=(space,),
                        tendency=tendency, device_ids=(0,))
     assert decomp.halo["x"] == 0
-    # bounded Center -> Inner shrinks the codomain (8 -> 7 cells), so
-    # the true-shape difference reads no exterior slot: reach 0
-    assert decomp.halo["y"] == 0
+    # bounded Center -> Inner shrinks the codomain (8 -> 7 cells): the
+    # exterior reach is 0 at the wall, but the per-shard footprint is
+    # 1 (a sharded interior boundary reads one neighbor slot)
+    assert decomp.halo["y"] == 1
 
 
 def test_tendency_without_state_spaces_raises(grid):
@@ -122,8 +123,10 @@ def test_tendency_and_halo_combine_as_merge_max(grid):
                        tendency=tendency,
                        halo=HaloSpec({"x": 3}), device_ids=(0,))
     assert decomp.halo["x"] == 3
-    # bounded Center -> Inner reads no exterior slot (reach 0)
-    assert decomp.halo["y"] == 0
+    # bounded Center -> Inner: exterior reach is 0 at the wall, but the
+    # per-shard footprint is 1 (a sharded interior boundary reads one
+    # neighbor slot)
+    assert decomp.halo["y"] == 1
 
 
 def test_traced_chains_accumulate_the_sync_free_demand(grid):
@@ -147,8 +150,10 @@ def test_traced_bounded_chains_demand_the_per_application_max(
     # bounded axes re-sync at every stencil (kernel claims reset
     # there), so the sync-free demand is the per-application max, not
     # the sum. The chain runs Outer -> Center -> Inner; both hops
-    # shrink the codomain (9 -> 8 -> 7 cells), so each true-shape
-    # difference reads no exterior slot: per-application reach 0
+    # shrink the codomain (9 -> 8 -> 7 cells), so each difference's
+    # exterior reach cancels to 0 at the wall — but its per-shard
+    # stencil footprint is 1 (a sharded interior boundary reads a
+    # neighbor slot), so the per-application max is 1
     space = grid.create_field().function_space.bare.replace(
         y=my.outer)
 
@@ -157,7 +162,7 @@ def test_traced_bounded_chains_demand_the_per_application_max(
 
     decomp = negotiate(grid, grid.dispatch, state_spaces=(space,),
                        tendency=tendency, device_ids=(0,))
-    assert decomp.halo["y"] == 0
+    assert decomp.halo["y"] == 1
 
 
 def test_arithmetic_resets_the_traced_demand(grid):
