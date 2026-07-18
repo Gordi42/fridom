@@ -298,6 +298,19 @@ def test_terrain_model_assembles_and_runs():
     assert bool(jnp.isfinite(model.state["u"].data).all())
 
 
+def test_terrain_core_derives_the_stencil_halo():
+    # the terrain DIAGNOSE stages and slope-corrected pressure gradient
+    # multiply metric fields the halo trace cannot follow, so the core
+    # declares its own width -- DERIVED (not a literal 2) from the
+    # order-2 rows the stages apply: 1 on every coordinate. The vertical
+    # is 1 because the slope gradient reads a column neighbour (the
+    # face->centre re-alignment interp), which the shrinking bounded
+    # centre->face diff alone would miss.
+    model = _model(_terrain_grid(8))
+    core = model.module(hy.HydrostaticCore)
+    assert dict(core.extra_halo.widths) == {"x": 1, "y": 1, "z": 1}
+
+
 # ================================================================
 #  Taught errors (H0): unsupported terrain combinations
 # ================================================================

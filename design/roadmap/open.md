@@ -183,8 +183,8 @@ cells in every dimension (stages I0–I4 shipped 2026-07-17; entry in
 Open, none blocking:
 
 - **Biased/upwind/WENO advection on immersed grids** — taught error
-  today; needs the graded-fallback closure keyed on masks (the wall
-  precedent, `graded.py`).
+  today; the mask-keyed graded ladder is planned and in progress
+  ([`../plans/active/immersed_graded_advection_plan.md`](../plans/active/immersed_graded_advection_plan.md)).
 - **Mapped + immersed composition** — taught error; the mapped and
   masked PCGs are not composed.
 - **Partial-bottom-cell hydrostatic pressure gradient** — the

@@ -360,8 +360,8 @@ def test_rotation_on_the_identity_chart_is_the_f_plane():
     #
     # NOT bitwise, and deliberately so. Since the extra-halo gate
     # (`fix/sw-extra-halo-gate`, lever 8) `DynamicalCore.extra_halo`
-    # is chart-conditional: the chart core requests 2 halo cells per
-    # axis where the flat core requests none. The two models
+    # is chart-conditional: the chart core requests a (derived) halo
+    # cell per axis where the flat core requests none. The two models
     # therefore pad their storage differently, XLA fuses the `.to`
     # interpolation differently (FMA contraction in one path,
     # multiply-then-add in the other), and `v` lands ~16 ulp apart

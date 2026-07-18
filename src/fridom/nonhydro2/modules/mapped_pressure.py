@@ -189,6 +189,7 @@ from typing import TYPE_CHECKING
 
 import jax.numpy as jnp
 
+from fridom.model.halo_demand import require_solver_halo
 from fridom.nonhydro2.modules.pressure import (
     _dirichlet_mid,
     _neumann_sibling,
@@ -491,6 +492,7 @@ class MappedPressureSolver:
                 f"the mapped column's base coordinate "
                 f"{self._base!r}")
         self._axes: tuple[str, ...] = axes
+        require_solver_halo(grid, axes, solver="MappedPressureSolver")
         # a stretched base column (its base factor rides a
         # ``MappedIntervalMesh``, i.e. a non-None ``coordinate_map``)
         # is where the physical and computational column measures

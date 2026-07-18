@@ -43,6 +43,7 @@ from fridom.nonhydro2.params import DSQR
 from fridom.nonhydro2.state import State
 from fridom.spatial.bc import BC
 from fridom.spatial.coordinate_mapping import CoordinateMapping
+from fridom.spatial.decomposition.halo import HaloSpec
 from fridom.spatial.fields.vector_field import VectorField
 from fridom.spatial.grid import Grid
 from fridom.spatial.immersed_domain import ImmersedDomain
@@ -1187,3 +1188,58 @@ def test_projection_reads_the_current_mapping_parameters():
     # and the current values genuinely differ from the defaults
     assert not np.allclose(np.asarray(moving.state["w"].data),
                            np.asarray(stale.state["w"].data))
+
+
+# ================================================================
+#  Derived extra_halo (pressure_solver_halo.md §5, option 1)
+# ================================================================
+def test_core_extra_halo_is_none_before_bind():
+    # the projection's halo substitute is derived at bind, not a
+    # literal; an unassembled core has none yet
+    assert DynamicalCore().extra_halo is None
+
+
+def test_core_derives_width_one_triperiodic():
+    # div and grad are order-2 staggered differences on opposite sides
+    # of the spectral transform barrier: max(1, 1) = 1, not the old
+    # scalar-summed literal 2
+    model = nh.Model(grid=make_grid(), dt=DT, coriolis=fplane(),
+                     advection=False)
+    core = model.module(DynamicalCore)
+    assert dict(core.extra_halo.widths) == {"x": 1, "y": 1, "z": 1}
+    halo = model.grid.decomposition.halo
+    assert all(halo[a] == 1 for a in ("x", "y", "z"))
+
+
+def test_core_derives_width_one_walled():
+    grid, _ = make_walled_grid()
+    model = nh.Model(grid=grid, dt=DT, coriolis=fplane(), advection=False)
+    core = model.module(DynamicalCore)
+    # the bounded axis derives 1 too (the div leg carries the reach the
+    # bounded gradient shrinks away)
+    assert dict(core.extra_halo.widths) == {"x": 1, "y": 1, "z": 1}
+
+
+def test_derived_width_matches_forced_width_two_bitwise():
+    def run():
+        model = nh.Model(grid=make_grid(16), dt=0.005, dsqr=0.5,
+                         coriolis=fplane(), advection=CenteredAdvection())
+        rng = np.random.default_rng(0)
+        model.set_fields(**{c: 0.05 * rng.standard_normal(model.state[c].shape)
+                            for c in ("u", "v", "w", "b")})
+        model.run(steps=10, progress=False)
+        return {c: np.asarray(model.state[c].data)
+                for c in ("u", "v", "w", "b")}
+
+    derived = run()
+    orig = DynamicalCore.__dict__.get("extra_halo")
+    try:
+        DynamicalCore.extra_halo = property(
+            lambda self: (None if self._extra_halo is None
+                          else HaloSpec(dict.fromkeys(self._coords, 2))))
+        forced = run()
+    finally:
+        DynamicalCore.extra_halo = orig
+    md = max(float(np.max(np.abs(derived[c] - forced[c])))
+             for c in ("u", "v", "w", "b"))
+    assert md == 0.0  # the narrowing is bit-transparent on the spectral path

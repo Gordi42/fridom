@@ -224,6 +224,10 @@ def test_core_extra_halo_only_when_immersed():
         grid=grid(lambda x, y, z: (z > 0.5).astype(float)),  # noqa: ARG005
         dt=0.01, advection=False)
     plain = hy.Model(grid=plain_grid(), dt=0.01, advection=False)
-    assert isinstance(
-        imm_model.module(hy.HydrostaticCore).extra_halo, HaloSpec)
+    imm_halo = imm_model.module(hy.HydrostaticCore).extra_halo
+    assert isinstance(imm_halo, HaloSpec)
+    # DERIVED from the masked stencils (not a literal 2): reach 1 on
+    # each horizontal coordinate, 0 on the vertical — the masked
+    # continuity's column sum is a reduction with no vertical stencil
+    assert dict(imm_halo.widths) == {"x": 1, "y": 1, "z": 0}
     assert plain.module(hy.HydrostaticCore).extra_halo is None

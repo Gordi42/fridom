@@ -85,6 +85,7 @@ import jax
 import jax.numpy as jnp
 
 from fridom.framework.utils import dtype_real
+from fridom.model.halo_demand import require_solver_halo
 from fridom.nonhydro2.modules.pressure import (
     _dirichlet_mid,
     build_flat_spectral_solve,
@@ -287,6 +288,8 @@ class ImmersedPressureSolver:
         self._single_precision = bool(single_precision)
         self._immersed = immersed
         self._axes: tuple[str, ...] = self._space.active_axis_names
+        require_solver_halo(
+            grid, self._axes, solver="ImmersedPressureSolver")
         self._resolve_flux_rows(grid.dispatch)
         # concrete, memoized fraction fields (I0): open-area fraction
         # on each flux face, cell volume fraction on the pressure cell
