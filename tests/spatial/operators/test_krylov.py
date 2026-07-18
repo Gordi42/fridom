@@ -456,6 +456,31 @@ def test_explicit_initial_guess_matches_zero_start():
     assert float(jnp.abs(x_zero.data - x_guess.data).max()) < 1e-10
 
 
+def test_singular_warm_start_stays_gauged_and_matches_zero_start():
+    # Phase E (GE-1): a singular (projected) solve warm-started from a
+    # deliberately NON-mean-free guess must still return the mean-free
+    # solution, bit-for-bit close to the zero-start solve — the solver
+    # projects x0 at entry (r0 = b - A(x0)) and re-gauges the result,
+    # so a guess never leaks its mean into the returned pressure.
+    grid = build_grid()
+    rhs = rich_rhs(grid)
+    space = rhs.function_space
+    apply_a, exact = spectral_pieces(grid, space, sign=-1.0)
+    cg = ConjugateGradient(
+        apply_a, preconditioner=exact, iterations=6, project_mean=True)
+    x_zero = cg(rhs)
+    # a guess with a large, deliberate constant offset (non-mean-free)
+    guess = exact(rhs - rhs.mean()) + grid.create_field(
+        init=lambda x, y: 7.0 + 0.0 * x + 0.0 * y)
+    assert float(jnp.abs(jnp.sum(guess.mean().data))) > 1.0
+    x_warm = cg(rhs, x0=guess)
+    # the returned solution is mean-free (the gauge holds)
+    assert float(jnp.abs(jnp.sum(x_warm.mean().data))) < 1e-12
+    # and equals the zero-start solution to rounding
+    scale = float(jnp.abs(x_zero.data).max())
+    assert float(jnp.abs(x_warm.data - x_zero.data).max()) < 1e-10 * scale
+
+
 # ================================================================
 #  Exact convergence under fixed iterations (the guarded ratios)
 # ================================================================

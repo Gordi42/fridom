@@ -655,6 +655,16 @@ class DynamicalCore(fr.model.Module):
         reads the substage's geometry; a static mapped grid finds
         no parameter fields in the state and keeps the declaration
         defaults (the exact C3 path).
+
+        Warm start (Phase E): the PCG is seeded with the previous
+        step's potential ``x0 = state["p"] * ctx.stage_dt``. The
+        stored diagnostic is ``p = phi / stage_dt``, so multiplying by
+        the CURRENT ``stage_dt`` reconstructs the previous solve
+        variable ``phi`` at this stage's increment; the RHS-relative
+        stopping test then saves the iterations a good guess makes
+        unnecessary. The first step's zero-initialized ``p`` seeds a
+        zero guess, and the mean gauge is enforced start-independently
+        inside the solve, so the result is unchanged.
         """
         dsqr = ctx.params[DSQR]
         grid = state["u"].grid
@@ -679,7 +689,7 @@ class DynamicalCore(fr.model.Module):
         # solve and correction share the solver's per-solve memo (it
         # dies with the call, so the next step re-derives at the new
         # geometry — MappedPressureSolver.project)
-        p, corr = solver.project(vel)
+        p, corr = solver.project(vel, x0=state["p"] * ctx.stage_dt)
         return {
             "u": state["u"] - corr["x"].retag(state["u"]),
             "v": state["v"] - corr["y"].retag(state["v"]),
@@ -708,6 +718,13 @@ class DynamicalCore(fr.model.Module):
         vertical weight ``1/dsqr`` rides the solver's own vertical leg.
         A ``MaskState`` CONSTRAINT stage (added by the factory) keeps
         the dry velocity DOFs dead against the other tendency modules.
+
+        Warm start (Phase E): the PCG is seeded with the previous
+        step's potential ``x0 = state["p"] * ctx.stage_dt`` (the
+        stored ``p = phi / stage_dt`` rescaled back to this stage's
+        increment); the wet-mean gauge is enforced start-independently
+        inside the solve, so a good guess only saves iterations. The
+        first step's zero ``p`` seeds a zero guess (unchanged).
         """
         dsqr = ctx.params[DSQR]
         grid = state["u"].grid
@@ -728,7 +745,7 @@ class DynamicalCore(fr.model.Module):
             multigrid_levels=self._multigrid_levels,
             multigrid_tridiagonal_method=(
                 self._multigrid_tridiagonal_method))
-        p, corr = solver.project(vel)
+        p, corr = solver.project(vel, x0=state["p"] * ctx.stage_dt)
         return {
             "u": state["u"] - corr["x"].retag(state["u"]),
             "v": state["v"] - corr["y"].retag(state["v"]),

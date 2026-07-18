@@ -705,6 +705,7 @@ class ImmersedPressureSolver:
 
     def project(
         self, vel: Mapping[str, ScalarField],
+        x0: ScalarField | None = None,
     ) -> tuple[ScalarField, dict[str, ScalarField]]:
         r"""
         Run the whole masked projection (divergence, solve, correction).
@@ -718,16 +719,24 @@ class ImmersedPressureSolver:
         topography" convention — the correction is already applied, so
         the mask is purely cosmetic).
 
+        The optional ``x0`` warm-starts the PCG from the previous
+        step's solved potential (:meth:`solve`); the returned solution
+        is projected onto the wet-mean-free gauge and stays
+        start-independent, so a good guess only saves iterations.
+
         Parameters
         ----------
         vel : Mapping[str, ScalarField]
             The provisional velocity components (:meth:`divergence`).
+        x0 : ScalarField | None, optional
+            The warm-start initial guess for the solve; None starts
+            from zeros (default: None).
 
         Returns
         -------
         tuple[ScalarField, dict[str, ScalarField]]
             The masked pressure and the per-axis velocity corrections.
         """
-        p = self.solve(self.divergence(vel))
+        p = self.solve(self.divergence(vel), x0)
         corr = self.velocity_correction(p)
         return p.with_data(p.data * self._cell_mask), corr

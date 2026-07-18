@@ -312,6 +312,35 @@ def test_projection_removes_the_measured_divergence():
     assert rel < 1e-12
 
 
+def test_project_warm_start_matches_cold_start():
+    # Phase E (GE-1): warm-starting project() from the previous solved
+    # pressure converges to the same mean-free pressure as the cold
+    # (zero) start and removes the same divergence (both solves run to
+    # convergence at the default 20 iterations).
+    solver, grid, mx, ms = build_solver(tolerance=None)
+    vel = random_velocity(grid, mx, ms)
+    p_cold, corr_cold = solver.project(vel)
+    # the previous-step guess: the cold solution reused as x0
+    p_warm, corr_warm = solver.project(vel, x0=p_cold)
+    scale = float(jnp.abs(p_cold.data).max())
+    assert float(jnp.abs(p_warm.data - p_cold.data).max()) < 1e-8 * scale
+    for a in ("x", "sigma"):
+        cs = float(jnp.abs(corr_cold[a].data).max())
+        assert float(
+            jnp.abs(corr_warm[a].data - corr_cold[a].data).max()
+        ) < 1e-8 * cs
+    # warm start never worsens the projection quality
+    proj_warm = {
+        "x": vel["x"] - corr_warm["x"].retag(vel["x"]),
+        "sigma": vel["sigma"] - corr_warm["sigma"].retag(vel["sigma"]),
+    }
+    after = solver.divergence(proj_warm)
+    div = solver.divergence(vel)
+    rel = (float(jnp.abs(after.data).max())
+           / float(jnp.abs(div.data).max()))
+    assert rel < 1e-8
+
+
 def test_divergence_vanishes_on_a_physical_streamfunction_flow():
     # psi(x, z) = sin(pi z / H) cos(x) is a boundary-conforming
     # streamfunction: u = psi_z, w = -psi_x|_z is physically

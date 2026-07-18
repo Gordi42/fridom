@@ -1551,6 +1551,7 @@ class MappedPressureSolver:
 
     def project(
         self, vel: Mapping[str, ScalarField],
+        x0: ScalarField | None = None,
     ) -> tuple[ScalarField, dict[str, ScalarField]]:
         """
         Run the whole projection on one shared metric derivation.
@@ -1567,10 +1568,18 @@ class MappedPressureSolver:
         Under a moving geometry the next step builds a new solver
         with the new parameter fields and derives everything afresh.
 
+        The optional ``x0`` warm-starts the PCG from the previous
+        step's solved potential (:meth:`solve`); the stopping test is
+        RHS-relative, so a good guess saves achieved iterations while
+        the returned solution stays mean-free and start-independent.
+
         Parameters
         ----------
         vel : Mapping[str, ScalarField]
             The physical velocity components (:meth:`divergence`).
+        x0 : ScalarField | None, optional
+            The warm-start initial guess for the solve; None starts
+            from zeros (default: None).
 
         Returns
         -------
@@ -1579,5 +1588,5 @@ class MappedPressureSolver:
             corrections to subtract (:meth:`velocity_correction`).
         """
         cache: MetricCache = {}
-        p = self.solve(self.divergence(vel, cache), cache=cache)
+        p = self.solve(self.divergence(vel, cache), x0, cache=cache)
         return p, self.velocity_correction(p, cache)
