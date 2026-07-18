@@ -871,3 +871,191 @@ def test_beta_plane_blend_is_device_count_invariant(forced_devices):
     assert max(
         float(np.abs(results["many"][c] - results["one"][c]).max())
         for c in ("u", "v", "p")) < 1e-11
+
+
+# ================================================================
+#  R3: the law-valued beta-plane f(y,t) = ProfileFunction (TDF-D7)
+# ================================================================
+# A ProfileFunction f gives the complete non-affine f(y,t): f_coriolis
+# is a time_dependent AUXILIARY field rewritten every substage by a
+# SELF_UPDATE stage (f0/beta become inert). The static (f0/beta) paths
+# are untouched, and a frozen-L (ETDRK4) stepper refuses the marked
+# field automatically.
+def _law_channel(grid, law, order=1):
+    """Return a linear sw channel with a law-valued Coriolis f(y,t)."""
+    return sw.Model(
+        grid=grid, csqr=1.0, rossby_number=0.2,
+        coriolis=BetaPlaneCoriolis(f=law), advection=False,
+        time_stepper=fr.model.time_steppers.AdamBashforth(
+            RAMP_DT, order=order))
+
+
+def _affine_law(f0=1.3, s=2.0):
+    """Return f(y,t) = f0 + s*t*y (affine in y; a static beta per t)."""
+    return fr.model.ProfileFunction(
+        lambda y, t, f0, s: f0 + s * t * y, params=(f0, s))
+
+
+def test_beta_plane_law_rejects_a_non_profilefunction():
+    with pytest.raises(TypeError,
+                       match=r"must be a fr\.model\.ProfileFunction"):
+        BetaPlaneCoriolis(f=lambda y, t: y + t)
+
+
+def test_beta_plane_law_rejects_a_ramped_f0_alongside_the_law():
+    ramp = fr.model.Ramp(0.0, 1.0, period=1.0)
+    with pytest.raises(TypeError, match="cannot be combined"):
+        BetaPlaneCoriolis(f0=ramp, f=_affine_law())
+
+
+def test_beta_plane_static_is_not_profile_active():
+    static = BetaPlaneCoriolis(f0=F0, beta=2.0)
+    assert not static._profile_active
+    assert static.extra_halo is None
+
+
+def test_beta_plane_law_declares_a_time_dependent_f_coriolis():
+    """The law path declares one time_dependent f_coriolis, no blend."""
+    model = _law_channel(_r1_grid(), _affine_law())
+    assert model.module(BetaPlaneCoriolis)._profile_active
+    assert "f_coriolis" in model.state
+    assert "f_coriolis_const" not in model.state
+    assert "f_coriolis_grad" not in model.state
+    decls = {d.name: d for d in
+             model.module(BetaPlaneCoriolis).field_declarations}
+    assert decls["f_coriolis"].time_dependent
+
+
+def test_beta_plane_law_materializes_the_law_at_t0():
+    model = _law_channel(_r1_grid(), _affine_law(f0=1.3, s=2.0))
+    y = (np.arange(N) + 0.5) * (1.0 / N)
+    field = np.asarray(model.state["f_coriolis"].data).ravel()
+    np.testing.assert_allclose(field, 1.3 + 2.0 * 0.0 * y, atol=1e-13)
+
+
+@pytest.mark.parametrize("t", [0.0, 0.017, 0.05, 0.2])
+def test_beta_plane_law_tendency_matches_static_at_stage_time(t):
+    """law.tendency(z, t) == static-beta(t) model, for an affine-in-y law.
+
+    The affine law f(y,t) = f0 + s*t*y equals a static beta-plane with
+    beta = s*t at stage time t, so the SELF_UPDATE-driven rotation
+    tendency matches the frozen-field static model.
+    """
+    grid = _r1_grid()
+    f0v, sv = 1.3, 2.0
+    law = _law_channel(grid, _affine_law(f0v, sv), order=1)
+    z = random_state(law, seed=5)
+    got = law.tendency(z, t=t)
+
+    const = _beta_channel(grid, f0=f0v, beta=sv * t, order=1)
+    const.set_fields(**{c: np.asarray(z[c].data)
+                        for c in ("u", "v", "p")})
+    z_const = sw.State({c: const.state[c] for c in ("u", "v", "p")})
+    want = const.tendency(z_const)
+    for c in ("u", "v", "p"):
+        np.testing.assert_allclose(
+            np.asarray(got[c].data), np.asarray(want[c].data),
+            rtol=1e-12, atol=1e-13)
+
+
+def test_beta_plane_law_field_equals_the_law_at_stage_time():
+    """After a run, f_coriolis holds the law sampled at the stage clock."""
+    grid = _r1_grid()
+    law = _law_channel(grid, _affine_law(f0=1.3, s=2.0), order=3)
+    law.advance(3)
+    y = (np.arange(N) + 0.5) * (1.0 / N)
+    t_last = 2 * RAMP_DT
+    field = np.asarray(law.state["f_coriolis"].data).ravel()
+    np.testing.assert_allclose(field, 1.3 + 2.0 * t_last * y, atol=1e-12)
+
+
+def test_beta_plane_law_time_dependent_linear_parameters():
+    """The frozen-L hook reports the marked f_coriolis field."""
+    module = BetaPlaneCoriolis(f=_affine_law())
+    assert module.time_dependent_linear_parameters() == ("f_coriolis",)
+
+
+def test_beta_plane_law_etdrk4_refuses():
+    """A frozen-L (ETDRK4) stepper refuses a scheduled f(y,t)."""
+    grid = _r1_grid()
+    static = sw.Model(
+        grid=grid, csqr=1.0, rossby_number=0.2,
+        coriolis=BetaPlaneCoriolis(f0=1.0, beta=2.0), advection=True,
+        time_stepper=fr.model.time_steppers.AdamBashforth(RAMP_DT))
+    basis = sw.eigenbasis(static)
+    law = fr.model.ProfileFunction(
+        lambda y, t, a: a * jnp.sin(y + t), params=(1.0,))
+    with pytest.raises(
+            fr.model.errors.TimeDependentLinearOperatorError,
+            match=r"f_coriolis"):
+        sw.Model(
+            grid=grid, csqr=1.0, rossby_number=0.2,
+            coriolis=BetaPlaneCoriolis(f=law), advection=True,
+            time_stepper=fr.model.time_steppers.ETDRK4(RAMP_DT, basis),
+            term_filter=~terms.linear)
+
+
+def test_beta_plane_law_adam_bashforth_runs_finite():
+    law = fr.model.ProfileFunction(
+        lambda y, t, a: a * jnp.sin(y + 3.0 * t), params=(1.0,))
+    model = _law_channel(_r1_grid(), law, order=3)
+    model.set_fields(**{c: np.random.default_rng(1).standard_normal(
+        np.asarray(model.state[c].data).shape) for c in ("u", "v", "p")})
+    model.advance(6)
+    assert all(np.all(np.isfinite(np.asarray(model.state[c].data)))
+               for c in ("u", "v", "p"))
+
+
+def test_beta_plane_law_actually_changes_the_answer():
+    """Sanity: a time-dependent law run differs from its t=0 freeze."""
+    grid = _r1_grid()
+    comps = ("u", "v", "p")
+    law = fr.model.ProfileFunction(
+        lambda y, t, a: a * jnp.sin(y + 4.0 * t), params=(1.0,))
+    scheduled = _law_channel(grid, law, order=3)
+    state0 = random_state(scheduled, seed=2)
+    init = {c: np.asarray(state0[c].data).copy() for c in comps}
+    scheduled.advance(6)
+    out = {c: np.asarray(scheduled.state[c].data) for c in comps}
+
+    frozen_law = fr.model.ProfileFunction(
+        lambda y, t, a: a * jnp.sin(y), params=(1.0,))  # noqa: ARG005
+    frozen = _law_channel(grid, frozen_law, order=3)
+    frozen.set_fields(**init)
+    frozen.advance(6)
+    assert any(not np.allclose(out[c], np.asarray(frozen.state[c].data))
+               for c in comps)
+
+
+@pytest.mark.multi_device
+def test_beta_plane_law_is_device_count_invariant(forced_devices):
+    """Gate (d): the law-path f(y,t) recompute is halo-correct (forced-4)."""
+    if forced_devices is not None:
+        assert jax.device_count() == forced_devices
+    law = fr.model.ProfileFunction(
+        lambda y, t, a: a * jnp.sin(y + 4.0 * t), params=(0.7,))
+
+    def build(device_ids):
+        mx = fr.spatial.meshes.IntervalMesh(N, (0.0, 1.0),
+                                            periodic=True, name="x")
+        my = fr.spatial.meshes.IntervalMesh(N, (0.0, 1.0),
+                                            periodic=False, name="y")
+        return _law_channel(
+            fr.spatial.Grid((mx, my), device_ids=device_ids), law, order=3)
+
+    rng = np.random.default_rng(4)
+    fields = {"u": rng.standard_normal((N, N)),
+              "v": rng.standard_normal((N, N - 1)),
+              "p": rng.standard_normal((N, N))}
+    results = {}
+    for tag, device_ids in (("many", None), ("one", (0,))):
+        model = build(device_ids)
+        model.set_fields(**fields)
+        model.advance(5)
+        results[tag] = {c: np.asarray(model.state[c].data)
+                        for c in ("u", "v", "p")}
+        if tag == "many":
+            assert model.state["u"]._data.sharding.spec[0] == "devices"
+    assert max(
+        float(np.abs(results["many"][c] - results["one"][c]).max())
+        for c in ("u", "v", "p")) < 1e-11
