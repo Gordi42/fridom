@@ -35,16 +35,19 @@ def sphere_grid(nlon=2 * N, nlat=N, radius=1.0):
         (nlon, nlat), radius=radius, lat_extent=(-LAT_MAX, LAT_MAX))
 
 
-def sphere_model(*, coriolis, csqr=0.7, ro=0.4):
-    """Assemble a tiny linear spherical shallow-water model.
+def sphere_model(*, coriolis, csqr=0.7, ro=0.4, advection=False):
+    """Assemble a tiny spherical shallow-water model.
 
-    ``advection=False`` isolates the linear core's metric divergence
-    (the ``MetricScaled`` reciprocal); the nonlinear Sadourny scheme
-    carries its own guarded metric divides, out of scope here.
+    ``advection=False`` (the default) isolates the linear core's metric
+    divergence (the ``MetricScaled`` reciprocal). ``advection=True``
+    additionally exercises the nonlinear Sadourny scheme, whose chart
+    path divides the kinetic energy by the centre metric ``sqrt_g``
+    (``sqg_p``, an exact zero in the walled polar/halo padding); that
+    divide carries its own ``_sealed_metric_divide`` guard.
     """
     return sw.Model(
         grid=sphere_grid(), coords=("lon", "lat"), csqr=csqr,
-        rossby_number=ro, coriolis=coriolis, advection=False,
+        rossby_number=ro, coriolis=coriolis, advection=advection,
         time_stepper=fr.model.time_steppers.AdamBashforth(1e-3, order=3))
 
 
@@ -125,3 +128,37 @@ def test_sphere_run_stays_finite():
                         model._carry, model._stepper).state
     for name in ("u", "v", "p"):
         assert bool(np.all(np.isfinite(np.asarray(state[name].data))))
+
+
+# ================================================================
+#  The nonlinear (Sadourny) chart run: the sqg_p kinetic-energy seal
+# ================================================================
+def test_sphere_advection_ic_grad_is_finite_and_matches_fd():
+    """Grad through the Sadourny chart run w.r.t. the IC: finite, FD.
+
+    ``advection=True`` routes through ``SadournyAdvection._advect_chart``,
+    which divides the chart kinetic energy by the centre metric
+    ``sqg_p``. That weight is an exact zero in the walled sphere's
+    never-valid polar/halo padding, so the bare quotient's reverse VJP
+    is the masked ``0 * inf = NaN`` that poisoned every gradient with a
+    data path through the kinetic energy; ``_sealed_metric_divide`` keeps
+    the forward run bitwise identical on valid cells while making
+    ``jax.grad`` finite and matched to a central finite difference.
+    """
+    model = sphere_model(coriolis=None, advection=True)
+    set_random(model)
+    loss, p_leaf = ic_loss(model, n_steps=6)
+
+    grad = np.asarray(jax.grad(loss)(p_leaf))
+    # the pre-seal bug NaNed every entry with a data path through the
+    # Sadourny chart kinetic energy; the sqg_p seal keeps them finite
+    assert bool(np.all(np.isfinite(grad)))
+
+    rng = np.random.default_rng(0)
+    direction = jnp.asarray(rng.standard_normal(p_leaf.shape),
+                            dtype=p_leaf.dtype)
+    directional = float(jnp.vdot(jnp.asarray(grad), direction))
+    eps = 1e-4
+    fd = (float(loss(p_leaf + eps * direction))
+          - float(loss(p_leaf - eps * direction))) / (2.0 * eps)
+    assert directional == pytest.approx(fd, rel=1e-4)

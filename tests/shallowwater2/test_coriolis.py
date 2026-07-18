@@ -26,7 +26,9 @@ import pytest
 import fridom as fr
 import fridom.shallowwater2 as sw
 from fridom.model.errors import LinearOperatorGapError
+from fridom.model.model import _chunk_body
 from fridom.model.params import CORIOLIS_F0
+from fridom.shallowwater2.modules.coriolis import _safe_pv_divide
 
 CSQR = 0.7
 RO = 0.4
@@ -715,3 +717,79 @@ def test_ramped_beta_leakage_decays_with_tau(adiabatic_channel, direction):
     assert etas[-1] < 0.75 * etas[0], etas
     # the leakage is real but small: the slow state stays mostly slow
     assert etas[0] < 0.2, etas
+
+
+# ================================================================
+#  Reverse-mode autodiff: the conserving f/h potential-vorticity divide
+# ================================================================
+# The conserving Coriolis carries the ``f``-part of the PV, ``f / h_bar``.
+# On a walled grid (the lat-lon sphere's polar caps, a closed basin) the
+# corner thickness ``h`` is an exact zero in the never-valid corner/halo
+# padding, where ``f`` vanishes too, so the bare quotient is a masked
+# ``0/0`` whose reverse-mode VJP (``-f/h^2``, ``h = 0``) is a NaN poison
+# — the same masked singularity ``SadournyAdvection._potential_vorticity``
+# cures for the advective PV divide. ``_safe_pv_divide`` guards it; these
+# pin the guard (padding NaN removed, valid interior bitwise identical)
+# and a finite, FD-matched gradient through a route-B run.
+def ic_grad_loss(model, n_steps):
+    """Quadratic loss in the initial-pressure storage via _chunk_body."""
+    record = model._artifacts.record
+    stepper = model._stepper
+    p_leaf = model._carry.state["p"].storage
+    leaves, treedef = jax.tree_util.tree_flatten(model._carry)
+    (idx,) = [i for i, ref in enumerate(leaves) if ref is p_leaf]
+
+    def loss(x):
+        new = list(leaves)
+        new[idx] = x
+        carry = jax.tree_util.tree_unflatten(treedef, new)
+        state = _chunk_body(record, n_steps, carry, stepper).state
+        return (jnp.sum(state["p"].data ** 2)
+                + jnp.sum(state["u"].data ** 2)
+                + jnp.sum(state["v"].data ** 2))
+
+    return loss, p_leaf
+
+
+def test_conserving_pv_divide_removes_padding_nan():
+    """The f/h guard eliminates the ghost 0/0 without touching cells."""
+    model = set_random(sphere_model("B"))
+    state = model._carry.state
+    u, v, p, c = state["u"], state["v"], state["p"], state["csqr"]
+    f = state["f_coriolis"]
+    h = c.to(p) + RO * p
+    corner = u.function_space.bare.replace(
+        lat=v.function_space.bare.factor("lat"))
+    num, den = f.to(corner), h.to(corner)
+
+    bare = num / den                           # the un-guarded quotient
+    guarded = _safe_pv_divide(num, den)
+
+    # the bug: exact zeros in the padded denominator -> NaN in storage
+    assert int((np.asarray(den.storage) == 0.0).sum()) > 0
+    assert bool(np.isnan(np.asarray(bare.storage)).any())
+    # the fix: no NaN anywhere in the guarded storage
+    assert not bool(np.isnan(np.asarray(guarded.storage)).any())
+    # and the valid interior is bitwise identical (only padding changed)
+    assert np.array_equal(np.asarray(bare.data),
+                          np.asarray(guarded.data))
+
+
+def test_conserving_rotation_ic_grad_is_finite_and_matches_fd():
+    """Grad through a route-B walled-sphere run w.r.t. the IC: finite, FD."""
+    model = set_random(sphere_model("B"))
+    loss, p_leaf = ic_grad_loss(model, n_steps=6)
+
+    grad = np.asarray(jax.grad(loss)(p_leaf))
+    # the pre-seal bug NaNed every entry with a data path through the
+    # conserving rotation; the f/h seal keeps them finite
+    assert bool(np.all(np.isfinite(grad)))
+
+    rng = np.random.default_rng(0)
+    direction = jnp.asarray(rng.standard_normal(p_leaf.shape),
+                            dtype=p_leaf.dtype)
+    directional = float(jnp.vdot(jnp.asarray(grad), direction))
+    eps = 1e-4
+    fd = (float(loss(p_leaf + eps * direction))
+          - float(loss(p_leaf - eps * direction))) / (2.0 * eps)
+    assert directional == pytest.approx(fd, rel=1e-4)

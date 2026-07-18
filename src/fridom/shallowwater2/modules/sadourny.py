@@ -276,6 +276,40 @@ def _potential_vorticity(
     return zeta / safe
 
 
+def _sealed_metric_divide(
+    num: ScalarField, den: ScalarField,
+) -> ScalarField:
+    r"""Return ``num / den`` with the metric denominator VJP-sealed.
+
+    Description
+    -----------
+    The chart kinetic energy divides the lowered velocity quadratics by
+    the centre metric :math:`\sqrt g` (``sqg_p``). On a walled chart
+    (the lat-lon sphere's polar caps) that weight is an **exact zero**
+    in the never-valid storage/halo padding, where the numerator
+    vanishes too, so the bare quotient is a masked ``0/0``. The forward
+    pass strips those cells (sealed/stripped before any output), but
+    reverse-mode autodiff does not: the quotient VJP
+    (:math:`-\mathrm{num}/\mathrm{den}^2` with ``den == 0``) turns the
+    zero cotangent of a sealed cell into ``0 * inf = NaN`` and poisons
+    every gradient with a data path through the Sadourny kinetic energy
+    — the same masked singularity ``_potential_vorticity`` cures for the
+    PV divide, and ``coriolis._safe_metric_divide`` for the rotation
+    weights. Replacing the exact-zero denominators by 1 keeps the ratio
+    finite there; valid cells (``den != 0``) divide by the true metric
+    and are bitwise unchanged, forward and reverse. Like
+    ``_potential_vorticity`` (its sibling in this method), this runs only
+    on real storage — the chart advection tendency is never halo-traced
+    with storage-less operands — so no storage-less escape hatch is
+    needed.
+    """
+    guarded = jnp.where(den.storage == 0.0, 1.0, den.storage)
+    safe = ScalarField(
+        den.grid, den.function_space, guarded,
+        den.metadata, halo_valid=den.halo_valid)
+    return num / safe
+
+
 class SadournyAdvection(fr.model.Module):
 
     r"""
@@ -832,8 +866,13 @@ class SadournyAdvection(fr.model.Module):
                            f"g_{zonal}{zonal}")
         g_vv = grid.metric(v.function_space.bare,
                            f"g_{meridional}{meridional}")
-        ekin = 0.5 * (((sqg_u * g_uu) * (u * u)).to(p)
-                      + ((sqg_v * g_vv) * (v * v)).to(p)) / sqg_p
+        # the / sqg_p divide is VJP-sealed: sqg_p is an exact zero in
+        # the walled chart's never-valid padding, so the bare quotient's
+        # reverse mode poisons the gradient with a masked 0/0 (see
+        # _sealed_metric_divide; the same cure as the PV divide above)
+        ekin_num = 0.5 * (((sqg_u * g_uu) * (u * u)).to(p)
+                          + ((sqg_v * g_vv) * (v * v)).to(p))
+        ekin = _sealed_metric_divide(ekin_num, sqg_p)
 
         # --- covariant momentum tendencies, raised -----------------
         cov = Variance.COVARIANT
