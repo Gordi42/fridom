@@ -2,8 +2,9 @@
 
 Covers configure(): the FRIDOM_DISABLE_COMPILE_CACHE opt-out, the
 never-clobber guard, the default XDG path, the FRIDOM_JAX_CACHE_DIR
-override, the per-rank subdirectory under a real multi-process launch,
-and the best-effort fallback when rank detection raises.
+override, the multi-process-disabled policy (cache left untouched
+unless the directory is explicitly overridden), and the best-effort
+fallback when multi-process detection raises.
 """
 from pathlib import Path
 
@@ -102,20 +103,53 @@ def test_fridom_jax_cache_dir_override_is_respected(monkeypatch,
 
 
 # ================================================================
-#  configure(): multi-process rank isolation
+#  configure(): multi-process is disabled unless overridden
 # ================================================================
-def test_distributed_run_gets_a_per_rank_subdir(monkeypatch, tmp_path):
-    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path))
+def _fake_multiprocess(monkeypatch, num_processes=4):
+    """Make _is_multiprocess() see a real multi-process launch."""
     monkeypatch.setattr(jax.distributed, "is_initialized",
                         lambda: True)
-    monkeypatch.setattr(distributed.global_state, "process_id", 3)
+    monkeypatch.setattr(distributed.global_state, "num_processes",
+                        num_processes)
+
+
+def test_multiprocess_without_override_leaves_config_untouched(
+        monkeypatch, tmp_path):
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path))
+    _fake_multiprocess(monkeypatch)
+    jax.config.update(CACHE_DIR, None)
+    jax.config.update(MIN_SECS, 7.0)
+    jax.config.update(MIN_BYTES, 42)
+    cache_mod.configure()
+    assert jax.config.jax_compilation_cache_dir is None
+    assert jax.config.jax_persistent_cache_min_compile_time_secs == 7.0
+    assert jax.config.jax_persistent_cache_min_entry_size_bytes == 42
+
+
+def test_multiprocess_with_override_configures_the_override(
+        monkeypatch, tmp_path):
+    override = tmp_path / "my_cache"
+    monkeypatch.setenv("FRIDOM_JAX_CACHE_DIR", str(override))
+    _fake_multiprocess(monkeypatch)
+    jax.config.update(CACHE_DIR, None)
+    cache_mod.configure()
+    assert Path(jax.config.jax_compilation_cache_dir) == override
+    assert jax.config.jax_persistent_cache_min_compile_time_secs == 0.0
+    assert jax.config.jax_persistent_cache_min_entry_size_bytes == 0
+
+
+def test_single_process_launch_is_not_treated_as_multiprocess(
+        monkeypatch, tmp_path):
+    # distributed initialized but with a single process -> normal cache
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path))
+    _fake_multiprocess(monkeypatch, num_processes=1)
     jax.config.update(CACHE_DIR, None)
     cache_mod.configure()
     got = Path(jax.config.jax_compilation_cache_dir)
-    assert got == tmp_path / "fridom" / "jax" / "proc3"
+    assert got == tmp_path / "fridom" / "jax"
 
 
-def test_rank_detection_failure_falls_back_to_the_plain_dir(
+def test_multiprocess_detection_failure_falls_back_to_enabled(
         monkeypatch, tmp_path):
     def _boom():
         raise RuntimeError("no coordinator")

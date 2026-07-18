@@ -33,13 +33,13 @@ def mesh():
 
 @pytest.fixture
 def grid(mesh):
-    return Grid((mesh,))
+    return Grid((mesh,), device_ids=(0,))
 
 
 @pytest.fixture
 def other_grid():
     return Grid((IntervalMesh(N, (0.0, 1.0), periodic=True,
-                              name="x"),))
+                              name="x"),), device_ids=(0,))
 
 
 def _field(grid, name, shift):
@@ -228,7 +228,7 @@ def make_model(*, modules=None, dt=DT, name="toy"):
     the inertial period.
     """
     grid = Grid((IntervalMesh(N, (0.0, 1.0), periodic=True,
-                              name="x"),))
+                              name="x"),), device_ids=(0,))
     if modules is None:
         modules = (Coriolis(), F0Provider())
     return Model(grid=grid, modules=modules,

@@ -21,7 +21,9 @@ from fridom.spatial.operators.finite_difference import (
 )
 from fridom.spatial.operators.staggering import (
     divide_by_codomain_measure,
+    exterior_reach,
     first_node_offset,
+    footprint_reach,
     mapped_factor,
     mapped_mesh,
     mapped_order_hint,
@@ -123,7 +125,7 @@ def _stretched_diff_loss(space_attr, periodic):
     def loss(c):
         mesh = MappedIntervalMesh(8, (0.0, 1.0), _wavy,
                                   periodic=periodic, name="v")
-        grid = Grid((mesh,))
+        grid = Grid((mesh,), device_ids=(0,))
         space = getattr(mesh, space_attr)
         f = grid.create_field(
             space, init=lambda v: jnp.sin(2.0 * jnp.pi * v)) * c
@@ -162,7 +164,7 @@ def test_divide_by_codomain_measure_is_bitwise_on_true_cells():
     # quotient equals the raw ``result / measure`` on the true region.
     mesh = MappedIntervalMesh(8, (0.0, 1.0), _wavy, periodic=False,
                               name="v")
-    grid = Grid((mesh,))
+    grid = Grid((mesh,), device_ids=(0,))
     result = grid.create_field(
         mesh.cell_avg, init=lambda v: jnp.cos(2.0 * jnp.pi * v) + 2.0)
     out = divide_by_codomain_measure(result, result, "v")
@@ -178,7 +180,7 @@ def test_divide_by_codomain_measure_bitwise_whole_array_periodic():
     # slots included) is bitwise identical to the raw quotient.
     mesh = MappedIntervalMesh(8, (0.0, 1.0), _wavy, periodic=True,
                               name="v")
-    grid = Grid((mesh,))
+    grid = Grid((mesh,), device_ids=(0,))
     result = grid.create_field(
         mesh.cell_avg, init=lambda v: jnp.sin(2.0 * jnp.pi * v) + 3.0)
     out = divide_by_codomain_measure(result, result, "v")
@@ -216,3 +218,49 @@ def test_axis_missing_from_the_halo_spec_counts_as_width_zero(mx):
     field = FieldStandIn(GridStandIn(), mx.center, jnp.arange(8.0))
     with pytest.raises(ValueError, match="halo width 0"):
         FiniteDifference()["x"](field)
+
+
+# ================================================================
+#  Per-shard footprint reach vs boundary exterior reach: the
+#  fix/walled-shard-halo-validity regression
+# ================================================================
+def test_footprint_reach_is_the_pure_stencil_span():
+    # a 2-point stencil aligned at m0=0 reads its own slot and the one
+    # above -> footprint (0, 1); m0=1 reads its own slot and the one
+    # below -> (1, 0). No global codomain/domain length term enters.
+    assert footprint_reach(2, 0) == (0, 1)
+    assert footprint_reach(2, 1) == (1, 0)
+    # a 4-point kernel aligned at m0=1 spans one below, two above
+    assert footprint_reach(4, 1) == (1, 2)
+
+
+def test_footprint_and_exterior_reach_differ_on_a_shrinking_wall(my):
+    # THE regression pin (fix/walled-shard-halo-validity): a staggered
+    # first difference Center(bounded) -> Inner shrinks the codomain
+    # (n_out = n_in - 1), so its boundary EXTERIOR reach cancels to
+    # (0, 0) -- no exterior/wall slot is read, which is why the diff is
+    # legal on a BC-free bounded side. But the PER-SHARD stencil
+    # footprint is (0, 1): every interior shard boundary still reads a
+    # neighbor slot. The requirements must publish the footprint, or a
+    # sharded walled operand's inter-shard halo is never synced before
+    # the flux difference (silent wrong physics). The two are distinct.
+    op = FiniteDifference(order=2)["y"]
+    center = my.center
+    codomain = op.codomain(center)
+    assert exterior_reach(center, codomain, 2) == (0, 0)
+    assert footprint_reach(2, 0) == (0, 1)
+    # the operator publishes the footprint (a would-be-skipped sync now
+    # fires), not the cancelled exterior reach
+    assert op.requirements(center).reach == (0, 1)
+    assert op.requirements(center).reach != (0, 0)
+
+
+def test_periodic_reach_is_unchanged_by_the_footprint_fix(mx):
+    # on a periodic axis n_out == n_in, so the footprint and the
+    # boundary exterior reach coincide -- the fix leaves the periodic
+    # path (and its two-sided storage optimization) bit-for-bit intact
+    op = FiniteDifference(order=2)["x"]
+    center = mx.center
+    ext = exterior_reach(center, op.codomain(center), 2)
+    assert ext != (0, 0)
+    assert op.requirements(center).reach == ext

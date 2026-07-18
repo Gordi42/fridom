@@ -1,0 +1,15 @@
+jax.device_count() = 4; devices = [CudaDevice(id=0), CudaDevice(id=1), CudaDevice(id=2), CudaDevice(id=3)]
+config: iters=400 tol=1e-14 advection=True
+state['u'] sharding: NamedSharding(mesh=Mesh('devices': 4, axis_types=(Auto,)), spec=P('devices', None, None), memory_kind=device)
+  addressable shards: 4 of 4 devices
+panicked after 1 steps: False
+  final u: shape=(32, 32, 16) max_abs=3.861247e-01
+  final v: shape=(32, 32, 16) max_abs=3.514333e-01
+  final w: shape=(32, 32, 15) max_abs=3.361427e-02
+  final b: shape=(32, 32, 16) max_abs=5.134367e-01
+  max_abs_diff u: 1.099e-09
+  max_abs_diff v: 1.157e-09
+  max_abs_diff w: 2.127e-08
+  max_abs_diff b: 0.000e+00
+OVERALL max_abs_diff vs tight1: 2.127e-08
+EXIT=0

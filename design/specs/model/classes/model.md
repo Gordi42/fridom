@@ -545,7 +545,7 @@ Semantics, invariants, error behavior:
   treats `halo=` as an *exclusive override* that silently discards
   `tendency=` (and the `Grid.negotiate` docstring states yet a third
   precedence) — filed as a grid work item in
-  [`../../../plans/active/phase2_grid_followups.md`](../../../plans/active/phase2_grid_followups.md).
+  [`../../../plans/done/phase2_grid_followups.md`](../../../plans/done/phase2_grid_followups.md).
 - **Amended (2026-07-08) — step 8, the `ReshardingReport` walk**: the
   landed report is **layout-only** — a halo-only renegotiation reads
   `changed=False` — while halo changes alter *storage* shapes; the
@@ -959,7 +959,7 @@ Notes:
   ...). The model therefore either calls `VectorTracer` with a name
   mapping directly or demands the `trace_halo` Mapping extension —
   grid work item in the same followups file
-  ([`../../../plans/active/phase2_grid_followups.md`](../../../plans/active/phase2_grid_followups.md)).
+  ([`../../../plans/done/phase2_grid_followups.md`](../../../plans/done/phase2_grid_followups.md)).
 - **Attribution duties**: trace-time exceptions from a term/stage
   are wrapped as `TermEvaluationError` carrying the "Module/term"
   key (in particular `SpaceMismatchError` from a wrong-staggering

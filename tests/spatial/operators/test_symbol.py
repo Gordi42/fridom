@@ -36,27 +36,27 @@ N = 16
 @pytest.fixture
 def periodic():
     mx = IntervalMesh(N, (0.0, 1.0), name="x")
-    return Grid((mx,)), mx
+    return Grid((mx,), device_ids=(0,)), mx
 
 
 @pytest.fixture
 def periodic_2d():
     mx = IntervalMesh(N, (0.0, 1.0), name="x")
     my = IntervalMesh(N, (0.0, 2.0), name="y")
-    return Grid((mx, my)), mx, my
+    return Grid((mx, my), device_ids=(0,)), mx, my
 
 
 @pytest.fixture
 def walled():
     mx = IntervalMesh(N, (0.0, 1.0), periodic=False, name="x")
-    return Grid((mx,)), mx
+    return Grid((mx,), device_ids=(0,)), mx
 
 
 @pytest.fixture
 def walled_2d():
     mx = IntervalMesh(N, (0.0, 1.0), periodic=False, name="x")
     my = IntervalMesh(N, (0.0, 1.0), periodic=False, name="y")
-    return Grid((mx, my)), mx, my
+    return Grid((mx, my), device_ids=(0,)), mx, my
 
 
 # ----------------------------------------------------------------

@@ -139,7 +139,7 @@ def test_face_diff_rejects_nodal_domains(face, mx):
 # ================================================================
 def _symbol_matches_operator(op, mesh, dom_space, seed=5):
     """Symbol in coeff space == coeff image of the physical output."""
-    grid = Grid((mesh,))
+    grid = Grid((mesh,), device_ids=(0,))
     axis = mesh.names[0]
     f = grid.random.normal(dom_space, seed=seed)
     t_in = grid.dispatch.resolve("transform", dom_space)
@@ -173,7 +173,7 @@ def test_dual_flux_diff_symbol_matches_operator(dual, n, dom):
 
 
 def test_flux_diff_symbol_is_the_ik_hat_retagging_symbol(flux, mx):
-    grid = Grid((mx,))
+    grid = Grid((mx,), device_ids=(0,))
     sym = flux["x"].eigenvalues(grid, mx.fourier(origin=mx.right))
     # retags Fourier(Right) -> Fourier(CellAvg)
     assert sym.space.origin is mx.right
@@ -194,7 +194,7 @@ def test_flux_diff_symbol_is_the_ik_hat_retagging_symbol(flux, mx):
 def test_fv_legs_match_the_nodal_stencil_numbers(flux, face, mx):
     # scoping study §1: the FV divergence/gradient legs are bitwise the
     # nodal FiniteDifference numbers, differing only in the codomain tag
-    grid = Grid((mx,))
+    grid = Grid((mx,), device_ids=(0,))
     fd = FiniteDifference()
     div_fv = flux["x"].eigenvalues(grid, mx.fourier(origin=mx.right))
     div_nod = fd["x"].eigenvalues(grid, mx.fourier(origin=mx.right))
@@ -209,7 +209,7 @@ def test_eigenvalues_thread_bare_or_fourier_factor(flux, face, mx):
     # layout-faithful threading: a bare periodic origin (nodal for
     # flux, average for face) yields the same symbol as its Fourier
     # coefficient factor (fv_fourier_partner resolves both)
-    grid = Grid((mx,))
+    grid = Grid((mx,), device_ids=(0,))
     for op, origin in ((flux, mx.right), (face, mx.cell_avg)):
         bare = op["x"].eigenvalues(grid, origin)
         coeff = op["x"].eigenvalues(grid, mx.fourier(origin=origin))
@@ -232,7 +232,7 @@ def test_codomain_retags_a_fourier_factor(flux, dual, face, mx):
 
 def test_eigenvalues_raise_on_bounded(flux, dual, face, my):
     # average families have no diagonalizing basis on a walled mesh
-    grid = Grid((my,))
+    grid = Grid((my,), device_ids=(0,))
     with pytest.raises(EigenbasisError, match="periodic"):
         flux["y"].eigenvalues(grid, my.outer)
     with pytest.raises(EigenbasisError, match="periodic"):
@@ -245,7 +245,7 @@ def test_eigenvalues_raise_on_mapped(flux, face, mapped_periodic):
     # a stretched mesh's non-constant metric breaks translation
     # invariance: no diagonal symbol (scoping study G5/F5)
     mesh = mapped_periodic
-    grid = Grid((mesh,))
+    grid = Grid((mesh,), device_ids=(0,))
     with pytest.raises(EigenbasisError, match="periodic"):
         flux["w"].eigenvalues(grid, mesh.right)
     with pytest.raises(EigenbasisError, match="periodic"):
@@ -254,7 +254,7 @@ def test_eigenvalues_raise_on_mapped(flux, face, mapped_periodic):
 
 def test_eigenvalues_raise_on_non_fourier_coefficient(face, my):
     # a trig coefficient factor is not a periodic Fourier basis
-    grid = Grid((my,))
+    grid = Grid((my,), device_ids=(0,))
     sine = my.sine(my.nodal(NodeSet.CENTER, bc=BC.DIRICHLET))
     with pytest.raises(EigenbasisError, match="sine/cosine"):
         face["y"].eigenvalues(grid, sine)
@@ -263,7 +263,7 @@ def test_eigenvalues_raise_on_non_fourier_coefficient(face, my):
 def test_fv_laplacian_symbol_is_the_real_neg_khat2(mx):
     # FluxDifference @ FaceDifference: the CellAvg pressure Laplacian —
     # real -k_hat**2, the honest discrete div @ grad (Nyquist kept)
-    grid = Grid((mx,))
+    grid = Grid((mx,), device_ids=(0,))
     lap = FluxDifference() @ FaceDifference()
     coeff = mx.fourier(origin=mx.cell_avg)
     sym = lap["x"].eigenvalues(grid, coeff)
@@ -283,7 +283,7 @@ def test_walled_fv_grad_div_trig_symbols(face, flux, my):
     # div leg (Dirichlet Inner sine -> Neumann CellAvg cosine) is +2
     # sin(k dz/2)/dz -- the same magnitude, no sinc (bitwise the nodal
     # Center<->Inner numbers), with the family-flip sign
-    grid = Grid((my,))
+    grid = Grid((my,), device_ids=(0,))
     n = my.n_cells
     dz = (my.extent[1] - my.extent[0]) / n
     cos = my.cosine(my.average(CellAvg, bc=BC.NEUMANN))  # DCT-II domain
@@ -309,7 +309,7 @@ def test_walled_fv_laplacian_symbol_matches_composed_operator(my):
     # FluxDifference @ FaceDifference is the real -k_hat**2, and it
     # matches the composed FIELD operator (grad, Dirichlet-mid retag,
     # div) applied to the cosine cell-average eigenmodes to ~1e-14
-    grid = Grid((my,))
+    grid = Grid((my,), device_ids=(0,))
     n = my.n_cells
     length = my.extent[1] - my.extent[0]
     dz = length / n
@@ -339,7 +339,7 @@ def test_walled_fv_laplacian_symbol_matches_composed_operator(my):
 def test_fv_derivative_symbol_is_the_wide_centered_difference(mx):
     # FVDerivative = flux_diff @ reconstruct (CellAvg -> CellAvg): the
     # collocated wide difference i sin(k dx)/dx (the phases cancel)
-    grid = Grid((mx,))
+    grid = Grid((mx,), device_ids=(0,))
     sym = FVDerivative(LinearReconstruction())["x"].eigenvalues(
         grid, mx.fourier(origin=mx.cell_avg))
     k = fourier_wavenumbers(mx.fourier(origin=mx.cell_avg))
@@ -356,7 +356,7 @@ def test_spectral_solve_drives_1d_divergence_to_machine_zero(n):
     # gradient) solves a Poisson problem so the discrete divergence
     # after projection is machine zero on a periodic box
     mesh = IntervalMesh(n, (0.0, 1.0), name="x")
-    grid = Grid((mesh,))
+    grid = Grid((mesh,), device_ids=(0,))
     u = grid.random.normal(mesh.right, seed=4)   # face-normal velocity
     flux = FluxDifference()["x"]
     face = FaceDifference()["x"]
@@ -374,7 +374,7 @@ def test_spectral_solve_drives_1d_divergence_to_machine_zero(n):
 def test_spectral_solve_projects_a_2d_box_divergence_free(n):
     mx = IntervalMesh(n, (0.0, 1.0), name="x")
     my = IntervalMesh(n, (0.0, 2.0), name="y")
-    grid = Grid((mx, my))
+    grid = Grid((mx, my), device_ids=(0,))
     cell = mx.cell_avg * my.cell_avg
     ux = grid.random.normal(mx.right * my.cell_avg, seed=1)
     uy = grid.random.normal(mx.cell_avg * my.right, seed=2)
@@ -398,7 +398,7 @@ def test_spectral_solve_projects_a_2d_box_divergence_free(n):
 #  Exactness: telescoping / conservation (the section-3.9 contract)
 # ================================================================
 def test_bounded_flux_diff_telescopes_to_boundary_fluxes(flux, my):
-    grid = Grid((my,))
+    grid = Grid((my,), device_ids=(0,))
     f = grid.random.normal(my.outer, seed=1)
     d = flux["y"](f)
     assert d.function_space.bare is my.cell_avg
@@ -407,7 +407,7 @@ def test_bounded_flux_diff_telescopes_to_boundary_fluxes(flux, my):
 
 
 def test_inner_flux_diff_is_homogeneous(flux, my):
-    grid = Grid((my,))
+    grid = Grid((my,), device_ids=(0,))
     f = grid.random.normal(my.inner, seed=1)
     d = flux["y"](f)
     # zero boundary fluxes: the total integral telescopes to zero
@@ -420,7 +420,7 @@ def test_inner_flux_diff_is_homogeneous(flux, my):
 
 
 def test_periodic_flux_diff_is_conservative(flux, mx):
-    grid = Grid((mx,))
+    grid = Grid((mx,), device_ids=(0,))
     f = grid.random.normal(mx.right, seed=1)
     d = flux["x"](f)
     assert d.function_space.bare is mx.cell_avg
@@ -428,14 +428,14 @@ def test_periodic_flux_diff_is_conservative(flux, mx):
 
 
 def test_flux_diff_is_exact_on_linear_fluxes(flux, my):
-    grid = Grid((my,))
+    grid = Grid((my,), device_ids=(0,))
     f = grid.create_field(my.outer, init=lambda y: 5.0 * y)
     d = flux["y"](f)
     assert jnp.allclose(d.data, jnp.full(8, 5.0))
 
 
 def test_dual_flux_diff_telescopes_to_outer_centers(dual, my):
-    grid = Grid((my,))
+    grid = Grid((my,), device_ids=(0,))
     f = grid.random.normal(my.center, seed=1)
     d = dual["y"](f)
     assert d.function_space.bare is my.face_avg
@@ -444,14 +444,14 @@ def test_dual_flux_diff_telescopes_to_outer_centers(dual, my):
 
 
 def test_dual_flux_diff_exact_ftc_on_centers(dual, my):
-    grid = Grid((my,))
+    grid = Grid((my,), device_ids=(0,))
     f = grid.create_field(my.center, init=lambda y: 2.0 * y + 1.0)
     d = dual["y"](f)
     assert jnp.allclose(d.data, jnp.full(7, 2.0))
 
 
 def test_face_diff_is_the_exact_two_point_gradient(face, my):
-    grid = Grid((my,))
+    grid = Grid((my,), device_ids=(0,))
     p = grid.create_field(my.cell_avg, init=lambda y: 3.0 * y)
     g = face["y"](p)
     assert g.function_space.bare is my.inner
@@ -459,7 +459,7 @@ def test_face_diff_is_the_exact_two_point_gradient(face, my):
 
 
 def test_results_carry_default_metadata(flux, mx):
-    grid = Grid((mx,))
+    grid = Grid((mx,), device_ids=(0,))
     f = grid.create_field(mx.right, name="F", units="m/s")
     assert flux["x"](f).name == "unnamed"  # new quantity
 
@@ -481,7 +481,7 @@ def test_fv_derivative_accepts_an_explicit_reconstruction():
 
 
 def test_grid_seeds_a_concrete_fv_derivative(mx):
-    grid = Grid((mx,))
+    grid = Grid((mx,), device_ids=(0,))
     op = grid.dispatch.resolve("diff", mx.cell_avg)
     assert isinstance(op, SeparableComposite)
     assert isinstance(op.factors[0], FluxDifference)
@@ -497,7 +497,7 @@ def test_fv_diff_converges_at_second_order():
     errors = []
     for n in (16, 32):
         mesh = IntervalMesh(n, (0.0, 1.0), name="x")
-        grid = Grid((mesh,))
+        grid = Grid((mesh,), device_ids=(0,))
         f = grid.create_field(
             mesh.cell_avg, init=lambda x: jnp.sin(2 * jnp.pi * x))
         df = f.diff("x")
@@ -510,10 +510,10 @@ def test_fv_diff_converges_at_second_order():
 
 
 def test_fv_diff_is_conservative(mx, my):
-    periodic = Grid((mx,))
+    periodic = Grid((mx,), device_ids=(0,))
     f = periodic.random.normal(mx.cell_avg, seed=2)
     assert jnp.allclose(f.diff("x").integrate("x").data[0], 0.0)
-    bounded = Grid((my,))
+    bounded = Grid((my,), device_ids=(0,))
     g = bounded.random.normal(my.cell_avg, seed=3)
     # bounded default reconstructs onto Inner: homogeneous fluxes
     assert jnp.allclose(g.diff("y").integrate("y").data[0], 0.0)
@@ -522,7 +522,7 @@ def test_fv_diff_is_conservative(mx, my):
 def test_fv_diff_on_a_2d_average_product(mx, my):
     # chain-safe application: the stored-unbound factors receive
     # the axis from the composite on a multi-axis operand
-    grid = Grid((mx, my))
+    grid = Grid((mx, my), device_ids=(0,))
     f = grid.create_field(
         mx.cell_avg * my.cell_avg,
         init=lambda x, y: jnp.sin(2 * jnp.pi * x) + 0.0 * y)
@@ -558,7 +558,7 @@ def mapped_periodic():
 
 def test_mapped_flux_diff_telescopes_exactly(flux, mapped_bounded):
     mesh = mapped_bounded
-    grid = Grid((mesh,))
+    grid = Grid((mesh,), device_ids=(0,))
     f = grid.create_field(mesh.outer,
                           init=lambda v: v**3 + 0.5 * v)
     d = flux["v"](f)
@@ -571,7 +571,7 @@ def test_mapped_flux_diff_telescopes_exactly(flux, mapped_bounded):
 def test_mapped_flux_diff_is_exact_on_linear_fluxes(
         flux, mapped_bounded):
     mesh = mapped_bounded
-    grid = Grid((mesh,))
+    grid = Grid((mesh,), device_ids=(0,))
     f = grid.create_field(mesh.outer, init=lambda v: 3.0 * v)
     d = flux["v"](f)
     assert jnp.allclose(d.data, jnp.full(8, 3.0))
@@ -580,7 +580,7 @@ def test_mapped_flux_diff_is_exact_on_linear_fluxes(
 def test_mapped_inner_flux_diff_pads_exact_zero_fluxes(
         flux, mapped_bounded):
     mesh = mapped_bounded
-    grid = Grid((mesh,))
+    grid = Grid((mesh,), device_ids=(0,))
     f = grid.random.normal(mesh.inner, seed=7)
     d = flux["v"](f)
     # homogeneous no-normal-flow: conservation to the wall fluxes 0
@@ -595,7 +595,7 @@ def test_mapped_inner_flux_diff_pads_exact_zero_fluxes(
 def test_mapped_periodic_flux_diff_is_conservative(
         flux, mapped_periodic):
     mesh = mapped_periodic
-    grid = Grid((mesh,))
+    grid = Grid((mesh,), device_ids=(0,))
     f = grid.random.normal(mesh.right, seed=11)
     d = flux["w"](f)
     assert jnp.allclose(d.integrate("w").data.squeeze(), 0.0)
@@ -604,7 +604,7 @@ def test_mapped_periodic_flux_diff_is_conservative(
 def test_mapped_face_diff_divides_by_the_dual_measure(
         face, mapped_bounded):
     mesh = mapped_bounded
-    grid = Grid((mesh,))
+    grid = Grid((mesh,), device_ids=(0,))
     p = grid.create_field(mesh.cell_avg, init=lambda v: 3.0 * v)
     g = face["v"](p)
     assert g.function_space.bare is mesh.inner
@@ -615,7 +615,7 @@ def test_mapped_face_diff_divides_by_the_dual_measure(
 
 def test_mapped_dual_flux_diff_exact_ftc(dual, mapped_bounded):
     mesh = mapped_bounded
-    grid = Grid((mesh,))
+    grid = Grid((mesh,), device_ids=(0,))
     f = grid.create_field(mesh.center, init=lambda v: 2.0 * v + 1.0)
     d = dual["v"](f)
     assert d.function_space.bare is mesh.face_avg
@@ -627,7 +627,7 @@ def test_mapped_fv_diff_converges_at_second_order():
     for n in (16, 32):
         mesh = MappedIntervalMesh(n, (0.0, 1.0), _wavy_map,
                                   periodic=True, name="w")
-        grid = Grid((mesh,))
+        grid = Grid((mesh,), device_ids=(0,))
         f = grid.create_field(
             mesh.cell_avg,
             init=lambda w: jnp.sin(2 * jnp.pi * w))
@@ -653,7 +653,7 @@ def test_mapped_inner_flux_diff_grad_is_finite_and_matches_fd(
     mesh = mapped_bounded
 
     def loss(c):
-        grid = Grid((mesh,))
+        grid = Grid((mesh,), device_ids=(0,))
         f = grid.random.normal(mesh.inner, seed=7) * c
         return jnp.sum(flux["v"](f).data ** 2)
 
@@ -678,7 +678,7 @@ def test_mapped_inner_flux_diff_grad_is_finite_and_matches_fd(
 # store() drops -- the claim loss that reroutes the multi-device halo
 # collectives and opens the step gap.
 def test_wall_slots_addressable_gates_the_fast_path(mx, my):
-    grid = Grid((mx, my))  # periodic x, walled y
+    grid = Grid((mx, my), device_ids=(0,))  # periodic x, walled y
     inner = mx.cell_avg * my.nodal(NodeSet.INNER, bc=BC.DIRICHLET)
     f = grid.random.normal(inner, seed=1)
     # a local walled axis with a negotiated halo: the fast path
@@ -693,7 +693,7 @@ def test_wall_slots_addressable_gates_the_fast_path(mx, my):
                      f._data, f.metadata)
     assert wall_slots_addressable(f_yloc, "y") is True
     # an un-negotiated (halo-0) axis: fall back (no ghost slots exist)
-    bare = Grid((my,), dispatch=OperatorRegistry({}))
+    bare = Grid((my,), dispatch=OperatorRegistry({}), device_ids=(0,))
     g = bare.create_field(my.nodal(NodeSet.INNER, bc=BC.DIRICHLET))
     assert wall_slots_addressable(g, "y") is False
 
@@ -701,7 +701,7 @@ def test_wall_slots_addressable_gates_the_fast_path(mx, my):
 def test_inner_diff_windowed_equals_true_frame(flux, my):
     # the load-bearing invariant: the two spellings agree bit for bit
     # on identical inputs (same weighted sums per output cell)
-    grid = Grid((my,))
+    grid = Grid((my,), device_ids=(0,))
     inner = my.nodal(NodeSet.INNER, bc=BC.DIRICHLET)
     f = grid.random.normal(inner, seed=4)
     fast = flux["y"]._inner_diff_windowed(f, "y")
@@ -718,7 +718,7 @@ def test_mapped_inner_diff_windowed_equals_true_frame(
     # the mapped divide agrees too: the VJP-sealed codomain-measure
     # divide is bitwise the true-frame primal-width divide on every
     # valid cell (the seal only touches the discarded zero ghosts)
-    grid = Grid((mapped_bounded,))
+    grid = Grid((mapped_bounded,), device_ids=(0,))
     inner = mapped_bounded.nodal(NodeSet.INNER, bc=BC.DIRICHLET)
     f = grid.random.normal(inner, seed=6)
     fast = flux["v"]._inner_diff_windowed(f, "v")
@@ -730,7 +730,7 @@ def test_inner_diff_windowed_keeps_the_periodic_halo_claim(flux, mx, my):
     # the mechanism of the fix: the windowed path keeps the operand's
     # periodic-x halo claim, which the true-frame store() drops on
     # every axis; the bounded applied axis is consumed by both
-    grid = Grid((mx, my))
+    grid = Grid((mx, my), device_ids=(0,))
     inner = mx.cell_avg * my.nodal(NodeSet.INNER, bc=BC.DIRICHLET)
     f0 = grid.random.normal(inner, seed=2)
     f = type(f0)(f0.grid, f0.function_space, f0._data, f0.metadata,
@@ -747,7 +747,7 @@ def test_apply_factor_falls_back_when_walls_unaddressable(flux, my):
     # is unavailable and _apply_factor routes to the true-frame
     # fallback (which needs no ghost) -- still the exact homogeneous
     # divergence
-    bare = Grid((my,), dispatch=OperatorRegistry({}))
+    bare = Grid((my,), dispatch=OperatorRegistry({}), device_ids=(0,))
     inner = my.nodal(NodeSet.INNER, bc=BC.DIRICHLET)
     f = bare.random.normal(inner, seed=7)
     assert wall_slots_addressable(f, "y") is False
@@ -815,7 +815,7 @@ def test_uniform_mesh_folds_scalar_dx_no_field_division():
     # must descend into the pjit sub-jaxpr to inspect the (absent)
     # division -- exercising the nested-jaxpr walk.
     umesh = IntervalMesh(16, (0.0, 1.0), name="x")
-    ugrid = Grid((umesh,))
+    ugrid = Grid((umesh,), device_ids=(0,))
     uf = ugrid.random.normal(umesh.cell_avg, seed=3)
     uniform = jax.make_jaxpr(
         jax.jit(lambda fld: fld.diff("x").data))(uf)
@@ -826,7 +826,7 @@ def test_uniform_mesh_folds_scalar_dx_no_field_division():
     # assertion above is not vacuously true.
     mmesh = MappedIntervalMesh(16, (0.0, 1.0), _wavy_map, periodic=True,
                                name="w")
-    mgrid = Grid((mmesh,))
+    mgrid = Grid((mmesh,), device_ids=(0,))
     mf = mgrid.random.normal(mmesh.cell_avg, seed=3)
     mapped = jax.make_jaxpr(
         jax.jit(lambda fld: fld.diff("w").data))(mf)

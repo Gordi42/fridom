@@ -1,0 +1,45 @@
+F....F.                                                                  [100%]
+=================================== FAILURES ===================================
+__________________ test_bounded_fd_converges_at_second_order ___________________
+
+    def test_bounded_fd_converges_at_second_order():
+        errors = []
+        for n in RESOLUTIONS:
+            mesh = MappedIntervalMesh(n, (0.0, 1.0), tanh_map,
+                                      name="z")
+            grid = Grid((mesh,))
+            f = grid.create_field(mesh.center,
+                                  init=lambda z: jnp.sin(jnp.pi * z))
+            df = f.diff("z")
+            x = grid.evaluation_nodes(mesh.inner).data
+            errors.append(float(jnp.abs(
+                df.data - jnp.pi * jnp.cos(jnp.pi * x)).max()))
+>       assert np.all(observed_orders(errors) > ORDER_FLOOR)
+E       assert np.False_
+E        +  where np.False_ = <function all at 0x7fff4603a570>(array([-1.0867176 , -1.04139845]) > 1.7)
+E        +    where <function all at 0x7fff4603a570> = np.all
+E        +    and   array([-1.0867176 , -1.04139845]) = observed_orders([10.014605046259735, 21.270045641375084, 43.7784713908468])
+
+tests/validation/test_stretched_mesh.py:59: AssertionError
+_______________ test_flux_diff_telescopes_to_the_boundary_fluxes _______________
+
+    def test_flux_diff_telescopes_to_the_boundary_fluxes():
+        mesh = MappedIntervalMesh(32, (0.0, 1.0), tanh_map, name="z")
+        grid = Grid((mesh,))
+        flux = grid.random.normal(mesh.outer, seed=42)
+        div = grid.dispatch.resolve("flux_diff", mesh.outer)["z"](flux)
+        total = div.integrate("z").data[0]
+        boundary = flux.data[-1] - flux.data[0]
+>       assert total == pytest.approx(float(boundary), rel=1e-12)
+E       assert Array(0.07270...dtype=float64) == 0.11878025134640136 ± 1.0e-12
+E         
+E         comparison failed
+E         Obtained: 0.07270925692442409
+E         Expected: 0.11878025134640136 ± 1.0e-12
+
+tests/validation/test_stretched_mesh.py:139: AssertionError
+=========================== short test summary info ============================
+FAILED tests/validation/test_stretched_mesh.py::test_bounded_fd_converges_at_second_order
+FAILED tests/validation/test_stretched_mesh.py::test_flux_diff_telescopes_to_the_boundary_fluxes
+2 failed, 5 passed in 15.50s
+EXIT=1

@@ -402,3 +402,37 @@ def test_friction_grad_matches_central_fd_on_walls(slip):
     fd = float((loss(x0 * (1 + eps)) - loss(x0 * (1 - eps)))
                / (2 * x0 * eps))
     np.testing.assert_allclose(g, fd, rtol=1e-4)
+
+
+# ================================================================
+#  Sharded walled axis: the inter-shard halo must be synced -- the
+#  fix/walled-shard-halo-validity regression
+# ================================================================
+@pytest.mark.multi_device
+def test_sharded_walled_diffusion_matches_single_device(forced_devices):
+    # regression: when the default layout SHARDS the walled axis, the
+    # flux chain must sync the inter-shard halo before the second
+    # difference. The staggered first difference Center -> Inner shrinks
+    # the codomain, so its exterior reach cancels to (0, 0) at the wall;
+    # the pre-fix requirements published that cancelled reach, so
+    # _ensure_valid skipped the sync and every interior cell adjacent to
+    # a shard boundary read stale ghosts (error grew with N). The result
+    # must equal both the analytic Neumann rate and the one-device run.
+    if forced_devices is not None:
+        assert jax.device_count() == forced_devices
+    kappa = 3e-3
+    m = 2
+    results = {}
+    for tag, device_ids in (("many", None), ("one", (0,))):
+        grid = Grid((IntervalMesh(N, (0.0, L), periodic=False,
+                                  name="x"),), device_ids=device_ids)
+        model = make_model(HarmonicDiffusion(kappa), grid=grid)
+        model.set_fields(b=cos_mode(m))
+        td = model.tendency(model.state)
+        results[tag] = data(td["b"])
+        if tag == "many" and jax.device_count() > 1:
+            assert model.state["b"]._data.sharding.spec[0] == "devices"
+    want = -kappa * lam_wall(m) * data(model.state["b"])
+    np.testing.assert_allclose(results["many"], want, atol=1e-13)
+    np.testing.assert_allclose(results["many"], results["one"],
+                               rtol=1e-12, atol=1e-14)

@@ -30,7 +30,7 @@ def walled():
     mx = IntervalMesh(N, (0.0, 1.0), name="x")
     my = IntervalMesh(6, (0.0, 2.0), name="y")
     mz = IntervalMesh(N, (0.0, 1.0), periodic=False, name="z")
-    return Grid((mx, my, mz)), (mx, my, mz)
+    return Grid((mx, my, mz), device_ids=(0,)), (mx, my, mz)
 
 
 def _walled_space(meshes, family):
@@ -201,7 +201,7 @@ def test_forward_order_is_hermitian_first_not_grid_order():
     # (Hermitian half spectrum) first, trig on the complex data after
     mz = IntervalMesh(N, (0.0, 1.0), periodic=False, name="z")
     mx = IntervalMesh(N, (0.0, 1.0), name="x")
-    grid = Grid((mz, mx))
+    grid = Grid((mz, mx), device_ids=(0,))
     space = mz.nodal(NodeSet.INNER, bc=BC.DIRICHLET) * mx.center
     tf = resolve_transform(grid, space)
     assert isinstance(tf.parts[0], Fourier)
@@ -264,7 +264,7 @@ def test_empty_part_chains_are_rejected():
 
 def test_parts_on_different_grids_are_rejected(walled):
     grid, _meshes = walled
-    other = Grid((IntervalMesh(N, (0.0, 1.0), name="x"),))
+    other = Grid((IntervalMesh(N, (0.0, 1.0), name="x"),), device_ids=(0,))
     with pytest.raises(GridMismatchError, match="share one grid"):
         ComposedTransform((Fourier(grid, axes="x"), Fourier(other)))
 

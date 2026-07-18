@@ -53,8 +53,10 @@ def test_mapping_components_are_name_addressed(grid, space):
 
     spec = trace_halo(tendency, {"u": space, "v": space},
                       grid.dispatch)
-    # bounded Center -> Inner (diff y) reads no exterior slot: reach 0
-    assert widths(spec) == {"x": 1, "y": 0}
+    # bounded Center -> Inner (diff y): exterior reach is 0 at the
+    # wall, but the per-shard footprint is 1 (a sharded interior
+    # boundary reads one neighbor slot)
+    assert widths(spec) == {"x": 1, "y": 1}
 
 
 def test_mapping_names_key_replace_and_errors(grid, space):
@@ -68,8 +70,10 @@ def test_mapping_names_key_replace_and_errors(grid, space):
 
     spec = trace_halo(tendency, {"u": space, "v": space},
                       grid.dispatch)
-    # bounded Center -> Inner (diff y) reads no exterior slot: reach 0
-    assert widths(spec) == {"x": 0, "y": 0}
+    # bounded Center -> Inner (diff y): exterior reach is 0 at the
+    # wall, but the per-shard footprint is 1 (a sharded interior
+    # boundary reads one neighbor slot)
+    assert widths(spec) == {"x": 0, "y": 1}
 
 
 def test_single_entry_mapping_stays_name_addressed(grid, space):
@@ -96,8 +100,10 @@ def test_positional_sequence_keeps_anonymous_naming(grid, space):
         return state["c0"].diff("x"), state["c1"].diff("y")
 
     spec = trace_halo(tendency, (space, space), grid.dispatch)
-    # bounded Center -> Inner (diff y) reads no exterior slot: reach 0
-    assert widths(spec) == {"x": 1, "y": 0}
+    # bounded Center -> Inner (diff y): exterior reach is 0 at the
+    # wall, but the per-shard footprint is 1 (a sharded interior
+    # boundary reads one neighbor slot)
+    assert widths(spec) == {"x": 1, "y": 1}
 
 
 def test_lone_positional_space_is_a_bare_tracer(grid, space):
@@ -120,8 +126,10 @@ def test_negotiate_traces_a_name_keyed_mapping(grid, space):
                        state_spaces={"u": space, "v": space},
                        tendency=tendency, device_ids=(0,))
     assert decomp.halo["x"] == 1
-    # bounded Center -> Inner (diff y) reads no exterior slot: reach 0
-    assert decomp.halo["y"] == 0
+    # bounded Center -> Inner (diff y): exterior reach is 0 at the
+    # wall, but the per-shard footprint is 1 (a sharded interior
+    # boundary reads one neighbor slot)
+    assert decomp.halo["y"] == 1
 
 
 def test_negotiate_scopes_the_registry_halo_by_mapping(grid, my):

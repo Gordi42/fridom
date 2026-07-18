@@ -128,12 +128,34 @@ def test_mapped_plus_immersed_fv_is_a_taught_error():
         resolve_model_family("fv", grid)
 
 
-def test_biased_advection_on_immersed_is_a_taught_error():
-    grid = Grid(_periodic(), immersed=ImmersedDomain(
-        lambda x, y, z: x * 0.0 + 1.0))  # noqa: ARG005
-    with pytest.raises(NotImplementedError, match="immersed"):
-        nh.Model(grid=grid, dt=0.02, coriolis=FPlaneCoriolis(f0=1.0),
-                 advection=nh.UpwindAdvection(3))
+@pytest.mark.parametrize(
+    "advection", [nh.UpwindAdvection(3), nh.WENOAdvection(5)])
+def test_biased_advection_on_immersed_binds_and_steps(advection):
+    # the biased schemes gained the mask-keyed graded closure (GA-D6):
+    # an immersed nonhydro2 model with UpwindAdvection/WENOAdvection binds
+    # (the mask path replaces the wall closure) and steps finite, keeping
+    # the dry-DOF hygiene the fraction weighting guarantees. A fresh grid
+    # per scheme — the order-5 halo (3) exceeds the order-3 one (2), so a
+    # shared frozen grid would fault the "most demanding model first" rule
+    n = 12
+    box = lambda x, y, z: (  # noqa: E731
+        (x > 1.0) & (x < 5.0) & (y > 1.0) & (y < 5.0)
+        & (z > 0.2) & (z < 0.8)).astype(float)
+    grid = Grid(_periodic(n), immersed=ImmersedDomain(box))
+    model = nh.Model(grid=grid, dt=0.01, advection=advection,
+                     coriolis=FPlaneCoriolis(f0=1.0),
+                     pressure_iterations=15)
+    rng = np.random.default_rng(0)
+    model.set_fields(**{
+        k: 0.2 * rng.standard_normal(model.state[k].data.shape)
+        for k in ("u", "v", "w", "b")})
+    model.advance(6)
+    assert not model.panicked
+    for name in ("u", "v", "w", "b"):
+        field = model.state[name]
+        mask = grid.immersed.mask(field.function_space)
+        dry = np.asarray(field.data) * (1.0 - np.asarray(mask.data))
+        assert np.abs(dry).max() == 0.0
 
 
 # ================================================================

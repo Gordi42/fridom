@@ -1,0 +1,30 @@
+18:39:20: INFO: ################################################################################
+18:39:20: INFO: FRIDOM: Framework for Idealized Ocean Models
+18:39:20: INFO:  > Job starting on 2026.07.18 at 06:39:20 PM
+18:39:20: INFO:  > Running on 4 processes.
+18:39:20: INFO:  > Platform: gpu (4 device(s))
+18:39:20: INFO: ################################################################################
+18:39:20: INFO:                                                                                 
+18:39:20: INFO:                                                                                 
+18:39:20: INFO:                                                                                 
+process_count=4 device_count=4 local_devices=[CudaDevice(id=0)]
+config: steps=1 iters=80 tol=1e-10 tag=step1
+panicked: False
+  max_abs_diff u: 1.295e-07 (shape (32, 32, 16))
+  max_abs_diff v: 1.292e-07 (shape (32, 32, 16))
+  max_abs_diff w: 2.390e-06 (shape (32, 32, 15))
+  max_abs_diff b: 0.000e+00 (shape (32, 32, 16))
+OVERALL srun max_abs_diff vs 1-GPU ref: 2.390e-06
+W0718 18:39:34.400329  296550 pjrt_client.cc:1615] WatchTasksAsync failed for task 3: CANCELLED: CANCELLED
+Additional GRPC error information from remote target coordination_service while calling /xla.coordination.CoordinationService/WatchTasks:
+:UNKNOWN:Error received from peer  {grpc_status:1, grpc_message:"CANCELLED"} [type.googleapis.com/tensorflow.DerivedStatus='']
+W0718 18:39:34.400712  296548 pjrt_client.cc:1615] WatchTasksAsync failed for task 0: UNAVAILABLE: failed to connect to all addresses; last error: UNKNOWN: ipv4:127.0.0.1:31276: Failed to connect to remote host: Connection refused
+Additional GRPC error information from remote target coordination_service while calling /xla.coordination.CoordinationService/WatchTasks:
+:UNKNOWN:Error received from peer  {grpc_message:"failed to connect to all addresses; last error: UNKNOWN: ipv4:127.0.0.1:31276: Failed to connect to remote host: Connection refused", grpc_status:14}
+W0718 18:39:34.402209  296551 pjrt_client.cc:1615] WatchTasksAsync failed for task 1: CANCELLED: CANCELLED
+Additional GRPC error information from remote target coordination_service while calling /xla.coordination.CoordinationService/WatchTasks:
+:UNKNOWN:Error received from peer  {grpc_status:1, grpc_message:"CANCELLED"} [type.googleapis.com/tensorflow.DerivedStatus='']
+W0718 18:39:34.403758  296549 pjrt_client.cc:1615] WatchTasksAsync failed for task 2: UNAVAILABLE: failed to connect to all addresses; last error: UNKNOWN: ipv4:127.0.0.1:31276: Failed to connect to remote host: Connection refused
+Additional GRPC error information from remote target coordination_service while calling /xla.coordination.CoordinationService/WatchTasks:
+:UNKNOWN:Error received from peer  {grpc_status:14, grpc_message:"failed to connect to all addresses; last error: UNKNOWN: ipv4:127.0.0.1:31276: Failed to connect to remote host: Connection refused"}
+SRUN_EXIT=0

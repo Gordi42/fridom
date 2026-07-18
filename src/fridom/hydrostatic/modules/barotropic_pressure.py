@@ -81,7 +81,10 @@ from fridom.spatial.fields.storage import factor_axes
 from fridom.spatial.operators.base import Identity, resolve_codomain
 from fridom.spatial.operators.composed import Diag, Divergence, Gradient
 from fridom.spatial.operators.integrate import Integral
-from fridom.spatial.operators.krylov import ConjugateGradient
+from fridom.spatial.operators.krylov import (
+    ConjugateGradient,
+    _computational_mean,
+)
 from fridom.spatial.operators.multigrid import (
     DampedJacobi,
     MultigridLevel,
@@ -119,8 +122,14 @@ _POINT_OMEGA = 2.0 / 3.0
 
 
 def _mean_free(field: ScalarField) -> ScalarField:
-    """Remove the plain measure-weighted mean (the constants gauge)."""
-    return field - field.mean()
+    """Remove the plain measure-weighted mean (the constants gauge).
+
+    Pinned to the computational measure (``_computational_mean``,
+    physical-integral-default decision): the barotropic operator is
+    SPD in ``grid.measure``, so the CG gauge projection must not ride
+    the seeded (Jacobian-weighted) ``field.mean()`` on a terrain grid.
+    """
+    return field - _computational_mean(field)
 
 
 def _adjacent_face_sum(
@@ -415,7 +424,7 @@ class BarotropicPressureSolver:
         """
         jac = self._grid.metric(self._coll.bare, self._jname)
         h_cell = Integral()[self._vertical](jac)
-        return jnp.reshape(h_cell.mean().data, ())
+        return jnp.reshape(_computational_mean(h_cell).data, ())
 
     # ================================================================
     #  The exact operator diagonal (the point-Jacobi smoother, Phase C)

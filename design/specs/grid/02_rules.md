@@ -891,14 +891,36 @@ codomain they land in.
   data. `integrate` contracts the field against the space's
   quadrature-weight field: uniform `dx` for `Center`/`CellAvg`,
   Clenshaw-Curtis for Chebyshev, the stretched cell-width field for
-  mapped meshes, Jacobian weights (`dz = H dsigma`) for
-  terrain-following coordinates (section 3.8). It is **exact on average
+  mapped meshes. It is **exact on average
   spaces** (sum of average x cell-measure) and the node-set quadrature
   rule on nodal spaces. Weights **compose per mesh**
   ([section 6.2](05_validation.md#62-uniform-fv-x-chebyshev-galerkin)).
-- **Only the weighted integral is a field operator.** There is no
-  separate unweighted `sum` operator; a raw unweighted DOF sum is an
-  array escape hatch (`f.data.sum()`), not a space-tagged reduction.
+- **Seeded reductions are physical on any mapping that derives a volume
+  element.** On a grid whose `CoordinateMapping` has one — an embedding
+  `chart=` (`sqrt_g` area element) *or* an analytic `maps=`
+  terrain-following column (the column Jacobian `dz = H dsigma`,
+  section 3.8) — the seeded `("integrate", …)` / `("cumint", …)` rows
+  carry that Jacobian, so `f.integrate()` / `f.mean()` are the
+  **physical** integral/mean on both mapping forms alike. A chartless
+  multi-base analytic map derives no unambiguous column and keeps the
+  computational measure.
+- **The raw operator is the computational escape hatch.** Constructing
+  `Integral()` / `CumulativeIntegral()` directly (with `jacobian=None`)
+  reduces against the plain computational measure regardless of the
+  grid's mapping — the spelling implementation-layer code uses when it
+  needs the algebraic (non-physical) reduction (e.g. a CG solver's
+  inner product, which must stay in the measure its operator is SPD
+  in). There is no separate unweighted `sum` operator; a raw unweighted
+  DOF sum is an array escape hatch (`f.data.sum()`), not a space-tagged
+  reduction.
+- **Jacobian base axes reduce first.** A `maps=` column Jacobian
+  `d<mapped>_d<base>` varies over the map's *parameter* axes, so the
+  seeded `f.integrate()` / `f.mean()` verbs reduce a column's single
+  base axis before its parameter axes (the metric is otherwise
+  evaluated on a collapsed axis and the reduction raises a taught
+  error). Flat and embedding-`chart=` grids keep the plain space order
+  (a chart's `sqrt_g` enters on the first live chart reduction,
+  order-independent).
 - **Cumulative integrals are operators too** (`cumsum`/`cumint`); the
   staggering change they induce (e.g. a running integral landing on a
   face space, the discrete-FTC partial inverse of `flux_diff`,

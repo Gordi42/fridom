@@ -788,22 +788,21 @@ class Grid:
             raise GridFrozenError(
                 "the grid is frozen but carries no negotiation "
                 "fingerprint")
-        demand = self._demanded_halo(state_spaces, tendency, halo)
+        demand, floor = self._demanded_halo(
+            state_spaces, tendency, halo)
         # Symmetric verify-cap (task 1.8): the negotiate path lowers
         # traced widths through ``_cap_for_sharding`` before freeze
         # records them, so the fingerprint holds capped widths on a
         # sharded grid. Recompute the demand through the SAME cap with
-        # the SAME arguments (the frozen device count, the registry
-        # floor, the meshes) so verify compares capped-vs-capped and
-        # the ``Model.variant`` subset lemma holds; on a single device
-        # the cap is identity and the record holds the raw demand.
+        # the SAME arguments (the frozen device count, the per-
+        # application floor, the meshes) so verify compares
+        # capped-vs-capped and the ``Model.variant`` subset lemma
+        # holds; on a single device the cap is identity and the
+        # record holds the raw demand.
         devices = self._decomposition.device_count
         if devices > 1:
             demand = _cap_for_sharding(
-                self.factors, demand,
-                _registry_halo(self._names, self._dispatch,
-                               state_spaces),
-                devices)
+                self.factors, demand, floor, devices)
         problems = _halo_violations(demand, record.halo)
         adopted: list[SpaceLike] = []
         for space in state_spaces or ():
@@ -839,16 +838,21 @@ class Grid:
         state_spaces: tuple[SpaceLike, ...] | None,
         tendency: Callable[..., object] | None,
         halo: HaloSpec | None,
-    ) -> HaloSpec:
+    ) -> tuple[HaloSpec, HaloSpec]:
         """
-        Resolve the demanded halo under the merge_max rule.
+        Resolve the demanded halo and its per-application floor.
 
         Description
         -----------
-        The verify-side twin of the negotiation's halo resolution:
-        the traced `tendency` demand when supplied (else the
-        per-operator registry maximum scoped to `state_spaces`),
-        merged per-coordinate max with the `halo=` extra spec.
+        The verify-side twin of the negotiation's halo resolution
+        (:func:`_negotiated_halo`): the traced `tendency` demand when
+        supplied (else the per-operator registry maximum scoped to
+        `state_spaces`), merged per-coordinate max with the `halo=`
+        extra spec. The second return is the per-application width
+        **floor** — the registry per-application maximum combined
+        (``merge_max``) with the trace floor (the widest single
+        application reach among the operators that fired) — so the
+        symmetric verify-cap squeezes exactly as negotiate does.
 
         Parameters
         ----------
@@ -861,22 +865,27 @@ class Grid:
 
         Returns
         -------
-        HaloSpec
-            The demanded per-name ghost widths.
+        tuple[HaloSpec, HaloSpec]
+            The demanded per-name ghost widths and the per-application
+            floor.
         """
+        floor = _registry_halo(self._names, self._dispatch,
+                               state_spaces)
         if tendency is not None:
             if state_spaces is None:
                 raise ValueError(
                     "tracing a tendency needs state_spaces= to "
                     "build the tracer state")
-            demand = HaloSpec.zero(self._names).merge_max(
-                trace_halo(tendency, state_spaces, self._dispatch))
+            traced, traced_floor = trace_halo(
+                tendency, state_spaces, self._dispatch,
+                with_floor=True)
+            demand = HaloSpec.zero(self._names).merge_max(traced)
+            floor = floor.merge_max(traced_floor)
         else:
-            demand = _registry_halo(self._names, self._dispatch,
-                                    state_spaces)
+            demand = floor
         if halo is not None:
             demand = demand.merge_max(halo)
-        return demand
+        return demand, floor
 
     def sync(
         self,
@@ -2278,6 +2287,53 @@ def _family_spaces(
     return tuple(spaces)
 
 
+def _reduction_jacobian(
+    mapping: CoordinateMapping | None,
+) -> tuple[str, ...] | None:
+    """
+    Derive the ``jacobian=`` family the seeded reductions carry.
+
+    Description
+    -----------
+    The volume element the seeded ``("integrate", ...)`` /
+    ``("cumint", ...)`` rows contract against (rules section 3.13),
+    covering **both** mapping forms so a maps= terrain grid reduces
+    physically just like an embedding ``chart=`` grid:
+
+    - an embedding ``chart=`` mapping names the chart's base
+      coordinates (the ``sqrt_g`` area element), read straight off
+      ``mapping.chart_coords``;
+    - an analytic ``maps=`` mapping (no chart) names the mapped
+      physical coordinates of its single-base columns (each column's
+      ``d<mapped>_d<base>`` Jacobian), deduplicated order-stably from
+      ``mapping.column_corrections``.
+
+    Returns ``None`` (the plain computational measure) for a chartless
+    mapping with no single-base column — a multi-base analytic map
+    derives Jacobian metrics but no unambiguous column volume element,
+    so its reductions stay computational.
+
+    Parameters
+    ----------
+    mapping : CoordinateMapping | None
+        The attached coordinate mapping, or None.
+
+    Returns
+    -------
+    tuple[str, ...] | None
+        The chart-coordinate / mapped-physical family the reductions
+        weight by, or None for the plain computational measure.
+    """
+    if mapping is None:
+        return None
+    chart = mapping.chart_coords
+    if chart is not None:
+        return chart
+    mapped = tuple(dict.fromkeys(
+        name for name, _base in mapping.column_corrections.values()))
+    return mapped or None
+
+
 def _default_registry(
     grid: Grid,
     meshes: tuple[Mesh, ...],
@@ -2342,22 +2398,33 @@ def _default_registry(
         single-base analytic map seeds the kind-only
         ``"physical_diff"`` row — the constant-physical-coordinate
         derivative builder (rules section 3.8, sketch 4.4) — for
-        exactly the coordinates it couples, and a mapping carrying
-        an embedding chart (CS-D1, stage C2) seeds the metric-aware
-        vector calculus: the ``("integrate", ...)`` rows become
-        Jacobian-weighted (``Integral(jacobian=<chart coords>)``,
-        rules 3.13), and — for charts coupling at least two
-        coordinates — the kind-only ``"grad"`` / ``"div"`` /
-        ``"curl"`` / ``"laplacian"`` rows hold the chart builders
-        and ``"raise_index"`` / ``"lower_index"`` the explicit
-        metric contractions (validation 6.3). Chartless grids keep
-        the flat builders untouched (default: None).
+        exactly the coordinates it couples. **Any** mapping that
+        derives a volume element makes the seeded ``("integrate",
+        ...)`` / ``("cumint", ...)`` rows Jacobian-weighted
+        (``Integral(jacobian=<family>)``, rules 3.13) so both mapping
+        forms reduce physically alike (:func:`_reduction_jacobian`):
+        an embedding chart (CS-D1, stage C2) contributes its
+        ``sqrt_g`` area element on the chart's base coordinates, and
+        an analytic ``maps=`` grid its single-base columns'
+        ``d<mapped>_d<base>`` on the mapped physical coordinates. A
+        chartless mapping with no single-base column (a multi-base
+        analytic map) derives no volume element and keeps the plain
+        computational measure. For an embedding chart coupling at
+        least two coordinates the kind-only ``"grad"`` / ``"div"`` /
+        ``"curl"`` / ``"laplacian"`` rows additionally hold the chart
+        builders and ``"raise_index"`` / ``"lower_index"`` the
+        explicit metric contractions (validation 6.3). Chartless flat
+        grids keep the flat builders untouched (default: None).
 
     Returns
     -------
     OperatorRegistry
         The seeded default registry (placeholders resolved).
     """
+    # the reduction Jacobian covers both mapping forms (chart sqrt_g or
+    # maps= column Jacobian); the embedding-chart base coordinates below
+    # gate only the metric-aware vector-calculus kinds
+    jacobian = _reduction_jacobian(mapping)
     chart = (mapping.chart_coords
              if mapping is not None else None)
     flux_ops = (FluxDifference(), DualFluxDifference(),
@@ -2365,8 +2432,8 @@ def _default_registry(
     reconstruct = LinearReconstruction()
     deconvolve = LinearDeconvolution()
     fv_derivative = FVDerivative()
-    integral = Integral(jacobian=chart)
-    cumint = CumulativeIntegral(jacobian=chart)
+    integral = Integral(jacobian=jacobian)
+    cumint = CumulativeIntegral(jacobian=jacobian)
     multiply = CollocationProduct()
     divide = Divide()
     power = Power()
@@ -2970,7 +3037,8 @@ def _seed_cumint_rows(
     mesh : Mesh
         The 1D mesh whose center/cell-average families to seed.
     cumint : Operator
-        The shared ``CumulativeIntegral`` (Jacobian-tagged on charts).
+        The shared ``CumulativeIntegral`` (Jacobian-tagged on any
+        volume-element mapping — chart or maps=).
     """
     # ``_family_spaces`` skips the families a mesh does not carry
     # (a ``PointMesh`` has no Center, a ``ChebyshevMesh`` no CellAvg)
