@@ -199,7 +199,10 @@ the scoping §10–§13). Open:
   - **GPU validation** of the new stretched+terrain paths (the
     standing 4-GPU baseline re-record shipped 2026-07-17 without a
     stretched+terrain-combined bench case, so this stays open — validate
-    separately).
+    separately). Single-GPU leg done 2026-07-17 (gpu4 campaign
+    wrap-up): `test_mapped_pressure_stretched.py` +
+    `test_stretched_mesh.py` green on a real A100 (CUDA, fusion
+    workaround set). Open remainder: the multi-GPU leg.
 
 [`../plans/active/fv_nonhydro_scoping.md`](../plans/active/fv_nonhydro_scoping.md)
 

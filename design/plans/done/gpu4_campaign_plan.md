@@ -1,6 +1,7 @@
 ---
-status: active
+status: done
 date: 2026-07-17
+closed: 2026-07-17
 ---
 
 # 4-GPU campaign — work list + agent prompt
@@ -222,3 +223,81 @@ Per AGENTS.md: no leftover branches or worktrees. Roadmap hygiene
 applied for every shipped item. Final report: one verdict + the key
 numbers per task (T1–T7), plus anything that failed to reproduce and
 where the negative result is recorded.
+
+---
+
+## Campaign result (executed 2026-07-17, DKRZ 4× A100 node)
+
+All tasks cleared in one session; every claim below has its full
+evidence in the named record. Notation: "1-vs-4" = single-device vs
+4-device state comparison.
+
+- **T1 — validated.** 11/11 `test_distributed_projection.py`
+  multi-device tests green on real 4 GPUs; FV-default 1-vs-4 smoke
+  (periodic + walled-x, 32³, 30 steps) max abs ~8.5e-15
+  (`fv_nonhydro_scoping.md` §10.6).
+- **T2 — validated.** Immersed masked-PCG green on real 4 GPUs; new
+  permanent genuine-partial-fractions invariance test (ellipsoidal
+  obstacle, 368 strictly-partial cells; deviation ≤2.7e-15 both
+  backends). Honest gap recorded: only the nonhydro2 immersed path
+  had a multi-device step assertion — sw2/hydrostatic siblings are a
+  listed follow-up (`immersed_partial_cells_plan.md`).
+- **T3 — premise refuted, attributed.** 1024×1024×768 FITS on
+  current dev (43.9 GiB/GPU steady; 512 is 29.3). The recorded death
+  was BFC arena fragmentation (18.36 GiB contiguous temp arena),
+  closed by the donation+defrag fix that merged 5.5 h after the
+  observation; "compile remat" was a non-fatal warning misread as
+  the cause. cuda_async at 0.75 validated on multi-GPU. Next rung
+  1024³ (~51 GiB/GPU) exceeds what BFC can place at any fraction —
+  cuda_async territory (`gpu_memory_ceiling.md` §7).
+- **T4 — validated.** First real multi-process (srun -n 4) run of
+  the WENO selected-input walled path, walled axis sharded across
+  processes: clean completion, 1-vs-multi-process max abs 2.3e-15
+  (`stencil_lowering.md` §8). Operational find: bare
+  `jax.distributed.initialize()` SLURM auto-detect segfaults on this
+  node (IPv6 `[::]` bind) — explicit-init recipe added to AGENTS.md.
+- **T5 — re-attributed, mitigated, repro ready.** The GPU fault is
+  NOT the FFT-norm constant (reproduces with `norm=None`): XLA:GPU's
+  distributed Cooley–Tukey FFT emits c64 twiddle constants against
+  c128 data. Pure-jax repro + drafted issue in
+  `research/artifacts/channel_fftnorm_gpu/` (NOT filed — owner
+  go-ahead pending). Norm-outside mitigation inapplicable → taught
+  skip shipped (`_eigenbasis.py`): sharded-periodic-axis channel
+  projection now fails loudly. A real fix route (slab
+  distributed-transform lowering) is proven bit-exact and recorded
+  as deferred (`multidevice_test_faults.md`).
+- **T5b (parallel, CPU) — re-attributed.** The forced-CPU crash is
+  NOT a sort-lowering bug: jaxlib batched-`eigh` heap corruption on
+  many-core hosts (batch 144 of 63×63; `ParallelBatchMap` ×
+  OpenBLAS oversubscription); the sort was the aliasing victim.
+  Fridom-free repro + drafted issue in
+  `research/artifacts/channel_sort_segfault/` (NOT filed).
+- **T6 — skipped, already shipped** before the campaign (tolerance
+  default-on 1e-8, GPU-measured; `done.md` CG-tolerance entry).
+- **T8 (added; roadmap "joins the next GPU campaign") — multigrid
+  real multi-GPU validated.** 8/8 multi-device parity tests (incl.
+  MG-D5 replicated coarse level) green on 4 GPUs; real srun -n 4
+  steep-mapped multigrid run matches single-device at 5.6e-17
+  (`multigrid_pathway_plan.md`). The GB-2 wall-clock leg was
+  measured by a parallel session (fails, 5.5–13.4× slower) and was
+  not re-investigated here (owner directive). Bonus fix: the mapped
+  projection validation test's absolute-residual gate sat below a
+  backend-independent CG stagnation floor (1.03e-6, flat 12→60
+  iterations, identical forced-CPU-4 vs GPU-4) and had never run in
+  CI — gate relaxed to 1e-7·scale, invariance gate kept tight.
+- **T7 — re-recorded on final merged dev (5af2e370, clean).**
+  `step-gpu4.json` in full (40 cases, all 5 nodal-sibling families
+  added); `step-gpu1.json` walled rows only. All large deltas
+  attributed: mapped −53…−59% (CG-tolerance 1e-8 default), walled
+  +1…+10% (FV default flip — nodal siblings reproduce the old FD
+  numbers, confirming no regression), sw_flat 1024² +6%
+  (PV-division VJP guard). Self-check green on both configs. Noted:
+  4-GPU mapped FV-vs-nodal shows a ~16% timing gap (1 GPU: ~1%) —
+  compiler-artifact class, tracked by the nodal siblings.
+
+Not covered (explicitly out of scope or landed mid-campaign):
+upstream filing (owner go-ahead), the mapped+advection+chunked-scan
+non-finite GPU bug (separate investigation, roadmap), stretched+
+terrain GPU validation (paths landed mid-campaign from a parallel
+session; single-GPU test-suite leg run at wrap-up, multi-GPU leg
+stays open on the roadmap).
