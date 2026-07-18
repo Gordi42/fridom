@@ -66,6 +66,7 @@ jobs:
         uv run pytest tests/framework/domain_decomposition/test_domain_decomposition.py \
           tests/spatial/decomposition \
           tests/spatial/operators/test_distributed_solve.py \
+          tests/spatial/operators/test_distributed_contract.py \
           tests/spatial/operators/test_cumulative.py \
           tests/spatial/operators/test_transform.py \
           tests/spatial/operators/test_spectral_solve.py \
@@ -75,6 +76,7 @@ jobs:
           tests/model/test_run.py \
           tests/model/test_end_to_end.py \
           tests/model/test_model.py \
+          tests/model/test_eigenbasis_distributed.py \
           tests/nonhydro2/test_distributed_projection.py -q \
           --cov --cov-append --cov-report=
 
