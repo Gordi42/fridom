@@ -164,9 +164,20 @@ the scoping §10–§13). Open:
     physical-skew, one conserved metric); the smooth baroclinic gate
     passes today by state-selection accident and must become a
     bilinear random-state gate with the fix. Also flag: diagnosed
-    terrain "w" output is `Jω`, not physical w (labeling). nonhydro2
-    mapped carries a smaller un-diagnosed cousin leak (n-scaling
-    untested).
+    terrain "w" output is `Jω`, not physical w (labeling).
+  - **nonhydro2 mapped energy leak — un-diagnosed cousin** (research
+    §1.6 of
+    [`../research/energy_metric_asymmetry.md`](../research/energy_metric_asymmetry.md)):
+    the bare mapped nonhydro2 operator leaks the physical energy
+    pairing on a divergence-free random state at −6.5e-3 (a = 0.2;
+    CG-iteration-independent, nodal ≡ fv bitwise; energy bounded in
+    time integration). Whether it is the same class as the hydrostatic
+    slope-term gap (the mapped buoyancy/w coupling convention) or
+    ordinary interpolation-transpose truncation is **untested** — the
+    n-scaling probe (research §1.4 recipe: fixed resolved broadband
+    state, skew vs n) has not been run. Follow-up: run the n-scaling
+    probe; if resolution-independent, audit the mapped w/buoyancy
+    convention like the hydrostatic case.
   - **Variable-depth split-explicit free surface** (H3 residual):
     still a taught error on charts. The *implicit* half shipped
     2026-07-18 (multigrid_generalization_plan phase B: the
