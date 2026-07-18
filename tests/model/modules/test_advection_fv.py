@@ -335,7 +335,9 @@ def test_fv_tracer_on_a_mapped_grid_conserves_physical_content(
     # following column in J-weighted conservative flux form (stage F5),
     # so its PHYSICAL content int(q dV) = int(J q dx) is conserved to
     # machine zero — the FV headline property on genuine terrain, which
-    # the consistent nodal mapped divergence does not give.
+    # the consistent nodal mapped divergence does not give. On this
+    # mapped grid the ``.integrate()`` verb is physical (it supplies
+    # the column Jacobian), so ``tau["b"].integrate()`` IS int(J q dx).
     grid = make_mapped_grid(periodic_column=periodic_column)
     model = FrModel(grid=grid,
                     modules=(DynamicalCore(),
@@ -344,18 +346,18 @@ def test_fv_tracer_on_a_mapped_grid_conserves_physical_content(
                     time_stepper=AdamBashforth(DT, order=3))
     set_random_state(model)
     tau = advection_tendency(model, CenteredAdvection)
-    jac = grid.metric(model.state["b"].function_space, "dzp_dz")
-    weighted = float(np.asarray((tau["b"] * jac).integrate().data
-                                ).ravel()[0])
+    physical = float(np.asarray(tau["b"].integrate().data).ravel()[0])
     db = np.asarray(tau["b"].data)
     scale = float(np.sum(np.abs(db)))
-    assert abs(weighted) < 1e-11 * (scale + 1.0)
+    assert abs(physical) < 1e-11 * (scale + 1.0)
 
 
 def test_fv_mapped_tracer_conserves_and_nodal_does_not():
     # the same b advected on the nodal mapped model does NOT conserve
     # its physical content: the FV conservative flux form is the new
-    # property, not a shared one
+    # property, not a shared one. Both grids are static terrain, so the
+    # physical ``.integrate()`` verb supplies the column Jacobian and
+    # ``tau.integrate()`` measures int(J q dx) directly.
     grid = make_mapped_grid()
     fv = FrModel(grid=grid,
                  modules=(DynamicalCore(),
@@ -369,15 +371,10 @@ def test_fv_mapped_tracer_conserves_and_nodal_does_not():
                     time_stepper=AdamBashforth(DT, order=3))
     set_random_state(fv)
     set_random_state(nodal)
-    jac_fv = grid.metric(fv.state["b"].function_space, "dzp_dz")
-    jac_nod = nodal.state["b"].grid.metric(
-        nodal.state["b"].function_space, "dzp_dz")
     tau_fv = advection_tendency(fv, CenteredAdvection)["b"]
     tau_nod = advection_tendency(nodal, CenteredAdvection)["b"]
-    w_fv = abs(float(np.asarray(
-        (tau_fv * jac_fv).integrate().data).ravel()[0]))
-    w_nod = abs(float(np.asarray(
-        (tau_nod * jac_nod).integrate().data).ravel()[0]))
+    w_fv = abs(float(np.asarray(tau_fv.integrate().data).ravel()[0]))
+    w_nod = abs(float(np.asarray(tau_nod.integrate().data).ravel()[0]))
     scale = float(np.sum(np.abs(np.asarray(tau_fv.data))))
     assert w_fv < 1e-11 * (scale + 1.0)
     assert w_nod > 1e-6 * scale  # the nodal form is not conservative

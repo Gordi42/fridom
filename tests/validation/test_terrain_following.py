@@ -146,7 +146,9 @@ def test_sketch_44_literal_algebra_matches_the_dispatched_kind():
 # ================================================================
 def test_jacobian_weighted_vertical_integral_converges():
     # int_0^H F dz == int_0^1 F (dz/dsigma) dsigma; with F = z^2
-    # the exact column integral is H(x)^3 / 3
+    # the exact column integral is H(x)^3 / 3. The physical
+    # ``.integrate("sigma")`` verb supplies the column Jacobian
+    # dz/dsigma itself, so it IS the physical column integral.
     errors = []
     for n in RESOLUTIONS:
         grid, mx, ms = build_grid(n, periodic_sigma=False)
@@ -154,8 +156,7 @@ def test_jacobian_weighted_vertical_integral_converges():
         u = grid.create_field(
             space,
             init=lambda x, sigma: (sigma * depth(x))**2)
-        weighted = u * grid.metric(space, "dz_dsigma")
-        column = weighted.integrate("sigma")
+        column = u.integrate("sigma")
         x = grid.evaluation_nodes(column.function_space,
                                   "x").data
         errors.append(float(jnp.abs(
