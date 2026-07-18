@@ -140,9 +140,18 @@ Implementation record:
   inviscid centered advection) blows up physically at it≈24
   (t≈0.12), cadence/backend-independent and bit-identical across the
   254 intervening commits — the original chunk=1 "control" looked
-  finite only because it stopped earlier. Hardening residuals
-  (chunk-parity test, `MetricScaled` pad-inf audit) tracked in
-  [`open.md`](open.md). Record:
+  finite only because it stopped earlier. The **chunk-cadence parity
+  regression shipped with this merge**
+  (`test_mapped_advection_chunk_cadence_parity` in
+  `tests/model/test_step_chunk.py`): a terrain-following advective
+  model stepped four times at `chunk_size` 1 vs 2 must stay finite and
+  agree to `rtol 1e-12`. Red-checked — reverting the
+  `_divide_by_jacobian` guard reproduces `PanicError` at it=2 already
+  at n=8 (a smaller floor than the n=64 recorded above). Not bitwise:
+  CPU scan-length grouping reassociates FP at ~3e-15, while the GPU
+  256³ measurement above was bitwise. The remaining hardening residual
+  (the held `MetricScaled` pad-inf seal, owner decision D4) is tracked
+  in [`open.md`](open.md). Record:
   [`mapped_chunk_nonfinite_rootcause.md`](../research/mapped_chunk_nonfinite_rootcause.md).
 
 - **Storage-halo width recovered — two-sided (interval) halo
@@ -564,9 +573,10 @@ Implementation record:
   and full 3-D coarsening is the mapped-solver multigrid default
   (GM-D9: −4.3 % on top, parity 3.1e-10, automatic semicoarsening
   fallback for Chebyshev / indivisible n_z / stretched-base columns).
-  Residuals stay in `open.md`: the split-explicit chart variant, the
-  hydrostatic walled-horizontal gap (found in phase B), the real
-  multi-process 4-GPU leg.
+  Residuals stay in `open.md`: the split-explicit chart variant and
+  the real multi-process 4-GPU leg. The hydrostatic
+  walled-horizontal gap found in phase B was closed the same day
+  (flat + immersed; see its own entry below).
 - **Multigrid size-scaling root cause: the depth cap, not the
   algorithm** (2026-07-18, measurement-only; record
   [`../research/multigrid_depth_scaling.md`](../research/multigrid_depth_scaling.md))
@@ -620,10 +630,35 @@ Implementation record:
   not this kernel). *Corrected same day: the "deficit widens with
   n / spectral stays default at every size" conclusion was the
   `multigrid_levels=5` depth cap — see the size-scaling entry
-  above.* Open residue (cuSPARSE-under-GSPMD validation,
-  residual mapped-GPU levers): [`open.md`](open.md). Evidence:
+  above.* Open residue (residual mapped-GPU levers): [`open.md`](open.md);
+  the cuSPARSE-under-GSPMD leg is now closed (entry below). Evidence:
   [`../research/multigrid_kernel_study.md`](../research/multigrid_kernel_study.md)
-  §Addendum.
+  §§Addendum, Addendum 2.
+- **cuSPARSE-under-GSPMD HLO/perf leg + immersed post-swap standing —
+  measured** (2026-07-18) — closed the two residues the kernel-swap
+  entry above left open, on real 4× A100 (jax 0.10.2, dev `0c950a33`).
+  **cuSPARSE under GSPMD**: XLA partitions the batched custom call
+  cleanly along the sharded batch axes — per-shard operands
+  (`f64[(128/4)·128, 128, 1]` down to `f64[4, 4, 1]`) at every one of
+  the six full-3-D-coarsening levels, with no feeding collective (the
+  module's all-gathers are the projection global-mean and a `take`
+  index gather, neither a cuSPARSE operand), both in a minimal
+  standalone jit and in the in-model `jit__chunk_body`. Parity 1-vs-4
+  and cuSPARSE-vs-pcr ~1e-14, CG iterations flat 10; 4-GPU timings
+  mg-cuSPARSE 1.11× at 512³ but 0.37× at 128³ (per-level collective
+  latency), and **pcr fits 512³ multi-device** (12.1 GiB/dev — the
+  one-GPU ≥ 76 GiB wall is sharded away). The `banded.py` multi-device
+  caveat is rewritten to record the validated partitioning (observed
+  XLA lowering, not a contract; pcr stays the portable kernel).
+  **Immersed post-swap standing**: mg-cuSPARSE 1.09×/1.12× at 128³/256³
+  at the production budget=100 — the study's projected 1.3–2.0× was a
+  budget=30 artifact (at budget=100 spectral converges at 71–73 iters);
+  mg is the only converged option below budget ≈70. GB-2 (≥ 1.5×) stays
+  unmet at every size/device count. Data + scripts + HLO excerpts:
+  [`../research/artifacts/multigrid_gspmd_validation/`](../research/artifacts/multigrid_gspmd_validation/);
+  narrative:
+  [`../research/multigrid_kernel_study.md`](../research/multigrid_kernel_study.md)
+  Addendum 2.
 - **Immersed partial cells — all dimensions, all three models**
   (2026-07-17, merges `ee257bc0` I0+I1, `b447b8e5` I2, `a5aec29d` I4,
   `3858d977` I3, plus the autodiff regression gates) — the immersed
@@ -1412,3 +1447,82 @@ Implementation record:
   future upgrade noted in the plan: min-across-2–3-processes for
   sub-16 ms cases. Guard cadence stands per ruling §5.5:
   owner-batched checkpoints, never per-merge, agents never submit.
+
+- **Hydrostatic walled-horizontal gap — closed (flat + immersed)**
+  (2026-07-18, found that morning as a multigrid-generalization
+  phase-B residual; root cause + three fixes same day; merges
+  `d26d3d9d` fix 1, `48e841ec` fix 3, `48a15c00` fix 2). The
+  recorded "staggering never wires wall BCs" diagnosis was wrong:
+  the Velocity-role bind derivation tags the wall-normal velocity
+  correctly per axis. The real seam was `ScalarField.to` (and its
+  mirror `HaloTracer.to`): no arm for a *tag-only* factor
+  difference (same node set, BC-siblings), so every BC-free
+  gradient output mis-classified as a node-set conversion and
+  resolved a deliberately-absent bare-face row. Fix 1 adds the
+  two-line sibling arm to both `.to`s (adopt via `retag`; fires
+  only where the old code guaranteed an error) — the whole gap for
+  `ExplicitFreeSurface`: walls x/y/x+y, advection on/off, immersed
+  included, mirror-symmetry vs a doubled periodic domain 5.6e-17,
+  volume drift 1.7e-18, autodiff FD-matched 3.7e-12
+  (`tests/hydrostatic/test_free_surface_walled.py`). Fix 2 ports
+  the nh2 F4 wall closure into `ImplicitFreeSurface._flat_spectral`
+  (solve on the `_neumann_sibling` space, `_dirichlet_mid` mid
+  legs, retag seam around `SpectralSolve`; immersed CG operator
+  retags its flux legs): periodic path bitwise-identical (sha256
+  state hash), mirror gate 3.2e-15, rigid-lid gauge 1.3e-17,
+  immersed+walled divergence 3.2e-9, autodiff 5.1e-12. Fix 3
+  wall-tags the split-explicit barotropic transports at
+  declaration (`wall_bc={staggered: DIRICHLET}` on the transport
+  `SpacePattern` — the same channel the Velocity role uses), after
+  which the subcycle needed no further seam: periodic path
+  sha256-identical, mirror gate exact 0.0, volume drift 3.5e-18,
+  autodiff 3.1e-12. Every free-surface variant now assembles and
+  runs on walled horizontal grids on flat and immersed geometry;
+  the one remaining layer (terrain chart + walled horizontal — a
+  genuine missing interpolate in the mapped slope gradient, not a
+  tag issue) is tracked in [`open.md`](open.md).
+- **Multi-device eigenbasis setup + synthesis faults — FIXED**
+  (2026-07-18). The two "pre-existing faults surfaced by the
+  projection validation": (a) the setup `GridFrozenError` was a
+  negotiate/verify **cap asymmetry** (freeze sealed the sharding-capped
+  halo, verify compared the raw demand — every `model.variant`
+  faulted on cap-engaged grids, n ∈ {8,11,14,17}@4dev for the nh
+  channel); fixed by capping the verify side identically (merge
+  `8a787452`, restores the `variant` ⊆ lemma). (b) `mode()` /
+  `channel_random_state` on a sharded periodic axis now route through
+  the fused backward-only synthesis (`ContractPlan.synthesize`, merge
+  `e316987d`; bit-identical parity, finite VJP; 2-D channel remains
+  the ratification item in `open.md`). Record:
+  [`../research/halo_sharding_invariants.md`](../research/halo_sharding_invariants.md).
+
+- **Naive GSPMD transform path illegal (Tier 1) — SHIPPED**
+  (2026-07-18, merge `83fbc56c` + CI `867537e1` + fixture pins
+  `a6bc4b39`). `Transform.forward/backward` raise a taught error when
+  the operand's layout shards a transform axis (the path silently
+  all-gathered on CPU and crashed XLA:GPU's distributed-FFT lowering,
+  jax#39291); safe lowerings (`SlabPlan`, `ContractPlan`) bypass the
+  seam by construction. The `numeric_eigenpairs` probe gathers first.
+  Suite converted (device-pinned fixtures; taught-error counterparts).
+  Study + campaign record:
+  [`../research/gspmd_naive_transform_illegality.md`](../research/gspmd_naive_transform_illegality.md);
+  phases 2+ in
+  [`../plans/active/gspmd_transform_illegality_plan.md`](../plans/active/gspmd_transform_illegality_plan.md).
+
+- **Interval-accounting sharding regressions — FIXED (one loud, one
+  silent)** (2026-07-18). Surfaced by the campaign's forced-4 residual
+  sweep; both from the two-sided-accounting landing `40a24df8`.
+  **Loud:** the sharding-cap floor was blind to trace-only wide
+  stencils, so small axes sharded with a halo below one application's
+  reach (97 advection forced-4 failures); fixed by flooring the cap
+  with the traced per-application reach in negotiate + frozen verify,
+  plus an assembly pre-validation negotiate so construction-time
+  sharding collapses before `dry_run` (in dev via `94786a7c`).
+  **Silent wrong physics:** bounded staggered kernels published a
+  wall-cancelled `exterior_reach` of (0,0), eliding the inter-shard
+  halo sync on sharded walled axes — diffusion/friction tendencies
+  wrong by O(1)–O(10) at real multi-GPU scale, growing with N; fixed
+  by publishing the per-shard `footprint_reach` (merge `b57e3e78`;
+  periodic bit-identical, the n+8→n+6 storage win survives; also
+  cured the sadourny doubly-walled sharded failures and closed a
+  lone-bounded-op width-0 negotiation hole). Record:
+  [`../research/halo_sharding_invariants.md`](../research/halo_sharding_invariants.md).

@@ -84,6 +84,8 @@ import jax.numpy as jnp
 import fridom as fr
 from fridom.framework.utils import jaxify
 from fridom.model.halo_demand import derive_extra_halo
+from fridom.model.scheduled_field import ProfileFunction, profile_coords
+from fridom.model.stages import Stage, StageKind
 from fridom.model.time_dependent import TimeDependent
 from fridom.shallowwater2 import params as sw_params
 from fridom.shallowwater2.diagnostics import DIAGNOSTICS
@@ -93,16 +95,15 @@ from fridom.shallowwater2.modules.immersed_weighting import (
     weight_flux,
 )
 from fridom.shallowwater2.state import State
+from fridom.spatial.decomposition.halo import HaloSpec
 from fridom.spatial.fields.vector_field import VectorField
 from fridom.spatial.scalars import Variance
 
 if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Callable
 
-    from fridom.spatial.decomposition.halo import HaloSpec
 
-
-@partial(jaxify, dynamic=("csqr", "rossby_number"))
+@partial(jaxify, dynamic=("csqr", "rossby_number", "_csqr_law"))
 class DynamicalCore(fr.model.Module):
 
     r"""
@@ -110,14 +111,18 @@ class DynamicalCore(fr.model.Module):
 
     Parameters
     ----------
-    csqr : float | Callable, optional
+    csqr : float | Callable | fr.model.ProfileFunction, optional
         The squared gravity-wave phase speed :math:`c^2`. A float is
         the constant depth: published as ``shallowwater.csqr`` and
         materialized into the one-DOF ``csqr`` field. A callable
         ``csqr(y)`` (evaluated on the meridional coordinate) is the
-        variable depth: materialized into a ``csqr`` field on
+        static variable depth: materialized into a ``csqr`` field on
         ``fr.spatial.Profile("y")``, with **no** ``shallowwater.csqr``
-        provide (provides-implies-constancy) (default: 1.0).
+        provide (provides-implies-constancy). A ``ProfileFunction``
+        ``c^2(y,t)`` is the time-dependent variable depth (TDF-D7): the
+        ``csqr`` field is marked ``time_dependent`` and rewritten each
+        substage by a SELF_UPDATE stage (also no scalar provide)
+        (default: 1.0).
     rossby_number : float | fr.model.Ramp, optional
         The Rossby number scaling the (separate) advection term;
         published as ``scaling.rossby`` (default: 1.0); may be a
@@ -169,12 +174,11 @@ class DynamicalCore(fr.model.Module):
         Raises
         ------
         TypeError
-            On invalid ``coords``, or a time-dependent ``csqr`` — the
-            phase speed is the AUXILIARY ``csqr`` FIELD, read by
-            several terms, so ramping it is a field-valued blend (R2),
-            not the R1 scalar path (and an ``fr.Ramp`` is callable, so
-            it would otherwise be silently taken as a ``c^2(y)``
-            profile).
+            On invalid ``coords``, or a *scalar* time-dependent ``csqr``
+            (an ``fr.Ramp``) — the phase speed is the AUXILIARY ``csqr``
+            FIELD read by several terms, so a spatially varying
+            time-dependent ``c^2`` is a ``c^2(y,t)`` law
+            (``fr.model.ProfileFunction``, TDF-D7), not a scalar ramp.
         """
         coords = tuple(coords)
         if (len(coords) != 2  # noqa: PLR2004 — zonal + meridional
@@ -183,23 +187,32 @@ class DynamicalCore(fr.model.Module):
             raise TypeError(
                 "coords names the (zonal, meridional) coordinates: "
                 f"two distinct strings, got {coords!r}")
-        # a Ramp is callable, so this MUST precede the callable(csqr)
-        # profile branch below or it would be read as a c^2(y) profile
-        if isinstance(csqr, TimeDependent):
+        # a ProfileFunction c^2(y,t) is the general time-dependent path
+        # (TDF-D7): the csqr field is marked time_dependent and rewritten
+        # each substage by a SELF_UPDATE stage. It is neither callable nor
+        # a scalar TimeDependent, so it must be routed before both.
+        if isinstance(csqr, ProfileFunction):
+            self._csqr_law: ProfileFunction | None = csqr
+            self._csqr_fn = None
+            self.csqr = None
+        elif isinstance(csqr, TimeDependent):
+            # a scalar Ramp is callable, so this MUST precede the
+            # callable(csqr) profile branch or it would be read as c^2(y)
             raise TypeError(
-                f"csqr={csqr!r} is time-dependent, but c^2 is "
-                "materialized as the AUXILIARY csqr FIELD and read as a "
-                "field by several terms (the gravity flux divergence "
-                "with c^2 inside the divergence, the Sadourny "
+                f"csqr={csqr!r} is a scalar time-dependent value, but "
+                "c^2 is materialized as the AUXILIARY csqr FIELD and "
+                "read as a field by several terms (the gravity flux "
+                "divergence with c^2 inside the divergence, the Sadourny "
                 "advection, and the thickness-weighted rotation), so a "
-                "time-dependent c^2 is a field-valued blend (FieldBlend, "
-                "roadmap 'Generalized adiabatic ramping', stage R2), not "
-                "the R1 scalar path. Pass a constant c^2 (float) or a "
-                "profile c^2(y) (callable of the meridional coordinate); "
-                "ramp scaling.rossby or coriolis.f0 for a "
+                "spatially varying time-dependent c^2 is a c^2(y,t) law: "
+                "pass an fr.model.ProfileFunction (TDF-D7). A constant "
+                "c^2 is a float; a static profile is a callable c^2(y); "
+                "ramp scaling.rossby or coriolis.f0 for a scalar "
                 "time-dependent run")
-        self._csqr_fn = csqr if callable(csqr) else None
-        self.csqr = None if callable(csqr) else fr.model.leaf(csqr)
+        else:
+            self._csqr_law = None
+            self._csqr_fn = csqr if callable(csqr) else None
+            self.csqr = None if callable(csqr) else fr.model.leaf(csqr)
         self.rossby_number = fr.model.leaf(rossby_number)
         self._coords: tuple[str, str] = coords
         self._meridional = (coords[1] if meridional is None
@@ -229,7 +242,14 @@ class DynamicalCore(fr.model.Module):
     @property
     def field_declarations(self) -> tuple[fr.model.FieldDeclaration, ...]:
         """U (east face), v (north face), p (centre), csqr (AUX)."""
-        if self._csqr_fn is None:
+        if self._csqr_law is not None:
+            csqr_decl = fr.model.FieldDeclaration(
+                "csqr", space=fr.spatial.Profile(self._meridional),
+                lifecycle=fr.model.Lifecycle.AUXILIARY,
+                default=self._csqr_law_default,
+                long_name="Squared phase speed", units="m^2/s^2",
+                time_dependent=True)
+        elif self._csqr_fn is None:
             csqr_decl = fr.model.FieldDeclaration(
                 "csqr", space=fr.spatial.Profile(),
                 lifecycle=fr.model.Lifecycle.AUXILIARY,
@@ -265,7 +285,9 @@ class DynamicalCore(fr.model.Module):
             fr.model.ParameterDeclaration(
                 fr.model.params.SCALING_ROSSBY, attr="rossby_number"),
         )
-        if self._csqr_fn is None:
+        # provides-implies-constancy: only the constant depth publishes
+        # shallowwater.csqr (a static profile or a c^2(y,t) law does not)
+        if self._csqr_fn is None and self._csqr_law is None:
             decls += (
                 fr.model.ParameterDeclaration(
                     sw_params.CSQR, attr="csqr", units="m^2/s^2"),
@@ -309,6 +331,47 @@ class DynamicalCore(fr.model.Module):
                 mer, inspect.Parameter.POSITIONAL_OR_KEYWORD)])
         return grid.create_field(space, init=init, name="csqr")
 
+    def _csqr_law_default(
+        self, grid, space,  # noqa: ANN001
+    ) -> fr.spatial.ScalarField:
+        """Owner-method default: sample the ``c^2(y,t)`` law at ``t = 0``.
+
+        The AUXILIARY field is materialized as the ``t = 0`` snapshot so
+        it keeps a valid static treedef; the SELF_UPDATE stage rewrites it
+        with the stage-time value each substage (the frozen snapshot is
+        never read at run time). No pre-syncing (GAP-B).
+        """
+        coords = profile_coords(grid, space, (self._meridional,))
+        data = self._csqr_law.sample(coords, 0.0, space.shape)
+        return grid.create_field(space, data=data, name="csqr")
+
+    # ================================================================
+    #  The SELF_UPDATE stage (law path only, S1 per substage)
+    # ================================================================
+    @property
+    def stages(self) -> tuple[Stage, ...]:
+        """The per-substage ``c^2(y,t)`` recompute (law path only)."""
+        if self._csqr_law is None:
+            return ()
+        return (Stage(
+            kind=StageKind.SELF_UPDATE, fn="_update_csqr", name="csqr",
+            reads=("csqr",), writes=("csqr",)),)
+
+    def _update_csqr(self, state, ctx) -> dict:  # noqa: ANN001
+        """Re-evaluate the ``c^2(y,t)`` law at the substage clock (TDF-D7).
+
+        SELF_UPDATE runs first in every substage (S1), so every ``csqr``
+        consumer — the gravity divergence, Sadourny advection, the
+        thickness-weighted rotation, the energy metric, diagnostics —
+        reads the stage-time field, consistent with ``eval_params``.
+        """
+        time = getattr(ctx.clock, "time", ctx.clock)
+        field = state["csqr"]
+        space = field.function_space
+        coords = profile_coords(field.grid, space, (self._meridional,))
+        value = self._csqr_law.sample(coords, time, space.shape)
+        return {"csqr": field.with_data(value)}
+
     # ================================================================
     #  Bind-time validation (taught errors)
     # ================================================================
@@ -345,7 +408,11 @@ class DynamicalCore(fr.model.Module):
         Description
         -----------
         On a plain flat grid the gravity term is a traceable staggered
-        difference, so no substitute is declared (``None``). On a
+        difference, so no substitute is declared (``None``) — **unless**
+        a ``c^2(y,t)`` law drives a SELF_UPDATE rewrite of ``csqr`` from
+        raw data (halo-trace exempt, V-N2), in which case the module
+        declares the term's reach itself (one ghost per axis, merged with
+        any chart/immersed derivation). On a
         **chart** or **immersed** grid it resolves metric-aware /
         fraction-weighted rows the halo trace cannot follow, so the
         module declares its own width — derived from the order-2
@@ -367,21 +434,31 @@ class DynamicalCore(fr.model.Module):
         differences moves the value.
         """
         grid = table.grid
-        if not (self._charted or self._immersed):
-            return None
-        registry = grid.dispatch
-        p = table["p"].space
-        vel = (table["u"].space, table["v"].space)
-        grad_leg: dict[str, list[tuple[str, object]]] = {}
-        div_leg: dict[str, list[tuple[str, object]]] = {}
-        for axis in self._coords:
-            centre = p.factor(axis)
-            grad_leg[axis] = [("diff", centre)]
-            face = next(vs.factor(axis) for vs in vel
-                        if vs.factor(axis) is not centre)
-            div_leg[axis] = [("diff", face)]
-        return derive_extra_halo(
-            registry, self._coords, [div_leg, grad_leg])
+        derived: HaloSpec | None = None
+        if self._charted or self._immersed:
+            registry = grid.dispatch
+            p = table["p"].space
+            vel = (table["u"].space, table["v"].space)
+            grad_leg: dict[str, list[tuple[str, object]]] = {}
+            div_leg: dict[str, list[tuple[str, object]]] = {}
+            for axis in self._coords:
+                centre = p.factor(axis)
+                grad_leg[axis] = [("diff", centre)]
+                face = next(vs.factor(axis) for vs in vel
+                            if vs.factor(axis) is not centre)
+                div_leg[axis] = [("diff", face)]
+            derived = derive_extra_halo(
+                registry, self._coords, [div_leg, grad_leg])
+        # a c^2(y,t) law SELF_UPDATE rewrites csqr from raw sampled data
+        # (halo-trace exempt, V-N2), so the module declares the gravity
+        # term's reach itself: one ghost per axis covers the staggered
+        # diff / interp hops (reach 1), merged with any chart/immersed
+        # derivation above.
+        if self._csqr_law is not None:
+            profile = HaloSpec(dict.fromkeys(grid.names, 1))
+            derived = (profile if derived is None
+                       else derived.merge_max(profile))
+        return derived
 
     # ================================================================
     #  Tendency terms (linear)

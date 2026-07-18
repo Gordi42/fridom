@@ -39,7 +39,7 @@ if TYPE_CHECKING:  # pragma: no cover
 def Model(  # noqa: N802 — constructor-like factory (D1.3)
     *,
     grid: Grid,
-    csqr: float | Callable = 1.0,
+    csqr: float | Callable | fr.model.ProfileFunction = 1.0,
     rossby_number: float = 1.0,
     coriolis: fr.model.Module | None = None,
     advection: bool = True,
@@ -86,12 +86,13 @@ def Model(  # noqa: N802 — constructor-like factory (D1.3)
     ----------
     grid : Grid
         The (periodic, walled, or chart-coupled) 2-D grid.
-    csqr : float | Callable, optional
+    csqr : float | Callable | fr.model.ProfileFunction, optional
         Squared gravity-wave phase speed :math:`c^2`: a float for
-        constant depth, or a callable ``csqr(y)`` for variable
-        depth (materialized into a meridional ``csqr`` profile
-        field; no constant ``shallowwater.csqr`` provide)
-        (default: 1.0).
+        constant depth, a callable ``csqr(y)`` for static variable
+        depth, or a ``ProfileFunction`` ``c^2(y,t)`` for
+        time-dependent variable depth (TDF-D7). Any variable depth is
+        materialized into a meridional ``csqr`` profile field with no
+        constant ``shallowwater.csqr`` provide (default: 1.0).
     rossby_number : float, optional
         Rossby number scaling the advection (default: 1.0).
     coriolis : fr.model.Module | None, optional
@@ -165,7 +166,9 @@ def Model(  # noqa: N802 — constructor-like factory (D1.3)
         # the conserving (route B) modules weight the rotation by the
         # thickness itself — exact for any depth profile, so the
         # metric_weight requirement does not apply to them
-        if (callable(csqr)
+        variable_depth = (callable(csqr)
+                          or isinstance(csqr, fr.model.ProfileFunction))
+        if (variable_depth
                 and isinstance(coriolis,
                                FPlaneCoriolis | BetaPlaneCoriolis
                                | RotationCoriolis)

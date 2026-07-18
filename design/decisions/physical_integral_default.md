@@ -88,13 +88,17 @@ free-surface flux forms, `_physical_depth`), immersed-only reductions
 (immersed grids are never mapped today), split-explicit `mean(z)`
 (taught error on terrain). Terrain test oracles that hand-multiplied
 `J` before the verb were migrated to the plain verb and now gate the
-flip itself. One physics fact surfaced by the migration: on a terrain
-sigma grid the **baroclinic** KE↔PE pair conserves exactly under the
-*computational* metric (any state; measured <1e-12), while the
-**barotropic** pair conserves under the *physical* metric — the two
-legs' exact discrete adjointness lives in different products (the §H4
-"resolved state" hedge is this asymmetry). The full-suite gate on the
-merged state: 3617 passed, 0 failed.
+flip itself. The migration initially surfaced what looked like a
+product asymmetry (baroclinic pair computational-exact, barotropic
+pair physical-exact). **Corrected same day** by the follow-up probes
+([`../research/energy_metric_asymmetry.md`](../research/energy_metric_asymmetry.md)):
+the computational-exactness of the baroclinic pair holds only on flat
+grids (the smooth terrain gate passes by state-selection accident);
+on terrain the pair leaks O(slope) under *both* plain metrics because
+the buoyancy equation is missing its slope-advection term — a physics
+gap, not a metric property. Only the barotropic physical-exactness
+statement stands. The full-suite gate on the merged state: 3617
+passed, 0 failed.
 
 ## 4. Follow-ups
 
@@ -104,5 +108,7 @@ merged state: 3617 passed, 0 failed.
   remainder of the roadmap item, plus the eigen-channel
   `_bounded_measure` physical measure (stretched-z) and a terrain
   taught error replacing the misleading Hermiticity-residual message.
-  The baroclinic/barotropic product asymmetry above must inform which
-  form that metric presents.
+- The terrain buoyancy slope-advection term
+  (`−N²(u·Zₓ + v·Z_y)`, missing from `stratification.restoring`) —
+  the root of the apparent product asymmetry; research record
+  [`../research/energy_metric_asymmetry.md`](../research/energy_metric_asymmetry.md).
