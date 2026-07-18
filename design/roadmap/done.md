@@ -15,6 +15,26 @@ ships — in the same change that reports it shipped — and the `open.md`
 entry is trimmed to what actually remains. `open.md` never accumulates
 "shipped/landed/resolved" narrative; this file is where it lives.
 
+## Guiding target (end state) — delivered
+
+The end-state vision that steered the rewrite. Phases 1 and 2 delivered
+the first four points (the grid is `fridom.spatial`, the model layer is
+`fridom.model`); the coupled-models remainder of the fifth is tracked
+as tasks 3.2/3.3 in [`open.md`](open.md).
+
+- **No ModelSettings**: a `Model` is assembled from a grid and modules;
+  every physical parameter (`f0`, `n2`, `csqr`, ...) lives in a module.
+- **Everything is one pytree**: modules can modify anything during
+  `update`, and the whole run is a single `jax.jit` call (no Python time
+  loop).
+- **Grid = function spaces**: fields live on function spaces, operators
+  map between spaces, mesh arrays are lazy, and new grid types
+  (stretched, spherical) slot into the same abstraction.
+- **Fields are ergonomic**: init from callables, dimension reduction
+  (`g = f.sel(x=a)`).
+- **Models**: nonhydro, shallowwater, and coupled multi-model runs
+  (multi-device, later multi-host).
+
 ## Phase 0 — Foundations
 
 Benchmark infrastructure, domain-decomposition unification, repo
