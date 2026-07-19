@@ -14,8 +14,10 @@ import fridom as fr
 from fridom.hydrostatic.modules.terrain import (
     discover_column,
     jacobian_name,
+    require_chart_immersed_order,
 )
 from fridom.spatial.coordinate_mapping import CoordinateMapping
+from fridom.spatial.immersed_domain import ImmersedDomain
 
 IM = fr.spatial.meshes.IntervalMesh
 MIM = fr.spatial.meshes.MappedIntervalMesh
@@ -90,3 +92,43 @@ def test_discover_column_rejects_an_embedding_chart():
             chart={"X": lambda u, v: (u, v, 0.0 * u)}, orthogonal=True))
     with pytest.raises(NotImplementedError, match="embedding chart"):
         discover_column(grid, "u")
+
+
+# ================================================================
+#  require_chart_immersed_order (the M5 terrain + immersed guard)
+# ================================================================
+def _immersed_terrain_grid(*, order):
+    """Return a sigma grid with an immersed cut of the given quad order."""
+    return fr.spatial.Grid(
+        (IM(8, (0.0, 1.0), periodic=True, name="x"),
+         IM(8, (0.0, 1.0), periodic=True, name="y"),
+         IM(6, (-1.0, 0.0), periodic=False, name="z")),
+        mapping=CoordinateMapping(maps={"zp": lambda z, H: z * H},
+                                  params={"H": _depth}),
+        immersed=ImmersedDomain(
+            lambda x, y, z: 1.0 + 0.0 * (x + y + z), order=order,
+            min_fraction=0.0))
+
+
+def test_require_order_is_a_noop_off_a_terrain_grid():
+    # column is None: the guard never fires (a flat immersed grid is fine)
+    require_chart_immersed_order(_flat_grid(), None)
+
+
+def test_require_order_is_a_noop_without_an_immersed_domain():
+    # a pure terrain grid (no mask) passes the guard
+    require_chart_immersed_order(_terrain_grid(), ("zp", "z"))
+
+
+@pytest.mark.parametrize("order", [2, 4])
+def test_require_order_admits_quadrature_fractions(order):
+    grid = _immersed_terrain_grid(order=order)
+    require_chart_immersed_order(grid, ("zp", "z"))     # no raise
+
+
+@pytest.mark.parametrize("order", [None, 1])
+def test_require_order_rejects_collocation_on_a_chart(order):
+    grid = _immersed_terrain_grid(order=order)
+    with pytest.raises(NotImplementedError,
+                       match="genuine per-cell quadrature"):
+        require_chart_immersed_order(grid, ("zp", "z"))

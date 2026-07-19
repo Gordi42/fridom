@@ -413,15 +413,32 @@ def test_non_base_vertical_is_a_taught_error():
         _model(grid)
 
 
-def test_immersed_plus_terrain_is_a_taught_error():
-    grid = fr.spatial.Grid(
+def _terrain_immersed_grid(*, order, min_fraction=0.0):
+    return fr.spatial.Grid(
         (IM(8, (0.0, 1.0), periodic=True, name="x"),
          IM(8, (0.0, 1.0), periodic=True, name="y"),
          IM(6, (-1.0, 0.0), periodic=False, name="z")),
         mapping=_mapping(),
         immersed=ImmersedDomain(lambda x, y, z: 1.0 + 0.0 * (x + y + z),
-                                order=4))
-    with pytest.raises(NotImplementedError, match="immersed"):
+                                order=order, min_fraction=min_fraction))
+
+
+def test_terrain_immersed_assembles_with_quadrature_fractions():
+    # stage M5: a terrain + immersed grid with genuine chart quadrature
+    # (order >= 2) is the composed masked contravariant continuity — it
+    # assembles and the masked/terrain DIAGNOSE stages compose.
+    model = _model(_terrain_immersed_grid(order=4))
+    core = model.module(hy.HydrostaticCore)
+    assert core._column == ("zp", "z")
+    assert core._immersed is not None
+
+
+def test_terrain_immersed_collocation_mask_is_a_taught_error():
+    # a collocation-order mask (order=None/1) on a chart mis-places the
+    # geometry, so the composition needs order >= 2 (a taught error).
+    grid = _terrain_immersed_grid(order=None)
+    with pytest.raises(NotImplementedError,
+                       match="genuine per-cell quadrature"):
         _model(grid)
 
 

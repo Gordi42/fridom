@@ -127,11 +127,14 @@ def _old_masked_w_faces(core, immersed, state):
 # ================================================================
 #  Machinery rewrite reproduces the raw-.data surgery bit-for-bit
 # ================================================================
-# NB: a stretched-*vertical* immersed grid is unreachable here — a
-# mapped / terrain column on top of an immersed mask is a taught error
-# (``HydrostaticCore.bind``) — so representativeness comes from the
-# fraction pattern (walled step, quadrature partial, sloping genuine
-# partials incl. a partial *surface* cell) and the column count.
+# NB: the flat immersed ``_masked_w_faces`` surface override is
+# geometry-agnostic (it relocates a cell trace onto the vertical Outer
+# face set), so a terrain column changes only the horizontal transport
+# weighting, not this machinery — the terrain + immersed composition
+# lives in ``test_core_terrain_immersed.py``. Representativeness here
+# comes from the fraction pattern (walled step, quadrature partial,
+# sloping genuine partials incl. a partial *surface* cell) and the
+# column count.
 @pytest.mark.parametrize(
     ("init", "n", "nz", "order", "min_fraction", "id_"),
     [pytest.param(lambda x, y, z: (z > 0.5).astype(float),  # noqa: ARG005
