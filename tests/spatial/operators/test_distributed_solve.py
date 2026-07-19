@@ -29,6 +29,7 @@ from fridom.spatial.operators.dealias import degree
 from fridom.spatial.operators.distributed_solve import (
     SlabPlan,
     SlabSolve,
+    apply_plan_diagonal,
     build_distributed_plan,
     resolve_distributed_plan,
     resolve_distributed_solve,
@@ -222,6 +223,26 @@ def test_matches_one_device_solve():
     assert one_solve.slab is None
     assert np.allclose(p_many, np.asarray(one_solve(one_rhs).data),
                        rtol=1e-12, atol=1e-14)
+
+
+@pytest.mark.multi_device
+def test_apply_plan_diagonal_matches_the_raw_solve():
+    # the field-level wrapper (shared by SlabSolve and the composed
+    # transform apply) equals the raw plan.solve on the operand's data,
+    # and leaves the operand's sharded axis sharded (layout-preserving)
+    grid = make_grid((16, 16, 16))
+    rhs = grid.create_field(data=rng_data((16, 16, 16)))
+    bare = rhs.function_space.bare
+    transform = resolve_transform(grid, bare)
+    plan = resolve_distributed_plan(transform, grid, bare)
+    assert plan is not None
+    assert not plan.padded
+    diag = laplacian_on(grid, bare, dsqr=1e-4).eigenvalues(
+        grid, plan.coeff).data
+    out = apply_plan_diagonal(plan, rhs, diag)
+    ref = plan.solve(jnp.asarray(rhs.data), diag)
+    assert np.array_equal(np.asarray(out.data), np.asarray(ref))
+    assert not out.function_space.layout.is_local("x")
 
 
 def test_padded_fourier_falls_back():

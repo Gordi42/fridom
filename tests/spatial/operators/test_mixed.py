@@ -1,12 +1,16 @@
 """Tests for ``ComposedTransform`` and ``resolve_transform`` (C5)."""
+import jax
 import jax.numpy as jnp
+import numpy as np
 import pytest
 
 from fridom.spatial.bc import BC
 from fridom.spatial.decomposition.layout import Layout
 from fridom.spatial.errors import GridMismatchError
+from fridom.spatial.fields.scalar_field import ScalarField
 from fridom.spatial.grid import Grid
 from fridom.spatial.meshes.interval import IntervalMesh
+from fridom.spatial.operators.base import Identity
 from fridom.spatial.operators.dealias import degree
 from fridom.spatial.operators.fourier import Fourier
 from fridom.spatial.operators.mixed import (
@@ -14,6 +18,10 @@ from fridom.spatial.operators.mixed import (
     resolve_transform,
 )
 from fridom.spatial.operators.registry import DispatchError
+from fridom.spatial.operators.spectral import (
+    PhaseShift,
+    SpectralDerivative,
+)
 from fridom.spatial.operators.trig import Cosine, Sine
 from fridom.spatial.spaces.coefficient import (
     CosineSpace,
@@ -408,3 +416,157 @@ def test_joint_geometry_rejects_unsuitable_layouts(monkeypatch):
     # the sharded extent does not divide the device count
     with_decomp(Layout({"x": "devices"}), 5)
     assert tf._joint_geometry(space) is None
+
+
+# ================================================================
+#  apply_diagonal: the fused distributed route (walled/mixed)
+# ================================================================
+def _helmholtz():
+    """Build the endo full-Laplacian shift ``I - 0.05 Lap``."""
+    lap = (SpectralDerivative()["x"] @ SpectralDerivative()["x"]
+           + SpectralDerivative()["y"] @ SpectralDerivative()["y"]
+           + SpectralDerivative()["z"] @ SpectralDerivative()["z"])
+    return Identity() + (-0.05) * lap
+
+
+def _peaked(grid, space):
+    """Return a smooth field retagged onto the walled solve space."""
+    field = grid.create_field(
+        init=lambda x, y, z: jnp.exp(
+            -((x - 0.5) ** 2 + (y - 1.0) ** 2 + (z - 1.5) ** 2)))
+    return field.retag(space)
+
+
+def _sym(op, grid):
+    """Return the per-frame symbol factory ``coeff_bare -> Symbol``."""
+    return lambda coeff_bare: op.eigenvalues(grid, coeff_bare)
+
+
+def test_apply_diagonal_single_device_equals_the_plain_sandwich():
+    # on one device apply_diagonal is bit-for-bit the plain composed
+    # backward(symbol(forward)) sandwich (the fallback path)
+    grid, space = _walled_grid_space(
+        (16, 16, 16), (True, True, False), device_ids=(0,))
+    field = _peaked(grid, space)
+    op = _helmholtz()
+    tf = resolve_transform(grid, space)
+    assert isinstance(tf, ComposedTransform)
+    fused = tf.apply_diagonal(field, _sym(op, grid))
+    coeff = tf.forward(field)
+    symbol = op.eigenvalues(grid, coeff.function_space.bare)
+    plain = tf.backward(symbol(coeff))
+    assert np.array_equal(np.asarray(fused.data),
+                          np.asarray(plain.data))
+
+
+def test_apply_diagonal_rejects_a_foreign_grid_operand():
+    # apply_diagonal is grid-bound like forward/backward
+    grid, space = _walled_grid_space(
+        (16, 16, 16), (True, True, False), device_ids=(0,))
+    other, other_space = _walled_grid_space(
+        (16, 16, 16), (True, True, False), device_ids=(0,))
+    field = _peaked(other, other_space)
+    tf = resolve_transform(grid, space)
+    with pytest.raises(GridMismatchError, match="grid-bound"):
+        tf.apply_diagonal(field, _sym(_helmholtz(), grid))
+
+
+@pytest.mark.multi_device
+def test_apply_diagonal_routes_through_the_fused_slab():
+    # x (periodic) sharded: the standalone composed forward would be
+    # rejected (Tier-1), but the fused apply_diagonal runs it distributed
+    # through the slab pipeline and matches the single-device fallback to
+    # tight rounding, layout-preserving (the periodic axis stays sharded)
+    op = _helmholtz()
+
+    def run(device_ids):
+        grid, space = _walled_grid_space(
+            (16, 16, 16), (True, True, False), device_ids=device_ids)
+        field = _peaked(grid, space)
+        return grid, resolve_transform(grid, space).apply_diagonal(
+            field, _sym(op, grid))
+
+    many_grid, many = run(None)
+    assert not many_grid.decomposition.default_layout.is_local("x")
+    assert not many.function_space.layout.is_local("x")
+    _, one = run((0,))
+    assert np.allclose(np.asarray(many.data), np.asarray(one.data),
+                       rtol=0.0, atol=1e-11)
+
+
+@pytest.mark.multi_device
+def test_apply_diagonal_transposes_without_gathers():
+    # the fused walled apply is one all_to_all around the family kernels;
+    # nothing gathers the spectral cube
+    grid, space = _walled_grid_space(
+        (16, 16, 16), (True, True, False))
+    field = _peaked(grid, space)
+    tf = resolve_transform(grid, space)
+    op = _helmholtz()
+
+    def run(storage):
+        fld = ScalarField(grid, field.function_space, storage)
+        return tf.apply_diagonal(fld, _sym(op, grid))._data
+
+    text = jax.jit(run).lower(field._data).compile().as_text()
+    assert "all-to-all" in text
+    assert "all-gather" not in text
+    assert "all-reduce" not in text
+
+
+@pytest.mark.multi_device
+def test_apply_diagonal_rejects_a_retagging_symbol_when_sharded():
+    # a retagging symbol (PhaseShift on the sharded Fourier axis) has no
+    # layout-preserving distributed form, so the fused route raises
+    grid, space = _walled_grid_space(
+        (16, 16, 16), (True, True, False))
+    field = _peaked(grid, space)
+    tf = resolve_transform(grid, space)
+    with pytest.raises(NotImplementedError, match="retagging symbol"):
+        tf.apply_diagonal(
+            field,
+            lambda coeff_bare: PhaseShift(NodeSet.RIGHT)["x"].eigenvalues(
+                grid, coeff_bare))
+
+
+@pytest.mark.multi_device
+def test_apply_diagonal_rejects_a_partial_operator_when_sharded():
+    # an operator that leaves the bounded (trig) axis untouched resolves
+    # a Constant z factor, not the region's Cosine internal frame, so the
+    # symbol is not a broadcast endomorphism there -- the fused route
+    # raises (the single-device sandwich would mismatch too)
+    grid, space = _walled_grid_space(
+        (16, 16, 16), (True, True, False))
+    field = _peaked(grid, space)
+    tf = resolve_transform(grid, space)
+    horizontal = Identity() + (-0.05) * (
+        SpectralDerivative()["x"] @ SpectralDerivative()["x"]
+        + SpectralDerivative()["y"] @ SpectralDerivative()["y"])
+    with pytest.raises(NotImplementedError,
+                       match="every transform axis"):
+        tf.apply_diagonal(field, _sym(horizontal, grid))
+
+
+@pytest.mark.multi_device
+def test_apply_diagonal_grad_is_finite_and_fd_matched():
+    # the fused route sits on the differentiable step path (a Krylov
+    # spectral apply); jax.grad through it is finite and matches a
+    # central finite difference on a tiny walled grid
+    grid, space = _walled_grid_space(
+        (8, 8, 8), (True, True, False))
+    field = _peaked(grid, space)
+
+    def loss(scale):
+        lap = (SpectralDerivative()["x"] @ SpectralDerivative()["x"]
+               + SpectralDerivative()["y"] @ SpectralDerivative()["y"]
+               + SpectralDerivative()["z"] @ SpectralDerivative()["z"])
+        op = Identity() + (-scale) * lap
+        out = resolve_transform(grid, space).apply_diagonal(
+            field, _sym(op, grid))
+        return jnp.sum(out.data ** 2)
+
+    g = float(jax.grad(loss)(0.05))
+    eps = 1e-4
+    fd = float((loss(0.05 + eps) - loss(0.05 - eps)) / (2 * eps))
+    assert np.isfinite(g)
+    assert abs(g - fd) <= 1e-4 * abs(fd)

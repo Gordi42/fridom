@@ -1263,18 +1263,26 @@ class Transform(UnaryOperator, ABC):
             return
         # narrow the blunt error: a plain (unpadded) Fourier transform
         # on a 1-D device mesh has a fused forward->diagonal->backward
-        # route (DistributedTransform.apply_diagonal, consumed through
-        # Transform.apply_diagonal) that keeps the sharded axis local
-        # per shard. Only a *standalone* forward/backward (which
+        # route that keeps the sharded axis local per shard -- served
+        # either as a standalone Fourier transform
+        # (DistributedTransform.apply_diagonal, via
+        # Transform.apply_diagonal) or as the Fourier part of a walled
+        # ComposedTransform (ComposedTransform.apply_diagonal, via the
+        # slab pipeline). Only a *standalone* forward/backward (which
         # materializes a coefficient field the storage contract
-        # replicates) and the trig/mixed/non-1-D remainder have no
-        # distributed route and land here.
+        # replicates) and the homogeneous-trig / non-1-D remainder have
+        # no distributed route and land here.
         route = (
             " A plain forward->diagonal->backward apply (a spectral "
             "operator on the sharded field) does have a distributed "
-            "route: call Transform.apply_diagonal(f, symbol_factory) "
-            "instead of the standalone forward/backward, which runs "
-            "the fused transform inside a jax.shard_map."
+            "route: resolve the transform "
+            "(resolve_transform(grid, space.bare)) and call its "
+            "apply_diagonal(f, symbol_factory) instead of the "
+            "standalone forward/backward -- on a plain-Fourier grid "
+            "the fused transform runs inside a jax.shard_map, and on "
+            "a mixed (walled) grid the ComposedTransform routes the "
+            "periodic axes through the same slab pipeline the walled "
+            "spectral solve rides."
             if (self._space_family is FourierSpace
                 and self._pad is None)
             else "")

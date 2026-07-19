@@ -556,6 +556,20 @@ def test_rejection_message_points_fourier_at_the_fused_route():
 
 
 @pytest.mark.multi_device
+def test_rejection_message_points_at_resolve_transform():
+    # the narrowed Fourier route hint names resolve_transform, so it is
+    # accurate for the walled ComposedTransform too (whose apply_diagonal
+    # distributes the periodic axes through the slab pipeline)
+    grid = _grid3d()
+    field = grid.create_field()
+    with pytest.raises(NotImplementedError) as excinfo:
+        Fourier(grid).forward(field)
+    message = str(excinfo.value)
+    assert "resolve_transform" in message
+    assert "apply_diagonal" in message
+
+
+@pytest.mark.multi_device
 def test_rejection_message_omits_the_route_for_the_trig_family():
     # a real-to-real trig transform (bounded axes) has no fused
     # forward->diagonal->backward route, so the message does not offer

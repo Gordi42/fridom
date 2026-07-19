@@ -594,16 +594,58 @@ class SlabSolve:
         FieldLike
             The solution on the same space and layout.
         """
-        if self._plan.padded:
-            decomposition = f.grid.decomposition
-            space = f.function_space
-            even = decomposition.unpad_even(f.storage, space)
-            out = self._plan.solve(even, self._inverse.data)
-            return f.with_storage(
-                decomposition.pad_even(out, space))
-        out = self._plan.solve(jnp.asarray(f.data),
-                               self._inverse.data)
-        return f.with_data(out)
+        return apply_plan_diagonal(self._plan, f, self._inverse.data)
+
+
+def apply_plan_diagonal(
+    plan: SlabPlan, f: FieldLike, diag: jax.Array,
+) -> FieldLike:
+    r"""
+    Run ``backward(diag * forward(f))`` on a field via ``plan``.
+
+    Description
+    -----------
+    The field-level wrapper of :meth:`SlabPlan.solve`, shared by the
+    distributed spectral solve (:meth:`SlabSolve.__call__`, where
+    ``diag`` is the inverse-eigenvalue diagonal) and the distributed
+    fused transform apply
+    (:meth:`~fridom.spatial.operators.mixed.ComposedTransform.apply_diagonal`,
+    where ``diag`` is the operator's forward eigenvalue diagonal): both
+    are the same one-region ``backward(diag * forward)`` on the
+    operand's own layout, so the coefficient cube only ever exists as
+    per-device slabs.
+
+    A divisible plan runs on the true frame (``f.data`` /
+    ``with_data``), byte-for-byte the pre-padding path. A ``padded``
+    plan runs on the **padded-even** frame: it reads ``f.storage``
+    through ``decomposition.unpad_even`` (which keeps an indivisible
+    sharded axis at ``shards * cells`` rather than trimming to the true
+    extent -- the trim gathers the cube) and writes the result back
+    through ``pad_even`` / ``with_storage``.
+
+    Parameters
+    ----------
+    plan : SlabPlan
+        The resolved slab pipeline.
+    f : FieldLike
+        The nodal operand, sharded on the plan's slab axis ``a``.
+    diag : jax.Array
+        The per-mode diagonal on ``plan.coeff`` (broadcast-shaped;
+        validate with :func:`symbol_fits` first).
+
+    Returns
+    -------
+    FieldLike
+        The nodal result on the operand's own space and layout.
+    """
+    if plan.padded:
+        decomposition = f.grid.decomposition
+        space = f.function_space
+        even = decomposition.unpad_even(f.storage, space)
+        out = plan.solve(even, diag)
+        return f.with_storage(decomposition.pad_even(out, space))
+    out = plan.solve(jnp.asarray(f.data), diag)
+    return f.with_data(out)
 
 
 def symbol_fits(plan: SlabPlan, symbol: Symbol) -> bool:
