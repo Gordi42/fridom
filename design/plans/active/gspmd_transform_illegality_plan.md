@@ -77,15 +77,14 @@ This plan tracks the remainder. Each phase is independently mergeable.
 
 ## Open
 
-- **Tier-2 decision (OWNER) — NOW RIPE.** Whether all-local-axes
-  naive transforms on a multi-device mesh (silent all-gather;
-  numerically correct but unscalable) also become illegal.
-  Empirically zero Tier-2-only test breakage; the guard needs an
-  explicit allow-replicated escape for the irreducible cases:
-  the Chebyshev-vertical solve (block-diagonal, cannot go slab),
-  the mismatched-layout composite solve, plus the Wave-B tier below.
-  The owner's precondition (phase 3 + named consumers landed) is met
-  as of 2026-07-19.
+- **Tier-2 — DECIDED (owner, 2026-07-19): illegal, as
+  recommended.** All-local-axes naive transforms on a multi-device
+  mesh (silent all-gather; numerically correct but unscalable)
+  become illegal, with the explicit allow-replicated escape for the
+  irreducible cases: the Chebyshev-vertical solve (block-diagonal,
+  cannot go slab), the mismatched-layout composite solve, plus the
+  Wave-B tier below (until Wave B lands). Empirically zero
+  Tier-2-only test breakage. Implementation open.
 - **Wave B — walled-vertical analytic tier.** The analytic route
   (`f8358720`) serves plain-Fourier all-periodic frames;
   walled-vertical analytic grids (`ComposedTransform` trig z stage,

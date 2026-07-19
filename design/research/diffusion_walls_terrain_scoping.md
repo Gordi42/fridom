@@ -275,6 +275,8 @@ singularity guard expected); ruff clean; patch coverage ≥95%.
    physics — this is not the silent-wrong-physics class the
    explicit-over-automagic ruling targets). Alternative: require an
    explicit choice on walled grids (MITgcm defaults the other way).
+   **Ratified (owner, 2026-07-19): the `slip="free"` default
+   stands.**
 2. **Biharmonic no-slip pair.** Accept "same treatment both passes"
    (the iterated-form natural choice), or ship biharmonic walls
    free-slip-only first (MOM6 precedent)?

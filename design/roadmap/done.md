@@ -2031,8 +2031,8 @@ Implementation record:
   `8a787452`, restores the `variant` ⊆ lemma). (b) `mode()` /
   `channel_random_state` on a sharded periodic axis now route through
   the fused backward-only synthesis (`ContractPlan.synthesize`, merge
-  `e316987d`; bit-identical parity, finite VJP; 2-D channel remains
-  the ratification item in `open.md`). Record:
+  `e316987d`; bit-identical parity, finite VJP; the 2-D channel
+  closed 2026-07-19 — `Channel2DPlan` entry below). Record:
   [`../research/halo_sharding_invariants.md`](../research/halo_sharding_invariants.md).
 
 - **Naive GSPMD transform path illegal (Tier 1) — SHIPPED**
@@ -2339,3 +2339,15 @@ Implementation record:
   (`e4d2f892`). Remaining in the plan file: Tier-2 (now ripe),
   Wave B walled-vertical analytic, no-gather random synthesis,
   trig/mixed families, GPU-scoped checkpoint items.
+
+- **2026-07-19 — 2-D channel eigen served sharded (`Channel2DPlan`,
+  merge `8752170a`).** The highest-exposure sharded-periodic
+  remainder — the *default* layout for any 2-D channel on >1
+  device — closed gather-free: the owner's transpose directive
+  rejected the gather path, and `Channel2DPlan` serves it exactly
+  through the fused transpose contraction (park the shardedness on
+  the bounded axis, run the local `rfft`, per-`kx` dense
+  `Q diag(w) Qᴴ M`). With it every reachable channel case is
+  served; the sole eigen remainder is the non-1-D-mesh defensive
+  decline ([`open.md`](open.md)). Solution-path survey:
+  [`../research/eigen_remainder_investigation.md`](../research/eigen_remainder_investigation.md).
