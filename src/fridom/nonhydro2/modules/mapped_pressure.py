@@ -779,8 +779,10 @@ class MappedPressureSolver:
         base (:meth:`_prewarm_hierarchy` warms the memo so its coarse
         mesh never re-derives under the trace). :meth:`_prewarm_hierarchy`
         reads this same decision so the memo it warms is exactly the
-        chain the build walks. The composed solver overrides it (a
-        stretched composed base keeps horizontal semicoarsening).
+        chain the build walks. The composed solver inherits this
+        decision unchanged (a stretched composed base takes the same
+        full-coarsening default, re-quadraturing the immersed fractions
+        on each coarse level).
         """
         return self._multigrid_coarsen_vertical
 

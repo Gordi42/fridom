@@ -425,12 +425,6 @@ V-cycle kernel swap it called for shipped 2026-07-18 (merge
   and/or add a taught guard until fixed. Characterisation:
   [`../research/semicoarsen_multidevice_regression.md`](../research/semicoarsen_multidevice_regression.md)
   §"Discovered pre-existing limitation".
-- **Composed (mapped+immersed) stretched full-coarsening** — the
-  composed sibling deliberately keeps horizontal semicoarsening on a
-  stretched base (`_coarsen_vertical` override, byte-identical today):
-  its coarse level also re-quadratures the immersed fractions, and
-  that re-derivation under a coarsened stretched column is unbuilt.
-  Take with the mapped+immersed follow-up wave.
 
 The remaining 2026-07-18 follow-ups were **ruled closed 2026-07-19**
 (coarse-level replication preference: none — sigma-sharding stays;

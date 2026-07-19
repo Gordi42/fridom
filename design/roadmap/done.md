@@ -276,18 +276,46 @@ Implementation record:
   semicoarsening grad passes), so the two grad-through-the-solve
   regressions are `single_device`-marked, matching the uniform battery
   which never carried a multi-device grad test; characterisation + owner
-  call in the record. The composed (mapped+immersed) sibling keeps its
-  guard deliberately (via a
-  `_coarsen_vertical` override, so no pre-warm fires and it stays
-  byte-identical): its coarse level also re-quadratures the immersed
-  fractions, whose re-derivation under a coarsened stretched column is a
-  follow-up. Record:
+  call in the record. The composed (mapped+immersed) sibling took the
+  same lift 2026-07-19 (entry below). Record:
   [`semicoarsen_multidevice_regression.md`](../research/semicoarsen_multidevice_regression.md)
   (Residue 3; the `ensure_compile_time_eval` realization — a deviation
   from the record's literal host-side hook — was independently
   verified and **owner-ratified 2026-07-19**: ece is raise-or-eager,
   the pre-warm structurally cannot reach dynamic `params`, and the
   bind-time alternative is unsafe against the device-keyed memo).
+
+- **Composed (mapped+immersed) stretched full-coarsening — the
+  deferral was overstated** (2026-07-19, owner ruled "build now";
+  merge `<MERGE_HASH>`) — the composed pressure solver's stretched-base
+  `_coarsen_vertical` override is deleted, so a stretched composed base
+  (a `MappedIntervalMesh` vertical carrying **both** a terrain
+  `CoordinateMapping` and an `ImmersedDomain`) now inherits the mapped
+  GM-D9 full-coarsening default. A read-only probe found nothing was
+  actually unbuilt: the **inherited** `_prewarm_hierarchy` reads the
+  now-inherited `_coarsen_vertical` and warms the coarse stretched
+  `MappedIntervalMesh` ctor memo automatically, and the coarse immersed
+  fraction re-quadrature is pure jax, trace-safe under both `jit` and
+  `eval_shape` — the "re-derivation under a coarsened stretched column
+  is unbuilt" reason in the old open entry was overstated. Verified: the
+  hierarchy full-coarsens both axes to the four-cell floor
+  (`(16,16) -> (8,8) -> (4,4)`; the semicoarsening opt-out keeps the
+  column full, `(16,16) -> (8,16) -> (4,16)`); the V-cycle converges in
+  10 CG iterations on a steep stretched cut chart; full-vs-semi velocity
+  corrections agree to `~3e-15` (the raw pressures differ only by the
+  wet-region nullspace gauge and unconstrained dry-cell values, so the
+  parity gate is on the corrections, never the raw pressure). A
+  consistency gap the probe found is closed in the same change: composed
+  `_build_vcycle` now forwards `agglomerate=self._multigrid_agglomerate`
+  to `coarsen_levels` exactly as the mapped sibling does (the knob was
+  already threaded to the ctor via `**kwargs`; default `None` = off, so
+  behaviour is unchanged by default). The uniform-base composed path is
+  byte-identical (existing `test_composed_pressure.py` green); new
+  prefix-mirrored shard `test_composed_pressure_stretched.py` covers the
+  four gates plus a `single_device` grad regression (the full-coarsening
+  multi-device XLA:SPMD backward-pass break is shared with the mapped
+  sibling above, not this change's doing). Forced-4 forward path green
+  (5 passed, grad skipped by mark).
 
 - **Multigrid preconditioner follow-ups — owner rulings**
   (2026-07-19, in chat) closing three of the five open items from the
