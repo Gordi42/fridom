@@ -3838,9 +3838,9 @@ class UpwindAdvection(_FluxFormAdvection):
     #: the biased/upwind family (incl. WENO) wins with ``"embed"`` when
     #: ``_SURFACE_FLUX_LOWERING`` is ``None`` -- scatter costs +16% at
     #: 2048^2 x 64 where embed is +5.8% vs off (2026-07-18 A/B, §9).
-    #: Provisional: that A/B predates the staggered-momentum reroute
-    #: above (only cell-collocated tracers still take the slice here),
-    #: so the biased default awaits a post-reroute re-measure
+    #: Owner-ratified 2026-07-19 on the post-reroute clean pair
+    #: (rf=28: embed +1.0% over scatter); cross-checked at step-guard
+    #: batches -- do not re-propose a dedicated re-measure job
     _surface_flux_lowering: ClassVar[str] = "embed"
 
     def __init__(

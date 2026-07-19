@@ -483,6 +483,103 @@ class Transform(UnaryOperator, ABC):
         """Delegate to ``forward`` (registry-uniform application)."""
         return self.forward(f)
 
+    def apply_diagonal(
+        self,
+        f: FieldLike,
+        symbol_factory: object,
+    ) -> FieldLike:
+        r"""
+        Fused ``backward(symbol(forward(f)))`` -- distributed-safe.
+
+        Description
+        -----------
+        The consumer surface for a spectral operator applied in the
+        nodal frame: a forward transform, a per-mode diagonal ``symbol``
+        multiply, and a backward transform, as **one** operation. On a
+        grid whose default layout shards a transform axis the naive
+        ``backward(symbol(forward(f)))`` re-gathers (the standalone
+        ``forward`` materializes a coefficient field, which the storage
+        contract replicates -- the Tier-1 taught error), so this routes
+        through the fused ``jax.shard_map`` lowering
+        (``distributed_transform.DistributedTransform``) whenever
+        ``resolve_distributed_transform`` serves the space: the
+        coefficient frame stays internal and no axis is gathered. On a
+        single device (or a replicated operand) it runs the plain
+        sandwich, bit-for-bit unchanged.
+
+        Because the two frames differ (the single-device codomain halves
+        the first axis; the distributed internal frame halves the local
+        Hermitian axis, or runs fully complex), the symbol is built
+        **per frame** by ``symbol_factory``: it receives the bare
+        coefficient space the multiply runs on and returns the matching
+        :class:`~fridom.spatial.operators.symbol.Symbol`
+        (``lambda coeff_bare: op.eigenvalues(grid, coeff_bare)``). The
+        symbol must be endo on that frame (its codomain equals its
+        domain), so the backward returns to the operand's own nodal
+        space.
+
+        Parameters
+        ----------
+        f : FieldLike
+            The nodal operand.
+        symbol_factory : object
+            A callable ``coeff_bare -> Symbol`` building the diagonal on
+            the coefficient frame the multiply runs on.
+
+        Returns
+        -------
+        FieldLike
+            The nodal result on the operand's own layout.
+
+        Raises
+        ------
+        NotImplementedError
+            If the distributed route resolves but the symbol retags
+            (no layout-preserving distributed form).
+        """
+        self._check_grid(f, "apply_diagonal")
+        dt = self._distributed_diagonal_route(f)
+        if dt is not None:
+            symbol = symbol_factory(dt.coeff.bare)
+            if symbol.codomain is not symbol.space:
+                raise NotImplementedError(
+                    f"{type(self).__name__}.apply_diagonal cannot run a "
+                    "retagging symbol on a sharded transform axis: the "
+                    "distributed fused route is layout-preserving and "
+                    "needs an endo diagonal (codomain == domain). "
+                    f"Got {symbol.space!r} -> {symbol.codomain!r}.")
+            return dt.apply_diagonal(f, symbol.data)
+        coeff = self.forward(f)
+        symbol = symbol_factory(coeff.function_space.bare)
+        return self.backward(symbol(coeff))
+
+    def _distributed_diagonal_route(
+        self, f: FieldLike,
+    ) -> object | None:
+        """
+        Resolve the distributed fused route for ``f``, or None.
+
+        Description
+        -----------
+        Returns the
+        :class:`~fridom.spatial.operators.distributed_transform.DistributedTransform`
+        only when the operand's own layout actually shards one of this
+        transform's stage axes **and** the space is servable; otherwise
+        None (the caller keeps the plain, layout-preserving sandwich --
+        a single-device or replicated operand needs no reshard).
+        """
+        layout = f.function_space.layout
+        if layout is None:
+            return None
+        bare = f.function_space.bare
+        if all(layout.is_local(axis)
+               for axis in self._stage_axes(bare)):
+            return None
+        from fridom.spatial.operators.distributed_transform import (  # noqa: PLC0415 — deferred: distributed_transform imports this module
+            resolve_distributed_transform,
+        )
+        return resolve_distributed_transform(self, self._grid, bare)
+
     # ================================================================
     #  Space resolution
     # ================================================================
@@ -1075,6 +1172,23 @@ class Transform(UnaryOperator, ABC):
             if not layout.is_local(axis))
         if not sharded:
             return
+        # narrow the blunt error: a plain (unpadded) Fourier transform
+        # on a 1-D device mesh has a fused forward->diagonal->backward
+        # route (DistributedTransform.apply_diagonal, consumed through
+        # Transform.apply_diagonal) that keeps the sharded axis local
+        # per shard. Only a *standalone* forward/backward (which
+        # materializes a coefficient field the storage contract
+        # replicates) and the trig/mixed/non-1-D remainder have no
+        # distributed route and land here.
+        route = (
+            " A plain forward->diagonal->backward apply (a spectral "
+            "operator on the sharded field) does have a distributed "
+            "route: call Transform.apply_diagonal(f, symbol_factory) "
+            "instead of the standalone forward/backward, which runs "
+            "the fused transform inside a jax.shard_map."
+            if (self._space_family is FourierSpace
+                and self._pad is None)
+            else "")
         raise NotImplementedError(
             f"{type(self).__name__}.{operation} cannot run on this "
             f"grid that shards the transform axis/axes {sharded!r} "
@@ -1086,9 +1200,9 @@ class Transform(UnaryOperator, ABC):
             "The distributed spectral solve "
             "(spatial.operators.distributed_solve) and the fused "
             "channel projection (spatial.operators.distributed_"
-            "contract) run their transforms inside a jax.shard_map "
-            "and are unaffected. For host-side spectral analysis "
-            "features build the grid on a single device "
+            f"contract) run their transforms inside a jax.shard_map "
+            f"and are unaffected.{route} For host-side spectral "
+            "analysis features build the grid on a single device "
             "(Grid(..., device_ids=(0,)), which leaves every axis "
             "local); see design/research/multidevice_test_faults.md.")
 

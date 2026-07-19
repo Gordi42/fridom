@@ -36,42 +36,25 @@ memory ceiling, time-to-first-step, WENO throughput (entries in
   on a 4-GPU allocation. New runs report the honest `compile_s`
   metric (chunk metric fixed 2026-07-18; entry in
   [`done.md`](done.md)).
-- **Hydro surface-flux correction — weno re-measure + multi-host
-  remaining.** The centered §8 criteria are **met** (arm sweep
-  2026-07-18, owner-requested; record in
+- **Hydro surface-flux correction — two owner decisions.** The
+  machinery, defaults, and validation are all shipped (entry in
+  [`done.md`](done.md); full record in
   [`../plans/active/boundary_trace_plan.md`](../plans/active/boundary_trace_plan.md)
-  §9): overhead vs `surface_flux=False` single-digit-to-negative
-  on `se_centered`, oc/fridom 0.92–1.04 top rungs, `im_centered`
-  0.99–1.12 with all rungs stable; per-scheme lowering default
-  landed (`893e82a8`). Same-day slice-exactness audit fixed a
-  real top-row error (~15–17% u/v) for order-5 biased staggered
-  momentum (`81995781` — biased momentum now takes the exact
-  full-3D correction; constancy-oracle record in plan §9).
-  Real multi-host validation (plan §4 gate) is **met** (2026-07-18
-  evening, owner-requested: `srun -n 4` bitwise/1e-15 vs 1-GPU,
-  both schemes; record in plan §9 — including the multi-process
-  compile-cache deadlock it exposed and fixed, `94786a7c`).
-  Remaining (sharpened by the 2026-07-19 analysis of the
-  remainders job 26350823 — that job raced parallel dev merges in
-  the shared checkout, so its weno5 arms ran at three commits and
-  the scatter arm lost 4/5 rungs to a mid-merge conflict at
-  child-import time; centered arms clean at `33707661`):
-  (a) post-reroute weno5 ladder re-measure — the only clean
-  same-commit A/B pair (rf=28) has embed +1.0% over scatter, so
-  the provisional biased `"embed"` default stands, but a
-  definitive verdict needs a clean re-run (owner-gated GPU,
-  ~20 min); (b) the `surface_flux=False` opt-out is now measured
-  SLOWER than the scatter default (up to −16% for the default at
-  big rungs) and +48% over the pre-H7 point (default: +24%) —
-  the linear rungs are bitwise-stable across every measurement,
-  so it is advective-path only; either the dirty-tree pre-H7
-  baseline is invalid or a real change entered
-  `c669ec6f..565eaa51` — owner decision: one-rung bisect (small
-  GPU job) or won't-chase (oc parity 0.92–1.04 holds either
-  way). The (c) barotropic-IC finding was **ruled an IC gap and
-  fixed** 2026-07-19 (entry in [`done.md`](done.md)). Step-guard
-  checkpointing stays on Silvano's own batch cadence (never
-  agent-initiated).
+  §9). What remains is two calls, both owner-gated GPU:
+  (a) *weno5 lowering A/B* — the biased `"embed"` default is
+  provisional: the 2026-07-19 remainders job raced parallel dev
+  merges in the shared checkout, leaving only one clean
+  same-commit pair (rf=28: embed +1.0% over scatter). Keep the
+  provisional default on that single pair, or authorize a clean
+  ~20-min re-run (pinned commit this time).
+  (b) *`surface_flux=False` opt-out cost* — the opt-out measures
+  SLOWER than the scatter default (default up to −16% at big
+  rungs) yet +48% over the dirty pre-H7 point (default: +24%);
+  linear rungs are bitwise-stable across every measurement, so
+  the delta is advective-path only. Either the pre-H7 baseline
+  is invalid or a real change entered `c669ec6f..565eaa51`.
+  One-rung bisect (small GPU job) or won't-chase (oc parity
+  0.92–1.04 holds either way).
 
 ## Channel eigenmodes on multi-device — remaining gaps
 
@@ -85,14 +68,13 @@ contraction shipped 2026-07-18 (merge `e60259de`, entry in
   ([`../research/eigen_remainder_investigation.md`](../research/eigen_remainder_investigation.md));
   the half-axis-sharded 3-D case **shipped** the same day
   (layout-aware half-axis re-designation, merge `feade7fa` — entry in
-  [`done.md`](done.md)). Still the remainder:
-  - *2-D channel* (highest exposure — the **default** for any 2-D
-    channel on >1 device): recommend a gather path scoped to 2-D
-    (exact, negligible cost at every size the dense engine can build;
-    `em.q` is already replicated). A bounded-partner psum kernel was
-    proven exact but shelved — its ×P basis-slicing edge only pays in
-    a regime the dense `eigh` cannot reach. Needs owner ratification,
-    then implementation.
+  [`done.md`](done.md)); the *2-D channel* (highest exposure — the
+  **default** for any 2-D channel on >1 device) **shipped** 2026-07-19
+  (`8752170a`): the owner's transpose directive rejected the gather
+  path, and `Channel2DPlan` serves it exactly and gather-free through
+  the fused transpose contraction (park the shardedness on the bounded
+  axis, run the local `rfft`, per-`kx` dense `Q diag(w) Qᴴ M`). Still
+  the remainder:
   - *Non-1-D meshes*: **unreachable today** (the decomposition
     negotiates only single-axis layouts; a hand-built 2-axis mesh dies
     at decomposition build) — keep the defensive decline. The pencil
@@ -109,21 +91,30 @@ ratification item above).
 Evidence, provenance probes, and the full re-attribution history:
 [`../research/multidevice_test_faults.md`](../research/multidevice_test_faults.md).
 
-## Naive GSPMD transform path — phased illegality (phases 2+)
+## Naive GSPMD transform path — phased illegality (remaining)
 
-Owner-approved 2026-07-18; phases 0–1 shipped the same day (Tier-1
-taught guard at the `Transform` seam; 3-D channel synthesis reroute —
-entries in [`done.md`](done.md), record:
-[`../research/gspmd_naive_transform_illegality.md`](../research/gspmd_naive_transform_illegality.md)).
-Remaining, per
-[`../plans/active/gspmd_transform_illegality_plan.md`](../plans/active/gspmd_transform_illegality_plan.md):
+Owner-approved 2026-07-18; phases 0–1 shipped the same day, the
+phase-3 core + 2-D channel transpose pipeline shipped 2026-07-19
+(`8752170a`), and the phase-3 diagonal consumer wave landed on
+`feat/distributed-transform-consumers` (Tier-1 guard, channel synthesis
++ 2-D transpose contraction, `DistributedTransform` +
+`apply_diagonal`, Krylov CG consumer). Record:
+[`../research/gspmd_naive_transform_illegality.md`](../research/gspmd_naive_transform_illegality.md);
+per
+[`../plans/active/gspmd_transform_illegality_plan.md`](../plans/active/gspmd_transform_illegality_plan.md).
+Still open:
 
-- **Phase 2** — the 2-D channel gather path (the ratification item in
-  the section above; covers projection *and* synthesis).
-- **Phase 3** — a standalone distributed `Transform` apply consuming
-  the unconsumed `distributed_*_plan`s (L): re-legalizes eigenmode and
-  state transforms, the exponential stepper, and the Krylov spectral
-  apply on sharded grids; converts the residual marked-test debt.
+- **Phase 3 — remaining consumers (deferred debt).** The single-field
+  diagonal route (`Transform.apply_diagonal`) serves the Krylov CG
+  `SpectralDerivative` apply; the **exponential stepper** (`ETDRK4`),
+  the **analytic all-periodic eigenmode** projections (`GridEigenmodes`
+  `kit.forward`/`kit.backward` + per-mode eigenvector matrix), and the
+  **balance / NNMD** state transforms still hit the taught error on
+  sharded grids — each needs a multi-component per-mode *matrix*
+  contraction (the all-periodic analog of `ContractPlan`) or
+  intermediate materialized amplitude state, not built in this wave
+  (no re-gathering path forced). The numeric *channel* eigenmode
+  projections / `f(L)` / synthesis are already served.
 - **Tier-2 decision (owner)** — whether all-local naive transforms on
   a multi-device mesh (silent all-gather) also become illegal, with an
   allow-replicated escape for Chebyshev/mismatched-layout solves.
@@ -156,25 +147,33 @@ the scoping §10–§13). Open:
   2026-07-17 (entry in [`done.md`](done.md); research + rulings in
   [`../research/stretched_terrain_combined.md`](../research/stretched_terrain_combined.md)).
   Open:
-  - **Terrain diagnosed "w" output labeling** — the slope-advection
-    buoyancy term shipped (`fix/terrain-buoyancy-slope-term`, entry in
-    [`done.md`](done.md)), so `b` now couples to the physical
-    `w = Jω + u·Zₓ + v·Z_y` internally; the diagnosed **output** field
-    `w` still carries the contravariant flux `Jω`, not the physical
-    vertical velocity — an output/documentation question only.
+  - **Hydrostatic physical `w` storage** (ruling (b) of
+    [`../decisions/physical_state_components.md`](../decisions/physical_state_components.md),
+    owner-ratified 2026-07-19; implementation in flight): the stored
+    state `w` becomes the physical `w = Jω + u·Zₓ + v·Z_y`; the
+    contravariant flux `Jω` stays an internal component reachable via
+    `state.chart`, the `d629a489` stratification slope spelling
+    migrates into the core diagnosis, and the shared advection's
+    velocity-trio contract (physical components) is satisfied on
+    terrain. Subsumes the former "diagnosed `w` output labeling"
+    question.
   - **nonhydro2 mapped energy leak — un-diagnosed cousin** (research
     §1.6 of
     [`../research/energy_metric_asymmetry.md`](../research/energy_metric_asymmetry.md)):
     the bare mapped nonhydro2 operator leaks the physical energy
     pairing on a divergence-free random state at −6.5e-3 (a = 0.2;
     CG-iteration-independent, nodal ≡ fv bitwise; energy bounded in
-    time integration). Whether it is the same class as the hydrostatic
-    slope-term gap (the mapped buoyancy/w coupling convention) or
-    ordinary interpolation-transpose truncation is **untested** — the
-    n-scaling probe (research §1.4 recipe: fixed resolved broadband
-    state, skew vs n) has not been run. Follow-up: run the n-scaling
-    probe; if resolution-independent, audit the mapped w/buoyancy
-    convention like the hydrostatic case.
+    time integration). The n-scaling probe (research §1.4 recipe:
+    fixed resolved broadband state, skew vs n) has not been run. New
+    prior (2026-07-19, census in
+    [`../decisions/physical_state_components.md`](../decisions/physical_state_components.md)):
+    the mapped nonhydro2 stored `w` is the **physical** vertical
+    velocity (the mapped pressure RHS derives `Jω` by
+    slope-subtraction), so `−N²·w` is the correct physical coupling
+    and the leak is *expected* to be ordinary interpolation-transpose
+    truncation. Follow-up: run the n-scaling probe to confirm
+    convergence; only a resolution-independent result would reopen a
+    convention audit.
   - **Variable-depth split-explicit free surface** (H3 residual):
     still a taught error on charts. The *implicit* half shipped
     2026-07-18 (multigrid_generalization_plan phase B: the
@@ -212,18 +211,20 @@ Open, none blocking:
   itself shipped; entry in [`done.md`](done.md)): hydrostatic terrain
   barotropic multigrid is not yet wet-aware (taught error; the masked
   spectral default converges in <= 17 iters, so no lever open at these
-  sizes); sw2 mapped+immersed stays a taught error; robust
-  preconditioning for pathological `min_fraction=0` sliver geometries;
-  genuine-chart (J != 1) physical column-equivalence twin (algebraic
-  gates substitute); owner sanity ruling on the advection base-face-α
-  vs pressure corner-α cross placements; real `srun -n N` validation
-  (owner-gated GPU).
+  sizes); sw2 mapped+immersed stays a taught error; genuine-chart
+  (J != 1) physical column-equivalence twin (algebraic gates
+  substitute); real `srun -n N` validation (owner-gated GPU).
 - **Partial-bottom-cell hydrostatic pressure gradient** — the
   Pacanowski–Gnanadesikan refinement; the current unweighted `p_hyd`
   cumsum is 2nd-order away from partial bottom cells only.
+  Approved 2026-07-19; plan:
+  [`../plans/active/partial_bottom_phyd_plan.md`](../plans/active/partial_bottom_phyd_plan.md).
 - **Fraction-weighted Sadourny momentum** (sw2) and **masked
   closures** (diffusion/Smagorinsky/VerticalMixing self-reject on
-  immersed grids today).
+  immersed grids today). Approved 2026-07-19 (staged: harmonic
+  diffusion + free-slip friction; fraction Sadourny; no-slip /
+  Smagorinsky / VerticalMixing deferred as taught errors); plan:
+  [`../plans/active/immersed_closures_sadourny_plan.md`](../plans/active/immersed_closures_sadourny_plan.md).
 
 ## Docs & examples rebuild
 
@@ -287,6 +288,23 @@ Real work, but nothing is waiting on any of it. The first two were
 sized on 2026-07-13 against real diffstats of comparable landed work;
 none is hard to justify *technically*, all fail the "who wants it" test
 today. Promote an item the moment a consumer appears.
+
+## shallowwater2 physical-components flip — campaign
+
+Ruling (c) of
+[`../decisions/physical_state_components.md`](../decisions/physical_state_components.md)
+(owner-ratified 2026-07-19): move the spherical prognostics from the
+chart convention (`dlon/dt`, `dphi/dt`) to physical m/s components —
+the NEMO/MITgcm curvilinear standard — completing the "state
+components are physical" invariant (ruling (a)) across all packages.
+Conversions are pointwise diagonal metric rescales, but the flip
+reverses a deliberate recorded design: it touches the chart operator
+plumbing (`lower_index`/`curl`/`div` flows), the Sadourny
+energy-conserving spellings, the energy correction and the eigen
+machinery, and must re-prove the energy-exactness gates. Retires
+`u_physical` / `v_physical` (the interim conversion points) and
+brings physical IC input to the sphere. Standalone campaign — plan
+before implementation.
 
 ## Boundary closures, stage 2e — the Robin dynamic `(α, g)` path
 

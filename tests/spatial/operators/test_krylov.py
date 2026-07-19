@@ -537,13 +537,31 @@ def test_solution_is_device_count_invariant():
     # DOFs, ``grid.measure``) keeps them halo-clean. The comparison is
     # to tight rounding, not bitwise: the cross-shard reductions sum in
     # a different order, so the last bits legitimately differ.
+    #
+    # Phase 3 (distributed-transform consumer wave): the CG operator is
+    # a spectral apply ``backward(symbol(forward))`` whose transform
+    # axes are sharded. The naive standalone forward would re-gather /
+    # crash (the Tier-1 taught error), so it routes through the fused
+    # ``Transform.apply_diagonal`` -- the sharded-axis FFT runs inside a
+    # jax.shard_map, keeping the whole solve device-count-invariant.
+    from fridom.spatial.operators.mixed import (  # noqa: PLC0415
+        resolve_transform,
+    )
+
     def run(device_ids):
         mx = fr.spatial.meshes.IntervalMesh(32, (0.0, 1.0), name="x")
         my = fr.spatial.meshes.IntervalMesh(32, (0.0, 1.0), name="y")
         grid = fr.spatial.Grid((mx, my), device_ids=device_ids)
         rhs = rich_rhs(grid)
         space = rhs.function_space
-        apply_a, _ = spectral_pieces(grid, space, sign=-1.0)
+        op = -1.0 * laplacian()
+        transform = resolve_transform(grid, space.bare)
+
+        def apply_a(field):
+            return transform.apply_diagonal(
+                field, lambda coeff_bare: op.eigenvalues(
+                    grid, coeff_bare))
+
         cg = ConjugateGradient(
             apply_a, iterations=5, project_mean=True)
         return np.asarray(cg(rhs).data)
