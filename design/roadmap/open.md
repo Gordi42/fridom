@@ -147,25 +147,33 @@ the scoping §10–§13). Open:
   2026-07-17 (entry in [`done.md`](done.md); research + rulings in
   [`../research/stretched_terrain_combined.md`](../research/stretched_terrain_combined.md)).
   Open:
-  - **Terrain diagnosed "w" output labeling** — the slope-advection
-    buoyancy term shipped (`fix/terrain-buoyancy-slope-term`, entry in
-    [`done.md`](done.md)), so `b` now couples to the physical
-    `w = Jω + u·Zₓ + v·Z_y` internally; the diagnosed **output** field
-    `w` still carries the contravariant flux `Jω`, not the physical
-    vertical velocity — an output/documentation question only.
+  - **Hydrostatic physical `w` storage** (ruling (b) of
+    [`../decisions/physical_state_components.md`](../decisions/physical_state_components.md),
+    owner-ratified 2026-07-19; implementation in flight): the stored
+    state `w` becomes the physical `w = Jω + u·Zₓ + v·Z_y`; the
+    contravariant flux `Jω` stays an internal component reachable via
+    `state.chart`, the `d629a489` stratification slope spelling
+    migrates into the core diagnosis, and the shared advection's
+    velocity-trio contract (physical components) is satisfied on
+    terrain. Subsumes the former "diagnosed `w` output labeling"
+    question.
   - **nonhydro2 mapped energy leak — un-diagnosed cousin** (research
     §1.6 of
     [`../research/energy_metric_asymmetry.md`](../research/energy_metric_asymmetry.md)):
     the bare mapped nonhydro2 operator leaks the physical energy
     pairing on a divergence-free random state at −6.5e-3 (a = 0.2;
     CG-iteration-independent, nodal ≡ fv bitwise; energy bounded in
-    time integration). Whether it is the same class as the hydrostatic
-    slope-term gap (the mapped buoyancy/w coupling convention) or
-    ordinary interpolation-transpose truncation is **untested** — the
-    n-scaling probe (research §1.4 recipe: fixed resolved broadband
-    state, skew vs n) has not been run. Follow-up: run the n-scaling
-    probe; if resolution-independent, audit the mapped w/buoyancy
-    convention like the hydrostatic case.
+    time integration). The n-scaling probe (research §1.4 recipe:
+    fixed resolved broadband state, skew vs n) has not been run. New
+    prior (2026-07-19, census in
+    [`../decisions/physical_state_components.md`](../decisions/physical_state_components.md)):
+    the mapped nonhydro2 stored `w` is the **physical** vertical
+    velocity (the mapped pressure RHS derives `Jω` by
+    slope-subtraction), so `−N²·w` is the correct physical coupling
+    and the leak is *expected* to be ordinary interpolation-transpose
+    truncation. Follow-up: run the n-scaling probe to confirm
+    convergence; only a resolution-independent result would reopen a
+    convention audit.
   - **Variable-depth split-explicit free surface** (H3 residual):
     still a taught error on charts. The *implicit* half shipped
     2026-07-18 (multigrid_generalization_plan phase B: the
@@ -280,6 +288,23 @@ Real work, but nothing is waiting on any of it. The first two were
 sized on 2026-07-13 against real diffstats of comparable landed work;
 none is hard to justify *technically*, all fail the "who wants it" test
 today. Promote an item the moment a consumer appears.
+
+## shallowwater2 physical-components flip — campaign
+
+Ruling (c) of
+[`../decisions/physical_state_components.md`](../decisions/physical_state_components.md)
+(owner-ratified 2026-07-19): move the spherical prognostics from the
+chart convention (`dlon/dt`, `dphi/dt`) to physical m/s components —
+the NEMO/MITgcm curvilinear standard — completing the "state
+components are physical" invariant (ruling (a)) across all packages.
+Conversions are pointwise diagonal metric rescales, but the flip
+reverses a deliberate recorded design: it touches the chart operator
+plumbing (`lower_index`/`curl`/`div` flows), the Sadourny
+energy-conserving spellings, the energy correction and the eigen
+machinery, and must re-prove the energy-exactness gates. Retires
+`u_physical` / `v_physical` (the interim conversion points) and
+brings physical IC input to the sphere. Standalone campaign — plan
+before implementation.
 
 ## Boundary closures, stage 2e — the Robin dynamic `(α, g)` path
 
