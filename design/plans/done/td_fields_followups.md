@@ -233,4 +233,38 @@ see this plan"); `time_dependent_fields.md` TDF-D9 likewise.
 
 ## 5. Landed
 
-(filled at close)
+Both items shipped 2026-07-19.
+
+- **A — state-sourced `EnergyMetric`** (`feat/energy-metric-state-weights`,
+  merge `2d222425`). A field weight whose source is `time_dependent=True`
+  becomes a `StateSourcedWeight` host descriptor resolved at apply time —
+  off the operand in `apply`, off `b` in `inner`/`norm` — so the metric is
+  evaluated at the measured state's own stage-time with zero clock
+  plumbing. `from_model` gains `snapshot: bool = False`; the three `src`
+  callers were swept (`eigen.py` defensive; `eigen_channel.py` and
+  `transforms/balance_expansion.py` **load-bearing** — both pass
+  `snapshot=True` to keep their `allow_field_weights=True` weight
+  extraction and frozen-basis consistency, TDF-D6). Gates: 48 energy
+  tests (5 new — tracking, taught error, `snapshot=True` parity, the
+  state-sourced `jax.grad`), the eigen/channel mirrors, and the
+  `test_linear_model` smoke all green. Note: the nonhydro `n2`
+  reciprocal branch is wired and tested but not reachable through a real
+  model until an `n2` law lands — `MeridionalStratification` takes only a
+  static callable — so when the TDF-D7 `n2(z, t)` follow-up wires that
+  law, its metric side is already free.
+- **B — `FieldBlend` on the rewrite path** (`refactor/field-blend-self-update`,
+  merge `27790fdf`). The blend now rewrites its carried field each
+  substage through a SELF_UPDATE stage built by the reusable
+  `FieldBlend.stage()`/`rewrite()` helpers; the term reads the carry
+  plainly and `_stage_blend_f` plus the `f_field=` parameters are
+  deleted. One lowering note vs §3: the stage fn is passed as a **string
+  method name**, because the composer rejects a bound-method stage fn.
+  Blend-active tendencies held **bitwise** against dev. The sw2
+  energy-correction blend-active refusal is **lifted** — on the
+  stage-time carry the `conserving − linear` total telescopes to the
+  exact conserving rotation (production residual <1e-13, route A ==
+  route B <1e-12). The `time_dependent_linear_parameters()` offender
+  tuple for a blend-active module now includes `"f_coriolis"` via the
+  `linear_fields` route (exact-tuple asserts updated). Gates: forced-4
+  blend-path invariance <1e-11, the `jax.grad`-through-`propagator`
+  autodiff regression FD-matched to rtol 1e-4, 155 passed + 4 forced-4.

@@ -268,24 +268,19 @@ What remains:
 1. **Nonhydro `n2(z, t)` law-valued path (TDF-D7).** The Coriolis
    `f(y, t)` and shallow-water `csqr(y, t)` law paths shipped;
    `ConstantStratification` does not yet accept a `ProfileFunction`
-   for a non-affine `n2(z, t)` profile. A named follow-up, deliberately
-   out of the shipped plan's scope.
-2. **`FieldBlend` unification (TDF-D9, owner decision).** The
-   affine-blend `f_coriolis` still evaluates term-side (AR-D2), which
-   leaves the known IO-staleness wart (`f_coriolis` IO shows the `t=0`
-   snapshot). Re-basing it on the `SELF_UPDATE` rewrite path would fix
-   that too, but relitigates an owner-ratified ruling and changes
-   tested behavior — logged as an open question for the owner, nothing
-   more.
-3. **A re-diagonalization contract for the analysis tools — declined
+   for a non-affine `n2(z, t)` profile. The energy-metric side is
+   already wired (TDF-D10 — the state-sourced `n2` reciprocal weight),
+   so the follow-up is only the law surface and its module wiring. A
+   named follow-up, deliberately out of the shipped plan's scope.
+2. **A re-diagonalization contract for the analysis tools — declined
    (TDF-D6).** The eigen/analysis surfaces (`eigenbasis` /
-   `ChannelEigenmodes` / `Eigenmodes.from_model`, the `EnergyMetric`
-   weights) stay deliberately time-frozen: they snapshot `f`/`csqr`/
-   `dsqr` at a fixed `at_time` (docstrings now say so). A contract that
-   makes them track a time-dependent `L` is explicitly out of scope —
-   a time-dependent `L` has no fixed eigenbasis, so the discrete
-   eigenanalysis is undefined in that regime. Recorded here only so the
-   decision is not silently lost.
+   `ChannelEigenmodes` / `Eigenmodes.from_model`) stay deliberately
+   time-frozen: they snapshot `f`/`csqr`/`dsqr` at a fixed `at_time`
+   (docstrings now say so). A contract that makes them track a
+   time-dependent `L` is explicitly out of scope — a time-dependent
+   `L` has no fixed eigenbasis, so the discrete eigenanalysis is
+   undefined in that regime. Recorded here only so the decision is not
+   silently lost.
 
 ## Adiabatic-ramping docs — example review (deferred at landing)
 
