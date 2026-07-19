@@ -27,40 +27,31 @@ writing starts** (owner ruling 2026-07-19). The perf-guard
 checkpoint runs after all physics changes and before the
 Oceananigans re-run.
 
-## 1. In flight — the 2026-07-19 wave
+## 1. Wave residuals (the 2026-07-19 eleven-stream wave landed — entry in [`done.md`](done.md))
 
-Eleven parallel streams, launched 2026-07-19 (owner rulings recorded
-in the cited records):
-
-- **Full-suite validation + push** of the tested sha.
-- **Explicit terrain free surface → volume-exact** (GM-D1 option 1,
-  owner-ruled — all three variants share one discrete barotropic
-  physics), then **split-explicit terrain+immersed** (the `∫αJ dz`
-  composition; implicit M5 quadrature as reference).
-- **Hydrostatic `EnergyMetric`/`eigenmodes` terrain ps weight** —
-  physically consistent energy diagnostics on charts.
-- **`ThermalWindShear` module** — `−M²v` buoyancy restoring +
-  `w·dU/dz` tilt; unblocks Eady setups (and a future Eady
-  comparison leg).
-- **Eigenvector-gauge canonicalization** in the numeric channel
-  basis build (largest component real-positive; cross-build parity
-  becomes assertable).
-- **`VerticalMixing` immersed** — wet-aware variable-dz tridiagonal
-  ([`../plans/active/immersed_closures_sadourny_plan.md`](../plans/active/immersed_closures_sadourny_plan.md)
-  §5).
-- **API surface**: `fr.io` root alias; `model.blank_state()` +
-  `model.state_space(name)` built (specs updated; IC recipes follow);
-  `add_prognostic` struck (`state.add` blessed); `WindowAccumulator`
-  preset struck (idiom stays) — see [`declined.md`](declined.md).
-- **`pot_vort` on shallowwater2** (metric-aware; docs upstream gap).
-- **`grid.measure` pre-assembly cache fix** (recompute-on-
-  renegotiation, owner-ruled; sibling-cache audit).
-- **Walled Smagorinsky W1→W2→W3**
-  ([`../research/smagorinsky_walls_scoping.md`](../research/smagorinsky_walls_scoping.md),
-  owner-ratified: slip="free" default, no-slip via wall-row
-  correction, per-cell filter width; van Driest/Scotti declined).
-- **Spherical models implementation plan** (design-only; owner
-  reviews the plan before implementation starts).
+- **Full-suite validation + push** — in flight (validates
+  `77cea423`; pushes the tested sha when green; later merges ride
+  the next push).
+- **Spherical plan owner review** —
+  [`../plans/active/spherical_models_plan.md`](../plans/active/spherical_models_plan.md)
+  (SP-D1..D9) awaits the owner before spherical implementation
+  starts.
+- **Owner calls filed by the wave:**
+  - **`H_ref` convention on mapped grids** — the volume-exact
+    reference depth is the vertical *mesh* extent (GM-D1 literal,
+    shipped), so a pure vertical re-parameterization changes the
+    barotropic wave speed (a nonlinear stretch with physical depth
+    1.4 over base extent 1.0 gets `g = csqr/1.0`). Alternative: the
+    physical reference depth (chart-invariant). Small change if
+    taken (`free_surface.py` reference depth + the metric
+    one-liner).
+  - **`hy.energy.hydrostatic_energy_weights` is vestigial**
+    (superseded docstring, flat-only test consumers, wrong on any
+    non-unit depth): delete + repoint its two tests (recommended),
+    or fix the docstring. Public `hy.energy` export.
+  - **`ThermalWindBackground` naming** — keep the shipped name
+    (recommended) or rename to the roadmap's old candidate
+    `ThermalWindShear` (public export, wide-ish rename).
 
 ## 2. Spherical 3-D models (3.7 — promoted, owner 2026-07-19)
 
@@ -118,7 +109,7 @@ content is owner-reviewed privately before it reaches `dev`
 
 After docs (owner 2026-07-19): the **Veros and pyOM3 legs** (pyOM3
 source: `github.com/ceden/pyOM3`, verified reachable).
-`ThermalWindShear` (in flight) unblocks an Eady leg. Full narrative
+`ThermalWindBackground` (shipped) unblocks an Eady leg. Full narrative
 of the shipped model + Oceananigans leg: [`done.md`](done.md) §3.1.
 Designed-fors (T/S + EOS, z*/ALE) stay in
 [`../plans/active/hydrostatic_model_plan.md`](../plans/active/hydrostatic_model_plan.md)

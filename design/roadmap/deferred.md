@@ -82,15 +82,20 @@ no-slip consumer.*
 [`../plans/active/immersed_closures_sadourny_plan.md`](../plans/active/immersed_closures_sadourny_plan.md)
 §5
 
-## Smagorinsky — immersed, then terrain/mapped
+## Smagorinsky — immersed, terrain/mapped, walled FV
 
 *Deferred (owner 2026-07-19). Triggers: an immersed-LES consumer;
 terrain LES (needs the metric-tensor strain and the W3 J-weighted
-filter width).* Layering proven safe: each stage reduces at `Cs=0`
-to the corresponding already-ratified walled/immersed/along-σ
-friction closure. The walled lift (W1–W3) is in flight.
+filter width); a walled-FV (`CellAvg`) Smagorinsky consumer (a
+narrow taught error added at the W1 landing so the FV promotion
+does not run an unvalidated cross-derivative path — the diffusion
+campaign's FV walled lift is the precedent for the small fix).*
+Layering proven safe: each stage reduces at `Cs=0` to the
+corresponding already-ratified walled/immersed/along-σ friction
+closure. The walled nodal lift (W1–W3) shipped 2026-07-19
+(`c028a84d`).
 [`../research/smagorinsky_walls_scoping.md`](../research/smagorinsky_walls_scoping.md)
-§(vi)
+§(vi)–(vii)
 
 ## Stage-5 diffusion — geopotential-correct full-metric tensor
 

@@ -135,14 +135,20 @@ its gates (dev races reconciled at merge, the standing pattern).
 - **Smagorinsky immersed:** the nonlinear coefficient reads shear
   across the mask (the documented coastal-viscosity bias); needs
   wet-only strain rates, and **walled** Smagorinsky must land
-  first. Deferred.
-- **VerticalMixing immersed:** the implicit column solve assumes
-  uniform dz (`model/closures/vertical_mixing.py` ~272–279,
-  `model/implicit.py` ~300–311); partial bottom cells need a
-  wet-aware variable-dz tridiagonal — the intersection of two
-  generalizations the implicit machinery has already deferred.
-  Highest real-world value of the three, and its own roadmap item
-  when picked up. Deferred.
+  first. Deferred. [Update 2026-07-19: walled Smagorinsky landed
+  (`c028a84d`, design
+  [`../../research/smagorinsky_walls_scoping.md`](../../research/smagorinsky_walls_scoping.md))
+  — the prerequisite is paid; the immersed tier itself stays
+  deferred (owner 2026-07-19), entry in `roadmap/deferred.md`.]
+- **VerticalMixing immersed:** ~~deferred~~ **shipped 2026-07-19**
+  (merge `0d0e4799`, done.md "2026-07-19 parallel wave"): min-rule
+  face wet fractions `α = min(θ_c, θ_n)` weight the couplings
+  (`α·κ/(θ dz²)`, double-where sealed), dry cells identity rows,
+  domain walls unweighted (walls keep their machinery, CL-D3). The
+  bind's blanket immersed reject is gone; the moving-geometry
+  reject stays. Gates: all-wet bitwise, staircase ≡ walled exact
+  0.0, wet-content drift exactly 0.0 over 15 implicit steps,
+  autodiff FD-matched, forced-4 green.
 
 ## 6. Implementation record
 

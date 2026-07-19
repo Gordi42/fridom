@@ -244,6 +244,38 @@ closure — walls to `HarmonicFriction` walls, immersed to immersed
 friction, terrain to along-σ friction. The only irreducibly new
 ingredient is the off-diagonal shear retag, contained in W1/W2.
 
+## (vii) Landing addendum (2026-07-19)
+
+Shipped same day as designed: merge `c028a84d` (stage commits
+`4d27e12a` W1, `40040763` W2, `8c7982fd` W3). All §(v) gates green,
+including the two decisive bit-for-bit oracles: `Cs=0` ≡ walled
+`HarmonicFriction`, and no-slip ≡ the odd-mirrored doubled-periodic
+run at maxdiff 0.0 (pinning the two-consumer consistency); forced-4
+sharded-walled ≡ single-device at 1e-12 for both slips; all periodic
+tests bit-identical. Implementation deviations, all recorded in the
+tests/docstrings:
+
+1. **The ½ convention**: the module's `τ = νΣ` (no factor 2) makes a
+   wall-parallel shear's stress half the Laplacian rate, so the
+   `Cs=0` gate holds against `HarmonicFriction(ν_bg/2)` for shear
+   components (full rate on the wall-normal diagonal) — the §(v)
+   wording omitted the ½ the convention forces.
+2. **N² buoyancy-gradient retag**: `b.diff(z).to(anchor)` cannot
+   ground at a walled vertical; it takes the same `Inner[Dirichlet]`
+   retag (∂b/∂z = 0 at a no-flux wall).
+3. **Walled FV taught error (new)**: dropping the blanket reject
+   would have exposed walled `CellAvg` grids via the FV promotion;
+   W1 is nodal-scoped, so walled FV is refused rather than run
+   unvalidated (follow-up on the deferred shelf).
+4. **W3 tested at the closure level**: the full nonhydro2 model
+   cannot assemble on a raw `MappedIntervalMesh` (pre-existing core
+   limitation — no spectral transform), so the per-cell-Δ stage is
+   exercised on a bound field table.
+5. **|Σ|² injection form**: `interp_t((u_t1/Δn)²)` at wall cells,
+   factor 1.0 (the off-diagonal ×2 and interp ×½ cancel) —
+   calibrated against, and bit-for-bit consistent with, the
+   odd-mirror oracle.
+
 **Key files:** design substrate
 [`diffusion_walls_terrain_scoping.md`](diffusion_walls_terrain_scoping.md);
 template `src/fridom/model/closures/diffusion.py:257-566`; target

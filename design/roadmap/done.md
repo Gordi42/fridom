@@ -2567,3 +2567,72 @@ Implementation record:
   one recorded cost is the per-node conversion round trip — a
   synthetic torus M-skew bound moved 1e-14 → 1e-13 (metric range
   0.25..6.25; deviation record in the plan §7).
+
+- **The 2026-07-19 parallel wave** (eleven streams launched after the
+  owner's post-stream rulings; all landed same day — the pipeline in
+  [`open.md`](open.md) records what remains):
+  - *Explicit terrain free surface → volume-exact* (`b59b5881`):
+    GM-D1 option 1 on the last variant — all three free-surface
+    variants share one discrete barotropic physics (constant
+    `g = csqr/H_ref`, transport depth `∫J dz`, no `1/H` division).
+    Flat charts bitwise-unchanged; terrain `∫ps` conserved to
+    round-off; dead `_terrain_inv_depth` removed.
+  - *Split-explicit terrain+immersed* (`623825db`): the `∫αJ dz`
+    composition in the three variant-owned reductions (implicit M5
+    quadrature as the reference); taught error lifted; all-wet ≡
+    pure-terrain ~1e-15, `∫ps` ~2e-17, IC seeding `U = ubar·h_u`
+    exact, forced-4 green. A pre-existing flat-chart raw-byte test
+    reclassified `single_device` (FP re-association, the standing
+    multi-device-bitwise class — confirmed failing on the base).
+  - *Hydrostatic ps energy weight reconciled* (`e5466047`): with all
+    variants volume-exact the conserved barotropic weight is the
+    CONSTANT `H_ref/c²`; the 2026-07-18 terrain field weight
+    (`59b6047a` — correct for the energy-form era) retired. Terrain
+    skew 0.267 → <1e-12; the stretched-z eigen Hermiticity 0.286
+    (pre-existing red since `b59b5881`) → <1e-12.
+    `allow_field_weights` kept (three other live consumers).
+  - *Walled Smagorinsky W1–W3* (`c028a84d`; design + landing
+    addendum in
+    [`../research/smagorinsky_walls_scoping.md`](../research/smagorinsky_walls_scoping.md)):
+    free-slip via the `Inner[Dirichlet]` shear retag; no-slip
+    wall-row into both consumers (odd-mirror oracle bit-for-bit
+    0.0); per-cell `grid.measure` filter width (uniform meshes
+    bitwise to the old scalar). `Cs=0` ≡ walled `HarmonicFriction`
+    bit-for-bit; forced-4 both slips 1e-12. New narrow taught
+    error: walled FV `CellAvg` (deferred.md).
+  - *VerticalMixing immersed* (`0d0e4799`): min-rule face wet
+    fractions in the implicit band; all-wet bitwise, staircase ≡
+    walled exact 0.0, wet-content drift exactly 0.0 over 15
+    implicit steps, autodiff FD-matched, forced-4 green. Only
+    moving geometry stays refused.
+  - *Eigen gauge canonicalization* (`5316b488`): per-column pivot
+    pinned real-positive in the numeric channel build; simple
+    eigenvalues cross-build reproducible (parity ~1e-7/1e-8 on the
+    zero-cluster projector), degenerate subspaces
+    per-column-deterministic only (documented). Zero same-build
+    pins broke; the two GPU-only cross-build synthesis tests now
+    assert real parity — they validate at the next owner GPU batch.
+  - *ThermalWindBackground gates closed* (`3ed61027`): the module
+    predated the wave (H5b `b89f4f70`); added the missing autodiff
+    regression (rel ~5e-10 vs FD) and the explicit rest-state test.
+  - *pot_vort on shallowwater2* (`bae528a2`): `q = (f + Ro·ζ)/h` on
+    the vorticity corner — the scheme's materially-conserved
+    invariant (400-step drift 4e-4 of span vs 0.14 for the
+    unscaled old-stack form); sphere rest-state ≡ f/h exactly
+    (rel_vort confirmed metric-aware). Docs upstream gap closed.
+  - *API surface* (`c0fe2539`): `fr.io` root alias;
+    `model.blank_state()` + `model.state_space(name)` built (specs
+    marked BUILT; two canonical IC recipes modernized);
+    `add_prognostic` struck (`state.add(**components)` blessed);
+    `WindowAccumulator` preset struck (S6 idiom stays) — entries in
+    [`declined.md`](declined.md).
+  - *grid.measure pre-assembly cache* (`6360fc81`):
+    clear-on-renegotiation for the measure and immersed-fraction
+    memos (the halo-keyed frame is deterministic, so only the stale
+    entry was the defect); sibling audit clean (sync memo,
+    coarsened grids correctly self-invalidating); both multi-device
+    regression discriminators verified failing pre-fix.
+  - *Spherical models plan* (`a00b7333`):
+    [`../plans/active/spherical_models_plan.md`](../plans/active/spherical_models_plan.md)
+    (S0–S4, SP-D1..D9) — awaiting owner review before
+    implementation.

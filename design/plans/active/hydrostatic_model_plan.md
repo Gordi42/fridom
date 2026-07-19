@@ -384,7 +384,16 @@ double-where (grad=FD at 9e-10); the hydrostatic terrain autodiff
 gate now runs `advection=True`. See done.md.] And
 `EnergyMetric`/`eigenmodes` on a terrain grid use the plain
 (extent) ps weight and so are physically inconsistent (energy
-diagnostics off a chart, unfixed here).
+diagnostics off a chart, unfixed here). [Update 2026-07-19:
+resolved in two acts — the ps weight got its physical depth
+2026-07-18 (`59b6047a`), then the volume-exact free-surface
+unification (`b59b5881`) made the conserved barotropic weight the
+CONSTANT `H_ref/c²` and the metric followed (`e5466047`; terrain
+skew and the stretched-z eigen Hermiticity both to round-off).
+Terrain-column eigenmodes remain a deliberate taught error
+(per-column eigenproblems do not tensor-factorize). Open owner
+call (roadmap): `H_ref` = mesh extent (GM-D1 literal, shipped) vs
+physical reference depth (chart-invariant).]
 
 Tests: `tests/hydrostatic/test_terrain.py`, `test_core_terrain.py`,
 `test_free_surface_terrain.py` (the H1/H2/H4 + depth + rest-state +
@@ -713,6 +722,8 @@ background-buoyancy-gradient module (a `-M^2 v` restoring on `b`, the
 thermal-wind twin of `ConstantStratification`) plus the momentum-tilting
 `w' d_z U` term — a follow-up (candidate: a `ThermalWindShear` module
 supplying both, sampled as AUXILIARY profiles like the background flow).
+[Shipped as `ThermalWindBackground` (H5b, `b89f4f70`); the missing
+autodiff + rest-state gates closed 2026-07-19 (`3ed61027`).]
 
 **External legs — PENDING (out of tree, this machine).** The
 out-of-tree `benchmarks/comparison` harness named in the §4 H5 gate is
