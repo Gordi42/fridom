@@ -17,12 +17,14 @@ import pytest
 import fridom as fr
 from fridom.hydrostatic.modules.barotropic_pressure import (
     BarotropicPressureSolver,
+    _mean_free,
 )
 from fridom.spatial.coordinate_mapping import CoordinateMapping
 from fridom.spatial.grid import Grid
 from fridom.spatial.immersed_domain import ImmersedDomain
 from fridom.spatial.meshes.interval import IntervalMesh
 from fridom.spatial.operators.integrate import Integral
+from fridom.spatial.operators.multigrid_hierarchy import coarsen_levels
 
 IM = IntervalMesh
 CSQR, DT = jnp.asarray(3.0), jnp.asarray(0.05)
@@ -40,6 +42,12 @@ def _mapping(a):
 
 def _cut(x, y, z):  # noqa: ARG001
     return jnp.clip((z - (-0.5 + 0.1 * jnp.sin(2 * jnp.pi * x))) / (1.0 / 8)
+                    + 0.5, 0.0, 1.0)
+
+
+def _cut_steep(x, y, z):  # noqa: ARG001
+    """Return a steep partial-bottom shelf (spectral degrades here)."""
+    return jnp.clip((z - (-0.3 + 0.4 * jnp.sin(2 * jnp.pi * x))) / (1.0 / 8)
                     + 0.5, 0.0, 1.0)
 
 
@@ -173,9 +181,140 @@ def test_spectral_converges_within_budget_on_a_cut_chart(a):
 
 
 # ================================================================
-#  Taught error: the multigrid preconditioner is not yet wet-aware
+#  Phase C: the wet-aware multigrid preconditioner composes with
+#  the immersed (cut-cell) domain (the taught error is lifted)
 # ================================================================
-def test_multigrid_plus_immersed_is_a_taught_error():
-    with pytest.raises(NotImplementedError,
-                       match="multigrid preconditioner does not yet"):
-        _solver(_grid(a=0.4), preconditioner="multigrid")
+def test_multigrid_composes_with_immersed_grid():
+    # constructing the multigrid preconditioner on a cut chart no longer
+    # raises; the V-cycle builds its coarsened hierarchy over the
+    # immersed grid (nx=16 -> 8 -> 4, a three-level cycle)
+    solver = _solver(_grid(n=16, a=0.8), preconditioner="multigrid")
+    assert solver._immersed is not None
+    vcycle = solver._build_vcycle(csqr=CSQR, dt=DT)
+    assert len(vcycle.levels) == 3
+
+
+def test_coarse_levels_requantify_the_wet_fractions():
+    # Grid.coarsened propagates the immersed descriptor, so each coarse
+    # V-cycle level re-instantiates the solver on a grid that still
+    # carries the cut-cell domain and re-derives a genuine WET face depth
+    # (0 < H_a < full extent) from its own coarse chart
+    grid = _grid(n=16, a=0.8)
+    chain = coarsen_levels(grid, _ps_space(grid), vertical="z",
+                           coarsen_vertical=False)
+    assert len(chain) >= 2
+    coarse_grid, coarse_space, _ = chain[1]
+    assert coarse_grid.immersed is not None      # descriptor propagated
+    coarse = BarotropicPressureSolver(
+        coarse_grid, coarse_space, ("zp", "z"), "z", epsilon=1.0,
+        inv_depth=1.0, iterations=1, tolerance=None)
+    assert coarse._immersed is not None
+    h_x = np.asarray(coarse._face_depth("x").data)
+    # a genuine partial: re-quadratured wet, strictly inside (0, full)
+    assert float(h_x.min()) >= 0.0
+    assert float(h_x.max()) < 1.0
+    assert float(h_x.max()) - float(h_x.min()) > 1e-3
+
+
+@pytest.mark.parametrize("eps", [0.0, 1.0])
+def test_all_wet_cut_chart_multigrid_matches_pure_terrain(eps):
+    # alpha == 1 everywhere: the V-cycle preconditioner is byte-identical
+    # to the pure terrain multigrid (no cut-cell interference), and the
+    # full solve matches to machine precision
+    wet = _grid(n=16, a=0.6, init=_allwet, min_fraction=0.0)
+    pure = _grid(n=16, a=0.6, immersed=False)
+    s_wet = _solver(wet, eps=eps, preconditioner="multigrid")
+    s_pure = _solver(pure, eps=eps, preconditioner="multigrid")
+    # identical input residual on both grids
+    rng = np.random.default_rng(21)
+    data = jnp.asarray(rng.standard_normal(
+        pure.create_field(_ps_space(pure)).data.shape))
+    r_wet = wet.create_field(_ps_space(wet)).with_data(data)
+    r_pure = pure.create_field(_ps_space(pure)).with_data(data)
+    z_wet = s_wet._build_vcycle(csqr=CSQR, dt=DT)(r_wet)
+    z_pure = s_pure._build_vcycle(csqr=CSQR, dt=DT)(r_pure)
+    assert np.array_equal(np.asarray(z_wet.data), np.asarray(z_pure.data))
+    # the full preconditioned solve agrees to machine precision (the
+    # fields live on different grid objects, so compare the raw data)
+    x_wet = np.asarray(s_wet.solve(r_wet, csqr=CSQR, dt=DT).data)
+    x_pure = np.asarray(s_pure.solve(r_pure, csqr=CSQR, dt=DT).data)
+    scale = float(np.abs(x_pure).max()) + 1e-30
+    assert float(np.abs(x_wet - x_pure).max()) / scale <= 1e-12
+
+
+@pytest.mark.parametrize("eps", [0.0, 1.0])
+def test_multigrid_converges_machine_zero_on_a_cut_chart(eps):
+    grid = _grid(n=32, a=0.8)
+    solver = _solver(grid, eps=eps, iterations=200, tolerance=1e-8,
+                     preconditioner="multigrid")
+    # a wet-supported RHS (the physical transport divergence is zero on
+    # dry columns): A applied to a random field is range-compatible
+    rand = _rand(grid, 9)
+    rhs = solver.operator(csqr=CSQR, dt=DT)(rand)
+    ps = solver.solve(rhs, csqr=CSQR, dt=DT)
+    residual = rhs - solver.operator(csqr=CSQR, dt=DT)(ps)
+    rel = np.sqrt(_inner(residual, residual)) / np.sqrt(_inner(rhs, rhs))
+    assert rel < 1e-8
+
+
+def test_multigrid_beats_spectral_on_a_steep_shelf():
+    # on a steep partial-bottom shelf the flat mean-depth spectral inverse
+    # degrades badly (measured ~46 iters at n=32) while the wet-aware
+    # multigrid stays flat (~10) and converges well inside the budget
+    grid = _grid(n=32, a=0.8, init=_cut_steep)
+    sp = _solver(grid, eps=1.0, iterations=200, tolerance=1e-8)
+    mg = _solver(grid, eps=1.0, iterations=200, tolerance=1e-8,
+                 preconditioner="multigrid")
+    _p, info_sp = sp.krylov(csqr=CSQR, dt=DT).solve(_rand(grid, 4))
+    _q, info_mg = mg.krylov(csqr=CSQR, dt=DT).solve(_rand(grid, 4))
+    assert int(info_mg["iterations"]) < int(info_sp["iterations"])
+    assert int(info_mg["iterations"]) <= 20
+
+
+def test_multigrid_iterations_stay_flat_with_resolution():
+    # h-independence on a partial-bottom cut chart: the wet-aware V-cycle
+    # holds a bounded iteration count as the horizontal grid refines
+    counts = []
+    for n in (16, 32):
+        grid = _grid(n=n, a=0.8)
+        solver = _solver(grid, eps=1.0, iterations=200, tolerance=1e-8,
+                         preconditioner="multigrid")
+        _p, info = solver.krylov(csqr=CSQR, dt=DT).solve(_rand(grid, 4))
+        counts.append(int(info["iterations"]))
+    assert all(c <= 15 for c in counts)
+    assert abs(counts[1] - counts[0]) <= 3          # flat, not h-growing
+
+
+@pytest.mark.parametrize("eps", [0.0, 1.0])
+def test_multigrid_vcycle_is_self_adjoint_on_a_wet_chart(eps):
+    # the fixed symmetric V(1, 1) with adjoint transfers and a symmetric
+    # smoother stays symmetric on the wet cut chart, in the V-cycle's own
+    # geometry (the grid-agnostic plain-mean projection it applies per
+    # level; the outer CG carries the exact wet-column-mean gauge)
+    grid = _grid(n=16, a=0.8, init=_coast)
+    solver = _solver(grid, eps=eps, preconditioner="multigrid")
+    vcycle = solver._build_vcycle(csqr=CSQR, dt=DT)
+    r, s = _mean_free(_rand(grid, 30)), _mean_free(_rand(grid, 31))
+    mrs, rms = _inner(vcycle(r), s), _inner(r, vcycle(s))
+    assert abs(mrs - rms) <= 1e-11 * max(abs(mrs), 1e-30)
+
+
+def test_multigrid_rigid_lid_solution_is_wet_mean_free_and_masks_land():
+    grid = _grid(a=0.4, init=_coast)
+    solver = _solver(grid, eps=0.0, iterations=80, tolerance=1e-8,
+                     preconditioner="multigrid")
+    rand = _rand(grid, 5)
+    rhs = solver.operator(csqr=CSQR, dt=DT)(rand)
+    ps = solver.solve(rhs, csqr=CSQR, dt=DT)
+    theta_col = Integral()["z"](
+        grid.immersed.fraction(fr.spatial.Collocated().resolve(grid)))
+    cell_mask = np.asarray(theta_col.data > 0.0)
+    ps_data = np.asarray(ps.data)
+    assert bool((~cell_mask).any())                 # genuine land columns
+    assert float(np.abs(ps_data[~cell_mask]).max()) == 0.0   # dry -> zero
+    wet_ind = theta_col.with_data(cell_mask.astype(ps_data.dtype))
+    wet_mean = float(_inner(wet_ind, ps) / _inner(wet_ind, wet_ind))
+    assert abs(wet_mean) <= 1e-11 * (float(np.abs(ps_data).max()) + 1.0)
+    residual = rhs - solver.operator(csqr=CSQR, dt=DT)(ps)
+    rel = np.sqrt(_inner(residual, residual)) / np.sqrt(_inner(rhs, rhs))
+    assert rel < 1e-8

@@ -49,8 +49,22 @@ preconditioner onto the wet columns (``z = e \otimes M(r)``), the
 ``p_s`` output to zero under a full-depth land column. With ``\alpha = 1``
 every wet term collapses **byte-identically** to the pure terrain form;
 with ``J = 1`` to the flat immersed transport-depth operator. The
-multigrid preconditioner is not yet wet-aware (a taught error on a
-terrain + immersed grid — use ``"spectral"``).
+multigrid preconditioner composes too: ``Grid.coarsened`` propagates the
+immersed descriptor, so each coarse V-cycle level re-instantiates this
+solver on a grid that still carries the cut-cell domain and **re-derives
+the wet-column face depth from its own chart** (``\alpha_a`` re-quadratured
+per level, the composed-pressure precedent MI-D3) — no new coarsening
+machinery. The finest level reuses the outer solver's exact
+wet-column-mean nullspace gauge; the coarse levels run the grid-agnostic
+plain-mean projection (a preconditioner need only be SPD, not exact, so
+the coarse gauge stays cheap). An **all-wet** cut chart (``\alpha = 1``)
+runs the V-cycle **byte-identically** to the pure terrain multigrid. The
+V-cycle is h- and steepness-flat on graded / partial-bottom cut charts;
+on a strong interior-island geometry under the free-surface
+(``\varepsilon > 0``) mass term the coarsest levels turn mass-dominated
+and the low-frequency island mode is corrected less well, so masked
+spectral can remain the steadier choice there (the default is spectral
+either way).
 
 The velocity correction (:meth:`ImplicitFreeSurface._barotropic_solve`)
 stays the z-uniform ``u \leftarrow u - dt'\,\nabla_h p_s`` — with these
@@ -341,15 +355,6 @@ class BarotropicPressureSolver:
                 f"preconditioner must be one of {_PRECONDITIONERS}, got "
                 f"{preconditioner!r}")
         immersed = getattr(grid, "immersed", None)
-        if immersed is not None and preconditioner == "multigrid":
-            raise NotImplementedError(
-                "the terrain barotropic multigrid preconditioner does "
-                "not yet compose with an immersed (cut-cell) domain: the "
-                "point-Jacobi V-cycle coarsens the metric per level but "
-                "the coarse levels do not re-quadrature the wet fractions "
-                "(mapped + immersed composition plan, stage M5). Use "
-                "pressure_preconditioner='spectral' (the wet-masked "
-                "mean-depth inverse) on a terrain + immersed grid")
         self._immersed = immersed
         self._grid = grid
         self._space: SpaceLike = space.bare
@@ -747,7 +752,14 @@ class BarotropicPressureSolver:
         level re-instantiates this solver class on its (3-D) coarse grid,
         so the face depths ``H_a`` are **re-derived** from that level's own
         chart through ``grid.metric`` (MG-D6 re-discretization, no Galerkin
-        coefficient restriction). Per level: the SPD :meth:`operator`
+        coefficient restriction). On a **terrain + immersed** grid
+        ``Grid.coarsened`` propagates the immersed descriptor, so each
+        coarse re-instantiation picks up the cut-cell domain and its
+        :meth:`_face_depth` **re-quadratures the wet fractions**
+        ``H_a = \int \alpha_a J\,\mathrm{d}z`` on the coarse chart (the
+        composed-pressure precedent MI-D3) — the wet-awareness needs no
+        extra machinery, and an all-wet chart is byte-identical to the pure
+        terrain V-cycle. Per level: the SPD :meth:`operator`
         apply, a damped point-Jacobi smoother
         (:class:`~fridom.spatial.operators.multigrid.DampedJacobi`) on the
         exact :meth:`diagonal` at :data:`_POINT_OMEGA`, the plain-mean

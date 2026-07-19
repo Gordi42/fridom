@@ -689,17 +689,22 @@ class ImplicitFreeSurface(_FreeSurfaceBase):
         the default) or ``"multigrid"`` (the point-Jacobi
         geometric-multigrid V-cycle, h- and steepness-flat on steep
         terrain). **Consumed only on a terrain (sigma) grid** — the flat
-        spectral solve is exact on a Cartesian grid and iterates nothing,
-        and the immersed path keeps its own masked spectral
-        preconditioner. Any other value raises ``ValueError``
+        spectral solve is exact on a Cartesian grid and iterates nothing;
+        the flat (non-terrain) immersed path keeps its own masked spectral
+        preconditioner. On a **terrain + immersed** grid the multigrid
+        V-cycle composes: each coarse level re-quadratures the wet
+        fractions (``Grid.coarsened`` propagates the immersed descriptor),
+        so ``"multigrid"`` is wet-aware there too and is h-flat on graded /
+        partial-bottom cut charts. Any other value raises ``ValueError``
         (default: ``"spectral"``).
     multigrid_levels : int | None, optional
         The multigrid depth when
         ``pressure_preconditioner="multigrid"``, forwarded to the terrain
         solver: ``None`` coarsens the horizontal axes to the four-cell
         floor (the ratified floor-limited-depth semantics), an ``int``
-        caps the count as a maximum. Consumed only on a terrain grid with
-        the multigrid preconditioner (default: None).
+        caps the count as a maximum. Consumed only on a terrain grid (with
+        or without an immersed domain) under the multigrid preconditioner
+        (default: None).
     vertical : str, optional
         The vertical coordinate name the depth mean reduces over
         (default: ``"z"``).
