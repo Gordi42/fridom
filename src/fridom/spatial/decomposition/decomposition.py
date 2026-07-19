@@ -637,6 +637,16 @@ def negotiate(
     (the provisional path — exact under the iteration-1
     sync-after-every-operator contract).
 
+    The explicit `halo=` widths also join the per-application **floor**
+    the sharding cap respects: they carry declared-bypass demands
+    (``Module.extra_halo``, the tight reach of a trace-exempt stage's
+    operators) plus user widths, both of which a raw-``.data`` stage
+    reads in one unguarded application, so the cap must never squeeze
+    them. An axis whose `halo=` width does not fit a shard is therefore
+    not capped down to fit — it simply fails the shardability check and
+    is left unsharded (and an **explicit** device set with nothing else
+    shardable raises the taught error below).
+
     Iteration-1 layout realization: a 1-D device mesh over all
     requested devices; the default layout shards the first
     GHOST-capable factor whose per-shard extent respects
@@ -767,10 +777,21 @@ def _negotiated_halo(
     :func:`_cap_for_sharding`: the registry per-application maximum
     (:func:`_registry_halo`) combined (``merge_max``) with the trace
     floor — the widest single-*application* reach among the operators
-    that actually fired. The wide advection reconstructions are
-    trace-only (never registered), so the registry alone under-reports
-    their reach; sourcing the floor from the trace keeps the cap from
-    squeezing a single stencil's ghosts below what it reads at once.
+    that actually fired — **and with the explicit** ``halo=`` (when
+    given). The explicit spec carries declared-bypass per-application
+    demands (``Module.extra_halo``, whose derived form
+    :func:`~fridom.model.halo_demand.derive_extra_halo` is the tight
+    reach of the operators a trace-exempt stage runs) plus any user
+    width, so it too is a per-application floor: capping it could
+    silently under-provision a raw-``.data`` stage the halo trace
+    cannot follow (see ``require_solver_halo``). Folding ``halo=`` into
+    the floor makes :func:`_cap_for_sharding` leave it uncapped (its
+    ``cap >= low`` guard), so an axis whose explicit width does not fit
+    a shard simply fails :func:`_shardable_names` and is not sharded.
+    The wide advection reconstructions are trace-only (never
+    registered), so the registry alone under-reports their reach;
+    sourcing the floor from the trace keeps the cap from squeezing a
+    single stencil's ghosts below what it reads at once.
     """
     spec: HaloSpec | None = None
     floor = _registry_halo(names, registry, state_spaces)
@@ -786,6 +807,10 @@ def _negotiated_halo(
     if halo is not None:
         spec = (HaloSpec.zero(names) if spec is None
                 else spec).merge_max(halo)
+        # explicit ``halo=`` is a per-application floor (declared
+        # bypass reach + user width): join it so the cap never
+        # squeezes it (task 1.8 — see the docstring).
+        floor = floor.merge_max(halo)
     if spec is None:
         spec = floor
     return spec, floor
@@ -858,6 +883,43 @@ def _registry_halo(
     return HaloSpec(widths)
 
 
+def _ghost_traits(mesh: object) -> tuple[bool, int]:
+    """
+    Whether a mesh declares GHOST sharding, and its min_local_size.
+
+    Description
+    -----------
+    Scans the mesh's ghost-shardable space families
+    (:data:`_GHOST_FAMILY`) for the ``GHOST`` strategy, returning
+    whether any declares it and the widest ``min_local_size`` among
+    those that do (1 when none is wider). The shared candidacy reading
+    of :func:`_cap_for_sharding` and :func:`_shardable_names`, so both
+    agree on which axes can ever shard.
+
+    Parameters
+    ----------
+    mesh : object
+        A 1-D mesh factor.
+
+    Returns
+    -------
+    tuple[bool, int]
+        ``(declares_ghost, min_local_size)``.
+    """
+    ghost = False
+    min_local = 1
+    for attr in _GHOST_FAMILY:
+        try:
+            space = getattr(mesh, attr)
+        except (AttributeError, ValueError, NotImplementedError):
+            continue  # factory absent on this mesh type/topology
+        traits = mesh.decomposition_traits(space)
+        if HaloStrategy.GHOST in traits.strategies:
+            ghost = True
+            min_local = max(min_local, traits.min_local_size)
+    return ghost, min_local
+
+
 def _cap_for_sharding(
     meshes: tuple[object, ...],
     spec: HaloSpec,
@@ -882,6 +944,17 @@ def _cap_for_sharding(
     width and fails negotiation exactly as before). Heavy padding
     (``last < 1``: trailing shards empty) is not shardable, so no cap
     is derived.
+
+    The cap is scoped to **genuine sharding candidates**: a factor
+    that declares the ``GHOST`` strategy and whose shortest shard
+    covers ``min_local_size`` (and holds at least one cell). An axis
+    that can never shard — a short walled vertical, a non-GHOST
+    (TRANSPOSE/LOCAL) factor like a spectral or Chebyshev axis — keeps
+    its traced sync-free width untouched (fewer mid-chain exchanges),
+    since capping it could never buy shardability. The ``width + 1``
+    per-shard fit stays where it belongs, in :func:`_shardable_names`
+    (folding it into candidacy here would be circular — it depends on
+    the very width being capped).
 
     Parameters
     ----------
@@ -911,6 +984,13 @@ def _cap_for_sharding(
         cells = -(-n_cells // devices)
         last = n_cells - (devices - 1) * cells
         if last < 1:
+            continue
+        # cap only genuine sharding candidates (GHOST strategy, shortest
+        # shard clears min_local_size); a never-shardable axis keeps its
+        # traced width. The width + 1 fit is deferred to
+        # _shardable_names (circular here — it depends on the cap).
+        ghost, min_local = _ghost_traits(mesh)
+        if not ghost or last < min_local:
             continue
         cap = last - 1
         for name in mesh.names:
@@ -989,17 +1069,7 @@ def _shardable_names(
         last = n_cells - (devices - 1) * cells
         if last < 1:
             continue
-        ghost = False
-        min_local = 1
-        for attr in _GHOST_FAMILY:
-            try:
-                space = getattr(mesh, attr)
-            except (AttributeError, ValueError, NotImplementedError):
-                continue  # factory absent on this mesh type/topology
-            traits = mesh.decomposition_traits(space)
-            if HaloStrategy.GHOST in traits.strategies:
-                ghost = True
-                min_local = max(min_local, traits.min_local_size)
+        ghost, min_local = _ghost_traits(mesh)
         if not ghost:
             continue
         rank = _shard_rank(mesh, n_cells, devices)

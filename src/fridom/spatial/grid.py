@@ -875,8 +875,10 @@ class Grid:
         extra spec. The second return is the per-application width
         **floor** — the registry per-application maximum combined
         (``merge_max``) with the trace floor (the widest single
-        application reach among the operators that fired) — so the
-        symmetric verify-cap squeezes exactly as negotiate does.
+        application reach among the operators that fired) **and with
+        the explicit** `halo=` (declared-bypass per-application demand)
+        — so the symmetric verify-cap squeezes exactly as negotiate
+        does: the explicit width joins the floor and is never capped.
 
         Parameters
         ----------
@@ -909,6 +911,9 @@ class Grid:
             demand = floor
         if halo is not None:
             demand = demand.merge_max(halo)
+            # explicit ``halo=`` joins the floor so the symmetric
+            # verify-cap leaves it uncapped, exactly as negotiate does.
+            floor = floor.merge_max(halo)
         return demand, floor
 
     def sync(
