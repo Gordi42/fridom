@@ -149,11 +149,20 @@ time-integration error.
 Chart grids (coordinate-systems plan, stage C2)
 -----------------------------------------------
 On a chart-coupled grid (``grid.chart_coords`` is not None) the
-scheme takes the metric-aware path with the prognostic velocities
-as **contravariant** components (the convention recorded in
-``core.py``); coordinate names come from ``coords=``. The
-vector-invariant form generalizes with the mass fluxes
-:math:`F^i = \sqrt{g}\,h\,u^i`:
+scheme takes the metric-aware path. The prognostic velocities are the
+**physical** (m/s) components (``physical_state_components.md`` ruling
+(c)); the scheme converts them to the **contravariant** coordinate
+velocities :math:`u^i = U_i/\sqrt{g_{ii}}` at entry (sealed divide,
+``chart.py``, D1/D2) and rescales the momentum tendencies
+:math:`\mathrm{d}U_i = \sqrt{g_{ii}}\,\mathrm{d}u^i` at exit — the
+whole vector-invariant body between the seams runs verbatim on the
+contravariant intermediates. The conserved functional is
+:math:`E = \sum \tfrac12 \sqrt{g}\,\bar h\,U^2 + \tfrac12
+\sqrt{g}\,p^2` in physical components (equivalently
+:math:`\sum \tfrac12 \sqrt{g}\,\bar h\,g_{ii}(u^i)^2 + \dots` on the
+contravariant intermediates, since :math:`g_{ii}(u^i)^2 = U_i^2`).
+Coordinate names come from ``coords=``. The vector-invariant form
+generalizes with the mass fluxes :math:`F^i = \sqrt{g}\,h\,u^i`:
 
 .. math::
     \partial_t u_\lambda = +\,q\,\overline{F^\varphi}
@@ -168,7 +177,8 @@ of the **lowered** components
 :math:`\zeta = (\partial_\lambda u_\varphi^{cov} -
 \partial_\varphi u_\lambda^{cov})/\sqrt{g}`, and the covariant
 momentum tendencies **raised** (``raise_index``) onto the
-prognostic contravariant components. The thickness divergence
+contravariant components (then rescaled to physical at exit). The
+thickness divergence
 resolves the seeded flux-form ``"div"`` kind, vorticity the
 ``"curl"`` kind, index moves the ``"raise_index"`` /
 ``"lower_index"`` kinds — module overrides propagate; only the
@@ -251,6 +261,10 @@ import jax.numpy as jnp
 import numpy as np
 
 import fridom as fr
+from fridom.shallowwater2.chart import (
+    to_contravariant,
+    to_physical_tendency,
+)
 from fridom.shallowwater2.modules.immersed_weighting import (
     mask_field,
     scale_divergence,
@@ -987,14 +1001,23 @@ class SadournyAdvection(fr.model.Module):
         retagged onto the Dirichlet corner), corner PV fluxes as the
         :math:`\sqrt{g}`-weighted mass fluxes, kinetic energy from
         the lowered quadratics, and the covariant momentum
-        tendencies raised back onto the prognostic contravariant
-        components. Every metric coefficient is derived per
+        tendencies raised back onto the contravariant components.
+        The physical velocities are converted to contravariant at
+        entry and the tendencies rescaled to physical at exit
+        (``chart.py``); every metric coefficient is derived per
         application via ``grid.metric``.
         """
         grid = u.grid
         dispatch = grid.dispatch
         zonal, meridional = self._coords
         con = Variance.CONTRAVARIANT
+
+        # entry seam: physical U -> contravariant u^i (chart.py); the
+        # whole vector-invariant flow below (including the ekin
+        # quadratics that carry g_ii on the contravariant
+        # intermediates) runs verbatim, exit-rescaled at the end
+        u = to_contravariant(u, zonal)
+        v = to_contravariant(v, meridional)
 
         # --- thickness: dp = -(Ro/sqrt_g) d_i(sqrt_g u^i p) --------
         flux = VectorField({
@@ -1055,8 +1078,12 @@ class SadournyAdvection(fr.model.Module):
             "raise_index", tu.function_space.bare)
         raised = raise_index(VectorField({
             zonal: tu, meridional: tv}))
-        du = rossby * raised[zonal].retag(u)
-        dv = rossby * raised[meridional].retag(v)
+        # exit seam: rescale the contravariant momentum tendencies to
+        # physical (dp is a scalar rate — no conversion)
+        du = to_physical_tendency(
+            rossby * raised[zonal].retag(u), zonal)
+        dv = to_physical_tendency(
+            rossby * raised[meridional].retag(v), meridional)
         return {"u": du, "v": dv, "p": dp}
 
     @fr.model.term(name="background_advection",

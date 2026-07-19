@@ -1,5 +1,5 @@
 ---
-status: decided (a invariant; b + d implemented on feat/physical-state-components; c scheduled)
+status: decided (a invariant; b + d implemented on feat/physical-state-components; c shipped 2026-07-19, dev 90722cf2)
 date: 2026-07-19
 ---
 
@@ -91,7 +91,19 @@ spellings, the energy correction and the eigen machinery. It is
 scheduled as a standalone campaign (roadmap item) with the
 energy-exactness gates re-proven; sw2 is untouched until then (its
 `u_physical` / `v_physical` properties remain the interim conversion
-points and are retired by the campaign).
+points and are retired by the campaign). *Implementation outcome
+(2026-07-19, dev merge `90722cf2`; plan
+`../plans/done/sw2_physical_flip_plan.md`):* shipped as a **seam
+conversion** — the dispatch kinds stay variance-native and every
+chart-path term converts physical→contravariant at entry (sealed
+divide by `sqrt(g_ii)` on the component's own space) and rescales
+the tendency at exit, so every skewness/telescoping proof carries by
+exact conjugation. `u_physical` / `v_physical` retired,
+`state.chart` added (the coordinate velocities), physical ICs on the
+sphere (TC2 sets `u = U0 cos(lat)`), all energy gates at machine
+zero on the sphere; the one recorded cost is the per-node conversion
+round trip, visible only as a synthetic torus M-skew bound moving
+1e-14 → 1e-13 (metric dynamic range 0.25..6.25).
 
 **(d) `state.chart`.** The derived, **read-only** expert namespace on
 the vocabulary State classes: `state.chart["w"]` / `state.chart.w`

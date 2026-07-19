@@ -441,6 +441,7 @@ class Transform(UnaryOperator, ABC):
         """
         self._check_grid(f, "forward")
         self._reject_sharded_transform(f, "forward")
+        self._reject_replicating_transform(f, "forward")
         plan = self.forward_plan(f.function_space)
         data = jnp.asarray(f.data)
         fused = self._forward_fused_kernel(data, plan)
@@ -469,6 +470,7 @@ class Transform(UnaryOperator, ABC):
         """
         self._check_grid(f, "backward")
         self._reject_sharded_transform(f, "backward")
+        self._reject_replicating_transform(f, "backward")
         plan = self.backward_plan(f.function_space)
         data = jnp.asarray(f.data)
         fused = self._backward_fused_kernel(data, plan)
@@ -1118,6 +1120,93 @@ class Transform(UnaryOperator, ABC):
                 "transforms are grid-bound; the operand was created "
                 "on a different grid",
                 left=self._grid, right=f.grid, operation=operation)
+
+    def _reject_replicating_transform(self, f: FieldLike,
+                                      operation: str) -> None:
+        r"""
+        Taught skip when a *non-transform* axis is sharded (Tier 2).
+
+        Description
+        -----------
+        The sibling of :meth:`_reject_sharded_transform` (which owns
+        Tier 1 — a sharded *stage* axis — and runs first). Here every
+        stage axis is device-local but the operand shards at least one
+        **non-transform** axis. The naive ``forward`` still materializes
+        a coefficient field, and the storage contract
+        (``decomposition.sharding`` in
+        ``spatial.decomposition.tensor``) replicates every
+        ``CoefficientSpace`` factor unconditionally, so GSPMD silently
+        **all-gathers** the sharded non-stage axis onto every device:
+        numerically correct, but the whole global array is materialized
+        per device — the change of representation does not scale. This
+        naive GSPMD transform path is illegal by design (the
+        owner-approved campaign,
+        ``design/research/gspmd_naive_transform_illegality.md``).
+
+        Like the Tier-1 guard the predicate reads the **operand's own**
+        function-space layout (not the grid default), so a deliberately
+        gathered / replicated field passes — an *explicit*
+        replicate-then-compute stays legal, only the *silent* gather is
+        rejected. A ``device_ids=(0,)`` grid and a grid too small to
+        shard both collapse to one device and are exempt; a sharded
+        stage axis is Tier 1's domain (already raised), so this guard is
+        reached only with every stage axis local. The check is host-side
+        Python on static layout metadata — a plain ``if`` outside any
+        traced value.
+
+        Parameters
+        ----------
+        f : FieldLike
+            The operand field (carries its function-space layout).
+        operation : str
+            The calling direction (``"forward"`` / ``"backward"``),
+            for the error message.
+
+        Raises
+        ------
+        NotImplementedError
+            When the decomposition spans several devices, no stage axis
+            is sharded, and the operand's layout shards at least one
+            non-transform axis.
+        """
+        decomposition = self._grid.decomposition
+        if getattr(decomposition, "device_count", 1) <= 1:
+            return
+        layout = f.function_space.layout
+        if layout is None:
+            return
+        bare = f.function_space.bare
+        stage = self._stage_axes(bare)
+        if not stage:
+            return  # nothing transformed: an identity, no coefficient
+        if any(not layout.is_local(axis) for axis in stage):
+            return  # a sharded stage axis is Tier 1's domain
+        sharded = tuple(
+            name for name in bare.names if not layout.is_local(name))
+        if not sharded:
+            return  # fully replicated operand: an explicit gather
+        raise NotImplementedError(
+            f"{type(self).__name__}.{operation} cannot run on this "
+            f"grid that shards the non-transform axis/axes {sharded!r} "
+            f"across devices while transforming only the local axes "
+            f"{stage!r}: the forward transform's codomain is a "
+            "CoefficientSpace, which the storage contract "
+            "(decomposition.sharding in spatial.decomposition.tensor) "
+            "always replicates, so the naive GSPMD path would silently "
+            "all-gather the sharded axis onto every device "
+            "(numerically correct but unscalable — the whole global "
+            "array is materialized per device). This Tier-2 naive "
+            "transform path is illegal by design. For a spectral solve "
+            "pass SpectralSolve(..., allow_replicated=True), which "
+            "performs an explicit, honest replicate-then-compute "
+            "(gather the operand to the replicated layout, apply, "
+            "reshard back). For a standalone transform gather the "
+            "operand first yourself "
+            "(field.reshard(fr.spatial.decomposition.layout.Layout({})))"
+            " or build the grid on a single device "
+            "(Grid(..., device_ids=(0,)), which leaves every axis "
+            "local); see "
+            "design/research/gspmd_naive_transform_illegality.md.")
 
     def _reject_sharded_transform(self, f: FieldLike,
                                   operation: str) -> None:

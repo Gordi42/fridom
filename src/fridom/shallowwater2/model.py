@@ -77,10 +77,12 @@ def Model(  # noqa: N802 — constructor-like factory (D1.3)
     derived ``f = 2 Omega . n_hat`` the familiar
     ``2 Omega sin(lat)``.
 
-    Prognostic velocities on chart grids are the contravariant
-    components (see ``sw.modules.DynamicalCore``); convert to
-    physical m/s components via ``state.u_physical`` /
-    ``state.v_physical``.
+    Prognostic velocities are the **physical** (m/s) components on
+    every grid, chart grids included (``physical_state_components.md``
+    ruling (c)) — so a spherical IC is set in physical m/s (e.g. a
+    solid-body zonal flow ``u = U0 cos(lat)``). The chart-native
+    coordinate velocities :math:`\dot\lambda`, :math:`\dot\varphi` are
+    exposed read-only via ``state.chart`` (ruling (d)).
 
     Parameters
     ----------

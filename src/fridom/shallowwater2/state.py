@@ -25,11 +25,13 @@ Component vocabulary (D1.3):
 The coordinate names are read off the component spaces (grid factor
 order, zonal first — the core's ``coords`` convention), so the same
 vocabulary serves the Cartesian ``(x, y)`` grids and the spherical
-``(lon, lat)`` chart. On chart grids ``u`` / ``v`` hold the
-**contravariant** components (see ``modules/core.py``);
-``u_physical`` / ``v_physical`` are the documented conversion points
-to physical (m/s) components, and ``rel_vort`` / ``divergence``
-resolve the metric-aware kinds.
+``(lon, lat)`` chart. On every grid ``u`` / ``v`` hold the
+**physical** (m/s) velocity components (``physical_state_components.md``
+ruling (c)); the chart-native contravariant coordinate velocities
+:math:`\dot\lambda`, :math:`\dot\varphi` live behind the read-only
+:attr:`~State.chart` namespace (ruling (d), ``chart.py``). The
+metric-aware ``rel_vort`` / ``divergence`` convert at their chart-path
+entry and resolve the metric-aware kinds.
 
 Only ``rel_vort`` and ``divergence`` are parameter-free and live
 here; ``ekin`` / ``epot`` carry :math:`c^2` and the
@@ -40,7 +42,9 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from fridom.shallowwater2.chart import chart_component, to_contravariant
 from fridom.spatial.errors import MissingComponentError
+from fridom.spatial.fields.chart_view import ChartView
 from fridom.spatial.fields.vector_field import VectorField
 from fridom.spatial.scalars import Variance
 
@@ -107,53 +111,26 @@ class State(VectorField):
         return names[0], names[1]
 
     # ================================================================
-    #  Physical-velocity conversion points (chart convention)
+    #  Chart-native view (read-only expert surface)
     # ================================================================
     @property
-    def u_physical(self) -> fr.spatial.ScalarField:
-        r"""
-        Physical zonal velocity :math:`\sqrt{g_{\lambda\lambda}}\,u`.
+    def chart(self) -> ChartView:
+        r"""The read-only chart-native view of ``u`` / ``v`` (ruling (d)).
 
         Description
         -----------
-        The recorded conversion point of the chart convention
-        (``modules/core.py``): on chart grids the prognostic ``u``
-        is the contravariant component, and the physical (m/s)
-        east-component is :math:`u_{\rm east} =
-        \sqrt{g_{\lambda\lambda}}\,u^\lambda` with the metric
-        derived per call via ``grid.metric``. On flat grids ``u``
-        is returned unchanged.
+        ``state.chart["u"]`` / ``state.chart.u`` is the chart-native
+        **coordinate velocity** :math:`\dot\lambda =
+        U/\sqrt{g_{\lambda\lambda}}` on a chart grid (the sealed entry
+        conversion, ``chart.py``), the identity on a flat grid;
+        ``chart["v"]`` is its meridional twin. ``u, v =
+        state.chart.velocities`` destructures the pair in grid axis
+        order. The view is read-only — write the physical component on
+        the state instead. The prognostic ``u`` / ``v`` themselves are
+        the **physical** (m/s) velocities on every grid
+        (``physical_state_components.md``).
         """
-        u = self.u
-        if u.grid.chart_coords is None:
-            return u
-        zonal = self._axes()[0]
-        metric = u.grid.metric(u.function_space.bare,
-                               f"g_{zonal}{zonal}")
-        return (metric**0.5 * u).with_metadata(
-            name="u_physical",
-            long_name="Physical zonal velocity", units="m/s")
-
-    @property
-    def v_physical(self) -> fr.spatial.ScalarField:
-        r"""
-        Physical meridional velocity :math:`\sqrt{g_{\varphi\varphi}}\,v`.
-
-        Description
-        -----------
-        The meridional twin of :attr:`u_physical` — the north
-        (m/s) component of the chart convention's contravariant
-        prognostic ``v``; the identity on flat grids.
-        """
-        v = self.v
-        if v.grid.chart_coords is None:
-            return v
-        meridional = self._axes()[1]
-        metric = v.grid.metric(v.function_space.bare,
-                               f"g_{meridional}{meridional}")
-        return (metric**0.5 * v).with_metadata(
-            name="v_physical",
-            long_name="Physical meridional velocity", units="m/s")
+        return ChartView(self, chart_component, ("u", "v"))
 
     # ================================================================
     #  Parameter-free diagnostics (field algebra; D2.3)
@@ -173,7 +150,9 @@ class State(VectorField):
         other velocity's axis) — the free-slip claim
         :math:`\zeta = 0` at the wall, matching the Sadourny
         advection module; identity on periodic axes. On chart grids
-        this is the metric curl of the lowered components,
+        the physical components are converted to the contravariant
+        coordinate velocities at entry (``chart.py``) and this is the
+        metric curl of the lowered components,
         :math:`\zeta = (\partial_\lambda v_{cov} - \partial_\varphi
         u_{cov})/\sqrt{g}` (the physical scalar vorticity), through
         the seeded ``"lower_index"`` / ``"curl"`` kinds.
@@ -186,6 +165,10 @@ class State(VectorField):
             zeta = (v.diff(zonal).retag(corner)
                     - u.diff(meridional).retag(corner))
         else:
+            # entry seam: physical U -> contravariant u^i (chart.py);
+            # the metric curl flow below runs verbatim
+            u = to_contravariant(u, zonal)
+            v = to_contravariant(v, meridional)
             dispatch = u.grid.dispatch
             con = Variance.CONTRAVARIANT
             lower = dispatch.resolve(
@@ -210,8 +193,9 @@ class State(VectorField):
         -----------
         ``u`` staggers in x and ``v`` in y, so ``u.diff("x")`` and
         ``v.diff("y")`` both land at the cell centre. On chart
-        grids this is the flux-form metric divergence of the
-        contravariant components,
+        grids the physical components are converted to the
+        contravariant coordinate velocities at entry (``chart.py``)
+        and this is the flux-form metric divergence
         :math:`\partial_i(\sqrt{g}\,u^i)/\sqrt{g}`, through the
         seeded ``"div"`` kind.
         """
@@ -220,6 +204,10 @@ class State(VectorField):
         if u.grid.chart_coords is None:
             div = u.diff(zonal) + v.diff(meridional)
         else:
+            # entry seam: physical U -> contravariant u^i (chart.py);
+            # the flux-form metric divergence below runs verbatim
+            u = to_contravariant(u, zonal)
+            v = to_contravariant(v, meridional)
             con = Variance.CONTRAVARIANT
             vec = VectorField({
                 zonal: u.with_variance(con),

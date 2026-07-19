@@ -14,6 +14,7 @@ import numpy as np
 import pytest
 
 from fridom.spatial.decomposition.halo import trace_halo
+from fridom.spatial.decomposition.layout import Layout
 from fridom.spatial.grid import Grid
 from fridom.spatial.meshes.interval import IntervalMesh
 from fridom.spatial.operators.dealias import degree
@@ -200,26 +201,38 @@ def test_fv_pipeline_is_device_count_invariant(grids):
         assert invariant(a.data, b.data)
 
 
+@pytest.mark.multi_device
 def test_reshard_transform_backward_round_trip(grids):
-    # distributed-transform path: move to the pencil keeping x
-    # local, transform along x, come back — bitwise equal to the
-    # one-device run
+    # Post Tier-2 guard: reshard so the transform axis x is local but a
+    # non-transform axis (y) stays sharded, then a standalone forward is
+    # now ALSO a taught error -- the coefficient codomain replicates, so
+    # GSPMD would silently all-gather y (numerically correct, unscalable).
+    # The naive reshard-to-pencil path is refused; the round-trip math is
+    # available through the explicit replicate-then-compute escape (gather
+    # the operand to the replicated layout first).
     many, one = grids
     decomp = many.decomposition
     pencil = decomp.layout_for(("x",))
+    field = many.create_field(
+        init=lambda x, y: jnp.sin(2 * jnp.pi * x) * jnp.cos(jnp.pi * y))
+    t = Fourier(many, axes=("x",))
+    # x is local on the pencil, y is sharded: the Tier-2 taught error
+    with pytest.raises(NotImplementedError,
+                       match="shards the non-transform axis"):
+        t.forward(field.reshard(pencil))
 
-    def compute(grid, layout):
+    # the explicit escape: gather to the replicated layout, transform
+    # along x, come back -- bitwise equal to the one-device run
+    def compute(grid, *, replicate):
         f = grid.create_field(
             init=lambda x, y: jnp.sin(2 * jnp.pi * x)
             * jnp.cos(jnp.pi * y))
-        moved = f.reshard(layout) if layout is not None else f
-        t = Fourier(grid, axes=("x",))
-        f_hat = t.forward(moved)
-        return t.backward(f_hat)
+        operand = f.reshard(Layout({})) if replicate else f
+        tr = Fourier(grid, axes=("x",))
+        return tr.backward(tr.forward(operand))
 
-    back_many = compute(many, pencil)
-    assert back_many.function_space.layout == pencil
-    back_one = compute(one, None)
+    back_many = compute(many, replicate=True)
+    back_one = compute(one, replicate=False)
     assert bitwise(back_many.data, back_one.data)
 
 

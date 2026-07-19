@@ -119,10 +119,16 @@ def test_gravity_term_matches_the_hand_built_metric_form():
     dz = model.tendency(z, filter=GRAVITY)
     grid = model.grid
     u, v, p, c = z["u"], z["v"], z["p"], z["csqr"]
+    # entry seam: physical U -> contravariant u^i (chart.py); exit
+    # seam rescales the raised momentum tendency dU = sqrt(g_ii) du^i
+    root_u = grid.metric(u.function_space.bare, "g_lonlon") ** 0.5
+    root_v = grid.metric(v.function_space.bare, "g_latlat") ** 0.5
+    u = u / root_u
+    v = v / root_v
     inv_uu = grid.metric(u.function_space.bare, "inv_g_lonlon")
     inv_vv = grid.metric(v.function_space.bare, "inv_g_latlat")
-    du = -(inv_uu * p.diff("lon").retag(u))
-    dv = -(inv_vv * p.diff("lat").retag(v))
+    du = root_u * -(inv_uu * p.diff("lon").retag(u))
+    dv = root_v * -(inv_vv * p.diff("lat").retag(v))
     sq_u = grid.metric(u.function_space.bare, "sqrt_g")
     sq_v = grid.metric(v.function_space.bare, "sqrt_g")
     sq_p = grid.metric(p.function_space.bare, "sqrt_g")
@@ -143,6 +149,13 @@ def test_advection_term_matches_the_hand_built_metric_form():
     dz = model.tendency(z, filter=ADVECT)
     grid = model.grid
     u, v, p, c = z["u"], z["v"], z["p"], z["csqr"]
+    # entry seam: physical U -> contravariant u^i (chart.py); the whole
+    # vector-invariant hand form below is on the contravariant
+    # intermediates, exit-rescaled dU = sqrt(g_ii) du^i
+    root_u = grid.metric(u.function_space.bare, "g_lonlon") ** 0.5
+    root_v = grid.metric(v.function_space.bare, "g_latlat") ** 0.5
+    u = u / root_u
+    v = v / root_v
     p_full = c.to(p) + RO * p
     sq_u = grid.metric(u.function_space.bare, "sqrt_g")
     sq_v = grid.metric(v.function_space.bare, "sqrt_g")
@@ -167,10 +180,10 @@ def test_advection_term_matches_the_hand_built_metric_form():
     fv = (sq_v * (v * p_full.to(v))).to(zeta)
     ekin = 0.5 * ((sq_u * g_uu * u * u).to(p)
                   + (sq_v * g_vv * v * v).to(p)) / sq_p
-    du = RO * (inv_uu * ((fv * q).to(u)
-                         - ekin.diff("lon").retag(u)))
-    dv = RO * (inv_vv * (-(fu * q).to(v)
-                         - ekin.diff("lat").retag(v)))
+    du = root_u * RO * (inv_uu * ((fv * q).to(u)
+                                  - ekin.diff("lon").retag(u)))
+    dv = root_v * RO * (inv_vv * (-(fu * q).to(v)
+                                  - ekin.diff("lat").retag(v)))
     np.testing.assert_allclose(np.asarray(dz["p"].data),
                                np.asarray(dp.data), atol=1e-12)
     np.testing.assert_allclose(np.asarray(dz["u"].data),
@@ -180,29 +193,27 @@ def test_advection_term_matches_the_hand_built_metric_form():
 
 
 def test_semi_discrete_energy_rate_is_machine_zero_on_the_sphere():
-    # gravity + Sadourny advection conserve the metric-weighted
-    # thickness energy E = sum sqrt_g h g_ii (u^i)^2 / 2
-    # + sqrt_g p^2 / 2 exactly (semi-discrete; measured 2.6e-17) —
-    # the sphere twin of the Cartesian walled-grid gate
+    # gravity + Sadourny advection conserve the PHYSICAL metric-weighted
+    # thickness energy E = sum sqrt_g h U^2 / 2 + sqrt_g p^2 / 2 exactly
+    # (semi-discrete; measured ~6e-16) — the sphere twin of the
+    # Cartesian walled-grid gate. In physical components the energy
+    # carries no g_ii (folded into U^2); the sqrt_g comes from integrate
     model = sphere_model(omega=0.0)
     set_random(model, seed=11)
     z = model.state
     dz = model.tendency(z)
-    grid = model.grid
     u, v, p = z["u"], z["v"], z["p"]
     du, dv, dp = dz["u"], dz["v"], dz["p"]
     h = z["csqr"].to(p) + RO * p
-    g_uu = grid.metric(u.function_space.bare, "g_lonlon")
-    g_vv = grid.metric(v.function_space.bare, "g_latlat")
 
     def total(f):
         return float(f.integrate().data.ravel()[0])
 
     terms = (
-        total(g_uu * u * du * h.to(u)),
-        total(0.5 * RO * g_uu * (u * u) * dp.to(u)),
-        total(g_vv * v * dv * h.to(v)),
-        total(0.5 * RO * g_vv * (v * v) * dp.to(v)),
+        total(u * du * h.to(u)),
+        total(0.5 * RO * (u * u) * dp.to(u)),
+        total(v * dv * h.to(v)),
+        total(0.5 * RO * (v * v) * dp.to(v)),
         total(p * dp),
     )
     scale = sum(abs(t) for t in terms)
@@ -271,9 +282,9 @@ def test_flat_state_diagnostics_are_unchanged():
     assert np.array_equal(
         np.asarray(z.divergence.data),
         np.asarray((u.diff("x") + v.diff("y")).data))
-    # flat physical velocities are the prognostics themselves
-    assert z.u_physical is u
-    assert z.v_physical is v
+    # on a flat grid the chart-native view is the identity
+    assert z.chart["u"] is u
+    assert z.chart["v"] is v
     # and the bound energy diagnostics keep the Cartesian formulas
     center = z["p"].function_space
     u_c, v_c = u.to(center), v.to(center)
@@ -288,29 +299,64 @@ def test_flat_state_diagnostics_are_unchanged():
 # ================================================================
 #  State sugar and diagnostics on the sphere
 # ================================================================
-def test_physical_velocities_scale_by_the_metric_root():
+def test_chart_view_is_the_coordinate_velocity_on_the_sphere():
+    # state.chart["u"] is the chart-native coordinate velocity
+    # u^lon = U / sqrt(g_lonlon) = U / (a cos lat) (ruling (d))
     model = sphere_model(grid=sphere_grid(radius=2.0))
     set_random(model, seed=9)
     z = model.state
     grid = model.grid
     u, v = z["u"], z["v"]
-    # u_east = sqrt(g_lonlon) u^lon = a cos(lat) u^lon
-    lat = grid.evaluation_nodes(u.function_space, "lat").data
-    expected = np.asarray(2.0 * jnp.cos(lat) * u.data)
-    np.testing.assert_allclose(np.asarray(z.u_physical.data),
-                               expected, atol=1e-13)
-    # v_north = sqrt(g_latlat) v^lat = a v^lat
-    np.testing.assert_allclose(np.asarray(z.v_physical.data),
-                               np.asarray(2.0 * v.data), atol=1e-13)
-    assert z.u_physical.metadata.units == "m/s"
+    root_u = grid.metric(u.function_space.bare, "g_lonlon") ** 0.5
+    root_v = grid.metric(v.function_space.bare, "g_latlat") ** 0.5
+    np.testing.assert_allclose(np.asarray(z.chart["u"].data),
+                               np.asarray((u / root_u).data),
+                               atol=1e-13)
+    np.testing.assert_allclose(np.asarray(z.chart.v.data),
+                               np.asarray((v / root_v).data),
+                               atol=1e-13)
+    # destructuring order (zonal, meridional)
+    cu, cv = z.chart.velocities
+    assert np.array_equal(np.asarray(cu.data),
+                          np.asarray(z.chart["u"].data))
+    assert np.array_equal(np.asarray(cv.data),
+                          np.asarray(z.chart["v"].data))
+    # read-only: writes are refused
+    with pytest.raises(TypeError, match="read-only"):
+        z.chart["u"] = u
+    with pytest.raises(AttributeError, match="read-only"):
+        z.chart.u = u
+    # the retired conversion properties are gone
+    with pytest.raises(AttributeError):
+        _ = z.u_physical
+    with pytest.raises(AttributeError):
+        _ = z.v_physical
+
+
+def test_chart_view_is_the_identity_on_a_flat_grid():
+    # on a flat grid u/v are already physical == chart-native
+    grid = make_grid()
+    model = sw.Model(
+        grid=grid, csqr=CSQR, rossby_number=RO,
+        coriolis=sw.modules.FPlaneCoriolis(f0=1.0),
+        time_stepper=fr.model.time_steppers.AdamBashforth(
+            1e-3, order=3))
+    rng = np.random.default_rng(4)
+    model.set_fields(u=rng.standard_normal((16, 16)),
+                     v=rng.standard_normal((16, 16)))
+    z = model.state
+    assert z.chart["u"] is z["u"]
+    assert z.chart["v"] is z["v"]
 
 
 def test_solid_body_rotation_diagnostics():
-    # u^lon = w0: divergence exactly zero (sqrt_g lon-independent),
-    # vorticity 2 w0 sin(lat) to truncation
+    # physical u_east = w0 cos(lat) (i.e. u^lon = w0, solid body):
+    # divergence exactly zero (sqrt_g lon-independent), vorticity
+    # 2 w0 sin(lat) to truncation
     model = sphere_model()
     w0 = 0.4
-    model.set_fields(u=lambda lon, lat: w0 + 0.0 * lon + 0.0 * lat)
+    model.set_fields(
+        u=lambda lon, lat: w0 * jnp.cos(lat) + 0.0 * lon)
     z = model.state
     assert float(np.abs(np.asarray(z.divergence.data)).max()) < 1e-13
     zeta = z.rel_vort
@@ -321,21 +367,19 @@ def test_solid_body_rotation_diagnostics():
     assert err < 5e-2  # O(dlat^2) at nlat = 8
 
 
-def test_ekin_diagnostic_uses_the_metric_on_the_sphere():
+def test_ekin_diagnostic_is_the_physical_quadratic_on_the_sphere():
+    # the state components are physical, so ekin collapses to the flat
+    # quadratic 0.5 (U^2 + V^2) at centre — no metric root (D4)
     model = sphere_model()
     set_random(model, seed=13)
     z = model.state
-    grid = model.grid
     center = z["p"].function_space
     u_c = z["u"].to(center)
     v_c = z["v"].to(center)
-    g_uu = grid.metric(center.bare, "g_lonlon")
-    g_vv = grid.metric(center.bare, "g_latlat")
-    expected = 0.5 * (g_uu * u_c * u_c + g_vv * v_c * v_c)
+    expected = 0.5 * (u_c.data**2 + v_c.data**2)
     got = model.diagnostics.ekin()
     np.testing.assert_allclose(np.asarray(got.data),
-                               np.asarray(expected.data),
-                               atol=1e-13)
+                               np.asarray(expected), atol=1e-13)
 
 
 # ================================================================

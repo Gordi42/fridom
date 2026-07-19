@@ -49,14 +49,20 @@ flat, walled and chart grids. Choosing :math:`Q = \bar f/\bar h` is
 what makes it *consistent* with :math:`f v`; conservation itself is
 free.
 
-On a **chart** grid every average carries the metric exactly as
-``SadournyAdvection`` places it: the corner mass fluxes are the
-:math:`\sqrt{g}`-weighted fluxes :math:`F^i = \overline{\sqrt g\,\bar
-h\,u^i}` that the thickness divergence carries, the momentum
-tendencies are **covariant** and are raised (``raise_index``) onto the
-prognostic contravariant components — the placement that makes the
-exchange antisymmetric under
-:math:`E = \sum \sqrt g\,\bar h\,g_{ii}(u^i)^2/2 + \dots`.
+On a **chart** grid the prognostic velocities are the **physical**
+(m/s) components (``physical_state_components.md`` ruling (c)),
+converted to the contravariant coordinate velocities at entry and the
+tendencies rescaled to physical at exit (``chart.py``, the seam of
+``SadournyAdvection``). Between the seams every average carries the
+metric exactly as ``SadournyAdvection`` places it: the corner mass
+fluxes are the :math:`\sqrt{g}`-weighted fluxes
+:math:`F^i = \overline{\sqrt g\,\bar h\,u^i}` that the thickness
+divergence carries, the momentum tendencies are **covariant** and are
+raised (``raise_index``) onto the contravariant components — the
+placement that makes the exchange antisymmetric under the physical
+thickness-weighted energy :math:`E = \sum \sqrt g\,\bar h\,U^2/2 +
+\dots` (equivalently :math:`\sum \sqrt g\,\bar h\,g_{ii}(u^i)^2/2` on
+the contravariant intermediates).
 
 Two routes to the same tendency
 -------------------------------
@@ -116,6 +122,10 @@ from fridom.model.parameters import Param
 from fridom.model.params import SCALING_ROSSBY
 from fridom.model.terms import term
 from fridom.model.time_dependent import TimeDependent
+from fridom.shallowwater2.chart import (
+    to_contravariant,
+    to_physical_tendency,
+)
 from fridom.spatial.decomposition.halo import HaloSpec
 from fridom.spatial.fields.scalar_field import ScalarField
 from fridom.spatial.fields.vector_field import VectorField
@@ -356,12 +366,18 @@ def _conserving_chart(
     divergence carries (``sqrt_g`` derived on each velocity's own
     space) — the placement that keeps the exchange antisymmetric under
     the metric thickness-weighted energy — and the covariant momentum
-    tendencies are raised onto the prognostic contravariant
-    components. Every metric factor sits exactly where
-    ``SadournyAdvection._advect_chart`` puts it.
+    tendencies are raised onto the contravariant components. The
+    physical velocities are converted to contravariant at entry and the
+    tendencies rescaled to physical at exit (``chart.py``); every metric
+    factor sits exactly where ``SadournyAdvection._advect_chart`` puts
+    it.
     """
     grid = u.grid
     zonal, meridional = coords
+    # entry seam: physical U -> contravariant u^i (chart.py); the
+    # metric flux form below runs verbatim, exit-rescaled to physical
+    u = to_contravariant(u, zonal)
+    v = to_contravariant(v, meridional)
     sqg_u = grid.metric(u.function_space.bare, "sqrt_g")
     sqg_v = grid.metric(v.function_space.bare, "sqrt_g")
     f_u = (sqg_u * (u * h.to(u))).to(corner)       # F^lambda
@@ -374,9 +390,11 @@ def _conserving_chart(
         "raise_index", t_u.function_space.bare)
     raised = raise_index(VectorField({
         zonal: t_u, meridional: t_v}))
+    # exit seam: rescale the contravariant tendencies to physical
     return {
-        "u": raised[zonal].retag(u),
-        "v": raised[meridional].retag(v),
+        "u": to_physical_tendency(raised[zonal].retag(u), zonal),
+        "v": to_physical_tendency(
+            raised[meridional].retag(v), meridional),
     }
 
 

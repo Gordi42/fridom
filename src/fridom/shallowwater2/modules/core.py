@@ -48,18 +48,21 @@ value), resolving the seeded ``"grad"`` / ``"div"`` /
 ``"raise_index"`` kinds through the grid dispatch — the module never
 hand-builds metric compositions.
 
-**Velocity convention (recorded per the C2 task):** on chart grids
-the prognostic ``u`` / ``v`` are the **contravariant** components
-:math:`u^\lambda = \dot\lambda`, :math:`u^\varphi = \dot\varphi`
-(units 1/s on the sphere), stored untagged in the state; terms tag
-them ``CONTRAVARIANT`` at the seams. The conversion points to
-physical (m/s) components are ``State.u_physical`` /
-``State.v_physical`` and the metric-aware ``ekin`` diagnostic —
-:math:`u_{\rm east} = \sqrt{g_{\lambda\lambda}}\,u^\lambda`,
-:math:`v_{\rm north} = \sqrt{g_{\varphi\varphi}}\,u^\varphi`,
-derived per call via ``grid.metric``. On flat grids the convention
-degenerates to the usual physical velocities and the flat code path
-is taken verbatim (bitwise; the hard results-neutrality gate).
+**Velocity convention (physical components, ruling (c)):** on every
+grid the prognostic ``u`` / ``v`` are the **physical** (m/s) velocity
+components (``physical_state_components.md`` ruling (c)). The chart
+gravity term is written for the **contravariant** coordinate
+velocities :math:`u^\lambda = \dot\lambda`, :math:`u^\varphi =
+\dot\varphi`, so it converts at the seams (``chart.py``, D1): the
+geopotential flux consumes :math:`u^i = U_i/\sqrt{g_{ii}}` (sealed
+divide at entry), and the raised momentum tendency is rescaled
+:math:`\mathrm{d}U_i = \sqrt{g_{ii}}\,\mathrm{d}u^i` at exit — the
+metric derived per call via ``grid.metric`` on each component's own
+staggered space. The chart-native coordinate velocities are exposed
+read-only via ``state.chart`` (ruling (d)). On flat grids the
+convention degenerates to the usual physical velocities and the flat
+code path is taken verbatim (bitwise; the hard results-neutrality
+gate).
 
 The chart gravity term is
 
@@ -69,7 +72,8 @@ The chart gravity term is
         \partial_i\left(\sqrt{g}\, c^2 u^i\right)
 
 via ``grad`` -> ``raise_index`` on the pressure and the flux-form
-metric ``div`` on the tagged geopotential flux. A spherical model is
+metric ``div`` on the tagged geopotential flux (both in contravariant
+components between the seam conversions). A spherical model is
 assembled through the same preset (see ``sw.Model``'s ``coords=``
 docs for the grid recipe).
 """
@@ -88,6 +92,10 @@ from fridom.model.scheduled_field import ProfileFunction, profile_coords
 from fridom.model.stages import Stage, StageKind
 from fridom.model.time_dependent import TimeDependent
 from fridom.shallowwater2 import params as sw_params
+from fridom.shallowwater2.chart import (
+    to_contravariant,
+    to_physical_tendency,
+)
 from fridom.shallowwater2.diagnostics import DIAGNOSTICS
 from fridom.shallowwater2.modules.immersed_weighting import (
     mask_field,
@@ -508,13 +516,16 @@ class DynamicalCore(fr.model.Module):
         tag (BC-sibling adoption) and the divergence lands BC-free,
         which is ``p``'s space.
 
-        On a chart grid (module docstring) the same physics resolves
-        the seeded metric-aware kinds: ``grad`` -> ``raise_index``
-        turns the covariant pressure gradient into the contravariant
-        tendency (``-g^{ij} d_j p``), and the flux-form ``div``
-        carries the ``sqrt_g``-weighted geopotential flux; the final
-        retags strip the variance claim and restore the velocities'
-        wall tags. On the identity chart every metric factor is an
+        On a chart grid (module docstring) the physical components are
+        converted to the contravariant coordinate velocities at entry
+        (``chart.py``) and the same physics resolves the seeded
+        metric-aware kinds: ``grad`` -> ``raise_index`` turns the
+        covariant pressure gradient into the contravariant tendency
+        (``-g^{ij} d_j p``), and the flux-form ``div`` carries the
+        ``sqrt_g``-weighted geopotential flux; the raised momentum
+        tendencies are rescaled back to physical at exit and the retags
+        restore the velocities' wall tags (``dp`` needs no conversion).
+        On the identity chart every metric factor is an
         exact 1.0, reproducing the flat path **to rounding** — not
         bitwise: ``extra_halo`` is chart-conditional (2 cells per
         axis on a chart, none on a flat grid), so the two pad their
@@ -536,6 +547,10 @@ class DynamicalCore(fr.model.Module):
                 "p": (-(csqr.to(u) * u).diff(zonal)
                       - (csqr.to(v) * v).diff(meridional)),
             }
+        # entry seam: physical U -> contravariant u^i for the flux
+        # (the raised pressure gradient does not read u/v); chart.py
+        u = to_contravariant(u, zonal)
+        v = to_contravariant(v, meridional)
         dispatch = u.grid.dispatch
         con = Variance.CONTRAVARIANT
         grad = dispatch.resolve("grad", p.function_space.bare)
@@ -548,9 +563,12 @@ class DynamicalCore(fr.model.Module):
             meridional: (csqr.to(v) * v).with_variance(con)})
         div = dispatch.resolve(
             "div", flux[zonal].function_space.bare)
+        # exit seam: rescale the contravariant momentum tendencies to
+        # physical (dp is a scalar rate — no conversion)
         return {
-            "u": (-raised[zonal]).retag(u),
-            "v": (-raised[meridional]).retag(v),
+            "u": to_physical_tendency((-raised[zonal]).retag(u), zonal),
+            "v": to_physical_tendency(
+                (-raised[meridional]).retag(v), meridional),
             "p": -div(flux),
         }
 

@@ -37,6 +37,7 @@ from typing import TYPE_CHECKING
 import jax.numpy as jnp
 
 import fridom.framework as fr
+from fridom.spatial.decomposition.layout import Layout
 from fridom.spatial.fields.storage import storage_dtype
 from fridom.spatial.operators.distributed_solve import (
     resolve_distributed_solve,
@@ -266,6 +267,28 @@ class SpectralSolve:
         identical to the full-precision solve); on, the solution
         carries the reduced
         round-off, an opt-in accuracy trade (default: False).
+    allow_replicated : bool, optional
+        Escape hatch for the **replicated composite** on a
+        multi-device grid: when no distributed slab solve resolves
+        (a block-diagonal Chebyshev-vertical solve, a family outside
+        Fourier/Sine/Cosine, or a symbol that refuses the distributed
+        spectral frame) the composite's naive ``forward`` would trip
+        the GSPMD transform illegality guard
+        (``Transform._reject_sharded_transform`` /
+        ``_reject_replicating_transform``) — a silent all-gather is
+        illegal by design
+        (``design/research/gspmd_naive_transform_illegality.md``).
+        With this flag the solve performs an **explicit, honest
+        replicate-then-compute**: it gathers the operand to the
+        replicated layout (``Layout({})``), applies the composite
+        there (every axis local, so the guard is satisfied), and
+        reshards the solution back to the operand's layout. The gather
+        materializes the whole cube on every device (numerically exact
+        but unscalable), so this is a deliberate opt-in for the
+        irreducible cases, not the scalable path — an eligible solve
+        still takes the distributed slab. On one device (or a
+        replicated operand) it is a no-op, bitwise identical to the
+        plain composite (default: False).
     """
 
     def __init__(
@@ -276,10 +299,12 @@ class SpectralSolve:
         *,
         where_zero: complex = 0.0,
         single_precision: bool = False,
+        allow_replicated: bool = False,
     ) -> None:
         """Materialize the inverse symbol and compose the solve chain."""
         bare = space.bare
         self._single_precision: bool = bool(single_precision)
+        self._allow_replicated: bool = bool(allow_replicated)
         self._grid: object = grid
         self._elliptic: Operator | Symbol = elliptic
         self._where_zero: complex = where_zero
@@ -387,6 +412,11 @@ class SpectralSolve:
         return self._single_precision
 
     @property
+    def allow_replicated(self) -> bool:
+        """Whether the composite may gather to a replicated layout."""
+        return self._allow_replicated
+
+    @property
     def slab(self) -> SlabSolve | None:
         """The distributed slab solve, or None (replicated path)."""
         return self._slab
@@ -417,7 +447,42 @@ class SpectralSolve:
         """
         if self._slab is not None and self._slab.applies(rhs):
             return self._slab(rhs)
+        if self._allow_replicated:
+            return self._replicated_composite(rhs)
         return self.composite(rhs)
+
+    def _replicated_composite(self, rhs: FieldLike) -> FieldLike:
+        """
+        Apply the composite via an explicit replicate-then-compute.
+
+        Description
+        -----------
+        The ``allow_replicated`` escape: gather the operand to the
+        replicated layout (``Layout({})``), run the composite there
+        (every axis device-local, so the naive transform's guard is
+        satisfied), and reshard the solution back to the operand's own
+        layout. A single-device / already-replicated / layout-free
+        operand needs no gather and applies the composite directly —
+        bitwise the plain path.
+
+        Parameters
+        ----------
+        rhs : FieldLike
+            The right-hand-side field.
+
+        Returns
+        -------
+        FieldLike
+            The solution on the operand's own space and layout.
+        """
+        layout = rhs.function_space.layout
+        replicated = Layout({})
+        if (layout is None or layout == replicated
+                or getattr(self._grid.decomposition,
+                           "device_count", 1) <= 1):
+            return self.composite(rhs)
+        solution = self.composite(rhs.reshard(replicated))
+        return solution.reshard(layout)
 
     def solve(self, rhs: FieldLike) -> FieldLike:
         """
