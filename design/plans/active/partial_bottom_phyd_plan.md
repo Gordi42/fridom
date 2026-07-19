@@ -120,4 +120,107 @@ cumulative-integral operator's public semantics.
 
 ## 6. Implementation record
 
-(appended as stages land)
+### Landed on `feat/partial-bottom-phyd` (2026-07-19)
+
+**Final PB-D2 spelling.** The corrected cell-centre pressure is
+
+```
+p_corr = p_hyd + S * (b_up - b),
+    S = delta * dz / (2 * (zeta_up - zeta)),   zeta = z_c + delta
+```
+
+with `delta` the static wet-centroid offset (`centroid_offset`, PB-D1),
+`dz` the cell measure, `zeta_up - zeta` the physical spacing between the
+neighbouring wet centroids, and `b_up - b` the one-cell-up vertical
+buoyancy increment. The horizontal PGF is `-d_x p_corr` /
+`-d_y p_corr`. The whole thing lives in
+`HydrostaticCore.pressure_gradient` (`_partial_bottom_pressure`),
+active iff `self._pb_active` (a flat immersed grid carrying a genuine
+bottom cut). `S` is static geometry (folded into the trace as a
+constant); the only traced factor is `b_up - b`, **linear** in `b` with
+a clean transpose VJP — no step-path divide (PB-D6), so G5 is trivial.
+
+**Deviation from the candidate (the gate arbitrated).** The PB-D2
+candidate ("reconstruct to the shared face height with cell-local `b`
+as the slope, piecewise-linear-in-cell `p`") cannot be *both*
+machine-zero **and** a no-op off partial cells with a single common
+height: a linear reconstruction to height `z*` zeroes the rest PGF only
+at `z* = z_top` (the cell top face), which is delta-independent and so
+breaks G1. The refinement the keystone gate forced is the **quadratic
+(local-slope) term expressed through the wet-centroid vertical spacing**:
+writing the correction as `beta * delta * dz / 2` with the discrete
+buoyancy slope `beta = (b_up - b) / (zeta_up - zeta)` makes `beta == N^2`
+*exactly* on a linear stratification, because `b` is sampled at the
+wet-centroid heights (`b_up - b = N^2 (zeta_up - zeta)`). The
+load-bearing detail is `zeta_up - zeta` (the **wet-centroid** spacing),
+not the mesh spacing `dz` — the latter gives only 1st order (measured:
+mesh-`dz` variant converges at ~1.5, wet-centroid at ~2–3). This is a
+one-cell **upward** stencil (the lower neighbour of a bottom cut is dry,
+so a centred slope would read the masked `b = 0` below).
+
+**G3 scope refinement (recorded, not a design round-trip).** Machine
+zero holds for the Pacanowski & Gnanadesikan partial-cell setup —
+columns with **different bottom depths that are flat within each
+horizontal cell** (one partial bottom cell per column, full cells
+above). A bathymetry that varies *within* a horizontal cell (sub-cell
+corner cuts, which stack partial cells so the accumulated downward
+integral picks up column-dependent `delta_j` from cells above) is
+**2nd-order, not machine-zero** — that is the staircase-avoidance regime,
+a distinct effect from the P&G half-cell error this fixes; the
+correction still strictly improves it (below uncorrected). The G3 gate
+therefore uses the per-column-constant bathymetry (the P&G "sloping
+bottom" = a staircase of depths).
+
+**Stretched-z is in, not deferred.** Separable stretched-z (a
+`MappedIntervalMesh`, not a chart) is also machine-zero (G3
+`test_g3_rest_state_is_machine_zero_stretched`): the per-cell
+linearised quadrature geometry (`_cell_quadrature`) is self-consistent
+between `centroid_offset` and the cumulative integral's measure, so no
+measure subtlety surfaces. A genuine chart (`column_corrections`
+truthy) is the PB-D3 taught error at the quadrature.
+
+**FP hygiene (source fix).** `centroid_offset` normalizes the cell
+centre by the weight sum (`z_c = sum(z*w)/sum(w)`, not assuming
+`sum(w) == 1`), so a full cell (`chi == 1`) makes `z_chi/theta` and
+`z_c` the *identical* float expression and `delta` is **exactly 0**
+there — no ~1e-16 residue that would misfire `_pb_active` or leak a
+~1e-16 correction onto full cells (G1/G2 exact).
+
+**Decomposition.** z-shard-safe via reshard-to-axis-local
+(`_upward_increment`, the `CumulativeIntegral` axis-local contract that
+already keeps `p_hyd` local), a no-op when the vertical is already local
+(the flat-z / horizontally-sharded common case). `extra_halo` is
+**unchanged** (`{x:1, y:1, z:0}`): the vertical stencil rides the
+reshard, not a halo, and the horizontal `d_x p_corr` reach-1 already
+sits under the existing `x/y` extra halo.
+
+**Gates (measured).**
+
+- G1 all-wet: the correction is a byte no-op vs the plain diff
+  (`du = dv = 0.0`, `_pb_active is False`). (Full-step all-wet ==
+  unimmersed byte-identity is `w`-only and *pre-existing* — the
+  immersed core runs `pressure_gradient` halo-exempt regardless of this
+  change; `u/v/b` differ by ~5e-17 there, untouched by this work.)
+- G2 staircase (`order=None`): byte no-op (`du = dv = 0.0`).
+- G3 rest state (`b = N^2 z` at wet-centroid heights): flat
+  `max|du/dt| = 1.78e-15 / 0.0 / 8.88e-16` at `(nx,nz,order) =
+  (6,8,8)/(8,16,6)/(5,12,4)`, uncorrected `~3.7e-2`; stretched-z
+  `8.88e-16` (uncorrected `3.6e-2`).
+- G4 tanh at rest: corrected below uncorrected at every `nz`, orders
+  `2.43 / 3.27 / 3.00` (`nz = 8..64`).
+- G5 autodiff: `Model.propagator(wrt=("b",))` grad finite and FD-matched
+  to `rtol 1e-4`; the pre-existing immersed autodiff shard also passes.
+- G6 forced-4: x-shard `5.55e-17`, z-shard `1.39e-17` (device-count
+  invariant; the z-shard case exercises the reshard path).
+- P0 units: linear-`chi` centroid exact `2.1e-16`
+  (`dz^2/(12(z_c-a))`); lateral-cut / all-wet / all-dry / collocation
+  exactly `0`; chart taught error; memoization.
+
+**Files.**
+- `src/fridom/spatial/immersed_domain.py`: `centroid_offset` (public),
+  `_centroid_cells`, `_validate_centroid_space`.
+- `src/fridom/hydrostatic/modules/core.py`: `_partial_bottom_pressure`,
+  `_upward_increment`, `_up_shift_local`, `_derive_pb_active`, the
+  `_pb_active` gate in `pressure_gradient`.
+- `tests/spatial/test_immersed_domain_centroid.py` (P0, 12 tests).
+- `tests/hydrostatic/test_core_partial_bottom.py` (P1 gates, 10 tests).

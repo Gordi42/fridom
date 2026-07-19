@@ -193,6 +193,11 @@ class HydrostaticCore(fr.model.Module):
         # (V-N2), computed at bind from the staggered rows they apply;
         # None off a mapped / immersed grid (the flat path stays traced).
         self._extra_halo: HaloSpec | None = None
+        # whether the partial-bottom pressure-gradient correction (PB-D2)
+        # fires: True only on a flat immersed grid carrying genuine bottom
+        # cuts. False off it (unimmersed, terrain-chart, all-wet /
+        # staircase / lateral-only), so the plain diff runs byte-identical.
+        self._pb_active: bool = False
 
     def bind(self, table: object) -> None:
         """Capture the immersed / terrain descriptors and coord names.
@@ -216,6 +221,27 @@ class HydrostaticCore(fr.model.Module):
         self._column = discover_column(grid, self._vertical)
         require_chart_immersed_order(grid, self._column)
         self._extra_halo = self._derive_extra_halo(table)
+        self._pb_active = self._derive_pb_active(table)
+
+    def _derive_pb_active(self, table: object) -> bool:
+        r"""Whether the partial-bottom correction fires (PB-D2 / PB-D5).
+
+        Description
+        -----------
+        True only on a **flat immersed** grid whose wet-centroid offsets
+        carry a genuine bottom cut (``delta > 0`` somewhere). Off it —
+        unimmersed, a terrain chart (deferred, PB-D3), or an immersed
+        grid with no bottom cut (all-wet, collocation staircase,
+        lateral-cut-only) — the correction is a proven no-op, so the flat
+        pressure gradient runs byte-identical (G1 / G2). The static
+        offset field is concrete (memoized geometry), so the presence
+        test is a host-side bool resolved once at bind.
+        """
+        if self._immersed is None or self._column is not None:
+            return False
+        delta = self._immersed.centroid_offset(
+            table["b"].space, self._vertical)  # type: ignore[index]
+        return bool(jnp.any(delta.data > 0.0))
 
     def _derive_extra_halo(self, table: object) -> HaloSpec | None:
         r"""Derive the masked / terrain stages' ghost width (V-N2).
@@ -598,6 +624,29 @@ class HydrostaticCore(fr.model.Module):
         where the plain ``\partial_x p_{hyd}|_z`` alone drives an
         O(1) spurious current. On a flat grid ``self._column`` is
         ``None`` and the plain staggered ``diff`` is byte-identical.
+
+        **Immersed partial bottom cells** (a cut z-level grid,
+        ``self._pb_active``, a flat immersed grid with a bottom cut): the
+        full-cell ``p_hyd`` integral labels each cell's pressure at the
+        cell centre, but a partial bottom cell's wet volume sits above
+        it (the wet-centroid offset ``delta``, PB-D1), so neighbouring
+        columns cut at different depths difference pressures at
+        mismatched heights — the Pacanowski & Gnanadesikan (1998)
+        partial-cell pressure-gradient error. The correction reconstructs
+        each cell's pressure to a common height with the cell-local
+        buoyancy as the hydrostatic slope (PB-D2), an added cell-centred
+        term ``S * (b_up - b)`` with the static weight
+        ``S = delta * dz / (2 (zeta_up - zeta))`` (``zeta = z_c + delta``
+        the wet-centroid height) and ``b_up - b`` the upward vertical
+        buoyancy increment; a resting column with ``b`` sampled at the
+        wet-centroid heights (PB-D4) then stays at rest to machine
+        precision on flat / stretched z-levels. The term is exactly zero
+        off a partial bottom cell (``delta <= 0``: full, dry, lateral-cut
+        and surface-cut cells),
+        so an all-wet or staircase grid is byte-identical to the plain
+        ``diff`` above (G1 / G2). Terrain-chart cut cells are a recorded
+        follow-up (PB-D3), handled by the ``self._column`` branch above
+        (no partial-bottom correction).
         """
         zonal, meridional = self._horizontal
         u, v = state["u"], state["v"]
@@ -608,10 +657,125 @@ class HydrostaticCore(fr.model.Module):
                 "v": (-self._slope_gradient(p_hyd, meridional, v)
                       ).retag(v),
             }
+        if self._pb_active:
+            p_hyd = self._partial_bottom_pressure(p_hyd, state)
         return {
             "u": (-p_hyd.diff(zonal)).retag(u),
             "v": (-p_hyd.diff(meridional)).retag(v),
         }
+
+    def _partial_bottom_pressure(
+        self, p_hyd: object, state: State,
+    ) -> object:
+        r"""Add the partial-bottom well-balancing correction (PB-D2).
+
+        Description
+        -----------
+        Returns ``p_hyd`` plus the cell-centred correction
+        ``S * (b_up - b)``, with ``S`` the static well-balancing weight
+        ``delta * dz / (2 (zeta_up - zeta))`` built here from the
+        wet-centroid offsets (``delta``, ``zeta = z_c + delta``) and
+        ``b_up - b`` the upward vertical buoyancy increment
+        (:meth:`_upward_increment`). The correction
+        reconstructs each partial bottom cell's pressure to a common
+        height with the cell-local buoyancy as the hydrostatic slope
+        (PB-D2), cancelling the half-cell height mismatch of the
+        full-cell ``p_hyd`` integral. It is exactly zero off a partial
+        bottom cell (``S == 0`` there), so an all-wet / staircase grid is
+        byte-identical to the plain ``diff`` (G1 / G2). ``S`` is static
+        geometry; the only traced factor is ``b_up - b``, linear in ``b``
+        with a clean transpose VJP (no step-path divide — PB-D6).
+
+        Parameters
+        ----------
+        p_hyd : object
+            The diagnosed hydrostatic pressure (a cell-centre field).
+        state : State
+            The current state (supplies ``b``).
+
+        Returns
+        -------
+        object
+            The corrected cell-centre pressure for the horizontal
+            gradient (the diagnosed ``p_hyd`` field is untouched).
+        """
+        vertical = self._vertical
+        b = state["b"]
+        grid = b.grid
+        # the descriptor from the field's grid materializes the static
+        # geometry at the module's (extra-halo-widened) storage frame,
+        # the fraction-weighting precedent (``_diagnose_w``); memoized
+        # concrete-only, so this is a cache hit after the first trace.
+        immersed = grid.immersed
+        space = b.function_space
+        delta = immersed.centroid_offset(space, vertical)
+        z_center = grid.evaluation_nodes(space, vertical)
+        dz = grid.measure(space.bare, name=vertical)
+        # wet-centroid heights and their upward spacing (static). The
+        # spacing is the physical distance between the neighbouring wet
+        # centroids, so with b sampled there the increment ratio is the
+        # exact local buoyancy slope on a linear stratification (G3).
+        zeta = delta.with_data(z_center.data + delta.data)
+        spacing = self._upward_increment(zeta, vertical).data
+        # the well-balancing weight, nonzero only on a bottom cut
+        # (delta > 0); the sealed divide never sees a live 0/0.
+        dd = delta.data
+        bottom = dd > 0.0
+        weight = jnp.where(
+            bottom, dd * dz.data / (2.0 * jnp.where(bottom, spacing, 1.0)),
+            0.0)
+        increment = self._upward_increment(b, vertical)
+        return p_hyd + increment * delta.with_data(weight)
+
+    def _upward_increment(
+        self, field: object, vertical: str,
+    ) -> object:
+        r"""Return ``f_{k+1} - f_k`` as a cell field, z-shard-safe.
+
+        Description
+        -----------
+        The one-cell-up vertical increment behind the partial-bottom
+        correction — the dynamic buoyancy increment ``b_up - b`` and the
+        static wet-centroid spacing ``zeta_up - zeta``. The upward
+        difference is one-sided (a bottom cut's lower neighbour is dry,
+        so a centred difference would read the masked ``b = 0`` below),
+        so it is a whole-column shift rather than a staggered ``diff``.
+        When the negotiation shards the vertical the operand is resharded
+        onto the axis-local layout (the ``CumulativeIntegral`` contract
+        that already keeps ``p_hyd`` axis-local) so the shift sees the
+        whole column, then resharded back; a no-op when the vertical is
+        already local (the flat-z / horizontally-sharded common case, no
+        cost).
+
+        Parameters
+        ----------
+        field : object
+            The cell-centred operand (``b`` or the wet-centroid
+            heights), on its layout.
+        vertical : str
+            The vertical coordinate name.
+
+        Returns
+        -------
+        object
+            ``field_up - field`` on the operand's space and layout (the
+            top cell reads a zero above, masked to ``0`` by the
+            ``S == 0`` weight).
+        """
+        grid = field.grid
+        layout = field.function_space.layout
+        reshard = (grid.decomposition.device_count > 1
+                   and layout is not None
+                   and not layout.is_local(vertical))
+        if reshard:
+            from fridom.spatial.operators.movement import (  # noqa: PLC0415 — keep movement off the module import path
+                Reshard,
+            )
+            local = grid.decomposition.layout_for((vertical,))
+            local_field = Reshard(grid, local)(field)
+            out = _up_shift_local(local_field, vertical)
+            return Reshard(grid, layout)(out)
+        return _up_shift_local(field, vertical)
 
     def _slope_gradient(
         self, p_hyd: object, axis: str, target: object,
@@ -680,3 +844,41 @@ class HydrostaticCore(fr.model.Module):
                     else "interpolate")
             corr = registry.resolve(kind, src)[name](corr)
         return (div - corr.retag(div)).retag(target)
+
+
+# ================================================================
+#  Partial-bottom correction: one-cell-up buoyancy shift (kernel)
+# ================================================================
+def _up_shift_local(b: object, vertical: str) -> object:
+    r"""Return ``b_{k+1} - b_k`` on an axis-local operand.
+
+    Description
+    -----------
+    The pure whole-column upward shift behind
+    :meth:`HydrostaticCore._upward_increment` (the operand is
+    undistributed along ``vertical``, so the shift never crosses a shard
+    boundary): the top cell reads a zero above, which the ``delta == 0``
+    weight masks. A slice + concatenate, so the reverse pass is the exact
+    transpose (no divide — PB-D6).
+
+    Parameters
+    ----------
+    b : object
+        The buoyancy field (axis-local along ``vertical``).
+    vertical : str
+        The vertical coordinate name.
+
+    Returns
+    -------
+    object
+        ``b_up - b`` on ``b``'s space.
+    """
+    data = b.data
+    axis = b.function_space.bare.names.index(vertical)
+    upper: list[object] = [slice(None)] * data.ndim
+    upper[axis] = slice(1, None)
+    zero_shape = list(data.shape)
+    zero_shape[axis] = 1
+    zero = jnp.zeros(tuple(zero_shape), dtype=data.dtype)
+    b_up = jnp.concatenate([data[tuple(upper)], zero], axis=axis)
+    return b.with_data(b_up - data)
