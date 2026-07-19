@@ -98,6 +98,13 @@ users ramp scalars they already know (`beta`, `f0`,
 `scaling.rossby`); a user-facing parameter-value form
 (`Module(param=FieldBlend(ref, target))` with an auto-published blend
 weight) is a later constructor-level addition (§7).
+(Mechanism half superseded 2026-07-19: the blend now rewrites the
+carried field per substage through a SELF_UPDATE stage — TDF-D11,
+[`td_fields_followups.md`](td_fields_followups.md) — so the "we still
+do **not** build general time-dependent fields / no SELF_UPDATE
+rewrite" clause above no longer holds; the generality/declaration half
+of this ruling — `FieldBlend` as author-level declaration machinery,
+stratification/topography as plain future consumers — stands.)
 
 **AR-D3 — The blend lives in the model's clock-aware tendency, driven
 by `ctx.params`; the transform algebra stays clock-free.** The
