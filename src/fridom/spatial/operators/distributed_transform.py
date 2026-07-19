@@ -347,6 +347,16 @@ class DistributedTransform:
                 lambda p: transpose_backward(
                     transpose_forward(p, geom), geom),
                 mesh=mesh, in_specs=self._spec, out_specs=self._spec))
+        #: the diagonal-middle region: ``backward(diag * forward(.))``
+        #: in one shard_map, the diagonal threaded through ``in_specs``
+        #: (sharded on ``a``) so each shard scales its own ``a`` modes
+        self._diagonal_region: Callable[
+            [jax.Array, jax.Array], jax.Array] = jax.jit(
+            jax.shard_map(
+                lambda p, d: transpose_backward(
+                    transpose_forward(p, geom) * d, geom),
+                mesh=mesh, in_specs=(self._spec, self._spec),
+                out_specs=self._spec))
 
     # ================================================================
     #  Properties
@@ -415,6 +425,64 @@ class DistributedTransform:
             out = region(piece)
             return f.with_storage(decomposition.pad_even(out, space))
         return f.with_data(region(jnp.asarray(f.data)))
+
+    def apply_diagonal(
+        self,
+        f: FieldLike,
+        diagonal: jax.Array,
+    ) -> FieldLike:
+        r"""
+        Run ``backward(diagonal * forward(f))`` in one region (no gather).
+
+        Description
+        -----------
+        The fused *diagonal-middle* apply: analysis, an elementwise
+        per-mode multiply by ``diagonal`` on the internal ``a``-sharded
+        coefficient frame, and synthesis -- one ``shard_map`` region, so
+        the coefficient array only ever exists as per-device slabs and
+        the nodal result leaves on the operand's own layout. Unlike the
+        closure ``middle`` of :meth:`apply` (a shard-agnostic pointwise
+        map), ``diagonal`` may vary along the **sharded** coordinate
+        ``a``: it is threaded through the region's ``in_specs`` (sharded
+        on ``a``, like the channel contraction's basis), so each device
+        multiplies its own ``a`` modes. This serves an operator symbol
+        (``op.eigenvalues`` on :attr:`coeff`) as a distributed fused
+        forward/backward -- the phase-3 spectral-derivative consumer.
+
+        The diagonal is the symbol's per-mode array on the internal
+        coefficient frame (:attr:`coeff`); it must be **endo** (its
+        codomain equals its domain, so backward returns to the operand's
+        own nodal space -- a retagging symbol has no layout-preserving
+        distributed form).
+
+        Parameters
+        ----------
+        f : FieldLike
+            The nodal operand, sharded on ``a``.
+        diagonal : jax.Array
+            The per-mode diagonal on the internal coefficient frame
+            (broadcast over :attr:`coeff`; the ``a`` axis at its full
+            coefficient extent).
+
+        Returns
+        -------
+        FieldLike
+            The nodal result on the operand's own layout.
+        """
+        geom = self._geom
+        diag = jnp.broadcast_to(
+            jnp.asarray(diagonal), self._coeff.bare.shape)
+        if geom.pad_a_spec != geom.a_spec_n:
+            diag = _tail_pad(
+                diag, geom.a, geom.pad_a_spec - geom.a_spec_n)
+        region = self._diagonal_region
+        space = f.function_space
+        if geom.padded:
+            decomposition = f.grid.decomposition
+            piece = decomposition.unpad_even(f.storage, space)
+            out = region(piece, diag)
+            return f.with_storage(decomposition.pad_even(out, space))
+        return f.with_data(region(jnp.asarray(f.data), diag))
 
 
 # ================================================================

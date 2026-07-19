@@ -51,6 +51,37 @@ def frame_reference(data, geom):
     return np.asarray(jnp.fft.fftn(ref, axes=full, norm="forward"))
 
 
+def diagonal_reference(data, diag, geom):
+    """Replicated ``backward(diag * forward)`` in the internal frame.
+
+    The single-controller reference for ``apply_diagonal``: the internal
+    forward (``frame_reference``), the per-mode multiply, and the inverse
+    (``ifftn`` on the full axes, ``irfft`` on the half axis, real part).
+    """
+    half_axis = next(ax for ax, half, _ in geom.local_stages if half)
+    coeff = frame_reference(data, geom) * np.asarray(diag)
+    full = tuple(ax for ax in range(data.ndim) if ax != half_axis)
+    back = jnp.fft.ifftn(jnp.asarray(coeff), axes=full, norm="forward")
+    back = jnp.fft.irfft(
+        back, n=data.shape[half_axis], axis=half_axis, norm="forward")
+    return np.asarray(back.real)
+
+
+def sharded_axis_diagonal(dt):
+    """Return a per-mode diagonal varying along the *sharded* axis ``a``.
+
+    Shaped over the internal coefficient frame; the ``a`` entries differ
+    per mode, so the closure ``middle`` of ``apply`` (shard-agnostic)
+    could not carry it -- ``apply_diagonal`` threads it sharded on ``a``.
+    """
+    shape = dt.coeff.bare.shape
+    a = dt.geometry.a
+    ramp = np.exp(1j * 0.3 * np.arange(shape[a]))
+    view = [1] * len(shape)
+    view[a] = shape[a]
+    return jnp.asarray(np.broadcast_to(ramp.reshape(view), shape))
+
+
 # ================================================================
 #  Resolution and decline conditions
 # ================================================================
@@ -153,6 +184,79 @@ def test_indivisible_sharded_axis_roundtrips(forced_devices):
     out = dt.apply(f)
     assert not out.function_space.layout.is_local(sharded_axis)
     assert np.abs(np.asarray(out.data) - data).max() <= 1e-12
+
+
+# ================================================================
+#  Diagonal-middle fused apply (per-mode symbol on the sharded axis)
+# ================================================================
+@pytest.mark.multi_device
+def test_diagonal_middle_varies_along_the_sharded_axis(forced_devices):
+    # the diagonal varies per mode along the *sharded* axis a -- the
+    # capability the closure ``middle`` cannot carry -- and the fused
+    # apply matches the replicated single-controller reference
+    if forced_devices is not None:
+        assert jax.device_count() == forced_devices
+    grid = periodic_grid((12, 8, 12))
+    rng = np.random.default_rng(11)
+    data = rng.standard_normal((12, 8, 12))
+    f = grid.create_field(data=jnp.asarray(data))
+    dt = resolve_distributed_transform(
+        Fourier(grid), grid, f.function_space.bare)
+    diag = sharded_axis_diagonal(dt)
+    out = dt.apply_diagonal(f, diag)
+    # layout-preserving: the sharded axis leaves sharded
+    (sharded_axis, _), = grid.decomposition.default_layout.device_axes
+    assert not out.function_space.layout.is_local(sharded_axis)
+    ref = diagonal_reference(data, diag, dt.geometry)
+    assert np.abs(np.asarray(out.data) - ref).max() <= 1e-11
+
+
+@pytest.mark.multi_device
+def test_diagonal_middle_broadcasts_a_constant_diagonal(forced_devices):
+    # a diagonal that is size-1 on the sharded axis (constant along a)
+    # is broadcast to the full internal frame before sharding, so a
+    # scalar-like middle still runs through the diagonal path
+    if forced_devices is not None:
+        assert jax.device_count() == forced_devices
+    grid = periodic_grid((12, 8, 12))
+    rng = np.random.default_rng(12)
+    data = rng.standard_normal((12, 8, 12))
+    f = grid.create_field(data=jnp.asarray(data))
+    dt = resolve_distributed_transform(
+        Fourier(grid), grid, f.function_space.bare)
+    diag = jnp.asarray(2.0)
+    out = dt.apply_diagonal(f, diag)
+    # a constant diagonal of 2 is the scalar-middle round trip: 2 x data
+    assert np.abs(np.asarray(out.data) - 2.0 * data).max() <= 1e-12
+
+
+@pytest.mark.multi_device
+def test_diagonal_middle_grad_is_finite(forced_devices):
+    # jax.grad of a quadratic loss through the diagonal apply is finite
+    # and matches a central finite difference (the shard_map / all_to_all
+    # VJP composes with the per-mode multiply)
+    if forced_devices is not None:
+        assert jax.device_count() == forced_devices
+    grid = periodic_grid((12, 8, 12))
+    rng = np.random.default_rng(13)
+    data = jnp.asarray(rng.standard_normal((12, 8, 12)))
+    f = grid.create_field(data=data)
+    dt = resolve_distributed_transform(
+        Fourier(grid), grid, f.function_space.bare)
+    diag = sharded_axis_diagonal(dt)
+
+    def loss(arr):
+        out = dt.apply_diagonal(f.with_data(arr), diag)
+        return jnp.sum(out.data ** 2)
+
+    grad = jax.grad(loss)(data)
+    assert bool(jnp.all(jnp.isfinite(grad)))
+    assert float(jnp.linalg.norm(grad)) > 0.0
+    eps = 1e-4
+    pert = jnp.asarray(rng.standard_normal(data.shape))
+    num = (loss(data + eps * pert) - loss(data - eps * pert)) / (2 * eps)
+    ana = float(jnp.sum(grad * pert))
+    assert abs(num - ana) <= 1e-4 * max(1.0, abs(ana))
 
 
 # ================================================================
