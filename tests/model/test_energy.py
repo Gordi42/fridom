@@ -606,28 +606,38 @@ def test_hydrostatic_barotropic_energy_is_skew_on_a_deep_grid(depth):
     assert abs(_barotropic_bilinear_skew(metric, model)) < 1e-12
 
 
-def test_hydrostatic_terrain_ps_weight_is_a_field():
-    # on a terrain-following grid H(x, y) varies horizontally, so the ps
-    # weight is field-valued and enters only with allow_field_weights
+def test_hydrostatic_terrain_ps_weight_is_the_constant_reference_depth():
+    # since the volume-exact free-surface unification (GM-D1 option 1)
+    # the terrain barotropic solve carries constant gravity g = c^2/H_ref
+    # with H_ref the constant vertical mesh extent, so the conserved ps
+    # weight is the CONSTANT H_ref/c^2 -- not the varying H(x, y)/c^2.
+    # The base z axis spans (-1, 0), so H_ref = 1.0 and csqr = 3.0
     model = _hydro_model(_terrain_hydro_grid())
-    metric = EnergyMetric.from_model(
+    metric = EnergyMetric.from_model(model, require_constant_coriolis=False)
+    assert not isinstance(metric.weights["ps"], ScalarField)
+    assert metric.weights["ps"] == pytest.approx(1.0 / 3.0)
+
+
+def test_hydrostatic_terrain_ps_weight_needs_no_opt_in():
+    # the constant reference-depth weight is translation-invariant, so a
+    # terrain grid assembles without allow_field_weights (the former
+    # field-weight opt-in is gone), and the opt-in does not change it
+    model = _hydro_model(_terrain_hydro_grid())
+    plain = EnergyMetric.from_model(model, require_constant_coriolis=False)
+    opted = EnergyMetric.from_model(
         model, require_constant_coriolis=False, allow_field_weights=True)
-    assert isinstance(metric.weights["ps"], ScalarField)
-
-
-def test_hydrostatic_terrain_ps_weight_needs_the_opt_in():
-    model = _hydro_model(_terrain_hydro_grid())
-    with pytest.raises(ValueError, match="varies with horizontal"):
-        EnergyMetric.from_model(model, require_constant_coriolis=False)
+    assert plain.weights["ps"] == pytest.approx(1.0 / 3.0)
+    assert opted.weights["ps"] == pytest.approx(1.0 / 3.0)
 
 
 def test_hydrostatic_terrain_barotropic_energy_is_skew():
     # the probe-proven exact barotropic physical skewness expressed
-    # through the public metric: with the H(x, y)/c^2 field weight the
-    # terrain barotropic subsystem conserves energy to round-off
+    # through the public metric: under the volume-exact constant
+    # H_ref/c^2 ps weight the terrain barotropic subsystem conserves
+    # energy to round-off (the retired H(x, y)/c^2 field weight left it
+    # O(slope): skew ~0.27)
     model = _hydro_model(_terrain_hydro_grid())
-    metric = EnergyMetric.from_model(
-        model, require_constant_coriolis=False, allow_field_weights=True)
+    metric = EnergyMetric.from_model(model, require_constant_coriolis=False)
     assert abs(_barotropic_bilinear_skew(metric, model)) < 1e-12
 
 

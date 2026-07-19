@@ -76,7 +76,6 @@ from fridom.model.params import (
 )
 from fridom.model.time_dependent import resolve_at
 from fridom.spatial.fields.scalar_field import ScalarField
-from fridom.spatial.operators.integrate import Integral
 from fridom.spatial.spaces.coefficient import CoefficientSpace
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -391,9 +390,11 @@ class EnergyMetric:
         frozen-analysis spelling: it reproduces today's build-time
         baking everywhere (whatever ``csqr`` / ``N^2`` held at
         ``at_time``), the metric a frozen eigen/channel basis needs
-        (TDF-D6, no re-diagonalization). The hydrostatic terrain depth
-        weight ``H(x, y)`` is grid-metric-derived, not state-resident,
-        and keeps snapshot semantics regardless.
+        (TDF-D6, no re-diagonalization). The hydrostatic surface-
+        pressure weight is the constant reference depth ``H_ref/c^2`` on
+        every grid — flat, stretched-z, or terrain-following — since the
+        volume-exact free-surface unification (GM-D1 option 1), so it is
+        never state-sourced.
 
         The weights themselves never involve the Coriolis parameter
         (rotation does no work), so a consumer that tolerates a
@@ -464,8 +465,7 @@ class EnergyMetric:
                     "nonzero phase speed 'shallowwater.csqr'")
             weights = {"u": 1.0, "v": 1.0, "p": 1.0 / csqr}
         elif _HYDRO_CSQR in params:
-            weights = _hydrostatic_weights(
-                model, at_time, allowed=allow_field_weights)
+            weights = _hydrostatic_weights(model, at_time)
         elif _state_field(model, "csqr") is not None:
             csqr_field = _profile_field(
                 model, "csqr", _CSQR, allowed=allow_field_weights)
@@ -533,34 +533,38 @@ class EnergyMetric:
 
 
 def _hydrostatic_weights(
-    model: Model, at_time: float, *, allowed: bool,
+    model: Model, at_time: float,
 ) -> dict[str, Weight | ScalarField]:
-    r"""Assemble ``diag(1, 1, 1/N^2, H/c^2)`` on ``(u, v, b, ps)``.
+    r"""Assemble ``diag(1, 1, 1/N^2, H_ref/c^2)`` on ``(u, v, b, ps)``.
 
     Description
     -----------
     The hydrostatic energy metric: unit weight on the horizontal
     velocities, ``1/N^2`` on the buoyancy tracer and the
-    **depth-weighted** ``H/c^2`` on the surface pressure ``ps`` (the
+    **depth-weighted** ``H_ref/c^2`` on the surface pressure ``ps`` (the
     barotropic phase speed ``hydrostatic.csqr``). The ``ps`` field is
     ``z``-constant (a ``fr.Profile``), so ``integrate`` gives it no
     depth (the ``ConstantSpace`` reduction is the identity — the
     physical-integral ruling); its depth must therefore ride the
-    **weight**. ``H`` is the physical column depth: the vertical axis
-    physical extent (a scalar) on a flat or stretched-only mesh, and
-    the column-Jacobian integral ``\int J\,\mathrm{d}z`` on a ``maps=``
-    vertical column — a scalar on a horizontally-uniform (stretched-z)
-    map, a field ``H(x, y)`` on a terrain-following one. That ``H``
-    factor pairs ``-grad ps`` with the depth-mean divergence into an
-    exactly skew-adjoint operator (the dense-column channel engine
-    keeps ``H`` in this weight too and reduces the ``ps`` bounded-axis
-    measure to unity accordingly).
+    **weight**. ``H_ref`` is the constant reference depth — the physical
+    extent of the vertical mesh axis (``hi - lo``), a scalar on every
+    hydrostatic grid: flat, stretched-z, or terrain-following.
 
-    A terrain depth weight ``H(x, y)`` is field-valued and breaks
-    translation invariance along the periodic axes, so — like the
-    ``csqr(y)`` / ``N^2(y)`` profile weights — it enters only when the
-    caller opts in (``allow_field_weights=True``); otherwise the
-    varying case is a taught error.
+    Since the volume-exact unification (GM-D1 option 1, all three free-
+    surface variants 2026-07-19) the barotropic solve carries constant
+    gravity ``g = c^2/H_ref`` with ``H_ref`` the constant vertical mesh
+    extent, so the conserved barotropic quadratic form under which the
+    linearized dynamics is skew-adjoint has the **constant**
+    ``1/g = H_ref/c^2`` surface weight — never a field. The mapped-
+    column depth weights (``H(x, y)/c^2`` on terrain, the collapsed
+    ``\int J\,\mathrm{d}z / c^2`` on a stretched-z column) were the
+    conserved weights of the retired energy-form variant and no longer
+    belong in the metric (they leave the discrete skew ``O(slope)``
+    against the volume-exact dynamics). That constant ``H_ref`` factor
+    pairs ``-grad ps`` with the depth-mean divergence into an exactly
+    skew-adjoint operator (the dense-column channel engine keeps it in
+    this weight too and reduces the ``ps`` bounded-axis measure to unity
+    accordingly).
     """
     params = model.parameters
     csqr = _read_scalar(params, _HYDRO_CSQR, at_time)
@@ -573,44 +577,38 @@ def _hydrostatic_weights(
         raise ValueError(
             "the hydrostatic energy weight 1/N^2 needs a nonzero "
             "stratification 'stratification.n2'")
-    ps_weight = _ps_depth_weight(model, csqr, allowed=allowed)
+    ps_weight = _ps_depth_weight(model, csqr)
     return {"u": 1.0, "v": 1.0, "b": 1.0 / n2, "ps": ps_weight}
 
 
-def _ps_depth_weight(
-    model: Model, csqr: float, *, allowed: bool,
-) -> Weight | ScalarField:
-    r"""Return the depth-weighted surface-pressure weight ``H/c^2``.
+def _ps_depth_weight(model: Model, csqr: float) -> Weight:
+    r"""Return the constant reference-depth ``ps`` weight ``H_ref/c^2``.
 
     Description
     -----------
-    ``H`` is the physical column depth: the vertical axis physical
-    extent on a flat / stretched-only mesh (a scalar), and the
-    column-Jacobian integral on a ``maps=`` vertical column — a scalar
-    when the map is horizontally uniform (stretched-z), a field
-    ``H(x, y)`` on a terrain-following grid. A terrain depth field is
-    gated behind ``allowed`` (the ``allow_field_weights`` opt-in), the
-    same rejection the ``csqr(y)`` / ``N^2(y)`` profile weights carry.
+    ``H_ref`` is the constant reference depth — the physical extent of
+    the vertical **mesh** axis (``hi - lo``), a scalar on every
+    hydrostatic grid: flat, stretched-z, or terrain-following. It is
+    **not** the mapped physical column depth
+    ``H(x, y) = \int J\,\mathrm{d}z`` (which varies horizontally on a
+    terrain column and differs from the mesh extent on a nonlinear
+    stretched-z column).
+
+    The reference depth — rather than the mapped column depth — is the
+    weight because the volume-exact free-surface unification (GM-D1
+    option 1, all three variants 2026-07-19) runs the barotropic solve
+    with constant gravity ``g = c^2/H_ref`` and ``H_ref`` the constant
+    vertical mesh extent (``fr.hydrostatic.modules.free_surface`` sets
+    ``self._inv_depth = 1/(hi - lo)`` unconditionally). The conserved
+    barotropic quadratic form under which the linearized dynamics is
+    exactly skew therefore carries the **constant** ``1/g = H_ref/c^2``
+    surface weight everywhere. The mapped-column depth weights
+    (``H(x, y)/c^2`` on terrain, ``\int J\,\mathrm{d}z / c^2`` on a
+    stretched-z column) belonged to the retired energy-form variant and
+    leave the discrete skew ``O(slope)`` against the volume-exact
+    dynamics.
     """
-    grid = model.grid
-    vertical = _vertical_axis(model)
-    column = _vertical_column(grid, vertical)
-    if column is None:
-        return _vertical_extent(grid, vertical) / csqr
-    depth = _physical_column_depth(model, vertical, column)
-    scalar = _uniform_scalar(depth)
-    if scalar is not None:
-        return scalar / csqr
-    if not allowed:
-        raise ValueError(
-            "the hydrostatic surface-pressure depth weight varies with "
-            "horizontal position (a terrain-following column depth "
-            "H(x, y)): a field weight breaks translation invariance "
-            "along the periodic axes, so a translation-invariant "
-            "consumer cannot serve it. Reduce the physical state "
-            "directly (EnergyMetric.inner integrates the depth) with "
-            "allow_field_weights=True")
-    return depth * (1.0 / csqr)
+    return _vertical_extent(model.grid, _vertical_axis(model)) / csqr
 
 
 def _vertical_axis(model: Model) -> str:
@@ -652,70 +650,6 @@ def _vertical_extent(grid: object, vertical: str) -> float:
             return float(hi - lo)
     raise ValueError(  # pragma: no cover — vertical is a grid axis
         f"the vertical axis {vertical!r} is not a grid factor")
-
-
-def _vertical_column(
-    grid: object, vertical: str,
-) -> tuple[str, str] | None:
-    """Return the ``(mapped, base)`` vertical column, or ``None``.
-
-    Description
-    -----------
-    ``None`` off a ``maps=`` grid (a flat mesh, or a stretched-only
-    ``MappedIntervalMesh`` whose stretching already rides
-    ``grid.measure`` — its ``mesh.extent`` is the physical depth). A
-    single-base analytic column whose base is the vertical axis
-    (``zp = z * H(x, y)``) returns its ``(mapped, base)`` pair.
-    """
-    mapping = getattr(grid, "mapping", None)
-    if mapping is None:
-        return None
-    entry = mapping.column_corrections.get(vertical)
-    if entry is None or entry[1] != vertical:
-        return None
-    return entry
-
-
-def _physical_column_depth(
-    model: Model, vertical: str, column: tuple[str, str],
-) -> ScalarField:
-    r"""Return ``H = \int J\,\mathrm{d}z`` on the ``ps`` cell.
-
-    Description
-    -----------
-    The plain vertical integral of the column Jacobian
-    ``J = d<mapped>_d<base>`` (rules 2.7) at the buoyancy cell's
-    horizontal staggering (which ``ps`` shares) — the physical column
-    depth, landing on the barotropic ``ConstantSpace`` z-factor.
-    """
-    ref = _state_field(model, "b")
-    if ref is None:
-        raise ValueError(
-            "the hydrostatic ps depth weight on a mapped (terrain / "
-            "stretched-z) grid integrates the column Jacobian and needs "
-            "the buoyancy field 'b' in the model state")
-    mapped, base = column
-    jac = ref.grid.metric(ref.function_space.bare, f"d{mapped}_d{base}")
-    return Integral()[vertical](jac)
-
-
-def _uniform_scalar(field: ScalarField) -> float | None:
-    """Collapse a ``z``-constant depth field to a scalar if uniform.
-
-    Description
-    -----------
-    The physical column depth is a ``z``-constant field; when it does
-    not vary along the horizontal axes (a flat-bottom or stretched-z
-    map) it is a single scalar depth, returned as a float. A genuine
-    terrain column varies horizontally and returns ``None`` (the
-    field-valued case).
-    """
-    data = field.data
-    spread = float(jnp.max(data) - jnp.min(data))
-    scale = float(jnp.max(jnp.abs(data)))
-    if spread <= 1e-12 * max(scale, 1.0):
-        return float(jnp.max(data))
-    return None
 
 
 def _weigh(
