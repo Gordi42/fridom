@@ -400,3 +400,113 @@ def test_grad_is_finite_through_the_region(forced_devices):
     for name in COMPONENTS:
         assert bool(jnp.all(jnp.isfinite(grads[name])))
         assert float(jnp.linalg.norm(grads[name])) > 0.0
+
+
+# ================================================================
+#  The project / synthesize halves (split contraction)
+# ================================================================
+@pytest.mark.multi_device
+@pytest.mark.parametrize(
+    "nz", [7, 8], ids=["divisible-half", "padded-half"])
+def test_synthesize_of_project_matches_identity_apply(nz, forced_devices):
+    # the two fused halves round-trip exactly: synthesize_amplitudes of
+    # project reproduces the full apply with identity (ones) weights, to
+    # floating point, and lands real -- the amplitude array crosses the
+    # region boundary sharded on the half mode axis (b_plane), padded
+    if forced_devices is not None:
+        assert jax.device_count() == forced_devices
+    grid = make_channel_grid(NX, NY, nz)
+    fields = make_fields(grid, seed=1)
+    q, _weights, metric, slices = synthetic_basis(NX, NY, nz, seed=2)
+    dim = 2 * NY
+    ones = jnp.ones((NX, nz // 2 + 1, dim), dtype=q.dtype)
+    plan = resolve(grid, slices)
+    assert plan is not None
+
+    amp = plan.project(fields, q, metric)
+    # the sharding contract: sharded on the half mode axis (b_plane=1
+    # for periodic (x, z), z the half axis), padded to pad_b
+    assert amp.sharding.spec[plan._b_plane] == "devices"
+    assert amp.shape[plan._b_plane] == plan._pad_b
+
+    got = plan.synthesize_amplitudes(amp, q, fields)
+    ref = plan.apply(fields, q, ones, metric)
+    for name in COMPONENTS:
+        a = np.asarray(got[name].data)
+        b = np.asarray(ref[name].data)
+        assert not np.iscomplexobj(a)
+        assert np.allclose(a, b, rtol=1e-11, atol=1e-12)
+
+
+@pytest.mark.multi_device
+def test_frame_amplitudes_pads_the_half_mode_axis(forced_devices):
+    # frame_amplitudes lifts a host per-mode array (omega-shaped) into
+    # the project frame: the half mode axis padded to pad_b with zeros,
+    # so it broadcasts against project's sharded output
+    if forced_devices is not None:
+        assert jax.device_count() == forced_devices
+    grid = make_channel_grid(NX, NY, 8)  # nz=8 -> n_b=5, pad_b=8
+    _q, _w, _m, slices = synthetic_basis(NX, NY, 8, seed=0)
+    plan = resolve(grid, slices)
+    dim = 2 * NY
+    per_mode = jnp.asarray(np.random.default_rng(5).standard_normal(
+        (NX, plan._n_b, dim)))
+    framed = plan.frame_amplitudes(per_mode)
+    assert framed.shape[plan._b_plane] == plan._pad_b
+    tail = jnp.moveaxis(framed, plan._b_plane, 0)[plan._n_b:]
+    assert float(jnp.max(jnp.abs(tail))) == 0.0
+
+
+@pytest.mark.multi_device
+def test_halves_hlo_transpose_without_gathers(forced_devices):
+    # each half is one reshard (all_to_all) plus a local FFT and the
+    # plane einsum (no reduction over the sharded mode axis), so neither
+    # region adds a cube gather -- the same collective profile as the
+    # fused apply region
+    if forced_devices is not None:
+        assert jax.device_count() == forced_devices
+    grid = make_channel_grid(NX, NY, 8)
+    fields = make_fields(grid, seed=1)
+    q, _w, metric, slices = synthetic_basis(NX, NY, 8, seed=2)
+    plan = resolve(grid, slices)
+    qf = plan._pad_modes(q)
+    pieces = {name: jnp.asarray(fields[name].data)
+              for name in COMPONENTS}
+    amp = plan.project(fields, q, metric)
+
+    fwd = plan._project_region.lower(pieces, qf, metric).compile().as_text()
+    bwd = plan._synthesize_amp_region.lower(amp, qf).compile().as_text()
+    for text in (fwd, bwd):
+        assert "all-to-all" in text
+        assert "all-gather" not in text
+        assert "all-reduce" not in text
+
+
+@pytest.mark.multi_device
+def test_halves_grad_is_finite_and_matches_fd(forced_devices):
+    # the shard_map / all_to_all VJP through project then synthesize is
+    # finite, nonzero and matches a central finite difference (the ETDRK4
+    # reroute is step-path, so its halves must differentiate cleanly)
+    if forced_devices is not None:
+        assert jax.device_count() == forced_devices
+    grid = make_channel_grid(NX, NY, 8)
+    fields = make_fields(grid, seed=1)
+    q, _w, metric, slices = synthetic_basis(NX, NY, 8, seed=2)
+    plan = resolve(grid, slices)
+    qf = plan._pad_modes(q)
+    c0 = jnp.asarray(fields["c0"].data)
+    c1 = jnp.asarray(fields["c1"].data)
+
+    def loss(arr):
+        amp = plan._project_region({"c0": arr, "c1": c1}, qf, metric)
+        out = plan._synthesize_amp_region(amp, qf)
+        return sum(jnp.sum(o ** 2) for o in out.values())
+
+    grad = jax.grad(loss)(c0)
+    assert bool(jnp.all(jnp.isfinite(grad)))
+    assert float(jnp.linalg.norm(grad)) > 0.0
+    eps = 1e-4
+    pert = jnp.asarray(np.random.default_rng(9).standard_normal(c0.shape))
+    num = (loss(c0 + eps * pert) - loss(c0 - eps * pert)) / (2 * eps)
+    ana = float(jnp.sum(grad * pert))
+    assert abs(num - ana) <= 1e-4 * max(1.0, abs(ana))

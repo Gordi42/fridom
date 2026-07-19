@@ -16,6 +16,7 @@ The load-bearing claims, each with a test below:
 """
 import math
 
+import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
@@ -327,3 +328,95 @@ def test_time_dependent_rossby_in_N_is_allowed(grid, basis, state0):
     # and the model must run
     model = _model(grid, ETDRK4(AB3_DT, basis), ramp, filtered=True)
     assert np.isfinite(_norm(_run(model, state0, 1)))
+
+
+# ================================================================
+#  Differentiability (the seam reroute is step-path)
+# ================================================================
+def test_grad_through_two_steps_matches_fd(grid, basis, state0):
+    """jax.grad through a 2-step ETDRK4 run matches a central FD.
+
+    The distributed reroute adds a plan branch to _forward / _backward;
+    the single-device per-axis seam must stay differentiable (the
+    step-path autodiff regression the differentiability policy asks
+    for, via the public propagator surface). The distributed halves'
+    VJP is covered in the distributed_contract test shards.
+    """
+    model = _model(grid, ETDRK4(AB3_DT, basis), filtered=True)
+    model.set_state(state0)
+    run = model.propagator(wrt=("u",), steps=2)
+    u0 = model._carry.state["u"].storage
+
+    def loss(field):
+        out = run((field,))
+        return sum(jnp.sum(f.data ** 2) for f in out.state)
+
+    grad = jax.grad(loss)(u0)
+    assert bool(jnp.all(jnp.isfinite(grad)))
+    assert float(jnp.linalg.norm(grad)) > 0.0
+    pert = jnp.asarray(
+        np.random.default_rng(3).standard_normal(np.asarray(u0).shape))
+    eps = 1e-4
+    num = float(
+        (loss(u0 + eps * pert) - loss(u0 - eps * pert)) / (2.0 * eps))
+    ana = float(jnp.sum(grad * pert))
+    assert abs(num - ana) <= 1e-4 * max(1.0, abs(ana))
+
+
+# ================================================================
+#  Distributed device-count invariance (the sharded-halves reroute)
+# ================================================================
+def _channel(nx, ny, device_ids):
+    """Return a periodic-x / walled-y shallow-water channel grid."""
+    mx = fr.spatial.meshes.IntervalMesh(
+        nx, (0.0, 1.0), periodic=True, name="x")
+    my = fr.spatial.meshes.IntervalMesh(
+        ny, (0.0, 1.0), periodic=False, name="y")
+    return fr.spatial.Grid((mx, my), device_ids=device_ids)
+
+
+@pytest.mark.multi_device
+def test_sharded_run_matches_one_device(forced_devices):
+    """A sharded ETDRK4 run matches the replicated device_ids=(0,) run.
+
+    The 2-D channel shards its single periodic axis x, so _forward /
+    _backward route through the fused Channel2DPlan project / synthesize
+    halves (the per-axis Fourier seam would hit the Tier-1 upstream
+    sharded-FFT fault). The physics must be device-count invariant to
+    floating point across a short nonlinear run.
+    """
+    if forced_devices is not None:
+        assert jax.device_count() == forced_devices
+    nx, ny, steps = 16, 8, 2
+    one_grid = _channel(nx, ny, (0,))
+    many_grid = _channel(nx, ny, None)
+    assert many_grid.decomposition.default_layout.device_axes == (
+        ("x", "devices"),)
+    dt = 5 * AB3_DT
+    rng = np.random.default_rng(11)
+    # the same physical initial fields on both grids (global shapes match)
+    src = _model(
+        one_grid, fr.model.time_steppers.AdamBashforth(1e-3, order=3),
+        filtered=False)
+    fields = {
+        c: rng.standard_normal(np.asarray(src.state[c].data).shape)
+        for c in COMPONENTS}
+
+    def run(grid, *, check_sharded=False):
+        # the eigenbasis is built on the model's OWN grid, so the frozen
+        # stepper arrays commit to that grid's device mesh; the physical
+        # exp(L dt) is eigenbasis-choice invariant, so the run is
+        # comparable across device counts
+        basis = sw.eigenbasis(_model(
+            grid, fr.model.time_steppers.AdamBashforth(1e-3, order=3),
+            filtered=False))
+        model = _model(grid, ETDRK4(dt, basis), filtered=True)
+        model.set_fields(**fields)
+        if check_sharded:
+            assert model.state["u"]._data.sharding.spec[0] == "devices"
+        model.advance(steps)
+        return {c: np.asarray(model.state[c].data) for c in COMPONENTS}
+
+    many = run(many_grid, check_sharded=True)
+    one = run(one_grid)
+    assert _rel_error(many, one) < 1e-10

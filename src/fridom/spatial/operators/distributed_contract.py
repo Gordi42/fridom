@@ -36,6 +36,20 @@ and need only that inverse path: :meth:`ContractPlan.synthesize` runs
 it alone (no forward, no contraction), taking store-frame coefficient
 columns to real fields on the grid's own layout.
 
+The contraction also splits into its two fused halves for a per-mode
+consumer that must operate on the amplitudes between them (the ETDRK4
+exponential stepper, which threads eigen-amplitudes across four
+Runge-Kutta stages with shard-local ``phi`` / ``exp`` arithmetic):
+:meth:`ContractPlan.project` (nodal fields -> the forward transform and
+the ``Q^H M`` contraction, emitting a sharded amplitude array) and
+:meth:`ContractPlan.synthesize_amplitudes` (that array -> the ``Q``
+column expansion and the backward transform, back to real fields). The
+amplitude array stays **sharded** on the half mode axis between the
+halves -- a raw ``jax.Array``, never a stored field, so the
+coefficient-space replication contract is untouched. The halves
+round-trip exactly: ``synthesize_amplitudes(project(f))`` reproduces
+``apply`` with identity weights.
+
 The coefficient frame is fixed by the engine: ``q`` is laid out in the
 ``rfftn`` frame (the full spectrum on the sharded axis ``a``, the half
 spectrum on ``periodic_axis``, both in their original array positions),
@@ -211,6 +225,28 @@ class ContractPlan:
                       self._metric_spec),
             out_specs=comp_specs))
 
+        # the amplitude frame: the raw eigen-amplitude array
+        # ``(*periodic_modes, D)`` the project half emits and the
+        # synthesize half consumes, sharded on the half (``b``) mode axis
+        # ``b_plane`` -- the internal frame the forward's ``all_to_all``
+        # produces (``a`` full-spectrum and replicated, the ``b`` axis at
+        # its padded coefficient extent). The bounded axis is absorbed
+        # into the stacked ``D`` column, so the array is rank
+        # ``len(periodic) + 1`` (3 for the 3-D channel), the same
+        # mode-axis order as ``eigenbasis.omega`` / ``q``. See
+        # :meth:`project` for the sharding contract.
+        amp_spec = [None, None, None]
+        amp_spec[b_plane] = axis_name
+        self._amp_spec = jax.sharding.PartitionSpec(*amp_spec)
+        self._project_region = jax.jit(jax.shard_map(
+            self._project_body, mesh=mesh,
+            in_specs=(comp_specs, self._q_spec, self._metric_spec),
+            out_specs=self._amp_spec))
+        self._synthesize_amp_region = jax.jit(jax.shard_map(
+            self._synthesize_amp_body, mesh=mesh,
+            in_specs=(self._amp_spec, self._q_spec),
+            out_specs=comp_specs))
+
         # the backward-only synthesis region (host-built coefficient
         # columns -> real fields, no forward / contraction): reuses the
         # contraction's inverse pipeline (``_backward_component``). The
@@ -274,6 +310,47 @@ class ContractPlan:
         return jnp.fft.irfft(
             c, n=self._half_n, axis=self._b, norm="forward").real
 
+    def _project_body(
+        self,
+        comps: dict[str, jax.Array],
+        q: jax.Array,
+        metric: jax.Array,
+    ) -> jax.Array:
+        """Forward, stack, contract to eigen-amplitudes (one shard).
+
+        The project half of :meth:`_body`: forward-transforms each
+        component, stacks the bounded segments into plane columns ``z``,
+        and returns the amplitudes ``amp = Q^H M z`` -- no column
+        expansion, no backward. The result is the amplitude frame
+        ``(*periodic_modes, D)`` sharded on the half axis ``b_plane``.
+        """
+        trans = {name: self._forward_component(comps[name])
+                 for name in self._components}
+        z = jnp.concatenate(
+            [jnp.moveaxis(trans[name], self._bounded, -1)
+             for name in self._components], axis=-1)
+        return jnp.einsum("...dj,d,...d->...j", jnp.conj(q), metric, z)
+
+    def _synthesize_amp_body(
+        self,
+        amp: jax.Array,
+        q: jax.Array,
+    ) -> dict[str, jax.Array]:
+        """Expand amplitudes to columns, split, backward (one shard).
+
+        The synthesize half of :meth:`_body`: expands the amplitudes to
+        stacked columns ``Q amp``, splits the per-component segments and
+        inverse-transforms -- no forward, no contraction. The exact
+        inverse of :meth:`_project_body` (with identity weights).
+        """
+        out = jnp.einsum("...dj,...j->...d", q, amp)
+        result = {}
+        for name in self._components:
+            seg = jnp.moveaxis(
+                out[..., self._slices[name]], -1, self._bounded)
+            result[name] = self._backward_component(seg)
+        return result
+
     def _body(
         self,
         comps: dict[str, jax.Array],
@@ -282,19 +359,8 @@ class ContractPlan:
         metric: jax.Array,
     ) -> dict[str, jax.Array]:
         """Forward, per-plane column contraction, backward (one shard)."""
-        trans = {name: self._forward_component(comps[name])
-                 for name in self._components}
-        z = jnp.concatenate(
-            [jnp.moveaxis(trans[name], self._bounded, -1)
-             for name in self._components], axis=-1)
-        amp = jnp.einsum("...dj,d,...d->...j", jnp.conj(q), metric, z)
-        out = jnp.einsum("...dj,...j->...d", q, w * amp)
-        result = {}
-        for name in self._components:
-            seg = jnp.moveaxis(
-                out[..., self._slices[name]], -1, self._bounded)
-            result[name] = self._backward_component(seg)
-        return result
+        amp = self._project_body(comps, q, metric)
+        return self._synthesize_amp_body(w * amp, q)
 
     def _backward_body(
         self,
@@ -346,6 +412,24 @@ class ContractPlan:
         return {name: fields[name].with_data(out[name])
                 for name in self._components}
 
+    def _pieces(
+        self, fields: Mapping[str, ScalarField],
+    ) -> dict[str, jax.Array]:
+        """Extract per-component nodal shards for the forward region.
+
+        The true frame on a divisible sharded axis, the padded-even
+        frame otherwise (never gathering the indivisible sharded axis).
+        Shared by :meth:`apply` and :meth:`project`.
+        """
+        if self.a_padded:
+            decomposition = next(iter(fields.values())).grid.decomposition
+            return {
+                name: decomposition.unpad_even(
+                    f.storage, f.function_space)
+                for name, f in fields.items()}
+        return {name: jnp.asarray(fields[name].data)
+                for name in self._components}
+
     def apply(
         self,
         fields: Mapping[str, ScalarField],
@@ -388,17 +472,130 @@ class ContractPlan:
         qf = self._pad_modes(q)
         wf = self._pad_modes(weights.astype(qf.dtype))
         metric = jnp.asarray(metric)
-        if self.a_padded:
-            decomposition = next(iter(fields.values())).grid.decomposition
-            pieces = {
-                name: decomposition.unpad_even(
-                    f.storage, f.function_space)
-                for name, f in fields.items()}
-        else:
-            pieces = {name: jnp.asarray(fields[name].data)
-                      for name in self._components}
-        out = self._region(pieces, qf, wf, metric)
+        out = self._region(self._pieces(fields), qf, wf, metric)
         return self._wrap(out, fields)
+
+    def project(
+        self,
+        fields: Mapping[str, ScalarField],
+        q: jax.Array,
+        metric: jax.Array,
+    ) -> jax.Array:
+        r"""
+        Contract nodal fields to sharded eigen-amplitudes (no gather).
+
+        Description
+        -----------
+        The **project half** of :meth:`apply`: forward-transforms the
+        component fields and contracts them onto the eigenvector columns,
+        returning the raw amplitudes ``amp = Q^H M z`` as a sharded
+        ``jax.Array`` -- no column expansion, no backward transform. This
+        is the fused region a per-mode consumer (the ETDRK4 exponential
+        stepper) drives when it must carry amplitudes across several
+        stages with shard-local per-mode arithmetic between them.
+
+        **Sharding contract.** The returned array has shape
+        ``(*periodic_modes, D)`` -- the two periodic axes in their nodal
+        array order with the bounded axis removed, then the eigen-column
+        index ``D`` (the stacked bounded segments). It is sharded on the
+        **half (``b``) mode axis** ``b_plane`` at the padded coefficient
+        extent ``pad_b``; the sharded axis ``a`` is full-spectrum and
+        replicated, ``D`` replicated. This is exactly the internal frame
+        the forward's ``all_to_all`` leaves and the same mode-axis order
+        as ``eigenbasis.omega`` / ``q`` (with the half axis padded to
+        ``pad_b``, its trailing lanes exactly zero). :meth:`frame_amplitudes`
+        pads a host per-mode array (``omega``) into this frame, and
+        :meth:`synthesize_amplitudes` is its exact inverse:
+        ``synthesize_amplitudes(project(f), q, f)`` reproduces
+        ``apply(f, q, ones, metric)`` to machine precision.
+
+        Parameters
+        ----------
+        fields : Mapping[str, ScalarField]
+            The component nodal fields (default layout, ``a`` sharded).
+        q : jax.Array
+            The M-orthonormal eigenvector planes, shape
+            ``(*modes, D, D)`` in the engine's ``rfftn`` frame.
+        metric : jax.Array
+            The diagonal energy metric ``M``, shape ``(D,)``.
+
+        Returns
+        -------
+        jax.Array
+            The sharded eigen-amplitude array (see the contract above).
+        """
+        qf = self._pad_modes(q)
+        metric = jnp.asarray(metric)
+        return self._project_region(self._pieces(fields), qf, metric)
+
+    def synthesize_amplitudes(
+        self,
+        amplitudes: jax.Array,
+        q: jax.Array,
+        fields: Mapping[str, ScalarField],
+    ) -> dict[str, ScalarField]:
+        r"""
+        Synthesize nodal fields from sharded eigen-amplitudes (no gather).
+
+        Description
+        -----------
+        The **synthesize half** of :meth:`apply` and the exact inverse of
+        :meth:`project`: expands the amplitudes to stacked columns
+        ``Q amp``, splits the per-component segments and inverse
+        transforms, returning real fields on the components' own nodal
+        spaces. ``amplitudes`` must be in the project frame (see
+        :meth:`project`), i.e. sharded on the half mode axis at the padded
+        extent; the ``shard_map`` ``in_specs`` accept it without a
+        reshard. Unlike :meth:`synthesize` (which takes store-frame
+        coefficient columns), this takes eigen-amplitudes and applies the
+        column expansion ``Q amp`` first.
+
+        Parameters
+        ----------
+        amplitudes : jax.Array
+            The sharded eigen-amplitude array (:meth:`project`'s output
+            frame), shape ``(*periodic_modes, D)``.
+        q : jax.Array
+            The M-orthonormal eigenvector planes, shape
+            ``(*modes, D, D)`` in the engine's ``rfftn`` frame.
+        fields : Mapping[str, ScalarField]
+            Template physical nodal fields (the components' spaces), for
+            the output layout / wrapping.
+
+        Returns
+        -------
+        dict[str, ScalarField]
+            The synthesized real component fields.
+        """
+        qf = self._pad_modes(q)
+        out = self._synthesize_amp_region(jnp.asarray(amplitudes), qf)
+        return self._wrap(out, fields)
+
+    def frame_amplitudes(self, per_mode: jax.Array) -> jax.Array:
+        r"""
+        Pad a host per-mode array ``(*modes, D)`` into the project frame.
+
+        Description
+        -----------
+        Zero-pads the half (``b``) mode axis of a per-mode array laid out
+        in the engine's ``rfftn`` mode order (``eigenbasis.omega`` and the
+        ``phi`` / ``exp`` arrays a per-mode consumer builds from it) to the
+        padded coefficient extent ``pad_b``, so it broadcasts elementwise
+        against :meth:`project`'s sharded output. The padded lanes are
+        exactly zero -- inert against the zero-padded amplitude lanes.
+
+        Parameters
+        ----------
+        per_mode : jax.Array
+            A per-mode array whose leading axes are the ``rfftn`` mode
+            axes (the half axis at extent ``n_b``).
+
+        Returns
+        -------
+        jax.Array
+            The array with the half mode axis zero-padded to ``pad_b``.
+        """
+        return self._pad_modes(per_mode)
 
     def synthesize(
         self,
@@ -565,6 +762,22 @@ class Channel2DPlan:
             in_specs=(comp_specs, self._q_spec, self._w_spec,
                       self._metric_spec),
             out_specs=comp_specs))
+
+        # the amplitude frame: the raw eigen-amplitude array ``(kx, D)``
+        # the project half emits and the synthesize half consumes,
+        # sharded on the ``kx`` mode axis (axis 0) at its padded extent
+        # ``pad_kx`` -- the internal frame the forward transpose produces,
+        # the same mode-axis order as ``eigenbasis.omega`` / ``q``. See
+        # :meth:`project` for the sharding contract.
+        self._amp_spec = jax.sharding.PartitionSpec(axis_name, None)
+        self._project_region = jax.jit(jax.shard_map(
+            self._project_body, mesh=mesh,
+            in_specs=(comp_specs, self._q_spec, self._metric_spec),
+            out_specs=self._amp_spec))
+        self._synthesize_amp_region = jax.jit(jax.shard_map(
+            self._synthesize_amp_body, mesh=mesh,
+            in_specs=(self._amp_spec, self._q_spec),
+            out_specs=comp_specs))
         # backward-only synthesis: the store-frame coefficient columns
         # (kx full-half spectrum sharded, bounded nodal) are the internal
         # frame the forward's transpose produces, so no extra reshard
@@ -587,6 +800,47 @@ class Channel2DPlan:
     # ================================================================
     #  The per-shard region (runs under jax.shard_map)
     # ================================================================
+    def _project_body(
+        self,
+        comps: dict[str, jax.Array],
+        q: jax.Array,
+        metric: jax.Array,
+    ) -> jax.Array:
+        """Forward transpose, stack, contract to amplitudes (one shard).
+
+        The project half of :meth:`_body`: forward-transposes each
+        component, stacks the bounded segments into ``kx`` plane columns
+        ``z``, and returns ``amp = Q^H M z`` -- no column expansion, no
+        backward. The result is the ``(kx, D)`` amplitude frame sharded
+        on the ``kx`` mode axis.
+        """
+        trans = {name: transpose_forward(comps[name], self._geoms[name])
+                 for name in self._components}
+        z = jnp.concatenate(
+            [jnp.moveaxis(trans[name], self._bounded, -1)
+             for name in self._components], axis=-1)
+        return jnp.einsum("...dj,d,...d->...j", jnp.conj(q), metric, z)
+
+    def _synthesize_amp_body(
+        self,
+        amp: jax.Array,
+        q: jax.Array,
+    ) -> dict[str, jax.Array]:
+        """Expand amplitudes, split, backward transpose (one shard).
+
+        The synthesize half of :meth:`_body`: expands the amplitudes to
+        stacked columns ``Q amp``, splits the per-component segments and
+        inverse-transposes -- no forward, no contraction. The exact
+        inverse of :meth:`_project_body` (with identity weights).
+        """
+        out = jnp.einsum("...dj,...j->...d", q, amp)
+        result = {}
+        for name in self._components:
+            seg = jnp.moveaxis(
+                out[..., self._slices[name]], -1, self._bounded)
+            result[name] = transpose_backward(seg, self._geoms[name])
+        return result
+
     def _body(
         self,
         comps: dict[str, jax.Array],
@@ -595,19 +849,8 @@ class Channel2DPlan:
         metric: jax.Array,
     ) -> dict[str, jax.Array]:
         """Forward transpose, per-kx contraction, backward (one shard)."""
-        trans = {name: transpose_forward(comps[name], self._geoms[name])
-                 for name in self._components}
-        z = jnp.concatenate(
-            [jnp.moveaxis(trans[name], self._bounded, -1)
-             for name in self._components], axis=-1)
-        amp = jnp.einsum("...dj,d,...d->...j", jnp.conj(q), metric, z)
-        out = jnp.einsum("...dj,...j->...d", q, w * amp)
-        result = {}
-        for name in self._components:
-            seg = jnp.moveaxis(
-                out[..., self._slices[name]], -1, self._bounded)
-            result[name] = transpose_backward(seg, self._geoms[name])
-        return result
+        amp = self._project_body(comps, q, metric)
+        return self._synthesize_amp_body(w * amp, q)
 
     def _backward_body(
         self,
@@ -660,6 +903,23 @@ class Channel2DPlan:
         return {name: fields[name].with_data(out[name])
                 for name in self._components}
 
+    def _pieces(
+        self, fields: Mapping[str, ScalarField],
+    ) -> dict[str, jax.Array]:
+        """Extract per-component nodal shards for the forward region.
+
+        The true frame on a divisible periodic axis, the padded-even
+        frame otherwise. Shared by :meth:`apply` and :meth:`project`.
+        """
+        if self.a_padded:
+            decomposition = next(iter(fields.values())).grid.decomposition
+            return {
+                name: decomposition.unpad_even(
+                    f.storage, f.function_space)
+                for name, f in fields.items()}
+        return {name: jnp.asarray(fields[name].data)
+                for name in self._components}
+
     def apply(
         self,
         fields: Mapping[str, ScalarField],
@@ -702,17 +962,123 @@ class Channel2DPlan:
         qf = self._pad_modes(q)
         wf = self._pad_modes(weights.astype(qf.dtype))
         metric = jnp.asarray(metric)
-        if self.a_padded:
-            decomposition = next(iter(fields.values())).grid.decomposition
-            pieces = {
-                name: decomposition.unpad_even(
-                    f.storage, f.function_space)
-                for name, f in fields.items()}
-        else:
-            pieces = {name: jnp.asarray(fields[name].data)
-                      for name in self._components}
-        out = self._region(pieces, qf, wf, metric)
+        out = self._region(self._pieces(fields), qf, wf, metric)
         return self._wrap(out, fields)
+
+    def project(
+        self,
+        fields: Mapping[str, ScalarField],
+        q: jax.Array,
+        metric: jax.Array,
+    ) -> jax.Array:
+        r"""
+        Contract nodal fields to sharded eigen-amplitudes (no gather).
+
+        Description
+        -----------
+        The 2-D-channel analogue of :meth:`ContractPlan.project` -- the
+        **project half** of :meth:`apply`: forward-transposes the
+        component fields and contracts them onto the eigenvector columns,
+        returning the raw amplitudes ``amp = Q^H M z`` as a sharded
+        ``jax.Array`` (no column expansion, no backward).
+
+        **Sharding contract.** The returned array has shape ``(kx, D)`` --
+        the ``kx`` mode axis then the eigen-column index ``D`` -- sharded
+        on the ``kx`` mode axis (axis 0) at the padded extent ``pad_kx``,
+        ``D`` replicated. This is the internal frame the forward transpose
+        produces and the same mode-axis order as ``eigenbasis.omega`` /
+        ``q`` (``kx`` padded to ``pad_kx``, its trailing lanes exactly
+        zero). :meth:`frame_amplitudes` pads a host per-mode array into
+        this frame, and :meth:`synthesize_amplitudes` is its exact
+        inverse: ``synthesize_amplitudes(project(f), q, f)`` reproduces
+        ``apply(f, q, ones, metric)`` to machine precision.
+
+        Parameters
+        ----------
+        fields : Mapping[str, ScalarField]
+            The component nodal fields (default layout, periodic axis
+            sharded).
+        q : jax.Array
+            The M-orthonormal eigenvector planes, shape ``(n_kx, D, D)``
+            in the ``rfft`` frame.
+        metric : jax.Array
+            The diagonal energy metric ``M``, shape ``(D,)``.
+
+        Returns
+        -------
+        jax.Array
+            The sharded eigen-amplitude array (see the contract above).
+        """
+        qf = self._pad_modes(q)
+        metric = jnp.asarray(metric)
+        return self._project_region(self._pieces(fields), qf, metric)
+
+    def synthesize_amplitudes(
+        self,
+        amplitudes: jax.Array,
+        q: jax.Array,
+        fields: Mapping[str, ScalarField],
+    ) -> dict[str, ScalarField]:
+        r"""
+        Synthesize nodal fields from sharded eigen-amplitudes (no gather).
+
+        Description
+        -----------
+        The 2-D-channel analogue of
+        :meth:`ContractPlan.synthesize_amplitudes` -- the **synthesize
+        half** of :meth:`apply` and the exact inverse of :meth:`project`:
+        expands the amplitudes to stacked columns ``Q amp``, splits the
+        per-component segments and inverse-transposes, returning real
+        fields on the components' own nodal spaces. ``amplitudes`` must be
+        in the project frame (see :meth:`project`), sharded on the ``kx``
+        mode axis at the padded extent.
+
+        Parameters
+        ----------
+        amplitudes : jax.Array
+            The sharded eigen-amplitude array (:meth:`project`'s output
+            frame), shape ``(kx, D)``.
+        q : jax.Array
+            The M-orthonormal eigenvector planes, shape ``(n_kx, D, D)``
+            in the ``rfft`` frame.
+        fields : Mapping[str, ScalarField]
+            Template physical nodal fields (the components' spaces), for
+            the output layout / wrapping.
+
+        Returns
+        -------
+        dict[str, ScalarField]
+            The synthesized real component fields.
+        """
+        qf = self._pad_modes(q)
+        out = self._synthesize_amp_region(jnp.asarray(amplitudes), qf)
+        return self._wrap(out, fields)
+
+    def frame_amplitudes(self, per_mode: jax.Array) -> jax.Array:
+        r"""
+        Pad a host per-mode array ``(kx, D)`` into the project frame.
+
+        Description
+        -----------
+        Zero-pads the ``kx`` mode axis (axis 0) of a per-mode array laid
+        out in the engine's ``rfft`` mode order (``eigenbasis.omega`` and
+        the ``phi`` / ``exp`` arrays a per-mode consumer builds from it)
+        to the padded extent ``pad_kx``, so it broadcasts elementwise
+        against :meth:`project`'s sharded output. The padded lanes are
+        exactly zero -- inert against the zero-padded amplitude lanes.
+
+        Parameters
+        ----------
+        per_mode : jax.Array
+            A per-mode array whose leading axis is the ``kx`` mode axis
+            (at extent ``n_kx``).
+
+        Returns
+        -------
+        jax.Array
+            The array with the ``kx`` mode axis zero-padded to ``pad_kx``.
+        """
+        return self._pad_modes(per_mode)
 
     def synthesize(
         self,
