@@ -18,6 +18,7 @@ The P3+P4 acceptance battery of ``design/plans/active/nnmd_rewrite_plan.md``:
 """
 import warnings
 
+import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
@@ -497,3 +498,46 @@ def test_dispatch_rejects_a_package_without_the_surface(
     monkeypatch.setattr(sw.eigenmodes, "from_model", None)
     with pytest.raises(ValueError, match="from_model"):
         BalanceExpansion(model, order=0, lint=False)
+
+
+# ================================================================
+#  The distributed (sharded) analytic tier (forced-4)
+# ================================================================
+def _nh_model_at(device_ids, n=8):
+    """Return a fully periodic nonhydro model at a device layout."""
+    meshes = tuple(
+        fr.spatial.meshes.IntervalMesh(
+            n, (0.0, 2 * np.pi), periodic=True, name=name)
+        for name in ("x", "y", "z"))
+    return nh.Model(
+        grid=fr.spatial.Grid(meshes, device_ids=device_ids),
+        dt=0.02, rossby_number=0.05, dsqr=1.0,
+        coriolis=nh.FPlaneCoriolis(f0=1.0),
+        stratification=nh.ConstantStratification(n2=4.0))
+
+
+@pytest.mark.multi_device
+def test_nh_balance_runs_on_a_sharded_axis(forced_devices):
+    # the analytic V / W / L_w^{-1} operators of the balance expansion
+    # become fused per-mode matrix applies on a grid that shards a
+    # transform axis (the transient full-size coefficient VectorField
+    # disappears); the balanced state matches the replicated one-device
+    # reference to floating point across orders.
+    if forced_devices is not None:
+        assert jax.device_count() == forced_devices
+    n = 8
+    rng = np.random.default_rng(3)
+    fields = {c: 0.15 * rng.standard_normal((n, n, n))
+              for c in NH_COMPONENTS}
+    many = _nh_model_at(None, n)
+    many.set_fields(**fields)
+    z_many = nh.State({c: many.state[c] for c in NH_COMPONENTS})
+    assert z_many["u"]._data.sharding.spec[0] == "devices"
+    one = _nh_model_at((0,), n)
+    one.set_fields(**fields)
+    z_one = nh.State({c: one.state[c] for c in NH_COMPONENTS})
+    for order in (0, 1, 2):
+        bal_many = BalanceExpansion(many, order=order, lint=False)(z_many)
+        bal_one = BalanceExpansion(one, order=order, lint=False)(z_one)
+        assert is_real(bal_many, NH_COMPONENTS)
+        assert absmax(bal_many, bal_one, NH_COMPONENTS) < 1e-11

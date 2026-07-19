@@ -69,6 +69,7 @@ from fridom.model._eigenbasis import (
     _predicate_mask,
     predicate_projection,
 )
+from fridom.model.analytic_distributed import analytic_route
 from fridom.model.eigenstates import resolve_mode_branches
 from fridom.model.energy import EnergyMetric
 from fridom.model.term_predicates import linear, linearize
@@ -140,22 +141,44 @@ class _AnalyticOperator:
     ``em.function`` output), and returns through the backward
     transforms taking the real part (the Hermitian closure on the
     rfft half-lattice; exact for conjugation-closed selections).
+
+    On a grid whose default layout shards a transform axis the plain
+    per-component round-trip hits the Tier-1 taught error; a fully
+    periodic sharded operand instead routes through the fused
+    ``jax.shard_map`` matrix apply — the whole ``V`` / ``W`` /
+    ``L_w^{-1}`` operator becomes one per-mode ``D x D`` matrix call
+    (assembled once, cached), and the transient full-size coefficient
+    ``VectorField`` never materializes.
     """
 
     def __init__(
         self,
+        em: object,
         kit: object,
         components: tuple[str, ...],
         apply_fn: Callable,
+        *,
+        branches: tuple[int, ...],
+        f: Callable | None,
     ) -> None:
         """Prebuild the per-component forward transforms."""
+        self._em = em
         self._kit = kit
         self._components = components
         self._apply = apply_fn
+        self._branches = branches
+        self._f = f
         self._forward = {c: kit.forward(c) for c in components}
+        self._matrices: dict[int, jax.Array] = {}
 
     def __call__(self, state: object) -> object:
         """Round-trip the state through the coefficient map."""
+        route = analytic_route(self._em, state)
+        if route is not None:
+            out = route.apply_matrix(
+                {c: state[c] for c in self._components},
+                self._matrix(route))
+            return type(state)({c: out[c] for c in self._components})
         coeff = VectorField({
             c: self._forward[c](
                 state[c].retag(self._forward[c].domain))
@@ -164,6 +187,16 @@ class _AnalyticOperator:
         return type(state)({
             c: self._kit.backward(c)(out[c]).real.retag(state[c])
             for c in self._components})
+
+    def _matrix(self, route: object) -> jax.Array:
+        """Assemble (once, per grid) the fused per-mode operator matrix."""
+        key = id(self._em.grid)
+        matrix = self._matrices.get(key)
+        if matrix is None:
+            matrix = self._em.operator_matrix(
+                route.coeff_of, branches=self._branches, f=self._f)
+            self._matrices[key] = matrix
+        return matrix
 
 
 def _analytic_operators(
@@ -198,13 +231,23 @@ def _analytic_operators(
     kit = getattr(em, "kit", None)
     if kit is None:
         kit = em._kit  # noqa: SLF001 — package-internal kit access
+
+    def inv_lw(w: np.ndarray) -> np.ndarray:
+        return -1.0 / (1j * w)
+
+    # V / W are projectors (f = None on the distributed matrix, exactly
+    # the ``function(np.ones_like, ...)`` the eager path builds); the
+    # slaved-inverse carries the f(omega) weights (the distributed matrix
+    # guards the zero-frequency structural set, never floors)
     slow_op = _AnalyticOperator(
-        kit, components, em.function(np.ones_like, branches))
+        em, kit, components, em.function(np.ones_like, branches),
+        branches=branches, f=None)
     fast_op = _AnalyticOperator(
-        kit, components, em.function(np.ones_like, fast))
+        em, kit, components, em.function(np.ones_like, fast),
+        branches=fast, f=None)
     inv_op = _AnalyticOperator(
-        kit, components,
-        em.function(lambda w: -1.0 / (1j * w), fast))
+        em, kit, components, em.function(inv_lw, fast),
+        branches=fast, f=inv_lw)
     return slow_op, fast_op, inv_op, components, None, label
 
 

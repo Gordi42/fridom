@@ -1,0 +1,85 @@
+"""The analytic-eigenmode distributed router (``resolve_route``).
+
+The analytic sibling of the numeric channel's
+``resolve_distributed_contraction``: resolves a per-component
+``DistributedTransform`` sharing one transpose geometry for the fully
+periodic (plain-Fourier) analytic eigenmode consumers, and declines
+(``None`` -- the caller keeps its bit-identical path or taught error) on
+a single device, a walled-vertical ``ComposedTransform`` (Wave B), or a
+replicated operand.
+"""
+import jax
+import numpy as np
+import pytest
+
+import fridom as fr
+import fridom.nonhydro2 as nh
+from fridom.model.analytic_distributed import (
+    AnalyticDistributedRoute,
+    analytic_route,
+    resolve_route,
+)
+
+
+def _eigenmodes(device_ids, *, walled=None, n=8):
+    """Analytic nonhydro eigenmodes at the given device layout."""
+    meshes = tuple(
+        fr.spatial.meshes.IntervalMesh(
+            n, (0.0, 2 * np.pi), periodic=(name != walled), name=name)
+        for name in ("x", "y", "z"))
+    model = nh.Model(
+        grid=fr.spatial.Grid(meshes, device_ids=device_ids),
+        advection=False, dsqr=1.0, coriolis=nh.FPlaneCoriolis(f0=1.0),
+        stratification=nh.ConstantStratification(n2=3.0),
+        time_stepper=fr.model.time_steppers.AdamBashforth(5e-3, order=3))
+    return nh.eigenmodes.from_model(model)
+
+
+def test_resolve_route_declines_a_single_device_grid():
+    em = _eigenmodes((0,))
+    assert resolve_route(em.grid, em._analysis, em._components) is None
+
+
+@pytest.mark.multi_device
+def test_resolve_route_serves_a_periodic_sharded_grid(forced_devices):
+    if forced_devices is not None:
+        assert jax.device_count() == forced_devices
+    em = _eigenmodes(None)
+    route = resolve_route(em.grid, em._analysis, em._components)
+    assert isinstance(route, AnalyticDistributedRoute)
+    # every prognostic + auxiliary analysis component resolves to the
+    # same transpose geometry (staggered u/v/w and collocated b/p)
+    for name in em._analysis:
+        assert route.coeff_of(name) is not None
+
+
+@pytest.mark.multi_device
+def test_resolve_route_declines_a_walled_vertical_grid(forced_devices):
+    # the walled-vertical component transforms are a mixed
+    # ComposedTransform (Fourier x Fourier x trig) the transpose engine
+    # declines; the router falls back so the analytic path keeps its
+    # Tier-1 taught error (Wave B serves this tier later)
+    if forced_devices is not None:
+        assert jax.device_count() == forced_devices
+    em = _eigenmodes(None, walled="z")
+    assert resolve_route(em.grid, em._analysis, em._components) is None
+
+
+@pytest.mark.multi_device
+def test_analytic_route_reroutes_a_sharded_operand(forced_devices):
+    # a route resolves on the sharded grid and a genuinely sharded
+    # operand (the default nodal layout shards a transform axis) is
+    # rerouted; a single-device operand keeps the plain path (None)
+    if forced_devices is not None:
+        assert jax.device_count() == forced_devices
+    em = _eigenmodes(None)
+    route = resolve_route(em.grid, em._analysis, em._components)
+    assert route is not None
+    rng = np.random.default_rng(1)
+    sharded = em.grid.create_field(
+        em._analysis["u"], data=rng.standard_normal((8, 8, 8)))
+    assert sharded._data.sharding.spec[0] == "devices"
+    assert route.shards(sharded) is True
+    assert analytic_route(em, nh.State({"u": sharded})) is not None
+    one = _eigenmodes((0,))
+    assert analytic_route(one, nh.State({"u": one.q(0)["u"]})) is None
