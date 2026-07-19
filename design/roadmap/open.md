@@ -80,8 +80,11 @@ plumbing (`lower_index`/`curl`/`div` flows), the Sadourny
 energy-conserving spellings, the energy correction and the eigen
 machinery, and must re-prove the energy-exactness gates. Retires
 `u_physical` / `v_physical` (the interim conversion points) and
-brings physical IC input to the sphere. Standalone campaign — plan
-before implementation.
+brings physical IC input to the sphere. Plan:
+[`../plans/active/sw2_physical_flip_plan.md`](../plans/active/sw2_physical_flip_plan.md)
+(2026-07-19; scope census done — eigen/transform machinery is
+flat/channel-only and confirmed untouched; the flip is a seam
+conversion, S1 in implementation).
 
 ## Finite-volume nonhydro — decisions and validation
 
