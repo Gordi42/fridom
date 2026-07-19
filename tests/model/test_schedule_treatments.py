@@ -93,7 +93,7 @@ def kappa_const(value):
 
 @pytest.fixture
 def mz():
-    return IntervalMesh(8, (0.0, 1.0), name="z")
+    return IntervalMesh(8, (0.0, 1.0), periodic=False, name="z")
 
 
 @pytest.fixture

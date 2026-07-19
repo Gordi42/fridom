@@ -103,7 +103,7 @@ COLUMN = 16
 
 @pytest.fixture
 def mz():
-    return IntervalMesh(COLUMN, (0.0, 1.0), name="z")
+    return IntervalMesh(COLUMN, (0.0, 1.0), periodic=False, name="z")
 
 
 @pytest.fixture
@@ -421,7 +421,8 @@ class ToyModule(Module):
 
 
 def test_end_to_end_imex_model_advances(compile_counter):
-    grid = Grid((IntervalMesh(COLUMN, (0.0, 1.0), name="z"),))
+    grid = Grid((IntervalMesh(COLUMN, (0.0, 1.0), periodic=False,
+                              name="z"),))
     model = Model(grid=grid, modules=(ToyModule(),),
                   time_stepper=CNAB2(0.02))
     b0 = np.cos((np.arange(COLUMN) + 0.5) * 3 * np.pi / COLUMN)
