@@ -69,21 +69,15 @@ def ekin(
     -----------
     The linearized (quadratic) kinetic energy matching the energy
     metric weights ``1`` on ``u`` and ``v``. Velocities are
-    interpolated onto the pressure cell. On chart grids the
-    quadratics carry the diagonal metric — ``0.5 (g_11 u^2 +
-    g_22 v^2)``, the physical speed squared of the contravariant
-    components (the recorded convention, ``modules/core.py``) —
-    derived per call via ``grid.metric``.
+    interpolated onto the pressure cell. The state components are the
+    **physical** (m/s) velocities on every grid
+    (``physical_state_components.md`` ruling (c)), so the chart branch
+    collapses to this flat spelling — the physical speed squared needs
+    no metric root (D4).
     """
     center = state["p"].function_space
     u = state["u"].to(center)
     v = state["v"].to(center)
-    grid = u.grid
-    if grid.chart_coords is not None:
-        zonal, meridional = u.function_space.names[:2]
-        u = grid.metric(center.bare, f"g_{zonal}{zonal}")**0.5 * u
-        v = (grid.metric(center.bare,
-                         f"g_{meridional}{meridional}")**0.5 * v)
     return state["p"].with_data(0.5 * (u.data**2 + v.data**2))
 
 
@@ -141,21 +135,21 @@ def ekin_full(
     it is lifted verbatim from the scheme (see the module docstring
     of ``sw.modules.SadournyAdvection``), not re-derived.
 
-    On chart grids the quadratics carry the diagonal metric and the
-    :math:`\sqrt{g}` Jacobian **on each velocity's own staggered
-    space**, interpolated to the centre and divided by the centre
+    On chart grids the state components are the **physical** (m/s)
+    velocities (``physical_state_components.md`` ruling (c)), so the
+    quadratics carry only the :math:`\sqrt{g}` Jacobian **on each
+    velocity's own staggered space** (no :math:`g_{ii}` factor, D4),
+    interpolated to the centre and divided by the centre
     :math:`\sqrt{g}` — exactly the placement of the scheme's own
     Bernoulli kinetic energy:
 
     .. math::
         E_\mathrm{kin} = \int \frac{
-            \overline{\sqrt{g}\,\bar h\, g_{\lambda\lambda}
-            (u^\lambda)^2}
-            + \overline{\sqrt{g}\,\bar h\, g_{\varphi\varphi}
-            (u^\varphi)^2}}{2\sqrt{g}}
+            \overline{\sqrt{g}\,\bar h\, U^2}
+            + \overline{\sqrt{g}\,\bar h\, V^2}}{2\sqrt{g}}
 
     so that ``.integrate()`` (which re-applies the centre
-    :math:`\sqrt{g}`) reproduces the per-velocity metric sums of the
+    :math:`\sqrt{g}`) reproduces the per-velocity sums of the
     invariant. Unlike ``ekin``, this is **not** the linearized
     quadratic; ``ekin`` is not conserved by the nonlinear model.
     """
@@ -166,14 +160,8 @@ def ekin_full(
     e_v = v * v * h.to(v)
     if grid.chart_coords is None:
         return p.with_data(0.5 * (e_u.to(p) + e_v.to(p)).data)
-    zonal, meridional = u.function_space.names[:2]
-    u_bare = u.function_space.bare
-    v_bare = v.function_space.bare
-    e_u = (grid.metric(u_bare, "sqrt_g")
-           * grid.metric(u_bare, f"g_{zonal}{zonal}") * e_u)
-    e_v = (grid.metric(v_bare, "sqrt_g")
-           * grid.metric(v_bare, f"g_{meridional}{meridional}")
-           * e_v)
+    e_u = grid.metric(u.function_space.bare, "sqrt_g") * e_u
+    e_v = grid.metric(v.function_space.bare, "sqrt_g") * e_v
     sqrt_g = grid.metric(p.function_space.bare, "sqrt_g")
     return p.with_data(
         (0.5 * (e_u.to(p) + e_v.to(p)) / sqrt_g).data)
