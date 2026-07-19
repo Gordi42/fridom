@@ -65,13 +65,17 @@ names agree with the user surface; `jax.grad` through
 **(b) Hydrostatic `w` storage.** The core's continuity diagnosis
 keeps building the contravariant volume flux `J\omega` (bottom-up
 face-form cumint — the exact-telescoping, exact-bottom-BC working
-quantity) but stores it as an **internal component**; the public
-state `w` becomes the physical
+quantity); the public state `w` becomes the physical
 `w = J\omega + u Z_x + v Z_y` (slope terms interpolated to the `w`
 faces; byte-identical on flat columns where `Z = 0`). Flux consumers
-(advection's vertical trio member per section 1 wants physical `w`;
-anything genuinely wanting the flux reads the internal component)
-are repointed per an explicit consumer census. The
+are repointed per an explicit consumer census. *Implementation
+outcome (2026-07-19):* the census found **no** remaining full-3D
+step-path flux consumer (stratification wants physical `w`;
+`free_surface` builds its own transport from `u`, `v`; advection's
+trio member wants physical `w`), so the flux is **not stored** — 
+`state.chart["w"]` re-derives it on demand via the shared
+`terrain.slope_velocity_on_w` spelling (machine-precision round
+trip, exact 0 at the bed). The
 `ConstantStratification` terrain slope spelling of `d629a489`
 migrates into the core diagnosis and the module simplifies back to
 `-N^2\,w.to(b)` — same physics class; the O(h^2) energy-gate
