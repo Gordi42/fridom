@@ -355,6 +355,78 @@ class ImmersedDomain:
         return ScalarField(grid, space, result,
                            FieldMetadata.create(name="wet_mask"))
 
+    def centroid_offset(
+        self,
+        space: SpaceLike,
+        name: str,
+    ) -> ScalarField:
+        r"""
+        Wet-centroid offset ``delta`` along ``name`` (first moment).
+
+        Description
+        -----------
+        The signed distance from a cell centre to the physical centroid
+        of its wet region along the coordinate ``name`` (PB-D1): the
+        first ``name``-moment of the wet region over its volume,
+
+        .. math::
+
+            \delta_c = \frac{\int_{cell}(z - z_c)\,\chi\;\mathrm{d}V}
+                            {\int_{cell}\chi\;\mathrm{d}V},
+
+        computed with the same per-cell Gauss-Legendre quadrature as
+        :meth:`fraction` (``order >= 2``). A **bottom** cut shifts the
+        vertical centroid (``delta != 0``); a **lateral** cut leaves it
+        put (the ``name``-symmetric moment vanishes identically), and a
+        full or dry cell gives exactly ``0`` — the volume fraction
+        alone cannot tell a bottom cut from a lateral one, only the
+        first moment can. The divide is sealed
+        ``where(theta > 0, moment/(theta*V), 0)`` (never a live 0/0;
+        dry cells are exactly ``0``). The collocation staircase
+        (``order=None``/``1``) has no partial cells, so ``delta`` is
+        identically ``0``. Static geometry: memoized concrete-only like
+        :meth:`fraction`, never traced.
+
+        Used by the hydrostatic partial-bottom pressure-gradient
+        correction (Pacanowski & Gnanadesikan): a resting stratified
+        column with ``b`` sampled at the wet-centroid heights
+        ``z_c + delta`` (PB-D4) stays at rest to machine precision on a
+        cut z-level grid, where the full-cell ``p_hyd`` integral alone
+        differences pressures at mismatched heights.
+
+        Parameters
+        ----------
+        space : SpaceLike
+            The target cell space (all cell-centred factors; must
+            resolve every grid coordinate).
+        name : str
+            The coordinate the moment is taken along (the vertical).
+
+        Returns
+        -------
+        ScalarField
+            The wet-centroid offset ``delta`` on ``space``, tagged with
+            it (dry/full/lateral-cut cells exactly ``0``).
+        """
+        grid = self._bound_grid()
+        space = grid._laid_out(space)  # noqa: SLF001 — grid seam
+        _validate_factors(space, grid)
+        _validate_centroid_space(space, name)
+        key = (space, "centroid_offset", name, grid.decomposition.halo)
+        cached = self._cache.get(key)
+        if cached is not None:
+            return ScalarField(
+                grid, space, cached,
+                FieldMetadata.create(name="wet_centroid_offset"))
+        delta = self._centroid_cells(space, name)
+        stored = store(grid.decomposition, space,
+                       delta.astype(dtype_real()))
+        if not isinstance(stored, jax.core.Tracer):
+            self._cache[key] = stored
+        return ScalarField(
+            grid, space, stored,
+            FieldMetadata.create(name="wet_centroid_offset"))
+
     def transition(
         self,
         space: SpaceLike,
@@ -568,6 +640,99 @@ class ImmersedDomain:
         theta = numerator / denominator
         return jnp.broadcast_to(theta, cell_space.shape)
 
+    def _centroid_cells(
+        self, space: SpaceLike, name: str,
+    ) -> jax.Array:
+        r"""
+        Per-cell wet-centroid ``name``-offset by first-moment quadrature.
+
+        Description
+        -----------
+        The genuine per-cell quadrature behind :meth:`centroid_offset`.
+        Reuses the grid's unreduced per-cell Gauss-Legendre fields
+        (:meth:`~fridom.spatial.grid.Grid._cell_quadrature_fields`, the
+        seam the chart fraction MI-D1 uses) so the moment weight
+        ``(z - z_c)`` folds in before the sum: with unit-sum reference
+        weights the two reduced sums are cell averages, so
+
+        .. math::
+
+            \delta_c = \frac{\langle z\,\chi\rangle}{\langle\chi\rangle}
+                       - z_c,
+            \qquad z_c = \langle z\rangle,
+
+        the wet-region centroid offset (the common cell measure
+        cancels). ``z_c`` is the quadrature of the node positions
+        themselves (the symmetric rule's weighted mean = the cell
+        centre), so it rides the same stretched per-cell geometry as
+        the moment. The divide is sealed on ``theta > 0`` (dry cells
+        exactly ``0``). The collocation staircase (``order`` below
+        :data:`_QUADRATURE_MIN`) has no partial cells, so the offset is
+        identically ``0``. A grid whose mapping declares column
+        corrections (a genuine chart) is a taught error (PB-D3): the
+        separable per-axis moment is the chart-parameter moment, not
+        the physical wet-volume centroid.
+
+        Parameters
+        ----------
+        space : SpaceLike
+            The (laid-out) target cell space.
+        name : str
+            The coordinate the moment is taken along.
+
+        Returns
+        -------
+        jax.Array
+            The wet-centroid offset, one axis per space factor.
+        """
+        grid = self._bound_grid()
+        factors = space.factors
+        cell_shape = tuple(
+            factor.mesh.n_cells for factor in factors)
+        if self._order is None or self._order < _QUADRATURE_MIN:
+            return jnp.zeros(cell_shape, dtype=dtype_real())
+        params = tuple(inspect.signature(self._init).parameters)
+        names = tuple(
+            axis_name for factor in factors
+            for axis_name in factor.names)
+        if set(params) != set(names):
+            raise TypeError(
+                "the immersed indicator must name exactly the grid "
+                f"coordinate names {names}, got {params}")
+        mapping = grid.mapping
+        if mapping is not None and mapping.column_corrections:
+            raise NotImplementedError(
+                "the wet-centroid offset on a chart (mapping with "
+                "column corrections) is a taught error: the separable "
+                "per-axis first moment is the chart-parameter moment, "
+                "not the physical wet-volume centroid (partial-bottom "
+                "p_hyd plan, PB-D3). The terrain-chart partial-cell "
+                "correction is a recorded follow-up; use a flat / "
+                "separable-stretched immersed grid")
+        meshes = tuple(factor.mesh for factor in factors)
+        avg = tuple(mesh.cell_avg for mesh in meshes)
+        cell_space = (avg[0] if len(avg) == 1
+                      else TensorProductSpace.of(*avg))
+        cell_space = grid._laid_out(cell_space)  # noqa: SLF001 — seam
+        node_by_name, weight, quad_axes = (
+            grid._cell_quadrature_fields(  # noqa: SLF001 — grid seam
+                cell_space, self._order))
+        chi = jnp.asarray(self._init(**node_by_name))
+        z_node = node_by_name[name]
+        w_chi = weight * chi
+        total = jnp.sum(weight, axis=quad_axes)
+        theta = jnp.sum(w_chi, axis=quad_axes)
+        z_chi = jnp.sum(z_node * w_chi, axis=quad_axes)
+        # normalize z_c by the weight sum (not assuming it is exactly 1):
+        # a full cell (chi == 1) then makes z_chi / theta and z_c the
+        # *identical* expression, so delta is exactly 0 there (no FP
+        # residue that would misfire the partial-cell activation).
+        z_center = jnp.sum(z_node * weight, axis=quad_axes) / total
+        wet = theta > 0.0
+        theta_safe = jnp.where(wet, theta, 1.0)
+        delta = jnp.where(wet, z_chi / theta_safe - z_center, 0.0)
+        return jnp.broadcast_to(delta, cell_shape)
+
     def _floor(self, theta: jax.Array) -> jax.Array:
         r"""
         Apply the small-cell floor (IP-D3), a no-op on {0, 1}.
@@ -732,6 +897,33 @@ def _validate_factors(space: SpaceLike, grid: Grid) -> None:
             "immersed masks are derived on spaces resolving every "
             f"grid coordinate {grid.names}; this space resolves "
             f"{names}")
+
+
+def _validate_centroid_space(space: SpaceLike, name: str) -> None:
+    """Require a cell-centred space and a resolved moment axis.
+
+    Description
+    -----------
+    The wet-centroid offset is a per-cell quantity, so every factor
+    must be cell-positioned (nodal ``Center`` or FV ``CellAvg``) — no
+    face staggering (a moment has no min-transfer). ``name`` must name
+    one of the space's coordinates (the moment axis).
+    """
+    for factor in space.factors:
+        is_cell = (isinstance(factor, CellAvg)
+                   or (isinstance(factor, NodalSpace)
+                       and factor.node_set is NodeSet.CENTER))
+        if not is_cell:
+            raise ValueError(
+                "the wet-centroid offset is a cell quantity: every "
+                "factor must be cell-positioned (Center / CellAvg), "
+                f"got {factor!r}")
+    names = tuple(
+        axis for factor in space.factors for axis in factor.names)
+    if name not in names:
+        raise ValueError(
+            f"the moment coordinate {name!r} is not a coordinate of "
+            f"this space (resolves {names})")
 
 
 def _cell_centers(mesh: object) -> jax.Array:
