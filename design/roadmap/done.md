@@ -1856,6 +1856,44 @@ Implementation record:
   (bitwise vs nodal). Tests:
   `tests/model/closures/test_diffusion_fv.py` (24 tests); gates:
   closures suite 150 green, nonhydro2 596 green, ruff clean.
+- **Measure-aware implicit vertical-diffusion column** (2026-07-19,
+  branch `feat/measure-aware-column`) — the stage-0 real fix of
+  [`../research/diffusion_walls_terrain_scoping.md`](../research/diffusion_walls_terrain_scoping.md)
+  §3.7 (§9 addendum): `VerticalDiffusion` drops the uniform-dz dense
+  band for a per-column **conservative face-averaged flux** band
+  (`_diffusion_bands`), and the stretched/terrain `VerticalMixing`
+  gates (`reject_unsupported_solve_column`) are **retired**. Widths come
+  from `grid.measure`: the primal cell width of the field's own node set
+  (`Center` or FV `CellAvg`, no hardcoded stagger) and the dual
+  center-to-center widths of the **wall-including `Outer`** face family
+  (one query — its two boundary entries are the clipped wall half-cells,
+  serving the Dirichlet wall distance too). On a terrain grid
+  (`axis in mapping.column_corrections`) every width is multiplied by
+  the column Jacobian `grid.metric("d{mapped}_d{base}", params=None)` at
+  the same stagger — along-σ physical widths (owner call 3, ratified
+  2026-07-19), composing with a stretched σ mesh. `diag` is assembled as
+  the negated coupling sum, so a Neumann row telescopes to zero exactly.
+  The flagged variable-κ `NotImplementedError` is gone: a `ScalarField`
+  κ on the field's own space is arithmetically face-averaged (one-sided
+  at the walls), exact under the κ-summed merge (band linear in κ). A
+  **moving** terrain column (a mapping param riding the field table) is
+  a new taught error — the implicit `solve` reads static geometry and
+  has no state seam. Uniform-column OPERATOR entries are **bitwise**
+  the old `κ/dz²` band (−1 Neumann / −3 Dirichlet corners); justified
+  deviations: dense `linalg.solve` → tridiagonal kernel, dense matmul →
+  band stencil, dz from `grid.measure`. **Solver deviation**: the solve
+  uses `method="scan"` (Thomas), NOT `"auto"` — the CN system is only
+  weakly diagonally dominant in the stiff regime (dominance excess
+  exactly 1) and the cyclic-reduction kernels (pcr / cuSPARSE gtsv2)
+  amplify roundoff enough to blow up the κΔt/Δz²∼640 stability tests;
+  Thomas is unconditionally stable, exact, natively differentiable.
+  Tests: `tests/model/test_implicit_kernel_measure.py` (12, the
+  prefix-mirrored shard), model-level stretched conservation + terrain
+  step + moving-geometry error + terrain propagator autodiff in
+  `test_vertical_mixing.py`; the immersed gate is untouched (the
+  wet-aware variable-dz column stays its own item, reusing this one).
+  This is the N3 implicit twin — the multigrid V-cycle already consumes
+  measure widths on stretched columns.
 
 - **FV-vs-nodal step-time gap — closed** (2026-07-18, branch
   `perf/fv-walled-storage-frame`; record

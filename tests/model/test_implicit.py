@@ -1,18 +1,12 @@
 """Tests for the implicit families (model/implicit.py)."""
 import dataclasses
 
-import numpy as np
 import pytest
 
 from fridom.model.implicit import (
     ImplicitOperator,
     VerticalDiffusion,
-    reject_unsupported_solve_column,
 )
-from fridom.spatial.coordinate_mapping import CoordinateMapping
-from fridom.spatial.grid import Grid
-from fridom.spatial.meshes.interval import IntervalMesh
-from fridom.spatial.meshes.mapped_interval import MappedIntervalMesh
 
 
 class FullDuck:
@@ -256,36 +250,3 @@ def test_merge_key_groups_same_boundary_conditions():
     merged = op1.merged_with(op2)
     assert merged.fields == ("u", "v")
     assert merged.bc == ("dirichlet", "neumann")
-
-
-# ================================================================
-#  The solve-column geometry gate (stretched / terrain rejection)
-# ================================================================
-def test_gate_accepts_a_uniform_column():
-    grid = Grid((IntervalMesh(4, (0.0, 1.0), name="z"),))
-    # a plain uniform IntervalMesh column raises nothing
-    reject_unsupported_solve_column(grid, "z")
-
-
-def test_gate_rejects_a_stretched_column():
-    grid = Grid((
-        MappedIntervalMesh(4, (0.0, 1.0), lambda s: s ** 2,
-                           name="z"),))
-    with pytest.raises(NotImplementedError, match="uniform spacing"):
-        reject_unsupported_solve_column(grid, "z")
-
-
-def test_gate_rejects_a_terrain_coupled_column():
-    mx = IntervalMesh(4, (0.0, 2 * np.pi), periodic=True, name="x")
-    ms = IntervalMesh(4, (0.0, 1.0), periodic=False, name="sigma")
-    mapping = CoordinateMapping(
-        maps={"zp": lambda sigma, height: sigma * height},
-        params={"height": lambda x: 1.0 + 0.2 * np.sin(x)})
-    grid = Grid((mx, ms), mapping=mapping)
-    with pytest.raises(NotImplementedError, match="terrain"):
-        reject_unsupported_solve_column(grid, "sigma")
-
-
-def test_gate_ignores_a_missing_grid_seam():
-    # anything without factors / mapping is treated as unmapped
-    reject_unsupported_solve_column(object(), "z")

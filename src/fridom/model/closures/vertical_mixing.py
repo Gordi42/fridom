@@ -13,12 +13,17 @@ The operator is
     \partial_t q = \partial_z (\kappa\, \partial_z q),
     \qquad q \in \{u, v, b\},
 
-with a **constant column** coefficient (vertical viscosity ``kv`` on the
-velocities, vertical diffusivity ``kb`` on the buoyancy) and zero-flux
-(Neumann) rows at the top and bottom — exactly the boundary rows
-``VerticalDiffusion`` builds, which is what makes the bounded-vertical
-column solve well-posed where the explicit harmonic closures
-(``fr.closures.HarmonicDiffusion``) reject walled grids.
+with a per-leg coefficient (vertical viscosity ``kv`` on the
+velocities, vertical diffusivity ``kb`` on the buoyancy) and the
+per-side wall rows ``VerticalDiffusion`` builds: zero-flux (Neumann) for
+the tracer always and for the free-slip velocity default, the no-slip
+(Dirichlet) wall row when ``bottom``/``top`` ask for it. That
+well-posed bounded-vertical column solve is exactly what the explicit
+harmonic closures (``fr.closures.HarmonicDiffusion``) cannot offer on a
+walled grid. The column is measure-aware — a stretched mesh contributes
+its true non-uniform spacing and a static terrain-following grid its
+column Jacobian (the along-``sigma`` convention; see the class
+docstring's caveat) — so no uniform-``dz`` restriction applies.
 
 Treatment is **author-declared** on the module (the spec §5.1 override
 pattern): ``treatment=fr.model.IMPLICIT`` (the default) makes the
@@ -46,10 +51,7 @@ from typing import TYPE_CHECKING, Final
 
 from fridom.framework.utils import jaxify
 from fridom.model.errors import AssemblyError
-from fridom.model.implicit import (
-    VerticalDiffusion,
-    reject_unsupported_solve_column,
-)
+from fridom.model.implicit import VerticalDiffusion
 from fridom.model.module import Module
 from fridom.model.parameters import (
     ParameterDeclaration,
@@ -120,6 +122,68 @@ def _diffusivity(
 
 
 # ================================================================
+#  Moving-geometry guard (static terrain is fine; a moving one is not)
+# ================================================================
+def _reject_moving_terrain_column(
+    grid: object, axis: str, table: FieldTable,
+) -> None:
+    r"""
+    Reject a moving terrain-following solve column (taught error).
+
+    Description
+    -----------
+    The measure-aware implicit column reads its terrain Jacobian from
+    ``grid.metric(..., params=None)`` — the **static** mapping geometry.
+    That is exact for a static stretched or terrain-following grid, but
+    ``ImplicitOperator.solve`` receives only ``(rhs, dt_gamma, ctx)`` —
+    no state — so the live mapping-parameter fields a
+    :class:`~fridom.model.modules.moving_geometry.MovingGeometry` module
+    carries are unreachable there. Silently reading the static geometry
+    while the terrain moves is exactly the silent-wrong-physics class
+    the taught-error doctrine targets, so it is refused. The signal is
+    the discovery convention of stage C4: a mapping parameter that also
+    rides the field table as a state field (named after the parameter)
+    means a moving-geometry module owns it. A static terrain column
+    carries no such field and proceeds normally.
+
+    Parameters
+    ----------
+    grid : object
+        The solve column's grid (``mapping`` seam; anything without one
+        is treated as unmapped).
+    axis : str
+        The solve-axis coordinate name.
+    table : FieldTable
+        The bound field table (queried for the moving-parameter fields).
+
+    Raises
+    ------
+    NotImplementedError
+        If the mapping couples the solve axis and a mapping parameter
+        rides the field table as a state field.
+    """
+    mapping = getattr(grid, "mapping", None)
+    corrections = getattr(mapping, "column_corrections", {})
+    if axis not in corrections:
+        # no mapping, or the mapping does not couple the solve axis: the
+        # band builder never reads the terrain metric, so a static read
+        # cannot go stale
+        return
+    moving = tuple(
+        name for name in mapping.param_names if name in table)
+    if moving:
+        raise NotImplementedError(
+            f"VerticalMixing cannot solve a MOVING terrain column along "
+            f"{axis!r}: the mapping parameter(s) {moving} ride the state "
+            "(a MovingGeometry module), but the implicit column solve "
+            "reads STATIC geometry (grid.metric(params=None)) and has no "
+            "state seam to thread the live parameters through. A static "
+            "stretched or terrain column is fully supported; a moving "
+            "one needs the params-through-solve seam, not yet built. "
+            "Drop the closure, or freeze the geometry.")
+
+
+# ================================================================
 #  VerticalMixing
 # ================================================================
 @partial(jaxify, dynamic=("kv", "kb"))
@@ -136,6 +200,22 @@ class VerticalMixing(Module):
     ``VerticalDiffusion`` term per leg (both on the ``vertical`` axis,
     the same merge family), whose ``treatment`` is the author-declared
     override.
+
+    The column is measure-aware: a stretched vertical mesh gets its true
+    non-uniform spacing and a static terrain-following (``maps=``) grid
+    its column Jacobian, both from ``VerticalDiffusion``'s band builder,
+    so no uniform-``dz`` restriction applies. **Along-coordinate
+    caveat** (§3.6-B, the ROMS-default convention, owner-ratified
+    2026-07-19): on a terrain-following grid the solve runs along the
+    ``sigma`` coordinate, which is **tilted from the geopotential** where
+    the terrain slopes — the documented along-coordinate operator, not a
+    rotated / geopotential one. This is accepted practice for viscosity
+    (friction is the main terrain consumer); for a tracer it is the
+    spurious-diapycnal-mixing hazard of steep slopes, so along-``sigma``
+    ``kb`` mixing tilts with the terrain. A **moving** terrain column is
+    refused at bind (the solve reads static geometry). The
+    geopotential-correct rotated closure is the recorded stage-5
+    follow-up.
 
     Parameters
     ----------
@@ -261,9 +341,10 @@ class VerticalMixing(Module):
             If a coefficient leg resolves zero target fields (a ``kv``
             with no PROGNOSTIC velocity, or a ``kb`` with no tracer).
         NotImplementedError
-            On an immersed grid, or a stretched / terrain-coupled solve
-            column (the uniform-spacing column band would silently solve
-            the wrong operator).
+            On an immersed grid, or a **moving** terrain-following solve
+            column (a static stretched or terrain column is supported by
+            the measure-aware band; a moving one needs the params-
+            through-solve seam the implicit ``solve`` cannot reach).
         """
         from fridom.model.declarations import (  # noqa: PLC0415 — avoid an import cycle at module load
             Lifecycle,
@@ -280,7 +361,7 @@ class VerticalMixing(Module):
                 "of two implicit-machinery generalizations, its own "
                 "roadmap item when picked up. Drop the closure on an "
                 "immersed grid.")
-        reject_unsupported_solve_column(grid, self._vertical)
+        _reject_moving_terrain_column(grid, self._vertical, table)
         if self.kv is not None:
             self._velocity_targets = self._prognostic(
                 table, table.select(Velocity), Lifecycle)
