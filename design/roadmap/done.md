@@ -287,7 +287,7 @@ Implementation record:
 
 - **Composed (mapped+immersed) stretched full-coarsening — the
   deferral was overstated** (2026-07-19, owner ruled "build now";
-  merge `<MERGE_HASH>`) — the composed pressure solver's stretched-base
+  merge `c305a950`) — the composed pressure solver's stretched-base
   `_coarsen_vertical` override is deleted, so a stretched composed base
   (a `MappedIntervalMesh` vertical carrying **both** a terrain
   `CoordinateMapping` and an `ImmersedDomain`) now inherits the mapped
