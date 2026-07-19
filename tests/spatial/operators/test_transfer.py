@@ -362,6 +362,40 @@ def test_forced4_rejects_mismatched_device_sets():
         GridTransfer(fine, coarse)
 
 
+@pytest.mark.multi_device
+@pytest.mark.parametrize("order", [1, 2])
+def test_forced4_grad_through_restrict_one_cell_per_shard(order):
+    # regression: reverse-mode through restrict when the coarsened
+    # PERIODIC axis shards to one cell per device (fine 8 -> coarse 4 on
+    # four devices). The order-2 adjoint carries a jnp.roll per neighbor
+    # row, whose transpose the XLA SPMD partitioner miscompiled to a
+    # malformed concatenate in the forward graph of the differentiated
+    # computation (HLO verifier "Expected f64[6], actual f64[4]").
+    # restrict spells P^T with forward primitives, so the transposed roll
+    # lands in the backward pass, where the partitioner is correct; the
+    # multi-device grad must build and match the single-device gradient.
+    if jax.device_count() < 4:
+        pytest.skip("needs four devices for one cell per coarse shard")
+
+    def loss_on(device_ids):
+        fine = Grid((IntervalMesh(8, (0.0, 1.0), periodic=True, name="x"),),
+                    device_ids=device_ids)
+        transfer = GridTransfer(fine, fine.coarsened(2), order=order)
+
+        def loss(data):
+            field = fine.create_field(cell_space(fine), data=data)
+            return jnp.sum(transfer.restrict(field).data ** 2)
+
+        return loss
+
+    x0 = jax.random.normal(jax.random.PRNGKey(7), (8,))
+    gref = np.asarray(jax.grad(loss_on((0,)))(x0))
+    loss_all = loss_on(tuple(range(jax.device_count())))
+    g = np.asarray(jax.jit(jax.grad(loss_all))(x0))
+    assert np.all(np.isfinite(g))
+    assert np.allclose(g, gref, atol=1e-12)
+
+
 # ================================================================
 #  Profile fields: ConstantSpace pass-through (GM-D3)
 # ================================================================

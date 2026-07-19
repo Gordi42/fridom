@@ -216,41 +216,77 @@ unreachable from the folded region; `_validate_mapping`'s
 argument is this no-`params`-access structure, not any error
 ordering.
 
-### Discovered pre-existing limitation — full-coarsening grad on >1 device
+### Pre-existing full-coarsening grad break on >1 device — root-caused and cured
 
 Surfaced while validating the forced-4 leg of this change: **reverse-mode
-through a *full-coarsening* multigrid solve fails on >= 2 devices** with
+through a *full-coarsening* multigrid solve failed on >= 2 devices** with
 an XLA HLO-verifier internal error (`Expected instruction to have shape
-equal to f64[6,1,...], actual shape is f64[4,1,...]`) in the
-spmd-partitioned **backward** pass — the fine->replicated-coarse
-transfer VJP mis-shapes when the vertical also coarsens (the coarsest
-level replicates and the shard/replicated boundary's cotangent
-partitions wrong). Characterised on forced-CPU-4:
+equal to f64[6,1], actual shape is f64[4,1]`) after spmd-partitioning.
+Characterised on forced-CPU-4: semicoarsening grad passed (`-2.16e-2`),
+but stretched, uniform, and composed full-coarsening grad all failed
+identically — a **pre-existing break in the shipped uniform GM-D9
+default**, not introduced by the stretched or composed flip, and not the
+eager pre-warm (host-warming the memo failed identically). The forward
+full-coarsening solve is device-invariant throughout.
 
-- semicoarsening grad (`multigrid_coarsen_vertical=False`): **passes**
-  (`-2.16e-2`) — the vertical stays full, no shard→replicated coarse
-  transition;
-- stretched full-coarsening grad: **fails** (the shape mismatch);
-- **uniform** full-coarsening grad (the shipped GM-D9 default,
-  `test_mapped_pressure_multigrid.py`'s terrain grid): **fails
-  identically** — so the bug is **pre-existing in the shipped uniform
-  default**, not introduced by the stretched flip;
-- it is **not** the eager pre-warm: uniform full-coarsening runs no
-  pre-warm and fails the same way, and host-warming the stretched memo
-  before `jax.grad` fails identically too.
+**Root cause (XLA SPMD-partitioner miscompile, not fridom logic).** The
+`GridTransfer.restrict` down-transfer computed `P^T` as
+`jax.linear_transpose(prolong)`, and `prolong`'s order-2 periodic path
+carries two opposite `jnp.roll`s (the left / right neighbor rows). At the
+coarsest full-coarsening level the periodic horizontal shards to **one
+cell per device**, and there the transpose of `jnp.roll` lowers to a
+`concatenate` that the SPMD partitioner cross-wires: it joins two
+`f64[3,1]` per-shard slices (the two rolls' transposed pads) yet stamps
+the result `f64[4,1]` — operands sum to 6, declared result 4, the
+verifier error. A **single** roll compiles; **two** opposite rolls are
+needed. It fires only when that transposed roll sits in the **forward**
+graph of a differentiated computation (a plain forward `restrict`, or a
+`grad` of a plain forward `prolong`, both compile), and only at one cell
+per device (two cells per device compiles; replicated compiles).
 
-The **forward** full-coarsening solve is device-invariant on both
-uniform and stretched (the forced-4 stretched battery passes bar the
-grad test; the uniform battery's `test_forced4_multigrid_solve_matches_
-single_device` is forward-only). So this is an XLA:SPMD transfer-VJP
-partitioning bug of the same family as the already-filed ones
-(jax#39100 / #39291 / #39292), independent of fridom logic
-(`coarsen_levels` / `GridTransfer` were untouched by this change).
-Mitigation taken here: the two grad-through-the-full-coarsening-solve
-regressions (`test_multigrid_solve_grad_matches_fd`,
-`test_stretched_multigrid_grad_wrt_initial_velocity_matches_fd`) carry
-`@pytest.mark.single_device` (their intended domain per the
-differentiability policy), matching the uniform battery which never
-carried a multi-device grad test. Open for the owner: whether to file
-the XLA:SPMD grad bug upstream and/or add a multi-device grad guard once
-it is fixed.
+A pure-jax repro (~20 lines, forced-4 CPU, no fridom, jax 0.10.2) is in
+the scratchpad issue draft: `grad` of `sum(linear_transpose(lambda c:
+roll(c,1)+roll(c,-1))(x)**2)` with `x` a size-4 axis sharded over four
+devices. It is the same XLA:SPMD family as the already-filed
+jax#39100 / #39291 / #39292.
+
+**Roll vs. dynamic-update-slice (owner question).** `jnp.roll` is the
+idiomatic periodic **read-shift** (a gather-class permutation) and lowers
+to `slice + concatenate`; on a sharded axis its forward is a cheap
+`collective-permute` (O(1) neighbor exchange). Dynamic-update-slice is a
+**write** primitive — the seal-DUS compile-time finding is about writing
+pad/halo slots, a different animal — and a DUS-built shift both mis-lowers
+under one-cell-per-shard (`INVALID_ARGUMENT: Update dim size ...`) and is
+the wrong dual here. The read-shift's genuine alternative is a modular
+**gather** (`take`), whose transpose the partitioner does handle, but a
+gather on a sharded axis lowers to an **all-gather** (measured 3
+all-gathers vs roll's 6 collective-permutes on a 16-cell-per-shard axis)
+— an O(n) regression at the fine levels. So neither DUS nor gather is a
+runtime-neutral cure; roll stays the right forward primitive.
+
+**Fix (landed, `transfer.py`).** `restrict` now spells `P^T` with
+**forward** array primitives (`_restrict_axis` / `_clamp_edge_transpose`):
+a block reduce plus, at order 2, one opposite-direction `jnp.roll` per
+neighbor row, instead of `jax.linear_transpose(prolong)`. The two
+spellings compute the same map — **bitwise at order 1**, and to a
+floating-point reassociation of ~1 ULP at order 2 (the default), since a
+forward `jnp.roll(·,-1)` equals `transpose(jnp.roll(·,+1))` exactly but
+the weighted reductions re-associate — but they lower differently: the
+forward roll stays a `collective-permute` and its transpose lands in the
+**backward** pass, where the partitioner is correct. Forward cost is
+unchanged (order-1 restrict stays a collective-free block reduce, guarded
+by `test_forced4_order1_restrict_has_no_all_gather`); a mapped
+full-coarsening multigrid **solve** matches the pre-fix output to
+`5.6e-17` abs / `1.7e-16` rel (machine precision, well inside any solve
+tolerance — **not bitwise**, because order-2 `P^T` reassociates by ~1
+ULP).
+
+The three `@pytest.mark.single_device` marks this break forced (the
+mapped `test_multigrid_solve_grad_matches_fd`, the stretched-model
+`test_stretched_multigrid_grad_wrt_initial_velocity_matches_fd`, and the
+composed `test_stretched_composed_solve_grad_matches_fd`) are **removed**
+— they run on any device count now and are the multi-device grad guard,
+joined by a tight transfer-level regression
+(`test_forced4_grad_through_restrict_one_cell_per_shard`, which fails on
+pre-fix dev and passes here) and a forced-4 CI leg. Upstream filing of
+the XLA:SPMD bug is drafted but **not yet ruled on by the owner**.
