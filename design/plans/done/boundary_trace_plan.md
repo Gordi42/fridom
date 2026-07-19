@@ -1,11 +1,12 @@
 # Boundary trace / scatter machinery (`TraceSpace`) — plan
 
-Status: **phases 1–3 shipped** (dev merge `4adcc933`, 2026-07-18;
-outcome record in §9). Remaining: the owner-gated GPU items in §9.
+Status: **complete** (phases 1–3 shipped, dev merge `4adcc933`,
+2026-07-18; outcome record in §9; the two remaining measurement
+questions closed by owner rulings 2026-07-19 — end of §9).
 Owner picked Option B in session, 2026-07-18. Immediate consumer: the H7 hydrostatic surface-flux
 correction's slice-only `A(1)`
-([roadmap entry](../../roadmap/open.md), Oceananigans-gap list;
-[`hydrostatic_model_plan.md`](hydrostatic_model_plan.md) §H7).
+([roadmap done entry](../../roadmap/done.md), Oceananigans-gap list;
+[`hydrostatic_model_plan.md`](../active/hydrostatic_model_plan.md) §H7).
 Design driver: generalized 3D<->2D boundary machinery usable by future
 consumers (wind stress, surface buoyancy flux, bottom drag, SST-style
 diagnostics), an explicit owner requirement.
@@ -428,14 +429,23 @@ Findings from the campaign:
   `WenoReconstruction`'s vertical footprint exceeding the
   negotiated z-halo of 2 — owner-governed halo-cap territory.
 
-**Remaining (owner-gated GPU work; the roadmap entry tracks it):**
-step-guard checkpoint whenever Silvano next batches one (his own
-trigger, never agent-initiated); post-reroute weno5 ladder
-re-measure (overhead vs off + embed-vs-scatter for the tracer
-slice) — a first attempt (job 26350823, 2026-07-18) was
-compromised by parallel dev merges racing the shared checkout
+**Closed by owner rulings (2026-07-19; roadmap entry retired to
+`done.md`):** the post-reroute weno5 ladder re-measure and the
+opt-out-cost question were both ruled without a dedicated GPU job.
+Background: the first re-measure attempt (job 26350823, 2026-07-18)
+was compromised by parallel dev merges racing the shared checkout
 (arms at three commits, 4/5 scatter rungs lost to a mid-merge
-conflict at child-import time); its one clean same-commit pair
-has embed +1.0% over scatter at rf=28, so the provisional embed
-default stands pending a clean re-run (details in the roadmap
-entry).
+conflict at child-import time); its one clean same-commit pair has
+embed +1.0% over scatter at rf=28. Ruling (a): the biased `"embed"`
+default is **kept** on that pair — the stake is ~1% of weno5 step
+time and both lowerings are correctness-validated; the definitive
+cross-check folds into the owner's step-guard batches (biased bench
+cases from `33707661`) and the full comparison-suite refresh, with
+a one-line ClassVar flip if scatter ever wins materially.
+Ruling (b): the `surface_flux=False` +48%-vs-pre-H7 flag is
+**won't-chase** — dirty-tree baseline, a path slower than the
+default that nobody runs, and the clean oc-ratio control covers the
+default path; the one-rung bisect of `c669ec6f..565eaa51` stays
+available if a guard batch goes red on an advective case.
+Step-guard checkpoints remain on Silvano's own batch cadence
+(never agent-initiated).

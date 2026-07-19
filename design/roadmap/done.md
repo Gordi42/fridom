@@ -1965,7 +1965,7 @@ Implementation record:
 
 - **Hydro surface-flux correction — machinery, defaults, and
   validation closed out** (2026-07-18; full record in
-  [`../plans/active/boundary_trace_plan.md`](../plans/active/boundary_trace_plan.md)
+  [`../plans/done/boundary_trace_plan.md`](../plans/done/boundary_trace_plan.md)
   §9). The centered §8 exit criteria are MET (owner-requested arm
   sweep, job l50042 at `c4497db5`): overhead vs `surface_flux=False`
   +2.6..−16.0% on `se_centered` (negative = default faster at big
@@ -1988,3 +1988,27 @@ Implementation record:
   at child-import time) — lesson: pin unattended benchmark jobs to a
   detached commit; its clean centered arms are what sharpened the
   two remaining owner decisions kept in [`open.md`](open.md).
+
+- **Hydro surface-flux correction — final owner rulings, entry
+  CLOSED** (2026-07-19). The two remaining measurement questions were
+  both ruled without a dedicated GPU job. (a) *weno5 lowering A/B*:
+  the biased `"embed"` default is **kept** on the one clean
+  same-commit pair (rf=28: embed +1.0% over scatter) — the stake is
+  ~1% of weno5 step time, under noise at most rungs, and both
+  lowerings are correctness-validated; the definitive cross-check
+  folds into instruments that already run on the owner's cadence
+  (the step-guard batch baselining the biased bench cases from
+  `33707661`, and the full comparison-suite refresh). If either ever
+  shows scatter winning materially, the ClassVar flip is one line.
+  (b) *`surface_flux=False` opt-out cost (+48% vs pre-H7)*:
+  **won't-chase** — the number rests on a dirty-tree pre-H7
+  baseline, the opt-out is measured slower than the default so
+  nobody pays the delta in practice, and the clean external control
+  (oc/fridom 0.92–1.04 on the default path) verifies what users
+  actually run independently of that baseline; a real advective
+  regression in `c669ec6f..565eaa51`, if any, is exactly what guard
+  batches against clean pinned baselines exist to catch, and the
+  one-rung bisect stays available should one go red. With these
+  rulings nothing remains open: plan moved to
+  [`../plans/done/boundary_trace_plan.md`](../plans/done/boundary_trace_plan.md)
+  (rulings recorded in its §9), roadmap bullet deleted.
