@@ -279,8 +279,11 @@ Implementation record:
   call in the record. The composed (mapped+immersed) sibling took the
   same lift 2026-07-19 (entry below). Record:
   [`semicoarsen_multidevice_regression.md`](../research/semicoarsen_multidevice_regression.md)
-  (Residue 3; ruling updated, deviation from the literal host-side hook
-  noted for ratification).
+  (Residue 3; the `ensure_compile_time_eval` realization — a deviation
+  from the record's literal host-side hook — was independently
+  verified and **owner-ratified 2026-07-19**: ece is raise-or-eager,
+  the pre-warm structurally cannot reach dynamic `params`, and the
+  bind-time alternative is unsafe against the device-keyed memo).
 
 - **Composed (mapped+immersed) stretched full-coarsening — the
   deferral was overstated** (2026-07-19, owner ruled "build now";
@@ -338,8 +341,36 @@ Implementation record:
   mapped operator apply — one 512³ sweep = 15.7 ms cuSPARSE solve +
   12.0 ms apply) is revisit-only-with-a-concrete-driver. The
   stretched-base eager pre-warm **shipped** 2026-07-19 (entry above);
-  still open (open.md, multigrid section): the `multi_device` marker
-  hygiene (mechanics ruling pending).
+  the `multi_device` marker hygiene (Residue 4) was ruled and closed
+  2026-07-19 (option C — see the entry below).
+
+- **Semicoarsen parity battery now runs in CI — Residue 4 ruled
+  (option C, no markers changed)** (2026-07-19, in chat; merge
+  `4e169c5f`) — the multi-device parity victims of the
+  07-18 semicoarsening break (the drift net cited in the rulings entry
+  above) now run in CI without touching any test marker. Owner ruling:
+  **do not `@multi_device`-mark them** — marking would *subtract* their
+  single-device coverage (a `multi_device` test skips on one device),
+  so instead the two-file battery is added to the existing forced-4 leg
+  of `.github/workflows/tests.yml` ("Run the tests (multiple devices)")
+  as a **separate** sibling pytest invocation with a `-k` filter picking
+  only the victims — not a `-k` on the hand-picked 17-file list, which
+  would filter that list's other files too. Selection:
+  `tests/nonhydro2/test_mapped_pressure_multigrid.py` +
+  `tests/nonhydro2/test_mapped_pressure_stretched.py`,
+  `-k "forced4 or converges or full_and_semi or hlo_grows or
+  vcycle_is_symmetric or builds_and_solves or semicoarsening_knob"`
+  → 12 tests, including the exact bisect predicate
+  `test_forced4_multigrid_solve_matches_single_device[replicated-x12-
+  coarse6]` (already `@multi_device`-marked, previously invoked by no
+  leg anywhere) and the nine named victims (the four stretched-column
+  multigrid tests, `converges_under_both_coarsenings[False]`,
+  `full_and_semi_coarsening_agree_on_the_solution`,
+  `test_multigrid_hlo_grows_with_the_level_count`). Coverage appends
+  (`--cov --cov-append`). Local forced-4 subset green (12 passed in
+  ~6.0 min, cold CPU, serial). Record:
+  [`semicoarsen_multidevice_regression.md`](../research/semicoarsen_multidevice_regression.md)
+  Residue 4.
 
 - **Coefficient-space product/power rows — ruled closed by design**
   (owner-ratified 2026-07-18) — the open-roadmap semantics question
@@ -2153,3 +2184,33 @@ Implementation record:
   the terrain-advection constancy invariant, chart surface + read-only
   for both packages, nonhydro2 hand-built flux equality, autodiff FD
   gates green.
+
+- **weno5 momentum z-shard seam — root-caused and FIXED**
+  (2026-07-19; research `01052ee0`, fix merge `c8ba82b8`,
+  `fix/weno-selected-union-reach`; record
+  [`../research/weno_momentum_z_seam.md`](../research/weno_momentum_z_seam.md)).
+  The ~1e-5 u/v seam on z-sharded hydrostatic weno5 was the one-pass
+  selected-input kernel (`_SelectedFaceReconstruction`) halo-tracing
+  only the interned *left* biased kernel while the runtime reads the
+  order+1 union window: primal Center→face declared z-reach (2,2) vs
+  the runtime's (2,3), so negotiation provisioned z-halo 2, one
+  short. Buoyancy carried the same seam amplitude-masked below the
+  old test tolerance (the in-code Restriction attribution was
+  wrong). Owner-ratified fix, three parts: (1) the trace branch now
+  applies the biased *pair* (mirroring `UpwindAdvection`) and
+  `requirements` declares the union footprint — exact for every
+  order/shift/family since `m0_left = m0_right + 1` makes the pair
+  max equal the union reach; the interned biased kernels keep their
+  own correct reaches and the runtime kernel is byte-identical.
+  (2) `apply_fv_staggered`'s bounds guard moved from the window form
+  (whose global Center→Inner deficit masked the bounded-axis
+  over-read — why the bug was silent) to the per-side footprint
+  form; a synthetic under-provisioned bounded application now raises
+  the taught error. (3) The parity test asserts u/v/b/ps tight at
+  atol 1e-11 with O(1) buoyancy plus a negotiated z-halo >= 3
+  assertion. Verified forced-4: parity config z-halo 2→3 (still
+  sharded), seams u 9.1e-6→3.3e-16 / v 5.7e-6→1.4e-16 /
+  b→1.1e-16; hy-centered (1), hy-upwind (3), nonhydro2 weno bounded
+  and periodic z (3) all unchanged. Capability note: grids at
+  exactly 3 planes/shard now honestly de-shard instead of computing
+  wrong seam physics.
