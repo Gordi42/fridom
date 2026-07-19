@@ -141,4 +141,76 @@ its gates (dev races reconciled at merge, the standing pattern).
 
 ## 6. Implementation record
 
-(appended as stages land)
+### Stage B (fraction Sadourny) — landed on `feat/immersed-sadourny`
+
+`shallowwater2/modules/sadourny.py`, `_advect_immersed` rewritten to
+fraction-weight the momentum so the semi-discrete **wet-weighted
+energy** conserves at cut cells, not only in the fully-wet interior.
+
+- **SA-D1** the corner mass fluxes are the α-weighted mass fluxes the
+  thickness divergence carries (`weight_flux(immersed, u * p_full.to(u))
+  .to(zeta)`), interpolated to the corner. This is the whole fix for
+  the vorticity-flux exchange: with `fu = Fu_face.to(zeta)` the
+  transpose of the `.to(u)` average lands exactly on `fu`, so the
+  `+f_v q` / `-f_u q` coupling cancels pointwise (`fu fv q - fv fu q`).
+- **SA-D5** the kinetic energy is fraction-weighted,
+  `ekin = 0.5(mean(α_u u²) + mean(α_v v²)) / θ` (`_wet_kinetic_energy`,
+  sealed): this is the placement that makes the KE-gradient / mass-flux
+  pair telescope (`θ ekin = 0.5(mean(α_u u²)+mean(α_v v²))` exactly,
+  wet and dry), so the `II_mom + H` half of the budget closes. The
+  gravity-momentum / pressure-energy half (`I_mom + P`) closes for any
+  KE because `θ dp = -(D_x Fu_face + D_y Fv_face)` with
+  `Fu_face = grav_flux + Ro·thick_flux = α_u h.to(u) u`.
+- **SA-D2** `_wet_corner_thickness`: the corner `h` is the wet-count
+  average `(m h).to(corner) / m.to(corner)` (m the cell wet mask), so a
+  partly-dry corner is never diluted by the dry cells' background `c²`;
+  collapses to `h.to(corner)` bitwise when all-wet. Orthogonal to
+  energy (the exchange cancels for any q), a PV-quality choice.
+- **SA-D3/SA-D6** the relative vorticity is masked **before** the
+  divide (`zeta = mask_field(immersed, zeta)` then
+  `_potential_vorticity(zeta, h_corner)`); the corner-ζ free-slip
+  zeroing is unchanged. Masking the numerator (not the finished PV)
+  keeps the sealed divide's reverse mode finite and leaves any future
+  planetary vorticity outside the mask.
+- **SA-D4** every masked divide routes through the shared double-`where`
+  seal `_sealed_divide` (the existing `_potential_vorticity` /
+  `_sealed_metric_divide` refactored to delegate to it; the corner
+  thickness and KE divides added).
+- **SA-D5 enstrophy** exact potential enstrophy provably does not
+  survive the fractional corner thickness (documented approximate in
+  the module + method docstrings, NEMO EET / Ketefian & Jacobson 2009
+  as the escalation).
+
+**Measured gates** (`tests/shallowwater2/test_sadourny_immersed.py`,
+CPU; forced-4 for B-G6):
+
+- **B-G1** wet-weighted energy rate `|dE/dt|/scale`: **before the α fix
+  ≈ 2.4e-3** (periodic-x) / 1.1e-3 (walled-x) — the O(1) antisymmetry
+  break; **after ≈ 1.5e-16 / 2.8e-16** (≤ 2e-16 across seeds 3/7/11/20).
+- **B-G2** wet mass rate ≈ 1.6e-17 (unregressed).
+- **B-G3** staircase tendency vs walled model ≤ 5.6e-17.
+- **B-G4** all-wet tendency vs unimmersed: p bitwise (periodic-y),
+  u/v/walled ≈ 1e-17..1e-16 (**1 ulp**). Not exact `array_equal`: the
+  mandated α-weighting reassociates FP at α=1 (1.0 multiply, /1.0
+  divide, product-field halo) — a mathematical no-op at α=1/θ=1. The
+  pre-fix code was exact-bitwise on periodic and ≈1e-16 on walled; the
+  fix keeps machine precision.
+- **B-G5** `jax.grad` through an 8-step immersed run (genuine
+  partials, min_fraction=0) finite and FD-matched to rtol 1e-4 — the
+  new corner-thickness and KE seals certified.
+- **B-G6** forced-4 (`XLA_FLAGS=--xla_force_host_platform_device_count=4
+  FRIDOM_TEST_FORCED_DEVICES=4`) many-vs-one advance ≤ 1e-11.
+
+Ruff clean; 79 passed / 1 skipped (the B-G6 multi-device test, verified
+green under forced-4).
+
+**Flagged for the orchestrator/owner.** The stage-B scope note calls
+`mapped`+immersed a taught error, but empirically it is **not** one: a
+chart-coupled (e.g. spherical) sw2 grid carrying an `ImmersedDomain`
+builds and computes a tendency without error — the `advect` dispatch
+tests `chart_coords is not None` *first*, so it takes `_advect_chart`
+and silently ignores the immersed masks. No taught error was lifted
+(the dispatch is untouched, out of stage-B scope) and none was added
+(a separate follow-up per the plan). The gap is a **silent**
+mask-ignoring chart path, not a taught error; worth a real taught error
+or the mapped generalisation when that follow-up is picked up.
