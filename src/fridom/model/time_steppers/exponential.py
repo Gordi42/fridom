@@ -86,6 +86,9 @@ from fridom.model.stages import StageKind
 from fridom.model.terms import Treatment
 from fridom.model.time_steppers.base import TimeStepper
 from fridom.spatial.fields.vector_field import VectorField
+from fridom.spatial.operators.distributed_contract import (
+    resolve_distributed_contraction,
+)
 
 if TYPE_CHECKING:  # pragma: no cover
     import jax
@@ -249,6 +252,10 @@ class ETDRK4(TimeStepper):
             for name in self._components)
         self._bounded = eigenbasis.grid.names.index(
             eigenbasis.bounded_axis)
+        #: the channel axis names, used to resolve the fused distributed
+        #: contraction plan on a sharded operand (the seam reroute)
+        self._bounded_axis = eigenbasis.bounded_axis
+        self._periodic_axis = eigenbasis.periodic_axis
 
     # ================================================================
     #  Properties
@@ -270,10 +277,48 @@ class ETDRK4(TimeStepper):
     # ================================================================
     #  The spectral seam (physical <-> eigenbasis amplitudes)
     # ================================================================
+    def _distributed_plan(self, vector: VectorField) -> object:
+        r"""
+        Resolve the fused contraction plan for `vector`, or None.
+
+        Description
+        -----------
+        None on a single-device / replicated layout -- the per-axis
+        Fourier seam below then runs unchanged (bit-identical). A
+        ``ContractPlan`` / ``Channel2DPlan`` when the operand's layout
+        shards a periodic axis: the per-axis ``op.forward`` would run a
+        sharded-transform-axis FFT and hit the Tier-1 upstream XLA:GPU
+        distributed-FFT fault, so :meth:`_forward` / :meth:`_backward`
+        route through the plan's served project / synthesize halves
+        instead (the amplitudes stay sharded between them). The
+        genuinely-unsupported remainder (a non-1-D mesh, a >3-D channel)
+        returns None and falls through to the per-axis path, whose
+        transform raises the narrowed taught error.
+        """
+        grid = vector[self._components[0]].grid
+        slices = {name: slice(start, stop)
+                  for name, start, stop in self._segments}
+        return resolve_distributed_contraction(
+            grid, bounded_axis=self._bounded_axis,
+            periodic_axis=self._periodic_axis,
+            components=self._components, slices=slices)
+
     def _forward(
         self, vector: VectorField,
-    ) -> tuple[jax.Array, dict]:
-        """Contract a physical vector onto the eigenbasis columns."""
+    ) -> tuple[jax.Array, dict | None]:
+        """Contract a physical vector onto the eigenbasis columns.
+
+        On a sharded-periodic layout the fused project half emits the
+        amplitudes directly (no per-axis ``coefficients`` needed -- the
+        synthesize half rebuilds fields from the template), so the
+        second return value is None.
+        """
+        plan = self._distributed_plan(vector)
+        if plan is not None:
+            amplitudes = plan.project(
+                {name: vector[name] for name in self._components},
+                self._columns, self._metric)
+            return amplitudes, None
         coefficients = {}
         for name in self._components:
             field = vector[name]
@@ -291,10 +336,21 @@ class ETDRK4(TimeStepper):
     def _backward(
         self,
         amplitudes: jax.Array,
-        coefficients: dict,
+        coefficients: dict | None,
         template: VectorField,
     ) -> VectorField:
-        """Synthesize a physical vector from eigen amplitudes."""
+        """Synthesize a physical vector from eigen amplitudes.
+
+        On a sharded-periodic layout (``coefficients`` is None) the fused
+        synthesize half expands and inverse-transforms the amplitudes on
+        the template's own spaces; otherwise the per-axis path runs.
+        """
+        plan = self._distributed_plan(template)
+        if plan is not None:
+            result = plan.synthesize_amplitudes(
+                amplitudes, self._columns,
+                {name: template[name] for name in self._components})
+            return VectorField(result)
         stacked = jnp.einsum(
             "...dj,...j->...d", self._columns, amplitudes)
         result = {}
@@ -354,7 +410,17 @@ class ETDRK4(TimeStepper):
         dt = self.dt
         names = stages.schedule.prognostic
 
-        z = -1j * self._omega.astype(dtype_real()) * dt
+        # On a sharded-periodic layout the amplitudes carry the plan's
+        # internal (half-axis padded) mode frame, so the per-mode phi /
+        # exp / weight arrays must be built on the matching frame: pad
+        # omega's half mode axis to the plan's coefficient extent (the
+        # padded lanes are zero -> exp = 1, phi finite, and they only
+        # ever multiply the zero-padded amplitude lanes).
+        plan = self._distributed_plan(state)
+        omega = self._omega.astype(dtype_real())
+        if plan is not None:
+            omega = plan.frame_amplitudes(omega)
+        z = -1j * omega * dt
         phi1, phi2, phi3 = phi_functions(z)
         half_phi1, _, _ = phi_functions(0.5 * z)
         exp_half, exp_full = jnp.exp(0.5 * z), jnp.exp(z)
