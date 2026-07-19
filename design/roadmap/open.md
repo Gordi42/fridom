@@ -213,11 +213,16 @@ Open, none blocking:
   barotropic multigrid is not yet wet-aware (taught error; the masked
   spectral default converges in <= 17 iters, so no lever open at these
   sizes); sw2 mapped+immersed stays a taught error; robust
-  preconditioning for pathological `min_fraction=0` sliver geometries;
+  preconditioning for pathological `min_fraction=0` sliver geometries
+  (owner picked accept-the-floor + taught error 2026-07-19; the
+  measurement sweep then found **no stall** in the materializable
+  range — resolution pending the owner's call on the refutation);
   genuine-chart (J != 1) physical column-equivalence twin (algebraic
-  gates substitute); owner sanity ruling on the advection base-face-α
-  vs pressure corner-α cross placements; real `srun -n N` validation
-  (owner-gated GPU).
+  gates substitute); real `srun -n N` validation (owner-gated GPU).
+  The advection base-face-α vs pressure corner-α cross-placement
+  divergence was owner-**ratified** 2026-07-19 (per-operator α
+  placement keyed to each operator's invariant — conservation vs
+  symmetry; plan §6).
 - **Partial-bottom-cell hydrostatic pressure gradient** — the
   Pacanowski–Gnanadesikan refinement; the current unweighted `p_hyd`
   cumsum is 2nd-order away from partial bottom cells only.

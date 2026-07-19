@@ -290,13 +290,33 @@ error** at the composed ctor (`order >= 2` required — collocation
 mis-places the physical center); min-rule α confirmed by the
 symmetry gate.
 
-Open (flag to owner): (a) the advection cross is gated by the
-**base-face** α while the pressure cross uses the **corner** α —
-both internally consistent (conservation vs symmetry), different
-placements for the "same" metric cross, worth a sanity ruling;
+Open (flag to owner): (a) **RATIFIED 2026-07-19** — the advection
+cross is gated by the **base-face** α while the pressure cross uses
+the **corner** α; the owner ratified the per-operator placement as
+a recorded design decision: cross-α placement is keyed to each
+operator's binding invariant (advection: telescoping conservation —
+the base-face α is exactly zero across a wet/dry vertical face;
+pressure: exact CG symmetry — a single shared corner weight between
+the transpose-paired hops), and the placements provably do not
+transfer (corner-α does not close the advective telescoping;
+base-face-α breaks the pressure adjoint pairs);
 (b) robust preconditioning for pathological `min_fraction=0` sliver
 geometries is a follow-up (the model's own per-step RHS is
-well-behaved); (c) real multi-process (`srun -n N`) not exercised
+well-behaved). 2026-07-19 addendum: the owner picked
+accept-the-floor + a taught error, but the implementing sweep
+**refuted the stall premise** — controlled slivers θ_min 1e-2..3e-5
+(the order-4/6 quadrature materialization floor is ~1e-4/~1.6e-6;
+deeper θ needs explicit fraction data) converge to machine-zero
+residual under multigrid (≤30 iters) AND plain CG, both RHS classes
+(per-step divergence + manufactured masked forcing), mild and steep
+charts. The §6 pt-6 "stall even plain CG" reading is corrected to:
+the masked-**spectral** preconditioner is slow (~200 iters, already
+recorded in pt 5) and the manufactured-solution *accuracy* gate is
+small-cell limited — the residual never stalls. Only genuine
+anomaly: multigrid emits NaN on degenerate near-all-dry domains
+(loud via `model.panicked`, non-physical geometry). Final
+resolution pending the owner's call on the refutation;
+(c) real multi-process (`srun -n N`) not exercised
 (forced-4 only, per the no-GPU-jobs rule); (d) uniform tracer
 through a full projected step is O(h²)-inexact identically for pure
 mapped and pure immersed too — a baseline projection-method

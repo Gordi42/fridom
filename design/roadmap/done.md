@@ -955,7 +955,9 @@ Implementation record:
   (MI-D1, tensor GL × column J, separable path bitwise-untouched);
   the composed cut-cell metric pressure projection
   (`ComposedPressureSolver`: face-α direct legs + shared corner-α
-  inside the cross hops — the symmetry-gate-selected spelling;
+  inside the cross hops — the symmetry-gate-selected spelling; the
+  per-operator cross-α divergence vs advection's base-face-α
+  owner-ratified 2026-07-19, keyed to each operator's invariant;
   symmetry 5.3e-16, all-wet ≡ mapped **bitwise**, identity-chart +
   mask ≡ flat immersed ≤ 1e-12); fraction-weighted composed
   multigrid (~15 iters where masked spectral needs ~200;
