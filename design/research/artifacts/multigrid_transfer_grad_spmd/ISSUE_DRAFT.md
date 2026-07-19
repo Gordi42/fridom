@@ -86,8 +86,8 @@ give the correct gradient, but that path forces a gather.
 
 ## Versions
 
-- jax 0.10.2
-- jaxlib 0.10.2
+- jax 0.10.2 and jax 0.11.0, both reproduce identically
+- jaxlib matches the jax version in both cases
 - CPU backend, four forced host devices
 - Linux x86_64, Python 3.12
 </content>
