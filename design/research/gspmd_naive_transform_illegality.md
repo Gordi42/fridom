@@ -72,13 +72,32 @@ waves). Remaining phases:
   physics**), fixed the same day — record:
   [`halo_sharding_invariants.md`](halo_sharding_invariants.md).
 
-## Residual test debt (marked tests, not urgent)
+## Residual test debt (marked tests) — resolution
 
-Marked multi-device tests that exercise operations the guard now
-forbids and need the taught-assertion or phase-3 treatment:
-`test_krylov::test_solution_is_device_count_invariant` (the CG apply's
-naive `SpectralDerivative` — a real phase-3 consumer),
-`test_cumulative::test_decomposed_axis_matches_single_device`,
-`test_eigenbasis::test_function_application_is_device_count_invariant`,
-`test_reblock_step_collectives::test_x_walled_step_collectives_equal_periodic`
-(collective count shifted by the floor change).
+The four marked multi-device tests flagged at phase 0–1, revisited by
+the phase-3 consumer wave (`feat/distributed-transform-consumers`):
+
+- `test_krylov::test_solution_is_device_count_invariant` (the CG
+  apply's naive `SpectralDerivative` — the real phase-3 consumer):
+  **converted** to a real device-count-invariance gate, the spectral
+  apply routed through `Transform.apply_diagonal` (the fused
+  forward → diagonal → backward). Was a taught-error skip; now the
+  whole 5-iteration Poisson solve matches single-device to 1e-11.
+- `test_cumulative::test_decomposed_axis_matches_single_device`:
+  **passes** on the forced-4 leg — never real transform debt.
+  `CumulativeIntegral` is a `layout="local"` reshard operator (the
+  integration axis is resharded local and back), not a
+  change-of-representation, so the Tier-1 guard never applied; it was
+  mis-listed.
+- `test_eigenbasis::test_function_application_is_device_count_invariant`:
+  **passes** on the forced-4 leg — the `f(L)` application on the 2-D
+  channel is served by `Channel2DPlan` (phase 2), bit-identical
+  (absmax 0.0).
+- `test_reblock_step_collectives::test_x_walled_step_collectives_equal_periodic`
+  (and `..._match_off_axis_wall`): still **red** on the forced-4 leg,
+  but this is **not** transform-path debt — it asserts a step's
+  collective *count*, a decomposition/reblock property shifted by the
+  interval-halo floor change, owned by the halo-floor-semantics
+  campaign (`fc2a3b66` on dev advanced that machinery further; the
+  expectations need re-baselining there). Left blocked, out of the
+  transform consumer wave's scope.

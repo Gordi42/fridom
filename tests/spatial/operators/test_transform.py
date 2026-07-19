@@ -2,6 +2,7 @@
 from types import SimpleNamespace
 
 import jax.numpy as jnp
+import numpy as np
 import pytest
 
 from fridom.spatial.bc import BC
@@ -12,9 +13,14 @@ from fridom.spatial.errors import (
 )
 from fridom.spatial.grid import Grid
 from fridom.spatial.meshes.interval import IntervalMesh
+from fridom.spatial.operators.base import Identity
 from fridom.spatial.operators.dealias import degree
 from fridom.spatial.operators.fourier import Fourier
 from fridom.spatial.operators.mixed import resolve_transform
+from fridom.spatial.operators.spectral import (
+    PhaseShift,
+    SpectralDerivative,
+)
 from fridom.spatial.operators.transform import (
     Transform,
     TransformPlan,
@@ -524,15 +530,43 @@ def test_device_ids_zero_is_never_rejected():
 
 @pytest.mark.multi_device
 def test_sharded_transform_axis_forward_is_rejected():
-    # x is sharded AND a transform axis: the naive GSPMD forward would
-    # all-gather (CPU) / crash the distributed-FFT lowering (GPU), so the
-    # Tier-1 guard raises the taught error naming the offending axis
+    # x is sharded AND a transform axis: a *standalone* forward (which
+    # materializes a coefficient field the storage contract replicates)
+    # has no distributed route, so the Tier-1 guard raises the taught
+    # error naming the offending axis. This is the rejected case that
+    # remains after phase 3 -- the fused forward->diagonal->backward
+    # apply is served (see the apply_diagonal tests below), a standalone
+    # forward is not.
     grid = _grid3d()
     assert not grid.decomposition.default_layout.is_local("x")
     field = grid.create_field()
     with pytest.raises(NotImplementedError,
                        match=r"shards the transform axis/axes \('x',\)"):
         Fourier(grid).forward(field)
+
+
+@pytest.mark.multi_device
+def test_rejection_message_points_fourier_at_the_fused_route():
+    # the narrowed guard names the fused apply_diagonal route for a
+    # plain (unpadded) Fourier transform -- the served family
+    grid = _grid3d()
+    field = grid.create_field()
+    with pytest.raises(NotImplementedError, match="apply_diagonal"):
+        Fourier(grid).forward(field)
+
+
+@pytest.mark.multi_device
+def test_rejection_message_omits_the_route_for_the_trig_family():
+    # a real-to-real trig transform (bounded axes) has no fused
+    # forward->diagonal->backward route, so the message does not offer
+    # apply_diagonal (the narrowing distinguishes the served family)
+    grid, space = _bounded_grid3d()
+    transform = resolve_transform(grid, space)
+    assert isinstance(transform, Cosine)
+    field = grid.create_field(space)
+    with pytest.raises(NotImplementedError) as excinfo:
+        transform.forward(field)
+    assert "apply_diagonal" not in str(excinfo.value)
 
 
 @pytest.mark.multi_device
@@ -569,3 +603,84 @@ def test_replicated_operand_is_not_rejected():
     # no raise (returns None)
     assert Fourier(grid)._reject_sharded_transform(
         replicated, "forward") is None
+
+
+# ================================================================
+#  Transform.apply_diagonal: the fused forward->diagonal->backward
+#  route (phase-3 spectral-derivative consumer)
+# ================================================================
+def _helmholtz_operator():
+    """Build the self-adjoint, endo spectral operator ``I - 0.05 Lap``."""
+    lap = (SpectralDerivative()["x"] @ SpectralDerivative()["x"]
+           + SpectralDerivative()["y"] @ SpectralDerivative()["y"]
+           + SpectralDerivative()["z"] @ SpectralDerivative()["z"])
+    return Identity() + (-0.05) * lap
+
+
+def _peaked(grid):
+    """Return a smooth multi-mode field on the grid."""
+    return grid.create_field(
+        init=lambda x, y, z: jnp.exp(
+            -((x - 0.5) ** 2 + (y - 1.0) ** 2 + (z - 1.5) ** 2)))
+
+
+def test_apply_diagonal_single_device_equals_the_plain_sandwich():
+    # on one device apply_diagonal is bit-for-bit the plain
+    # backward(symbol(forward)) sandwich (the fallback path)
+    grid = _grid3d(device_ids=(0,))
+    field = _peaked(grid)
+    op = _helmholtz_operator()
+    transform = Fourier(grid)
+    fused = transform.apply_diagonal(
+        field, lambda cb: op.eigenvalues(grid, cb))
+    coeff = transform.forward(field)
+    symbol = op.eigenvalues(grid, coeff.function_space.bare)
+    plain = transform.backward(symbol(coeff))
+    assert np.array_equal(np.asarray(fused.data),
+                          np.asarray(plain.data))
+
+
+def test_apply_diagonal_rejects_a_foreign_grid_operand():
+    # apply_diagonal is grid-bound like forward/backward
+    grid = _grid3d(device_ids=(0,))
+    other = _grid3d(device_ids=(0,))
+    field = _peaked(other)
+    op = _helmholtz_operator()
+    with pytest.raises(GridMismatchError, match="grid-bound"):
+        Fourier(grid).apply_diagonal(
+            field, lambda cb: op.eigenvalues(grid, cb))
+
+
+@pytest.mark.multi_device
+def test_apply_diagonal_routes_through_the_fused_transform():
+    # x sharded: the standalone forward would be rejected, but the fused
+    # apply_diagonal runs it distributed and matches the single-device
+    # fallback to tight rounding, layout-preserving (x stays sharded)
+    op = _helmholtz_operator()
+
+    def run(device_ids):
+        grid = _grid3d(device_ids=device_ids)
+        field = _peaked(grid)
+        return grid, Fourier(grid).apply_diagonal(
+            field, lambda cb: op.eigenvalues(grid, cb))
+
+    many_grid, many = run(None)
+    assert not many_grid.decomposition.default_layout.is_local("x")
+    assert not many.function_space.layout.is_local("x")
+    _, one = run((0,))
+    assert np.allclose(np.asarray(many.data), np.asarray(one.data),
+                       rtol=0.0, atol=1e-11)
+
+
+@pytest.mark.multi_device
+def test_apply_diagonal_rejects_a_retagging_symbol_when_sharded():
+    # a retagging symbol (PhaseShift: Fourier Center -> Fourier Right)
+    # has no layout-preserving distributed form, so the fused route
+    # raises the taught error naming the retag
+    grid = _grid3d()
+    field = _peaked(grid)
+    with pytest.raises(NotImplementedError, match="retagging symbol"):
+        Fourier(grid).apply_diagonal(
+            field,
+            lambda cb: PhaseShift(NodeSet.RIGHT)["x"].eigenvalues(
+                grid, cb))
