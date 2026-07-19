@@ -190,11 +190,14 @@ def test_bind_resolves_velocity_and_tracer_targets():
 
 
 def test_bind_rejects_an_immersed_grid():
-    # the vertical flux column would cross the immersed boundary
-    # unmasked (IP-D8): bind rejects an immersed grid outright, before
-    # any target resolution
+    # the implicit column solve assumes uniform dz, so a partial bottom
+    # cell would silently solve the wrong operator: bind rejects an
+    # immersed grid outright with a taught error naming the plan §5
+    # variable-dz deferral, before any target resolution
     table = FakeTable(tracer=("b",), grid=FakeGrid(immersed=object()))
-    with pytest.raises(NotImplementedError, match="immersed"):
+    with pytest.raises(
+            NotImplementedError,
+            match="immersed_closures_sadourny_plan"):
         VerticalMixing(kb=0.1).bind(table)
 
 

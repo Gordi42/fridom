@@ -107,6 +107,24 @@ spacing, order 2), so:
   terrain grid ``nu_v``/``kappa_v`` (with e.g. ``vertical="sigma"``)
   acts along the **column coordinate**, not the physical vertical.
 
+**Immersed (cut-cell) grids** are supported by the **harmonic**
+mixing/friction closures only (``_supports_immersed``, CL-D1), in the
+IP-D4 fraction spelling: each interface stress flux is weighted by the
+open-area fraction :math:`\alpha_f` and the summed divergence is
+divided by the wet cell fraction :math:`\theta_c` (sealed). The
+min-rule :math:`\alpha_f = 0` across a wet/dry face zeroes the cut-face
+stress — **free-slip** at the immersed boundary (CL-D3, the mainstream
+mask convention) — so on a face-aligned :math:`\{0, 1\}` staircase the
+tendency reproduces the walled model to machine zero, and the
+:math:`\theta`-weighted content conserves exactly (the wet-region flux
+differences telescope, CL-D4). The immersed :math:`\alpha` acts on the
+cut faces while the wall retag acts on domain walls, so the two
+compose. The **biharmonic** family, Smagorinsky, and VerticalMixing
+keep the per-closure reject (their wide / implicit / nonlinear stencils
+are §5 deferrals); ``slip='no'`` on an immersed grid is likewise
+rejected (no-slip immersed drag is a §5 deferral, the mask-keyed
+side-drag term).
+
 Forward is exact as above, and reverse-mode ``jax.grad`` is finite on
 every supported grid kind — the stretched-column boundary-face
 measure divide is VJP-sealed in the spatial layer
@@ -133,6 +151,7 @@ from fridom.model.roles import TRACER, Velocity
 from fridom.model.terms import TendencyTerm, Treatment
 from fridom.model.time_dependent import TimeDependent
 from fridom.spatial.bc import BC
+from fridom.spatial.decomposition.halo import HaloSpec
 from fridom.spatial.spaces.average import CellAvg
 from fridom.spatial.spaces.nodal import NodalSpace, NodeSet
 
@@ -361,6 +380,91 @@ def _probe_fv_face(
 
 
 # ================================================================
+#  Immersed (cut-cell) fraction weighting (CL-D2, IP-D4)
+# ================================================================
+# Duplicated from the sw2 ``immersed_weighting`` idiom into the model
+# layer: ``model`` must not import from ``shallowwater2`` (package
+# layering), and the model advection module already owns its own local
+# copies (``_immersed_flux`` / ``_immersed_scale``). Only the two the
+# divergence-form closure needs are duplicated here (no ``mask_field``).
+def _weight_flux(immersed: object, flux: ScalarField) -> ScalarField:
+    r"""Weight one interface stress flux by the open-area fraction.
+
+    Description
+    -----------
+    :math:`F \leftarrow \alpha_f\,F` with :math:`\alpha_f =
+    \mathrm{fraction}(\text{flux space})`, the min-rule face fraction
+    (I0): a cut face with :math:`\alpha = 0` carries no stress (the
+    free-slip / no-flux closure of CL-D3), and on a face-aligned
+    :math:`\{0, 1\}` staircase the weighted flux reproduces the walled
+    model. The fraction is fetched on the flux's own (possibly
+    wall-Dirichlet-tagged) space, so the multiply is a plain same-space
+    product. A no-op off an immersed grid (``immersed is None``), so
+    the unimmersed / walled / mapped path stays bit-for-bit the direct
+    chain (the parity guard).
+
+    Parameters
+    ----------
+    immersed : object
+        The grid's immersed descriptor, or ``None`` off an immersed
+        grid.
+    flux : ScalarField
+        The interface stress flux on a control-volume face.
+
+    Returns
+    -------
+    ScalarField
+        The open-area-weighted flux (``flux`` unchanged off an
+        immersed grid).
+    """
+    if immersed is None:
+        return flux
+    return flux * immersed.fraction(flux.function_space)
+
+
+def _scale_divergence(
+    immersed: object, res: ScalarField | None,
+) -> ScalarField | None:
+    r"""Divide the summed stress divergence by the wet volume fraction.
+
+    Description
+    -----------
+    The masked tendency :math:`(1/\theta_c)\sum_f \pm\,\alpha_f F_f`
+    (each per-face divergence already :math:`1/V_c`-scaled by ``diff``):
+    the accumulated open-area-weighted divergence is divided by the cell
+    wet fraction :math:`\theta_c = \mathrm{fraction}(\text{res space})`,
+    sealed with the double ``jnp.where`` so a dry cell (:math:`\theta =
+    0`, numerator identically 0) stays exactly 0 and the reverse pass is
+    finite (CL-D5). The :math:`\theta`-weighted tendency conserves
+    :math:`\sum_c \theta_c V_c q_c` to machine zero — the flux
+    differences telescope over the wet region (CL-D4). A no-op off an
+    immersed grid (``res`` returned unchanged, ``None`` passed through).
+
+    Parameters
+    ----------
+    immersed : object
+        The grid's immersed descriptor, or ``None`` off an immersed
+        grid.
+    res : ScalarField | None
+        The accumulated flux divergence on the cell (codomain) space,
+        or ``None`` when no axis contributed.
+
+    Returns
+    -------
+    ScalarField | None
+        The wet-volume-scaled tendency (``res`` unchanged off an
+        immersed grid, ``None`` passed through).
+    """
+    if immersed is None or res is None:
+        return res
+    theta = immersed.fraction(res.function_space)
+    wet = theta.data > 0.0
+    scaled = jnp.where(
+        wet, res.data / jnp.where(wet, theta.data, 1.0), 0.0)
+    return res.with_data(scaled)
+
+
+# ================================================================
 #  The shared harmonic pass (pure field arithmetic)
 # ================================================================
 def _dirichlet_face(flux: ScalarField, axis: str) -> object:
@@ -418,6 +522,7 @@ def _harmonic(
     q: ScalarField,
     axes: tuple[tuple[str, object, str], ...],
     no_slip: frozenset[str],
+    immersed: object = None,
 ) -> ScalarField:
     r"""One ``div(A grad q)`` pass with the per-axis wall treatment.
 
@@ -429,15 +534,26 @@ def _harmonic(
     flux) and, on a no-slip axis, add the wall-adjacent correction;
     bounded wall-normal axes close on the target's own tag and retag
     the result back onto it.
+
+    On an immersed grid (``immersed`` not ``None``) each interface
+    stress flux is additionally weighted by the open-area fraction
+    :math:`\alpha_f` (:func:`_weight_flux`) and the summed divergence
+    is divided by the wet cell fraction :math:`\theta_c`
+    (:func:`_scale_divergence`, sealed) — the IP-D4 spelling of CL-D2.
+    The min-rule :math:`\alpha_f = 0` across a wet/dry face zeroes the
+    cut-face stress (free-slip, CL-D3), which composes with the wall
+    retag on domain walls (the two act on different faces). Both are
+    no-ops off an immersed grid, so the flat / walled / mapped chain is
+    untouched.
     """
     res = None
     for axis, k, treatment in axes:
+        flux = _weight_flux(immersed, q.diff(axis) * k)
         if treatment == _PERIODIC:
-            contribution = (q.diff(axis) * k).diff(axis)
+            contribution = flux.diff(axis)
         elif treatment == _WALL_NORMAL:
-            contribution = (q.diff(axis) * k).diff(axis).retag(q)
+            contribution = flux.diff(axis).retag(q)
         else:  # tangential / tracer: retag the interior flux
-            flux = q.diff(axis) * k
             flux = flux.retag(_dirichlet_face(flux, axis))
             contribution = flux.diff(axis)
             # the correction is pointwise (zero halo reach); skip it on
@@ -447,7 +563,7 @@ def _harmonic(
                     q, k, axis)
         res = (contribution if res is None
                else res + contribution)
-    return res
+    return _scale_divergence(immersed, res)
 
 
 def _biharmonic_root(coeff: object) -> object:
@@ -520,6 +636,10 @@ class _DiffusionClosure(ClosureBase):
         self._slip = _coerce_slip(slip, owner)
         self._target_axes: tuple = ()
         self._no_slip_axes: dict[str, frozenset[str]] = {}
+        # immersed (cut-cell) bookkeeping, captured at bind (None off
+        # an immersed grid — the flat / walled / mapped path)
+        self._immersed: object = None
+        self._halo_axes: tuple[str, ...] = ()
 
     # ================================================================
     #  Published parameters and per-field options
@@ -585,6 +705,23 @@ class _DiffusionClosure(ClosureBase):
         super().bind(table)
         cls = type(self)
         owner = cls.__name__
+        # capture the immersed descriptor (super().bind already passed
+        # the per-closure capability gate: only the harmonic family
+        # reaches here on an immersed grid). No-slip at an immersed
+        # boundary is a §5 deferral (the mask-keyed side-drag term):
+        # reject it loudly rather than silently running free-slip.
+        self._immersed = getattr(table.grid, "immersed", None)
+        if self._immersed is not None and self._requests_no_slip():
+            raise NotImplementedError(
+                f"{owner}: slip='no' (no-slip) is not supported on "
+                "immersed (cut-cell) grids. Stage A ships free-slip "
+                "only — a zeroed cut-face stress (CL-D3); no-slip at "
+                "the immersed boundary needs the mask-keyed side-drag "
+                "term on tangential velocity next to dry cells "
+                "(immersed_closures_sadourny_plan §5, the no-slip "
+                "immersed drag deferral). Use slip='free' on the "
+                "immersed grid, or drop the closure.")
+        self._halo_axes = tuple(table.grid.names)
         has_v = getattr(self, f"{cls._coeff_attr}_v")
         target_axes: list[
             tuple[str, tuple[tuple[str, bool, str], ...]]] = []
@@ -644,6 +781,42 @@ class _DiffusionClosure(ClosureBase):
             for name, spec in self._target_axes
             if by_target[name] == NO_SLIP}
 
+    def _requests_no_slip(self) -> bool:
+        """Whether any target requests the no-slip wall stress.
+
+        Read off the raw ``slip=`` selection (not the wall-resolved
+        :attr:`_no_slip_axes`, which is empty on a periodic immersed
+        grid with no domain walls): the immersed no-slip deferral is
+        about the immersed boundary, not domain walls, so the request
+        alone is what the bind-time reject keys on. Mixing closures
+        keep ``_slip == 'free'`` (the default), so this is only ever
+        ``True`` for a friction closure with ``slip='no'``.
+        """
+        if isinstance(self._slip, Mapping):
+            return NO_SLIP in self._slip.values()
+        return self._slip == NO_SLIP
+
+    @property
+    def extra_halo(self) -> HaloSpec | None:
+        r"""One-cell FD-stencil halo per coordinate on an immersed grid.
+
+        On an immersed grid the harmonic pass multiplies the concrete
+        open-area / wet-volume fraction fields (CL-D2), which the halo
+        tracer cannot follow, so the closure declares its stencil reach
+        here rather than being traced. The single ``div(A grad q)`` pass
+        is a two-point-difference chain reaching exactly :math:`\pm 1`
+        cell (the min-rule face fraction reads the same two adjacent
+        cells), so **one** halo cell per coordinate is the exact reach —
+        matching the width the flat harmonic term traces, so an all-wet
+        immersed grid stays bit-for-bit the unimmersed run (A-G2). The
+        biharmonic family never reaches here (it keeps the per-closure
+        immersed reject). The flat / walled / mapped path stays fully
+        halo-traced (``None``), bit-for-bit as before.
+        """
+        if self._immersed is None:
+            return None
+        return HaloSpec(dict.fromkeys(self._halo_axes, 1))
+
     @staticmethod
     def _axes(
         spec: tuple[tuple[str, bool, str], ...],
@@ -685,18 +858,22 @@ class _DiffusionClosure(ClosureBase):
                 kv = (coeff_v[name] if isinstance(coeff_v, dict)
                       else coeff_v)
             no_slip = self._no_slip_axes.get(name, frozenset())
+            immersed = self._immersed
             if cls._biharmonic:
                 # sqrt split, guarded for reverse-mode AD at coeff=0
                 # (plain ** 0.5 keeps demoted Python scalars scalar; the
-                # guard adds the jnp.where only for concrete jnp values)
+                # guard adds the jnp.where only for concrete jnp values).
+                # Biharmonic keeps _supports_immersed = False, so
+                # immersed is None here (rejected at bind) — the pass
+                # stays the flat/walled chain.
                 kh = _biharmonic_root(kh)
                 kv = None if kv is None else _biharmonic_root(kv)
                 axes = self._axes(spec, kh, kv)
-                inner = _harmonic(q, axes, no_slip)
-                out[name] = -_harmonic(inner, axes, no_slip)
+                inner = _harmonic(q, axes, no_slip, immersed)
+                out[name] = -_harmonic(inner, axes, no_slip, immersed)
             else:
                 out[name] = _harmonic(
-                    q, self._axes(spec, kh, kv), no_slip)
+                    q, self._axes(spec, kh, kv), no_slip, immersed)
         return out
 
 
@@ -743,6 +920,11 @@ class HarmonicDiffusion(_DiffusionClosure):
     _term_name = "mixing"
     _units = "m^2/s"
     _doc = "harmonic mixing coefficient"
+    # the divergence-form harmonic operator carries the IP-D4 fraction
+    # spelling on immersed grids (CL-D1): min-rule faces read two wet
+    # cells, so the two-point stencil never reaches a dry value with
+    # nonzero weight
+    _supports_immersed = True
 
     def __init__(
         self,
@@ -873,6 +1055,10 @@ class HarmonicFriction(_DiffusionClosure):
     _term_name = "friction"
     _units = "m^2/s"
     _doc = "harmonic friction coefficient (viscosity)"
+    # free-slip immersed friction rides the same IP-D4 fraction
+    # spelling (CL-D1/CL-D3): a zeroed cut-face stress. slip='no' at an
+    # immersed boundary is a §5 deferral, rejected at bind
+    _supports_immersed = True
 
     def __init__(
         self,
