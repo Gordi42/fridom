@@ -186,8 +186,24 @@ class ComposedPressureSolver(MappedPressureSolver):
         The vertical-line tridiagonal kernel (forwarded)
         (default: ``"auto"``).
     multigrid_coarsen_vertical : bool, optional
-        Whether the V-cycle coarsens the mapped column too (forwarded)
-        (default: True).
+        Whether the V-cycle coarsens the composed column too (full 3-D
+        coarsening), forwarded to the base class. ``True`` — the GM-D9
+        default — coarsens the vertical alongside the horizontal axes
+        wherever the vertical mesh supports it, including a **stretched**
+        base (a ``MappedIntervalMesh`` vertical): the inherited
+        :meth:`~MappedPressureSolver._prewarm_hierarchy` warms the
+        coarse-grid memo at construction so the host-validated coarse
+        ``MappedIntervalMesh`` ctor never re-runs under the solve trace,
+        and each coarse composed level re-quadratures the immersed
+        fractions on its own coarse spaces (MI-D3). ``False`` restores
+        pure horizontal semicoarsening (default: True).
+    multigrid_agglomerate : int | None, optional
+        The coarse-grid agglomeration threshold ``tau`` in planes
+        (MG-D10), forwarded to the base class and threaded identically
+        to the mapped solver into :meth:`_build_vcycle`'s
+        :func:`~fridom.spatial.operators.multigrid_hierarchy.coarsen_levels`.
+        ``None`` (the default) disables agglomeration; a no-op on one
+        device (default: None).
 
     Raises
     ------
@@ -257,28 +273,6 @@ class ComposedPressureSolver(MappedPressureSolver):
         self._wet: ScalarField = self._theta.with_data(self._cell_mask)
         self._wet_measure: jax.Array = jnp.sum(
             _computational_integral(self._wet).data)
-
-    @property
-    def _coarsen_vertical(self) -> bool:
-        """
-        Whether :meth:`_build_vcycle` coarsens the composed column too.
-
-        Description
-        -----------
-        Overrides the mapped decision to **keep** the semicoarsening
-        fallback on a stretched composed base: the eager coarse-mesh
-        pre-warm (:meth:`~MappedPressureSolver._prewarm_hierarchy`) that
-        lifts the ``MappedIntervalMesh``-ctor jit incompatibility warms
-        only the coarse *grids*, but the composed coarse level also
-        re-quadratures the immersed **fractions** on those coarse
-        spaces (MI-D3) — validating the wet-region fraction
-        re-derivation under a coarsened stretched column is a follow-up,
-        so a stretched composed base stays horizontally semicoarsened.
-        A uniform composed base still takes the full-coarsening default.
-        Since ``_prewarm_hierarchy`` reads this same decision, no
-        pre-warm fires for a composed solver (byte-identical to before).
-        """
-        return self._multigrid_coarsen_vertical and not self._stretched_base
 
     # ================================================================
     #  Cross-term corner chains (fraction inserted at the corner)
@@ -692,7 +686,8 @@ class ComposedPressureSolver(MappedPressureSolver):
             coarsen_vertical=self._coarsen_vertical,
             max_levels=self._multigrid_levels,
             rediscretize=(rediscretize_fv_coarse
-                          if is_fv(self._space) else None))
+                          if is_fv(self._space) else None),
+            agglomerate=self._multigrid_agglomerate)
         levels: list[MultigridLevel] = []
         for index, (grid, space, transfer) in enumerate(chain):
             if index == 0:
