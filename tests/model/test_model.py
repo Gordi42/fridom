@@ -27,6 +27,7 @@ from fridom.model.declarations import (
 )
 from fridom.model.errors import (
     AssemblyError,
+    MissingFieldError,
     MissingParameterError,
 )
 from fridom.model.io.snapshots import Snapshots, read_manifest
@@ -138,6 +139,17 @@ class Provider(Module):
 
     parameter_declarations = (
         ParameterDeclaration("toy.value", attr="value", units="1"),)
+
+
+@jaxify
+class AuxOnly(Module):
+
+    """No PROGNOSTIC field (CS-13): one AUXILIARY row only."""
+
+    field_declarations = (
+        FieldDeclaration("n2", space=Profile("x"),
+                         lifecycle=Lifecycle.AUXILIARY, default=1.0),
+    )
 
 
 # ================================================================
@@ -412,6 +424,55 @@ def test_diagnostics_unknown_name_lists_available(model):
 
 def test_dir_lists_diagnostics(model):
     assert "b_sum" in dir(model.diagnostics)
+
+
+# ================================================================
+#  blank_state / state_space (State factory, 6.1)
+# ================================================================
+def test_blank_state_is_prognostic_subset_at_zero(model):
+    blank = model.blank_state()
+    # PROGNOSTIC components only, in declaration order (no AUX/DIAG)
+    assert blank.component_names == model.field_table.prognostic
+    assert blank.component_names == ("u", "b")
+    for name in blank.component_names:
+        assert (np.asarray(blank[name].data) == 0.0).all()
+
+
+def test_blank_state_preserves_the_state_class(model):
+    assert type(model.blank_state()) is type(model.carry.state)
+
+
+def test_blank_state_is_fresh_and_detached_from_carry(model):
+    first = model.blank_state()
+    second = model.blank_state()
+    # distinct objects each call, and not the carry's own leaves
+    assert first is not second
+    assert first["u"] is not second["u"]
+    assert first["u"] is not model.carry.state["u"]
+
+
+def test_blank_state_component_spaces_match_state_space(model):
+    blank = model.blank_state()
+    for name in blank.component_names:
+        assert blank[name].function_space.bare == model.state_space(
+            name).bare
+
+
+def test_blank_state_no_prognostic_raises_cs13():
+    model = make_model(modules=(AuxOnly(),))
+    assert model.field_table.prognostic == ()
+    with pytest.raises(ValueError, match="CS-13"):
+        model.blank_state()
+
+
+def test_state_space_matches_field_table(model):
+    for name in model.field_table.names:
+        assert model.state_space(name) is model.field_table[name].space
+
+
+def test_state_space_unknown_name_raises(model):
+    with pytest.raises(MissingFieldError, match="nope"):
+        model.state_space("nope")
 
 
 # ================================================================
