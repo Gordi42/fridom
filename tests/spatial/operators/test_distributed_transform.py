@@ -18,12 +18,15 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
+import fridom as fr
+from fridom.spatial.bc import BC
 from fridom.spatial.grid import Grid
 from fridom.spatial.meshes.interval import IntervalMesh
 from fridom.spatial.operators.dealias import degree
 from fridom.spatial.operators.distributed_transform import (
     DistributedTransform,
     resolve_distributed_transform,
+    resolve_walled_vertical_transform,
 )
 from fridom.spatial.operators.fourier import Fourier
 from fridom.spatial.operators.transform import axis_slice
@@ -497,3 +500,133 @@ def test_project_matches_the_forward_contraction(forced_devices):
     if geom.pad_a_spec != geom.a_spec_n:
         got = np.take(got, range(geom.a_spec_n), axis=geom.a)
     assert np.allclose(got, ref, rtol=1e-10, atol=1e-11)
+
+
+# ================================================================
+#  The walled-vertical fused region (Fourier transpose + local trig)
+# ================================================================
+def walled_grid(shape=(8, 8, 8), device_ids=None):
+    """Return a periodic-x/y, walled-z grid of the given cell counts."""
+    nx, ny, nz = shape
+    return Grid((
+        IntervalMesh(nx, (0.0, 2 * np.pi), periodic=True, name="x"),
+        IntervalMesh(ny, (0.0, 2 * np.pi), periodic=True, name="y"),
+        IntervalMesh(nz, (0.0, 1.0), periodic=False, name="z")),
+        device_ids=device_ids)
+
+
+def walled_spaces(grid):
+    """Two mixed components with different trig z lattices (Cos/Sin)."""
+    return {
+        # DCT-II on the Neumann centred z (modes 0..n-1)
+        "a": fr.spatial.Collocated(
+            wall_bc={"z": BC.NEUMANN}).resolve(grid).bare,
+        # DST-I on the Dirichlet inner z face (modes 1..n-1)
+        "c": fr.spatial.Staggered(
+            "z", wall_bc={"z": BC.DIRICHLET}).resolve(grid).bare,
+    }
+
+
+def walled_matrix_reference(transform, datas, matrix):
+    """Replicated Fourier-transpose + local-trig + matrix (numpy)."""
+    geom = transform._geom
+    chart = transform._chart
+    comps = transform._components
+    coeff_of = transform._coeff_of
+    a, b = geom.a, geom.b
+    stacks = []
+    for c in comps:
+        d = np.asarray(datas[c]) + 0j
+        d = np.fft.fft(d, axis=b, norm="forward")
+        d = np.fft.fft(d, axis=a, norm="forward")
+        d = np.asarray(transform._trig_forward[c](jnp.asarray(d)))
+        stacks.append(np.asarray(chart.embed(jnp.asarray(d), coeff_of[c])))
+    z = np.stack(stacks, axis=-1)
+    out = np.einsum("...jd,...d->...j", np.asarray(matrix), z)
+    res = {}
+    for i, c in enumerate(comps):
+        oc = np.asarray(chart.restrict(
+            jnp.asarray(out[..., i]), coeff_of[c]))
+        oc = np.asarray(transform._trig_backward[c](jnp.asarray(oc)))
+        oc = np.fft.ifft(oc, axis=a, norm="forward")
+        oc = np.fft.ifft(oc, axis=b, norm="forward")
+        res[c] = np.real(oc)
+    return res
+
+
+@pytest.mark.multi_device
+def test_walled_apply_matrix_matches_replicated_reference(forced_devices):
+    # the walled-vertical fused region (two periodic axes on the
+    # transpose pipeline, the bounded trig axis local + ModeChart) applies
+    # a per-mode union-lattice matrix and reproduces the replicated
+    # single-controller reference to floating point, landing real
+    if forced_devices is not None:
+        assert jax.device_count() == forced_devices
+    grid = walled_grid((8, 8, 8))
+    spaces = walled_spaces(grid)
+    transform = resolve_walled_vertical_transform(
+        grid, spaces, ("a", "c"))
+    assert transform is not None
+    rng = np.random.default_rng(11)
+    datas = {c: rng.standard_normal(spaces[c].shape) for c in spaces}
+    fields = {c: grid.create_field(spaces[c], data=datas[c])
+              for c in spaces}
+    assert fields["a"]._data.sharding.spec[0] == "devices"
+    union = transform._coeff_of["a"].shape  # (8, 8, 9)
+    union = (*union[:2], grid.factors[-1].n_cells + 1)
+    dim = len(spaces)
+    matrix = jnp.asarray(
+        rng.standard_normal((*union, dim, dim))
+        + 1j * rng.standard_normal((*union, dim, dim)))
+    out = transform.apply_matrix(fields, matrix)
+    ref = walled_matrix_reference(transform, datas, matrix)
+    for c in spaces:
+        got = np.asarray(out[c].data)
+        assert not np.iscomplexobj(got)
+        assert np.allclose(got, ref[c], rtol=1e-10, atol=1e-11)
+
+
+@pytest.mark.multi_device
+def test_walled_apply_matrix_hlo_transposes_without_gathers(
+        forced_devices):
+    # the walled fused region reshards with all-to-all only: the two
+    # periodic axes transpose, the local trig + the einsum over the
+    # local component axis emit no cube gather / reduce
+    if forced_devices is not None:
+        assert jax.device_count() == forced_devices
+    grid = walled_grid((8, 8, 8))
+    spaces = walled_spaces(grid)
+    transform = resolve_walled_vertical_transform(
+        grid, spaces, ("a", "c"))
+    rng = np.random.default_rng(12)
+    datas = {c: rng.standard_normal(spaces[c].shape) for c in spaces}
+    pieces = {c: jnp.asarray(datas[c]) for c in spaces}
+    union = (*transform._coeff_of["a"].shape[:2],
+             grid.factors[-1].n_cells + 1)
+    matrix = transform._pad_a(jnp.zeros((*union, 2, 2), dtype=complex))
+    text = transform._region.lower(pieces, matrix).compile().as_text()
+    assert "all-to-all" in text
+    assert "all-gather" not in text
+    assert "all-reduce" not in text
+
+
+def test_resolve_walled_vertical_transform_declines_single_device():
+    # single device: no reshard is needed, so the walled region declines
+    grid = walled_grid((8, 8, 8), device_ids=(0,))
+    spaces = walled_spaces(grid)
+    assert resolve_walled_vertical_transform(
+        grid, spaces, ("a", "c")) is None
+
+
+@pytest.mark.multi_device
+def test_resolve_walled_vertical_transform_declines_periodic(
+        forced_devices):
+    # a fully periodic grid has no trig (ComposedTransform) component,
+    # so the walled builder declines (the periodic route serves it)
+    if forced_devices is not None:
+        assert jax.device_count() == forced_devices
+    grid = periodic_grid((8, 8, 8))
+    spaces = {"a": grid.create_field(
+        data=np.zeros((8, 8, 8))).function_space.bare}
+    assert resolve_walled_vertical_transform(
+        grid, spaces, ("a",)) is None

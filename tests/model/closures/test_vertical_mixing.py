@@ -25,7 +25,8 @@ from fridom.model.closures.vertical_mixing import (
 from fridom.model.declarations import Lifecycle
 from fridom.model.errors import AssemblyError
 from fridom.model.implicit import VerticalDiffusion
-from fridom.model.model import _chunk_body
+from fridom.model.model import Model, _chunk_body
+from fridom.model.module import Module
 from fridom.model.roles import TRACER, Velocity
 from fridom.spatial.coordinate_mapping import CoordinateMapping
 from fridom.spatial.meshes.mapped_interval import MappedIntervalMesh
@@ -85,13 +86,44 @@ def stretched_grid(nx=NX, nz=NZ, depth=DEPTH):
 
 
 def terrain_grid(nx=NX, nz=NZ):
-    """Return a terrain-following (x, sigma) grid: zp = sigma * H(x)."""
+    """Return a terrain-following (x, sigma) grid: zp = sigma * H(x).
+
+    The height callable uses ``jnp`` so the terrain Jacobian metric the
+    measure-aware column reads is traceable under the model step (a
+    ``np`` callable raises on the traced coordinate).
+    """
     mx = IM(nx, (0.0, 2 * np.pi), periodic=True, name="x")
     ms = IM(nz, (0.0, 1.0), periodic=False, name="sigma")
     mapping = CoordinateMapping(
         maps={"zp": lambda sigma, height: sigma * height},
-        params={"height": lambda x: 1.0 + 0.2 * np.sin(x)})
+        params={"height": lambda x: 1.0 + 0.2 * jnp.sin(x)})
     return fr.spatial.Grid((mx, ms), mapping=mapping)
+
+
+class TracerCore(Module):
+
+    """A minimal core: one buoyancy tracer, a trivial zero tendency."""
+
+    field_declarations = (fr.model.FieldDeclaration.tracer("b"),)
+
+    @fr.model.term(advances=("b",), linear=True, transports=("b",))
+    def zero(self, state, _ctx):
+        """Return a zero tendency (the physics rides VerticalMixing)."""
+        return {"b": 0.0 * state["b"]}
+
+
+def terrain_mixing_model(*, dt, mixing, grid=None):
+    """Build a minimal tracer + VerticalMixing model (no hy stack).
+
+    The full hydrostatic vertical machinery expects a ``z`` base column,
+    so a terrain (``sigma``-base) run uses this bare model: it exercises
+    the closure bind and the measure-aware terrain column solve in the
+    step loop without the mapped-pressure / stratification stack.
+    """
+    return Model(
+        grid=grid if grid is not None else terrain_grid(),
+        modules=(TracerCore(), mixing),
+        time_stepper=fr.model.time_steppers.CNAB2(dt))
 
 
 # ================================================================
@@ -123,6 +155,9 @@ class FakeTable:
 
     def __getitem__(self, name):
         return self._records[name]
+
+    def __contains__(self, name):
+        return name in self._records
 
 
 # ================================================================
@@ -202,22 +237,32 @@ def test_bind_rejects_an_immersed_grid():
 
 
 # ================================================================
-#  Stage 0 — taught gates for the uniform-spacing column contract
+#  The measure-aware column binds on stretched / terrain grids
 # ================================================================
-def test_bind_rejects_a_stretched_solve_column():
-    # the column band infers one uniform dz from the first two nodes,
-    # so a MappedIntervalMesh column would silently solve the wrong
-    # d2/dz2 — reject it before assembly
-    table = FakeTable(tracer=("b",), grid=stretched_grid())
-    with pytest.raises(NotImplementedError, match="uniform spacing"):
-        VerticalMixing(kb=0.1).bind(table)
+def test_bind_accepts_a_stretched_solve_column():
+    # the measure-aware column carries true non-uniform spacing, so a
+    # MappedIntervalMesh column binds (the old uniform-dz gate retired)
+    mixing = VerticalMixing(kb=0.1)
+    mixing.bind(FakeTable(tracer=("b",), grid=stretched_grid()))
+    assert mixing.tendency_terms()[0].implicit.fields == ("b",)
 
 
-def test_bind_rejects_a_terrain_coupled_solve_column():
-    # on a terrain grid the solve axis is base-sigma and the band
-    # carries no H(x) Jacobian — reject before assembly
-    table = FakeTable(tracer=("b",), grid=terrain_grid())
-    with pytest.raises(NotImplementedError, match="terrain"):
+def test_bind_accepts_a_static_terrain_column():
+    # a static terrain grid binds: the column reads the terrain Jacobian
+    # from grid.metric (along-sigma), no gate
+    mixing = VerticalMixing(kb=0.1, vertical="sigma")
+    mixing.bind(FakeTable(tracer=("b",), grid=terrain_grid()))
+    assert mixing.tendency_terms()[0].implicit.fields == ("b",)
+
+
+def test_bind_rejects_a_moving_terrain_column():
+    # a mapping parameter riding the field table (a MovingGeometry
+    # module) means the terrain moves, but the implicit solve reads
+    # STATIC geometry — refuse it with a taught error
+    table = FakeTable(
+        tracer=("b",), grid=terrain_grid(),
+        records={"height": FakeRecord(Lifecycle.AUXILIARY)})
+    with pytest.raises(NotImplementedError, match="MOVING terrain"):
         VerticalMixing(kb=0.1, vertical="sigma").bind(table)
 
 
@@ -476,4 +521,60 @@ def test_no_slip_run_is_reverse_mode_differentiable():
     assert abs(grad) > 0.0   # kv damps u, so the gradient is non-zero
     h = 1e-4 * float(kv0)
     fd = (float(loss(kv0 + h)) - float(loss(kv0 - h))) / (2.0 * h)
+    assert grad == pytest.approx(fd, rel=1e-4)
+
+
+# ================================================================
+#  The measure-aware column at the model level (stretched / terrain)
+# ================================================================
+def test_stretched_model_conserves_the_width_weighted_buoyancy():
+    # the buoyancy leg is Neumann (no-flux), so on a stretched column
+    # the physical-width-weighted buoyancy sum is invariant across steps
+    grid = stretched_grid()
+    model = mix_model(
+        dt=0.02, mixing=VerticalMixing(kb=0.05),
+        stepper=fr.model.time_steppers.CNAB2(0.02), grid=grid)
+    model.set_fields(b=broadcast_b(b0_column()))
+    space = model.state["b"].function_space
+    mcell = np.asarray(grid.measure(space, "z").data)
+    before = np.sum(mcell * np.asarray(model.state["b"].data))
+    model.run(steps=5, progress=False)
+    after = np.asarray(model.state["b"].data)
+    assert np.all(np.isfinite(after))
+    assert np.sum(mcell * after) == pytest.approx(before, rel=1e-10)
+
+
+def test_terrain_model_binds_and_steps_finite():
+    # the closure binds on a static terrain grid and its measure-aware
+    # column solve steps finite in a minimal (tracer + mixing) model
+    model = terrain_mixing_model(
+        dt=0.02, mixing=VerticalMixing(kb=0.05, vertical="sigma"))
+    ax = (np.arange(NZ) + 0.5) / NZ
+    model.set_fields(b=np.broadcast_to(
+        np.cos(np.pi * ax)[None, :], (NX, NZ)).copy())
+    model.run(steps=4, progress=False)
+    assert np.all(np.isfinite(np.asarray(model.state["b"].data)))
+
+
+def test_terrain_run_is_reverse_mode_differentiable():
+    # differentiability policy (MANDATORY): jax.grad of a quadratic loss
+    # through a short terrain-column run w.r.t. the vertical diffusivity,
+    # via the public Model.propagator surface, matches a central FD
+    model = terrain_mixing_model(
+        dt=0.02, mixing=VerticalMixing(kb=0.05, vertical="sigma"))
+    ax = (np.arange(NZ) + 0.5) / NZ
+    model.set_fields(b=np.broadcast_to(
+        np.cos(np.pi * ax)[None, :], (NX, NZ)).copy())
+    run = model.propagator(wrt=("mixing.vertical_kappa",), steps=6)
+    kb0 = jnp.asarray(0.05)
+
+    def loss(kb):
+        final = run((kb,))
+        return sum(jnp.sum(f.data ** 2) for f in final.state)
+
+    grad = float(jax.grad(loss)(kb0))
+    assert np.isfinite(grad)
+    assert abs(grad) > 0.0
+    h = 1e-4 * float(kb0)
+    fd = (float(loss(kb0 + h)) - float(loss(kb0 - h))) / (2.0 * h)
     assert grad == pytest.approx(fd, rel=1e-4)

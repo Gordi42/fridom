@@ -49,22 +49,53 @@ def test_resolve_route_serves_a_periodic_sharded_grid(forced_devices):
     em = _eigenmodes(None)
     route = resolve_route(em.grid, em._analysis, em._components)
     assert isinstance(route, AnalyticDistributedRoute)
+    # the plain-Fourier route serves the fused backward-only synthesis
+    # (the random-state / mode() consumers ride it via hermitian_reframe)
+    assert route.can_synthesize is True
     # every prognostic + auxiliary analysis component resolves to the
     # same transpose geometry (staggered u/v/w and collocated b/p)
     for name in em._analysis:
         assert route.coeff_of(name) is not None
 
 
+def test_resolve_route_declines_a_single_device_walled_grid():
+    # single device: the walled route also declines (the eager
+    # per-component round-trip stays bit-identical off the sharded path)
+    em = _eigenmodes((0,), walled="z")
+    assert resolve_route(em.grid, em._analysis, em._components) is None
+
+
 @pytest.mark.multi_device
-def test_resolve_route_declines_a_walled_vertical_grid(forced_devices):
-    # the walled-vertical component transforms are a mixed
-    # ComposedTransform (Fourier x Fourier x trig) the transpose engine
-    # declines; the router falls back so the analytic path keeps its
-    # Tier-1 taught error (Wave B serves this tier later)
+def test_resolve_route_serves_a_walled_vertical_grid(forced_devices):
+    # Wave B: the walled-vertical mixed ComposedTransform
+    # (Fourier x Fourier x trig) now resolves through the fused
+    # WalledVerticalTransform region -- the two periodic axes ride the
+    # transpose pipeline and the bounded trig axis rides local inside the
+    # column. The router serves it instead of keeping the Tier-1 taught
+    # error.
     if forced_devices is not None:
         assert jax.device_count() == forced_devices
     em = _eigenmodes(None, walled="z")
-    assert resolve_route(em.grid, em._analysis, em._components) is None
+    route = resolve_route(em.grid, em._analysis, em._components)
+    assert isinstance(route, AnalyticDistributedRoute)
+    # the walled route serves apply_matrix (projections / f(L) / balance)
+    # but NOT the fused backward-only synthesis: its internal frame runs
+    # both periodic axes fully complex, so it never coincides with the
+    # single-device random-phase frame -- synthesis-only consumers keep
+    # the replicated (device-invariant) backward (synthesize_columns
+    # reads can_synthesize to fall back instead of crashing).
+    assert route.can_synthesize is False
+    # every prognostic + auxiliary component resolves to an internal
+    # coefficient frame (the trig z factor on its own lattice)
+    for name in em._analysis:
+        assert route.coeff_of(name) is not None
+    # the periodic router declines the walled grid (the ComposedTransform
+    # has no plain-Fourier DistributedTransform)
+    from fridom.model.analytic_distributed import (  # noqa: PLC0415
+        _resolve_periodic_route,
+    )
+    assert _resolve_periodic_route(
+        em.grid, em._analysis, em._components) is None
 
 
 @pytest.mark.multi_device
@@ -85,6 +116,43 @@ def test_analytic_route_reroutes_a_sharded_operand(forced_devices):
     assert analytic_route(em, nh.State({"u": sharded})) is not None
     one = _eigenmodes((0,))
     assert analytic_route(one, nh.State({"u": one.q(0)["u"]})) is None
+
+
+@pytest.mark.multi_device
+def test_walled_route_apply_matrix_is_device_count_invariant(
+        forced_devices):
+    # the walled route's fused apply_matrix (Fourier transpose + local
+    # trig + union-lattice per-mode matrix) reproduces the eager
+    # single-device projector to floating point and lands real
+    if forced_devices is not None:
+        assert jax.device_count() == forced_devices
+    components = ("u", "v", "w", "b")
+    n = 8
+    rng = np.random.default_rng(2)
+    fields = {c: rng.standard_normal((8, 8, 7 if c == "w" else 8))
+              for c in components}
+    many = _eigenmodes(None, walled="z", n=n)
+    one = _eigenmodes((0,), walled="z", n=n)
+
+    def state(em):
+        return nh.State({
+            c: em.grid.create_field(
+                em.physical_space(c), data=fields[c])
+            for c in components})
+
+    z_many, z_one = state(many), state(one)
+    assert z_many["u"]._data.sharding.spec[0] == "devices"
+    route = resolve_route(many.grid, many._analysis, many._components)
+    matrix = many.operator_matrix(route.coeff_of, branches=(0,))
+    out_many = route.apply_matrix(
+        {c: z_many[c] for c in components}, matrix)
+    # the one-device reference: the eager per-component projector round
+    # trip (the plain path the single-device grid keeps)
+    ref = nh.transforms.VorticalProjection(one)(z_one)
+    for c in components:
+        got = np.asarray(out_many[c].data)
+        assert not np.iscomplexobj(got)
+        assert np.abs(got - np.asarray(ref[c].data)).max() < 1e-12
 
 
 # ================================================================

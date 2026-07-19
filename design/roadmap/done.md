@@ -1892,6 +1892,44 @@ Implementation record:
   (bitwise vs nodal). Tests:
   `tests/model/closures/test_diffusion_fv.py` (24 tests); gates:
   closures suite 150 green, nonhydro2 596 green, ruff clean.
+- **Measure-aware implicit vertical-diffusion column** (2026-07-19,
+  branch `feat/measure-aware-column`) — the stage-0 real fix of
+  [`../research/diffusion_walls_terrain_scoping.md`](../research/diffusion_walls_terrain_scoping.md)
+  §3.7 (§9 addendum): `VerticalDiffusion` drops the uniform-dz dense
+  band for a per-column **conservative face-averaged flux** band
+  (`_diffusion_bands`), and the stretched/terrain `VerticalMixing`
+  gates (`reject_unsupported_solve_column`) are **retired**. Widths come
+  from `grid.measure`: the primal cell width of the field's own node set
+  (`Center` or FV `CellAvg`, no hardcoded stagger) and the dual
+  center-to-center widths of the **wall-including `Outer`** face family
+  (one query — its two boundary entries are the clipped wall half-cells,
+  serving the Dirichlet wall distance too). On a terrain grid
+  (`axis in mapping.column_corrections`) every width is multiplied by
+  the column Jacobian `grid.metric("d{mapped}_d{base}", params=None)` at
+  the same stagger — along-σ physical widths (owner call 3, ratified
+  2026-07-19), composing with a stretched σ mesh. `diag` is assembled as
+  the negated coupling sum, so a Neumann row telescopes to zero exactly.
+  The flagged variable-κ `NotImplementedError` is gone: a `ScalarField`
+  κ on the field's own space is arithmetically face-averaged (one-sided
+  at the walls), exact under the κ-summed merge (band linear in κ). A
+  **moving** terrain column (a mapping param riding the field table) is
+  a new taught error — the implicit `solve` reads static geometry and
+  has no state seam. Uniform-column OPERATOR entries are **bitwise**
+  the old `κ/dz²` band (−1 Neumann / −3 Dirichlet corners); justified
+  deviations: dense `linalg.solve` → tridiagonal kernel, dense matmul →
+  band stencil, dz from `grid.measure`. **Solver deviation**: the solve
+  uses `method="scan"` (Thomas), NOT `"auto"` — the CN system is only
+  weakly diagonally dominant in the stiff regime (dominance excess
+  exactly 1) and the cyclic-reduction kernels (pcr / cuSPARSE gtsv2)
+  amplify roundoff enough to blow up the κΔt/Δz²∼640 stability tests;
+  Thomas is unconditionally stable, exact, natively differentiable.
+  Tests: `tests/model/test_implicit_kernel_measure.py` (12, the
+  prefix-mirrored shard), model-level stretched conservation + terrain
+  step + moving-geometry error + terrain propagator autodiff in
+  `test_vertical_mixing.py`; the immersed gate is untouched (the
+  wet-aware variable-dz column stays its own item, reusing this one).
+  This is the N3 implicit twin — the multigrid V-cycle already consumes
+  measure widths on stretched columns.
 
 - **FV-vs-nodal step-time gap — closed** (2026-07-18, branch
   `perf/fv-walled-storage-frame`; record
@@ -2134,7 +2172,7 @@ Implementation record:
   Study + campaign record:
   [`../research/gspmd_naive_transform_illegality.md`](../research/gspmd_naive_transform_illegality.md);
   phases 2+ in
-  [`../plans/active/gspmd_transform_illegality_plan.md`](../plans/active/gspmd_transform_illegality_plan.md).
+  [`../plans/done/gspmd_transform_illegality_plan.md`](../plans/done/gspmd_transform_illegality_plan.md).
 
 - **Interval-accounting sharding regressions — FIXED (one loud, one
   silent)** (2026-07-18). Surfaced by the campaign's forced-4 residual
@@ -2426,7 +2464,49 @@ Implementation record:
   `design/research/analytic_eigenmode_distributed_route.md`
   (`e4d2f892`). Remaining in the plan file: Tier-2 (now ripe),
   Wave B walled-vertical analytic, no-gather random synthesis,
-  trig/mixed families, GPU-scoped checkpoint items.
+  trig/mixed families, GPU-scoped checkpoint items — all four
+  shipped later the same day (entry below).
+
+- **2026-07-19 — GSPMD transform illegality campaign completed**
+  (four merges: Tier-2 `dec698e2`, no-gather synthesis `8462be11`,
+  Wave B `4367d2f9`, trig/mixed `48cfc25c`; plan record with full
+  per-item outcomes and deviations:
+  [`../plans/done/gspmd_transform_illegality_plan.md`](../plans/done/gspmd_transform_illegality_plan.md)).
+  **Tier-2**: `Transform._reject_replicating_transform` outlaws the
+  silent replicating transform (all stage axes local, another axis
+  sharded → hidden all-gather via the replicated coefficient
+  contract, verified in HLO); escape =
+  `SpectralSolve(..., allow_replicated=True)`, an explicit
+  replicate-then-compute. Owner-attention deviations: the study's
+  "zero Tier-2-only breakage" missed the deliberately-legal
+  `test_reshard_transform_backward_round_trip` pin (converted to
+  taught-error + explicit `Layout({})` escape), and the recorded
+  escape sites trip Tier-1 in practice (the escape serves them
+  regardless; the Wave-B escape was never needed in code).
+  **Wave B**: `WalledVerticalTransform` — periodic axes through the
+  transpose pipeline, trig z local per shard, `ModeChart.embed` onto
+  the union lattice, frame-local D×D matrix; walled-vertical
+  projections ≤1.6e-15, balance ≤2.8e-16, `mode()`/random-state 0.0
+  (replicated fallback per design §4 —
+  `AnalyticDistributedRoute.can_synthesize=False` gates it; the
+  fused synthesize is architecturally impossible on walled frames),
+  HLO all-to-all only, grad 2.2e-12.
+  **No-gather synthesis**: `hermitian_reframe` completes the
+  device-independent gains onto the re-designated internal frame
+  (self-conjugate DC/Nyquist planes take the
+  `(stored + reflected-conj)/2` average — exactly the Hermitian
+  projection `irfft` applied silently); random-state/`mode()` run
+  the fused backward, nh2 1.33e-15 / sw2 4.44e-16, no all-gather on
+  the IC path (HLO-asserted).
+  **Trig/mixed**: `ComposedTransform.apply_diagonal` routes sharded
+  operands through the walled solve's `SlabPlan`
+  (`apply_plan_diagonal`, 2 all-to-alls — deliberately *not* the
+  4-all-to-all Wave-B region), serving the walled-channel spectral
+  apply at 1.2e-14 invariance, grad 1.3e-13; pure-trig homogeneous
+  shapes stay declined (no consumer; machinery verified ready,
+  1.3e-14 probe). Combined forced-4 battery over all campaign
+  surfaces on the final tree: 423 passed, 0 failed. Remaining:
+  the owner-batched GPU checkpoint ([`open.md`](open.md)).
 
 - **2026-07-19 — 2-D channel eigen served sharded (`Channel2DPlan`,
   merge `8752170a`).** The highest-exposure sharded-periodic

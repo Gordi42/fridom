@@ -19,35 +19,20 @@ entry is enough.
 
 # Next steps
 
-## Naive GSPMD transform path — phased illegality (remaining)
+## Naive GSPMD transform path — GPU checkpoint (owner-batched)
 
-Owner-approved 2026-07-18; phases 0–3 and every named consumer wave
-are shipped (entries in [`done.md`](done.md); latest: the analytic
-all-periodic route + ETDRK4 halves, merges `f8358720`/`bce54cff`
-2026-07-19, design in
-[`../research/analytic_eigenmode_distributed_route.md`](../research/analytic_eigenmode_distributed_route.md)).
-Still open:
+The illegality campaign is complete — every phase, consumer wave,
+and follow-up item shipped 2026-07-18/19 (final four merges
+`dec698e2`/`4367d2f9`/`8462be11`/`48cfc25c`; consolidated entry in
+[`done.md`](done.md), plan record
+[`../plans/done/gspmd_transform_illegality_plan.md`](../plans/done/gspmd_transform_illegality_plan.md)).
+One owner-batched item remains:
 
-- **Tier-2 illegality — owner-decided 2026-07-19, implementation
-  open.** All-local naive transforms on a multi-device mesh (the
-  silent all-gather) become illegal, as recommended, with an
-  explicit allow-replicated escape for the irreducible cases: the
-  Chebyshev-vertical solve, the mismatched-layout composite solve,
-  plus the recorded Wave-B tier below (until Wave B lands).
-- **Wave B — walled-vertical analytic tier.** The analytic eigenmode
-  route serves plain-Fourier all-periodic frames; walled-vertical
-  analytic grids (`ComposedTransform`, trig z stage + `ModeChart`
-  embed/restrict) keep the taught error and need a
-  `ContractPlan`-shaped region absorbing the bounded axis into the
-  stacked column (design record §4).
-- **No-gather random synthesis for frame-mismatch cases.** When the
-  sharded axis is the single-device half axis (nh2 x-sharded, sw2
-  2-D), random-state synthesis falls back to a replicated backward —
-  correct and device-invariant, but a gather on the IC path; a pure
-  fused route needs a Hermitian half-axis re-expression of the
-  device-independent gains.
-- **Trig/mixed transform families**: `resolve_distributed_transform`
-  declines them (plain Fourier only).
+- **GPU validation of the campaign's multi-device paths** at the
+  next owner-batched checkpoint (all GPU-scoped: fused synthesis
+  parity, the 3-D `ContractPlan` ETDRK4 end-to-end run and its
+  distributed grad — real `eigh` bases are CPU-unsafe, jax#39292).
+  Agents do not submit GPU jobs.
 
 ## Channel eigenmodes on multi-device — remaining gap
 
@@ -111,7 +96,10 @@ Open, none blocking:
   fraction Sadourny + harmonic closures — shipped 2026-07-19; entry
   in [`done.md`](done.md)): no-slip immersed side-drag, Smagorinsky
   immersed (walled Smagorinsky first), VerticalMixing immersed (the
-  wet-aware variable-dz tridiagonal, its own item when picked up) —
+  wet-aware variable-dz tridiagonal — the measure-aware variable-dz
+  column now exists, entry in [`done.md`](done.md); the wet-aware
+  immersed variant reuses it but stays its own item, gated by
+  `VerticalMixing.bind`'s untouched immersed error) —
   all taught errors with recorded designs
   ([`../plans/active/immersed_closures_sadourny_plan.md`](../plans/active/immersed_closures_sadourny_plan.md)
   §5).
@@ -120,19 +108,16 @@ Open, none blocking:
 
 Stages 0–4 shipped 2026-07-17 (walls free/no-slip on the nodal
 family, implicit no-slip rows, mapped along-σ, the `VerticalMixing`
-stretched/terrain gates, the measure-divide VJP seal), and the FV
+stretched/terrain gates, the measure-divide VJP seal), the FV
 walled lift shipped 2026-07-18 (walled `CellAvg` targets take the
-same flux-retag closure — both families now covered; entries in
-[`done.md`](done.md), record + §9 addendum
+same flux-retag closure — both families now covered), and the
+measure-aware implicit column shipped 2026-07-19 (the §3.7 real fix:
+face-averaged conservative bands from `grid.measure`, terrain Jacobian
+along-σ, variable kappa folded in, the stretched/terrain gates retired;
+entries in [`done.md`](done.md), record + §9/§10 addenda
 [`../research/diffusion_walls_terrain_scoping.md`](../research/diffusion_walls_terrain_scoping.md)).
 Open:
 
-- **Measure-aware implicit column** — the `VerticalMixing`
-  stretched/terrain gates stand until the banded column learns
-  `grid.measure` widths + the terrain Jacobian (the multigrid V-cycle
-  already consumes measure widths on stretched columns — N3, entry in
-  [`done.md`](done.md) — this is its implicit-diffusion twin; pairs
-  with the flagged variable-kappa follow-up, `implicit.py`).
 - **Stage 5** — the geopotential-correct full-metric (then rotated)
   diffusion tensor; deferred, separate plan (record §3.6 A/C).
 - **`grid.measure` pre-assembly ordering (lead)** — querying a

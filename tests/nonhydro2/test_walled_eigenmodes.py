@@ -13,12 +13,14 @@ projector invariance of an exponential (cosh) boundary vortical
 mode built from the grid's own discrete operators, and the
 measure-weighted energy partition (Parseval).
 """
+import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
 
 import fridom as fr
 import fridom.nonhydro2 as nh
+from fridom.model.analytic_distributed import resolve_route
 from fridom.model.context import StepContext
 from fridom.model.eigen import _rest_background
 from fridom.model.modules.coriolis import FPlaneCoriolis
@@ -880,3 +882,87 @@ def test_walled_fv_zconstant_buoyancy_is_pure_vortical():
     wave = nh.transforms.WaveProjection(em)(phys)
     assert max(float(np.abs(np.asarray(wave[c].data)).max())
                for c in COMPONENTS) < 1e-13
+
+
+# ================================================================
+#  Wave B: the walled-vertical tier under a sharded periodic axis
+# ================================================================
+def _walled_model(device_ids, *, family="nodal", n=N):
+    """Build a walled-vertical (rigid-lid z) nonhydro model."""
+    grid = Grid((
+        IntervalMesh(n, (0.0, 2 * np.pi), periodic=True, name="x"),
+        IntervalMesh(n, (0.0, 2 * np.pi), periodic=True, name="y"),
+        IntervalMesh(n, (0.0, LZ), periodic=False, name="z")),
+        device_ids=device_ids)
+    return nh.Model(
+        grid=grid, dt=DT, advection=False, dsqr=DSQR,
+        coriolis=FPlaneCoriolis(f0=F0),
+        stratification=ConstantStratification(n2=N2), family=family)
+
+
+@pytest.mark.multi_device
+def test_walled_mode_is_device_count_invariant(forced_devices):
+    # em.mode synthesizes each Hermitian-closed single mode through the
+    # replicated (layout-free) coefficient backward, so the walled
+    # single-mode state is device-count invariant when the default layout
+    # shards a periodic axis (the plain path a sharded operand would trip
+    # is bypassed by the bare replicated field)
+    if forced_devices is not None:
+        assert jax.device_count() == forced_devices
+    em_many = nh.eigenmodes.from_model(_walled_model(None))
+    em_one = nh.eigenmodes.from_model(_walled_model((0,)))
+    for s in (0, 1, -1):
+        w_many, z_many = em_many.mode(s, {"x": 2, "y": 1, "z": 3})
+        w_one, z_one = em_one.mode(s, {"x": 2, "y": 1, "z": 3})
+        assert abs(float(w_many) - float(w_one)) < 1e-12
+        assert max(
+            float(np.abs(np.asarray(z_many[c].data)
+                         - np.asarray(z_one[c].data)).max())
+            for c in COMPONENTS) < 1e-12
+
+
+@pytest.mark.multi_device
+def test_walled_random_state_is_device_count_invariant(forced_devices):
+    # the prescribed-spectra random state draws its Hermitian phases on
+    # the replicated single-device coefficient frame, so the walled
+    # synthesis is device-count invariant on the sharded-periodic-axis
+    # grid (the analytic route's internal frame re-designates the half
+    # axis, so the synthesis keeps its replicated backward)
+    if forced_devices is not None:
+        assert jax.device_count() == forced_devices
+    many = _walled_model(None)
+    one = _walled_model((0,))
+    for family in ("vortical", "wave"):
+        z_many = nh.random_state(many, family, seed=17)
+        z_one = nh.random_state(one, family, seed=17)
+        assert max(
+            float(np.abs(np.asarray(z_many[c].data)
+                         - np.asarray(z_one[c].data)).max())
+            for c in COMPONENTS) < 1e-12
+
+
+@pytest.mark.multi_device
+def test_walled_operator_matrix_is_a_projector_and_guards(forced_devices):
+    # the walled union-lattice per-mode matrix (assemble_walled_operator_
+    # matrix via em.operator_matrix): the vortical projector is idempotent
+    # per mode, the f(omega) wave operator is finite, and a singular f
+    # meeting the zero-frequency geostrophic branch is a taught error
+    if forced_devices is not None:
+        assert jax.device_count() == forced_devices
+    em = nh.eigenmodes.from_model(_walled_model(None))
+    route = resolve_route(em.grid, em._analysis, em._components)
+    assert route is not None
+    m0 = np.asarray(em.operator_matrix(route.coeff_of, branches=(0,)))
+    assert m0.shape[-2:] == (4, 4)
+    # per-mode idempotency on the union lattice (the biorthonormal dual)
+    m0m0 = np.einsum("...jd,...de->...je", m0, m0)
+    assert np.abs(m0m0 - m0).max() < 1e-10
+    # the f(omega) wave operator (L_w^{-1}) is finite
+    mf = np.asarray(em.operator_matrix(
+        route.coeff_of, branches=(1, -1),
+        f=lambda w: -1.0 / (1j * w)))
+    assert np.all(np.isfinite(mf))
+    # a singular f on the zero-frequency geostrophic branch is taught
+    with pytest.raises(ValueError, match="non-finite"):
+        em.operator_matrix(route.coeff_of, branches=(0,),
+                           f=lambda w: 1.0 / w)

@@ -161,6 +161,150 @@ class ComposedTransform:
             f = part.backward(f)
         return f
 
+    def apply_diagonal(
+        self,
+        f: FieldLike,
+        symbol_factory: object,
+    ) -> FieldLike:
+        r"""
+        Fused ``backward(symbol(forward(f)))`` -- distributed-safe.
+
+        Description
+        -----------
+        The mixed-product counterpart of
+        :meth:`~fridom.spatial.operators.transform.Transform.apply_diagonal`:
+        a forward transform, a per-mode diagonal ``symbol`` multiply, and
+        a backward transform, as **one** operation on the operand's own
+        layout. On a walled grid whose default layout shards one of the
+        periodic (Fourier) stage axes the naive
+        ``backward(symbol(forward(f)))`` re-gathers (the standalone
+        composed ``forward`` runs each part's plain kernel, and the first
+        Fourier part trips the Tier-1 taught error), so this routes
+        through the fused distributed slab pipeline
+        (``distributed_solve.SlabPlan.solve`` --- the same per-shard
+        region the walled :class:`SpectralSolve` rides) whenever
+        :func:`~fridom.spatial.operators.distributed_solve.resolve_distributed_plan`
+        serves the space: the bounded trig axis rides the transpose (as
+        the partner ``b`` or, when the Hermitian half sits on it, local),
+        the periodic axes run their Fourier stages per shard, only
+        ``all_to_all`` is collective, and no axis is gathered. On a single
+        device (or a replicated operand) it runs the plain composed
+        sandwich, unchanged.
+
+        Because the distributed internal coefficient frame differs from
+        the single-device codomain (the joint plan puts the Hermitian
+        half spectrum on a **local** Fourier axis and carries the other
+        periodic axis at full spectrum), the symbol is built **per frame**
+        by ``symbol_factory``: it receives the bare coefficient space the
+        multiply runs on and returns the matching
+        :class:`~fridom.spatial.operators.symbol.Symbol`
+        (``lambda coeff_bare: op.eigenvalues(grid, coeff_bare)``). The
+        symbol must be an **endomorphism** broadcast-shaped over that
+        frame (its codomain equals its domain and it acts on every
+        transform axis), so the backward returns to the operand's own
+        nodal space; a purely-horizontal operator that leaves the bounded
+        axis a ``Constant`` factor has no layout-preserving distributed
+        form (and fails the single-device sandwich too).
+
+        Parameters
+        ----------
+        f : FieldLike
+            The nodal operand.
+        symbol_factory : object
+            A callable ``coeff_bare -> Symbol`` building the diagonal on
+            the coefficient frame the multiply runs on.
+
+        Returns
+        -------
+        FieldLike
+            The nodal result on the operand's own layout.
+
+        Raises
+        ------
+        NotImplementedError
+            If the distributed route resolves but the symbol retags (no
+            layout-preserving distributed form) or is not a broadcast
+            endomorphism on the region's internal coefficient frame.
+        """
+        self._check_grid(f, "apply_diagonal")
+        plan = self._distributed_diagonal_route(f)
+        if plan is not None:
+            from fridom.spatial.operators.distributed_solve import (  # noqa: PLC0415 — deferred: distributed_solve imports this module
+                apply_plan_diagonal,
+                symbol_fits,
+            )
+            symbol = symbol_factory(plan.coeff.bare)
+            if symbol.codomain is not symbol.space:
+                raise NotImplementedError(
+                    "ComposedTransform.apply_diagonal cannot run a "
+                    "retagging symbol on a sharded transform axis: the "
+                    "distributed fused route is layout-preserving and "
+                    "needs an endo diagonal (codomain == domain). "
+                    f"Got {symbol.space!r} -> {symbol.codomain!r}.")
+            if not symbol_fits(plan, symbol):
+                raise NotImplementedError(
+                    "ComposedTransform.apply_diagonal cannot distribute "
+                    "this operator on a sharded transform axis: the "
+                    "fused route needs a per-mode diagonal that is an "
+                    "endomorphism broadcast-shaped over the region's "
+                    f"internal coefficient frame {plan.coeff.bare!r}, "
+                    f"but the symbol resolves on {symbol.space!r}. An "
+                    "operator whose eigenvalue diagonal does not act on "
+                    "every transform axis (e.g. a purely horizontal "
+                    "operator leaving the bounded axis a Constant "
+                    "factor) has no layout-preserving distributed form "
+                    "here; apply it on a single-device grid "
+                    "(Grid(..., device_ids=(0,))).")
+            return apply_plan_diagonal(plan, f, symbol.data)
+        coeff = self.forward(f)
+        symbol = symbol_factory(coeff.function_space.bare)
+        return self.backward(symbol(coeff))
+
+    def _distributed_diagonal_route(
+        self, f: FieldLike,
+    ) -> object | None:
+        """
+        Resolve the distributed fused route for ``f``, or None.
+
+        Description
+        -----------
+        Returns the
+        :class:`~fridom.spatial.operators.distributed_solve.SlabPlan`
+        only when the operand's own layout actually shards one of this
+        composed transform's stage axes **and** the joint plan is
+        servable; otherwise None (the caller keeps the plain composed
+        sandwich -- a single-device or replicated operand needs no
+        reshard).
+        """
+        layout = f.function_space.layout
+        if layout is None:
+            return None
+        bare = f.function_space.bare
+        if all(layout.is_local(axis)
+               for axis in self._stage_axes(bare)):
+            return None
+        from fridom.spatial.operators.distributed_solve import (  # noqa: PLC0415 — deferred: distributed_solve imports this module
+            resolve_distributed_plan,
+        )
+        return resolve_distributed_plan(self, self.grid, bare)
+
+    def _stage_axes(self, bare: SpaceLike) -> tuple[str, ...]:
+        """Transform axes present on ``bare`` across all parts."""
+        axes: list[str] = []
+        for part in self._parts:
+            for axis in part._stage_axes(bare):  # noqa: SLF001 — planner seam
+                if axis not in axes:
+                    axes.append(axis)
+        return tuple(axes)
+
+    def _check_grid(self, f: FieldLike, operation: str) -> None:
+        """Reject fields created on a different grid."""
+        if f.grid is not self.grid:
+            raise GridMismatchError(
+                "transforms are grid-bound; the operand was created "
+                "on a different grid",
+                left=self.grid, right=f.grid, operation=operation)
+
     # ================================================================
     #  Space resolution
     # ================================================================

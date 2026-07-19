@@ -26,7 +26,10 @@ N = 16
 # ================================================================
 @pytest.fixture
 def mz():
-    return IntervalMesh(N, (0.0, 1.0), name="z")
+    # the diffusion column is a WALLED column (Neumann/Dirichlet rows);
+    # the measure-aware band reads the wall-including Outer face measure,
+    # so the solve axis is bounded
+    return IntervalMesh(N, (0.0, 1.0), periodic=False, name="z")
 
 
 @pytest.fixture
@@ -180,13 +183,18 @@ def test_dt_gamma_sweep_shares_one_compile(grid, mz, compile_counter):
 
 
 # ================================================================
-#  Field-valued kappa is the variable-coefficient follow-up
+#  Field-valued kappa is now accepted (the variable-coefficient column)
 # ================================================================
-def test_field_valued_kappa_is_rejected(grid, mz):
+def test_field_valued_kappa_matches_a_dense_reference(grid, mz):
+    # a constant field-valued kappa reproduces the scalar band exactly
+    # (face averaging of a constant is the constant): the acceptance
+    # contract that replaced the old rejection
     def kappa(_module, _state, _ctx, _name):
-        return field(grid, mz.center, np.ones(N))  # a ScalarField
+        return field(grid, mz.center, np.full(N, 0.05))  # a ScalarField
 
     op = VerticalDiffusion("z", ("b",), kappa)
-    state = VectorField({"b": field(grid, mz.center, np.zeros(N))})
-    with pytest.raises(NotImplementedError, match="constant"):
-        op.apply(None, state, None)
+    b0 = np.cos((np.arange(N) + 0.5) * 3 * np.pi / N)
+    state = VectorField({"b": field(grid, mz.center, b0)})
+    result = np.asarray(op.apply(None, state, None)["b"].data)
+    reference = dense_operator(grid, mz.center, "z", 0.05) @ b0
+    assert np.allclose(result, reference, atol=1e-12)

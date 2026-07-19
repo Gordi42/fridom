@@ -221,6 +221,16 @@ class AnalyticDistributedRoute:
         hook the eigenmode symbol kit rebuilds on.
     a_name : str
         The sharded coordinate name (the operand-layout check reads it).
+    can_synthesize : bool, optional
+        Whether the route exposes a fused backward-only :meth:`synthesize`
+        (the synthesis-only consumers -- random-state / ``mode()``). True
+        for the plain-Fourier route; **False** for the walled-vertical
+        route, whose internal frame re-designates the Hermitian half axis
+        to the full spectrum and so never coincides with the
+        single-device random-phase frame the :func:`hermitian_reframe`
+        bridge assumes -- there the synthesis-only consumers keep the
+        replicated (gathered, device-count invariant) backward (default:
+        True).
     """
 
     def __init__(
@@ -228,11 +238,19 @@ class AnalyticDistributedRoute:
         transform: DistributedTransform,
         coeff_of: Mapping[str, SpaceLike],
         a_name: str,
+        *,
+        can_synthesize: bool = True,
     ) -> None:
         """Store the transform, the frame map and the sharded axis."""
         self._transform: DistributedTransform = transform
         self._coeff_of: dict[str, SpaceLike] = dict(coeff_of)
         self._a_name: str = a_name
+        self._can_synthesize: bool = can_synthesize
+
+    @property
+    def can_synthesize(self) -> bool:
+        """Whether the fused backward-only :meth:`synthesize` is served."""
+        return self._can_synthesize
 
     def coeff_of(self, name: str) -> SpaceLike:
         """Return the internal coefficient frame of a component."""
@@ -278,15 +296,18 @@ def resolve_route(
 
     Description
     -----------
-    Resolves a
+    Tries the fully periodic (plain-Fourier) route first
+    (:func:`_resolve_periodic_route`): resolves a
     :class:`~fridom.spatial.operators.distributed_transform.DistributedTransform`
-    for every analysis component; declines (``None``) when any component
-    is unserved (single device, walled ``ComposedTransform``, padded /
-    non-1-D layout) or when the per-component transpose geometries
-    disagree (a defensive guard -- they coincide on a fully periodic
-    grid, verified for staggered ``u`` / ``v`` / ``w`` and collocated
-    ``b`` / ``p``). The representative transform is a prognostic
-    component's (all share the geometry).
+    for every analysis component and shares one transpose geometry. When
+    that declines (``None``) -- notably on the walled-vertical
+    ``ComposedTransform`` (``Fourier x Fourier x trig``) -- it falls back
+    to the walled-vertical route
+    (:func:`_resolve_walled_route`): the two periodic axes ride the
+    transpose pipeline and the bounded trig axis rides local inside the
+    fused region. Both declines (``None``) on a single device or a
+    non-1-D / padded layout, in which case the caller keeps its
+    bit-identical single-device path or the Tier-1 taught error.
 
     Parameters
     ----------
@@ -301,6 +322,32 @@ def resolve_route(
     -------
     AnalyticDistributedRoute | None
         The resolved route, or ``None`` when ineligible.
+    """
+    periodic = _resolve_periodic_route(grid, analysis_spaces, prognostic)
+    if periodic is not None:
+        return periodic
+    return _resolve_walled_route(grid, analysis_spaces, prognostic)
+
+
+def _resolve_periodic_route(
+    grid: object,
+    analysis_spaces: Mapping[str, SpaceLike],
+    prognostic: tuple[str, ...],
+) -> AnalyticDistributedRoute | None:
+    r"""
+    Resolve the fully periodic (plain-Fourier) route, or ``None``.
+
+    Description
+    -----------
+    Resolves a
+    :class:`~fridom.spatial.operators.distributed_transform.DistributedTransform`
+    for every analysis component; declines (``None``) when any component
+    is unserved (single device, a mixed ``ComposedTransform`` -- the
+    walled-vertical tier -- padded / non-1-D layout) or when the
+    per-component transpose geometries disagree (a defensive guard: they
+    coincide on a fully periodic grid, verified for staggered ``u`` /
+    ``v`` / ``w`` and collocated ``b`` / ``p``). The representative
+    transform is a prognostic component's (all share the geometry).
     """
     transforms: dict[str, DistributedTransform] = {}
     for name, space in analysis_spaces.items():
@@ -320,6 +367,45 @@ def resolve_route(
     coeff_of = {name: dt.coeff.bare for name, dt in transforms.items()}
     return AnalyticDistributedRoute(
         transforms[prognostic[0]], coeff_of, a_name)
+
+
+def _resolve_walled_route(
+    grid: object,
+    analysis_spaces: Mapping[str, SpaceLike],
+    prognostic: tuple[str, ...],
+) -> AnalyticDistributedRoute | None:
+    r"""
+    Resolve the walled-vertical (mixed) route, or ``None``.
+
+    Description
+    -----------
+    Builds the
+    :class:`~fridom.spatial.operators.distributed_transform.WalledVerticalTransform`
+    (the fused Fourier-transpose + local-trig region absorbing the
+    bounded axis + ``ModeChart`` embed/restrict into the stacked column)
+    and wraps it as an :class:`AnalyticDistributedRoute` on the internal
+    coefficient frame. Declines (``None``) on a single device, a non-1-D
+    layout, a component that is not a ``Fourier x Fourier x trig``
+    ``ComposedTransform``, or a layout that shards the bounded axis.
+    """
+    from fridom.spatial.operators.distributed_transform import (  # noqa: PLC0415 — deferred: avoid an import cycle at module load
+        resolve_walled_vertical_transform,
+    )
+    transform = resolve_walled_vertical_transform(
+        grid, dict(analysis_spaces), prognostic)
+    if transform is None:
+        return None
+    device_axes = grid.decomposition.default_layout.device_axes
+    if len(device_axes) != 1:
+        return None
+    (a_name, _), = device_axes
+    coeff_of = {name: transform.coeff_of(name) for name in analysis_spaces}
+    # the walled internal frame runs both periodic axes fully complex, so
+    # it never coincides with the single-device random-phase frame: the
+    # synthesis-only consumers (random-state / mode()) cannot ride the
+    # fused backward and keep the replicated (device-invariant) one.
+    return AnalyticDistributedRoute(
+        transform, coeff_of, a_name, can_synthesize=False)
 
 
 def analytic_route(
