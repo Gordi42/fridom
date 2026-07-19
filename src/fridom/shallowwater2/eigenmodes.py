@@ -44,6 +44,7 @@ along ``+k``; shallow water carries no constraint stage).
 """
 from __future__ import annotations
 
+import copy
 from typing import TYPE_CHECKING
 
 import jax.numpy as jnp
@@ -51,6 +52,8 @@ import numpy as np
 
 import fridom as fr
 from fridom.model.eigenstates import (
+    assemble_operator_matrix,
+    bare_coeff_field,
     coefficient_index,
     describe_nonfinite_branch,
     envelope_scale,
@@ -74,6 +77,7 @@ if TYPE_CHECKING:  # pragma: no cover
     from fridom.model.model import Model
     from fridom.spatial.fields.scalar_field import ScalarField
     from fridom.spatial.grid import Grid
+    from fridom.spatial.spaces.tensor_product import SpaceLike
 
 
 class Eigenmodes:
@@ -128,6 +132,16 @@ class Eigenmodes:
         }
         kit = GridSymbols(grid, spaces)
         self._kit: GridSymbols = kit
+        #: the analysis spaces the kit threads -- the frame hook rebuilds
+        #: the symbol kit on the distributed internal coefficient frame
+        #: from these (see :meth:`_reframe`)
+        self._analysis: dict[str, SpaceLike] = spaces
+        #: the prognostic component order the matrix stacks
+        self._components: tuple[str, ...] = ("u", "v", "p")
+        #: True on a frame clone for the distributed matrix route (folds
+        #: the ``k = 0`` inertial DC patch into a masked matrix entry so
+        #: the assembly stays shard-safe -- no static corner write)
+        self._distributed_matrix: bool = False
         face = {x: "u", y: "v"}
         axes = (x, y)
         self.k: dict[str, Symbol] = {
@@ -138,9 +152,13 @@ class Eigenmodes:
             n: kit.interp(n, on="p") for n in axes}
         self.ab: dict[str, Symbol] = {
             n: kit.interp(n, on=face[n]) for n in axes}
+        # coefficient-space zero fields (shape / dtype / wrap templates);
+        # built on the coefficient space directly -- NOT by forward-
+        # transforming a nodal field, which hits the Tier-1 taught error
+        # on a grid that shards a transform axis (the analytic surface
+        # must build on a sharded grid for the distributed route)
         self._templates: dict[str, ScalarField] = {
-            c: kit.forward(c)(grid.create_field(spaces[c]))
-            .with_metadata(name=c)
+            c: grid.create_field(kit.coeff(c)).with_metadata(name=c)
             for c in ("u", "v", "p")}
 
     # ================================================================
@@ -277,8 +295,33 @@ class Eigenmodes:
         """
         shape = self._templates[name].data.shape
         data = jnp.broadcast_to(sym.data, shape)
-        data = data.at[(0,) * len(shape)].set(value)
+        if self._distributed_matrix:
+            # a frame clone (distributed matrix route) folds the corner
+            # write into a k == 0 mask: the static ``.at[(0,) * ndim]``
+            # corner is a single shard's slot, unsafe when the assembled
+            # matrix is (later) threaded sharded, so express it pointwise
+            dc = self._dc_mask(sym.space, shape)
+            data = jnp.where(dc, jnp.asarray(value, dtype=data.dtype),
+                             data)
+        else:
+            data = data.at[(0,) * len(shape)].set(value)
         return Symbol(sym.space, data, codomain=sym.codomain)
+
+    def _dc_mask(
+        self, space: SpaceLike, shape: tuple[int, ...],
+    ) -> jax.Array:
+        r"""Boolean mask of the ``k = 0`` mean mode on a coeff frame.
+
+        The exact structural set where every axis wavenumber is zero (the
+        unique DC slot, on any coefficient frame) -- the frame-local,
+        shard-safe spelling of the ``.at[(0,) * ndim]`` corner write.
+        """
+        dc: jax.Array | None = None
+        for axis in self._axes:
+            kw = self.grid.wavenumbers(space, name=axis).data
+            here = kw == 0
+            dc = here if dc is None else (dc & here)
+        return jnp.broadcast_to(dc, shape)
 
     def _extend_nyquist_steady(
         self, column: dict[str, Symbol],
@@ -321,7 +364,11 @@ class Eigenmodes:
         x, y = self._axes
         mask = (self.a[x].magnitude ** 2
                 * self.a[y].magnitude ** 2).data == 0
-        if not bool(np.any(np.asarray(mask))):
+        # a frame clone (distributed matrix route) builds the supplement
+        # unconditionally (the mask is exact-zero off the strata); the
+        # host np.any gate would gather the internal-frame mask
+        if not self._distributed_matrix and not bool(
+                np.any(np.asarray(mask))):
             return column
         supplement = {
             "u": jnp.where(mask, jnp.conj(self.k[y].data), 0.0),
@@ -558,8 +605,19 @@ class Eigenmodes:
                                                  + shift))
                 data = hermitian_mode_data(
                     q[c].function_space, slots[c], value)
-                out[c] = self._kit.backward(c)(
-                    q[c].with_data(data)).real
+                # on a multi-device grid rebuild on the bare coefficient
+                # space so the backward runs unguarded (replicated,
+                # device invariant); single device keeps the original
+                # path bitwise. The Hermitian mirror pair is already in
+                # ``data`` before any region.
+                field = (
+                    bare_coeff_field(
+                        self.grid, self.grid.decomposition,
+                        q[c].function_space.bare, q[c], data)
+                    if getattr(self.grid.decomposition,
+                               "device_count", 1) > 1
+                    else q[c].with_data(data))
+                out[c] = self._kit.backward(c)(field).real
             return out
 
         z0 = synth(0.0)
@@ -570,6 +628,127 @@ class Eigenmodes:
         omega = float(jnp.broadcast_to(
             self.omega(s).data, shape)[slots["p"]])
         return omega, state
+
+    # ================================================================
+    #  Column / dual interface (shared with the distributed matrix)
+    # ================================================================
+    def _columns(self, s: int) -> tuple[dict[str, Symbol], ...]:
+        r"""Eigenvector column family of a branch (always one column).
+
+        The shallow-water branches carry a single eigenvector column
+        each (the ``k = 0`` inertial pair folded into the wave column by
+        :meth:`_patch_mean`, the even-grid Nyquist steady mode into the
+        geostrophic column by :meth:`_extend_nyquist_steady`) -- unlike
+        the nonhydro vortical branch there is no internal steady family.
+        This mirrors the nonhydro ``_columns`` interface the distributed
+        matrix assembler (``model.eigenstates.assemble_operator_matrix``)
+        consumes.
+        """
+        return (self._vec_q(s),)
+
+    def _dual(
+        self, q: dict[str, Symbol], s: int,  # noqa: ARG002 — interface
+    ) -> dict[str, jax.Array]:
+        r"""Biorthonormal dual diagonals of a column, as data arrays.
+
+        The Rayleigh dual under the shallow-water energy metric (the
+        same ``rayleigh_dual`` the :meth:`projector` / :meth:`function`
+        applicators use), exposed as data arrays for the distributed
+        matrix assembler.
+        """
+        dual = rayleigh_dual(q, self._energy_weights())
+        return {c: dual[c].data for c in q}
+
+    # ================================================================
+    #  Frame hook (the distributed matrix route)
+    # ================================================================
+    def _reframe(
+        self, coeff_of: Callable[[str], SpaceLike],
+    ) -> Eigenmodes:
+        r"""
+        Return a shallow clone reading a different coefficient frame.
+
+        Description
+        -----------
+        The frame hook: rebuilds the ``GridSymbols`` kit (and the
+        ``k`` / ``kb`` / ``a`` / ``ab`` diagonals, the coefficient-space
+        templates) on the supplied per-component coefficient frame -- the
+        transpose engine's internal frame (``dt.coeff.bare``, fully
+        complex on a 2-D periodic grid) -- while sharing every
+        frame-independent attribute. The clone carries the
+        ``_distributed_matrix`` flag, so its ``_patch_mean`` folds the
+        ``k = 0`` inertial DC into a mask (no static corner write) and
+        ``_extend_nyquist_steady`` builds unconditionally. Used only to
+        assemble the per-mode matrix on the frame; the home instance is
+        untouched (the single-device path stays bit-identical).
+
+        Parameters
+        ----------
+        coeff_of : Callable[[str], SpaceLike]
+            The per-component coefficient frame the symbols read.
+
+        Returns
+        -------
+        Eigenmodes
+            The frame clone.
+        """
+        clone = copy.copy(self)
+        override = {c: coeff_of(c) for c in self._analysis}
+        kit = GridSymbols(self.grid, self._analysis,
+                          coeff_spaces=override)
+        clone._kit = kit  # noqa: SLF001 — populating the clone
+        x, y = self._axes
+        face = {x: "u", y: "v"}
+        axes = (x, y)
+        clone.k = {n: kit.diff(n, on="p") for n in axes}
+        clone.kb = {n: kit.diff(n, on=face[n]) for n in axes}
+        clone.a = {n: kit.interp(n, on="p") for n in axes}
+        clone.ab = {n: kit.interp(n, on=face[n]) for n in axes}
+        clone._templates = {  # noqa: SLF001 — populating the clone
+            c: self.grid.create_field(override[c]).with_metadata(name=c)
+            for c in ("u", "v", "p")}
+        clone._distributed_matrix = True  # noqa: SLF001 — the clone
+        return clone
+
+    def operator_matrix(
+        self,
+        coeff_of: Callable[[str], SpaceLike],
+        *,
+        branches: tuple[int, ...],
+        f: Callable[[np.ndarray], np.ndarray] | None = None,
+    ) -> jax.Array:
+        r"""
+        Assemble the per-mode ``3 x 3`` operator matrix on a coeff frame.
+
+        Description
+        -----------
+        The frame-local operator for the fused distributed route:
+        ``sum_s w_s q^s (p^s)^H`` over ``branches`` (``f is None`` is the
+        projector ``w_s = 1``; otherwise ``w_s = f(omega_s)``), on the
+        internal coefficient frame ``coeff_of`` returns per component.
+        The matrix threads sharded into
+        :meth:`~fridom.spatial.operators.distributed_transform.DistributedTransform.apply_matrix`.
+
+        Parameters
+        ----------
+        coeff_of : Callable[[str], SpaceLike]
+            The per-component internal coefficient frame.
+        branches : tuple[int, ...]
+            The mode-branch selection.
+        f : Callable[[np.ndarray], np.ndarray] | None, optional
+            The scalar spectral function (``None`` is the projector)
+            (default: None).
+
+        Returns
+        -------
+        jax.Array
+            The per-mode matrix, shape ``(*coeff_bare, 3, 3)``.
+        """
+        clone = self._reframe(coeff_of)
+        shape = coeff_of(self._components[-1]).shape
+        return assemble_operator_matrix(
+            clone, branches=branches, components=self._components,
+            shape=shape, f=f)
 
     # ================================================================
     #  Internals

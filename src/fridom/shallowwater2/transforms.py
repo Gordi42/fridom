@@ -86,6 +86,7 @@ from fridom.model._eigenbasis import (
 from fridom.model._eigenbasis import (
     predicate_projection as predicate_projection,  # noqa: PLC0414 — re-export
 )
+from fridom.model.analytic_distributed import analytic_route
 from fridom.model.transforms.projection import (
     EigenProjection,
     ProjectionFactory,
@@ -119,7 +120,20 @@ def _project(
     transforms), applies ``sum_s em.projector(s)`` there (diagonal
     per wavenumber), and inverse-transforms back to each component's
     nodal space (layout and metadata kept).
+
+    On a grid whose default layout shards a transform axis the plain
+    per-component ``forward`` / ``backward`` hits the Tier-1 taught
+    error; the fully periodic state routes instead through the fused
+    ``jax.shard_map`` matrix apply (one per-mode ``3 x 3`` projector
+    matrix on the transpose engine's internal coefficient frame). The
+    single-device / replicated path below stays bit-identical.
     """
+    route = analytic_route(em, state)
+    if route is not None:
+        matrix = em.operator_matrix(route.coeff_of, branches=tuple(modes))
+        out = route.apply_matrix(
+            {name: state[name] for name in _COMPONENTS}, matrix)
+        return State({name: out[name] for name in _COMPONENTS})
     kit = em._kit  # noqa: SLF001 — package-internal kit access
     coeff = State({
         name: kit.forward(name)(state[name]) for name in _COMPONENTS})
