@@ -71,6 +71,37 @@ def test_missing_component_accessor_raises_hinted(accessor, match):
 
 
 # ================================================================
+#  Chart-native view (state.chart, ruling (d))
+# ================================================================
+def test_chart_is_identity_on_a_flat_grid():
+    # off a mapped grid every chart component is the stored physical
+    # field (the horizontal components are always the identity).
+    state = make_model().state
+    assert state.chart["w"] is state["w"]
+    assert state.chart["u"] is state["u"]
+    assert state.chart["v"] is state["v"]
+    # attribute access mirrors item access
+    assert state.chart.w is state["w"]
+    assert state.chart.u is state["u"]
+
+
+def test_chart_velocities_destructure_in_axis_order():
+    state = make_model().state
+    u, v, w = state.chart.velocities
+    assert u is state["u"]
+    assert v is state["v"]
+    assert w is state["w"]
+
+
+def test_chart_is_read_only():
+    chart = make_model().state.chart
+    with pytest.raises(TypeError, match="read-only"):
+        chart["w"] = None
+    with pytest.raises(AttributeError, match="read-only"):
+        chart.w = None
+
+
+# ================================================================
 #  Parameter-free diagnostics: rel_vort_z and hor_divergence
 # ================================================================
 def test_diagnostics_are_zero_at_rest():

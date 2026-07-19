@@ -21,6 +21,7 @@ import pytest
 
 import fridom as fr
 import fridom.hydrostatic as hy
+from fridom.hydrostatic.modules.terrain import slope_velocity_on_w
 from fridom.model.model import _chunk_body
 from fridom.spatial.coordinate_mapping import CoordinateMapping
 from fridom.spatial.immersed_domain import ImmersedDomain
@@ -131,31 +132,63 @@ def test_p_hyd_terrain_differs_from_the_plain_integral():
 
 
 # ================================================================
-#  H2a: w is the contravariant volume flux J*omega (flux form),
-#       FTC exact, w == 0 at the terrain bottom
+#  H2a: the STORED w is PHYSICAL; state.chart["w"] is the
+#       contravariant volume flux J*omega (flux form), FTC exact,
+#       flux == 0 at the terrain bottom (ruling (b))
 # ================================================================
-def test_diagnosed_w_is_the_flux_form_with_exact_ftc():
-    grid = _terrain_grid(16)
-    model = _model(grid)
+def _diagnosed(model, grid):
+    """Diagnose the physical w from a smooth (u, v); return a state."""
     su, sv = (model.state["u"].function_space,
               model.state["v"].function_space)
     u = _smooth(grid, su, lambda **c: jnp.sin(2 * jnp.pi * c["x"]))
     v = _smooth(grid, sv, lambda **c: jnp.cos(2 * jnp.pi * c["y"]))
     core = model.module(hy.HydrostaticCore)
     w = core._diagnose_w(model.state.replace(u=u, v=v), None)["w"]
+    return model.state.replace(u=u, v=v, w=w), u, v, w
 
+
+def test_chart_w_is_the_flux_form_with_exact_ftc():
+    # the STORED w is physical; state.chart["w"] exposes the
+    # contravariant volume flux J*omega -- the FTC-exact, zero-at-the-
+    # terrain working quantity the continuity cumint builds.
+    grid = _terrain_grid(16)
+    model = _model(grid)
+    st, u, v, _w = _diagnosed(model, grid)
+    flux = st.chart["w"]
+
+    su, sv = u.function_space, v.function_space
     jname = "dzp_dz"
     ju = u * grid.metric(su.bare, jname)
     jv = v * grid.metric(sv.bare, jname)
     dh = ju.diff("x") + jv.diff("y")
-    # fundamental theorem in J-weighted (flux) form: d_z w == -Dh
-    ftc = np.asarray(w.diff("z").data) + np.asarray(dh.data)
+    # fundamental theorem in J-weighted (flux) form: d_z (J*omega) == -Dh
+    ftc = np.asarray(flux.diff("z").data) + np.asarray(dh.data)
     assert np.abs(ftc).max() < 1e-11
-    # w == 0 at the terrain bottom (zero normal flow on the sigma column)
+    # the flux is exactly zero at the terrain bottom (zero normal flow)
+    fd = np.asarray(flux.data)
+    zaxis = next(i for i, f in enumerate(flux.function_space.bare.factors)
+                 if "z" in f.names)
+    assert np.abs(np.take(fd, 0, axis=zaxis)).max() == 0.0
+
+
+def test_stored_w_is_physical_and_nonzero_at_the_bed():
+    # the stored/public w is the physical vertical velocity
+    # w = J*omega + u Zx + v Zy: state["w"] == chart["w"] + slope (to
+    # machine precision) and it is nonzero at the bed over a slope (the
+    # *flux* vanishes at the terrain, not physical w -- fluid follows the
+    # tilted sigma surface).
+    grid = _terrain_grid(16)
+    model = _model(grid)
+    st, u, v, w = _diagnosed(model, grid)
+    flux = st.chart["w"]
+    slope = slope_velocity_on_w(u, v, w, ("zp", "z"), ("x", "y"), "z")
+    recon = np.asarray(flux.data) + np.asarray(slope.retag(w).data)
+    assert np.abs(recon - np.asarray(w.data)).max() < 1e-12
     wd = np.asarray(w.data)
     zaxis = next(i for i, f in enumerate(w.function_space.bare.factors)
                  if "z" in f.names)
-    assert np.abs(np.take(wd, 0, axis=zaxis)).max() < 1e-13
+    # nonzero at the bed over the seamount slope (correct physics)
+    assert np.abs(np.take(wd, 0, axis=zaxis)).max() > 1e-2
 
 
 def test_flat_w_is_byte_identical_to_the_cartesian_form():
@@ -240,14 +273,12 @@ def test_flat_pressure_gradient_is_the_plain_difference():
 
 
 def test_flat_restoring_is_the_plain_minus_n2_w():
-    # on a flat grid the stratification's terrain branch is off
-    # (column is None): db/dt is the plain -N^2 w.to(b), byte-for-byte,
-    # with no slope-advection term.
+    # the stratification module is the plain -N^2 w.to(b) on every grid
+    # now that the stored w is physical (the terrain slope-advection half
+    # migrated into the core's physical-w storage), so db/dt is
+    # byte-for-byte -N^2 w.to(b) with no terrain branch in the module.
     grid = _flat_grid(8)
     model = _model(grid)
-    strat = model.module(hy.ConstantStratification)
-    assert strat._column is None
-    assert strat.extra_halo is None
     rng = np.random.default_rng(5)
     model.set_fields(
         u=rng.standard_normal(model.state["u"].shape),
@@ -379,6 +410,35 @@ def test_terrain_model_assembles_and_runs():
                for k in ("u", "v", "b", "ps"))
     model.run(3, progress=False)
     assert bool(jnp.isfinite(model.state["u"].data).all())
+
+
+def test_terrain_advection_preserves_a_constant_tracer():
+    # Consumer census, shared advection (physical_state_components.md
+    # sec 1): after the physical-w flip the terrain velocity trio feeds
+    # the shared flux-form advection its physical fluxes (Jomega under
+    # the Velocity role was the latent O(slope) inconsistency). The
+    # model assembles with CenteredAdvection on terrain and preserves a
+    # spatially constant tracer to machine zero -- the constancy
+    # invariant of the well-formed terrain flux-form transport
+    # (restoring off, n2=0, to isolate the advection).
+    grid = _terrain_grid(16)
+    model = hy.Model(
+        grid=grid, dt=1e-3, csqr=CSQR,
+        stratification=hy.ConstantStratification(n2=0.0),
+        advection=True, free_surface=hy.ExplicitFreeSurface(),
+        time_stepper=fr.model.time_steppers.AdamBashforth(1e-3, order=3))
+    u = _smooth(grid, model.state["u"].function_space,
+                lambda **c: jnp.sin(2 * jnp.pi * c["x"])
+                * jnp.cos(2 * jnp.pi * c["y"]))
+    v = _smooth(grid, model.state["v"].function_space,
+                lambda **c: jnp.cos(2 * jnp.pi * c["x"])
+                * jnp.sin(2 * jnp.pi * c["y"]))
+    model.set_fields(
+        u=np.asarray(u.data), v=np.asarray(v.data),
+        b=np.ones(model.state["b"].shape),
+        ps=np.zeros(model.state["ps"].shape))
+    dX = model.tendency(model.state)
+    assert float(jnp.abs(dX["b"].data).max()) == 0.0
 
 
 def test_terrain_core_derives_the_stencil_halo():

@@ -140,16 +140,6 @@ the scoping §10–§13). Open:
   2026-07-17 (entry in [`done.md`](done.md); research + rulings in
   [`../research/stretched_terrain_combined.md`](../research/stretched_terrain_combined.md)).
   Open:
-  - **Hydrostatic physical `w` storage** (ruling (b) of
-    [`../decisions/physical_state_components.md`](../decisions/physical_state_components.md),
-    owner-ratified 2026-07-19; implementation in flight): the stored
-    state `w` becomes the physical `w = Jω + u·Zₓ + v·Z_y`; the
-    contravariant flux `Jω` stays an internal component reachable via
-    `state.chart`, the `d629a489` stratification slope spelling
-    migrates into the core diagnosis, and the shared advection's
-    velocity-trio contract (physical components) is satisfied on
-    terrain. Subsumes the former "diagnosed `w` output labeling"
-    question.
   - **nonhydro2 mapped energy leak — un-diagnosed cousin** (research
     §1.6 of
     [`../research/energy_metric_asymmetry.md`](../research/energy_metric_asymmetry.md)):
