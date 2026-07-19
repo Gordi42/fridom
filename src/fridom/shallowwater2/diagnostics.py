@@ -230,6 +230,74 @@ def etot_full(
     return kin + epot_full(state, params)
 
 
+# ================================================================
+#  Potential vorticity — the scheme's materially-conserved tracer
+# ================================================================
+def pot_vort(
+    state: VectorField, params: Mapping[str, object],
+) -> ScalarField:
+    r"""Potential vorticity ``q = (f + Ro zeta) / h`` at the corner.
+
+    Description
+    -----------
+    The shallow-water potential vorticity, on the north-east
+    vorticity corner (``sw.State.rel_vort``'s space):
+
+    .. math::
+        q = \frac{f + \mathrm{Ro}\,\zeta}{h} , \qquad
+        h = c^2 + \mathrm{Ro}\,p ,
+
+    with :math:`\zeta` the metric-aware relative vorticity
+    (``sw.State.rel_vort`` — the :math:`\sqrt g`-weighted circulation
+    of the *physical* components on a chart grid, not a flat
+    cross-derivative), :math:`f` the Coriolis parameter read from the
+    carried ``f_coriolis`` field (so it tracks an ``f(y)`` beta plane,
+    the lat-lon sphere, and a time-dependent :math:`f`), and :math:`h`
+    the full geopotential thickness (``thickness``). Carries the
+    Rossby number and (through ``thickness``) :math:`c^2`.
+
+    This is the **vector-invariant** potential vorticity that the
+    Sadourny advection plus the conserving Coriolis flux actually
+    transport (the combined :math:`(f + \mathrm{Ro}\,\zeta)/h`,
+    ``sw.modules.coriolis``): it is the scheme's materially-conserved
+    tracer, so a nonlinear run advects its extrema to advective-scheme
+    tolerance (unlike the quadratic energy, which the split Coriolis
+    produces at :math:`O(\mathrm{Ro})`).
+
+    .. note::
+
+        The Rossby factor on :math:`\zeta` is the scaling delta from
+        the old-stack ``sw.State.pot_vort`` (which spelled the
+        unscaled :math:`(\zeta + f)/h`): the two agree at
+        :math:`\mathrm{Ro} = 1`, but only the scaled form here is the
+        model's material invariant (the old form drifts at
+        :math:`O(\mathrm{Ro} - 1)` in a nonlinear run).
+
+    Parameters
+    ----------
+    state : VectorField
+        The shallow-water state; reads ``u``, ``v``, ``p``, ``csqr``
+        and ``f_coriolis`` (through ``rel_vort`` and ``thickness``).
+    params : Mapping[str, object]
+        The bound parameters; reads ``scaling.rossby`` and, through
+        ``thickness``, ``shallowwater.csqr``.
+
+    Returns
+    -------
+    ScalarField
+        The potential vorticity on the vorticity corner.
+    """
+    rossby = params[ROSSBY]
+    zeta = state.rel_vort
+    corner = zeta.function_space
+    f = state["f_coriolis"].to(corner)
+    h = thickness(state, params).to(corner)
+    q = (f + rossby * zeta) / h
+    return q.with_metadata(
+        name="pot_vort", long_name="Potential vorticity",
+        units="s/m^2")
+
+
 DIAGNOSTICS = {
     "ekin": ekin,
     "epot": epot,
@@ -237,4 +305,5 @@ DIAGNOSTICS = {
     "epot_full": epot_full,
     "etot_full": etot_full,
     "thickness": thickness,
+    "pot_vort": pot_vort,
 }
