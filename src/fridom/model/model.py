@@ -103,6 +103,7 @@ if TYPE_CHECKING:  # pragma: no cover
         TimeStepper,
     )
     from fridom.spatial.grid import Grid
+    from fridom.spatial.spaces.tensor_product import TensorProductSpace
 
 _log = logging.getLogger(__name__)
 
@@ -1711,6 +1712,71 @@ class Model:
     def field_table(self) -> FieldTable:
         """The resolved field table (names, spaces, lifecycles)."""
         return self._artifacts.field_table
+
+    # ================================================================
+    #  State factory (host; section 6.1)
+    # ================================================================
+    def blank_state(self) -> VectorField:
+        r"""
+        Build a fresh PROGNOSTIC state at declared defaults.
+
+        Description
+        -----------
+        The State factory every IC recipe and transform builds on
+        ([`04_run_loop_io.md`] §6.1): the PROGNOSTIC subset of the
+        field table, each component a zero-valued field born on the
+        grid (sharded like the carry). Thin sugar over the field
+        table — one :meth:`state_space` + ``grid.create_field`` per
+        PROGNOSTIC component, packed into the model's state class.
+
+        Returns
+        -------
+        VectorField
+            A fresh state carrying the PROGNOSTIC components at their
+            zero defaults, in declaration order.
+
+        Raises
+        ------
+        ValueError
+            If this composition declares no PROGNOSTIC field (legal,
+            CS-13), so there is no state to build.
+        """
+        table = self._artifacts.field_table
+        names = table.prognostic
+        if not names:
+            raise ValueError(
+                "this composition declares no PROGNOSTIC field "
+                "(legal, CS-13), so there is no blank state to build")
+        state_type = self._artifacts.record.state_type
+        return state_type(
+            {name: self._zero_field(table[name]) for name in names})
+
+    def state_space(self, name: str) -> TensorProductSpace:
+        r"""
+        Return the function space of a declared component.
+
+        Description
+        -----------
+        The space an IC recipe feeds ``grid.create_field`` to build
+        one component by hand ([`04_run_loop_io.md`] §6.1). Thin
+        sugar over ``model.field_table[name].space``.
+
+        Parameters
+        ----------
+        name : str
+            A declared field name.
+
+        Returns
+        -------
+        TensorProductSpace
+            The resolved bare space of ``name``.
+
+        Raises
+        ------
+        MissingFieldError
+            If no module declares ``name``.
+        """
+        return self._artifacts.field_table[name].space
 
     @property
     def chunk_size(self) -> int:

@@ -389,8 +389,9 @@ eval_params, StepContext, per-ADVANCE buffers); ship incrementally:
 
 Carried in [`07_open_threads.md`](07_open_threads.md): the
 explicit-`order=` vs topological-sort upgrade for DIAGNOSTIC chains;
-`add_prognostic` (key-aligned add of PROGNOSTIC-only vectors —
-small fields.md follow-up); the restart-fingerprint rule
+the key-aligned add of PROGNOSTIC-only vectors, served finally by
+`state.add(**components)` (`add_prognostic` STRUCK, 07 §9.1 item 3);
+the restart-fingerprint rule
 consolidation (per-term treatments + stepper statics + Ramp specs +
 module tuple); backward-run sign conventions through `stage_dt`;
 initial host-side projection of non-divergence-free ICs (D4/IC);

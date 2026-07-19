@@ -220,8 +220,10 @@ def test_state_argument_matches_set_state_then_advance():
     run = model.propagator(wrt=(), steps=STEPS)
     # a PARTIAL PROGNOSTIC state (only b, c) on the model's OWN grid:
     # the absent u must fall through to the base carry both sides.
+    # blank_state() is the State factory recipe: a fresh PROGNOSTIC
+    # scaffold at declared defaults (04 section 6.1), filled per name.
     rng = np.random.default_rng(3)
-    base = model.state
+    base = model.blank_state()
     external = fr.spatial.VectorField({
         c: base[c].with_data(jnp.asarray(
             rng.standard_normal(np.asarray(base[c].data).shape)))
