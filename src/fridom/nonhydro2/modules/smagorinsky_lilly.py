@@ -79,7 +79,6 @@ from typing import TYPE_CHECKING
 
 import jax
 import jax.numpy as jnp
-import numpy as np
 
 import fridom as fr
 from fridom.framework.utils import jaxify, modify_array
@@ -293,7 +292,6 @@ class SmagorinskyLilly(ClosureBase):
         self._vertical = vertical
         self._vel_axes: tuple[tuple[str, str], ...] = ()
         self._target_axes: tuple[tuple[str, tuple[str, ...]], ...] = ()
-        self._filter_width: float = 0.0
         # the bounded (walled) coordinate names, frozen at bind; empty
         # on a fully periodic grid (the periodic path stays bit-for-bit)
         self._walled: frozenset[str] = frozenset()
@@ -338,17 +336,16 @@ class SmagorinskyLilly(ClosureBase):
     )
 
     # ================================================================
-    #  Bind: velocity axes, mixing axes, filter width
+    #  Bind: velocity axes, walls, slip, mixing axes
     # ================================================================
     def bind(self, table: FieldTable) -> None:
-        r"""Resolve mixing targets (base), velocities, walls, and width.
+        r"""Resolve mixing targets (base), velocities, walls, and slip.
 
         Raises
         ------
         NotImplementedError
             On a walled finite-volume (``CellAvg``) grid, on an
-            unsupported wall placement (a fixed-value cell wall), on
-            non-uniform mesh factors (no constant filter width), or
+            unsupported wall placement (a fixed-value cell wall), or
             with transverse (slaved) velocity components (no
             directional derivative).
         AssemblyError
@@ -359,7 +356,6 @@ class SmagorinskyLilly(ClosureBase):
         """
         super().bind(table)
         owner = type(self).__name__
-        factors = getattr(table.grid, "factors", ())
         selector = table.velocity()
         if selector.transverse:
             raise NotImplementedError(
@@ -384,17 +380,6 @@ class SmagorinskyLilly(ClosureBase):
                 "the N^2 = d(b)/dz read")
         self._walled = self._classify_walls(table, owner)
         self._no_slip_axes = self._resolve_no_slip_axes(owner)
-        spacings = []
-        for mesh in factors:
-            dx = getattr(mesh, "dx", None)
-            if dx is None:
-                raise NotImplementedError(
-                    f"{owner} needs a uniform structured grid for "
-                    f"its constant filter width; the mesh factor "
-                    f"{mesh!r} has no uniform spacing")
-            spacings.append(float(dx))
-        volume = float(np.prod(spacings))
-        self._filter_width = volume ** (1.0 / len(spacings))
         self._target_axes = tuple(
             (name, tuple(table[name].space.names))
             for name in self.targets)
@@ -557,7 +542,35 @@ class SmagorinskyLilly(ClosureBase):
             bz = bz.retag(_dirichlet_edge(bz, self._vertical))
         n2 = bz.to(anchor) + n2_bg
         damped = _positive_part(sigma2 - beta * _positive_part(n2))
-        return (cs * self._filter_width) ** 2 * _guarded_sqrt(damped)
+        width = self._filter_width_field(anchor)
+        return (cs * width) ** 2 * _guarded_sqrt(damped)
+
+    def _filter_width_field(
+        self, anchor: ScalarField,
+    ) -> ScalarField | float:
+        r"""Return the per-cell filter width :math:`\Delta` at centers.
+
+        :math:`\Delta = (\prod_i \Delta x_i)^{1/n}`, the geometric mean
+        of the local cell widths read from ``grid.measure`` on the
+        centre space ``anchor`` lives on (no Scotti anisotropy factor,
+        matching Oceananigans / MOM6). On a uniform mesh every
+        ``measure`` is the constant ``dx``, so :math:`\Delta` is the
+        constant scalar the old closure used — bit-for-bit — while a
+        stretched mesh gets its true per-cell width. The multiply into
+        :math:`\nu_s` is pointwise (zero halo reach), so the grid-less
+        halo tracer takes a reach-neutral scalar ``1.0`` and the traced
+        stencil is unchanged.
+        """
+        grid = anchor.grid
+        if not hasattr(grid, "measure"):
+            return 1.0
+        space = anchor.function_space
+        axes = space.bare.names
+        volume = None
+        for axis in axes:
+            width = grid.measure(space, axis)
+            volume = width if volume is None else volume * width
+        return volume ** (1.0 / len(axes))
 
     def _no_slip_sigma2(
         self, state: object, sigma2: ScalarField, anchor: ScalarField,
