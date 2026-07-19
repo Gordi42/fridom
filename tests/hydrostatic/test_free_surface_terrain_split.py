@@ -9,8 +9,11 @@ depth and ``H_ref`` the constant vertical mesh extent, the ps substep is
 coefficient, no ``1/H(x, y)`` division), the transports are ``U = H_a
 ubar``, and the S4 depth-mean correction targets ``U/H(x, y)`` with the
 variable per-column depth. The SM2005 filter is unchanged (frozen §5.4).
-Terrain + immersed stays a narrowed taught error. Self-contained builders
-(AGENTS oversized-module rule).
+Terrain + immersed now composes too (owner ruling 2026-07-19, the
+narrowed taught error lifted): the wet J-weighted reductions
+``H_a = int(alpha J dz)`` and ``ubar = int(alpha J q dz) / int(alpha J
+dz)`` with the cut-cell open-face gate. Self-contained builders (AGENTS
+oversized-module rule).
 """
 import hashlib
 
@@ -115,8 +118,14 @@ def _state_bytes_sha(model, *, normalize_signed_zero):
     return h.hexdigest()
 
 
+@pytest.mark.single_device
 def test_flat_chart_matches_the_unmapped_subcycle():
     r"""A J == 1 sigma chart is bitwise the unmapped split-explicit.
+
+    Single-device: the byte-for-byte identity holds under one device;
+    forced multi-device CPU re-associates the reductions (the standing
+    multi-device-bitwise backend gotcha), so the raw-byte comparison is a
+    single-controller invariant.
 
     With H(x, y) == 1 (identity map, J == 1) and a power-of-two vertical
     extent / spacing, the terrain subcycle's ``c^2/H_ref`` and ``H_a``
@@ -372,21 +381,184 @@ def test_terrain_subcycle_runs_under_forced_devices():
 
 
 # ================================================================
-#  Terrain + immersed stays a narrowed taught error
+#  Terrain + immersed: the composed wet, J-weighted subcycle
+#  (owner ruling 2026-07-19 — the narrowed taught error is lifted).
+#  H_a = int(alpha J dz), ubar = int(alpha J q dz) / int(alpha J dz),
+#  the open-face gate keeps a closed face out of the correction.
 # ================================================================
-def _cut(x, y, zp):
-    # a partial-bottom cut that leaves the upper column wet
-    bed = -0.5 - 0.1 * jnp.cos(2 * jnp.pi * x) * jnp.cos(2 * jnp.pi * y)
-    return zp > bed
+def _cut(x, y, z):
+    # a fractional partial bottom (z-named) leaving the upper columns wet
+    bed = -0.5 + 0.1 * jnp.sin(2 * jnp.pi * x) * jnp.cos(2 * jnp.pi * y)
+    return jnp.clip((z - bed) / 0.125 + 0.5, 0.0, 1.0)
 
 
-def test_terrain_plus_immersed_is_a_narrowed_taught_error():
-    grid = fr.spatial.Grid((
-        IM(8, (0.0, 1.0), periodic=True, name="x"),
-        IM(8, (0.0, 1.0), periodic=True, name="y"),
-        IM(8, (-1.0, 0.0), periodic=False, name="z")),
-        mapping=_mapping(),
-        immersed=ImmersedDomain(_cut, order=4, min_fraction=0.1))
-    with pytest.raises(NotImplementedError, match="immersed"):
-        _model(grid, substeps=4,
-               stepper=fr.model.time_steppers.AdamBashforth(2e-3, order=2))
+def _allwet(x, y, z):  # noqa: ARG001 — an all-wet (alpha == 1) chart
+    return x * 0.0 + 1.0
+
+
+def _terrain_immersed_grid(n, nz, *, init=_cut, depth=_wavy, order=4,
+                           min_fraction=0.1):
+    return fr.spatial.Grid((
+        IM(n, (0.0, 1.0), periodic=True, name="x"),
+        IM(n, (0.0, 1.0), periodic=True, name="y"),
+        IM(nz, (-1.0, 0.0), periodic=False, name="z")),
+        mapping=_mapping(depth),
+        immersed=ImmersedDomain(init, order=order,
+                                min_fraction=min_fraction))
+
+
+def test_terrain_immersed_split_engages_and_runs_finite():
+    # gate: the lifted taught error — a terrain + immersed grid now
+    # assembles and the composed wet J-weighted subcycle runs finite.
+    grid = _terrain_immersed_grid(16, 8)
+    model = _model(grid, substeps=8, f0=0.5, n2=1.0)
+    fs = _fs(model)
+    assert fs._column == ("zp", "z")
+    assert fs._immersed is not None
+    assert {"ps", "U", "V"} <= set(model.state.component_names)
+    _random_ic(model, seed=1, scale=0.3)
+    model.advance(20)
+    assert not model.panicked
+    for k in ("u", "v", "b", "ps", "U", "V"):
+        assert bool(np.isfinite(np.asarray(model.state[k].data)).all()), k
+    assert float(np.abs(np.asarray(model.state["ps"].data)).max()) < 50.0
+
+
+def test_terrain_immersed_all_wet_matches_pure_terrain():
+    # gate (ii): an all-wet (alpha == 1) cut chart reproduces the pure
+    # terrain subcycle to round-off — the wet J-weighted reductions
+    # (int alpha J dz, int alpha J q dz / int alpha J dz) collapse to the
+    # plain terrain physical depth and J-weighted mean.
+    wet = _model(_terrain_immersed_grid(12, 4, init=_allwet), substeps=8,
+                 csqr=2.0)
+    pure = _model(_terrain_grid(12, 4), substeps=8, csqr=2.0)
+    assert _fs(wet)._immersed is not None
+    assert _fs(pure)._immersed is None
+    _random_ic(wet, seed=5, scale=0.5)
+    _random_ic(pure, seed=5, scale=0.5)
+    wet.advance(12)
+    pure.advance(12)
+    for name in ("ps", "U", "V", "u", "v"):
+        a = np.asarray(wet.state[name].data)
+        b = np.asarray(pure.state[name].data)
+        assert np.allclose(a, b, rtol=0.0, atol=1e-11), name
+
+
+def test_terrain_immersed_reductions_are_j_weighted():
+    # gate: the wet transport depth is int(alpha J dz) (NOT int alpha dz,
+    # NOT int J dz): _physical_depth and _transport_depth agree bitwise on
+    # a cut chart and both carry the column Jacobian.
+    grid = _terrain_immersed_grid(16, 8)
+    im = _model(grid, substeps=8)
+    fs = _fs(im)
+    h_phys = np.asarray(fs._physical_depth(im.state["u"]).data)
+    h_trans = np.asarray(fs._transport_depth(im.state["u"]).data)
+    # the alpha-aware _physical_depth and the J-aware _transport_depth
+    # compute the identical wet J-weighted face depth
+    assert np.array_equal(h_phys, h_trans)
+    # a pure (unimmersed) terrain chart's plain int(J dz) is strictly
+    # deeper everywhere (alpha <= 1 removes the blocked sub-column)
+    pure = _model(_terrain_grid(16, 8), substeps=8)
+    h_pure = np.asarray(_fs(pure)._physical_depth(pure.state["u"]).data)
+    assert (h_phys <= h_pure + 1e-13).all()
+    assert (h_phys < h_pure - 1e-3).any()      # genuinely wet-weighted
+
+
+def test_terrain_immersed_ps_volume_conserved():
+    # gate (iv): plain int(ps) is conserved to machine precision on a wet
+    # terrain run — a cut face (H_a == 0) carries no transport, so the
+    # volume-exact ps forward step still telescopes to zero.
+    model = _model(_terrain_immersed_grid(16, 8), csqr=2.0, f0=0.5,
+                   n2=1.0, substeps=8)
+    _random_ic(model, seed=2, scale=0.3)
+
+    def volume():
+        return float(jnp.sum(model.state["ps"].integrate().data))
+
+    before = volume()
+    model.advance(20)
+    after = volume()
+    assert not model.panicked
+    assert abs(after - before) < 1e-12 * max(abs(before), 1.0)
+
+
+def test_terrain_immersed_rest_state_matches_the_explicit_oracle():
+    # gate (iii): a stratified fluid at rest over a cut topography stays at
+    # rest — the split subcycle injects no spurious barotropic mode, so its
+    # residual matches the explicit oracle's and both stay small.
+    grid = _terrain_immersed_grid(16, 8)
+    split = _rest_run(grid, SEFS(substeps=16))
+    oracle = _rest_run(grid, hy.ExplicitFreeSurface())
+    assert not split.panicked
+    su = float(jnp.abs(split.state["u"].data).max())
+    eu = float(jnp.abs(oracle.state["u"].data).max())
+    assert su < 5e-2
+    assert su == pytest.approx(eu, rel=0.05)
+
+
+def test_terrain_immersed_seeds_the_wet_j_transport():
+    # gate (v): set_fields seeds U = ubar_wet * int(alpha J dz) with the
+    # wet J-weighted depth mean and face depth (derive_initial_fields).
+    grid = _terrain_immersed_grid(16, 8)
+    model = _model(grid, substeps=16)
+    model.set_fields(u=_z_uniform(model, "u", 0),
+                     v=_z_uniform(model, "v", 1))
+    fs = _fs(model)
+    h_u = np.asarray(fs._physical_depth(model.state["u"]).data)
+    h_v = np.asarray(fs._physical_depth(model.state["v"]).data)
+    ubar = np.asarray(fs._wet_depth_mean(model.state["u"]).data)
+    vbar = np.asarray(fs._wet_depth_mean(model.state["v"]).data)
+    assert np.abs(np.asarray(model.state["U"].data)
+                  - ubar * h_u).max() < 1e-12
+    assert np.abs(np.asarray(model.state["V"].data)
+                  - vbar * h_v).max() < 1e-12
+    # the seeded depth is the wet J-weighted depth (below the ~1 extent)
+    assert float(h_u.max()) < 0.75
+
+
+def test_grad_through_terrain_immersed_split_matches_fd():
+    # gate (vi): reverse-mode autodiff through a short terrain + immersed
+    # subcycle is finite (the only division, _guarded_inverse, keeps its
+    # double-where seal) and matches a central finite difference.
+    model = _model(_terrain_immersed_grid(8, 4), substeps=8, f0=0.5,
+                   n2=0.0, dt=2e-3)
+    rng = np.random.default_rng(1)
+    model.set_fields(ps=0.1 * rng.standard_normal(model.state["ps"].shape))
+    record = model._artifacts.record
+    carry = model._carry
+    stepper = model._stepper
+    leaf = carry.state["ps"].storage
+    leaves, treedef = jax.tree_util.tree_flatten(carry)
+    (idx,) = [i for i, ref in enumerate(leaves) if ref is leaf]
+
+    def loss(x):
+        new = list(leaves)
+        new[idx] = x
+        spliced = jax.tree_util.tree_unflatten(treedef, new)
+        final = _chunk_body(record, 6, spliced, stepper)
+        return sum(jnp.sum(f.data ** 2) for f in final.state)
+
+    grad = np.asarray(jax.grad(loss)(leaf))
+    assert bool(np.all(np.isfinite(grad)))
+    direction = jnp.asarray(
+        np.random.default_rng(2).standard_normal(leaf.shape),
+        dtype=leaf.dtype)
+    directional = float(jnp.vdot(jnp.asarray(grad), direction))
+    eps = 1e-4
+    fd = (float(loss(leaf + eps * direction))
+          - float(loss(leaf - eps * direction))) / (2.0 * eps)
+    assert directional == pytest.approx(fd, rel=1e-4)
+
+
+@pytest.mark.multi_device
+def test_terrain_immersed_subcycle_runs_under_forced_devices():
+    # gate (viii): the composed terrain + immersed subcycle runs under
+    # forced host devices (the single-controller GSPMD gate).
+    grid = _terrain_immersed_grid(16, 8)
+    model = _model(grid, substeps=16, csqr=9.0, f0=0.5, n2=1.0)
+    _random_ic(model, seed=7, scale=0.3)
+    model.advance(20)
+    umax = float(np.abs(np.asarray(model.state["u"].data)).max())
+    assert not model.panicked
+    assert np.isfinite(umax)
+    assert umax > 0.0

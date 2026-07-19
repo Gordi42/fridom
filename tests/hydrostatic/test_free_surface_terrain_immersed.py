@@ -403,16 +403,32 @@ def test_dry_dof_hygiene_over_a_run():
 
 
 # ================================================================
-#  Split-explicit still refuses a terrain grid (taught error)
+#  Split-explicit now composes on a terrain + immersed grid (the
+#  narrowed taught error is lifted, owner ruling 2026-07-19); the
+#  deeper gates live in test_free_surface_terrain_split.py.
 # ================================================================
-def test_split_explicit_refuses_terrain_immersed():
-    with pytest.raises(NotImplementedError, match="terrain-following"):
-        hy.Model(
-            grid=_grid(a=0.4), dt=0.01, csqr=3.0,
-            free_surface=hy.SplitExplicitFreeSurface(substeps=8),
-            advection=False,
-            time_stepper=fr.model.time_steppers.AdamBashforth(
-                0.01, order=2))
+def test_split_explicit_composes_on_terrain_immersed():
+    m = hy.Model(
+        grid=_grid(a=0.4), dt=0.01, csqr=3.0,
+        free_surface=hy.SplitExplicitFreeSurface(substeps=8),
+        advection=False,
+        time_stepper=fr.model.time_steppers.AdamBashforth(0.01, order=2))
+    fs = m.module(hy.SplitExplicitFreeSurface)
+    assert fs._column is not None
+    assert fs._immersed is not None
+    rng = np.random.default_rng(0)
+    m.set_fields(**{k: 0.2 * rng.standard_normal(m.state[k].shape)
+                    for k in ("u", "v", "ps")})
+
+    def volume():
+        return float(jnp.sum(m.state["ps"].integrate().data))
+
+    v0 = volume()
+    m.advance(8)
+    assert not m.panicked
+    assert bool(jnp.isfinite(m.state["ps"].data).all())
+    # the volume-exact (int alpha J dz) signature: plain int(ps) conserved
+    assert abs(volume() - v0) < 1e-12 * max(abs(v0), 1.0)
 
 
 # ================================================================
