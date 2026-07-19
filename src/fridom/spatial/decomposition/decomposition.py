@@ -867,6 +867,43 @@ def _registry_halo(
     return HaloSpec(widths)
 
 
+def _ghost_traits(mesh: object) -> tuple[bool, int]:
+    """
+    Whether a mesh declares GHOST sharding, and its min_local_size.
+
+    Description
+    -----------
+    Scans the mesh's ghost-shardable space families
+    (:data:`_GHOST_FAMILY`) for the ``GHOST`` strategy, returning
+    whether any declares it and the widest ``min_local_size`` among
+    those that do (1 when none is wider). The shared candidacy reading
+    of :func:`_cap_for_sharding` and :func:`_shardable_names`, so both
+    agree on which axes can ever shard.
+
+    Parameters
+    ----------
+    mesh : object
+        A 1-D mesh factor.
+
+    Returns
+    -------
+    tuple[bool, int]
+        ``(declares_ghost, min_local_size)``.
+    """
+    ghost = False
+    min_local = 1
+    for attr in _GHOST_FAMILY:
+        try:
+            space = getattr(mesh, attr)
+        except (AttributeError, ValueError, NotImplementedError):
+            continue  # factory absent on this mesh type/topology
+        traits = mesh.decomposition_traits(space)
+        if HaloStrategy.GHOST in traits.strategies:
+            ghost = True
+            min_local = max(min_local, traits.min_local_size)
+    return ghost, min_local
+
+
 def _cap_for_sharding(
     meshes: tuple[object, ...],
     spec: HaloSpec,
@@ -891,6 +928,17 @@ def _cap_for_sharding(
     width and fails negotiation exactly as before). Heavy padding
     (``last < 1``: trailing shards empty) is not shardable, so no cap
     is derived.
+
+    The cap is scoped to **genuine sharding candidates**: a factor
+    that declares the ``GHOST`` strategy and whose shortest shard
+    covers ``min_local_size`` (and holds at least one cell). An axis
+    that can never shard — a short walled vertical, a non-GHOST
+    (TRANSPOSE/LOCAL) factor like a spectral or Chebyshev axis — keeps
+    its traced sync-free width untouched (fewer mid-chain exchanges),
+    since capping it could never buy shardability. The ``width + 1``
+    per-shard fit stays where it belongs, in :func:`_shardable_names`
+    (folding it into candidacy here would be circular — it depends on
+    the very width being capped).
 
     Parameters
     ----------
@@ -920,6 +968,13 @@ def _cap_for_sharding(
         cells = -(-n_cells // devices)
         last = n_cells - (devices - 1) * cells
         if last < 1:
+            continue
+        # cap only genuine sharding candidates (GHOST strategy, shortest
+        # shard clears min_local_size); a never-shardable axis keeps its
+        # traced width. The width + 1 fit is deferred to
+        # _shardable_names (circular here — it depends on the cap).
+        ghost, min_local = _ghost_traits(mesh)
+        if not ghost or last < min_local:
             continue
         cap = last - 1
         for name in mesh.names:
@@ -998,17 +1053,7 @@ def _shardable_names(
         last = n_cells - (devices - 1) * cells
         if last < 1:
             continue
-        ghost = False
-        min_local = 1
-        for attr in _GHOST_FAMILY:
-            try:
-                space = getattr(mesh, attr)
-            except (AttributeError, ValueError, NotImplementedError):
-                continue  # factory absent on this mesh type/topology
-            traits = mesh.decomposition_traits(space)
-            if HaloStrategy.GHOST in traits.strategies:
-                ghost = True
-                min_local = max(min_local, traits.min_local_size)
+        ghost, min_local = _ghost_traits(mesh)
         if not ghost:
             continue
         rank = _shard_rank(mesh, n_cells, devices)
