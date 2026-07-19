@@ -78,6 +78,28 @@ def test_immersed_core_derives_width_one():
 
 
 # ================================================================
+#  Taught error: chart + immersed is unsupported (silent wrong physics)
+# ================================================================
+def test_linear_chart_plus_immersed_is_a_taught_error():
+    # a grid carrying BOTH a chart and an immersed domain must be
+    # refused at bind even for a *linear* model (advection=False, so no
+    # SadournyAdvection guard runs): the chart gravity/continuity path
+    # is unmasked, so it would silently ignore the immersed mask and let
+    # the geopotential flux cross the wet-region boundary. sw2
+    # mapped+immersed is a recorded follow-up of the mapped+immersed
+    # composition plan. Mirrors the SadournyAdvection.bind guard.
+    grid = Grid(
+        (_mesh(8, "x"), _mesh(8, "y")),
+        mapping=fr.spatial.CoordinateMapping(
+            chart={"X": lambda x, y: (x + 0.4 * y, y, 0.0 * x)}),
+        immersed=ImmersedDomain(lambda x, y: x * 0.0 + 1.0))  # noqa: ARG005
+    with pytest.raises(NotImplementedError,
+                       match="BOTH an embedding chart"):
+        sw.Model(grid=grid, coords=("x", "y"), csqr=0.7,
+                 rossby_number=0.2, coriolis=None, advection=False)
+
+
+# ================================================================
 #  Parity: derived width 1 reproduces the old width 2 (bitwise)
 # ================================================================
 def test_non_orthogonal_chart_parity_with_forced_width_two():

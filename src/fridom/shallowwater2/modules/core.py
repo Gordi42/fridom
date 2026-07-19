@@ -385,11 +385,32 @@ class DynamicalCore(fr.model.Module):
             family does not match ``coords`` in the grid's factor
             order (the metric-aware kinds match vector components
             to axes positionally, so the order is load-bearing).
+        NotImplementedError
+            If the grid carries **both** an embedding chart and an
+            immersed domain: the chart gravity/continuity path is
+            unmasked, so it would silently ignore the immersed mask
+            (silent wrong physics) — the same deferral the Sadourny
+            advection guard names. This fires regardless of the
+            ``advection`` setting, so even a linear model is refused.
         """
         grid = table.grid
         self._immersed = getattr(grid, "immersed", None) is not None
         chart = grid.chart_coords
         self._charted = chart is not None
+        if chart is not None and self._immersed:
+            raise NotImplementedError(
+                "DynamicalCore does not support a grid carrying "
+                "BOTH an embedding chart and an immersed (cut-cell) "
+                "domain: the metric-aware chart gravity/continuity "
+                "path is unmasked, so it would silently ignore the "
+                "immersed mask and let the geopotential flux cross "
+                "the wet-region boundary (silent wrong physics — the "
+                "fraction-weighted immersed path is flat-only). This "
+                "is refused for any sw2 model on such a grid, linear "
+                "or not. sw2 mapped+immersed is a recorded follow-up "
+                "of the mapped+immersed composition plan; until it "
+                "lands, drop the immersed domain or run on an "
+                "unmapped (flat) grid.")
         if chart is not None:
             expected = tuple(
                 name for name in grid.names if name in set(chart))
