@@ -9,7 +9,10 @@ import numpy as np
 import pytest
 
 import fridom.nonhydro2 as nh
-from fridom.model.errors import TimeDependentParameterError
+from fridom.model.errors import (
+    MissingParameterError,
+    TimeDependentParameterError,
+)
 from fridom.model.params import CORIOLIS_F0, STRATIFICATION_N2
 from fridom.model.scheduled_field import ProfileFunction
 from fridom.nonhydro2.modules.polarized_wave_maker import (
@@ -136,6 +139,26 @@ def test_time_dependent_dependency_field_is_refused_at_bind():
     with pytest.raises(TimeDependentParameterError,
                        match=r"'u'.*time_dependent"):
         maker.bind(table)
+
+
+def test_meridional_law_n2_model_is_refused_before_bind():
+    # A time_dependent n2 FIELD can only come from
+    # MeridionalStratification (TDF-D7), which never provides the SCALAR
+    # stratification.n2 the packet needs (provides-implies-constancy). So
+    # the combination is refused by the missing-provide gate BEFORE bind
+    # -- the packet's time_dependent-field refusal (checked over u/v/w/b,
+    # its own dependencies) never sees the n2 field, and a scalar
+    # ProfileFunction n2 parameter is covered above. The frozen packet
+    # stays honest either way: it cannot follow a varying N^2.
+    law = ProfileFunction(
+        lambda y, t, a: 1.0 + a * t, params=(0.1,))  # noqa: ARG005
+    maker = make_maker()
+    with pytest.raises(
+            MissingParameterError, match=r"stratification\.n2"):
+        nh.Model(grid=make_grid(), dt=DT, advection=False,
+                 coriolis=nh.FPlaneCoriolis(f0=1.0),
+                 stratification=nh.MeridionalStratification(n2=law),
+                 modules_extra=(maker,))
 
 
 # ================================================================
