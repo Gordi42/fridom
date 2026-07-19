@@ -440,12 +440,6 @@ V-cycle kernel swap it called for shipped 2026-07-18 (merge
 [`../research/multigrid_kernel_study.md`](../research/multigrid_kernel_study.md)
 §§Addendum, Addendum 2). Open, none blocking:
 
-- **`multi_device` markers for the semicoarsen parity victims** — the
-  tests that caught the 07-18 regression (all green since `b57e3e78`)
-  fail only at >= 2 devices, are unmarked, and single-device CI never
-  exercises that failure mode; declare their device-count sensitivity
-  so the forced-4 leg owns them. Awaiting owner ruling on mechanics
-  (marker vs a forced-4 CI leg for the multigrid parity battery).
 - **Multi-device full-coarsening grad — pre-existing XLA:SPMD
   transfer-VJP break (owner call).** Surfaced by the pre-warm
   validation (entry in [`done.md`](done.md)): reverse-mode through a

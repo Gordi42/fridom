@@ -159,7 +159,13 @@ line-smoother axis is nowhere a correctness problem since
 `b57e3e78`; a warning would fire on the deliberate negotiated
 default, and the parity battery is the drift net); 3 — **shipped**
 2026-07-19 (merge `99623ba8`, `perf/stretched-mg-prewarm`); 4 —
-mechanics ruling pending. Tracker: `../roadmap/done.md` (rulings entry
+closed 2026-07-19 (**option C, no markers changed**): marking the
+parity victims `@multi_device` would subtract their single-device
+coverage, so the two-file parity battery is added to the existing
+forced-4 CI leg (`.github/workflows/tests.yml`) as a separate `-k`
+invocation instead — the bisect predicate
+`test_forced4_multigrid_solve_matches_single_device[replicated-x12-coarse6]`
+is now CI-visible. Tracker: `../roadmap/done.md` (rulings entry
 + shipped entry).*
 
 ## Follow-up 3 as shipped — mechanism note (awaits ratification)

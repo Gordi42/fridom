@@ -310,8 +310,36 @@ Implementation record:
   mapped operator apply — one 512³ sweep = 15.7 ms cuSPARSE solve +
   12.0 ms apply) is revisit-only-with-a-concrete-driver. The
   stretched-base eager pre-warm **shipped** 2026-07-19 (entry above);
-  still open (open.md, multigrid section): the `multi_device` marker
-  hygiene (mechanics ruling pending).
+  the `multi_device` marker hygiene (Residue 4) was ruled and closed
+  2026-07-19 (option C — see the entry below).
+
+- **Semicoarsen parity battery now runs in CI — Residue 4 ruled
+  (option C, no markers changed)** (2026-07-19, in chat; merge
+  `MERGE_HASH_PLACEHOLDER`) — the multi-device parity victims of the
+  07-18 semicoarsening break (the drift net cited in the rulings entry
+  above) now run in CI without touching any test marker. Owner ruling:
+  **do not `@multi_device`-mark them** — marking would *subtract* their
+  single-device coverage (a `multi_device` test skips on one device),
+  so instead the two-file battery is added to the existing forced-4 leg
+  of `.github/workflows/tests.yml` ("Run the tests (multiple devices)")
+  as a **separate** sibling pytest invocation with a `-k` filter picking
+  only the victims — not a `-k` on the hand-picked 17-file list, which
+  would filter that list's other files too. Selection:
+  `tests/nonhydro2/test_mapped_pressure_multigrid.py` +
+  `tests/nonhydro2/test_mapped_pressure_stretched.py`,
+  `-k "forced4 or converges or full_and_semi or hlo_grows or
+  vcycle_is_symmetric or builds_and_solves or semicoarsening_knob"`
+  → 12 tests, including the exact bisect predicate
+  `test_forced4_multigrid_solve_matches_single_device[replicated-x12-
+  coarse6]` (already `@multi_device`-marked, previously invoked by no
+  leg anywhere) and the nine named victims (the four stretched-column
+  multigrid tests, `converges_under_both_coarsenings[False]`,
+  `full_and_semi_coarsening_agree_on_the_solution`,
+  `test_multigrid_hlo_grows_with_the_level_count`). Coverage appends
+  (`--cov --cov-append`). Local forced-4 subset green (12 passed in
+  ~6.0 min, cold CPU, serial). Record:
+  [`semicoarsen_multidevice_regression.md`](../research/semicoarsen_multidevice_regression.md)
+  Residue 4.
 
 - **Coefficient-space product/power rows — ruled closed by design**
   (owner-ratified 2026-07-18) — the open-roadmap semantics question
