@@ -430,3 +430,85 @@ def test_forced4_terrain_immersed_matches_single_device(nx):
     many = _forced4_solve(nx, ids)
     scale = np.max(np.abs(one))
     assert np.max(np.abs(one - many)) / scale < 1e-8
+
+
+# ================================================================
+#  The wet-aware multigrid preconditioner on the model surface (the
+#  taught error is lifted; it composes with the cut-cell domain)
+# ================================================================
+def test_terrain_immersed_multigrid_preconditioner_engages():
+    # pressure_preconditioner="multigrid" drives the wet-column
+    # barotropic solve on a terrain + immersed grid without raising, and
+    # the surface pressure it writes is finite
+    m = _model(_grid(n=16, a=0.8), hy.ImplicitFreeSurface(
+        epsilon=1.0, pressure_iterations=30, pressure_tolerance=1e-8,
+        pressure_preconditioner="multigrid"), dt=0.05)
+    rng = np.random.default_rng(3)
+    m.set_fields(**{k: rng.standard_normal(m.state[k].shape)
+                    for k in ("u", "v", "ps")})
+    fs = m.module(hy.ImplicitFreeSurface)
+    out = fs._barotropic_solve(m.state, _ctx(3.0, 0.05))
+    assert bool(np.all(np.isfinite(np.asarray(out["ps"].data))))
+
+
+def _forced4_solve_mg(nx, device_ids):
+    grid = _grid(n=nx, nz=8, a=0.4, device_ids=device_ids)
+    m = _model(grid, hy.ImplicitFreeSurface(
+        pressure_iterations=30, pressure_tolerance=1e-8,
+        pressure_preconditioner="multigrid"), dt=0.05)
+    rng = np.random.default_rng(52)
+    m.set_fields(**{k: rng.standard_normal(m.state[k].shape)
+                    for k in ("u", "v", "ps")})
+    fs = m.module(hy.ImplicitFreeSurface)
+    out = fs._barotropic_solve(m.state, _ctx(3.0, 0.05))
+    return np.asarray(out["ps"].data)
+
+
+@pytest.mark.multi_device
+@pytest.mark.parametrize("nx", [pytest.param(16, id="aligned-x16")])
+def test_forced4_terrain_immersed_multigrid_matches_single_device(nx):
+    ids = tuple(range(jax.device_count()))
+    one = _forced4_solve_mg(nx, (0,))
+    many = _forced4_solve_mg(nx, ids)
+    scale = np.max(np.abs(one))
+    assert np.max(np.abs(one - many)) / scale < 1e-8
+
+
+def test_grad_through_terrain_immersed_multigrid_run_matches_fd():
+    # the wet-aware multigrid preconditioner path is reverse-mode
+    # differentiable end to end (the preconditioner does not touch the
+    # solution, only the convergence; the wet-column alpha J divides are
+    # sealed), so jax.grad is finite and matches a central FD
+    m = hy.Model(
+        grid=_grid(n=8, nz=4, a=0.4), dt=0.01, csqr=1.0,
+        stratification=hy.ConstantStratification(n2=0.0),
+        coriolis=hy.FPlaneCoriolis(f0=0.5), advection=False,
+        free_surface=hy.ImplicitFreeSurface(
+            epsilon=1.0, pressure_iterations=20,
+            pressure_preconditioner="multigrid"),
+        time_stepper=fr.model.time_steppers.AdamBashforth(0.01, order=2))
+    rng = np.random.default_rng(11)
+    m.set_fields(**{k: 0.1 * rng.standard_normal(m.state[k].data.shape)
+                    for k in ("u", "v", "ps")})
+    record, carry, stepper = m._artifacts.record, m._carry, m._stepper
+    ps_leaf = carry.state["ps"].storage
+    leaves, treedef = jax.tree_util.tree_flatten(carry)
+    (idx,) = [i for i, ref in enumerate(leaves) if ref is ps_leaf]
+
+    def loss(x):
+        new = list(leaves)
+        new[idx] = x
+        spliced = jax.tree_util.tree_unflatten(treedef, new)
+        final = _chunk_body(record, 5, spliced, stepper)
+        return sum(jnp.sum(f.data ** 2) for f in final.state)
+
+    grad = np.asarray(jax.grad(loss)(ps_leaf))
+    assert bool(np.all(np.isfinite(grad)))
+    rng2 = np.random.default_rng(5)
+    direction = jnp.asarray(rng2.standard_normal(ps_leaf.shape),
+                            dtype=ps_leaf.dtype)
+    directional = float(jnp.vdot(jnp.asarray(grad), direction))
+    epsd = 1e-4
+    fd = (float(loss(ps_leaf + epsd * direction))
+          - float(loss(ps_leaf - epsd * direction))) / (2.0 * epsd)
+    assert directional == pytest.approx(fd, rel=1e-4)
