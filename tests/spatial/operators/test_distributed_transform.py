@@ -464,3 +464,36 @@ def test_apply_matrix_grad_is_finite(forced_devices):
            - loss(base["a"] - eps * pert)) / (2 * eps)
     ana = float(jnp.sum(grad * pert))
     assert abs(num - ana) <= 1e-4 * max(1.0, abs(ana))
+
+
+@pytest.mark.multi_device
+def test_project_matches_the_forward_contraction(forced_devices):
+    # the forward (analysis + contraction) half: project returns the
+    # modal amplitudes rows @ forward(components) on the internal frame,
+    # matching the replicated reference (a full synthesize inverts them)
+    if forced_devices is not None:
+        assert jax.device_count() == forced_devices
+    grid = periodic_grid((12, 8, 12))
+    rng = np.random.default_rng(11)
+    names = ("a", "b")
+    datas = {n: jnp.asarray(rng.standard_normal((12, 8, 12)))
+             for n in names}
+    fields = {n: grid.create_field(data=datas[n]) for n in names}
+    dt = resolve_distributed_transform(
+        Fourier(grid), grid, fields["a"].function_space.bare)
+    shape = dt.coeff.bare.shape
+    rows = jnp.asarray(
+        rng.standard_normal((*shape, 3, len(names)))
+        + 1j * rng.standard_normal((*shape, 3, len(names))))
+    amp = dt.project(fields, rows)
+    geom = dt.geometry
+    # the amplitudes live on the padded internal frame (a sharded)
+    assert amp.shape[-1] == 3
+    # replicated reference: rows @ stacked forward, sliced back on a
+    fwd = np.stack([frame_reference(datas[n], geom) for n in names],
+                   axis=-1)
+    ref = np.einsum("...jd,...d->...j", np.asarray(rows), fwd)
+    got = np.asarray(amp)
+    if geom.pad_a_spec != geom.a_spec_n:
+        got = np.take(got, range(geom.a_spec_n), axis=geom.a)
+    assert np.allclose(got, ref, rtol=1e-10, atol=1e-11)
