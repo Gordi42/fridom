@@ -92,7 +92,7 @@ multi-GPU has not.
 ### T2 — Immersed PCG paths: validate on real 4 GPUs
 
 Roadmap "Immersed partial cells — residuals" (record:
-`design/plans/active/immersed_partial_cells_plan.md`,
+`design/plans/done/immersed_partial_cells_plan.md`,
 "Distributed correctness" bullet). Forced-4 CPU is asserted
 (`test_immersed_step_is_device_count_invariant` in
 `tests/nonhydro2/test_distributed_projection.py`); real multi-GPU is

@@ -636,7 +636,7 @@ vertical cannot coarsen (Chebyshev vertical, indivisible `n_z`, the
 immersed `uniform_spacing` limit, and — a GM-D9 deviation — a
 **stretched-base column**, whose coarse `MappedIntervalMesh` is not
 jit-constructible). Plan record:
-`design/plans/active/multigrid_generalization_plan.md` §Phase D.
+`design/plans/done/multigrid_generalization_plan.md` §Phase D.
 
 Authoritative re-run of the three multigrid/stretched files on current
 dev (node `l50009`, 4x A100, jax 0.10.2, same env,

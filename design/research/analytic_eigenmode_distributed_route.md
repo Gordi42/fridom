@@ -124,7 +124,11 @@ them; per-mode phi/exp arithmetic stays shard-local.
   `resolve_distributed_transform`; needs a `ContractPlan`-shaped
   region absorbing the bounded axis + `ModeChart` embed/restrict into
   the stacked column. The owner named all-periodic; walled-vertical
-  analytic grids keep the taught error until Wave B.
+  analytic grids keep the taught error until Wave B. [Update
+  2026-07-19: shipped — `WalledVerticalTransform`, merge `4367d2f9`;
+  fused synthesize is architecturally impossible on walled frames, so
+  `can_synthesize=False` routes `synthesize_columns` to the
+  replicated fallback. See done.md.]
 - **`mode()` mirror-write:** the Hermitian mirror-index placement is
   cross-shard inside a region; route it through the synthesize half
   with the pair assembled in the (frame-local) coefficient arrays, as

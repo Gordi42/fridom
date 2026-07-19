@@ -230,6 +230,11 @@ Remaining work: the production `coarsen_vertical` knob over the
 Phase A builder (default: coarsen the vertical wherever the mesh
 supports it, with the automatic semicoarsening fallback of GM-D9),
 tests including the fallback configurations, and the multi-GPU leg.
+[Update 2026-07-19: all shipped — full 3-D coarsening is the
+mapped-solver multigrid default with the automatic semicoarsening
+fallback (−4.3 % on top of warm starts, parity 3.1e-10; done.md),
+forced-4 parity in the CI battery `4e169c5f`; the gates below are
+met.]
 Gate GD-1: forced-4 / real multi-GPU parity and cost neutral-or-better
 (z is unsharded, so z-transfers are shard-local — expected neutral,
 must be verified) before the default flips.

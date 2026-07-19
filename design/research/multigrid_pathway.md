@@ -71,7 +71,7 @@ practice at all.
   kernels.
 - **The measured case** (from
   [`../plans/active/perf_geometry_merge_plan.md`](../plans/active/perf_geometry_merge_plan.md)
-  §4b and [`../plans/active/immersed_partial_cells_plan.md`](../plans/active/immersed_partial_cells_plan.md)):
+  §4b and [`../plans/done/immersed_partial_cells_plan.md`](../plans/done/immersed_partial_cells_plan.md)):
   steep mapped terrain (4.5× depth ratio) takes ~44-45 PCG iterations
   to 1e-10, resolution-independent, vs the 30-iteration default
   budget; genuine immersed partial cells take ~60+; the spectral

@@ -930,7 +930,7 @@ Implementation record:
   types — flat, walled, mapped, immersed — with no known exception.
 - **Multigrid generalization: terrain implicit surface + coarsening
   freedom + warm starts** (2026-07-18, plan
-  [`../plans/active/multigrid_generalization_plan.md`](../plans/active/multigrid_generalization_plan.md),
+  [`../plans/done/multigrid_generalization_plan.md`](../plans/done/multigrid_generalization_plan.md),
   all five phases owner-ratified and shipped same day; merges
   `51db9ba6` A, `70b012d8` E, `a0eb7027` D, `6e32b4b4` B,
   `5e7a0eff` C) — closes the **H3 implicit** taught error:
@@ -952,7 +952,7 @@ Implementation record:
   same day (flat + immersed; see its own entry below).
 - **Split-explicit terrain free surface — H3 residual closed**
   (2026-07-19, branch `feat/split-explicit-terrain`, plan
-  [`../plans/active/multigrid_generalization_plan.md`](../plans/active/multigrid_generalization_plan.md)
+  [`../plans/done/multigrid_generalization_plan.md`](../plans/done/multigrid_generalization_plan.md)
   §7) — retires the last `hy.SplitExplicitFreeSurface` chart taught
   error. The barotropic subcycle now steps the **volume-exact terrain
   transport form** (GM-D1 option 1, the owner ruling extended from the
@@ -1141,7 +1141,7 @@ Implementation record:
   1.8e-15; the fusion workaround is not even needed at 16³). Residuals in
   [`open.md`](open.md). Record +
   per-stage corrections:
-  [`../plans/active/immersed_partial_cells_plan.md`](../plans/active/immersed_partial_cells_plan.md).
+  [`../plans/done/immersed_partial_cells_plan.md`](../plans/done/immersed_partial_cells_plan.md).
 - **Mapped + immersed composition — follow-ups closed** (2026-07-19,
   merges `24eb7649` sw2 linear guard, `fd317226` harness, `22a609ee`
   multi-process closure fix, `580b9013` wet-aware multigrid,
@@ -1980,7 +1980,7 @@ Implementation record:
 
 - **Performance guard — deterministic CI gates + hardened compare +
   manual A100 guard** (2026-07-18, plan + owner rulings:
-  [`../plans/active/perf_guard_plan.md`](../plans/active/perf_guard_plan.md))
+  [`../plans/done/perf_guard_plan.md`](../plans/done/perf_guard_plan.md))
   — the buildable surface of the "wire the benchmark harness as a CI
   gate" item, after the research verdict that a wall-clock gate in
   GitHub CI is malpractice (shared-runner noise ~2.7% CoV; no
@@ -2040,7 +2040,7 @@ Implementation record:
 
 - **Performance guard — CLOSED: first checkpoint green** (2026-07-18,
   completing the entry above; full first-day log in
-  [`../plans/active/perf_guard_plan.md`](../plans/active/perf_guard_plan.md)
+  [`../plans/done/perf_guard_plan.md`](../plans/done/perf_guard_plan.md)
   §7) — the remaining criterion (one green, manually submitted
   `step_guard.sbatch` run) is met by run 26346802→26347156's
   measurements judged green: gpu1 exit 0 (39 ok, 1 faster), gpu4

@@ -293,8 +293,12 @@ default re-pin as `e047c496`; the throwaway spike harness was removed
 before the merge (`5705f002`). Three corrections recorded below
 (steep-profile relabel, off-diagonal sign, GB-1 recalibration) are
 evidence-backed agent findings endorsed by the orchestrating
-sessions, **not yet owner-reviewed**. Open follow-up: the GB-2
-wall-clock A100 leg ([`open.md`](../../roadmap/open.md)).
+sessions, **not yet owner-reviewed**. [Update 2026-07-19: the GB-2
+wall-clock A100 leg ran 2026-07-17 and closed — the line-smoother
+V-cycle loses 5.5–13.4× to spectral on GPU
+([`multigrid_gb2_wallclock.md`](../../research/multigrid_gb2_wallclock.md));
+the later cuSPARSE kernel swap chapter lives in done.md. No open
+follow-up remains here.]
 
 ### B0 — two-level spike (the kill criterion)
 

@@ -58,23 +58,12 @@ defensive decline they are what remains:
 Evidence, provenance probes, and the full re-attribution history:
 [`../research/multidevice_test_faults.md`](../research/multidevice_test_faults.md).
 
-## Finite-volume nonhydro — decisions and validation
-
-All FV stages (F0–F6) are shipped — every non-immersed grid serves
-`family="fv"`, unmapped/unimmersed grids are FV by *default*, moving
-geometry now runs on FV too (ALE-on-FV closed, scoping §13 addendum 2),
-and the FV nonhydro is feature-complete against nodal except cut cells
-(out of scope by decision; entries in [`done.md`](done.md), records in
-the scoping §10–§13). Nothing open.
-
-[`../plans/active/fv_nonhydro_scoping.md`](../plans/active/fv_nonhydro_scoping.md)
-
 ## Immersed partial cells — residuals
 
 The immersed grid works in all three models with genuine partial
 cells in every dimension (stages I0–I4 shipped 2026-07-17; entry in
 [`done.md`](done.md), record + per-stage corrections in
-[`../plans/active/immersed_partial_cells_plan.md`](../plans/active/immersed_partial_cells_plan.md)).
+[`../plans/done/immersed_partial_cells_plan.md`](../plans/done/immersed_partial_cells_plan.md)).
 Open, none blocking:
 
 - **sw2 mapped+immersed** (the last open leaf of the composition
@@ -110,6 +99,13 @@ Open, none blocking:
   all taught errors with recorded designs
   ([`../plans/active/immersed_closures_sadourny_plan.md`](../plans/active/immersed_closures_sadourny_plan.md)
   §5).
+- **Split-explicit terrain + immersed** (filed at the H3 close
+  2026-07-19): the split-explicit free surface on a terrain chart
+  *with* immersed geometry stays a narrowed taught error — the
+  subcycle needs `∫αJ dz` and a J-weighted wet-depth mean the shared
+  reductions do not carry; the explicit/implicit variants serve the
+  combination (M5), so nothing is unreachable
+  ([`../plans/done/multigrid_generalization_plan.md`](../plans/done/multigrid_generalization_plan.md)).
 
 ## Diffusion/friction closures at walls and on terrain — residuals
 
@@ -132,6 +128,11 @@ Open:
   decomposition early; the stale cached measure then
   shape-mismatches the step frame. Normal build→run ordering is
   unaffected (probe artifact; matters for diagnostics workflows).
+- **Moving-geometry implicit column** — `ImplicitOperator.solve`
+  receives no state, so the measure-aware band reads *static*
+  geometry; a `MovingGeometry` mapping that couples the solve axis is
+  a taught error in `VerticalMixing.bind` until the
+  params-through-solve seam exists (record §10).
 - Partial slip (NEMO `shlat`-style) = a Robin wall flux — a
   boundary-closure 2e consumer (entry above).
 
@@ -330,6 +331,18 @@ recorded route
 §3, numbers in
 [`../research/mapped_jacobian_spike.md`](../research/mapped_jacobian_spike.md)).
 
+## Moving-geometry multi-device gates — layout negotiation
+
+*Small.* The two `tests/validation/test_moving_geometry.py` ALE gates
+stay `single_device`: the one-sided boundary variants patch physical
+edges at static indices, so `z` must stay undistributed
+(`layout='local'`), and negotiation sharded it. Tractable — declare
+the layout requirement so negotiation keeps `z` local, or reshard at
+the module seam; the original XLA `RET_CHECK` blocker is gone. No
+multi-device ALE consumer exists today.
+([`../plans/active/perf_geometry_merge_plan.md`](../plans/active/perf_geometry_merge_plan.md)
+§3c)
+
 ## TangentPropagator — the D5 forward-mode surface
 
 *Small.* `jax.jvp` of `model.tendency` (spec
@@ -345,7 +358,7 @@ consumer exists** (NNMD descoped); build when one appears. Plan §5.4:
 
 | #   | Task | Notes |
 |-----|------|-------|
-| 3.1 | **Hydrostatic model — external comparison legs** | The model itself shipped 2026-07-17 (entry in [`done.md`](done.md); record [`../plans/active/hydrostatic_model_plan.md`](../plans/active/hydrostatic_model_plan.md) §8). The **Oceananigans leg executed 2026-07-17** (out-of-tree `benchmarks/comparison` harness, single A100; machine-precision linear parity, full HY-D6 ladder — results in the bench repo's `results/HYDRO_REPORT.md`; it also surfaced the implicit+advection surface-closure instability, root-caused and fixed same day, plan §H7). Still open: the **Veros and pyOM3 legs** (pyOM3 source supplied 2026-07-19: `github.com/ceden/pyOM3`) — and the **owner review of `examples/hydrostatic/comparison_baseline.py`** — landed on `dev` 2026-07-17 by owner authorization *before* review (deviation from the examples-review workflow, owner instruction in chat); the review itself is still owed (owner 2026-07-19: deferred to the docs-rebuild review cycle) — sweep `REVIEW:` markers / direct edits when it happens. Designed-fors (T/S + EOS, topography / variable-`csqr` CG solve, z*/ALE, spherical) stay in plan §7. |
+| 3.1 | **Hydrostatic model — external comparison legs** | The model, the Oceananigans leg, and the H7 fix shipped 2026-07-17 (full narrative in [`done.md`](done.md) §3.1; record [`../plans/active/hydrostatic_model_plan.md`](../plans/active/hydrostatic_model_plan.md) §8). Open: the **Veros and pyOM3 legs** (pyOM3 source supplied 2026-07-19: `github.com/ceden/pyOM3`; an Eady growth-rate leg additionally needs the candidate `ThermalWindShear` module — the background `-M²v` buoyancy restoring plus the `w·dU/dz` momentum tilt, plan Eady note); the **owner review of `examples/hydrostatic/comparison_baseline.py`** (owner 2026-07-19: deferred to the docs-rebuild review cycle — sweep `REVIEW:` markers / direct edits when it runs); hydrostatic **`EnergyMetric`/`eigenmodes` on terrain grids** still use the plain extent ps weight (physically inconsistent energy diagnostics off a chart; plan known-gaps note); and an **owner call filed at the H3 close**: whether the *explicit* terrain variant adopts the volume-exact GM-D1 form too (simpler, physical local wave speed, exact volume — but changes shipped physics; today it is the energy-form: energy exact, `∫ps` drifts O(slope); [`../plans/done/multigrid_generalization_plan.md`](../plans/done/multigrid_generalization_plan.md) GM-D1). Designed-fors (T/S + EOS, z*/ALE, spherical) stay in plan §7. |
 | 3.7 | **Spherical nonhydro** | The 3D spherical chart (`X(lon, lat, h)`, so the metric comes out diagonal and `w = dh/dt` is already physical) needs the C2 chart metrics and the C3 elliptic machinery to meet: the pressure operator becomes the Laplace–Beltrami on the chart — still SPD under the sqrt(g)-weighted product, so the PCG structure carries over, but the operator assembly must be written. Not the first 3D-spherical consumer: a hydrostatic model needs no pressure solve and is the likelier first use (3.1). |
 | 3.2 | **Coupled models — design** | `jax.distributed`, field exchange between models on different meshes/devices/processes, a `Coupler` module plus regridding operators, a synchronization schedule. **Pre-designed** in [`../specs/model/09_coupling_designfor.md`](../specs/model/09_coupling_designfor.md) (precedent survey + adversarial walk + architecture; the class specs carry its CS-1..18 constraints, so 3.2 stays a pure addition). |
 | 3.3 | **Coupled models — implementation** | Same-process multi-device, then multi-host. Depends on 3.2. Its old cost prerequisite (3.9/3.10 — "decomposed runs must be affordable before coupling them is credible") is met: the multi-device execution-cost line closed 2026-07-16 ([`done.md`](done.md)). |

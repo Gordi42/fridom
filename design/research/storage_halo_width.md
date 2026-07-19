@@ -194,7 +194,7 @@ hardware for the biased/WENO family. (The centered-path `n+4 → n+2`
 win waits on the `extra_halo` floor, §3.1.) GPU wall-clock validation
 is deliberately **not** run here
 (owner ruling: no automated cluster submissions,
-[`../plans/active/perf_guard_plan.md`](../plans/active/perf_guard_plan.md)
+[`../plans/done/perf_guard_plan.md`](../plans/done/perf_guard_plan.md)
 §5.1); protocol when wanted: the step suite A/B at 128³/192³ upwind5 +
 centered, single A100, fresh process per variant, plus the
 `benchmarks/comparison` weno5/centered rows.

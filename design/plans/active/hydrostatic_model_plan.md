@@ -951,8 +951,10 @@ same). Real-suite resweep (2026-07-17, post-merge): `se_centered`
 2048²×64), `se_weno5` +11–36%, `*_linear` unchanged; the centered
 hydro oc/fridom ratio drops from ~break-even to 0.79–0.88, and all
 five `im_centered` rungs now complete stably (rf23–28 were
-non-finite). The 2D slice-only `A(1)` evaluation is tracked as an
-open roadmap item (Oceananigans-gap list).
+non-finite). [Update: the 2D slice-only `A(1)` evaluation executed
+2026-07-18 — the H7 `A(1)` term lowers on a `TraceSpace` 2-D slice
+where valid (flat + collocated tracers; the embed route stays the
+default elsewhere). See done.md, boundary trace machinery.]
 
 **Gates.** `tests/hydrostatic` + `tests/model/modules` 759 passed /
 4 skipped; `ruff` clean; autodiff regression (grad through
