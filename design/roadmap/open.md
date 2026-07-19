@@ -399,19 +399,23 @@ promote one only when its trigger appears:*
   Neumann-outer field enters a hot loop.
 ## Multigrid preconditioner — follow-up measurements
 
-The semicoarsened V-cycle preconditioner shipped 2026-07-17 and the
-V-cycle kernel swap it called for shipped 2026-07-18 (merge
-`0ece46b1`; both entries in [`done.md`](done.md), measurements in
-[`../research/multigrid_kernel_study.md`](../research/multigrid_kernel_study.md)
-§§Addendum, Addendum 2). The multi-device full-coarsening grad break
-(pre-existing XLA:SPMD transpose-of-roll miscompile) was **root-caused
-and cured 2026-07-19** — entry in [`done.md`](done.md).
+Every measurement and follow-up in this campaign is closed (entries
+in [`done.md`](done.md): kernel swap, depth floor, agglomeration null,
+2026-07-19 rulings, pre-warm, CI battery, the cured XLA:SPMD grad
+miscompile). One open item:
 
-The remaining 2026-07-18 follow-ups were **ruled closed 2026-07-19**
-(coarse-level replication preference: none — sigma-sharding stays;
-line-smoother-axis warning: dropped; residual mapped-GPU levers:
-retired, revisit only with a concrete driver) — entry in
-[`done.md`](done.md).
+- **File the XLA:SPMD transpose-of-roll miscompile upstream (owner
+  decision).** The in-tree cure landed (forward-primitive restrict
+  adjoint, entry in [`done.md`](done.md)), but the underlying jax/XLA
+  bug — reverse-mode through `jax.linear_transpose` of a
+  two-`jnp.roll` stencil on a 1-element-per-shard axis emits a
+  malformed concatenate — remains unfiled. It is a 20-line
+  CPU-reproducible pure-jax case (jax 0.10.2), and the
+  `with_sharding_constraint` near-workaround yields **silently wrong
+  gradients**, which makes it worth reporting for others' sake. Draft
+  in the owner's voice + repro:
+  [`../research/artifacts/multigrid_transfer_grad_spmd/`](../research/artifacts/multigrid_transfer_grad_spmd/).
+  Awaiting the owner's review of the draft and go/no-go.
 
 ## TangentPropagator — the D5 forward-mode surface
 
