@@ -70,6 +70,7 @@ import numpy as np
 import fridom as fr
 from fridom.model.eigenstates import (
     assemble_operator_matrix,
+    assemble_walled_operator_matrix,
     bare_coeff_field,
     coefficient_index,
     describe_nonfinite_branch,
@@ -1093,6 +1094,11 @@ class Eigenmodes:
             The per-mode matrix, shape ``(*coeff_bare, 4, 4)``.
         """
         clone = self._reframe(coeff_of)
+        if self._walled:
+            spaces = {c: coeff_of(c) for c in self._components}
+            return assemble_walled_operator_matrix(
+                clone, branches=branches, components=self._components,
+                coeff_of=spaces, chart=self._chart, f=f)
         shape = coeff_of(self._components[-1]).shape
         return assemble_operator_matrix(
             clone, branches=branches, components=self._components,

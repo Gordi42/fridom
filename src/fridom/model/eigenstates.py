@@ -551,6 +551,132 @@ def assemble_operator_matrix(
     return mat
 
 
+def _union_frame_shape(space: SpaceLike) -> tuple[int, ...]:
+    r"""
+    Return the union-lattice shape of a mixed coefficient frame.
+
+    Description
+    -----------
+    Each trig factor (``Sine`` / ``Cosine``) is widened to its
+    ``ModeChart`` union extent ``n_cells + 1`` (the shared ``0..n``
+    lattice ``embed`` lands on); Fourier and constant factors keep
+    their own extent. This is the broadcast shape of the walled
+    per-mode matrix (:func:`assemble_walled_operator_matrix`), whose
+    axes are the horizontal Fourier modes and the vertical union
+    modes.
+    """
+    shape: list[int] = []
+    for factor in space.bare.factors:
+        if isinstance(factor, SineSpace | CosineSpace):
+            shape.append(factor.mesh.n_cells + 1)
+        else:
+            shape.append(factor.shape[0])
+    return tuple(shape)
+
+
+def assemble_walled_operator_matrix(
+    em: object,
+    *,
+    branches: tuple[int, ...],
+    components: tuple[str, ...],
+    coeff_of: Mapping[str, SpaceLike],
+    chart: ModeChart,
+    f: Callable[[np.ndarray], np.ndarray] | None = None,
+) -> jax.Array:
+    r"""
+    Assemble the per-mode ``D x D`` matrix on the union trig lattice.
+
+    Description
+    -----------
+    The walled-vertical (mixed ``Fourier x Fourier x trig``) analogue of
+    :func:`assemble_operator_matrix`: the analytic projector / ``f(L)``
+    algebra summed as rank-1 branch terms, but every per-component column
+    ``q^s`` and dual ``p^s`` is first
+    :meth:`~fridom.spatial.symbols.ModeChart.embed`\ -ded from its own
+    trig mode lattice (``w`` on DST-I ``1..n-1``, ``b`` on DST-II
+    ``1..n``, ``u`` / ``v`` / ``p`` on DCT-II ``0..n-1``) onto the
+    shared ``0..n`` union lattice, so the rank-1 outer products align
+    per **physical** vertical mode. The horizontal Fourier axes are the
+    distributed internal frame's (the sharded axis full spectrum, the
+    partner axis complex); the vertical axis is the union lattice. The
+    fused region
+    (``WalledVerticalTransform.apply_matrix`` in
+    ``spatial.operators.distributed_transform``) embeds each transposed
+    component onto the same union lattice before the ``D x D``
+    contraction and restricts the result back, so this matrix and that
+    region compose exactly.
+
+    ``f is None`` is the plain projector (``w_s = 1``); otherwise
+    ``w_s = f(omega_s)`` on each column's represented union modes (the
+    ``omega`` and the represented-mode mask are themselves embedded from
+    ``w``'s frame, matching ``Eigenmodes.function``'s union-lattice
+    accumulation). ``em`` is a frame clone (``_reframe``) whose symbols
+    read the target coefficient frames; the assembly is host-built
+    (replicated), the same choice the periodic matrix and the channel
+    contraction make.
+
+    Parameters
+    ----------
+    em : object
+        The frame-clone eigenmodes (its symbols on the target frames).
+    branches : tuple[int, ...]
+        The mode-branch selection.
+    components : tuple[str, ...]
+        The prognostic component order (the matrix's ``j`` / ``d`` axes).
+    coeff_of : Mapping[str, SpaceLike]
+        Per-component internal coefficient (bare) frame.
+    chart : ModeChart
+        The union-lattice chart aligning the components' trig lattices.
+    f : Callable[[np.ndarray], np.ndarray] | None, optional
+        The scalar spectral function ``f(omega)`` (``None`` is the plain
+        projector) (default: None).
+
+    Returns
+    -------
+    jax.Array
+        The per-mode matrix, shape ``(*union, D, D)``, complex.
+    """
+    dim = len(components)
+    dtype = dtype_comp()
+    weights = em._energy_weights()  # noqa: SLF001 — frame-clone internals
+    shape = _union_frame_shape(coeff_of[components[0]])
+
+    def embed(data: jax.Array, name: str) -> jax.Array:
+        """Broadcast to the component frame, then embed onto the union."""
+        per = jnp.broadcast_to(jnp.asarray(data), coeff_of[name].shape)
+        return jnp.broadcast_to(chart.embed(per, coeff_of[name]), shape)
+
+    mat = jnp.zeros((*shape, dim, dim), dtype=dtype)
+    for b in branches:
+        omega_real: np.ndarray | None = None
+        for col in em._columns(b):  # noqa: SLF001 — frame-clone internals
+            p = em._dual(col, b)  # noqa: SLF001 — frame-clone internals
+            q_stack = jnp.stack(
+                [embed(col[c].data, c).astype(dtype) for c in components],
+                axis=-1)
+            p_stack = jnp.stack(
+                [embed(p[c], c).astype(dtype) for c in components],
+                axis=-1)
+            rank1 = (q_stack[..., :, None]
+                     * jnp.conj(p_stack)[..., None, :])
+            if f is None:
+                mat = mat + rank1
+                continue
+            if omega_real is None:
+                omega_real = np.real(np.asarray(embed(
+                    jnp.real(jnp.asarray(em.omega(b).data)), "w")))
+            norm = sum(
+                embed(weights[c] * jnp.abs(jnp.broadcast_to(
+                    jnp.asarray(col[c].data), coeff_of[c].shape)) ** 2, c)
+                for c in components)
+            w = jnp.asarray(evaluate_frequency_function(
+                f, omega_real, np.asarray(norm) != 0,
+                lambda bad, b=b, om=omega_real:
+                describe_nonfinite_branch(b, om, bad)))
+            mat = mat + w[..., None, None] * rank1
+    return mat
+
+
 # ================================================================
 #  Prescribed-spectra random coefficients (the analytic tier)
 # ================================================================

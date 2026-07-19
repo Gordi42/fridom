@@ -655,3 +655,79 @@ def test_grad_through_analytic_projection_is_finite(forced_devices):
     num = (loss(u0 + eps * pert) - loss(u0 - eps * pert)) / (2 * eps)
     ana = float(jnp.sum(grad * pert))
     assert abs(num - ana) <= 1e-4 * max(1.0, abs(ana))
+
+
+# ================================================================
+#  Wave B: the walled-vertical analytic tier on a sharded axis
+# ================================================================
+@pytest.mark.multi_device
+def test_walled_analytic_projections_run_on_a_sharded_axis(
+        forced_devices):
+    # Wave B: the walled-vertical (Fourier x Fourier x trig) analytic
+    # vortical / wave / divergence projections route through the fused
+    # WalledVerticalTransform region on a grid that shards a periodic
+    # transform axis, instead of the Tier-1 taught error. The many-device
+    # result matches the replicated one-device reference to floating
+    # point, lands real and stays an idempotent projector.
+    if forced_devices is not None:
+        assert jax.device_count() == forced_devices
+    n = 8
+    rng = np.random.default_rng(14)
+    many = make_channel_model(walled="z", device_ids=None, n=n)
+    one = make_channel_model(walled="z", device_ids=(0,), n=n)
+    fields = {c: rng.standard_normal(one.state[c].data.shape)
+              for c in COMPONENTS}
+    many.set_fields(**fields)
+    one.set_fields(**fields)
+    z_many = nh.State({c: many.state[c] for c in COMPONENTS})
+    z_one = nh.State({c: one.state[c] for c in COMPONENTS})
+    assert z_many["u"]._data.sharding.spec[0] == "devices"
+    em_many = nh.eigenmodes.from_model(many)
+    em_one = nh.eigenmodes.from_model(one)
+    for factory in (nh.transforms.VorticalProjection,
+                    nh.transforms.WaveProjection,
+                    nh.transforms.DivergenceProjection):
+        out_many = factory(em_many)(z_many)
+        out_one = factory(em_one)(z_one)
+        assert not any(
+            np.iscomplexobj(np.asarray(out_many[c].data))
+            for c in COMPONENTS)
+        assert _absmax(out_many, out_one) < 1e-11
+        assert _absmax(factory(em_many)(out_many), out_many) < 1e-10
+
+
+@pytest.mark.multi_device
+def test_grad_through_walled_analytic_projection_is_finite(
+        forced_devices):
+    # jax.grad of a quadratic loss through the fused walled projection is
+    # finite and matches a central finite difference (the trig kernels and
+    # the two-all_to_all VJP stay finite; the per-mode matrix is a
+    # constant of the loss variable)
+    if forced_devices is not None:
+        assert jax.device_count() == forced_devices
+    n = 8
+    model = make_channel_model(walled="z", device_ids=None, n=n)
+    rng = np.random.default_rng(15)
+    fields = {c: rng.standard_normal(model.state[c].data.shape)
+              for c in COMPONENTS}
+    model.set_fields(**fields)
+    base = nh.State({c: model.state[c] for c in COMPONENTS})
+    proj = nh.transforms.VorticalProjection(
+        nh.eigenmodes.from_model(model))
+    u0 = jnp.asarray(base["u"].data)
+
+    def loss(u):
+        z = nh.State({
+            c: (base[c].with_data(u) if c == "u" else base[c])
+            for c in COMPONENTS})
+        out = proj(z)
+        return sum(jnp.sum(out[c].data ** 2) for c in COMPONENTS)
+
+    grad = jax.grad(loss)(u0)
+    assert bool(jnp.all(jnp.isfinite(grad)))
+    assert float(jnp.linalg.norm(grad)) > 0.0
+    eps = 1e-4
+    pert = jnp.asarray(rng.standard_normal(u0.shape))
+    num = (loss(u0 + eps * pert) - loss(u0 - eps * pert)) / (2 * eps)
+    ana = float(jnp.sum(grad * pert))
+    assert abs(num - ana) <= 1e-4 * max(1.0, abs(ana))
