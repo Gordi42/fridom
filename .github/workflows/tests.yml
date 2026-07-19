@@ -82,6 +82,26 @@ jobs:
           tests/nonhydro2/test_distributed_projection.py -q \
           --cov --cov-append --cov-report=
 
+    # The multigrid parity battery is the drift net for the 2026-07-18
+    # semicoarsening multi-device break (root cause + closure in
+    # design/research/semicoarsen_multidevice_regression.md). Its
+    # parity/convergence tests — including the exact bisect predicate
+    # test_forced4_multigrid_solve_matches_single_device[
+    # replicated-x12-coarse6] — fail only on >= 2 devices, so
+    # single-device CI never exercises them. It is a separate forced-4
+    # invocation (not a -k added to the hand-picked list above, which
+    # would filter that list's other files too).
+    - name: Run the multigrid parity battery (multiple devices)
+      env:
+        XLA_FLAGS: --xla_force_host_platform_device_count=4
+        FRIDOM_TEST_FORCED_DEVICES: "4"
+      run: |
+        uv run pytest \
+          tests/nonhydro2/test_mapped_pressure_multigrid.py \
+          tests/nonhydro2/test_mapped_pressure_stretched.py \
+          -k "forced4 or converges or full_and_semi or hlo_grows or vcycle_is_symmetric or builds_and_solves or semicoarsening_knob" \
+          -q --cov --cov-append --cov-report=
+
     - name: Generate the coverage report
       run: |
         uv run coverage xml
