@@ -35,6 +35,15 @@ half-cell hydrostatic pressure co-located with ``b``, so its
 horizontal gradient reaches the ``u``/``v`` faces through the ordinary
 ``diff``.
 
+The stored ``w`` is the **physical** vertical velocity on every grid
+(``physical_state_components.md`` ruling (b)): the equation above is
+the flat/stretched case, where the continuity ``w`` already *is*
+physical. On a terrain (sigma) column :meth:`_diagnose_w` adds the
+slope terms ``u Z_x + v Z_y`` on top of the FTC-exact contravariant
+flux ``J\omega``, so the stored ``w`` is nonzero at the bed over a
+slope; the flux ``J\omega`` (the FTC-exact, zero-at-the-terrain
+working quantity) is then the read-only ``State.chart["w"]``.
+
 The linear pressure-gradient term reads the **baroclinic** pressure
 ``p_hyd`` only:
 
@@ -65,7 +74,9 @@ from fridom.hydrostatic.diagnostics import DIAGNOSTICS
 from fridom.hydrostatic.modules.terrain import (
     discover_column,
     jacobian_name,
+    masked_w_faces,
     require_chart_immersed_order,
+    slope_velocity_on_w,
 )
 from fridom.hydrostatic.params import CSQR, ROSSBY
 from fridom.hydrostatic.state import State
@@ -73,11 +84,8 @@ from fridom.model.halo_demand import derive_extra_halo
 from fridom.model.roles import Velocity
 from fridom.spatial.fields.scalar_field import _bc_siblings
 from fridom.spatial.operators.cumulative import CumulativeIntegral
-from fridom.spatial.operators.verbs import scatter_set
 from fridom.spatial.spaces.average import AverageSpace
-from fridom.spatial.spaces.nodal import NodeSet
 from fridom.spatial.spaces.tensor_product import TensorProductSpace
-from fridom.spatial.spaces.trace import Side
 
 if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Callable
@@ -284,6 +292,7 @@ class HydrostaticCore(fr.model.Module):
             zonal: [("diff", u.factor(zonal))],
             meridional: [("diff", v.factor(meridional))],
         }
+        legs = [grad_leg, div_leg]
         if self._column is not None:
             vert = self._vertical
             centre = p_hyd.factor(vert)
@@ -295,8 +304,19 @@ class HydrostaticCore(fr.model.Module):
             # vertical, driven by the interp (the centre -> face diff
             # shrinks at a wall)
             grad_leg[vert] = [("diff", centre), ("interpolate", face)]
-        return derive_extra_halo(
-            registry, self._coords, [grad_leg, div_leg])
+            # the physical-w slope terms interpolate u / v onto the w
+            # faces: a horizontal (Right -> Center) average per coupled
+            # coordinate and a vertical Center -> Outer lift, each a
+            # single staggered row (reach 1). A separate barrier-max leg,
+            # so it does not deepen the horizontal reach the flux /
+            # gradient legs already carry.
+            slope_leg: dict[str, list[tuple[str, object]]] = {
+                zonal: [("interpolate", u.factor(zonal))],
+                meridional: [("interpolate", v.factor(meridional))],
+                vert: [("interpolate", centre)],
+            }
+            legs.append(slope_leg)
+        return derive_extra_halo(registry, self._coords, legs)
 
     @property
     def extra_halo(self) -> HaloSpec | None:
@@ -411,18 +431,28 @@ class HydrostaticCore(fr.model.Module):
     def _diagnose_w(
         self, state: State, ctx: StepContext,  # noqa: ARG002
     ) -> dict[str, object]:
-        r"""Diagnose ``w`` from continuity (bottom-up face form).
+        r"""Diagnose the **physical** vertical velocity ``w`` (S1').
 
         ``w(z) = -\int_{-H}^{z} (\partial_x u + \partial_y v) dz'`` on
         the both-boundary face set ``Outer``: seeded ``w = 0`` at the
-        flat bottom, ``d_z w == -(d_x u + d_y v)`` machine-exactly.
+        flat bottom, ``d_z w == -(d_x u + d_y v)`` machine-exactly. On a
+        flat column the diagnosed ``w`` **is** the physical vertical
+        velocity, and this path is byte-for-byte unchanged.
 
         **Terrain-following column** (a sigma-coordinate grid,
-        :meth:`bind` captured ``self._column``): the diagnosed ``w`` is
-        the **contravariant vertical volume flux**
-        ``J\omega = w_{phys} - u\,Z_x - v\,Z_y`` (``J`` the column
-        Jacobian, ``Z_i`` the coordinate-surface slope), built from the
-        **flux form** of the physical horizontal divergence,
+        :meth:`bind` captured ``self._column``): the stored ``w`` is the
+        **physical** vertical velocity
+
+        .. math::
+
+            w = J\omega + u\,Z_x + v\,Z_y ,
+
+        the sum of the **contravariant volume flux** ``J\omega`` (``J``
+        the column Jacobian, ``Z_i`` the coordinate-surface slope) and
+        the slope-advection terms the tilted sigma surfaces carry
+        (``physical_state_components.md`` ruling (b)). The flux is built
+        first, from the **flux form** of the physical horizontal
+        divergence,
 
         .. math::
 
@@ -430,49 +460,48 @@ class HydrostaticCore(fr.model.Module):
                 \bigl[\partial_x (J u) + \partial_y (J v)\bigr]\,
                 \mathrm{d}z' ,
 
-        with ``J`` on the ``u`` / ``v`` faces. This choice keeps the
-        two flat invariants exactly: the fundamental theorem
+        with ``J`` on the ``u`` / ``v`` faces — the exact-telescoping
+        working quantity: the fundamental theorem
         ``\partial_z(J\omega) == -[\partial_x(Ju) + \partial_y(Jv)]``
         holds to machine precision (the face-form ``CumulativeIntegral``
         FTC), and the bottom seed ``J\omega = 0`` is the **exact**
         zero-normal-flow bottom boundary condition on the sigma column
-        (``\omega = 0`` at the terrain, the natural prognostic-free
-        choice — the Cartesian ``w_{phys}`` is *not* zero over a
-        slope). The same increment ``\partial_x(Ju) + \partial_y(Jv)``
-        is the horizontal leg of the mapped pressure solver's
-        J-weighted flux divergence, so the diagnosis is energy-
-        consistent with the vertical hydrostatic pairing. With ``J = 1``
-        and ``Z = 0`` (a flat grid) it collapses byte-for-byte to the
-        Cartesian form above.
+        (``\omega = 0`` at the terrain). The slope terms
+        (:func:`~fridom.hydrostatic.modules.terrain.slope_velocity_on_w`)
+        are then **added on top** — so the stored ``w`` is nonzero over a
+        slope at the bed (the *flux*, not physical ``w``, vanishes at the
+        terrain, which is correct physics: fluid follows the tilted
+        surface). ``State.chart["w"]`` subtracts the same slope terms to
+        recover the flux ``J\omega`` on demand. With ``J = 1`` and
+        ``Z = 0`` (a flat grid) the slope vanishes and ``w`` collapses
+        byte-for-byte to the Cartesian form above.
 
         On an immersed (cut-cell) grid this becomes **masked
         continuity** (IP-D9): the horizontal transport divergence is
         fraction-weighted (``(alpha_x u).diff(x) + (alpha_y v).diff(y)``
         with the min-rule face fractions of I0), the running integral
         yields the barotropic **transport** ``alpha_z w`` (with
-        ``alpha_z`` on the vertical ``Outer`` faces), and ``w`` is the
-        guarded division ``alpha_z w / alpha_z`` (``alpha_z == 0 -> w ==
-        0``). The vertical-flux telescoping of the running sum then
-        makes the full masked divergence
-        ``(alpha_x u).diff(x) + (alpha_y v).diff(y) + (alpha_z w).diff(z)``
-        machine-zero on every wet cell (min-rule wet faces read two wet
-        cells, so no dry value enters with nonzero weight). On an
-        all-wet immersed grid ``alpha == 1`` and the result is byte-
-        identical to the unimmersed diagnosis.
+        ``alpha_z`` on the vertical ``Outer`` faces), and the flux is the
+        guarded division ``alpha_z w / alpha_z`` (``alpha_z == 0 -> 0``).
+        The vertical-flux telescoping of the running sum then makes the
+        full masked divergence machine-zero on every wet cell (min-rule
+        wet faces read two wet cells, so no dry value enters with nonzero
+        weight). On a **flat** immersed grid (``self._column is None``)
+        that flux is already the physical ``w`` and is stored as-is,
+        byte-identical to before.
 
         On a **terrain + immersed** grid (stage M5) the two compose: the
         fraction weights the ``J``-weighted transport at the face
-        (``(alpha_x J u).diff(x) + (alpha_y J v).diff(y)`` — ``alpha``
-        on the *metric-weighted* flux, never the field, the composed
-        precedent), so the running integral yields the masked
-        **contravariant** transport ``alpha_z J\omega`` and ``w`` is the
-        guarded division ``alpha_z J\omega / alpha_z`` — the masked
-        contravariant volume flux, ``0`` at the terrain and on every
-        closed face. The buoyancy restoring recovers the physical
-        vertical velocity ``w_true = J\omega + u Z_x + v Z_y`` from it
-        (``hy.ConstantStratification``). With ``J = 1`` it collapses to
-        the flat masked form above; with ``alpha = 1`` to the pure
-        terrain contravariant form.
+        (``(alpha_x J u).diff(x) + (alpha_y J v).diff(y)`` — ``alpha`` on
+        the *metric-weighted* flux, never the field), the guarded
+        division yields the masked contravariant flux ``alpha_z J\omega /
+        alpha_z`` (``0`` at the terrain and on every closed face), and
+        the slope terms are **added on the wet faces only** — the same
+        ``jnp.where(wet, ...)`` gate the flux division rides, so a dry
+        face stays ``w = 0`` (no flux, no slope) while a wet face carries
+        the physical ``w = J\omega + u Z_x + v Z_y``. The slope terms
+        read the min-rule-consistent velocities (dead DOFs zeroed by
+        ``MaskState``), so they respect the mask without a second gate.
         """
         zonal, meridional = self._horizontal
         u, v = state["u"], state["v"]
@@ -480,10 +509,11 @@ class HydrostaticCore(fr.model.Module):
             direction="up", target="face")[self._vertical]
         immersed = getattr(u.grid, "immersed", None)
         # the horizontal transport whose divergence continuity integrates:
-        # J-weighted on a terrain column (so w is the contravariant volume
-        # flux Jomega, 0 at the sigma bottom), the plain velocity on a flat
-        # column. The immersed fraction then weights this metric-weighted
-        # transport at the face (never the field).
+        # J-weighted on a terrain column (so the running integral is the
+        # contravariant volume flux Jomega, 0 at the sigma bottom), the
+        # plain velocity on a flat column. The immersed fraction then
+        # weights this metric-weighted transport at the face (never the
+        # field).
         if self._column is not None:
             jname = jacobian_name(self._column)
             grid = u.grid
@@ -493,69 +523,55 @@ class HydrostaticCore(fr.model.Module):
             fu, fv = u, v
         if immersed is None:
             div_h = fu.diff(zonal) + fv.diff(meridional)
-            return {"w": -cumint(div_h)}
+            flux = -cumint(div_h)
+            if self._column is None:
+                return {"w": flux}  # flat: the flux is already physical w
+            # terrain: add the slope terms so the stored w is physical
+            slope = slope_velocity_on_w(
+                u, v, flux, self._column, self._horizontal, self._vertical)
+            return {"w": flux + slope.retag(flux)}
         alpha_x = immersed.fraction(u.function_space)
         alpha_y = immersed.fraction(v.function_space)
         div_h = ((alpha_x * fu).diff(zonal)
                  + (alpha_y * fv).diff(meridional))
-        transport = -cumint(div_h)  # the barotropic transport alpha_z*w
-        alpha_z = self._masked_w_faces(immersed, state)
+        transport = -cumint(div_h)  # the barotropic transport alpha_z*Jomega
+        if self._column is None:
+            # flat immersed: the masked flux is already the physical w
+            # (surface-only override; the bottom flux is a hard 0 seed).
+            alpha_z = masked_w_faces(immersed, state, self._vertical)
+            az = alpha_z.data
+            wet = az > 0.0
+            flux = jnp.where(
+                wet, transport.data / jnp.where(wet, az, 1.0), 0.0)
+            return {"w": transport.with_data(flux)}
+        # terrain + immersed: the stored w is physical. The wet mask
+        # overrides BOTH physical boundaries (include_bottom) so the bed
+        # slope is not zeroed on the physical bottom face the min-rule
+        # marked exterior-dry; interior cut faces stay dry (w = 0). The
+        # flux (0 at the bottom seed) is unchanged by the bottom override.
+        alpha_z = masked_w_faces(
+            immersed, state, self._vertical, include_bottom=True)
         az = alpha_z.data
         wet = az > 0.0
-        w = jnp.where(wet, transport.data / jnp.where(wet, az, 1.0), 0.0)
+        flux = jnp.where(wet, transport.data / jnp.where(wet, az, 1.0), 0.0)
+        slope = slope_velocity_on_w(
+            u, v, transport, self._column, self._horizontal, self._vertical)
+        w = jnp.where(wet, flux + slope.retag(transport).data, 0.0)
         return {"w": transport.with_data(w)}
 
-    def _masked_w_faces(
-        self, immersed: object, state: State,
-    ) -> object:
-        r"""Return ``alpha_z`` on the ``w`` faces (surface = cell fraction).
+    def _masked_w_faces(self, immersed: object, state: State) -> object:
+        """Return ``alpha_z`` on the ``w`` faces (surface override).
 
         Description
         -----------
-        The min-rule face fraction on the vertical ``Outer`` faces
-        treats the exterior beyond a **physical** boundary as dry, which
-        would zero the surface (top) face and destroy the barotropic
-        surface DOF ``w(0)`` (the column-divergence carrier under a free
-        surface). The physical top boundary is not an immersed dry
-        region, so its face fraction is the adjacent (surface) cell
-        fraction — the mirror-exterior convention. The physical bottom
-        face needs no override: the running sum seeds ``transport == 0``
-        there, so ``w`` is zero irrespective of ``alpha_z``.
-
-        The surface override rides the sanctioned boundary machinery
-        (``design/plans/active/boundary_trace_plan.md`` §3) rather than
-        raw ``.data`` surgery: the surface cell fraction is a
-        ``Side.HIGH`` boundary trace of ``theta_cell`` (on the
-        ``Center`` cells), relocated onto the vertical ``Outer`` face
-        set through the sanctioned Constant bridge (``as_profile`` ->
-        ``adopt``) — the explicit cross-node-set relocation the strict
-        space algebra otherwise refuses — then ``scatter_set`` overwrites
-        the ``Outer`` surface face of ``alpha_z``. The path is a pure
-        slice + two retags + a row-scatter (all native VJPs, no
-        ``.data``), so the diagnosed ``w`` is bitwise unchanged.
-
-        Parameters
-        ----------
-        immersed : object
-            The grid's immersed descriptor.
-        state : State
-            The current state (supplies the ``w`` and cell spaces).
-
-        Returns
-        -------
-        object
-            The ``alpha_z`` field with the surface face overridden.
+        A thin delegate to
+        :func:`~fridom.hydrostatic.modules.terrain.masked_w_faces` (the
+        surface-only wet-face indicator the flux division rides), kept as
+        a method so the mirrored core tests reach the machinery through
+        the module. The physical-``w`` terrain path calls the free
+        function with ``include_bottom=True`` directly.
         """
-        vertical = self._vertical
-        alpha_z = immersed.fraction(state["w"].function_space)
-        theta_cell = immersed.fraction(state["p_hyd"].function_space)
-        # surface (top) face fraction = surface cell fraction: trace the
-        # top Center cell, relocate it onto the Outer face set (the
-        # sanctioned Constant bridge), and overwrite the surface face.
-        surface = (theta_cell.trace(vertical, Side.HIGH)
-                   .as_profile(vertical)
-                   .adopt(vertical, NodeSet.OUTER, Side.HIGH))
-        return scatter_set(alpha_z, surface)
+        return masked_w_faces(immersed, state, self._vertical)
 
     def _diagnose_p_hyd(
         self, state: State, ctx: StepContext,  # noqa: ARG002

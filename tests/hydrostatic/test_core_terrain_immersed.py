@@ -81,13 +81,15 @@ def _model(grid, *, dt=0.01):
 
 
 def _masked_residual(model, u0, v0):
-    r"""Return (masked contravariant continuity residual, w on closed faces).
+    r"""Return (masked contravariant continuity residual, flux on closed).
 
-    Diagnose ``w`` from a mask-consistent velocity and evaluate the full
-    masked contravariant 3-D divergence ``(alpha_x Ju).diff(x) +
-    (alpha_y Jv).diff(y) + (alpha_z w).diff(z)`` on the wet cells (``w``
-    is the contravariant flux ``J\omega`` here). A jitted closure so the
-    ``order>=2`` quadrature fractions concretize.
+    Diagnose the physical ``w`` from a mask-consistent velocity, take the
+    contravariant volume flux ``J\omega`` (``state.chart["w"]`` — the
+    physical ``w`` is what is stored now, the flux is the chart view),
+    and evaluate the full masked contravariant 3-D divergence
+    ``(alpha_x Ju).diff(x) + (alpha_y Jv).diff(y) + (alpha_z J\omega).diff(z)``
+    on the wet cells. A jitted closure so the ``order>=2`` quadrature
+    fractions concretize.
     """
     imm = model.grid.immersed
     core = model.module(hy.HydrostaticCore)
@@ -101,6 +103,7 @@ def _masked_residual(model, u0, v0):
                         v=st["v"].with_data(vd * mv.data))
         w = core._diagnose_w(st, CTX)["w"]
         st = st.replace(w=w)
+        flux = st.chart["w"]              # the contravariant flux Jomega
         ax = imm.fraction(st["u"].function_space)
         ay = imm.fraction(st["v"].function_space)
         az = core._masked_w_faces(imm, st)
@@ -108,9 +111,9 @@ def _masked_residual(model, u0, v0):
         ju = st["u"] * grid.metric(st["u"].function_space.bare, JN)
         jv = st["v"] * grid.metric(st["v"].function_space.bare, JN)
         div = ((ax * ju).diff("x") + (ay * jv).diff("y")
-               + (az * w).diff("z"))
+               + (az * flux).diff("z"))
         theta = imm.fraction(st["b"].function_space)
-        return div.data, w.data, az.data, theta.data
+        return div.data, flux.data, az.data, theta.data
 
     div, wdat, az, theta = (np.asarray(a) for a in run(
         jnp.asarray(u0), jnp.asarray(v0)))

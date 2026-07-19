@@ -17,6 +17,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from fridom.hydrostatic.modules.terrain import chart_component
+from fridom.spatial.fields.chart_view import ChartView
 from fridom.spatial.fields.vector_field import VectorField
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -25,7 +27,7 @@ if TYPE_CHECKING:  # pragma: no cover
 
 class State(VectorField):
 
-    """Hydrostatic state vocabulary: u, v, w, b, ps + diagnostics.
+    r"""Hydrostatic state vocabulary: u, v, w, b, ps + diagnostics.
 
     Description
     -----------
@@ -35,6 +37,12 @@ class State(VectorField):
     component is absent — the curated-hint contract of D1.5, delegated
     to :meth:`~fridom.spatial.VectorField.require`. ``w`` and ``ps``
     are diagnosed / barotropic; ``u``, ``v``, ``b`` are prognostic.
+
+    The velocity components ``u``, ``v``, ``w`` are the **physical**
+    velocities (m/s) on every grid — flat, stretched, terrain-following
+    (``physical_state_components.md``). The chart-native quantities (the
+    contravariant volume flux ``J\omega`` on a mapped column) live behind
+    the read-only :attr:`chart` namespace, derived on demand.
     """
 
     # ================================================================
@@ -56,7 +64,25 @@ class State(VectorField):
 
     @property
     def w(self) -> ScalarField:
-        """Diagnosed vertical velocity (hydrostatic continuity)."""
+        r"""Diagnosed **physical** vertical velocity (m/s).
+
+        Description
+        -----------
+        The physical vertical velocity on every grid (hydrostatic
+        continuity). On a terrain-following sigma column it is
+        ``w = J\omega + u\,Z_x + v\,Z_y`` — the contravariant volume
+        flux plus the slope advection — so it is nonzero at the bed over
+        a slope (the *flux* vanishes at the terrain, not physical ``w``).
+        The chart-native flux ``J\omega`` is ``state.chart["w"]``.
+
+        .. note::
+
+            On a future time-dependent map (a ``MovingGeometry`` whose
+            terrain moves, ``\partial_t Z \neq 0``) the physical ``w``
+            gains the mesh-velocity term ``\partial_t Z`` on top of the
+            slope advection. Not implemented — the current maps are
+            static; this is a breadcrumb for the moving-terrain case.
+        """
         return self.require(
             "w", hint="diagnosed by a hydrostatic core, "
                       "e.g. hy.HydrostaticCore")
@@ -74,6 +100,26 @@ class State(VectorField):
         return self.require(
             "ps", hint="declared by a free-surface module, e.g. "
                        "hy.ExplicitFreeSurface")
+
+    # ================================================================
+    #  Chart-native view (read-only expert surface)
+    # ================================================================
+    @property
+    def chart(self) -> ChartView:
+        r"""The read-only chart-native view of the velocity trio (ruling (d)).
+
+        Description
+        -----------
+        ``state.chart["w"]`` / ``state.chart.w`` is the chart-native
+        vertical quantity: the **contravariant volume flux** ``J\omega``
+        on a terrain (sigma) column, the identity on an unmapped grid;
+        ``chart["u"]`` / ``chart["v"]`` are the identity (the horizontal
+        components are uncoupled). ``u, v, w = state.chart.velocities``
+        destructures the trio in grid axis order (vertical last). The
+        view is read-only — write the physical component on the state
+        instead.
+        """
+        return ChartView(self, chart_component, ("u", "v", "w"))
 
     # ================================================================
     #  Parameter-free diagnostics (field algebra only)
