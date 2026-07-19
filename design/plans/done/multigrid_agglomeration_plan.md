@@ -1,6 +1,7 @@
 ---
-status: active
+status: done
 date: 2026-07-18
+closed: 2026-07-19
 ---
 
 # Multigrid coarse-grid agglomeration — replicate the deep levels
@@ -12,7 +13,7 @@ pattern), reusing the existing local-axis halo path so it issues **no**
 collectives. Two independent drivers, one mechanism.
 
 Grounded in the shipped MG stack
-([`multigrid_pathway_plan.md`](multigrid_pathway_plan.md), MG-D5 already
+([`multigrid_pathway_plan.md`](../active/multigrid_pathway_plan.md), MG-D5 already
 names the replicated-below-the-floor fallback) and the two same-day
 measurement records that turned it from a designed-for into a driven
 lever.
@@ -127,8 +128,10 @@ Shipped on `feat/multigrid-agglomeration` (2026-07-19). Phases 0-3
 complete. Phase 3 (4-GPU wall-clock) **ran** (owner-authorized, job
 `26355284`) and found **no `tau` is a wall-clock win** — the projected
 ~9-14 ms/step recovery did not reproduce and the immersed case
-regresses — so **default OFF stands** (Phase 4 owner decision now
-data-backed; see below).
+regresses — so **default OFF stands**. Phase 4 closed 2026-07-19:
+**owner ratified default OFF** ("I think it should be turned off by
+default"). Plan complete; the knob remains as the large-P capability
+escape hatch.
 
 ### Phase 0 — status quo at high forced device count (CPU)
 
@@ -308,8 +311,8 @@ smoother) and running the census parser confirms the structural change
 - **Phase 3 GPU sweep — RUN** (job `26355284`, 2026-07-19):
   `tau in {2,4,8}` × mapped `{128,256,512}` + immersed `{128,256}`,
   ms/step + CG iters + GPU HLO census. No `tau` is a wall-clock win;
-  immersed regresses; default OFF stands. Only open Phase-3 residual is
-  the **owner default decision** (Phase 4), now data-backed.
+  immersed regresses; default OFF stands. The owner default decision
+  (Phase 4) closed 2026-07-19: **default OFF ratified**.
 - The "machine-precision identical" gate wording should be relaxed to
   "identical iterations + agreement below the solve tolerance" for the
   immersed reassociation floor (see the parity numbers above).
@@ -331,11 +334,12 @@ smoother) and running the census parser confirms the structural change
 
 ## 6. Relation to the existing record
 
-MG-D5 ([`multigrid_pathway_plan.md`](multigrid_pathway_plan.md)) already
+MG-D5 ([`multigrid_pathway_plan.md`](../active/multigrid_pathway_plan.md)) already
 specifies "one device set for all levels; replicate below the
 shardability floor" as the correctness fallback. This plan is the
 **perf/capability promotion** of that fallback: choosing replication
 deliberately for deep levels, adding the threshold + cross-boundary
 reshard, and driving it with the census + depth-scaling evidence. The
-sibling roadmap item lives under "Multigrid preconditioner — follow-up
-measurements" in [`../../roadmap/open.md`](../../roadmap/open.md).
+sibling roadmap item is closed — its record lives in
+[`../../roadmap/done.md`](../../roadmap/done.md) (coarse-level
+agglomeration entry, default OFF owner-ratified 2026-07-19).

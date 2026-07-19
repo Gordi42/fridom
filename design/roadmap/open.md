@@ -448,7 +448,13 @@ V-cycle kernel swap it called for shipped 2026-07-18 (merge
   latency-bound grid). Follow-ups, none blocking: (a) owner call —
   prefer replication for coarse levels (demote/exclude the hierarchy
   `vertical` in the coarse-level shardability ranking, or replicate
-  below a cell-count floor); measure the coarse-level timing first;
+  below a cell-count floor); the replicate-below-a-floor variant is now
+  **measured null** (agglomeration Phase 3, 2026-07-19, entry in
+  [`done.md`](done.md): removing the coarse-level collectives recovers
+  ~1% of step time on 4 GPUs, and the immersed hierarchy regresses;
+  `multigrid_agglomerate` default OFF owner-ratified), which answers
+  "measure the coarse-level timing first" and caps the upside of the
+  unmeasured ranking-demotion variant;
   (b) a hierarchy-builder warning when a level's layout shards the
   line-smoother axis (future negotiation-policy drift fails loudly);
   (c) stretched-base eager hierarchy pre-warm so stretched columns
@@ -457,33 +463,6 @@ V-cycle kernel swap it called for shipped 2026-07-18 (merge
   via the `Grid.coarsened` memo); (d) `multi_device` markers for the
   parity-test victims (unmarked 4-device-only failures are invisible
   to single-device CI).
-- **Coarse-level agglomeration — default-on owner decision (data-backed).**
-  The mechanism (replicate coarse levels below a per-shard-extent
-  threshold, knob `multigrid_agglomerate` default OFF) **shipped**
-  2026-07-19 (merge `9e08493f`; entry in [`done.md`](done.md), record
-  [`../plans/active/multigrid_agglomeration_plan.md`](../plans/active/multigrid_agglomeration_plan.md)
-  §4). The Phase 3 4-GPU wall-clock sweep **ran** (job `26355284`, node
-  l50193, exclusive; data
-  [`../research/artifacts/multigrid_agglomeration_phase3/`](../research/artifacts/multigrid_agglomeration_phase3/)),
-  closing the GPU-leg, `tau`-sweep and folding follow-ups. **Verdict:
-  no `tau` is a wall-clock win; keep default OFF.** The census's
-  projected ~9–14 ms/step recovery at 128³ did **not** reproduce — the
-  best `tau` (t8) recovers only 5.8 ms (mg-off→68.1 ms, still 0.44×
-  spectral; `tau=4` recovers 0.6 ms), the 512³ mg win widens only to
-  1.23× (<1.5× bar), and on the immersed hierarchy `tau=4` **regresses**
-  off (−0.9% at 128³, −4.3% at 256³), so no `tau` is universally
-  non-regressive. Mapped is monotone in `tau` (t8 best: +8.5/+5.7/+1.4%
-  vs off) but within thermal spread and at ~3× compile. Folding: the GPU
-  partitioner re-partitions the replicated-level reductions like CPU
-  (all-reduce 288→321/step, collectives net −6%), not folded to local
-  sums; a `with_sharding_constraint` hint is untried but moot. CG iters
-  identical ON vs OFF (mapped 10, immersed 20/21), maxu agrees to ~1e-15.
-  **Recommendation: leave OFF the multi-device mg default** (agglomeration
-  does not close the small-n gap, does not meaningfully help 512³, and
-  regresses immersed); revisit only with `tau=8` shown non-regressive on
-  immersed (τ2/τ8 unmeasured there) and the `tau=4` under-fire fixed (the
-  census shows it leaves the coarsest L4 permutes in place). Owner to
-  ratify OFF or direct otherwise.
 - **Residual mapped-GPU levers, unclaimed** — fewer coarse sweeps;
   cheaper mapped operator applies (the finest level dominates the
   post-swap V-cycle: one sweep = 15.7 ms cuSPARSE solve + 12.0 ms

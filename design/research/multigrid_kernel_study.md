@@ -700,7 +700,7 @@ the two coarsest levels on 1-2 per-shard planes — **~9-14 ms of the
 extent threshold (agglomerate them to replicated layout, where the halo
 runs local and issues no collective). This motivates the coarse-level
 agglomeration plan:
-[`../plans/active/multigrid_agglomeration_plan.md`](../plans/active/multigrid_agglomeration_plan.md).
+[`../plans/done/multigrid_agglomeration_plan.md`](../plans/done/multigrid_agglomeration_plan.md).
 *Correction (Phase 3 4-GPU wall-clock, 2026-07-19, job `26355284`;
 [`artifacts/multigrid_agglomeration_phase3/`](artifacts/multigrid_agglomeration_phase3/)):
 the projected ~9–14 ms recovery did **not** reproduce. Agglomeration at

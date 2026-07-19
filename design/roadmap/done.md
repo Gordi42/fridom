@@ -888,9 +888,9 @@ Implementation record:
   wall-clock win** (the ~9–14 ms/128³ projection did not reproduce — best
   τ8 recovers 5.8 ms, τ4 0.6 ms; immersed τ4 regresses off −0.9/−4.3%;
   GPU does not fold the replicated reductions, collectives net −6%), so
-  **default OFF stands**. Only the owner default-on ratification remains
-  open (open.md, multigrid section). Record:
-  [`../plans/active/multigrid_agglomeration_plan.md`](../plans/active/multigrid_agglomeration_plan.md)
+  **default OFF stands — owner-ratified 2026-07-19**; item fully closed,
+  the knob remains the large-P capability escape hatch. Record:
+  [`../plans/done/multigrid_agglomeration_plan.md`](../plans/done/multigrid_agglomeration_plan.md)
   §4; driver:
   [`../research/multigrid_kernel_study.md`](../research/multigrid_kernel_study.md)
   Addendum 3.
