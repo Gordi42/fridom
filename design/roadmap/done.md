@@ -112,7 +112,7 @@ Implementation record:
   preserved. Record:
   [`../plans/done/td_fields_followups.md`](../plans/done/td_fields_followups.md).
   **TDF-D7 nonhydro `n2(y, t)` law landed 2026-07-19** (merge
-  `MERGEHASH`): `MeridionalStratification` now accepts a
+  `01628a30`): `MeridionalStratification` now accepts a
   `fr.model.ProfileFunction` law alongside its static callable, marking
   `n2` `time_dependent` and rewriting it each substage via a SELF_UPDATE
   stage — so the previously-unreachable TDF-D10 `n2` reciprocal energy
