@@ -9,6 +9,7 @@ a single device, a walled-vertical ``ComposedTransform`` (Wave B), or a
 replicated operand.
 """
 import jax
+import jax.numpy as jnp
 import numpy as np
 import pytest
 
@@ -17,6 +18,7 @@ import fridom.nonhydro2 as nh
 from fridom.model.analytic_distributed import (
     AnalyticDistributedRoute,
     analytic_route,
+    hermitian_reframe,
     resolve_route,
 )
 
@@ -83,3 +85,92 @@ def test_analytic_route_reroutes_a_sharded_operand(forced_devices):
     assert analytic_route(em, nh.State({"u": sharded})) is not None
     one = _eigenmodes((0,))
     assert analytic_route(one, nh.State({"u": one.q(0)["u"]})) is None
+
+
+# ================================================================
+#  Hermitian half-axis re-expression (hermitian_reframe)
+# ================================================================
+def _mirror(plane):
+    """Conjugate reflection ``k -> -k`` of a 2-D full-spectrum plane."""
+    return np.conj(np.roll(np.flip(np.flip(plane, 0), 1), (1, 1), (0, 1)))
+
+
+@pytest.mark.parametrize("nx", [8, 9], ids=["even", "odd"])
+def test_hermitian_reframe_completes_the_full_spectrum(nx):
+    # the re-expression of a single-device half-axis (rfft) column onto a
+    # full-complex target frame reproduces the numpy full DFT of the real
+    # field exactly: interior half-axis planes are kept, the missing half
+    # is the conjugate reflection, and the self-conjugate DC plane (with,
+    # at even extents, the Nyquist plane) is averaged to its Hermitian part
+    # -- so the field the target frame synthesizes is real. Covers both the
+    # even (DC + Nyquist) and odd (DC only, no Nyquist) source parity.
+    em = _eigenmodes((0,), n=nx)
+    source = em.kit.coeff("b").bare
+    target = source.as_complex()
+    rng = np.random.default_rng(0)
+    field = rng.standard_normal((nx, nx, nx))
+    full = np.fft.fftn(field, norm="forward")
+    half = jnp.asarray(full[: nx // 2 + 1])
+    out = np.asarray(hermitian_reframe(half, source, target))
+    assert out.shape == (nx, nx, nx)
+    assert np.abs(out - full).max() < 1e-12
+
+
+def test_hermitian_reframe_projects_self_conjugate_planes():
+    # a column that is *not* Hermitian on the DC / Nyquist planes of the
+    # half axis (as the analytic gains generally are not): the single-device
+    # backward (irfft) keeps only the Hermitian part of those planes, and
+    # the re-expression reproduces that projection (the (stored + reflected
+    # conjugate) / 2 averaging), so the completed spectrum has Hermitian DC
+    # and Nyquist planes -- while interior planes are kept verbatim and the
+    # missing half is their conjugate reflection.
+    nx = 8
+    em = _eigenmodes((0,), n=nx)
+    source = em.kit.coeff("b").bare
+    target = source.as_complex()
+    rng = np.random.default_rng(1)
+    half = (rng.standard_normal((nx // 2 + 1, nx, nx))
+            + 1j * rng.standard_normal((nx // 2 + 1, nx, nx)))
+    out = np.asarray(hermitian_reframe(jnp.asarray(half), source, target))
+    # DC (kx = 0) and Nyquist (kx = 4) planes: Hermitian after averaging
+    for plane in (0, nx // 2):
+        assert np.abs(out[plane] - _mirror(out[plane])).max() < 1e-12
+    # interior plane kept verbatim; its reflection fills the missing half
+    assert np.abs(out[1] - half[1]).max() < 1e-12
+    assert np.abs(out[nx - 1] - _mirror(half[1])).max() < 1e-12
+
+
+@pytest.mark.multi_device
+def test_reframed_synthesis_has_no_all_gather(forced_devices):
+    # the fused IC path -- half-axis re-expression onto the re-designated
+    # internal frame, then the fused shard_map backward -- keeps every
+    # transform axis device-local: the HLO transposes (all-to-all) and
+    # never gathers the sharded axis (all-gather / all-reduce absent).
+    if forced_devices is not None:
+        assert jax.device_count() == forced_devices
+    em = _eigenmodes(None)
+    kit = em.kit
+    route = resolve_route(em.grid, em._analysis, em._components)
+    # the sharded axis is the single-device half axis, so the internal
+    # frame re-designates it -- the frames differ and reframe is exercised
+    assert any(route.coeff_of(c) != kit.coeff(c) for c in em._components)
+    templates = {
+        c: em.grid.create_field(kit.backward(c).codomain, name=c)
+        for c in em._components}
+
+    def synth(cols):
+        coeffs = {
+            c: hermitian_reframe(cols[c], kit.coeff(c), route.coeff_of(c))
+            for c in em._components}
+        return {c: v.data
+                for c, v in route.synthesize(coeffs, templates).items()}
+
+    rng = np.random.default_rng(2)
+    cols = {
+        c: jnp.asarray(rng.standard_normal(kit.coeff(c).shape)
+                       + 1j * rng.standard_normal(kit.coeff(c).shape))
+        for c in em._components}
+    text = jax.jit(synth).lower(cols).compile().as_text()
+    assert "all-to-all" in text
+    assert "all-gather" not in text
+    assert "all-reduce" not in text
