@@ -150,3 +150,13 @@ Post-fix verification (this investigation, dev `95010353` lineage):
 4. **Test hygiene:** `multi_device` markers for the parity victims
    (unmarked 4-device-only failures breach the house device-count
    rule; single-device CI never sees them).
+
+*Rulings (2026-07-19, owner in chat): 1 — closed, **no replication
+preference** (the replicate-below-a-floor variant was measured null
+by the agglomeration Phase 3 GPU sweep, which also capped the
+ranking-demotion variant's upside); 2 — **dropped** (sharding the
+line-smoother axis is nowhere a correctness problem since
+`b57e3e78`; a warning would fire on the deliberate negotiated
+default, and the parity battery is the drift net); 3 — approved, in
+flight; 4 — mechanics ruling pending. Tracker:
+`../roadmap/done.md` (rulings entry).*

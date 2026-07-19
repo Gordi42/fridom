@@ -240,8 +240,36 @@ Implementation record:
   (9 failed the previous day). Coarse levels remain sigma-sharded by
   negotiation — now machine-precision-correct (`1.6e-15..5.2e-14`
   vcycle parity incl. stretched 16/shard) — so the residue is
-  perf/hardening only (open.md, multigrid section). Record:
+  perf/hardening only (open.md, multigrid section; rulings entry
+  below). Record:
   [`semicoarsen_multidevice_regression.md`](../research/semicoarsen_multidevice_regression.md).
+
+- **Multigrid preconditioner follow-ups — owner rulings**
+  (2026-07-19, in chat) closing three of the five open items from the
+  semicoarsen/kernel-study residue: **(1) coarse-level replication
+  preference: none** — sigma-sharding stays the negotiated choice
+  (the replicate-below-a-floor variant is measured null by
+  agglomeration Phase 3: removing the coarse-level collectives
+  recovers ~1% of 4-GPU step time and regresses immersed; the
+  ranking-demotion variant is unmeasured but upside-capped by the
+  same data). **(2) Line-smoother-axis warning: dropped** — sharding
+  the line-smoother (sigma) axis is nowhere a correctness problem:
+  the line solve was always clean under it (column-transpose
+  all-to-all in, solve, transpose back), the 07-18 break was the
+  bounded-axis exterior-reach sync hole in the coarse *operator
+  apply* (cured by `b57e3e78`), and a warning would fire on today's
+  deliberately sigma-sharded negotiated default; the drift net is
+  the multi-device parity battery instead. **(3) Residual mapped-GPU
+  levers: retired** — current standing accepted (mg-cuSPARSE 1.23×
+  vs spectral at 512³ single-process, 1.11× on 4 GPUs; the 1.5×
+  GB-2 bar stays unmet) after the cheap levers were banked (kernel
+  swap, floor depth) and the small-n levers measured null (agglom
+  Phase 3); the priced remainder (fewer coarse sweeps; cheaper
+  mapped operator apply — one 512³ sweep = 15.7 ms cuSPARSE solve +
+  12.0 ms apply) is revisit-only-with-a-concrete-driver. Still open
+  (open.md, multigrid section): the stretched-base eager pre-warm
+  (approved, in flight) and the `multi_device` marker hygiene
+  (mechanics ruling pending).
 
 - **Coefficient-space product/power rows — ruled closed by design**
   (owner-ratified 2026-07-18) — the open-roadmap semantics question

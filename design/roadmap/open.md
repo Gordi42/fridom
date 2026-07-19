@@ -436,45 +436,25 @@ V-cycle kernel swap it called for shipped 2026-07-18 (merge
 [`../research/multigrid_kernel_study.md`](../research/multigrid_kernel_study.md)
 §§Addendum, Addendum 2). Open, none blocking:
 
-- **Semicoarsening coarse-level layout — perf/hardening follow-ups.**
-  The multi-device parity break itself is **closed** (root-caused,
-  cured, verified on real 4x A100 — entry in [`done.md`](done.md),
-  record
-  [`../research/semicoarsen_multidevice_regression.md`](../research/semicoarsen_multidevice_regression.md)),
-  but the layout that exposed it remains the negotiated choice: every
-  real semicoarsening config still **sigma-shards its coarsest level**
-  (correct to machine precision since `b57e3e78`, yet one coarse sweep
-  lowers to ~181 collective-permutes on the smallest, most
-  latency-bound grid). Follow-ups, none blocking: (a) owner call —
-  prefer replication for coarse levels (demote/exclude the hierarchy
-  `vertical` in the coarse-level shardability ranking, or replicate
-  below a cell-count floor); the replicate-below-a-floor variant is now
-  **measured null** (agglomeration Phase 3, 2026-07-19, entry in
-  [`done.md`](done.md): removing the coarse-level collectives recovers
-  ~1% of step time on 4 GPUs, and the immersed hierarchy regresses;
-  `multigrid_agglomerate` default OFF owner-ratified), which answers
-  "measure the coarse-level timing first" and caps the upside of the
-  unmeasured ranking-demotion variant;
-  (b) a hierarchy-builder warning when a level's layout shards the
-  line-smoother axis (future negotiation-policy drift fails loudly);
-  (c) stretched-base eager hierarchy pre-warm so stretched columns
-  take the full-coarsening default (its coarsest level replicates
-  naturally, and the `MappedIntervalMesh`-ctor jit limit is bypassed
-  via the `Grid.coarsened` memo); (d) `multi_device` markers for the
-  parity-test victims (unmarked 4-device-only failures are invisible
-  to single-device CI).
-- **Residual mapped-GPU levers, unclaimed** — fewer coarse sweeps;
-  cheaper mapped operator applies (the finest level dominates the
-  post-swap V-cycle: one sweep = 15.7 ms cuSPARSE solve + 12.0 ms
-  operator apply at 512³). Take only with a concrete driver toward
-  the 1.5× GB-2 bar. Immersed in-model post-swap standing is now
-  measured (2026-07-18, kernel study Addendum 2): mg 1.09×/1.12× at
-  128³/256³ at the production budget=100, where spectral also converges
-  (71–73 iters) — the 1.3–2.0× projection was a budget=30 artifact, and
-  mg is the only converged option below budget ≈70. On 4 GPUs
-  mg-cuSPARSE is 1.11× at 512³ (bandwidth-amortized) — the large-n end
-  where the collective count is a smaller fraction, so any remaining
-  lever hunt there is large-n / multi-GPU-aware.
+- **Stretched-base eager hierarchy pre-warm** so stretched columns
+  take the GM-D9 full-coarsening default: build the coarse chain
+  host-side at solver construction so `Grid.coarsened`'s memo makes
+  the trace-time rebuild a memo hit, bypassing the
+  `MappedIntervalMesh`-ctor jit limit (the full-coarsening coarsest
+  level then replicates naturally). Owner-approved 2026-07-19; in
+  flight.
+- **`multi_device` markers for the semicoarsen parity victims** — the
+  tests that caught the 07-18 regression (all green since `b57e3e78`)
+  fail only at >= 2 devices, are unmarked, and single-device CI never
+  exercises that failure mode; declare their device-count sensitivity
+  so the forced-4 leg owns them. Awaiting owner ruling on mechanics
+  (marker vs a forced-4 CI leg for the multigrid parity battery).
+
+The remaining 2026-07-18 follow-ups were **ruled closed 2026-07-19**
+(coarse-level replication preference: none — sigma-sharding stays;
+line-smoother-axis warning: dropped; residual mapped-GPU levers:
+retired, revisit only with a concrete driver) — entry in
+[`done.md`](done.md).
 
 ## TangentPropagator — the D5 forward-mode surface
 
