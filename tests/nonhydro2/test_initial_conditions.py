@@ -411,10 +411,11 @@ def test_random_state_on_a_sharded_grid_is_device_invariant(
         forced_devices):
     # the analytic random-state synthesis builds its gains and Hermitian
     # random phases on the device-independent single-device coefficient
-    # frame and inverts them through the fused jax.shard_map backward
-    # (frame-matching sharded axis) or a replicated backward otherwise --
-    # both device-count invariant; a grid that shards a transform axis
-    # reproduces the one-device state to floating point, real and sharded.
+    # frame; the default nonhydro layout shards the half axis, so the
+    # transpose engine re-designates the half axis and the synthesis routes
+    # through the fused jax.shard_map backward via the Hermitian half-axis
+    # re-expression (no gather) -- reproducing the one-device state to
+    # floating point, real and sharded, on any device count.
     if forced_devices is not None:
         assert jax.device_count() == forced_devices
     n = 16
@@ -431,3 +432,30 @@ def test_random_state_on_a_sharded_grid_is_device_invariant(
                          - np.asarray(s_one[c].data)).max())
             for c in COMPONENTS)
         assert err < 1e-11
+
+
+@pytest.mark.multi_device
+def test_single_wave_on_a_sharded_grid_is_device_invariant(
+        forced_devices):
+    # em.mode (the single_wave accessor) shares the synthesis tail: the
+    # Hermitian-closed single-mode column routes through the same fused
+    # half-axis re-expression on a grid that shards the half axis, so the
+    # sharded mode reproduces the one-device mode (frequency and field) to
+    # floating point, real and sharded.
+    if forced_devices is not None:
+        assert jax.device_count() == forced_devices
+    n = 16
+    many = nh.eigenmodes.from_model(_periodic_model_at(None, n))
+    one = nh.eigenmodes.from_model(_periodic_model_at((0,), n))
+    k = {"x": 3, "y": 1, "z": 2}
+    om_many, z_many = nh.single_wave(many, k, s=1, phase=0.4)
+    om_one, z_one = nh.single_wave(one, k, s=1, phase=0.4)
+    assert om_many == om_one
+    assert z_many["u"]._data.sharding.spec[0] == "devices"
+    assert all(not np.iscomplexobj(np.asarray(z_many[c].data))
+               for c in COMPONENTS)
+    err = max(
+        float(np.abs(np.asarray(z_many[c].data)
+                     - np.asarray(z_one[c].data)).max())
+        for c in COMPONENTS)
+    assert err < 1e-11

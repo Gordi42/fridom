@@ -70,13 +70,13 @@ import numpy as np
 import fridom as fr
 from fridom.model.eigenstates import (
     assemble_operator_matrix,
-    bare_coeff_field,
     coefficient_index,
     describe_nonfinite_branch,
     envelope_scale,
     evaluate_frequency_function,
     hermitian_mode_data,
     resolve_mode_branches,
+    synthesize_columns,
 )
 from fridom.nonhydro2.channel_eigenmodes import ChannelEigenmodes
 from fridom.nonhydro2.energy import nonhydro_energy_weights
@@ -933,31 +933,27 @@ class Eigenmodes:
                 "k = 0 mean)")
 
         def synth(shift: float) -> dict[str, ScalarField]:
-            out = {}
+            # the Hermitian mirror pair is placed in each column host-side
+            # (before any region); the synthesis routes through the fused
+            # distributed backward on a sharded periodic grid (no gather --
+            # the half-axis re-expression onto the internal frame), else
+            # the replicated / single-device backward, all device invariant
+            columns = {}
             for c in components:
                 if slots[c] is None:
-                    data = jnp.zeros_like(q[c].data)
+                    columns[c] = jnp.zeros_like(q[c].data)
                 else:
                     value = amps[c] * jnp.exp(
                         -1j * (float(phase) + shift))
-                    data = hermitian_mode_data(
+                    columns[c] = hermitian_mode_data(
                         q[c].function_space, slots[c], value)
-                # the Hermitian mirror pair is already placed in ``data``
-                # (host-side, before any region); on a multi-device grid
-                # rebuild on the bare coefficient space so the backward
-                # runs unguarded (replicated, device invariant) instead
-                # of tripping the Tier-1 error -- single device keeps the
-                # original path bitwise
-                field = (
-                    bare_coeff_field(
-                        self._grid, self._grid.decomposition,
-                        q[c].function_space.bare, q[c], data)
-                    if getattr(self._grid.decomposition,
-                               "device_count", 1) > 1
-                    else q[c].with_data(data))
-                out[c] = self._kit.backward(c)(field).real.retag(
-                    self._physical[c])
-            return out
+            templates = {
+                c: self._grid.create_field(
+                    self._kit.backward(c).codomain, name=c)
+                for c in components}
+            out = synthesize_columns(
+                self._grid, self._kit, components, columns, templates, q)
+            return {c: out[c].retag(self._physical[c]) for c in components}
 
         z0 = synth(0.0)
         z1 = synth(jnp.pi / 2.0)
