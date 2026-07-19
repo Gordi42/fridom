@@ -441,6 +441,31 @@ V-cycle kernel swap it called for shipped 2026-07-18 (merge
   exercises that failure mode; declare their device-count sensitivity
   so the forced-4 leg owns them. Awaiting owner ruling on mechanics
   (marker vs a forced-4 CI leg for the multigrid parity battery).
+- **Multi-device full-coarsening grad — pre-existing XLA:SPMD
+  transfer-VJP break (owner call).** Surfaced by the pre-warm
+  validation (entry in [`done.md`](done.md)): reverse-mode through a
+  *full-coarsening* multigrid solve fails to build on >= 2 devices
+  (HLO-verifier shape mismatch in the fine-to-replicated-coarse
+  transfer VJP). The shipped **uniform** GM-D9 default shares it;
+  semicoarsening grad passes; the forward solve is device-invariant.
+  Mitigation: the grad-through-the-solve regressions are
+  `single_device`-marked. Owner: file upstream (jax/XLA, his voice)
+  and/or add a taught guard until fixed. Characterisation:
+  [`../research/semicoarsen_multidevice_regression.md`](../research/semicoarsen_multidevice_regression.md)
+  §"Discovered pre-existing limitation".
+- **Pre-warm mechanism ratification (owner, small).** The shipped
+  realization wraps the coarse-chain construction in
+  `jax.ensure_compile_time_eval` inside `MappedPressureSolver.__init__`
+  rather than the record's literal host-side-setup hook — the literal
+  hook has a timing hole (the assembly dry-run abstract-traces the
+  solver build before `grid.freeze()`); deviation documented in the
+  record for ratification.
+- **Composed (mapped+immersed) stretched full-coarsening** — the
+  composed sibling deliberately keeps horizontal semicoarsening on a
+  stretched base (`_coarsen_vertical` override, byte-identical today):
+  its coarse level also re-quadratures the immersed fractions, and
+  that re-derivation under a coarsened stretched column is unbuilt.
+  Take with the mapped+immersed follow-up wave.
 
 The remaining 2026-07-18 follow-ups were **ruled closed 2026-07-19**
 (coarse-level replication preference: none — sigma-sharding stays;
