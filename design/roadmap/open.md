@@ -86,22 +86,6 @@ the scoping §10–§13). Open:
     volume-exact variable-csqr solve, resolving the plan §8
     volume-vs-energy tension for the implicit variant); the
     subcycle's terrain transport form is the remaining half.
-  - **Terrain + walled-horizontal** (the one remaining layer of the
-    walled-horizontal gap; the flat/immersed gap itself is closed —
-    entry in [`done.md`](done.md)): a hydrostatic model on a
-    sigma-chart terrain grid with a walled *horizontal* axis still
-    fails to assemble. This layer is a genuine missing conversion,
-    not a tag relabel: the mapped slope gradient
-    (`hydrostatic/modules/core.py` `_slope_gradient` →
-    `spatial/coordinate_mapping.py` `_at_space` → `field.to`)
-    needs to *interpolate* a wall-normal-face quantity along the
-    walled axis, and the BC-free `('interpolate', Inner(x))` row
-    (correctly) does not exist. Likely spelling: retag the
-    face quantity onto its Dirichlet sibling first (the odd-parity
-    claim of `_dirichlet_mid`), so the registered tagged
-    interpolate row resolves — but the seam sits in the shared
-    `coordinate_mapping` machinery, so the claim needs a
-    per-call-site justification, not a blanket arm.
 
 [`../plans/active/fv_nonhydro_scoping.md`](../plans/active/fv_nonhydro_scoping.md)
 
