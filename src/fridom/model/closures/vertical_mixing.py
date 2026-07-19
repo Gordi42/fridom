@@ -272,10 +272,13 @@ class VerticalMixing(Module):
         if getattr(grid, "immersed", None) is not None:
             raise NotImplementedError(
                 "VerticalMixing does not support immersed (cut-cell) "
-                "grids: its vertical flux column would cross the "
-                "immersed boundary unmasked, and fraction-weighting an "
-                "implicit vertical closure is designed-for (immersed-"
-                "partial-cells plan, IP-D8). Drop the closure on an "
+                "grids: its implicit column solve assumes a uniform dz "
+                "(the tridiagonal band), so a partial bottom cell would "
+                "silently solve the wrong operator. A wet-aware "
+                "variable-dz tridiagonal is a §5 deferral "
+                "(immersed_closures_sadourny_plan) — the intersection "
+                "of two implicit-machinery generalizations, its own "
+                "roadmap item when picked up. Drop the closure on an "
                 "immersed grid.")
         reject_unsupported_solve_column(grid, self._vertical)
         if self.kv is not None:

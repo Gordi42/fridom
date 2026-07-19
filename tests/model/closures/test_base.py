@@ -184,12 +184,29 @@ def test_zero_resolved_targets_is_an_assembly_error():
 
 
 def test_bind_on_an_immersed_grid_is_taught():
-    # closures read across dry cells unmasked next to the immersed
-    # boundary (IP-D8): bind rejects an immersed grid outright
+    # per-closure capability (CL-D1): a closure that does not opt into
+    # the fraction-weighted immersed spelling (_supports_immersed left
+    # at the base default False) rejects an immersed grid at bind with a
+    # taught error naming the plan and its §5 deferral list
     immersed = ImmersedDomain(lambda x: x * 0.0 + 1.0)
     closure = Mixing()
-    with pytest.raises(NotImplementedError, match="immersed"):
+    assert closure._supports_immersed is False
+    with pytest.raises(
+            NotImplementedError,
+            match="immersed_closures_sadourny_plan"):
         closure.bind(make_table(immersed=immersed))
+
+
+def test_supports_immersed_closure_binds_on_an_immersed_grid():
+    # a closure that opts in (CL-D1) passes the base capability gate and
+    # resolves its targets normally on an immersed grid
+    class ImmersedMixing(Mixing):
+        _supports_immersed = True
+
+    immersed = ImmersedDomain(lambda x: x * 0.0 + 1.0)
+    closure = ImmersedMixing()
+    closure.bind(make_table(immersed=immersed))
+    assert closure.targets == ("b", "c")
 
 
 def test_missing_default_targets_is_taught():

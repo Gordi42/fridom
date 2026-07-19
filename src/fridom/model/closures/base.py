@@ -130,6 +130,17 @@ class ClosureBase(Module, ABC):
     closures that do useful work beyond their role targets (e.g. a
     Smagorinsky closure whose stress term is target-independent)."""
 
+    _supports_immersed: ClassVar[bool] = False
+    """Per-closure immersed (cut-cell) capability (CL-D1). Defaults
+    to ``False`` — the blanket reject is gone, but a closure opts in
+    only when it carries the fraction-weighted immersed spelling.
+    Harmonic diffusion and friction set ``True`` (the IP-D4 pattern
+    is mechanical for a divergence-form operator); Smagorinsky, the
+    biharmonic family, VerticalMixing, and any no-slip immersed
+    request keep ``False`` and reject at bind with a taught error
+    naming the ``immersed_closures_sadourny_plan`` §5 deferral (see
+    :meth:`_immersed_rejection`)."""
+
     def __init__(
         self,
         *,
@@ -175,15 +186,9 @@ class ClosureBase(Module, ABC):
         """
         super().bind(table)
         owner = type(self).__name__
-        if getattr(table.grid, "immersed", None) is not None:
-            raise NotImplementedError(
-                f"{owner} does not support immersed (cut-cell) grids: "
-                "its strain / stress / diffusive-flux stencils next to "
-                "the immersed boundary would read across dry cells "
-                "unmasked, and fraction-weighting a viscous closure is "
-                "not the mechanical edit the advective flux form is "
-                "(immersed-partial-cells plan, IP-D8) — designed-for. "
-                "Drop the closure on an immersed grid.")
+        if (getattr(table.grid, "immersed", None) is not None
+                and not self._supports_immersed):
+            raise NotImplementedError(self._immersed_rejection(owner))
         selection = self._fields
         if selection is None:
             selection = getattr(type(self), "default_targets", None)
@@ -263,6 +268,39 @@ class ClosureBase(Module, ABC):
                     f"target {missing[0]!r} (resolved targets: "
                     f"{self._targets}); cover every target, or "
                     "narrow the targets with fields=/exclude=")
+
+    def _immersed_rejection(self, owner: str) -> str:
+        """Build the taught immersed (cut-cell) rejection message (CL-D1).
+
+        Description
+        -----------
+        The default names the ``immersed_closures_sadourny_plan`` and
+        its §5 deferral list; a closure carrying a specific deferral
+        design overrides this to name its own reason (the base message
+        already lists all three, so the override is optional).
+
+        Parameters
+        ----------
+        owner : str
+            The rejecting closure's class name.
+
+        Returns
+        -------
+        str
+            The taught ``NotImplementedError`` message.
+        """
+        return (
+            f"{owner} does not support immersed (cut-cell) grids: its "
+            "strain / stress / diffusive-flux stencils next to the "
+            "immersed boundary would read across dry cells unmasked. "
+            "Only harmonic diffusion and friction carry the "
+            "fraction-weighted immersed spelling "
+            "(immersed_closures_sadourny_plan, CL-D1/CL-D2); the "
+            "deferral designs (Smagorinsky wet-only strain rates, "
+            "VerticalMixing variable-dz column, no-slip side-drag) are "
+            "recorded in the plan §5. Use fr.closures.HarmonicDiffusion "
+            "/ HarmonicFriction, or drop the closure on an immersed "
+            "grid.")
 
     # ================================================================
     #  Properties
