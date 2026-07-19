@@ -168,11 +168,19 @@ single device if nothing else shards). That is the honest outcome — the
 current behaviour shards it and computes wrong physics — but it is a
 capability change for such grids the owner should weigh.
 
-## Open owner question
+## Owner ruling (2026-07-19) — SHIPPED
 
-Ship the trace-side fix (option 1) plus the defensive guard tightening
-(option 4)? And: is the amplitude-masked `b` seam reason to change the
-test — assert `b` at O(1) amplitude (which currently *fails*), or drop
-the "Restriction defect" attribution in the in-code comment (the b
-residual is the weno under-provisioning, not residual Restriction
-error)?
+Ruled in session: ship option 1 plus option 4. Landed as dev merge
+`c8ba82b8` (`fix/weno-selected-union-reach`), all three parts: the
+trace branch applies the biased *pair* (mirroring `UpwindAdvection`;
+the pair max equals the union footprint exactly for every
+order/shift/family since `m0_left = m0_right + 1`), `requirements`
+declares the union footprint for both families, the
+`apply_fv_staggered` guard moved to the per-side footprint form (a
+synthetic under-provisioned bounded application now raises), and the
+parity test asserts u/v/b/ps tight at atol 1e-11 with O(1) buoyancy
+plus a negotiated z-halo >= 3 assertion. Verified forced-4 post-fix:
+z-halo 2→3 (z stays sharded), seams to the FP floor (u 3.3e-16,
+v 1.4e-16, b 1.1e-16), all other configs' negotiated widths
+unchanged. Roadmap entry retired to
+[`../roadmap/done.md`](../roadmap/done.md).

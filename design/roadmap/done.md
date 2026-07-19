@@ -2128,3 +2128,33 @@ Implementation record:
   the terrain-advection constancy invariant, chart surface + read-only
   for both packages, nonhydro2 hand-built flux equality, autodiff FD
   gates green.
+
+- **weno5 momentum z-shard seam — root-caused and FIXED**
+  (2026-07-19; research `01052ee0`, fix merge `c8ba82b8`,
+  `fix/weno-selected-union-reach`; record
+  [`../research/weno_momentum_z_seam.md`](../research/weno_momentum_z_seam.md)).
+  The ~1e-5 u/v seam on z-sharded hydrostatic weno5 was the one-pass
+  selected-input kernel (`_SelectedFaceReconstruction`) halo-tracing
+  only the interned *left* biased kernel while the runtime reads the
+  order+1 union window: primal Center→face declared z-reach (2,2) vs
+  the runtime's (2,3), so negotiation provisioned z-halo 2, one
+  short. Buoyancy carried the same seam amplitude-masked below the
+  old test tolerance (the in-code Restriction attribution was
+  wrong). Owner-ratified fix, three parts: (1) the trace branch now
+  applies the biased *pair* (mirroring `UpwindAdvection`) and
+  `requirements` declares the union footprint — exact for every
+  order/shift/family since `m0_left = m0_right + 1` makes the pair
+  max equal the union reach; the interned biased kernels keep their
+  own correct reaches and the runtime kernel is byte-identical.
+  (2) `apply_fv_staggered`'s bounds guard moved from the window form
+  (whose global Center→Inner deficit masked the bounded-axis
+  over-read — why the bug was silent) to the per-side footprint
+  form; a synthetic under-provisioned bounded application now raises
+  the taught error. (3) The parity test asserts u/v/b/ps tight at
+  atol 1e-11 with O(1) buoyancy plus a negotiated z-halo >= 3
+  assertion. Verified forced-4: parity config z-halo 2→3 (still
+  sharded), seams u 9.1e-6→3.3e-16 / v 5.7e-6→1.4e-16 /
+  b→1.1e-16; hy-centered (1), hy-upwind (3), nonhydro2 weno bounded
+  and periodic z (3) all unchanged. Capability note: grids at
+  exactly 3 planes/shard now honestly de-shard instead of computing
+  wrong seam physics.

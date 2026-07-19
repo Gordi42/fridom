@@ -99,33 +99,6 @@ Still open:
 - **Tier-2 decision (owner)** — whether all-local naive transforms on
   a multi-device mesh (silent all-gather) also become illegal, with an
   allow-replicated escape for Chebyshev/mismatched-layout solves.
-- **weno5 momentum z-seam (~1e-5) on z-sharded layouts —
-  root-caused, fix awaits owner ruling.** Deep-researched
-  2026-07-19 (record:
-  [`../research/weno_momentum_z_seam.md`](../research/weno_momentum_z_seam.md)):
-  the one-pass selected-input kernel
-  (`_SelectedFaceReconstruction`) reads a union window of
-  order+1 cells at runtime but halo-traces only the interned
-  *left* biased kernel, so the primal Center→face direction
-  declares z-reach (2,2) where the runtime reads (2,3) —
-  negotiation provisions z-halo 2, one short. Fires only where
-  a cell-centered quantity is primal-reconstructed on the
-  sharded axis with no dual reconstruction there (the
-  hydrostatic vertical; nonhydro2's prognostic w already
-  provisions 3; `UpwindAdvection` traces both biases and gets
-  3). Buoyancy is NOT tight — same seam, amplitude-masked
-  below the test tolerance (seam ratio 0.76 at O(1) buoyancy);
-  the parity test's in-code comment mis-attributes the b
-  residual to `Restriction`. Fix probe verified: tracing the
-  union reach flips z-halo 2→3 and drops u/v/b seams to the FP
-  floor with z still sharded. Owner call (options priced in the
-  record §Fix): ship the trace-side union-reach fix + tighten
-  the `apply_fv_staggered` bounded-axis guard (today it is
-  silent only on bounded axes), accepting +1 z-halo layer on
-  hydrostatic weno z-sharded grids and honest de-sharding of
-  3-plane shards; plus the parity-test b assertion / comment
-  correction.
-
 ## Finite-volume nonhydro — decisions and validation
 
 All FV stages (F0–F6) are shipped — every non-immersed grid serves
