@@ -1,0 +1,194 @@
+[gspmd-chk 16:37:31] repo        : /work/uo0780/u301533/fridom/fridom-dev
+[gspmd-chk 16:37:31] artifacts   : /work/uo0780/u301533/fridom/fridom-dev/design/research/artifacts/gspmd_campaign_gpu4
+[gspmd-chk 16:37:31] === leg A: gpu1 reference (--write-ref) ===
+jax.device_count() = 1; devices = [CudaDevice(id=0)]
+config: write_ref=True only=None
+=== item a: Wave B walled-vertical projections + balance ===
+[a] a_vort_u: shape=(8, 8, 8) max_abs=1.898138e+00
+[a] a_wave_u: shape=(8, 8, 8) max_abs=2.705243e+00
+[a] a_bal_u: shape=(8, 8, 8) max_abs=2.531042e+00
+[a] a_vort_v: shape=(8, 8, 8) max_abs=1.457317e+00
+[a] a_wave_v: shape=(8, 8, 8) max_abs=2.533237e+00
+[a] a_bal_v: shape=(8, 8, 8) max_abs=2.839266e+00
+[a] a_vort_w: shape=(8, 8, 7) max_abs=0.000000e+00
+[a] a_wave_w: shape=(8, 8, 7) max_abs=1.248983e+00
+[a] a_bal_w: shape=(8, 8, 7) max_abs=7.165397e-01
+[a] a_vort_b: shape=(8, 8, 8) max_abs=3.492469e+00
+[a] a_wave_b: shape=(8, 8, 8) max_abs=2.404987e+00
+[a] a_bal_b: shape=(8, 8, 8) max_abs=4.408811e+00
+[a] saved 12 reference .npy to /work/uo0780/u301533/fridom/fridom-dev/design/research/artifacts/gspmd_campaign_gpu4
+=== item b: no-gather random_state + mode synthesis ===
+[b] b_peri_vort_u: shape=(8, 8, 8) max_abs=7.994879e-01
+[b] b_peri_wave_u: shape=(8, 8, 8) max_abs=6.837546e-01
+[b] b_peri_mode_u: shape=(8, 8, 8) max_abs=9.949314e-01
+[b] b_wall_wave_u: shape=(8, 8, 8) max_abs=8.226501e-01
+[b] b_wall_mode_u: shape=(8, 8, 8) max_abs=9.548579e-01
+[b] b_peri_vort_v: shape=(8, 8, 8) max_abs=1.000000e+00
+[b] b_peri_wave_v: shape=(8, 8, 8) max_abs=1.000000e+00
+[b] b_peri_mode_v: shape=(8, 8, 8) max_abs=9.558824e-01
+[b] b_wall_wave_v: shape=(8, 8, 8) max_abs=1.000000e+00
+[b] b_wall_mode_v: shape=(8, 8, 8) max_abs=9.773681e-01
+[b] b_peri_vort_w: shape=(8, 8, 8) max_abs=0.000000e+00
+[b] b_peri_wave_w: shape=(8, 8, 8) max_abs=9.038273e-01
+[b] b_peri_mode_w: shape=(8, 8, 8) max_abs=8.715015e-01
+[b] b_wall_wave_w: shape=(8, 8, 7) max_abs=3.125320e-01
+[b] b_wall_mode_w: shape=(8, 8, 7) max_abs=3.643130e-01
+[b] b_peri_vort_b: shape=(8, 8, 8) max_abs=1.462388e+00
+[b] b_peri_wave_b: shape=(8, 8, 8) max_abs=1.643403e+00
+[b] b_peri_mode_b: shape=(8, 8, 8) max_abs=1.406069e+00
+[b] b_wall_wave_b: shape=(8, 8, 8) max_abs=8.565913e-01
+[b] b_wall_mode_b: shape=(8, 8, 8) max_abs=9.242594e-01
+[b] saved 20 reference .npy to /work/uo0780/u301533/fridom/fridom-dev/design/research/artifacts/gspmd_campaign_gpu4
+=== item c: trig/mixed ComposedTransform.apply_diagonal ===
+[c] c_helmholtz: shape=(16, 16, 16) max_abs=1.280353e+00
+[c] saved 1 reference .npy to /work/uo0780/u301533/fridom/fridom-dev/design/research/artifacts/gspmd_campaign_gpu4
+=== item d: Tier-2 allow_replicated escape solve ===
+[d] d_escape: shape=(16, 16) max_abs=5.400583e-03
+[d] saved 1 reference .npy to /work/uo0780/u301533/fridom/fridom-dev/design/research/artifacts/gspmd_campaign_gpu4
+=== item e: sw2 ETDRK4 run + scalar-amplitude grad ===
+[e] e_final_u: shape=(16, 8) max_abs=2.139311e+00
+[e] e_final_v: shape=(16, 7) max_abs=3.093282e+00
+[e] e_final_p: shape=(16, 8) max_abs=2.691648e+00
+[e] e_grad: shape=() max_abs=2.294297e+02
+[e] saved 4 reference .npy to /work/uo0780/u301533/fridom/fridom-dev/design/research/artifacts/gspmd_campaign_gpu4
+[gspmd-chk 16:38:48] leg A rc=0
+[gspmd-chk 16:38:49] === leg B: 4-GPU single-controller pytest (campaign files) ===
+........................................................................ [ 13%]
+........FF.............................................................. [ 27%]
+.............................s.......................................... [ 40%]
+........................................................................ [ 54%]
+..................................F..................................... [ 67%]
+....s.................................................................s. [ 81%]
+........................................................................ [ 94%]
+............................                                             [100%]
+=================================== FAILURES ===================================
+E   AssertionError: assert 0.12843625705697193 <= 1e-10
+     +  where 0.12843625705697193 = absmax(VectorField(u: Right(x) ⊗ CellAvg(y) ⊗ CellAvg(z), v: CellAvg(x) ⊗ Inner(y, bc=(DIRICHLET, DIRICHLET)) ⊗ CellAvg(z), w: CellAvg(x) ⊗ CellAvg(y) ⊗ Right(z), b: CellAvg(x) ⊗ CellAvg(y) ⊗ CellAvg(z)), VectorField(u: Right(x) ⊗ CellAvg(y) ⊗ CellAvg(z), v: CellAvg(x) ⊗ Inner(y, bc=(DIRICHLET, DIRICHLET)) ⊗ CellAvg(z), w: CellAvg(x) ⊗ CellAvg(y) ⊗ Right(z), b: CellAvg(x) ⊗ CellAvg(y) ⊗ CellAvg(z)), ('u', 'v', 'w', 'b'))
+/work/uo0780/u301533/fridom/fridom-dev/tests/model/test_eigenbasis_synthesis_distributed.py:225: AssertionError: assert 0.12843625705697193 <= 1e-10
+E   AssertionError: assert 3.487005264385514 <= 1e-10
+     +  where 3.487005264385514 = absmax(VectorField(u: Right(x) ⊗ CellAvg(y) ⊗ CellAvg(z), v: CellAvg(x) ⊗ Inner(y, bc=(DIRICHLET, DIRICHLET)) ⊗ CellAvg(z), w: CellAvg(x) ⊗ CellAvg(y) ⊗ Right(z), b: CellAvg(x) ⊗ CellAvg(y) ⊗ CellAvg(z)), VectorField(u: Right(x) ⊗ CellAvg(y) ⊗ CellAvg(z), v: CellAvg(x) ⊗ Inner(y, bc=(DIRICHLET, DIRICHLET)) ⊗ CellAvg(z), w: CellAvg(x) ⊗ CellAvg(y) ⊗ Right(z), b: CellAvg(x) ⊗ CellAvg(y) ⊗ CellAvg(z)), ('u', 'v', 'w', 'b'))
+/work/uo0780/u301533/fridom/fridom-dev/tests/model/test_eigenbasis_synthesis_distributed.py:238: AssertionError: assert 3.487005264385514 <= 1e-10
+E   AssertionError: assert False
+     +  where False = invariant(Array([[ 0.00000000e+00,  0.00000000e+00, -1.11022302e-16,\n        -1.11022302e-16,  1.11022302e-16,  1.11022302e-16,\n...,  0.00000000e+00,\n         0.00000000e+00,  0.00000000e+00,  0.00000000e+00,\n         0.00000000e+00]], dtype=float64), Array([[ 0.00000000e+00,  0.00000000e+00, -2.22044605e-16,\n        -2.22044605e-16, -5.55111512e-17,  1.66533454e-16,\n...,  0.00000000e+00,\n         0.00000000e+00,  0.00000000e+00,  0.00000000e+00,\n         0.00000000e+00]], dtype=float64))
+     +    where Array([[ 0.00000000e+00,  0.00000000e+00, -1.11022302e-16,\n        -1.11022302e-16,  1.11022302e-16,  1.11022302e-16,\n...,  0.00000000e+00,\n         0.00000000e+00,  0.00000000e+00,  0.00000000e+00,\n         0.00000000e+00]], dtype=float64) = ScalarField('unnamed', space=Constant(x) ⊗ Center(y) [layout=Layout(device_axes=(('x', 'devices'),))], shape=(1, 16), dtype=float64).data
+     +    and   Array([[ 0.00000000e+00,  0.00000000e+00, -2.22044605e-16,\n        -2.22044605e-16, -5.55111512e-17,  1.66533454e-16,\n...,  0.00000000e+00,\n         0.00000000e+00,  0.00000000e+00,  0.00000000e+00,\n         0.00000000e+00]], dtype=float64) = ScalarField('unnamed', space=Constant(x) ⊗ Center(y) [layout=Layout(device_axes=())], shape=(1, 16), dtype=float64).data
+/work/uo0780/u301533/fridom/fridom-dev/tests/spatial/test_wave3_integration.py:201: AssertionError: assert False
+=========================== short test summary info ============================
+FAILED tests/model/test_eigenbasis_synthesis_distributed.py::test_real_mode_matches_one_device
+FAILED tests/model/test_eigenbasis_synthesis_distributed.py::test_real_random_state_matches_one_device
+FAILED tests/spatial/test_wave3_integration.py::test_fv_pipeline_is_device_count_invariant
+3 failed, 526 passed, 3 skipped in 565.48s (0:09:25)
+[gspmd-chk 16:48:31] leg B pytest rc=1
+[gspmd-chk 16:48:31] === leg C: srun -n 4 (real multi-process invariance) ===
+16:48:35: INFO: ################################################################################
+16:48:35: INFO: FRIDOM: Framework for Idealized Ocean Models
+16:48:35: INFO:  > Job starting on 2026.07.19 at 04:48:35 PM
+16:48:35: INFO:  > Running on 4 processes.
+16:48:35: INFO:  > Platform: gpu (4 device(s))
+16:48:35: INFO: ################################################################################
+16:48:35: INFO:                                                                                 
+16:48:35: INFO:                                                                                 
+16:48:35: INFO:                                                                                 
+process_count=4 device_count=4 local_devices=[CudaDevice(id=0)]
+[rank0] item a: Wave B walled-vertical projections + balance
+    a_vort_u: absmax=4.441e-16 (tol 1e-10) ok
+    a_wave_u: absmax=8.327e-16 (tol 1e-10) ok
+    a_bal_u: absmax=1.776e-15 (tol 1e-10) ok
+    a_vort_v: absmax=5.551e-16 (tol 1e-10) ok
+    a_wave_v: absmax=1.110e-15 (tol 1e-10) ok
+    a_bal_v: absmax=2.776e-15 (tol 1e-10) ok
+    a_vort_w: absmax=0.000e+00 (tol 1e-10) ok
+    a_wave_w: absmax=4.441e-16 (tol 1e-10) ok
+    a_bal_w: absmax=5.967e-16 (tol 1e-10) ok
+    a_vort_b: absmax=8.882e-16 (tol 1e-10) ok
+    a_wave_b: absmax=8.882e-16 (tol 1e-10) ok
+    a_bal_b: absmax=3.553e-15 (tol 1e-10) ok
+[a] PASS
+[rank0] item b: no-gather random_state + mode synthesis
+    b_peri_vort_u: absmax=3.331e-16 (tol 1e-10) ok
+    b_peri_wave_u: absmax=2.220e-16 (tol 1e-10) ok
+    b_peri_mode_u: absmax=3.331e-16 (tol 1e-10) ok
+    b_wall_wave_u: absmax=0.000e+00 (tol 1e-10) ok
+    b_wall_mode_u: absmax=0.000e+00 (tol 1e-10) ok
+    b_peri_vort_v: absmax=3.331e-16 (tol 1e-10) ok
+    b_peri_wave_v: absmax=2.220e-16 (tol 1e-10) ok
+    b_peri_mode_v: absmax=3.331e-16 (tol 1e-10) ok
+    b_wall_wave_v: absmax=0.000e+00 (tol 1e-10) ok
+    b_wall_mode_v: absmax=0.000e+00 (tol 1e-10) ok
+    b_peri_vort_w: absmax=0.000e+00 (tol 1e-10) ok
+    b_peri_wave_w: absmax=3.331e-16 (tol 1e-10) ok
+    b_peri_mode_w: absmax=3.331e-16 (tol 1e-10) ok
+    b_wall_wave_w: absmax=0.000e+00 (tol 1e-10) ok
+    b_wall_mode_w: absmax=0.000e+00 (tol 1e-10) ok
+    b_peri_vort_b: absmax=2.359e-16 (tol 1e-10) ok
+    b_peri_wave_b: absmax=4.441e-16 (tol 1e-10) ok
+    b_peri_mode_b: absmax=4.441e-16 (tol 1e-10) ok
+    b_wall_wave_b: absmax=0.000e+00 (tol 1e-10) ok
+    b_wall_mode_b: absmax=0.000e+00 (tol 1e-10) ok
+[b] PASS
+[rank0] item c: trig/mixed ComposedTransform.apply_diagonal
+    c_helmholtz: absmax=1.654e-14 (tol 1e-10) ok
+[c] PASS
+[rank0] item d: Tier-2 allow_replicated escape solve
+    d_escape: absmax=0.000e+00 (tol 1e-11) ok
+[d] PASS
+[rank0] item d guard: unescaped naive solve must raise
+    d_guard: raised NotImplementedError (taught text present)
+[d] guard PASS
+[rank0] item e: sw2 ETDRK4 run + scalar-amplitude grad
+[e] SKIP -- known limitation: the channel eigenbasis build host-gathers (np.asarray on sharded probe responses in eigen_channel._gathered_responses); not real-multi-process capable. RuntimeError: Fetching value for `jax.Array` that spans non-addressable (non process local) devices is not possible. You can use `jax.experimental.multihost_utils.process_allgather` to print the global array or use `.addressable_shards` method of jax.Array to inspect the addressable (process local) shards.
+SKIPPED (known limitation): e
+PASS
+W0719 16:49:12.834526 1207195 pjrt_client.cc:1615] WatchTasksAsync failed for task 3: CANCELLED: CANCELLED
+Additional GRPC error information from remote target coordination_service while calling /xla.coordination.CoordinationService/WatchTasks:
+:UNKNOWN:Error received from peer  {grpc_message:"CANCELLED", grpc_status:1} [type.googleapis.com/tensorflow.DerivedStatus='']
+W0719 16:49:12.834633 1207198 pjrt_client.cc:1615] WatchTasksAsync failed for task 1: CANCELLED: CANCELLED
+Additional GRPC error information from remote target coordination_service while calling /xla.coordination.CoordinationService/WatchTasks:
+:UNKNOWN:Error received from peer  {grpc_status:1, grpc_message:"CANCELLED"} [type.googleapis.com/tensorflow.DerivedStatus='']
+W0719 16:49:12.835794 1207197 pjrt_client.cc:1615] WatchTasksAsync failed for task 2: UNAVAILABLE: failed to connect to all addresses; last error: UNKNOWN: ipv4:127.0.0.1:30657: Failed to connect to remote host: Connection refused
+Additional GRPC error information from remote target coordination_service while calling /xla.coordination.CoordinationService/WatchTasks:
+:UNKNOWN:Error received from peer  {grpc_message:"failed to connect to all addresses; last error: UNKNOWN: ipv4:127.0.0.1:30657: Failed to connect to remote host: Connection refused", grpc_status:14}
+W0719 16:49:12.972424 1207196 pjrt_client.cc:1615] WatchTasksAsync failed for task 0: UNAVAILABLE: failed to connect to all addresses; last error: UNKNOWN: ipv4:127.0.0.1:30657: Failed to connect to remote host: Connection refused
+Additional GRPC error information from remote target coordination_service while calling /xla.coordination.CoordinationService/WatchTasks:
+:UNKNOWN:Error received from peer  {grpc_message:"failed to connect to all addresses; last error: UNKNOWN: ipv4:127.0.0.1:30657: Failed to connect to remote host: Connection refused", grpc_status:14}
+[gspmd-chk 16:49:14] leg C rc=0
+[gspmd-chk 16:49:14] === RESULT.txt ===
+leg A (1-GPU references): PASS (rc=0)
+leg B (4-GPU pytest): rc=1 — 3 failed, 526 passed, 3 skipped in 565.48s (0:09:25)  (backend-specific bitwise/HLO diffs expected; interpret the log)
+leg C (srun -n 4 invariance): PASS — SKIPPED (known limitation): e
+[gspmd-chk 16:49:14] leg A log   : /work/uo0780/u301533/fridom/fridom-dev/design/research/artifacts/gspmd_campaign_gpu4/legA_1gpu.txt
+[gspmd-chk 16:49:14] leg B log   : /work/uo0780/u301533/fridom/fridom-dev/design/research/artifacts/gspmd_campaign_gpu4/legB_4gpu_pytest.txt
+[gspmd-chk 16:49:14] leg C log   : /work/uo0780/u301533/fridom/fridom-dev/design/research/artifacts/gspmd_campaign_gpu4/legC_srun4.txt
+
+********************************************************************************
+*                                                                              *
+*  This is the automated job summary provided by DKRZ.                         *
+*  If you encounter problems, need assistance or have any suggestion, please   *
+*  write an email to                                                           *
+*                                                                              *
+*  --  support@dkrz.de --                                                      *
+*                                                                              *
+*                       We hope you enjoyed the DKRZ supercomputer LEVANTE ... *
+*
+* JobID            : 26365157
+* JobName          : fridom-gspmd-chk                                  
+* Account          : uo0780_gpu
+* User             : u301533 (100698), u300 (32013)                    
+* Partition        : gpu
+* QOS              : normal
+* Nodelist         : l50000 (1)                                                
+* Submit date      : 2026-07-19T16:36:48
+* Start time       : 2026-07-19T16:36:48
+* End time         : 2026-07-19T16:49:14
+* Elapsed time     : 00:12:26 (Timelimit=01:00:00)                     
+* Command          : /work/uo0780/u301533/fridom/fridom-dev/design/research/
+*                    artifacts/gspmd_campaign_gpu4/gspmd_campaign_check.sbatch
+* WorkDir          : /work/uo0780/u301533/fridom/fridom-dev
+*
+* StepID | JobName      NodeHours    MaxRSS [Byte] (@task)
+* ------------------------------------------------------------------------------
+* 0      | python           0.012             4038072K (3)
+* batch  | batch             0.21
+* extern | extern            0.21                3812K (0)
+* ------------------------------------------------------------------------------
+

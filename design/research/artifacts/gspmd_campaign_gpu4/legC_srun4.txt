@@ -1,0 +1,71 @@
+16:48:35: INFO: ################################################################################
+16:48:35: INFO: FRIDOM: Framework for Idealized Ocean Models
+16:48:35: INFO:  > Job starting on 2026.07.19 at 04:48:35 PM
+16:48:35: INFO:  > Running on 4 processes.
+16:48:35: INFO:  > Platform: gpu (4 device(s))
+16:48:35: INFO: ################################################################################
+16:48:35: INFO:                                                                                 
+16:48:35: INFO:                                                                                 
+16:48:35: INFO:                                                                                 
+process_count=4 device_count=4 local_devices=[CudaDevice(id=0)]
+[rank0] item a: Wave B walled-vertical projections + balance
+    a_vort_u: absmax=4.441e-16 (tol 1e-10) ok
+    a_wave_u: absmax=8.327e-16 (tol 1e-10) ok
+    a_bal_u: absmax=1.776e-15 (tol 1e-10) ok
+    a_vort_v: absmax=5.551e-16 (tol 1e-10) ok
+    a_wave_v: absmax=1.110e-15 (tol 1e-10) ok
+    a_bal_v: absmax=2.776e-15 (tol 1e-10) ok
+    a_vort_w: absmax=0.000e+00 (tol 1e-10) ok
+    a_wave_w: absmax=4.441e-16 (tol 1e-10) ok
+    a_bal_w: absmax=5.967e-16 (tol 1e-10) ok
+    a_vort_b: absmax=8.882e-16 (tol 1e-10) ok
+    a_wave_b: absmax=8.882e-16 (tol 1e-10) ok
+    a_bal_b: absmax=3.553e-15 (tol 1e-10) ok
+[a] PASS
+[rank0] item b: no-gather random_state + mode synthesis
+    b_peri_vort_u: absmax=3.331e-16 (tol 1e-10) ok
+    b_peri_wave_u: absmax=2.220e-16 (tol 1e-10) ok
+    b_peri_mode_u: absmax=3.331e-16 (tol 1e-10) ok
+    b_wall_wave_u: absmax=0.000e+00 (tol 1e-10) ok
+    b_wall_mode_u: absmax=0.000e+00 (tol 1e-10) ok
+    b_peri_vort_v: absmax=3.331e-16 (tol 1e-10) ok
+    b_peri_wave_v: absmax=2.220e-16 (tol 1e-10) ok
+    b_peri_mode_v: absmax=3.331e-16 (tol 1e-10) ok
+    b_wall_wave_v: absmax=0.000e+00 (tol 1e-10) ok
+    b_wall_mode_v: absmax=0.000e+00 (tol 1e-10) ok
+    b_peri_vort_w: absmax=0.000e+00 (tol 1e-10) ok
+    b_peri_wave_w: absmax=3.331e-16 (tol 1e-10) ok
+    b_peri_mode_w: absmax=3.331e-16 (tol 1e-10) ok
+    b_wall_wave_w: absmax=0.000e+00 (tol 1e-10) ok
+    b_wall_mode_w: absmax=0.000e+00 (tol 1e-10) ok
+    b_peri_vort_b: absmax=2.359e-16 (tol 1e-10) ok
+    b_peri_wave_b: absmax=4.441e-16 (tol 1e-10) ok
+    b_peri_mode_b: absmax=4.441e-16 (tol 1e-10) ok
+    b_wall_wave_b: absmax=0.000e+00 (tol 1e-10) ok
+    b_wall_mode_b: absmax=0.000e+00 (tol 1e-10) ok
+[b] PASS
+[rank0] item c: trig/mixed ComposedTransform.apply_diagonal
+    c_helmholtz: absmax=1.654e-14 (tol 1e-10) ok
+[c] PASS
+[rank0] item d: Tier-2 allow_replicated escape solve
+    d_escape: absmax=0.000e+00 (tol 1e-11) ok
+[d] PASS
+[rank0] item d guard: unescaped naive solve must raise
+    d_guard: raised NotImplementedError (taught text present)
+[d] guard PASS
+[rank0] item e: sw2 ETDRK4 run + scalar-amplitude grad
+[e] SKIP -- known limitation: the channel eigenbasis build host-gathers (np.asarray on sharded probe responses in eigen_channel._gathered_responses); not real-multi-process capable. RuntimeError: Fetching value for `jax.Array` that spans non-addressable (non process local) devices is not possible. You can use `jax.experimental.multihost_utils.process_allgather` to print the global array or use `.addressable_shards` method of jax.Array to inspect the addressable (process local) shards.
+SKIPPED (known limitation): e
+PASS
+W0719 16:49:12.834526 1207195 pjrt_client.cc:1615] WatchTasksAsync failed for task 3: CANCELLED: CANCELLED
+Additional GRPC error information from remote target coordination_service while calling /xla.coordination.CoordinationService/WatchTasks:
+:UNKNOWN:Error received from peer  {grpc_message:"CANCELLED", grpc_status:1} [type.googleapis.com/tensorflow.DerivedStatus='']
+W0719 16:49:12.834633 1207198 pjrt_client.cc:1615] WatchTasksAsync failed for task 1: CANCELLED: CANCELLED
+Additional GRPC error information from remote target coordination_service while calling /xla.coordination.CoordinationService/WatchTasks:
+:UNKNOWN:Error received from peer  {grpc_status:1, grpc_message:"CANCELLED"} [type.googleapis.com/tensorflow.DerivedStatus='']
+W0719 16:49:12.835794 1207197 pjrt_client.cc:1615] WatchTasksAsync failed for task 2: UNAVAILABLE: failed to connect to all addresses; last error: UNKNOWN: ipv4:127.0.0.1:30657: Failed to connect to remote host: Connection refused
+Additional GRPC error information from remote target coordination_service while calling /xla.coordination.CoordinationService/WatchTasks:
+:UNKNOWN:Error received from peer  {grpc_message:"failed to connect to all addresses; last error: UNKNOWN: ipv4:127.0.0.1:30657: Failed to connect to remote host: Connection refused", grpc_status:14}
+W0719 16:49:12.972424 1207196 pjrt_client.cc:1615] WatchTasksAsync failed for task 0: UNAVAILABLE: failed to connect to all addresses; last error: UNKNOWN: ipv4:127.0.0.1:30657: Failed to connect to remote host: Connection refused
+Additional GRPC error information from remote target coordination_service while calling /xla.coordination.CoordinationService/WatchTasks:
+:UNKNOWN:Error received from peer  {grpc_message:"failed to connect to all addresses; last error: UNKNOWN: ipv4:127.0.0.1:30657: Failed to connect to remote host: Connection refused", grpc_status:14}

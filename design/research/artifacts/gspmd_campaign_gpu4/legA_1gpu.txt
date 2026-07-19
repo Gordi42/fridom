@@ -1,0 +1,50 @@
+jax.device_count() = 1; devices = [CudaDevice(id=0)]
+config: write_ref=True only=None
+=== item a: Wave B walled-vertical projections + balance ===
+[a] a_vort_u: shape=(8, 8, 8) max_abs=1.898138e+00
+[a] a_wave_u: shape=(8, 8, 8) max_abs=2.705243e+00
+[a] a_bal_u: shape=(8, 8, 8) max_abs=2.531042e+00
+[a] a_vort_v: shape=(8, 8, 8) max_abs=1.457317e+00
+[a] a_wave_v: shape=(8, 8, 8) max_abs=2.533237e+00
+[a] a_bal_v: shape=(8, 8, 8) max_abs=2.839266e+00
+[a] a_vort_w: shape=(8, 8, 7) max_abs=0.000000e+00
+[a] a_wave_w: shape=(8, 8, 7) max_abs=1.248983e+00
+[a] a_bal_w: shape=(8, 8, 7) max_abs=7.165397e-01
+[a] a_vort_b: shape=(8, 8, 8) max_abs=3.492469e+00
+[a] a_wave_b: shape=(8, 8, 8) max_abs=2.404987e+00
+[a] a_bal_b: shape=(8, 8, 8) max_abs=4.408811e+00
+[a] saved 12 reference .npy to /work/uo0780/u301533/fridom/fridom-dev/design/research/artifacts/gspmd_campaign_gpu4
+=== item b: no-gather random_state + mode synthesis ===
+[b] b_peri_vort_u: shape=(8, 8, 8) max_abs=7.994879e-01
+[b] b_peri_wave_u: shape=(8, 8, 8) max_abs=6.837546e-01
+[b] b_peri_mode_u: shape=(8, 8, 8) max_abs=9.949314e-01
+[b] b_wall_wave_u: shape=(8, 8, 8) max_abs=8.226501e-01
+[b] b_wall_mode_u: shape=(8, 8, 8) max_abs=9.548579e-01
+[b] b_peri_vort_v: shape=(8, 8, 8) max_abs=1.000000e+00
+[b] b_peri_wave_v: shape=(8, 8, 8) max_abs=1.000000e+00
+[b] b_peri_mode_v: shape=(8, 8, 8) max_abs=9.558824e-01
+[b] b_wall_wave_v: shape=(8, 8, 8) max_abs=1.000000e+00
+[b] b_wall_mode_v: shape=(8, 8, 8) max_abs=9.773681e-01
+[b] b_peri_vort_w: shape=(8, 8, 8) max_abs=0.000000e+00
+[b] b_peri_wave_w: shape=(8, 8, 8) max_abs=9.038273e-01
+[b] b_peri_mode_w: shape=(8, 8, 8) max_abs=8.715015e-01
+[b] b_wall_wave_w: shape=(8, 8, 7) max_abs=3.125320e-01
+[b] b_wall_mode_w: shape=(8, 8, 7) max_abs=3.643130e-01
+[b] b_peri_vort_b: shape=(8, 8, 8) max_abs=1.462388e+00
+[b] b_peri_wave_b: shape=(8, 8, 8) max_abs=1.643403e+00
+[b] b_peri_mode_b: shape=(8, 8, 8) max_abs=1.406069e+00
+[b] b_wall_wave_b: shape=(8, 8, 8) max_abs=8.565913e-01
+[b] b_wall_mode_b: shape=(8, 8, 8) max_abs=9.242594e-01
+[b] saved 20 reference .npy to /work/uo0780/u301533/fridom/fridom-dev/design/research/artifacts/gspmd_campaign_gpu4
+=== item c: trig/mixed ComposedTransform.apply_diagonal ===
+[c] c_helmholtz: shape=(16, 16, 16) max_abs=1.280353e+00
+[c] saved 1 reference .npy to /work/uo0780/u301533/fridom/fridom-dev/design/research/artifacts/gspmd_campaign_gpu4
+=== item d: Tier-2 allow_replicated escape solve ===
+[d] d_escape: shape=(16, 16) max_abs=5.400583e-03
+[d] saved 1 reference .npy to /work/uo0780/u301533/fridom/fridom-dev/design/research/artifacts/gspmd_campaign_gpu4
+=== item e: sw2 ETDRK4 run + scalar-amplitude grad ===
+[e] e_final_u: shape=(16, 8) max_abs=2.139311e+00
+[e] e_final_v: shape=(16, 7) max_abs=3.093282e+00
+[e] e_final_p: shape=(16, 8) max_abs=2.691648e+00
+[e] e_grad: shape=() max_abs=2.294297e+02
+[e] saved 4 reference .npy to /work/uo0780/u301533/fridom/fridom-dev/design/research/artifacts/gspmd_campaign_gpu4

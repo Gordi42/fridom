@@ -1,0 +1,25 @@
+........................................................................ [ 13%]
+........FF.............................................................. [ 27%]
+.............................s.......................................... [ 40%]
+........................................................................ [ 54%]
+..................................F..................................... [ 67%]
+....s.................................................................s. [ 81%]
+........................................................................ [ 94%]
+............................                                             [100%]
+=================================== FAILURES ===================================
+E   AssertionError: assert 0.12843625705697193 <= 1e-10
+     +  where 0.12843625705697193 = absmax(VectorField(u: Right(x) ⊗ CellAvg(y) ⊗ CellAvg(z), v: CellAvg(x) ⊗ Inner(y, bc=(DIRICHLET, DIRICHLET)) ⊗ CellAvg(z), w: CellAvg(x) ⊗ CellAvg(y) ⊗ Right(z), b: CellAvg(x) ⊗ CellAvg(y) ⊗ CellAvg(z)), VectorField(u: Right(x) ⊗ CellAvg(y) ⊗ CellAvg(z), v: CellAvg(x) ⊗ Inner(y, bc=(DIRICHLET, DIRICHLET)) ⊗ CellAvg(z), w: CellAvg(x) ⊗ CellAvg(y) ⊗ Right(z), b: CellAvg(x) ⊗ CellAvg(y) ⊗ CellAvg(z)), ('u', 'v', 'w', 'b'))
+/work/uo0780/u301533/fridom/fridom-dev/tests/model/test_eigenbasis_synthesis_distributed.py:225: AssertionError: assert 0.12843625705697193 <= 1e-10
+E   AssertionError: assert 3.487005264385514 <= 1e-10
+     +  where 3.487005264385514 = absmax(VectorField(u: Right(x) ⊗ CellAvg(y) ⊗ CellAvg(z), v: CellAvg(x) ⊗ Inner(y, bc=(DIRICHLET, DIRICHLET)) ⊗ CellAvg(z), w: CellAvg(x) ⊗ CellAvg(y) ⊗ Right(z), b: CellAvg(x) ⊗ CellAvg(y) ⊗ CellAvg(z)), VectorField(u: Right(x) ⊗ CellAvg(y) ⊗ CellAvg(z), v: CellAvg(x) ⊗ Inner(y, bc=(DIRICHLET, DIRICHLET)) ⊗ CellAvg(z), w: CellAvg(x) ⊗ CellAvg(y) ⊗ Right(z), b: CellAvg(x) ⊗ CellAvg(y) ⊗ CellAvg(z)), ('u', 'v', 'w', 'b'))
+/work/uo0780/u301533/fridom/fridom-dev/tests/model/test_eigenbasis_synthesis_distributed.py:238: AssertionError: assert 3.487005264385514 <= 1e-10
+E   AssertionError: assert False
+     +  where False = invariant(Array([[ 0.00000000e+00,  0.00000000e+00, -1.11022302e-16,\n        -1.11022302e-16,  1.11022302e-16,  1.11022302e-16,\n...,  0.00000000e+00,\n         0.00000000e+00,  0.00000000e+00,  0.00000000e+00,\n         0.00000000e+00]], dtype=float64), Array([[ 0.00000000e+00,  0.00000000e+00, -2.22044605e-16,\n        -2.22044605e-16, -5.55111512e-17,  1.66533454e-16,\n...,  0.00000000e+00,\n         0.00000000e+00,  0.00000000e+00,  0.00000000e+00,\n         0.00000000e+00]], dtype=float64))
+     +    where Array([[ 0.00000000e+00,  0.00000000e+00, -1.11022302e-16,\n        -1.11022302e-16,  1.11022302e-16,  1.11022302e-16,\n...,  0.00000000e+00,\n         0.00000000e+00,  0.00000000e+00,  0.00000000e+00,\n         0.00000000e+00]], dtype=float64) = ScalarField('unnamed', space=Constant(x) ⊗ Center(y) [layout=Layout(device_axes=(('x', 'devices'),))], shape=(1, 16), dtype=float64).data
+     +    and   Array([[ 0.00000000e+00,  0.00000000e+00, -2.22044605e-16,\n        -2.22044605e-16, -5.55111512e-17,  1.66533454e-16,\n...,  0.00000000e+00,\n         0.00000000e+00,  0.00000000e+00,  0.00000000e+00,\n         0.00000000e+00]], dtype=float64) = ScalarField('unnamed', space=Constant(x) ⊗ Center(y) [layout=Layout(device_axes=())], shape=(1, 16), dtype=float64).data
+/work/uo0780/u301533/fridom/fridom-dev/tests/spatial/test_wave3_integration.py:201: AssertionError: assert False
+=========================== short test summary info ============================
+FAILED tests/model/test_eigenbasis_synthesis_distributed.py::test_real_mode_matches_one_device
+FAILED tests/model/test_eigenbasis_synthesis_distributed.py::test_real_random_state_matches_one_device
+FAILED tests/spatial/test_wave3_integration.py::test_fv_pipeline_is_device_count_invariant
+3 failed, 526 passed, 3 skipped in 565.48s (0:09:25)

@@ -1,0 +1,3 @@
+leg A (1-GPU references): PASS (rc=0)
+leg B (4-GPU pytest): rc=1 — 3 failed, 526 passed, 3 skipped in 565.48s (0:09:25)  (backend-specific bitwise/HLO diffs expected; interpret the log)
+leg C (srun -n 4 invariance): PASS — SKIPPED (known limitation): e
