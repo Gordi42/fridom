@@ -57,48 +57,61 @@ This plan tracks the remainder. Each phase is independently mergeable.
   (`test_krylov::test_solution_is_device_count_invariant` converted from
   a taught-error skip to a real device-count-invariance gate).
 
+- **Analytic all-periodic route — Wave A** (`f8358720`, 2026-07-19).
+  `DistributedTransform.apply_matrix`/`project`/`synthesize` (fused
+  multi-component region, per-mode D×D matrix threaded sharded);
+  `GridSymbols(coeff_spaces=...)` frame hook + `Eigenmodes._reframe`
+  + `operator_matrix` (host `np.any` Nyquist gates → jnp masks, sw2
+  DC patch folded as a k==0 mask); router `model/analytic_distributed.py`.
+  Serves nh2/sw2 projections (parity ≤1.9e-15), balance/NNMD
+  (≤7.7e-16), random-state/`mode()` (0.0 or ≤1.3e-15); single-device
+  bit-identical; grad FD-matched; HLO all-to-all only.
+- **ETDRK4 — Wave C** (`bce54cff`, 2026-07-19). `ContractPlan`/
+  `Channel2DPlan` grew fused `project`/`synthesize_amplitudes` halves
+  (documented amplitude sharding contract; padded lanes provably stay
+  zero through the RK arithmetic); `ETDRK4._forward`/`_backward`
+  route through them on sharded periodic axes (5 projects + 4
+  synthesizes per step, shard-local phi/exp arithmetic). Invariance
+  <1e-10, round-trip 1e-11, grad FD-matched, single-device
+  bit-identical.
+
 ## Open
 
-- **Phase 3 — remaining consumers (deferred debt).** These hit the
-  Tier-1 taught error on sharded grids and are **not** served by the
-  single-field diagonal route: each needs a multi-component per-mode
-  **matrix** contraction (the all-periodic analog of `ContractPlan` —
-  stacked component fields, the per-mode eigenvector matrix `Q Qᴴ M`
-  in the internal frame, a multi-field fused region) or intermediate
-  materialized amplitude state, deliberately not built here (do not
-  force a re-gathering path):
-  - the **exponential time stepper** (`ETDRK4._forward`/`_backward`,
-    `model/time_steppers/exponential.py`): `fourier_ops` per component
-    plus the eigenbasis column contraction, with amplitudes flowing
-    across per-stage physical tendency evaluations. No forced-4 test
-    exists today; the seam is the channel-contraction shape but split
-    into a `project`-to-amplitudes and a `synthesize`-from-amplitudes
-    half (raw sharded amplitude arrays between them). Servable by
-    giving `ContractPlan`/`Channel2DPlan` those two halves; deferred.
-  - the **analytic (all-periodic) eigenmode projections** (nh/sw
-    `eigenmodes.py` `GridEigenmodes.projector`/`function`, `kit.forward`
-    + per-mode eigenvector matrix + `kit.backward`, via `BoundTransform`
-    on `Transform.forward`/`backward`).
-  - the **balance / NNMD state transforms** (`transforms/balance_expansion.py`)
-    that ride the same analytic `kit`. (`optimal_balance` is a step-path
-    `Propagator` — orthogonal to the transform seam, out of scope.)
-  The **numeric channel** eigenmode projections / `f(L)` / synthesis
-  are already served (Phases 1–2, `ContractPlan`/`Channel2DPlan`).
-- **Tier-2 decision (OWNER).** Whether all-local-axes naive
-  transforms on a multi-device mesh (silent all-gather; numerically
-  correct but unscalable) also become illegal. Empirically zero
-  Tier-2-only test breakage today, but the guard would need an
-  explicit allow-replicated escape for the irreducible cases
-  (Chebyshev-vertical solve — block-diagonal, cannot go slab;
-  mismatched-layout composite solve). Recommended only after phase 3,
-  so the escape list is minimal.
+- **Tier-2 decision (OWNER) — NOW RIPE.** Whether all-local-axes
+  naive transforms on a multi-device mesh (silent all-gather;
+  numerically correct but unscalable) also become illegal.
+  Empirically zero Tier-2-only test breakage; the guard needs an
+  explicit allow-replicated escape for the irreducible cases:
+  the Chebyshev-vertical solve (block-diagonal, cannot go slab),
+  the mismatched-layout composite solve, plus the Wave-B tier below.
+  The owner's precondition (phase 3 + named consumers landed) is met
+  as of 2026-07-19.
+- **Wave B — walled-vertical analytic tier.** The analytic route
+  (`f8358720`) serves plain-Fourier all-periodic frames;
+  walled-vertical analytic grids (`ComposedTransform` trig z stage,
+  `ModeChart` embed/restrict) keep the taught error. Needs a
+  `ContractPlan`-shaped region absorbing the bounded axis into the
+  stacked column
+  ([`../../research/analytic_eigenmode_distributed_route.md`](../../research/analytic_eigenmode_distributed_route.md)
+  §4).
+- **No-gather random synthesis (frame-mismatch cases).** Random-state
+  gains/phases are built on the device-independent single-device
+  frame (`grid.random` keys on the global storage index); when the
+  sharded axis is that frame's half axis (nh2 x-sharded, sw2 2-D),
+  synthesis falls back to a replicated backward — device-invariant
+  and correct, but a gather on the IC path. A pure fused route needs
+  a Hermitian half-axis re-expression of the gains.
+- **Trig/mixed transform families.** `resolve_distributed_transform`
+  serves plain Fourier only; `ComposedTransform` declines to the
+  taught error.
 
 ## Related open owner items (from the same campaign, tracked here)
 
-- Ratify the verify-side treatment of explicit `halo=` (capped like
-  negotiate — the shipped behavior) and decide the `_cap_for_sharding`
-  over-reach question (it caps non-sharded ghost axes too; fixing it
-  changes negotiated widths, i.e. storage/perf).
-- GPU validation of the campaign's multi-device paths (the fused
-  synthesis parity tests are GPU-scoped) at the next owner-batched
-  guard/validation checkpoint; agents do not submit GPU jobs.
+- GPU validation of the campaign's multi-device paths at the next
+  owner-batched checkpoint (all GPU-scoped: the fused synthesis
+  parity tests, the 3-D `ContractPlan` ETDRK4 end-to-end run and its
+  distributed grad — real `eigh` bases are CPU-unsafe, jax#39292).
+  Agents do not submit GPU jobs.
+- (The halo ratifications formerly listed here were both resolved by
+  owner rulings 2026-07-19, shipped in `fc2a3b66` — entries in
+  `roadmap/done.md`.)

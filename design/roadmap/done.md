@@ -2314,3 +2314,23 @@ Implementation record:
   and periodic z (3) all unchanged. Capability note: grids at
   exactly 3 planes/shard now honestly de-shard instead of computing
   wrong seam physics.
+
+- **2026-07-19 — Analytic eigenmode distributed route + ETDRK4
+  (waves A + C).** The last named naive-GSPMD transform consumers
+  are served on sharded grids. Wave A (`f8358720`):
+  `DistributedTransform.apply_matrix` + frame-parametrized analytic
+  matrix builder (`GridSymbols` coeff-frame hook, Nyquist gates →
+  masks, sw2 DC patch folded); nh2/sw2 vortical/wave/divergence
+  projections, balance expansion / NNMD, random-state and `mode()`
+  all run sharded (parity ≤1.9e-15, single-device bit-identical,
+  grad FD-matched, HLO all-to-all only; optimal balance served via
+  its base projection). Wave C (`bce54cff`): fused
+  `project`/`synthesize_amplitudes` halves on both channel plans
+  with a documented amplitude sharding contract; `ETDRK4` runs
+  sharded (invariance <1e-10, grad FD-matched). Stale channel
+  random-state taught-error test flipped to an invariance gate
+  (`ce1e3615`). Two-track research + design:
+  `design/research/analytic_eigenmode_distributed_route.md`
+  (`e4d2f892`). Remaining in the plan file: Tier-2 (now ripe),
+  Wave B walled-vertical analytic, no-gather random synthesis,
+  trig/mixed families, GPU-scoped checkpoint items.

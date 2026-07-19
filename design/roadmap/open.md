@@ -74,31 +74,33 @@ Evidence, provenance probes, and the full re-attribution history:
 
 ## Naive GSPMD transform path — phased illegality (remaining)
 
-Owner-approved 2026-07-18; phases 0–1 shipped the same day, the
-phase-3 core + 2-D channel transpose pipeline shipped 2026-07-19
-(`8752170a`), and the phase-3 diagonal consumer wave landed on
-`feat/distributed-transform-consumers` (Tier-1 guard, channel synthesis
-+ 2-D transpose contraction, `DistributedTransform` +
-`apply_diagonal`, Krylov CG consumer). Record:
-[`../research/gspmd_naive_transform_illegality.md`](../research/gspmd_naive_transform_illegality.md);
-per
-[`../plans/active/gspmd_transform_illegality_plan.md`](../plans/active/gspmd_transform_illegality_plan.md).
+Owner-approved 2026-07-18; phases 0–3 and every named consumer wave
+are shipped (entries in [`done.md`](done.md); latest: the analytic
+all-periodic route + ETDRK4 halves, merges `f8358720`/`bce54cff`
+2026-07-19, design in
+[`../research/analytic_eigenmode_distributed_route.md`](../research/analytic_eigenmode_distributed_route.md)).
 Still open:
 
-- **Phase 3 — remaining consumers (deferred debt).** The single-field
-  diagonal route (`Transform.apply_diagonal`) serves the Krylov CG
-  `SpectralDerivative` apply; the **exponential stepper** (`ETDRK4`),
-  the **analytic all-periodic eigenmode** projections (`GridEigenmodes`
-  `kit.forward`/`kit.backward` + per-mode eigenvector matrix), and the
-  **balance / NNMD** state transforms still hit the taught error on
-  sharded grids — each needs a multi-component per-mode *matrix*
-  contraction (the all-periodic analog of `ContractPlan`) or
-  intermediate materialized amplitude state, not built in this wave
-  (no re-gathering path forced). The numeric *channel* eigenmode
-  projections / `f(L)` / synthesis are already served.
-- **Tier-2 decision (owner)** — whether all-local naive transforms on
-  a multi-device mesh (silent all-gather) also become illegal, with an
-  allow-replicated escape for Chebyshev/mismatched-layout solves.
+- **Tier-2 decision (owner) — NOW RIPE.** Whether all-local naive
+  transforms on a multi-device mesh (silent all-gather) also become
+  illegal, with an allow-replicated escape. The escape list is at the
+  minimum the owner set as the precondition: the Chebyshev-vertical
+  solve, the mismatched-layout composite solve, plus the recorded
+  Wave-B tier below.
+- **Wave B — walled-vertical analytic tier.** The analytic eigenmode
+  route serves plain-Fourier all-periodic frames; walled-vertical
+  analytic grids (`ComposedTransform`, trig z stage + `ModeChart`
+  embed/restrict) keep the taught error and need a
+  `ContractPlan`-shaped region absorbing the bounded axis into the
+  stacked column (design record §4).
+- **No-gather random synthesis for frame-mismatch cases.** When the
+  sharded axis is the single-device half axis (nh2 x-sharded, sw2
+  2-D), random-state synthesis falls back to a replicated backward —
+  correct and device-invariant, but a gather on the IC path; a pure
+  fused route needs a Hermitian half-axis re-expression of the
+  device-independent gains.
+- **Trig/mixed transform families**: `resolve_distributed_transform`
+  declines them (plain Fourier only).
 ## Finite-volume nonhydro — decisions and validation
 
 All FV stages (F0–F6) are shipped — every non-immersed grid serves
