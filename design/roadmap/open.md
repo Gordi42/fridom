@@ -66,26 +66,6 @@ One defensive decline remains:
 Evidence, provenance probes, and the full re-attribution history:
 [`../research/multidevice_test_faults.md`](../research/multidevice_test_faults.md).
 
-## shallowwater2 physical-components flip — campaign
-
-Ruling (c) of
-[`../decisions/physical_state_components.md`](../decisions/physical_state_components.md)
-(owner-ratified 2026-07-19): move the spherical prognostics from the
-chart convention (`dlon/dt`, `dphi/dt`) to physical m/s components —
-the NEMO/MITgcm curvilinear standard — completing the "state
-components are physical" invariant (ruling (a)) across all packages.
-Conversions are pointwise diagonal metric rescales, but the flip
-reverses a deliberate recorded design: it touches the chart operator
-plumbing (`lower_index`/`curl`/`div` flows), the Sadourny
-energy-conserving spellings, the energy correction and the eigen
-machinery, and must re-prove the energy-exactness gates. Retires
-`u_physical` / `v_physical` (the interim conversion points) and
-brings physical IC input to the sphere. Plan:
-[`../plans/active/sw2_physical_flip_plan.md`](../plans/active/sw2_physical_flip_plan.md)
-(2026-07-19; scope census done — eigen/transform machinery is
-flat/channel-only and confirmed untouched; the flip is a seam
-conversion, S1 in implementation).
-
 ## Finite-volume nonhydro — decisions and validation
 
 All FV stages (F0–F6) are shipped — every non-immersed grid serves

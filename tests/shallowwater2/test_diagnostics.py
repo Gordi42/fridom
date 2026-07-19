@@ -14,8 +14,9 @@ gates here:
   **machine zero** (flat AND sphere) — the diagnostic and the scheme
   agree on what is conserved;
 - the linearized pair is *not* that invariant (it is produced at
-  O(Ro) by the same terms), and its values are the unchanged
-  Cartesian / metric quadratics.
+  O(Ro) by the same terms), and its values are the physical-velocity
+  quadratics (the chart branch collapses to the flat spelling now that
+  the state components are physical, D4).
 """
 import jax
 import numpy as np
@@ -94,23 +95,22 @@ def model(request):
 #  The reference: the hand-written per-space invariant (validated)
 # ================================================================
 def reference_energy(model):
-    """``E = sum g_ii hbar u^i u^i / 2 + p^2 / 2``, per-space sums.
+    """``E = sum hbar U^2 / 2 + p^2 / 2``, per-space sums (physical).
 
     The form the C2 work validated (the ``h_energy`` helpers of
     ``test_sadourny`` and ``tests/validation``): each velocity
     quadratic integrated on its OWN staggered space, so
-    ``integrate`` applies that space's ``sqrt(g)`` and measure.
+    ``integrate`` applies that space's ``sqrt(g)`` and measure. The
+    velocities are the **physical** components on every grid
+    (``physical_state_components.md``), so the chart form carries no
+    ``g_ii`` factor (it is folded into the physical ``U^2``).
     """
     z = model.state
-    grid = model.grid
     ro = float(model.parameters[fr.model.params.SCALING_ROSSBY])
     u, v, p = z["u"], z["v"], z["p"]
     h = z["csqr"].to(p) + ro * p
     ku = 0.5 * u * u * h.to(u)
     kv = 0.5 * v * v * h.to(v)
-    if grid.chart_coords is not None:
-        ku = grid.metric(u.function_space.bare, "g_lonlon") * ku
-        kv = grid.metric(v.function_space.bare, "g_latlat") * kv
     return sum(float(part.integrate().data.ravel()[0])
                for part in (ku, kv, 0.5 * p * p))
 
@@ -205,6 +205,9 @@ def test_epot_full_drops_the_inverse_csqr_weight():
 
 
 def test_full_kinetic_energy_carries_the_metric_on_the_sphere():
+    # the physical KE carries only the sqrt_g Jacobian on each
+    # velocity's own space (no g_ii — the velocities are physical);
+    # integrate re-applies the centre sqrt_g (D4)
     model = sphere_model()
     set_random(model)
     grid = model.grid
@@ -212,10 +215,8 @@ def test_full_kinetic_energy_carries_the_metric_on_the_sphere():
     u, v, p = z["u"], z["v"], z["p"]
     h = z["csqr"].to(p) + RO * p
     u_bare, v_bare = (u.function_space.bare, v.function_space.bare)
-    e_u = (grid.metric(u_bare, "sqrt_g")
-           * grid.metric(u_bare, "g_lonlon") * u * u * h.to(u))
-    e_v = (grid.metric(v_bare, "sqrt_g")
-           * grid.metric(v_bare, "g_latlat") * v * v * h.to(v))
+    e_u = grid.metric(u_bare, "sqrt_g") * u * u * h.to(u)
+    e_v = grid.metric(v_bare, "sqrt_g") * v * v * h.to(v)
     sqrt_g = grid.metric(p.function_space.bare, "sqrt_g")
     expected = 0.5 * (e_u.to(p) + e_v.to(p)) / sqrt_g
     got = model.diagnostics.ekin_full()

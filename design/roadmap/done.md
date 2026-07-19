@@ -2403,3 +2403,33 @@ Implementation record:
   served; the sole eigen remainder is the non-1-D-mesh defensive
   decline ([`open.md`](open.md)). Solution-path survey:
   [`../research/eigen_remainder_investigation.md`](../research/eigen_remainder_investigation.md).
+
+- **shallowwater2 physical-components flip** (2026-07-19, ruling (c)
+  of
+  [`../decisions/physical_state_components.md`](../decisions/physical_state_components.md);
+  plan + shipped record
+  [`../plans/done/sw2_physical_flip_plan.md`](../plans/done/sw2_physical_flip_plan.md);
+  dev merge `90722cf2`): the spherical prognostics are now the
+  **physical m/s components** (the NEMO/MITgcm curvilinear
+  standard), completing invariant (a) across all three model
+  packages. Shipped as a **seam conversion**: the dispatch kinds
+  stay variance-native; every chart-path term (core gravity,
+  Sadourny, conserving Coriolis, the shared `chart_rotation`)
+  converts physical→contravariant at entry (sealed divide by
+  `sqrt(g_ii)` on the component's own space, the pad-inf/VJP seal)
+  and rescales the tendency at exit — every skewness/telescoping
+  proof carries by exact conjugation, and the conserved functional
+  becomes `E = sum sqrt_g h_bar U^2/2 + ...` (so `ekin_full` drops
+  its `g_ii` factors and the `ekin` chart branch collapses into the
+  flat spelling). `u_physical` / `v_physical` retired;
+  `state.chart` added (`shallowwater2/chart.py` hook — the
+  coordinate velocities); physical IC input on the sphere (TC2 sets
+  `u = U0 cos(lat)`). Scope census: the eigen/transform/IC
+  machinery is flat/channel-only and untouched; immersed paths
+  flat-only and untouched; flat branches verbatim (bitwise), the
+  identity-chart `disable_jit` gate stays bitwise (conversions are
+  ×1/÷1 there). Energy gates re-proven at machine zero on the
+  sphere (semi-discrete rate 5.9e-16, mass 3.2e-17, route-A≡B); the
+  one recorded cost is the per-node conversion round trip — a
+  synthetic torus M-skew bound moved 1e-14 → 1e-13 (metric range
+  0.25..6.25; deviation record in the plan §7).

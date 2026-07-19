@@ -1,5 +1,5 @@
 ---
-status: active (S1 in implementation)
+status: shipped (S1 merged to dev 90722cf2, S2 closure same day)
 date: 2026-07-19
 ---
 
@@ -213,10 +213,34 @@ under which the conjugation argument in D1 is exact per node.
 
 - **S1 — the flip** (branch `feat/sw2-physical-flip`, own worktree):
   touch list §3 + test updates §4, merge gate per AGENTS.md.
+  **Shipped 2026-07-19**, dev merge `90722cf2` (branch commit
+  `305f0bea`, rebased over the parallel Tier-2 guard landing
+  `dec698e2`). Full touch list delivered, incl. the new
+  `shallowwater2/chart.py` seam/hook module. Gates: 466 passed /
+  12 skipped across `tests/shallowwater2`,
+  `tests/model/modules/test_coriolis.py`, the spherical validation
+  file and the nonhydro smoke; identity-chart `disable_jit` gate
+  bitwise-green; sphere semi-discrete energy rate 5.9e-16, M-skew
+  9e-17/3.9e-16, mass 3.2e-17; ruff zero.
 - **S2 — closure** (design-only, direct to dev): move the roadmap
   entry `open.md → done.md`, flip ruling (c)'s status line in the
   decision record, note the shipped surface here, archive this plan
-  as shipped.
+  as shipped. **Done 2026-07-19** (same commit as this note).
+
+## 7. Deviation record (S1)
+
+One deviation from §4, reviewed and authorized per the hard rule
+itself: `tests/model/modules/test_coriolis.py::test_rotation_is_m_skew_on_the_torus`
+moved 1e-14 → 1e-13 (7.4× / 4.1× measured, both weight params). The
+hard rule fired and review **confirmed the conjugation design**
+rather than a misplacement: the residual is the intrinsic per-node
+`sqrt(g_ii)·(U/sqrt(g_ii))` round trip of D1 paired in the physical
+energy, amplified by the torus chart's 0.25..6.25 metric dynamic
+range. Falsifiers checked: the sphere (g ≤ 1) gates stay machine
+zero (9e-17); the residual scales with metric magnitude, not Δ (a
+misplaced conversion shows O(Δ)); the internal contravariant
+skewness is exactly preserved (1.5e-16, measured against the
+reproduced pre-flip path). No owner-named §4 gate moved.
 
 ## 6. Out of scope (recorded)
 
