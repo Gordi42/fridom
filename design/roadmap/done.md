@@ -2505,8 +2505,26 @@ Implementation record:
   apply at 1.2e-14 invariance, grad 1.3e-13; pure-trig homogeneous
   shapes stay declined (no consumer; machinery verified ready,
   1.3e-14 probe). Combined forced-4 battery over all campaign
-  surfaces on the final tree: 423 passed, 0 failed. Remaining:
-  the owner-batched GPU checkpoint ([`open.md`](open.md)).
+  surfaces on the final tree: 423 passed, 0 failed.
+
+- **2026-07-19 — GSPMD campaign GPU checkpoint run and green**
+  (owner authorized in chat; job 26365157, 1 node 4x A100-80GB;
+  harness merge `3b7eea58`, results
+  [`../research/artifacts/gspmd_campaign_gpu4/RESULTS.md`](../research/artifacts/gspmd_campaign_gpu4/RESULTS.md)).
+  Leg A (1-GPU refs) PASS; Leg B (4-GPU single-controller pytest
+  over 20 campaign files, real `eigh` bases) 526 passed / 3
+  interpreted failures (two = cross-build eigenvector-gauge
+  rotation in the first-ever run of the GPU-only cross-build
+  synthesis tests — omegas match 1e-11, same-build fused parity all
+  green, machinery acquitted; one = the known backend-specific
+  bitwise class at 1e-16); Leg C (real `srun -n 4` multi-process)
+  PASS on every campaign smoke item — Wave B walled projections,
+  no-gather + walled-fallback synthesis, mixed `apply_diagonal`,
+  Tier-2 escape and unescaped taught error (ETDRK4 item = the
+  documented builder host-gather skip). Two follow-ups filed in
+  [`open.md`](open.md) (numeric-channel gauge canonicalization;
+  multi-process eigenbasis build via `process_allgather`). With
+  this the campaign's roadmap section closes entirely.
 
 - **2026-07-19 — 2-D channel eigen served sharded (`Channel2DPlan`,
   merge `8752170a`).** The highest-exposure sharded-periodic

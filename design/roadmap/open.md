@@ -19,29 +19,36 @@ entry is enough.
 
 # Next steps
 
-## Naive GSPMD transform path — GPU checkpoint (owner-batched)
-
-The illegality campaign is complete — every phase, consumer wave,
-and follow-up item shipped 2026-07-18/19 (final four merges
-`dec698e2`/`4367d2f9`/`8462be11`/`48cfc25c`; consolidated entry in
-[`done.md`](done.md), plan record
-[`../plans/done/gspmd_transform_illegality_plan.md`](../plans/done/gspmd_transform_illegality_plan.md)).
-One owner-batched item remains:
-
-- **GPU validation of the campaign's multi-device paths** at the
-  next owner-batched checkpoint (all GPU-scoped: fused synthesis
-  parity, the 3-D `ContractPlan` ETDRK4 end-to-end run and its
-  distributed grad — real `eigh` bases are CPU-unsafe, jax#39292).
-  Agents do not submit GPU jobs.
-
 ## Channel eigenmodes on multi-device — remaining gap
 
 Projection, synthesis, and every reachable sharded channel case are
 served (fused contraction `e60259de`, half-axis re-designation
 `feade7fa`, the 2-D channel via `Channel2DPlan` `8752170a`; both
 surfaced eigenbasis faults fixed — entries in [`done.md`](done.md)).
-One defensive decline remains:
+The GSPMD illegality campaign and its GPU checkpoint are complete
+(entries in [`done.md`](done.md); checkpoint results in
+[`../research/artifacts/gspmd_campaign_gpu4/RESULTS.md`](../research/artifacts/gspmd_campaign_gpu4/RESULTS.md)).
+The checkpoint surfaced two numeric-channel follow-ups; with the
+defensive decline they are what remains:
 
+- **Eigenvector-gauge canonicalization in the numeric basis build.**
+  `eigh` gauge (phase / degenerate-subspace orientation) is not
+  stable across independent builds whose probe inputs differ by
+  sharded FP noise, so cross-build synthesis parity fails on GPU
+  (first-ever run of the GPU-only
+  `test_eigenbasis_synthesis_distributed` cross-build tests: omegas
+  match at 1e-11, fields rotate O(0.1–1); same-build fused parity all
+  green — machinery acquitted, no wrong-physics exposure within a
+  run). Canonicalize the gauge in the build (e.g. pin the
+  largest-magnitude component real-positive), then those tests assert
+  the real invariant.
+- **Multi-process eigenbasis build.** The numeric channel builder
+  host-gathers its probe responses
+  (`eigen_channel._gathered_responses`, `np.asarray`) and raises
+  "non-addressable devices" under a real `srun -n N` launch — the
+  ETDRK4 *application* halves are multi-GPU-validated
+  single-controller, but the *setup* path needs
+  `multihost_utils.process_allgather` to serve real multi-process.
 - **Non-1-D meshes**: **unreachable today** (the decomposition
   negotiates only single-axis layouts; a hand-built 2-axis mesh dies
   at decomposition build) — keep the decline. The pencil primitive
