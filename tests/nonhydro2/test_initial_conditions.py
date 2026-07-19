@@ -11,6 +11,7 @@ exactly in the linear model, the wave package stays localized and
 wave-pure, the geostrophically projected jets are steady, and the
 coherent eddy is discretely divergence-free.
 """
+import jax
 import numpy as np
 import pytest
 
@@ -387,3 +388,46 @@ def test_eddy_taught_errors(periodic, walled, channel):
         nh.coherent_eddy(walled, gauss_field="vorticity")
     with pytest.raises(ValueError, match="walled channel"):
         nh.coherent_eddy(channel)
+
+
+# ================================================================
+#  Distributed (sharded) analytic random-state (forced-4)
+# ================================================================
+def _periodic_model_at(device_ids, n=16):
+    """Return a fully periodic nonhydro model at a device layout."""
+    meshes = tuple(
+        fr.spatial.meshes.IntervalMesh(
+            n, (0.0, 2 * np.pi), periodic=True, name=name)
+        for name in ("x", "y", "z"))
+    return nh.Model(
+        grid=fr.spatial.Grid(meshes, device_ids=device_ids),
+        advection=False, dsqr=DSQR, coriolis=nh.FPlaneCoriolis(f0=F0),
+        stratification=nh.ConstantStratification(n2=N2),
+        time_stepper=fr.model.time_steppers.AdamBashforth(DT, order=3))
+
+
+@pytest.mark.multi_device
+def test_random_state_on_a_sharded_grid_is_device_invariant(
+        forced_devices):
+    # the analytic random-state synthesis builds its gains and Hermitian
+    # random phases on the device-independent single-device coefficient
+    # frame and inverts them through the fused jax.shard_map backward
+    # (frame-matching sharded axis) or a replicated backward otherwise --
+    # both device-count invariant; a grid that shards a transform axis
+    # reproduces the one-device state to floating point, real and sharded.
+    if forced_devices is not None:
+        assert jax.device_count() == forced_devices
+    n = 16
+    many = nh.eigenmodes.from_model(_periodic_model_at(None, n))
+    one = nh.eigenmodes.from_model(_periodic_model_at((0,), n))
+    for family in ("vortical", "wave"):
+        s_many = nh.random_state(many, family, seed=21)
+        s_one = nh.random_state(one, family, seed=21)
+        assert s_many["u"]._data.sharding.spec[0] == "devices"
+        assert all(not np.iscomplexobj(np.asarray(s_many[c].data))
+                   for c in COMPONENTS)
+        err = max(
+            float(np.abs(np.asarray(s_many[c].data)
+                         - np.asarray(s_one[c].data)).max())
+            for c in COMPONENTS)
+        assert err < 1e-11
