@@ -485,21 +485,27 @@ def test_extra_halo_widens_the_negotiation():
 
 
 @pytest.mark.multi_device
-def test_larger_demands_cap_to_the_record_on_a_sharded_grid():
-    # the symmetric-cap counterpart: on a genuinely sharded grid the
-    # wide extra halo is lowered to the shortest-shard extent both when
-    # negotiate writes the record and when the frozen verify checks it,
-    # so a re-assembly with WideHalo caps-vs-caps instead of raising
-    # (mirrors test_verify_accepts_a_larger_extra_halo_that_caps_to_record
-    # in tests/spatial/test_freeze_fingerprint.py).
-    grid = make_grid()
-    make_artifacts(grid)
-    assert grid.decomposition.device_count > 1
-    frozen_x = grid.fingerprint.halo["x"]
-    assert frozen_x < 64                     # the cap engaged on freeze
-    arts = make_artifacts(grid, modules=(Core(), WideHalo()))
-    assert grid.fingerprint.halo["x"] == frozen_x
-    assert arts.resharding.changed is False
+def test_wide_extra_halo_survives_uncapped_and_disqualifies_sharding():
+    # the ruling (Change 1): a module's wide extra_halo joins the
+    # per-application floor and is NEVER capped to the shortest-shard
+    # extent. Start from a genuinely sharded grid (the provisional
+    # halo 2 fits an 8-cell shard), then assemble WideHalo (width 64):
+    # the demand fits no shard, so the sole axis x is disqualified and
+    # the auto-selected grid honestly collapses to one device, recording
+    # the RAW width 64 -- not a silent cap. (The old semantics capped it
+    # to the shard extent and kept sharding, under-provisioning a raw
+    # .data stage; mirrors
+    # test_explicit_halo_survives_uncapped_and_flips_sharding in
+    # tests/spatial/test_freeze_fingerprint.py.)
+    import jax  # noqa: PLC0415
+
+    grid = Grid((IntervalMesh(8 * jax.device_count(), (0.0, 1.0),
+                              periodic=True, name="x"),))
+    grid.negotiate(halo=HaloSpec({"x": 2}))
+    assert grid.decomposition.device_count > 1   # sharded at halo 2
+    make_artifacts(grid, modules=(Core(), WideHalo()))
+    assert grid.fingerprint.halo["x"] >= 64      # uncapped, survives
+    assert grid.decomposition.device_count == 1  # x disqualified
 
 
 # ================================================================

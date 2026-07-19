@@ -14,6 +14,10 @@ from fridom.spatial.decomposition.layout import Layout
 from fridom.spatial.decomposition.tensor import (
     TensorDecomposition,
 )
+from fridom.spatial.decomposition.traits import (
+    HaloStrategy,
+    MeshDecompositionTraits,
+)
 from fridom.spatial.grid import Grid
 from fridom.spatial.meshes.interval import IntervalMesh
 from fridom.spatial.operators.finite_difference import (
@@ -221,6 +225,46 @@ def test_cap_for_sharding_on_non_divisible_axes():
     m16 = IntervalMesh(16, (0.0, 1.0), name="x")
     assert _cap_for_sharding((m16,), HaloSpec({"x": 5}), floor, 4)[
         "x"] == 3
+
+
+def test_cap_for_sharding_scopes_to_candidate_axes():
+    # Change 2: the cap is scoped to genuine sharding candidates. A
+    # factor that declares no GHOST strategy can never shard, so its
+    # traced sync-free width is left uncapped (a spectral / Chebyshev /
+    # non-GHOST axis keeps its ghosts, saving mid-chain exchanges) even
+    # though its shortest shard would clip the width. A GHOST interval
+    # on the same call is still capped.
+    class NoGhostMesh:
+        n_cells = 8
+        names = ("q",)
+
+    mesh = NoGhostMesh()
+    mx = IntervalMesh(8, (0.0, 1.0), name="x")
+    spec = HaloSpec({"q": 5, "x": 5})
+    floor = HaloSpec({"q": 1, "x": 1})
+    capped = _cap_for_sharding((mesh, mx), spec, floor, 4)
+    assert capped["q"] == 5  # non-GHOST: never a candidate, uncapped
+    assert capped["x"] == 1  # GHOST candidate: capped to last - 1
+
+
+def test_cap_for_sharding_skips_axes_below_min_local():
+    # a GHOST axis whose shortest shard is below min_local_size can
+    # never shard either, so it is not a candidate and its width is
+    # left uncapped (candidacy excludes the width + 1 criterion, which
+    # would be circular; min_local_size is width-independent).
+    class SmallGhostMesh:
+        n_cells = 8
+        names = ("s",)
+        center = object()
+
+        def decomposition_traits(self, space):  # noqa: ARG002
+            return MeshDecompositionTraits(
+                (HaloStrategy.GHOST,), min_local_size=4)
+
+    # 8 over 4: last = 2 < min_local 4 -> not a candidate -> uncapped
+    capped = _cap_for_sharding((SmallGhostMesh(),), HaloSpec({"s": 5}),
+                               HaloSpec({"s": 1}), 4)
+    assert capped["s"] == 5
 
 
 def test_registry_halo_scopes_to_state_space_meshes(grid, my):

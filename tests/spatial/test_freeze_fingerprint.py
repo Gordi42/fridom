@@ -156,84 +156,111 @@ def test_frozen_negotiate_never_renegotiates(grid):
 # ================================================================
 #  Verify path: shardable-cap symmetry (task 1.8)
 # ================================================================
-#  On a sharded grid the negotiate path lowers a wide sync-free demand
-#  to the shortest-shard extent (``_cap_for_sharding``) before freeze
-#  records it, so the verify path must apply the SAME cap or an
-#  identical re-assembly (``Model.variant``) would spuriously fault.
-#  The scenario drives the cap with a large explicit ``halo=`` on top
-#  of a tendency: the tendency keeps negotiate and verify on the
-#  symmetric traced base, and a width far above the shard extent makes
-#  the cap bite regardless of the exact per-operator halo accounting.
+#  On a sharded grid the negotiate path lowers a wide *traced*
+#  sync-free demand to the shortest-shard extent (``_cap_for_sharding``)
+#  before freeze records it, so the verify path must apply the SAME cap
+#  or an identical re-assembly (``Model.variant``) would spuriously
+#  fault. The cap bites only widths above the per-application floor;
+#  the explicit ``halo=`` joins that floor (declared-bypass demand), so
+#  it is NEVER capped -- an axis whose ``halo=`` width does not fit a
+#  shard flips to unsharded instead. These scenarios drive the cap with
+#  a traced diff chain (whose sync-free width exceeds the shard extent
+#  while its per-application reach stays 1) and check the explicit-halo
+#  ruling separately.
+def _traced_cap_grid():
+    # nx = 2 * device_count keeps the shortest (only) shard 2 cells for
+    # any device count >= 2, so cap = last - 1 = 1. A three-diff chain
+    # traces sync-free width 2 (per-application reach 1), so the cap
+    # engages (2 -> 1) and x still shards (last 2 >= capped 1 + 1).
+    nx = 2 * jax.device_count()
+    mx = IntervalMesh(nx, (0.0, 1.0), name="x")  # periodic
+    my = IntervalMesh(nx, (0.0, 2.0), name="y")  # periodic
+    return Grid((mx, my))
+
+
+def diff3_x(state):
+    return state.diff("x").diff("x").diff("x")
+
+
+def diff3_xy(state):
+    s = state.diff("x").diff("x").diff("x")
+    return s.diff("y").diff("y").diff("y")
+
+
 def _capped_shard_grid():
-    # nx = 4 * device_count keeps the shortest (only) shard 4 cells
-    # for any device count >= 2, so cap = last - 1 = 3 and x still
-    # shards (last 4 >= capped 3 + 1). Scaling with the device count
-    # keeps the cap engaged under both a 2- and a forced-4 backend.
+    # nx = 4 * device_count keeps the shortest (only) shard 4 cells for
+    # any device count >= 2 (cap = 3). Used by the explicit-halo ruling
+    # test: a walled y keeps a second GHOST axis so the grid stays
+    # sharded on y once a wide explicit halo disqualifies x.
     nx = 4 * jax.device_count()
     mx = IntervalMesh(nx, (0.0, 1.0), name="x")             # periodic
     my = IntervalMesh(nx, (0.0, 2.0), periodic=False, name="y")
     return Grid((mx, my))
 
 
-#: an extra halo demand far above the shortest-shard cap
-WIDE = HaloSpec({"x": 10})
-
-
 @pytest.mark.multi_device
 def test_verify_caps_the_reassembly_demand_like_negotiate():
     # the reported bug: cap on write, no cap on verify -> a
-    # byte-identical re-assembly on the frozen grid faults
-    grid = _capped_shard_grid()
+    # byte-identical re-assembly on the frozen grid faults. The cap is
+    # driven by a traced chain (width 2 > shard extent), not an
+    # explicit halo (which now joins the floor and is never capped)
+    grid = _traced_cap_grid()
     space = grid.create_field().function_space
-    grid.negotiate(state_spaces=(space,), tendency=diff_x, halo=WIDE)
-    # the cap engaged: the width-10 demand recorded as the shard
-    # extent 3, and x is genuinely sharded (else the scenario is
+    grid.negotiate(state_spaces=(space,), tendency=diff3_x)
+    # the cap engaged: the traced width-2 demand recorded as the shard
+    # extent 1, and x is genuinely sharded (else the scenario is
     # vacuous)
     assert grid.decomposition.device_count == jax.device_count()
     assert dict(grid.decomposition.default_layout.device_axes) == {
         "x": "devices"}
     grid.freeze()
-    assert grid.fingerprint.halo["x"] == 3
+    assert grid.fingerprint.halo["x"] == 1
     # the identical negotiation now verifies capped-vs-capped instead
-    # of raw-10 > frozen-3 (which raised before the symmetric cap)
-    report = grid.negotiate(state_spaces=(space,), tendency=diff_x,
-                            halo=WIDE)
+    # of raw-2 > frozen-1 (which raised before the symmetric cap)
+    report = grid.negotiate(state_spaces=(space,), tendency=diff3_x)
     assert report.changed is False
 
 
 @pytest.mark.multi_device
 def test_verify_cap_still_rejects_a_genuine_violation():
-    # the cap never lowers a demand below the shard extent (and never
-    # below the per-application floor), so a genuine over-demand on an
-    # axis the frozen grid never provisioned (frozen y = 0) still
-    # raises -- the width-10 extra halo is lowered only to the shard
-    # extent 3, which still exceeds the recorded 0
-    grid = _capped_shard_grid()
+    # the cap never lowers a demand below the per-application floor, so
+    # a genuine over-demand on an axis the frozen grid never
+    # provisioned (frozen y = 0) still raises -- the traced width-2
+    # y-chain is lowered only to the shard extent 1, which still
+    # exceeds the recorded 0
+    grid = _traced_cap_grid()
     space = grid.create_field().function_space
-    grid.negotiate(state_spaces=(space,), tendency=diff_x, halo=WIDE)
+    grid.negotiate(state_spaces=(space,), tendency=diff3_x)
     grid.freeze()
     assert grid.fingerprint.halo["y"] == 0
     with pytest.raises(GridFrozenError,
-                       match=r"halo\['y'\]: demanded 3 > frozen 0"):
-        grid.negotiate(state_spaces=(space,), tendency=diff_x,
-                       halo=HaloSpec({"y": 10}))
+                       match=r"halo\['y'\]: demanded 1 > frozen 0"):
+        grid.negotiate(state_spaces=(space,), tendency=diff3_xy)
 
 
 @pytest.mark.multi_device
-def test_verify_accepts_a_larger_extra_halo_that_caps_to_record():
-    # negotiate-consistent capped acceptance: on a cap-engaged sharded
-    # grid an extra halo even larger than the frozen one verifies
-    # cleanly, because both cap to the shard extent -- width above the
-    # per-application floor is satisfiable via runtime re-sync, so it
-    # is not a violation (this is the asymmetry the fix removes)
+def test_explicit_halo_survives_uncapped_and_flips_sharding():
+    # the ruling: an explicit ``halo=`` joins the per-application floor
+    # and is NEVER capped. A width far above the shard extent (10 on a
+    # 4-cell shard) is not lowered to fit -- it disqualifies x from
+    # sharding (last 4 < 10 + 1), and the grid shards the walled y
+    # instead. The frozen record keeps the raw width 10, not a cap.
     grid = _capped_shard_grid()
     space = grid.create_field().function_space
-    grid.negotiate(state_spaces=(space,), tendency=diff_x, halo=WIDE)
+    grid.negotiate(state_spaces=(space,), tendency=diff_x,
+                   halo=HaloSpec({"x": 10}))
+    assert grid.decomposition.device_count == jax.device_count()
+    # x flipped to unsharded (wide explicit halo); y carries the shard
+    assert dict(grid.decomposition.default_layout.device_axes) == {
+        "y": "devices"}
     grid.freeze()
-    assert grid.fingerprint.halo["x"] == 3
-    report = grid.negotiate(state_spaces=(space,), tendency=diff_x,
-                            halo=HaloSpec({"x": 20}))
-    assert report.changed is False
+    assert grid.fingerprint.halo["x"] == 10  # uncapped, survives
+    # a still-larger explicit halo is a genuine violation (compared at
+    # its true width, not silently capped to the shard extent)
+    with pytest.raises(GridFrozenError,
+                       match=r"halo\['x'\]: demanded 20 > frozen 10"):
+        grid.negotiate(state_spaces=(space,), tendency=diff_x,
+                       halo=HaloSpec({"x": 20}))
 
 
 def test_verify_never_caps_on_a_single_device():
