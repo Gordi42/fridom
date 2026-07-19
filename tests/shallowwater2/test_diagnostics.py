@@ -25,7 +25,7 @@ import pytest
 import fridom as fr
 import fridom.shallowwater2 as sw
 
-from .conftest import make_grid, make_model
+from .conftest import gaussian_bump, make_grid, make_model
 
 CSQR = 0.7
 RO = 0.4
@@ -281,7 +281,83 @@ def test_the_diagnostics_namespace_exposes_both_families():
     model = flat_model()
     names = set(sw.diagnostics.DIAGNOSTICS)
     assert names == {"ekin", "epot", "ekin_full", "epot_full",
-                     "etot_full", "thickness"}
+                     "etot_full", "thickness", "pot_vort"}
     for name in names:
         assert isinstance(getattr(model.diagnostics, name)(),
                           fr.spatial.ScalarField)
+
+
+# ================================================================
+#  Potential vorticity: q = (f + Ro zeta) / h on the vorticity corner
+# ================================================================
+def test_pot_vort_is_the_scaled_vector_invariant():
+    # the spelling gate: q = (f + Ro zeta) / h, on the SAME corner as
+    # rel_vort, with f read from the carried f_coriolis field and h
+    # the full geopotential thickness (bitwise vs a hand assembly)
+    model = flat_model()
+    set_random(model)
+    z = model.state
+    zeta = z.rel_vort
+    corner = zeta.function_space
+    h = (z["csqr"].to(z["p"]) + RO * z["p"]).to(corner)
+    expected = (z["f_coriolis"].to(corner) + RO * zeta) / h
+    got = model.diagnostics.pot_vort()
+    assert got.function_space is corner
+    assert np.array_equal(np.asarray(got.data),
+                          np.asarray(expected.data))
+    assert got.metadata.name == "pot_vort"
+    assert got.metadata.units == "s/m^2"
+
+
+def test_pot_vort_of_a_rest_state_is_f_over_h():
+    # the analytic anchor (gate i): at rest zeta = 0 exactly, so the
+    # PV collapses to f / h everywhere
+    model = flat_model()          # rest state (no set_random)
+    z = model.state
+    corner = z.rel_vort.function_space
+    expected = z["f_coriolis"].to(corner) / (
+        z["csqr"].to(z["p"]) + RO * z["p"]).to(corner)
+    got = model.diagnostics.pot_vort()
+    assert np.array_equal(np.asarray(got.data),
+                          np.asarray(expected.data))
+
+
+def test_pot_vort_rest_state_on_the_sphere_is_f_over_h():
+    # the metric discriminator (gate ii): on the lat-lon chart a rest
+    # state has zero metric-curl vorticity, so the PV is exactly the
+    # latitude-varying f divided by the corner thickness — to roundoff
+    model = sphere_model()        # rest state
+    z = model.state
+    corner = z.rel_vort.function_space
+    h = (z["csqr"].to(z["p"]) + RO * z["p"]).to(corner)
+    expected = z["f_coriolis"].to(corner) / h
+    got = model.diagnostics.pot_vort()
+    # f genuinely varies with latitude (this is not the trivial
+    # f = const case), and zeta is machine zero at rest
+    assert np.ptp(np.asarray(z["f_coriolis"].data)) > 1.0
+    assert np.max(np.abs(np.asarray(z.rel_vort.data))) == 0.0
+    np.testing.assert_allclose(np.asarray(got.data),
+                               np.asarray(expected.data),
+                               rtol=0.0, atol=0.0)
+
+
+def test_pot_vort_extrema_are_materially_conserved():
+    # the material-conservation sanity (gate iii): the vector-invariant
+    # PV is the tracer the Sadourny + conserving-Coriolis flux
+    # transports, so a short nonlinear f-plane run advects its extrema
+    # to advective-scheme tolerance (the OLD-stack (zeta+f)/h would
+    # drift at O(Ro-1) ~ 1e-2 over the same run — see the module note)
+    model = make_model(make_grid(32), csqr=1.0, rossby_number=RO,
+                       f0=1.0, advection=True, dt=1.5e-3)
+    model.set_fields(p=gaussian_bump(amp=0.5, sigma=0.12))
+    model.advance(100)                          # spin up real vorticity
+    q0 = np.asarray(model.diagnostics.pot_vort().data)
+    lo0, hi0 = q0.min(), q0.max()
+    assert hi0 - lo0 > 0.1                       # a non-trivial PV range
+    model.advance(400)
+    q1 = np.asarray(model.diagnostics.pot_vort().data)
+    span = hi0 - lo0
+    # extrema drift is small relative to the PV span (advective
+    # tolerance; measured ~1e-4 of the span, vs ~0.1 for (zeta+f)/h)
+    assert abs(q1.min() - lo0) / span < 5e-3
+    assert abs(q1.max() - hi0) / span < 5e-3
