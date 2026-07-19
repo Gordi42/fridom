@@ -36,42 +36,25 @@ memory ceiling, time-to-first-step, WENO throughput (entries in
   on a 4-GPU allocation. New runs report the honest `compile_s`
   metric (chunk metric fixed 2026-07-18; entry in
   [`done.md`](done.md)).
-- **Hydro surface-flux correction — weno re-measure + multi-host
-  remaining.** The centered §8 criteria are **met** (arm sweep
-  2026-07-18, owner-requested; record in
+- **Hydro surface-flux correction — two owner decisions.** The
+  machinery, defaults, and validation are all shipped (entry in
+  [`done.md`](done.md); full record in
   [`../plans/active/boundary_trace_plan.md`](../plans/active/boundary_trace_plan.md)
-  §9): overhead vs `surface_flux=False` single-digit-to-negative
-  on `se_centered`, oc/fridom 0.92–1.04 top rungs, `im_centered`
-  0.99–1.12 with all rungs stable; per-scheme lowering default
-  landed (`893e82a8`). Same-day slice-exactness audit fixed a
-  real top-row error (~15–17% u/v) for order-5 biased staggered
-  momentum (`81995781` — biased momentum now takes the exact
-  full-3D correction; constancy-oracle record in plan §9).
-  Real multi-host validation (plan §4 gate) is **met** (2026-07-18
-  evening, owner-requested: `srun -n 4` bitwise/1e-15 vs 1-GPU,
-  both schemes; record in plan §9 — including the multi-process
-  compile-cache deadlock it exposed and fixed, `94786a7c`).
-  Remaining (sharpened by the 2026-07-19 analysis of the
-  remainders job 26350823 — that job raced parallel dev merges in
-  the shared checkout, so its weno5 arms ran at three commits and
-  the scatter arm lost 4/5 rungs to a mid-merge conflict at
-  child-import time; centered arms clean at `33707661`):
-  (a) post-reroute weno5 ladder re-measure — the only clean
-  same-commit A/B pair (rf=28) has embed +1.0% over scatter, so
-  the provisional biased `"embed"` default stands, but a
-  definitive verdict needs a clean re-run (owner-gated GPU,
-  ~20 min); (b) the `surface_flux=False` opt-out is now measured
-  SLOWER than the scatter default (up to −16% for the default at
-  big rungs) and +48% over the pre-H7 point (default: +24%) —
-  the linear rungs are bitwise-stable across every measurement,
-  so it is advective-path only; either the dirty-tree pre-H7
-  baseline is invalid or a real change entered
-  `c669ec6f..565eaa51` — owner decision: one-rung bisect (small
-  GPU job) or won't-chase (oc parity 0.92–1.04 holds either
-  way). The (c) barotropic-IC finding was **ruled an IC gap and
-  fixed** 2026-07-19 (entry in [`done.md`](done.md)). Step-guard
-  checkpointing stays on Silvano's own batch cadence (never
-  agent-initiated).
+  §9). What remains is two calls, both owner-gated GPU:
+  (a) *weno5 lowering A/B* — the biased `"embed"` default is
+  provisional: the 2026-07-19 remainders job raced parallel dev
+  merges in the shared checkout, leaving only one clean
+  same-commit pair (rf=28: embed +1.0% over scatter). Keep the
+  provisional default on that single pair, or authorize a clean
+  ~20-min re-run (pinned commit this time).
+  (b) *`surface_flux=False` opt-out cost* — the opt-out measures
+  SLOWER than the scatter default (default up to −16% at big
+  rungs) yet +48% over the dirty pre-H7 point (default: +24%);
+  linear rungs are bitwise-stable across every measurement, so
+  the delta is advective-path only. Either the pre-H7 baseline
+  is invalid or a real change entered `c669ec6f..565eaa51`.
+  One-rung bisect (small GPU job) or won't-chase (oc parity
+  0.92–1.04 holds either way).
 
 ## Channel eigenmodes on multi-device — remaining gaps
 

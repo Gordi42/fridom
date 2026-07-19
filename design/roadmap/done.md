@@ -1920,3 +1920,29 @@ Implementation record:
   `test_restrict.py`. Residual in `open.md`: the weno5 momentum
   ~1e-5 z-seam (`WenoReconstruction` vertical footprint vs the
   negotiated z-halo of 2 — halo-cap machinery, owner-governed).
+
+- **Hydro surface-flux correction — machinery, defaults, and
+  validation closed out** (2026-07-18; full record in
+  [`../plans/active/boundary_trace_plan.md`](../plans/active/boundary_trace_plan.md)
+  §9). The centered §8 exit criteria are MET (owner-requested arm
+  sweep, job l50042 at `c4497db5`): overhead vs `surface_flux=False`
+  +2.6..−16.0% on `se_centered` (negative = default faster at big
+  rungs), oc/fridom 0.92–1.04 top rungs, `im_centered` 0.99–1.12
+  with all rungs stable. Per-scheme lowering default landed
+  (`893e82a8`): centered → `"scatter"`, biased → `"embed"`
+  (provisional pending the A/B remainder in [`open.md`](open.md));
+  `advection._SURFACE_FLUX_LOWERING` forces globally. The same-day
+  slice-exactness audit found and fixed a real ~15–17% u/v top-row
+  error for order-5 biased staggered momentum (`81995781` — biased
+  momentum takes the exact full-3D correction; the constancy oracle
+  is the arbiter, record in plan §9). Real multi-host validation
+  (plan §4 gate) MET 2026-07-18 evening, owner-requested: `srun -n 4`
+  centered bitwise / weno5 ≤1.9e-14 vs 1-GPU — along the way exposing
+  and fixing the multi-process compile-cache deadlock (`94786a7c`)
+  and surfacing the split-explicit barotropic-IC gap (own entry
+  above, fixed `f3d96306`). The 2026-07-19 remainders job 26350823
+  raced parallel dev merges in the shared checkout (weno5 arms at
+  three commits, scatter arm lost 4/5 rungs to a mid-merge conflict
+  at child-import time) — lesson: pin unattended benchmark jobs to a
+  detached commit; its clean centered arms are what sharpened the
+  two remaining owner decisions kept in [`open.md`](open.md).
