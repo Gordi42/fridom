@@ -369,7 +369,14 @@ a chart grid (variable-coefficient barotropic Helmholtz — the
 a chart grid (transport-depth-consistent subcycle, unbuilt); an
 embedding `chart=` (spherical / curvilinear); a vertical axis that is
 not the base of a single-base analytic column; immersed **and** terrain
-together. **Known gaps (reported, not gated):** nonlinear advection on
+together. [Update: the `ImplicitFreeSurface` chart taught error was
+retired 2026-07-18 (multigrid_generalization phase B, GM-D1 volume-exact
+solve) and the `SplitExplicitFreeSurface` one 2026-07-19 (the same
+GM-D1 option-1 volume-exact terrain subcycle, `H_a = ∫J dz`, constant
+`c²/H_ref` gravity, no `1/H` division); immersed **and** terrain together
+is now supported for the explicit / implicit variants (M5) and stays a
+**narrowed** taught error for the split-explicit variant only. See
+done.md.] **Known gaps (reported, not gated):** nonlinear advection on
 a terrain grid is forward-finite but **not** reverse-safe (the shared
 nodal mapped divergence divides `Z/J` unguarded — a shared-advection
 fix). [Update 2026-07-18: sealed via the shared `_safe_ratio`

@@ -12,9 +12,10 @@ in ``CoordinateMapping._at_space`` these grids failed to assemble. The
 tangent is odd at the wall (``H_x = 0`` for a wall-mirror-even depth),
 so the Dirichlet sibling resolves it exactly.
 
-Only the **explicit** and **implicit** free surfaces are covered; the
-split-explicit variant keeps its chart taught error (H3, a later stage).
-Self-contained builders (AGENTS oversized-module rule).
+All three free surfaces are covered on a walled chart: the **explicit**
+and **implicit** variants, and the **split-explicit** subcycle (H3 now
+retired — the volume-exact terrain transport form, GM-D1 option 1). Self-
+contained builders (AGENTS oversized-module rule).
 """
 import jax
 import jax.numpy as jnp
@@ -103,18 +104,120 @@ def test_free_surface_assembles_and_runs_finite_on_walls(
         assert bool(np.isfinite(data).all()), (wall, advection, k)
 
 
-def test_split_explicit_stays_a_taught_error_on_terrain_walls():
-    # the split-explicit barotropic subcycle keeps its chart taught
-    # error on a terrain grid (H3, retired by a later stage) -- the
-    # walled fix does not silently engage it.
-    grid = _grid(WALLS["x"])
-    with pytest.raises(NotImplementedError, match="terrain"):
-        hy.Model(
-            grid=grid, dt=2e-3, csqr=CSQR, advection=False,
-            stratification=hy.ConstantStratification(n2=N2),
-            free_surface=hy.SplitExplicitFreeSurface(substeps=4),
-            time_stepper=fr.model.time_steppers.AdamBashforth(
-                2e-3, order=2))
+@pytest.mark.parametrize("wall", list(WALLS), ids=list(WALLS))
+def test_split_explicit_runs_finite_on_terrain_walls(wall):
+    # the split-explicit barotropic subcycle (H3, retired) now engages on
+    # a walled terrain grid: the physical transport depth H_a = int J dz is
+    # retagged onto the Dirichlet-tagged transport face, so div(H_a ubar)
+    # keys the walled diff row (zero normal transport through the wall).
+    model = hy.Model(
+        grid=_grid(WALLS[wall]), dt=2e-3, csqr=CSQR, advection=False,
+        stratification=hy.ConstantStratification(n2=N2),
+        coriolis=hy.FPlaneCoriolis(f0=0.5),
+        free_surface=hy.SplitExplicitFreeSurface(substeps=16),
+        time_stepper=fr.model.time_steppers.AdamBashforth(2e-3, order=3))
+    rng = np.random.default_rng(0)
+    model.set_fields(**{
+        k: 0.1 * rng.standard_normal(model.state[k].shape)
+        for k in ("u", "v", "b", "ps")})
+    model.advance(10)
+    assert not model.panicked
+    for k in ("u", "v", "b", "ps", "U", "V"):
+        assert bool(np.isfinite(np.asarray(model.state[k].data)).all()), (
+            wall, k)
+
+
+def _split_model(grid, dt):
+    return hy.Model(
+        grid=grid, dt=dt, csqr=CSQR, advection=False,
+        stratification=hy.ConstantStratification(n2=0.0),
+        coriolis=None,
+        free_surface=hy.SplitExplicitFreeSurface(substeps=16),
+        time_stepper=fr.model.time_steppers.AdamBashforth(dt, order=3))
+
+
+def test_split_terrain_channel_matches_the_mirror_image_run():
+    r"""A walled-x terrain split channel equals its doubled periodic mirror.
+
+    The volume-exact terrain subcycle preserves the reflection symmetry of
+    a doubly-long periodic domain exactly: ``ps`` cell scalars
+    even-extended, the wall-normal transport (``u``, ``U``) odd-extended
+    (the two wall faces forced to zero), the wall-mirror-even depth giving
+    an odd slope at the wall. Measured drift: ps 2e-17, u / U exactly 0.0.
+    """
+    nx, ny, nz, steps, dt = 6, 3, 4, 12, 2e-3
+    walled = fr.spatial.Grid((
+        IM(nx, (0.0, 1.0), periodic=False, name="x"),
+        IM(ny, (0.0, 1.0), periodic=True, name="y"),
+        IM(nz, (-1.0, 0.0), periodic=False, name="z")),
+        mapping=_mirror_mapping())
+    doubled = fr.spatial.Grid((
+        IM(2 * nx, (0.0, 2.0), periodic=True, name="x"),
+        IM(ny, (0.0, 1.0), periodic=True, name="y"),
+        IM(nz, (-1.0, 0.0), periodic=False, name="z")),
+        mapping=_mirror_mapping())
+    mw = _split_model(walled, dt)
+    mp = _split_model(doubled, dt)
+
+    ps_cells = np.cos(np.pi * (np.arange(nx) + 0.5) / nx) + 0.3
+    u_faces = 0.2 * np.sin(np.pi * np.arange(1, nx) / nx)  # nx-1 faces
+    wps = np.zeros((nx, ny, 1))
+    wps[:, :, 0] = ps_cells[:, None]
+    wu = np.zeros((nx - 1, ny, nz))
+    wu[:] = u_faces[:, None, None]
+    wU = np.zeros((nx - 1, ny, 1))
+    wU[:, :, 0] = u_faces[:, None]
+    mw.set_fields(ps=wps, u=wu, U=wU)
+
+    ps_ext = np.concatenate([ps_cells, ps_cells[::-1]])
+    u_ext = np.concatenate([u_faces, [0.0], -u_faces[::-1], [0.0]])
+    pps = np.zeros((2 * nx, ny, 1))
+    pps[:, :, 0] = ps_ext[:, None]
+    pu = np.zeros((2 * nx, ny, nz))
+    pu[:] = u_ext[:, None, None]
+    pU = np.zeros((2 * nx, ny, 1))
+    pU[:, :, 0] = u_ext[:, None]
+    mp.set_fields(ps=pps, u=pu, U=pU)
+
+    mw.advance(steps)
+    mp.advance(steps)
+    assert not mw.panicked
+    assert not mp.panicked
+    wps_f = np.asarray(mw.state["ps"].data)
+    pps_f = np.asarray(mp.state["ps"].data)
+    wu_f = np.asarray(mw.state["u"].data)
+    pu_f = np.asarray(mp.state["u"].data)
+    wU_f = np.asarray(mw.state["U"].data)
+    pU_f = np.asarray(mp.state["U"].data)
+    # the run is non-trivial: ps and u move well away from the IC
+    assert np.abs(wps_f - wps).max() > 1e-3
+    assert np.abs(wu_f - wu).max() > 1e-3
+    assert np.abs(wps_f - pps_f[:nx]).max() < 1e-12
+    assert np.abs(wu_f - pu_f[:nx - 1]).max() < 1e-12
+    assert np.abs(wU_f - pU_f[:nx - 1]).max() < 1e-12
+
+
+@pytest.mark.parametrize("wall", ["x", "y", "xy"])
+def test_split_terrain_ps_volume_conserved_on_walls(wall):
+    # the volume-exact terrain subcycle conserves the physical (J-weighted)
+    # ps volume to round-off on a no-flux wall (div(H_a ubar) telescopes to
+    # zero against the walls). Measured drift <= 1e-16; pinned above.
+    model = hy.Model(
+        grid=_grid(WALLS[wall]), dt=2e-3, csqr=CSQR, advection=False,
+        stratification=hy.ConstantStratification(n2=N2),
+        coriolis=hy.FPlaneCoriolis(f0=0.5),
+        free_surface=hy.SplitExplicitFreeSurface(substeps=16),
+        time_stepper=fr.model.time_steppers.AdamBashforth(2e-3, order=3))
+    _random_ic(model, seed=3)
+
+    def volume():
+        return float(jnp.sum(model.state["ps"].integrate().data))
+
+    before = volume()
+    model.advance(20)
+    after = volume()
+    assert not model.panicked
+    assert abs(after - before) < 1e-13 * max(abs(before), 1.0)
 
 
 # ================================================================
