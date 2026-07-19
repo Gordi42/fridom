@@ -198,12 +198,14 @@ Open, none blocking:
   cumsum is 2nd-order away from partial bottom cells only.
   Approved 2026-07-19; plan:
   [`../plans/active/partial_bottom_phyd_plan.md`](../plans/active/partial_bottom_phyd_plan.md).
-- **Fraction-weighted Sadourny momentum** (sw2) and **masked
-  closures** (diffusion/Smagorinsky/VerticalMixing self-reject on
-  immersed grids today). Approved 2026-07-19 (staged: harmonic
-  diffusion + free-slip friction; fraction Sadourny; no-slip /
-  Smagorinsky / VerticalMixing deferred as taught errors); plan:
-  [`../plans/active/immersed_closures_sadourny_plan.md`](../plans/active/immersed_closures_sadourny_plan.md).
+- **Immersed closure deferrals** (the fourth residual itself —
+  fraction Sadourny + harmonic closures — shipped 2026-07-19; entry
+  in [`done.md`](done.md)): no-slip immersed side-drag, Smagorinsky
+  immersed (walled Smagorinsky first), VerticalMixing immersed (the
+  wet-aware variable-dz tridiagonal, its own item when picked up) —
+  all taught errors with recorded designs
+  ([`../plans/active/immersed_closures_sadourny_plan.md`](../plans/active/immersed_closures_sadourny_plan.md)
+  §5).
 
 ## Docs & examples rebuild
 

@@ -990,6 +990,30 @@ Implementation record:
   [`open.md`](open.md). Record +
   per-stage corrections:
   [`../plans/active/immersed_partial_cells_plan.md`](../plans/active/immersed_partial_cells_plan.md).
+- **Fraction-weighted Sadourny momentum + masked closures**
+  (2026-07-19, merges `75382bbe` stage A, `bd035bc2` stage B) — the
+  fourth immersed residual closed. Stage A: the blanket closure
+  reject replaced by per-closure `_supports_immersed`; harmonic
+  diffusion + friction run on immersed grids in the IP-D4 fraction
+  spelling (free-slip cut faces; staircase ≡ walled **exact 0.0**,
+  all-wet ≤ 1 ulp, wet content conserved exactly; friction
+  conserves wet *tangential* momentum — the wall-normal boundary
+  force is physical, CL-D4 clarified at landing). Stage B: the
+  corner mass fluxes and kinetic energy now carry the **same α**
+  the thickness transport carries, restoring the energy-exchange
+  antisymmetry at cut cells — semi-discrete wet-weighted energy
+  contraction **2.4e-3 → 1.5e-16** on genuine partials; wet-count
+  corner thickness (`nn_een_e3f=1` precedent), ζ masked before the
+  PV divide with planetary vorticity outside (the NEMO #773
+  ordering), all masked divides double-`where` sealed; enstrophy
+  documented approximate (EET precedent). Bonus fix: the silent
+  sw2 chart+immersed mask-ignoring path is now a taught error at
+  bind. All-wet ≤ 1-ulp FMA-contraction residual pinned at ≤32 ulp
+  (owner-ratification flag in the record). No-slip drag /
+  Smagorinsky / VerticalMixing immersed deferred with recorded
+  designs (plan §5; stub in [`open.md`](open.md)). Plan +
+  per-stage records:
+  [`../plans/active/immersed_closures_sadourny_plan.md`](../plans/active/immersed_closures_sadourny_plan.md).
 - **Mapped + immersed composition** (2026-07-18/19, merges
   `5bc27631` M0+M1, `48ac9052` M2–M4, `dc164825` M5) — the second
   immersed residual closed: chart/terrain + immersed grids now run
