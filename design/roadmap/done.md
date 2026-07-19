@@ -283,8 +283,11 @@ Implementation record:
   fractions, whose re-derivation under a coarsened stretched column is a
   follow-up. Record:
   [`semicoarsen_multidevice_regression.md`](../research/semicoarsen_multidevice_regression.md)
-  (Residue 3; ruling updated, deviation from the literal host-side hook
-  noted for ratification).
+  (Residue 3; the `ensure_compile_time_eval` realization — a deviation
+  from the record's literal host-side hook — was independently
+  verified and **owner-ratified 2026-07-19**: ece is raise-or-eager,
+  the pre-warm structurally cannot reach dynamic `params`, and the
+  bind-time alternative is unsafe against the device-keyed memo).
 
 - **Multigrid preconditioner follow-ups — owner rulings**
   (2026-07-19, in chat) closing three of the five open items from the

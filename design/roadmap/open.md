@@ -458,13 +458,6 @@ V-cycle kernel swap it called for shipped 2026-07-18 (merge
   and/or add a taught guard until fixed. Characterisation:
   [`../research/semicoarsen_multidevice_regression.md`](../research/semicoarsen_multidevice_regression.md)
   §"Discovered pre-existing limitation".
-- **Pre-warm mechanism ratification (owner, small).** The shipped
-  realization wraps the coarse-chain construction in
-  `jax.ensure_compile_time_eval` inside `MappedPressureSolver.__init__`
-  rather than the record's literal host-side-setup hook — the literal
-  hook has a timing hole (the assembly dry-run abstract-traces the
-  solver build before `grid.freeze()`); deviation documented in the
-  record for ratification.
 - **Composed (mapped+immersed) stretched full-coarsening** — the
   composed sibling deliberately keeps horizontal semicoarsening on a
   stretched base (`_coarsen_vertical` override, byte-identical today):
