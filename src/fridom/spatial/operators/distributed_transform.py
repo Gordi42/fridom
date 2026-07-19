@@ -809,3 +809,350 @@ def resolve_distributed_transform(
     if bare not in memo:
         memo[bare] = build_distributed_transform(transform, grid, bare)
     return memo[bare]
+
+
+# ================================================================
+#  The walled-vertical (mixed Fourier x Fourier x trig) fused region
+# ================================================================
+class WalledVerticalTransform:
+
+    r"""
+    Fused Fourier-transpose + local-trig eigenmode matrix apply.
+
+    Description
+    -----------
+    The multi-component analogue of :meth:`DistributedTransform.apply_matrix`
+    for the **walled-vertical analytic tier** (the ``ComposedTransform``
+    the plain :func:`build_distributed_transform` declines): the two
+    periodic (Fourier) axes ride the transpose pipeline
+    (:func:`transpose_forward` / :func:`transpose_backward`) while the
+    bounded (trig ``z``) axis rides **local** inside the fused region --
+    never sharded across it, the ``ContractPlan`` idiom. Per shard, per
+    component: the fully-complex Fourier transpose (the sharded axis
+    localizes for its own ``fft``, the partner parks the shardedness), a
+    **local** DST/DCT on the bounded axis, and a
+    :meth:`~fridom.spatial.symbols.ModeChart.embed` onto the shared
+    ``0..n`` union mode lattice; the ``D`` components stack, the per-mode
+    ``D x D`` matrix contracts (the union axis a pointwise batch, the
+    component axis local -- no collective), and the mirror path (restrict,
+    inverse trig, inverse Fourier transpose, real part) lands each
+    component back on its own nodal space. Only ``all_to_all``
+    collectives ever run -- never an ``all_gather`` / ``all_reduce``.
+
+    The per-mode matrix is built frame-locally on the internal
+    coefficient frame (:meth:`coeff_of`) through the Wave-A frame hook
+    (``Eigenmodes.operator_matrix`` ->
+    :func:`~fridom.model.eigenstates.assemble_walled_operator_matrix`),
+    on the same union lattice the region embeds onto, so the two compose
+    exactly. Build through :func:`resolve_walled_vertical_transform`, not
+    this plumbing constructor.
+
+    Parameters
+    ----------
+    mesh : jax.sharding.Mesh
+        The decomposition's 1-D device mesh.
+    geom : TransposeGeometry
+        The shared Fourier transpose geometry (the bounded axis is a
+        passive local axis, carried through the two ``all_to_all``
+        moves untouched). Fully complex: with only two periodic axes
+        there is no third local Fourier axis for a Hermitian half, so
+        both ride full spectra and the real domain is recovered by the
+        backward's ``.real``.
+    components : tuple[str, ...]
+        The prognostic component order (the region's stacked column).
+    coeff_of : Mapping[str, SpaceLike]
+        Per-component internal coefficient (bare) frame (the trig
+        ``z`` factor on each component's own lattice); covers every
+        analysis component (the symbol kit reads the auxiliary ``p``
+        frame too), not only the prognostic ones.
+    trig_forward : Mapping[str, Callable]
+        Per-prognostic-component local forward DST/DCT on the bounded
+        axis (a pure array map).
+    trig_backward : Mapping[str, Callable]
+        Per-prognostic-component local inverse DST/DCT on the bounded
+        axis.
+    chart : ModeChart
+        The union-lattice chart aligning the components' trig lattices.
+    """
+
+    def __init__(
+        self,
+        mesh: jax.sharding.Mesh,
+        geom: TransposeGeometry,
+        components: tuple[str, ...],
+        coeff_of: dict,
+        trig_forward: dict,
+        trig_backward: dict,
+        chart: object,
+    ) -> None:
+        """Store the geometry / trig kit and build the shard_map region."""
+        self._mesh: jax.sharding.Mesh = mesh
+        self._geom: TransposeGeometry = geom
+        self._components: tuple[str, ...] = components
+        self._coeff_of: dict = coeff_of
+        self._trig_forward: dict = trig_forward
+        self._trig_backward: dict = trig_backward
+        self._chart: object = chart
+
+        ndim = len(coeff_of[components[0]].shape)
+        nodal_spec: list[str | None] = [None] * ndim
+        nodal_spec[geom.a] = geom.axis_name
+        self._spec = jax.sharding.PartitionSpec(*nodal_spec)
+        mat_spec_list: list[str | None] = [None] * (ndim + 2)
+        mat_spec_list[geom.a] = geom.axis_name
+        mat_spec = jax.sharding.PartitionSpec(*mat_spec_list)
+        comp_specs = dict.fromkeys(components, self._spec)
+        self._region: Callable = jax.jit(jax.shard_map(
+            self._body, mesh=mesh,
+            in_specs=(comp_specs, mat_spec), out_specs=comp_specs))
+
+    # ================================================================
+    #  Properties
+    # ================================================================
+    @property
+    def geometry(self) -> TransposeGeometry:
+        """The shared Fourier transpose geometry."""
+        return self._geom
+
+    def coeff_of(self, name: str) -> SpaceLike:
+        """Return the internal coefficient frame of a component."""
+        return self._coeff_of[name]
+
+    # ================================================================
+    #  The per-shard region (runs under jax.shard_map)
+    # ================================================================
+    def _body(self, comps: dict, matrix: jax.Array) -> dict:
+        """Transpose + trig + union matrix + inverse (one shard)."""
+        geom = self._geom
+        chart = self._chart
+        z = jnp.stack([
+            chart.embed(
+                self._trig_forward[name](transpose_forward(
+                    comps[name], geom)),
+                self._coeff_of[name])
+            for name in self._components], axis=-1)
+        out = jnp.einsum("...jd,...d->...j", matrix, z)
+        result = {}
+        for i, name in enumerate(self._components):
+            column = chart.restrict(out[..., i], self._coeff_of[name])
+            result[name] = transpose_backward(
+                self._trig_backward[name](column), geom)
+        return result
+
+    def _pad_a(self, arr: jax.Array) -> jax.Array:
+        """Zero-pad the matrix's sharded axis to the balanced extent."""
+        geom = self._geom
+        if geom.pad_a_spec == geom.a_spec_n:
+            return arr
+        return _tail_pad(arr, geom.a, geom.pad_a_spec - geom.a_spec_n)
+
+    # ================================================================
+    #  Application
+    # ================================================================
+    def apply_matrix(
+        self,
+        fields: dict,
+        matrix: jax.Array,
+    ) -> dict:
+        r"""
+        Apply a per-mode ``D x D`` union-lattice matrix (no gather).
+
+        Description
+        -----------
+        The walled-vertical analogue of
+        :meth:`DistributedTransform.apply_matrix`: transposes-forward the
+        two periodic axes of every component, runs the local trig on the
+        bounded axis, embeds onto the union lattice, contracts the
+        per-mode matrix, and mirrors back to real nodal fields on the
+        operands' own layouts -- one ``shard_map`` region, no axis
+        gathered.
+
+        Parameters
+        ----------
+        fields : dict
+            The ``D`` nodal operands (ordered), each sharded on the
+            periodic axis ``geom.a``.
+        matrix : jax.Array
+            The per-mode matrix, shape ``(*union, D, D)`` on the internal
+            union lattice (the sharded periodic axis at its coefficient
+            extent), threaded sharded on ``geom.a`` per shard.
+
+        Returns
+        -------
+        dict
+            The contracted real component fields, on the operands'
+            layouts.
+        """
+        geom = self._geom
+        mat = self._pad_a(jnp.asarray(matrix))
+        if geom.padded:
+            decomposition = next(iter(fields.values())).grid.decomposition
+            pieces = {
+                name: decomposition.unpad_even(
+                    fields[name].storage, fields[name].function_space)
+                for name in self._components}
+            out = self._region(pieces, mat)
+            return {
+                name: fields[name].with_storage(decomposition.pad_even(
+                    out[name], fields[name].function_space))
+                for name in self._components}
+        pieces = {name: jnp.asarray(fields[name].data)
+                  for name in self._components}
+        out = self._region(pieces, mat)
+        return {name: fields[name].with_data(out[name])
+                for name in self._components}
+
+    def synthesize(self, coeffs: dict, templates: dict) -> dict:
+        """Synthesis is unreachable for the walled route (frames differ).
+
+        The internal frame here re-designates the single-device
+        Hermitian half axis to the full spectrum (both periodic axes run
+        fully complex), so it never coincides with the single-device
+        coefficient frame the random-phase columns are drawn on -- the
+        random-state consumer keeps its replicated (gathered, still
+        device-count invariant) backward. This method exists only for
+        the
+        :class:`~fridom.model.analytic_distributed.AnalyticDistributedRoute`
+        interface and is never called on a walled route.
+        """
+        raise NotImplementedError(
+            "the walled-vertical distributed route has no fused "
+            "synthesis: its internal frame never coincides with the "
+            "single-device random-phase frame, so random-state "
+            "synthesis stays on the replicated backward")
+
+
+def _trig_kernel(part: object, stage: object, *,
+                 forward: bool) -> Callable:
+    """Bind a per-axis trig transform stage as a pure array map."""
+    if forward:
+        return lambda data: part._forward_kernel(data, stage)  # noqa: SLF001 — planner seam
+    return lambda data: part._backward_kernel(data, stage)  # noqa: SLF001 — planner seam
+
+
+#: per-grid memo of resolved walled-vertical transforms (the
+#: ``_TRANSFORMS`` idiom: a dropped grid auto-evicts its memo)
+_WALLED_TRANSFORMS: weakref.WeakKeyDictionary = weakref.WeakKeyDictionary()
+
+
+def build_walled_vertical_transform(  # noqa: PLR0911 — many decline guards
+    grid: object,
+    analysis_spaces: dict,
+    prognostic: tuple[str, ...],
+) -> WalledVerticalTransform | None:
+    r"""
+    Build the walled-vertical fused region, or None when ineligible.
+
+    Description
+    -----------
+    Serves the mixed ``Fourier x Fourier x trig`` analytic eigenmode
+    components on a grid whose default layout shards one of the two
+    periodic (Fourier) axes: the Fourier part rides the transpose
+    pipeline (built through :func:`build_distributed_transform` on the
+    ``ComposedTransform``'s Fourier part alone -- with two periodic axes
+    and no third local Fourier axis, that geometry is fully complex, the
+    real domain recovered by the backward's ``.real``), the trig part
+    runs local on the bounded axis, and every component's internal frame
+    (:meth:`WalledVerticalTransform.coeff_of`) is the Fourier codomain
+    threaded through the trig codomain.
+
+    Returns None (the caller keeps the replicated / taught-error path) on
+    a single device, a non-1-D mesh, any component that is not a
+    ``ComposedTransform`` of exactly one Fourier part and one trig part,
+    a layout that shards the bounded (trig) axis (its Fourier part's
+    distributed plan then declines), or a layout whose per-component
+    Fourier transpose geometries disagree.
+
+    Parameters
+    ----------
+    grid : object
+        The grid carrying the decomposition.
+    analysis_spaces : dict
+        The per-component (bare) analysis spaces the kit threads (every
+        analysis component, prognostic and auxiliary).
+    prognostic : tuple[str, ...]
+        The prognostic component order (the region's stacked column).
+
+    Returns
+    -------
+    WalledVerticalTransform | None
+        The reusable fused region, or None when ineligible.
+    """
+    from fridom.spatial.operators.mixed import (  # noqa: PLC0415 — deferred: avoid an import cycle at module load
+        ComposedTransform,
+        resolve_transform,
+    )
+    from fridom.spatial.symbols import ModeChart  # noqa: PLC0415 — deferred
+
+    decomposition = grid.decomposition
+    if getattr(decomposition, "device_count", 1) <= 1:
+        return None
+    mesh = decomposition.device_mesh
+    if len(mesh.axis_names) != 1:
+        return None
+    coeff_of: dict = {}
+    trig_forward: dict = {}
+    trig_backward: dict = {}
+    geometries = set()
+    for name, space in analysis_spaces.items():
+        bare = space.bare
+        transform = resolve_transform(grid, bare)
+        if not isinstance(transform, ComposedTransform):
+            return None
+        fourier = [p for p in transform.parts if p._hermitian]  # noqa: SLF001 — family classvar
+        trig = [p for p in transform.parts if not p._hermitian]  # noqa: SLF001 — family classvar
+        if len(fourier) != 1 or len(trig) != 1:
+            return None
+        fourier_part, trig_part = fourier[0], trig[0]
+        fdt = build_distributed_transform(fourier_part, grid, bare)
+        if fdt is None:
+            return None
+        geometries.add(fdt.geometry)
+        cframe = trig_part.codomain(fdt.coeff.bare)
+        coeff_of[name] = cframe
+        if name in prognostic:
+            fwd = trig_part.forward_plan(bare).stages
+            bwd = trig_part.backward_plan(cframe).stages
+            if len(fwd) != 1 or len(bwd) != 1:
+                return None
+            trig_forward[name] = _trig_kernel(
+                trig_part, fwd[0], forward=True)
+            trig_backward[name] = _trig_kernel(
+                trig_part, bwd[0], forward=False)
+    if len(geometries) != 1:
+        return None
+    return WalledVerticalTransform(
+        mesh, next(iter(geometries)), tuple(prognostic),
+        coeff_of, trig_forward, trig_backward, ModeChart(grid))
+
+
+def resolve_walled_vertical_transform(
+    grid: object,
+    analysis_spaces: dict,
+    prognostic: tuple[str, ...],
+) -> WalledVerticalTransform | None:
+    """
+    Resolve (and memoize) the walled-vertical fused region, or None.
+
+    Parameters
+    ----------
+    grid : object
+        The grid carrying the decomposition.
+    analysis_spaces : dict
+        The per-component (bare) analysis spaces.
+    prognostic : tuple[str, ...]
+        The prognostic component order.
+
+    Returns
+    -------
+    WalledVerticalTransform | None
+        The memoized region, or None when ineligible.
+    """
+    key = (tuple(sorted(
+        (name, id(space.bare)) for name, space in analysis_spaces.items())),
+        tuple(prognostic))
+    memo = _WALLED_TRANSFORMS.setdefault(grid, {})
+    if key not in memo:
+        memo[key] = build_walled_vertical_transform(
+            grid, analysis_spaces, prognostic)
+    return memo[key]
