@@ -290,7 +290,7 @@ class ImmersedDomain:
         wet = _derive(space, cells, jnp.minimum)
         stored = store(grid.decomposition, space,
                        wet.astype(dtype_real()))
-        stored = jnp.clip(stored, 0.0, 1.0)
+        stored = _closeable(jnp.clip(stored, 0.0, 1.0))
         if fraction is None and not isinstance(stored, jax.core.Tracer):
             self._cache[key] = stored
         return ScalarField(grid, space, stored,
@@ -349,7 +349,7 @@ class ImmersedDomain:
         wet = _derive(space, cells, combine)
         stored = store(grid.decomposition, space,
                        wet.astype(dtype_real()))
-        result = stored > _WET_THRESHOLD
+        result = _closeable(stored > _WET_THRESHOLD)
         if fraction is None and not isinstance(result, jax.core.Tracer):
             self._cache[key] = result
         return ScalarField(grid, space, result,
@@ -419,8 +419,8 @@ class ImmersedDomain:
                 grid, space, cached,
                 FieldMetadata.create(name="wet_centroid_offset"))
         delta = self._centroid_cells(space, name)
-        stored = store(grid.decomposition, space,
-                       delta.astype(dtype_real()))
+        stored = _closeable(store(grid.decomposition, space,
+                                  delta.astype(dtype_real())))
         if not isinstance(stored, jax.core.Tracer):
             self._cache[key] = stored
         return ScalarField(
@@ -870,6 +870,51 @@ def _validate_min_fraction(min_fraction: float) -> None:
         raise ValueError(
             "min_fraction= is the small-cell floor: a real number in "
             f"[0, 1) (0.0 disables it), got {min_fraction!r}")
+
+
+# ================================================================
+#  Multi-process close-over guard (replicate static geometry)
+# ================================================================
+def _closeable(arr: jax.Array) -> jax.Array:
+    r"""
+    Make a materialized fraction/mask array legal to close over.
+
+    Description
+    -----------
+    The per-space fraction/mask/centroid arrays are static geometry,
+    memoized concrete-only (like ``grid._measures``) and reused by the
+    traced step, which bakes each into the jit as a closed-over
+    constant. Under a real multi-process launch (``srun -n N`` +
+    ``jax.distributed``) ``store`` shards the array across the global
+    device mesh, so it spans non-addressable devices and closing over
+    it is illegal — ``jax`` raises ``Closing over jax.Array that spans
+    non-addressable devices`` at lower time. Replicating such a
+    concrete array gathers a full copy onto every process (fully
+    addressable), which XLA reshards at each use site; the values are
+    unchanged, so the physics is identical. On a single-controller
+    launch (one device, or forced host devices) the array is already
+    fully addressable and this is a no-op, so those runs — including
+    the whole test suite — are byte-for-byte unaffected. A trace-time
+    tracer (a query issued under the step jit, never cached) passes
+    through untouched.
+
+    Parameters
+    ----------
+    arr : jax.Array
+        A materialized fraction/mask/centroid array, or a trace-time
+        tracer.
+
+    Returns
+    -------
+    jax.Array
+        The array, replicated when it was a concrete array spanning
+        non-addressable devices; otherwise ``arr`` unchanged.
+    """
+    if isinstance(arr, jax.core.Tracer) or arr.is_fully_addressable:
+        return arr
+    replicated = jax.sharding.NamedSharding(
+        arr.sharding.mesh, jax.sharding.PartitionSpec())
+    return jax.device_put(arr, replicated)
 
 
 # ================================================================
