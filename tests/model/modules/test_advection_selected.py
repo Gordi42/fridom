@@ -289,24 +289,73 @@ def test_selected_operator_properties_and_interning():
                                              family="fv")
 
 
-def test_selected_operator_delegates_signature_to_left_recon():
-    # the union window's frame is the left reconstruction's, so the
-    # codomain and the halo demand are exactly that kernel's — per
-    # family (nodal Center/Right, and the FV CellAvg twin)
+def _assert_is_pair_max(reach, left, right, factor):
+    """Assert the union reach equals the biased pair's per-side max.
+
+    Cross-checks the wrapper's declared reach against the two interned
+    biased kernels it wraps: the union window's per-side footprint is
+    exactly ``max(left, right)`` (the ``m0_left = m0_right + 1`` identity
+    of :func:`biased_offset`), and genuinely wider on the off-bias side
+    than the left kernel alone -- the whole point of the fix.
+    """
+    lr = left.requirements(factor).reach
+    rr = right.requirements(factor).reach
+    assert reach == (max(lr[0], rr[0]), max(lr[1], rr[1]))
+    assert reach != lr
+
+
+# the one-pass kernel reads the ``order + 1`` cell union window, whose
+# two-sided footprint is the biased PAIR's max -- one cell wider on the
+# off-bias side than the left kernel alone (halo stays ``order // 2 +
+# 1``). Delegating the LEFT half's reach here under-provisioned a
+# cell-centered quantity's vertical reconstruction on a bounded sharded
+# axis (weno_momentum_z_seam.md). Values:
+# footprint_reach(order + 1, biased_offset(order, "left") + shift).
+@pytest.mark.parametrize(
+    ("order", "reach"),
+    [pytest.param(3, (1, 2), id="order3"),
+     pytest.param(5, (2, 3), id="order5")])
+def test_selected_reach_is_union_footprint_primal(order, reach):
+    # primal Center -> face (shift 0): the extra union cell lands on the
+    # off-bias (above) side. Both the nodal and FV (CellAvg) families.
     mx = IntervalMesh(8, (0.0, 1.0), name="x")
-    # the delegated per-bias-left Center -> Right reach is symmetric of
-    # reach order//2 (halo 1 for order 3, 2 for order 5) -- the left
-    # kernel's own window, tighter than the both-bias envelope
-    for order, halo in ((3, 1), (5, 2)):
-        op = _SelectedFaceReconstruction(order)
-        ref = _BiasedFaceReconstruction(order, "left", "weno")
-        assert op.codomain(mx.center) is ref.codomain(mx.center)
-        assert op.codomain(mx.right) is ref.codomain(mx.right)
-        assert op.requirements(mx.center).halo == halo
-        fv = _SelectedFaceReconstruction(order, family="fv")
-        fvref = _FVBiasedReconstruction(order, "left", "weno")
-        assert fv.codomain(mx.cell_avg) is fvref.codomain(mx.cell_avg)
-        assert fv.requirements(mx.cell_avg).halo == halo
+    halo = order // 2 + 1
+    op = _SelectedFaceReconstruction(order)
+    left = _BiasedFaceReconstruction(order, "left", "weno")
+    right = _BiasedFaceReconstruction(order, "right", "weno")
+    assert op.requirements(mx.center).reach == reach
+    assert op.requirements(mx.center).halo == halo
+    _assert_is_pair_max(reach, left, right, mx.center)
+    # the codomain still delegates to the left kernel's frame (unchanged)
+    assert op.codomain(mx.center) is left.codomain(mx.center)
+    assert op.codomain(mx.right) is left.codomain(mx.right)
+    # FV family: CellAvg is always the primal cell frame (shift 0)
+    fv = _SelectedFaceReconstruction(order, family="fv")
+    fvl = _FVBiasedReconstruction(order, "left", "weno")
+    fvr = _FVBiasedReconstruction(order, "right", "weno")
+    assert fv.requirements(mx.cell_avg).reach == reach
+    assert fv.requirements(mx.cell_avg).halo == halo
+    _assert_is_pair_max(reach, fvl, fvr, mx.cell_avg)
+    assert fv.codomain(mx.cell_avg) is fvl.codomain(mx.cell_avg)
+
+
+@pytest.mark.parametrize(
+    ("order", "reach"),
+    [pytest.param(3, (2, 1), id="order3"),
+     pytest.param(5, (3, 2), id="order5")])
+def test_selected_reach_is_union_footprint_dual(order, reach):
+    # dual Right -> Center (shift 1, velocity self-advection): the +1
+    # shift moves the union footprint's extra cell to the below side, so
+    # the direction already declares the symmetric halo -- but the
+    # two-sided reach still differs from the left kernel alone.
+    mx = IntervalMesh(8, (0.0, 1.0), name="x")
+    op = _SelectedFaceReconstruction(order)
+    left = _BiasedFaceReconstruction(order, "left", "weno")
+    right = _BiasedFaceReconstruction(order, "right", "weno")
+    assert op.requirements(mx.right).reach == reach
+    assert op.requirements(mx.right).halo == order // 2 + 1
+    _assert_is_pair_max(reach, left, right, mx.right)
+    assert op.codomain(mx.right) is left.codomain(mx.right)
 
 
 # ================================================================
