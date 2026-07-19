@@ -40,6 +40,7 @@ from fridom.spatial.fields.storage import (
     factor_axes,
     self_conjugate_axis_indices,
     storage_dtype,
+    store,
 )
 from fridom.spatial.scalars import Scalars
 from fridom.spatial.spaces.coefficient import (
@@ -457,6 +458,100 @@ def describe_nonfinite_branch(
 
 
 # ================================================================
+#  Per-mode operator matrix (the distributed analytic route)
+# ================================================================
+def assemble_operator_matrix(
+    em: object,
+    *,
+    branches: tuple[int, ...],
+    components: tuple[str, ...],
+    shape: tuple[int, ...],
+    f: Callable[[np.ndarray], np.ndarray] | None = None,
+) -> jax.Array:
+    r"""
+    Assemble the per-mode ``D x D`` operator matrix on a coeff frame.
+
+    Description
+    -----------
+    The frame-local port of the analytic projector / ``f(L)`` algebra
+    for the fused distributed route (the numeric channel's
+    ``Q diag(w) Q^H M`` analogue): summing the rank-1 branch terms
+
+    .. math::
+
+        M_{jd} = \sum_{s}\sum_{\text{col}} w_s \; q^s_{\text{col},j}\;
+                 \overline{p^s_{\text{col},d}}
+
+    over the branch selection and each branch's internal column family
+    (the vortical Nyquist family of an even periodic-vertical grid),
+    where ``q`` is the eigenvector column and ``p`` its Rayleigh dual
+    (the energy metric folded in). ``f is None`` is the plain projector
+    (``w_s = 1``); otherwise ``w_s = f(omega_s)`` on each column's
+    **represented** modes (the structural-zero guard of
+    :func:`evaluate_frequency_function`, so a singular ``f`` never
+    floors -- the rank-1 vanishes at unrepresented modes anyway, but
+    ``f`` is not evaluated there). ``em`` is a frame clone
+    (``_reframe``) whose ``_columns`` / ``_dual`` / ``omega`` /
+    ``_energy_weights`` read the target coefficient frame; the assembly
+    is host-built (replicated coefficient basis), the same choice the
+    channel contraction makes. On a periodic grid the ``ModeChart`` is
+    identity, so no cross-lattice embed is needed.
+
+    Parameters
+    ----------
+    em : object
+        The frame-clone eigenmodes (its symbols on the target frame).
+    branches : tuple[int, ...]
+        The mode-branch selection.
+    components : tuple[str, ...]
+        The prognostic component order (the matrix's ``j`` / ``d`` axes).
+    shape : tuple[int, ...]
+        The coefficient-frame broadcast shape (all components share it).
+    f : Callable[[np.ndarray], np.ndarray] | None, optional
+        The scalar spectral function ``f(omega)`` (``None`` is the plain
+        projector) (default: None).
+
+    Returns
+    -------
+    jax.Array
+        The per-mode matrix, shape ``(*shape, D, D)``, complex.
+    """
+    dim = len(components)
+    dtype = dtype_comp()
+    weights = em._energy_weights()  # noqa: SLF001 — frame-clone internals
+    mat = jnp.zeros((*shape, dim, dim), dtype=dtype)
+    for b in branches:
+        omega_real: np.ndarray | None = None
+        for col in em._columns(b):  # noqa: SLF001 — frame-clone internals
+            p = em._dual(col, b)  # noqa: SLF001 — frame-clone internals
+            q_stack = jnp.stack(
+                [jnp.broadcast_to(jnp.asarray(col[c].data),
+                                  shape).astype(dtype)
+                 for c in components], axis=-1)
+            p_stack = jnp.stack(
+                [jnp.broadcast_to(jnp.asarray(p[c]), shape).astype(dtype)
+                 for c in components], axis=-1)
+            rank1 = (q_stack[..., :, None]
+                     * jnp.conj(p_stack)[..., None, :])
+            if f is None:
+                mat = mat + rank1
+                continue
+            if omega_real is None:
+                omega_real = np.real(np.asarray(jnp.broadcast_to(
+                    jnp.real(jnp.asarray(em.omega(b).data)), shape)))
+            norm = sum(
+                weights[c] * jnp.abs(jnp.broadcast_to(
+                    jnp.asarray(col[c].data), shape)) ** 2
+                for c in components)
+            w = jnp.asarray(evaluate_frequency_function(
+                f, omega_real, np.asarray(norm) != 0,
+                lambda bad, b=b, om=omega_real:
+                describe_nonfinite_branch(b, om, bad)))
+            mat = mat + w[..., None, None] * rank1
+    return mat
+
+
+# ================================================================
 #  Prescribed-spectra random coefficients (the analytic tier)
 # ================================================================
 def prescribed_spectra_coefficients(
@@ -562,7 +657,73 @@ def prescribed_spectra_coefficients(
             for c in components}
         total = contribution if total is None else {
             c: total[c] + contribution[c] for c in total}
+    return _synthesize_random(grid, kit, columns, components, total)
+
+
+def _synthesize_random(
+    grid: Grid,
+    kit: GridSymbols,
+    columns: tuple[Mapping[str, ScalarField], ...],
+    components: tuple[str, ...],
+    total: dict[str, jax.Array],
+) -> dict[str, ScalarField]:
+    r"""
+    Synthesize the summed random coefficient columns to real fields.
+
+    Description
+    -----------
+    The gains and random phases are built on the **single-device**
+    coefficient frame (``kit.coeff`` -- device-independent, replicated,
+    so the draw is deterministic across device counts by construction:
+    ``grid.random.phase`` keys on the global storage index, which the
+    single-device frame fixes). The synthesis then routes through the
+    fused ``jax.shard_map`` backward half **iff** the transpose engine's
+    internal coefficient frame coincides with that single-device frame
+    (verified per component: a grid whose sharded axis is not the
+    single-device half axis, e.g. a ``y``-sharded 3-D grid); otherwise
+    the plain per-component backward runs on the replicated coefficient
+    field (a gather, still device-count invariant -- the same values on
+    any device count). A single-device grid always takes the plain path.
+    """
+    from fridom.model.analytic_distributed import (  # noqa: PLC0415 — deferred: avoid an import cycle at module load
+        resolve_route,
+    )
+    route = resolve_route(grid, kit._spaces, tuple(components))  # noqa: SLF001 — kit analysis spaces
+    if route is not None and all(
+            route.coeff_of(c) == kit.coeff(c) for c in components):
+        templates = {
+            c: grid.create_field(kit.backward(c).codomain, name=c)
+            for c in components}
+        return route.synthesize(
+            {c: total[c] for c in components}, templates)
+    # the plain backward on the replicated coefficient columns: the
+    # coefficient DATA is device-invariant (replicated), but on a
+    # multi-device grid a field on the default layout carries the
+    # sharded-axis layout **metadata** that would trip the Tier-1
+    # transform guard, so rebuild each column on the bare (unlaid-out)
+    # coefficient space -- a replicated field whose backward runs
+    # unguarded (a gather, still device invariant). On a single device
+    # the columns are already local: keep the original path bitwise.
+    if getattr(grid.decomposition, "device_count", 1) <= 1:
+        return {
+            c: kit.backward(c)(
+                columns[0][c].with_data(total[c])).real
+            for c in total}
+    decomposition = grid.decomposition
     return {
-        c: kit.backward(c)(
-            columns[0][c].with_data(total[c])).real
+        c: kit.backward(c)(bare_coeff_field(
+            grid, decomposition, kit.coeff(c), columns[0][c],
+            total[c])).real
         for c in total}
+
+
+def bare_coeff_field(
+    grid: Grid,
+    decomposition: object,
+    space: SpaceLike,
+    template: ScalarField,
+    data: jax.Array,
+) -> ScalarField:
+    """Wrap ``data`` as a replicated (layout-free) coefficient field."""
+    stored = store(decomposition, space, data)
+    return type(template)(grid, space, stored, template.metadata)

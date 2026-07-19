@@ -26,6 +26,7 @@ from fridom.spatial.operators.distributed_transform import (
     resolve_distributed_transform,
 )
 from fridom.spatial.operators.fourier import Fourier
+from fridom.spatial.operators.transform import axis_slice
 
 
 def periodic_grid(shape, device_ids=None):
@@ -334,3 +335,165 @@ def test_grad_is_finite_and_matches_finite_difference(forced_devices):
     num = (loss(data + eps * pert) - loss(data - eps * pert)) / (2 * eps)
     ana = float(jnp.sum(grad * pert))
     assert abs(num - ana) <= 1e-4 * max(1.0, abs(ana))
+
+
+# ================================================================
+#  The fused per-mode matrix apply / project / synthesize
+# ================================================================
+def matrix_reference(datas, matrix, geom):
+    """Replicated ``backward(matrix @ forward)`` in the internal frame."""
+    half_axis = next(ax for ax, half, _ in geom.local_stages if half)
+    full = tuple(ax for ax in range(datas[0].ndim) if ax != half_axis)
+    fwd = np.stack([frame_reference(d, geom) for d in datas], axis=-1)
+    out = np.einsum("...jd,...d->...j", np.asarray(matrix), fwd)
+    res = []
+    for j in range(out.shape[-1]):
+        c = np.fft.ifftn(out[..., j], axes=full, norm="forward")
+        c = np.fft.irfft(c, n=datas[0].shape[half_axis],
+                         axis=half_axis, norm="forward")
+        res.append(np.real(c))
+    return res
+
+
+@pytest.mark.multi_device
+def test_apply_matrix_matches_replicated_reference(forced_devices):
+    # the fused per-mode D x D matrix apply reproduces the replicated
+    # single-controller reference to floating point and lands real
+    if forced_devices is not None:
+        assert jax.device_count() == forced_devices
+    grid = periodic_grid((12, 8, 12))
+    rng = np.random.default_rng(7)
+    names = ("a", "b", "c")
+    datas = {n: jnp.asarray(rng.standard_normal((12, 8, 12)))
+             for n in names}
+    fields = {n: grid.create_field(data=datas[n]) for n in names}
+    dt = resolve_distributed_transform(
+        Fourier(grid), grid, fields["a"].function_space.bare)
+    shape = dt.coeff.bare.shape
+    dim = len(names)
+    matrix = jnp.asarray(
+        rng.standard_normal((*shape, dim, dim))
+        + 1j * rng.standard_normal((*shape, dim, dim)))
+    out = dt.apply_matrix(fields, matrix)
+    ref = matrix_reference([datas[n] for n in names], matrix, dt.geometry)
+    for i, name in enumerate(names):
+        got = np.asarray(out[name].data)
+        assert not np.iscomplexobj(got)
+        assert np.allclose(got, ref[i], rtol=1e-10, atol=1e-11)
+
+
+@pytest.mark.multi_device
+def test_apply_matrix_hlo_transposes_without_gathers(forced_devices):
+    # the fused matrix region reshards with all-to-all only; the einsum
+    # contracts the local component axis (no reduction over the sharded
+    # mode axis), so no cube gather / reduce is emitted
+    if forced_devices is not None:
+        assert jax.device_count() == forced_devices
+    grid = periodic_grid((12, 8, 12))
+    rng = np.random.default_rng(8)
+    names = ("a", "b", "c")
+    datas = {n: jnp.asarray(rng.standard_normal((12, 8, 12)))
+             for n in names}
+    fields = {n: grid.create_field(data=datas[n]) for n in names}
+    dt = resolve_distributed_transform(
+        Fourier(grid), grid, fields["a"].function_space.bare)
+    shape = dt.coeff.bare.shape
+    matrix = jnp.asarray(np.zeros((*shape, len(names), len(names)),
+                                  dtype=complex))
+    region = dt._matrix_region(names)
+    pieces = {n: jnp.asarray(datas[n]) for n in names}
+    mat = dt._pad_a(matrix)
+    text = region.lower(pieces, mat).compile().as_text()
+    assert "all-to-all" in text
+    assert "all-gather" not in text
+    assert "all-reduce" not in text
+
+
+@pytest.mark.multi_device
+def test_synthesize_round_trips_the_forward(forced_devices):
+    # synthesize(forward(f)) == f: the backward-only half inverts the
+    # forward-only region on the same internal frame
+    if forced_devices is not None:
+        assert jax.device_count() == forced_devices
+    grid = periodic_grid((12, 8, 12))
+    rng = np.random.default_rng(9)
+    data = jnp.asarray(rng.standard_normal((12, 8, 12)))
+    f = grid.create_field(data=data)
+    dt = resolve_distributed_transform(
+        Fourier(grid), grid, f.function_space.bare)
+    geom = dt.geometry
+    coeff = dt.forward_region(jnp.asarray(f.data))
+    if geom.pad_a_spec != geom.a_spec_n:
+        coeff = axis_slice(coeff, geom.a, 0, geom.a_spec_n)
+    out = dt.synthesize({"f": coeff}, {"f": f})
+    assert np.allclose(np.asarray(out["f"].data), np.asarray(data),
+                       rtol=1e-11, atol=1e-12)
+
+
+@pytest.mark.multi_device
+def test_apply_matrix_grad_is_finite(forced_devices):
+    # jax.grad of a quadratic loss through the fused matrix apply is
+    # finite and matches a central finite difference (the matrix is a
+    # constant of the loss variable; the all_to_all VJP stays finite)
+    if forced_devices is not None:
+        assert jax.device_count() == forced_devices
+    grid = periodic_grid((8, 8, 8))
+    rng = np.random.default_rng(10)
+    names = ("a", "b")
+    base = {n: jnp.asarray(rng.standard_normal((8, 8, 8))) for n in names}
+    f0 = grid.create_field(data=base["a"])
+    dt = resolve_distributed_transform(
+        Fourier(grid), grid, f0.function_space.bare)
+    shape = dt.coeff.bare.shape
+    matrix = jnp.asarray(
+        rng.standard_normal((*shape, 2, 2))
+        + 1j * rng.standard_normal((*shape, 2, 2)))
+
+    def loss(arr):
+        fields = {"a": f0.with_data(arr),
+                  "b": f0.with_data(base["b"])}
+        out = dt.apply_matrix(fields, matrix)
+        return sum(jnp.sum(out[n].data ** 2) for n in names)
+
+    grad = jax.grad(loss)(base["a"])
+    assert bool(jnp.all(jnp.isfinite(grad)))
+    assert float(jnp.linalg.norm(grad)) > 0.0
+    eps = 1e-4
+    pert = jnp.asarray(rng.standard_normal((8, 8, 8)))
+    num = (loss(base["a"] + eps * pert)
+           - loss(base["a"] - eps * pert)) / (2 * eps)
+    ana = float(jnp.sum(grad * pert))
+    assert abs(num - ana) <= 1e-4 * max(1.0, abs(ana))
+
+
+@pytest.mark.multi_device
+def test_project_matches_the_forward_contraction(forced_devices):
+    # the forward (analysis + contraction) half: project returns the
+    # modal amplitudes rows @ forward(components) on the internal frame,
+    # matching the replicated reference (a full synthesize inverts them)
+    if forced_devices is not None:
+        assert jax.device_count() == forced_devices
+    grid = periodic_grid((12, 8, 12))
+    rng = np.random.default_rng(11)
+    names = ("a", "b")
+    datas = {n: jnp.asarray(rng.standard_normal((12, 8, 12)))
+             for n in names}
+    fields = {n: grid.create_field(data=datas[n]) for n in names}
+    dt = resolve_distributed_transform(
+        Fourier(grid), grid, fields["a"].function_space.bare)
+    shape = dt.coeff.bare.shape
+    rows = jnp.asarray(
+        rng.standard_normal((*shape, 3, len(names)))
+        + 1j * rng.standard_normal((*shape, 3, len(names))))
+    amp = dt.project(fields, rows)
+    geom = dt.geometry
+    # the amplitudes live on the padded internal frame (a sharded)
+    assert amp.shape[-1] == 3
+    # replicated reference: rows @ stacked forward, sliced back on a
+    fwd = np.stack([frame_reference(datas[n], geom) for n in names],
+                   axis=-1)
+    ref = np.einsum("...jd,...d->...j", np.asarray(rows), fwd)
+    got = np.asarray(amp)
+    if geom.pad_a_spec != geom.a_spec_n:
+        got = np.take(got, range(geom.a_spec_n), axis=geom.a)
+    assert np.allclose(got, ref, rtol=1e-10, atol=1e-11)

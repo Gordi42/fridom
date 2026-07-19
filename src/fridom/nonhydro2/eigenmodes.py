@@ -60,6 +60,7 @@ projection surface for the physical round-trip.
 """
 from __future__ import annotations
 
+import copy
 from collections.abc import Mapping
 from typing import TYPE_CHECKING
 
@@ -68,6 +69,8 @@ import numpy as np
 
 import fridom as fr
 from fridom.model.eigenstates import (
+    assemble_operator_matrix,
+    bare_coeff_field,
     coefficient_index,
     describe_nonfinite_branch,
     envelope_scale,
@@ -330,6 +333,17 @@ class Eigenmodes:
         }
         kit = GridSymbols(grid, spaces)
         self._kit: GridSymbols = kit
+        #: the (parity-tagged) analysis spaces the kit threads -- the
+        #: frame hook rebuilds the symbol kit on the distributed internal
+        #: coefficient frame from these (see :meth:`_reframe`)
+        self._analysis: dict[str, SpaceLike] = spaces
+        #: the prognostic component order the matrix stacks
+        self._components: tuple[str, ...] = ("u", "v", "w", "b")
+        #: True on a frame clone built for the distributed matrix route:
+        #: switches the host ``np.any`` Nyquist gates to unconditional
+        #: jnp masks (:meth:`_extend_nyquist_steady`, :meth:`_columns`) so
+        #: the assembled matrix is shard-safe (build unconditionally)
+        self._distributed_matrix: bool = False
         face = {x: "u", y: "v", z: "w"}
         axes = (x, y, z)
         self.k: Mapping[str, Symbol] = _LazySymbols(
@@ -340,9 +354,13 @@ class Eigenmodes:
             axes, lambda n: kit.interp(n, on="p"))
         self.ab: Mapping[str, Symbol] = _LazySymbols(
             axes, lambda n: kit.interp(n, on=face[n]))
+        # coefficient-space zero fields (shape / dtype / wrap templates);
+        # built directly on the coefficient space -- NOT by forward-
+        # transforming a nodal field, which would hit the Tier-1 taught
+        # error on a grid that shards a transform axis (the analytic
+        # surface must build on a sharded grid for the distributed route)
         self._templates: dict[str, ScalarField] = {
-            c: kit.forward(c)(grid.create_field(spaces[c]))
-            .with_metadata(name=c)
+            c: grid.create_field(kit.coeff(c)).with_metadata(name=c)
             for c in ("u", "v", "w", "b")}
 
     # ================================================================
@@ -574,7 +592,12 @@ class Eigenmodes:
             The column with the steady Nyquist strata merged.
         """
         mask = self._horizontal_nyquist_mask()
-        if not bool(np.any(np.asarray(mask))):
+        # a frame clone for the distributed matrix builds the supplement
+        # unconditionally (the mask is exact-zero off the strata, so the
+        # merge is a no-op on odd grids) -- the host np.any gate would
+        # gather the sharded internal-frame mask
+        if not self._distributed_matrix and not bool(
+                np.any(np.asarray(mask))):
             return column
         x, y, z = self._axes
         supplement = {
@@ -629,7 +652,8 @@ class Eigenmodes:
         x, y, z = self._axes
         mask = (self._horizontal_nyquist_mask()
                 & ((self.ab[z].magnitude ** 2).data == 0))
-        if not bool(np.any(np.asarray(mask))):
+        if not self._distributed_matrix and not bool(
+                np.any(np.asarray(mask))):
             return (main,)
         k, kb, ab = self.k, self.kb, self.ab
         kh2 = k[x].magnitude ** 2 + k[y].magnitude ** 2
@@ -918,8 +942,20 @@ class Eigenmodes:
                         -1j * (float(phase) + shift))
                     data = hermitian_mode_data(
                         q[c].function_space, slots[c], value)
-                out[c] = self._kit.backward(c)(
-                    q[c].with_data(data)).real.retag(
+                # the Hermitian mirror pair is already placed in ``data``
+                # (host-side, before any region); on a multi-device grid
+                # rebuild on the bare coefficient space so the backward
+                # runs unguarded (replicated, device invariant) instead
+                # of tripping the Tier-1 error -- single device keeps the
+                # original path bitwise
+                field = (
+                    bare_coeff_field(
+                        self._grid, self._grid.decomposition,
+                        q[c].function_space.bare, q[c], data)
+                    if getattr(self._grid.decomposition,
+                               "device_count", 1) > 1
+                    else q[c].with_data(data))
+                out[c] = self._kit.backward(c)(field).real.retag(
                     self._physical[c])
             return out
 
@@ -970,6 +1006,97 @@ class Eigenmodes:
                                         norm))
         return {c: weights[c] * q[c].data
                 * chart.restrict(inv, coeff[c]) for c in q}
+
+    # ================================================================
+    #  Frame hook (the distributed matrix route)
+    # ================================================================
+    def _reframe(
+        self, coeff_of: Callable[[str], SpaceLike],
+    ) -> Eigenmodes:
+        r"""
+        Return a shallow clone reading a different coefficient frame.
+
+        Description
+        -----------
+        The frame hook: rebuilds the ``GridSymbols`` kit (and the
+        ``k`` / ``kb`` / ``a`` / ``ab`` diagonals, the coefficient-space
+        templates) on the supplied per-component coefficient frame -- the
+        transpose engine's internal frame (``dt.coeff.bare``, the half
+        axis re-designated) -- while sharing every frame-independent
+        attribute (grid, axes, scalars, chart). The clone carries the
+        ``_distributed_matrix`` flag, so its ``_columns`` /
+        ``_extend_nyquist_steady`` build the Nyquist supplements
+        unconditionally (jnp masks, no host ``np.any``). Used only to
+        assemble the per-mode matrix on the frame; the home instance is
+        untouched (the single-device path stays bit-identical).
+
+        Parameters
+        ----------
+        coeff_of : Callable[[str], SpaceLike]
+            The per-component coefficient frame the symbols read.
+
+        Returns
+        -------
+        Eigenmodes
+            The frame clone.
+        """
+        clone = copy.copy(self)
+        override = {c: coeff_of(c) for c in self._analysis}
+        kit = GridSymbols(self._grid, self._analysis,
+                          coeff_spaces=override)
+        clone._kit = kit  # noqa: SLF001 — populating the clone
+        x, y, z = self._axes
+        face = {x: "u", y: "v", z: "w"}
+        axes = (x, y, z)
+        clone.k = _LazySymbols(axes, lambda n: kit.diff(n, on="p"))
+        clone.kb = _LazySymbols(axes, lambda n: kit.diff(n, on=face[n]))
+        clone.a = _LazySymbols(axes, lambda n: kit.interp(n, on="p"))
+        clone.ab = _LazySymbols(axes, lambda n: kit.interp(n, on=face[n]))
+        clone._templates = {  # noqa: SLF001 — populating the clone
+            c: self._grid.create_field(override[c]).with_metadata(name=c)
+            for c in ("u", "v", "w", "b")}
+        clone._distributed_matrix = True  # noqa: SLF001 — the clone
+        return clone
+
+    def operator_matrix(
+        self,
+        coeff_of: Callable[[str], SpaceLike],
+        *,
+        branches: tuple[int, ...],
+        f: Callable[[np.ndarray], np.ndarray] | None = None,
+    ) -> jax.Array:
+        r"""
+        Assemble the per-mode ``4 x 4`` operator matrix on a coeff frame.
+
+        Description
+        -----------
+        The frame-local operator for the fused distributed route:
+        ``sum_s w_s q^s (p^s)^H`` over ``branches`` (``f is None`` is the
+        projector ``w_s = 1``; otherwise ``w_s = f(omega_s)``), on the
+        internal coefficient frame ``coeff_of`` returns per component
+        (``dt.coeff.bare``). The matrix threads sharded into
+        :meth:`~fridom.spatial.operators.distributed_transform.DistributedTransform.apply_matrix`.
+
+        Parameters
+        ----------
+        coeff_of : Callable[[str], SpaceLike]
+            The per-component internal coefficient frame.
+        branches : tuple[int, ...]
+            The mode-branch selection.
+        f : Callable[[np.ndarray], np.ndarray] | None, optional
+            The scalar spectral function (``None`` is the projector)
+            (default: None).
+
+        Returns
+        -------
+        jax.Array
+            The per-mode matrix, shape ``(*coeff_bare, 4, 4)``.
+        """
+        clone = self._reframe(coeff_of)
+        shape = coeff_of(self._components[-1]).shape
+        return assemble_operator_matrix(
+            clone, branches=branches, components=self._components,
+            shape=shape, f=f)
 
     def _interp_table(self, component: str) -> Symbol:
         r"""Interp magnitude table ``cos(k dz/2)``, endo on ``component``.

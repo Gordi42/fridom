@@ -403,21 +403,39 @@ def test_random_state_is_deterministic_on_one_device():
 
 
 @pytest.mark.multi_device
-def test_random_state_on_a_sharded_grid_is_a_taught_error(
+def test_random_state_on_a_sharded_grid_is_device_invariant(
         forced_devices):
-    # known test debt: the analytic random-state synthesis projects
-    # through the naive (GSPMD) transform, so on a grid that shards a
-    # periodic (transform) axis the Tier-1 guard raises instead of
-    # silently all-gathering (CPU) / crashing the distributed-FFT
-    # lowering (GPU) -- device-count invariance is no longer claimed.
+    # WAS a taught error: the analytic random-state synthesis now builds
+    # its gains and Hermitian random phases on the device-independent
+    # single-device coefficient frame (grid.random keys on the global
+    # storage index, deterministic across device counts) and inverts
+    # them through the fused jax.shard_map backward when the transpose
+    # engine's internal frame coincides with that frame, else a
+    # replicated backward -- both device-count invariant. On a grid that
+    # shards a transform axis the state reproduces the one-device
+    # reference to floating point and lands real and sharded.
     if forced_devices is not None:
         assert jax.device_count() == forced_devices
-    mx = fr.spatial.meshes.IntervalMesh(N, (0.0, 1.0),
-                                     periodic=True, name="x")
-    my = fr.spatial.meshes.IntervalMesh(N, (0.0, 1.0),
-                                     periodic=True, name="y")
-    model = make_model(fr.spatial.Grid((mx, my)), csqr=CSQR, f0=1.5,
-                       advection=False)
-    with pytest.raises(NotImplementedError,
-                       match="cannot run on this grid"):
-        sw.eigenmodes.from_model(model)
+
+    def build(device_ids):
+        mx = fr.spatial.meshes.IntervalMesh(N, (0.0, 1.0),
+                                         periodic=True, name="x")
+        my = fr.spatial.meshes.IntervalMesh(N, (0.0, 1.0),
+                                         periodic=True, name="y")
+        model = make_model(
+            fr.spatial.Grid((mx, my), device_ids=device_ids),
+            csqr=CSQR, f0=1.5, advection=False)
+        return sw.eigenmodes.from_model(model)
+
+    many, one = build(None), build((0,))
+    for family in ("vortical", "wave"):
+        s_many = sw.random_state(many, family, seed=21)
+        s_one = sw.random_state(one, family, seed=21)
+        assert s_many["u"]._data.sharding.spec[0] == "devices"
+        assert all(not np.iscomplexobj(np.asarray(s_many[c].data))
+                   for c in COMPONENTS)
+        err = max(
+            float(np.abs(np.asarray(s_many[c].data)
+                         - np.asarray(s_one[c].data)).max())
+            for c in COMPONENTS)
+        assert err < 1e-11

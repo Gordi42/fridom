@@ -574,3 +574,84 @@ def test_channel_projection_runs_on_a_sharded_periodic_axis(forced_devices):
     assert not any(
         np.iscomplexobj(np.asarray(out_one[c].data)) for c in COMPONENTS)
     assert _absmax(out_many, out_one) < 1e-11
+
+
+# ================================================================
+#  The fully periodic (analytic) sharded application (forced-4)
+# ================================================================
+def _periodic_model(device_ids, n=16):
+    """Fully periodic nonhydro model at the given device layout."""
+    grid = Grid(tuple(
+        IntervalMesh(n, (0.0, 2 * np.pi), periodic=True, name=name)
+        for name in ("x", "y", "z")), device_ids=device_ids)
+    return nh.Model(
+        grid=grid, dt=DT, advection=False,
+        coriolis=nh.FPlaneCoriolis(f0=F0), dsqr=DSQR,
+        stratification=nh.ConstantStratification(n2=N2))
+
+
+@pytest.mark.multi_device
+def test_analytic_projections_run_on_a_sharded_axis(forced_devices):
+    # the fully periodic analytic vortical / wave / divergence
+    # projections route through the fused per-mode 4x4 matrix apply
+    # (spatial.operators.distributed_transform) on a grid that shards a
+    # transform axis, instead of the Tier-1 taught error. The many-device
+    # result matches the replicated one-device reference to floating
+    # point, lands real and stays an idempotent projector.
+    if forced_devices is not None:
+        assert jax.device_count() == forced_devices
+    n = 16
+    rng = np.random.default_rng(4)
+    fields = {c: rng.standard_normal((n, n, n)) for c in COMPONENTS}
+    many = _periodic_model(None, n)
+    many.set_fields(**fields)
+    z_many = nh.State({c: many.state[c] for c in COMPONENTS})
+    assert z_many["u"]._data.sharding.spec[0] == "devices"
+    em_many = nh.eigenmodes.from_model(many)
+    one = _periodic_model((0,), n)
+    one.set_fields(**fields)
+    z_one = nh.State({c: one.state[c] for c in COMPONENTS})
+    em_one = nh.eigenmodes.from_model(one)
+    for factory in (nh.transforms.VorticalProjection,
+                    nh.transforms.WaveProjection,
+                    nh.transforms.DivergenceProjection):
+        out_many = factory(em_many)(z_many)
+        out_one = factory(em_one)(z_one)
+        assert not any(
+            np.iscomplexobj(np.asarray(out_many[c].data))
+            for c in COMPONENTS)
+        assert _absmax(out_many, out_one) < 1e-11
+        assert _absmax(factory(em_many)(out_many), out_many) < 1e-10
+
+
+@pytest.mark.multi_device
+def test_grad_through_analytic_projection_is_finite(forced_devices):
+    # jax.grad of a quadratic loss through the fused projection is finite
+    # and matches a central finite difference (the per-mode matrix is a
+    # constant of the loss variable; the all_to_all VJP stays finite)
+    if forced_devices is not None:
+        assert jax.device_count() == forced_devices
+    n = 8
+    model = _periodic_model(None, n)
+    rng = np.random.default_rng(5)
+    model.set_fields(**{
+        c: rng.standard_normal((n, n, n)) for c in COMPONENTS})
+    base = nh.State({c: model.state[c] for c in COMPONENTS})
+    proj = nh.transforms.VorticalProjection(nh.eigenmodes.from_model(model))
+    u0 = jnp.asarray(base["u"].data)
+
+    def loss(u):
+        z = nh.State({
+            c: (base[c].with_data(u) if c == "u" else base[c])
+            for c in COMPONENTS})
+        out = proj(z)
+        return sum(jnp.sum(out[c].data ** 2) for c in COMPONENTS)
+
+    grad = jax.grad(loss)(u0)
+    assert bool(jnp.all(jnp.isfinite(grad)))
+    assert float(jnp.linalg.norm(grad)) > 0.0
+    eps = 1e-4
+    pert = jnp.asarray(rng.standard_normal((n, n, n)))
+    num = (loss(u0 + eps * pert) - loss(u0 - eps * pert)) / (2 * eps)
+    ana = float(jnp.sum(grad * pert))
+    assert abs(num - ana) <= 1e-4 * max(1.0, abs(ana))
