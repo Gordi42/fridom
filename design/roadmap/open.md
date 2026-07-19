@@ -256,32 +256,6 @@ Records: [`../plans/active/cutover_parity_plan.md`](../plans/active/cutover_pari
 [`../plans/active/cutover_checklist.md`](../plans/active/cutover_checklist.md)
 (the executable swap list).
 
-## Time-dependent fields — remaining follow-ups
-
-The general non-affine time-dependent field mechanism
-(`ProfileFunction` + the `SELF_UPDATE` recompute), the `dsqr` AR-D7
-cross-module wiring, and the `ETDRK4` answer (refuse a time-dependent
-`L`) shipped across three waves — see the done.md entry and
-[`../plans/done/time_dependent_fields.md`](../plans/done/time_dependent_fields.md).
-What remains:
-
-1. **Nonhydro `n2(z, t)` law-valued path (TDF-D7).** The Coriolis
-   `f(y, t)` and shallow-water `csqr(y, t)` law paths shipped;
-   `ConstantStratification` does not yet accept a `ProfileFunction`
-   for a non-affine `n2(z, t)` profile. The energy-metric side is
-   already wired (TDF-D10 — the state-sourced `n2` reciprocal weight),
-   so the follow-up is only the law surface and its module wiring. A
-   named follow-up, deliberately out of the shipped plan's scope.
-2. **A re-diagonalization contract for the analysis tools — declined
-   (TDF-D6).** The eigen/analysis surfaces (`eigenbasis` /
-   `ChannelEigenmodes` / `Eigenmodes.from_model`) stay deliberately
-   time-frozen: they snapshot `f`/`csqr`/`dsqr` at a fixed `at_time`
-   (docstrings now say so). A contract that makes them track a
-   time-dependent `L` is explicitly out of scope — a time-dependent
-   `L` has no fixed eigenbasis, so the discrete eigenanalysis is
-   undefined in that regime. Recorded here only so the decision is not
-   silently lost.
-
 ## Adiabatic-ramping docs — example review (deferred at landing)
 
 ROADMAP 3.8 shipped 2026-07-17

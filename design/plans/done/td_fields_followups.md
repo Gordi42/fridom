@@ -251,7 +251,10 @@ Both items shipped 2026-07-19.
   reciprocal branch is wired and tested but not reachable through a real
   model until an `n2` law lands — `MeridionalStratification` takes only a
   static callable — so when the TDF-D7 `n2(z, t)` follow-up wires that
-  law, its metric side is already free.
+  law, its metric side is already free (reachable since the `n2(y, t)`
+  law landed 2026-07-19: `MeridionalStratification` now accepts a
+  `ProfileFunction`, and the nonhydro reciprocal path is tested end to
+  end in `tests/model/test_energy.py`).
 - **B — `FieldBlend` on the rewrite path** (`refactor/field-blend-self-update`,
   merge `27790fdf`). The blend now rewrites its carried field each
   substage through a SELF_UPDATE stage built by the reusable

@@ -255,7 +255,9 @@ Shallow-water `DynamicalCore` gains the same for `csqr` (both the
 `shallowwater2/modules/core.py:275-310`). The t=0 materialization
 (`default=` builder) samples the law at `t=0.0`, mirroring
 `_f_default`'s `resolve_at(self.f0, 0.0)` spelling. Nonhydro `n2(z,t)`
-is a named follow-up, not in this plan.
+is a named follow-up, not in this plan (the `n2(y, t)` law landed
+2026-07-19 — `MeridionalStratification` now accepts a `ProfileFunction`,
+same SELF_UPDATE mechanism).
 
 **TDF-D8 — Differentiability policy applies.** The recompute is
 step-path code: each consumer wave ships the standard autodiff

@@ -762,9 +762,65 @@ def test_snapshot_true_freezes_the_time_dependent_weight():
         float(live.norm(model.state)), rel=1e-9)
 
 
+def _affine_n2_law(n0=1.0, s=0.5):
+    """N^2(y, t) = n0 + s*t + 0.1*y — a time_dependent ProfileFunction."""
+    return fr.model.ProfileFunction(
+        lambda y, t, n0, s: n0 + s * t + 0.1 * y, params=(n0, s))
+
+
+def tracking_nh_model(*, order=3, dt=5e-3):
+    """Build a walled-y nonhydro channel whose N^2 is a time_dependent law."""
+    grid = Grid((
+        IntervalMesh(8, (0.0, 2 * np.pi), periodic=True, name="x"),
+        IntervalMesh(8, (0.0, 1.0), periodic=False, name="y"),
+        IntervalMesh(8, (0.0, 2 * np.pi), periodic=True, name="z")),
+        device_ids=(0,))
+    return nh.Model(
+        grid=grid, advection=False, dsqr=2.0,
+        coriolis=FPlaneCoriolis(f0=1.0),
+        stratification=nh.MeridionalStratification(n2=_affine_n2_law()),
+        time_stepper=fr.model.time_steppers.AdamBashforth(dt, order=order))
+
+
+def test_state_sourced_nonhydro_reciprocal_tracks_stage_time():
+    # the TDF-D10 nonhydro 1/N^2 reciprocal path, reachable since the
+    # n2(y, t) law landed (2026-07-19): a real law-n2 model yields a
+    # state-sourced 1/n2 b-weight that tracks the state's stage time
+    # against a per-time snapshot=True oracle at two distinct times
+    model = tracking_nh_model()
+    metric = EnergyMetric.from_model(model, allow_field_weights=True)
+    assert isinstance(metric.weights["b"], StateSourcedWeight)
+    assert metric.weights["b"].field == "n2"
+    assert metric.weights["w"] == pytest.approx(2.0)
+
+    rng = np.random.default_rng(3)
+    model.set_fields(**{
+        c: rng.standard_normal(np.asarray(model.state[c].data).shape)
+        for c in ("u", "v", "w", "b")})
+
+    # sample 1: the single tracking metric matches a fresh per-time oracle
+    model.advance(2)
+    oracle1 = EnergyMetric.from_model(
+        model, snapshot=True, allow_field_weights=True)
+    m1 = float(metric.norm(model.state))
+    assert m1 == pytest.approx(float(oracle1.norm(model.state)), rel=1e-12)
+
+    # sample 2 (later): same metric, a fresh per-time oracle
+    model.advance(3)
+    oracle2 = EnergyMetric.from_model(
+        model, snapshot=True, allow_field_weights=True)
+    m2 = float(metric.norm(model.state))
+    assert m2 == pytest.approx(float(oracle2.norm(model.state)), rel=1e-12)
+
+    # the two samples genuinely differ (N^2 and the state both evolved)
+    assert abs(m1 - m2) > 1e-9
+
+
 def test_state_sourced_norm_is_differentiable():
     # the reciprocal weight 1/N^2 is a genuine divide (no seal); grad
-    # through the state-sourced norm must be finite (TDF-D8 spirit)
+    # through the state-sourced norm must be finite (TDF-D8 spirit). The
+    # descriptor is built by hand here; the real law-n2 model path is
+    # covered by test_state_sourced_nonhydro_reciprocal_tracks_stage_time.
     model = varying_nh_model(lambda y: 1.0 + 2.0 * y * y)
     metric = EnergyMetric({
         "u": 1.0, "v": 1.0, "w": 2.0,
