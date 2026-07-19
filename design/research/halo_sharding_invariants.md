@@ -29,7 +29,12 @@ args, same device count from the frozen decomposition); capped-vs-
 capped restores the lemma. Note the cap deliberately also applies to
 explicit `halo=` on verify, consistent with negotiate — ratification
 of that reading and of the cap's *over-reach* (it caps every ghost
-axis, including non-sharded ones) are open owner items.
+axis, including non-sharded ones) were flagged as open owner items.
+*Update 2026-07-19:* both ruled and shipped (dev merge `fc2a3b66`,
+`fix/halo-floor-semantics`): explicit `halo=`/`extra_halo` instead
+joins the uncappable per-application floor on negotiate and verify
+(a wide width on a small axis disqualifies it from sharding), and
+the cap is scoped to sharding-candidate axes only.
 
 ## 2. Cap floor blind to trace-only wide stencils (in dev via `94786a7c`)
 
