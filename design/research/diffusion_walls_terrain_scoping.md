@@ -394,3 +394,68 @@ the F4 walled-FV advection rows had already built the substrate:
 Tests: `tests/model/closures/test_diffusion_fv.py` (self-contained
 shard). Owner calls §6 are unchanged — the shipped `slip=` semantics
 apply to both families.
+
+## 10. Addendum (2026-07-19): the §3.7 real fix shipped
+
+The measure-aware implicit column — the "real fix later" of §3.7 and
+owner-call §6.5's fold-in option — shipped on
+`feat/measure-aware-column`. `VerticalDiffusion` drops the uniform-dz
+dense band for a per-column **conservative face-averaged flux** band
+(`_diffusion_bands` in `model/implicit.py`), and the stretched/terrain
+gate (`reject_unsupported_solve_column`) is deleted.
+
+- **Band construction.** Per cell `c`, `(L q)_c = [ κ_{c+1/2}
+  (q_{c+1}−q_c)/Δz_{c+1/2} − κ_{c−1/2} (q_c−q_{c−1})/Δz_{c−1/2} ] / Δz_c`,
+  so `upper[c] = κ_{c+1/2}/(Δz_{c+1/2}·Δz_c)`, `lower[c]` the mirror,
+  and `diag` is the **negated coupling sum** (a Neumann row telescopes
+  to zero exactly). `Δz_c` is the primal `grid.measure` of the field's
+  own node set (`Center` or FV `CellAvg` — no hardcoded stagger);
+  `Δz_{c±1/2}` are the dual widths of the **wall-including `Outer`**
+  face family, whose two boundary entries are the clipped node-to-wall
+  half-cells — one measure query then serves both the interior couplings
+  and the Dirichlet wall distance (`d_wall`). A Neumann side drops the
+  wall coupling (the historical `−1` corner); a Dirichlet side adds the
+  one-sided wall flux `κ_wall/(d_wall·Δz_corner)` (the `−3` corner). On
+  a uniform column the operator entries are **bitwise** the old band.
+- **Terrain (along-σ, §3.6-B).** When `axis in
+  mapping.column_corrections`, every measure is multiplied by the column
+  Jacobian `grid.metric(space, "d{mapped}_d{base}", params=None)` at the
+  same stagger — the §3.6-B along-σ physical widths (owner call §6.3,
+  ratified 2026-07-19), composing with a stretched σ mesh (measure gives
+  Δσ, metric evaluates at the mapped nodes). Verified: interior rows
+  vanish on a constant-physical-flux profile (~1e-15), the
+  J-weighted column sum is conserved to machine zero, and a flat-chart
+  (constant H) terrain column is **bitwise** the equivalent unmapped
+  uniform column.
+- **Variable κ (the flagged follow-up, folded in).** A `ScalarField` κ
+  on the solved field's own space is arithmetically face-averaged
+  (one-sided corner-cell value at the walls); band assembly is linear in
+  κ, so the κ-summed merge stays exact with field coefficients. A κ on
+  any other space is a taught `ValueError`.
+- **Moving-geometry taught error.** `ImplicitOperator.solve` gets only
+  `(rhs, dt_gamma, ctx)` — no state — so live mapping params are
+  unreachable and the band reads `grid.metric(params=None)` (STATIC
+  geometry). Reading static geometry while a `MovingGeometry` module
+  moves the terrain would be the silent-wrong-physics class this
+  codebase refuses, so `VerticalMixing.bind` raises a taught
+  `NotImplementedError` when the mapping couples the solve axis AND a
+  mapping parameter rides the field table as a state field. Static
+  terrain proceeds; a moving column needs the params-through-solve seam,
+  not built.
+- **Solver note.** The implicit solve uses the reference **Thomas**
+  kernel (`method="scan"`), not `"auto"`: the CN system `(1−dtγL)` is
+  only weakly diagonally dominant in the stiff regime (dominance excess
+  exactly 1, ratio `diag/|off| → 1` as `κΔt/Δz² → ∞`), and the
+  cyclic-reduction kernels (pcr, and cuSPARSE `gtsv2` internally)
+  amplify roundoff there enough to excite the near-`(−1)` highest CN
+  mode and blow up the `κΔt/Δz²∼640` stability tests over a long run.
+  Thomas is unconditionally stable for any DD system, exact, and
+  natively reverse-mode differentiable.
+
+Tests: `tests/model/test_implicit_kernel_measure.py` (the
+prefix-mirrored shard); model-level stretched conservation, terrain
+step, moving-geometry error and terrain propagator autodiff in
+`tests/model/closures/test_vertical_mixing.py`. The immersed
+`VerticalMixing.bind` gate is untouched (§7): the wet-aware immersed
+variable-dz column stays its own item, reusing this measure-aware
+column. This is the N3 implicit twin flagged in §5 — build once.
