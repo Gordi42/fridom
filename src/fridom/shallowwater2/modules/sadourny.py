@@ -208,6 +208,38 @@ channel walls (impermeability structural, :math:`\zeta = 0` claimed
 at the wall by the corner retag, every consumed wall value an exact
 zero). The prescribed ``background=`` flow is **not** generalized to
 chart grids (taught error at bind).
+
+Immersed grids (cut-cell, IP-D10 / SA-D1..D6)
+---------------------------------------------
+On a flat immersed grid the scheme fraction-weights every transport so
+the semi-discrete **energy** stays conserved at the wet-region
+boundary, not only in the fully-wet interior (``_advect_immersed``):
+the corner mass fluxes carry the same open-area fraction
+:math:`\alpha_f` the thickness divergence carries (SA-D1), the kinetic
+energy is the fraction-weighted centre average (SA-D5), the relative
+vorticity is masked before the thickness divide (SA-D3, SA-D6) and the
+corner thickness is the wet-count-weighted average of the wet neighbour
+thicknesses (SA-D2, the NEMO ``nn_een_e3f=1`` precedent). The conserved
+functional is the wet-weighted energy
+:math:`E = \sum \tfrac12 \alpha_u \bar h^x u^2
++ \tfrac12 \alpha_v \bar h^y v^2 + \tfrac12 \theta\, p^2`
+(machine zero, together with the core gravity term — the mass flux is
+split across the pair). Exact **potential enstrophy** conservation
+provably does *not* survive the fractional corner thickness (the corner
+PV no longer telescopes against a single wet-region area weight) and is
+**approximate** at cut cells — the NEMO EET precedent; Ketefian &
+Jacobson (2009) is the recorded escalation if exact boundary enstrophy
+is ever wanted. Mass is exact for any fractions. Every masked divide is
+double-``where`` sealed (SA-D4). When every neighbour is wet the scheme
+reduces to the flat scheme to <= 1 ulp (the momentum fraction ops fold
+mathematically but XLA contracts their stencil FMAs differently from
+the flat branch; the ``p`` tendency is bitwise). This is the **flat**
+immersed path (``chart_coords is None``); a grid carrying **both** a
+chart and an immersed domain is a **taught error** at bind (the chart
+advection path is unmasked — silent wrong physics), sw2 mapped+immersed
+being a recorded follow-up of the mapped+immersed composition plan. The
+prescribed ``background=`` flow is a taught error on immersed grids
+(IP-D8, checked at bind).
 """
 from __future__ import annotations
 
@@ -236,6 +268,7 @@ if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Callable, Mapping
 
     from fridom.spatial.grid import Grid
+    from fridom.spatial.immersed_domain import ImmersedDomain
 
 #: wall-normal background components must vanish at the wall to this
 #: relative tolerance (impermeability)
@@ -246,6 +279,36 @@ _WALL_TOL = 1e-12
 _DIV_TOL = 1e-11
 
 _BG_COMPONENTS = ("u", "v")
+
+
+def _sealed_divide(
+    num: ScalarField, den: ScalarField,
+) -> ScalarField:
+    r"""Return ``num / den`` with the denominator VJP-sealed.
+
+    Description
+    -----------
+    The shared double-``where`` seal of every masked Sadourny divide:
+    replace each **exact-zero** denominator by 1 before the quotient, so
+    a masked ``0/0`` (numerator vanishing where the denominator does)
+    stays finite forward *and* reverse, while every valid cell
+    (``den != 0``) divides by the true value and is bitwise unchanged.
+    Without the seal the quotient VJP (:math:`-\mathrm{num}/
+    \mathrm{den}^2` with ``den == 0``) turns the zero cotangent of a
+    stripped/dry cell into ``0 * inf = NaN`` and poisons every gradient
+    with a data path (the AGENTS differentiability policy). The kernel
+    of the PV quotient (:func:`_potential_vorticity`), the wet-count
+    corner thickness (:func:`_wet_corner_thickness`), the
+    fraction-weighted kinetic energy (:func:`_wet_kinetic_energy`) and
+    the chart metric divide (:func:`_sealed_metric_divide`). It runs on
+    real storage only — these tendencies are never halo-traced with
+    storage-less operands — so no storage-less escape hatch is needed.
+    """
+    guarded = jnp.where(den.storage == 0.0, 1.0, den.storage)
+    safe = ScalarField(
+        den.grid, den.function_space, guarded,
+        den.metadata, halo_valid=den.halo_valid)
+    return num / safe
 
 
 def _potential_vorticity(
@@ -263,17 +326,13 @@ def _potential_vorticity(
     output), but **reverse-mode autodiff does not**: the quotient VJP
     (:math:`-\zeta/h^2` with :math:`h = 0`) turns the zero cotangent of
     a sealed cell into ``0 * inf = NaN`` and poisons every gradient with
-    a data path. Replacing the exact-zero denominators by 1 keeps ``q``
-    finite there; valid cells (``h != 0``) divide by the true thickness
-    and are bitwise unchanged (same ghost-validity claim), forward and
-    reverse. The guard is a no-op on the interior of any gravity grid
-    (``h`` is bounded below by :math:`c^2 > 0` there).
+    a data path. Sealing the denominator (:func:`_sealed_divide`) keeps
+    ``q`` finite there; valid cells (``h != 0``) divide by the true
+    thickness and are bitwise unchanged (same ghost-validity claim),
+    forward and reverse. The guard is a no-op on the interior of any
+    gravity grid (``h`` is bounded below by :math:`c^2 > 0` there).
     """
-    guarded = jnp.where(thickness.storage == 0.0, 1.0, thickness.storage)
-    safe = ScalarField(
-        thickness.grid, thickness.function_space, guarded,
-        thickness.metadata, halo_valid=thickness.halo_valid)
-    return zeta / safe
+    return _sealed_divide(zeta, thickness)
 
 
 def _sealed_metric_divide(
@@ -293,21 +352,85 @@ def _sealed_metric_divide(
     (:math:`-\mathrm{num}/\mathrm{den}^2` with ``den == 0``) turns the
     zero cotangent of a sealed cell into ``0 * inf = NaN`` and poisons
     every gradient with a data path through the Sadourny kinetic energy
-    — the same masked singularity ``_potential_vorticity`` cures for the
-    PV divide, and ``coriolis._safe_metric_divide`` for the rotation
-    weights. Replacing the exact-zero denominators by 1 keeps the ratio
-    finite there; valid cells (``den != 0``) divide by the true metric
-    and are bitwise unchanged, forward and reverse. Like
-    ``_potential_vorticity`` (its sibling in this method), this runs only
-    on real storage — the chart advection tendency is never halo-traced
-    with storage-less operands — so no storage-less escape hatch is
-    needed.
+    — the same masked singularity :func:`_potential_vorticity` cures for
+    the PV divide, and ``coriolis._safe_metric_divide`` for the rotation
+    weights. Sealing the denominator (:func:`_sealed_divide`) keeps the
+    ratio finite there; valid cells (``den != 0``) divide by the true
+    metric and are bitwise unchanged, forward and reverse.
     """
-    guarded = jnp.where(den.storage == 0.0, 1.0, den.storage)
-    safe = ScalarField(
-        den.grid, den.function_space, guarded,
-        den.metadata, halo_valid=den.halo_valid)
-    return num / safe
+    return _sealed_divide(num, den)
+
+
+def _wet_corner_thickness(
+    immersed: ImmersedDomain,
+    thickness: ScalarField,
+    target: ScalarField,
+) -> ScalarField:
+    r"""Wet-count-weighted corner thickness (SA-D2), sealed (SA-D4).
+
+    Description
+    -----------
+    The corner full thickness :math:`h_\mathrm{corner}` in the potential
+    vorticity :math:`q = \zeta / h_\mathrm{corner}` is the average of the
+    **wet** neighbour cell thicknesses, weighted by the wet count (the
+    NEMO ``nn_een_e3f = 1`` precedent):
+
+    .. math::
+        h_\mathrm{corner} =
+            \frac{\overline{m\,h}^{\,\mathrm{corner}}}
+                 {\overline{m}^{\,\mathrm{corner}}} ,
+
+    with :math:`m` the boolean cell wet mask and the bars the plain
+    corner interpolation ``.to(target)``. A dry cell (mask ``0``) drops
+    out of both the numerator and the denominator, so a partly-dry
+    corner is never diluted by the dry cells' background :math:`c^2` (a
+    plain 4-average would be). When every neighbour is wet the mask is
+    ``1`` and the ratio collapses to the plain corner interpolation
+    ``thickness.to(target)`` **bitwise** (division by an exact ``1``).
+    The ratio is double-``where`` sealed (:func:`_sealed_divide`): a
+    fully-dry corner has a zero wet count and a zero numerator, a masked
+    ``0/0`` the seal keeps finite forward and reverse.
+    """
+    mask = immersed.mask(thickness.function_space)
+    m_float = mask.with_data(mask.data.astype(thickness.data.dtype))
+    num = (thickness * m_float).to(target)
+    den = m_float.to(target)
+    return _sealed_divide(num, den)
+
+
+def _wet_kinetic_energy(
+    immersed: ImmersedDomain,
+    u: ScalarField,
+    v: ScalarField,
+    p: ScalarField,
+) -> ScalarField:
+    r"""Fraction-weighted centre kinetic energy (SA-D5), sealed (SA-D4).
+
+    Description
+    -----------
+    The centre kinetic energy is the open-area-weighted average of the
+    velocity quadratics divided by the wet plan-area fraction:
+
+    .. math::
+        E_\mathrm{kin} =
+            \frac{\tfrac12\left(\overline{\alpha_u\,u^2}
+            + \overline{\alpha_v\,v^2}\right)}{\theta_c} ,
+
+    the weighting that makes the kinetic-energy-gradient / mass-flux
+    pair telescope under the wet-weighted energy, so the semi-discrete
+    energy production is machine zero (SA-D5). When every face is open
+    (:math:`\alpha = 1`, :math:`\theta = 1`) it collapses to the plain
+    centre kinetic energy ``0.5 (mean(u^2) + mean(v^2))`` **bitwise**
+    (each weight an exact ``1``). The :math:`/\theta` divide is
+    double-``where`` sealed (:func:`_sealed_divide`): a dry cell
+    (:math:`\theta = 0`) has a zero numerator (all its faces are
+    closed), a masked ``0/0`` the seal keeps finite forward and reverse.
+    """
+    alpha_u = immersed.fraction(u.function_space)
+    alpha_v = immersed.fraction(v.function_space)
+    theta = immersed.fraction(p.function_space)
+    num = 0.5 * ((alpha_u * (u * u)).to(p) + (alpha_v * (v * v)).to(p))
+    return _sealed_divide(num, theta)
 
 
 class SadournyAdvection(fr.model.Module):
@@ -516,7 +639,9 @@ class SadournyAdvection(fr.model.Module):
         NotImplementedError
             If a background flow is prescribed on a chart grid (the
             background term's flux stencils are not generalized to
-            the metric path).
+            the metric path), or if the grid carries **both** an
+            embedding chart and an immersed domain (the chart advection
+            path is unmasked — silent wrong physics).
         """
         grid = table.grid
         if (self._background is not None
@@ -530,6 +655,20 @@ class SadournyAdvection(fr.model.Module):
                 "transport is designed-for). Run the immersed model "
                 "without a prescribed background flow.")
         chart = grid.chart_coords
+        if (chart is not None
+                and getattr(grid, "immersed", None) is not None):
+            raise NotImplementedError(
+                "SadournyAdvection does not support a grid carrying "
+                "BOTH an embedding chart and an immersed (cut-cell) "
+                "domain: the metric-aware chart advection path "
+                "(_advect_chart) is unmasked, so it would silently "
+                "ignore the immersed mask and advect across the wet-"
+                "region boundary (silent wrong physics — the fraction-"
+                "weighted _advect_immersed path is flat-only). sw2 "
+                "mapped+immersed is a recorded follow-up of the "
+                "mapped+immersed composition plan; until it lands, "
+                "drop the immersed domain or run on an unmapped (flat) "
+                "grid.")
         if chart is not None:
             expected = tuple(
                 name for name in grid.names if name in set(chart))
@@ -727,36 +866,62 @@ class SadournyAdvection(fr.model.Module):
         p_full: ScalarField,
         rossby: object,
     ) -> dict:
-        r"""Return the Sadourny tendency under immersed boolean masks.
+        r"""Return the fraction-weighted Sadourny tendency (immersed).
 
         Description
         -----------
-        The cut-cell path (IP-D10) on a flat immersed grid. **Mass** is
-        conserved exactly: the thickness transport is fraction-weighted
-        exactly like the linear core continuity — every face flux
-        carries the open-area fraction :math:`\alpha_f` and the
-        divergence divides by the wet plan-area :math:`\theta_c`
-        (guarded), so ``sum_c theta_c V_c p_c`` is machine-zero
-        conserved for any fractions (the flux differences telescope, an
-        :math:`\alpha = 0` face carrying none).
+        The cut-cell path (IP-D10 / SA-D1..D6) on a flat immersed grid.
+        **Mass** is conserved exactly: the thickness transport is
+        fraction-weighted exactly like the linear core continuity —
+        every face flux carries the open-area fraction
+        :math:`\alpha_f` and the divergence divides by the wet
+        plan-area :math:`\theta_c` (guarded), so ``sum_c theta_c V_c
+        p_c`` is machine-zero conserved for any fractions (the flux
+        differences telescope, an :math:`\alpha = 0` face carrying
+        none).
 
-        **Momentum** runs under **boolean masks** (genuine-fraction
-        Sadourny weighting is designed-for): the corner potential
-        vorticity is zeroed wherever its corner touches a dry cell
-        (``q <- q * mask(corner)``) — no vorticity is computed from dry
-        velocities, the immersed free-slip closure (the wall analog of
-        the ``zeta = 0`` corner retag) — and the momentum tendency is
-        masked onto its own face (``du <- du * mask(u)``) so neither the
-        vorticity flux nor the kinetic-energy gradient drives a closed
-        face.
+        **Momentum** carries the **same open-area weights** the
+        thickness transport does, which restores the discrete
+        **energy** conservation at the wet-region boundary (SA-D1,
+        SA-D5), not only in the fully-wet interior:
 
-        **Conservation scope.** Away from the mask (a fully wet region:
-        :math:`\theta = 1`, every mask ``True``) the scheme reduces to
-        the flat scheme term for term, so the discrete energy/enstrophy
-        telescoping is **interior-exact**. At the wet-region boundary
-        the boolean-masked corner fluxes make energy/enstrophy
-        conservation **approximate** (mass stays exact) — the price of
-        the boolean simplification, documented here per IP-D10.
+        - the corner mass fluxes :math:`f_u`, :math:`f_v` are the
+          :math:`\alpha`-weighted mass fluxes interpolated to the
+          corner (:func:`weight_flux`), the *same* fluxes entering the
+          thickness divergence — so the vorticity-flux exchange
+          (:math:`+\overline{f_v q}` in ``u`` against
+          :math:`-\overline{f_u q}` in ``v``) is skew-antisymmetric
+          under the wet-weighted energy (SA-D1, the heart of the
+          stage); the flat scheme's unweighted fluxes broke it;
+        - the kinetic energy is the fraction-weighted centre average
+          (:func:`_wet_kinetic_energy`), the placement that makes the
+          kinetic-energy-gradient / mass-flux pair telescope (SA-D5);
+        - the relative vorticity :math:`\zeta` is masked **before** the
+          thickness divide (immersed free-slip: a corner touching a dry
+          cell carries no vorticity, SA-D3, SA-D6) and the corner
+          thickness is the wet-count-weighted average of the wet
+          neighbour thicknesses (:func:`_wet_corner_thickness`, SA-D2),
+          never a plain 4-average diluted by the dry cells'
+          background :math:`c^2`;
+        - the momentum tendency is masked onto its own face
+          (``du <- du * mask(u)``) so neither the vorticity flux nor
+          the kinetic-energy gradient drives a closed face.
+
+        Every masked divide is double-``where`` sealed (SA-D4,
+        :func:`_sealed_divide`) so reverse-mode autodiff stays finite.
+
+        **Conservation scope.** The semi-discrete wet-weighted energy
+        :math:`E = \sum \tfrac12 \alpha_u \bar h^x u^2 + \tfrac12
+        \alpha_v \bar h^y v^2 + \tfrac12 \theta\, p^2` is conserved to
+        machine zero on **genuine partial cells**, together with the
+        core's gravity term (the mass flux is split across the pair).
+        Exact **enstrophy** conservation provably does *not* survive
+        the fractional corner thickness (the corner PV no longer
+        telescopes against a single wet-region area weight) and is
+        **approximate** here — the NEMO EET precedent (SA-D5). When
+        every neighbour is wet (:math:`\alpha = 1`, :math:`\theta = 1`)
+        the scheme reduces to the flat scheme **bitwise** (every weight
+        an exact ``1``, every seal a division by ``1``).
         """
         immersed = u.grid.immersed
         zonal, meridional = self._coords
@@ -769,25 +934,31 @@ class SadournyAdvection(fr.model.Module):
         div = -(flux_u.diff(zonal) + flux_v.diff(meridional))
         dp = rossby * scale_divergence(immersed, div)
 
-        # --- momentum: boolean-masked vorticity flux + KE gradient ---
+        # --- momentum: fraction-weighted vorticity flux + KE gradient -
         corner = u.function_space.bare.replace(**{
             meridional: v.function_space.bare.factor(meridional)})
         zeta = (v.diff(zonal).retag(corner)
                 - u.diff(meridional).retag(corner))
-        # zero the corner PV where it touches a dry cell (immersed
-        # free-slip: no vorticity from dry velocities). The division is
-        # routed through the guarded helper *before* the mask: masking
-        # after the bare quotient leaves the immersed interior dry cells
-        # (p_full == 0 there, not only the never-valid padding) as live
-        # 0/0 candidates whose reverse-mode VJP (-zeta/h^2, h=0) is NaN
-        # — the same masked-singularity that poisons the flat/chart PV
-        # divisions (see _potential_vorticity). Guarding first keeps the
-        # forward mask bitwise identical while the gradient stays finite.
-        q = mask_field(
-            immersed, _potential_vorticity(zeta, p_full.to(zeta)))
-        fu = (u * p_full.to(u)).to(zeta)           # mass flux, NE
-        fv = (v * p_full.to(v)).to(zeta)
-        ekin = 0.5 * ((u * u).to(p) + (v * v).to(p))  # centre
+        # SA-D3/SA-D6: mask the RELATIVE vorticity before the thickness
+        # divide (immersed free-slip: a corner touching a dry cell
+        # carries no vorticity). Masking the numerator — not the finished
+        # PV — keeps the guarded divide's reverse mode finite (SA-D4) and
+        # leaves any future planetary vorticity outside the mask (the
+        # load-bearing NEMO #773 ordering). SA-D2: the corner thickness
+        # is the wet-count-weighted average of the WET neighbour
+        # thicknesses, sealed (SA-D4).
+        zeta = mask_field(immersed, zeta)
+        h_corner = _wet_corner_thickness(immersed, p_full, zeta)
+        q = _potential_vorticity(zeta, h_corner)
+        # SA-D1: the corner mass fluxes carry the SAME open-area alpha
+        # the thickness transport carries, so the vorticity-flux exchange
+        # stays skew-antisymmetric under the wet-weighted energy (the
+        # flat scheme's unweighted fu/fv broke it at cut cells).
+        fu = weight_flux(immersed, u * p_full.to(u)).to(zeta)
+        fv = weight_flux(immersed, v * p_full.to(v)).to(zeta)
+        # SA-D5: fraction-weighted kinetic energy so the KE-gradient /
+        # mass-flux pair telescopes (semi-discrete energy machine zero).
+        ekin = _wet_kinetic_energy(immersed, u, v, p)
         du = rossby * ((fv * q).to(u) - ekin.diff(zonal).retag(u))
         dv = rossby * (-(fu * q).to(v)
                        - ekin.diff(meridional).retag(v))
