@@ -216,6 +216,7 @@ from fridom.spatial.operators.multigrid import (
 )
 from fridom.spatial.operators.multigrid_hierarchy import (
     coarsen_levels,
+    prewarm_coarse_grids,
 )
 from fridom.spatial.operators.multigrid_hierarchy import (
     validate_agglomerate as _validate_agglomerate,
@@ -447,18 +448,22 @@ class MappedPressureSolver:
         10-iteration convergence at 128/256/512^3 on the GB-2 steep
         mapped protocol and -6..-11% per CG iteration (the saving grows
         with n, since semicoarsening's coarse levels keep the full n_z),
-        with the vertical-line smoother kept at every level. The
-        coarsening degrades gracefully: a vertical whose mesh cannot
-        coarsen — a ``ChebyshevMesh`` (``coarsenable=False``), an
-        indivisible ``n_z`` (below the ``n % 2 == 0 and n // 2 >= 4``
-        floor), or a **stretched** base column (a ``MappedIntervalMesh``
-        vertical, :attr:`_stretched_base`, whose host-validated coarse
-        construction cannot run under the solve trace) — automatically
-        stays full while the horizontals continue, so no configuration
-        errors on the knob. ``False`` restores pure
-        horizontal semicoarsening (the mapped column kept at full
-        resolution at every level). Ignored for the spectral
-        preconditioner (default: True).
+        with the vertical-line smoother kept at every level. A
+        **stretched** base column (a ``MappedIntervalMesh`` vertical,
+        :attr:`_stretched_base`, N2/N3) takes the full-coarsening
+        default too: its host-validated coarse construction cannot run
+        under the solve trace, so :meth:`_prewarm_hierarchy` warms the
+        coarse-grid memo at construction (via
+        :func:`~fridom.spatial.operators.multigrid_hierarchy.prewarm_coarse_grids`
+        under ``ensure_compile_time_eval``) and the trace-time rebuild
+        is a memo hit. The coarsening still degrades gracefully where the
+        vertical genuinely cannot coarsen — a ``ChebyshevMesh``
+        (``coarsenable=False``) or an indivisible ``n_z`` (below the
+        ``n % 2 == 0 and n // 2 >= 4`` floor) — staying full while the
+        horizontals continue, so no configuration errors on the knob.
+        ``False`` restores pure horizontal semicoarsening (the mapped
+        column kept at full resolution at every level). Ignored for the
+        spectral preconditioner (default: True).
     multigrid_agglomerate : int | None, optional
         The coarse-grid agglomeration threshold ``tau`` in planes
         (MG-D10), forwarded to
@@ -586,6 +591,34 @@ class MappedPressureSolver:
                     "periodic coupled axes only (stage C3)")
         self._resolve_flux_rows(grid.dispatch)
         self._resolve_corner_rows(grid.dispatch)
+        self._prewarm_hierarchy()
+
+    def _prewarm_hierarchy(self) -> None:
+        """
+        Warm the coarse-grid memo for a stretched full-coarsening chain.
+
+        Description
+        -----------
+        A stretched base column (:attr:`_stretched_base`) coarsens its
+        vertical through the host-validated ``MappedIntervalMesh`` ctor,
+        which cannot run under the solve's dynamic trace; building the
+        coarse chain here (via :func:`prewarm_coarse_grids`, which
+        escapes the trace with ``ensure_compile_time_eval``) memoizes
+        those coarse grids on :attr:`_grid` so the trace-time
+        :meth:`_build_vcycle` rebuild is a memo hit. A no-op unless the
+        multigrid preconditioner, a stretched base, and the
+        full-coarsening flag all apply — the spectral / none routes and
+        every non-stretched column keep the untouched lazy path.
+        """
+        if (self._preconditioner_kind != "multigrid"
+                or not self._stretched_base
+                or not self._coarsen_vertical):
+            return
+        prewarm_coarse_grids(
+            self._grid, vertical=self._base,
+            coarsen_vertical=self._coarsen_vertical,
+            max_levels=self._multigrid_levels,
+            agglomerate=self._multigrid_agglomerate)
 
     def _resolve_flux_rows(self, registry: object) -> None:
         """
@@ -733,6 +766,23 @@ class MappedPressureSolver:
     def tolerance(self) -> float | None:
         """The optional PCG convergence break (None = fixed count)."""
         return self._tolerance
+
+    @property
+    def _coarsen_vertical(self) -> bool:
+        """
+        Whether :meth:`_build_vcycle` coarsens the mapped column too.
+
+        Description
+        -----------
+        The GM-D9 flip: the mapped column takes the full-coarsening
+        default whenever the knob is set — including a **stretched**
+        base (:meth:`_prewarm_hierarchy` warms the memo so its coarse
+        mesh never re-derives under the trace). :meth:`_prewarm_hierarchy`
+        reads this same decision so the memo it warms is exactly the
+        chain the build walks. The composed solver overrides it (a
+        stretched composed base keeps horizontal semicoarsening).
+        """
+        return self._multigrid_coarsen_vertical
 
     # ================================================================
     #  Metric coefficients (derived once per solve, never cached)
@@ -1511,19 +1561,20 @@ class MappedPressureSolver:
                 "parameter fields through params= (moving geometry), "
                 "which the coarse re-derivation cannot re-bind — use "
                 "preconditioner='spectral' with a moving geometry")
-        # GM-D9 full coarsening, with the graceful semicoarsening
-        # fallback for a *stretched* base column: a MappedIntervalMesh
-        # vertical (:attr:`_stretched_base`, N2/N3) coarsens through
-        # ``mesh.coarsened`` -> ``MappedIntervalMesh.__init__``, whose
-        # host-side ``_validate_mapping`` samples the map with ``numpy``
-        # — which cannot run inside the solve's jit trace (the ``jnp``
-        # map stages into the trace as a tracer, not a host array). The
-        # spike measured full coarsening on the *uniform* base terrain
-        # column only (``zp = sigma H(x, y)``, sigma uniform); the
-        # stretched base is the rarer N2/N3 case and stays semicoarsened
-        # automatically, like a Chebyshev vertical or an indivisible n_z.
-        coarsen_vertical = (self._multigrid_coarsen_vertical
-                            and not self._stretched_base)
+        # GM-D9 full coarsening — the stretched *base* column takes it
+        # too. A MappedIntervalMesh vertical (:attr:`_stretched_base`,
+        # N2/N3) coarsens through ``mesh.coarsened`` ->
+        # ``MappedIntervalMesh.__init__``, whose host-side
+        # ``_validate_mapping`` samples the map with ``numpy`` and so
+        # cannot run under this dynamic trace directly. It does not have
+        # to: :meth:`__init__` pre-warmed ``Grid.coarsened``'s memo for
+        # this exact chain (:func:`prewarm_coarse_grids`, under
+        # ``ensure_compile_time_eval``), so every ``grid.coarsened`` call
+        # below is a memo hit and the coarse-mesh ctor never re-runs
+        # under the trace. The Chebyshev (``coarsenable=False``) and
+        # indivisible-``n_z`` fallbacks still degrade to semicoarsening
+        # inside ``coarsen_levels`` on their own.
+        coarsen_vertical = self._coarsen_vertical
         chain = coarsen_levels(
             self._grid, self._space, vertical=self._base,
             coarsen_vertical=coarsen_vertical,

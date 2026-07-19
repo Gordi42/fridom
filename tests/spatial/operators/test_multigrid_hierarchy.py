@@ -12,6 +12,7 @@ model-specific FV re-discretization is exercised on the nonhydro2 side
 from itertools import pairwise
 
 import jax
+import jax.numpy as jnp
 import numpy as np
 import pytest
 
@@ -25,6 +26,7 @@ from fridom.spatial.operators.multigrid_hierarchy import (
     _coarsenable_factors,
     _should_agglomerate,
     coarsen_levels,
+    prewarm_coarse_grids,
     validate_agglomerate,
 )
 from fridom.spatial.operators.transfer import GridTransfer
@@ -207,6 +209,112 @@ def test_vertical_none_designates_no_vertical():
     grid, space = nodal_grid(16, 16, 16)
     levels = coarsen_levels(grid, space, vertical=None)
     assert shapes(levels) == [(16, 16, 16), (8, 8, 8), (4, 4, 4)]
+
+
+# ================================================================
+#  Eager memo pre-warm: prewarm_coarse_grids (stretched full-coarsen)
+# ================================================================
+def jnp_mapped_z_grid(nx, ny, nz):
+    """Grid whose stretched vertical map uses jnp ops (needs pre-warm).
+
+    A pure-numpy map (e.g. ``s ** 1.5``) coarsens under a trace fine, so
+    the pre-warm is only load-bearing for a map built from ``jnp`` ops —
+    the real ``stretch`` maps are; ``_validate_mapping`` then stages the
+    map as a tracer and ``numpy.asarray`` raises on a cold memo.
+    """
+    sigma = MappedIntervalMesh(
+        nz, (0.0, 1.0),
+        lambda s: s + 0.1 * jnp.sin(2.0 * np.pi * s) / (2.0 * np.pi),
+        periodic=False, name="z")
+    meshes = (
+        IntervalMesh(nx, (0.0, TWO_PI), periodic=True, name="x"),
+        IntervalMesh(ny, (0.0, TWO_PI), periodic=True, name="y"),
+        sigma)
+    grid = Grid(meshes)
+    space = (grid.factors[0].center * grid.factors[1].center
+             * grid.factors[2].center)
+    return grid, space
+
+
+def test_jnp_mapped_vertical_coarsening_needs_a_warm_memo_under_trace():
+    # the bare fact the pre-warm exists to fix: coarsening a jnp-mapped
+    # (MappedIntervalMesh) vertical runs the host-validated coarse ctor,
+    # which cannot run under a dynamic trace on a cold memo
+    grid, space = jnp_mapped_z_grid(16, 16, 16)
+
+    def cold():
+        coarsen_levels(grid, space, vertical="z", coarsen_vertical=True)
+        return jnp.zeros(())
+
+    with pytest.raises(Exception, match=r"[Tt]racer|__array__"):
+        jax.eval_shape(cold)
+
+
+def test_prewarm_coarse_grids_makes_the_trace_rebuild_a_memo_hit():
+    # host-side pre-warm warms Grid.coarsened's memo so the identical
+    # under-trace coarsen_levels rebuild is a memo hit (no coarse ctor
+    # under the trace) and yields the same chain the host build does
+    grid, space = jnp_mapped_z_grid(16, 16, 16)
+    expected = shapes(coarsen_levels(
+        grid, space, vertical="z", coarsen_vertical=True))
+    warm, warm_space = jnp_mapped_z_grid(16, 16, 16)
+    prewarm_coarse_grids(warm, vertical="z", coarsen_vertical=True)
+
+    def rebuild():
+        coarsen_levels(warm, warm_space, vertical="z",
+                       coarsen_vertical=True)
+        return jnp.zeros(())
+
+    jax.eval_shape(rebuild)  # memo hit — no error
+    # and full coarsening: x, y AND the stretched z halve to the floor
+    assert expected == [(16, 16, 16), (8, 8, 8), (4, 4, 4)]
+
+
+def test_prewarm_coarse_grids_works_from_inside_a_trace():
+    # ensure_compile_time_eval lets the pre-warm run even when lexically
+    # inside a trace (the per-step solver build): warming from inside an
+    # eval_shape closure still populates the memo and does not raise
+    grid, space = jnp_mapped_z_grid(16, 16, 16)
+
+    def warm_then_build():
+        prewarm_coarse_grids(grid, vertical="z", coarsen_vertical=True)
+        coarsen_levels(grid, space, vertical="z", coarsen_vertical=True)
+        return jnp.zeros(())
+
+    jax.eval_shape(warm_then_build)
+    assert len(grid._coarsened_grids) >= 1
+
+
+def test_prewarm_coarse_grids_max_levels_caps_the_walk():
+    # max_levels bounds the warm walk exactly like coarsen_levels: a cap
+    # of 2 warms one coarse level (the fine + one child)
+    grid, _space = jnp_mapped_z_grid(16, 16, 16)
+    prewarm_coarse_grids(grid, vertical="z", coarsen_vertical=True,
+                         max_levels=2)
+    assert len(grid._coarsened_grids) == 1
+
+
+def test_prewarm_coarse_grids_honours_the_agglomerate_peek():
+    # the agglomerate branch is walked (the _should_agglomerate peek): on
+    # one device it replicates from the first coarse level, warming the
+    # replicated memo keys the hierarchy rebuild reads
+    grid, space = jnp_mapped_z_grid(16, 16, 16)
+    prewarm_coarse_grids(grid, vertical="z", coarsen_vertical=True,
+                         agglomerate=4)
+
+    def rebuild():
+        coarsen_levels(grid, space, vertical="z", coarsen_vertical=True,
+                       agglomerate=4)
+        return jnp.zeros(())
+
+    jax.eval_shape(rebuild)  # memo hit on the agglomerated chain
+
+
+def test_prewarm_coarse_grids_stops_when_no_axis_coarsens():
+    # the empty-factors break: a grid already at the floor warms nothing
+    grid, _space = jnp_mapped_z_grid(4, 4, 4)
+    prewarm_coarse_grids(grid, vertical="z", coarsen_vertical=True)
+    assert len(grid._coarsened_grids) == 0
 
 
 # ================================================================

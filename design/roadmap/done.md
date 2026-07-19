@@ -244,6 +244,48 @@ Implementation record:
   below). Record:
   [`semicoarsen_multidevice_regression.md`](../research/semicoarsen_multidevice_regression.md).
 
+- **Stretched-base eager multigrid pre-warm — full coarsening by
+  default** (2026-07-19, merge `<MERGE_HASH>`; follow-up 3 of the
+  semicoarsen regression record) — a stretched base column (a
+  `MappedIntervalMesh` vertical) now takes the GM-D9 full-coarsening
+  default instead of the automatic horizontal-semicoarsening fallback.
+  Its coarse level's host-validated `MappedIntervalMesh` ctor cannot run
+  under the solve's dynamic trace, so
+  `MappedPressureSolver.__init__` pre-warms `Grid.coarsened`'s memo for
+  the exact chain (new
+  `spatial.operators.multigrid_hierarchy.prewarm_coarse_grids`, wrapped
+  in `jax.ensure_compile_time_eval` — the pure coarse geometry folds to
+  a concrete constant even when construction is lexically inside a
+  trace), so the trace-time `_build_vcycle` rebuild is a memo hit that
+  never re-enters the coarse ctor. This holds uniformly across the
+  direct solver path (host build), the per-step model projection
+  (assembly dry-run + run), and `jax.grad` closures, and matches the
+  uniform full-coarsening path's staleness profile with **no bind hook**
+  (the pre-warm runs at the same trace, on the final grid). Guard
+  change: `_build_vcycle` drops `not _stretched_base` from its
+  `coarsen_vertical` decision (now a shared `_coarsen_vertical`
+  property); the Chebyshev (`coarsenable=False`) and indivisible-`n_z`
+  fallbacks still degrade inside `coarsen_levels`. Iteration count is
+  unchanged from the semicoarsened baseline (7 vs 7, mild + strong
+  stretch at nz=16) and the forward solve is device-invariant (forced-4
+  stretched battery green, coarsest level replicating naturally).
+  **Discovered pre-existing limitation:** reverse-mode through a
+  *full-coarsening* multigrid solve fails on >= 2 devices (XLA:SPMD
+  transfer-VJP HLO-verifier shape mismatch) — the shipped **uniform**
+  GM-D9 default shares it (not this change's doing, not the pre-warm's;
+  semicoarsening grad passes), so the two grad-through-the-solve
+  regressions are `single_device`-marked, matching the uniform battery
+  which never carried a multi-device grad test; characterisation + owner
+  call in the record. The composed (mapped+immersed) sibling keeps its
+  guard deliberately (via a
+  `_coarsen_vertical` override, so no pre-warm fires and it stays
+  byte-identical): its coarse level also re-quadratures the immersed
+  fractions, whose re-derivation under a coarsened stretched column is a
+  follow-up. Record:
+  [`semicoarsen_multidevice_regression.md`](../research/semicoarsen_multidevice_regression.md)
+  (Residue 3; ruling updated, deviation from the literal host-side hook
+  noted for ratification).
+
 - **Multigrid preconditioner follow-ups — owner rulings**
   (2026-07-19, in chat) closing three of the five open items from the
   semicoarsen/kernel-study residue: **(1) coarse-level replication
@@ -266,10 +308,10 @@ Implementation record:
   swap, floor depth) and the small-n levers measured null (agglom
   Phase 3); the priced remainder (fewer coarse sweeps; cheaper
   mapped operator apply — one 512³ sweep = 15.7 ms cuSPARSE solve +
-  12.0 ms apply) is revisit-only-with-a-concrete-driver. Still open
-  (open.md, multigrid section): the stretched-base eager pre-warm
-  (approved, in flight) and the `multi_device` marker hygiene
-  (mechanics ruling pending).
+  12.0 ms apply) is revisit-only-with-a-concrete-driver. The
+  stretched-base eager pre-warm **shipped** 2026-07-19 (entry above);
+  still open (open.md, multigrid section): the `multi_device` marker
+  hygiene (mechanics ruling pending).
 
 - **Coefficient-space product/power rows — ruled closed by design**
   (owner-ratified 2026-07-18) — the open-roadmap semantics question
