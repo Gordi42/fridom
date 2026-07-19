@@ -1557,11 +1557,19 @@ class _SelectedFaceReconstruction(Operator):
     both-then-select spelling (no divides to save; measured slower
     one-path, §6), so this is a WENO-only override.
 
-    The union window's per-side reach equals the biased pair's, so the
-    halo demand is unchanged (``order // 2 + 1``): the operator holds
-    the interned left `_BiasedFaceReconstruction` and delegates the
-    signature, the halo-negotiation trace and the codomain plumbing to
-    it (the union kernel's frame *is* that reconstruction's). On a
+    The union window's per-side reach is the biased *pair's* (the
+    per-side max of the left and right biases) — ``footprint_reach(order
+    + 1, m0)``, one cell wider on the off-bias side than the left kernel
+    alone (e.g. ``(2, 3)`` for the primal order-5 direction where the
+    left kernel is ``(2, 2)``). The operator holds the interned left
+    `_BiasedFaceReconstruction` for the codomain plumbing (the union
+    kernel's frame *is* that reconstruction's) but presents the pair's
+    two-sided reach to the halo machinery: its ``requirements`` declare
+    the union footprint and the negotiation trace applies BOTH biases
+    (mirroring `UpwindAdvection`) so the recorded demand is the pair's,
+    not the under-counted left half — declaring the left half alone
+    under-provisions a cell-centered quantity's reconstruction on a
+    bounded sharded axis (``weno_momentum_z_seam.md``). On a
     bounded (walled) axis only the interior faces take the tap-select;
     the ``K`` faces adjacent to each wall keep the exact both-ladders
     ``Where`` selection (the ladders are ``O(halo)`` slivers, so no
@@ -1602,10 +1610,15 @@ class _SelectedFaceReconstruction(Operator):
         wall: Literal["upwind1", "centered2"] = "upwind1",
         family: Literal["nodal", "fv"] = "nodal",
     ) -> None:
-        """Hold the interned left WENO reconstruction of the same frame."""
+        """Hold the interned left/right WENO reconstructions (same frame)."""
         recon = (_FVBiasedReconstruction if family == "fv"
                  else _BiasedFaceReconstruction)
         self._recon = recon(order, "left", "weno", boundary, wall)
+        # the right bias is applied only under the halo-negotiation
+        # trace (Where-combined with the left, mirroring UpwindAdvection)
+        # so the recorded demand is the union window's pair reach; the
+        # runtime union kernel never uses it (weno_momentum_z_seam.md)
+        self._recon_right = recon(order, "right", "weno", boundary, wall)
         self._order = order
         self._boundary = boundary
         self._wall = wall
@@ -1654,7 +1667,22 @@ class _SelectedFaceReconstruction(Operator):
     def requirements(
         self, domain: FunctionSpace,
     ) -> OperatorRequirements:
-        """Declare halo = order // 2 + 1 (the union window's reach).
+        """Declare the union window's two-sided reach (the biased pair's).
+
+        Description
+        -----------
+        The one-pass kernel reads the ``order + 1`` cell union window,
+        whose per-side footprint is the biased *pair's* max —
+        ``footprint_reach(order + 1, m0)`` at the left alignment ``m0 =
+        biased_offset(order, "left") + shift`` (the FV frame is always
+        primal, ``shift = 0``). This is one cell wider on the off-bias
+        side than the interned left kernel's own ``(order // 2, order //
+        2)``; declaring the left half here would under-provision a
+        cell-centered quantity's reconstruction on a bounded sharded
+        axis (``weno_momentum_z_seam.md``). The symmetric ``halo`` (the
+        per-side max) stays ``order // 2 + 1``. Dead for the trace (the
+        module is trace-fed, not registered — the trace applies the
+        biased pair directly), correct on its face for a direct caller.
 
         Parameters
         ----------
@@ -1664,9 +1692,18 @@ class _SelectedFaceReconstruction(Operator):
         Returns
         -------
         OperatorRequirements
-            The per-factor requirements record (the left kernel's).
+            The per-factor requirements record (the union footprint).
         """
-        return self._recon.requirements(domain)
+        fallback = self._order // 2 + 1
+        try:
+            shift = (0 if self._family == "fv"
+                     else _wall_shift(domain))
+            m0 = biased_offset(self._order, "left") + shift
+            self.codomain(domain)  # SpaceMismatchError on a Fourier row
+            reach = footprint_reach(self._order + 1, m0)
+        except SpaceMismatchError:
+            reach = (fallback, fallback)
+        return OperatorRequirements(reach=reach)
 
     # ------------------------------------------------------------
     #  Kernel application (union-window tap select)
@@ -1684,10 +1721,14 @@ class _SelectedFaceReconstruction(Operator):
         Description
         -----------
         The halo-negotiation trace (``HaloTracer`` operands, no
-        ``_data``) delegates to the left reconstruction: the union
-        window's per-side reach equals it, so the recorded demand and
-        the returned codomain tracer are exactly the biased left
-        kernel's (faithful, unchanged width). Real operands run the
+        ``_data``) applies BOTH biased reconstructions and
+        ``Where``-combines them (mirroring `UpwindAdvection`): the union
+        window's per-side reach is the biased *pair's*, so the recorded
+        demand is the pair max ``footprint_reach(order + 1, m0)`` (the
+        ``(2, 3)`` primal case, one cell wider than the left kernel
+        alone) and the returned codomain tracer is the same flux space
+        (accounting-only; the runtime union kernel is untouched). Real
+        operands run the
         union tap-select interior pass through the SAME
         ``apply_fv_staggered`` plumbing as the reconstruction (its
         codomain, alignment ``m0 = order // 2 + shift`` and halo
@@ -1717,7 +1758,17 @@ class _SelectedFaceReconstruction(Operator):
         if (getattr(q, "_trace_apply", None) is not None
                 or getattr(positive, "_trace_apply", None)
                 is not None):
-            return _to_flux_space(left_op(q), flux_space)
+            # accounting-only: apply BOTH biases and Where-combine
+            # (mirroring UpwindAdvection) so the trace records the union
+            # window's reach — the biased pair max, one cell wider than
+            # the left kernel alone on the off-bias side. Delegating to
+            # left_op alone under-provisions the halo of a cell-centered
+            # quantity on a bounded sharded axis (weno_momentum_z_seam.md)
+            right_op = self._recon_right[axis]
+            return Where()(
+                positive,
+                _to_flux_space(left_op(q), flux_space),
+                _to_flux_space(right_op(q), flux_space))
         order = self._order
         u_size = order + 1
         domain = q.function_space.bare.factor(axis)
