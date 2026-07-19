@@ -217,13 +217,14 @@ def make_chart_model(grid, coriolis=None, *, coords, csqr=0.7):
             1e-3, order=3))
 
 
-def rotation_energy_rate(model, module, coords, weight):
+def rotation_energy_rate(model, module, weight):
     """|dE/dt| / |E-scale| of the rotation term alone.
 
-    The metric energy E = sum sqrt(g) g_ii w (u^i)^2 / 2 (with the
-    measure-weighted sums of ``integrate``): the flux weight G
-    transposes exactly across the ``.to`` averages, so the rate is
-    machine zero for any f and any positive weight.
+    The PHYSICAL metric energy E = sum sqrt(g) w U^2 / 2 (with the
+    measure-weighted sums of ``integrate``): the state components are
+    physical, so the energy carries no g_ii (it is folded into U^2).
+    The flux weight G transposes exactly across the ``.to`` averages,
+    so the rate is machine zero for any f and any positive weight.
     """
     rng = np.random.default_rng(4)
     model.set_fields(
@@ -232,17 +233,11 @@ def rotation_energy_rate(model, module, coords, weight):
     z = model.state
     dz = model.tendency(z, filter=fr.model.term_predicates.named(
         f"{module}/coriolis"))
-    grid = model.grid
-    c_1, c_2 = coords
     u, v = z["u"], z["v"]
-    g_uu = grid.metric(u.function_space.bare, f"g_{c_1}{c_1}")
-    g_vv = grid.metric(v.function_space.bare, f"g_{c_2}{c_2}")
     w_u = z["csqr"].to(u) if weight else 1.0
     w_v = z["csqr"].to(v) if weight else 1.0
-    rate_u = float((g_uu * w_u * u * dz["u"])
-                   .integrate().data.ravel()[0])
-    rate_v = float((g_vv * w_v * v * dz["v"])
-                   .integrate().data.ravel()[0])
+    rate_u = float((w_u * u * dz["u"]).integrate().data.ravel()[0])
+    rate_v = float((w_v * v * dz["v"]).integrate().data.ravel()[0])
     return abs(rate_u + rate_v) / (abs(rate_u) + abs(rate_v))
 
 
@@ -324,11 +319,12 @@ def test_rotation_on_the_sphere_is_2_omega_sin_lat():
 
 def test_rotation_on_the_sphere_is_the_physical_rotation():
     # the spherical physics, pinned on the chart-generic module (the
-    # only rotation module there is): solid-body zonal flow
-    # u^lon = w0, v = 0 must give du = 0 and
-    # dv^lat = -f sqrt(g) g^latlat u = -2 Omega w0 sin(lat) cos(lat)
-    # (unit sphere) up to interpolation error (measured: 0.042 /
-    # 0.011 / 0.005 absolute at nlat 8/16/32 against a 0.5 scale)
+    # only rotation module there is): the PHYSICAL solid-body zonal flow
+    # u_east = w0 cos(lat) (i.e. u^lon = w0), v = 0 must give du = 0 and
+    # the physical dV = -f sqrt(g) g^latlat u sqrt(g_latlat)
+    # = -2 Omega w0 sin(lat) cos(lat) (unit sphere: sqrt(g_latlat) = 1)
+    # up to interpolation error (measured: 0.042 / 0.011 / 0.005
+    # absolute at nlat 8/16/32 against a 0.5 scale)
     errors = []
     w0 = 0.3
     coriolis_term = fr.model.term_predicates.named(
@@ -340,7 +336,7 @@ def test_rotation_on_the_sphere_is_the_physical_rotation():
                              coords=("lon", "lat")),
             coords=("lon", "lat"))
         model.set_fields(
-            u=lambda lon, lat: w0 + 0.0 * lon + 0.0 * lat)
+            u=lambda lon, lat: w0 * jnp.cos(lat) + 0.0 * lon)
         dz = model.tendency(model.state, filter=coriolis_term)
         assert float(np.abs(np.asarray(dz["u"].data)).max()) < 1e-14
         v = model.state["v"]
@@ -437,19 +433,24 @@ def test_rotation_is_m_skew_on_the_sphere(weight):
                                         metric_weight=weight),
         coords=("lon", "lat"))
     assert rotation_energy_rate(
-        model, "RotationCoriolis", ("lon", "lat"), weight) < 1e-14
+        model, "RotationCoriolis", weight) < 1e-14
 
 
 @pytest.mark.parametrize("weight", [None, "csqr"])
 def test_rotation_is_m_skew_on_the_torus(weight):
-    # the same machine-zero energy production with a tilted Omega,
-    # i.e. an f varying along both chart coordinates
+    # the same near-machine-zero energy production with a tilted Omega,
+    # i.e. an f varying along both chart coordinates. The physical-
+    # component pairing carries one sqrt(g_ii) (U / sqrt(g_ii)) round
+    # trip per node, so the relative skew residual scales with
+    # machine-eps times the chart's metric dynamic range (the torus
+    # g_ii spans 0.25..6.25, ~25x); the sphere (g_ii <= 1) stays
+    # < 1e-15. The bound is 1e-13 here for that reason, not 1e-14.
     model = make_chart_model(
         torus_grid(), RotationCoriolis(omega=TILTED, coords=("a", "b"),
                                        metric_weight=weight),
         coords=("a", "b"))
     assert rotation_energy_rate(
-        model, "RotationCoriolis", ("a", "b"), weight) < 1e-14
+        model, "RotationCoriolis", weight) < 1e-13
 
 
 # ================================================================

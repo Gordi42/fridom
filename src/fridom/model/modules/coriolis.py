@@ -249,11 +249,21 @@ def chart_rotation(
     averaged back to the ``v`` faces *inside* the flux, so the pair is
     exactly M-skew under :math:`\mathrm{diag}(W_1, W_2)`.
 
+    The state components ``u`` / ``v`` are the **physical** (m/s)
+    velocities on every grid (``physical_state_components.md`` invariant
+    (a)): the rotation converts them to the contravariant coordinate
+    velocities :math:`u^i = U_i/\sqrt{g_{ii}}` at entry (VJP-sealed
+    divide) and rescales the tendencies :math:`\mathrm{d}U_i =
+    \sqrt{g_{ii}}\,\mathrm{d}u^i` at exit, returning **physical**
+    increments; the M-skew flux form between the seams is unchanged. The
+    metric factors are derived per call on each component's own bare
+    staggered space, never cached.
+
     Parameters
     ----------
     state : VectorField
-        The model state; reads ``u``, ``v``, ``f_coriolis`` and (when
-        named) the metric-weight field.
+        The model state; reads the physical ``u``, ``v``,
+        ``f_coriolis`` and (when named) the metric-weight field.
     coords : tuple[str, str]
         The chart coordinate names, in the grid's factor order.
     metric_weight : str | None, optional
@@ -263,7 +273,7 @@ def chart_rotation(
     Returns
     -------
     dict
-        The ``u`` / ``v`` increments (contravariant components).
+        The ``u`` / ``v`` increments (physical components).
     """
     u, v, f = state["u"], state["v"], state["f_coriolis"]
     grid = u.grid
@@ -274,6 +284,12 @@ def chart_rotation(
     sqg_v = grid.metric(v_space, "sqrt_g")
     g_uu = grid.metric(u_space, f"g_{c_1}{c_1}")
     g_vv = grid.metric(v_space, f"g_{c_2}{c_2}")
+    # entry seam: physical U -> contravariant u^i (D3); the M-skew
+    # flux form below is unchanged, exit-rescaled to physical
+    root_u = g_uu ** 0.5
+    root_v = g_vv ** 0.5
+    u = _safe_metric_divide(u, root_u)
+    v = _safe_metric_divide(v, root_v)
     f_u = f.to(u)
     flux_weight = f_u * (sqg_u * sqg_u)          # G = f g (w below)
     w_1 = sqg_u * g_uu
@@ -283,9 +299,11 @@ def chart_rotation(
         flux_weight = flux_weight * w.to(u)
         w_1 = w_1 * w.to(u)
         w_2 = w_2 * w.to(v)
+    # exit seam: rescale the contravariant tendencies to physical
     return {
-        "u": _safe_metric_divide(flux_weight * v.to(u), w_1),
-        "v": -_safe_metric_divide((flux_weight * u).to(v), w_2),
+        "u": root_u * _safe_metric_divide(flux_weight * v.to(u), w_1),
+        "v": -(root_v * _safe_metric_divide(
+            (flux_weight * u).to(v), w_2)),
     }
 
 
@@ -442,10 +460,10 @@ def _reject_chart_grid(module: Module, table: object) -> None:
 
     The f-plane and beta-plane terms rotate the velocity components
     as if they were Cartesian (no ``sqrt(g)``, no ``g_ij``): on a
-    chart grid the prognostic velocities are *contravariant*
-    components, so the term would be silently wrong physics (and
-    would do work against the metric energy). Better a taught error
-    than a plausible-looking wrong answer.
+    chart grid the rotation must carry the metric to stay
+    energy-conserving, so the metric-blind term would be silently wrong
+    physics (and would do work against the metric energy). Better a
+    taught error than a plausible-looking wrong answer.
     """
     chart = table.grid.chart_coords
     if chart is None:
@@ -453,8 +471,8 @@ def _reject_chart_grid(module: Module, table: object) -> None:
     raise ValueError(
         f"{type(module).__name__} is metric-blind (it rotates "
         "Cartesian velocity components), but this grid carries an "
-        f"embedding chart on {chart}, whose velocities are "
-        "contravariant components: use "
+        f"embedding chart on {chart}, whose rotation needs the "
+        "metric-aware chart form: use "
         "fr.modules.RotationCoriolis(omega=(0.0, 0.0, Omega), "
         f"coords={chart!r}) — it derives f = 2 Omega . n_hat from "
         "the chart itself, and the lat-lon sphere with a polar Omega "
@@ -917,8 +935,13 @@ class RotationCoriolis(Module):
     metrics of ``CoordinateMapping``).
 
     :math:`\hat n\times\vec u` is the 90-degree rotation in the
-    tangent plane. In **contravariant** components (the chart-grid
-    velocity convention: :math:`u^i = \dot u^i`), using
+    tangent plane. The derivation below is written in **contravariant**
+    coordinate velocities :math:`u^i = \dot u^i`; the stored state
+    components are the **physical** velocities
+    :math:`U_i = \sqrt{g_{ii}}\,u^i`
+    (``physical_state_components.md`` invariant (a)), which
+    :func:`chart_rotation` converts to contravariant at entry and back
+    at exit. Using
     :math:`(X_1\times X_2)\times X_1 = g_{11} X_2 - g_{12} X_1` and
     its partner, and :math:`|X_1\times X_2| = \sqrt g`:
 

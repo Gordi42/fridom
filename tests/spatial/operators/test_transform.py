@@ -581,18 +581,6 @@ def test_sharded_transform_axis_backward_is_rejected():
 
 
 @pytest.mark.multi_device
-def test_sharded_non_transform_axis_stays_tier_two_legal():
-    # x is sharded but the transform acts on the LOCAL axis y only: the
-    # FFT axis is device-local, GSPMD needs no reshard, and the guard
-    # stays silent (Tier 2 is legal) -- the real forward completes and
-    # keeps the operand's x-sharding
-    grid = _grid3d()
-    field = grid.create_field()
-    out = Fourier(grid, axes="y").forward(field)
-    assert not out.function_space.layout.is_local("x")
-
-
-@pytest.mark.multi_device
 def test_replicated_operand_is_not_rejected():
     # a deliberately gathered/replicated operand (a bare space, layout
     # None) passes the guard even on a multi-device grid -- the predicate
@@ -603,6 +591,98 @@ def test_replicated_operand_is_not_rejected():
     # no raise (returns None)
     assert Fourier(grid)._reject_sharded_transform(
         replicated, "forward") is None
+
+
+# ================================================================
+#  Tier-2 guard: a sharded non-transform axis is illegal too
+# ================================================================
+@pytest.mark.multi_device
+def test_sharded_non_transform_axis_is_rejected_tier_two():
+    # x is sharded but the transform acts on the LOCAL axis z only: the
+    # FFT axes are device-local (Tier 1 stays silent), yet a standalone
+    # forward materializes a coefficient field the storage contract
+    # replicates, so GSPMD would silently all-gather the sharded x axis.
+    # That naive Tier-2 path is illegal by design -- the taught error
+    # names the sharded non-transform axis.
+    grid = _grid3d()
+    assert not grid.decomposition.default_layout.is_local("x")
+    field = grid.create_field()
+    with pytest.raises(
+            NotImplementedError,
+            match=r"shards the non-transform axis/axes \('x',\)"):
+        Fourier(grid, axes="z").forward(field)
+
+
+@pytest.mark.multi_device
+def test_tier_two_message_teaches_the_replicated_escape():
+    # the Tier-2 taught error points at the honest replicate-then-compute
+    # escapes (SpectralSolve allow_replicated + an explicit reshard)
+    grid = _grid3d()
+    field = grid.create_field()
+    with pytest.raises(NotImplementedError) as excinfo:
+        Fourier(grid, axes="z").forward(field)
+    message = str(excinfo.value)
+    assert "allow_replicated" in message
+    assert "reshard" in message
+
+
+@pytest.mark.multi_device
+def test_tier_two_guard_ignores_a_constant_transform_axis():
+    # the only transform axis (x) is Constant, so nothing is transformed
+    # (an identity forward, no coefficient materialized) -- the guard must
+    # not fire even though the layout still maps the sharded x axis
+    grid = _grid3d()
+    mx, my, mz = grid.factors
+    field = grid.create_field(mx.constant * my.center * mz.center)
+    assert not field.function_space.layout.is_local("x")
+    out = Fourier(grid, axes="x").forward(field)
+    assert out.function_space is field.function_space
+
+
+@pytest.mark.multi_device
+def test_tier_two_guard_defers_a_sharded_stage_axis_to_tier_one():
+    # a sharded STAGE axis is Tier 1's domain, not Tier 2's: the sibling
+    # guard returns None (in forward/backward the Tier-1 guard runs first
+    # and raises; this checks the deferral branch directly)
+    grid = _grid3d()
+    field = grid.create_field()
+    assert not field.function_space.layout.is_local("x")
+    assert Fourier(grid, axes="x")._reject_replicating_transform(
+        field, "forward") is None
+
+
+@pytest.mark.multi_device
+def test_tier_two_replicated_operand_is_not_rejected():
+    # the sibling guard reads the operand's own layout: a replicated
+    # (layout-free) operand passes even with a sharded grid default
+    grid = _grid3d()
+    replicated = SimpleNamespace(
+        function_space=grid.create_field().function_space.bare)
+    assert Fourier(grid, axes="z")._reject_replicating_transform(
+        replicated, "forward") is None
+
+
+@pytest.mark.multi_device
+def test_tier_two_explicit_reshard_escape_is_device_count_invariant():
+    # the honest escape: reshard the operand to the replicated layout
+    # first, and the standalone z-only forward runs (guard satisfied),
+    # matching a device_ids=(0,) twin bit-for-bit
+    grid = _grid3d()
+    field = grid.create_field(
+        init=lambda x, y, z: (
+            jnp.sin(TWO_PI * x) * jnp.cos(TWO_PI * z)
+            + 0.1 * jnp.sin(TWO_PI * y)))
+    gathered = field.reshard(Layout({}))
+    out = Fourier(grid, axes="z").forward(gathered)
+
+    twin = _grid3d(device_ids=(0,))
+    twin_field = twin.create_field(
+        init=lambda x, y, z: (
+            jnp.sin(TWO_PI * x) * jnp.cos(TWO_PI * z)
+            + 0.1 * jnp.sin(TWO_PI * y)))
+    twin_out = Fourier(twin, axes="z").forward(twin_field)
+    assert float(jnp.abs(
+        np.asarray(out.data) - np.asarray(twin_out.data)).max()) == 0.0
 
 
 # ================================================================
