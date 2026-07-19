@@ -168,7 +168,7 @@ invocation instead — the bisect predicate
 is now CI-visible. Tracker: `../roadmap/done.md` (rulings entry
 + shipped entry).*
 
-## Follow-up 3 as shipped — mechanism note (awaits ratification)
+## Follow-up 3 as shipped — mechanism note (owner-ratified 2026-07-19)
 
 The eager pre-warm shipped, but its realization differs from the
 literal plan sketched in Residue 3 ("build the coarse chain host-side
@@ -198,8 +198,23 @@ rebuild reads, with the identical staleness profile as the uniform
 path and no separate host-side hook. The failure only ever fires for a
 map built from `jnp` ops (a pure-`numpy` map like `s**1.5` already
 coarsens under a trace); the real `stretch` maps are `jnp`, so it is
-load-bearing. Owner ratification of this realization (vs. the literal
-host-side-setup hook) is the one open item on follow-up 3.
+load-bearing. **Owner-ratified 2026-07-19** after an independent
+verification confirmed every load-bearing claim: the assembly
+ordering (dry-run at 6b, `freeze()` at 7) is real and load-bearing
+(freeze depends on post-dry-run negotiation and `extra_halo`
+placement, so it cannot simply move earlier); a `bind`-time host
+warm is unsafe (`Grid.coarsened` memoizes per device mesh, which
+step 6a can still collapse — the warm would miss and re-raise under
+trace); and the wrong-constant risk the ece spelling raises on
+sight is structurally absent — `ensure_compile_time_eval` is a
+documented raise-or-eager contract (it cannot fold a tracer into a
+wrong constant, probed: every smuggled tracer raised), and
+`prewarm_coarse_grids` takes no `params`, so moving-geometry
+dynamics (which thread through the solver `params=` seam) are
+unreachable from the folded region; `_validate_mapping`'s
+`np.asarray` is a second independent tracer trap. The safety
+argument is this no-`params`-access structure, not any error
+ordering.
 
 ### Discovered pre-existing limitation — full-coarsening grad on >1 device
 
