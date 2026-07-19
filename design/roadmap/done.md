@@ -318,7 +318,7 @@ Implementation record:
 
 - **Semicoarsen parity battery now runs in CI — Residue 4 ruled
   (option C, no markers changed)** (2026-07-19, in chat; merge
-  `MERGE_HASH_PLACEHOLDER`) — the multi-device parity victims of the
+  `4e169c5f`) — the multi-device parity victims of the
   07-18 semicoarsening break (the drift net cited in the rulings entry
   above) now run in CI without touching any test marker. Owner ruling:
   **do not `@multi_device`-mark them** — marking would *subtract* their
