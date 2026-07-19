@@ -158,7 +158,7 @@ ranking-demotion variant's upside); 2 — **dropped** (sharding the
 line-smoother axis is nowhere a correctness problem since
 `b57e3e78`; a warning would fire on the deliberate negotiated
 default, and the parity battery is the drift net); 3 — **shipped**
-2026-07-19 (merge `<MERGE_HASH>`, `perf/stretched-mg-prewarm`); 4 —
+2026-07-19 (merge `99623ba8`, `perf/stretched-mg-prewarm`); 4 —
 mechanics ruling pending. Tracker: `../roadmap/done.md` (rulings entry
 + shipped entry).*
 

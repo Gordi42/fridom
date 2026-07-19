@@ -245,7 +245,7 @@ Implementation record:
   [`semicoarsen_multidevice_regression.md`](../research/semicoarsen_multidevice_regression.md).
 
 - **Stretched-base eager multigrid pre-warm — full coarsening by
-  default** (2026-07-19, merge `<MERGE_HASH>`; follow-up 3 of the
+  default** (2026-07-19, merge `99623ba8`; follow-up 3 of the
   semicoarsen regression record) — a stretched base column (a
   `MappedIntervalMesh` vertical) now takes the GM-D9 full-coarsening
   default instead of the automatic horizontal-semicoarsening fallback.
