@@ -73,19 +73,7 @@ All FV stages (F0–F6) are shipped — every non-immersed grid serves
 geometry now runs on FV too (ALE-on-FV closed, scoping §13 addendum 2),
 and the FV nonhydro is feature-complete against nodal except cut cells
 (out of scope by decision; entries in [`done.md`](done.md), records in
-the scoping §10–§13). Open:
-
-- **Stretched + terrain-following combined — residuals.** The
-  correctness question and the implementation campaign shipped
-  2026-07-17 (entry in [`done.md`](done.md); research + rulings in
-  [`../research/stretched_terrain_combined.md`](../research/stretched_terrain_combined.md)).
-  Open:
-  - **Variable-depth split-explicit free surface** (H3 residual):
-    still a taught error on charts. The *implicit* half shipped
-    2026-07-18 (multigrid_generalization_plan phase B: the
-    volume-exact variable-csqr solve, resolving the plan §8
-    volume-vs-energy tension for the implicit variant); the
-    subcycle's terrain transport form is the remaining half.
+the scoping §10–§13). Nothing open.
 
 [`../plans/active/fv_nonhydro_scoping.md`](../plans/active/fv_nonhydro_scoping.md)
 

@@ -946,10 +946,46 @@ Implementation record:
   and full 3-D coarsening is the mapped-solver multigrid default
   (GM-D9: −4.3 % on top, parity 3.1e-10, automatic semicoarsening
   fallback for Chebyshev / indivisible n_z / stretched-base columns).
-  Residuals stay in `open.md`: the split-explicit chart variant and
-  the real multi-process 4-GPU leg. The hydrostatic
-  walled-horizontal gap found in phase B was closed the same day
-  (flat + immersed; see its own entry below).
+  Residual at the time: the split-explicit chart variant (closed
+  2026-07-19, entry below) and the real multi-process 4-GPU leg. The
+  hydrostatic walled-horizontal gap found in phase B was closed the
+  same day (flat + immersed; see its own entry below).
+- **Split-explicit terrain free surface — H3 residual closed**
+  (2026-07-19, branch `feat/split-explicit-terrain`, plan
+  [`../plans/active/multigrid_generalization_plan.md`](../plans/active/multigrid_generalization_plan.md)
+  §7) — retires the last `hy.SplitExplicitFreeSurface` chart taught
+  error. The barotropic subcycle now steps the **volume-exact terrain
+  transport form** (GM-D1 option 1, the owner ruling extended from the
+  implicit variant to the split-explicit one; the *explicit* variant's
+  shipped physics is untouched): with `H_a = ∫J dz` the per-face
+  physical transport depth (reusing the base `_physical_depth`), the ps
+  substep is `ps -= dtau (c²/H_ref) div(H_a ubar)` — a **constant**
+  gravity coefficient, **no** `1/H(x,y)` division anywhere in the
+  substep path, so plain `∫ps` is conserved by construction and there is
+  no guarded-division autodiff hazard — the transports commit
+  `U = H_a ubar`, the S4 correction targets the variable-depth `U/H(x,y)`
+  (J-weighted physical depth means through `.mean(z)`,
+  `physical_integral_default.md`), and `derive_initial_fields` seeds
+  `U = ūₚₕᵧₛ·H_col`. The SM2005 filter is **unchanged** (frozen §5.4):
+  same host weights, same averaging, same commit. Terrain **+ immersed**
+  stays a **narrowed** taught error (it would need the wet-and-Jacobian
+  column integral `∫αJ dz` and a J-weighted wet-depth mean, machinery
+  the shared free-surface reductions do not carry; assemble
+  `hy.ImplicitFreeSurface` there). 2-cell terrain halo (the implicit
+  variant's precedent). Gates (CPU): flat J≡1 chart numerically bitwise
+  to the unmapped subcycle (rel 0.0 — the split prognostics `ps,U,V,u,v`
+  byte-identical, the only raw-byte difference the pre-existing signed-
+  zero `w`-diagnosis artifact present for the explicit variant too); the
+  unmapped path bitwise-**unchanged** pre/post (sha identical, periodic
+  and walled); `∫ps` volume drift 4.2e-17 (periodic) / ≤1e-16 (walled);
+  walled-terrain mirror-image gate ps 2e-17, `u`/`U` exactly 0.0; rest
+  state over topography equal to the explicit oracle (ratio 1.000);
+  cross-variant closeness to the volume-exact implicit variant 0.6 %;
+  autodiff FD-matched (rel 4e-12, no `1/H` hazard); forced-4
+  multi-device green. New shard
+  `tests/hydrostatic/test_free_surface_terrain_split.py`;
+  `test_free_surface_terrain.py` / `test_free_surface_terrain_walled.py`
+  taught-error tests flipped to engagement + walled mirror/volume gates.
 - **Multigrid size-scaling root cause: the depth cap, not the
   algorithm** (2026-07-18, measurement-only; record
   [`../research/multigrid_depth_scaling.md`](../research/multigrid_depth_scaling.md))

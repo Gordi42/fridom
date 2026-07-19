@@ -281,8 +281,11 @@ GB-2 config, recorded in the implementation record.
   solver's `uniform_spacing` limitation.
 - Immersed + terrain combined (the base-class mutual-exclusion gate
   stays).
-- Adopting the volume-exact form in the *explicit*/split-explicit
-  terrain variants (own owner decision; GM-D1 flag).
+- Adopting the volume-exact form in the *explicit* terrain variant
+  (own owner decision; GM-D1 flag) — the *split-explicit* variant
+  adopted it 2026-07-19 (the owner extended GM-D1 option 1 to the
+  subcycle; the explicit variant's shipped physics is untouched, done.md
+  "Split-explicit terrain free surface").
 - The `EnergyMetric`/eigenmodes plain-extent `ps` weight inconsistency
   on terrain (recorded in the terrain record; untouched).
 - Changing the 3-D semicoarsening default (GM-D9).
@@ -413,8 +416,14 @@ the symmetry test feeds mean-free inputs (the mapped precedent).
 ## 7. Roadmap tie-in
 
 Closes the implicit half of the open.md item "Variable-depth implicit +
-split-explicit free surfaces (H3)" (the split-explicit chart variant is
-already built; the roadmap line bundles history). Extends the
-"Multigrid preconditioner — follow-up measurements" line with the
-Phase D comparison. References, not claims: IP-D9 (immersed barotropic
-sibling), CS-D2 (the CG-route ancestor), N3.
+split-explicit free surfaces (H3)". The split-explicit half shipped
+2026-07-19 (branch `feat/split-explicit-terrain`, done.md "Split-explicit
+terrain free surface"): the barotropic subcycle adopts the same GM-D1
+option-1 volume-exact terrain transport form (`H_a = ∫J dz`, constant
+`c²/H_ref` gravity, no `1/H` division), so both variants now run on sigma
+charts and the H3 residual is fully closed (terrain **+ immersed** stays a
+narrowed split-explicit taught error — it needs `∫αJ dz` and a J-weighted
+wet-depth mean the shared reductions do not carry). Extends the "Multigrid
+preconditioner — follow-up measurements" line with the Phase D comparison.
+References, not claims: IP-D9 (immersed barotropic sibling), CS-D2 (the
+CG-route ancestor), N3.

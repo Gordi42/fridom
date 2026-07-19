@@ -7,9 +7,12 @@ and the depth-mean divergence is the flux-form transport divergence
 ``\int[\partial_x(Ju) + \partial_y(Jv)]\,dz / H`` — the exact adjoint
 (under the physical-volume inner product) of the ``-\nabla_h ps``
 momentum force, so the barotropic gravity pair conserves energy to
-roundoff. The variable-coefficient **implicit** free surface (H3) and
-the transport-depth-consistent **split** subcycle stay deferred behind
-taught errors. Self-contained builders (AGENTS oversized-module rule).
+roundoff. The variable-coefficient **implicit** free surface (H3, the
+volume-exact solve) and the transport-depth-consistent **split**
+subcycle both now engage on a chart (their gates live in
+``test_free_surface_terrain_implicit.py`` /
+``test_free_surface_terrain_split.py``). Self-contained builders (AGENTS
+oversized-module rule).
 """
 import jax.numpy as jnp
 import numpy as np
@@ -172,9 +175,22 @@ def test_implicit_free_surface_engages_on_terrain():
     assert bool(jnp.isfinite(model.state["ps"].data).all())
 
 
-def test_split_free_surface_is_a_taught_error_on_terrain():
+def test_split_free_surface_engages_on_terrain():
+    # the split-explicit taught error is retired (H3): the volume-exact
+    # terrain subcycle (GM-D1 option 1) now engages on a chart grid. The
+    # gates live in test_free_surface_terrain_split.py.
     grid = _terrain_grid(8)
-    with pytest.raises(NotImplementedError, match="terrain"):
-        _model(grid,
-                free_surface=hy.SplitExplicitFreeSurface(substeps=4),
-                stepper=fr.model.time_steppers.AdamBashforth(2e-3, order=2))
+    model = _model(grid,
+                   free_surface=hy.SplitExplicitFreeSurface(substeps=4),
+                   stepper=fr.model.time_steppers.AdamBashforth(2e-3, order=2))
+    assert {"ps", "U", "V"} <= set(model.state.component_names)
+    fs = model.module(hy.SplitExplicitFreeSurface)
+    assert fs._column == ("zp", "z")
+    rng = np.random.default_rng(0)
+    model.set_fields(
+        u=0.1 * rng.standard_normal(model.state["u"].shape),
+        v=0.1 * rng.standard_normal(model.state["v"].shape),
+        ps=0.1 * rng.standard_normal(model.state["ps"].shape))
+    model.advance(4)
+    assert not model.panicked
+    assert bool(jnp.isfinite(model.state["ps"].data).all())

@@ -1328,7 +1328,8 @@ class SplitExplicitFreeSurface(_FreeSurfaceBase):
     slaved to the depth mean of ``u, v``, ``set_fields`` seeds them from
     the velocity IC (``derive_initial_fields``): setting ``u`` (resp.
     ``v``) without the matching transport derives
-    ``U = \bar u / (1/H)`` (immersed:
+    ``U = \bar u / (1/H)`` (terrain: ``\bar u\,H(x, y)`` with the
+    variable per-column depth; immersed:
     ``\bar u_{\rm wet}\,H_{\rm col}``) — exactly the transport the
     subcycle commit computes — so the CONSTRAINT no longer annihilates
     the barotropic part of the IC on the first step. An explicitly-set
@@ -1470,21 +1471,30 @@ class SplitExplicitFreeSurface(_FreeSurfaceBase):
         return self._weights
 
     # ================================================================
-    #  Bind: the multistep-only guard (§5.4)
+    #  Bind: the terrain+immersed and multistep-only guards (§5.4)
     # ================================================================
     def bind(self, table: object) -> None:
-        """Freeze ``1/H`` and refuse a non-multistep outer driver.
+        """Freeze ``1/H``; refuse terrain+immersed and non-multistep drivers.
 
         Description
         -----------
-        Runs the base depth-mean freeze, then the §5.4 assembly guard:
-        a per-stage-projected barotropic subcycle has no production
-        precedent under an RK / IMEX-RK outer driver, so the split
-        free surface is a **multistep-only** stage. The stepper's
-        ``supports_split_advance`` capability (set by ``AdamBashforth``
-        and ``IMEXMultistep``, false for the RK and exponential
-        families) is read off the bind table; a non-multistep driver is
-        a taught assembly error, never a silent mis-integration.
+        Runs the base depth-mean freeze, then two assembly guards. First
+        the terrain + immersed narrowing: a terrain-following (sigma)
+        column is supported on its own (the volume-exact subcycle,
+        GM-D1 option 1, retiring the H3 chart taught error), but combined
+        with an immersed (cut-cell) domain the subcycle would need the
+        wet **and** Jacobian-weighted column integral ``int(alpha J dz)``
+        and the J-weighted wet-depth mean, machinery the shared
+        free-surface reductions do not carry — that composition stays a
+        taught error (assemble ``hy.ImplicitFreeSurface`` there). Then
+        the §5.4 assembly guard: a per-stage-projected barotropic
+        subcycle has no production precedent under an RK / IMEX-RK outer
+        driver, so the split free surface is a **multistep-only** stage.
+        The stepper's ``supports_split_advance`` capability (set by
+        ``AdamBashforth`` and ``IMEXMultistep``, false for the RK and
+        exponential families) is read off the bind table; a non-multistep
+        driver is a taught assembly error, never a silent
+        mis-integration.
 
         Parameters
         ----------
@@ -1493,24 +1503,29 @@ class SplitExplicitFreeSurface(_FreeSurfaceBase):
 
         Raises
         ------
+        NotImplementedError
+            If the grid combines a terrain column with an immersed domain.
         AssemblyError
             If the assembly's outer stepper is not a multistep driver.
         """
         super().bind(table)
-        if self._column is not None:
+        if self._column is not None and self._immersed is not None:
             raise NotImplementedError(
                 "hy.SplitExplicitFreeSurface does not support a terrain-"
-                "following (sigma) grid yet: the barotropic subcycle "
-                "steps a 2D shallow-water pair whose depth is the "
-                "physical column depth H(x, y) = int J dz, so every "
-                "substep needs the transport-depth-consistent "
-                "divergence div(H ubar)/H and the SM2005 time-average "
-                "must conserve volume against that variable depth — the "
-                "same variable-depth machinery the immersed path "
-                "carries, J-weighted, which is a follow-up "
-                "(stretched_terrain_combined.md §6; hydrostatic plan "
-                "§7). Assemble with hy.ExplicitFreeSurface (the "
-                "terrain-capable barotropic oracle) on a chart grid")
+                "following (sigma) grid COMBINED with an immersed "
+                "(cut-cell) domain: the barotropic subcycle's transport "
+                "depth and time-averaged depth mean would need the wet "
+                "AND Jacobian-weighted column integral int(alpha J dz) "
+                "and the J-weighted wet-depth mean "
+                "int(alpha J q dz) / int(alpha J dz), neither of which "
+                "the shared free-surface machinery carries (the immersed "
+                "depth-mean verbs were never made chart-aware; "
+                "physical_integral_default.md). The terrain-only and "
+                "flat-immersed split-explicit subcycles ARE supported. "
+                "Assemble with hy.ImplicitFreeSurface (the "
+                "terrain+immersed-capable volume-exact solve) on a "
+                "combined grid, or drop one of the chart / immersed "
+                "domains")
         stepper = getattr(table, "time_stepper", None)
         if not getattr(stepper, "supports_split_advance", False):
             raise AssemblyError(
@@ -1615,9 +1630,17 @@ class SplitExplicitFreeSurface(_FreeSurfaceBase):
         subcycle. Declaring it (the V-N2 precedent) exempts the module's
         stages from the halo trace, so the depth-mean reductions
         (``u.mean(z)``, halo-tracer-incompatible sugar) and the scan
-        run on real fields.
+        run on real fields. On a terrain (sigma) grid it is **two** cells
+        (GM-D8): the subcycle multiplies the ``grid.metric`` column
+        Jacobian ``J`` (the physical transport depth ``int J dz``) the
+        halo tracer's ``_TracerGrid`` cannot materialize, so the stage
+        runs on real fields whose materialized metrics carry the
+        provisional two-cell storage halo (the implicit terrain variant's
+        precedent). Off a terrain grid it stays one cell —
+        byte-identical.
         """
-        return HaloSpec(dict.fromkeys(self._horizontal, 1))
+        cells = 2 if self._column is not None else 1
+        return HaloSpec(dict.fromkeys(self._horizontal, cells))
 
     @property
     def _advance_name(self) -> str:
@@ -1680,19 +1703,52 @@ class SplitExplicitFreeSurface(_FreeSurfaceBase):
         does not touch ``ps, U, V`` (they carry no tendency term), so the
         prognostic ``U, V`` read here are the previous step's committed
         transports and ``U/H`` is the substage-start barotropic velocity.
+
+        On a terrain (sigma) or immersed grid the per-face depth ``H_a``
+        varies (``int J dz`` on the chart, ``int alpha dz`` on the cut
+        cell), so the substep steps the barotropic velocity ``ub = U/H_a``
+        with the volume-exact ps forward step
+        ``ps <- ps - dtau (c^2/H_ref) div(H_a ub)`` (a CONSTANT gravity
+        coefficient, no ``1/H(x, y)`` division, GM-D1 option 1) and
+        commits ``U = H_a ubar``. The SM2005 filter is unchanged.
         """
         csqr = ctx.params[CSQR]
         dt = ctx.stage_dt
         zonal, meridional = self._horizontal
         g_u, g_v = self._slow_forcing(state, ctx, dt)
         ps0 = state["ps"]
+        terrain = self._column is not None
         immersed = self._immersed is not None
-        if immersed:
-            # per-column transport depths H_u, H_v on the U/V faces; the
-            # barotropic velocity is U/H_col, the transport U = H_col ubar
-            # (transport-depth consistent), and the ps forward step is the
-            # volume-conserving transport divergence (1/H) div(H ubar).
-            # A land-column face (H == 0) is closed (open-face gate).
+        # a variable-depth grid (terrain OR immersed) steps the barotropic
+        # VELOCITY ub = U/H_a and commits U = H_a ubar with the per-face
+        # depth H_a; the ps forward step is the volume-exact transport
+        # divergence (1/H_ref) div(H_a ubar) with the CONSTANT gravity
+        # coefficient c^2/H_ref (GM-D1 option 1 — no 1/H(x, y) division,
+        # so plain int(ps) is conserved to round-off and there is no
+        # guarded-division autodiff hazard in the substep path). A flat
+        # grid keeps the scalar 1/H_ref fast path, byte-identical.
+        variable = terrain or immersed
+        fmask_u = fmask_v = None
+        if terrain:
+            # physical transport depths H_u, H_v = int J dz on the U/V
+            # faces, retagged onto the transport faces so the walled
+            # Dirichlet tag joins the transport arithmetic. Every column is
+            # wet (H > 0), so no open-face gate — only the immersed cut
+            # faces need one. The guarded inverse only zeros J == 0 halo /
+            # padding columns.
+            depth_u = self._physical_depth(state["u"]).retag(state["U"])
+            depth_v = self._physical_depth(state["v"]).retag(state["V"])
+            inv_u = self._guarded_inverse(depth_u)
+            inv_v = self._guarded_inverse(depth_v)
+            ubar0 = state["U"] * inv_u
+            vbar0 = state["V"] * inv_v
+        elif immersed:
+            # per-column wet transport depths H_u, H_v = int alpha dz on the
+            # U/V faces; the barotropic velocity is U/H_col, the transport
+            # U = H_col ubar (transport-depth consistent), and the ps
+            # forward step is the volume-conserving transport divergence
+            # (1/H) div(H ubar). A land-column face (H == 0) is closed
+            # (open-face gate).
             depth_u = self._transport_depth(state["u"])
             depth_v = self._transport_depth(state["v"])
             inv_u = self._guarded_inverse(depth_u)
@@ -1714,8 +1770,8 @@ class SplitExplicitFreeSurface(_FreeSurfaceBase):
             carry: tuple, weight: object,
         ) -> tuple[tuple, None]:
             ps_c, ub_c, vb_c, aps, au, av = carry
-            # forward: ps from the OLD barotropic-velocity divergence
-            if immersed:
+            # forward: ps from the OLD barotropic transport divergence
+            if variable:
                 div = self._inv_depth * (
                     (depth_u * ub_c).diff(zonal)
                     + (depth_v * vb_c).diff(meridional))
@@ -1725,7 +1781,7 @@ class SplitExplicitFreeSurface(_FreeSurfaceBase):
             # backward: velocity from the NEW ps + the slow forcing
             grad_u = ps_n.diff(zonal).retag(ub_c)
             grad_v = ps_n.diff(meridional).retag(vb_c)
-            if immersed:
+            if fmask_u is not None:
                 grad_u = grad_u * fmask_u
                 grad_v = grad_v * fmask_v
             ub_n = ub_c - dtau * grad_u + dtau * g_u
@@ -1737,7 +1793,7 @@ class SplitExplicitFreeSurface(_FreeSurfaceBase):
                 _barotropic_zero(ubar0), _barotropic_zero(vbar0))
         (_ps, _ub, _vb, ps_avg, ubar_avg, vbar_avg), _ = jax.lax.scan(
             body, init, weights)
-        if immersed:
+        if variable:
             return {"ps": ps_avg, "U": ubar_avg * depth_u,
                     "V": vbar_avg * depth_v}
         inv_h = self._inv_depth
@@ -1783,9 +1839,29 @@ class SplitExplicitFreeSurface(_FreeSurfaceBase):
         U/H)`` broadcasts the barotropic increment onto every level (the
         ConstantSpace lift in ``.to``, the implicit variant's pattern),
         so the corrected depth mean is exactly ``U/H`` while the
-        baroclinic shear is untouched.
+        baroclinic shear is untouched. On a terrain (sigma) grid ``H`` is
+        the VARIABLE per-column physical depth ``H(x, y) = int J dz`` and
+        ``\bar u`` the physical (J-weighted) depth mean; on an immersed
+        grid it is the wet transport depth. The reference-depth scalar is
+        the flat fast path only.
         """
         u, v = state["u"], state["v"]
+        if self._column is not None:
+            # terrain: the target barotropic velocity is U/H(x, y) with the
+            # VARIABLE per-column physical depth H = int J dz (guarded on a
+            # J == 0 padding column, retagged onto the transport face);
+            # u.mean(z) is the physical (J-weighted) depth mean
+            # (physical_integral_default.md). Every column is wet, so no
+            # open-face gate.
+            inv_u = self._guarded_inverse(
+                self._physical_depth(u).retag(state["U"]))
+            inv_v = self._guarded_inverse(
+                self._physical_depth(v).retag(state["V"]))
+            du = (self._wet_depth_mean(u)
+                  - state["U"] * inv_u).to(u).retag(u)
+            dv = (self._wet_depth_mean(v)
+                  - state["V"] * inv_v).to(v).retag(v)
+            return {"u": u - du, "v": v - dv}
         if self._immersed is None:
             vertical = self._vertical
             inv_h = self._inv_depth
@@ -1856,13 +1932,23 @@ class SplitExplicitFreeSurface(_FreeSurfaceBase):
         r"""Return the depth-mean transport of ``vel`` on its face.
 
         The transport whose barotropic velocity is the depth mean of
-        ``vel``: ``\bar u / (1/H)`` off an immersed grid (the flat depth
-        mean over ``self._inv_depth``), the wet transport
-        ``\bar u_{\rm wet}\,H_{\rm col}`` on it (transport-depth
-        consistent; a land column ``H_{\rm col} == 0`` yields 0).
-        Retagged onto ``transport`` (the declared ``U``/``V`` face) so
-        ``set_fields`` re-homes it like any incoming field.
+        ``vel``: ``\bar u / (1/H)`` off a terrain / immersed grid (the
+        flat depth mean over ``self._inv_depth``), the physical transport
+        ``\bar u\,H(x, y)`` on a terrain (sigma) grid with the VARIABLE
+        per-column depth ``H = \int J\,dz`` (``\bar u`` the J-weighted
+        physical depth mean), the wet transport
+        ``\bar u_{\rm wet}\,H_{\rm col}`` on an immersed grid
+        (transport-depth consistent; a land column ``H_{\rm col} == 0``
+        yields 0). Retagged onto ``transport`` (the declared ``U``/``V``
+        face) so ``set_fields`` re-homes it like any incoming field.
         """
+        if self._column is not None:
+            # terrain: U = ubar_physical * H_col with the VARIABLE
+            # per-column physical depth H_col = int J dz (the transport the
+            # subcycle commits); mean is the J-weighted physical depth mean.
+            mean = self._wet_depth_mean(vel)
+            depth = self._physical_depth(vel).retag(mean)
+            return (mean * depth).retag(transport)
         if self._immersed is None:
             return (vel.mean(self._vertical) / self._inv_depth).retag(
                 transport)
