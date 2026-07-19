@@ -111,6 +111,13 @@ UNLABELED = -1
 # the probed operator under the energy metric).
 _HERMITICITY_TOL = 1e-10
 
+# Relative magnitude tolerance for the gauge-pivot tie-break: among a
+# column's entries within this factor of its peak ``|component|`` the
+# lowest stacked-column index is chosen as the phase pivot. Set far
+# above eigh's cross-build magnitude noise (~1e-11) so the pivot — and
+# hence the canonical gauge of a simple eigenvector — is build-stable.
+_GAUGE_PIVOT_RTOL = 1e-6
+
 
 class ChannelEigenbasis:
 
@@ -792,7 +799,9 @@ def _generalized_eigh_diag(
     :math:`\omega = \mu` (the oceanographic sign convention:
     ``L q = -i omega q``, so a mode ``q e^{i k x}`` evolves as
     :math:`e^{i(kx - \omega t)}` — positive ``omega`` propagates
-    along ``+k``), and sorts each plane ascending.
+    along ``+k``), sorts each plane ascending, and canonicalizes the
+    eigenvector gauge (:func:`_canonicalize_gauge`) so a simple
+    eigenvector is build-order independent.
 
     Returns
     -------
@@ -814,4 +823,64 @@ def _generalized_eigh_diag(
     order = jnp.argsort(omega, axis=-1)
     omega = jnp.take_along_axis(omega, order, axis=-1)
     q_white = jnp.take_along_axis(q_white, order[..., None, :], axis=-1)
-    return omega, inv_sqrt[:, None] * q_white
+    return omega, _canonicalize_gauge(inv_sqrt[:, None] * q_white)
+
+
+def _canonicalize_gauge(q: jax.Array) -> jax.Array:
+    r"""
+    Pin each eigenvector column to a build-order-independent gauge.
+
+    Description
+    -----------
+    ``eigh`` returns each eigenvector only up to a unit-magnitude
+    phase (a sign for a real vector); the phase LAPACK / cusolver
+    hands back is arbitrary and **not** stable across independent
+    builds whose inputs differ by floating-point noise (a sharded
+    reduction, a different batched eigh shape). This rotates every
+    column so its **pivot** entry — the lowest-index component within
+    :data:`_GAUGE_PIVOT_RTOL` of the column's peak ``|component|`` —
+    is real and positive. Multiplying a column by a unit-magnitude
+    scalar preserves ``M``-orthonormality and the eigen relation
+    ``L q = -i omega q``, and every projector pairs ``q`` with
+    ``q^H`` so the phase cancels there too: only the gauge is fixed,
+    never the physics.
+
+    The pivot tie-break is deterministic — among near-equal peak
+    magnitudes the first stacked-column index wins — and the
+    tolerance sits far above eigh's cross-build magnitude noise, so a
+    **simple** eigenvalue (whose eigenvector direction is itself
+    build-stable) becomes reproducible to eigh precision across
+    builds, including across device counts. For an **exactly
+    degenerate** eigenspace the individual columns are *not* unique:
+    ``eigh`` may return any orthonormal basis of the subspace, and
+    per-column phase pinning cannot canonicalize that subspace
+    *rotation* — only each returned column's phase is pinned
+    (deterministically for a given build input). The channel's
+    structural zero modes (the vortical / divergence-complement
+    kernel) are such a degenerate subspace, so their columns are
+    gauge-fixed but not cross-build unique; the projectors onto the
+    whole subspace remain build-independent regardless. A zero column
+    (never a genuine eigenvector) is left unchanged.
+
+    Parameters
+    ----------
+    q : jax.Array
+        Eigenvectors, shape ``(*modes, D, D)`` — columns on the last
+        axis, stacked-column entries on axis ``-2``.
+
+    Returns
+    -------
+    jax.Array
+        The gauge-canonicalized eigenvectors, same shape.
+    """
+    mags = jnp.abs(q)
+    peak = jnp.max(mags, axis=-2, keepdims=True)
+    near_peak = mags >= (1.0 - _GAUGE_PIVOT_RTOL) * peak
+    # argmax returns the first True: the lowest-index near-peak entry.
+    pivot = jnp.argmax(near_peak, axis=-2)
+    pivot_val = jnp.squeeze(
+        jnp.take_along_axis(q, pivot[..., None, :], axis=-2), axis=-2)
+    magnitude = jnp.abs(pivot_val)
+    safe = jnp.where(magnitude > 0.0, magnitude, 1.0)
+    phase = jnp.where(magnitude > 0.0, pivot_val / safe, 1.0)
+    return q * jnp.conj(phase)[..., None, :]

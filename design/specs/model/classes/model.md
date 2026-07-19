@@ -86,7 +86,7 @@ carry built functionally, reference swapped).
 |--------|-------|
 | Kind | concrete, final (presets are factories, never subclasses) |
 | Pytree | **host object, not a pytree** (a Model-as-pytree would double-flatten the carry — the D2 aliasing bug by construction) |
-| Task | 2.3 (assembly, lifecycle); 2.4 (advance/run/panic); 2.6 (snapshot/io binding); 2.7 (`constrain` and its consumers; `blank_state`/`state_space` **not built**); 2.8 (`tendency`/`variant`) |
+| Task | 2.3 (assembly, lifecycle); 2.4 (advance/run/panic); 2.6 (snapshot/io binding); 2.7 (`constrain` and its consumers; `blank_state`/`state_space` **BUILT** 2026-07-19); 2.8 (`tendency`/`variant`) |
 | Design refs | 04 §6.1–6.7; 01 D1.3/D1.5/D2.4; 02_rules (set_aux, exemptions, fingerprint scope, no-pickled-models); 08 §10.4; CS-2..13 |
 
 ```python
@@ -183,18 +183,18 @@ class Model:
     #  State factories (the surface IC recipes and transforms build on)
     # ================================================================
 
-    def blank_state(self) -> fr.VectorField:                   # NOT BUILT
+    def blank_state(self) -> fr.VectorField:                   # BUILT
         """PROGNOSTIC subset at declared defaults, born sharded
-        (D5 amendment S2). Never implemented: IC recipes compose
-        ``grid.create_field(space, ...)`` with spaces read off
-        ``model.field_table[name].space``. Build or strike —
-        07_open_threads §9.1."""
+        (D5 amendment S2). Thin sugar: packs a zero
+        ``grid.create_field`` per PROGNOSTIC record into the model's
+        state class; the field-table spelling stays equivalent
+        (07_open_threads §9.1)."""
         ...
 
-    def state_space(self, name: str) -> TensorProductSpace:    # NOT BUILT
-        """The negotiated (laid-out) space of a declared field —
-        feeds ``grid.create_field`` / ``grid.random`` (sketch 7.3).
-        Never implemented: read it off ``model.field_table[name].space``
+    def state_space(self, name: str) -> TensorProductSpace:    # BUILT
+        """The resolved space of a declared field — feeds
+        ``grid.create_field`` / ``grid.random`` (sketch 7.3). Thin
+        sugar over ``model.field_table[name].space``
         (07_open_threads §9.1)."""
         ...
 

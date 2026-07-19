@@ -298,7 +298,7 @@ D1.3 commitment-4 channel); packages ship thin aliases
 | # | Addition | Owner | Consumers |
 |---|---|---|---|
 | S1 | **`model.tendency(state, *, t=None, filter=None, constraints=True) -> State`** — host-callable jitted read-only wrapper over the composed tendency (implicit terms via forward apply; constraints optional; never advances the carry) | D4 surface (**applied on sign-off**) | **per-term budget diagnostics** (`filter=fr.terms.named(...)`); term unit tests; linear-stability matvecs; the future TangentPropagator (jvp of exactly this). (NNMD dropped as a consumer — descoped.) |
-| S2 | **`model.blank_state()`** + `model.state_space(name)` | D4 surface (signed, **not built** — recipes use `grid.create_field` + `model.field_table[name].space`; [`07_open_threads.md`](07_open_threads.md) §9.1) | every IC recipe (D1.1 never named the factory recipes build on); transforms |
+| S2 | **`model.blank_state()`** + `model.state_space(name)` | D4 surface (**BUILT** 2026-07-19 — thin sugar over `grid.create_field` + `model.field_table[name].space`; [`07_open_threads.md`](07_open_threads.md) §9.1) | every IC recipe (D1.1 never named the factory recipes build on); transforms |
 | S3 | `em.omega_field(s) -> Field` | 2.7 eigenmode surface — **still deferred**; the shipped `eb.function(f, sel)` makes it a two-liner once a consumer appears | — |
 | S4 | `variant(updates=)` may change value specs (assembly-time) | D5 normative text | OB |
 | S5 | the variant-verify ⊆ lemma | grid notes (verify wording) | all Tier-2 |

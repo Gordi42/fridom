@@ -82,12 +82,12 @@ else. Normative test: preset and explicit assembly produce
 - **`model.blank_state()`** (PROGNOSTIC subset at declared
   defaults, born sharded) and **`model.state_space(name)`** — the
   State factory every IC recipe and transform builds on (used but
-  never named by D1.1). **Not built**: the ported IC recipes compose
-  `grid.create_field(space, ...)` with spaces taken from
-  `model.field_table[name].space` or from the eigenmode surface. The
-  two methods are sugar over the field table, and remain the intended
-  spelling — build them or strike them
-  ([`07_open_threads.md`](07_open_threads.md) §9.1 item 1).
+  never named by D1.1). **BUILT** (2026-07-19): each is thin sugar
+  over the field table — `blank_state()` packs a zero
+  `grid.create_field` per PROGNOSTIC record into the model's state
+  class, `state_space(name)` returns `model.field_table[name].space`.
+  The low-level `grid.create_field(space, ...)` spelling stays
+  equivalent ([`07_open_threads.md`](07_open_threads.md) §9.1 item 1).
 - **`model.variant(term_filter=..., updates=..., name=...)`** — the
   derived-model constructor (full semantics in
   [`08_state_transforms.md`](08_state_transforms.md) §10.4); its
