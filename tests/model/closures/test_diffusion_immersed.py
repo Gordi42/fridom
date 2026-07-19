@@ -4,8 +4,10 @@ Prefix-mirrored shard of ``test_diffusion.py`` (oversized-module rule):
 the immersed fraction-weighted behaviour of the harmonic mixing /
 friction closures (immersed_closures_sadourny_plan, stage A). The
 harmonic family carries the IP-D4 fraction spelling (``_supports_
-immersed``); the biharmonic family, no-slip friction, Smagorinsky, and
-VerticalMixing keep the per-closure taught reject. The gates:
+immersed``); the biharmonic family, no-slip friction and Smagorinsky
+keep the per-closure taught reject (VerticalMixing now supports immersed
+via its wet-aware column — see test_vertical_mixing_immersed.py). The
+gates:
 
 - A-G1 (keystone): immersed **staircase** ≡ **walled** at machine zero
   (diffusion and friction);
@@ -35,7 +37,6 @@ from fridom.model.closures.diffusion import (
     _scale_divergence,
     _weight_flux,
 )
-from fridom.model.closures.vertical_mixing import VerticalMixing
 from fridom.model.model import Model, _chunk_body
 from fridom.model.module import Module
 from fridom.model.modules.coriolis import FPlaneCoriolis
@@ -307,12 +308,6 @@ def test_smagorinsky_on_immersed_is_a_taught_error():
     with pytest.raises(NotImplementedError,
                        match="immersed_closures_sadourny_plan"):
         _build_nh(SmagorinskyLilly())
-
-
-def test_vertical_mixing_on_immersed_is_a_taught_error():
-    with pytest.raises(NotImplementedError,
-                       match="immersed_closures_sadourny_plan"):
-        _build_nh(VerticalMixing(kv=1e-3))
 
 
 def test_no_slip_friction_on_immersed_is_a_taught_error():

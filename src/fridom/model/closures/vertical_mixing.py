@@ -204,7 +204,15 @@ class VerticalMixing(Module):
     The column is measure-aware: a stretched vertical mesh gets its true
     non-uniform spacing and a static terrain-following (``maps=``) grid
     its column Jacobian, both from ``VerticalDiffusion``'s band builder,
-    so no uniform-``dz`` restriction applies. **Along-coordinate
+    so no uniform-``dz`` restriction applies. On an **immersed**
+    (cut-cell) grid the band is additionally wet-aware
+    (immersed_closures_sadourny_plan §5): each column respects the
+    partial-bottom geometry — dry cells are identity rows, a wet/dry face
+    carries no flux (the free-slip immersed boundary), and a wet partial
+    cell carries its true wet width — so the ``theta``-weighted wet
+    tracer content is conserved (Neumann) exactly. A **moving** immersed
+    or terrain column is refused at bind (the solve reads static
+    geometry). **Along-coordinate
     caveat** (§3.6-B, the ROMS-default convention, owner-ratified
     2026-07-19): on a terrain-following grid the solve runs along the
     ``sigma`` coordinate, which is **tilted from the geopotential** where
@@ -341,26 +349,16 @@ class VerticalMixing(Module):
             If a coefficient leg resolves zero target fields (a ``kv``
             with no PROGNOSTIC velocity, or a ``kb`` with no tracer).
         NotImplementedError
-            On an immersed grid, or a **moving** terrain-following solve
-            column (a static stretched or terrain column is supported by
-            the measure-aware band; a moving one needs the params-
-            through-solve seam the implicit ``solve`` cannot reach).
+            On a **moving** terrain-following solve column (a static
+            stretched, terrain or immersed column is supported by the
+            measure-aware / wet-aware band; a moving one needs the
+            params-through-solve seam the implicit ``solve`` cannot
+            reach).
         """
         from fridom.model.declarations import (  # noqa: PLC0415 — avoid an import cycle at module load
             Lifecycle,
         )
         grid = getattr(table, "grid", None)
-        if getattr(grid, "immersed", None) is not None:
-            raise NotImplementedError(
-                "VerticalMixing does not support immersed (cut-cell) "
-                "grids: its implicit column solve assumes a uniform dz "
-                "(the tridiagonal band), so a partial bottom cell would "
-                "silently solve the wrong operator. A wet-aware "
-                "variable-dz tridiagonal is a §5 deferral "
-                "(immersed_closures_sadourny_plan) — the intersection "
-                "of two implicit-machinery generalizations, its own "
-                "roadmap item when picked up. Drop the closure on an "
-                "immersed grid.")
         _reject_moving_terrain_column(grid, self._vertical, table)
         if self.kv is not None:
             self._velocity_targets = self._prognostic(

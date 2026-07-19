@@ -649,9 +649,8 @@ Semantics, invariants, error behavior:
   span at most one chunk (~256 steps), and the chunk-boundary host
   read accumulates in float64 on the host. See the CS-17 resolution
   in [`declarations.md`](declarations.md)'s Open questions.
-  A `fr.modules.WindowAccumulator` preset over this idiom is
-  specified but **not built** (07_open_threads §9.1); the idiom itself
-  is normative and in use.
+  No `fr.modules.WindowAccumulator` preset is promised
+  (07_open_threads §9.1); the idiom itself is normative and in use.
 - **ADVANCE stages** are the by-variable split (03 §5.4):
   module-owned, advancing named PROGNOSTIC subsets reading the
   latest state (Gauss-Seidel via the read rule); buffers are owned

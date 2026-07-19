@@ -846,3 +846,113 @@ def test_terrain_column_is_a_taught_error():
     # misleading Hermiticity-residual message)
     with pytest.raises(ValueError, match="terrain-following column"):
         channel_eigenpairs(_hydro_channel(_terrain_channel_grid()))
+
+
+# ================================================================
+#  Eigenvector gauge canonicalization (build-order independence)
+# ================================================================
+def _pivots(q):
+    """Per-column pivot values: the lowest-index near-peak entry."""
+    mags = np.abs(q)
+    peak = mags.max(axis=-2, keepdims=True)
+    near = mags >= (1.0 - eigen_channel._GAUGE_PIVOT_RTOL) * peak
+    pivot = np.argmax(near, axis=-2)
+    return np.take_along_axis(q, pivot[..., None, :], axis=-2)[..., 0, :]
+
+
+def _cluster_projector(omega, q, metric, threshold):
+    """M-orthogonal projector onto the |omega| < threshold subspace."""
+    mask = (np.abs(omega) < threshold).astype(float)
+    return np.einsum("...ij,...j,...kj,k->...ik", q, mask,
+                     np.conj(q), metric)
+
+
+def _neighbor_gap(omega):
+    """Min spacing to an adjacent eigenvalue per (plane, column)."""
+    gap = np.full(omega.shape, np.inf)
+    spacing = np.abs(np.diff(omega, axis=-1))
+    gap[..., 1:] = np.minimum(gap[..., 1:], spacing)
+    gap[..., :-1] = np.minimum(gap[..., :-1], spacing)
+    return gap
+
+
+def test_canonicalize_gauge_pins_the_pivot_real_positive(basis):
+    # the canonical gauge: every eigenvector column's pivot (the
+    # lowest-index entry within the rtol band of its peak |component|)
+    # is real and strictly positive
+    piv = _pivots(np.asarray(basis.q))
+    scale = np.abs(piv).max()
+    assert np.abs(piv.imag).max() < 1e-12 * scale
+    nonzero = np.abs(piv) > 1e-8 * scale
+    assert nonzero.all()  # every eigenvector column has a real pivot
+    assert (piv.real[nonzero] > 0.0).all()
+
+
+def test_canonicalize_gauge_is_invariant_to_a_phase_scramble():
+    # the canonical form is unchanged when each column is pre-rotated
+    # by an arbitrary unit phase - exactly the freedom eigh leaves on
+    # a simple eigenvector; the pre-canonical columns genuinely differ
+    rng = np.random.default_rng(0)
+    d, nmodes = 6, 5
+    a = (rng.standard_normal((nmodes, d, d))
+         + 1j * rng.standard_normal((nmodes, d, d)))
+    q1, _ = np.linalg.qr(a)  # unitary (M = I) columns
+    phases = np.exp(1j * rng.uniform(0.0, 2 * np.pi, (nmodes, d)))
+    q2 = q1 * phases[:, None, :]
+    c1 = np.asarray(eigen_channel._canonicalize_gauge(jnp.asarray(q1)))
+    c2 = np.asarray(eigen_channel._canonicalize_gauge(jnp.asarray(q2)))
+    assert np.abs(c1 - c2).max() < 1e-12
+    assert np.abs(q1 - q2).max() > 0.5  # the scramble is a real change
+    assert np.abs(_pivots(c1).imag).max() < 1e-12
+
+
+def test_canonicalize_gauge_leaves_a_zero_column_untouched():
+    # a zero column (never a genuine eigenvector) passes through: the
+    # phase falls back to 1, no divide-by-zero
+    q = jnp.zeros((1, 3, 3), dtype=complex).at[:, :, 0].set(
+        jnp.asarray([0.0, 1.0j, 0.0]))
+    out = np.asarray(eigen_channel._canonicalize_gauge(q))
+    assert np.abs(out[0, :, 1:]).max() == 0.0  # zero columns unchanged
+    assert out[0, 1, 0] == pytest.approx(1.0)  # pivot rotated real +
+
+
+def test_cross_build_gauge_is_reproducible(basis, monkeypatch):
+    # a second, independent build whose eigh input differs by a tiny
+    # Hermitian perturbation (mimicking sharded-reduction FP noise, or
+    # a different batched-eigh shape across device counts) yields the
+    # SAME canonical eigenvector on every simple-eigenvalue column and
+    # the SAME projectors everywhere - including onto the degenerate
+    # zero subspace, whose individual columns still rotate freely.
+    orig = eigen_channel._generalized_eigh_diag
+
+    def perturbed(hamiltonian, metric_diag, chunk):
+        rng = np.random.default_rng(2024)
+        a = jnp.asarray(rng.standard_normal(hamiltonian.shape)
+                        + 1j * rng.standard_normal(hamiltonian.shape))
+        herm = a + jnp.conj(jnp.swapaxes(a, -1, -2))
+        scale = 1e-9 * jnp.max(jnp.abs(hamiltonian))
+        return orig(hamiltonian + scale * herm, metric_diag, chunk)
+
+    monkeypatch.setattr(
+        eigen_channel, "_generalized_eigh_diag", perturbed)
+    other = channel_eigenpairs(make_walled_model())
+
+    om_a, om_b = np.asarray(basis.omega), np.asarray(other.omega)
+    qa, qb = np.asarray(basis.q), np.asarray(other.q)
+    metric = np.asarray(basis.metric)
+
+    # physics unchanged: the spectrum barely moves
+    assert np.abs(om_a - om_b).max() < 1e-6
+    # projectors are gauge- AND subspace-rotation-free: identical onto
+    # the |omega|<1e-5 zero cluster and (completeness) the identity
+    proj_a = _cluster_projector(om_a, qa, metric, 1e-5)
+    proj_b = _cluster_projector(om_b, qb, metric, 1e-5)
+    assert np.abs(proj_a - proj_b).max() < 1e-7
+    ident = _cluster_projector(om_a, qa, metric, np.inf)
+    assert np.abs(ident - _cluster_projector(
+        om_b, qb, metric, np.inf)).max() < 1e-12
+    # simple-eigenvalue columns: the canonical eigenvectors agree
+    simple = _neighbor_gap(om_a) > 1e-2
+    assert simple.any()
+    coldiff = np.abs(qa - qb).max(axis=-2)
+    assert coldiff[simple].max() < 1e-6

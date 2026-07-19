@@ -240,6 +240,24 @@ class ImmersedDomain:
         clone._cache = {}  # noqa: SLF001 — fresh per-grid materialize cache
         return clone
 
+    def _invalidate_cache(self) -> None:
+        """
+        Drop the materialization cache after a grid re-negotiation.
+
+        Description
+        -----------
+        The bound grid calls this when ``negotiate`` reports a changed
+        default layout: the cached fractions/masks/offsets are padded
+        to the old storage frame, and the cache key carries the halo
+        but not the layout, so a same-halo query after a layout change
+        would return a stale wrong-shape array. Dropping the cache
+        honors the derive-on-demand contract (the entries re-
+        materialize in the new frame on next query); it fires only when
+        the layout truly changes, so the normal build->run ordering
+        pays nothing.
+        """
+        self._cache = {}
+
     # ================================================================
     #  Derived per-space fields (derive-on-demand, section 3.7)
     # ================================================================

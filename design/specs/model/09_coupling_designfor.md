@@ -122,8 +122,8 @@ without:
    normatively; (c) **D2.3's escape-hatch pointer is re-aimed from
    `self_update` to S6 DIAGNOSTIC stages**, with `cadence=STEP`
    reserved on self_update and the per-substage hazard documented;
-   (d) optionally a `fr.modules.WindowAccumulator` preset
-   (host-reset and in-trace modulo-reset variants).
+   (d) a windowed-accumulation preset can be introduced with coupling
+   if wanted (host-reset and in-trace modulo-reset variants).
 2. **The re-materialization exemption (walk F4).** As signed,
    `update_parameters` re-runs declaration defaults for all AUX of
    a changed owner — **silently zeroing host-written exchange
@@ -190,7 +190,7 @@ Merged from c2's 12 and c3's H1–H11 (deduplicated); **CS-1..3 are
 | CS-14 | `StateTransform` stays product-ready: signatures are opaque compared values, no `isinstance(state, State)` in the base, endo-ness asserted only where required | H10 |
 | CS-15 | `Regrid` (Phase-3 slot): grid-pair-bound, built after both freezes, host-held; constructor admits `conservative=True` with the discrete-integral-preservation contract stated | F8, c1 |
 | CS-16 | Surface/trace restriction operator (3D → boundary 2D) on the Phase-3 operator list; coupler-AUX space policy pinned: Profile-broadcast + owner-declared indicator AUX for it-1, §3.6 trace-space designed-for (with `set_aux` re-homing specified for both) | F3, F10 |
-| CS-17 | RESOLVED (2026-07-08, Silvano): **global precision only** — no per-space width axis; `scalars` stays Körper-only. Accumulator precision is covered by the S6 chunk-cadence idiom: in-trace sums span at most one chunk, the chunk-boundary host read accumulates in float64 on the host (`fr.modules.WindowAccumulator`). See [`classes/declarations.md`](classes/declarations.md), Open questions item 3 | F8 |
+| CS-17 | RESOLVED (2026-07-08, Silvano): **global precision only** — no per-space width axis; `scalars` stays Körper-only. Accumulator precision is covered by the S6 chunk-cadence idiom: in-trace sums span at most one chunk, the chunk-boundary host read accumulates in float64 on the host (the S6 accumulation idiom; no `WindowAccumulator` preset is promised). See [`classes/declarations.md`](classes/declarations.md), Open questions item 3 | F8 |
 | CS-18 | The **coupler protocol page** (doc, not a class): exchange-then-advance order (primes window 0; self-heals staleness), snapshots of coupled runs only at window boundaries, cross-model clock assertion on resume, window index derived from clocks | F6, F9 |
 
 ## 11.4 Reconciliations (where the reports differed)

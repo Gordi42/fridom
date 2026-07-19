@@ -254,7 +254,7 @@ The normative conventions:
   of the freshly computed level. Ring entries are **PROGNOSTIC-only
   tendency/state vectors** shaped like `init`'s template (their
   key-aligned application to a full state is
-  `State.add_prognostic` — fields.md follow-up, open question 2).
+  `state.add(**components)` — the final spelling, 07 §9.1 item 3).
 - **The warm-up counter** is a saturating scalar
   (`jnp.minimum(counter + 1, levels - 1)`, int32), stepper-local.
   It selects a row of a dense zero-padded static table — one
@@ -516,7 +516,7 @@ adapted to the `BoundSchedule` seam):
         incr = weights[0] * levels[0]
         for j in range(1, self.order):                      # static unroll, ascending j
             incr = incr + weights[j] * levels[j]
-        state = state.add_prognostic(incr)                  # S3
+        state = state.add(**incr.components)                # S3
         clock = clock.tick(self.dt)
         ctx   = stages.context(clock, dt=self.dt, stage_dt=self.dt,
                                sums=sums)
@@ -564,8 +564,8 @@ Semantics, invariants, error behavior:
   the old framework and framework2 are differently-compiled programs
   (phase-1 finding 1; the 02_rules.md bitwise-equality umbrella).
 - The **increment is PROGNOSTIC-only** and lands via
-  `state.add_prognostic(incr)` — the key-aligned add (fields.md
-  follow-up; open question 2).
+  `state.add(**incr.components)` — the key-aligned add (the final
+  spelling, 07 §9.1 item 3).
 - **`time_discretization_effect`** uses the full-order row including
   eps at order 2 — warm-up rows never enter the asymptotic analysis.
 - Backward runs need nothing: the table is dt-free, `weights`
@@ -692,7 +692,7 @@ mutation-idiom artifacts killed by contribution dicts):
    at the stage time** (P0; exactly D2's per-stage obligation, and
    why a Ramp forcing is correct under RK with zero extra
    machinery); `stages.prepare` (S1/S1'); build the stage state from
-   `state` plus the `a[i][j]`-weighted `k_j` via `add_prognostic`;
+   `state` plus the `a[i][j]`-weighted `k_j` via `state.add`;
    `k_i = stages.tendency(stage_state, ctx_i).explicit`;
    `stages.constrain` applies to the stage state (project-the-state
    holds per produced state, §5.2's per-substage S4).
@@ -886,7 +886,7 @@ Step algorithm (prose-normative):
    `partition = op.solve(rhs restricted to op.fields, dt_gamma,
    ctx)` — γ-agnostic solves, coupled blocks atomic; components
    under no implicit operator take the explicit combine only
-   (via `add_prognostic`).
+   (via `state.add`).
 6. Tick; rebuild ctx with `sums` attached; `stages.advance_stages`
    (S3' — barotropic subcycle et al.); `stages.constrain` (S4 —
    **project-the-state once per step**, after the solves: the only
@@ -1146,10 +1146,11 @@ questions are not reopened.
    `p = φ/stage_dt` projection normalization, and the increment-form
    barotropic forcing all read the signed dt coherently on a
    backward leg. The named test lands with the cutover-parity suite.
-2. **`add_prognostic`** — the key-aligned add of PROGNOSTIC-only
-   vectors onto a full state (fields.md follow-up, alongside
-   `VectorField.add`): every family's combine step in this file
-   consumes it; owned by the grid-cluster fields spec.
+2. **`add_prognostic` — STRUCK (2026-07-19).** The key-aligned add of
+   PROGNOSTIC-only vectors onto a full state is
+   `state.add(**components)`, which every family's combine step in this
+   file already consumes; that is the final spelling (07 §9.1 item 3).
+   No separate method is added.
 3. **Chunked-scan buffer donation** (implementation): AB(order) /
    IMEX rings hold order−1 PROGNOSTIC copies (one less than the old
    `dz_list` — past entries only, amended 2026-07-12); confirm

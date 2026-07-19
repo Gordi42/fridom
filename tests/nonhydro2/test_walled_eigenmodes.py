@@ -854,7 +854,9 @@ def test_walled_fv_zconstant_buoyancy_is_pure_vortical():
     model, em = _walled_from_model("fv")
     grid, kit = model.grid, em.kit
     _, base0 = _rest_background(fr.model.linearize(model), 0.0)
-    bf = grid.create_field(model.state["b"].function_space,
+    # model.state_space(name) is the State factory's space accessor
+    # (04 section 6.1) — the declared "b" space, fed to create_field.
+    bf = grid.create_field(model.state_space("b"),
                            init=lambda x, y, z: (x + y + z) * 0.0 + 1.0)
     phys = base0.replace(b=base0["b"].with_data(bf.data))
     zeta = State({c: kit.forward(c)(phys[c].retag(kit.forward(c).domain))
