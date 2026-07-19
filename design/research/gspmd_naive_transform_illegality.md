@@ -9,7 +9,7 @@ Owner directive (2026-07-18 chat): "make it illegal in general to use
 the naive GSPMD transform path." This record holds the doability/impact
 study and what shipped the same day (phases 0–1 plus the fallout
 waves). Remaining phases:
-[`../plans/active/gspmd_transform_illegality_plan.md`](../plans/active/gspmd_transform_illegality_plan.md).
+[`../plans/done/gspmd_transform_illegality_plan.md`](../plans/done/gspmd_transform_illegality_plan.md).
 
 ## The study (verified findings)
 

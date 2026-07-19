@@ -2136,7 +2136,7 @@ Implementation record:
   Study + campaign record:
   [`../research/gspmd_naive_transform_illegality.md`](../research/gspmd_naive_transform_illegality.md);
   phases 2+ in
-  [`../plans/active/gspmd_transform_illegality_plan.md`](../plans/active/gspmd_transform_illegality_plan.md).
+  [`../plans/done/gspmd_transform_illegality_plan.md`](../plans/done/gspmd_transform_illegality_plan.md).
 
 - **Interval-accounting sharding regressions — FIXED (one loud, one
   silent)** (2026-07-18). Surfaced by the campaign's forced-4 residual
@@ -2428,7 +2428,49 @@ Implementation record:
   `design/research/analytic_eigenmode_distributed_route.md`
   (`e4d2f892`). Remaining in the plan file: Tier-2 (now ripe),
   Wave B walled-vertical analytic, no-gather random synthesis,
-  trig/mixed families, GPU-scoped checkpoint items.
+  trig/mixed families, GPU-scoped checkpoint items — all four
+  shipped later the same day (entry below).
+
+- **2026-07-19 — GSPMD transform illegality campaign completed**
+  (four merges: Tier-2 `dec698e2`, no-gather synthesis `8462be11`,
+  Wave B `4367d2f9`, trig/mixed `48cfc25c`; plan record with full
+  per-item outcomes and deviations:
+  [`../plans/done/gspmd_transform_illegality_plan.md`](../plans/done/gspmd_transform_illegality_plan.md)).
+  **Tier-2**: `Transform._reject_replicating_transform` outlaws the
+  silent replicating transform (all stage axes local, another axis
+  sharded → hidden all-gather via the replicated coefficient
+  contract, verified in HLO); escape =
+  `SpectralSolve(..., allow_replicated=True)`, an explicit
+  replicate-then-compute. Owner-attention deviations: the study's
+  "zero Tier-2-only breakage" missed the deliberately-legal
+  `test_reshard_transform_backward_round_trip` pin (converted to
+  taught-error + explicit `Layout({})` escape), and the recorded
+  escape sites trip Tier-1 in practice (the escape serves them
+  regardless; the Wave-B escape was never needed in code).
+  **Wave B**: `WalledVerticalTransform` — periodic axes through the
+  transpose pipeline, trig z local per shard, `ModeChart.embed` onto
+  the union lattice, frame-local D×D matrix; walled-vertical
+  projections ≤1.6e-15, balance ≤2.8e-16, `mode()`/random-state 0.0
+  (replicated fallback per design §4 —
+  `AnalyticDistributedRoute.can_synthesize=False` gates it; the
+  fused synthesize is architecturally impossible on walled frames),
+  HLO all-to-all only, grad 2.2e-12.
+  **No-gather synthesis**: `hermitian_reframe` completes the
+  device-independent gains onto the re-designated internal frame
+  (self-conjugate DC/Nyquist planes take the
+  `(stored + reflected-conj)/2` average — exactly the Hermitian
+  projection `irfft` applied silently); random-state/`mode()` run
+  the fused backward, nh2 1.33e-15 / sw2 4.44e-16, no all-gather on
+  the IC path (HLO-asserted).
+  **Trig/mixed**: `ComposedTransform.apply_diagonal` routes sharded
+  operands through the walled solve's `SlabPlan`
+  (`apply_plan_diagonal`, 2 all-to-alls — deliberately *not* the
+  4-all-to-all Wave-B region), serving the walled-channel spectral
+  apply at 1.2e-14 invariance, grad 1.3e-13; pure-trig homogeneous
+  shapes stay declined (no consumer; machinery verified ready,
+  1.3e-14 probe). Combined forced-4 battery over all campaign
+  surfaces on the final tree: 423 passed, 0 failed. Remaining:
+  the owner-batched GPU checkpoint ([`open.md`](open.md)).
 
 - **2026-07-19 — 2-D channel eigen served sharded (`Channel2DPlan`,
   merge `8752170a`).** The highest-exposure sharded-periodic
