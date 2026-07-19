@@ -32,11 +32,11 @@ CSQR = 2.0
 
 
 def _one_device_grid(*, periodic_y=True):
-    # device_ids=(0,) twin of the conftest make_grid: the analytic IC
-    # synthesis and eigenmode projections go through the naive (GSPMD)
-    # transform, a Tier-1 taught error on a sharded transform axis (see
-    # transform.py). Pinning to one device tests the math at any device
-    # count (the default single-device suite is unchanged).
+    # device_ids=(0,) twin of the conftest make_grid: pins the shared
+    # module fixtures to one device so the math runs at any device
+    # count, and serves as the reference build for the device-count
+    # invariance tests (the sharded paths are served by the fused
+    # distributed routes and compared against this twin).
     mx = fr.spatial.meshes.IntervalMesh(N, (0.0, 1.0),
                                      periodic=True, name="x")
     my = fr.spatial.meshes.IntervalMesh(N, (0.0, 1.0),
@@ -238,20 +238,24 @@ def test_channel_random_state_is_deterministic(channel):
 
 
 @pytest.mark.multi_device
-def test_channel_random_state_on_a_sharded_grid_is_a_taught_error(
+def test_channel_random_state_on_a_sharded_grid_is_device_invariant(
         forced_devices):
-    # known test debt: the channel random-state synthesis projects
-    # through the naive (GSPMD) transform, so on a grid that shards the
-    # periodic axis the Tier-1 guard raises. The determinism math above
-    # runs at any device count via the device_ids=(0,) channel fixture.
+    # WAS a taught error: the channel random-state synthesis routes
+    # through the fused channel contraction (Channel2DPlan) since the
+    # distributed-transform campaign, so a grid that shards the
+    # periodic axis reproduces the one-device reference.
     if forced_devices is not None:
         assert jax.device_count() == forced_devices
     model = make_model(make_grid(periodic_y=False), csqr=CSQR,
                        f0=1.5, advection=False)
-    eb = sw.eigenbasis(model)
-    with pytest.raises(NotImplementedError,
-                       match="cannot run on this grid"):
-        sw.random_vortical(eb, seed=4)
+    sharded = sw.random_vortical(sw.eigenbasis(model), seed=4)
+    reference = make_model(_one_device_grid(periodic_y=False),
+                           csqr=CSQR, f0=1.5, advection=False)
+    expected = sw.random_vortical(sw.eigenbasis(reference), seed=4)
+    for c in COMPONENTS:
+        assert np.allclose(np.asarray(sharded[c].data),
+                           np.asarray(expected[c].data),
+                           rtol=0.0, atol=1e-12)
 
 
 # ================================================================
