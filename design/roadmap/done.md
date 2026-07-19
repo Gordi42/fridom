@@ -2012,3 +2012,26 @@ Implementation record:
   rulings nothing remains open: plan moved to
   [`../plans/done/boundary_trace_plan.md`](../plans/done/boundary_trace_plan.md)
   (rulings recorded in its §9), roadmap bullet deleted.
+
+- **Halo-cap ratifications — both ruled, shipped** (2026-07-19; dev
+  merge `fc2a3b66`, `fix/halo-floor-semantics`). The two owner items
+  flagged by the frozen-verify cap-asymmetry fix (`8a787452`; record
+  [`../research/halo_sharding_invariants.md`](../research/halo_sharding_invariants.md)
+  §1) are closed by rulings implemented the same day. (a) Explicit
+  `halo=`/`extra_halo` joins the **uncappable per-application floor**
+  on negotiate AND verify — superseding the interim
+  "cap explicit halo on verify" reading — because `halo=` is the
+  declaration channel for trace-exempt bypass modules whose reach the
+  tracer cannot see; capping it risks silent out-of-bounds reads in
+  raw-data stages. A wide `extra_halo` on a small axis now honestly
+  disqualifies that axis from sharding (auto layouts drop it to 1
+  device; explicit device requests get a taught error). (b) The
+  `_cap_for_sharding` over-reach is fixed: the cap now applies only
+  to sharding-*candidate* axes (GHOST strategy + `min_local_size`;
+  shared `_ghost_traits` helper keeps candidacy aligned with
+  `_shardable_names`). A GPU A/B was judged unnecessary: the cap
+  provably never engages at benchmark scales (it needs an axis
+  shorter than ~(width+1)·P ≈ 20 cells; the smallest bench axis is
+  64, and multigrid coarse levels are floor-guarded identically on
+  both sides). The weno5 momentum z-seam residual is the one item
+  left open in this family ([`open.md`](open.md)).

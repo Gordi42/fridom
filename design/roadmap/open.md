@@ -99,17 +99,15 @@ Still open:
 - **Tier-2 decision (owner)** — whether all-local naive transforms on
   a multi-device mesh (silent all-gather) also become illegal, with an
   allow-replicated escape for Chebyshev/mismatched-layout solves.
-- **Ratifications (owner)** — verify-side capping of explicit `halo=`
-  (shipped behavior, consistent with negotiate) and the
-  `_cap_for_sharding` over-reach onto non-sharded axes.
 - **weno5 momentum z-seam (~1e-5) on z-sharded layouts** — the
   residual of the 2026-07-19 seam fix (entry in
   [`done.md`](done.md)): `WenoReconstruction`'s vertical
   footprint exceeds the negotiated z-halo of 2 on a z-sharded
   layout, leaving a ~1e-5 seam error in u/v (buoyancy is fixed;
   a z-halo >= 3 cures it in probe runs). This lives in the
-  owner-governed halo negotiation/cap machinery (the same family
-  as the two ratification items above), so it is deliberately
+  owner-governed halo negotiation/cap machinery (the family the
+  2026-07-19 halo-floor rulings reshaped, `fc2a3b66` — entry in
+  [`done.md`](done.md)), so it is deliberately
   left for an owner call rather than patched around; the
   z-shard parity test pins the current behavior (b tight,
   momenta finite-only) and documents the residual in-code.
