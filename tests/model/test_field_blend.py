@@ -12,6 +12,7 @@ with weights {1, lambda(t)} is the special case of a constant and a
 leaf weight.
 """
 from functools import partial
+from types import SimpleNamespace
 
 import jax
 import jax.numpy as jnp
@@ -24,6 +25,7 @@ from fridom.model.field_blend import BlendIngredient, FieldBlend
 from fridom.model.model import Model
 from fridom.model.module import Module
 from fridom.model.parameters import ParameterDeclaration, leaf
+from fridom.model.stages import StageKind
 from fridom.model.terms import term
 from fridom.model.time_dependent import Ramp
 from fridom.model.time_steppers.adam_bashforth import AdamBashforth
@@ -164,6 +166,37 @@ def test_evaluate_equals_the_affine_combination(t):
     want = float(ramp0.at_time(t)) + float(ramp1.at_time(t)) * x
     np.testing.assert_allclose(np.asarray(g.data), want, rtol=0.0,
                                atol=1e-13)
+
+
+# ================================================================
+#  The SELF_UPDATE rewrite path (TDF-D11): stage + rewrite helpers
+# ================================================================
+def test_stage_declares_a_self_update_rewrite():
+    """FieldBlend.stage wires the reusable SELF_UPDATE stage (TDF-D11).
+
+    A future consumer wires two thin lines: this stage() call (reading
+    the target plus every ingredient, writing the target, no extra_halo)
+    and a one-line rewrite method pointing fn at rewrite().
+    """
+    stage = _TOY_BLEND.stage("_rewrite_g", target="g", name="g_blend")
+    assert stage.kind is StageKind.SELF_UPDATE
+    assert stage.fn == "_rewrite_g"
+    assert stage.name == "g_blend"
+    assert stage.reads == ("g", "g_const", "g_coord")
+    assert stage.writes == ("g",)
+
+
+@pytest.mark.parametrize("t", [0.0, 0.4, 1.0])
+def test_rewrite_wraps_evaluate_at_the_substage_clock(t):
+    """FieldBlend.rewrite returns {target: evaluate at ctx clock time}."""
+    ramp1 = Ramp(0.0, 2.0, period=1.0, curve="exp")
+    model = make_model(a0=0.5, a1=ramp1)
+    module = model.module(BlendedForcing)
+    ctx = SimpleNamespace(clock=t)
+    out = _TOY_BLEND.rewrite(module, model.state, ctx, target="g")
+    assert set(out) == {"g"}
+    want = 0.5 + float(ramp1.at_time(t)) * _x_nodes(model)
+    np.testing.assert_allclose(np.asarray(out["g"].data), want, atol=1e-12)
 
 
 def test_evaluate_two_endpoint_form_is_p_ref_plus_lambda_delta():

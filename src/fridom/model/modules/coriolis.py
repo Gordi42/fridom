@@ -171,7 +171,6 @@ def linear_rotation(
     *,
     metric_weight: str | None = None,
     f_override: object = None,
-    f_field: object = None,
 ) -> dict:
     r"""
     Return the linear staggered rotation ``f v`` / ``-f u`` (flat).
@@ -204,14 +203,6 @@ def linear_rotation(
         field lift ``.to(u)`` is skipped. ``None`` keeps the field
         path, so the static (plain-float) case is bit-identical
         (default: None).
-    f_field : object, optional
-        A **stage-time f(y) field** (a ``ScalarField`` on the
-        ``f_coriolis`` space) to use in place of the assembly-frozen
-        ``f_coriolis`` field — the beta-plane ``FieldBlend`` path (AR-D2
-        / R2): the ramped ``f(y,t) = f0(t) + beta(t)*y`` blended from
-        the ingredient profiles at stage time, lifted onto the ``u``
-        faces exactly like the frozen field. ``None`` keeps the frozen
-        field (default: None).
 
     Returns
     -------
@@ -220,14 +211,12 @@ def linear_rotation(
     """
     u, v = state["u"], state["v"]
     # a scalar override is already constant in space (the f-plane), so
-    # the field lift ``.to(u)`` is a no-op broadcast and is skipped; a
-    # blended f(y) field (beta-plane) is lifted like the frozen field
-    if f_override is not None:
-        f_u = f_override
-    elif f_field is not None:
-        f_u = f_field.to(u)
-    else:
-        f_u = state["f_coriolis"].to(u)
+    # the field lift ``.to(u)`` is a no-op broadcast and is skipped;
+    # otherwise the carried ``f_coriolis`` field is lifted onto the
+    # ``u`` faces (a beta-plane ``FieldBlend`` rewrites that carried
+    # field to the stage-time blend in its SELF_UPDATE stage — TDF-D11)
+    f_u = (f_override if f_override is not None
+           else state["f_coriolis"].to(u))
     if metric_weight is None:
         return {
             "u": f_u * v.to(u),
@@ -341,18 +330,18 @@ def _coriolis(self, state, ctx) -> dict:  # noqa: ANN001
     ``f0`` (the f-plane R1 path), ``_stage_scalar_f`` returns the
     stage-time value ``f0(t)`` and the term reads it instead of the
     assembly-frozen field. When it carries a ramped ``f(y,t)`` (the
-    beta-plane ``FieldBlend`` path, R2), ``_stage_blend_f`` returns the
-    stage-time blended field. A fully static module (plain-float ``f0``
-    and ``beta``) leaves both overrides ``None`` and the assembly-frozen
-    field path runs bit-identically.
+    beta-plane ``FieldBlend`` path, R2) or a ``ProfileFunction`` law
+    (R3), the module rewrites the carried ``f_coriolis`` field to the
+    stage-time value in a SELF_UPDATE stage (TDF-D11), so the term reads
+    it plainly here — no term-side blend seam. A fully static module
+    (plain-float ``f0`` and ``beta``) leaves ``f_override`` ``None`` and
+    the assembly-frozen field path runs bit-identically.
     """
     stage_f = getattr(self, "_stage_scalar_f", None)
     f_override = stage_f(ctx) if stage_f is not None else None
-    stage_blend = getattr(self, "_stage_blend_f", None)
-    f_field = stage_blend(state, ctx) if stage_blend is not None else None
     return linear_rotation(
         state, metric_weight=self._metric_weight,
-        f_override=f_override, f_field=f_field)
+        f_override=f_override)
 
 
 _WEIGHT_HINT = ("the velocity energy-metric weight field (e.g. the "
@@ -434,9 +423,12 @@ def _f_grad_ingredient(
 #: the beta-plane Coriolis blend ``f(y,t) = f0(t)*1 + beta(t)*y`` — two
 #: assembly-materialized profiles (the constant unit and the meridional
 #: coordinate) weighted by the module's own ``f0`` / ``beta`` leaves,
-#: read at stage time (AR-D2). The two-endpoint paper form
-#: ``f0 + rho(t/tau)*beta*y`` is the special case ``f0`` static, ``beta``
-#: a ``Ramp`` (its ``0 -> beta`` ramp is ``rho(t/tau)*beta``).
+#: read at stage time (AR-D2). A SELF_UPDATE stage (TDF-D11) rewrites the
+#: carried ``f_coriolis`` field to this blend each substage, so every
+#: reader (the rotation term, I/O, restart) sees the stage-time value.
+#: The two-endpoint paper form ``f0 + rho(t/tau)*beta*y`` is the special
+#: case ``f0`` static, ``beta`` a ``Ramp`` (its ``0 -> beta`` ramp is
+#: ``rho(t/tau)*beta``).
 _BETA_BLEND = FieldBlend((
     BlendIngredient("f_coriolis_const", weight="f0",
                     build=_f_const_ingredient),
@@ -632,8 +624,10 @@ class BetaPlaneCoriolis(Module):
     field and the meridional coordinate), so ramp-endpoint sweeps never
     recompile and the pointwise blend adds no halo traffic. The state
     then also carries the two ingredient fields ``f_coriolis_const`` /
-    ``f_coriolis_grad``, and ``f_coriolis`` is materialized as the
-    ``t = 0`` snapshot; the rotation term reads the fresh blend.
+    ``f_coriolis_grad``, and ``f_coriolis`` is marked ``time_dependent``:
+    a SELF_UPDATE stage rewrites it to the stage-time blend every
+    substage (TDF-D11), so the rotation term, I/O and any cross-module
+    reader all see the fresh value (no frozen ``t = 0`` snapshot).
 
     Parameters
     ----------
@@ -667,8 +661,9 @@ class BetaPlaneCoriolis(Module):
         the Coriolis parameter is the spatially varying field
         :math:`f(y,t) = f_0(t) + \beta(t)\,y`, blended at stage time
         from the assembly-materialized unit and meridional-coordinate
-        profiles (see :data:`_BETA_BLEND`). The static (plain-float)
-        path is untouched.
+        profiles (see :data:`_BETA_BLEND`) and written back to the
+        carried ``f_coriolis`` field each substage by a SELF_UPDATE
+        stage (TDF-D11). The static (plain-float) path is untouched.
 
         A ``ProfileFunction`` ``f`` gives the complete **non-affine**
         law :math:`f(y,t)` (TDF-D7): the ``f_coriolis`` field is marked
@@ -745,15 +740,17 @@ class BetaPlaneCoriolis(Module):
         """The ``f(y)`` field, plus the blend ingredients when ramped.
 
         The static (plain-float) path declares the single ``f_coriolis``
-        profile exactly as before. A ramped ``f0``/``beta`` additionally
-        declares the two ``FieldBlend`` ingredient profiles
-        (``f_coriolis_const``, ``f_coriolis_grad``); ``f_coriolis``
-        itself stays declared as the ``t = 0`` snapshot (so downstream
-        consumers and I/O keep a valid field), while the rotation term
-        reads the fresh stage-time blend. A ``ProfileFunction`` ``f``
-        (TDF-D7) declares the single ``f_coriolis`` field marked
-        ``time_dependent`` (materialized at ``t = 0``), rewritten each
-        substage by the SELF_UPDATE stage.
+        profile exactly as before (``time_dependent=False``, so the
+        assembly fingerprint is untouched — the marker is repr-
+        participating only when True). A ramped ``f0``/``beta`` marks
+        ``f_coriolis`` ``time_dependent`` and additionally declares the
+        two ``FieldBlend`` ingredient profiles (``f_coriolis_const``,
+        ``f_coriolis_grad``); a SELF_UPDATE stage rewrites ``f_coriolis``
+        to the stage-time blend each substage (TDF-D11), so every reader
+        sees the fresh value. A ``ProfileFunction`` ``f`` (TDF-D7) marks
+        the single ``f_coriolis`` field ``time_dependent`` (materialized
+        at ``t = 0``), rewritten each substage by its own SELF_UPDATE
+        stage.
         """
         if self._profile_active:
             return (FieldDeclaration(
@@ -765,7 +762,8 @@ class BetaPlaneCoriolis(Module):
         f_coriolis = FieldDeclaration(
             "f_coriolis", space=Profile(self._meridional),
             lifecycle=Lifecycle.AUXILIARY, default=self._f_default,
-            long_name="Coriolis parameter", units="1/s")
+            long_name="Coriolis parameter", units="1/s",
+            time_dependent=self._blend_active)
         if not self._blend_active:
             return (f_coriolis,)
         return (f_coriolis, *_BETA_BLEND.field_declarations(
@@ -790,17 +788,30 @@ class BetaPlaneCoriolis(Module):
         return grid.create_field(space, data=data, name="f_coriolis")
 
     # ================================================================
-    #  The SELF_UPDATE stage (law path only, S1 per substage)
+    #  The SELF_UPDATE stage (law or blend path, S1 per substage)
     # ================================================================
     @property
     def stages(self) -> tuple[Stage, ...]:
-        """The per-substage ``f(y,t)`` recompute (law path only)."""
-        if not self._profile_active:
-            return ()
-        return (Stage(
-            kind=StageKind.SELF_UPDATE, fn="_update_f_coriolis",
-            name="coriolis_f", reads=("f_coriolis",),
-            writes=("f_coriolis",)),)
+        """The per-substage ``f_coriolis`` rewrite (law or blend path).
+
+        The law path (``ProfileFunction`` ``f``, TDF-D7) recomputes the
+        full ``f(y,t)`` law from raw sampled data; the blend path (a
+        ramped ``f0``/``beta``, AR-D2 / TDF-D11) rewrites the carried
+        field to the affine ``FieldBlend`` combination via the reusable
+        ``FieldBlend.stage`` helper. The two are mutually exclusive
+        (``_check_profile_law`` rejects a ramped ``f0``/``beta`` beside a
+        law), and a fully static module emits no stage.
+        """
+        if self._profile_active:
+            return (Stage(
+                kind=StageKind.SELF_UPDATE, fn="_update_f_coriolis",
+                name="coriolis_f", reads=("f_coriolis",),
+                writes=("f_coriolis",)),)
+        if self._blend_active:
+            return (_BETA_BLEND.stage(
+                "_update_f_coriolis_blend", target="f_coriolis",
+                name="coriolis_f_blend"),)
+        return ()
 
     def _update_f_coriolis(self, state: object, ctx: object) -> dict:
         """Re-evaluate the ``f(y,t)`` law at the substage clock (TDF-D7).
@@ -816,6 +827,20 @@ class BetaPlaneCoriolis(Module):
         value = self._f_law.sample(coords, time, space.shape)
         return {"f_coriolis": field.with_data(value)}
 
+    def _update_f_coriolis_blend(
+        self, state: object, ctx: object,
+    ) -> dict:
+        r"""Rewrite ``f_coriolis`` to the stage-time ``FieldBlend`` (D11).
+
+        The blend-path counterpart of ``_update_f_coriolis``: it
+        delegates to the reusable ``FieldBlend.rewrite`` core, which
+        evaluates :math:`f_0(t) + \beta(t)\,y` from the ingredient
+        profiles at the substage clock and returns it as a full-field
+        write. SELF_UPDATE runs first in every substage (S1), so the
+        rotation term reads the fresh blend.
+        """
+        return _BETA_BLEND.rewrite(self, state, ctx, target="f_coriolis")
+
     def _f_default(self, grid: object, space: object) -> ScalarField:
         """Owner-method default: materialize ``f0 + beta*y`` at ``t=0``.
 
@@ -824,11 +849,12 @@ class BetaPlaneCoriolis(Module):
         signature is stamped dynamically to match ``self._meridional``.
         A time-dependent ``f0``/``beta`` (an ``fr.Ramp``) is resolved at
         ``t = 0`` (``resolve_at``) so the AUXILIARY field keeps a valid
-        static treedef; the rotation term then reads the stage-time
-        blend, so this frozen value is never used on the ramped path. A
-        plain-float ``f0``/``beta`` is ``resolve_at``-identity, so this
-        line is bit-identical to the static case. No pre-syncing
-        (GAP-B) — see ``FPlaneCoriolis._f_default``.
+        static treedef; the SELF_UPDATE stage then rewrites it to the
+        stage-time blend each substage (TDF-D11), so this frozen value is
+        only a placeholder on the ramped path. A plain-float
+        ``f0``/``beta`` is ``resolve_at``-identity, so this line is
+        bit-identical to the static case. No pre-syncing (GAP-B) — see
+        ``FPlaneCoriolis._f_default``.
         """
         f0 = resolve_at(self.f0, 0.0)
         beta = resolve_at(self.beta, 0.0)
@@ -841,27 +867,6 @@ class BetaPlaneCoriolis(Module):
             [inspect.Parameter(
                 mer, inspect.Parameter.POSITIONAL_OR_KEYWORD)])
         return grid.create_field(space, init=init, name="f_coriolis")
-
-    def _stage_blend_f(self, state: object, ctx: object) -> object | None:
-        r"""Return the stage-time blended ``f(y,t)`` when ramped (AR-D2).
-
-        Description
-        -----------
-        The beta-plane counterpart of ``FPlaneCoriolis._stage_scalar_f``:
-        a ramped ``f0``/``beta`` makes ``f`` a field-valued blend
-        :math:`f(y,t) = f_0(t) + \beta(t)\,y`, evaluated from the
-        assembly-materialized ingredient profiles and the module's own
-        leaves resolved at the stage clock time (``ctx.clock.time`` in a
-        run, the bare dry-run/tendency scalar otherwise — the
-        ``eval_params``-consistent seam). Returns ``None`` on the static
-        (plain-float) path (host-side dispatch on the leaf types), so the
-        rotation term reads the frozen field bit-identically and the
-        branch never dereferences ``ctx`` there.
-        """
-        if not self._blend_active:
-            return None
-        time = getattr(ctx.clock, "time", ctx.clock)
-        return _BETA_BLEND.evaluate(self, state, time)
 
     def bind(self, table) -> None:  # noqa: ANN001
         """Reject chart-coupled grids; record the law-path halo axes.

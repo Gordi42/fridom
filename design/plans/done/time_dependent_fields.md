@@ -239,7 +239,11 @@ parameters and `time_dependent`-marked fields. The eigen/analysis
 tools (`eigenbasis`/`ChannelEigenmodes` `at_time` snapshot,
 `Eigenmodes._read` `at_time`, energy weights, `pot_vort`) stay
 deliberately time-frozen analysis surfaces; their docstrings state the
-snapshot semantics. No re-diagonalization contract in this plan.
+snapshot semantics. (The energy-weight snapshot is no longer the
+*default*: state-sourced field weights replaced it 2026-07-19, TDF-D10,
+[`td_fields_followups.md`](td_fields_followups.md) — the eigen tools
+themselves stay `at_time`-frozen, unchanged, and keep the explicit
+`snapshot=True` metric.) No re-diagonalization contract in this plan.
 
 **TDF-D7 — Consumers in scope: `f` and `csqr`.** The Coriolis family
 gains a law-valued `f` path (the profile-owning class whose
@@ -251,7 +255,9 @@ Shallow-water `DynamicalCore` gains the same for `csqr` (both the
 `shallowwater2/modules/core.py:275-310`). The t=0 materialization
 (`default=` builder) samples the law at `t=0.0`, mirroring
 `_f_default`'s `resolve_at(self.f0, 0.0)` spelling. Nonhydro `n2(z,t)`
-is a named follow-up, not in this plan.
+is a named follow-up, not in this plan (the `n2(y, t)` law landed
+2026-07-19 — `MeridionalStratification` now accepts a `ProfileFunction`,
+same SELF_UPDATE mechanism).
 
 **TDF-D8 — Differentiability policy applies.** The recompute is
 step-path code: each consumer wave ships the standard autodiff
@@ -260,7 +266,9 @@ run w.r.t. a `ProfileFunction` param leaf, finite and matching a
 central finite difference to rtol 1e-4). The sampling helper must not
 introduce masked singularities (plain evaluation; no clipping).
 
-**TDF-D9 — FieldBlend is NOT unified onto the rewrite path.** AR-D2
+**TDF-D9 — FieldBlend is NOT unified onto the rewrite path.**
+(Reversed by owner 2026-07-19, see
+[`td_fields_followups.md`](td_fields_followups.md) TDF-D11.) AR-D2
 (term-side evaluation for the affine blend) stands; re-basing
 `f_coriolis` on a SELF_UPDATE rewrite would fix the IO-staleness wart
 there too but relitigates an owner-ratified ruling and changes tested

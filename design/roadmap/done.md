@@ -96,6 +96,31 @@ Implementation record:
 
 ## Landed since, outside the numbered tasks
 
+- **Time-dependent-field follow-ups: state-sourced energy metric +
+  `FieldBlend` unification** (2026-07-19, rulings TDF-D10/D11, merges
+  `2d222425` + `27790fdf`). TDF-D10: a time-dependent field weight in
+  `EnergyMetric` becomes a state-sourced descriptor, so the metric is
+  measured at the analysed state's own time instead of a frozen `t=0`
+  bake (the eigen/channel tools keep the explicit `snapshot=True`
+  frozen path, TDF-D6). TDF-D11: `FieldBlend` (the affine ramped
+  Coriolis blend) now rewrites its carried field per substage through a
+  SELF_UPDATE stage, so the term reads the fresh carry and the I/O
+  staleness wart (`f_coriolis` I/O showing the `t=0` snapshot) is gone;
+  the sw2 energy-correction refusal on a ramped `f` is lifted (the
+  `conserving − linear` total telescopes exactly on the stage-time
+  carry). AR-D2's mechanism half is superseded, its generality half
+  preserved. Record:
+  [`../plans/done/td_fields_followups.md`](../plans/done/td_fields_followups.md).
+  **TDF-D7 nonhydro `n2(y, t)` law landed 2026-07-19** (merge
+  `01628a30`): `MeridionalStratification` now accepts a
+  `fr.model.ProfileFunction` law alongside its static callable, marking
+  `n2` `time_dependent` and rewriting it each substage via a SELF_UPDATE
+  stage — so the previously-unreachable TDF-D10 `n2` reciprocal energy
+  weight is now live through a real model. This **closes** the `open.md`
+  "Time-dependent fields — remaining follow-ups" entry entirely; its only
+  other item, a re-diagonalization contract for the analysis tools, stays
+  **declined** per TDF-D6 (a recorded decision, not open work — a
+  time-dependent `L` has no fixed eigenbasis).
 - **`EnergyMetric` `ps` depth weight + eigen-channel physical
   measure** (2026-07-18, `59b6047a`/`72427813` — the metric-side
   remainder of the stretched+terrain item, after the physical-integral

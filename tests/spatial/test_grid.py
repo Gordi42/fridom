@@ -356,12 +356,11 @@ def test_negotiate_returns_a_resharding_report(grid):
 
 
 def test_negotiate_honors_an_explicit_halo(mx, my):
-    # pin to one device so no shardability cap engages: on a sharded
-    # grid the explicit halo would be capped to the shortest-shard
-    # extent (established, deliberate semantics), which would mask the
-    # "negotiate honors the explicit width" claim. The uncapped honoring
-    # is what this test asserts, so it must run where no cap applies --
-    # and stays unmarked (passes at any device count).
+    # the explicit halo is honored at its requested width. Pinned to
+    # one device for a small, cap-free scenario; the same honoring
+    # holds on a sharded grid too (see the sibling test below) because
+    # the explicit halo joins the per-application floor and is never
+    # capped.
     grid = Grid((mx, my), device_ids=(0,))
     grid.negotiate(halo=HaloSpec({"x": 3}))
     assert grid.decomposition.halo["x"] == 3
@@ -369,12 +368,13 @@ def test_negotiate_honors_an_explicit_halo(mx, my):
 
 
 @pytest.mark.multi_device
-def test_negotiate_caps_an_explicit_halo_on_a_sharded_axis():
-    # the sharded counterpart: on a genuinely sharded axis the explicit
-    # halo is capped to the shortest-shard extent (shortest shard - 1),
-    # and negotiate records the capped width, not the requested one.
-    # nx = 4 * device_count keeps the shortest shard 4 cells for any
-    # device count >= 2, so the cap is 3 and x still shards.
+def test_negotiate_leaves_a_wide_explicit_halo_uncapped():
+    # the ruling: an explicit halo joins the per-application floor and
+    # is NEVER capped to the shortest-shard extent. A width above the
+    # shard extent (20 on a 4-cell shard) disqualifies its axis from
+    # sharding (last 4 < 20 + 1) instead of being lowered to fit -- so
+    # x drops out and the walled y carries the shard, while negotiate
+    # records the raw requested width.
     nx = 4 * jax.device_count()
     grid = Grid((
         IntervalMesh(nx, (0.0, 1.0), name="x"),
@@ -382,8 +382,12 @@ def test_negotiate_caps_an_explicit_halo_on_a_sharded_axis():
     assert dict(grid.decomposition.default_layout.device_axes) == {
         "x": "devices"}
     grid.negotiate(halo=HaloSpec({"x": 20}))
-    assert grid.decomposition.halo["x"] == 3
+    assert grid.decomposition.halo["x"] == 20  # uncapped, survives
     assert grid.decomposition.halo["y"] == 0
+    # x flipped out of the shard; the walled y now carries it
+    assert dict(grid.decomposition.default_layout.device_axes) == {
+        "y": "devices"}
+    assert grid.decomposition.device_count == jax.device_count()
 
 
 def test_negotiate_traces_a_tendency(grid):
@@ -403,11 +407,9 @@ def test_negotiate_tendency_requires_state_spaces(grid):
 
 
 def test_freeze_ends_the_assembly_phase(mx, my):
-    # pin to one device so the larger-demand raise is genuine at any
-    # device count: on a sharded grid the shardable-cap would absorb
-    # halo={x: 99} to the shard extent (width above the floor is
-    # satisfiable via runtime re-sync), so the raw comparison must be
-    # exercised on a non-sharding grid
+    # pinned to one device for a small cap-free scenario. The explicit
+    # halo={x: 99} joins the per-application floor and is never capped,
+    # so the larger-demand raise is genuine at any device count.
     grid = Grid((mx, my), device_ids=(0,))
     grid.freeze()
     # satisfiable demands verify against the frozen record ...

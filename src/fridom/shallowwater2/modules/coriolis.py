@@ -279,7 +279,6 @@ def _safe_pv_divide(
 
 def conserving_rotation(
     state: object, *, coords: tuple[str, str], rossby: object,
-    f_field: object = None,
 ) -> dict:
     r"""
     Return the exactly-conserving discrete Coriolis tendency.
@@ -304,13 +303,6 @@ def conserving_rotation(
     rossby : object
         The Rossby scaling (a traced ``ctx.params`` scalar), needed
         for the thickness ``h = c^2 + Ro p``.
-    f_field : object, optional
-        A **stage-time f(y) field** to use in place of the
-        assembly-frozen ``f_coriolis`` field — the ramped beta-plane
-        ``FieldBlend`` path (AR-D2 / R2): the conserving rotation
-        consumes the fresh :math:`f(y,t) = f_0(t) + \beta(t)\,y`
-        blend exactly like the frozen profile. ``None`` keeps the
-        frozen field, so the static path is unchanged (default: None).
 
     Returns
     -------
@@ -319,7 +311,7 @@ def conserving_rotation(
     """
     u, v, p = state["u"], state["v"], state["p"]
     c = state["csqr"]
-    f = state["f_coriolis"] if f_field is None else f_field
+    f = state["f_coriolis"]
     meridional = coords[1]
 
     # full geopotential thickness at the centre — the same h the
@@ -532,6 +524,14 @@ class CoriolisEnergyCorrection(Module):
         break both the conservation and the route-A/route-B identity).
         The combination rules (`check_rotation_modules`) run first.
 
+        A ramped (``FieldBlend``-active) linear module is now supported
+        (TDF-D11): the module's SELF_UPDATE stage rewrites the carried
+        ``f_coriolis`` to the stage-time blend before any term runs, so
+        both the linear rotation term and this correction read the
+        **same** fresh ``f_coriolis``. The total then telescopes to the
+        exact conserving rotation on the stage-time ``f`` — the ramp is
+        counted once, and the thickness-weighted energy is conserved.
+
         Raises
         ------
         ValueError
@@ -544,19 +544,6 @@ class CoriolisEnergyCorrection(Module):
         check_rotation_modules(modules)
         linear = [module for module in modules
                   if carries_linear_rotation(module)]
-        if getattr(linear[0], "_blend_active", False):
-            raise ValueError(
-                "CoriolisEnergyCorrection is paired with a Coriolis "
-                "module carrying a ramped f(y) FieldBlend (a "
-                "time-dependent f0/beta), but the correction subtracts "
-                "the frozen f_coriolis snapshot, so route A would "
-                "double-count the ramp and break the energy identity. "
-                "For a ramped conserving run use route B "
-                "(sw.modules.NonlinearBetaPlaneCoriolis(beta=Ramp(...))), "
-                "which carries the whole conserving rotation on the "
-                "stage-time blend; the route-A correction under a ramped "
-                "f is a FieldBlend follow-up (roadmap 'Generalized "
-                "adiabatic ramping')")
         weight = linear[0].metric_weight
         if weight not in (None, _WEIGHT):
             raise ValueError(
@@ -705,19 +692,15 @@ class _ConservingRotation:
         the declaration is what keeps the model honest about ``L``.
 
         A ramped beta-plane (``NonlinearBetaPlaneCoriolis`` with a
-        ``FieldBlend``-active ``f0``/``beta``) reads the fresh stage-time
-        blend ``f(y,t)`` instead of the frozen field, so the conserving
-        channel supports a ramped ``beta`` end to end (AR-D2 / R2). The
-        static path (and the f-plane / chart route-B modules, which
-        carry no field blend) leaves ``f_field`` ``None`` and reads the
-        frozen ``f_coriolis`` unchanged.
+        ``FieldBlend``-active ``f0``/``beta``) inherits the beta-plane's
+        SELF_UPDATE stage, which rewrites the carried ``f_coriolis`` to
+        the stage-time blend ``f(y,t)`` each substage (TDF-D11), so the
+        conserving channel supports a ramped ``beta`` end to end reading
+        ``state["f_coriolis"]`` plainly — no term-side blend seam.
         """
-        stage_blend = getattr(self, "_stage_blend_f", None)
-        f_field = (stage_blend(state, ctx)
-                   if stage_blend is not None else None)
         return conserving_rotation(
             state, coords=self._coords,
-            rossby=ctx.params[SCALING_ROSSBY], f_field=f_field)
+            rossby=ctx.params[SCALING_ROSSBY])
 
 
 class NonlinearFPlaneCoriolis(_ConservingRotation, FPlaneCoriolis):
