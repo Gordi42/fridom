@@ -6,15 +6,24 @@ Description
 The grid-free kernel shared by the IMEX implicit vertical-diffusion
 solve (``model/implicit.py``) and the mixed Fourier x Chebyshev
 spectral banded solve (``operators/spectral_solve.py``, designed-for):
-assemble a dense band, apply it along one storage axis (batched over
-the off-axis columns), and solve ``system @ x = rhs`` along that axis.
+assemble a band, apply it along one storage axis (batched over the
+off-axis columns), and solve ``system @ x = rhs`` along that axis.
 
-Iteration-1 scope: the band is materialized dense and solved with
-``jnp.linalg.solve`` (batched over the off-axis columns); the solve
-axis must stay device-local (a tridiagonal is serial along it). A
-Thomas / ``jax.lax.linalg.tridiagonal_solve`` kernel is the production
-optimization; both respect the same true-shape ``data`` /
-``with_data`` halo contract of the caller.
+Two band representations coexist. The **dense** path
+(:func:`second_difference_matrix`, :func:`apply_along_axis`,
+:func:`solve_along_axis`) materializes an ``(N, N)`` matrix and solves
+it with ``jnp.linalg.solve`` — the spectral banded z-solve's designed-
+for form (one shared band plus a per-mode scalar shift). The
+**per-column** path (:func:`tridiagonal_apply_along_axis`,
+:func:`tridiagonal_solve_along_axis`) carries only the three
+``lower``/``diag``/``upper`` bands, one distinct tridiagonal per
+off-axis column, and is what the measure-aware implicit diffusion
+column (``model/implicit.py``) and the multigrid vertical-line smoother
+(MG-D7) use — the diffusion solve moved off the dense path so a
+stretched / terrain column can carry per-column widths. Either way the
+solve axis must stay device-local (a tridiagonal is serial along it),
+and both respect the same true-shape ``data`` / ``with_data`` halo
+contract of the caller.
 
 The multigrid vertical-line smoother (``operators/multigrid.py``,
 decision MG-D7) needs a *diagonal-varying* tridiagonal per off-axis
@@ -557,3 +566,72 @@ def tridiagonal_solve_along_axis(
         solved = _tridiagonal_cusparse(lo, di, up, rhs)
     solved = solved.reshape(shape)
     return jnp.moveaxis(solved, 0, axis_index)
+
+
+# ================================================================
+#  Per-column tridiagonal apply (the forward band stencil)
+# ================================================================
+def _axis_slice(
+    arr: jax.Array, axis_index: int, start: int, stop: int,
+) -> jax.Array:
+    """Return ``arr[..., start:stop, ...]`` along ``axis_index``."""
+    index: list[slice | int] = [slice(None)] * arr.ndim
+    index[axis_index] = slice(start, stop)
+    return arr[tuple(index)]
+
+
+def tridiagonal_apply_along_axis(
+    lower: jax.Array,
+    diag: jax.Array,
+    upper: jax.Array,
+    data: jax.Array,
+    axis_index: int,
+) -> jax.Array:
+    r"""
+    Apply one tridiagonal per column along ``axis_index`` (band stencil).
+
+    Description
+    -----------
+    The forward twin of :func:`tridiagonal_solve_along_axis`: the
+    stencil ``lower[c] q_{c-1} + diag[c] q_c + upper[c] q_{c+1}`` along
+    ``axis_index``, batched over every off-axis column. No dense band is
+    materialized — the three bands broadcast against ``data`` exactly as
+    the solve's do (``lower[i]`` couples cell ``i`` to ``i - 1``,
+    ``upper[i]`` to ``i + 1``). The out-of-range neighbours ``q_{-1}``
+    and ``q_N`` are filled with zeros, so the ends ``lower[0]`` and
+    ``upper[N - 1]`` multiply a zero and are **unused** — the same
+    convention the solve kernels apply, so one band triple feeds both.
+    Pure shifted arithmetic: natively reverse-mode differentiable, no
+    ``custom_vjp``.
+
+    Parameters
+    ----------
+    lower : jax.Array
+        The sub-diagonal band (broadcasts against ``data``; ``lower[0]``
+        along ``axis_index`` unused).
+    diag : jax.Array
+        The main-diagonal band (broadcasts against ``data``).
+    upper : jax.Array
+        The super-diagonal band (broadcasts against ``data``;
+        ``upper[N - 1]`` along ``axis_index`` unused).
+    data : jax.Array
+        The operand; its ``axis_index`` axis has length ``N``.
+    axis_index : int
+        The storage-frame index of the solve axis.
+
+    Returns
+    -------
+    jax.Array
+        The band stencil applied along ``axis_index`` (same shape as
+        ``data``).
+    """
+    size = data.shape[axis_index]
+    edge = list(data.shape)
+    edge[axis_index] = 1
+    zero = jnp.zeros(edge, dtype=data.dtype)
+    up_shift = jnp.concatenate(
+        [_axis_slice(data, axis_index, 1, size), zero], axis=axis_index)
+    lo_shift = jnp.concatenate(
+        [zero, _axis_slice(data, axis_index, 0, size - 1)],
+        axis=axis_index)
+    return diag * data + upper * up_shift + lower * lo_shift
