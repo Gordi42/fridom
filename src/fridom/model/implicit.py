@@ -27,12 +27,11 @@ import jax.numpy as jnp
 
 from fridom.framework.utils import dtype_real
 from fridom.spatial.operators.banded import (
-    apply_along_axis,
-    second_difference_matrix,
-    solve_along_axis,
+    tridiagonal_apply_along_axis,
+    tridiagonal_solve_along_axis,
     validate_boundary_conditions,
 )
-from fridom.spatial.operators.staggering import mapped_mesh
+from fridom.spatial.spaces.nodal import NodeSet
 
 if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Callable, Hashable
@@ -234,12 +233,18 @@ class VerticalDiffusion:
     into the stage (predictor/lagged values); the solve itself stays
     linear.
 
-    The numerical kernels (``apply``/``solve``) are pending: they
-    land with the 2.5 IMEX reference consumer (exact 1D decay and
-    stiff-kappa column tests) once the dispatched second-derivative
-    operator and the field's declared-space boundary rows are wired
-    at assembly. Construction, coefficient math, and the merge logic
-    are complete.
+    The column is **measure-aware** (:func:`_diffusion_bands`): the
+    face-averaged conservative flux band reads its cell and face widths
+    from ``grid.measure`` — true non-uniform spacing on a stretched
+    mesh — and multiplies each width by the column Jacobian
+    ``grid.metric`` on a terrain-following grid (the along-``sigma``
+    convention, owner-ratified 2026-07-19). ``kappa`` may be a scalar
+    or a ``ScalarField`` on the solved field's own space (face-averaged,
+    one-sided at the walls); band assembly is linear in ``kappa``, so
+    the kappa-summed merge stays exact with field coefficients. On a
+    uniform column the band entries are identical to the historical
+    ``kappa/dz^2`` second difference (same ``-1`` Neumann / ``-3``
+    Dirichlet corners).
 
     Parameters
     ----------
@@ -292,23 +297,26 @@ class VerticalDiffusion:
     def apply(
         self, module: Any, state: Any, ctx: Any,
     ) -> dict[str, ScalarField]:
-        """
-        Evaluate the forward ``L @ state`` per field (``L = k d2/dz2``).
+        r"""
+        Evaluate the forward ``L @ state`` per field (conservative flux).
 
         Description
         -----------
-        The CNAB right-hand-side term. Per field the second-derivative
-        stencil along ``axis`` is applied to the true-shape column
-        (``ScalarField.data`` — halo/padding stripped) with Neumann
-        (zero-flux) boundary rows, then scaled by the live kappa read
-        from the unbound callable at stage time (Ramp-correct). The
-        result re-enters via ``with_data`` (re-pad + halo-invalidate;
-        synced at its next ghost-consuming application), so no manual
-        halo/``extra_halo`` bookkeeping is needed. Iteration-1 scope:
-        the solve axis must not be distributed across devices (a
-        tridiagonal is serial along it) and kappa is constant in the
-        column (a scalar); a face-averaged variable-kappa conservative
-        form is the follow-up.
+        The CNAB right-hand-side term. Per field the measure-aware
+        conservative flux band (:func:`_diffusion_bands`) is applied to
+        the true-shape column (``ScalarField.data`` — halo/padding
+        stripped) along ``axis`` with the per-side boundary rows `bc`,
+        the live kappa read from the unbound callable at stage time
+        (Ramp-correct). The band stencil is
+        ``lower q_{c-1} + diag q_c + upper q_{c+1}`` — the exact
+        divergence of the face fluxes
+        ``kappa_{c+/-1/2} (q_{c+/-1} - q_c) / dz_{c+/-1/2}`` over the
+        cell width ``dz_c``, so the width-weighted column sum telescopes
+        to the wall fluxes (zero for Neumann). The result re-enters via
+        ``with_data`` (re-pad + halo-invalidate; synced at its next
+        ghost-consuming application), so no manual halo/``extra_halo``
+        bookkeeping is needed. The solve axis must stay device-local (a
+        tridiagonal is serial along it).
 
         Parameters
         ----------
@@ -327,11 +335,12 @@ class VerticalDiffusion:
         result: dict[str, ScalarField] = {}
         for name in self.fields:
             field = state[name]
-            operator, axis_index = _diffusion_operator(
+            lower, diag, upper, axis_index = _diffusion_bands(
                 field, self.axis,
                 self.kappa(module, state, ctx, name), self.bc)
             data = jnp.asarray(field.data)
-            applied = apply_along_axis(operator, data, axis_index)
+            applied = tridiagonal_apply_along_axis(
+                lower, diag, upper, data, axis_index)
             result[name] = field.with_data(applied)
         return result
 
@@ -339,23 +348,33 @@ class VerticalDiffusion:
         self, module: Any, rhs: dict[str, ScalarField],
         dt_gamma: Any, ctx: Any,
     ) -> dict[str, ScalarField]:
-        """
+        r"""
         Solve ``(1 - dt_gamma * L) x = rhs``, one tridiagonal / field.
 
         Description
         -----------
         The linear implicit solve per field along ``axis`` with the
-        Neumann (zero-flux) boundary rows of the declared column; flux
-        BCs would be explicit forcing (not built). ``dt_gamma`` is the
+        per-side boundary rows `bc` of the declared column; flux BCs
+        would be explicit forcing (not built). ``dt_gamma`` is the
         stepper-supplied traced positional (CN ``dt/2``, SBDF2
-        ``2dt/3``) — never read from ``ctx``, so warm-up gamma
-        switching and adaptive dt never retrace; kappa is read live.
-        Iteration-1 solves the dense ``(1 - dt_gamma * L)`` system
-        (``jnp.linalg.solve`` batched over the off-axis columns) — a
-        Thomas/``tridiagonal_solve`` kernel is the production
-        optimization; both respect the true-shape ``data`` /
-        ``with_data`` halo contract (the solve axis stays
-        device-local).
+        ``2dt/3``) — never read from ``ctx``, so warm-up gamma switching
+        and adaptive dt never retrace; kappa is read live. The system
+        bands ``(-dt_gamma * lower, 1 - dt_gamma * diag,
+        -dt_gamma * upper)`` of the measure-aware column
+        (:func:`_diffusion_bands`) feed
+        :func:`~fridom.spatial.operators.banded.tridiagonal_solve_along_axis`
+        with the reference ``method="scan"`` (Thomas), chosen over the
+        cyclic-reduction kernels (``"pcr"`` / cuSPARSE) deliberately: the
+        CN system is only WEAKLY diagonally dominant in the stiff regime
+        (its dominance excess is exactly ``1``, so ``diag/|off| -> 1`` as
+        ``kappa*dt/dz^2 -> inf``), and cyclic reduction amplifies
+        roundoff on a weakly-DD system enough to excite the near-``(-1)``
+        highest CN mode over a long run. Thomas back-substitution is
+        unconditionally stable for any DD system, needs no pivoting
+        (dominance by the ``+1``, ``kappa >= 0``), and is natively
+        reverse-mode differentiable (no ``custom_vjp``). The true-shape
+        ``data`` / ``with_data`` halo contract holds (the solve axis
+        stays device-local).
 
         Parameters
         ----------
@@ -375,17 +394,26 @@ class VerticalDiffusion:
             The solved fields, keyed exactly by `fields`.
         """
         result: dict[str, ScalarField] = {}
-        real = dtype_real()
+        gamma = jnp.asarray(dt_gamma, dtype=dtype_real())
         for name in self.fields:
             field = rhs[name]
-            operator, axis_index = _diffusion_operator(
+            lower, diag, upper, axis_index = _diffusion_bands(
                 field, self.axis,
                 self.kappa(module, field, ctx, name), self.bc)
-            size = operator.shape[0]
-            system = (jnp.eye(size, dtype=real)
-                      - jnp.asarray(dt_gamma, dtype=real) * operator)
             data = jnp.asarray(field.data)
-            solved = solve_along_axis(system, data, axis_index)
+            # method="scan" (reference Thomas), NOT "auto": the CN system
+            # (1 - dt_gamma L) is only WEAKLY diagonally dominant in the
+            # stiff regime (dominance excess is exactly 1, so the ratio
+            # diag/|off| -> 1 as kappa*dt/dz^2 -> inf). The cyclic-
+            # reduction kernels (pcr, and cuSPARSE gtsv2 internally)
+            # amplify roundoff on a weakly-DD system, exciting the
+            # near-(-1) highest CN mode over a long run (kappa*dt/dz^2 ~
+            # 640 blows up by ~step 20). Thomas back-substitution is
+            # unconditionally stable for any DD system, exact, and
+            # natively reverse-mode differentiable.
+            solved = tridiagonal_solve_along_axis(
+                -gamma * lower, 1.0 - gamma * diag, -gamma * upper,
+                data, axis_index, method="scan")
             result[name] = field.with_data(solved)
         return result
 
@@ -456,89 +484,139 @@ class VerticalDiffusion:
 
 
 # ================================================================
-#  Solve-column geometry gate (uniform-spacing / no-terrain contract)
+#  The measure-aware column band (true-shape data; single-device axis)
 # ================================================================
-def reject_unsupported_solve_column(grid: Any, axis: str) -> None:
-    r"""
-    Reject a stretched or terrain-coupled column solve (taught error).
+def _axis_slice(
+    arr: jax.Array, axis_index: int, start: int, stop: int,
+) -> jax.Array:
+    """Return ``arr[..., start:stop, ...]`` along ``axis_index``."""
+    index: list[slice | int] = [slice(None)] * arr.ndim
+    index[axis_index] = slice(start, stop)
+    return arr[tuple(index)]
+
+
+def _zero_axis_end(
+    arr: jax.Array, axis_index: int, *, at_start: bool,
+) -> jax.Array:
+    """Zero the first (``at_start``) or last slice along ``axis_index``."""
+    index: list[slice | int] = [slice(None)] * arr.ndim
+    index[axis_index] = 0 if at_start else arr.shape[axis_index] - 1
+    return arr.at[tuple(index)].set(0.0)
+
+
+def _face_space(space: Any, axis: str) -> Any:
+    """
+    Return the wall-including (``Outer``) face sibling of ``space``.
 
     Description
     -----------
-    The column band is assembled by
-    :func:`~fridom.spatial.operators.banded.second_difference_matrix`,
-    which infers **one uniform** ``dz`` from the first two nodes and
-    carries **no** terrain Jacobian. Two grid structures would make that
-    band silently solve the wrong operator, so both are rejected here
-    (structural predicates, no numeric tolerance):
+    The ``Outer`` nodal space on the solve-axis mesh: its interior
+    entries are the node-to-node dual widths (the ``diff`` denominators
+    ``dz_{c+/-1/2}``) and its two boundary entries are the clipped
+    node-to-wall half-cells (the physical Dirichlet wall distances).
+    One measure query on it therefore serves both the interior
+    couplings and the wall rows. The other factors (and the layout) are
+    preserved, so the query broadcasts against the field's ``data`` at
+    the same storage axis; a single-factor column *is* the face factor.
+    """
+    outer = space.factor(axis).mesh.nodal(NodeSet.OUTER)
+    if len(space.factors) == 1:
+        return outer
+    return space.replace(**{axis: outer})
 
-    - a **stretched** solve-axis mesh factor (a ``MappedIntervalMesh``
-      whose ``coordinate_map`` is non-``None``): the band would apply
-      the first interval's spacing to the whole column;
-    - a grid whose ``CoordinateMapping`` **couples** the solve axis
-      (terrain-following, e.g. ``z = sigma * H(x)``, exposed through the
-      mapping's ``column_corrections`` seam): the solve axis is the base
-      ``sigma`` and the band is ``d2/dsigma2`` with the ``H(x)``
-      Jacobian missing entirely.
 
-    Reads only static grid descriptors (``grid.factors`` /
-    ``grid.mapping``), so it is safe to call under trace — it never
-    branches on a traced value.
+def _face_kappa(
+    space: Any, axis_index: int, size: int, kappa_value: Any,
+    real: Any,
+) -> tuple[jax.Array, jax.Array]:
+    r"""
+    Resolve the ``(kappa_up, kappa_low)`` per-cell face coefficients.
 
-    Parameters
-    ----------
-    grid : Any
-        The grid carrying the solve column (``factors`` / ``mapping``
-        seams; anything without them is treated as unmapped).
-    axis : str
-        The solve-axis coordinate name.
+    Description
+    -----------
+    A scalar ``kappa`` is constant on every face. A ``ScalarField``
+    ``kappa`` on the solved field's own space (cell-centered along the
+    solve axis) is **arithmetically face-averaged** between adjacent
+    cells; the two wall faces take the one-sided corner-cell value (the
+    only defined choice — there is no cell beyond the wall). ``kappa_up``
+    is the coefficient at the upper face ``c + 1/2`` of each cell and
+    ``kappa_low`` at the lower face ``c - 1/2``; both broadcast against
+    the field ``data``.
 
     Raises
     ------
-    NotImplementedError
-        If the solve-axis factor is stretched, or the grid mapping
-        couples the solve axis.
+    ValueError
+        If a field-valued ``kappa`` is not on the solved field's own
+        function space.
     """
-    for mesh in getattr(grid, "factors", ()):
-        if axis in getattr(mesh, "names", ()) and mapped_mesh(mesh):
-            raise NotImplementedError(
-                f"the implicit column matrix for axis {axis!r} assumes "
-                "uniform spacing (one dz inferred from the first two "
-                "nodes), so on a stretched mesh factor "
-                "(MappedIntervalMesh) it would silently solve the wrong "
-                "d2/dz2. Use a uniform column (IntervalMesh), or wait "
-                "for the measure-aware column.")
-    mapping = getattr(grid, "mapping", None)
-    corrections = getattr(mapping, "column_corrections", {})
-    if axis in corrections:
-        raise NotImplementedError(
-            f"the implicit column matrix for axis {axis!r} carries no "
-            "terrain Jacobian, but the grid's coordinate mapping "
-            f"couples {axis!r} (terrain-following, e.g. z = sigma * "
-            "H(x)): the band would be d2/dsigma2 and silently solve "
-            "the wrong operator. Use a uniform (non-terrain) column, or "
-            "wait for the measure-aware column.")
+    if not hasattr(kappa_value, "function_space"):
+        kappa = jnp.asarray(kappa_value, dtype=real)
+        return kappa, kappa
+    if kappa_value.function_space != space:
+        raise ValueError(
+            "a field-valued VerticalDiffusion kappa must live on the "
+            "solved field's own function space (cell-centered along the "
+            f"solve axis) {space!r}; got a field on "
+            f"{kappa_value.function_space!r}")
+    cells = jnp.asarray(kappa_value.data, dtype=real)
+    below = _axis_slice(cells, axis_index, 0, size - 1)
+    above = _axis_slice(cells, axis_index, 1, size)
+    interior = 0.5 * (below + above)
+    bottom = _axis_slice(cells, axis_index, 0, 1)
+    top = _axis_slice(cells, axis_index, size - 1, size)
+    faces = jnp.concatenate([bottom, interior, top], axis=axis_index)
+    kappa_up = _axis_slice(faces, axis_index, 1, size + 1)
+    kappa_low = _axis_slice(faces, axis_index, 0, size)
+    return kappa_up, kappa_low
 
 
-# ================================================================
-#  The tridiagonal kernel (true-shape ``data``; single-device axis)
-# ================================================================
-def _diffusion_operator(
+def _diffusion_bands(
     field: ScalarField, axis: str, kappa_value: Any,
     bc: tuple[str, str] = ("neumann", "neumann"),
-) -> tuple[jax.Array, int]:
-    """
-    Build ``L = kappa * d2/dz2`` along ``axis`` (per-side `bc` rows).
+) -> tuple[jax.Array, jax.Array, jax.Array, int]:
+    r"""
+    Build the measure-aware column bands ``(lower, diag, upper, axis)``.
 
     Description
     -----------
-    The dense ``(N, N)`` second-difference band — assembled by the
-    shared ``grid.operators.banded`` primitive on the field's true-shape
-    column evaluation nodes with the per-side boundary rows `bc` — scaled
-    by the constant column ``kappa``. Returns the matrix and the
-    storage-frame axis index of ``axis``. Defensively rejects a
-    stretched or terrain-coupled solve column (the band assumes uniform
-    spacing and carries no terrain Jacobian), so direct users of the
-    operator get the same taught error ``VerticalMixing.bind`` raises.
+    The face-averaged conservative flux band of
+    ``L q = d_z(kappa d_z q)`` along ``axis``, on the field's true-shape
+    column (``ScalarField.data`` — halo/padding stripped, so there is no
+    padded-zero division anywhere here). Per cell ``c``
+
+    .. math::
+
+        (L q)_c = \frac{
+            \kappa_{c+1/2}\,(q_{c+1} - q_c) / \Delta z_{c+1/2}
+          - \kappa_{c-1/2}\,(q_c - q_{c-1}) / \Delta z_{c-1/2}}{
+            \Delta z_c},
+
+    so ``upper[c] = kappa_{c+1/2} / (dz_{c+1/2} dz_c)``,
+    ``lower[c] = kappa_{c-1/2} / (dz_{c-1/2} dz_c)`` and ``diag`` is the
+    **negated sum** of the couplings (assembled that way so a Neumann
+    row sums to zero exactly and the width-weighted column sum
+    telescopes).
+
+    Widths come from ``grid.measure``: the cell width ``dz_c`` is the
+    primal measure of the field's own node set (``Center`` or FV
+    ``CellAvg``, no hardcoded stagger); ``dz_{c+/-1/2}`` are the dual
+    widths of the wall-including ``Outer`` face family — its interior
+    entries the node-to-node spacings and its two boundary entries the
+    clipped wall half-cells (:func:`_face_space`). On a terrain-
+    following grid (``axis in grid.mapping.column_corrections``) every
+    width is multiplied by the column Jacobian ``grid.metric`` at the
+    same stagger (STATIC params) — the along-``sigma`` physical widths,
+    per-column, which is exactly why the caller uses the per-column
+    tridiagonal kernels.
+
+    Boundary rows generalize the historical ``-1`` / ``-3`` corners: a
+    Neumann side drops the wall coupling (``diag`` loses it, the wall-
+    side band entry is 0); a Dirichlet (no-slip, wall value 0) side adds
+    the one-sided wall flux ``kappa_wall / (d_wall dz_corner)`` to the
+    corner ``diag`` (``d_wall`` the clipped wall half-cell, ``kappa_wall``
+    the corner cell's coefficient). On a uniform column the entries are
+    identical to ``kappa/dz^2`` with the ``-1`` Neumann / ``-3``
+    Dirichlet corners.
 
     Parameters
     ----------
@@ -547,24 +625,23 @@ def _diffusion_operator(
     axis : str
         The solve coordinate.
     kappa_value : Any
-        The live scalar coefficient (a field-valued kappa is the
-        variable-coefficient follow-up — not built in iteration 1).
+        The live coefficient: a scalar, or a ``ScalarField`` on the
+        field's own function space (face-averaged, one-sided at walls).
     bc : tuple[str, str], optional
         The per-side ``(low, high)`` boundary rows (default:
         ``("neumann", "neumann")``).
 
     Returns
     -------
-    tuple[jax.Array, int]
-        The ``(N, N)`` operator matrix and the axis index.
+    tuple[jax.Array, jax.Array, jax.Array, int]
+        The ``lower``, ``diag`` and ``upper`` bands (broadcasting
+        against ``field.data``) and the storage-frame axis index.
 
     Raises
     ------
     ValueError
-        If ``axis`` is not a coordinate of the field's space.
-    NotImplementedError
-        If ``kappa_value`` is field-valued (variable coefficient), or
-        the solve column is stretched / terrain-coupled.
+        If ``axis`` is not a coordinate of the field's space, or a
+        field-valued ``kappa`` is on the wrong function space.
     """
     space = field.function_space
     names = space.bare.names
@@ -573,13 +650,45 @@ def _diffusion_operator(
             f"VerticalDiffusion axis {axis!r} is not a coordinate of "
             f"the field space {names}")
     axis_index = names.index(axis)
-    if hasattr(kappa_value, "function_space"):
-        raise NotImplementedError(
-            "VerticalDiffusion supports a constant (scalar) column "
-            "kappa in iteration 1; a face-averaged variable-kappa "
-            "conservative form is the follow-up")
-    reject_unsupported_solve_column(field.grid, axis)
-    kappa = jnp.asarray(kappa_value, dtype=dtype_real())
-    coords = field.grid.evaluation_nodes(space, axis)
-    d2 = second_difference_matrix(coords.data, bc)
-    return kappa * d2, axis_index
+    grid = field.grid
+    real = dtype_real()
+
+    # physical widths: primal cell + wall-including dual face
+    m_cell = jnp.asarray(grid.measure(space, axis).data, dtype=real)
+    face_space = _face_space(space, axis)
+    m_face = jnp.asarray(
+        grid.measure(face_space, axis).data, dtype=real)
+
+    # terrain Jacobian (along-sigma) at both staggers, STATIC params
+    corrections = getattr(
+        getattr(grid, "mapping", None), "column_corrections", {})
+    if axis in corrections:
+        mapped, base = corrections[axis]
+        metric = f"d{mapped}_d{base}"
+        m_cell = m_cell * jnp.asarray(
+            grid.metric(space, metric, params=None).data, dtype=real)
+        m_face = m_face * jnp.asarray(
+            grid.metric(face_space, metric, params=None).data,
+            dtype=real)
+
+    size = m_cell.shape[axis_index]
+    kappa_up, kappa_low = _face_kappa(
+        space, axis_index, size, kappa_value, real)
+    dz_up = _axis_slice(m_face, axis_index, 1, size + 1)
+    dz_low = _axis_slice(m_face, axis_index, 0, size)
+    up_coupling = kappa_up / (dz_up * m_cell)
+    low_coupling = kappa_low / (dz_low * m_cell)
+
+    # diag as the NEGATED SUM of the kept couplings; a Neumann side
+    # drops the wall coupling, a Dirichlet side keeps it (the wall flux)
+    low, high = bc
+    low_in_diag = (
+        low_coupling if low == "dirichlet"
+        else _zero_axis_end(low_coupling, axis_index, at_start=True))
+    up_in_diag = (
+        up_coupling if high == "dirichlet"
+        else _zero_axis_end(up_coupling, axis_index, at_start=False))
+    diag = -(low_in_diag + up_in_diag)
+    lower = _zero_axis_end(low_coupling, axis_index, at_start=True)
+    upper = _zero_axis_end(up_coupling, axis_index, at_start=False)
+    return lower, diag, upper, axis_index

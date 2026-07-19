@@ -68,12 +68,14 @@ import jax
 import jax.numpy as jnp
 
 from fridom.framework.utils import dtype_real
+from fridom.spatial.bc import BC
 from fridom.spatial.fields.metadata import FieldMetadata
 from fridom.spatial.fields.scalar_field import ScalarField
 from fridom.spatial.fields.storage import store
 from fridom.spatial.spaces.average import AverageSpace
 from fridom.spatial.spaces.coefficient import CoefficientSpace
 from fridom.spatial.spaces.constant import ConstantSpace
+from fridom.spatial.spaces.nodal import NodalSpace
 from fridom.spatial.spaces.tensor_product import (
     TensorProductSpace,
 )
@@ -162,7 +164,14 @@ class _Derivation:
         return self._grid.evaluation_nodes(self._space, name).data
 
     def param_value(self, name: str) -> jax.Array:
-        """Return the parameter at the requested space's nodes."""
+        """Return the parameter at the requested space's nodes.
+
+        A parameter *value* (``H``, a geometric scalar) materializes on
+        cell centres, so on a walled axis it only ever lifts onto the
+        interior faces (``Center -> Inner``, an interior-only move whose
+        BC-free row exists) — no wall-parity retag is reached
+        (``odd_axes`` empty; :meth:`_at_space`).
+        """
         return self._at_space(self._base(name)).data
 
     def param_tangent(self, name: str,
@@ -203,7 +212,12 @@ class _Derivation:
                       ConstantSpace):
             # the supplied field is constant along wrt: exact zero
             return None
-        return self._at_space(base.diff(wrt)).data
+        # the discrete tangent d<param>/d<wrt> lands on the wrt interior
+        # faces and is ODD along wrt (the centred difference of a
+        # wall-mirror-even parameter vanishes at the wall face), so its
+        # face->centre move onto the requested space adopts the
+        # Dirichlet sibling along wrt (:meth:`_at_space`).
+        return self._at_space(base.diff(wrt), odd_axes=(wrt,)).data
 
     # ------------------------------------------------------------
     #  Parameter field pipeline
@@ -326,18 +340,66 @@ class _Derivation:
         return ScalarField(self._grid, space, stored,
                            FieldMetadata.create(name=name))
 
-    def _at_space(self, field: ScalarField) -> ScalarField:
-        """Interpolate an aligned field onto the requested space."""
-        target = _product(
-            tuple(
-                base if isinstance(base, ConstantSpace)
-                else mine
-                for base, mine in zip(
-                    field.function_space.bare.factors,
-                    (f.bare for f in self._space.factors),
-                    strict=True)),
-            self._space.layout)
-        return field.to(target)
+    def _at_space(self, field: ScalarField,
+                  odd_axes: tuple[str, ...] = ()) -> ScalarField:
+        r"""Interpolate an aligned field onto the requested space.
+
+        Description
+        -----------
+        On a **walled** (bounded) axis the one wall conversion a mapping
+        quantity reaches is a discrete tangent ``d<param>/d<wrt>``: the
+        ``base.diff(wrt)`` lands it on the ``wrt`` interior faces
+        (``Inner``) and it must reach the requested cell centres, an
+        ``Inner -> Center`` move whose BC-free ``interpolate`` row —
+        because the boundary cell needs the wall face the interior set
+        lacks — by design does not exist. The tangent is **odd** along
+        ``wrt`` (``odd_axes``): it vanishes at the wall face of a
+        wall-mirror-even parameter, so its ``Inner`` factor is retagged
+        onto the Dirichlet sibling (DST-I), for which the tagged
+        ``interpolate`` row resolves; ``.to`` then adopts the requested
+        (BC-free) tag on the far side.
+
+        The retag fires **only** on a bounded, BC-free, odd-axis factor
+        whose node set actually changes — exactly the ``Inner -> Center``
+        the un-retagged ``.to`` would raise on — so periodic axes (the
+        ``diff`` lands on ``Right``, and the guard skips periodic
+        meshes), identity factors, and parameter *values* (``odd_axes``
+        empty; they only ever lift the interior-only ``Center -> Inner``)
+        are byte-untouched (the fix-1 bitwise-safety discipline).
+
+        Parameters
+        ----------
+        field : ScalarField
+            The aligned parameter value or tangent field.
+        odd_axes : tuple[str, ...], optional
+            The tangent's differentiation axis, along which ``field`` is
+            odd at the wall (default: none — the value case, no retag).
+
+        Returns
+        -------
+        ScalarField
+            The field on the requested space's factors.
+        """
+        bare = field.function_space.bare
+        mine = tuple(f.bare for f in self._space.factors)
+        factors: list[FunctionSpace] = []
+        retag: dict[str, FunctionSpace] = {}
+        for src, dst in zip(bare.factors, mine, strict=True):
+            if isinstance(src, ConstantSpace):
+                factors.append(src)
+                continue
+            factors.append(dst)
+            if (src.names[0] in odd_axes
+                    and isinstance(src, NodalSpace)
+                    and isinstance(dst, NodalSpace)
+                    and src.node_set is not dst.node_set
+                    and not getattr(src.mesh, "periodic", True)
+                    and src.bc.is_free):
+                retag[src.names[0]] = src.mesh.nodal(
+                    src.node_set, bc=BC.DIRICHLET)
+        if retag:
+            field = field.retag(bare.replace(**retag))
+        return field.to(_product(factors, self._space.layout))
 
 
 def _product(factors: list[FunctionSpace] | tuple[FunctionSpace, ...],

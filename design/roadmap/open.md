@@ -86,22 +86,6 @@ the scoping §10–§13). Open:
     volume-exact variable-csqr solve, resolving the plan §8
     volume-vs-energy tension for the implicit variant); the
     subcycle's terrain transport form is the remaining half.
-  - **Terrain + walled-horizontal** (the one remaining layer of the
-    walled-horizontal gap; the flat/immersed gap itself is closed —
-    entry in [`done.md`](done.md)): a hydrostatic model on a
-    sigma-chart terrain grid with a walled *horizontal* axis still
-    fails to assemble. This layer is a genuine missing conversion,
-    not a tag relabel: the mapped slope gradient
-    (`hydrostatic/modules/core.py` `_slope_gradient` →
-    `spatial/coordinate_mapping.py` `_at_space` → `field.to`)
-    needs to *interpolate* a wall-normal-face quantity along the
-    walled axis, and the BC-free `('interpolate', Inner(x))` row
-    (correctly) does not exist. Likely spelling: retag the
-    face quantity onto its Dirichlet sibling first (the odd-parity
-    claim of `_dirichlet_mid`), so the registered tagged
-    interpolate row resolves — but the seam sits in the shared
-    `coordinate_mapping` machinery, so the claim needs a
-    per-call-site justification, not a blanket arm.
 
 [`../plans/active/fv_nonhydro_scoping.md`](../plans/active/fv_nonhydro_scoping.md)
 
@@ -139,7 +123,10 @@ Open, none blocking:
   fraction Sadourny + harmonic closures — shipped 2026-07-19; entry
   in [`done.md`](done.md)): no-slip immersed side-drag, Smagorinsky
   immersed (walled Smagorinsky first), VerticalMixing immersed (the
-  wet-aware variable-dz tridiagonal, its own item when picked up) —
+  wet-aware variable-dz tridiagonal — the measure-aware variable-dz
+  column now exists, entry in [`done.md`](done.md); the wet-aware
+  immersed variant reuses it but stays its own item, gated by
+  `VerticalMixing.bind`'s untouched immersed error) —
   all taught errors with recorded designs
   ([`../plans/active/immersed_closures_sadourny_plan.md`](../plans/active/immersed_closures_sadourny_plan.md)
   §5).
@@ -148,19 +135,16 @@ Open, none blocking:
 
 Stages 0–4 shipped 2026-07-17 (walls free/no-slip on the nodal
 family, implicit no-slip rows, mapped along-σ, the `VerticalMixing`
-stretched/terrain gates, the measure-divide VJP seal), and the FV
+stretched/terrain gates, the measure-divide VJP seal), the FV
 walled lift shipped 2026-07-18 (walled `CellAvg` targets take the
-same flux-retag closure — both families now covered; entries in
-[`done.md`](done.md), record + §9 addendum
+same flux-retag closure — both families now covered), and the
+measure-aware implicit column shipped 2026-07-19 (the §3.7 real fix:
+face-averaged conservative bands from `grid.measure`, terrain Jacobian
+along-σ, variable kappa folded in, the stretched/terrain gates retired;
+entries in [`done.md`](done.md), record + §9/§10 addenda
 [`../research/diffusion_walls_terrain_scoping.md`](../research/diffusion_walls_terrain_scoping.md)).
 Open:
 
-- **Measure-aware implicit column** — the `VerticalMixing`
-  stretched/terrain gates stand until the banded column learns
-  `grid.measure` widths + the terrain Jacobian (the multigrid V-cycle
-  already consumes measure widths on stretched columns — N3, entry in
-  [`done.md`](done.md) — this is its implicit-diffusion twin; pairs
-  with the flagged variable-kappa follow-up, `implicit.py`).
 - **Stage 5** — the geopotential-correct full-metric (then rotated)
   diffusion tensor; deferred, separate plan (record §3.6 A/C).
 - **`grid.measure` pre-assembly ordering (lead)** — querying a

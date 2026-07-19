@@ -19,6 +19,7 @@ from fridom.spatial.operators.banded import (
     apply_along_axis,
     second_difference_matrix,
     solve_along_axis,
+    tridiagonal_apply_along_axis,
     tridiagonal_solve_along_axis,
     validate_boundary_conditions,
     validate_tridiagonal_method,
@@ -233,19 +234,105 @@ def test_tridiagonal_solve_matches_dense_per_column():
 
 
 def test_tridiagonal_solve_is_the_inverse_of_the_band_apply():
-    # T x = b then solve(T, b) recovers x, batched over columns
+    # T x = b then solve(T, b) recovers x, batched over columns; the
+    # forward apply is the promoted tridiagonal_apply_along_axis
     rng = np.random.default_rng(1)
     shape = (N, 5)
     lower, diag, upper = _random_bands(rng, shape)
     x = jnp.asarray(rng.standard_normal(shape))
-    # apply the tridiagonal per column (Neumann ends respected)
-    up_shift = jnp.concatenate(
-        [x[1:], jnp.zeros((1, shape[1]))], axis=0)
-    lo_shift = jnp.concatenate(
-        [jnp.zeros((1, shape[1])), x[:-1]], axis=0)
-    b = diag * x + upper * up_shift + lower * lo_shift
+    b = tridiagonal_apply_along_axis(lower, diag, upper, x, 0)
     recovered = tridiagonal_solve_along_axis(lower, diag, upper, b, 0)
     assert np.allclose(np.asarray(recovered), np.asarray(x))
+
+
+# ================================================================
+#  Per-column tridiagonal apply (the forward band stencil)
+# ================================================================
+def test_tridiagonal_apply_matches_a_manual_stencil():
+    # lower q_{c-1} + diag q_c + upper q_{c+1}, ends against a zero
+    # neighbour (lower[0] / upper[-1] multiply a zero, hence unused)
+    rng = np.random.default_rng(2)
+    shape = (N, 4)
+    lower, diag, upper = _random_bands(rng, shape)
+    q = jnp.asarray(rng.standard_normal(shape))
+    got = tridiagonal_apply_along_axis(lower, diag, upper, q, 0)
+    qn = np.asarray(q)
+    manual = np.asarray(diag) * qn
+    manual[:-1] += np.asarray(upper)[:-1] * qn[1:]
+    manual[1:] += np.asarray(lower)[1:] * qn[:-1]
+    assert np.allclose(np.asarray(got), manual)
+
+
+def test_tridiagonal_apply_matches_a_dense_matmul():
+    # the band stencil equals a dense per-column tridiagonal matmul
+    rng = np.random.default_rng(3)
+    shape = (N, 6)
+    lower, diag, upper = _random_bands(rng, shape)
+    q = jnp.asarray(rng.standard_normal(shape))
+    got = tridiagonal_apply_along_axis(lower, diag, upper, q, 0)
+    for j in range(shape[1]):
+        dense = _dense_tridiagonal(lower[:, j], diag[:, j], upper[:, j])
+        assert np.allclose(np.asarray(got[:, j]),
+                           dense @ np.asarray(q[:, j]))
+
+
+@pytest.mark.parametrize("axis_index", [0, 1, 2])
+def test_tridiagonal_apply_is_axis_agnostic(axis_index):
+    rng = np.random.default_rng(4)
+    base = (N, 3, 4)
+    lower, diag, upper = _random_bands(rng, base)
+    data = jnp.asarray(rng.standard_normal(base))
+    ref = tridiagonal_apply_along_axis(lower, diag, upper, data, 0)
+    lo = jnp.moveaxis(lower, 0, axis_index)
+    di = jnp.moveaxis(diag, 0, axis_index)
+    up = jnp.moveaxis(upper, 0, axis_index)
+    d = jnp.moveaxis(data, 0, axis_index)
+    out = tridiagonal_apply_along_axis(lo, di, up, d, axis_index)
+    assert np.allclose(
+        np.asarray(jnp.moveaxis(out, axis_index, 0)), np.asarray(ref))
+
+
+def test_tridiagonal_apply_ignores_the_unused_ends():
+    # garbage in lower[0] / upper[-1] cannot change the result (they
+    # multiply the zero-filled out-of-range neighbours)
+    rng = np.random.default_rng(5)
+    shape = (N, 4)
+    lower, diag, upper = _random_bands(rng, shape)
+    data = jnp.asarray(rng.standard_normal(shape))
+    clean = tridiagonal_apply_along_axis(lower, diag, upper, data, 0)
+    dirty = tridiagonal_apply_along_axis(
+        lower.at[0].set(1e3), diag, upper.at[-1].set(-1e3), data, 0)
+    assert np.allclose(np.asarray(clean), np.asarray(dirty))
+
+
+def test_tridiagonal_apply_broadcasts_the_bands():
+    # a column-uniform band (shape (N, 1)) broadcasts over the batch
+    rng = np.random.default_rng(6)
+    lower, diag, upper = _random_bands(rng, (N, 1))
+    data = jnp.asarray(rng.standard_normal((N, 5)))
+    got = tridiagonal_apply_along_axis(lower, diag, upper, data, 0)
+    dense = _dense_tridiagonal(lower[:, 0], diag[:, 0], upper[:, 0])
+    expected = dense @ np.asarray(data)
+    assert np.allclose(np.asarray(got), expected)
+
+
+def test_tridiagonal_apply_is_reverse_mode_differentiable():
+    # pure shifted arithmetic (no custom_vjp): grad flows and matches FD
+    rng = np.random.default_rng(7)
+    shape = (N, 3)
+    lower, diag, upper = _random_bands(rng, shape)
+    data = jnp.asarray(rng.standard_normal(shape))
+
+    def loss(scale):
+        y = tridiagonal_apply_along_axis(
+            lower, diag, upper, scale * data, 0)
+        return jnp.sum(y ** 2)
+
+    grad = jax.grad(loss)(2.0)
+    eps = 1e-6
+    fd = (loss(2.0 + eps) - loss(2.0 - eps)) / (2 * eps)
+    assert bool(jnp.isfinite(grad))
+    assert abs(float(grad) - float(fd)) <= 1e-4 * abs(float(fd))
 
 
 @pytest.mark.parametrize("axis_index", [0, 1, 2])

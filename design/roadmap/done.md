@@ -1856,6 +1856,44 @@ Implementation record:
   (bitwise vs nodal). Tests:
   `tests/model/closures/test_diffusion_fv.py` (24 tests); gates:
   closures suite 150 green, nonhydro2 596 green, ruff clean.
+- **Measure-aware implicit vertical-diffusion column** (2026-07-19,
+  branch `feat/measure-aware-column`) — the stage-0 real fix of
+  [`../research/diffusion_walls_terrain_scoping.md`](../research/diffusion_walls_terrain_scoping.md)
+  §3.7 (§9 addendum): `VerticalDiffusion` drops the uniform-dz dense
+  band for a per-column **conservative face-averaged flux** band
+  (`_diffusion_bands`), and the stretched/terrain `VerticalMixing`
+  gates (`reject_unsupported_solve_column`) are **retired**. Widths come
+  from `grid.measure`: the primal cell width of the field's own node set
+  (`Center` or FV `CellAvg`, no hardcoded stagger) and the dual
+  center-to-center widths of the **wall-including `Outer`** face family
+  (one query — its two boundary entries are the clipped wall half-cells,
+  serving the Dirichlet wall distance too). On a terrain grid
+  (`axis in mapping.column_corrections`) every width is multiplied by
+  the column Jacobian `grid.metric("d{mapped}_d{base}", params=None)` at
+  the same stagger — along-σ physical widths (owner call 3, ratified
+  2026-07-19), composing with a stretched σ mesh. `diag` is assembled as
+  the negated coupling sum, so a Neumann row telescopes to zero exactly.
+  The flagged variable-κ `NotImplementedError` is gone: a `ScalarField`
+  κ on the field's own space is arithmetically face-averaged (one-sided
+  at the walls), exact under the κ-summed merge (band linear in κ). A
+  **moving** terrain column (a mapping param riding the field table) is
+  a new taught error — the implicit `solve` reads static geometry and
+  has no state seam. Uniform-column OPERATOR entries are **bitwise**
+  the old `κ/dz²` band (−1 Neumann / −3 Dirichlet corners); justified
+  deviations: dense `linalg.solve` → tridiagonal kernel, dense matmul →
+  band stencil, dz from `grid.measure`. **Solver deviation**: the solve
+  uses `method="scan"` (Thomas), NOT `"auto"` — the CN system is only
+  weakly diagonally dominant in the stiff regime (dominance excess
+  exactly 1) and the cyclic-reduction kernels (pcr / cuSPARSE gtsv2)
+  amplify roundoff enough to blow up the κΔt/Δz²∼640 stability tests;
+  Thomas is unconditionally stable, exact, natively differentiable.
+  Tests: `tests/model/test_implicit_kernel_measure.py` (12, the
+  prefix-mirrored shard), model-level stretched conservation + terrain
+  step + moving-geometry error + terrain propagator autodiff in
+  `test_vertical_mixing.py`; the immersed gate is untouched (the
+  wet-aware variable-dz column stays its own item, reusing this one).
+  This is the N3 implicit twin — the multigrid V-cycle already consumes
+  measure widths on stretched columns.
 
 - **FV-vs-nodal step-time gap — closed** (2026-07-18, branch
   `perf/fv-walled-storage-frame`; record
@@ -1988,6 +2026,58 @@ Implementation record:
   sub-16 ms cases. Guard cadence stands per ruling §5.5:
   owner-batched checkpoints, never per-merge, agents never submit.
 
+- **Hydrostatic terrain + walled-horizontal — closed** (2026-07-19,
+  branch `feat/hydrostatic-terrain-walled`, commit `c2f992c7`).
+  The last layer of the walled-horizontal gap (flat/immersed closed
+  2026-07-18, entry below). On a sigma-chart terrain grid the slope
+  metric `d<mapped>_d<axis>` chains the discrete `H_x`
+  (`_Derivation.param_tangent` = `base.diff(wrt)`) onto the walled
+  axis's *interior* faces (`Inner`, `n-1`) and must reach the requested
+  cell centres — an `Inner -> Center` move whose BC-free `interpolate`
+  row (correctly) does not exist, because the boundary cell needs the
+  wall face the interior set lacks. First failure site is
+  `HydrostaticCore._diagnose_w` via `terrain.py::slope_velocity_on_w`
+  (`grid.metric(w_face, "d<mapped>_d<x>")`); the baroclinic
+  `_slope_gradient` fetches the same rows; both explicit and implicit
+  consume them, so both faulted (`DispatchError "no operator registered
+  for kind 'interpolate' on Inner(x)"`). **Root cause + fix are one arm
+  in the shared `CoordinateMapping._at_space`** — the hydrostatic core
+  and `terrain.py` needed *no* change. The arm retags the odd tangent's
+  `Inner` factor onto its **Dirichlet** sibling (DST-I) before `.to`,
+  for which the tagged `interpolate` row resolves; it fires only on a
+  bounded, BC-free, odd-axis factor whose node set actually changes —
+  exactly the `Inner -> Center` the old code raised on — so periodic
+  axes (`diff` lands on `Right`; the guard skips periodic meshes),
+  identity factors, and parameter *values* are byte-untouched (the
+  fix-1 bitwise-safety discipline). **Per-site parity**: the tangent
+  `d<param>/d<wrt>` is *odd* along `wrt` — the centred difference of a
+  wall-mirror-even depth vanishes at the wall face — so the Dirichlet
+  (wall-value-0) sibling is exact; verified two ways: walled `d<z>_d<x>`
+  equals the periodic channel's to machine precision (single-device
+  exactly 0.0, forced-4 ~8e-17), and the terrain mirror gate is
+  machine-precision. The recorded **Neumann-for-values claim was not
+  reached** and was dropped: `param_value` materializes `H` on cell
+  centres, so on a walled axis it only ever lifts the interior-only
+  `Center -> Inner` (whose BC-free row exists — no error, no retag); a
+  `Center -> Outer` value lift raises `SpaceMismatchError`, not the
+  caught path, and no consumer requests it. So the shipped fix is
+  Dirichlet-only (`param_value` passes no `odd_axes`). **Gates**
+  (`tests/hydrostatic/test_free_surface_terrain_walled.py`,
+  `tests/spatial/test_coordinate_mapping.py`): explicit + implicit
+  assemble and run finite on walls x/y/x+y, advection on/off;
+  split-explicit keeps its `terrain` taught error (H3, retired later);
+  mirror vs a doubled periodic terrain domain ps 6.9e-18 / u 5.6e-17 /
+  b 1.4e-17 (b driven by the diagnosed-`w` slope terms, so both sites
+  are exercised); implicit `int(J*ps)` volume drift <= 3.5e-18 (the
+  explicit terrain ps drifts ~1e-4 *identically on periodic and walled*
+  — an inherent AB3 property of the explicit barotropic scheme, not a
+  wall leak); rest-state pressure-gradient error converges 2nd order
+  (12->24->48: 1.81, 1.95, walled == periodic); periodic-terrain path
+  bitwise-identical (sha256, explicit+implicit × advection); autodiff
+  through the run FD-matched (rel ~1e-12, wrt initial `b`); forced-4
+  green; nonhydro2 terrain+walled unaffected (periodic bitwise-
+  identical, and it keeps its own pre-existing C3 mapped-projection
+  taught error — a separate gap).
 - **Hydrostatic walled-horizontal gap — closed (flat + immersed)**
   (2026-07-18, found that morning as a multigrid-generalization
   phase-B residual; root cause + three fixes same day; merges
@@ -2017,10 +2107,10 @@ Implementation record:
   which the subcycle needed no further seam: periodic path
   sha256-identical, mirror gate exact 0.0, volume drift 3.5e-18,
   autodiff 3.1e-12. Every free-surface variant now assembles and
-  runs on walled horizontal grids on flat and immersed geometry;
-  the one remaining layer (terrain chart + walled horizontal — a
-  genuine missing interpolate in the mapped slope gradient, not a
-  tag issue) is tracked in [`open.md`](open.md).
+  runs on walled horizontal grids on flat and immersed geometry; the
+  one remaining layer (terrain chart + walled horizontal — a genuine
+  missing interpolate in the mapped slope gradient, not a tag issue)
+  closed 2026-07-19 (entry above).
 - **Multi-device eigenbasis setup + synthesis faults — FIXED**
   (2026-07-18). The two "pre-existing faults surfaced by the
   projection validation": (a) the setup `GridFrozenError` was a

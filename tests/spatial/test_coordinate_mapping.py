@@ -206,6 +206,88 @@ def test_cross_term_chains_the_discrete_parameter_derivative(
                             atol=1e-12)
 
 
+# ================================================================
+#  Walled horizontal: the odd-tangent Dirichlet face retag
+# ================================================================
+def _even_depth(x):
+    """Return a wall-mirror-even depth on (0, 2*pi) (even at x=0 and 2*pi)."""
+    return 1.0 + 0.2 * jnp.cos(x)
+
+
+def _walled_mapping():
+    return CoordinateMapping(maps={"z": lambda sigma, H: sigma * H},
+                             params={"H": _even_depth})
+
+
+def _walled_grid(periodic_x):
+    mx = IntervalMesh(N, (0.0, float(TWO_PI)), periodic=periodic_x,
+                      name="x")
+    ms = IntervalMesh(N, (0.0, 1.0), periodic=False, name="sigma")
+    return Grid((mx, ms), mapping=_walled_mapping()), mx, ms
+
+
+def test_walled_cross_term_resolves_the_dirichlet_face_retag():
+    # d<z>_d<x> chains the discrete H_x, which lands on the walled x
+    # interior faces (Inner) and must reach the cell centres. That
+    # Inner -> Center move has no BC-free interpolate row (the boundary
+    # cell needs the wall face the interior set lacks), so before the
+    # odd-tangent Dirichlet retag this raised a DispatchError. The
+    # tangent is odd at the wall (H even), so the Dirichlet sibling
+    # resolves and the metric lands on the queried Center(x) space.
+    grid, mx, ms = _walled_grid(periodic_x=False)
+    space = mx.center * ms.center
+    metric = grid.metric(space, "dz_dx")
+    assert metric.function_space.bare is space.bare
+    assert bool(jnp.all(jnp.isfinite(metric.data)))
+    x = grid.evaluation_nodes(space, "x").data
+    s = grid.evaluation_nodes(space, "sigma").data
+    # still the discrete 2nd-order derivative of the default
+    assert jnp.allclose(metric.data, s * 0.2 * -jnp.sin(x), atol=2e-2)
+
+
+def test_walled_cross_term_equals_the_periodic_channel_for_even_depth():
+    # for a wall-mirror-even depth the Dirichlet odd extension (wall
+    # face = 0) reproduces the periodic centred difference to machine
+    # precision: the walled channel's d<z>_d<x> equals the periodic
+    # channel's at every cell (H_x = 0 at the wall face for an even H,
+    # the odd-parity claim). Exactly 0 single-device; ~8e-17 under
+    # forced-4 (the two grids' shardings reassociate independently).
+    gw, mxw, msw = _walled_grid(periodic_x=False)
+    gp, mxp, msp = _walled_grid(periodic_x=True)
+    mw = gw.metric(mxw.center * msw.center, "dz_dx").data
+    mp = gp.metric(mxp.center * msp.center, "dz_dx").data
+    assert jnp.allclose(mw, mp, rtol=0.0, atol=1e-13)
+
+
+def test_walled_cross_term_is_differentiable():
+    # the Dirichlet-retag face interpolation carries a finite VJP: grad
+    # of a quadratic loss on the walled d<z>_d<x> w.r.t. a supplied H
+    # field is finite (no masked-singularity poison in the retag path).
+    grid, mx, ms = _walled_grid(periodic_x=False)
+    space = mx.center * ms.center
+    h_field = grid.create_field(mx.center, init=_even_depth)
+
+    def loss(h_data):
+        h = h_field.with_data(h_data)
+        metric = grid.metric(space, "dz_dx", params={"H": h})
+        return jnp.sum(metric.data ** 2)
+
+    g = jax.grad(loss)(h_field.data)
+    assert bool(jnp.all(jnp.isfinite(g)))
+
+
+def test_walled_value_metric_needs_no_retag():
+    # a parameter *value* (d<z>_d<sigma> = H) queried on the cell
+    # centres stays collocated in x (Center -> Center, no conversion),
+    # so the odd-tangent retag never engages: byte-identical to the
+    # analytic depth at the nodes.
+    grid, mx, ms = _walled_grid(periodic_x=False)
+    space = mx.center * ms.center
+    metric = grid.metric(space, "dz_dsigma")
+    x = grid.evaluation_nodes(space, "x").data
+    assert jnp.allclose(metric.data, _even_depth(x))
+
+
 @pytest.mark.parametrize("attrs", [
     pytest.param(("center", "center"), id="cell-points"),
     pytest.param(("right", "center"), id="u-points"),
