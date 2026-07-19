@@ -33,10 +33,16 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+import jax.numpy as jnp
+
+from fridom.spatial.fields.storage import factor_axes
 from fridom.spatial.operators.distributed_transform import (
     resolve_distributed_transform,
 )
 from fridom.spatial.operators.mixed import resolve_transform
+from fridom.spatial.operators.transform import axis_slice
+from fridom.spatial.scalars import Scalars
+from fridom.spatial.spaces.coefficient import FourierSpace
 
 if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Mapping
@@ -48,6 +54,147 @@ if TYPE_CHECKING:  # pragma: no cover
         DistributedTransform,
     )
     from fridom.spatial.spaces.tensor_product import SpaceLike
+
+
+# ================================================================
+#  Hermitian half-axis re-expression (single-device -> internal)
+# ================================================================
+def _half_spectrum_axis(space: SpaceLike) -> tuple[int | None, int]:
+    r"""
+    Locate a coefficient frame's real-origin (half-spectrum) axis.
+
+    Description
+    -----------
+    Scans the (bare) product frame for its real-origin Fourier factor
+    -- the Hermitian half axis, stored on ``0..n//2``. Returns the
+    array axis and the factor's **nodal** extent ``n``; a frame with no
+    real-origin Fourier factor (the 2-D internal frame, which carries
+    the full complex spectrum on both axes) returns ``(None, 0)``.
+
+    Parameters
+    ----------
+    space : SpaceLike
+        The (bare or laid-out) coefficient frame.
+
+    Returns
+    -------
+    tuple[int | None, int]
+        The half axis (or ``None``) and its nodal extent.
+    """
+    for factor, axis in factor_axes(space.bare):
+        if isinstance(factor, FourierSpace) and factor.scalars is Scalars.REAL:
+            return axis, factor.origin.shape[0]
+    return None, 0
+
+
+def _mirror_full_axes(arr: jax.Array, keep: int) -> jax.Array:
+    r"""
+    Map index ``i -> (n - i) % n`` on every axis except ``keep``.
+
+    Description
+    -----------
+    The multi-axis spectral reflection ``k -> -k`` (negative
+    wavenumbers modulo the extent) on the full-spectrum axes: index 0
+    is fixed and ``1..n-1`` reverse (``roll(flip)``). The ``keep`` axis
+    (the stored half axis) is left untouched.
+
+    Parameters
+    ----------
+    arr : jax.Array
+        The coefficient array.
+    keep : int
+        The array axis to leave unreflected (the half axis).
+
+    Returns
+    -------
+    jax.Array
+        The reflected array.
+    """
+    for axis in range(arr.ndim):
+        if axis == keep:
+            continue
+        arr = jnp.roll(jnp.flip(arr, axis=axis), 1, axis=axis)
+    return arr
+
+
+def hermitian_reframe(
+    column: jax.Array,
+    source: SpaceLike,
+    target: SpaceLike,
+) -> jax.Array:
+    r"""
+    Re-express a half-spectrum column onto the re-designated frame.
+
+    Description
+    -----------
+    The device-independent gain columns are built on the single-device
+    coefficient frame ``source`` (the Hermitian half spectrum on one
+    axis ``h``, full spectra elsewhere). When the sharded axis is that
+    half axis, the fused distributed transform re-designates the half to
+    another axis, so its internal frame ``target`` cannot consume the
+    ``source`` column directly. This is the pure **frame-local**
+    re-expression bridging the two: the synthesized field is real, so
+    the full spectrum obeys :math:`c(-k) = \overline{c(k)}` (negative
+    indices modulo the extent per axis). For every ``target`` lattice
+    point ``(k_h, ...)`` the coefficient is
+
+    - the stored gain at ``(k_h, ...)`` when ``k_h`` lies in the
+      ``source`` half ``0..n_h//2`` (an interior half-axis mode);
+    - :math:`\overline{\text{gain}(-k)}` -- the stored gain at the
+      reflected multi-axis index -- when ``k_h`` lies in the missing
+      half ``n_h//2+1..n_h-1`` (its reflection ``n_h - k_h`` is stored).
+
+    On the self-conjugate half-axis planes (``k_h = 0`` and, at even
+    ``n_h``, the Nyquist ``k_h = n_h//2``) the stored value and its
+    reflected conjugate are averaged: the single-device backward
+    (``irfft`` on the half axis) keeps only the Hermitian part of those
+    planes -- the anti-Hermitian half is discarded as it does not
+    survive to the real field -- and this average reproduces that
+    projection exactly, so the re-expressed columns synthesize to the
+    same field the single-device / replicated backward produces. The
+    reflected columns are then sliced to ``target``'s own half spectrum
+    (or kept full when ``target`` carries no half axis). Every operation
+    is a per-index reflection / gather (no reduction, no collective), so
+    a downstream ``shard_map`` shards the result without any all-gather.
+
+    Parameters
+    ----------
+    column : jax.Array
+        The gain column on ``source`` (the half axis at ``n_h//2+1``,
+        other axes full), complex.
+    source : SpaceLike
+        The single-device coefficient frame (half spectrum on axis
+        ``h``).
+    target : SpaceLike
+        The internal (re-designated) coefficient frame the fused
+        synthesize consumes.
+
+    Returns
+    -------
+    jax.Array
+        The re-expressed column on ``target``.
+    """
+    src_axis, src_n = _half_spectrum_axis(source)
+    tgt_axis, tgt_n = _half_spectrum_axis(target)
+    kh = jnp.arange(src_n)
+    direct = kh <= src_n // 2
+    src = jnp.where(direct, kh, src_n - kh)
+    self_conj = kh == 0
+    if src_n % 2 == 0:
+        self_conj = self_conj | (kh == src_n // 2)
+    stored = jnp.take(column, src, axis=src_axis)
+    mirror = jnp.take(
+        jnp.conj(_mirror_full_axes(column, src_axis)), src, axis=src_axis)
+    shape = [1] * column.ndim
+    shape[src_axis] = src_n
+    is_direct = jnp.reshape(direct, shape)
+    is_self = jnp.reshape(self_conj, shape)
+    full = jnp.where(
+        is_direct, jnp.where(is_self, 0.5 * (stored + mirror), stored),
+        mirror)
+    if tgt_axis is None:
+        return full
+    return axis_slice(full, tgt_axis, 0, tgt_n // 2 + 1)
 
 
 class AnalyticDistributedRoute:
@@ -74,6 +221,16 @@ class AnalyticDistributedRoute:
         hook the eigenmode symbol kit rebuilds on.
     a_name : str
         The sharded coordinate name (the operand-layout check reads it).
+    can_synthesize : bool, optional
+        Whether the route exposes a fused backward-only :meth:`synthesize`
+        (the synthesis-only consumers -- random-state / ``mode()``). True
+        for the plain-Fourier route; **False** for the walled-vertical
+        route, whose internal frame re-designates the Hermitian half axis
+        to the full spectrum and so never coincides with the
+        single-device random-phase frame the :func:`hermitian_reframe`
+        bridge assumes -- there the synthesis-only consumers keep the
+        replicated (gathered, device-count invariant) backward (default:
+        True).
     """
 
     def __init__(
@@ -81,11 +238,19 @@ class AnalyticDistributedRoute:
         transform: DistributedTransform,
         coeff_of: Mapping[str, SpaceLike],
         a_name: str,
+        *,
+        can_synthesize: bool = True,
     ) -> None:
         """Store the transform, the frame map and the sharded axis."""
         self._transform: DistributedTransform = transform
         self._coeff_of: dict[str, SpaceLike] = dict(coeff_of)
         self._a_name: str = a_name
+        self._can_synthesize: bool = can_synthesize
+
+    @property
+    def can_synthesize(self) -> bool:
+        """Whether the fused backward-only :meth:`synthesize` is served."""
+        return self._can_synthesize
 
     def coeff_of(self, name: str) -> SpaceLike:
         """Return the internal coefficient frame of a component."""
@@ -235,7 +400,12 @@ def _resolve_walled_route(
         return None
     (a_name, _), = device_axes
     coeff_of = {name: transform.coeff_of(name) for name in analysis_spaces}
-    return AnalyticDistributedRoute(transform, coeff_of, a_name)
+    # the walled internal frame runs both periodic axes fully complex, so
+    # it never coincides with the single-device random-phase frame: the
+    # synthesis-only consumers (random-state / mode()) cannot ride the
+    # fused backward and keep the replicated (device-invariant) one.
+    return AnalyticDistributedRoute(
+        transform, coeff_of, a_name, can_synthesize=False)
 
 
 def analytic_route(

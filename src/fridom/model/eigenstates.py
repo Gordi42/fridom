@@ -22,6 +22,10 @@ untouched.
   placement whose backward transform is exactly real;
 - :func:`prescribed_spectra_coefficients` — the analytic-tier
   random-phase synthesis (all modes at once, no per-plane loop);
+- :func:`synthesize_columns` — the shared backward-synthesis tail of
+  the random states and single-mode accessors: the fused distributed
+  route (Hermitian half-axis re-expression, no gather) on a sharded
+  periodic grid, the replicated / single-device backward otherwise;
 - :func:`envelope_scale` / :func:`normalize_max_component` — the
   amplitude conventions of the single-mode and random states;
 - :func:`evaluate_frequency_function` — the guarded host-side
@@ -798,49 +802,107 @@ def _synthesize_random(
 
     Description
     -----------
-    The gains and random phases are built on the **single-device**
-    coefficient frame (``kit.coeff`` -- device-independent, replicated,
-    so the draw is deterministic across device counts by construction:
-    ``grid.random.phase`` keys on the global storage index, which the
-    single-device frame fixes). The synthesis then routes through the
-    fused ``jax.shard_map`` backward half **iff** the transpose engine's
-    internal coefficient frame coincides with that single-device frame
-    (verified per component: a grid whose sharded axis is not the
-    single-device half axis, e.g. a ``y``-sharded 3-D grid); otherwise
-    the plain per-component backward runs on the replicated coefficient
-    field (a gather, still device-count invariant -- the same values on
-    any device count). A single-device grid always takes the plain path.
+    Backward-transforms the per-component gain columns (built on the
+    single-device coefficient frame) to real physical fields through
+    :func:`synthesize_columns`: the fused distributed route on a sharded
+    periodic grid (no gather), the replicated / single-device backward
+    otherwise. The template component fields wrap the output.
+    """
+    templates = {
+        c: grid.create_field(kit.backward(c).codomain, name=c)
+        for c in components}
+    wrap = {c: columns[0][c] for c in components}
+    return synthesize_columns(grid, kit, components, total, templates, wrap)
+
+
+def synthesize_columns(
+    grid: Grid,
+    kit: GridSymbols,
+    components: tuple[str, ...],
+    columns: Mapping[str, jax.Array],
+    templates: Mapping[str, ScalarField],
+    wrap: Mapping[str, ScalarField],
+) -> dict[str, ScalarField]:
+    r"""
+    Backward-synthesize coefficient columns to real fields (no gather).
+
+    Description
+    -----------
+    The shared synthesis tail of the analytic-tier synthesis-only
+    features (the prescribed-spectra random states of
+    :func:`prescribed_spectra_coefficients`, the single-mode ``em.mode``
+    states). Each ``columns[c]`` is a Hermitian coefficient column on the
+    **single-device** frame ``kit.coeff(c)`` -- device-independent and
+    replicated, so the draw is deterministic across device counts by
+    construction (``grid.random.phase`` / :func:`hermitian_mode_data`
+    key on the global storage index, which the single-device frame
+    fixes). The backward transform routes:
+
+    - through the fused ``jax.shard_map`` backward half of the
+      distributed route on a sharded fully periodic grid -- directly when
+      the transpose engine's internal frame coincides with the
+      single-device frame (a grid whose sharded axis is not the half
+      axis), else through the Hermitian half-axis re-expression
+      (:func:`~fridom.model.analytic_distributed.hermitian_reframe`) onto
+      the re-designated internal frame. Either way every transform axis
+      stays device-local (no all-gather on the IC path);
+    - through the plain per-component backward on the replicated
+      coefficient columns when no route resolves **or the route cannot
+      synthesize** (the walled-vertical route: its internal frame runs
+      both periodic axes fully complex, re-designating the Hermitian half
+      axis, so the :func:`hermitian_reframe` bridge has no valid source
+      half axis and the fused backward has no matching frame -- a non-1-D
+      layout also lands here): the coefficient **data** is
+      device-invariant, but a field on the default layout carries the
+      sharded-axis layout metadata that would trip the Tier-1 transform
+      guard, so each column is rebuilt on the bare (unlaid-out)
+      coefficient space -- a replicated backward, still device invariant.
+      A single-device grid keeps the original path bitwise.
+
+    Parameters
+    ----------
+    grid : Grid
+        The grid.
+    kit : GridSymbols
+        The eigenmode transform kit (single-device coefficient frame).
+    components : tuple[str, ...]
+        The component order to synthesize.
+    columns : Mapping[str, jax.Array]
+        Per-component Hermitian coefficient columns on ``kit.coeff(c)``.
+    templates : Mapping[str, ScalarField]
+        Per-component output templates (the analysis codomain fields),
+        for the fused route's output layout / wrapping.
+    wrap : Mapping[str, ScalarField]
+        Per-component coefficient-space fields wrapping the columns for
+        the replicated / single-device backward (the eigenvector column
+        field carrying the frame metadata).
+
+    Returns
+    -------
+    dict[str, ScalarField]
+        The synthesized real component fields.
     """
     from fridom.model.analytic_distributed import (  # noqa: PLC0415 — deferred: avoid an import cycle at module load
+        hermitian_reframe,
         resolve_route,
     )
     route = resolve_route(grid, kit._spaces, tuple(components))  # noqa: SLF001 — kit analysis spaces
-    if route is not None and all(
-            route.coeff_of(c) == kit.coeff(c) for c in components):
-        templates = {
-            c: grid.create_field(kit.backward(c).codomain, name=c)
+    if route is not None and route.can_synthesize:
+        coeffs = {
+            c: (columns[c] if route.coeff_of(c) == kit.coeff(c)
+                else hermitian_reframe(
+                    columns[c], kit.coeff(c), route.coeff_of(c)))
             for c in components}
-        return route.synthesize(
-            {c: total[c] for c in components}, templates)
-    # the plain backward on the replicated coefficient columns: the
-    # coefficient DATA is device-invariant (replicated), but on a
-    # multi-device grid a field on the default layout carries the
-    # sharded-axis layout **metadata** that would trip the Tier-1
-    # transform guard, so rebuild each column on the bare (unlaid-out)
-    # coefficient space -- a replicated field whose backward runs
-    # unguarded (a gather, still device invariant). On a single device
-    # the columns are already local: keep the original path bitwise.
+        return route.synthesize(coeffs, templates)
     if getattr(grid.decomposition, "device_count", 1) <= 1:
         return {
-            c: kit.backward(c)(
-                columns[0][c].with_data(total[c])).real
-            for c in total}
+            c: kit.backward(c)(wrap[c].with_data(columns[c])).real
+            for c in components}
     decomposition = grid.decomposition
     return {
         c: kit.backward(c)(bare_coeff_field(
-            grid, decomposition, kit.coeff(c), columns[0][c],
-            total[c])).real
-        for c in total}
+            grid, decomposition, kit.coeff(c), wrap[c], columns[c])).real
+        for c in components}
 
 
 def bare_coeff_field(
