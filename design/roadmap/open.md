@@ -218,9 +218,14 @@ Open, none blocking:
 - **Partial-bottom-cell hydrostatic pressure gradient** — the
   Pacanowski–Gnanadesikan refinement; the current unweighted `p_hyd`
   cumsum is 2nd-order away from partial bottom cells only.
+  Approved 2026-07-19; plan:
+  [`../plans/active/partial_bottom_phyd_plan.md`](../plans/active/partial_bottom_phyd_plan.md).
 - **Fraction-weighted Sadourny momentum** (sw2) and **masked
   closures** (diffusion/Smagorinsky/VerticalMixing self-reject on
-  immersed grids today).
+  immersed grids today). Approved 2026-07-19 (staged: harmonic
+  diffusion + free-slip friction; fraction Sadourny; no-slip /
+  Smagorinsky / VerticalMixing deferred as taught errors); plan:
+  [`../plans/active/immersed_closures_sadourny_plan.md`](../plans/active/immersed_closures_sadourny_plan.md).
 
 ## Docs & examples rebuild
 
