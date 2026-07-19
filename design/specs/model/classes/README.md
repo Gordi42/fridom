@@ -12,9 +12,9 @@ Status: **implemented** (drafted 2026-07-08; all six cluster files
 placed and cross-reconciled, then built out as `fridom.model`,
 ROADMAP 2.2–2.8). The class surfaces below are the normative
 reference; where the implementation deviated, the deviation is called
-out in the owning file, and the two surfaces the specs promise but the
-code never grew (`model.blank_state`/`state_space`,
-`fr.modules.WindowAccumulator`) are listed in
+out in the owning file. `model.blank_state`/`state_space` shipped
+(2026-07-19) and the `fr.modules.WindowAccumulator` preset was dropped
+in favour of the normative S6 idiom; both are recorded in
 [`../07_open_threads.md`](../07_open_threads.md) §9.1.
 Reconciliation notes from the drafting round:
 

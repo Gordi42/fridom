@@ -345,9 +345,9 @@ class AdamBashforth(TimeStepper):
         epilogue.
 
         The increment lands via ``state.add(**components)`` — the
-        key-aligned ``State.add_prognostic`` sugar is a parked
-        fields.md follow-up (open question 2); this is its exact
-        semantics spelled through ``add``.
+        key-aligned add is the final spelling; a separate
+        ``add_prognostic`` method was struck (07_open_threads
+        §9.1 item 3), its semantics being exactly this ``add``.
 
         Parameters
         ----------
