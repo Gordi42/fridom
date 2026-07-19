@@ -1,10 +1,12 @@
 """
 Spherical shallow water (coordinate-systems plan, stage C2).
 
-The model half of stage C2: the unchanged shallowwater2 modules on a
-lat-lon sphere chart (periodic lon x bounded lat, polar caps
-excluded), prognosing contravariant velocity components (the
-convention recorded in ``shallowwater2/modules/core.py``):
+The model half of stage C2: the shallowwater2 modules on a lat-lon
+sphere chart (periodic lon x bounded lat, polar caps excluded),
+prognosing the **physical** (m/s) velocity components on every grid
+(``physical_state_components.md`` ruling (c); the chart terms convert
+to the contravariant coordinate velocities at the seams,
+``shallowwater2/chart.py``):
 
 - **Flat limit**: on the identity chart (X = (x, y)) the metric-aware
   paths reproduce the chartless Cartesian model exactly — every metric
@@ -194,12 +196,12 @@ def test_global_mass_is_conserved_to_rounding():
 def tc2_errors(nlon, nlat, steps=400, dt=2e-3):
     """Run the balanced solid-body state; return drift norms."""
     model = sphere_model(nlon, nlat, dt=dt)
-    # balanced pair: u^lon = U0 (contravariant solid body, i.e.
-    # u_east = U0 cos(lat)), v = 0, and the height field
+    # balanced pair: the PHYSICAL solid body u_east = U0 cos(lat)
+    # (i.e. u^lon = U0 on the unit sphere), v = 0, and the height field
     # p = -(Omega U0 + U0^2/2) sin^2(lat) (unit radius; gradient
     # balance of Coriolis + metric self-advection)
     model.set_fields(
-        u=lambda lon, lat: U0 + 0.0 * lon + 0.0 * lat,
+        u=lambda lon, lat: U0 * jnp.cos(lat) + 0.0 * lon,
         p=lambda lon, lat: -(OMEGA * U0 + 0.5 * U0 ** 2)
         * jnp.sin(lat) ** 2 + 0.0 * lon)
     p0 = np.asarray(model.state["p"].data).copy()
