@@ -246,6 +246,16 @@ class VerticalDiffusion:
     ``kappa/dz^2`` second difference (same ``-1`` Neumann / ``-3``
     Dirichlet corners).
 
+    On an **immersed** (cut-cell) grid the column is additionally
+    wet-aware (immersed_closures_sadourny_plan §5): each face coupling is
+    weighted by the min-rule open-area fraction and the row is scaled by
+    the sealed wet volume fraction, so a dry cell is an identity row, a
+    wet/dry face carries no flux (free-slip immersed BC), and a wet
+    partial cell carries its true wet width. All-wet is a bitwise no-op.
+    The immersed geometry is a grid-global property, so it does not enter
+    :meth:`merge_key` — every same-axis, same-BC leg on one grid reads
+    the same fractions and kappa-merges exactly.
+
     Parameters
     ----------
     axis : str
@@ -570,6 +580,56 @@ def _face_kappa(
     return kappa_up, kappa_low
 
 
+def _face_fraction(
+    theta: jax.Array, axis_index: int, size: int,
+) -> tuple[jax.Array, jax.Array]:
+    r"""
+    Resolve the per-cell ``(alpha_up, alpha_low)`` face wet fractions.
+
+    Description
+    -----------
+    The open-area fraction at each cell's upper (``c + 1/2``) and lower
+    (``c - 1/2``) face by the MITgcm min-rule ``alpha_{c+1/2} =
+    min(theta_c, theta_{c+1})`` (the same combination the immersed
+    ``fraction`` transfer uses on a face family): a wet/dry face gets
+    ``alpha = 0`` — no flux through solid, the free-slip immersed
+    boundary (CL-D3) — and two wet partial cells share the ``min`` of
+    their fractions. The two **domain-wall** faces take ``alpha = 1``:
+    the immersed weighting acts only on the interior wet/dry interfaces,
+    leaving the declared wall BC (Neumann drop / Dirichlet flux) its own
+    machinery (a dry corner cell is still sealed to an identity row by
+    the ``1/theta`` scaling). Built by the same bottom/interior/top
+    concatenation as :func:`_face_kappa`, so ``alpha_up[c]`` and
+    ``alpha_low[c + 1]`` are the *same* array element (the shared face)
+    — which is exactly what makes the wet-content telescoping exact.
+
+    Parameters
+    ----------
+    theta : jax.Array
+        The cell wet fraction along ``axis_index`` (``size`` entries).
+    axis_index : int
+        The storage-frame index of the solve axis.
+    size : int
+        The cell count along the solve axis.
+
+    Returns
+    -------
+    tuple[jax.Array, jax.Array]
+        The ``alpha_up`` / ``alpha_low`` per-cell face fractions
+        (broadcasting against the couplings).
+    """
+    below = _axis_slice(theta, axis_index, 0, size - 1)
+    above = _axis_slice(theta, axis_index, 1, size)
+    interior = jnp.minimum(below, above)
+    wall_shape = list(theta.shape)
+    wall_shape[axis_index] = 1
+    wall = jnp.ones(tuple(wall_shape), dtype=theta.dtype)
+    faces = jnp.concatenate([wall, interior, wall], axis=axis_index)
+    alpha_up = _axis_slice(faces, axis_index, 1, size + 1)
+    alpha_low = _axis_slice(faces, axis_index, 0, size)
+    return alpha_up, alpha_low
+
+
 def _diffusion_bands(
     field: ScalarField, axis: str, kappa_value: Any,
     bc: tuple[str, str] = ("neumann", "neumann"),
@@ -617,6 +677,20 @@ def _diffusion_bands(
     the corner cell's coefficient). On a uniform column the entries are
     identical to ``kappa/dz^2`` with the ``-1`` Neumann / ``-3``
     Dirichlet corners.
+
+    On an **immersed** (cut-cell) grid (``grid.immersed`` set) the column
+    is additionally wet-aware (immersed_closures_sadourny_plan §5, the
+    implicit twin of the CL-D2 explicit spelling): each face coupling is
+    multiplied by the min-rule open-area fraction ``alpha_{c+/-1/2}``
+    (:func:`_face_fraction`) and the whole row is scaled by the sealed
+    wet volume fraction ``1/theta_c`` (``theta = immersed.fraction``,
+    double-``where`` guarded). ``alpha = 0`` across a wet/dry face is the
+    free-slip immersed boundary (no flux through solid), a dry cell
+    (``theta = 0``) becomes an identity row, and a wet partial cell
+    carries its true wet width — so the ``theta``-weighted wet content
+    telescopes to the wall fluxes (conserved for Neumann). All-wet
+    (``theta = alpha = 1``) is a bitwise no-op, so the unimmersed column
+    is byte-for-byte unchanged.
 
     Parameters
     ----------
@@ -678,6 +752,25 @@ def _diffusion_bands(
     dz_low = _axis_slice(m_face, axis_index, 0, size)
     up_coupling = kappa_up / (dz_up * m_cell)
     low_coupling = kappa_low / (dz_low * m_cell)
+
+    # immersed (cut-cell) wet weighting: each face coupling is weighted
+    # by the min-rule open-area fraction alpha (0 across a wet/dry face
+    # -> the free-slip immersed boundary, CL-D3) and the whole row is
+    # scaled by the SEALED wet volume fraction 1/theta_c (CL-D2/D5). A
+    # dry cell (theta = 0) becomes an identity row (both couplings 0);
+    # a wet partial cell carries its true wet width. Off an immersed
+    # grid (theta = alpha = 1) this is a bitwise no-op (a *1.0 / 1.0),
+    # so the flat / stretched / terrain chain is byte-for-byte unchanged.
+    immersed = getattr(grid, "immersed", None)
+    if immersed is not None:
+        theta = jnp.asarray(immersed.fraction(space).data, dtype=real)
+        alpha_up, alpha_low = _face_fraction(theta, axis_index, size)
+        wet = theta > 0.0
+        theta_safe = jnp.where(wet, theta, 1.0)
+        up_coupling = jnp.where(
+            wet, alpha_up * up_coupling / theta_safe, 0.0)
+        low_coupling = jnp.where(
+            wet, alpha_low * low_coupling / theta_safe, 0.0)
 
     # diag as the NEGATED SUM of the kept couplings; a Neumann side
     # drops the wall coupling, a Dirichlet side keeps it (the wall flux)
