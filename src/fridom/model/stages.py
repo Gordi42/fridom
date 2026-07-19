@@ -211,9 +211,9 @@ def self_update(
     stage — the sanctioned accumulation idiom (02_rules): a
     DIAGNOSTIC stage may read its own component's previous value and
     ``replace`` with the updated sum — step-cadence, post-NaN-seam,
-    carry-resident (restart-exact); ``fr.modules.WindowAccumulator``
-    ships this as the preset. ``cadence=`` is RESERVED on this
-    declaration (CS-1) and not built: passing it raises
+    carry-resident (restart-exact). No ``fr.modules.WindowAccumulator``
+    preset is provided; the idiom stands on its own. ``cadence=`` is
+    RESERVED on this declaration (CS-1) and not built: passing it raises
     ``NotImplementedError``.
 
     Parameters

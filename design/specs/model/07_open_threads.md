@@ -39,26 +39,28 @@ re-arguing a decision.
 
 Genuinely unresolved, in rough order of how much they bite:
 
-1. **The State factory the specs promised was never built.**
+1. **The State factory — RESOLVED (2026-07-19): BUILT.**
    [`04_run_loop_io.md`](04_run_loop_io.md) §6.1 and
-   [`08_state_transforms.md`](08_state_transforms.md) S2 add
-   `model.blank_state()` and `model.state_space(name)` to the Model
-   surface; neither exists in `fridom.model`. What the ported IC
-   recipes actually use is `grid.create_field(space, ...)` with the
-   space taken from the eigenmode surface or from
-   `model.field_table[name].space`. Decide: build the two methods (the
-   sugar is one line each over the field table) or strike them from the
-   surface and bless the field-table spelling. Until then the spec
-   over-promises.
-2. **Accumulation has an idiom but no preset.** The S6 DIAGNOSTIC
-   accumulation idiom is normative ([`02_rules.md`](02_rules.md)), but
-   the `fr.modules.WindowAccumulator` preset that several notes name as
-   shipping *does not exist*. Either build it or drop the promise; the
-   idiom stands regardless.
-3. **`add_prognostic`** — the key-aligned add of a PROGNOSTIC-only
-   vector onto a full state (every stepper family's combine step wants
-   it). `VectorField.add(**contributions)` landed; the key-aligned
-   variant did not. Owned by the grid-cluster fields spec.
+   [`08_state_transforms.md`](08_state_transforms.md) S2 promised
+   `model.blank_state()` and `model.state_space(name)`; both now ship
+   on the Model surface. `blank_state()` returns the PROGNOSTIC subset
+   at declared defaults (born sharded); `state_space(name)` returns the
+   named component's function space. Each is one line of sugar over the
+   field table (`model.field_table[name].space` and
+   `grid.create_field`), which stays the equivalent low-level spelling.
+2. **Accumulation — RESOLVED (2026-07-19): the idiom stands, the
+   preset is DROPPED.** The S6 DIAGNOSTIC accumulation idiom is the
+   sanctioned, normative spelling ([`02_rules.md`](02_rules.md)). The
+   `fr.modules.WindowAccumulator` preset that several notes once named
+   as shipping is not promised; a windowed-accumulation preset can be
+   introduced with coupling if wanted (far future,
+   [`09_coupling_designfor.md`](09_coupling_designfor.md)). The idiom
+   needs no preset to be complete.
+3. **`add_prognostic` — RESOLVED (2026-07-19): STRUCK.** The
+   key-aligned add of a PROGNOSTIC-only vector onto a full state is
+   served by `state.add(**components)`, which every stepper family's
+   combine step already uses; that is the final spelling. No separate
+   `add_prognostic` method is added.
 4. **`em.omega_at(k, s)` / `em.omega_field(s)`** — scalar and
    field-valued frequency accessors. The eigenbasis exposes the batched
    `omega` array and `mode(...)`'s scalar; neither accessor is built.

@@ -1147,6 +1147,70 @@ def test_measure_under_a_trace_is_not_cached(mx, my):
     assert jnp.allclose(weight.data, 1.0 / 8)
 
 
+def _wavy(s):
+    return s + 0.1 * jnp.sin(2.0 * jnp.pi * s) / (2.0 * jnp.pi)
+
+
+def _flip_meshes():
+    # x periodic + a periodic MAPPED axis, both 16-cell so both shard
+    # on four devices; a wide x-halo later disqualifies x and flips the
+    # default sharded axis to the mapped one.
+    return (
+        IntervalMesh(16, (0.0, 1.0), periodic=True, name="x"),
+        MappedIntervalMesh(16, (0.0, 1.0), _wavy, periodic=True,
+                           name="p"))
+
+
+def test_measure_cache_survives_a_noop_renegotiation():
+    # normal build->run ordering: a measure queried pre-assembly stays
+    # cached across a renegotiation that does NOT change the layout, so
+    # the fix's recompute-on-renegotiation never over-invalidates
+    # (pinned to one device: a no-op negotiate reports changed=False,
+    # the cache holds, and the SAME field object comes back).
+    grid = Grid(_flip_meshes(), device_ids=(0,))
+    space = grid.factors[0].center * grid.factors[1].center
+    pre = grid.measure(space, name="p")
+    report = grid.negotiate()  # assembly-phase renegotiation
+    assert report.changed is False
+    post = grid.measure(space, name="p")
+    assert post is pre  # cache hit preserved (no spurious clear)
+
+
+@pytest.mark.multi_device
+def test_measure_cache_recomputes_after_a_layout_change():
+    # regression (owner-ruled 2026-07-19): the measure cache key carries
+    # the halo but not the layout. A measure queried BEFORE assembly is
+    # padded to the provisional storage frame; a renegotiation that
+    # flips the sharded axis leaves that entry in a stale frame. The fix
+    # drops the memo when negotiate reports a changed layout, honoring
+    # the recompute-on-demand contract, so a re-query materializes in
+    # the new frame and matches a fresh grid negotiated identically.
+    grid = Grid(_flip_meshes())
+    space = grid.factors[0].center * grid.factors[1].center
+    assert dict(grid.decomposition.default_layout.device_axes) == {
+        "x": "devices"}
+    pre = grid.measure(space, name="p")
+    assert len(grid._measures) == 1
+    # a wide x-halo disqualifies x from sharding: the default axis flips
+    # to the mapped p, a genuine layout change at a new storage frame.
+    report = grid.negotiate(halo=HaloSpec({"x": 5}))
+    assert report.changed is True
+    assert dict(grid.decomposition.default_layout.device_axes) == {
+        "p": "devices"}
+    # the stale provisional-frame entry is gone (the fix's contract)
+    assert len(grid._measures) == 0
+    post = grid.measure(space, name="p")
+    assert post is not pre
+    # the re-materialized measure matches a fresh grid negotiated the
+    # same way, in both logical values and the padded storage frame
+    ref = Grid(_flip_meshes())
+    ref.negotiate(halo=HaloSpec({"x": 5}))
+    ref_measure = ref.measure(
+        ref.factors[0].center * ref.factors[1].center, name="p")
+    assert jnp.allclose(post.data, ref_measure.data)
+    assert post._data.shape == ref_measure._data.shape
+
+
 @pytest.mark.multi_device
 def test_eager_mean_on_a_cold_multi_device_grid():
     # regression (2026-07-15): on a multi-device operand the eager

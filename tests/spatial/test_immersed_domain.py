@@ -5,6 +5,7 @@ import numpy as np
 import pytest
 
 from fridom.spatial.bc import BC
+from fridom.spatial.decomposition.halo import HaloSpec
 from fridom.spatial.grid import Grid
 from fridom.spatial.immersed_domain import ImmersedDomain, Slip
 from fridom.spatial.meshes.chebyshev import ChebyshevMesh
@@ -250,6 +251,55 @@ def test_fraction_transfer_is_slip_independent(mx, my):
     grid = Grid((mx, my), immersed=dom)
     fraction = grid.immersed.fraction(mx.right * my.center)
     assert np.array_equal(column(fraction), [1, 1, 1, 0, 0, 0, 0, 0])
+
+
+# ================================================================
+#  Cache invalidation on grid re-negotiation (recompute-on-demand)
+# ================================================================
+def test_invalidate_cache_drops_materialized_entries(grid, mx, my):
+    # the materialization cache holds concrete entries after a query;
+    # _invalidate_cache (called by the grid on a layout-changing
+    # renegotiation) empties it so the next query re-materializes.
+    space = mx.center * my.center
+    grid.immersed.fraction(space)
+    assert len(grid.immersed._cache) == 1
+    grid.immersed._invalidate_cache()
+    assert len(grid.immersed._cache) == 0
+
+
+@pytest.mark.multi_device
+def test_immersed_cache_recomputes_after_a_layout_change():
+    # sibling of the grid._measures fix: the immersed materialization
+    # cache mirrors grid._measures (padded to the storage frame, keyed
+    # on the halo but not the layout). A fraction queried before
+    # assembly is padded to the provisional frame; a renegotiation that
+    # flips the sharded axis leaves it stale, so the grid clears the
+    # cache and the next query re-materializes in the new frame.
+    meshes = (
+        IntervalMesh(16, (0.0, 1.0), periodic=True, name="x"),
+        IntervalMesh(16, (0.0, 1.0), periodic=True, name="y"))
+    dom = ImmersedDomain(lambda x, y: x < 0.5)  # noqa: ARG005 — wet cut
+    grid = Grid(meshes, immersed=dom)
+    space = meshes[0].center * meshes[1].center
+    assert dict(grid.decomposition.default_layout.device_axes) == {
+        "x": "devices"}
+    grid.immersed.fraction(space)
+    assert len(grid.immersed._cache) == 1
+    report = grid.negotiate(halo=HaloSpec({"x": 5}))  # flips to y
+    assert report.changed is True
+    assert len(grid.immersed._cache) == 0
+    post = grid.immersed.fraction(space)
+    # matches a fresh grid negotiated identically (values + frame)
+    ref_dom = ImmersedDomain(lambda x, y: x < 0.5)  # noqa: ARG005
+    ref = Grid(
+        (IntervalMesh(16, (0.0, 1.0), periodic=True, name="x"),
+         IntervalMesh(16, (0.0, 1.0), periodic=True, name="y")),
+        immersed=ref_dom)
+    ref.negotiate(halo=HaloSpec({"x": 5}))
+    ref_frac = ref.immersed.fraction(
+        ref.factors[0].center * ref.factors[1].center)
+    assert jnp.allclose(post.data, ref_frac.data)
+    assert post._data.shape == ref_frac._data.shape
 
 
 # ================================================================

@@ -24,6 +24,8 @@ oversized-module rule (small builders duplicated).
 """
 import inspect
 
+import jax
+import jax.numpy as jnp
 import numpy as np
 import pytest
 
@@ -437,3 +439,62 @@ def test_eady_growth_rate_rises_toward_qg_as_richardson_increases():
     assert ratios[0] < 0.92
     assert ratios[1] > 0.97
     assert ratios[1] > ratios[0]
+
+
+# ================================================================
+#  Rest state: a zero perturbation stays zero (no spurious forcing)
+# ================================================================
+def test_rest_state_stays_zero_over_a_short_run():
+    r"""A zero perturbation is a fixed point to round-off.
+
+    The module's terms are ``-shear w'`` and ``+f0 shear v'`` — both
+    vanish identically at a zero perturbation — so the balanced state
+    (the thermal-wind mean flow rides ``background_u`` / the module, not
+    the perturbation state) does not spin up a spurious tendency: every
+    prognostic/diagnosed perturbation field stays at round-off over a
+    short run (the implicit free-surface solve on a zero RHS returns
+    zero). The mean-flow AUXILIARY fields are excluded (they carry the
+    balanced ``U(z)``/``f0`` and are legitimately nonzero).
+    """
+    model, _ = eady_model(nx=8, ny=4, nz=6, shear=0.7, dt=2e-3)
+    # the carry allocates a zero perturbation; leave it and integrate
+    model.advance(5)
+    for name in ("u", "v", "w", "b", "ps"):
+        peak = float(np.max(np.abs(np.asarray(model.state[name].data))))
+        assert peak < 1e-13
+
+
+# ================================================================
+#  Differentiability: grad through a short run w.r.t. the shear
+# ================================================================
+def test_thermal_wind_grad_wrt_shear_matches_fd():
+    r"""``jax.grad`` w.r.t. the shear matches a central FD (rtol 1e-4).
+
+    Differentiability policy (AGENTS.md): the thermal-wind term is
+    step-path tendency code, so ``jax.grad`` of a quadratic loss through
+    a short ``Model.propagator`` run w.r.t. the shear
+    :math:`\Lambda = \partial_z U` (equivalently the meridional gradient
+    :math:`M^2 = f_0\Lambda`) is finite and FD-matched. The two terms are
+    linear interpolation and scalar scaling of the state (no masked
+    singularity), so the gradient is clean; and the ``shear`` leaf is
+    spliceable — its owner materializes no AUXILIARY coefficient field
+    and ``AdamBashforth`` does not freeze the linear operator, so the
+    propagator accepts it as a ``wrt`` target.
+    """
+    model, _ = eady_model(nx=8, ny=4, nz=6, shear=0.5, dt=2e-3)
+    rng = np.random.default_rng(0)
+    model.set_fields(**{
+        c: 0.1 * rng.standard_normal(np.asarray(model.state[c].data).shape)
+        for c in ("u", "v", "b")})
+    run = model.propagator(wrt=(str(hy.params.SHEAR),), steps=6)
+    lam0 = jnp.asarray(0.5)
+
+    def loss(lam):
+        out = run((lam,))
+        return sum(jnp.sum(f.data ** 2) for f in out.state)
+
+    grad = float(jax.grad(loss)(lam0))
+    assert np.isfinite(grad)
+    eps = 1e-4
+    fd = (float(loss(lam0 + eps)) - float(loss(lam0 - eps))) / (2.0 * eps)
+    assert grad == pytest.approx(fd, rel=1e-4)

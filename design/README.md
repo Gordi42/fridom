@@ -16,9 +16,15 @@ option analyses, precedent surveys, audits — that fed the decisions;
 where research disagrees with a spec, the spec wins. **Archive**
 (`archive/`) holds proposals that were put on hold or superseded.
 
-[`roadmap/open.md`](roadmap/open.md) is the single open-work tracker;
-[`roadmap/done.md`](roadmap/done.md) records the shipped phases. Both
-link into the design records behind each task.
+The roadmap is four files (restructured 2026-07-19):
+[`roadmap/open.md`](roadmap/open.md) tracks only work that is
+actually next (the owner-sequenced pipeline + long-term goals);
+[`roadmap/done.md`](roadmap/done.md) records the shipped phases;
+[`roadmap/deferred.md`](roadmap/deferred.md) shelves parked work,
+each entry with a promotion trigger;
+[`roadmap/declined.md`](roadmap/declined.md) records what was decided
+*against*, with reasons — check it before re-proposing an idea. All
+four link into the design records behind each task.
 
 **Naming map.** The specs predate two renames and keep the historical
 spellings:
@@ -47,10 +53,11 @@ spellings:
    is never rewritten.
 5. The roadmap follows the same hygiene: `roadmap/open.md` holds only
    open work. When an item ships, its record moves to
-   `roadmap/done.md` — in the same change that reports it shipped —
-   and the open entry is trimmed to what actually remains. Status
-   narrative ("shipped", "landed", "resolved") never accumulates in
-   `open.md`.
+   `roadmap/done.md` — in the same change that reports it shipped.
+   When an item is deferred, its entry moves to `roadmap/deferred.md`
+   with a promotion trigger; when it is decided against, to
+   `roadmap/declined.md` with the reason. Status narrative
+   ("shipped", "landed", "resolved") never accumulates in `open.md`.
 
 ## `specs/` — living, normative design specs
 
@@ -151,18 +158,27 @@ spellings:
 | [`docs_examples_plan.md`](plans/active/docs_examples_plan.md) | active | Docs & examples rebuild: the CI skeleton and the pilot example landed; 12 example ports and the full prose tree remain. |
 | [`boundary_plan.md`](plans/active/boundary_plan.md) | active | Boundary closures: R1, the one-sided rows and `BC.ROBIN` structure landed 2026-07-11; open is stage 2e (the Robin dynamic `(α, g)` ghost-fill path) and the optional 2f halo-claim refinement. |
 | [`projection_eigenmode_roadmap.md`](plans/active/projection_eigenmode_roadmap.md) | active | Projection / eigenmode build order: phases A–H landed; tracks only the unscheduled phase-I `Banded` / mixed-representation tier. |
-| [`fv_nonhydro_scoping.md`](plans/active/fv_nonhydro_scoping.md) | active | Finite-volume nonhydro (roadmap 3.5): decisions FV-D1..D4 (D2 = option A), the staged F0–F6 plan. F0–F3 shipped 2026-07-16 (the periodic model is FV by default); open are F4 walls, F5 mapped, F6 hygiene, and the 4-GPU validation. |
+| [`fv_nonhydro_scoping.md`](plans/active/fv_nonhydro_scoping.md) | active | Finite-volume nonhydro (roadmap 3.5): decisions FV-D1..D4 and the staged F0–F6 plan — all stages shipped by 2026-07-18 (FV is the default on every non-immersed grid, moving geometry included); retained for the decision records (cut cells declined, §9). |
+| [`hydrostatic_model_plan.md`](plans/active/hydrostatic_model_plan.md) | active | The hydrostatic model: shipped 2026-07-17 with the Oceananigans leg; open are the Veros/pyOM3 comparison legs (post-docs) and the designed-fors (§7). |
+| [`immersed_closures_sadourny_plan.md`](plans/active/immersed_closures_sadourny_plan.md) | active | Immersed closures + Sadourny: stages A/B shipped 2026-07-19; §5 tracks the deferred tail (no-slip side-drag, Smagorinsky immersed) and the VerticalMixing-immersed design (in flight). |
+| [`immersed_graded_advection_plan.md`](plans/active/immersed_graded_advection_plan.md) | active | Immersed graded advection: shipped 2026-07-18 (mask-keyed graded ladder); retains the distributed-bounded-axis note and owner-gated GPU perf levers. |
+| [`mapped_immersed_composition_plan.md`](plans/active/mapped_immersed_composition_plan.md) | active | Mapped+immersed composition: M0–M5 shipped 2026-07-18/19; the one open leaf (sw2 mapped+immersed) is deferred with its trigger in `roadmap/deferred.md`. |
+| [`partial_bottom_phyd_plan.md`](plans/active/partial_bottom_phyd_plan.md) | active | Partial-bottom hydrostatic pressure: flat/stretched correction shipped 2026-07-19; PB-D3 (terrain-chart moment quadrature) deferred. |
+| [`differentiability_plan.md`](plans/active/differentiability_plan.md) | active | Differentiability: phases 0–2 shipped (`Model.propagator`, step-path VJP seals); only the no-consumer TangentPropagator stub remains (deferred). |
 | [`high_order_mapped_plan.md`](plans/active/high_order_mapped_plan.md) | draft | High-order stencils on mapped grids: the four standing mapped refusals, the metric-identity obstacle, the option table. Walled prerequisite paid; Jacobian spike answered 2026-07-16 (same-row discrete divisor, [`research/mapped_jacobian_spike.md`](research/mapped_jacobian_spike.md)); the full lift stays deferred on payoff. |
 | [`adiabatic_ramping.md`](plans/active/adiabatic_ramping.md) | idea | Generalized adiabatic ramping (roadmap 3.8) — an `AdiabaticRamping` base transform with `OptimalBalance` as a subclass. Planned, not scheduled; its dependency (2.8) has shipped. |
-| [`perf_geometry_merge_plan.md`](plans/active/perf_geometry_merge_plan.md) | active | Reconciling the performance line with the geometry line: the merge, the geometry stages and the mapped-PCG interior pass (§§4a–4b) landed; the A/B step harness exists with committed baselines — open is wiring it as a CI gate plus the unasserted fast paths (roadmap). |
+| [`perf_geometry_merge_plan.md`](plans/active/perf_geometry_merge_plan.md) | active | Reconciling the performance line with the geometry line: the merge, the geometry stages and the mapped-PCG interior pass (§§4a–4b) landed; the CI-gate item shipped as the owner-batched step guard (`plans/done/perf_guard_plan.md`); §3c's moving-geometry gates are deferred. |
 | [`distributed_transform_reconciliation.md`](plans/active/distributed_transform_reconciliation.md) | active | Reconcile the distributed spectral solve with the §5.1 layout-in-space design. Stages 1–4 landed (the transform planner); closes the push gate. |
 | [`distributed_transform_plan.md`](plans/active/distributed_transform_plan.md) | active | The distributed transform planner: layout-annotated stages, the fused `shard_map` lowering, and the A100 gate results. |
-| [`multigrid_pathway_plan.md`](plans/active/multigrid_pathway_plan.md) | active | Multigrid pathway: phase A (the grid transfer layer — `Mesh.coarsened` / `Grid.coarsened` / `GridTransfer`, dual-use with coupling CS-15) landed 2026-07-17; open are the B0 two-level spike and the workload-gated V-cycle preconditioner (phase B). |
+| [`multigrid_pathway_plan.md`](plans/active/multigrid_pathway_plan.md) | active | Multigrid pathway: phases A+B shipped 2026-07-17 (transfer layer, V-cycle preconditioner; GB-2 wall-clock leg closed — cuSPARSE chapter in done.md); the three recorded corrections were owner-endorsed 2026-07-19. |
 
 ## `plans/done/` — shipped plans (kept as records)
 
 | File | Status | Description |
 |------|--------|-------------|
+| [`immersed_partial_cells_plan.md`](plans/done/immersed_partial_cells_plan.md) | done | Immersed partial cells (I0–I5): genuine partial cells in every dimension across all three models; shipped 2026-07-17 (moved to done 2026-07-19). |
+| [`perf_guard_plan.md`](plans/done/perf_guard_plan.md) | done | The owner-batched step-perf guard: harness + committed baselines + `benchmarks/ci/step_guard.sbatch`; first checkpoint green (moved to done 2026-07-19). |
+| [`multigrid_generalization_plan.md`](plans/done/multigrid_generalization_plan.md) | done | Multigrid generalization (H3 + 2-D MG + warm starts + full 3-D coarsening default): all five phases shipped by 2026-07-19; carries GM-D1 (the volume-exact free-surface ruling). |
 | [`phase2_grid_followups.md`](plans/done/phase2_grid_followups.md) | done | Grid follow-ups from the Phase-2 reconciliation: every model-layer blocker plus the API-shim backlog landed by 2026-07-15 (R1–R15); the last item — coefficient-space product/power rows — was ruled closed by design 2026-07-18 (vector space, not an algebra; rows permanently absent, [`research/coefficient_space_arithmetic_semantics.md`](research/coefficient_space_arithmetic_semantics.md)). |
 | [`multihost_writer_plan.md`](plans/done/multihost_writer_plan.md) | done | Multi-host writer — `fr.io.Writer` correct under a real `srun -n N` multi-process run: rank-0-owns-metadata + per-rank disjoint shard writes + conditional `process_allgather` of the coordinate labels. Shipped 2026-07-15 (`8b6642bf`); async falls back to blocking under multi-process (v1). |
 | [`grid_ergonomics_plan.md`](plans/done/grid_ergonomics_plan.md) | done | Grid setup ergonomics — the fast assemble: `fr.spatial.spherical.Grid` (required `lat_extent`, optional `lon_extent` → closed zonal walls) over the `charts.lonlat_sphere` primitive, plus the sibling `cartesian.Grid`. Landed 2026-07-15. |
@@ -220,6 +236,12 @@ are the per-decision research behind `specs/model/` (see
 | [`xla_spmd_fft_fault.md`](research/xla_spmd_fft_fault.md) | frozen | XLA SPMD-FFT fault: a jitted FFT on a sharded axis RET_CHECKs; reproducer, condition matrix, the fridom-side mitigation. |
 | [`multigrid_pathway.md`](research/multigrid_pathway.md) | frozen | Multigrid pathway research (pinned `731089fc`): framework substrate, solver seam, decomposition constraints, the forced-4-device sharding probe, external prior art; input to the pathway plan. |
 | [`diffusion_walls_terrain_scoping.md`](research/diffusion_walls_terrain_scoping.md) | frozen | Diffusion/friction closures at walls (free-slip/no-slip) and on mapped terrain: machinery inventory, external practice, per-case design, staged sizing; flags the live `VerticalMixing` stretched/terrain silent-wrongness. |
+| [`spherical_models_scoping.md`](research/spherical_models_scoping.md) | frozen | Spherical/torus support in the 3-D models (2026-07-19 probe): hydrostatic chart refusal, flux-form advection metric-blindness, nonhydro blockers, the delta lists; sw2 is the metric-correct reference. |
+| [`smagorinsky_walls_scoping.md`](research/smagorinsky_walls_scoping.md) | frozen | Walled Smagorinsky–Lilly deep research: reference-model survey, the `Inner[Dirichlet]` retag design (W1–W3), dissipation guarantee, owner rulings 2026-07-19. |
+
+*(Table drift note, 2026-07-19: the research table above predates
+~2026-07-14 and misses many newer records — a refresh sweep is
+queued; the records themselves are authoritative.)*
 
 ## `archive/` — held / superseded
 

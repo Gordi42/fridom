@@ -133,8 +133,9 @@ the section that carries each rule's full statement.
   multi-stage steppers (RK3: three unweighted stage-time samples
   per step — correct under AB3 only by accident). `cadence=STEP`
   is reserved on `self_update`, not built; the hazard is documented
-  in its docstring. (A `fr.modules.WindowAccumulator` preset over this
-  idiom is **specified but not built** — see
+  in its docstring. (No `fr.modules.WindowAccumulator` preset is
+  promised; a windowed-accumulation preset can be introduced with
+  coupling if wanted — see
   [`07_open_threads.md`](07_open_threads.md) §9.1.)
 - **`extra_halo` mechanics** (validation sign-off, V-N2): a module
   declaring `Module.extra_halo` has its terms **exempted from the

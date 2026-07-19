@@ -22,7 +22,13 @@ Two tiers, mirroring ``test_eigenbasis_distributed.py``:
 - **real-eigenbasis end-to-end tests** build a genuine nh channel
   eigenbasis and are GPU-scoped (the fixture skips on the CPU backend):
   ``mode()`` and ``random_state`` on the sharded grid match the
-  explicit one-device reference.
+  explicit one-device reference. These compare two INDEPENDENT eigh
+  builds, so they assert real cross-build parity only because the
+  eigenvector gauge is canonicalized at build time
+  (``eigen_channel._canonicalize_gauge``); a simple-eigenvalue mode is
+  then build-order independent. Without that fix the synthesized
+  fields rotated by an arbitrary eigh phase (the GPU-checkpoint
+  finding, ``design/research/artifacts/gspmd_campaign_gpu4/RESULTS.md``).
 
 ``multi_device`` marked tests need the forced-4-device suite
 (``XLA_FLAGS=--xla_force_host_platform_device_count=4
@@ -212,6 +218,16 @@ def nh_pair():
 
 @pytest.mark.multi_device
 def test_real_mode_matches_one_device(nh_pair, forced_devices):
+    # cross-build parity: many_eb and one_eb are two INDEPENDENT eigh
+    # builds (sharded grid vs a device_ids=(0,) twin), whose probe
+    # inputs differ by sharded-reduction FP noise. The eigenvector
+    # gauge is canonicalized at build time (eigen_channel.
+    # _canonicalize_gauge: pivot component pinned real-positive), so a
+    # simple-eigenvalue mode - which mode("wave+", ...) selects - is
+    # build-order independent and the synthesized fields agree. (This
+    # asserts the invariant the gauge-canonicalization fix restores;
+    # it validates on the owner's next GPU batch - the fixture skips
+    # on the CPU backend, jax#39292.)
     if forced_devices is not None:
         assert jax.device_count() == forced_devices
     _many_m, many_eb, _one_m, one_eb = nh_pair
@@ -227,6 +243,15 @@ def test_real_mode_matches_one_device(nh_pair, forced_devices):
 
 @pytest.mark.multi_device
 def test_real_random_state_matches_one_device(nh_pair, forced_devices):
+    # cross-build parity of the random-phase wave synthesis: the same
+    # seed draws the same coefficients on both builds, and the wave
+    # family it projects onto is simple (Poincare +/- are distinct
+    # eigenvalues), so the gauge-canonicalized eigenvectors are
+    # build-order independent and the synthesized states match. The
+    # degenerate structural-zero families are excluded from the "wave"
+    # selection, so their un-canonicalizable subspace rotation never
+    # enters here. (Validates on the owner's next GPU batch; the
+    # fixture skips on CPU, jax#39292.)
     if forced_devices is not None:
         assert jax.device_count() == forced_devices
     many_m, _many_eb, one_m, _one_eb = nh_pair

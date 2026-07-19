@@ -743,7 +743,26 @@ class Grid:
             frozenset() if state_spaces is None
             else frozenset(s.bare for s in state_spaces))
         new = self._decomposition.default_layout
-        return ReshardingReport(old=old, new=new, changed=old != new)
+        changed = old != new
+        if changed:
+            # Layout changed under a possibly-unchanged halo. The
+            # derived-array memos (measures, immersed fractions) store
+            # fields padded to the *old* storage frame, and their cache
+            # keys carry the halo but not the layout, so a same-halo
+            # query issued pre-assembly would collide with the post-
+            # negotiation key and return a stale wrong-shape field
+            # (step-frame shape mismatch). Honor the recompute-on-
+            # demand contract stated above by dropping those memos; the
+            # entries re-materialize in the new frame on next query.
+            # This fires only when the default layout actually changes
+            # (assembly of a differently-sharded model), so the normal
+            # build->run ordering pays nothing, and the operator-level
+            # sync memo keyed on measure-field identity invalidates for
+            # free (a re-materialized measure is a new identity).
+            self._measures.clear()
+            if self._immersed is not None:
+                self._immersed._invalidate_cache()  # noqa: SLF001
+        return ReshardingReport(old=old, new=new, changed=changed)
 
     def freeze(self) -> None:
         """
