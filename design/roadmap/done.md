@@ -881,10 +881,15 @@ Implementation record:
   `multigrid_levels=5` cap, not device count). (2) The reproduced driver
   is **latency only**: in semicoarsen/immersed hierarchies the sharded
   axis flips x→z as horizontals coarsen, and the coarse levels stay
-  z-sharded at 2 planes/shard — the census's sub-KB regime. The GPU
-  wall-clock leg, the `τ` sweep, the replicated-reduction folding
-  question and the default-on decision remain open (open.md, multigrid
-  section). Record:
+  z-sharded at 2 planes/shard — the census's sub-KB regime. **Phase 3
+  4-GPU wall-clock ran** 2026-07-19 (job `26355284`, artifacts
+  [`../research/artifacts/multigrid_agglomeration_phase3/`](../research/artifacts/multigrid_agglomeration_phase3/)),
+  closing the GPU-leg, `τ`-sweep and folding follow-ups: **no `τ` is a
+  wall-clock win** (the ~9–14 ms/128³ projection did not reproduce — best
+  τ8 recovers 5.8 ms, τ4 0.6 ms; immersed τ4 regresses off −0.9/−4.3%;
+  GPU does not fold the replicated reductions, collectives net −6%), so
+  **default OFF stands**. Only the owner default-on ratification remains
+  open (open.md, multigrid section). Record:
   [`../plans/active/multigrid_agglomeration_plan.md`](../plans/active/multigrid_agglomeration_plan.md)
   §4; driver:
   [`../research/multigrid_kernel_study.md`](../research/multigrid_kernel_study.md)
@@ -915,6 +920,27 @@ Implementation record:
   [`open.md`](open.md). Record +
   per-stage corrections:
   [`../plans/active/immersed_partial_cells_plan.md`](../plans/active/immersed_partial_cells_plan.md).
+- **Mapped + immersed composition** (2026-07-18/19, merges
+  `5bc27631` M0+M1, `48ac9052` M2–M4, `dc164825` M5) — the second
+  immersed residual closed: chart/terrain + immersed grids now run
+  in nonhydro2 and hydrostatic. Jacobian-weighted chart fractions
+  (MI-D1, tensor GL × column J, separable path bitwise-untouched);
+  the composed cut-cell metric pressure projection
+  (`ComposedPressureSolver`: face-α direct legs + shared corner-α
+  inside the cross hops — the symmetry-gate-selected spelling;
+  symmetry 5.3e-16, all-wet ≡ mapped **bitwise**, identity-chart +
+  mask ≡ flat immersed ≤ 1e-12); fraction-weighted composed
+  multigrid (~15 iters where masked spectral needs ~200;
+  `pressure_preconditioner` now `None`=auto, composed→multigrid);
+  the M4 cross-flux conservation fix (θJ-mass 4.4e-16, was 1.17e-3);
+  stretch-aware immersed bands (first assembling stretched-z
+  immersed models); hydrostatic wet-column terrain barotropic solve
+  + masked contravariant continuity (column equivalence 7e-16,
+  all-wet byte-identical, θ-mass drift exactly 0.0). `order=None`
+  chart masks and split-explicit/multigrid-on-terrain+immersed are
+  taught errors. Follow-ups in [`open.md`](open.md). Plan +
+  decisions + per-stage records:
+  [`../plans/active/mapped_immersed_composition_plan.md`](../plans/active/mapped_immersed_composition_plan.md).
 - **Biased/upwind/WENO advection on immersed grids** (2026-07-18,
   merge `02663933`) — the first immersed residual closed: the
   IP-D8 taught error replaced by the **mask-keyed graded ladder**

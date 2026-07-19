@@ -208,17 +208,16 @@ cells in every dimension (stages I0–I4 shipped 2026-07-17; entry in
 [`../plans/active/immersed_partial_cells_plan.md`](../plans/active/immersed_partial_cells_plan.md)).
 Open, none blocking:
 
-- **Mapped + immersed composition** — **shipped** (M0–M4 nonhydro2
-  composed solve + multigrid + advection proof; M5 hydrostatic
-  wet-column terrain barotropic solve, masked contravariant continuity,
-  order≥2 chart-mask guard —
-  [`../plans/active/mapped_immersed_composition_plan.md`](../plans/active/mapped_immersed_composition_plan.md) §6).
-  Residuals: the terrain barotropic **multigrid** preconditioner is not
-  yet wet-aware (taught error on a terrain + immersed grid — the masked
-  spectral default converges in ≤17 iters, so no lever open at these
-  sizes); split-explicit + terrain stays a taught error (pre-existing);
-  genuine-chart (J≠1) physical column-equivalence twin is ambiguous
-  (algebraic gates substitute, M2-M4 correction-6 precedent).
+- **Mapped + immersed composition — follow-ups** (the composition
+  itself shipped; entry in [`done.md`](done.md)): hydrostatic terrain
+  barotropic multigrid is not yet wet-aware (taught error; the masked
+  spectral default converges in <= 17 iters, so no lever open at these
+  sizes); sw2 mapped+immersed stays a taught error; robust
+  preconditioning for pathological `min_fraction=0` sliver geometries;
+  genuine-chart (J != 1) physical column-equivalence twin (algebraic
+  gates substitute); owner sanity ruling on the advection base-face-α
+  vs pressure corner-α cross placements; real `srun -n N` validation
+  (owner-gated GPU).
 - **Partial-bottom-cell hydrostatic pressure gradient** — the
   Pacanowski–Gnanadesikan refinement; the current unweighted `p_hyd`
   cumsum is 2nd-order away from partial bottom cells only.
@@ -458,30 +457,33 @@ V-cycle kernel swap it called for shipped 2026-07-18 (merge
   via the `Grid.coarsened` memo); (d) `multi_device` markers for the
   parity-test victims (unmarked 4-device-only failures are invisible
   to single-device CI).
-- **Coarse-level agglomeration — remaining follow-ups.** The mechanism
-  (replicate coarse levels below a per-shard-extent threshold, knob
-  `multigrid_agglomerate` default OFF) **shipped** 2026-07-19 (merge
-  `9e08493f`; entry in [`done.md`](done.md), record
+- **Coarse-level agglomeration — default-on owner decision (data-backed).**
+  The mechanism (replicate coarse levels below a per-shard-extent
+  threshold, knob `multigrid_agglomerate` default OFF) **shipped**
+  2026-07-19 (merge `9e08493f`; entry in [`done.md`](done.md), record
   [`../plans/active/multigrid_agglomeration_plan.md`](../plans/active/multigrid_agglomeration_plan.md)
-  §4). CPU forced-device HLO confirms the census's flagged latency
-  collectives vanish (coarse z-halo permutes 24→0, column-transpose
-  all-to-alls 6→0). Open, none blocking:
-  - **GPU wall-clock leg** — the census's projected ~9–14 ms/step
-    recovery at 128³ is **not** wall-clock-validated: the named 4×A100
-    allocation was dead at run time and per AGENTS.md no new GPU job
-    was submitted. Needs a live 4-GPU allocation (owner-provided).
-  - **`tau` sweep** — `tau ∈ {2,4,8}` unrun; `tau = 4` is the default
-    on structural grounds (catches the 1–2-plane coarse levels), to be
-    pinned by the GPU sweep above.
-  - **Replicated-reduction folding** — on CPU, XLA GSPMD re-partitions
-    the replicated coarse levels' projection sums into all-reduces
-    rather than folding them to local sums, so all-reduce/all-gather
-    counts *rose* and the total collective count is net flat (the win
-    is removing the largest-payload all-to-alls and tiniest sub-KB
-    permutes, not the raw count). Whether a `with_sharding_constraint`
-    hint folds them on GPU is open.
-  - **Default-on decision (owner)** — whether agglomeration becomes the
-    multi-device mg default, gated on the GPU sweep.
+  §4). The Phase 3 4-GPU wall-clock sweep **ran** (job `26355284`, node
+  l50193, exclusive; data
+  [`../research/artifacts/multigrid_agglomeration_phase3/`](../research/artifacts/multigrid_agglomeration_phase3/)),
+  closing the GPU-leg, `tau`-sweep and folding follow-ups. **Verdict:
+  no `tau` is a wall-clock win; keep default OFF.** The census's
+  projected ~9–14 ms/step recovery at 128³ did **not** reproduce — the
+  best `tau` (t8) recovers only 5.8 ms (mg-off→68.1 ms, still 0.44×
+  spectral; `tau=4` recovers 0.6 ms), the 512³ mg win widens only to
+  1.23× (<1.5× bar), and on the immersed hierarchy `tau=4` **regresses**
+  off (−0.9% at 128³, −4.3% at 256³), so no `tau` is universally
+  non-regressive. Mapped is monotone in `tau` (t8 best: +8.5/+5.7/+1.4%
+  vs off) but within thermal spread and at ~3× compile. Folding: the GPU
+  partitioner re-partitions the replicated-level reductions like CPU
+  (all-reduce 288→321/step, collectives net −6%), not folded to local
+  sums; a `with_sharding_constraint` hint is untried but moot. CG iters
+  identical ON vs OFF (mapped 10, immersed 20/21), maxu agrees to ~1e-15.
+  **Recommendation: leave OFF the multi-device mg default** (agglomeration
+  does not close the small-n gap, does not meaningfully help 512³, and
+  regresses immersed); revisit only with `tau=8` shown non-regressive on
+  immersed (τ2/τ8 unmeasured there) and the `tau=4` under-fire fixed (the
+  census shows it leaves the coarsest L4 permutes in place). Owner to
+  ratify OFF or direct otherwise.
 - **Residual mapped-GPU levers, unclaimed** — fewer coarse sweeps;
   cheaper mapped operator applies (the finest level dominates the
   post-swap V-cycle: one sweep = 15.7 ms cuSPARSE solve + 12.0 ms
