@@ -990,6 +990,25 @@ Implementation record:
   [`open.md`](open.md). Record +
   per-stage corrections:
   [`../plans/active/immersed_partial_cells_plan.md`](../plans/active/immersed_partial_cells_plan.md).
+- **Partial-bottom-cell hydrostatic pressure gradient** (2026-07-19,
+  merge `0ddec821`; commits `e9e302f7` PB-D1, `0f09f070` PB-D2) —
+  the third immersed residual closed: the Pacanowski–Gnanadesikan
+  partial-cell PGF error cured on flat **and** stretched-z immersed
+  grids. `ImmersedDomain.centroid_offset` (the wet first vertical
+  moment — θ alone cannot distinguish bottom from lateral cuts;
+  lateral/all-wet/dry exactly 0, chart taught error) + the
+  well-balanced correction `p_corr = p_hyd + S·(b_up − b)` with the
+  static weight `S = δ·dz/(2(ζ_up − ζ))` keyed to the **wet-centroid
+  spacing** (the gate-forced refinement: mesh-dz spacing is only 1st
+  order; a single-common-height linear reconstruction breaks the
+  all-wet no-op). Rest state `b = N²z` at wet-centroid heights:
+  tendency ≤ 1.8e-15 flat / 8.9e-16 stretched (uncorrected ~3.7e-2);
+  tanh convergence orders 2.4–3.3; all-wet/staircase **byte no-op**
+  (`_pb_active` gate); autodiff FD-matched (correction linear in b,
+  no step-path divide); forced-4 x- and z-shard ≤ 5.6e-17. Terrain
+  charts = the PB-D3 deferral (stub in [`open.md`](open.md)). Plan +
+  record:
+  [`../plans/active/partial_bottom_phyd_plan.md`](../plans/active/partial_bottom_phyd_plan.md).
 - **Fraction-weighted Sadourny momentum + masked closures**
   (2026-07-19, merges `75382bbe` stage A, `bd035bc2` stage B) — the
   fourth immersed residual closed. Stage A: the blanket closure

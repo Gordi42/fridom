@@ -207,11 +207,12 @@ Open, none blocking:
   sizes); sw2 mapped+immersed stays a taught error; genuine-chart
   (J != 1) physical column-equivalence twin (algebraic gates
   substitute); real `srun -n N` validation (owner-gated GPU).
-- **Partial-bottom-cell hydrostatic pressure gradient** — the
-  Pacanowski–Gnanadesikan refinement; the current unweighted `p_hyd`
-  cumsum is 2nd-order away from partial bottom cells only.
-  Approved 2026-07-19; plan:
-  [`../plans/active/partial_bottom_phyd_plan.md`](../plans/active/partial_bottom_phyd_plan.md).
+- **Partial-bottom `p_hyd` on terrain charts** (the flat/stretched
+  correction itself — the third residual — shipped 2026-07-19; entry
+  in [`done.md`](done.md)): the terrain-chart (+immersed) leg is the
+  recorded PB-D3 deferral — status quo there is the uncorrected
+  O(dz)-at-cuts behavior, nothing regresses
+  ([`../plans/active/partial_bottom_phyd_plan.md`](../plans/active/partial_bottom_phyd_plan.md)).
 - **Immersed closure deferrals** (the fourth residual itself —
   fraction Sadourny + harmonic closures — shipped 2026-07-19; entry
   in [`done.md`](done.md)): no-slip immersed side-drag, Smagorinsky
