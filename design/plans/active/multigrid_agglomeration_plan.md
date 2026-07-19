@@ -123,9 +123,12 @@ and adds the threshold rule + the cross-boundary reshard.
 
 ## 4. Prototype results
 
-Shipped on `feat/multigrid-agglomeration` (2026-07-19). Phases 0-2
-complete; Phase 3 (GPU wall-clock) skipped — the named allocation was
-dead (below). Default OFF, as designed.
+Shipped on `feat/multigrid-agglomeration` (2026-07-19). Phases 0-3
+complete. Phase 3 (4-GPU wall-clock) **ran** (owner-authorized, job
+`26355284`) and found **no `tau` is a wall-clock win** — the projected
+~9-14 ms/step recovery did not reproduce and the immersed case
+regresses — so **default OFF stands** (Phase 4 owner decision now
+data-backed; see below).
 
 ### Phase 0 — status quo at high forced device count (CPU)
 
@@ -217,15 +220,48 @@ no new communication pattern:
   singular divide.
 - Mirrored tests for every touched file + `ruff check src tests` clean.
 
-### Phase 3 — GPU wall-clock: SKIPPED
+### Phase 3 — GPU wall-clock: RUN (owner-authorized 2026-07-19)
 
-The named 4x A100 allocation (`jobid 26350895`) was **dead** at run time
-(`squeue`/`scontrol`: "Invalid job id specified"); per AGENTS.md no new
-GPU job was submitted. So the census's projected **~9-14 ms/step
-recovery at 128^3** is **not** wall-clock-validated, and the `tau in
-{2,4,8}` sweep is **not** run — `tau = 4` is the default on structural
-grounds (it catches the 1- and 2-plane coarse levels the census
-flagged), pending Phase 3.
+*An earlier attempt was skipped (the named allocation `jobid 26350895`
+was dead at run time). Silvano then authorized one job in chat: job
+`26355284`, node l50193, `--exclusive`, 4x A100-80GB, dev pinned at
+`8752170a`, ~59 min, exit 0. Full data + census verdicts:
+[`../../research/artifacts/multigrid_agglomeration_phase3/`](../../research/artifacts/multigrid_agglomeration_phase3/).*
+
+**Matrix.** Mapped GB-2 steep terrain `n in {128,256,512}` ×
+{spectral, mg-off, mg-t2, mg-t4, mg-t8}; immersed slope `n in {128,256}`
+× {spectral, mg-off, mg-t4}. ms/step (median 6x20, compile excluded) +
+CG iterations + a GPU HLO collective census (mg-off vs mg-t4, mapped
+n=128).
+
+**The projected ~9-14 ms/step recovery at 128^3 did NOT reproduce; no
+`tau` is a wall-clock win, and default OFF stands.** Mapped mg-off is
+0.405x spectral at 128^3 (73.9 vs 29.9 ms); the best `tau` (t8) reaches
+only 0.439x (68.1 ms) — a **5.8 ms** recovery, and `tau=4` (the
+structural default) recovers **0.6 ms**, both short of the 9-14 ms
+projection and nowhere near closing the gap to spectral. At 512^3 mg-off
+already wins (1.211x) and `tau` widens it only to 1.228x (t8, +1.4%),
+still below the 1.5x bar. On mapped, larger `tau` is monotone-better
+(t8 best: +8.5 / +5.7 / +1.4% vs off at 128/256/512), but the gains sit
+within the run-to-run thermal spread and cost ~3x compile. On
+**immersed** — the first 4-GPU immersed measurement, the worst
+latency-bound case (mg-off 0.339x spectral at 128^3) — `tau=4`
+**regresses** off at both sizes (−0.9%, −4.3%), so **no `tau` is
+universally non-regressive**. CG iterations are IDENTICAL ON vs OFF in
+every case (mapped 10, immersed 20/21); maxu ON-vs-OFF agrees to
+~1e-15–1e-16; peak memory is unchanged.
+
+**Census (mapped n=128 full-3D, the hierarchy GB-2 runs).** (a) `tau=4`
+did **not** make the sub-KB coarse permutes vanish: it removed only the
+L8 720-B halos (real/V-cycle 33->9) and **left the coarsest L4 permutes
+untouched** (128-B/576-B, 24+22 both OFF and ON) — 262->241 CP per
+V-cycle (−8%), 21 of the 86 flagged. The CPU immersed-semicoarsen
+removal (halo 24->0, all-to-all 6->0) does not appear here: this
+hierarchy has no line-smoother all-to-alls (A2A=0 both). (b) The GPU
+partitioner does **not** fold the replicated-level reductions — it
+re-partitions them like CPU: all-reduce rose 288->321/step, so the
+total collective count barely moves (3219->3022/step, −6%), tracking the
+null timing.
 
 ### Collective-count confirmation (CPU forced-4 HLO)
 
@@ -263,13 +299,17 @@ smoother) and running the census parser confirms the structural change
 
 ### Follow-ups surfaced by the prototype
 
-- **Replicated-reduction folding.** CPU GSPMD re-partitions the
-  replicated coarse levels' projection sums into all-reduces; a
-  `with_sharding_constraint` on the replicated level (or a manual
-  local reduce) may keep them device-local. Measure on GPU first.
-- **Phase 3 GPU sweep** (`tau in {2,4,8}`, 128^3/512^3/immersed,
-  ms/step + a GPU HLO census) remains the load-bearing perf gate;
-  needs an owner-provided allocation.
+- **Replicated-reduction folding — measured, unfolded on GPU.** Phase 3
+  answered the "does GPU fold" question: it does **not** — the GPU
+  partitioner re-partitions the replicated-level projection sums into
+  all-reduces exactly like CPU (all-reduce 288->321/step). A
+  `with_sharding_constraint` on the replicated level (or a manual local
+  reduce) remains untried, but is moot given the null wall-clock result.
+- **Phase 3 GPU sweep — RUN** (job `26355284`, 2026-07-19):
+  `tau in {2,4,8}` × mapped `{128,256,512}` + immersed `{128,256}`,
+  ms/step + CG iters + GPU HLO census. No `tau` is a wall-clock win;
+  immersed regresses; default OFF stands. Only open Phase-3 residual is
+  the **owner default decision** (Phase 4), now data-backed.
 - The "machine-precision identical" gate wording should be relaxed to
   "identical iterations + agreement below the solve tolerance" for the
   immersed reassociation floor (see the parity numbers above).

@@ -1,0 +1,127 @@
+# census tag=mg-t4 n=128 module=/work/uo0780/u301533/fridom/agglom_phase3/hlo_mg-t4_n128/module_0106.jit__chunk_body.sm_8.0_gpu_after_optimizations.txt
+# -rw-r--r-- 1 u301533 uo0780 15407003 Jul 19 01:39 /work/uo0780/u301533/fridom/agglom_phase3/hlo_mg-t4_n128/module_0106.jit__chunk_body.sm_8.0_gpu_after_optimizations.txt
+entry=%main.1800_spmd
+while_body=%region_278.1726_spmd.clone while_cond=%region_415.1727_spmd.clone
+conditionals=[('%region_278.1726_spmd.clone', '%conditional.2', ['%region_279.1227_spmd', '%region_280.1725_spmd'])]
+
+==== collective op DEFINITIONS by opcode ====
+  all-gather-start             1
+  all-reduce-start             89
+  collective-permute-start     772
+  -- done ops (sync, cross-check) --
+  all-gather-done              1
+  all-reduce-done              89
+  collective-permute-done      772
+
+==== by region x opcode ====
+  cond-branch:%region_280.1725_spmd all-reduce-start           29
+  cond-branch:%region_280.1725_spmd collective-permute-start   241
+  outside-while            all-gather-start           1
+  outside-while            all-reduce-start           60
+  outside-while            collective-permute-start   531
+
+==== region totals ====
+  cond-branch:%region_280.1725_spmd count=  270 payload_bytes_sum=8672464
+  outside-while            count=  592 payload_bytes_sum=21510466
+
+==== collective-permute payload shapes (in-body real) ====
+  cond-branch:%region_280.1725_spmd f64[1,10,10]           x   6 (800 B each)
+  cond-branch:%region_280.1725_spmd f64[1,130,129]         x  17 (134160 B each)
+  cond-branch:%region_280.1725_spmd f64[1,130,130]         x  27 (135200 B each)
+  cond-branch:%region_280.1725_spmd f64[1,16,16]           x   5 (2048 B each)
+  cond-branch:%region_280.1725_spmd f64[1,18,17]           x  24 (2448 B each)
+  cond-branch:%region_280.1725_spmd f64[1,18,18]           x  18 (2592 B each)
+  cond-branch:%region_280.1725_spmd f64[1,32,32]           x   5 (8192 B each)
+  cond-branch:%region_280.1725_spmd f64[1,34,33]           x  24 (8976 B each)
+  cond-branch:%region_280.1725_spmd f64[1,34,34]           x  18 (9248 B each)
+  cond-branch:%region_280.1725_spmd f64[1,4,4]             x  22 (128 B each)
+  cond-branch:%region_280.1725_spmd f64[1,6,6]             x  16 (288 B each)
+  cond-branch:%region_280.1725_spmd f64[1,64,64]           x   5 (32768 B each)
+  cond-branch:%region_280.1725_spmd f64[1,66,65]           x  12 (34320 B each)
+  cond-branch:%region_280.1725_spmd f64[1,66,66]           x  21 (34848 B each)
+  cond-branch:%region_280.1725_spmd f64[1,8,8]             x   7 (512 B each)
+  cond-branch:%region_280.1725_spmd f64[2,10,10]           x   3 (1600 B each)
+  cond-branch:%region_280.1725_spmd f64[2,6,6]             x   8 (576 B each)
+  cond-branch:%region_280.1725_spmd f64[2,8,8]             x   3 (1024 B each)
+  outside-while            f64[1,1,1]             x  18 (8 B each)
+  outside-while            f64[1,10,10]           x  12 (800 B each)
+  outside-while            f64[1,130,129]         x  47 (134160 B each)
+  outside-while            f64[1,130,130]         x  69 (135200 B each)
+  outside-while            f64[1,16,16]           x  10 (2048 B each)
+  outside-while            f64[1,18,17]           x  48 (2448 B each)
+  outside-while            f64[1,18,18]           x  36 (2592 B each)
+  outside-while            f64[1,32,32]           x  10 (8192 B each)
+  outside-while            f64[1,34,33]           x  48 (8976 B each)
+  outside-while            f64[1,34,34]           x  36 (9248 B each)
+  outside-while            f64[1,4,4]             x  44 (128 B each)
+  outside-while            f64[1,6,6]             x  32 (288 B each)
+  outside-while            f64[1,64,64]           x  10 (32768 B each)
+  outside-while            f64[1,66,65]           x  24 (34320 B each)
+  outside-while            f64[1,66,66]           x  42 (34848 B each)
+  outside-while            f64[1,8,8]             x  14 (512 B each)
+  outside-while            f64[2,1,1]             x   3 (16 B each)
+  outside-while            f64[2,10,10]           x   6 (1600 B each)
+  outside-while            f64[2,6,6]             x  16 (576 B each)
+  outside-while            f64[2,8,8]             x   6 (1024 B each)
+
+==== all-reduce payload shapes ====
+  cond-branch:%region_280.1725_spmd f64[1,8,8]         x   1 (512 B each)
+  cond-branch:%region_280.1725_spmd f64[10,10,10]      x   3 (8000 B each)
+  cond-branch:%region_280.1725_spmd f64[1025]          x   2 (8200 B each)
+  cond-branch:%region_280.1725_spmd f64[128,128]       x   1 (131072 B each)
+  cond-branch:%region_280.1725_spmd f64[16385]         x   2 (131080 B each)
+  cond-branch:%region_280.1725_spmd f64[2048]          x   1 (16384 B each)
+  cond-branch:%region_280.1725_spmd f64[257]           x   2 (2056 B each)
+  cond-branch:%region_280.1725_spmd f64[32768]         x   1 (262144 B each)
+  cond-branch:%region_280.1725_spmd f64[4,4]           x   2 (128 B each)
+  cond-branch:%region_280.1725_spmd f64[4097]          x   2 (32776 B each)
+  cond-branch:%region_280.1725_spmd f64[512]           x   1 (4096 B each)
+  cond-branch:%region_280.1725_spmd f64[6,6,6]         x   8 (1728 B each)
+  cond-branch:%region_280.1725_spmd f64[8,8]           x   2 (512 B each)
+  cond-branch:%region_280.1725_spmd f64[8192]          x   1 (65536 B each)
+  outside-while            f64[1,8,8]         x   2 (512 B each)
+  outside-while            f64[10,10,10]      x   6 (8000 B each)
+  outside-while            f64[1025]          x   4 (8200 B each)
+  outside-while            f64[16385]         x   6 (131080 B each)
+  outside-while            f64[2048]          x   2 (16384 B each)
+  outside-while            f64[257]           x   4 (2056 B each)
+  outside-while            f64[32768]         x   1 (262144 B each)
+  outside-while            f64[32770]         x   1 (262160 B each)
+  outside-while            f64[4,4]           x   4 (128 B each)
+  outside-while            f64[4097]          x   4 (32776 B each)
+  outside-while            f64[49152]         x   1 (393216 B each)
+  outside-while            f64[512]           x   2 (4096 B each)
+  outside-while            f64[6,6,6]         x  16 (1728 B each)
+  outside-while            f64[8,8]           x   4 (512 B each)
+  outside-while            f64[8192]          x   2 (65536 B each)
+  outside-while            pred[2]            x   1 (2 B each)
+
+==== all-gather payload shapes ====
+  outside-while            %all-gather-start        payload=f64[2] (16 B)  full_opcode=all-gather-start
+
+==== all-to-all payload shapes ====
+
+REAL(collective-bearing) branch region = cond-branch:%region_280.1725_spmd
+
+==== CP per-level: REAL branch (=1 CG iter/V-cycle) vs OUTSIDE ====
+  level    real/Vcyc  outside   bytes_ea
+  L128            44      116     134160
+  L64             33       66      34320
+  L64*             5       10      32768
+  L32             42       84       8976
+  L32*             5       10       8192
+  L16             42       84       2448
+  L16*             5       10       2048
+  L8               9       18       1600
+  L8*             10       20        512
+  L4              24       48        576
+  L4*             22       44        128
+  Y1               0       21          8
+  TOTAL          241      531
+
+==== EXECUTED per STEP (ITERS=10: 1 peel + 9 real trips + 90 skip trips) ====
+  CP   outside= 531 real/trip= 241 -> executed= 2700  bytes~=89,631,584
+  AR   outside=  60 real/trip=  29 -> executed=  321  bytes~=9,931,042
+  AG   outside=   1 real/trip=   0 -> executed=    1  bytes~=16
+  A2A  outside=   0 real/trip=   0 -> executed=    0  bytes~=0
+  TOTAL collectives executed/step = 3022  total payload bytes ~= 99,562,642

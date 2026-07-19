@@ -701,6 +701,16 @@ extent threshold (agglomerate them to replicated layout, where the halo
 runs local and issues no collective). This motivates the coarse-level
 agglomeration plan:
 [`../plans/active/multigrid_agglomeration_plan.md`](../plans/active/multigrid_agglomeration_plan.md).
+*Correction (Phase 3 4-GPU wall-clock, 2026-07-19, job `26355284`;
+[`artifacts/multigrid_agglomeration_phase3/`](artifacts/multigrid_agglomeration_phase3/)):
+the projected ~9–14 ms recovery did **not** reproduce. Agglomeration at
+the best `tau` (t8) recovers only 5.8 ms of the 128³ mg-off cost, and
+`tau=4` recovers 0.6 ms — the GPU census shows `tau=4` removes only 21
+of the 86 flagged coarse permutes (it leaves the tiniest L4 halos in
+place) and the GPU re-partitions the replicated-level reductions into
+all-reduces rather than folding them, so the collective count moves only
+−6% and the wall clock barely at all. No `tau` is a net win and the
+immersed case regresses; the knob stays default OFF.*
 This addendum also hypothesized a **capability** driver — a P-device
 sharded axis cannot coarsen below P cells, so large device counts cap
 V-cycle depth and break h-independence. *That did NOT reproduce: the
