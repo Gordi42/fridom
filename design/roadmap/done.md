@@ -2078,3 +2078,50 @@ Implementation record:
   64, and multigrid coarse levels are floor-guarded identically on
   both sides). The weno5 momentum z-seam residual is the one item
   left open in this family ([`open.md`](open.md)).
+
+- **Hydrostatic physical `w` storage + `state.chart` namespace**
+  (2026-07-19, branch `feat/physical-state-components`; rulings (b)
+  and (d) of
+  [`../decisions/physical_state_components.md`](../decisions/physical_state_components.md),
+  owner-ratified 2026-07-19; physics background in
+  [`../research/energy_metric_asymmetry.md`](../research/energy_metric_asymmetry.md)
+  §1.5/§4). The stored/public hydrostatic state `w` is now the
+  **physical** vertical velocity `w = Jω + u·Zₓ + v·Z_y` on every grid
+  (byte-identical on flat columns where `Z = 0`).
+  `HydrostaticCore._diagnose_w` still builds the contravariant volume
+  flux `Jω` (exact-telescoping face cumint, exact `Jω = 0` bottom
+  seed) then adds the slope terms interpolated onto the `w` faces
+  (`u.to(cell)` + a `Center → Outer` one-sided lift, ×
+  `grid.metric(d<mapped>_d<axis>)`); the `d629a489` stratification
+  slope spelling migrated into the core, so `ConstantStratification`
+  is back to a single `-N²·w.to(b)` on flat/stretched/terrain alike.
+  **Architecture: no new stored component** — the flux is re-derived
+  on demand (uniform with nonhydro2, no extra memory) because the
+  consumer census found no remaining full-3D step-path flux consumer.
+  Consumer census: stratification restoring **simplified** (wants
+  physical `w`); thermal-wind tilting **wants physical `w`** (a
+  physical-frame balance, no code change); the shared advection's
+  velocity-trio contract (physical fluxes) is finally **satisfied on
+  terrain** (feeding `Jω` was a latent O(slope) inconsistency);
+  `free_surface`/`eigenmodes`/`energy`/`comparison` **do not read**
+  `state["w"]`. On a terrain + immersed grid the slope is added on the
+  wet faces with the same masking, and the physical **bottom**
+  boundary face is un-masked (mirror-exterior, its cell fraction) so
+  the bed slope is not zeroed. **Ruling (d):** a read-only
+  `state.chart` namespace on both `hy.State` and `nh.State`
+  (shared `spatial.fields.ChartView` parametrized by a per-package
+  hook, per CS-14) exposes the chart-native quantities —
+  `chart["w"]`/`chart.w`/`chart.velocities`; on a mapped column
+  hydrostatic `chart["w"]` is `w − (u·Zₓ + v·Z_y)` and nonhydro2
+  `chart["w"]` is `w − Σ Zᵢ I(uᵢ)` (equal to the mapped pressure
+  solver's divergence RHS quantity); the identity elsewhere. The
+  `O(h²)` physical-metric energy-gate collapse is preserved
+  (`test_baroclinic_energy_conversion_collapses_under_physical_metric`
+  orders 2.80/2.21 vs the pre-fix 2.7/2.2 — constants shift with the
+  w-face interpolation, order collapse unchanged). shallowwater2 is
+  untouched (its flip is the deferred ruling (c) campaign). Tests:
+  flat byte-identity, terrain flux/physical-`w` identities
+  (`chart["w"]` bottom exactly 0, physical `w` nonzero at the bed),
+  the terrain-advection constancy invariant, chart surface + read-only
+  for both packages, nonhydro2 hand-built flux equality, autodiff FD
+  gates green.

@@ -1,5 +1,5 @@
 ---
-status: decided (rulings a, d in flight; b implementing; c scheduled)
+status: decided (a invariant; b + d implemented on feat/physical-state-components; c scheduled)
 date: 2026-07-19
 ---
 
