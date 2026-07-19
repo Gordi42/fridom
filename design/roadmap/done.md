@@ -2636,3 +2636,13 @@ Implementation record:
     [`../plans/active/spherical_models_plan.md`](../plans/active/spherical_models_plan.md)
     (S0–S4, SP-D1..D9) — awaiting owner review before
     implementation.
+  - *Full-suite validation + push* (`9df88aef`): base `77cea423`
+    was red in 10 tests — one root cause, the measure-aware column
+    (`7b3caaf9`) left two consumer test files on periodic vertical
+    meshes; fixture-only fix `35bef507` (36 previously-failing/
+    adjacent now pass). Combined forced-4 CI legs on the fixed
+    tree: 1180 passed / 0 failed — none of the known pre-existing
+    forced-4 classes fired (the stretched-z eigen red was cured by
+    `e5466047`). `origin/dev` fast-forwarded to `9df88aef` — the
+    whole wave is published; CI validates the merged tree per
+    push.

@@ -29,9 +29,6 @@ Oceananigans re-run.
 
 ## 1. Wave residuals (the 2026-07-19 eleven-stream wave landed — entry in [`done.md`](done.md))
 
-- **Full-suite validation + push** — in flight (validates
-  `77cea423`; pushes the tested sha when green; later merges ride
-  the next push).
 - **Spherical plan owner review** —
   [`../plans/active/spherical_models_plan.md`](../plans/active/spherical_models_plan.md)
   (SP-D1..D9) awaits the owner before spherical implementation
