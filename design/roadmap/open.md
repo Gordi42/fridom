@@ -85,14 +85,13 @@ contraction shipped 2026-07-18 (merge `e60259de`, entry in
   ([`../research/eigen_remainder_investigation.md`](../research/eigen_remainder_investigation.md));
   the half-axis-sharded 3-D case **shipped** the same day
   (layout-aware half-axis re-designation, merge `feade7fa` — entry in
-  [`done.md`](done.md)). Still the remainder:
-  - *2-D channel* (highest exposure — the **default** for any 2-D
-    channel on >1 device): recommend a gather path scoped to 2-D
-    (exact, negligible cost at every size the dense engine can build;
-    `em.q` is already replicated). A bounded-partner psum kernel was
-    proven exact but shelved — its ×P basis-slicing edge only pays in
-    a regime the dense `eigh` cannot reach. Needs owner ratification,
-    then implementation.
+  [`done.md`](done.md)); the *2-D channel* (highest exposure — the
+  **default** for any 2-D channel on >1 device) **shipped** 2026-07-19
+  (`8752170a`): the owner's transpose directive rejected the gather
+  path, and `Channel2DPlan` serves it exactly and gather-free through
+  the fused transpose contraction (park the shardedness on the bounded
+  axis, run the local `rfft`, per-`kx` dense `Q diag(w) Qᴴ M`). Still
+  the remainder:
   - *Non-1-D meshes*: **unreachable today** (the decomposition
     negotiates only single-axis layouts; a hand-built 2-axis mesh dies
     at decomposition build) — keep the defensive decline. The pencil
@@ -109,21 +108,30 @@ ratification item above).
 Evidence, provenance probes, and the full re-attribution history:
 [`../research/multidevice_test_faults.md`](../research/multidevice_test_faults.md).
 
-## Naive GSPMD transform path — phased illegality (phases 2+)
+## Naive GSPMD transform path — phased illegality (remaining)
 
-Owner-approved 2026-07-18; phases 0–1 shipped the same day (Tier-1
-taught guard at the `Transform` seam; 3-D channel synthesis reroute —
-entries in [`done.md`](done.md), record:
-[`../research/gspmd_naive_transform_illegality.md`](../research/gspmd_naive_transform_illegality.md)).
-Remaining, per
-[`../plans/active/gspmd_transform_illegality_plan.md`](../plans/active/gspmd_transform_illegality_plan.md):
+Owner-approved 2026-07-18; phases 0–1 shipped the same day, the
+phase-3 core + 2-D channel transpose pipeline shipped 2026-07-19
+(`8752170a`), and the phase-3 diagonal consumer wave landed on
+`feat/distributed-transform-consumers` (Tier-1 guard, channel synthesis
++ 2-D transpose contraction, `DistributedTransform` +
+`apply_diagonal`, Krylov CG consumer). Record:
+[`../research/gspmd_naive_transform_illegality.md`](../research/gspmd_naive_transform_illegality.md);
+per
+[`../plans/active/gspmd_transform_illegality_plan.md`](../plans/active/gspmd_transform_illegality_plan.md).
+Still open:
 
-- **Phase 2** — the 2-D channel gather path (the ratification item in
-  the section above; covers projection *and* synthesis).
-- **Phase 3** — a standalone distributed `Transform` apply consuming
-  the unconsumed `distributed_*_plan`s (L): re-legalizes eigenmode and
-  state transforms, the exponential stepper, and the Krylov spectral
-  apply on sharded grids; converts the residual marked-test debt.
+- **Phase 3 — remaining consumers (deferred debt).** The single-field
+  diagonal route (`Transform.apply_diagonal`) serves the Krylov CG
+  `SpectralDerivative` apply; the **exponential stepper** (`ETDRK4`),
+  the **analytic all-periodic eigenmode** projections (`GridEigenmodes`
+  `kit.forward`/`kit.backward` + per-mode eigenvector matrix), and the
+  **balance / NNMD** state transforms still hit the taught error on
+  sharded grids — each needs a multi-component per-mode *matrix*
+  contraction (the all-periodic analog of `ContractPlan`) or
+  intermediate materialized amplitude state, not built in this wave
+  (no re-gathering path forced). The numeric *channel* eigenmode
+  projections / `f(L)` / synthesis are already served.
 - **Tier-2 decision (owner)** — whether all-local naive transforms on
   a multi-device mesh (silent all-gather) also become illegal, with an
   allow-replicated escape for Chebyshev/mismatched-layout solves.
