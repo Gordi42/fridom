@@ -1989,7 +1989,7 @@ Implementation record:
   owner-batched checkpoints, never per-merge, agents never submit.
 
 - **Hydrostatic terrain + walled-horizontal — closed** (2026-07-19,
-  branch `feat/hydrostatic-terrain-walled`, merge `<fill-after-merge>`).
+  branch `feat/hydrostatic-terrain-walled`, commit `c2f992c7`).
   The last layer of the walled-horizontal gap (flat/immersed closed
   2026-07-18, entry below). On a sigma-chart terrain grid the slope
   metric `d<mapped>_d<axis>` chains the discrete `H_x`
