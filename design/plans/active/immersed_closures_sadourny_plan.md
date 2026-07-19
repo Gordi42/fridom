@@ -278,7 +278,11 @@ CPU; forced-4 for B-G6):
   fix. A halo-preserving zeta-mask spelling was tried and gave an
   *identical* residual (it is not the lever), and reverted. **Pinned**
   in `test_all_wet_tendency_matches_unimmersed` to `≤ 32 ulp` of the
-  field scale (NOT 1e-13). **Flag stands for owner ratification.**
+  field scale (NOT 1e-13). **Ratified (owner, 2026-07-19): the
+  ≤32-ulp pin stands** — the eager probe establishes the mathematical
+  identity, the JIT gate bounds only XLA reassociation noise, and the
+  32× headroom absorbs backend/jaxlib fusion-order churn while
+  staying orders below any genuine physics regression.
 - **B-G5** `jax.grad` through an 8-step immersed run (genuine
   partials, min_fraction=0) finite and FD-matched to rtol 1e-4 — the
   new corner-thickness and KE seals certified.

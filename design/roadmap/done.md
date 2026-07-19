@@ -1190,7 +1190,7 @@ Implementation record:
   documented approximate (EET precedent). Bonus fix: the silent
   sw2 chart+immersed mask-ignoring path is now a taught error at
   bind. All-wet ≤ 1-ulp FMA-contraction residual pinned at ≤32 ulp
-  (owner-ratification flag in the record). No-slip drag /
+  (owner-ratified 2026-07-19). No-slip drag /
   Smagorinsky / VerticalMixing immersed deferred with recorded
   designs (plan §5; stub in [`open.md`](open.md)). Plan +
   per-stage records:

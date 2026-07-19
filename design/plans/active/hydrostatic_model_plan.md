@@ -234,7 +234,7 @@ gates (§7).
 | **H2** | Package skeleton + kinematics + explicit free surface: state, `HydrostaticCore` (DIAGNOSE `w`/`p_hyd`, pressure term), stratification, params, factory, `ExplicitFreeSurface`, shared advection/Coriolis wired | M (4–6 d) | `w`/`p_hyd` manufactured solutions; barotropic Poincaré + hydrostatic internal-wave dispersion vs analytic; geostrophic steady state to machine precision; energy conservation (inviscid, centered); `test_init` |
 | **H3** | `ImplicitFreeSurface`: CONSTRAINT solve (SpectralSolve path + `epsilon` knob incl. rigid-lid gauge), `linear_operator_gap`, taught IMEX same-field assembly error | M (4–6 d) | small-`dt` convergence to the H2 oracle; stable at `sqrt(csqr)`-CFL >> 1; implicit dispersion matches the backward-Euler factor analytically; rigid-lid depth-mean divergence at machine zero |
 | **H4** | Vertical mixing wiring (shared `VerticalDiffusion` on `u, v, b` under `CNAB2`/`SBDF2`) + eigenmodes / energy weights / transforms (HY-D7) | M (3–5 d) | analytic column-decay; biorthogonality + projection round-trip (nonhydro2 test pattern); `require_linear_operator` honesty |
-| **H5** | Comparison protocol: the HY-D6 config as a preset + example script; extend the out-of-tree `benchmarks/comparison` harness (Oceananigans local; Veros; pyOM3 pending source access — owner input) | M (1 wk) | matched-protocol physics: geostrophic adjustment, dispersion, Eady-type growth rates, spin-down energy budgets; grid-refinement convergence |
+| **H5** | Comparison protocol: the HY-D6 config as a preset + example script; extend the out-of-tree `benchmarks/comparison` harness (Oceananigans local; Veros; pyOM3 source: `github.com/ceden/pyOM3`) | M (1 wk) | matched-protocol physics: geostrophic adjustment, dispersion, Eady-type growth rates, spin-down energy budgets; grid-refinement convergence |
 | **H6** | `SplitExplicitFreeSurface` per the frozen §5.4 design | M/L (1–2 wk) | vs the implicit reference at matched physics; volume/tracer conservation through the filter; own-AUX restart fingerprint; forced-4 multi-device |
 
 Every stage lands on its own `<type>/<topic>` branch with mirrored
@@ -259,9 +259,10 @@ on H2. H5 can start (protocol + harness) once H3 exists.
   projections — the gap declaration plus explicit-variant oracles
   is the mitigation; revisit if a consumer needs implicit-variant
   eigenmodes directly.
-- **pyOM3 access:** publicly undocumented; the pyOM2 doc (its
-  discretization core) is authoritative meanwhile. Owner to supply
-  pyOM3 source/config for the H5 delta check.
+- **pyOM3 access:** resolved 2026-07-19 — owner supplied the source:
+  `https://github.com/ceden/pyOM3.git` (verified reachable). The
+  pyOM2 doc remains the authoritative discretization description;
+  pick the reference config from the repo when the H5 leg runs.
 
 ## 6. External-model numerics (survey summary, 2026-07-16)
 
