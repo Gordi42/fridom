@@ -297,6 +297,20 @@ class _FreeSurfaceBase(fr.model.Module):
         an all-wet immersed grid is byte-identical to the unimmersed
         form.
 
+        On a terrain (sigma) grid this is the same volume-conserving form
+        (GM-D1 option 1, volume-exact): the raw flux-form transport
+        divergence ``T^* = \int[\partial_x(Ju) + \partial_y(Jv)]\,dz`` is
+        divided by the constant **reference** depth ``H_{ref}`` (the scalar
+        ``self._inv_depth``), **not** the physical column depth
+        ``H(x, y)``. The gravity term it feeds is therefore
+        ``-c^2/H_{ref}\,T^* = -g\,T^*`` with the constant gravity
+        ``g = c^2/H_{ref}`` — the identical discrete barotropic physics as
+        the implicit RHS and the split subcycle. It conserves the plain
+        ``\int p_s`` (barotropic volume) to round-off and carries **no**
+        ``1/H(x, y)`` division (no guarded-division autodiff hazard); the
+        pair stays energy-conserving under the constant ``1/g`` surface
+        weight.
+
         Parameters
         ----------
         state : object
@@ -310,15 +324,21 @@ class _FreeSurfaceBase(fr.model.Module):
         zonal, meridional = self._horizontal
         u, v = state["u"], state["v"]
         if self._column is not None:
-            # terrain: the flux-form horizontal transport divergence
-            # int[d_x(Ju) + d_y(Jv)] dz divided by the *physical* column
-            # depth H(x, y) = int J dz. The flux form is the exact
+            # terrain (GM-D1 option 1, volume-exact): the flux-form
+            # horizontal transport divergence T* = int[d_x(Ju) + d_y(Jv)]
+            # dz divided by the constant REFERENCE depth H_ref (the scalar
+            # self._inv_depth), NOT the physical column depth H(x, y). The
+            # gravity term it feeds becomes -c^2/H_ref T* = -(g) T* with
+            # the constant gravity g = c^2/H_ref (matching the implicit RHS
+            # and the split subcycle), so plain int(ps) is conserved to
+            # round-off and the path carries no 1/H(x, y) division (no
+            # guarded-division autodiff hazard). The flux form is the exact
             # adjoint (under the plain measure) of the -grad ps momentum
-            # force on the z-constant ps, so the barotropic pair stays
-            # skew and the surface DOF w(0) it drives is consistent with
-            # the DIAGNOSE w. Both physical-depth reads are in-trace.
-            transport_div, div_h = self._terrain_transport_div(state)
-            return transport_div * self._terrain_inv_depth(div_h)
+            # force on the z-constant ps, so the pair stays energy-
+            # conserving under the constant 1/g = H_ref/c^2 surface weight.
+            # The transport read is in-trace.
+            transport_div, _ = self._terrain_transport_div(state)
+            return transport_div * self._inv_depth
         if self._immersed is None:
             div_h = u.diff(zonal) + v.diff(meridional)
             return Integral()[self._vertical](div_h) * self._inv_depth
@@ -344,9 +364,9 @@ class _FreeSurfaceBase(fr.model.Module):
         pre-integral collocated field ``div_h`` that still resolves the
         vertical factor. The shared flux build of the depth-mean
         divergence (:meth:`_depth_mean_div`, which divides ``T^*`` by the
-        physical column depth) and the volume-exact implicit operator's
-        right-hand side (GM-D1 option 1), which uses the raw ``T^*``
-        directly with **no** ``1/H(x, y)`` division.
+        constant reference depth ``H_{ref}``, GM-D1 option 1) and the
+        volume-exact implicit operator's right-hand side, which uses the
+        raw ``T^*`` directly — both with **no** ``1/H(x, y)`` division.
 
         Parameters
         ----------
@@ -383,52 +403,14 @@ class _FreeSurfaceBase(fr.model.Module):
         div_h = ju.diff(zonal) + jv.diff(meridional)
         return Integral()[self._vertical](div_h), div_h
 
-    def _terrain_inv_depth(self, cell_ref: ScalarField) -> ScalarField:
-        r"""Return ``1/H(x, y)``, the reciprocal physical column depth.
-
-        Description
-        -----------
-        The physical depth ``H(x, y) = \int J\,\mathrm{d}z`` (the
-        plain vertical integral of the column Jacobian
-        ``J = d<mapped>_d<base>``, :meth:`_physical_depth`), reciprocal
-        taken on the reduced barotropic ``Profile`` face. Materialized
-        in-trace from ``grid.metric`` (a field cannot ride the
-        ``dynamic=()`` static aux — the immersed transport-depth
-        precedent). ``J > 0`` on a monotone map, so ``H > 0`` and no
-        guard is needed.
-
-        Parameters
-        ----------
-        cell_ref : ScalarField
-            A field whose space still resolves the vertical factor
-            (the pre-reduction cell space), fixing the horizontal
-            staggering the depth reduces onto.
-
-        Returns
-        -------
-        ScalarField
-            The reciprocal physical depth on the ``Profile`` face.
-        """
-        depth = self._physical_depth(cell_ref)
-        d = depth.data
-        # double-`where` guard (differentiability policy): the physical
-        # depth H > 0 on every valid column, but the padding / halo
-        # columns integrate a zero Jacobian to H == 0. A bare 1/H would
-        # seal the forward value yet leave the VJP singular (1/0^2) and
-        # poison the whole gradient with NaN; the guard makes both the
-        # value and the reverse pass finite there.
-        safe = d != 0.0
-        inv = jnp.where(safe, 1.0 / jnp.where(safe, d, 1.0), 0.0)
-        return depth.with_data(inv)
-
     def _physical_depth(self, cell_ref: ScalarField) -> ScalarField:
         r"""Return ``H(x, y) = \int J\,\mathrm{d}z`` on the ``Profile`` face.
 
         Description
         -----------
         The plain vertical integral of the column Jacobian at
-        ``cell_ref``'s horizontal staggering (the cell centre for the
-        ``ps`` divisor, the ``u`` / ``v`` face for a transport depth).
+        ``cell_ref``'s horizontal staggering (the ``u`` / ``v`` face for a
+        split-explicit transport depth).
         ``Integral``'s plain measure over the Jacobian field is exactly
         the physical column extent ``\int J\,\mathrm{d}z`` (rules 2.7);
         it lands on the ``ConstantSpace`` z-factor (the barotropic
@@ -554,10 +536,11 @@ class ExplicitFreeSurface(_FreeSurfaceBase):
         Description
         -----------
         On a terrain grid the depth-mean divergence multiplies the
-        column Jacobian and divides by the physical depth
-        ``\int J\,dz``, both ``grid.metric`` reads the halo tracer's
-        ``_TracerGrid`` cannot materialize (the mapped-advection
-        precedent). The ``linear=True`` gravity term declares its
+        column Jacobian ``J`` (the raw transport divergence ``T^*``, GM-D1
+        option 1 — no ``1/H(x, y)`` division), a ``grid.metric`` read the
+        halo tracer's ``_TracerGrid`` cannot materialize (the
+        mapped-advection precedent). The ``linear=True`` gravity term
+        declares its
         one-cell C-grid stencil halo per horizontal coordinate here
         instead of being traced. Off a terrain grid this is ``None`` —
         the flat gravity term stays fully halo-traced, bitwise
@@ -576,6 +559,13 @@ class ExplicitFreeSurface(_FreeSurfaceBase):
         barotropic ``ConstantSpace`` factor; their horizontal
         divergence lands on the ``ps`` cell (the adjoint of the
         ``-grad ps`` momentum forcing below).
+
+        On a terrain (sigma) grid this is the volume-exact form (GM-D1
+        option 1): the raw transport divergence ``T^*`` scaled by the
+        constant gravity ``g = c^2/H_{ref}`` (``d_t ps = -g\,T^*``), with
+        **no** ``1/H(x, y)`` division — the identical discrete barotropic
+        physics as the implicit and split variants, conserving the plain
+        ``\int p_s`` to round-off.
         """
         csqr = ctx.params[CSQR]
         return {"ps": -(csqr * self._depth_mean_div(state))}
