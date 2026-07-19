@@ -230,11 +230,9 @@ def test_explicit_buoyancy_multiplier_wins():
 # ================================================================
 #  Taught assembly rejections
 # ================================================================
-def test_walled_grid_is_a_taught_rejection():
-    with pytest.raises(NotImplementedError, match="walled grids"):
-        make_model(grid=make_grid(periodic=False))
-
-
+# Free-slip / no-slip walled behaviour lives in the prefix shard
+# ``test_smagorinsky_lilly_walls.py`` (oversized-module rule); walled
+# grids are no longer a blanket rejection.
 def test_meridional_stratification_lacks_the_constant_n2():
     grid = make_grid()
     with pytest.raises(MissingParameterError,
