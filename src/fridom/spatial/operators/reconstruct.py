@@ -344,20 +344,28 @@ def apply_fv_staggered(
     # default layout instead of the operand's pencil
     out_shape = decomposition.storage_shape(codomain, space.layout)
     s_out = out_shape[axis_index]
-    n_out = codomain_factor.shape[0]
     try:
         width = decomposition.halo[axis]
     except KeyError:
         width = 0
 
-    # per-side stencil reach beyond the true region; the halo must
-    # cover it. Frame-independent by construction (never read off
-    # the storage extents): on a blocked multi-shard frame the
-    # storage-bounds check degenerates (the concatenated blocks are
-    # longer than one true axis) and under-negotiated halos would
-    # silently read the zeroed stagger slots at block edges.
-    reach_right = (n_out - domain_factor.shape[0]) + size - 1 - m0
-    if m0 > width or reach_right > width:
+    # per-side stencil FOOTPRINT reach beyond each output slot's own
+    # index; the halo must cover it. The footprint form (per-shard
+    # ghost demand, ``staggering.footprint_reach`` / storage_halo_width.md
+    # §1), NOT the window form ``(n_out - n_in) + size - 1 - m0`` that
+    # folds in the global codomain/domain staggering deficit: on a
+    # bounded staggered axis that deficit (``Center -> Inner``, -1)
+    # masks a per-slot ghost read one past the halo, letting an
+    # under-provisioned sharded reconstruction read a zeroed stagger
+    # slot at a block edge silently (weno_momentum_z_seam.md). Frame-
+    # independent by construction (never read off the storage extents):
+    # on a blocked multi-shard frame the storage-bounds check
+    # degenerates (the concatenated blocks are longer than one true
+    # axis) and under-negotiated halos would silently read the zeroed
+    # stagger slots at block edges.
+    reach_below = max(0, m0)
+    reach_above = max(0, size - 1 - m0)
+    if reach_below > width or reach_above > width:
         raise ValueError(
             f"the negotiated halo width {width} along {axis!r} is "
             f"too small for the {size}-point stencil of "
@@ -376,15 +384,16 @@ def apply_fv_staggered(
     # halo-validity claim (task 1.8, stage B): the kernel computed
     # every output ghost slot its window reaches, so on a *periodic*
     # axis the result keeps the operand's valid layers minus the
-    # per-side reach ``(m0, reach_right)`` (stencils commute with the
-    # wrap fill; the low side keeps its spare when the stencil only
-    # reaches high, and vice versa). On bounded axes the claim is
-    # zero: stenciling the input's BC-structured/extrapolated fill is
-    # not the BC-consistent fill of the *output* field, so those ghost
-    # slots must be refilled at the next consumption.
+    # per-side footprint ``(reach_below, reach_above)`` (on a periodic
+    # factor ``n_out == n_in`` so this footprint coincides with the
+    # window reach — stencils commute with the wrap fill; the low side
+    # keeps its spare when the stencil only reaches high, and vice
+    # versa). On bounded axes the claim is zero: stenciling the input's
+    # BC-structured/extrapolated fill is not the BC-consistent fill of
+    # the *output* field, so those ghost slots must be refilled at the
+    # next consumption.
     if getattr(domain_factor.mesh, "periodic", False):
-        valid = f.halo_valid.consume(
-            axis, (max(m0, 0), max(reach_right, 0)))
+        valid = f.halo_valid.consume(axis, (reach_below, reach_above))
     else:
         valid = f.halo_valid.reset(axis)
     return type(f)(f.grid, codomain, data, metadata,

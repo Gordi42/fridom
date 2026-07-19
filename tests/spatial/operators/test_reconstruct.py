@@ -17,6 +17,7 @@ from fridom.spatial.operators.interp import LinearInterp
 from fridom.spatial.operators.reconstruct import (
     LinearDeconvolution,
     LinearReconstruction,
+    apply_fv_staggered,
     fv_node_offset,
     wall_slots_addressable,
 )
@@ -322,6 +323,49 @@ def test_reconstruct_needs_the_negotiated_halo(recon, mx):
     f = bare.create_field(mx.cell_avg)
     with pytest.raises(ValueError, match="halo width 0"):
         recon["x"](f)
+
+
+def _shrink_kernel(size):
+    """Shrink the axis by ``size - 1`` (a dummy size-point kernel)."""
+    def kernel(storage, axis_index):
+        n = storage.shape[axis_index]
+        idx = [slice(None)] * storage.ndim
+        idx[axis_index] = slice(0, n - (size - 1))
+        return storage[tuple(idx)]
+    return kernel
+
+
+def test_apply_fv_staggered_guard_uses_the_footprint_not_window(my):
+    # fix/weno-selected-union-reach: the bounds guard bounds the actual
+    # per-slot ghost read (the footprint_reach form, ``size - 1 - m0``
+    # above), NOT the window form ``(n_out - n_in) + size - 1 - m0`` that
+    # folds in the global codomain/domain staggering deficit. On a
+    # bounded ``CellAvg -> Inner`` axis (``n_out - n_in = -1``) that
+    # deficit masked a read one past the halo: for size 6 / m0 2 the
+    # window above is 2 (= -1 + 3) but the true footprint above is 3, so
+    # a width-2 halo silently under-provisioned a sharded reconstruction
+    # (weno_momentum_z_seam.md). The natural path no longer produces
+    # this (the union footprint is negotiated); it is constructed here
+    # by applying a wider stencil than the negotiated width covers.
+    recon = LinearReconstruction()
+    size, m0 = 6, 2
+    # under-provisioned: width 2 < footprint above (size - 1 - m0 = 3),
+    # yet the old window form (window above = 2 <= 2) would have passed
+    narrow = Grid((my,), device_ids=(0,))
+    narrow.negotiate(halo=HaloSpec({"y": 2}))
+    f2 = narrow.create_field(my.cell_avg)
+    with pytest.raises(ValueError, match="too small for the 6-point"):
+        apply_fv_staggered(recon, f2, "y", size, _shrink_kernel(size),
+                           metadata=None, align=m0)
+    # provisioned: width 3 covers the footprint above, so the guard
+    # passes and the kernel runs (the two forms agree once the halo
+    # covers the footprint -- no legal configuration is newly rejected)
+    wide = Grid((my,), device_ids=(0,))
+    wide.negotiate(halo=HaloSpec({"y": 3}))
+    f3 = wide.create_field(my.cell_avg)
+    out = apply_fv_staggered(recon, f3, "y", size, _shrink_kernel(size),
+                             metadata=None, align=m0)
+    assert np.isfinite(np.asarray(out.data)).all()
 
 
 # ================================================================
