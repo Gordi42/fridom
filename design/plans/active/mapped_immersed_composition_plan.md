@@ -314,8 +314,11 @@ the masked-**spectral** preconditioner is slow (~200 iters, already
 recorded in pt 5) and the manufactured-solution *accuracy* gate is
 small-cell limited — the residual never stalls. Only genuine
 anomaly: multigrid emits NaN on degenerate near-all-dry domains
-(loud via `model.panicked`, non-physical geometry). Final
-resolution pending the owner's call on the refutation;
+(loud via `model.panicked`, non-physical geometry). **CLOSED
+2026-07-19 by owner ruling on the refutation: guard dropped, no
+code change** — the `min_fraction=0.1` default stays as ordinary
+conditioning hygiene, the near-all-dry multigrid NaN stays
+unguarded (loud, non-physical), and no sliver follow-up remains;
 (c) real multi-process (`srun -n N`) not exercised
 (forced-4 only, per the no-GPU-jobs rule); (d) uniform tracer
 through a full projected step is O(h²)-inexact identically for pure

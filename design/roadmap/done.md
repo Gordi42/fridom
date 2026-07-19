@@ -958,6 +958,11 @@ Implementation record:
   inside the cross hops — the symmetry-gate-selected spelling; the
   per-operator cross-α divergence vs advection's base-face-α
   owner-ratified 2026-07-19, keyed to each operator's invariant;
+  the `min_fraction=0` sliver-guard follow-up closed 2026-07-19 by
+  measurement — no stall exists in the materializable range
+  (order-4/6 quadrature floors ~1e-4/~1.6e-6; multigrid ≤30 iters
+  and plain CG both reach machine-zero residual on every embedded
+  sliver), guard dropped by owner ruling;
   symmetry 5.3e-16, all-wet ≡ mapped **bitwise**, identity-chart +
   mask ≡ flat immersed ≤ 1e-12); fraction-weighted composed
   multigrid (~15 iters where masked spectral needs ~200;
