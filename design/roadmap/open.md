@@ -146,13 +146,22 @@ cells in every dimension (stages I0–I4 shipped 2026-07-17; entry in
 [`../plans/active/immersed_partial_cells_plan.md`](../plans/active/immersed_partial_cells_plan.md)).
 Open, none blocking:
 
-- **Mapped + immersed composition — follow-ups** (the composition
-  itself shipped; entry in [`done.md`](done.md)): hydrostatic terrain
-  barotropic multigrid is not yet wet-aware (taught error; the masked
-  spectral default converges in <= 17 iters, so no lever open at these
-  sizes); sw2 mapped+immersed stays a taught error; genuine-chart
-  (J != 1) physical column-equivalence twin (algebraic gates
-  substitute); real `srun -n N` validation (owner-gated GPU).
+- **sw2 mapped+immersed** (the last open leaf of the composition
+  follow-ups — everything else closed 2026-07-19, entry in
+  [`done.md`](done.md)): stays a taught error, now at BOTH bind sites
+  (`SadournyAdvection` and `DynamicalCore`, so linear models are
+  refused too). Scoped 2026-07-19: the explicit-tendency wiring
+  (α on the sqrt_g-weighted flux, sealed /θ divergence, masked
+  momentum) is mechanical, but the lift is gated on (a) a
+  sqrt_g-weighted embedding-chart fraction quadrature (the MI-D1
+  Jacobian path serves column corrections only, not `chart_coords` —
+  the separable per-axis fallback is not the physical wet volume on a
+  non-separable induced metric) and (b) re-deriving the semi-discrete
+  energy-antisymmetry proof with the combined α·sqrt_g corner weight
+  (the stage-B energy gate has no mapped analog). No in-repo consumer
+  needs it; revisit when a concrete curvilinear-with-islands use case
+  appears
+  ([`../plans/active/mapped_immersed_composition_plan.md`](../plans/active/mapped_immersed_composition_plan.md)).
 - **Partial-bottom `p_hyd` on terrain charts** (the flat/stretched
   correction itself — the third residual — shipped 2026-07-19; entry
   in [`done.md`](done.md)): the terrain-chart (+immersed) leg is the
