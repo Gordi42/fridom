@@ -301,3 +301,65 @@ well-behaved); (c) real multi-process (`srun -n N`) not exercised
 through a full projected step is O(h²)-inexact identically for pure
 mapped and pure immersed too — a baseline projection-method
 property, not composed-specific.
+
+**M5 shipped 2026-07-19** (branch `feat/immersed-terrain-hydrostatic`;
+not yet merged). The hydrostatic wet-column terrain barotropic solve:
+the phase-B `BarotropicPressureSolver` face depth becomes the wet-column
+integral `H̃_a = ∫ α_a J dz` (min-rule face fraction weighting the
+metric-weighted column Jacobian), the free-surface RHS becomes the wet
+transport divergence `∫[∂_x(α_x Ju) + ∂_y(α_y Jv)] dz`, and the solver
+masks its mean-depth spectral preconditioner onto the wet columns, its
+ε=0 gauge onto the wet-column-constant nullspace, and the `ps` output to
+zero under a land column. The core `_diagnose_w` gains a masked
+**contravariant** continuity branch (`(α_x Ju).diff + (α_y Jv).diff`
+integrated to `α_z Jω`, guarded divide). The three bind-time rejections
+(`HydrostaticCore`, `ConstantStratification`, `_FreeSurfaceBase`) are
+replaced by one shared `terrain.require_chart_immersed_order` guard
+(order ≥ 2 required — a collocation mask mis-places on a chart, a taught
+error). The buoyancy slope term (`d629a489`) needed **no** change: it
+reads the masked contravariant `w` and min-rule-consistent velocities,
+`MaskState` keeps dead cells dead. Gates (CPU, forced-4): masked
+contravariant continuity **1.8e-15** on wet cells (w exactly 0 on closed
+faces); wet-column operator self-adjoint **4.5e-15** on a genuine cut
+chart; GB-1 wet transport divergence cancels **7e-16** (ε=0); column
+equivalence (J≡1 chart flat bottom ≡ shallower chart) **6.7e-16**
+explicit / **7.2e-16** implicit; implicit≡explicit oracle converges
+first-order (slopes ~1.1) on a J≡1 masked chart; all-wet chart ≡ pure
+terrain **byte-identical** (w) / ≤ 2e-16 (ps, ε=1); identity-chart + mask
+≡ flat immersed ≤ 1e-13; θ-mass conserved **0.0** over 12 steps;
+autodiff FD-match rtol 2e-13; masked spectral converges in 9–17 iters
+(a=0.4–0.8, ε=0/1); forced-4 device-invariant ≤ 1e-8. 63 new mirrored
+tests; full hydrostatic suite (434) green; ruff clean.
+
+Corrections / spellings recorded:
+
+1. **Explicit `_terrain_inv_depth` stays the FULL physical depth**
+   `∫J dz` (not the wet depth) on a cut chart: the masked
+   `_terrain_transport_div` already carries α, and dividing the wet
+   transport by the full depth makes the explicit form reduce to the
+   implicit `T*_wet/H_ref` on a J≡1 chart (the oracle limit) and to the
+   pure terrain form byte-identically when all-wet.
+2. **Wet projection is the computational-measure wet-column mean**
+   (`_wet_mean_free`), matching CG's `_dot` and keeping dry columns
+   exactly zero — the flat immersed e-form generalized to the 2-D
+   barotropic solve (the pure terrain `_mean_free` global mean would
+   paint a constant onto dry columns).
+3. **The multigrid preconditioner is NOT yet wet-aware** on a
+   terrain + immersed grid — a taught error at the solver ctor (the
+   point-Jacobi V-cycle coarsens the metric per level but the coarse
+   levels do not re-quadrature the wet fractions). The default masked
+   **spectral** converges in ≤ 17 iters on steep cut charts, so the
+   deferral costs nothing at these sizes. A follow-up.
+4. **Split-explicit + terrain + immersed stays a taught error** via the
+   split variant's own pre-existing terrain refusal (it rejects any
+   sigma column, immersed or not) — designed-for, use the implicit free
+   surface.
+
+Seam verdict: the physical **genuine-chart** (J≠1) column-equivalence
+twin is ambiguous (the wet sub-column is an affine sub-chart, not a
+plain shallower domain), so — following the M2-M4 correction 6
+precedent — the column-equivalence gate rides the J≡1 chart limit
+(clean, exercises the full composed assembly + wet-column solve) plus
+the algebraic gates (all-wet ≡ pure terrain byte-identical, GB-1 wet
+cancellation, masked continuity machine zero, θ-mass) on genuine cut
+charts.

@@ -38,10 +38,26 @@ right-hand side uses the raw ``T^*``, not the normalized depth-mean
 divergence, so the guarded-division autodiff hazard of the flat depth
 mean never enters this path.
 
+On a **terrain + immersed** (cut-cell) grid (stage M5) the face depth
+becomes the **wet-column** integral ``H_a = \int \alpha_a J\,\mathrm{d}z``
+(``\alpha_a`` the min-rule face fraction, weighting the metric-weighted
+column Jacobian at the face) and the right-hand side uses the **wet**
+transport divergence ``\int[\partial_x(\alpha_x Ju) + \partial_y(\alpha_y
+Jv)]\,\mathrm{d}z``; the solve then masks the flat mean-depth
+preconditioner onto the wet columns (``z = e \otimes M(r)``), the
+``\varepsilon = 0`` gauge onto the wet-column-constant nullspace, and the
+``p_s`` output to zero under a full-depth land column. With ``\alpha = 1``
+every wet term collapses **byte-identically** to the pure terrain form;
+with ``J = 1`` to the flat immersed transport-depth operator. The
+multigrid preconditioner is not yet wet-aware (a taught error on a
+terrain + immersed grid — use ``"spectral"``).
+
 The velocity correction (:meth:`ImplicitFreeSurface._barotropic_solve`)
 stays the z-uniform ``u \leftarrow u - dt'\,\nabla_h p_s`` — with these
 definitions its raw transport divergence cancels the right-hand-side
-divergence **exactly** (gate GB-1). The operator's discrete gradient /
+divergence **exactly** (gate GB-1); on a cut cell the correction is
+gated by the open-face mask so a closed face carries no correction, and
+the cancellation holds on the wet region. The operator's discrete gradient /
 divergence legs are therefore the same registry ``diff`` rows the
 correction's ``p_s.diff(a)`` resolves, keyed for the wall closure exactly
 as the mapped solver's flux legs (GM-D6): the divergence consumes the
@@ -75,6 +91,7 @@ from typing import TYPE_CHECKING
 import jax.numpy as jnp
 
 import fridom as fr
+from fridom.framework.utils import dtype_real
 from fridom.hydrostatic.modules.terrain import jacobian_name
 from fridom.spatial.bc import BC
 from fridom.spatial.fields.storage import factor_axes
@@ -83,6 +100,7 @@ from fridom.spatial.operators.composed import Diag, Divergence, Gradient
 from fridom.spatial.operators.integrate import Integral
 from fridom.spatial.operators.krylov import (
     ConjugateGradient,
+    _computational_integral,
     _computational_mean,
 )
 from fridom.spatial.operators.multigrid import (
@@ -322,6 +340,17 @@ class BarotropicPressureSolver:
             raise ValueError(
                 f"preconditioner must be one of {_PRECONDITIONERS}, got "
                 f"{preconditioner!r}")
+        immersed = getattr(grid, "immersed", None)
+        if immersed is not None and preconditioner == "multigrid":
+            raise NotImplementedError(
+                "the terrain barotropic multigrid preconditioner does "
+                "not yet compose with an immersed (cut-cell) domain: the "
+                "point-Jacobi V-cycle coarsens the metric per level but "
+                "the coarse levels do not re-quadrature the wet fractions "
+                "(mapped + immersed composition plan, stage M5). Use "
+                "pressure_preconditioner='spectral' (the wet-masked "
+                "mean-depth inverse) on a terrain + immersed grid")
+        self._immersed = immersed
         self._grid = grid
         self._space: SpaceLike = space.bare
         self._column = column
@@ -356,6 +385,25 @@ class BarotropicPressureSolver:
             g3 = registry.resolve("diff", coll.factor(a))[a]
             self._face3[a] = resolve_codomain(g3, coll)
         self._coll: SpaceLike = coll
+        # the wet-column indicator on the 2-D ps cell (M5): a column is
+        # wet iff any of its cells is (theta_col = int theta dz > 0). It
+        # gates the wet-mean nullspace projection (eps=0), masks the flat
+        # spectral preconditioner onto the wet columns, and masks the ps
+        # output to zero under a land column (no pressure under a
+        # full-depth wall). Materialized in-trace from the immersed
+        # fractions (a field cannot ride the solver's non-pytree state,
+        # but the solver is a per-solve trace-time object, so this is
+        # cheap and correct). None off a cut-cell grid.
+        self._cell_mask: jax.Array | None = None
+        self._wet: ScalarField | None = None
+        self._wet_measure: jax.Array | None = None
+        if immersed is not None:
+            theta_col = Integral()[self._vertical](
+                immersed.fraction(self._coll))
+            self._cell_mask = (theta_col.data > 0.0).astype(dtype_real())
+            self._wet = theta_col.with_data(self._cell_mask)
+            self._wet_measure = jnp.sum(
+                _computational_integral(self._wet).data)
 
     # ================================================================
     #  Properties
@@ -399,12 +447,27 @@ class BarotropicPressureSolver:
         axis : str
             The horizontal coordinate whose face depth is derived.
 
+        On a **terrain + immersed** grid (stage M5) it is the
+        **wet-column** face depth ``H_a = \int \alpha_a J\,\mathrm{d}z``
+        — the min-rule face fraction ``alpha_a`` weights the column
+        Jacobian at the face (``alpha`` on the metric-weighted quantity,
+        the composed precedent). This is the exact wet analogue of the
+        flat immersed transport depth ``\int\alpha_a\,\mathrm{d}z``
+        (``J = 1``) and of the pure terrain physical depth ``\int
+        J\,\mathrm{d}z`` (``alpha = 1``); it matches the right-hand
+        side's wet transport divergence so the GB-1 exact cancellation
+        holds on the wet region. A land column (``alpha_a = 0`` at every
+        level) has ``H_a = 0`` — a closed face carrying no barotropic
+        transport.
+
         Returns
         -------
         ScalarField
             ``H_a`` on the 2-D a-face.
         """
         jac = self._grid.metric(self._face3[axis].bare, self._jname)
+        if self._immersed is not None:
+            jac = self._immersed.fraction(self._face3[axis]) * jac
         return Integral()[self._vertical](jac)
 
     def _mean_depth(self) -> jax.Array:
@@ -623,13 +686,49 @@ class BarotropicPressureSolver:
         dt : object
             The stage increment ``dt' = ctx.stage_dt``.
 
+        On a **terrain + immersed** grid (stage M5) the mean-depth flat
+        inverse is **masked onto the wet columns** (``z = e (x) M(r)``,
+        the immersed IP-D6 correction): the CG residual is wet-supported,
+        so the masked inverse is the symmetric ``D M D`` SPD on the wet
+        subspace, whereas the raw unmasked inverse would mix its global
+        ``k = 0`` gauge with the wet-column-constant nullspace and
+        destabilize CG.
+
         Returns
         -------
         Callable[[ScalarField], ScalarField]
             The preconditioner ``M_inv``.
         """
         hbar = self._mean_depth()
-        return self._flat_spectral(csqr * hbar * self._inv_depth, dt)
+        base = self._flat_spectral(csqr * hbar * self._inv_depth, dt)
+        if self._cell_mask is None:
+            return base
+        cell_mask = self._cell_mask
+
+        def masked(r: ScalarField) -> ScalarField:
+            z = base(r)
+            return z.with_data(z.data * cell_mask)
+
+        return masked
+
+    def _wet_mean_free(self, field: ScalarField) -> ScalarField:
+        r"""Remove the wet-column mean (the immersed constants gauge).
+
+        The V-orthogonal wet-column projection ``f - e (int_wet f /
+        int_wet)`` with ``e = (theta_col > 0)`` the wet-column indicator
+        — the exact nullspace constant of the wet-masked operator (IP-D9,
+        the flat immersed e-form generalized to the terrain barotropic
+        solve). The mean is taken in the **computational** measure
+        (``_computational_integral``, the product CG's ``_dot`` evaluates
+        and this row-scaled operator is symmetric in), so the projector
+        is orthogonal in CG's geometry, the residual reaches machine zero
+        and holds, and the dry columns stay exactly zero (a plain global
+        mean would paint a nonzero constant onto them).
+        """
+        mean = jnp.sum(
+            _computational_integral(self._wet * field).data
+        ) / self._wet_measure
+        return field - self._wet * mean
 
     def _build_vcycle(
         self, *, csqr: object, dt: object,
@@ -721,7 +820,11 @@ class BarotropicPressureSolver:
         ConjugateGradient
             The preconditioned CG solver.
         """
-        projection = _mean_free if self._epsilon == 0.0 else None
+        if self._epsilon == 0.0:
+            projection = (self._wet_mean_free if self._immersed is not None
+                          else _mean_free)
+        else:
+            projection = None
         if self._preconditioner_kind == "multigrid":
             preconditioner = self._build_vcycle(csqr=csqr, dt=dt)
         else:
@@ -758,4 +861,10 @@ class BarotropicPressureSolver:
         ScalarField
             The surface pressure ``p_s^{n+1}`` on ``rhs``'s space.
         """
-        return self.krylov(csqr=csqr, dt=dt)(rhs, x0)
+        ps = self.krylov(csqr=csqr, dt=dt)(rhs, x0)
+        if self._cell_mask is not None:
+            # no pressure under a full-depth land column (the physical
+            # no-pressure-under-topography convention; the wet columns are
+            # already correct — this only zeros the dry columns)
+            ps = ps.with_data(ps.data * self._cell_mask)
+        return ps

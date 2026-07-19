@@ -90,6 +90,7 @@ from fridom.hydrostatic.modules.barotropic_pressure import (
 from fridom.hydrostatic.modules.terrain import (
     discover_column,
     jacobian_name,
+    require_chart_immersed_order,
 )
 from fridom.hydrostatic.params import CSQR
 from fridom.model.errors import AssemblyError
@@ -223,13 +224,15 @@ class _FreeSurfaceBase(fr.model.Module):
         grid = table.grid
         self._immersed = getattr(grid, "immersed", None)
         self._column = discover_column(grid, self._vertical)
-        if self._column is not None and self._immersed is not None:
-            raise NotImplementedError(
-                "the hydrostatic free surface does not support an "
-                "immersed (cut-cell) domain on top of a terrain-"
-                "following sigma column (the barotropic transport "
-                "depth would weight the face fractions by the column "
-                "Jacobian, not built — hydrostatic plan §7)")
+        # a terrain + immersed grid (stage M5) composes the wet-column
+        # barotropic solve: the face depth H_a becomes the wet-column
+        # integral int alpha_a J dz and the transport divergence weights
+        # the J-weighted flux by the min-rule face fraction. It needs the
+        # Jacobian-weighted chart fractions (a collocation-order mask on
+        # a chart is a taught error). The split-explicit variant refuses
+        # any terrain grid in its own bind (below), so this only admits
+        # the explicit / implicit variants.
+        require_chart_immersed_order(grid, self._column)
         for mesh in grid.factors:
             if self._vertical in mesh.names:
                 lo, hi = mesh.extent
@@ -350,6 +353,19 @@ class _FreeSurfaceBase(fr.model.Module):
         state : object
             The current state (reads ``u`` and ``v``).
 
+        On a **terrain + immersed** grid (stage M5) the min-rule face
+        fraction weights the ``J``-weighted flux (``alpha`` on the
+        *metric-weighted* flux, never the field), so ``T^*`` is the
+        **wet** transport divergence
+        ``\int[\partial_x(\alpha_x Ju) + \partial_y(\alpha_y Jv)]\,
+        \mathrm{d}z`` — a closed (``alpha = 0``) face carries no
+        transport, so the sum against the wet-region constant telescopes
+        to zero and the right-hand side stays compatible. With
+        ``alpha = 1`` (all wet) it is byte-identical to the pure terrain
+        form; the wet weighting matches the operator's wet face depth
+        ``\int\alpha_a J\,\mathrm{d}z`` so the GB-1 exact cancellation
+        holds on the wet region.
+
         Returns
         -------
         tuple[ScalarField, ScalarField]
@@ -361,6 +377,9 @@ class _FreeSurfaceBase(fr.model.Module):
         jname = jacobian_name(self._column)
         ju = u * u.grid.metric(u.function_space.bare, jname)
         jv = v * v.grid.metric(v.function_space.bare, jname)
+        if self._immersed is not None:
+            ju = self._immersed.fraction(u.function_space) * ju
+            jv = self._immersed.fraction(v.function_space) * jv
         div_h = ju.diff(zonal) + jv.diff(meridional)
         return Integral()[self._vertical](div_h), div_h
 

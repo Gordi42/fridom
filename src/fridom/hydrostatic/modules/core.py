@@ -65,6 +65,7 @@ from fridom.hydrostatic.diagnostics import DIAGNOSTICS
 from fridom.hydrostatic.modules.terrain import (
     discover_column,
     jacobian_name,
+    require_chart_immersed_order,
 )
 from fridom.hydrostatic.params import CSQR, ROSSBY
 from fridom.hydrostatic.state import State
@@ -201,23 +202,19 @@ class HydrostaticCore(fr.model.Module):
         Reads the immersed descriptor (IP-D9) and, through
         :func:`~fridom.hydrostatic.modules.terrain.discover_column`,
         the single-base terrain column on the vertical axis (rules
-        3.8). The two are mutually exclusive in this iteration: a
-        cut-cell mask on top of a tilted sigma column is not modelled
-        (its masked continuity would need the Jacobian-weighted face
-        fractions), so a terrain + immersed grid is a taught error.
+        3.8). A **terrain + immersed** grid is the composed masked
+        contravariant continuity (stage M5): the masked-continuity
+        divergence weights the ``J``-weighted horizontal transport by
+        the min-rule face fractions (``_diagnose_w``). It requires the
+        Jacobian-weighted chart fractions
+        (:func:`~fridom.hydrostatic.modules.terrain.require_chart_immersed_order`);
+        a collocation-order mask on a chart is a taught error.
         """
         grid = table.grid
         self._immersed = getattr(grid, "immersed", None)
         self._coords = tuple(grid.names)
         self._column = discover_column(grid, self._vertical)
-        if self._column is not None and self._immersed is not None:
-            raise NotImplementedError(
-                "the hydrostatic model does not support an immersed "
-                "(cut-cell) domain on top of a terrain-following sigma "
-                "column: the masked continuity would have to weight "
-                "the face fractions by the column Jacobian, which is "
-                "not built (hydrostatic plan §7). Use a terrain grid "
-                "without an immersed mask, or a flat immersed grid")
+        require_chart_immersed_order(grid, self._column)
         self._extra_halo = self._derive_extra_halo(table)
 
     def _derive_extra_halo(self, table: object) -> HaloSpec | None:
@@ -436,28 +433,45 @@ class HydrostaticCore(fr.model.Module):
         cells, so no dry value enters with nonzero weight). On an
         all-wet immersed grid ``alpha == 1`` and the result is byte-
         identical to the unimmersed diagnosis.
+
+        On a **terrain + immersed** grid (stage M5) the two compose: the
+        fraction weights the ``J``-weighted transport at the face
+        (``(alpha_x J u).diff(x) + (alpha_y J v).diff(y)`` — ``alpha``
+        on the *metric-weighted* flux, never the field, the composed
+        precedent), so the running integral yields the masked
+        **contravariant** transport ``alpha_z J\omega`` and ``w`` is the
+        guarded division ``alpha_z J\omega / alpha_z`` — the masked
+        contravariant volume flux, ``0`` at the terrain and on every
+        closed face. The buoyancy restoring recovers the physical
+        vertical velocity ``w_true = J\omega + u Z_x + v Z_y`` from it
+        (``hy.ConstantStratification``). With ``J = 1`` it collapses to
+        the flat masked form above; with ``alpha = 1`` to the pure
+        terrain contravariant form.
         """
         zonal, meridional = self._horizontal
         u, v = state["u"], state["v"]
         cumint = CumulativeIntegral(
             direction="up", target="face")[self._vertical]
         immersed = getattr(u.grid, "immersed", None)
-        if immersed is None and self._column is not None:
-            # terrain: the flux-form horizontal divergence of the
-            # J-weighted transport (J on the u/v faces), so w is the
-            # contravariant vertical volume flux Jomega (0 at bottom).
+        # the horizontal transport whose divergence continuity integrates:
+        # J-weighted on a terrain column (so w is the contravariant volume
+        # flux Jomega, 0 at the sigma bottom), the plain velocity on a flat
+        # column. The immersed fraction then weights this metric-weighted
+        # transport at the face (never the field).
+        if self._column is not None:
             jname = jacobian_name(self._column)
             grid = u.grid
-            ju = u * grid.metric(u.function_space.bare, jname)
-            jv = v * grid.metric(v.function_space.bare, jname)
-            div_h = ju.diff(zonal) + jv.diff(meridional)
-            return {"w": -cumint(div_h)}
+            fu = u * grid.metric(u.function_space.bare, jname)
+            fv = v * grid.metric(v.function_space.bare, jname)
+        else:
+            fu, fv = u, v
         if immersed is None:
-            div_h = u.diff(zonal) + v.diff(meridional)
+            div_h = fu.diff(zonal) + fv.diff(meridional)
             return {"w": -cumint(div_h)}
         alpha_x = immersed.fraction(u.function_space)
         alpha_y = immersed.fraction(v.function_space)
-        div_h = (alpha_x * u).diff(zonal) + (alpha_y * v).diff(meridional)
+        div_h = ((alpha_x * fu).diff(zonal)
+                 + (alpha_y * fv).diff(meridional))
         transport = -cumint(div_h)  # the barotropic transport alpha_z*w
         alpha_z = self._masked_w_faces(immersed, state)
         az = alpha_z.data

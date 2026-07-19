@@ -208,11 +208,17 @@ cells in every dimension (stages I0–I4 shipped 2026-07-17; entry in
 [`../plans/active/immersed_partial_cells_plan.md`](../plans/active/immersed_partial_cells_plan.md)).
 Open, none blocking:
 
-- **Mapped + immersed composition** — **core shipped** (M0–M4:
-  chart fractions, composed solve + multigrid, advection proof —
-  nonhydro2 mapped+immersed and stretched+immersed models run);
-  remaining: M5 hydrostatic wet-column extension, in progress
-  ([`../plans/active/mapped_immersed_composition_plan.md`](../plans/active/mapped_immersed_composition_plan.md)).
+- **Mapped + immersed composition** — **shipped** (M0–M4 nonhydro2
+  composed solve + multigrid + advection proof; M5 hydrostatic
+  wet-column terrain barotropic solve, masked contravariant continuity,
+  order≥2 chart-mask guard —
+  [`../plans/active/mapped_immersed_composition_plan.md`](../plans/active/mapped_immersed_composition_plan.md) §6).
+  Residuals: the terrain barotropic **multigrid** preconditioner is not
+  yet wet-aware (taught error on a terrain + immersed grid — the masked
+  spectral default converges in ≤17 iters, so no lever open at these
+  sizes); split-explicit + terrain stays a taught error (pre-existing);
+  genuine-chart (J≠1) physical column-equivalence twin is ambiguous
+  (algebraic gates substitute, M2-M4 correction-6 precedent).
 - **Partial-bottom-cell hydrostatic pressure gradient** — the
   Pacanowski–Gnanadesikan refinement; the current unweighted `p_hyd`
   cumsum is 2nd-order away from partial bottom cells only.

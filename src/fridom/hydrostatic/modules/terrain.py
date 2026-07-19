@@ -27,6 +27,15 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:  # pragma: no cover
     from fridom.spatial.grid import Grid
 
+#: the smallest immersed quadrature ``order`` a terrain column admits.
+#: Below it (``None`` / ``1``) the collocation staircase samples the
+#: indicator at the *computational* cell centre, which the sigma column
+#: maps to the wrong *physical* height — a silent wrong-geometry mask on
+#: a chart. Composing terrain + immersed therefore requires the genuine
+#: Jacobian-weighted chart fractions (MI-D1); the collocation staircase
+#: is a taught error (the nonhydro2 ``_MIN_CHART_ORDER`` precedent).
+_MIN_CHART_ORDER = 2
+
 
 def discover_column(
     grid: Grid, vertical: str,
@@ -105,3 +114,59 @@ def jacobian_name(column: tuple[str, str]) -> str:
     """Return the column-Jacobian metric name ``d<mapped>_d<base>``."""
     mapped, base = column
     return f"d{mapped}_d{base}"
+
+
+def require_chart_immersed_order(
+    grid: Grid, column: tuple[str, str] | None,
+) -> None:
+    r"""Refuse a collocation-order mask on a terrain (sigma) column (M5).
+
+    Description
+    -----------
+    The shared terrain + immersed composition guard (MI-D6, stage M5).
+    Off a terrain grid (``column is None``) or an unmasked terrain grid
+    (no immersed domain) this is a no-op — the byte-identical
+    single-descriptor paths. On a **terrain + immersed** grid it requires
+    the immersed domain to carry genuine per-cell Jacobian-weighted
+    quadrature fractions (``ImmersedDomain(order=q)`` with
+    ``q >= 2``, :data:`_MIN_CHART_ORDER`): the collocation staircase
+    (``order=None`` / ``1``) samples the indicator at the *computational*
+    cell centre, which the sigma column maps to the wrong *physical*
+    height, so a collocation mask on a chart is a silent wrong-geometry
+    mask — a taught error, never a silent unmapped mask (the nonhydro2
+    ``ComposedPressureSolver`` precedent). Every hydrostatic module that
+    discovers a terrain column (``HydrostaticCore``,
+    ``ConstantStratification``, the free-surface variants) calls this at
+    bind so the composition is refused (or admitted) uniformly.
+
+    Parameters
+    ----------
+    grid : Grid
+        The bound grid (carries the immersed descriptor, if any).
+    column : tuple[str, str] | None
+        The discovered terrain column (``None`` off a mapped grid).
+
+    Raises
+    ------
+    NotImplementedError
+        For a terrain + immersed grid whose immersed domain uses the
+        collocation staircase (``order`` below :data:`_MIN_CHART_ORDER`).
+    """
+    if column is None:
+        return
+    immersed = getattr(grid, "immersed", None)
+    if immersed is None:
+        return
+    order = getattr(immersed, "order", None)
+    if order is None or order < _MIN_CHART_ORDER:
+        raise NotImplementedError(
+            "a terrain-following (sigma) column on top of an immersed "
+            "(cut-cell) domain needs genuine per-cell quadrature "
+            "fractions (ImmersedDomain(order=q) with q >= 2): the "
+            "collocation staircase (order=None/1) samples the indicator "
+            "at the computational cell centre, which the sigma column "
+            "maps to the wrong physical height, so the wet-region mask "
+            "would be wrong-geometry on a chart (mapped + immersed "
+            "composition plan, stage M5). Pass order>=2, or use a "
+            "terrain grid without an immersed mask / a flat immersed "
+            "grid")

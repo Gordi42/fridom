@@ -51,7 +51,10 @@ from typing import TYPE_CHECKING
 
 import fridom as fr
 from fridom.framework.utils import jaxify
-from fridom.hydrostatic.modules.terrain import discover_column
+from fridom.hydrostatic.modules.terrain import (
+    discover_column,
+    require_chart_immersed_order,
+)
 from fridom.model.halo_demand import derive_extra_halo
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -145,22 +148,19 @@ class ConstantStratification(fr.model.Module):
         through
         :func:`~fridom.hydrostatic.modules.terrain.discover_column`
         (``None`` off a mapped grid — the byte-identical flat path).
-        A terrain + immersed grid is a taught error consistent with
-        the core (which owns the same guard): the slope-advection
-        term assumes an unmasked column.
+        A **terrain + immersed** grid (stage M5) composes: the
+        slope-advection term reads the masked contravariant ``w``
+        (``hy.HydrostaticCore``) and the min-rule-consistent velocities
+        (dead DOFs zeroed by ``MaskState``), so it stays mask-respecting
+        without an explicit gate. It requires the Jacobian-weighted
+        chart fractions
+        (:func:`~fridom.hydrostatic.modules.terrain.require_chart_immersed_order`),
+        consistent with the core.
         """
         grid = table.grid  # type: ignore[attr-defined]
         self._coords = tuple(grid.names)
         self._column = discover_column(grid, self._vertical)
-        if (self._column is not None
-                and getattr(grid, "immersed", None) is not None):
-            raise NotImplementedError(
-                "the hydrostatic stratification does not support a "
-                "terrain-following sigma column on top of an immersed "
-                "(cut-cell) domain: the slope-advection term assumes an "
-                "unmasked column (hy.HydrostaticCore owns the same "
-                "guard). Use a terrain grid without an immersed mask, "
-                "or a flat immersed grid")
+        require_chart_immersed_order(grid, self._column)
         if self._column is not None:
             self._extra_halo = self._derive_extra_halo(table)
 
