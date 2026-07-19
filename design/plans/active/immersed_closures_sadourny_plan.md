@@ -141,4 +141,65 @@ its gates (dev races reconciled at merge, the standing pattern).
 
 ## 6. Implementation record
 
-(appended as stages land)
+### Stage A (closures) — landed on `feat/immersed-closures`
+
+Files changed:
+
+- `src/fridom/model/closures/base.py`: dropped the blanket immersed
+  reject; added the per-closure `_supports_immersed` capability
+  (ClassVar, default `False`, CL-D1) and a `_immersed_rejection(owner)`
+  method building the taught message that names the plan and its §5
+  deferral list. `ClosureBase.bind` now rejects an immersed grid only
+  when `not self._supports_immersed`.
+- `src/fridom/model/closures/diffusion.py`: added module-level
+  `_weight_flux` / `_scale_divergence` (duplicated from the sw2
+  `immersed_weighting` idiom into the model layer — `model` must not
+  import `shallowwater2`; only the two the divergence-form operator
+  needs, no `mask_field`). `_harmonic` weights every interface stress
+  flux by `α_f` and divides the summed divergence by the sealed `θ_c`
+  (both no-ops off an immersed grid, so the flat/walled/mapped chain is
+  bit-for-bit unchanged). `HarmonicDiffusion` / `HarmonicFriction` set
+  `_supports_immersed = True`; the biharmonic family stays `False`.
+  `_DiffusionClosure.bind` captures the descriptor, rejects `slip='no'`
+  on immersed (§5 no-slip deferral) via `_requests_no_slip`, and
+  exposes `extra_halo` = **depth-1** per coordinate on immersed (the
+  exact `±1` harmonic reach — matching the flat-term traced width, so
+  all-wet stays bitwise; depth-2 was over-declared and broke the A-G2
+  bitwise reduction).
+- `src/fridom/model/closures/vertical_mixing.py`: retargeted the
+  existing immersed reject message to name the plan §5 variable-dz
+  deferral (VerticalMixing stays a plain `Module`, not a `ClosureBase`,
+  so it keeps its own reject).
+- Tests: new shard `tests/model/closures/test_diffusion_immersed.py`
+  (all six gates); updated the immersed-reject match in
+  `tests/model/closures/test_base.py` (+ a `_supports_immersed=True`
+  bind test) and `tests/model/closures/test_vertical_mixing.py`.
+
+Measured gates (CPU):
+
+- A-G1 keystone: diffusion staircase vs walled `0.0` (exact); friction
+  `≤1.7e-18` per component.
+- A-G2: helpers bitwise no-op when all-wet (`array_equal`); all-wet vs
+  unimmersed model tendency `≤7e-18` (XLA fusion ordering, ~1 ULP).
+- A-G3: diffusion wet tracer content drift `7.8e-16` over 15 steps;
+  friction wet **tangential** momentum (u, v) `≤2.5e-18`. The
+  wall-normal component carries the physical impermeable-boundary
+  viscous force (`~6e-3`, NOT conserved) — this is what makes A-G1
+  staircase ≡ walled hold, and matches the walled model exactly.
+  Free-slip conserves only tangential momentum; the tracer no-flux
+  (Neumann) analog conserves fully.
+- A-G4: Smagorinsky, VerticalMixing, biharmonic, and `slip='no'` all
+  reject at the real nh.Model bind path with taught messages.
+- A-G5: grad wrt kappa / nu matches central FD to rtol `1e-8` / `1e-10`.
+- A-G6: forced-4 vs 1-device `0.0` (exact) for all fields.
+
+Note (numerics reconciliation, not a code change): a first blob test
+suggested friction "non-conservation" (~4e-3). Diagnosis: a solid blob
+makes every Cartesian velocity wall-normal *somewhere*, and the
+wall-normal impermeable boundary carries a real viscous force — the
+*walled* reference shows the identical non-conservation. Free-slip
+conserves only the tangential momentum (zero cut-face stress), which
+the min-rule `α = 0` at wet/dry faces delivers by telescoping; the
+implementation was correct as written. A-G3 is therefore tested on a
+channel where the checked components are tangential to the immersed
+boundary.
