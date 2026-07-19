@@ -231,6 +231,31 @@ def test_diagonal_middle_broadcasts_a_constant_diagonal(forced_devices):
 
 
 @pytest.mark.multi_device
+def test_diagonal_middle_on_an_indivisible_sharded_axis(forced_devices):
+    # an indivisible sharded axis rides the padded-even nodal frame and
+    # the diagonal is tail-padded on its coefficient extent; the pad
+    # lanes multiply transient pad data the synthesis slices off, so the
+    # true-frame result still matches the replicated reference
+    if forced_devices is not None:
+        assert jax.device_count() == forced_devices
+    grid = periodic_grid((10, 10, 14))
+    (sharded_axis, _), = grid.decomposition.default_layout.device_axes
+    assert grid.factors[grid.names.index(sharded_axis)].n_cells % 4 != 0
+    rng = np.random.default_rng(14)
+    shape = tuple(m.n_cells for m in grid.factors)
+    data = rng.standard_normal(shape)
+    f = grid.create_field(data=jnp.asarray(data))
+    dt = resolve_distributed_transform(
+        Fourier(grid), grid, f.function_space.bare)
+    assert dt.geometry.padded
+    diag = sharded_axis_diagonal(dt)
+    out = dt.apply_diagonal(f, diag)
+    assert not out.function_space.layout.is_local(sharded_axis)
+    ref = diagonal_reference(data, diag, dt.geometry)
+    assert np.abs(np.asarray(out.data) - ref).max() <= 1e-11
+
+
+@pytest.mark.multi_device
 def test_diagonal_middle_grad_is_finite(forced_devices):
     # jax.grad of a quadratic loss through the diagonal apply is finite
     # and matches a central finite difference (the shard_map / all_to_all
