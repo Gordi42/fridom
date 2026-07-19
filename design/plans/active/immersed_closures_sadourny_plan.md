@@ -52,9 +52,14 @@ Two immersed self-rejection surfaces remain:
   wall-retag precedent, ~281–414): walls keep their machinery,
   immersed faces get α — the two act on different faces.
 - **CL-D4 (conservation).** Diffusion conserves wet tracer content
-  exactly; friction conserves wet momentum exactly (telescoping).
-  First-order stress accuracy at cut faces is the accepted trade
-  (MITgcm/NEMO precedent), conditioned by the `min_fraction` floor.
+  exactly; friction conserves wet **tangential** momentum exactly
+  (telescoping). *(Clarified at stage-A landing: the wall-normal
+  component carries a real, physical boundary force at an
+  impermeable free-slip boundary — the walled reference shows the
+  identical non-conservation, which is exactly why A-G1 holds; see
+  the §6 record.)* First-order stress accuracy at cut faces is the
+  accepted trade (MITgcm/NEMO precedent), conditioned by the
+  `min_fraction` floor.
 - **CL-D5 (differentiability).** Sealed divides only
   (double-`where` on every /θ, /α); autodiff shard per closure.
 
