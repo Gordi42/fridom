@@ -51,22 +51,46 @@ required reference), so a model
 without a constant-N^2 stratification module rejects the closure at
 assembly.
 
-**Walled grids are future work**: the strain/stress stencils next to
-rigid walls are not covered, so ``bind`` rejects walled grids with a
-taught error (the CenteredAdvection precedent).
+**Walled grids** (bounded mesh factors, nodal family) are supported
+with **free-slip** walls (``slip="free"``, the default). The only
+wall-choice-dependent strain is the off-diagonal shear on a
+wall-normal edge; at a free-slip wall it is structurally zero, claimed
+by retagging the interior ``Inner`` edge factor onto its
+``Inner[Dirichlet]`` sibling — the diffusion campaign's flux retag
+(``diffusion._dirichlet_face``) applied to the strain and reused in
+both :math:`|\Sigma|^2` and the stress; no new spatial operator. The
+wall-normal diagonal strain already carries the impermeability
+``Inner[Dirichlet]`` tag and closes on its own; the tracer no-flux
+mixing wall and the buoyancy-gradient (:math:`N^2`) read take the same
+retag. ``slip="no"`` keeps the free-slip retag and injects the
+odd-mirror wall shear :math:`u_{t,1}/\Delta n` into **both** the
+wall-adjacent :math:`|\Sigma|^2` and the stress drag (the MITgcm side
+drag :math:`-\nu_t u_1/\Delta n^2`), sharing one folded static
+:math:`1/\Delta n^2` weight so the wall viscosity and the wall drag
+stay consistent. Walled **finite-volume** (``CellAvg``) grids, and
+immersed / terrain grids, stay future work (a taught rejection at
+``bind``).
 """
 from __future__ import annotations
 
+from collections.abc import Mapping
 from functools import partial
 from typing import TYPE_CHECKING
 
 import jax
 import jax.numpy as jnp
-import numpy as np
 
 import fridom as fr
-from fridom.framework.utils import jaxify
+from fridom.framework.utils import jaxify, modify_array
 from fridom.model.closures.base import ClosureBase
+from fridom.model.closures.diffusion import (
+    _PERIODIC,
+    FREE_SLIP,
+    NO_SLIP,
+    _coerce_slip,
+    _wall_correction,
+    _wall_treatment,
+)
 from fridom.model.errors import AssemblyError
 from fridom.nonhydro2.params import (
     SMAG_BACKGROUND_KAPPA,
@@ -76,6 +100,8 @@ from fridom.nonhydro2.params import (
     SMAG_PRANDTL,
     STRATIFICATION_N2,
 )
+from fridom.spatial.bc import BC
+from fridom.spatial.spaces.average import CellAvg
 
 if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Iterable
@@ -142,6 +168,49 @@ def _guarded_sqrt(field: ScalarField) -> ScalarField:
     return field.with_storage(_sqrt_clipped(field.storage))
 
 
+def _dirichlet_edge(field: ScalarField, axis: str) -> object:
+    """Return the Dirichlet BC-sibling of the field's factor on ``axis``.
+
+    Mirrors ``diffusion._dirichlet_face`` for the strain: a staggered
+    first difference of a cell field lands on the BC-free nodal
+    ``Inner`` face, whose Dirichlet sibling is the same interior face
+    carrying the wall-value claim. Retagging a shear strain onto it is
+    the free-slip wall (the shear *is* zero there); retagging a
+    buoyancy gradient onto it is the tracer no-flux wall.
+    """
+    factor = field.function_space.bare.factor(axis)
+    return factor.mesh.nodal(factor.node_set, bc=BC.DIRICHLET)
+
+
+def _wall_weight(field: ScalarField, axis: str) -> ScalarField:
+    r"""Return the folded static wall weight along ``axis``.
+
+    The no-slip wall shear :math:`u_1/\Delta n` enters the eddy
+    viscosity as :math:`(u_1/\Delta n)^2 = u_1^2 \cdot
+    1_{\mathrm{wall}}/\Delta n^2` at the wall-adjacent cells (index 0
+    and -1 along ``axis`` — an index test). Following
+    ``diffusion._wall_correction``, the :math:`1/\Delta n^2` is folded
+    into a true-shape static weight array (cell widths are positive on
+    the primal centres) rather than divided in as a field: a
+    field-level ``/ measure`` would divide in the never-synced ghost
+    slots too, where the zero-weight numerator makes the reverse pass a
+    ``0/0`` NaN. The same weight feeds the stress drag
+    (``_wall_correction``), keeping the two consumers consistent.
+    """
+    grid = field.grid
+    space = field.function_space
+    bare = space.bare
+    ax = bare.names.index(axis)
+    ndim = len(bare.names)
+    indicator = jnp.zeros(space.shape)
+    for end in (0, -1):
+        where = tuple(end if a == ax else slice(None)
+                      for a in range(ndim))
+        indicator = modify_array(indicator, where, 1.0)
+    width = grid.measure(space, axis).data  # true-shape primal widths
+    return grid.create_field(space, data=indicator / (width * width))
+
+
 @partial(jaxify, dynamic=(
     "background_viscosity", "background_diffusivity",
     "turbulent_prandtl_number", "smagorinsky_constant",
@@ -175,6 +244,15 @@ class SmagorinskyLilly(ClosureBase):
     vertical : str, optional
         The vertical coordinate name, along which :math:`N^2` is
         evaluated (default: ``"z"``).
+    slip : str | Mapping[str, str], optional
+        Wall stress on the tangential velocity factors of a walled
+        grid: ``"free"`` (zero tangential wall stress — the structural
+        free-slip zero) or ``"no"`` (``u = 0`` at the wall via the
+        factor-of-2 ghost, the wall drag). A scalar applies to the
+        whole velocity trio; a name-keyed mapping (covering every
+        velocity) picks per component. The wall-normal component is
+        impermeability-fixed and ignores ``slip=``. Static — a change
+        recompiles (default: ``"free"``).
     fields : Role | type[Role] | str | Iterable[str] | None, optional
         Mixing-target override; see `fr.model.closures.ClosureBase`
         (default: None -> every ``fr.model.roles.TRACER`` field).
@@ -196,11 +274,13 @@ class SmagorinskyLilly(ClosureBase):
         buoyancy_multiplier: float | None = None,
         *,
         vertical: str = "z",
+        slip: str | Mapping[str, str] = FREE_SLIP,
         fields: Role | type[Role] | str | Iterable[str] | None = None,
         exclude: str | Iterable[str] = (),
     ) -> None:
         """Store the closure constants as dynamic leaves."""
         super().__init__(fields=fields, exclude=exclude)
+        self._slip = _coerce_slip(slip, type(self).__name__)
         self.background_viscosity = fr.model.leaf(background_viscosity)
         self.background_diffusivity = fr.model.leaf(background_diffusivity)
         self.turbulent_prandtl_number = fr.model.leaf(
@@ -212,7 +292,12 @@ class SmagorinskyLilly(ClosureBase):
         self._vertical = vertical
         self._vel_axes: tuple[tuple[str, str], ...] = ()
         self._target_axes: tuple[tuple[str, tuple[str, ...]], ...] = ()
-        self._filter_width: float = 0.0
+        # the bounded (walled) coordinate names, frozen at bind; empty
+        # on a fully periodic grid (the periodic path stays bit-for-bit)
+        self._walled: frozenset[str] = frozenset()
+        # per-velocity walled tangential axes the no-slip drag acts on
+        # (empty for the free-slip default -> the W1 path is unchanged)
+        self._no_slip_axes: dict[str, frozenset[str]] = {}
 
     # ================================================================
     #  Declarations
@@ -251,33 +336,26 @@ class SmagorinskyLilly(ClosureBase):
     )
 
     # ================================================================
-    #  Bind: velocity axes, mixing axes, filter width
+    #  Bind: velocity axes, walls, slip, mixing axes
     # ================================================================
     def bind(self, table: FieldTable) -> None:
-        r"""Resolve mixing targets (base), velocities, and the width.
+        r"""Resolve mixing targets (base), velocities, walls, and slip.
 
         Raises
         ------
         NotImplementedError
-            On a walled grid, on non-uniform mesh factors (no
-            constant filter width), or with transverse (slaved)
-            velocity components (no directional derivative).
+            On a walled finite-volume (``CellAvg``) grid, on an
+            unsupported wall placement (a fixed-value cell wall), or
+            with transverse (slaved) velocity components (no
+            directional derivative).
         AssemblyError
             If the vertical coordinate is not a velocity axis (the
-            :math:`N^2 = \partial_z b` read needs it).
+            :math:`N^2 = \partial_z b` read needs it), or a per-field
+            ``slip=`` mapping names an unknown velocity or fails to
+            cover the velocity trio.
         """
         super().bind(table)
         owner = type(self).__name__
-        factors = getattr(table.grid, "factors", ())
-        walled = tuple(
-            name for mesh in factors for name in mesh.names
-            if not getattr(mesh, "periodic", True))
-        if walled:
-            raise NotImplementedError(
-                f"{owner} does not support walled grids yet "
-                f"(bounded coordinates: {walled}); the strain and "
-                "stress stencils next to rigid walls are future "
-                "work — drop the closure on walled grids")
         selector = table.velocity()
         if selector.transverse:
             raise NotImplementedError(
@@ -300,20 +378,86 @@ class SmagorinskyLilly(ClosureBase):
                 f"{self._vertical!r} is not a velocity axis "
                 f"({axes}); pass vertical=<coordinate name> for "
                 "the N^2 = d(b)/dz read")
-        spacings = []
-        for mesh in factors:
-            dx = getattr(mesh, "dx", None)
-            if dx is None:
-                raise NotImplementedError(
-                    f"{owner} needs a uniform structured grid for "
-                    f"its constant filter width; the mesh factor "
-                    f"{mesh!r} has no uniform spacing")
-            spacings.append(float(dx))
-        volume = float(np.prod(spacings))
-        self._filter_width = volume ** (1.0 / len(spacings))
+        self._walled = self._classify_walls(table, owner)
+        self._no_slip_axes = self._resolve_no_slip_axes(owner)
         self._target_axes = tuple(
             (name, tuple(table[name].space.names))
             for name in self.targets)
+
+    def _resolve_no_slip_axes(
+        self, owner: str,
+    ) -> dict[str, frozenset[str]]:
+        r"""Freeze the walled tangential axes each velocity no-slips on.
+
+        The ``slip=`` choice applies per velocity to its walled
+        **tangential** axes (every walled axis other than the
+        velocity's own staggered axis, along which the wall-normal
+        component is impermeability-fixed and slip-independent). A
+        scalar applies to the whole trio; a per-field mapping must key
+        (and cover) the velocity names.
+
+        Raises
+        ------
+        AssemblyError
+            If a per-field ``slip=`` mapping names an unknown velocity
+            or fails to cover the velocity trio.
+        """
+        vel_names = tuple(name for name, _ in self._vel_axes)
+        if isinstance(self._slip, Mapping):
+            unknown = set(self._slip) - set(vel_names)
+            if unknown:
+                raise AssemblyError(
+                    f"{owner}: slip= names unknown velocity "
+                    f"{sorted(unknown)!r}; the velocities are "
+                    f"{list(vel_names)!r}")
+            missing = set(vel_names) - set(self._slip)
+            if missing:
+                raise AssemblyError(
+                    f"{owner}: slip= mapping must cover every velocity; "
+                    f"missing {sorted(missing)!r}")
+            by_vel = dict(self._slip)
+        else:
+            by_vel = dict.fromkeys(vel_names, self._slip)
+        return {
+            name: frozenset(a for a in self._walled if a != ax_own)
+            for name, ax_own in self._vel_axes
+            if by_vel[name] == NO_SLIP}
+
+    def _classify_walls(
+        self, table: FieldTable, owner: str,
+    ) -> frozenset[str]:
+        r"""Return the bounded coordinate names; validate placements.
+
+        Each factor the closure touches (the velocity trio, the
+        buoyancy ``b`` the :math:`N^2` read needs, and the mixing
+        targets) is classified with the diffusion ``_wall_treatment``
+        vocabulary: a periodic factor is skipped, a wall-normal
+        ``Inner[Dirichlet]`` face or a tangential / no-flux
+        ``Center`` cell marks a walled axis, and any other placement (a
+        fixed-value cell wall, a bare face) is rejected loudly. Walled
+        finite-volume (``CellAvg``) factors are a separate future-work
+        rejection — the free-slip strain retag is validated on the
+        nodal family only.
+        """
+        walled: set[str] = set()
+        touched = ({name for name, _ in self._vel_axes}
+                   | {"b"} | set(self.targets))
+        for name in touched:
+            space = table[name].space
+            for axis in space.names:
+                factor = space.bare.factor(axis)
+                if _wall_treatment(factor, owner, name, axis) == _PERIODIC:
+                    continue
+                if isinstance(factor, CellAvg):
+                    raise NotImplementedError(
+                        f"{owner} does not support walled "
+                        f"finite-volume (CellAvg) grids yet (target "
+                        f"{name!r} on the bounded axis {axis!r}); the "
+                        "free-slip strain retag ships on the nodal "
+                        "family only — assemble the model on the nodal "
+                        "C-grid, or drop the closure on walled FV grids")
+                walled.add(axis)
+        return frozenset(walled)
 
     # ================================================================
     #  Terms (stress always; mixing only with resolved targets)
@@ -341,12 +485,29 @@ class SmagorinskyLilly(ClosureBase):
     def _strain(
         self, state: object, i: int, j: int,
     ) -> ScalarField:
-        """One strain component on its natural C-grid position."""
+        r"""One strain component on its natural C-grid position.
+
+        The diagonal :math:`\Sigma_{aa} = \partial_a u_a` closes on the
+        wall-normal velocity's own ``Inner[Dirichlet]`` tag (or is
+        interior); the off-diagonal shear
+        :math:`\Sigma_{a,t} = \tfrac12(\partial_t u_a + \partial_a u_t)`
+        lands on the wall-normal edge, where each walled-axis factor of
+        both terms is retagged onto its ``Inner[Dirichlet]`` sibling —
+        the free-slip wall claim (the shear *is* zero there), which
+        makes the two terms share one space and hands the structural
+        zero to the :math:`|\Sigma|^2` and stress consumers.
+        """
         qi, ax_i = self._vel_axes[i]
         qj, ax_j = self._vel_axes[j]
         if i == j:
             return state[qi].diff(ax_i)
-        return 0.5 * (state[qi].diff(ax_j) + state[qj].diff(ax_i))
+        s_i = state[qi].diff(ax_j)
+        s_j = state[qj].diff(ax_i)
+        for ax in (ax_i, ax_j):
+            if ax in self._walled:
+                s_i = s_i.retag(_dirichlet_edge(s_i, ax))
+                s_j = s_j.retag(_dirichlet_edge(s_j, ax))
+        return 0.5 * (s_i + s_j)
 
     def _eddy_viscosity(
         self, state: object, ctx: StepContext,
@@ -372,9 +533,72 @@ class SmagorinskyLilly(ClosureBase):
             for j in range(i + 1, n):
                 s = self._strain(state, i, j)
                 sigma2 = sigma2 + 2.0 * (s * s).to(anchor)
-        n2 = state["b"].diff(self._vertical).to(anchor) + n2_bg
+        sigma2 = self._no_slip_sigma2(state, sigma2, anchor)
+        bz = state["b"].diff(self._vertical)
+        if self._vertical in self._walled:
+            # the tracer no-flux wall: the buoyancy gradient is zero at
+            # a rigid wall, so its interior Inner face retags onto the
+            # Dirichlet sibling and the interp to centers grounds
+            bz = bz.retag(_dirichlet_edge(bz, self._vertical))
+        n2 = bz.to(anchor) + n2_bg
         damped = _positive_part(sigma2 - beta * _positive_part(n2))
-        return (cs * self._filter_width) ** 2 * _guarded_sqrt(damped)
+        width = self._filter_width_field(anchor)
+        return (cs * width) ** 2 * _guarded_sqrt(damped)
+
+    def _filter_width_field(
+        self, anchor: ScalarField,
+    ) -> ScalarField | float:
+        r"""Return the per-cell filter width :math:`\Delta` at centers.
+
+        :math:`\Delta = (\prod_i \Delta x_i)^{1/n}`, the geometric mean
+        of the local cell widths read from ``grid.measure`` on the
+        centre space ``anchor`` lives on (no Scotti anisotropy factor,
+        matching Oceananigans / MOM6). On a uniform mesh every
+        ``measure`` is the constant ``dx``, so :math:`\Delta` is the
+        constant scalar the old closure used — bit-for-bit — while a
+        stretched mesh gets its true per-cell width. The multiply into
+        :math:`\nu_s` is pointwise (zero halo reach), so the grid-less
+        halo tracer takes a reach-neutral scalar ``1.0`` and the traced
+        stencil is unchanged.
+        """
+        grid = anchor.grid
+        if not hasattr(grid, "measure"):
+            return 1.0
+        space = anchor.function_space
+        axes = space.bare.names
+        volume = None
+        for axis in axes:
+            width = grid.measure(space, axis)
+            volume = width if volume is None else volume * width
+        return volume ** (1.0 / len(axes))
+
+    def _no_slip_sigma2(
+        self, state: object, sigma2: ScalarField, anchor: ScalarField,
+    ) -> ScalarField:
+        r"""Inject the no-slip wall shear into the wall-adjacent norm.
+
+        For each velocity :math:`u_t` no-slipping on a walled tangential
+        axis :math:`a`, the free-slip retag zeroed the wall-face shear
+        :math:`\Sigma_{a,t}^{\mathrm{wall}} = u_{t,1}/\Delta n`; the
+        eddy-viscosity norm at the wall-adjacent centre picks it back up
+        as :math:`(u_{t,1}/\Delta n)^2` (the off-diagonal factor 2 times
+        the wall-cell interpolation weight 1/2 cancel), interpolated to
+        the centre across :math:`u_t`'s own staggered axis. This is the
+        eddy-viscosity twin of the ``_wall_correction`` stress drag; the
+        two share the folded static :math:`1/\Delta n^2` weight, so the
+        wall viscosity and the wall drag stay consistent. A no-op with
+        no no-slip axes (free-slip default) and on the grid-less halo
+        tracer (the interp reach is already traced by the free-slip
+        off-diagonal term).
+        """
+        for qt, _ax_t in self._vel_axes:
+            ut = state[qt]
+            if not hasattr(ut.grid, "create_field"):
+                continue
+            for axis in self._no_slip_axes.get(qt, ()):
+                wall_sq = (ut * ut) * _wall_weight(ut, axis)
+                sigma2 = sigma2 + wall_sq.to(anchor)
+        return sigma2
 
     # ================================================================
     #  The tendency hooks
@@ -387,14 +611,32 @@ class SmagorinskyLilly(ClosureBase):
                 + ctx.params[SMAG_BACKGROUND_NU])
         n = len(self._vel_axes)
         out: dict[str, ScalarField] = {}
-        for i, (qi, _) in enumerate(self._vel_axes):
+        for i, (qi, ax_i) in enumerate(self._vel_axes):
             res = None
             for j in range(n):
                 _, ax_j = self._vel_axes[j]
                 s = self._strain(state, i, j)
+                # the off-diagonal flux already carries the free-slip
+                # Dirichlet tag on walled ax_j (from _strain), so the
+                # closing diff telescopes with the structural zero; the
+                # wall-normal diagonal (i == j) lands on the BC-free
+                # Inner face and retags back onto the component's own tag
                 divergence = (s * nu_t.to(s)).diff(ax_j)
+                if i == j and ax_i in self._walled:
+                    divergence = divergence.retag(state[qi])
                 res = (divergence if res is None
                        else res + divergence)
+            # no-slip wall drag on the wall-adjacent cells: -nu_t u_i /
+            # Delta n^2, the factor-of-2 ghost against the zero wall
+            # value (MITgcm side drag). nu_t.to(u_i) reads the eddy
+            # viscosity at the wall cell (even under the wall reflection,
+            # so it equals the wall-face value); k = nu_t/2 undoes
+            # _wall_correction's factor 2, matching tau = nu Sigma
+            qi_field = state[qi]
+            if hasattr(qi_field.grid, "create_field"):
+                for axis in self._no_slip_axes.get(qi, ()):
+                    res = res + _wall_correction(
+                        qi_field, 0.5 * nu_t.to(qi_field), axis)
             out[qi] = res
         return out
 
@@ -412,6 +654,10 @@ class SmagorinskyLilly(ClosureBase):
             for axis in axes:
                 gradient = q.diff(axis)
                 flux = gradient * kappa_t.to(gradient)
+                if axis in self._walled:
+                    # no-flux tracer wall: retag the interior flux onto
+                    # its Dirichlet sibling (structural zero wall flux)
+                    flux = flux.retag(_dirichlet_edge(flux, axis))
                 contribution = flux.diff(axis)
                 res = (contribution if res is None
                        else res + contribution)

@@ -230,11 +230,9 @@ def test_explicit_buoyancy_multiplier_wins():
 # ================================================================
 #  Taught assembly rejections
 # ================================================================
-def test_walled_grid_is_a_taught_rejection():
-    with pytest.raises(NotImplementedError, match="walled grids"):
-        make_model(grid=make_grid(periodic=False))
-
-
+# Free-slip / no-slip walled behaviour lives in the prefix shard
+# ``test_smagorinsky_lilly_walls.py`` (oversized-module rule); walled
+# grids are no longer a blanket rejection.
 def test_meridional_stratification_lacks_the_constant_n2():
     grid = make_grid()
     with pytest.raises(MissingParameterError,
@@ -269,22 +267,8 @@ def test_no_velocity_roles_is_a_taught_assembly_error():
         closure.bind(_plain_table())
 
 
-def test_non_uniform_mesh_factor_is_rejected():
-    grid = Grid((IntervalMesh(N, (0.0, LZ), periodic=True,
-                              name="z"),))
-    records = [FieldRecord.from_declaration(
-        FieldDeclaration.velocity("w", "z", space=fr.spatial.Staggered("z")),
-        owner=0, owner_type="Core", grid=grid)]
-    records.append(FieldRecord.from_declaration(
-        FieldDeclaration.tracer("b"), owner=0, owner_type="Core",
-        grid=grid))
-    # a duck grid whose mesh factor carries no uniform spacing
-    fake_grid = SimpleNamespace(factors=(
-        SimpleNamespace(names=("z",), periodic=True),))
-    closure = SmagorinskyLilly()
-    with pytest.raises(NotImplementedError,
-                       match="uniform structured grid"):
-        closure.bind(FieldTable(tuple(records), fake_grid))
+# Non-uniform (stretched) meshes are supported (per-cell filter width
+# from grid.measure); see test_smagorinsky_lilly_delta.py.
 
 
 # ================================================================
