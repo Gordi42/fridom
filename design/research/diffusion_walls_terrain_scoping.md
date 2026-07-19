@@ -280,10 +280,24 @@ singularity guard expected); ruff clean; patch coverage ≥95%.
 2. **Biharmonic no-slip pair.** Accept "same treatment both passes"
    (the iterated-form natural choice), or ship biharmonic walls
    free-slip-only first (MOM6 precedent)?
+   **Ratified (owner, 2026-07-19): same treatment both passes
+   stands, no-slip included.** With identical per-pass BCs the
+   iterated form is `L∘L` for one self-adjoint `L`, so
+   `⟨u, Bu⟩ = ⟨Lu, Lu⟩ ≥ 0` — dissipation guaranteed by
+   construction, no wall anti-damping; also the G&H/NEMO/MITgcm
+   practice, and pass 2 reuses pass 1's closure verbatim (one wall
+   story for Laplacian and biharmonic).
 3. **Terrain first deliverable.** Is along-coordinate (tilted)
    friction acceptable as stage 4 (accepted practice, honest docs),
    or must the first terrain closure be geopotential-correct
    (promotes stage 5)?
+   **Ratified (owner, 2026-07-19): along-σ stands as the first
+   terrain deliverable.** Along-coordinate viscosity is accepted
+   practice (ROMS default) and friction is the main terrain
+   consumer; the tracer hazard is documented, and per Marchesiello
+   rotating only the explicit operator would not cure spurious
+   diapycnal mixing anyway. Stage 5 (§3.6 A then C) stays the
+   recorded follow-up for a tracer-fidelity consumer.
 4. **Slip ownership long-term.** Keep slip a closure kwarg, or
    promote it to a per-wall grid/field declaration once a second
    wall-stress consumer exists (one source of truth across

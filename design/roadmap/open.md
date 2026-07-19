@@ -180,10 +180,6 @@ Open:
   with the flagged variable-kappa follow-up, `implicit.py`).
 - **Stage 5** — the geopotential-correct full-metric (then rotated)
   diffusion tensor; deferred, separate plan (record §3.6 A/C).
-- **Owner ratification** — `slip="free"` default **ratified
-  2026-07-19** (record §6 call 1). Still shipped-unreviewed:
-  biharmonic same-treatment-both-passes (incl. no-slip), along-σ as
-  the first terrain deliverable (record §6 calls 2–3).
 - **`grid.measure` pre-assembly ordering (lead)** — querying a
   mapped mesh's measure before `Model` assembly freezes the
   decomposition early; the stale cached measure then
