@@ -36,25 +36,6 @@ memory ceiling, time-to-first-step, WENO throughput (entries in
   on a 4-GPU allocation. New runs report the honest `compile_s`
   metric (chunk metric fixed 2026-07-18; entry in
   [`done.md`](done.md)).
-- **Hydro surface-flux correction — two owner decisions.** The
-  machinery, defaults, and validation are all shipped (entry in
-  [`done.md`](done.md); full record in
-  [`../plans/active/boundary_trace_plan.md`](../plans/active/boundary_trace_plan.md)
-  §9). What remains is two calls, both owner-gated GPU:
-  (a) *weno5 lowering A/B* — the biased `"embed"` default is
-  provisional: the 2026-07-19 remainders job raced parallel dev
-  merges in the shared checkout, leaving only one clean
-  same-commit pair (rf=28: embed +1.0% over scatter). Keep the
-  provisional default on that single pair, or authorize a clean
-  ~20-min re-run (pinned commit this time).
-  (b) *`surface_flux=False` opt-out cost* — the opt-out measures
-  SLOWER than the scatter default (default up to −16% at big
-  rungs) yet +48% over the dirty pre-H7 point (default: +24%);
-  linear rungs are bitwise-stable across every measurement, so
-  the delta is advective-path only. Either the pre-H7 baseline
-  is invalid or a real change entered `c669ec6f..565eaa51`.
-  One-rung bisect (small GPU job) or won't-chase (oc parity
-  0.92–1.04 holds either way).
 
 ## Channel eigenmodes on multi-device — remaining gaps
 
