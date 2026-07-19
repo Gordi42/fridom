@@ -231,10 +231,15 @@ PV no longer telescopes against a single wet-region area weight) and is
 Jacobson (2009) is the recorded escalation if exact boundary enstrophy
 is ever wanted. Mass is exact for any fractions. Every masked divide is
 double-``where`` sealed (SA-D4). When every neighbour is wet the scheme
-reduces to the flat scheme bitwise. This is the **flat** immersed path
-(``chart_coords is None``); ``mapped``/chart + immersed is a separate
-follow-up (not generalised here). The prescribed ``background=`` flow
-is a taught error on immersed grids (IP-D8, checked at bind).
+reduces to the flat scheme to <= 1 ulp (the momentum fraction ops fold
+mathematically but XLA contracts their stencil FMAs differently from
+the flat branch; the ``p`` tendency is bitwise). This is the **flat**
+immersed path (``chart_coords is None``); a grid carrying **both** a
+chart and an immersed domain is a **taught error** at bind (the chart
+advection path is unmasked — silent wrong physics), sw2 mapped+immersed
+being a recorded follow-up of the mapped+immersed composition plan. The
+prescribed ``background=`` flow is a taught error on immersed grids
+(IP-D8, checked at bind).
 """
 from __future__ import annotations
 
@@ -634,7 +639,9 @@ class SadournyAdvection(fr.model.Module):
         NotImplementedError
             If a background flow is prescribed on a chart grid (the
             background term's flux stencils are not generalized to
-            the metric path).
+            the metric path), or if the grid carries **both** an
+            embedding chart and an immersed domain (the chart advection
+            path is unmasked — silent wrong physics).
         """
         grid = table.grid
         if (self._background is not None
@@ -648,6 +655,20 @@ class SadournyAdvection(fr.model.Module):
                 "transport is designed-for). Run the immersed model "
                 "without a prescribed background flow.")
         chart = grid.chart_coords
+        if (chart is not None
+                and getattr(grid, "immersed", None) is not None):
+            raise NotImplementedError(
+                "SadournyAdvection does not support a grid carrying "
+                "BOTH an embedding chart and an immersed (cut-cell) "
+                "domain: the metric-aware chart advection path "
+                "(_advect_chart) is unmasked, so it would silently "
+                "ignore the immersed mask and advect across the wet-"
+                "region boundary (silent wrong physics — the fraction-"
+                "weighted _advect_immersed path is flat-only). sw2 "
+                "mapped+immersed is a recorded follow-up of the "
+                "mapped+immersed composition plan; until it lands, "
+                "drop the immersed domain or run on an unmapped (flat) "
+                "grid.")
         if chart is not None:
             expected = tuple(
                 name for name in grid.names if name in set(chart))

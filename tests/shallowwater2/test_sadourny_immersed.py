@@ -197,12 +197,22 @@ def test_staircase_tendency_matches_walled_model():
     pytest.param(False, id="walled-y"),
 ])
 def test_all_wet_tendency_matches_unimmersed(periodic_y):
-    # at alpha = 1 / theta = 1 the fraction weights are a mathematical
-    # no-op, so the immersed tendency matches the flat (unimmersed) one.
-    # Not exact array_equal: the mandated alpha-weighting reassociates
-    # floating point at alpha = 1 (a 1.0 multiply, a /1.0 divide, a
-    # product-field halo), so the two paths agree to ~1 ulp (~1e-16),
-    # far below any physical tolerance and the existing all-wet gate.
+    # At alpha = 1 / theta = 1 the fraction weights are a MATHEMATICAL
+    # no-op: an eager reconstruction of every Sadourny intermediate
+    # (fu/fv, the kinetic energy, the corner thickness, q, the assembled
+    # du) is exactly bitwise across the two grids (verified 2026-07-19).
+    # The residual is JIT-only and <= 1 ulp of the field scale (measured
+    # 1.0 ulp worst case over seeds x periodic/walled): the immersed
+    # branch's HLO carries the extra (identity-at-alpha=1) momentum
+    # fraction ops -- the weight_flux on fu/fv and the /theta divide in
+    # _wet_kinetic_energy -- and XLA contracts their stencil FMAs
+    # differently from the flat branch (the documented FMA-contraction
+    # class, core.py gravity docstring). The p tendency stays bitwise;
+    # only the momentum shifts. The site is IRREDUCIBLE (it is the
+    # mandated SA-D1/SA-D5 weighting); on walled it coincides in
+    # magnitude with the PRE-EXISTING (unchanged) _gravity_immersed
+    # artifact. Pinned to a few tens of ulp, NOT 1e-13.
+    tol_ulps = 32
     def meshes():
         return (IM(10, (0.0, TWO_PI), periodic=True, name="x"),
                 IM(10, (0.0, TWO_PI), periodic=periodic_y, name="y"))
@@ -218,9 +228,11 @@ def test_all_wet_tendency_matches_unimmersed(periodic_y):
     di = im.tendency(im.state)
     du = un.tendency(un.state)
     for k in ("u", "v", "p"):
-        diff = np.abs(np.asarray(di[k].data)
-                      - np.asarray(du[k].data)).max()
-        assert diff < 1e-13, (k, diff)
+        a = np.asarray(di[k].data)
+        b = np.asarray(du[k].data)
+        scale = max(float(np.abs(a).max()), float(np.abs(b).max()), 1.0)
+        diff = float(np.abs(a - b).max())
+        assert diff <= tol_ulps * np.spacing(scale), (k, diff, scale)
 
 
 # ================================================================
@@ -346,6 +358,27 @@ def test_immersed_grad_wrt_ic_is_finite_and_matches_fd():
     fd = (float(loss(p_leaf + eps * direction))
           - float(loss(p_leaf - eps * direction))) / (2.0 * eps)
     assert directional == pytest.approx(fd, rel=1e-4)
+
+
+# ================================================================
+#  Taught error: chart + immersed is unsupported (silent wrong physics)
+# ================================================================
+def test_chart_plus_immersed_is_a_taught_error():
+    # a grid carrying BOTH a chart and an immersed domain must be
+    # refused at bind: the metric chart advection path (_advect_chart)
+    # is unmasked, so it would silently ignore the immersed mask and
+    # advect across the wet-region boundary. sw2 mapped+immersed is a
+    # recorded follow-up of the mapped+immersed composition plan.
+    grid = fr.spatial.spherical.Grid(
+        (16, 8), radius=1.0, lat_extent=(-1.0, 1.0), device_ids=(0,))
+    grid = grid.with_immersed(
+        ImmersedDomain(lambda lon, lat: lon * 0.0 + 1.0))  # noqa: ARG005
+    with pytest.raises(NotImplementedError,
+                       match="BOTH an embedding chart"):
+        sw.Model(
+            grid=grid, coords=("lon", "lat"), csqr=0.7,
+            rossby_number=0.3, coriolis=None, advection=True,
+            time_stepper=fr.model.time_steppers.AdamBashforth(2e-3))
 
 
 # ================================================================
