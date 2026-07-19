@@ -224,16 +224,14 @@ def test_bind_resolves_velocity_and_tracer_targets():
     assert resolved == {"friction": ("u", "v"), "mixing": ("b",)}
 
 
-def test_bind_rejects_an_immersed_grid():
-    # the implicit column solve assumes uniform dz, so a partial bottom
-    # cell would silently solve the wrong operator: bind rejects an
-    # immersed grid outright with a taught error naming the plan §5
-    # variable-dz deferral, before any target resolution
-    table = FakeTable(tracer=("b",), grid=FakeGrid(immersed=object()))
-    with pytest.raises(
-            NotImplementedError,
-            match="immersed_closures_sadourny_plan"):
-        VerticalMixing(kb=0.1).bind(table)
+def test_bind_accepts_an_immersed_grid():
+    # the wet-aware variable-dz column (immersed_closures_sadourny_plan
+    # §5) lifted the old immersed reject: a static immersed grid now
+    # binds. The wet-content-conserving band behaviour is exercised in
+    # the mirrored shard test_vertical_mixing_immersed.py.
+    mixing = VerticalMixing(kb=0.1)
+    mixing.bind(FakeTable(tracer=("b",), grid=FakeGrid(immersed=object())))
+    assert mixing.tendency_terms()[0].implicit.fields == ("b",)
 
 
 # ================================================================
