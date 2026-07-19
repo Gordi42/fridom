@@ -433,13 +433,6 @@ V-cycle kernel swap it called for shipped 2026-07-18 (merge
 [`../research/multigrid_kernel_study.md`](../research/multigrid_kernel_study.md)
 §§Addendum, Addendum 2). Open, none blocking:
 
-- **Stretched-base eager hierarchy pre-warm** so stretched columns
-  take the GM-D9 full-coarsening default: build the coarse chain
-  host-side at solver construction so `Grid.coarsened`'s memo makes
-  the trace-time rebuild a memo hit, bypassing the
-  `MappedIntervalMesh`-ctor jit limit (the full-coarsening coarsest
-  level then replicates naturally). Owner-approved 2026-07-19; in
-  flight.
 - **`multi_device` markers for the semicoarsen parity victims** — the
   tests that caught the 07-18 regression (all green since `b57e3e78`)
   fail only at >= 2 devices, are unmarked, and single-device CI never

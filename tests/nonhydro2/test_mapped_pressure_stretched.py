@@ -100,14 +100,14 @@ def build_mg_grid(nx, nz, stretch_fn=stretch, init=depth):
 
 
 def iters_to_tol(precond, stretch_fn=stretch, *, budget, nx=16, nz=16,
-                 tol=1e-6):
+                 tol=1e-6, coarsen_vertical=True):
     """Return the PCG step count to ``tol`` (info['iterations'])."""
     grid, mx, ms = build_mg_grid(nx, nz, stretch_fn)
     space = cell_space(mx, ms)
     solver = MappedPressureSolver(
         grid, space, iterations=budget, tolerance=tol,
         weights={"sigma": 1.0 / DSQR}, preconditioner=precond,
-        multigrid_levels=5)
+        multigrid_levels=5, multigrid_coarsen_vertical=coarsen_vertical)
     rhs = grid.create_field(
         space,
         init=lambda x, sigma: jnp.exp(
@@ -243,24 +243,119 @@ def test_multigrid_on_a_stretched_column_builds_and_solves():
     assert float(jnp.abs(_computational_mean(p).data.ravel()[0])) < 1e-12
 
 
-def test_stretched_base_keeps_semicoarsening_under_the_default():
-    # GM-D9 graceful degradation: the full-coarsening default is ON
-    # (multigrid_coarsen_vertical=True) but a stretched base column is a
-    # MappedIntervalMesh whose coarse construction is host-validated and
-    # cannot run under the solve trace, so the column stays FULL while
-    # the horizontals coarsen — automatically, no error and no knob
+def test_stretched_base_takes_full_coarsening_under_the_default():
+    # the eager-prewarm follow-up (record §Residue 3, GM-D9): the
+    # full-coarsening default is ON (multigrid_coarsen_vertical=True) and
+    # a stretched base column now TAKES it. Its host-validated coarse
+    # MappedIntervalMesh ctor cannot run under the solve trace, but
+    # __init__ pre-warms Grid.coarsened's memo (under
+    # ensure_compile_time_eval) so the trace-time _build_vcycle rebuild is
+    # a memo hit and the sigma column halves alongside the horizontals.
     grid, mx, ms = build_mg_grid(16, 8)
     space = cell_space(mx, ms)
     solver = MappedPressureSolver(
         grid, space, iterations=5, weights={"sigma": 1.0 / DSQR},
         preconditioner="multigrid")
     assert solver._multigrid_coarsen_vertical is True  # default on
-    assert solver._stretched_base                      # but stretched
+    assert solver._stretched_base                      # and stretched
     vcycle = solver._build_vcycle({})
     shapes = [tuple(level.operator.func.__self__._space.shape)
               for level in vcycle.levels]
+    # x AND the stretched sigma column both halve to the four-cell floor
+    assert shapes == [(16, 8), (8, 4), (4, 4)]
+
+
+def test_stretched_semicoarsening_knob_still_keeps_the_vertical_full():
+    # the explicit opt-out survives the flip: multigrid_coarsen_vertical
+    # =False keeps the stretched sigma column full at every level (no
+    # prewarm needed, no error)
+    grid, mx, ms = build_mg_grid(16, 8)
+    space = cell_space(mx, ms)
+    solver = MappedPressureSolver(
+        grid, space, iterations=5, weights={"sigma": 1.0 / DSQR},
+        preconditioner="multigrid", multigrid_coarsen_vertical=False)
+    assert solver._stretched_base
+    shapes = [tuple(level.operator.func.__self__._space.shape)
+              for level in solver._build_vcycle({}).levels]
     # x halves 16 -> 8 -> 4; the sigma column stays 8 at every level
     assert shapes == [(16, 8), (8, 8), (4, 8)]
+
+
+def test_stretched_full_coarsening_solves_under_jit():
+    # the prewarm bridges the direct public path too: the whole solve
+    # (vcycle build included) is traced under jit, and the stretched
+    # full-coarsening V-cycle drives the residual below tolerance without
+    # the host-validated coarse ctor ever firing under the trace
+    grid, mx, ms = build_mg_grid(16, 16)
+    space = cell_space(mx, ms)
+    solver = MappedPressureSolver(
+        grid, space, iterations=40, tolerance=None,
+        weights={"sigma": 1.0 / DSQR}, preconditioner="multigrid",
+        multigrid_levels=5)
+    rhs = grid.random.normal(space, seed=11)
+    rhs = rhs - _computational_mean(rhs)
+    p = jax.jit(solver.solve)(rhs)
+    r0 = float(jnp.abs(rhs.data).max())
+    r_end = float(jnp.abs((solver.apply(p) - rhs).data).max())
+    assert r_end / r0 < 1e-8
+
+
+def test_stretched_full_and_semi_coarsening_agree_on_the_solution():
+    # the coarsening axis is a preconditioner choice, never physics: on a
+    # stretched column the full-coarsened and semicoarsened solves
+    # converge to the SAME mean-free pressure (record §3 parity). Both
+    # ride the SAME grid so a single rhs is valid for either.
+    grid, mx, ms = build_mg_grid(16, 16)
+    space = cell_space(mx, ms)
+    kw = {"iterations": 40, "tolerance": None,
+          "weights": {"sigma": 1.0 / DSQR}, "preconditioner": "multigrid",
+          "multigrid_levels": 5}
+    full = MappedPressureSolver(grid, space,
+                                multigrid_coarsen_vertical=True, **kw)
+    semi = MappedPressureSolver(grid, space,
+                                multigrid_coarsen_vertical=False, **kw)
+    rhs = grid.random.normal(space, seed=13)
+    rhs = rhs - _computational_mean(rhs)
+    p_full = jax.jit(full.solve)(rhs)
+    p_semi = jax.jit(semi.solve)(rhs)
+    scale = float(jnp.abs(p_semi.data).max())
+    assert float(jnp.abs((p_full - p_semi).data).max()) / scale < 1e-6
+
+
+def test_stretched_full_coarsening_iterations_no_worse_than_semi():
+    # gate: the stretched full-coarsening default reaches the tolerance in
+    # no more PCG iterations than the (previous) semicoarsening fallback
+    # (in fact fewer/equal — full coarsening never keeps the full n_z on
+    # the coarse levels), on the same combined stretch+terrain grid
+    full = iters_to_tol("multigrid", budget=40, coarsen_vertical=True)
+    semi = iters_to_tol("multigrid", budget=40, coarsen_vertical=False)
+    assert full < 40           # the V-cycle converged inside its budget
+    assert full <= semi        # full coarsening is no worse
+
+
+@pytest.mark.parametrize(
+    ("nz", "expected"),
+    [pytest.param(12, [(16, 12), (8, 6), (4, 6)], id="nz12"),
+     pytest.param(10, [(16, 10), (8, 5), (4, 5)], id="nz10")])
+def test_stretched_indivisible_nz_degrades_and_solves(nz, expected):
+    # the ladder still degrades on a STRETCHED column: an indivisible n_z
+    # stops the sigma coarsening at the floor/parity wall (12 -> 6 stops
+    # since 6 // 2 = 3 < 4; 10 -> 5 stops at the odd 5) while the
+    # horizontals keep halving. The prewarm warms only the buildable
+    # coarse grids, so the partially-coarsened stretched chain assembles
+    # and solves under jit without error
+    grid, mx, ms = build_mg_grid(16, nz)
+    space = cell_space(mx, ms)
+    solver = MappedPressureSolver(
+        grid, space, iterations=20, tolerance=None,
+        weights={"sigma": 1.0 / DSQR}, preconditioner="multigrid")
+    shapes = [tuple(level.operator.func.__self__._space.shape)
+              for level in solver._build_vcycle({}).levels]
+    assert shapes == expected
+    rhs = grid.random.normal(space, seed=17)
+    rhs = rhs - _computational_mean(rhs)
+    p = jax.jit(solver.solve)(rhs)
+    assert bool(jnp.all(jnp.isfinite(p.data)))
 
 
 def test_multigrid_vcycle_is_symmetric_on_a_stretched_column():
@@ -327,6 +422,20 @@ def test_multigrid_bands_stay_differentiable():
     assert abs(grad - fd) <= 1e-4 * abs(fd)
 
 
+# single_device: reverse-mode through the FULL-coarsening multigrid
+# solve (the GM-D9 default the stretched column now takes) hits a
+# pre-existing XLA SPMD backward-pass bug on >1 device — the coarsest
+# level replicates and the fine->coarse transfer VJP mis-shapes under
+# spmd-partitioning (HLO verifier: "Expected f64[6,1], actual
+# f64[4,1]"). It is not this change's doing (the transfer / coarsen_levels
+# code is untouched) nor the eager pre-warm's (host-warming the memo
+# fails identically): the shipped UNIFORM full-coarsening default shares
+# it, which is why the mapped multigrid battery carries only a FORWARD
+# multi-device parity check (test_forced4_multigrid_solve_matches_
+# single_device) and no multi-device grad. The differentiability
+# policy's regression is single-device; the forward path is
+# device-invariant (the forced-4 stretched battery is otherwise green).
+@pytest.mark.single_device
 def test_multigrid_solve_grad_matches_fd():
     # the end-to-end differentiability invariant (AGENTS.md) through the
     # multigrid-preconditioned solve: jax.grad of a quadratic loss w.r.t.

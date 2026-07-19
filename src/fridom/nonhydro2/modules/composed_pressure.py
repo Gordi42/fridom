@@ -258,6 +258,28 @@ class ComposedPressureSolver(MappedPressureSolver):
         self._wet_measure: jax.Array = jnp.sum(
             _computational_integral(self._wet).data)
 
+    @property
+    def _coarsen_vertical(self) -> bool:
+        """
+        Whether :meth:`_build_vcycle` coarsens the composed column too.
+
+        Description
+        -----------
+        Overrides the mapped decision to **keep** the semicoarsening
+        fallback on a stretched composed base: the eager coarse-mesh
+        pre-warm (:meth:`~MappedPressureSolver._prewarm_hierarchy`) that
+        lifts the ``MappedIntervalMesh``-ctor jit incompatibility warms
+        only the coarse *grids*, but the composed coarse level also
+        re-quadratures the immersed **fractions** on those coarse
+        spaces (MI-D3) — validating the wet-region fraction
+        re-derivation under a coarsened stretched column is a follow-up,
+        so a stretched composed base stays horizontally semicoarsened.
+        A uniform composed base still takes the full-coarsening default.
+        Since ``_prewarm_hierarchy`` reads this same decision, no
+        pre-warm fires for a composed solver (byte-identical to before).
+        """
+        return self._multigrid_coarsen_vertical and not self._stretched_base
+
     # ================================================================
     #  Cross-term corner chains (fraction inserted at the corner)
     # ================================================================
@@ -665,11 +687,9 @@ class ComposedPressureSolver(MappedPressureSolver):
                 "parameter fields through params= (moving geometry), "
                 "which the coarse re-derivation cannot re-bind — use "
                 "preconditioner='spectral' with a moving geometry")
-        coarsen_vertical = (self._multigrid_coarsen_vertical
-                            and not self._stretched_base)
         chain = coarsen_levels(
             self._grid, self._space, vertical=self._base,
-            coarsen_vertical=coarsen_vertical,
+            coarsen_vertical=self._coarsen_vertical,
             max_levels=self._multigrid_levels,
             rediscretize=(rediscretize_fv_coarse
                           if is_fv(self._space) else None))

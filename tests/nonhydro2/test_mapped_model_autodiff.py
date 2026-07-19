@@ -28,6 +28,7 @@ from fridom.model.model import _chunk_body
 from fridom.spatial.coordinate_mapping import CoordinateMapping
 from fridom.spatial.grid import Grid
 from fridom.spatial.meshes.interval import IntervalMesh
+from fridom.spatial.meshes.mapped_interval import MappedIntervalMesh
 
 TWO_PI = 2.0 * np.pi
 IM = IntervalMesh
@@ -115,6 +116,85 @@ def test_grad_wrt_initial_velocity_is_finite_and_matches_fd(family):
 
     grad = np.asarray(jax.grad(loss)(u_leaf))
     # a masked 0/0 in the Jacobian padding would NaN every entry
+    assert bool(np.all(np.isfinite(grad)))
+
+    rng = np.random.default_rng(1)
+    direction = jnp.asarray(rng.standard_normal(u_leaf.shape),
+                            dtype=u_leaf.dtype)
+    directional = float(jnp.vdot(jnp.asarray(grad), direction))
+    eps = 1e-4
+    fd = (float(loss(u_leaf + eps * direction))
+          - float(loss(u_leaf - eps * direction))) / (2.0 * eps)
+    assert directional == pytest.approx(fd, rel=1e-4)
+
+
+# ================================================================
+#  Stretched base + multigrid: the eager coarse-grid pre-warm path
+# ================================================================
+def _stretch(z):
+    """Monotone sigma clustering built from a jnp map (dS/dz > 0)."""
+    return z + 0.15 * jnp.sin(2.0 * np.pi * z) / (2.0 * np.pi)
+
+
+def stretched_multigrid_model(*, dt=0.02, pressure_iterations=12):
+    """Return a tiny STRETCHED terrain model on the multigrid solve.
+
+    The vertical is a stretched ``MappedIntervalMesh`` whose jnp map
+    means its coarse level's host-validated ctor cannot run under a
+    dynamic trace, combined with the ``zp = z H(x)`` terrain map. A
+    stretched base rejects the spectral preconditioner (N1), so the
+    multigrid V-cycle solves — taking the GM-D9 full-coarsening default
+    through the eager coarse-grid pre-warm
+    (:meth:`~fridom.nonhydro2.modules.mapped_pressure.MappedPressureSolver._prewarm_hierarchy`).
+    Building the model already exercises the model path: the assembly
+    dry-run abstract-traces the projection, so the pre-warm must have
+    warmed ``Grid.coarsened``'s memo (under ``ensure_compile_time_eval``)
+    or the coarse ctor would raise a ``TracerArrayConversionError`` under
+    that trace.
+    """
+    mx = IM(8, (0.0, TWO_PI), periodic=True, name="x")
+    my = IM(8, (0.0, TWO_PI), periodic=True, name="y")
+    mz = MappedIntervalMesh(8, (0.0, 1.0), _stretch, periodic=False,
+                            name="z")
+    mapping = CoordinateMapping(
+        maps={"zp": lambda z, H: z * H}, params={"H": _depth})
+    grid = Grid((mx, my, mz), mapping=mapping)
+    model = nh.Model(
+        grid=grid, dt=dt, advection=False, family="fv",
+        coriolis=nh.FPlaneCoriolis(f0=1.0),
+        pressure_preconditioner="multigrid",
+        pressure_iterations=pressure_iterations)
+    rng = np.random.default_rng(0)
+    model.set_fields(**{
+        k: 0.2 * rng.standard_normal(model.state[k].data.shape)
+        for k in ("u", "v", "w", "b")})
+    return model
+
+
+# single_device: reverse-mode through the FULL-coarsening multigrid
+# projection hits a pre-existing XLA SPMD backward-pass bug on >1 device
+# (the fine->replicated-coarse transfer VJP mis-shapes under
+# spmd-partitioning), shared with the shipped uniform GM-D9 default and
+# unrelated to this change (untouched transfer / coarsen_levels code) or
+# the eager pre-warm; the forward run is device-invariant. The
+# differentiability policy's regression is single-device.
+@pytest.mark.single_device
+def test_stretched_multigrid_grad_wrt_initial_velocity_matches_fd():
+    """Grad through the stretched full-coarsening multigrid projection.
+
+    The model-path regression for the eager coarse-grid pre-warm (record
+    §Residue 3): assembling the model already forces the projection's
+    dry-run trace to memo-hit the coarse hierarchy, and the reverse
+    gradient through a short run stays finite and matches a central FD —
+    the added coarse levels contribute only static geometry, no new
+    masked singularity beyond the ones the mapped/stretched guards
+    already seal.
+    """
+    model = stretched_multigrid_model()
+    u_leaf = model._carry.state["u"].storage
+    loss = leaf_loss(model, u_leaf, n_steps=3)
+
+    grad = np.asarray(jax.grad(loss)(u_leaf))
     assert bool(np.all(np.isfinite(grad)))
 
     rng = np.random.default_rng(1)

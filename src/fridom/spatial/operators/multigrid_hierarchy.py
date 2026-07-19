@@ -54,6 +54,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+import jax
+
 from fridom.spatial.meshes.structured_1d import StructuredMesh1D
 from fridom.spatial.operators.transfer import GridTransfer
 
@@ -330,3 +332,87 @@ def coarsen_levels(
         grid, space = coarse, coarse_space
     levels.append((grid, space, None))
     return levels
+
+
+# ================================================================
+#  Eager memo pre-warm (stretched full-coarsening, GM-D9 / N2-N3)
+# ================================================================
+def prewarm_coarse_grids(
+    fine_grid: Grid,
+    *,
+    vertical: str | None,
+    coarsen_vertical: bool = False,
+    max_levels: int | None = None,
+    agglomerate: int | None = None,
+) -> None:
+    r"""
+    Warm ``Grid.coarsened``'s memo for the full-coarsening chain.
+
+    Description
+    -----------
+    Walks the same ``Grid.coarsened`` sequence :func:`coarsen_levels`
+    walks (identical ``factors``, agglomeration peek, and
+    ``replicated`` flag, under the identical ``max_levels`` bound) —
+    but builds **only** the coarse grids, never the transfers or
+    spaces — and does so inside :func:`jax.ensure_compile_time_eval`.
+
+    The point is a **stretched base column** (a ``MappedIntervalMesh``
+    vertical, GM-D9 / N2-N3): its ``Grid.coarsened`` runs
+    ``MappedIntervalMesh.__init__`` -> ``_validate_mapping``, which
+    samples the coordinate map with ``numpy`` and so cannot run under
+    the solve's *dynamic* jit trace (the ``jnp`` map stages as a
+    tracer, and ``numpy.asarray`` on a tracer raises). Under
+    ``ensure_compile_time_eval`` that same construction is evaluated
+    **outside** the trace (the pure map folds to a concrete array), so
+    it builds host-concrete coarse grids regardless of whether this
+    runs eager (a direct solver build) or lexically inside a trace (the
+    per-step ``_project_mapped`` solver build, or a ``jax.grad`` /
+    ``jax.jit`` closure). The coarse grids are **memoized** on
+    ``Grid.coarsened`` (per factors / devices), so the later
+    hierarchy rebuild inside :func:`coarsen_levels` is a memo hit that
+    never re-enters ``MappedIntervalMesh.__init__`` — the stretched
+    column then takes the GM-D9 full-coarsening default like a uniform
+    column, its coarsest level replicating naturally.
+
+    Idempotent and structure-only: it mutates no arithmetic and adds
+    no differentiable operation (the coarse geometry is a static
+    constant), so it is invisible to reverse-mode through the solve.
+    A memo-warm call is a cheap walk of host-metadata dict lookups. On
+    a uniform (non-mapped) vertical the coarse construction already
+    runs under a dynamic trace, so callers need not pre-warm it — this
+    helper is the stretched-column bridge only.
+
+    Parameters
+    ----------
+    fine_grid : Grid
+        The finest level's grid (the memo owner, walked downward).
+    vertical : str | None
+        The vertical coordinate name, coarsened only when
+        ``coarsen_vertical`` is set; ``None`` designates no vertical.
+    coarsen_vertical : bool, optional
+        Whether the vertical coarsens under the same floor as the
+        horizontal axes (default: False).
+    max_levels : int | None, optional
+        ``None`` warms all the way to the floor; an ``int`` caps the
+        number of levels, matching :func:`coarsen_levels` (default:
+        None).
+    agglomerate : int | None, optional
+        The coarse-grid agglomeration threshold ``tau`` (MG-D10),
+        mirrored so the replicated coarse siblings warm under the same
+        memo keys the hierarchy rebuild reads; ``None`` disables it
+        (default: None).
+    """
+    grid = fine_grid
+    agglomerated = False
+    count = 1
+    with jax.ensure_compile_time_eval():
+        while max_levels is None or count < max_levels:
+            factors = _coarsenable_factors(
+                grid, vertical, coarsen_vertical=coarsen_vertical)
+            if not factors:
+                break
+            if agglomerate is not None and not agglomerated:
+                agglomerated = _should_agglomerate(
+                    grid.coarsened(factors), agglomerate)
+            grid = grid.coarsened(factors, replicated=agglomerated)
+            count += 1

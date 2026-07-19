@@ -157,6 +157,79 @@ by the agglomeration Phase 3 GPU sweep, which also capped the
 ranking-demotion variant's upside); 2 — **dropped** (sharding the
 line-smoother axis is nowhere a correctness problem since
 `b57e3e78`; a warning would fire on the deliberate negotiated
-default, and the parity battery is the drift net); 3 — approved, in
-flight; 4 — mechanics ruling pending. Tracker:
-`../roadmap/done.md` (rulings entry).*
+default, and the parity battery is the drift net); 3 — **shipped**
+2026-07-19 (merge `<MERGE_HASH>`, `perf/stretched-mg-prewarm`); 4 —
+mechanics ruling pending. Tracker: `../roadmap/done.md` (rulings entry
++ shipped entry).*
+
+## Follow-up 3 as shipped — mechanism note (awaits ratification)
+
+The eager pre-warm shipped, but its realization differs from the
+literal plan sketched in Residue 3 ("build the coarse chain host-side
+at solver construction / module setup"), because that plan has a
+timing hole this investigation surfaced: the assembly **dry-run**
+(`composer.dry_run`, a zero-arg `jax.eval_shape`) abstract-traces the
+pressure-projection stage — and therefore `_build_vcycle` — at
+assembly step 6b, *before* `grid.freeze()` (step 7). There is no
+per-module host-side hook that runs after the grid layout is final but
+before that dry-run trace: `bind` (step 4) is earlier still and
+precedes the pre-validation collapse (6a) that can change the device
+mesh, so a `bind`-time pre-warm risks memoizing a coarse grid at a
+device mesh the trace later disagrees with (the uniform full-coarsen
+path never had this — it builds its coarse siblings lazily *during*
+the dry-run, on the post-6a mesh).
+
+The shipped mechanism sidesteps the hole entirely:
+`MappedPressureSolver.__init__` calls `_prewarm_hierarchy`, which walks
+the `Grid.coarsened` chain inside `jax.ensure_compile_time_eval`
+(`spatial.operators.multigrid_hierarchy.prewarm_coarse_grids`). Under
+that context the pure coarse-mesh construction is evaluated **outside**
+the dynamic trace (the `jnp` map folds to a concrete array, so
+`_validate_mapping`'s `numpy.asarray` succeeds) even when `__init__`
+runs lexically *inside* the dry-run / run / `jax.grad` trace — so the
+memo warms at the **same** trace and grid state the `_build_vcycle`
+rebuild reads, with the identical staleness profile as the uniform
+path and no separate host-side hook. The failure only ever fires for a
+map built from `jnp` ops (a pure-`numpy` map like `s**1.5` already
+coarsens under a trace); the real `stretch` maps are `jnp`, so it is
+load-bearing. Owner ratification of this realization (vs. the literal
+host-side-setup hook) is the one open item on follow-up 3.
+
+### Discovered pre-existing limitation — full-coarsening grad on >1 device
+
+Surfaced while validating the forced-4 leg of this change: **reverse-mode
+through a *full-coarsening* multigrid solve fails on >= 2 devices** with
+an XLA HLO-verifier internal error (`Expected instruction to have shape
+equal to f64[6,1,...], actual shape is f64[4,1,...]`) in the
+spmd-partitioned **backward** pass — the fine->replicated-coarse
+transfer VJP mis-shapes when the vertical also coarsens (the coarsest
+level replicates and the shard/replicated boundary's cotangent
+partitions wrong). Characterised on forced-CPU-4:
+
+- semicoarsening grad (`multigrid_coarsen_vertical=False`): **passes**
+  (`-2.16e-2`) — the vertical stays full, no shard→replicated coarse
+  transition;
+- stretched full-coarsening grad: **fails** (the shape mismatch);
+- **uniform** full-coarsening grad (the shipped GM-D9 default,
+  `test_mapped_pressure_multigrid.py`'s terrain grid): **fails
+  identically** — so the bug is **pre-existing in the shipped uniform
+  default**, not introduced by the stretched flip;
+- it is **not** the eager pre-warm: uniform full-coarsening runs no
+  pre-warm and fails the same way, and host-warming the stretched memo
+  before `jax.grad` fails identically too.
+
+The **forward** full-coarsening solve is device-invariant on both
+uniform and stretched (the forced-4 stretched battery passes bar the
+grad test; the uniform battery's `test_forced4_multigrid_solve_matches_
+single_device` is forward-only). So this is an XLA:SPMD transfer-VJP
+partitioning bug of the same family as the already-filed ones
+(jax#39100 / #39291 / #39292), independent of fridom logic
+(`coarsen_levels` / `GridTransfer` were untouched by this change).
+Mitigation taken here: the two grad-through-the-full-coarsening-solve
+regressions (`test_multigrid_solve_grad_matches_fd`,
+`test_stretched_multigrid_grad_wrt_initial_velocity_matches_fd`) carry
+`@pytest.mark.single_device` (their intended domain per the
+differentiability policy), matching the uniform battery which never
+carried a multi-device grad test. Open for the owner: whether to file
+the XLA:SPMD grad bug upstream and/or add a multi-device grad guard once
+it is fixed.
