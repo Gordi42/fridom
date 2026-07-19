@@ -288,5 +288,7 @@ composed `test_stretched_composed_solve_grad_matches_fd`) are **removed**
 — they run on any device count now and are the multi-device grad guard,
 joined by a tight transfer-level regression
 (`test_forced4_grad_through_restrict_one_cell_per_shard`, which fails on
-pre-fix dev and passes here) and a forced-4 CI leg. Upstream filing of
-the XLA:SPMD bug is drafted but **not yet ruled on by the owner**.
+pre-fix dev and passes here) and a forced-4 CI leg. The XLA:SPMD bug
+is **filed upstream as jax#39301** (2026-07-19, owner-filed; the repro
+was first re-verified to fire identically on jax 0.11.0). Draft +
+repro: `artifacts/multigrid_transfer_grad_spmd/`.

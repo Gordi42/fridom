@@ -1,5 +1,7 @@
 # SPMD partitioner emits a malformed concatenate for reverse-mode through `jax.linear_transpose` of `jnp.roll` on a fully sharded axis
 
+*Filed 2026-07-19 as [jax#39301](https://github.com/jax-ml/jax/issues/39301). This file is the archived draft.*
+
 ## What happens
 
 I have a function that applies the linear transpose of a two neighbour periodic

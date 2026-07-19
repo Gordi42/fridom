@@ -399,26 +399,6 @@ promote one only when its trigger appears:*
   `decomposition/tensor.py`). No hot-loop consumer exists — the Neumann
   pressure sibling keeps the pressure-space shape. Revisit only if a
   Neumann-outer field enters a hot loop.
-## Multigrid preconditioner — follow-up measurements
-
-Every measurement and follow-up in this campaign is closed (entries
-in [`done.md`](done.md): kernel swap, depth floor, agglomeration null,
-2026-07-19 rulings, pre-warm, CI battery, the cured XLA:SPMD grad
-miscompile). One open item:
-
-- **File the XLA:SPMD transpose-of-roll miscompile upstream (owner
-  decision).** The in-tree cure landed (forward-primitive restrict
-  adjoint, entry in [`done.md`](done.md)), but the underlying jax/XLA
-  bug — reverse-mode through `jax.linear_transpose` of a
-  two-`jnp.roll` stencil on a 1-element-per-shard axis emits a
-  malformed concatenate — remains unfiled. It is a 20-line
-  CPU-reproducible pure-jax case (jax 0.10.2), and the
-  `with_sharding_constraint` near-workaround yields **silently wrong
-  gradients**, which makes it worth reporting for others' sake. Draft
-  in the owner's voice + repro:
-  [`../research/artifacts/multigrid_transfer_grad_spmd/`](../research/artifacts/multigrid_transfer_grad_spmd/).
-  Awaiting the owner's review of the draft and go/no-go.
-
 ## TangentPropagator — the D5 forward-mode surface
 
 *Small.* `jax.jvp` of `model.tendency` (spec

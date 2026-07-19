@@ -332,8 +332,13 @@ Implementation record:
   (mapped, stretched-model, composed grad tests) are removed and run any
   device count; new transfer-level regression
   `test_forced4_grad_through_restrict_one_cell_per_shard` (fails pre-fix)
-  plus a forced-4 CI leg guard it. Upstream filing drafted, owner ruling
-  pending. Record:
+  plus a forced-4 CI leg guard it. **Filed upstream as
+  [jax#39301](https://github.com/jax-ml/jax/issues/39301)**
+  (2026-07-19, owner-filed after the repro was re-verified to fire
+  identically on jax 0.11.0; draft + repro archived in
+  [`../research/artifacts/multigrid_transfer_grad_spmd/`](../research/artifacts/multigrid_transfer_grad_spmd/))
+  — the campaign's multigrid section in `open.md` is now empty and
+  removed. Record:
   [`semicoarsen_multidevice_regression.md`](../research/semicoarsen_multidevice_regression.md)
   (§"Pre-existing full-coarsening grad break ... root-caused and cured").
 
