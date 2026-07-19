@@ -1,0 +1,46 @@
+12:20:40: INFO: ################################################################################
+12:20:40: INFO: FRIDOM: Framework for Idealized Ocean Models
+12:20:40: INFO:  > Job starting on 2026.07.19 at 12:20:40 PM
+12:20:40: INFO:  > Running on 4 processes.
+12:20:40: INFO:  > Platform: gpu (4 device(s))
+12:20:40: INFO: ################################################################################
+12:20:40: INFO:                                                                                 
+12:20:40: INFO:                                                                                 
+12:20:40: INFO:                                                                                 
+process_count=4 device_count=4 local_devices=[CudaDevice(id=0)]
+config: steps=12 threshold=1e-08
+[rank0] build model N
+[rank0] leg N: theta-mass before
+[rank0] leg N: advance 12 steps
+[N] panicked: False
+[N] theta-mass drift under sharding: -2.824e-16 (before=0.000000000000e+00 after=-2.824346659325e-16)
+[rank0] leg N: gather finals
+[N]   max_abs_diff u: 6.384e-16 (shape (32, 32, 16))
+[N]   max_abs_diff v: 6.106e-16 (shape (32, 32, 16))
+[N]   max_abs_diff w: 5.117e-16 (shape (32, 32, 15))
+[N]   max_abs_diff b: 9.992e-16 (shape (32, 32, 16))
+[N] OVERALL srun max_abs_diff vs 1-GPU ref: 9.992e-16
+[rank0] build model H
+[rank0] leg H: theta-mass before
+[rank0] leg H: advance 12 steps
+[H] panicked: False
+[H] theta-mass drift under sharding: 0.000e+00 (before=-1.070649645329e-18 after=-1.070649645329e-18)
+[rank0] leg H: gather finals
+[H]   max_abs_diff u: 9.714e-17 (shape (64, 64, 16))
+[H]   max_abs_diff v: 9.368e-17 (shape (64, 64, 16))
+[H]   max_abs_diff ps: 8.327e-17 (shape (64, 64, 1))
+[H] OVERALL srun max_abs_diff vs 1-GPU ref: 9.714e-17
+OVERALL worst max_abs_diff (both legs): 9.992e-16
+PASS
+W0719 12:22:06.742015 1622423 pjrt_client.cc:1615] WatchTasksAsync failed for task 0: UNAVAILABLE: failed to connect to all addresses; last error: UNKNOWN: ipv4:127.0.0.1:30585: Failed to connect to remote host: Connection refused
+Additional GRPC error information from remote target coordination_service while calling /xla.coordination.CoordinationService/WatchTasks:
+:UNKNOWN:Error received from peer  {grpc_status:14, grpc_message:"failed to connect to all addresses; last error: UNKNOWN: ipv4:127.0.0.1:30585: Failed to connect to remote host: Connection refused"}
+W0719 12:22:06.742006 1622425 pjrt_client.cc:1615] WatchTasksAsync failed for task 1: UNAVAILABLE: failed to connect to all addresses; last error: UNKNOWN: ipv4:127.0.0.1:30585: Failed to connect to remote host: Connection refused
+Additional GRPC error information from remote target coordination_service while calling /xla.coordination.CoordinationService/WatchTasks:
+:UNKNOWN:Error received from peer  {grpc_status:14, grpc_message:"failed to connect to all addresses; last error: UNKNOWN: ipv4:127.0.0.1:30585: Failed to connect to remote host: Connection refused"}
+W0719 12:22:06.742128 1622424 pjrt_client.cc:1615] WatchTasksAsync failed for task 3: UNAVAILABLE: failed to connect to all addresses; last error: UNKNOWN: ipv4:127.0.0.1:30585: Failed to connect to remote host: Connection refused
+Additional GRPC error information from remote target coordination_service while calling /xla.coordination.CoordinationService/WatchTasks:
+:UNKNOWN:Error received from peer  {grpc_message:"failed to connect to all addresses; last error: UNKNOWN: ipv4:127.0.0.1:30585: Failed to connect to remote host: Connection refused", grpc_status:14}
+W0719 12:22:06.744596 1622422 pjrt_client.cc:1615] WatchTasksAsync failed for task 2: UNAVAILABLE: failed to connect to all addresses; last error: UNKNOWN: ipv4:127.0.0.1:30585: Failed to connect to remote host: Connection refused
+Additional GRPC error information from remote target coordination_service while calling /xla.coordination.CoordinationService/WatchTasks:
+:UNKNOWN:Error received from peer  {grpc_status:14, grpc_message:"failed to connect to all addresses; last error: UNKNOWN: ipv4:127.0.0.1:30585: Failed to connect to remote host: Connection refused"}

@@ -72,10 +72,11 @@ J-weighted `integrate` with `ps` lifted and `H/c²`-paired; the
    silent omission, not a documented convention.
 6. **nonhydro2 mapped** carries a *smaller* cousin leak (bare
    operator, divergence-free state: −6.5e-3 at a = 0.2,
-   CG-iteration-independent, nodal ≡ fv bitwise). Whether it is the
-   same class (its mapped buoyancy/w convention) or ordinary
-   interpolation-transpose truncation is **untested** (no n-scaling
-   run); its energy is bounded in time integration.
+   CG-iteration-independent, nodal ≡ fv bitwise); its energy is
+   bounded in time integration. **Resolved 2026-07-19: §5** — the
+   n-scaling probe shows first-order convergence (truncation, not a
+   convention error), and the buoyancy pair carries exactly zero
+   leak (the residual is projection-borne).
 
 ## 2. Interpretation
 
@@ -195,5 +196,47 @@ term feeds into `db/dt`; finite + central-FD-matched to rtol 1e-4).
 
 Corrects the stretched+terrain done-entry over-claim ("baroclinic
 energy legs machine-precision"): that held only for single-mode states.
-Remaining: the "w is Jω" **output labeling** (now the sole open bullet)
-and the nonhydro2 mapped cousin leak (§1.6, its own roadmap item).
+Both remainders are now closed: the "w is Jω" output labeling by the
+physical-`w` storage flip (`physical_state_components.md` ruling (b),
+merge `28a5ff3d`) and the nonhydro2 mapped cousin leak by the §5 probe.
+
+## 5. Cousin-leak probe outcome (2026-07-19)
+
+The §1.6 n-scaling probe ran on dev `8ed5be2a` (recipe: the §1.4
+fixed-resolved-broadband methodology; band-limited modes kx, kz <= 4,
+states made discretely divergence-free by the model's own Leray
+projection, tendencies evaluated through the model machinery — never
+`jacfwd`, which silently drops through the CG projection; probe script
+preserved in `artifacts/nh_energy_scaling/nh_energy_scaling.py`).
+Probe validity gates all passed: flat a = 0 is machine-zero
+(bilinear 9.7e-17 — metric + projection + tendency plumbing validated
+end to end), the recorded −6.5e-3 order of magnitude reproduces
+(quad −1.2e-3 at n = 16, −7.4e-3 at a = 0.4/n = 32), post-projection
+divergence <= 8e-10 at every n, the leak is bitwise CG-independent
+across a 6-order divergence range, and nodal ≡ fv bitwise (both
+matching the §1.6 signature).
+
+**Verdict: CONVERGING — ordinary discretization truncation; the
+convention audit is closed.** Physical-metric skew at a = 0.2,
+n = 16/32/64/128: bilinear 3.81e-3 / 2.86e-3 / 1.78e-3 / 1.00e-3
+(log2 orders 0.41 / 0.69 / 0.83, rising monotonically toward 1 — a
+first-order asymptote with a pre-asymptotic transient; the walled-z
+zero-flux divergence closure is 1st-order at the terrain rows).
+Contrast the hydrostatic pre-fix missing-term signature: resolution-
+independent (orders ~0). a-scaling at n = 32: 3.7e-4 / 2.9e-3 /
+1.9e-2 at a = 0.1/0.2/0.4 (~a^2.7-3, superlinear — the hydrostatic
+missing term was linear in a).
+
+**Mechanism (sharpens the §4 prediction).** The prediction — nonhydro2
+stores physical `w`, so `−N²·w` is the correct coupling — is confirmed
+and strengthened: the w↔b buoyancy pair is **exactly** skew on terrain
+(bilinear raw ≡ 0 to machine precision at every n and a, because the
+column Jacobian `J = H(x, y)` is z-independent, so the vertical
+staggering commutes with the J-weight bit-exactly). The *entire* leak
+lives in the **pressure projection**: the residual equals the
+physical-metric pressure-gradient pairing exactly, i.e. the Leray
+projector is orthogonal under the solver's SPD product, not under the
+physical (J-weighted) energy metric, leaving a first-order-converging
+residual skew on the velocity legs. No fix is warranted: the residual
+is a genuine discretization truncation that vanishes with resolution
+and (superlinearly) with slope.

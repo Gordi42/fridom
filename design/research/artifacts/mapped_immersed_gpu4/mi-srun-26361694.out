@@ -1,0 +1,247 @@
+[mi-srun 11:39:21] repo        : /work/uo0780/u301533/fridom/fridom-dev
+[mi-srun 11:39:21] artifacts   : /work/uo0780/u301533/fridom/fridom-dev/design/research/artifacts/mapped_immersed_gpu4
+[mi-srun 11:39:21] === leg A: gpu1 reference (--write-ref) ===
+jax.device_count() = 1; devices = [CudaDevice(id=0)]
+config: steps=12 write_ref=True
+=== Leg N: nonhydro2 composed (terrain chart + immersed cut)
+[N] state['u'] sharding: NamedSharding(mesh=Mesh('devices': 1, axis_types=(Auto,)), spec=P(None, None, None), memory_kind=device)
+[N] panicked after 12 steps: False
+[N] theta-mass: before=-3.160880826320e-16 after=-3.845665105806e-16 drift=-6.848e-17
+[N]   final u: shape=(32, 32, 16) max_abs=3.935906e-01
+[N]   final v: shape=(32, 32, 16) max_abs=3.493754e-01
+[N]   final w: shape=(32, 32, 15) max_abs=4.577800e-02
+[N]   final b: shape=(32, 32, 16) max_abs=5.011041e-01
+[N] saved reference .npy (refN) to /work/uo0780/u301533/fridom/fridom-dev/design/research/artifacts/mapped_immersed_gpu4
+[N] composed-multigrid PCG: iterations=12 residual_norm=4.828e-08
+=== Leg H: hydrostatic terrain + immersed (implicit free surf)
+[H] state['u'] sharding: NamedSharding(mesh=Mesh('devices': 1, axis_types=(Auto,)), spec=P(None, None, None), memory_kind=device)
+[H] panicked after 12 steps: False
+[H] theta-mass: before=-1.084308051604e-18 after=-1.084308051604e-18 drift=0.000e+00
+[H]   final u: shape=(64, 64, 16) max_abs=1.456784e-01
+[H]   final v: shape=(64, 64, 16) max_abs=4.300089e-02
+[H]   final ps: shape=(64, 64, 1) max_abs=2.070771e-01
+[H] saved reference .npy (refH) to /work/uo0780/u301533/fridom/fridom-dev/design/research/artifacts/mapped_immersed_gpu4
+[H] wet-masked spectral PCG: iterations=15 residual_norm=2.112e-11
+[mi-srun 11:41:25] leg A rc=0
+[mi-srun 11:41:25] === leg B: srun -n 4 (sharded invariance check) ===
+11:41:29: INFO: ################################################################################
+11:41:29: INFO: FRIDOM: Framework for Idealized Ocean Models
+11:41:29: INFO:  > Job starting on 2026.07.19 at 11:41:29 AM
+11:41:29: INFO:  > Running on 4 processes.
+11:41:29: INFO:  > Platform: gpu (4 device(s))
+11:41:29: INFO: ################################################################################
+11:41:29: INFO:                                                                                 
+11:41:29: INFO:                                                                                 
+11:41:29: INFO:                                                                                 
+process_count=4 device_count=4 local_devices=[CudaDevice(id=0)]
+config: steps=12 threshold=1e-08
+[rank0] build model N
+[rank0] leg N: theta-mass before
+[rank0] leg N: advance 12 steps
+Traceback (most recent call last):
+  File "/work/uo0780/u301533/fridom/fridom-dev/.venv/lib/python3.12/site-packages/jax/_src/array.py", line 1108, in _array_mlir_constant_handler
+Traceback (most recent call last):
+  File "/work/uo0780/u301533/fridom/fridom-dev/.venv/lib/python3.12/site-packages/jax/_src/array.py", line 1108, in _array_mlir_constant_handler
+Traceback (most recent call last):
+  File "/work/uo0780/u301533/fridom/fridom-dev/.venv/lib/python3.12/site-packages/jax/_src/array.py", line 1108, in _array_mlir_constant_handler
+Traceback (most recent call last):
+  File "/work/uo0780/u301533/fridom/fridom-dev/.venv/lib/python3.12/site-packages/jax/_src/array.py", line 1108, in _array_mlir_constant_handler
+    return mlir.ir_constant(val._value)
+    return mlir.ir_constant(val._value)
+    return mlir.ir_constant(val._value)
+                            ^^^^^^^^^^
+                            ^^^^^^^^^^
+                            ^^^^^^^^^^
+  File "/work/uo0780/u301533/fridom/fridom-dev/.venv/lib/python3.12/site-packages/jax/_src/profiler.py", line 420, in wrapper
+  File "/work/uo0780/u301533/fridom/fridom-dev/.venv/lib/python3.12/site-packages/jax/_src/profiler.py", line 420, in wrapper
+  File "/work/uo0780/u301533/fridom/fridom-dev/.venv/lib/python3.12/site-packages/jax/_src/profiler.py", line 420, in wrapper
+    return mlir.ir_constant(val._value)
+                            ^^^^^^^^^^
+  File "/work/uo0780/u301533/fridom/fridom-dev/.venv/lib/python3.12/site-packages/jax/_src/profiler.py", line 420, in wrapper
+    return func(*args, **kwargs)
+    return func(*args, **kwargs)
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/work/uo0780/u301533/fridom/fridom-dev/.venv/lib/python3.12/site-packages/jax/_src/array.py", line 634, in _value
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/work/uo0780/u301533/fridom/fridom-dev/.venv/lib/python3.12/site-packages/jax/_src/array.py", line 634, in _value
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/work/uo0780/u301533/fridom/fridom-dev/.venv/lib/python3.12/site-packages/jax/_src/array.py", line 634, in _value
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/work/uo0780/u301533/fridom/fridom-dev/.venv/lib/python3.12/site-packages/jax/_src/array.py", line 634, in _value
+    raise RuntimeError(
+    raise RuntimeError(
+RuntimeError: Fetching value for `jax.Array` that spans non-addressable (non process local) devices is not possible. You can use `jax.experimental.multihost_utils.process_allgather` to print the global array or use `.addressable_shards` method of jax.Array to inspect the addressable (process local) shards.
+
+The above exception was the direct cause of the following exception:
+
+RuntimeError: Fetching value for `jax.Array` that spans non-addressable (non process local) devices is not possible. You can use `jax.experimental.multihost_utils.process_allgather` to print the global array or use `.addressable_shards` method of jax.Array to inspect the addressable (process local) shards.
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/work/uo0780/u301533/fridom/fridom-dev/design/research/artifacts/mapped_immersed_gpu4/srun_mapped_immersed.py", line 141, in <module>
+Traceback (most recent call last):
+  File "/work/uo0780/u301533/fridom/fridom-dev/design/research/artifacts/mapped_immersed_gpu4/srun_mapped_immersed.py", line 141, in <module>
+    raise RuntimeError(
+RuntimeError: Fetching value for `jax.Array` that spans non-addressable (non process local) devices is not possible. You can use `jax.experimental.multihost_utils.process_allgather` to print the global array or use `.addressable_shards` method of jax.Array to inspect the addressable (process local) shards.
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/work/uo0780/u301533/fridom/fridom-dev/design/research/artifacts/mapped_immersed_gpu4/srun_mapped_immersed.py", line 141, in <module>
+    raise RuntimeError(
+RuntimeError: Fetching value for `jax.Array` that spans non-addressable (non process local) devices is not possible. You can use `jax.experimental.multihost_utils.process_allgather` to print the global array or use `.addressable_shards` method of jax.Array to inspect the addressable (process local) shards.
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/work/uo0780/u301533/fridom/fridom-dev/design/research/artifacts/mapped_immersed_gpu4/srun_mapped_immersed.py", line 141, in <module>
+    main()
+    main()
+    main()
+  File "/work/uo0780/u301533/fridom/fridom-dev/design/research/artifacts/mapped_immersed_gpu4/srun_mapped_immersed.py", line 124, in main
+  File "/work/uo0780/u301533/fridom/fridom-dev/design/research/artifacts/mapped_immersed_gpu4/srun_mapped_immersed.py", line 124, in main
+  File "/work/uo0780/u301533/fridom/fridom-dev/design/research/artifacts/mapped_immersed_gpu4/srun_mapped_immersed.py", line 124, in main
+    main()
+  File "/work/uo0780/u301533/fridom/fridom-dev/design/research/artifacts/mapped_immersed_gpu4/srun_mapped_immersed.py", line 124, in main
+    diff_n, _drift_n = _run_leg(
+                       ^^^^^^^^^
+    diff_n, _drift_n = _run_leg(
+  File "/work/uo0780/u301533/fridom/fridom-dev/design/research/artifacts/mapped_immersed_gpu4/srun_mapped_immersed.py", line 81, in _run_leg
+                       ^^^^^^^^^
+  File "/work/uo0780/u301533/fridom/fridom-dev/design/research/artifacts/mapped_immersed_gpu4/srun_mapped_immersed.py", line 81, in _run_leg
+    diff_n, _drift_n = _run_leg(
+                       ^^^^^^^^^
+  File "/work/uo0780/u301533/fridom/fridom-dev/design/research/artifacts/mapped_immersed_gpu4/srun_mapped_immersed.py", line 81, in _run_leg
+    model.advance(steps)
+  File "/work/uo0780/u301533/fridom/fridom-dev/src/fridom/model/model.py", line 2370, in advance
+    model.advance(steps)
+    diff_n, _drift_n = _run_leg(
+                       ^^^^^^^^^
+  File "/work/uo0780/u301533/fridom/fridom-dev/design/research/artifacts/mapped_immersed_gpu4/srun_mapped_immersed.py", line 81, in _run_leg
+  File "/work/uo0780/u301533/fridom/fridom-dev/src/fridom/model/model.py", line 2370, in advance
+    model.advance(steps)
+  File "/work/uo0780/u301533/fridom/fridom-dev/src/fridom/model/model.py", line 2370, in advance
+    model.advance(steps)
+  File "/work/uo0780/u301533/fridom/fridom-dev/src/fridom/model/model.py", line 2370, in advance
+    carry = step_chunk(
+            ^^^^^^^^^^^
+  File "/work/uo0780/u301533/fridom/fridom-dev/src/fridom/model/model.py", line 1014, in step_chunk
+    carry = step_chunk(
+            ^^^^^^^^^^^
+    compiled = _compile_chunk(record, carry, stepper, n)
+  File "/work/uo0780/u301533/fridom/fridom-dev/src/fridom/model/model.py", line 1014, in step_chunk
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/work/uo0780/u301533/fridom/fridom-dev/src/fridom/model/model.py", line 836, in _compile_chunk
+    carry = step_chunk(
+    carry = step_chunk(
+            ^^^^^^^^^^^
+            ^^^^^^^^^^^
+  File "/work/uo0780/u301533/fridom/fridom-dev/src/fridom/model/model.py", line 1014, in step_chunk
+  File "/work/uo0780/u301533/fridom/fridom-dev/src/fridom/model/model.py", line 1014, in step_chunk
+    compiled = _compile_chunk(record, carry, stepper, n)
+    return _lower_chunk(
+           ^^^^^^^^^^^^^
+  File "/work/uo0780/u301533/fridom/fridom-dev/src/fridom/model/model.py", line 811, in _lower_chunk
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/work/uo0780/u301533/fridom/fridom-dev/src/fridom/model/model.py", line 836, in _compile_chunk
+    compiled = _compile_chunk(record, carry, stepper, n)
+    compiled = _compile_chunk(record, carry, stepper, n)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/work/uo0780/u301533/fridom/fridom-dev/src/fridom/model/model.py", line 836, in _compile_chunk
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/work/uo0780/u301533/fridom/fridom-dev/src/fridom/model/model.py", line 836, in _compile_chunk
+    return jitted.lower(record, n, carry, stepper, force_unroll)
+    return _lower_chunk(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/work/uo0780/u301533/fridom/fridom-dev/.venv/lib/python3.12/site-packages/jax/_src/array.py", line 1113, in _array_mlir_constant_handler
+           ^^^^^^^^^^^^^
+  File "/work/uo0780/u301533/fridom/fridom-dev/src/fridom/model/model.py", line 811, in _lower_chunk
+    return _lower_chunk(
+           ^^^^^^^^^^^^^
+  File "/work/uo0780/u301533/fridom/fridom-dev/src/fridom/model/model.py", line 811, in _lower_chunk
+    return _lower_chunk(
+           ^^^^^^^^^^^^^
+  File "/work/uo0780/u301533/fridom/fridom-dev/src/fridom/model/model.py", line 811, in _lower_chunk
+    return jitted.lower(record, n, carry, stepper, force_unroll)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/work/uo0780/u301533/fridom/fridom-dev/.venv/lib/python3.12/site-packages/jax/_src/array.py", line 1113, in _array_mlir_constant_handler
+    return jitted.lower(record, n, carry, stepper, force_unroll)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/work/uo0780/u301533/fridom/fridom-dev/.venv/lib/python3.12/site-packages/jax/_src/array.py", line 1113, in _array_mlir_constant_handler
+    return jitted.lower(record, n, carry, stepper, force_unroll)
+    raise RuntimeError(
+    raise RuntimeError(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/work/uo0780/u301533/fridom/fridom-dev/.venv/lib/python3.12/site-packages/jax/_src/array.py", line 1113, in _array_mlir_constant_handler
+RuntimeError: Closing over jax.Array that spans non-addressable (non process local) devices is not allowed. Please pass such arrays as arguments to the function. Got jax.Array: float64[52,36,20]
+--------------------
+For simplicity, JAX has removed its internal frames from the traceback of the following exception. Set JAX_TRACEBACK_FILTERING=off to include these.
+RuntimeError: Closing over jax.Array that spans non-addressable (non process local) devices is not allowed. Please pass such arrays as arguments to the function. Got jax.Array: float64[52,36,20]
+--------------------
+For simplicity, JAX has removed its internal frames from the traceback of the following exception. Set JAX_TRACEBACK_FILTERING=off to include these.
+    raise RuntimeError(
+RuntimeError: Closing over jax.Array that spans non-addressable (non process local) devices is not allowed. Please pass such arrays as arguments to the function. Got jax.Array: float64[52,36,20]
+--------------------
+For simplicity, JAX has removed its internal frames from the traceback of the following exception. Set JAX_TRACEBACK_FILTERING=off to include these.
+    raise RuntimeError(
+RuntimeError: Closing over jax.Array that spans non-addressable (non process local) devices is not allowed. Please pass such arrays as arguments to the function. Got jax.Array: float64[52,36,20]
+--------------------
+For simplicity, JAX has removed its internal frames from the traceback of the following exception. Set JAX_TRACEBACK_FILTERING=off to include these.
+W0719 11:41:42.503287 2512557 pjrt_client.cc:1615] WatchTasksAsync failed for task 3: UNAVAILABLE: failed to connect to all addresses; last error: UNKNOWN: ipv4:127.0.0.1:30194: Failed to connect to remote host: Connection refused
+Additional GRPC error information from remote target coordination_service while calling /xla.coordination.CoordinationService/WatchTasks:
+:UNKNOWN:Error received from peer  {grpc_status:14, grpc_message:"failed to connect to all addresses; last error: UNKNOWN: ipv4:127.0.0.1:30194: Failed to connect to remote host: Connection refused"}
+W0719 11:41:42.503344 2512556 pjrt_client.cc:1615] WatchTasksAsync failed for task 1: UNAVAILABLE: failed to connect to all addresses; last error: UNKNOWN: ipv4:127.0.0.1:30194: Failed to connect to remote host: Connection refused
+Additional GRPC error information from remote target coordination_service while calling /xla.coordination.CoordinationService/WatchTasks:
+:UNKNOWN:Error received from peer  {grpc_status:14, grpc_message:"failed to connect to all addresses; last error: UNKNOWN: ipv4:127.0.0.1:30194: Failed to connect to remote host: Connection refused"}
+W0719 11:41:42.503418 2512555 pjrt_client.cc:1615] WatchTasksAsync failed for task 0: UNAVAILABLE: failed to connect to all addresses; last error: UNKNOWN: ipv4:127.0.0.1:30194: Failed to connect to remote host: Connection refused
+Additional GRPC error information from remote target coordination_service while calling /xla.coordination.CoordinationService/WatchTasks:
+:UNKNOWN:Error received from peer  {grpc_message:"failed to connect to all addresses; last error: UNKNOWN: ipv4:127.0.0.1:30194: Failed to connect to remote host: Connection refused", grpc_status:14}
+W0719 11:41:42.505272 2512554 pjrt_client.cc:1615] WatchTasksAsync failed for task 2: UNAVAILABLE: failed to connect to all addresses; last error: UNKNOWN: ipv4:127.0.0.1:30194: Failed to connect to remote host: Connection refused
+Additional GRPC error information from remote target coordination_service while calling /xla.coordination.CoordinationService/WatchTasks:
+:UNKNOWN:Error received from peer  {grpc_status:14, grpc_message:"failed to connect to all addresses; last error: UNKNOWN: ipv4:127.0.0.1:30194: Failed to connect to remote host: Connection refused"}
+srun: error: l50169: tasks 0,2: Exited with exit code 1
+srun: Terminating StepId=26361694.0
+slurmstepd: error: *** STEP 26361694.0 ON l50169 CANCELLED AT 2026-07-19T11:41:43 ***
+srun: error: l50169: task 3: Exited with exit code 1
+srun: error: l50169: task 1: Exited with exit code 1
+[mi-srun 11:41:43] leg B rc=1
+[mi-srun 11:41:43] RESULT: RED — leg B failed, timed out, or did not print PASS
+[mi-srun 11:41:43] leg A log   : /work/uo0780/u301533/fridom/fridom-dev/design/research/artifacts/mapped_immersed_gpu4/legA_1gpu.txt
+[mi-srun 11:41:43] leg B log   : /work/uo0780/u301533/fridom/fridom-dev/design/research/artifacts/mapped_immersed_gpu4/legB_srun4.txt
+[mi-srun 11:41:43] result      : /work/uo0780/u301533/fridom/fridom-dev/design/research/artifacts/mapped_immersed_gpu4/RESULT.txt
+
+********************************************************************************
+*                                                                              *
+*  This is the automated job summary provided by DKRZ.                         *
+*  If you encounter problems, need assistance or have any suggestion, please   *
+*  write an email to                                                           *
+*                                                                              *
+*  --  support@dkrz.de --                                                      *
+*                                                                              *
+*                       We hope you enjoyed the DKRZ supercomputer LEVANTE ... *
+*
+* JobID            : 26361694
+* JobName          : fridom-mi-srun                                    
+* Account          : uo0780_gpu
+* User             : u301533 (100698), u300 (32013)                    
+* Partition        : gpu
+* QOS              : normal
+* Nodelist         : l50169 (1)                                                
+* Submit date      : 2026-07-19T11:39:16
+* Start time       : 2026-07-19T11:39:17
+* End time         : 2026-07-19T11:41:43
+* Elapsed time     : 00:02:26 (Timelimit=00:45:00)                     
+* Command          : /work/uo0780/u301533/fridom/fridom-dev/design/research/
+*                    artifacts/mapped_immersed_gpu4/mapped_immersed_check.sbatch
+* WorkDir          : /work/uo0780/u301533/fridom/fridom-dev
+*
+* StepID | JobName      NodeHours    MaxRSS [Byte] (@task)
+* ------------------------------------------------------------------------------
+* 0      | python           0.005             2816560K (0)
+* batch  | batch            0.041
+* extern | extern           0.041                3752K (0)
+* ------------------------------------------------------------------------------
+

@@ -386,3 +386,85 @@ precedent — the column-equivalence gate rides the J≡1 chart limit
 the algebraic gates (all-wet ≡ pure terrain byte-identical, GB-1 wet
 cancellation, masked continuity machine zero, θ-mass) on genuine cut
 charts.
+
+**Follow-ups closed 2026-07-19** (owner-directed sweep; sbatch for the
+srun leg explicitly authorized in chat; only sw2 mapped+immersed
+remains open — scoped entry in `design/roadmap/open.md`):
+
+1. **Correction 3 lifted — wet-aware barotropic multigrid SHIPPED**
+   (merge `580b9013`). The recorded premise was stale: `Grid.coarsened`
+   already propagates the immersed descriptor, so each coarse V-cycle
+   level re-instantiates `BarotropicPressureSolver` on a grid that
+   still carries the cut-cell domain and re-quadratures
+   `H̃_a = ∫ α_a J dz` on its own chart — the composed-pressure MI-D3
+   recipe, no new coarsening machinery; the taught error is simply
+   removed. The deferral was NOT free at scale: on steep-shelf cut
+   charts the masked spectral grows 103→165 iters (ε=0) / 76→155
+   (ε=1) over n=64→512 and at the shipped default budget
+   (`pressure_iterations=30`) silently leaves a 1–2% relative
+   residual; the wet-aware V-cycle is h- and steepness-flat at 11–23
+   iters, machine-zero residual, and an all-wet cut chart runs the
+   V-cycle byte-identically to the pure-terrain multigrid (the coarse
+   levels keep the grid-agnostic plain-mean gauge; the outer CG
+   carries the exact wet-column-mean gauge). Forced-4 invariant;
+   autodiff FD-matched. Documented limitation: an interior island
+   under the ε=1 mass term shows mild h-growth (13→31→58 at
+   n=128→512) — the coarsest levels turn mass-dominated and the
+   island's low-frequency mode is under-corrected (inherent to
+   geometric MG; a depth cap makes it worse). The default stays
+   masked spectral either way; multigrid is opt-in.
+2. **Open flag (c) CLOSED — real `srun -n 4` GREEN at machine
+   precision** (harness merged `fd317226`,
+   `design/research/artifacts/mapped_immersed_gpu4/`; jobs 26361694
+   RED → 26362085 GREEN). Composed nonhydro2 (terrain chart + genuine
+   cut, 48×32×16, default composed multigrid, 12 steps): worst
+   component max-abs vs the 1-GPU reference 9.99e-16 (u/v/w/b),
+   θ-mass drift under sharding −2.8e-16. Hydrostatic M5 (64²×16,
+   implicit free surface, masked spectral): worst 9.71e-17 (u/v/ps),
+   drift exactly 0.0. The first flight caught a REAL multi-process
+   bug invisible to every single-controller gate including forced-4:
+   `ImmersedDomain`'s per-space concrete geometry caches (fraction /
+   mask / centroid_offset) are stored globally sharded
+   (`store` → `device_put` with a global `NamedSharding`) and the
+   step jit closes over them as constants — illegal for arrays
+   spanning non-addressable devices (`jax` raises at lower time;
+   flat immersed leaked identically, so this covered EVERY immersed
+   run under real multi-process, not just the composition). Fix
+   (merge `22a609ee`): `_closeable` replicates a concrete cache
+   entry across processes (`is_fully_addressable` early-return makes
+   single-controller launches byte-identical — verified bitwise;
+   tracers pass through, so step VJPs are untouched). Permanent
+   guard: `tests/spatial/test_immersed_domain_multiprocess.py`
+   (2-process CPU `jax.distributed`, modeled on the writer harness)
+   fails pre-fix, passes post-fix — the forced-4 blind spot is now
+   permanently closed for this class.
+3. **Seam verdict SHARPENED (supersedes the "ambiguous" wording
+   above): the genuine-chart (J≠1) physical column-equivalence twin
+   is well-posed and constructible, but boundary-order-limited — no
+   test shipped, by design.** With the surface pinned flat, the wet
+   sub-column of chart A (`zp = z·H`, cut at ζ(x)) is exactly the
+   single-parameter chart B (`zp = z·D`, `D = −ζ`) — no
+   affine-offset map needed. The twin runs on shipped machinery and
+   confirms the composition converges to the body-fitted solution:
+   θJ-weighted tracer moments converge at clean 2nd order
+   (1.97–2.05 over three doublings, solver-independent) — but the
+   velocity moments converge at a genuine, noisy ~1st order set by
+   the min-rule face aperture (`hFacW = min(hFacC)`: the bottom-most
+   open face is physically fully wet but carries the cut cell's θ —
+   the documented MITgcm partial-cell topography order, shared by
+   the hydrostatic wet-column depth). A max-over-functionals gate
+   would read "2nd order" only because tracer magnitudes dominate —
+   certifying the wrong thing — and a velocity-inclusive gate is
+   non-monotonic at reachable n. The J≡1-limit column-equivalence
+   gate plus the algebraic gates on genuine cut charts remain the
+   certification. Full tables + mechanism + probe:
+   `design/research/genuine_chart_column_twin.md`.
+4. **sw2 mapped+immersed: scoped, stays deferred** (recommendation
+   pending owner ratification; scoped entry in `open.md`). The
+   scoping found a latent hole this plan's records had missed: only
+   `SadournyAdvection.bind` carried the chart+immersed taught error,
+   so a *linear* sw2 model (`advection=False`) on a composed grid
+   built and ran with the chart gravity/continuity path silently
+   ignoring the mask. Closed by mirroring the taught error into
+   `DynamicalCore.bind` (merge `24eb7649`) — any sw2 model on a
+   composed grid is now refused at bind.

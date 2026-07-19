@@ -53,6 +53,22 @@ def _flat_bottom(x, y, z):  # noqa: ARG001
     return (z > -0.5).astype(float)
 
 
+def _staircase(x, y, z):
+    """Return a face-aligned staircase bottom (theta in {0, 1}).
+
+    The cut lands exactly on z-cell faces (k*dz on the standard interval
+    mesh), so every wet cell is fully wet: the fraction is {0, 1} and the
+    wet-centroid offset delta is 0 (to floating point). The bottom steps
+    across three face levels in x and y, so the mask composition stays
+    genuinely 3-D. Used by the identity-chart equivalence gate, where the
+    partial-bottom p_hyd correction must be a no-op on both the flat and
+    the chart path (see the test's comment).
+    """
+    bottom = (-0.5 + 0.125 * (x >= 0.5).astype(float)
+              + 0.125 * (y >= 0.5).astype(float))
+    return (z > bottom).astype(float)
+
+
 def _allwet(x, y, z):  # noqa: ARG001
     return x * 0.0 + 1.0
 
@@ -268,13 +284,26 @@ def test_all_wet_chart_matches_pure_terrain():
 #  Identity chart (a=0, J==1) + mask == flat immersed (tight)
 # ================================================================
 def test_identity_chart_mask_matches_flat_immersed():
+    # The gate runs on a STAIRCASE bottom (cuts on cell faces, every wet
+    # cell fully wet: theta in {0, 1}, wet-centroid offset delta == 0). A
+    # genuine (non-face-aligned) bottom cut is now INTENTIONALLY off
+    # between the two paths: since the partial-bottom p_hyd merge the
+    # flat immersed path applies a well-balanced partial-bottom pressure
+    # correction (delta > 0), while the terrain-chart path defers it
+    # (the recorded PB-D3 deferral,
+    # design/plans/active/partial_bottom_phyd_plan.md). On a staircase
+    # delta == 0 (to floating point), so the correction's magnitude is at
+    # roundoff (~1e-17) and the strong equivalence holds to machine
+    # precision. (test_partial_bottom_asymmetry_is_real exercises the
+    # intended divergence on a genuine, non-face-aligned cut.)
     def flat_immersed():
         return Grid(
             (IM(8, (0.0, 1.0), periodic=True, name="x"),
              IM(8, (0.0, 1.0), periodic=True, name="y"),
              IM(8, (-1.0, 0.0), periodic=False, name="z")),
-            immersed=ImmersedDomain(_cut, order=4, min_fraction=0.1))
-    ch = _model(_grid(a=0.0), hy.ImplicitFreeSurface(pressure_iterations=40))
+            immersed=ImmersedDomain(_staircase, order=4, min_fraction=0.1))
+    ch = _model(_grid(a=0.0, init=_staircase),
+                hy.ImplicitFreeSurface(pressure_iterations=40))
     fl = _model(flat_immersed(),
                 hy.ImplicitFreeSurface(pressure_iterations=40))
     rng = np.random.default_rng(3)
@@ -288,6 +317,27 @@ def test_identity_chart_mask_matches_flat_immersed():
         diff = np.abs(np.asarray(ch.state[k].data)
                       - np.asarray(fl.state[k].data)).max()
         assert diff < 1e-13, (k, diff)
+
+
+def test_partial_bottom_asymmetry_is_real():
+    # The identity-chart / flat-immersed divergence on a genuine
+    # (non-face-aligned) bottom cut is intentional, not a bug: the flat
+    # immersed path activates the well-balanced partial-bottom p_hyd
+    # correction (delta > 0), the terrain-chart path defers it (PB-D3,
+    # design/plans/active/partial_bottom_phyd_plan.md). The clean witness
+    # is HydrostaticCore._pb_active, resolved once at bind from the
+    # wet-centroid offsets.
+    def flat_immersed():
+        return Grid(
+            (IM(8, (0.0, 1.0), periodic=True, name="x"),
+             IM(8, (0.0, 1.0), periodic=True, name="y"),
+             IM(8, (-1.0, 0.0), periodic=False, name="z")),
+            immersed=ImmersedDomain(_cut, order=4, min_fraction=0.1))
+    ch = _model(_grid(a=0.0), hy.ImplicitFreeSurface(pressure_iterations=40))
+    fl = _model(flat_immersed(),
+                hy.ImplicitFreeSurface(pressure_iterations=40))
+    assert ch.module(hy.HydrostaticCore)._pb_active is False
+    assert fl.module(hy.HydrostaticCore)._pb_active is True
 
 
 # ================================================================

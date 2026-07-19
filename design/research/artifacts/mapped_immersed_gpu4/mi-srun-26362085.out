@@ -1,0 +1,110 @@
+[mi-srun 12:19:31] repo        : /work/uo0780/u301533/fridom/fridom-dev
+[mi-srun 12:19:31] artifacts   : /work/uo0780/u301533/fridom/fridom-dev/design/research/artifacts/mapped_immersed_gpu4
+[mi-srun 12:19:31] === leg A: gpu1 reference (--write-ref) ===
+jax.device_count() = 1; devices = [CudaDevice(id=0)]
+config: steps=12 write_ref=True
+=== Leg N: nonhydro2 composed (terrain chart + immersed cut)
+[N] state['u'] sharding: NamedSharding(mesh=Mesh('devices': 1, axis_types=(Auto,)), spec=P(None, None, None), memory_kind=device)
+[N] panicked after 12 steps: False
+[N] theta-mass: before=-3.160880826320e-16 after=-3.845665105806e-16 drift=-6.848e-17
+[N]   final u: shape=(32, 32, 16) max_abs=3.935906e-01
+[N]   final v: shape=(32, 32, 16) max_abs=3.493754e-01
+[N]   final w: shape=(32, 32, 15) max_abs=4.577800e-02
+[N]   final b: shape=(32, 32, 16) max_abs=5.011041e-01
+[N] saved reference .npy (refN) to /work/uo0780/u301533/fridom/fridom-dev/design/research/artifacts/mapped_immersed_gpu4
+[N] composed-multigrid PCG: iterations=12 residual_norm=4.828e-08
+=== Leg H: hydrostatic terrain + immersed (implicit free surf)
+[H] state['u'] sharding: NamedSharding(mesh=Mesh('devices': 1, axis_types=(Auto,)), spec=P(None, None, None), memory_kind=device)
+[H] panicked after 12 steps: False
+[H] theta-mass: before=-1.084308051604e-18 after=-1.084308051604e-18 drift=0.000e+00
+[H]   final u: shape=(64, 64, 16) max_abs=1.456784e-01
+[H]   final v: shape=(64, 64, 16) max_abs=4.300089e-02
+[H]   final ps: shape=(64, 64, 1) max_abs=2.070771e-01
+[H] saved reference .npy (refH) to /work/uo0780/u301533/fridom/fridom-dev/design/research/artifacts/mapped_immersed_gpu4
+[H] wet-masked spectral PCG: iterations=15 residual_norm=2.112e-11
+[mi-srun 12:20:34] leg A rc=0
+[mi-srun 12:20:34] === leg B: srun -n 4 (sharded invariance check) ===
+12:20:40: INFO: ################################################################################
+12:20:40: INFO: FRIDOM: Framework for Idealized Ocean Models
+12:20:40: INFO:  > Job starting on 2026.07.19 at 12:20:40 PM
+12:20:40: INFO:  > Running on 4 processes.
+12:20:40: INFO:  > Platform: gpu (4 device(s))
+12:20:40: INFO: ################################################################################
+12:20:40: INFO:                                                                                 
+12:20:40: INFO:                                                                                 
+12:20:40: INFO:                                                                                 
+process_count=4 device_count=4 local_devices=[CudaDevice(id=0)]
+config: steps=12 threshold=1e-08
+[rank0] build model N
+[rank0] leg N: theta-mass before
+[rank0] leg N: advance 12 steps
+[N] panicked: False
+[N] theta-mass drift under sharding: -2.824e-16 (before=0.000000000000e+00 after=-2.824346659325e-16)
+[rank0] leg N: gather finals
+[N]   max_abs_diff u: 6.384e-16 (shape (32, 32, 16))
+[N]   max_abs_diff v: 6.106e-16 (shape (32, 32, 16))
+[N]   max_abs_diff w: 5.117e-16 (shape (32, 32, 15))
+[N]   max_abs_diff b: 9.992e-16 (shape (32, 32, 16))
+[N] OVERALL srun max_abs_diff vs 1-GPU ref: 9.992e-16
+[rank0] build model H
+[rank0] leg H: theta-mass before
+[rank0] leg H: advance 12 steps
+[H] panicked: False
+[H] theta-mass drift under sharding: 0.000e+00 (before=-1.070649645329e-18 after=-1.070649645329e-18)
+[rank0] leg H: gather finals
+[H]   max_abs_diff u: 9.714e-17 (shape (64, 64, 16))
+[H]   max_abs_diff v: 9.368e-17 (shape (64, 64, 16))
+[H]   max_abs_diff ps: 8.327e-17 (shape (64, 64, 1))
+[H] OVERALL srun max_abs_diff vs 1-GPU ref: 9.714e-17
+OVERALL worst max_abs_diff (both legs): 9.992e-16
+PASS
+W0719 12:22:06.742015 1622423 pjrt_client.cc:1615] WatchTasksAsync failed for task 0: UNAVAILABLE: failed to connect to all addresses; last error: UNKNOWN: ipv4:127.0.0.1:30585: Failed to connect to remote host: Connection refused
+Additional GRPC error information from remote target coordination_service while calling /xla.coordination.CoordinationService/WatchTasks:
+:UNKNOWN:Error received from peer  {grpc_status:14, grpc_message:"failed to connect to all addresses; last error: UNKNOWN: ipv4:127.0.0.1:30585: Failed to connect to remote host: Connection refused"}
+W0719 12:22:06.742006 1622425 pjrt_client.cc:1615] WatchTasksAsync failed for task 1: UNAVAILABLE: failed to connect to all addresses; last error: UNKNOWN: ipv4:127.0.0.1:30585: Failed to connect to remote host: Connection refused
+Additional GRPC error information from remote target coordination_service while calling /xla.coordination.CoordinationService/WatchTasks:
+:UNKNOWN:Error received from peer  {grpc_status:14, grpc_message:"failed to connect to all addresses; last error: UNKNOWN: ipv4:127.0.0.1:30585: Failed to connect to remote host: Connection refused"}
+W0719 12:22:06.742128 1622424 pjrt_client.cc:1615] WatchTasksAsync failed for task 3: UNAVAILABLE: failed to connect to all addresses; last error: UNKNOWN: ipv4:127.0.0.1:30585: Failed to connect to remote host: Connection refused
+Additional GRPC error information from remote target coordination_service while calling /xla.coordination.CoordinationService/WatchTasks:
+:UNKNOWN:Error received from peer  {grpc_message:"failed to connect to all addresses; last error: UNKNOWN: ipv4:127.0.0.1:30585: Failed to connect to remote host: Connection refused", grpc_status:14}
+W0719 12:22:06.744596 1622422 pjrt_client.cc:1615] WatchTasksAsync failed for task 2: UNAVAILABLE: failed to connect to all addresses; last error: UNKNOWN: ipv4:127.0.0.1:30585: Failed to connect to remote host: Connection refused
+Additional GRPC error information from remote target coordination_service while calling /xla.coordination.CoordinationService/WatchTasks:
+:UNKNOWN:Error received from peer  {grpc_status:14, grpc_message:"failed to connect to all addresses; last error: UNKNOWN: ipv4:127.0.0.1:30585: Failed to connect to remote host: Connection refused"}
+[mi-srun 12:22:08] leg B rc=0
+[mi-srun 12:22:08] RESULT: GREEN — sharded run matches the 1-GPU reference
+[mi-srun 12:22:08] leg A log   : /work/uo0780/u301533/fridom/fridom-dev/design/research/artifacts/mapped_immersed_gpu4/legA_1gpu.txt
+[mi-srun 12:22:08] leg B log   : /work/uo0780/u301533/fridom/fridom-dev/design/research/artifacts/mapped_immersed_gpu4/legB_srun4.txt
+[mi-srun 12:22:08] result      : /work/uo0780/u301533/fridom/fridom-dev/design/research/artifacts/mapped_immersed_gpu4/RESULT.txt
+
+********************************************************************************
+*                                                                              *
+*  This is the automated job summary provided by DKRZ.                         *
+*  If you encounter problems, need assistance or have any suggestion, please   *
+*  write an email to                                                           *
+*                                                                              *
+*  --  support@dkrz.de --                                                      *
+*                                                                              *
+*                       We hope you enjoyed the DKRZ supercomputer LEVANTE ... *
+*
+* JobID            : 26362085
+* JobName          : fridom-mi-srun                                    
+* Account          : uo0780_gpu
+* User             : u301533 (100698), u300 (32013)                    
+* Partition        : gpu
+* QOS              : normal
+* Nodelist         : l50148 (1)                                                
+* Submit date      : 2026-07-19T12:19:16
+* Start time       : 2026-07-19T12:19:28
+* End time         : 2026-07-19T12:22:08
+* Elapsed time     : 00:02:40 (Timelimit=00:45:00)                     
+* Command          : /work/uo0780/u301533/fridom/fridom-dev/design/research/
+*                    artifacts/mapped_immersed_gpu4/mapped_immersed_check.sbatch
+* WorkDir          : /work/uo0780/u301533/fridom/fridom-dev
+*
+* StepID | JobName      NodeHours    MaxRSS [Byte] (@task)
+* ------------------------------------------------------------------------------
+* 0      | python           0.026             4577888K (1)
+* batch  | batch            0.044
+* extern | extern           0.044                3752K (0)
+* ------------------------------------------------------------------------------
+

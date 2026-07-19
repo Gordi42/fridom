@@ -224,3 +224,26 @@ sits under the existing `x/y` extra halo.
   `_pb_active` gate in `pressure_gradient`.
 - `tests/spatial/test_immersed_domain_centroid.py` (P0, 12 tests).
 - `tests/hydrostatic/test_core_partial_bottom.py` (P1 gates, 10 tests).
+
+**Addendum 2026-07-19 (follow-up sweep).** The hydrostatic
+identity-chart ≡ flat-immersed free-surface gate
+(`test_identity_chart_mask_matches_flat_immersed`) was silently broken
+by this merge — bisect-confirmed `01052ee0` pass → `0ddec821` fail
+(0.66% in u). Mechanism: on a genuine bottom cut the flat path now
+carries the well-balanced correction while the chart path is the PB-D3
+deferral (`_derive_pb_active` short-circuits on `column is not None`),
+so the two paths differ by exactly the correction — an intentional
+accuracy asymmetry that invalidated the gate's geometry premise. The
+miss slipped the mirrored-test policy because the gate lives in
+`test_free_surface_terrain_immersed.py`, which mirrors none of this
+merge's edited sources. Repair (merge `1e5359dd`): the gate now runs on
+a face-aligned 3-D staircase (δ ≡ 0 to machine precision on both
+sides; equivalence restored at 4.4e-16, and the genuine-cut control
+still fails at 6.6e-3 — the geometry change is what restores the pass),
+plus a companion test pinning the intended asymmetry through
+`_pb_active` (True flat / False chart on a genuine cut). Latent
+fragility noted, not fixed: `_derive_pb_active`'s `> 0.0` predicate can
+trip on an ~1e-17 XLA reduction-order residue in an all-wet layer
+(`_centroid_cells`' identical-expression exact-zero does not survive
+fusion for every layer) — harmless, since the correction magnitude
+stays ∝δ ≈ roundoff; tighten only if it ever bites.

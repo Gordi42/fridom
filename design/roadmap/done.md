@@ -96,6 +96,23 @@ Implementation record:
 
 ## Landed since, outside the numbered tasks
 
+- **nonhydro2 mapped energy leak — diagnosed benign, audit closed**
+  (2026-07-19, probe-only; outcome recorded in
+  [`../research/energy_metric_asymmetry.md`](../research/energy_metric_asymmetry.md)
+  §5, prediction in
+  [`../decisions/physical_state_components.md`](../decisions/physical_state_components.md)
+  §4): the −6.5e-3 physical-metric leak of the bare mapped nonhydro2
+  operator **converges at first order** (bilinear skew 3.8e-3 /
+  2.9e-3 / 1.8e-3 / 1.0e-3 at n = 16/32/64/128, orders rising 0.41 →
+  0.83 toward 1; ~a³ in slope amplitude) — ordinary discretization
+  truncation, not a convention error. Sharper: the w↔b buoyancy pair
+  is **exactly** skew on terrain (z-independent column Jacobian
+  commutes with the vertical staggering bit-exactly); the entire
+  residual is projection-borne (the Leray projector is orthogonal
+  under the solver's SPD product, not the physical metric). Flat
+  probe machine-zero; CG-independent bitwise; nodal ≡ fv bitwise. No
+  fix warranted; nothing remains open.
+
 - **Time-dependent-field follow-ups: state-sourced energy metric +
   `FieldBlend` unification** (2026-07-19, rulings TDF-D10/D11, merges
   `2d222425` + `27790fdf`). TDF-D10: a time-dependent field weight in
@@ -1084,6 +1101,52 @@ Implementation record:
   [`open.md`](open.md). Record +
   per-stage corrections:
   [`../plans/active/immersed_partial_cells_plan.md`](../plans/active/immersed_partial_cells_plan.md).
+- **Mapped + immersed composition — follow-ups closed** (2026-07-19,
+  merges `24eb7649` sw2 linear guard, `fd317226` harness, `22a609ee`
+  multi-process closure fix, `580b9013` wet-aware multigrid,
+  `1e5359dd` staircase gate; only sw2 mapped+immersed remains open):
+  (1) **Wet-aware terrain barotropic multigrid shipped** — the
+  correction-3 premise was stale (`Grid.coarsened` already propagates
+  the immersed descriptor, so coarse levels re-quadrature the
+  wet-column face depths on their own charts, the MI-D3 recipe; the
+  taught error is removed, no new machinery). The deferral was not
+  free: steep-shelf masked spectral grows 76→155 iters (n=64→512)
+  and silently leaves 1–2% relative residual at the default budget
+  30, while the wet-aware V-cycle stays flat at 11–23, machine-zero,
+  all-wet ≡ pure-terrain byte-identical; documented limitation:
+  interior islands under the ε=1 mass term (coarse levels turn
+  mass-dominated, 13→31→58 iters) — the default stays masked
+  spectral. (2) **Real `srun -n 4` GREEN at machine precision**
+  (jobs 26361694 RED → 26362085 GREEN,
+  `../research/artifacts/mapped_immersed_gpu4/`): composed nonhydro2
+  worst component 9.99e-16, hydrostatic M5 worst 9.71e-17, θ-mass
+  drift −2.8e-16 / 0.0 under sharding. First flight caught a real
+  bug invisible to every single-controller gate (forced-4 included):
+  `ImmersedDomain`'s concrete fraction/mask/centroid caches are
+  globally sharded and the step jit closes over them — illegal
+  across non-addressable devices (flat immersed leaked too). Fixed
+  by replicating concrete cache entries (`is_fully_addressable`
+  early-return keeps single-controller byte-identical) + a permanent
+  2-process CPU regression test
+  (`tests/spatial/test_immersed_domain_multiprocess.py`). (3)
+  **Genuine-chart column twin: record only** — the twin is
+  well-posed (B = wet sub-chart `z·D`, `D = −ζ`) and confirms
+  convergence to the body-fitted solution, but tracer moments
+  converge 2nd order while velocities converge at a genuine
+  solver-independent ~1st order set by the min-rule face aperture
+  (the documented MITgcm partial-cell order) — no clean 2nd-order
+  full-field gate exists; the J≡1-limit + algebraic gates remain the
+  certification (`../research/genuine_chart_column_twin.md`). (4)
+  **sw2 scoped, stays deferred** (entry in [`open.md`](open.md));
+  the scoping found and closed a latent hole — `DynamicalCore.bind`
+  had no chart+immersed guard, so a *linear* sw2 model silently
+  ignored the mask (taught error mirrored in). (5) The
+  identity-chart ≡ flat-immersed gate, silently broken by the
+  partial-bottom correction asymmetry (PB-D3), moved to a
+  face-aligned staircase (4.4e-16; genuine-cut control 6.6e-3) + a
+  companion test pinning the asymmetry via `_pb_active`. Records:
+  [`../plans/active/mapped_immersed_composition_plan.md`](../plans/active/mapped_immersed_composition_plan.md)
+  §6 addendum.
 - **Partial-bottom-cell hydrostatic pressure gradient** (2026-07-19,
   merge `0ddec821`; commits `e9e302f7` PB-D1, `0f09f070` PB-D2) —
   the third immersed residual closed: the Pacanowski–Gnanadesikan
@@ -1151,8 +1214,10 @@ Implementation record:
   immersed models); hydrostatic wet-column terrain barotropic solve
   + masked contravariant continuity (column equivalence 7e-16,
   all-wet byte-identical, θ-mass drift exactly 0.0). `order=None`
-  chart masks and split-explicit/multigrid-on-terrain+immersed are
-  taught errors. Follow-ups in [`open.md`](open.md). Plan +
+  chart masks and split-explicit-on-terrain+immersed are taught
+  errors (the multigrid-on-terrain+immersed taught error was lifted
+  2026-07-19 — see the follow-ups-closed entry above). Follow-ups in
+  [`open.md`](open.md). Plan +
   decisions + per-stage records:
   [`../plans/active/mapped_immersed_composition_plan.md`](../plans/active/mapped_immersed_composition_plan.md).
 - **Biased/upwind/WENO advection on immersed grids** (2026-07-18,
