@@ -327,6 +327,11 @@ class DistributedTransform:
         self._mesh: jax.sharding.Mesh = mesh
         self._nodal: SpaceLike = nodal
         self._coeff: SpaceLike = coeff
+        #: per-(component order) fused matrix / project regions, built
+        #: lazily and cached (stable identity: eager re-application adds
+        #: zero compiles, the ``ContractPlan`` idiom)
+        self._matrix_regions: dict[tuple[str, ...], Callable] = {}
+        self._project_regions: dict[tuple[str, ...], Callable] = {}
 
         nodal_spec: list[str | None] = [None] * len(nodal.shape)
         nodal_spec[geom.a] = geom.axis_name
@@ -483,6 +488,224 @@ class DistributedTransform:
             out = region(piece, diag)
             return f.with_storage(decomposition.pad_even(out, space))
         return f.with_data(region(jnp.asarray(f.data), diag))
+
+    # ================================================================
+    #  Fused per-mode matrix apply (multi-component)
+    # ================================================================
+    def _matrix_region(
+        self, names: tuple[str, ...],
+    ) -> Callable[[dict[str, jax.Array], jax.Array], dict[str, jax.Array]]:
+        """Build (once) the fused matrix region for a component order."""
+        cached = self._matrix_regions.get(names)
+        if cached is not None:
+            return cached
+        geom = self._geom
+        comp_specs = dict.fromkeys(names, self._spec)
+        mat_spec = self._matrix_spec(names, tail=2)
+
+        def body(
+            comps: dict[str, jax.Array], matrix: jax.Array,
+        ) -> dict[str, jax.Array]:
+            """Forward, per-mode ``D x D`` matrix, backward (one shard)."""
+            z = jnp.stack(
+                [transpose_forward(comps[name], geom) for name in names],
+                axis=-1)
+            out = jnp.einsum("...jd,...d->...j", matrix, z)
+            return {name: transpose_backward(out[..., i], geom)
+                    for i, name in enumerate(names)}
+
+        region = jax.jit(jax.shard_map(
+            body, mesh=self._mesh,
+            in_specs=(comp_specs, mat_spec), out_specs=comp_specs))
+        self._matrix_regions[names] = region
+        return region
+
+    def _matrix_spec(
+        self, names: tuple[str, ...], *, tail: int,  # noqa: ARG002
+    ) -> jax.sharding.PartitionSpec:
+        """Sharded ``in_spec`` for a ``(*coeff, *tail)`` mode array."""
+        spec: list[str | None] = [None] * (len(self._coeff.shape) + tail)
+        spec[self._geom.a] = self._geom.axis_name
+        return jax.sharding.PartitionSpec(*spec)
+
+    def _pad_a(self, arr: jax.Array) -> jax.Array:
+        """Zero-pad an internal-frame array's ``a`` axis to ``pad_a_spec``."""
+        geom = self._geom
+        if geom.pad_a_spec == geom.a_spec_n:
+            return arr
+        return _tail_pad(arr, geom.a, geom.pad_a_spec - geom.a_spec_n)
+
+    def apply_matrix(
+        self,
+        fields: dict[str, FieldLike],
+        matrix: jax.Array,
+    ) -> dict[str, FieldLike]:
+        r"""
+        Apply a per-mode ``D x D`` matrix on ``D`` components (no gather).
+
+        Description
+        -----------
+        The fused multi-component analogue of :meth:`apply_diagonal`:
+        transposes-forward all ``D`` component fields, stacks them on a
+        trailing axis, contracts the per-mode ``D x D`` ``matrix`` with
+        one ``einsum`` (``"...jd,...d->...j"`` -- the contracted ``d`` axis
+        is the local component axis, so no collective), transposes-backward
+        every output column and takes the real part -- one ``shard_map``
+        region, so the coefficient frame stays internal and no axis is
+        gathered. The ``D`` components may live on **different** function
+        spaces (staggered ``u`` / ``v`` / ``w`` and collocated ``b``); on a
+        fully periodic grid their transpose geometries coincide, so one
+        :attr:`geometry` transposes them all -- each field's own space
+        still drives its (un)pad-even framing. Analytic eigenmode
+        projections, ``f(L)`` and the balance operators are all this call
+        with different pre-assembled matrices.
+
+        Parameters
+        ----------
+        fields : dict[str, FieldLike]
+            The ``D`` nodal operands (ordered), each sharded on ``a``.
+        matrix : jax.Array
+            The per-mode matrix, shape ``(*coeff.bare, D, D)`` on the
+            internal coefficient frame (the component axes ordered as
+            ``fields``); the ``a`` axis at its coefficient extent,
+            threaded sharded on ``a`` per shard.
+
+        Returns
+        -------
+        dict[str, FieldLike]
+            The contracted real component fields, on the operands' layouts.
+        """
+        geom = self._geom
+        names = tuple(fields)
+        mat = self._pad_a(jnp.asarray(matrix))
+        region = self._matrix_region(names)
+        if geom.padded:
+            decomposition = next(iter(fields.values())).grid.decomposition
+            pieces = {
+                name: decomposition.unpad_even(f.storage, f.function_space)
+                for name, f in fields.items()}
+            out = region(pieces, mat)
+            return {
+                name: fields[name].with_storage(decomposition.pad_even(
+                    out[name], fields[name].function_space))
+                for name in names}
+        pieces = {name: jnp.asarray(fields[name].data) for name in names}
+        out = region(pieces, mat)
+        return {name: fields[name].with_data(out[name]) for name in names}
+
+    def project(
+        self,
+        fields: dict[str, FieldLike],
+        rows: jax.Array,
+    ) -> jax.Array:
+        r"""
+        Analyze ``D`` components into ``J`` modal amplitudes (no gather).
+
+        Description
+        -----------
+        The forward (analysis + contraction) half of :meth:`apply_matrix`:
+        transposes-forward all components, stacks them, and contracts the
+        ``(*coeff, J, D)`` ``rows`` into ``J`` raw amplitude arrays on the
+        internal coefficient frame (``a`` sharded), **without** the
+        backward synthesis. Paired with :meth:`synthesize` it is the split
+        the exponential stepper's per-stage arithmetic rides between (the
+        amplitudes never leave the sharded frame -- no storage-contract
+        violation).
+
+        Parameters
+        ----------
+        fields : dict[str, FieldLike]
+            The ``D`` nodal operands (ordered), sharded on ``a``.
+        rows : jax.Array
+            The projection rows, shape ``(*coeff.bare, J, D)`` on the
+            internal coefficient frame.
+
+        Returns
+        -------
+        jax.Array
+            The ``J`` modal amplitudes, shape ``(*coeff (padded a), J)``,
+            sharded on ``a`` (the internal frame).
+        """
+        geom = self._geom
+        names = tuple(fields)
+        rws = self._pad_a(jnp.asarray(rows))
+        cached = self._project_regions.get(names)
+        if cached is None:
+            comp_specs = dict.fromkeys(names, self._spec)
+            row_spec = self._matrix_spec(names, tail=2)
+            amp_spec = self._matrix_spec(names, tail=1)
+
+            def body(
+                comps: dict[str, jax.Array], rows_: jax.Array,
+            ) -> jax.Array:
+                """Forward all components, contract to amplitudes."""
+                z = jnp.stack(
+                    [transpose_forward(comps[name], geom)
+                     for name in names], axis=-1)
+                return jnp.einsum("...jd,...d->...j", rows_, z)
+
+            cached = jax.jit(jax.shard_map(
+                body, mesh=self._mesh,
+                in_specs=(comp_specs, row_spec), out_specs=amp_spec))
+            self._project_regions[names] = cached
+        if geom.padded:
+            decomposition = next(iter(fields.values())).grid.decomposition
+            pieces = {
+                name: decomposition.unpad_even(f.storage, f.function_space)
+                for name, f in fields.items()}
+            return cached(pieces, rws)
+        pieces = {name: jnp.asarray(fields[name].data) for name in names}
+        return cached(pieces, rws)
+
+    def synthesize(
+        self,
+        coeffs: dict[str, jax.Array],
+        templates: dict[str, FieldLike],
+    ) -> dict[str, FieldLike]:
+        r"""
+        Synthesize internal-frame coefficient columns to real fields.
+
+        Description
+        -----------
+        The backward (synthesis) half: each component's coefficient column
+        is already built (host-side, frame-locally) on the internal
+        coefficient frame -- the exact frame the forward transpose
+        produces -- so only the mirrored inverse transpose runs, no forward
+        and no contraction. The ``a`` axis is zero-padded to the balanced
+        extent and the region shards it, and the output lands on the
+        templates' own nodal spaces (the grid's default layout; the
+        sharded axis is never gathered). The analytic random-state (and
+        ``mode()``) synthesis rides this half.
+
+        Parameters
+        ----------
+        coeffs : dict[str, jax.Array]
+            Per-component coefficient columns on :attr:`coeff` (the ``a``
+            axis at its coefficient extent), complex.
+        templates : dict[str, FieldLike]
+            Template physical nodal fields (the components' spaces), for
+            the output layout / wrapping.
+
+        Returns
+        -------
+        dict[str, FieldLike]
+            The synthesized real component fields.
+        """
+        geom = self._geom
+        region = self.backward_region
+        out = {}
+        for name, arr in coeffs.items():
+            padded = self._pad_a(jnp.broadcast_to(
+                jnp.asarray(arr), self._coeff.bare.shape))
+            nodal = region(padded)
+            template = templates[name]
+            if geom.padded:
+                decomposition = template.grid.decomposition
+                out[name] = template.with_storage(decomposition.pad_even(
+                    nodal, template.function_space))
+            else:
+                out[name] = template.with_data(nodal)
+        return out
 
 
 # ================================================================

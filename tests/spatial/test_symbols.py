@@ -305,3 +305,22 @@ def test_rayleigh_dual_weights_scale_the_row(kit_2d):
     # weighted dual still resolves the identity off the nullspace
     assert jnp.allclose(jnp.where(mask, total, 1.0), 1.0)
     assert total[0, 0] == 0.0
+
+
+# ================================================================
+#  Coefficient-frame override (the distributed eigenmode hook)
+# ================================================================
+def test_coeff_spaces_override_reads_the_supplied_frame(kit_2d):
+    # the frame hook: coeff() (and hence every diff / interp query,
+    # which threads on that frame) reads the supplied override instead
+    # of the transform's own codomain; forward / backward are untouched
+    grid, base, spaces = kit_2d
+    alt = base.coeff("p")  # a valid but different coefficient frame
+    kit = GridSymbols(grid, spaces, coeff_spaces=dict.fromkeys(spaces, alt))
+    assert kit.coeff("u") is alt.bare
+    assert kit.coeff("p") is alt.bare
+    # the base kit still reads each component's own transform codomain
+    assert base.coeff("u") is not alt.bare
+    # the symbol queries thread on the override frame (they build)
+    assert kit.diff("x", on="u") is not None
+    assert kit.interp("y", on="p") is not None

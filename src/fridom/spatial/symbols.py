@@ -77,10 +77,23 @@ class GridSymbols:
         The grid mediating dispatch, transforms, and wavenumbers.
     spaces : Mapping[str, SpaceLike]
         The named component operand spaces (stored bare).
+    coeff_spaces : Mapping[str, SpaceLike] | None, optional
+        A per-component **coefficient-frame override**: when given,
+        :meth:`coeff` (and hence every ``diff`` / ``interp`` symbol,
+        which threads its eigenvalue query on that frame) reads the
+        supplied space instead of the transform's own
+        ``codomain(space)``. This is the frame hook the distributed
+        eigenmode route uses to rebuild the operator symbols on the
+        transpose engine's internal coefficient frame (the half axis
+        re-designated). ``forward`` / ``backward`` keep the real
+        transform and are undefined against an override frame — the
+        distributed route never calls them, it fuses the transform
+        inside a ``jax.shard_map`` region instead (default: None).
     """
 
     def __init__(
         self, grid: Grid, spaces: Mapping[str, SpaceLike],
+        coeff_spaces: Mapping[str, SpaceLike] | None = None,
     ) -> None:
         """Intern the bare spaces and resolve their transforms."""
         self._grid: Grid = grid
@@ -90,6 +103,10 @@ class GridSymbols:
             str, Transform | ComposedTransform] = {
             name: resolve_transform(grid, bare)
             for name, bare in self._spaces.items()}
+        self._coeff_override: dict[str, SpaceLike] | None = (
+            None if coeff_spaces is None
+            else {name: space.bare
+                  for name, space in coeff_spaces.items()})
 
     # ================================================================
     #  Spaces and transforms
@@ -97,6 +114,12 @@ class GridSymbols:
     def coeff(self, name: str) -> SpaceLike:
         """
         Coefficient space of a component (the transform codomain).
+
+        Description
+        -----------
+        The override frame supplied at construction (the distributed
+        eigenmode route's internal coefficient frame), else the
+        transform's own ``codomain(space.bare)``.
 
         Parameters
         ----------
@@ -106,10 +129,12 @@ class GridSymbols:
         Returns
         -------
         SpaceLike
-            ``transform.codomain(space.bare)`` of the component.
+            The component's coefficient space (override or derived).
         """
-        return self._transforms[self._known(name)].codomain(
-            self._spaces[name])
+        known = self._known(name)
+        if self._coeff_override is not None:
+            return self._coeff_override[known]
+        return self._transforms[known].codomain(self._spaces[known])
 
     def forward(self, name: str) -> BoundTransform:
         """
