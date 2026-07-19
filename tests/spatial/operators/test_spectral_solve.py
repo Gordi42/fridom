@@ -358,3 +358,75 @@ def test_single_precision_is_superseded_by_the_slab(grid_2d):
     plain = SpectralSolve(laplacian_2d(), grid, rhs.function_space)
     assert jnp.allclose(low(rhs).data, plain(rhs).data,
                         rtol=1e-12, atol=1e-14)
+
+
+# ================================================================
+#  allow_replicated: the explicit replicate-then-compute escape
+# ================================================================
+class _HalfOnly:
+
+    """Eigenvalues only on a codomain with a REAL (half) Fourier axis."""
+
+    def __init__(self, op):
+        self._op = op
+
+    def eigenvalues(self, grid, space):
+        if not any(isinstance(f, FourierSpace)
+                   and f.scalars is Scalars.REAL
+                   for f in space.factors):
+            raise EigenbasisError("no eigenvalues on fully complex spectra")
+        return self._op.eigenvalues(grid, space)
+
+
+def _picky_solve(device_ids, *, allow_replicated):
+    mx = fr.spatial.meshes.IntervalMesh(16, (0.0, 1.0), name="x")
+    my = fr.spatial.meshes.IntervalMesh(16, (0.0, 2.0), name="y")
+    grid = fr.spatial.Grid((mx, my), device_ids=device_ids)
+    rhs = grid.create_field(
+        init=lambda x, y: jnp.sin(4 * jnp.pi * x) * jnp.cos(jnp.pi * y))
+    solve = SpectralSolve(_HalfOnly(laplacian_2d()), grid,
+                          rhs.function_space,
+                          allow_replicated=allow_replicated)
+    return solve, rhs
+
+
+def test_allow_replicated_property_defaults_off(grid_2d_local):
+    rhs = grid_2d_local.create_field(
+        init=lambda x, y: jnp.sin(4 * jnp.pi * x) * jnp.cos(jnp.pi * y))
+    plain = SpectralSolve(laplacian_2d(), grid_2d_local,
+                          rhs.function_space)
+    assert plain.allow_replicated is False
+    on = SpectralSolve(laplacian_2d(), grid_2d_local,
+                       rhs.function_space, allow_replicated=True)
+    assert on.allow_replicated is True
+    # on one device the escape is a no-op: bitwise the plain composite
+    assert float(jnp.abs(
+        np.asarray(on(rhs).data)
+        - np.asarray(plain(rhs).data)).max()) == 0.0
+
+
+@pytest.mark.multi_device
+def test_allow_replicated_escape_is_device_count_invariant():
+    # a symbol that refuses the distributed spectral frame leaves slab
+    # None; without allow_replicated the composite would trip the
+    # transform guard on the sharded grid (see
+    # test_slab_falls_back_when_eigenvalues_refuse). allow_replicated
+    # gathers to the replicated layout, applies the composite, and
+    # reshards back -- device-count invariant vs a device_ids=(0,) twin.
+    solve, rhs = _picky_solve(None, allow_replicated=True)
+    assert solve.slab is None
+    out = solve(rhs)
+    twin, twin_rhs = _picky_solve((0,), allow_replicated=True)
+    twin_out = twin(twin_rhs)
+    assert jnp.allclose(np.asarray(out.data), np.asarray(twin_out.data),
+                        rtol=1e-12, atol=1e-14)
+
+
+@pytest.mark.multi_device
+def test_without_allow_replicated_the_picky_solve_still_raises():
+    # the default (allow_replicated=False) is unchanged: the composite
+    # fallback trips the transform guard on the sharded grid
+    solve, rhs = _picky_solve(None, allow_replicated=False)
+    assert solve.slab is None
+    with pytest.raises(NotImplementedError, match="cannot run on this"):
+        solve(rhs)
