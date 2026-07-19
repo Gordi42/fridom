@@ -26,7 +26,6 @@ owner ruled build-now 2026-07-19).
 import jax
 import jax.numpy as jnp
 import numpy as np
-import pytest
 
 from fridom.nonhydro2.modules.composed_pressure import (
     ComposedPressureSolver,
@@ -219,18 +218,12 @@ def test_stretched_semicoarsening_knob_keeps_the_vertical_full():
 # ================================================================
 #  Differentiability (AGENTS.md): grad through the stretched solve
 # ================================================================
-# single_device: reverse-mode through the FULL-coarsening multigrid solve
-# (the GM-D9 default the stretched composed column now takes) shares the
-# mapped solver's pre-existing XLA:SPMD backward-pass break on >1 device
-# (the coarsest level replicates and the fine->coarse transfer VJP
-# mis-shapes under spmd-partitioning). It is not this change's doing (the
-# transfer / coarsen_levels code is untouched) — the shipped uniform and
-# stretched mapped full-coarsening defaults carry the same single-device
-# grad regression (test_multigrid_solve_grad_matches_fd in
-# test_mapped_pressure_stretched.py). The forward path is
-# device-invariant; the differentiability policy's regression is
-# single-device.
-@pytest.mark.single_device
+# reverse-mode through the FULL-coarsening multigrid solve now builds on
+# >1 device: the fine->coarse transfer's ``restrict`` spells ``P^T`` with
+# forward primitives, so the transpose of ``jnp.roll`` no longer lands in
+# the forward graph where the XLA SPMD partitioner miscompiled it at one
+# cell per device (transfer.py; the fix that dropped the mapped and
+# composed single_device marks). Runs on any device count.
 def test_stretched_composed_solve_grad_matches_fd():
     # the end-to-end differentiability invariant (AGENTS.md) through the
     # stretched composed multigrid-preconditioned solve: jax.grad of a

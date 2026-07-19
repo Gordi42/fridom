@@ -302,6 +302,41 @@ Implementation record:
   the pre-warm structurally cannot reach dynamic `params`, and the
   bind-time alternative is unsafe against the device-keyed memo).
 
+- **Multi-device full-coarsening grad break — root-caused and cured**
+  (2026-07-19, branch `fix/multigrid-transfer-grad-spmd`). The
+  pre-existing limitation the pre-warm entry above flagged: reverse-mode
+  through a full-coarsening multigrid solve crashed on >= 2 devices with
+  an XLA HLO-verifier shape mismatch (`Expected f64[6,1], actual
+  f64[4,1]`) after spmd-partitioning. **Root cause** an XLA
+  SPMD-partitioner miscompile (not fridom logic): `GridTransfer.restrict`
+  computed `P^T` as `jax.linear_transpose(prolong)`, whose order-2
+  periodic path carries two opposite `jnp.roll`s; at the coarsest level
+  the periodic axis shards to one cell per device, and there the
+  transpose of `jnp.roll` lowers to a `concatenate` the partitioner
+  cross-wires (two `f64[3,1]` slices stamped `f64[4,1]`). Pinned with a
+  ~20-line pure-jax forced-4 CPU repro (jax 0.10.2; one roll compiles,
+  two do not; one cell per device only; forward-graph-of-a-grad only).
+  **Roll vs. DUS** (owner question): `jnp.roll` is the idiomatic periodic
+  read-shift and lowers to a cheap `collective-permute`; DUS is a write
+  primitive (the seal-DUS finding is about writes) and mis-lowers here,
+  and the gather alternative all-gathers on a sharded axis (3
+  all-gathers vs roll's 6 collective-permutes at 16 cells/shard) — a
+  fine-level regression, so roll stays. **Fix** `restrict` spells `P^T`
+  in forward primitives (`_restrict_axis` / `_clamp_edge_transpose`): a
+  block reduce plus one opposite-direction forward `jnp.roll` per order-2
+  neighbor row, so the transposed roll lands in the backward pass (where
+  the partitioner is correct) and the forward stays collective-permute.
+  Same map — bitwise at order 1, ~1 ULP reassociation at order 2 (a
+  mapped multigrid solve matches pre-fix to `5.6e-17` abs / `1.7e-16` rel,
+  **not bitwise**). The three `single_device` marks this break forced
+  (mapped, stretched-model, composed grad tests) are removed and run any
+  device count; new transfer-level regression
+  `test_forced4_grad_through_restrict_one_cell_per_shard` (fails pre-fix)
+  plus a forced-4 CI leg guard it. Upstream filing drafted, owner ruling
+  pending. Record:
+  [`semicoarsen_multidevice_regression.md`](../research/semicoarsen_multidevice_regression.md)
+  (§"Pre-existing full-coarsening grad break ... root-caused and cured").
+
 - **Composed (mapped+immersed) stretched full-coarsening — the
   deferral was overstated** (2026-07-19, owner ruled "build now";
   merge `c305a950`) — the composed pressure solver's stretched-base

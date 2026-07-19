@@ -24,9 +24,16 @@ integrals). Prolongation ``P`` is implemented explicitly — piecewise
 constant at ``order=1``, separable cell-centered linear at ``order=2``
 (``3/4`` own + ``1/4`` neighbor for a factor-2 axis, with a one-sided
 row on bounded axes) — and restriction ``R`` is its **literal
-measure-weighted adjoint** ``R = M_H^{-1} P^T M_h`` (``jax.linear_transpose``
-of ``P``, wrapped in the two cell-volume weightings), so the adjoint
-identity holds by construction on every row, boundary rows included.
+measure-weighted adjoint** ``R = M_H^{-1} P^T M_h``, with ``P^T`` spelled
+out in forward array primitives (an opposite-direction shift per
+neighbor row) rather than ``jax.linear_transpose`` of ``P``, wrapped in
+the two cell-volume weightings, so the adjoint identity holds by
+construction on every row, boundary rows included. The two spellings of
+``P^T`` agree to a floating-point reassociation but lower differently
+under GSPMD, and only the forward-primitive spelling differentiates on
+more than one device (:meth:`GridTransfer.restrict` — the transpose of
+``jnp.roll`` miscompiles under the XLA SPMD partitioner when the rolled
+periodic axis is sharded to one cell per device).
 
 Kernels run in the **logical frame** (``field.data``, halos/padding
 stripped) and re-enter storage through the target grid's field factory;
@@ -201,11 +208,28 @@ class GridTransfer:
         Description
         -----------
         The literal measure-weighted adjoint of :meth:`prolong`: weight
-        by the fine cell volume, transpose ``P``, divide by the coarse
-        cell volume. Adjoint to ``prolong`` under the two grids'
-        measure-weighted L2 products by construction, hence conservative
-        (``order=1`` is the volume-weighted block average, a left
-        inverse of ``prolong``).
+        by the fine cell volume, apply ``P^T`` (:meth:`_restrict_array`),
+        divide by the coarse cell volume. Adjoint to ``prolong`` under
+        the two grids' measure-weighted L2 products by construction,
+        hence conservative (``order=1`` is the volume-weighted block
+        average, a left inverse of ``prolong``).
+
+        ``P^T`` is spelled with **forward** array primitives (a block
+        reduce plus, at ``order=2``, one opposite-direction
+        :func:`jnp.roll` per neighbor row) rather than
+        ``jax.linear_transpose`` of :meth:`prolong`. The two spellings
+        compute the same map to a floating-point reassociation
+        (bitwise at ``order=1``), but they lower differently under
+        GSPMD, and only the forward-primitive spelling differentiates on
+        more than one device: the transpose of ``jnp.roll`` lowers to a
+        concatenate that the XLA SPMD partitioner miscompiles when the
+        rolled periodic axis is sharded down to one cell per device (the
+        coarsest full-coarsening level), crashing the reverse-mode
+        compile with an HLO-verifier shape mismatch. Written as a
+        forward roll the neighbor shift stays a cheap collective-permute
+        in the forward pass and its transpose lands in the *backward*
+        pass, where the partitioner handles it correctly. See
+        ``design/research/semicoarsen_multidevice_regression.md``.
 
         Parameters
         ----------
@@ -221,18 +245,10 @@ class GridTransfer:
         """
         self._check_input(field, self._fine, "restrict")
         space = field.function_space
-        specs = self._axis_specs(space)
         coarse_space = self._sibling_space(space, self._coarse_meshes)
         names = self._coarsened_names(space)
         weighted = field.data * _volume(self._fine, space, names)
-
-        def prolong_fn(coarse: jax.Array) -> jax.Array:
-            return self._prolong_array(coarse, specs)
-
-        template = jax.ShapeDtypeStruct(
-            tuple(coarse_space.shape), weighted.dtype)
-        (cotangent,) = jax.linear_transpose(
-            prolong_fn, template)(weighted)
+        cotangent = self._restrict_array(weighted, self._axis_specs(space))
         coarse_vol = _volume(self._coarse, coarse_space, names)
         coarse_data = cotangent / coarse_vol
         return self._coarse.create_field(
@@ -250,6 +266,38 @@ class GridTransfer:
         for axis, ratio, periodic in specs:
             data = _prolong_axis(data, axis, ratio, self._order,
                                  periodic)
+        return data
+
+    def _restrict_array(
+        self,
+        data: jax.Array,
+        specs: tuple[tuple[int, int, bool], ...],
+    ) -> jax.Array:
+        """Apply the per-axis adjoint prolongation ``P^T``.
+
+        Description
+        -----------
+        The transpose of :meth:`_prolong_array`, spelled with forward
+        primitives (:func:`_restrict_axis`). The coarsened axes are
+        independent separable maps, so the per-axis adjoints compose in
+        any order.
+
+        Parameters
+        ----------
+        data : jax.Array
+            The fine-grid logical array (volume-weighted).
+        specs : tuple[tuple[int, int, bool], ...]
+            The ``(axis, ratio, periodic)`` triples for the coarsened
+            axes (:meth:`_axis_specs`).
+
+        Returns
+        -------
+        jax.Array
+            The coarse-grid logical array (``P^T data``).
+        """
+        for axis, ratio, periodic in specs:
+            data = _restrict_axis(data, axis, ratio, self._order,
+                                  periodic)
         return data
 
     def _axis_specs(
@@ -377,6 +425,72 @@ def _prolong_axis(
     return _merge_axis(blocks, axis)
 
 
+def _restrict_axis(
+    arr: jax.Array,
+    axis: int,
+    ratio: int,
+    order: int,
+    periodic: bool,
+) -> jax.Array:
+    r"""
+    Adjoint of :func:`_prolong_axis` for one coarsened axis.
+
+    Description
+    -----------
+    The transpose ``P^T`` of the per-axis prolongation, built from
+    **forward** primitives so that reverse-mode through it partitions
+    correctly under GSPMD (:meth:`GridTransfer.restrict`). Splits the
+    fine axis into ``(m, ratio)`` blocks (the adjoint of
+    :func:`_merge_axis`), then at ``order=1`` sums each block onto its
+    coarse cell (the adjoint of the piecewise-constant broadcast) and at
+    ``order=2`` forms the weighted own / left / right partial sums and
+    scatters the neighbor rows back with an opposite-direction shift ---
+    the adjoint of ``jnp.roll`` is the forward roll the other way
+    (periodic), the adjoint of :func:`_clamp_edge` is
+    :func:`_clamp_edge_transpose` (bounded). The own / left / right
+    weights are exactly :func:`_prolong_axis`'s (constants preserved,
+    hence integrals preserved).
+
+    Parameters
+    ----------
+    arr : jax.Array
+        The fine array (logical frame), ``ratio`` times the coarse
+        cell count along ``axis``.
+    axis : int
+        The coarsened array axis.
+    ratio : int
+        The fine/coarse cell-count ratio (>= 2 here).
+    order : int
+        The transfer order (1 or 2).
+    periodic : bool
+        Whether the axis wraps.
+
+    Returns
+    -------
+    jax.Array
+        The array with ``axis`` reduced by ``ratio`` (``P^T arr``).
+    """
+    m = arr.shape[axis] // ratio
+    shape = list(arr.shape)
+    shape[axis:axis + 1] = [m, ratio]
+    blocks = arr.reshape(shape)
+    if order == 1:
+        return blocks.sum(axis + 1)
+    own_w, left_w, right_w = _order2_weights(ratio)
+    w_shape = [1] * blocks.ndim
+    w_shape[axis + 1] = ratio
+    own = (blocks * own_w.reshape(w_shape)).sum(axis + 1)
+    left = (blocks * left_w.reshape(w_shape)).sum(axis + 1)
+    right = (blocks * right_w.reshape(w_shape)).sum(axis + 1)
+    if periodic:
+        left = jnp.roll(left, -1, axis=axis)
+        right = jnp.roll(right, 1, axis=axis)
+    else:
+        left = _clamp_edge_transpose(left, axis, side=-1)
+        right = _clamp_edge_transpose(right, axis, side=1)
+    return own + left + right
+
+
 def _order2_weights(
     ratio: int,
 ) -> tuple[jax.Array, jax.Array, jax.Array]:
@@ -444,6 +558,57 @@ def _clamp_edge(arr: jax.Array, axis: int, *, side: int) -> jax.Array:
     body = _slice_axis(arr, axis, 1, n)
     tail = _slice_axis(arr, axis, n - 1, n)
     return jnp.concatenate([body, tail], axis=axis)
+
+
+def _clamp_edge_transpose(
+    g: jax.Array, axis: int, *, side: int,
+) -> jax.Array:
+    r"""
+    Transpose (adjoint) of :func:`_clamp_edge` along ``axis``.
+
+    Description
+    -----------
+    :func:`_clamp_edge` is the one-sided boundary shift with the edge
+    cell clamped onto the exterior slot. Its adjoint scatters the
+    cotangent one cell back the other way and accumulates the clamped
+    contribution onto the edge cell: for ``side == -1`` the interior
+    rows shift left and ``g[0]`` adds back onto cell ``0``; for
+    ``side == +1`` the interior rows shift right and ``g[-1]`` adds back
+    onto cell ``n - 1``. Built from slice / concatenate / add (forward
+    primitives), matching :func:`_restrict_axis`'s partition-friendly
+    lowering.
+
+    Parameters
+    ----------
+    g : jax.Array
+        The coarse-sized cotangent along ``axis``.
+    axis : int
+        The axis to scatter along.
+    side : int
+        ``-1`` for the left one-sided row, ``+1`` for the right.
+
+    Returns
+    -------
+    jax.Array
+        The adjoint-shifted array (same shape).
+    """
+    n = g.shape[axis]
+    zeros = jnp.zeros_like(_slice_axis(g, axis, 0, 1))
+    if side < 0:
+        body = _slice_axis(g, axis, 1, n)
+        head = _slice_axis(g, axis, 0, 1)
+        shifted = jnp.concatenate([body, zeros], axis=axis)
+        edge = jnp.concatenate(
+            [head, jnp.zeros_like(_slice_axis(g, axis, 0, n - 1))],
+            axis=axis)
+    else:
+        body = _slice_axis(g, axis, 0, n - 1)
+        tail = _slice_axis(g, axis, n - 1, n)
+        shifted = jnp.concatenate([zeros, body], axis=axis)
+        edge = jnp.concatenate(
+            [jnp.zeros_like(_slice_axis(g, axis, 0, n - 1)), tail],
+            axis=axis)
+    return shifted + edge
 
 
 def _slice_axis(

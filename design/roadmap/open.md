@@ -403,20 +403,9 @@ The semicoarsened V-cycle preconditioner shipped 2026-07-17 and the
 V-cycle kernel swap it called for shipped 2026-07-18 (merge
 `0ece46b1`; both entries in [`done.md`](done.md), measurements in
 [`../research/multigrid_kernel_study.md`](../research/multigrid_kernel_study.md)
-§§Addendum, Addendum 2). Open, none blocking:
-
-- **Multi-device full-coarsening grad — pre-existing XLA:SPMD
-  transfer-VJP break (owner call).** Surfaced by the pre-warm
-  validation (entry in [`done.md`](done.md)): reverse-mode through a
-  *full-coarsening* multigrid solve fails to build on >= 2 devices
-  (HLO-verifier shape mismatch in the fine-to-replicated-coarse
-  transfer VJP). The shipped **uniform** GM-D9 default shares it;
-  semicoarsening grad passes; the forward solve is device-invariant.
-  Mitigation: the grad-through-the-solve regressions are
-  `single_device`-marked. Owner: file upstream (jax/XLA, his voice)
-  and/or add a taught guard until fixed. Characterisation:
-  [`../research/semicoarsen_multidevice_regression.md`](../research/semicoarsen_multidevice_regression.md)
-  §"Discovered pre-existing limitation".
+§§Addendum, Addendum 2). The multi-device full-coarsening grad break
+(pre-existing XLA:SPMD transpose-of-roll miscompile) was **root-caused
+and cured 2026-07-19** — entry in [`done.md`](done.md).
 
 The remaining 2026-07-18 follow-ups were **ruled closed 2026-07-19**
 (coarse-level replication preference: none — sigma-sharding stays;

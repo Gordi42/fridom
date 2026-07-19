@@ -422,20 +422,12 @@ def test_multigrid_bands_stay_differentiable():
     assert abs(grad - fd) <= 1e-4 * abs(fd)
 
 
-# single_device: reverse-mode through the FULL-coarsening multigrid
-# solve (the GM-D9 default the stretched column now takes) hits a
-# pre-existing XLA SPMD backward-pass bug on >1 device — the coarsest
-# level replicates and the fine->coarse transfer VJP mis-shapes under
-# spmd-partitioning (HLO verifier: "Expected f64[6,1], actual
-# f64[4,1]"). It is not this change's doing (the transfer / coarsen_levels
-# code is untouched) nor the eager pre-warm's (host-warming the memo
-# fails identically): the shipped UNIFORM full-coarsening default shares
-# it, which is why the mapped multigrid battery carries only a FORWARD
-# multi-device parity check (test_forced4_multigrid_solve_matches_
-# single_device) and no multi-device grad. The differentiability
-# policy's regression is single-device; the forward path is
-# device-invariant (the forced-4 stretched battery is otherwise green).
-@pytest.mark.single_device
+# reverse-mode through the FULL-coarsening multigrid solve now builds on
+# >1 device: the fine->coarse transfer's ``restrict`` spells ``P^T`` with
+# forward primitives, so the transpose of ``jnp.roll`` no longer lands in
+# the forward graph where the XLA SPMD partitioner miscompiled it at one
+# cell per device (transfer.py; the fix that dropped the single_device
+# mark). Runs on any device count as the multi-device grad guard.
 def test_multigrid_solve_grad_matches_fd():
     # the end-to-end differentiability invariant (AGENTS.md) through the
     # multigrid-preconditioned solve: jax.grad of a quadratic loss w.r.t.

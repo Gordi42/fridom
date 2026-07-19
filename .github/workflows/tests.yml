@@ -70,6 +70,7 @@ jobs:
           tests/spatial/operators/test_cumulative.py \
           tests/spatial/operators/test_transform.py \
           tests/spatial/operators/test_spectral_solve.py \
+          tests/spatial/operators/test_transfer.py \
           tests/spatial/test_exchange_counts.py \
           tests/spatial/fields/test_halo_validity.py \
           tests/model/test_step_chunk.py \
@@ -100,6 +101,26 @@ jobs:
           tests/nonhydro2/test_mapped_pressure_multigrid.py \
           tests/nonhydro2/test_mapped_pressure_stretched.py \
           -k "forced4 or converges or full_and_semi or hlo_grows or vcycle_is_symmetric or builds_and_solves or semicoarsening_knob" \
+          -q --cov --cov-append --cov-report=
+
+    # The three full-coarsening multigrid grad regressions (mapped,
+    # stretched-model, stretched-composed) built only single-device
+    # until the transfer P^T forward-primitive spelling (transfer.py)
+    # cured the XLA SPMD transpose-of-roll miscompile at one cell per
+    # coarse shard (design/research/semicoarsen_multidevice_regression.md).
+    # They now run on any device count; this leg is the multi-device
+    # drift net (the transfer-level guard rides the multi-device leg
+    # above via test_transfer.py).
+    - name: Run the multigrid grad regressions (multiple devices)
+      env:
+        XLA_FLAGS: --xla_force_host_platform_device_count=4
+        FRIDOM_TEST_FORCED_DEVICES: "4"
+      run: |
+        uv run pytest \
+          tests/nonhydro2/test_mapped_pressure_stretched.py \
+          tests/nonhydro2/test_mapped_model_autodiff.py \
+          tests/nonhydro2/test_composed_pressure_stretched.py \
+          -k "multigrid_solve_grad or stretched_multigrid_grad or stretched_composed_solve_grad" \
           -q --cov --cov-append --cov-report=
 
     - name: Generate the coverage report

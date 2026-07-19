@@ -171,14 +171,11 @@ def stretched_multigrid_model(*, dt=0.02, pressure_iterations=12):
     return model
 
 
-# single_device: reverse-mode through the FULL-coarsening multigrid
-# projection hits a pre-existing XLA SPMD backward-pass bug on >1 device
-# (the fine->replicated-coarse transfer VJP mis-shapes under
-# spmd-partitioning), shared with the shipped uniform GM-D9 default and
-# unrelated to this change (untouched transfer / coarsen_levels code) or
-# the eager pre-warm; the forward run is device-invariant. The
-# differentiability policy's regression is single-device.
-@pytest.mark.single_device
+# reverse-mode through the FULL-coarsening multigrid projection now builds
+# on >1 device: the fine->coarse transfer's ``restrict`` spells ``P^T``
+# with forward primitives so the transpose of ``jnp.roll`` no longer lands
+# in the forward graph where the XLA SPMD partitioner miscompiled it at one
+# cell per device (transfer.py). Runs on any device count.
 def test_stretched_multigrid_grad_wrt_initial_velocity_matches_fd():
     """Grad through the stretched full-coarsening multigrid projection.
 
