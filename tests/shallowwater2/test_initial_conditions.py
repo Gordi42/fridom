@@ -406,32 +406,35 @@ def test_random_state_is_deterministic_on_one_device():
                      sw.random_vortical(em, seed=22))
 
 
-@pytest.mark.multi_device
-def test_random_state_on_a_sharded_grid_is_device_invariant(
-        forced_devices):
-    # WAS a taught error: the analytic random-state synthesis now builds
-    # its gains and Hermitian random phases on the device-independent
-    # single-device coefficient frame (grid.random keys on the global
-    # storage index, deterministic across device counts) and inverts
-    # them through the fused jax.shard_map backward when the transpose
-    # engine's internal frame coincides with that frame, else a
-    # replicated backward -- both device-count invariant. On a grid that
-    # shards a transform axis the state reproduces the one-device
-    # reference to floating point and lands real and sharded.
-    if forced_devices is not None:
-        assert jax.device_count() == forced_devices
-
-    def build(device_ids):
+def _sharded_pair(device_ids):
+    """Return the (sharded, one-device) 2-D periodic eigenmodes pair."""
+    def build(ids):
         mx = fr.spatial.meshes.IntervalMesh(N, (0.0, 1.0),
                                          periodic=True, name="x")
         my = fr.spatial.meshes.IntervalMesh(N, (0.0, 1.0),
                                          periodic=True, name="y")
         model = make_model(
-            fr.spatial.Grid((mx, my), device_ids=device_ids),
+            fr.spatial.Grid((mx, my), device_ids=ids),
             csqr=CSQR, f0=1.5, advection=False)
         return sw.eigenmodes.from_model(model)
+    return build(device_ids), build((0,))
 
-    many, one = build(None), build((0,))
+
+@pytest.mark.multi_device
+def test_random_state_on_a_sharded_grid_is_device_invariant(
+        forced_devices):
+    # WAS a taught error: the analytic random-state synthesis builds its
+    # gains and Hermitian random phases on the device-independent
+    # single-device coefficient frame (grid.random keys on the global
+    # storage index, deterministic across device counts). The 2-D layout
+    # shards the half axis, so the fused transpose re-designates it to the
+    # full complex spectrum and the synthesis routes through the fused
+    # jax.shard_map backward via the Hermitian half-axis re-expression (no
+    # gather) -- reproducing the one-device state to floating point, real
+    # and sharded, on any device count.
+    if forced_devices is not None:
+        assert jax.device_count() == forced_devices
+    many, one = _sharded_pair(None)
     for family in ("vortical", "wave"):
         s_many = sw.random_state(many, family, seed=21)
         s_one = sw.random_state(one, family, seed=21)
@@ -443,3 +446,28 @@ def test_random_state_on_a_sharded_grid_is_device_invariant(
                          - np.asarray(s_one[c].data)).max())
             for c in COMPONENTS)
         assert err < 1e-11
+
+
+@pytest.mark.multi_device
+def test_single_wave_on_a_sharded_grid_is_device_invariant(
+        forced_devices):
+    # em.mode (the single_wave accessor) shares the synthesis tail: the
+    # Hermitian-closed single-mode column routes through the same fused
+    # half-axis re-expression on the 2-D sharded grid, so the sharded mode
+    # reproduces the one-device mode (frequency and field) to floating
+    # point, real and sharded.
+    if forced_devices is not None:
+        assert jax.device_count() == forced_devices
+    many, one = _sharded_pair(None)
+    k = {"x": 3, "y": 2}
+    om_many, z_many = sw.single_wave(many, k, s=1, phase=0.4)
+    om_one, z_one = sw.single_wave(one, k, s=1, phase=0.4)
+    assert om_many == om_one
+    assert z_many["u"]._data.sharding.spec[0] == "devices"
+    assert all(not np.iscomplexobj(np.asarray(z_many[c].data))
+               for c in COMPONENTS)
+    err = max(
+        float(np.abs(np.asarray(z_many[c].data)
+                     - np.asarray(z_one[c].data)).max())
+        for c in COMPONENTS)
+    assert err < 1e-11

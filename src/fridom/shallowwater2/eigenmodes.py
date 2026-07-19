@@ -53,13 +53,13 @@ import numpy as np
 import fridom as fr
 from fridom.model.eigenstates import (
     assemble_operator_matrix,
-    bare_coeff_field,
     coefficient_index,
     describe_nonfinite_branch,
     envelope_scale,
     evaluate_frequency_function,
     hermitian_mode_data,
     resolve_mode_branches,
+    synthesize_columns,
 )
 from fridom.model.time_dependent import resolve_at
 from fridom.shallowwater2 import params as sw_params
@@ -599,26 +599,22 @@ class Eigenmodes:
                 "strata, e.g. f0 = 0 empties the geostrophic mean)")
 
         def synth(shift: float) -> dict[str, ScalarField]:
-            out = {}
-            for c in components:
-                value = amps[c] * jnp.exp(-1j * (float(phase)
-                                                 + shift))
-                data = hermitian_mode_data(
-                    q[c].function_space, slots[c], value)
-                # on a multi-device grid rebuild on the bare coefficient
-                # space so the backward runs unguarded (replicated,
-                # device invariant); single device keeps the original
-                # path bitwise. The Hermitian mirror pair is already in
-                # ``data`` before any region.
-                field = (
-                    bare_coeff_field(
-                        self.grid, self.grid.decomposition,
-                        q[c].function_space.bare, q[c], data)
-                    if getattr(self.grid.decomposition,
-                               "device_count", 1) > 1
-                    else q[c].with_data(data))
-                out[c] = self._kit.backward(c)(field).real
-            return out
+            # the Hermitian mirror pair is placed in each column host-side
+            # (before any region); the synthesis routes through the fused
+            # distributed backward on a sharded periodic grid (no gather --
+            # the half-axis re-expression onto the internal frame), else
+            # the replicated / single-device backward, all device invariant
+            columns = {
+                c: hermitian_mode_data(
+                    q[c].function_space, slots[c],
+                    amps[c] * jnp.exp(-1j * (float(phase) + shift)))
+                for c in components}
+            templates = {
+                c: self.grid.create_field(
+                    self._kit.backward(c).codomain, name=c)
+                for c in components}
+            return synthesize_columns(
+                self.grid, self._kit, components, columns, templates, q)
 
         z0 = synth(0.0)
         z1 = synth(jnp.pi / 2.0)
