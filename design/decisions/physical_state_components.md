@@ -135,3 +135,11 @@ coupling was correct all along; the open −6.5e-3 mapped energy leak
 interpolation-transpose truncation, not a missing term — the pending
 n-scaling probe should show it *converging*, unlike the hydrostatic
 case pre-`d629a489`.
+
+**Confirmed 2026-07-19** (probe outcome:
+`energy_metric_asymmetry.md` §5): first-order convergence (orders
+rising 0.41 → 0.83 toward 1 at n = 16..128, ~a³ in slope), and
+sharper than predicted — the buoyancy pair is *exactly* skew
+(machine precision; the z-independent column Jacobian commutes with
+the vertical staggering), so the entire converging residual is
+projection-borne. Audit closed.

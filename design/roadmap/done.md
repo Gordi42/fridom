@@ -96,6 +96,23 @@ Implementation record:
 
 ## Landed since, outside the numbered tasks
 
+- **nonhydro2 mapped energy leak — diagnosed benign, audit closed**
+  (2026-07-19, probe-only; outcome recorded in
+  [`../research/energy_metric_asymmetry.md`](../research/energy_metric_asymmetry.md)
+  §5, prediction in
+  [`../decisions/physical_state_components.md`](../decisions/physical_state_components.md)
+  §4): the −6.5e-3 physical-metric leak of the bare mapped nonhydro2
+  operator **converges at first order** (bilinear skew 3.8e-3 /
+  2.9e-3 / 1.8e-3 / 1.0e-3 at n = 16/32/64/128, orders rising 0.41 →
+  0.83 toward 1; ~a³ in slope amplitude) — ordinary discretization
+  truncation, not a convention error. Sharper: the w↔b buoyancy pair
+  is **exactly** skew on terrain (z-independent column Jacobian
+  commutes with the vertical staggering bit-exactly); the entire
+  residual is projection-borne (the Leray projector is orthogonal
+  under the solver's SPD product, not the physical metric). Flat
+  probe machine-zero; CG-independent bitwise; nodal ≡ fv bitwise. No
+  fix warranted; nothing remains open.
+
 - **Time-dependent-field follow-ups: state-sourced energy metric +
   `FieldBlend` unification** (2026-07-19, rulings TDF-D10/D11, merges
   `2d222425` + `27790fdf`). TDF-D10: a time-dependent field weight in

@@ -113,23 +113,6 @@ the scoping §10–§13). Open:
   2026-07-17 (entry in [`done.md`](done.md); research + rulings in
   [`../research/stretched_terrain_combined.md`](../research/stretched_terrain_combined.md)).
   Open:
-  - **nonhydro2 mapped energy leak — un-diagnosed cousin** (research
-    §1.6 of
-    [`../research/energy_metric_asymmetry.md`](../research/energy_metric_asymmetry.md)):
-    the bare mapped nonhydro2 operator leaks the physical energy
-    pairing on a divergence-free random state at −6.5e-3 (a = 0.2;
-    CG-iteration-independent, nodal ≡ fv bitwise; energy bounded in
-    time integration). The n-scaling probe (research §1.4 recipe:
-    fixed resolved broadband state, skew vs n) has not been run. New
-    prior (2026-07-19, census in
-    [`../decisions/physical_state_components.md`](../decisions/physical_state_components.md)):
-    the mapped nonhydro2 stored `w` is the **physical** vertical
-    velocity (the mapped pressure RHS derives `Jω` by
-    slope-subtraction), so `−N²·w` is the correct physical coupling
-    and the leak is *expected* to be ordinary interpolation-transpose
-    truncation. Follow-up: run the n-scaling probe to confirm
-    convergence; only a resolution-independent result would reopen a
-    convention audit.
   - **Variable-depth split-explicit free surface** (H3 residual):
     still a taught error on charts. The *implicit* half shipped
     2026-07-18 (multigrid_generalization_plan phase B: the
