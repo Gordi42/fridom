@@ -84,7 +84,7 @@ in. Suite lives out-of-tree in `benchmarks/comparison` (by design).
 
 ## 5. Docs & examples rebuild
 
-The bulk: **12+ example ports** and the **entire prose page tree**
+The bulk: **11+ example ports** and the **entire prose page tree**
 (`docs/source/` still holds the old-stack pages); retires the
 pre-rendered-media machinery.
 **Plan refresh first** (owner-sequenced): the plan predates the

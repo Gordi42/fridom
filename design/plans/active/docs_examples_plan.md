@@ -93,6 +93,9 @@ Two consequences worth keeping here:
 - **Upstream fix from the pilot** — staggered coordinate names no longer
   leak into user plotting; examples now plot and animate on plain `x` /
   `y` (`477b80bc`).
+- **Phase 3, equatorial_waves** (merged 2026-07-20) — rewritten on the
+  shallowwater2 numeric eigenbasis (`sw.eigenbasis`), rendered via
+  CDFViewer/zarr; LFS figure + videos dropped (`1db28aaf`).
 
 ## Open upstream items (found while porting; fix in `src/`, not in the page)
 
@@ -112,15 +115,16 @@ Parallel to everything else; required by the style guide.
 
 ## Phase 3 — Port the remaining examples
 
-Twelve old-stack scripts still import `fridom.nonhydro` /
-`fridom.shallowwater` and still carry `@skip_on_doc_build` plus
-committed LFS media: eleven under `examples/nonhydro/` (barotropic_jet,
-convection_and_closures, dancing_eddies, internal_wave_maker,
-multiple_wave_makers, rayleigh_bénard_convection,
-rayleigh_taylor_instability, single_internal_wave, symmetric_instability,
-tracers_and_eddies, wave_package) and `examples/shallowwater/
-equatorial_waves.py`. Plus one new gallery example: `sw.eigenbasis`
-(β slow-mode filtering, `projection_eigenmode_roadmap.md` §5).
+Eleven old-stack scripts still import `fridom.nonhydro` and still
+carry `@skip_on_doc_build` plus committed LFS media, all under
+`examples/nonhydro/` (barotropic_jet, convection_and_closures,
+dancing_eddies, internal_wave_maker, multiple_wave_makers,
+rayleigh_bénard_convection, rayleigh_taylor_instability,
+single_internal_wave, symmetric_instability, tracers_and_eddies,
+wave_package). Plus one new gallery example: `sw.eigenbasis`
+(β slow-mode filtering, `projection_eigenmode_roadmap.md` §5) —
+distinct from the landed equatorial_waves rewrite, which uses the
+eigenbasis for equatorial wave modes, not slow-mode filtering.
 
 Parallelizable one example per branch, each following the pilot's
 conventions. This is the **parity shakedown** the cutover plan wants:
