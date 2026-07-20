@@ -8,7 +8,7 @@ SPHINX_BUILD = build
 SPHINX = python3 -m sphinx
 
 # Build targets
-.PHONY: html clean
+.PHONY: html clean clean-all
 
 html:
 	@( \
@@ -18,9 +18,14 @@ html:
 		SPHINX_QUICK_BUILD=$(QUICKBUILD) $(SPHINX) -T -b html -d ../$(SPHINX_BUILD)/doctrees -D language=en . ../$(SPHINX_BUILD)/html; \
 	)
 
+# clean keeps source/auto_examples: it holds sphinx-gallery's per-example
+# .md5 staleness cache, so the next build re-executes only changed
+# examples. Use clean-all to force a full re-execution.
 clean:
 	@rm -rf $(SPHINX_BUILD)/*
-	@rm -rf $(SPHINX_SOURCE)/auto_examples
 	@rm -rf $(SPHINX_SOURCE)/auto_api
 	@rm -rf $(SPHINX_SOURCE)/gen_modules
 	@rm -rf $(SPHINX_SOURCE)/sg_execution_times.rst
+
+clean-all: clean
+	@rm -rf $(SPHINX_SOURCE)/auto_examples

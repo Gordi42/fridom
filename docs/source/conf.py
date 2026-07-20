@@ -9,7 +9,7 @@ import shutil
 from unittest.mock import patch, MagicMock
 from jinja2.filters import FILTERS
 from custom_scraper import copy_media_files
-from video_scraper import VideoScraper, purge_stray_videos
+from video_scraper import VideoScraper, purge_stray_outputs
 
 src_base_path = "../../src"
 
@@ -95,7 +95,10 @@ sphinx_gallery_conf = {
     # build-time rendered videos (cdfviewer --record) via VideoScraper
     'image_scrapers': ("matplotlib", copy_media_files, VideoScraper()),
     'reset_modules': ("matplotlib", apply_docs_mplstyle,
-                      purge_stray_videos),
+                      purge_stray_outputs),
+    # run the reset hooks after each example too, so purge_stray_outputs
+    # removes the byproducts (zarr stores, stray videos) it leaves behind
+    'reset_modules_order': 'both',
     'show_signature': False,
     "notebook_extensions": {},
     "default_thumb_file": "_static/fridom-title.png",

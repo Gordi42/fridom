@@ -35,22 +35,43 @@ GRID_ITEM_RST = """
 """
 
 
-def purge_stray_videos(gallery_conf, fname):
-    """Remove leftover videos before an example executes (reset hook).
+def purge_stray_outputs(gallery_conf, fname, when):
+    """Remove example byproducts around each execution (reset hook).
 
-    A previous manual run of the example (outside sphinx) leaves its
-    rendered videos next to the script. Without this hook the scraper
-    would sweep them at the example's FIRST block and embed every
-    video twice: once at the top, once at its proper block.
+    Runs before AND after every example (``reset_modules_order:
+    "both"``). Before: a previous manual run of the example (outside
+    sphinx) leaves its rendered videos next to the script, and without
+    this hook the scraper would sweep them at the example's FIRST
+    block and embed every video twice. After: zarr stores written by
+    the example's ``Writer`` (and any video the scraper did not move)
+    would otherwise litter the source tree once the build finishes.
+
+    sphinx-gallery passes ``fname`` as a bare filename with no
+    directory, so the example directories are resolved from the
+    gallery config instead. The purge must not recurse: the unported
+    old-stack examples keep committed pre-rendered media in
+    ``videos/`` subdirectories. It must not run per code block
+    either: an example writes its zarr store in one block and renders
+    it with cdfviewer in a later one.
     """
-    # sphinx-gallery also invokes reset hooks without a concrete
-    # example file (gallery setup/teardown); nothing to purge then
-    src_dir = os.path.dirname(fname) if fname else ""
-    if not src_dir or not os.path.isdir(src_dir):
-        return
-    for name in os.listdir(src_dir):
-        if name.endswith(VIDEO_EXTENSIONS):
-            os.remove(os.path.join(src_dir, name))
+    roots = gallery_conf["examples_dirs"]
+    if not isinstance(roots, list):
+        roots = [roots]
+    base = gallery_conf["src_dir"]
+    for root in roots:
+        if not os.path.isabs(root):
+            root = os.path.join(base, root)
+        if not os.path.isdir(root):
+            continue
+        subdirs = [entry.path for entry in os.scandir(root)
+                   if entry.is_dir()]
+        for gallery_dir in [root, *subdirs]:
+            for entry in os.scandir(gallery_dir):
+                if entry.is_file() and entry.name.endswith(
+                        VIDEO_EXTENSIONS):
+                    os.remove(entry.path)
+                elif entry.is_dir() and entry.name.endswith(".zarr"):
+                    shutil.rmtree(entry.path)
 
 
 class VideoScraper:

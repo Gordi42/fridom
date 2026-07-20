@@ -1,3 +1,18 @@
 video {
     max-width: 100%;
 }
+
+/* sphinx-gallery ships its own yellow-tinted palette for script output
+   cells and download buttons. Re-anchor those on the sphinx-book-theme
+   (pydata) variables so they match the ordinary code cells and follow
+   the light/dark theme switch automatically. */
+:root,
+html[data-theme="light"],
+html[data-theme="dark"] {
+    --sg-script-pre: var(--pst-color-surface);
+    --sg-download-a-background-color: var(--pst-color-surface);
+    --sg-download-a-background-image: none;
+    --sg-download-a-border-color: 1px solid var(--pst-color-border);
+    --sg-download-a-color: var(--pst-color-text-base);
+    --sg-download-a-hover-background-color: var(--pst-color-border);
+}
