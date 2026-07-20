@@ -80,7 +80,10 @@ from fridom.model.terms import Treatment
 from fridom.model.time_dependent import resolve_at
 from fridom.spatial.decomposition.halo import HaloSpec
 from fridom.spatial.fields.scalar_field import ScalarField
-from fridom.spatial.fields.vector_field import VectorField
+from fridom.spatial.fields.vector_field import (
+    VectorField,
+    rehome_component,
+)
 
 if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Callable, Iterator, Sequence
@@ -1716,9 +1719,12 @@ class Model:
     # ================================================================
     #  State factory (host; section 6.1)
     # ================================================================
-    def blank_state(self) -> VectorField:
+    def blank_state(
+        self,
+        **inits: Callable | np.ndarray | ScalarField | complex,
+    ) -> VectorField:
         r"""
-        Build a fresh PROGNOSTIC state at declared defaults.
+        Build a fresh PROGNOSTIC state, optionally initialized.
 
         Description
         -----------
@@ -1729,17 +1735,33 @@ class Model:
         table — one :meth:`state_space` + ``grid.create_field`` per
         PROGNOSTIC component, packed into the model's state class.
 
+        Per-component keywords initialize named components through
+        ``VectorField.set`` — a callable of the physical
+        coordinates, a space-checked field, a scalar, or a
+        true-shape array; every unnamed component stays zero:
+
+        .. code-block:: python
+
+            jet = model.blank_state(
+                u=lambda x, y: jnp.exp(-(y - 0.5) ** 2))
+
+        Parameters
+        ----------
+        **inits : Callable | np.ndarray | ScalarField | complex, optional
+            Initial values for PROGNOSTIC components, by name.
+
         Returns
         -------
         VectorField
-            A fresh state carrying the PROGNOSTIC components at their
-            zero defaults, in declaration order.
+            A fresh state carrying the PROGNOSTIC components, in
+            declaration order.
 
         Raises
         ------
         ValueError
             If this composition declares no PROGNOSTIC field (legal,
-            CS-13), so there is no state to build.
+            CS-13), so there is no state to build, or an ``inits``
+            name is not a PROGNOSTIC component.
         """
         table = self._artifacts.field_table
         names = table.prognostic
@@ -1747,9 +1769,17 @@ class Model:
             raise ValueError(
                 "this composition declares no PROGNOSTIC field "
                 "(legal, CS-13), so there is no blank state to build")
+        unknown = tuple(name for name in inits if name not in names)
+        if unknown:
+            raise ValueError(
+                f"blank_state: unknown or non-PROGNOSTIC field(s) "
+                f"{unknown}; the PROGNOSTIC components are "
+                f"{tuple(names)} (AUXILIARY writes go through "
+                "set_aux)")
         state_type = self._artifacts.record.state_type
-        return state_type(
+        state = state_type(
             {name: self._zero_field(table[name]) for name in names})
+        return state.set(**inits) if inits else state
 
     def state_space(self, name: str) -> TensorProductSpace:
         r"""
@@ -1806,31 +1836,13 @@ class Model:
 
         Description
         -----------
-        The sanctioned re-home is the true-shape re-pad
-        (``with_data`` routes through ``decomposition.pad`` + the
-        halo sync), never a bare ``device_put``; device-resident
-        fields stay on device (CS-8). The incumbent's metadata is
-        kept.
+        Thin delegation to the shared
+        :func:`fridom.spatial.fields.vector_field.rehome_component`
+        coercion (also behind ``VectorField.set``): the sanctioned
+        re-home is the true-shape re-pad, never a bare
+        ``device_put`` (CS-8); the incumbent's metadata is kept.
         """
-        if isinstance(value, ScalarField):
-            incoming = value.function_space.bare
-            declared = incumbent.function_space.bare
-            if incoming != declared:
-                raise ValueError(
-                    f"{label}: the incoming field lives on "
-                    f"{incoming!r}, but the declared component "
-                    f"space is {declared!r}")
-            return incumbent.with_data(value.data)
-        if callable(value):
-            built = self._grid.create_field(
-                incumbent.function_space, init=value)
-            return incumbent.with_data(built.data)
-        array = jnp.asarray(value)
-        if tuple(array.shape) != tuple(incumbent.shape):
-            raise ValueError(
-                f"{label}: expected the true shape "
-                f"{incumbent.shape}, got {tuple(array.shape)}")
-        return incumbent.with_data(array)
+        return rehome_component(incumbent, value, label=label)
 
     def set_fields(
         self,

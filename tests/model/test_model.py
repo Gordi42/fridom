@@ -465,6 +465,48 @@ def test_blank_state_no_prognostic_raises_cs13():
         model.blank_state()
 
 
+def test_blank_state_kwargs_initialize_named_components(model):
+    def profile(x):
+        return jnp.sin(x)
+
+    state = model.blank_state(u=profile)
+    direct = model.grid.create_field(model.state_space("u"),
+                                     init=profile)
+    assert np.allclose(np.asarray(state["u"].data),
+                       np.asarray(direct.data))
+    # unnamed components stay zero
+    assert (np.asarray(state["b"].data) == 0.0).all()
+
+
+def test_blank_state_kwargs_accept_fields_and_scalars(model):
+    incoming = model.grid.create_field(model.state_space("u"),
+                                       init=lambda x: x)
+    state = model.blank_state(u=incoming, b=1.5)
+    assert np.allclose(np.asarray(state["u"].data),
+                       np.asarray(incoming.data))
+    assert (np.asarray(state["b"].data) == 1.5).all()
+
+
+def test_blank_state_kwargs_space_checked(model):
+    wrong = model.grid.create_field(model.state_space("b"))
+    if (wrong.function_space.bare
+            == model.state_space("u").bare):  # pragma: no cover
+        pytest.skip("u and b share a space in this composition")
+    with pytest.raises(ValueError, match="declared component"):
+        model.blank_state(u=wrong)
+
+
+def test_blank_state_unknown_name_teaches(model):
+    with pytest.raises(ValueError, match="non-PROGNOSTIC"):
+        model.blank_state(w=1.0)
+    # AUXILIARY components are named but not settable here
+    aux = tuple(name for name in model.field_table.names
+                if name not in model.field_table.prognostic)
+    if aux:
+        with pytest.raises(ValueError, match="set_aux"):
+            model.blank_state(**{aux[0]: 1.0})
+
+
 def test_state_space_matches_field_table(model):
     for name in model.field_table.names:
         assert model.state_space(name) is model.field_table[name].space

@@ -313,6 +313,48 @@ class VectorField:
                                    strict=True)}
         return type(self)(updated)
 
+    def set(
+        self,
+        **values: Callable | jax.Array | ScalarField | complex,
+    ) -> Self:
+        """
+        Coerced functional update of named components.
+
+        Description
+        -----------
+        The user-facing sibling of :meth:`replace`: each value may
+        be a **callable** of the physical coordinates (discretized
+        on the incumbent component's own space through
+        ``grid.create_field(init=...)`` — the callable must name
+        exactly the space's non-constant coordinates), a
+        **ScalarField** (bare-space checked), a **scalar** (a
+        constant-valued component), or a **raw array** of the
+        component's true shape. The incumbent component's metadata
+        re-attaches (the :meth:`replace` path), untouched components
+        pass through unchanged, and the concrete state subclass is
+        preserved.
+
+        .. code-block:: python
+
+            jet = model.blank_state().set(
+                u=lambda x, y: jnp.exp(-(y - 0.5) ** 2))
+
+        Parameters
+        ----------
+        **values : Callable | jax.Array | ScalarField | complex
+            Per-component values, keyed by component name.
+
+        Returns
+        -------
+        Self
+            The updated collection; ``self`` is unchanged.
+        """
+        updated = {
+            name: rehome_component(self[name], value,
+                                   label=f"set({name!r})")
+            for name, value in values.items()}
+        return self.replace(**updated)
+
     def add(self, **contributions: ScalarField) -> Self:
         """
         Functional accumulate of named contributions.
@@ -525,6 +567,64 @@ def _is_0d_array(value: object) -> bool:
 def _is_scalar(value: object) -> bool:
     """Whether ``value`` enters componentwise arithmetic as scalar."""
     return isinstance(value, _SCALAR_TYPES) or _is_0d_array(value)
+
+
+def rehome_component(
+    incumbent: ScalarField,
+    value: Callable | jax.Array | ScalarField | complex,
+    *,
+    label: str,
+) -> ScalarField:
+    """
+    Re-home one incoming value onto a declared component.
+
+    Description
+    -----------
+    The single coercion behind ``VectorField.set``, ``Model._rehome``
+    and ``Model.blank_state(**inits)``. The sanctioned re-home is
+    the true-shape re-pad (``with_data`` routes through
+    ``decomposition.pad`` + the halo sync), never a bare
+    ``device_put``; device-resident fields stay on device (CS-8).
+    The incumbent's metadata is kept.
+
+    Parameters
+    ----------
+    incumbent : ScalarField
+        The declared component (space, layout and metadata source).
+    value : Callable | jax.Array | ScalarField | complex
+        A coordinate callable, a space-checked field, a Python
+        scalar (constant fill), or a true-shape array.
+    label : str
+        The calling surface, for the error messages.
+
+    Returns
+    -------
+    ScalarField
+        The incumbent carrying the incoming values.
+    """
+    if isinstance(value, ScalarField):
+        incoming = value.function_space.bare
+        declared = incumbent.function_space.bare
+        if incoming != declared:
+            raise ValueError(
+                f"{label}: the incoming field lives on "
+                f"{incoming!r}, but the declared component "
+                f"space is {declared!r}")
+        return incumbent.with_data(value.data)
+    if callable(value):
+        built = incumbent.grid.create_field(
+            incumbent.function_space, init=value)
+        return incumbent.with_data(built.data)
+    if isinstance(value, _SCALAR_TYPES) and not isinstance(
+            value, bool):
+        return incumbent.with_data(
+            jnp.full(incumbent.shape, value))
+    array = jnp.asarray(value)
+    if tuple(array.shape) != tuple(incumbent.shape):
+        raise ValueError(
+            f"{label}: expected the true shape "
+            f"{incumbent.shape}, got {tuple(array.shape)}")
+    return incumbent.with_data(array)
 
 
 def _keep_metadata(
