@@ -2,6 +2,15 @@ video {
     max-width: 100%;
 }
 
+/* sphinx-gallery hardcodes a "Go to the end to download ..." note at
+   the top of every example and offers each example both as .py and as
+   .zip; neither is configurable, so hide the note and the redundant
+   zip link (the .py download link remains). */
+div.sphx-glr-download-link-note,
+div.sphx-glr-download-zip {
+    display: none;
+}
+
 /* sphinx-gallery ships its own yellow-tinted palette for script output
    cells and download buttons. Re-anchor those on the sphinx-book-theme
    (pydata) variables so they match the ordinary code cells and follow
