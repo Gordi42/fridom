@@ -62,12 +62,14 @@ from __future__ import annotations
 
 import copy
 from collections.abc import Mapping
-from typing import TYPE_CHECKING
+from types import MappingProxyType
+from typing import TYPE_CHECKING, ClassVar
 
 import jax.numpy as jnp
 import numpy as np
 
 import fridom as fr
+from fridom.model._eigenbasis import _resolve_mode_family
 from fridom.model.eigenstates import (
     assemble_operator_matrix,
     assemble_walled_operator_matrix,
@@ -253,6 +255,14 @@ class Eigenmodes:
         model ``family="nodal"`` for the point-value C-grid instead
         (default: None).
     """
+
+    #: the labeled family vocabulary (name -> branch integer); the
+    #: uniform user surface shared with the channel tier
+    families: ClassVar[Mapping[str, int]] = MappingProxyType(
+        {"vortical": 0, "wave+": 1, "wave-": -1})
+
+    #: no engine-artifact families on the analytic tier
+    nonphysical_families: ClassVar[tuple[str, ...]] = ()
 
     def __init__(
         self, grid: Grid, *, f0: float, n2: float, dsqr: float,
@@ -862,9 +872,10 @@ class Eigenmodes:
     # ================================================================
     def mode(
         self,
-        s: int,
+        family: str,
         indices: Mapping[str, int],
         *,
+        branch: int | None = None,
         phase: float = 0.0,
     ) -> tuple[float, State]:
         r"""
@@ -872,7 +883,14 @@ class Eigenmodes:
 
         Description
         -----------
-        The mode-indexed accessor of the analytic eigenmodes:
+        The mode-indexed accessor, uniform across the eigenmode
+        tiers: ``family`` is a labeled name of :attr:`families` —
+        ``"vortical"`` (the geostrophic branch), ``"wave+"`` /
+        ``"wave-"`` (the inertia-gravity pair; equivalently the
+        unsigned root ``"wave"`` with ``branch=+1/-1``) — so the
+        same call selects modes whether the eigenmodes are the
+        analytic trigonometric modes or the numerically computed
+        channel modes.
         ``indices`` is an axis-keyed mapping of integer mode
         indices (e.g. ``{"x": 3, "y": 0, "z": 2}``) — the
         half-spectrum axis runs ``0..n//2``, full-spectrum axes
@@ -896,10 +914,14 @@ class Eigenmodes:
 
         Parameters
         ----------
-        s : int
-            The mode branch: 0, +1 or -1.
+        family : str
+            A labeled family name (:attr:`families`), signed or
+            unsigned.
         indices : Mapping[str, int]
             Axis-keyed integer mode indices, one per grid axis.
+        branch : int | None, optional
+            The signed branch (+1 / -1) of an unsigned family root
+            (default: None).
         phase : float, optional
             The mode phase shift (default: 0.0).
 
@@ -911,12 +933,33 @@ class Eigenmodes:
         Raises
         ------
         ValueError
-            On bad indices, or a structurally unrepresented mode
-            (e.g. a wave branch on a vortical-only stratum: the
-            ``k_h = 0`` columns, the walled barotropic ``m = 0``
-            and buoyancy-top ``m = n`` strata, the doubly
-            degenerate Nyquist strata).
+            On unknown families, a Kelvin request (boundary-trapped
+            modes need horizontal walls), bad indices, or a
+            structurally unrepresented mode (e.g. a wave branch on
+            a vortical-only stratum: the ``k_h = 0`` columns, the
+            walled barotropic ``m = 0`` and buoyancy-top ``m = n``
+            strata, the doubly degenerate Nyquist strata).
         """
+        if isinstance(family, str) and family.startswith("kelvin"):
+            raise ValueError(
+                "no horizontal walls, no Kelvin family: Kelvin "
+                "modes are boundary-trapped, and the analytic "
+                "eigenmodes carry only 'vortical' and "
+                "'wave+'/'wave-'. Build the model on a "
+                "horizontally walled channel; nh.eigenbasis then "
+                "resolves the labeled channel modes")
+        name = _resolve_mode_family(self, family, branch)
+        return self._mode_branch(
+            self.families[name], indices, phase=phase)
+
+    def _mode_branch(
+        self,
+        s: int,
+        indices: Mapping[str, int],
+        *,
+        phase: float = 0.0,
+    ) -> tuple[float, State]:
+        """Synthesize one mode of the integer branch ``s``."""
         components = ("u", "v", "w", "b")
         q = self.q(s)
         slots = {c: coefficient_index(q[c].function_space, indices)
@@ -926,7 +969,7 @@ class Eigenmodes:
         if (s != 0 and slots["w"] is None) or all(
                 float(jnp.abs(a)) == 0.0 for a in amps.values()):
             raise ValueError(
-                f"mode s={s} at {dict(indices)!r} is structurally "
+                f"the branch-{s} mode at {dict(indices)!r} is structurally "
                 "unrepresented on the discrete lattice (wave "
                 "branches vanish at k_h = 0, outside the vertical "
                 "w strata, and on the doubly degenerate Nyquist "
@@ -1167,100 +1210,45 @@ def _bounded_names(grid: Grid) -> tuple[str, ...]:
 
 def eigenbasis(
     model: Model, *, at_time: float = 0.0,
-) -> ChannelEigenmodes:
+) -> Eigenmodes | ChannelEigenmodes:
     r"""
-    Build the labeled numeric eigenbasis of a channel model.
+    Build the eigenmode basis of an assembled nonhydro model.
 
     Description
     -----------
-    The user surface of the dense-column channel engine: returns the
+    **The** eigenmode entry point, dispatching on the grid topology
+    so the caller never sees which engine serves it: a fully
+    periodic or walled-**vertical** (rigid-lid) grid gets the
+    analytic operator-sourced :class:`Eigenmodes` (the
+    trigonometric vertical basis survives rigid lids — rotation
+    acts about the vertical), a grid with exactly one bounded
+    **horizontal** axis the numeric
     :class:`~fridom.nonhydro2.channel_eigenmodes.ChannelEigenmodes`
-    of a model with exactly one bounded **horizontal** axis (the
-    rotating stratified channel — the walls the rotation couples to,
-    where no trigonometric basis exists) — ``eb.omega`` / ``eb.q``
-    / ``eb.labels`` per ``(kx, kz)`` mode plane, the ``families``
-    vocabulary (the physical vortical / kelvin / wave families plus
-    the non-physical ``constraint`` divergence-complement), the
-    segment ``slices``, and ``eb.projector(sel)`` for family /
-    predicate projections on physical states. Works on the beta
-    plane (coefficients may vary along the bounded axis).
+    (the labeled dense-column channel eigenbasis, beta-plane
+    included — the walls the rotation couples to, where no
+    trigonometric basis exists). Both tiers expose the uniform
+    surface — the ``families`` vocabulary and ``mode(family,
+    indices, *, branch=None, phase=0.0)`` — plus their
+    engine-specific accessors. A multi-walled box has no periodic
+    axis left to diagonalize over and is rejected.
 
-    A fully periodic grid and a walled-**vertical** grid both carry
-    analytic eigenmodes (the trigonometric vertical basis survives
-    rigid lids — rotation acts about the vertical); the taught
-    errors point at :func:`from_model`. A multi-walled box has no
-    periodic axis left to diagonalize over and is rejected.
+    On the analytic path ``coriolis.f0``, ``stratification.n2``
+    and ``nonhydro.dsqr`` are read from ``model.parameters`` with
+    the constancy check — a ``BetaPlaneCoriolis`` model does not
+    provide ``coriolis.f0`` and is rejected (not
+    Fourier-diagonalizable). The eigenmodes are a
+    fixed-``at_time`` snapshot — a time-dependent parameter is
+    frozen at that instant (default 0.0) and the modes do not
+    evolve with the run (TDF-D6, a deliberately time-frozen
+    analysis surface).
 
     Parameters
     ----------
     model : Model
-        The assembled nonhydrostatic channel model.
-    at_time : float, optional
-        The clock time at which to freeze time-dependent parameters
-        (default: 0.0).
-
-    Returns
-    -------
-    ChannelEigenmodes
-        The labeled channel eigenmodes.
-
-    Raises
-    ------
-    ValueError
-        On a fully periodic, walled-vertical or multi-walled grid.
-    """
-    bounded = _bounded_names(model.grid)
-    if not bounded:
-        raise ValueError(
-            "nh.eigenbasis is the numeric labeled eigenbasis of the "
-            "horizontally walled channel; this grid is fully "
-            "periodic — use the analytic eigenmodes instead "
-            "(nh.eigenmodes.from_model(model)) and the "
-            "nh.transforms projections")
-    if len(bounded) > 1:
-        raise ValueError(
-            "nh.eigenbasis serves the single-walled channel; this "
-            f"grid bounds {bounded!r} — a multi-walled box has no "
-            "periodic axis left to diagonalize over")
-    if bounded[0] == "z":
-        raise ValueError(
-            "nh.eigenbasis serves walls on a horizontal axis (where "
-            "rotation obstructs the trigonometric basis); the "
-            "walled-vertical (rigid-lid) grid keeps analytic "
-            "eigenmodes — use nh.eigenmodes.from_model(model) and "
-            "the nh.transforms projections")
-    return ChannelEigenmodes(model, at_time=at_time)
-
-
-def from_model(
-    model: Model, *, at_time: float = 0.0,
-) -> Eigenmodes | ChannelEigenmodes:
-    """Build the eigenmodes of an assembled nonhydro model (D2.4).
-
-    Description
-    -----------
-    Dispatches on the grid topology. A fully periodic or
-    walled-**vertical** (rigid-lid) grid gets the analytic
-    operator-sourced :class:`Eigenmodes`: ``coriolis.f0``,
-    ``stratification.n2`` and ``nonhydro.dsqr`` are read from
-    ``model.parameters`` with the constancy check — a
-    ``BetaPlaneCoriolis`` model does not provide ``coriolis.f0`` and
-    is rejected (not Fourier-diagonalizable); Ramp-valued parameters
-    are evaluated at ``at_time``. The eigenmodes are a fixed-``at_time``
-    snapshot — a time-dependent parameter is frozen at that instant
-    (default 0.0) and the modes do not evolve with the run (TDF-D6, a
-    deliberately time-frozen analysis surface). A grid with exactly one
-    bounded **horizontal** axis gets the numeric
-    :class:`~fridom.nonhydro2.channel_eigenmodes.ChannelEigenmodes`
-    (the labeled dense-column channel eigenbasis, beta-plane
-    included). A multi-walled box is rejected.
-
-    Parameters
-    ----------
-    model : fr.model.Model
         An assembled nonhydrostatic model.
     at_time : float, optional
-        Evaluation time for time-dependent parameters (default: 0.0).
+        Evaluation time for time-dependent parameters
+        (default: 0.0).
 
     Returns
     -------
@@ -1268,6 +1256,15 @@ def from_model(
         The analytic eigenmodes (fully periodic / walled vertical)
         or the labeled channel eigenmodes (one bounded horizontal
         axis).
+
+    Raises
+    ------
+    ValueError
+        On a multi-walled grid, or — on the analytic path — a
+        non-constant parameter.
+    NotImplementedError
+        On an immersed (cut-cell) grid (IP-D8: the masked spectrum
+        is designed-for).
     """
     if getattr(model.grid, "immersed", None) is not None:
         raise NotImplementedError(
@@ -1309,6 +1306,32 @@ def from_model(
         n2=_read(fr.model.params.STRATIFICATION_N2),
         dsqr=_read(DSQR),
         family=_model_family(model))
+
+
+def from_model(
+    model: Model, *, at_time: float = 0.0,
+) -> Eigenmodes | ChannelEigenmodes:
+    r"""
+    Build the eigenmodes of a model (historical entry).
+
+    Description
+    -----------
+    Thin delegation to :func:`eigenbasis`, the single topology-
+    dispatching entry point; kept for existing callers.
+
+    Parameters
+    ----------
+    model : Model
+        An assembled nonhydrostatic model.
+    at_time : float, optional
+        Parameter snapshot time (default: 0.0).
+
+    Returns
+    -------
+    Eigenmodes | ChannelEigenmodes
+        The topology-matched eigenmode basis.
+    """
+    return eigenbasis(model, at_time=at_time)
 
 
 def _model_family(model: Model) -> str:

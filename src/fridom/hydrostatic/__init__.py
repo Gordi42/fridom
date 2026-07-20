@@ -40,6 +40,7 @@ if TYPE_CHECKING:  # pragma: no cover
         transforms,
     )
     from .comparison import comparison_model
+    from .eigenmodes import eigenbasis
     from .initial_conditions import jet, single_wave
     from .model import Model
     from .modules.core import HydrostaticCore
@@ -61,6 +62,7 @@ all_modules_by_origin = {
 }
 
 all_imports_by_origin = {
+    f"{base}.eigenmodes": ["eigenbasis"],
     f"{base}.initial_conditions": ["single_wave", "jet"],
     f"{base}.comparison": ["comparison_model"],
     f"{base}.model": ["Model"],

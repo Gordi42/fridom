@@ -45,12 +45,14 @@ along ``+k``; shallow water carries no constraint stage).
 from __future__ import annotations
 
 import copy
-from typing import TYPE_CHECKING
+from types import MappingProxyType
+from typing import TYPE_CHECKING, ClassVar
 
 import jax.numpy as jnp
 import numpy as np
 
 import fridom as fr
+from fridom.model._eigenbasis import _resolve_mode_family
 from fridom.model.eigenstates import (
     assemble_operator_matrix,
     coefficient_index,
@@ -107,6 +109,14 @@ class Eigenmodes:
     csqr : float
         The (constant) squared gravity-wave phase speed.
     """
+
+    #: the labeled family vocabulary (name -> branch integer); the
+    #: uniform user surface shared with the channel tier
+    families: ClassVar[Mapping[str, int]] = MappingProxyType(
+        {"vortical": 0, "wave+": 1, "wave-": -1})
+
+    #: no engine-artifact families on the analytic tier
+    nonphysical_families: ClassVar[tuple[str, ...]] = ()
 
     def __init__(self, grid: Grid, *, f0: float, csqr: float) -> None:
         """Build the symbol kit and the per-axis operator diagonals."""
@@ -533,9 +543,10 @@ class Eigenmodes:
     # ================================================================
     def mode(
         self,
-        s: int,
+        family: str,
         indices: Mapping[str, int],
         *,
+        branch: int | None = None,
         phase: float = 0.0,
     ) -> tuple[float, State]:
         r"""
@@ -543,7 +554,14 @@ class Eigenmodes:
 
         Description
         -----------
-        The mode-indexed accessor of the analytic eigenmodes:
+        The mode-indexed accessor, uniform across the eigenmode
+        tiers: ``family`` is a labeled name of :attr:`families` —
+        ``"vortical"`` (the geostrophic branch), ``"wave+"`` /
+        ``"wave-"`` (the inertia-gravity pair; equivalently the
+        unsigned root ``"wave"`` with ``branch=+1/-1``) — so the
+        same call selects modes whether the eigenmodes are the
+        analytic Fourier modes of a fully periodic grid or the
+        numerically computed channel modes.
         ``indices`` is an axis-keyed mapping of integer wavenumber
         indices (e.g. ``{"x": 3, "y": 0}``) — the half-spectrum
         axis runs ``0..n//2``, full-spectrum axes take any integer
@@ -564,11 +582,15 @@ class Eigenmodes:
 
         Parameters
         ----------
-        s : int
-            The mode branch: 0, +1 or -1.
+        family : str
+            A labeled family name (:attr:`families`), signed or
+            unsigned.
         indices : Mapping[str, int]
             Axis-keyed integer wavenumber indices, one per grid
             axis.
+        branch : int | None, optional
+            The signed branch (+1 / -1) of an unsigned family root
+            (default: None).
         phase : float, optional
             The mode phase shift (default: 0.0).
 
@@ -580,11 +602,32 @@ class Eigenmodes:
         Raises
         ------
         ValueError
-            On bad indices, or a structurally unrepresented mode
-            (only on degenerate-parameter systems, e.g. the
-            ``f_0 = 0`` geostrophic mean: the standard family is
-            complete, Nyquist strata included).
+            On unknown families, a Kelvin request (boundary-trapped
+            modes need walls), bad indices, or a structurally
+            unrepresented mode (only on degenerate-parameter
+            systems, e.g. the ``f_0 = 0`` geostrophic mean: the
+            standard family is complete, Nyquist strata included).
         """
+        if isinstance(family, str) and family.startswith("kelvin"):
+            raise ValueError(
+                "no walls, no Kelvin family: Kelvin modes are "
+                "boundary-trapped, and the fully periodic "
+                "eigenmodes carry only 'vortical' and "
+                "'wave+'/'wave-'. Build the model on a channel "
+                "grid (exactly one bounded axis); sw.eigenbasis "
+                "then resolves the labeled channel modes")
+        name = _resolve_mode_family(self, family, branch)
+        return self._mode_branch(
+            self.families[name], indices, phase=phase)
+
+    def _mode_branch(
+        self,
+        s: int,
+        indices: Mapping[str, int],
+        *,
+        phase: float = 0.0,
+    ) -> tuple[float, State]:
+        """Synthesize one mode of the integer branch ``s``."""
         components = ("u", "v", "p")
         q = self.q(s)
         slots = {c: coefficient_index(q[c].function_space, indices)
@@ -592,7 +635,7 @@ class Eigenmodes:
         amps = {c: q[c].data[slots[c]] for c in components}
         if all(float(jnp.abs(a)) == 0.0 for a in amps.values()):
             raise ValueError(
-                f"mode s={s} at {dict(indices)!r} is structurally "
+                f"the branch-{s} mode at {dict(indices)!r} is structurally "
                 "unrepresented on the discrete lattice (the mode "
                 "family is complete on the standard f0 != 0, "
                 "csqr != 0 system; degenerate parameters drop "
@@ -804,85 +847,30 @@ def _reject_immersed(model: Model) -> None:
 
 def eigenbasis(
     model: Model, *, at_time: float = 0.0,
-) -> ChannelEigenmodes:
-    r"""
-    Build the labeled numeric eigenbasis of a channel model.
-
-    Description
-    -----------
-    The user surface of the dense-column channel engine: returns the
-    :class:`~fridom.shallowwater2.channel_eigenmodes.ChannelEigenmodes`
-    of a model with exactly one bounded (walled) axis — ``eb.omega``
-    / ``eb.q`` / ``eb.labels`` per ``rfft`` plane, the ``families``
-    vocabulary, the segment ``slices``, and ``eb.projector(sel)``
-    for family / predicate projections on physical states. Works on
-    the beta plane (coefficients may vary along the bounded axis).
-
-    A fully periodic grid has no numeric channel basis — its
-    eigenmodes are analytic; the taught error points at
-    :func:`from_model` and the ``sw.transforms`` projections. A
-    multi-walled box has no periodic axis left to diagonalize over
-    and is rejected the same way :func:`from_model` rejects it.
-
-    Parameters
-    ----------
-    model : Model
-        The assembled shallow-water channel model.
-    at_time : float, optional
-        The clock time at which to freeze time-dependent parameters
-        (default: 0.0).
-
-    Returns
-    -------
-    ChannelEigenmodes
-        The labeled channel eigenmodes.
-
-    Raises
-    ------
-    ValueError
-        On a fully periodic or multi-walled grid.
-    LinearOperatorGapError
-        If a module declares a linear-operator gap (see
-        :func:`from_model`).
-    """
-    _reject_immersed(model)
-    fr.model.require_linear_operator(
-        model, consumer="sw.eigenbasis")
-    bounded = _bounded_names(model.grid)
-    if not bounded:
-        raise ValueError(
-            "sw.eigenbasis is the numeric labeled eigenbasis of the "
-            "walled channel; this grid is fully periodic — use the "
-            "analytic eigenmodes instead "
-            "(sw.eigenmodes.from_model(model)) and the "
-            "sw.transforms projections")
-    if len(bounded) > 1:
-        raise ValueError(
-            "sw.eigenbasis serves the single-walled channel; this "
-            f"grid bounds {bounded!r} — a multi-walled box has no "
-            "periodic axis left to diagonalize over")
-    return ChannelEigenmodes(model, at_time=at_time)
-
-
-def from_model(
-    model: Model, *, at_time: float = 0.0,
 ) -> Eigenmodes | ChannelEigenmodes:
     r"""
-    Build the eigenmodes of an assembled shallow-water model.
+    Build the eigenmode basis of an assembled shallow-water model.
 
     Description
     -----------
-    Dispatches on the grid topology. A fully periodic grid gets the
-    analytic operator-sourced :class:`Eigenmodes`; the parameters
-    are read through ``model.parameters`` with structural
-    validation — a beta-plane core provides no ``coriolis.f0`` (its
-    ``f`` is a field, not Fourier-diagonalizable) and raises here.
-    A grid with exactly one bounded (walled) axis gets the numeric
+    **The** eigenmode entry point, dispatching on the grid topology
+    so the caller never sees which engine serves it: a fully
+    periodic grid gets the analytic operator-sourced
+    :class:`Eigenmodes` (Fourier modes), a grid with exactly one
+    bounded (walled) axis the numeric
     :class:`~fridom.shallowwater2.channel_eigenmodes.ChannelEigenmodes`
     (the labeled dense-column channel eigenbasis, beta-plane
-    included). A multi-walled box has no periodic axis left to
-    diagonalize over and is rejected. Ramp-valued parameters demand
-    an explicit ``at_time`` (a fixed-time snapshot).
+    included). Both tiers expose the uniform surface — the
+    ``families`` vocabulary and ``mode(family, indices, *,
+    branch=None, phase=0.0)`` — plus their engine-specific
+    accessors. A multi-walled box has no periodic axis left to
+    diagonalize over and is rejected.
+
+    On the fully periodic path the parameters are read through
+    ``model.parameters`` with structural validation — a beta-plane
+    core provides no ``coriolis.f0`` (its ``f`` is a field, not
+    Fourier-diagonalizable) and raises here. Ramp-valued parameters
+    demand an explicit ``at_time`` (a fixed-time snapshot).
 
     Parameters
     ----------
@@ -906,17 +894,18 @@ def from_model(
         (a non-constant-coefficient system).
     LinearOperatorGapError
         If a module declares a linear-operator gap — a conserving
-        (route-B) Coriolis module carries its rotation in a nonlinear
-        term, so ``L`` would describe a non-rotating system and its
-        eigenmodes would be wrong, not merely inaccurate.
+        (route-B) Coriolis module carries its rotation in a
+        nonlinear term, so ``L`` would describe a non-rotating
+        system and its eigenmodes would be wrong, not merely
+        inaccurate.
     """
     _reject_immersed(model)
     fr.model.require_linear_operator(
-        model, consumer="sw.eigenmodes.from_model")
+        model, consumer="sw.eigenbasis")
     bounded = _bounded_names(model.grid)
     if len(bounded) > 1:
         raise ValueError(
-            "shallow-water eigenmodes serve the fully periodic grid "
+            "sw.eigenbasis serves the fully periodic grid "
             "(analytic) or the single-walled channel (numeric); "
             f"this grid bounds {bounded!r} — a multi-walled box has "
             "no periodic axis left to diagonalize over")
@@ -941,3 +930,29 @@ def from_model(
     f0 = resolve_at(view[fr.model.params.CORIOLIS_F0], at_time)
     csqr = resolve_at(view[sw_params.CSQR], at_time)
     return Eigenmodes(model.grid, f0=f0, csqr=csqr)
+
+
+def from_model(
+    model: Model, *, at_time: float = 0.0,
+) -> Eigenmodes | ChannelEigenmodes:
+    r"""
+    Build the eigenmodes of a model (historical entry).
+
+    Description
+    -----------
+    Thin delegation to :func:`eigenbasis`, the single topology-
+    dispatching entry point; kept for existing callers.
+
+    Parameters
+    ----------
+    model : Model
+        The assembled shallow-water model.
+    at_time : float, optional
+        Parameter snapshot time (default: 0.0).
+
+    Returns
+    -------
+    Eigenmodes | ChannelEigenmodes
+        The topology-matched eigenmode basis.
+    """
+    return eigenbasis(model, at_time=at_time)

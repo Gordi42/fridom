@@ -271,11 +271,12 @@ def wave_setup():
 
 def test_single_wave_phase_rotates_in_the_linear_model(wave_setup):
     model, em = wave_setup
-    omega, z0 = sw.single_wave(em, {"x": 2, "y": 1}, s=1, phase=0.3)
+    omega, z0 = sw.single_wave(em, {"x": 2, "y": 1}, "wave+",
+                               phase=0.3)
     model.set_state(z0)
     steps = 20
     model.advance(steps)
-    _, zt = sw.single_wave(em, {"x": 2, "y": 1}, s=1,
+    _, zt = sw.single_wave(em, {"x": 2, "y": 1}, "wave+",
                            phase=0.3 + omega * steps * 1e-3)
     moved = max(
         float(np.abs(np.asarray(zt[c].data)
@@ -291,9 +292,10 @@ def test_single_wave_phase_rotates_in_the_linear_model(wave_setup):
 
 def test_single_wave_is_the_mode_accessor(wave_setup):
     model, em = wave_setup
-    omega, z = sw.single_wave(model, {"x": 3, "y": 2}, s=-1,
+    omega, z = sw.single_wave(model, {"x": 3, "y": 2}, "wave",
+                              branch=-1,
                               phase=0.7)
-    omega_em, z_em = em.mode(-1, {"x": 3, "y": 2}, phase=0.7)
+    omega_em, z_em = em.mode("wave-", {"x": 3, "y": 2}, phase=0.7)
     assert omega == omega_em
     assert _same(z, z_em)
 
@@ -460,8 +462,8 @@ def test_single_wave_on_a_sharded_grid_is_device_invariant(
         assert jax.device_count() == forced_devices
     many, one = _sharded_pair(None)
     k = {"x": 3, "y": 2}
-    om_many, z_many = sw.single_wave(many, k, s=1, phase=0.4)
-    om_one, z_one = sw.single_wave(one, k, s=1, phase=0.4)
+    om_many, z_many = sw.single_wave(many, k, "wave+", phase=0.4)
+    om_one, z_one = sw.single_wave(one, k, "wave+", phase=0.4)
     assert om_many == om_one
     assert z_many["u"]._data.sharding.spec[0] == "devices"
     assert all(not np.iscomplexobj(np.asarray(z_many[c].data))

@@ -424,20 +424,23 @@ def _reject_immersed(model: Model) -> None:
             "plan §7); drop the immersed domain for these diagnostics.")
 
 
-def from_model(
+def eigenbasis(
     model: Model, *, at_time: float = 0.0, chunk: int | None = None,
 ) -> HydrostaticEigenmodes:
     r"""
-    Build the numeric eigenmodes of an assembled hydrostatic model.
+    Build the eigenmode basis of an assembled hydrostatic model.
 
     Description
     -----------
-    The ``hy.eigenmodes.from_model`` surface: refuses a model whose
-    modules declare a ``linear_operator_gap`` (the implicit / rigid-lid
-    free surface — ``require_linear_operator``) before probing, then
-    builds the labeled :class:`HydrostaticEigenmodes`. The engine
-    requires exactly one bounded axis (the vertical); a differently
-    bounded grid raises the engine's own taught error.
+    **The** eigenmode entry point (uniform across the model
+    packages): refuses a model whose modules declare a
+    ``linear_operator_gap`` (the implicit / rigid-lid free surface —
+    ``require_linear_operator``) before probing, then builds the
+    labeled :class:`HydrostaticEigenmodes` (the hydrostatic grid is
+    always the singly-bounded vertical column, so there is no
+    topology dispatch here). The result carries the uniform surface
+    — the ``families`` vocabulary and ``mode(family, indices, *,
+    branch=None, phase=0.0)``.
 
     Parameters
     ----------
@@ -461,5 +464,33 @@ def from_model(
     ValueError
         On a grid that is not singly bounded (the engine's gate).
     """
-    require_linear_operator(model, consumer="hy.eigenmodes.from_model")
+    require_linear_operator(model, consumer="hy.eigenbasis")
     return HydrostaticEigenmodes(model, at_time=at_time, chunk=chunk)
+
+
+def from_model(
+    model: Model, *, at_time: float = 0.0, chunk: int | None = None,
+) -> HydrostaticEigenmodes:
+    r"""
+    Build the eigenmodes of a model (historical entry).
+
+    Description
+    -----------
+    Thin delegation to :func:`eigenbasis`, the uniform entry point;
+    kept for existing callers.
+
+    Parameters
+    ----------
+    model : Model
+        An assembled explicit hydrostatic model.
+    at_time : float, optional
+        Parameter snapshot time (default: 0.0).
+    chunk : int | None, optional
+        Probe / eigensolve batch size (default: None).
+
+    Returns
+    -------
+    HydrostaticEigenmodes
+        The labeled hydrostatic eigenmodes.
+    """
+    return eigenbasis(model, at_time=at_time, chunk=chunk)

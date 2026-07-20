@@ -363,8 +363,9 @@ def _invert_laplacian(grid: Grid, field: ScalarField) -> ScalarField:
 def single_wave(
     source: Model | Eigenmodes | ChannelEigenmodes,
     k: Mapping[str, int],
-    s: int = 1,
+    family: str = "wave+",
     *,
+    branch: int | None = None,
     phase: float = 0.0,
     at_time: float = 0.0,
 ) -> tuple[float, State]:
@@ -374,15 +375,16 @@ def single_wave(
     Description
     -----------
     The thin wrapper over the analytic mode accessor
-    ``em.mode(s, k, phase=...)``: the real Hermitian-closed physical
-    mode :math:`\mathrm{Re}(q^s(k)\,e^{i(k\cdot x - \mathrm{phase})})`
+    ``em.mode(family, k, phase=...)``: the real Hermitian-closed
+    physical mode
+    :math:`\mathrm{Re}(q^s(k)\,e^{i(k\cdot x - \mathrm{phase})})`
     with exact discrete dispersion, normalized so the largest
     horizontal-velocity envelope is one. Under the linear model the
     state at time :math:`t` is the same mode at phase
     ``phase + omega * t``, so positive ``omega`` propagates along
-    ``+k``: ``s = +1`` is the positive-frequency branch, moving
-    with the wavevector (eastward for positive ``kx``), ``s = -1``
-    the mirror branch.
+    ``+k``: ``"wave+"`` is the positive-frequency branch, moving
+    with the wavevector (eastward for positive ``kx``), ``"wave-"``
+    the mirror branch, ``"vortical"`` the geostrophic one.
 
     Parameters
     ----------
@@ -392,9 +394,13 @@ def single_wave(
         Axis-keyed integer wavenumber indices (e.g.
         ``{"x": 3, "y": 0}``); a wavenumber of one is a wave with
         one wavelength across the domain.
-    s : int, optional
-        The mode branch: 0 (geostrophic), +1 or -1
-        (inertia-gravity) (default: 1).
+    family : str, optional
+        The labeled mode family: ``"vortical"``, ``"wave+"`` /
+        ``"wave-"``, or the unsigned root ``"wave"`` with
+        ``branch=`` (default: "wave+").
+    branch : int | None, optional
+        The signed branch (+1 / -1) of an unsigned family root
+        (default: None).
     phase : float, optional
         The mode phase shift (default: 0.0).
     at_time : float, optional
@@ -414,7 +420,7 @@ def single_wave(
         unrepresented mode.
     """
     em = _analytic(source, "single_wave", at_time)
-    return em.mode(s, k, phase=phase)
+    return em.mode(family, k, branch=branch, phase=phase)
 
 
 # ================================================================
@@ -444,8 +450,8 @@ def jet(
     sampled on ``u``'s own staggered nodes, projected onto the
     geostrophic (vortical) subspace when ``geo_proj`` is set and
     normalized so the largest horizontal velocity is one; on top a
-    geostrophic single-mode perturbation ``em.mode(0, {x: wavenum,
-    y: 0})`` scaled by ``waveamp``.
+    geostrophic single-mode perturbation ``em.mode("vortical",
+    {x: wavenum, y: 0})`` scaled by ``waveamp``.
 
     Parameters
     ----------
@@ -490,7 +496,7 @@ def jet(
         z = VorticalProjection(em)(z)
     z = State(normalize_max_component(
         dict(z.components), ("u", "v")))
-    _, wave = em.mode(0, {x: wavenum, y: 0})
+    _, wave = em.mode("vortical", {x: wavenum, y: 0})
     return z + waveamp * wave
 
 

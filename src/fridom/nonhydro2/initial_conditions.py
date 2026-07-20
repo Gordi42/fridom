@@ -53,7 +53,10 @@ from typing import TYPE_CHECKING
 
 import jax.numpy as jnp
 
-from fridom.model._eigenbasis import channel_random_state
+from fridom.model._eigenbasis import (
+    _resolve_mode_family,
+    channel_random_state,
+)
 from fridom.model.eigenstates import (
     geostrophic_energy_spectrum as geostrophic_energy_spectrum,  # noqa: PLC0414 — re-export
 )
@@ -373,8 +376,9 @@ def _sample(
 def single_wave(
     source: Model | Eigenmodes | ChannelEigenmodes,
     k: Mapping[str, int],
-    s: int = 1,
+    family: str = "wave+",
     *,
+    branch: int | None = None,
     phase: float = 0.0,
     at_time: float = 0.0,
 ) -> tuple[float, State]:
@@ -384,16 +388,18 @@ def single_wave(
     Description
     -----------
     The thin wrapper over the analytic mode accessor
-    ``em.mode(s, k, phase=...)``: the real Hermitian-closed physical
-    mode :math:`\mathrm{Re}(q^s(k)\,e^{i(k\cdot x - \mathrm{phase})})`
+    ``em.mode(family, k, phase=...)``: the real Hermitian-closed
+    physical mode
+    :math:`\mathrm{Re}(q^s(k)\,e^{i(k\cdot x - \mathrm{phase})})`
     with exact discrete dispersion, normalized so the largest
     horizontal-velocity envelope is one. Under the linear model the
     state at time :math:`t` is the same mode at phase
     ``phase + omega * t``, so positive ``omega`` propagates along
-    ``+k``: ``s = +1`` is the positive-frequency branch, moving
-    with the wavevector (eastward for positive ``kx``), ``s = -1``
-    the mirror branch. On a walled vertical the ``z`` index is
-    the physical vertical mode on the ``0..n`` union lattice.
+    ``+k``: ``"wave+"`` is the positive-frequency branch, moving
+    with the wavevector (eastward for positive ``kx``), ``"wave-"``
+    the mirror branch, ``"vortical"`` the geostrophic one. On a
+    walled vertical the ``z`` index is the physical vertical mode
+    on the ``0..n`` union lattice.
 
     Parameters
     ----------
@@ -403,9 +409,13 @@ def single_wave(
         Axis-keyed integer wavenumber indices (e.g.
         ``{"x": 3, "y": 0, "z": 2}``); a wavenumber of one is a
         wave with one wavelength across the domain.
-    s : int, optional
-        The mode branch: 0 (geostrophic), +1 or -1
-        (inertia-gravity) (default: 1).
+    family : str, optional
+        The labeled mode family: ``"vortical"``, ``"wave+"`` /
+        ``"wave-"``, or the unsigned root ``"wave"`` with
+        ``branch=`` (default: "wave+").
+    branch : int | None, optional
+        The signed branch (+1 / -1) of an unsigned family root
+        (default: None).
     phase : float, optional
         The mode phase shift (default: 0.0).
     at_time : float, optional
@@ -425,7 +435,7 @@ def single_wave(
         unrepresented mode.
     """
     em = _analytic(source, "single_wave", at_time)
-    return em.mode(s, k, phase=phase)
+    return em.mode(family, k, branch=branch, phase=phase)
 
 
 def kelvin_wave(
@@ -497,8 +507,9 @@ def kelvin_wave(
 def wave_package(
     source: Model | Eigenmodes | ChannelEigenmodes,
     k: Mapping[str, int],
-    s: int = 1,
+    family: str = "wave+",
     *,
+    branch: int | None = None,
     mask_pos: Mapping[str, float],
     mask_width: Mapping[str, float],
     phase: float = 0.0,
@@ -518,9 +529,9 @@ def wave_package(
 
     over the coordinates named in ``mask_pos`` / ``mask_width``
     (constant along the others), sampled at each component's own
-    staggered nodes, and re-projected onto the mode branch ``s`` so
-    the package stays polarized. The returned frequency is the
-    carrier mode's.
+    staggered nodes, and re-projected onto the carrier's mode
+    family so the package stays polarized. The returned frequency
+    is the carrier mode's.
 
     Parameters
     ----------
@@ -528,8 +539,13 @@ def wave_package(
         The assembled model or an analytic eigenmodes object.
     k : Mapping[str, int]
         Axis-keyed integer wavenumber indices of the carrier.
-    s : int, optional
-        The mode branch: 0, +1 or -1 (default: 1).
+    family : str, optional
+        The carrier's labeled mode family: ``"vortical"``,
+        ``"wave+"`` / ``"wave-"``, or the unsigned root ``"wave"``
+        with ``branch=`` (default: "wave+").
+    branch : int | None, optional
+        The signed branch (+1 / -1) of an unsigned family root
+        (default: None).
     mask_pos : Mapping[str, float]
         Envelope centres, keyed by coordinate name; unnamed axes
         are unmasked.
@@ -565,13 +581,15 @@ def wave_package(
             f"the wave-package envelope names the coordinate(s) "
             f"{unknown}, which the grid does not have "
             f"(coordinates: {em.grid.names})")
-    omega, z = em.mode(s, k, phase=phase)
+    omega, z = em.mode(family, k, branch=branch, phase=phase)
+    name = _resolve_mode_family(em, family, branch)
     masked = {}
     for c in _COMPONENTS:
         mask = sample_gaussian_mask(
             em.grid, z[c].function_space, mask_pos, mask_width)
         masked[c] = z[c] * mask
-    return omega, mode_projection(em, s)(State(masked))
+    return omega, mode_projection(
+        em, em.families[name])(State(masked))
 
 
 # ================================================================
@@ -679,7 +697,8 @@ def jet(
             \cos\left(\frac{2\pi z}{L_z}\right)
 
     sampled on ``u``'s own staggered nodes, plus the geostrophic
-    single-mode perturbation ``em.mode(0, {x: k_p, y: 0, z: 0})``
+    single-mode perturbation ``em.mode("vortical",
+    {x: k_p, y: 0, z: 0})``
     scaled by ``pert_strength``; when ``geo_proj`` is set the summed
     state is projected onto the geostrophic (vortical) subspace.
     For very large jet strengths convective instabilities can occur.
@@ -728,7 +747,8 @@ def jet(
         "v": grid.create_field(em.physical_space("v"), name="v"),
         "w": grid.create_field(em.physical_space("w"), name="w"),
         "b": grid.create_field(em.physical_space("b"), name="b")})
-    _, pert = em.mode(0, {x: pert_wavenum, y: 0, _VERTICAL: 0})
+    _, pert = em.mode(
+        "vortical", {x: pert_wavenum, y: 0, _VERTICAL: 0})
     z = z + pert_strength * pert
     if geo_proj:
         z = VorticalProjection(em)(z)
