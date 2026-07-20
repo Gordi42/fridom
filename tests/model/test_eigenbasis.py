@@ -272,6 +272,8 @@ def test_mode_vortical_ordinals_follow_the_node_count(channel):
 
 def test_mode_error_paths(channel):
     _, em = channel
+    with pytest.raises(TypeError, match="family name"):
+        em.mode(1, {"x": 1, "y": 0})
     with pytest.raises(ValueError, match="unknown mode family"):
         em.mode("wave", {"x": 1, "y": 0})
     with pytest.raises(ValueError, match="signed family branch"):

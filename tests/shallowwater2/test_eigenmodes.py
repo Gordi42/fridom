@@ -26,6 +26,10 @@ from .conftest import N, make_grid, make_model
 
 COMPONENTS = ("u", "v", "p")
 
+#: integer branch -> uniform family-name spelling (the low-level
+#: q/omega surface stays integer-indexed; mode() takes families)
+FAMILY = {0: "vortical", 1: "wave+", -1: "wave-"}
+
 
 def _pinned_grid(n=N, *, periodic_x=True, periodic_y=True):
     # device_ids=(0,) keeps every axis local: the analytic eigenmode
@@ -356,8 +360,8 @@ def mode_setup():
 
 
 def _mode_pair(em, s, indices, phase=0.0):
-    omega, z0 = em.mode(s, indices, phase=phase)
-    _, z1 = em.mode(s, indices, phase=phase + np.pi / 2)
+    omega, z0 = em.mode(FAMILY[s], indices, phase=phase)
+    _, z1 = em.mode(FAMILY[s], indices, phase=phase + np.pi / 2)
     return omega, z0, z1
 
 
@@ -391,18 +395,18 @@ def test_mode_satisfies_the_strong_eigen_relation(
 
 def test_mode_frequency_matches_the_dispersion_diagonal(mode_setup):
     _, em = mode_setup
-    omega, _ = em.mode(1, {"x": 3, "y": 2})
+    omega, _ = em.mode("wave+", {"x": 3, "y": 2})
     table = np.broadcast_to(np.asarray(em.omega(1).data),
                             (N // 2 + 1, N))
     assert omega == pytest.approx(float(table[3, 2]), rel=1e-14)
     # the mean mode carries the inertial frequency f0
-    inertial, _ = em.mode(1, {"x": 0, "y": 0})
+    inertial, _ = em.mode("wave+", {"x": 0, "y": 0})
     assert inertial == pytest.approx(1.5)
 
 
 def test_mode_projection_keeps_and_annihilates(mode_setup):
     _, em = mode_setup
-    _, z = em.mode(1, {"x": 3, "y": 2})
+    _, z = em.mode("wave+", {"x": 3, "y": 2})
     kept = sw.transforms.mode_projection(em, 1)(z)
     assert _absmax_states(kept, z) < 1e-12
     for other in (0, -1):
@@ -432,7 +436,7 @@ def test_mode_normalization_and_realness(mode_setup):
     assert peak == pytest.approx(1.0, abs=1e-12)
     for c in COMPONENTS:
         assert not np.iscomplexobj(np.asarray(z0[c].data))
-    _, zpi = em.mode(1, {"x": 3, "y": 2}, phase=0.7 + np.pi)
+    _, zpi = em.mode("wave+", {"x": 3, "y": 2}, phase=0.7 + np.pi)
     assert _absmax_states(
         zpi, sw.State({c: -z0[c] for c in COMPONENTS})) < 1e-13
 
@@ -455,7 +459,7 @@ def test_mode_zero_velocity_mean_is_unnormalized(mode_setup):
     # the geostrophic k = 0 mean is the pure-pressure mode: no
     # horizontal velocity to normalize, the raw amplitude stays
     _, em = mode_setup
-    omega, z = em.mode(0, {"x": 0, "y": 0})
+    omega, z = em.mode("vortical", {"x": 0, "y": 0})
     assert omega == 0.0
     assert float(np.abs(np.asarray(z["u"].data)).max()) == 0.0
     assert float(np.abs(np.asarray(z["v"].data)).max()) == 0.0
@@ -470,11 +474,46 @@ def test_mode_errors(mode_setup):
     degenerate = sw.eigenmodes.Eigenmodes(_pinned_grid(), f0=0.0,
                                           csqr=1.0)
     with pytest.raises(ValueError, match="structurally"):
-        degenerate.mode(0, {"x": 0, "y": 0})
+        degenerate.mode("vortical", {"x": 0, "y": 0})
     with pytest.raises(ValueError, match="half"):
-        em.mode(1, {"x": -3, "y": 0})
+        em.mode("wave+", {"x": -3, "y": 0})
     with pytest.raises(ValueError, match="keyed by the grid axes"):
-        em.mode(1, {"x": 3})
+        em.mode("wave+", {"x": 3})
+
+
+def test_mode_uniform_family_surface(mode_setup):
+    _, em = mode_setup
+    # the vocabulary is public and matches the channel tier's shape
+    assert dict(em.families) == {"vortical": 0, "wave+": 1,
+                                 "wave-": -1}
+    assert em.nonphysical_families == ()
+    # the unsigned root + branch equals the signed spelling
+    ws, zs = em.mode("wave+", {"x": 3, "y": 2})
+    wb, zb = em.mode("wave", {"x": 3, "y": 2}, branch=+1)
+    assert ws == wb
+    for c in COMPONENTS:
+        assert np.array_equal(np.asarray(zs[c].data),
+                              np.asarray(zb[c].data))
+
+
+def test_mode_rejects_integer_branches(mode_setup):
+    _, em = mode_setup
+    with pytest.raises(TypeError, match="family name"):
+        em.mode(1, {"x": 3, "y": 2})
+    with pytest.raises(TypeError, match="family name"):
+        em.mode(0, {"x": 0, "y": 0})
+
+
+def test_mode_teaches_the_kelvin_gap(mode_setup):
+    _, em = mode_setup
+    with pytest.raises(ValueError, match="no walls, no Kelvin"):
+        em.mode("kelvin+", {"x": 2, "y": 0})
+
+
+def test_mode_rejects_unknown_families(mode_setup):
+    _, em = mode_setup
+    with pytest.raises(ValueError, match="unknown mode family"):
+        em.mode("rossby", {"x": 2, "y": 0})
 
 
 # ================================================================
@@ -525,12 +564,19 @@ def test_eigenbasis_returns_the_labeled_channel_eigenmodes():
     assert (np.asarray(eb.labels) != -1).all()
 
 
-def test_eigenbasis_rejects_a_fully_periodic_grid():
-    # the periodic eigenmodes are analytic; the taught error points
-    # at from_model and the sw.transforms projections
-    with pytest.raises(ValueError,
-                       match=r"fully periodic.*from_model"):
-        sw.eigenbasis(make_model())
+def test_eigenbasis_dispatches_the_fully_periodic_grid():
+    # the uniform entry point: a periodic grid gets the analytic
+    # eigenmodes (previously a rejection pointing at from_model)
+    em = sw.eigenbasis(make_model())
+    assert isinstance(em, sw.eigenmodes.Eigenmodes)
+
+
+def test_from_model_is_a_thin_alias_of_eigenbasis():
+    model = make_model()
+    assert isinstance(sw.eigenmodes.from_model(model),
+                      sw.eigenmodes.Eigenmodes)
+    assert isinstance(sw.eigenmodes.from_model(_walled_model()),
+                      sw.ChannelEigenmodes)
 
 
 def test_eigenbasis_rejects_a_multi_walled_box():

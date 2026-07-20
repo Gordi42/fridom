@@ -195,11 +195,11 @@ def _absmax(a, b):
 def test_single_wave_phase_rotates_in_the_linear_model(periodic):
     model, em = periodic
     k = {"x": 2, "y": 1, "z": 1}
-    omega, z0 = nh.single_wave(em, k, s=1, phase=0.3)
+    omega, z0 = nh.single_wave(em, k, "wave+", phase=0.3)
     model.set_state(z0)
     steps = 20
     model.advance(steps)
-    _, zt = nh.single_wave(em, k, s=1,
+    _, zt = nh.single_wave(em, k, "wave+",
                            phase=0.3 + omega * steps * DT)
     assert _absmax(zt, z0) > 0.01
     assert _absmax(model.state, zt) < 1e-4
@@ -208,8 +208,8 @@ def test_single_wave_phase_rotates_in_the_linear_model(periodic):
 def test_single_wave_is_the_mode_accessor(periodic, walled):
     model, em = periodic
     omega, z = nh.single_wave(model, {"x": 2, "y": 1, "z": 1},
-                              s=-1, phase=0.7)
-    omega_em, z_em = em.mode(-1, {"x": 2, "y": 1, "z": 1},
+                              "wave-", phase=0.7)
+    omega_em, z_em = em.mode("wave-", {"x": 2, "y": 1, "z": 1},
                              phase=0.7)
     assert omega == omega_em
     assert _same(z, z_em)
@@ -257,7 +257,7 @@ def test_kelvin_wave_needs_walls(periodic):
 def test_wave_package_localizes_and_stays_wave_pure(periodic):
     _, em = periodic
     omega, z = nh.wave_package(
-        em, {"x": 2, "y": 0, "z": 1}, s=1,
+        em, {"x": 2, "y": 0, "z": 1}, "wave+",
         mask_pos={"x": np.pi}, mask_width={"x": 1.5})
     assert omega > 0.0
     # localized: the envelope suppresses the far side of the domain
@@ -448,8 +448,8 @@ def test_single_wave_on_a_sharded_grid_is_device_invariant(
     many = nh.eigenmodes.from_model(_periodic_model_at(None, n))
     one = nh.eigenmodes.from_model(_periodic_model_at((0,), n))
     k = {"x": 3, "y": 1, "z": 2}
-    om_many, z_many = nh.single_wave(many, k, s=1, phase=0.4)
-    om_one, z_one = nh.single_wave(one, k, s=1, phase=0.4)
+    om_many, z_many = nh.single_wave(many, k, "wave+", phase=0.4)
+    om_one, z_one = nh.single_wave(one, k, "wave+", phase=0.4)
     assert om_many == om_one
     assert z_many["u"]._data.sharding.spec[0] == "devices"
     assert all(not np.iscomplexobj(np.asarray(z_many[c].data))

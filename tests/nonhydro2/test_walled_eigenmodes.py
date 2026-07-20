@@ -49,6 +49,10 @@ LZ = 1.0
 DT = 0.02
 F0, N2, DSQR = 1.5, 3.0, 2.0
 COMPONENTS = ("u", "v", "w", "b")
+
+#: integer branch -> uniform family-name spelling (the low-level
+#: q/omega surface stays integer-indexed; mode() takes families)
+FAMILY = {0: "vortical", 1: "wave+", -1: "wave-"}
 WEIGHTS = {"u": 1.0, "v": 1.0, "w": DSQR, "b": 1.0 / N2}
 
 
@@ -412,8 +416,8 @@ def _mode_tendency_residual(walled, linearized, s, indices):
     """Return (omega, strong-test residual) for one single mode."""
     _, _, em = walled
     lin, prog, base0, constrain = linearized
-    omega, z0 = em.mode(s, indices)
-    _, z1 = em.mode(s, indices, phase=np.pi / 2)
+    omega, z0 = em.mode(FAMILY[s], indices)
+    _, z1 = em.mode(FAMILY[s], indices, phase=np.pi / 2)
     phys = base0.replace(**{
         c: base0[c].with_data(z0[c].data) for c in COMPONENTS})
     tau = lin.tendency(phys, t=0.0, constraints=False)
@@ -476,7 +480,7 @@ def test_nyquist_strata_satisfy_the_strong_eigen_relation(
 
 def test_mode_frequency_matches_the_dispersion_table(walled):
     _, _, em = walled
-    omega, z = em.mode(1, {"x": 2, "y": 1, "z": 3})
+    omega, z = em.mode("wave+", {"x": 2, "y": 1, "z": 3})
     table = np.broadcast_to(
         np.real(np.asarray(em.omega(1).data)),
         np.asarray(em.q(1)["w"].data).shape)
@@ -490,7 +494,7 @@ def test_mode_frequency_matches_the_dispersion_table(walled):
 
 def test_mode_projection_keeps_and_annihilates(walled):
     _, _, em = walled
-    _, z = em.mode(1, {"x": 2, "y": 1, "z": 3})
+    _, z = em.mode("wave+", {"x": 2, "y": 1, "z": 3})
     kept = nh.transforms.mode_projection(em, 1)(z)
     assert max(
         float(np.abs(np.asarray(kept[c].data)
@@ -507,7 +511,7 @@ def test_mode_absent_strata_carry_exact_zero_components(walled):
     # the barotropic stratum m = 0 exists only on u/v/p lattices:
     # the returned w and b components are exact zeros
     _, _, em = walled
-    _, z = em.mode(0, {"x": 2, "y": 1, "z": 0})
+    _, z = em.mode("vortical", {"x": 2, "y": 1, "z": 0})
     assert float(np.abs(np.asarray(z["w"].data)).max()) == 0.0
     assert float(np.abs(np.asarray(z["b"].data)).max()) == 0.0
     assert float(np.abs(np.asarray(z["u"].data)).max()) > 0.0
@@ -517,14 +521,14 @@ def test_mode_structural_errors_are_taught(walled):
     _, _, em = walled
     # wave branches carry no barotropic / buoyancy-top strata
     with pytest.raises(ValueError, match="structurally"):
-        em.mode(1, {"x": 2, "y": 1, "z": 0})
+        em.mode("wave+", {"x": 2, "y": 1, "z": 0})
     with pytest.raises(ValueError, match="structurally"):
-        em.mode(1, {"x": 2, "y": 1, "z": N})
+        em.mode("wave+", {"x": 2, "y": 1, "z": N})
     # ... and no k_h = 0 columns
     with pytest.raises(ValueError, match="structurally"):
-        em.mode(1, {"x": 0, "y": 0, "z": 3})
+        em.mode("wave+", {"x": 0, "y": 0, "z": 3})
     with pytest.raises(ValueError, match="union modes"):
-        em.mode(0, {"x": 2, "y": 1, "z": N + 1})
+        em.mode("vortical", {"x": 2, "y": 1, "z": N + 1})
 
 
 # ================================================================
@@ -802,8 +806,8 @@ def test_walled_fv_eigenbasis_is_bitwise_nodal():
     # the interior wave modes — are bitwise equal too (same coeffs,
     # same DST/DCT synthesis at the cell midpoints = the centers)
     for s, iz in ((1, 3), (-1, 2), (0, 0), (0, N), (0, N // 2)):
-        wn, zn = en.mode(s, {"x": 2, "y": 1, "z": iz})
-        wf, zf = ef.mode(s, {"x": 2, "y": 1, "z": iz})
+        wn, zn = en.mode(FAMILY[s], {"x": 2, "y": 1, "z": iz})
+        wf, zf = ef.mode(FAMILY[s], {"x": 2, "y": 1, "z": iz})
         assert wn == wf
         for c in COMPONENTS:
             assert np.array_equal(np.asarray(zn[c].data),
@@ -914,8 +918,8 @@ def test_walled_mode_is_device_count_invariant(forced_devices):
     em_many = nh.eigenmodes.from_model(_walled_model(None))
     em_one = nh.eigenmodes.from_model(_walled_model((0,)))
     for s in (0, 1, -1):
-        w_many, z_many = em_many.mode(s, {"x": 2, "y": 1, "z": 3})
-        w_one, z_one = em_one.mode(s, {"x": 2, "y": 1, "z": 3})
+        w_many, z_many = em_many.mode(FAMILY[s], {"x": 2, "y": 1, "z": 3})
+        w_one, z_one = em_one.mode(FAMILY[s], {"x": 2, "y": 1, "z": 3})
         assert abs(float(w_many) - float(w_one)) < 1e-12
         assert max(
             float(np.abs(np.asarray(z_many[c].data)

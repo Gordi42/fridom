@@ -125,7 +125,7 @@ def test_divergence_projection_annihilates_the_nyquist_strata():
     em = nh.eigenmodes.from_model(model)
     for indices in ({"x": N // 2, "y": 1, "z": 2},
                     {"x": N // 2, "y": 2, "z": N // 2}):
-        _, z = em.mode(0, indices)
+        _, z = em.mode("vortical", indices)
         kept = nh.transforms.VorticalProjection(em)(z)
         div = nh.transforms.DivergenceProjection(em)(z)
         scale = max(float(np.abs(np.asarray(z[c].data)).max())
@@ -482,21 +482,20 @@ def test_kelvin_projection_needs_horizontal_walls():
 
 
 def test_eigenbasis_topology_gates():
-    with pytest.raises(ValueError, match="fully periodic"):
-        nh.eigenbasis(_model())
-    # the analytic walled-vertical path is untouched by the dispatch:
-    # nh.eigenbasis rejects it (rotation about the vertical keeps the
-    # trigonometric basis, so it is analytic, not the numeric channel),
-    # and nh.eigenmodes.from_model serves it — on BOTH C-grid families
-    # since stage F5 (the FV kit mints its own BC-tagged CellAvg
-    # analysis spaces; the earlier taught gap is closed, see
-    # test_fv_default::test_walled_fv_eigenmodes_build).
+    # the uniform entry point dispatches instead of rejecting: a
+    # fully periodic grid and the walled-vertical rigid lid both get
+    # the analytic eigenmodes (rotation about the vertical keeps the
+    # trigonometric basis) — on BOTH C-grid families since stage F5
+    # (the FV kit mints its own BC-tagged CellAvg analysis spaces;
+    # see test_fv_default::test_walled_fv_eigenmodes_build).
+    assert isinstance(nh.eigenbasis(_model()),
+                      nh.eigenmodes.Eigenmodes)
     for family in ("nodal", "fv"):
         walled_z = make_channel_model(walled="z", family=family)
-        with pytest.raises(ValueError, match="walled-vertical"):
-            nh.eigenbasis(walled_z)
-        em = nh.eigenmodes.from_model(walled_z)
+        em = nh.eigenbasis(walled_z)
         assert isinstance(em, nh.eigenmodes.Eigenmodes)
+        assert isinstance(nh.eigenmodes.from_model(walled_z),
+                          nh.eigenmodes.Eigenmodes)
 
 
 def test_multiwalled_grids_are_rejected():

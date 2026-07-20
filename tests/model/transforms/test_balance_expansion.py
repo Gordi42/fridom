@@ -219,7 +219,7 @@ def test_nyquist_steady_strata_are_slow():
     # Nyquist-carrying state with a decreasing series residual
     model = make_sw_model()
     em = sw.eigenmodes.from_model(model)
-    _, z = em.mode(0, {"x": N // 2, "y": 3})
+    _, z = em.mode("vortical", {"x": N // 2, "y": 3})
     bal = BalanceExpansion(model, order=0, lint=False)
     assert absmax(bal(z), z) < 1e-12
     wave = sw.transforms.WaveProjection(em)(z)

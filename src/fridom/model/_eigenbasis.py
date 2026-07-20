@@ -32,7 +32,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from importlib import import_module
 from types import MappingProxyType
-from typing import TYPE_CHECKING, ClassVar
+from typing import TYPE_CHECKING, ClassVar, Protocol
 
 import jax
 import jax.numpy as jnp
@@ -64,6 +64,35 @@ if TYPE_CHECKING:  # pragma: no cover
     from fridom.model.transforms.base import StateTransform
     from fridom.spatial.fields.scalar_field import ScalarField
     from fridom.spatial.grid import Grid
+
+
+# ================================================================
+#  The uniform mode-family surface (both eigenmode tiers)
+# ================================================================
+class ModeFamilySurface(Protocol):
+
+    """
+    What a family-string ``mode`` accessor exposes (both tiers).
+
+    Description
+    -----------
+    The uniform user surface of the eigenmode engines: the analytic
+    (fully periodic) tiers and the numeric channel tiers both carry
+    the ``families`` name -> code vocabulary and resolve
+    ``mode(family, indices, *, branch=None, phase=0.0)`` requests
+    through :func:`_resolve_mode_family`, so the caller never sees
+    which engine the topology selected.
+    """
+
+    @property
+    def families(self) -> Mapping[str, int]:
+        """The labeled family vocabulary (name -> code)."""
+        ...  # pragma: no cover - protocol stub
+
+    @property
+    def nonphysical_families(self) -> tuple[str, ...]:
+        """Engine-artifact families excluded from selection."""
+        ...  # pragma: no cover - protocol stub
 
 
 # ================================================================
@@ -1067,11 +1096,19 @@ def _axis_cells(grid: Grid, name: str) -> int:
 
 
 def _resolve_mode_family(
-    em: ChannelEigenmodesBase,
+    em: ModeFamilySurface,
     family: str,
     branch: int | None,
 ) -> str:
     """Resolve a (family, branch) request to one labeled family."""
+    if not isinstance(family, str):
+        raise TypeError(
+            f"mode() selects by family name, got {family!r}: the "
+            "vocabulary is em.families — e.g. mode('vortical', "
+            "indices), mode('wave+', indices) or mode('wave', "
+            "indices, branch=+1). Integer branches survive only on "
+            "the low-level analytic q(s)/omega(s)/projector(s) "
+            "surface")
     name = family
     if branch is not None:
         if int(branch) not in (1, -1):

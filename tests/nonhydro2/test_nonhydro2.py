@@ -55,6 +55,10 @@ from fridom.spatial.spaces.nodal import NodeSet
 N = 8
 DT = 0.02
 
+#: integer branch -> uniform family-name spelling (the low-level
+#: q/omega surface stays integer-indexed; mode() takes families)
+FAMILY = {0: "vortical", 1: "wave+", -1: "wave-"}
+
 
 def make_grid(n=N, length=2 * np.pi):
     return Grid(tuple(
@@ -577,8 +581,8 @@ def test_nyquist_modes_satisfy_the_strong_eigen_relation(
     # d/dt state(phase) == omega * state(phase + pi/2) through the
     # linearized Leray-projected tendency, per Nyquist stratum
     _, em, lin, _prog, base0, _leray = nyquist_setup
-    omega, z0 = em.mode(s, indices)
-    _, z1 = em.mode(s, indices, phase=np.pi / 2)
+    omega, z0 = em.mode(FAMILY[s], indices)
+    _, z1 = em.mode(FAMILY[s], indices, phase=np.pi / 2)
     phys = base0.replace(**{
         c: base0[c].with_data(z0[c].data) for c in "uvwb"})
     tau = lin.tendency(phys, t=0.0, constraints=True)
@@ -671,10 +675,10 @@ def test_doubly_degenerate_wave_modes_are_taught_errors(
     # content lives in the vortical family instead
     _, em, *_ = nyquist_setup
     with pytest.raises(ValueError, match="structurally"):
-        em.mode(1, {"x": N // 2, "y": 1, "z": N // 2})
+        em.mode("wave+", {"x": N // 2, "y": 1, "z": N // 2})
     # ... while the vortical accessor exposes the primary
     # (divergence-free) stratum there
-    omega, _ = em.mode(0, {"x": N // 2, "y": 1, "z": N // 2})
+    omega, _ = em.mode("vortical", {"x": N // 2, "y": 1, "z": N // 2})
     assert omega == 0.0
 
 
@@ -1278,3 +1282,35 @@ def test_derived_width_matches_forced_width_two_bitwise():
     md = max(float(np.max(np.abs(derived[c] - forced[c])))
              for c in ("u", "v", "w", "b"))
     assert md == 0.0  # the narrowing is bit-transparent on the spectral path
+
+
+# ================================================================
+#  The uniform eigenbasis surface (family-string mode; entry point)
+# ================================================================
+def test_eigenbasis_dispatches_the_fully_periodic_grid():
+    model = nh.Model(coriolis=fplane(), grid=make_grid(), dt=DT,
+                     advection=False)
+    em = nh.eigenbasis(model)
+    assert isinstance(em, nh.eigenmodes.Eigenmodes)
+    assert isinstance(nh.eigenmodes.from_model(model),
+                      nh.eigenmodes.Eigenmodes)
+
+
+def test_mode_uniform_family_surface():
+    model = nh.Model(coriolis=fplane(), grid=make_grid(), dt=DT,
+                     advection=False)
+    em = nh.eigenbasis(model)
+    assert dict(em.families) == {"vortical": 0, "wave+": 1,
+                                 "wave-": -1}
+    assert em.nonphysical_families == ()
+    idx = {"x": 2, "y": 1, "z": 1}
+    ws, zs = em.mode("wave-", idx)
+    wb, zb = em.mode("wave", idx, branch=-1)
+    assert ws == wb
+    for c in ("u", "v", "w", "b"):
+        assert np.array_equal(np.asarray(zs[c].data),
+                              np.asarray(zb[c].data))
+    with pytest.raises(TypeError, match="family name"):
+        em.mode(1, idx)
+    with pytest.raises(ValueError, match="no horizontal walls"):
+        em.mode("kelvin+", idx)

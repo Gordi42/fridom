@@ -57,7 +57,7 @@ def make_model(maker, walled=()):
 # ================================================================
 def test_geostrophic_branch_is_rejected():
     with pytest.raises(ValueError, match="must be \\+1 or -1"):
-        make_maker(s=0)
+        make_maker(branch=0)
 
 
 def test_position_and_width_must_share_keys():
@@ -168,7 +168,7 @@ def test_frequency_matches_the_analytic_eigenmodes():
     maker = make_maker()
     model = make_model(maker)
     modes = nh.eigenmodes.from_model(model)
-    omega, _ = modes.mode(1, K)
+    omega, _ = modes.mode("wave+", K)
     assert maker.frequency == pytest.approx(omega, rel=1e-12)
 
 

@@ -132,8 +132,9 @@ class PolarizedWaveMaker(fr.model.Module):
         Width of the Gaussian envelope; same keys as ``position``.
     amplitude : float | fr.model.Ramp, optional
         The forcing amplitude :math:`A` (default: 1.0).
-    s : int, optional
-        The inertia-gravity branch, +1 or -1 (default: 1).
+    branch : int, optional
+        The inertia-gravity branch, +1 or -1 (the ``"wave+"`` /
+        ``"wave-"`` families) (default: 1).
     vertical : str, optional
         The vertical coordinate name (default: "z").
     """
@@ -145,15 +146,15 @@ class PolarizedWaveMaker(fr.model.Module):
         width: Mapping[str, float],
         *,
         amplitude: float | fr.model.Ramp = 1.0,
-        s: int = 1,
+        branch: int = 1,
         vertical: str = "z",
     ) -> None:
         """Store the amplitude leaf; freeze the packet structure."""
-        if s not in (1, -1):
+        if branch not in (1, -1):
             raise ValueError(
                 f"the wave maker oscillates an inertia-gravity "
-                f"packet: s must be +1 or -1, got {s} (the s = 0 "
-                "geostrophic branch is steady — force it with a "
+                f"packet: branch must be +1 or -1, got {branch} "
+                "(the vortical branch is steady — force it with a "
                 "stationary module instead)")
         position = dict(position)
         width = dict(width)
@@ -166,7 +167,7 @@ class PolarizedWaveMaker(fr.model.Module):
         self._k: dict[str, int] = dict(k)
         self._position: dict[str, float] = position
         self._width: dict[str, float] = width
-        self._s: int = s
+        self._branch: int = branch
         self._vertical: str = vertical
         self.amplitude = fr.model.leaf(amplitude)
         # bind precomputes the frequency and the packet data arrays
@@ -311,7 +312,8 @@ class PolarizedWaveMaker(fr.model.Module):
             n2=float(n2),
             dsqr=float(dsqr),
             vertical=self._vertical)
-        omega, wave = modes.mode(self._s, self._k)
+        omega, wave = modes.mode(
+            "wave", self._k, branch=self._branch)
 
         # mask each component at its own nodes, re-project onto the
         # branch, and keep the doubled real packet (the v1
@@ -322,7 +324,7 @@ class PolarizedWaveMaker(fr.model.Module):
                     grid, wave[name].function_space,
                     self._position, self._width))
             for name in _COMPONENTS})
-        packet = modes.projector(self._s)(masked)
+        packet = modes.projector(self._branch)(masked)
         self._sources = {
             name: 2.0 * jnp.asarray(
                 modes.kit.backward(name)(packet[name]).real.data)
