@@ -1,6 +1,7 @@
 """Tests for fridom.spatial.fields.vector_field."""
 import jax
 import jax.numpy as jnp
+import numpy as np
 import pytest
 
 from fridom.spatial.errors import (
@@ -193,6 +194,74 @@ def test_replace(vec, u):
     assert jnp.allclose(shifted["u"].data, u.data + 1.0)
     with pytest.raises(KeyError, match="no components named"):
         vec.replace(w=u)
+
+
+# ================================================================
+#  set (the coerced functional update)
+# ================================================================
+def test_set_accepts_a_matching_field(vec, u):
+    out = vec.set(u=u + 2.0)
+    assert jnp.allclose(out["u"].data, u.data + 2.0)
+    assert out["v"] is vec["v"]
+
+
+def test_set_rejects_a_space_mismatched_field(vec, v):
+    with pytest.raises(ValueError, match="declared component space"):
+        vec.set(u=v)
+
+
+def test_set_accepts_a_coordinate_callable(vec, grid, mx, my):
+    out = vec.set(u=lambda x, y: jnp.sin(x) + 0.0 * y)
+    direct = grid.create_field(mx.right * my.center,
+                               init=lambda x, y: jnp.sin(x) + 0.0 * y)
+    assert jnp.allclose(out["u"].data, direct.data)
+    # the callable samples each component's OWN space
+    out2 = vec.set(v=lambda x, y: jnp.cos(y) + 0.0 * x)
+    direct2 = grid.create_field(mx.center * my.right,
+                                init=lambda x, y: jnp.cos(y) + 0.0 * x)
+    assert jnp.allclose(out2["v"].data, direct2.data)
+
+
+def test_set_callable_with_wrong_names_teaches(vec):
+    with pytest.raises(TypeError, match="name exactly"):
+        vec.set(u=lambda x: x)
+
+
+def test_set_accepts_a_scalar_fill(vec):
+    out = vec.set(u=2.5)
+    data = np.asarray(out["u"].data)
+    assert (data == 2.5).all()
+
+
+def test_set_accepts_a_true_shape_array(vec, u):
+    out = vec.set(u=np.full(u.shape, 3.0))
+    assert (np.asarray(out["u"].data) == 3.0).all()
+    with pytest.raises(ValueError, match="true shape"):
+        vec.set(u=np.zeros((3, 3)))
+
+
+def test_set_unknown_component_teaches(vec):
+    with pytest.raises(MissingComponentError):
+        vec.set(w=1.0)
+
+
+def test_set_keeps_incumbent_metadata(vec, grid, mx, my):
+    other = grid.create_field(mx.right * my.center, name="bogus",
+                              units="K")
+    out = vec.set(u=other)
+    assert out["u"].name == "u"
+    assert out["u"].metadata.units == "m/s"
+
+
+def test_set_preserves_the_subclass_and_treedef(vec):
+    class Tagged(VectorField):
+        pass
+
+    tagged = Tagged(dict(vec.components))
+    out = tagged.set(u=1.0)
+    assert type(out) is Tagged
+    assert (jax.tree_util.tree_structure(out)
+            == jax.tree_util.tree_structure(tagged))
 
 
 # ================================================================
