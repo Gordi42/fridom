@@ -14,6 +14,7 @@ from fridom.model.results import (
     RunResult,
     RunStatus,
     RunTargetError,
+    _fmt_duration,
 )
 
 
@@ -65,6 +66,49 @@ def test_run_result_is_frozen():
         steps_per_second=10.0)
     with pytest.raises(dataclasses.FrozenInstanceError):
         result.status = RunStatus.COMPLETED
+
+
+# ================================================================
+#  Duration formatting / repr
+# ================================================================
+@pytest.mark.parametrize(("seconds", "expected"), [
+    pytest.param(0.2843997, "284 ms", id="milliseconds"),
+    pytest.param(8.42e-5, "0.0842 ms", id="sub-millisecond"),
+    pytest.param(0.0, "0 ms", id="zero"),
+    pytest.param(47.5233250, "47.52 s", id="seconds"),
+    pytest.param(120.0000000002, "0:02:00", id="minutes"),
+    pytest.param(5025.0, "1:23:45", id="hours"),
+    pytest.param(2 * 86400 + 3 * 3600, "2 d 3:00:00", id="days"),
+    pytest.param(-47.5233250, "-47.52 s", id="negative"),
+    pytest.param(float("nan"), "nan s", id="nan"),
+    pytest.param(float("inf"), "inf s", id="inf"),
+])
+def test_fmt_duration(seconds, expected):
+    assert _fmt_duration(seconds) == expected
+
+
+def test_run_result_repr_is_a_compact_one_liner():
+    result = RunResult(
+        status=RunStatus.COMPLETED, steps_done=11520, final_it=11520,
+        final_time=120.00000000001964,
+        compile_seconds=0.2843997199088335,
+        run_seconds=47.523325093556195,
+        steps_per_second=242.4072805789851)
+    assert repr(result) == (
+        "RunResult(completed, steps=11520, it=11520, time=0:02:00, "
+        "compile=284 ms, run=47.52 s, 242.4 steps/s)")
+    assert "\n" not in repr(result)
+    assert "RunStatus." not in repr(result)
+
+
+def test_run_result_repr_slow_rate_keeps_significance():
+    result = RunResult(
+        status=RunStatus.NAN_ABORT, steps_done=3, final_it=3,
+        final_time=0.03, compile_seconds=1.0, run_seconds=6.0,
+        steps_per_second=0.512345)
+    text = repr(result)
+    assert "nan_abort" in text
+    assert "0.512 steps/s" in text
 
 
 # ================================================================
