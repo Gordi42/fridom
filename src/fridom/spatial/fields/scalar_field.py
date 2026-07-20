@@ -803,6 +803,78 @@ class ScalarField:
             return integral  # all-constant: identity
         return integral.with_data(integral.data / total)
 
+    def max(self, *names: str) -> ScalarField:
+        """
+        Maximum over the named factors, landing in ConstantSpace.
+
+        Description
+        -----------
+        Thin forwarder to the seeded ``("amax", factor)`` rows: the
+        un-weighted extremum of the factor's true DOFs (halo /
+        padding / BC-claimed rows are excluded through the measure's
+        positivity mask). No names reduces every factor; reductions
+        along ``ConstantSpace`` factors are the identity. The result
+        broadcasts back via ``ConstantSpace`` (rules section 3.3),
+        so ``f / f.max()`` stays in the strict algebra;
+        ``f.max().item()`` reads the host scalar. Complex fields
+        carry no order — reduce ``abs(f)`` first.
+
+        Parameters
+        ----------
+        *names : str
+            The coordinate names to reduce (default: all).
+
+        Returns
+        -------
+        ScalarField
+            The maximum on the reduced space (default metadata).
+        """
+        return self._extremum("amax", names)
+
+    def min(self, *names: str) -> ScalarField:
+        """
+        Minimum over the named factors, landing in ConstantSpace.
+
+        Description
+        -----------
+        The mirror of :meth:`max` on the seeded ``("amin", factor)``
+        rows; everything said there applies.
+
+        Parameters
+        ----------
+        *names : str
+            The coordinate names to reduce (default: all).
+
+        Returns
+        -------
+        ScalarField
+            The minimum on the reduced space (default metadata).
+        """
+        return self._extremum("amin", names)
+
+    def _extremum(
+        self, kind: str, names: tuple[str, ...],
+    ) -> ScalarField:
+        """Shared max/min forwarder (see :meth:`max`)."""
+        if jnp.iscomplexobj(self.data):
+            raise TypeError(
+                "complex values carry no order; reduce the modulus "
+                f"instead (abs(f).{kind[1:]}(...))")
+        space = self._function_space.bare
+        result = self
+        for name in _reduction_names(space, names):
+            factor = space.factor(name)
+            if isinstance(factor, ConstantSpace):
+                continue  # identity reduction (section 3.13)
+            if isinstance(factor, CoefficientSpace):
+                raise DispatchError(
+                    f"no ('{kind}', coefficient factor) dispatch "
+                    f"entry for {factor!r}: an extremum is an order "
+                    "statistic of nodal values; transform back "
+                    "first")
+            result = Dispatched(kind)[name](result)
+        return result
+
     def item(self) -> complex | float:
         """
         Return the single value of a one-DOF field (host scalar).
