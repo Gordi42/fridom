@@ -20,8 +20,51 @@ hold). Scripts and SLURM drivers branch on ``RunResult.status`` —
 #    RunTargetError
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from enum import Enum
+
+
+# ================================================================
+#  Duration formatting
+# ================================================================
+def _fmt_duration(seconds: float) -> str:
+    """
+    Format a duration in seconds for human eyes.
+
+    Description
+    -----------
+    Picks the unit by magnitude: milliseconds below one second
+    (``284 ms``), seconds with four significant digits below one
+    minute (``47.52 s``), ``h:mm:ss`` below one day (``1:23:45``),
+    and a day prefix above (``2 d 3:00:00``). Negative durations
+    keep a leading sign; non-finite values fall back to a plain
+    seconds rendering (``nan s``).
+
+    Parameters
+    ----------
+    seconds : float
+        The duration in seconds.
+
+    Returns
+    -------
+    str
+        The humanized duration.
+    """
+    if not math.isfinite(seconds):
+        return f"{seconds:.4g} s"
+    sign = "-" if seconds < 0 else ""
+    seconds = abs(seconds)
+    if seconds < 1:
+        return f"{sign}{seconds * 1e3:.3g} ms"
+    if seconds < 60:  # noqa: PLR2004 — seconds per minute
+        return f"{sign}{seconds:.4g} s"
+    whole = round(seconds)
+    hours, rest = divmod(whole, 3600)
+    minutes, secs = divmod(rest, 60)
+    days, hours = divmod(hours, 24)
+    day = f"{days} d " if days else ""
+    return f"{sign}{day}{hours}:{minutes:02d}:{secs:02d}"
 
 
 # ================================================================
@@ -119,6 +162,38 @@ class RunResult:
     compile_seconds: float
     run_seconds: float
     steps_per_second: float
+
+    # ================================================================
+    #  Introspection
+    # ================================================================
+    def __repr__(self) -> str:
+        """
+        Compact one-line summary.
+
+        Description
+        -----------
+        Notebooks and the example gallery show a bare
+        ``model.run(...)`` result, so the repr stays one readable
+        line: the status value, the integer counters, humanized
+        durations, and the throughput —
+        ``RunResult(completed, steps=11520, it=11520, time=0:02:00,
+        compile=284 ms, run=47.52 s, 242.4 steps/s)``.
+
+        Returns
+        -------
+        str
+            The one-line summary.
+        """
+        rate = self.steps_per_second
+        rate_str = (f"{rate:.1f}" if rate >= 10  # noqa: PLR2004
+                    else f"{rate:.3g}")  # one decimal reads best
+        return (
+            f"RunResult({self.status.value}, "
+            f"steps={self.steps_done}, it={self.final_it}, "
+            f"time={_fmt_duration(self.final_time)}, "
+            f"compile={_fmt_duration(self.compile_seconds)}, "
+            f"run={_fmt_duration(self.run_seconds)}, "
+            f"{rate_str} steps/s)")
 
 
 # ================================================================
