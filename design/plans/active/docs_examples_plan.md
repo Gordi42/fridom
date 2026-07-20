@@ -93,6 +93,13 @@ Two consequences worth keeping here:
 - **Upstream fix from the pilot** — staggered coordinate names no longer
   leak into user plotting; examples now plot and animate on plain `x` /
   `y` (`477b80bc`).
+- **Build hygiene** (2026-07-20) — `purge_stray_outputs` reset hook
+  (`reset_modules_order: "both"`) removes zarr stores and stray videos
+  around each executed example, so byproducts never linger in
+  `examples/`; `make clean` now preserves the gallery `.md5` cache
+  (`make clean-all` for a full re-execute); sphinx-gallery's yellow
+  output-cell and download-button palette re-anchored on the
+  sphinx-book-theme variables (`_static/css/custom.css`).
 - **Phase 3, equatorial_waves** (merged 2026-07-20) — rewritten on the
   shallowwater2 numeric eigenbasis (`sw.eigenbasis`), rendered via
   CDFViewer/zarr; LFS figure + videos dropped (`1db28aaf`).
