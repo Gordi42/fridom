@@ -32,6 +32,13 @@ interpolate = Dispatched("interpolate")
 #: (the default ``Integral`` rows land in Wave 3)
 integrate = Dispatched("integrate")
 
+#: maximum-reduction verb: resolves ``("amax", factor)`` — the
+#: un-weighted extremum of a factor's true DOFs (``f.max`` sugar)
+amax = Dispatched("amax")
+
+#: minimum-reduction verb: resolves ``("amin", factor)``
+amin = Dispatched("amin")
+
 #: running-integral verb: resolves ``("cumint", factor)`` — the
 #: staggered partial integral along a bounded axis (stage H1). The
 #: seeded ``CumulativeIntegral`` rows land the bottom-up face form;

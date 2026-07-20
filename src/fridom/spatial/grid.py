@@ -81,6 +81,7 @@ from fridom.spatial.operators.composed import (
     RaiseIndex,
 )
 from fridom.spatial.operators.cumulative import CumulativeIntegral
+from fridom.spatial.operators.extremum import Maximum, Minimum
 from fridom.spatial.operators.finite_difference import (
     FiniteDifference,
 )
@@ -2477,7 +2478,10 @@ def _default_registry(
     ``merge({})`` (the iteration-1 assembly moment; module override
     merging happens later through ``grid.merge_overrides``);
     ``("integrate", nodal/average/tagged)`` -> one shared
-    ``Integral()``; ``("cumint", Center/CellAvg)`` -> one shared
+    ``Integral()``; ``("amax"/"amin", nodal/average/tagged)`` -> the
+    shared ``Maximum()`` / ``Minimum()`` extremum reductions (real
+    variants only — complex values carry no order);
+    ``("cumint", Center/CellAvg)`` -> one shared
     ``CumulativeIntegral()`` (the running-integral rows, stage H1,
     on the center-valued integrand families only);
     the elementwise ``multiply``/``divide``/``power``/``select``/
@@ -2544,6 +2548,8 @@ def _default_registry(
     fv_derivative = FVDerivative()
     integral = Integral(jacobian=jacobian)
     cumint = CumulativeIntegral(jacobian=jacobian)
+    maximum = Maximum()
+    minimum = Minimum()
     multiply = CollocationProduct()
     divide = Divide()
     power = Power()
@@ -2601,6 +2607,9 @@ def _default_registry(
             entries, nodal + average + tagged + tagged_avg,
             fv_derivative,
             (integral, multiply, divide, power, select, abs_op))
+        _seed_extremum_rows(
+            entries, nodal + average + tagged + tagged_avg,
+            maximum, minimum)
         _seed_cumint_rows(entries, mesh, cumint)
         _seed_boundary_rows(entries, nodal + average + tagged,
                             boundary_ops)
@@ -3094,6 +3103,39 @@ def _seed_elementwise_rows(
             entries[("power", variant)] = power
             entries[("select", variant)] = select
             entries[("abs", variant)] = abs_op
+
+
+def _seed_extremum_rows(
+    entries: dict[DispatchKey, Operator],
+    spaces: tuple[FunctionSpace, ...],
+    maximum: Operator,
+    minimum: Operator,
+) -> None:
+    """
+    Seed the shared ``amax`` / ``amin`` extremum-reduction rows.
+
+    Description
+    -----------
+    On the **real** variants only (complex values carry no order —
+    the elementwise contract of seeding real and complex alike does
+    not apply, hence the dedicated helper): every nodal, average and
+    BC-tagged factor gets a ``("amax", space)`` / ``("amin", space)``
+    row onto the shared instances.
+
+    Parameters
+    ----------
+    entries : dict[DispatchKey, Operator]
+        The entry table being built (mutated in place).
+    spaces : tuple[FunctionSpace, ...]
+        The candidate factor spaces (nodal, average, tagged).
+    maximum : Operator
+        The shared ``Maximum`` instance.
+    minimum : Operator
+        The shared ``Minimum`` instance.
+    """
+    for space in spaces:
+        entries[("amax", space)] = maximum
+        entries[("amin", space)] = minimum
 
 
 def _seed_signature_rows(

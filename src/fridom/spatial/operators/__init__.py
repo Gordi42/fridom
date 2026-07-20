@@ -98,6 +98,7 @@ if TYPE_CHECKING:  # pragma: no cover
     from .distributed_contract import resolve_distributed_contraction
     from .distributed_solve import resolve_distributed_solve
     from .distributed_transform import resolve_distributed_transform
+    from .extremum import Maximum, Minimum
     from .finite_difference import FiniteDifference
     from .flux_diff import (
         DualFluxDifference,
@@ -135,6 +136,8 @@ if TYPE_CHECKING:  # pragma: no cover
     from .transfer import GridTransfer
     from .trig import Cosine, Sine
     from .verbs import (
+        amax,
+        amin,
         as_profile,
         cumint,
         diff,
@@ -284,7 +287,9 @@ all_imports_by_origin = {
     ],
     f"{base}.multigrid_hierarchy": ["coarsen_levels"],
     f"{base}.cumulative": ["CumulativeIntegral"],
+    f"{base}.extremum": ["Maximum", "Minimum"],
     f"{base}.verbs": ["diff", "interpolate", "integrate", "cumint",
+                      "amax", "amin",
                       "physical_diff", "embed", "as_profile",
                       "scatter_add", "scatter_set"],
 }
