@@ -681,12 +681,22 @@ conversion *factors*; users apply them themselves.
   what the stored scales allow and marks the rest "needs U=", etc.).
   On a `Dimensional()` model all factors are 1.0 with the physical
   units — scripts stay polymorphic.
-- **Writer**: NetCDF output stays in model units; when the model has
-  a nondimensional scaling the writer stamps metadata — global attrs
-  (scaling class, L, U, g, T_ref, ε, the bound numbers) and
-  per-variable/coordinate/time `dimensional_factor` (+ target unit
-  string) attributes. Users multiply themselves; postprocessing tools
-  can automate it from the attrs.
+- **Writer**: NetCDF output stays in model units; the writer stamps
+  metadata **by default** (owner ruling 2026-07-21: it changes no
+  data, so it is free) — global attrs (scaling class, L, U, g, T_ref,
+  ε, the bound numbers) and per-variable/coordinate/time
+  `dimensional_factor` (+ target unit string) attributes. Users
+  multiply themselves; postprocessing tools can automate it from the
+  attrs.
+- **Preset amendment (owner ruling 2026-07-21, supersedes the earlier
+  "scaling= required")**: `scaling=` on the Model presets is
+  **optional with `fr.scaling.Dimensional()` as the default** — a
+  dimensional assembly needs no scaling spelling; a nondim-variant
+  module under the (default) Dimensional scaling still hits the
+  mixed-variant taught error, which names the fix (pass scaling=).
+- Factor vocabulary: both the raw per-component factors (`p`) and the
+  curated physical ones (`h`, folding the 1/g) are exposed and listed
+  in the report.
 - **Explicitly out of scope**: `dimensional_state`/
   `nondimensional_state` helpers, unit tags on `State`,
   dimensional-coordinate arrays, dataset auto-conversion. Users who
