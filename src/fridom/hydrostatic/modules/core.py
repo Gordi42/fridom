@@ -2,14 +2,30 @@ r"""The hydrostatic dynamical core module.
 
 Description
 -----------
-``HydrostaticCore`` is the package's dynamical-core module (D1.3): it
-declares the horizontal velocities ``u, v`` (Velocity + ADVECTED, on
-the C-grid faces), the **diagnosed** vertical velocity ``w`` and the
-**diagnosed** hydrostatic pressure ``p_hyd``; it owns the core
-parameters ``hydrostatic.csqr`` and ``scaling.nonlinearity``; it owns the
-two pre-tendency **DIAGNOSE** stages (S1'); and it contributes the
+``Core`` is the package's dynamical-core module (D1.3): it declares
+the horizontal velocities ``u, v`` (Velocity + ADVECTED, on the
+C-grid faces), the **diagnosed** vertical velocity ``w`` and the
+**diagnosed** hydrostatic pressure ``p_hyd``; it owns the two
+pre-tendency **DIAGNOSE** stages (S1'); and it contributes the
 single linear pressure-gradient term. It supplies the ``hy.State``
 vocabulary class through ``state_type``.
+
+**Gravity-first (the nondimensionalization refactor):** the physical
+constant of the hydrostatic model is the gravitational acceleration,
+centralized on the core — ``hy.Core(gravity=...)`` provides
+``hydrostatic.gravity``, which the free-surface family (and any
+future EOS module) references. The core's own terms and stages are
+scale-free (they read no physics constant), so the two variants are:
+
+- **dimensional** (``gravity=``): provides ``hydrostatic.gravity``;
+- **nondimensional** (no kwarg): provides nothing — the free-surface
+  module carries the external Froude number instead, under a
+  nondimensional ``fr.scaling`` policy.
+
+The retired ``hydrostatic.csqr`` / ``scaling.nonlinearity`` provides
+are gone: there is no reference-depth parameter in the step path
+(every column depth is genuine geometry) and the nonlinearity number
+lives on the scaling mechanism's own module.
 
 The two DIAGNOSE stages (recomputed from the current state every
 substage, so a restart / ``set_state`` sees them fresh before any
@@ -63,6 +79,7 @@ constraint's own velocity correction.
 """
 from __future__ import annotations
 
+import numbers
 from functools import partial
 from typing import TYPE_CHECKING
 
@@ -78,7 +95,7 @@ from fridom.hydrostatic.modules.terrain import (
     require_chart_immersed_order,
     slope_velocity_on_w,
 )
-from fridom.hydrostatic.params import CSQR, ROSSBY
+from fridom.hydrostatic.params import GRAVITY
 from fridom.hydrostatic.state import State
 from fridom.model.halo_demand import derive_extra_halo
 from fridom.model.roles import Velocity
@@ -134,22 +151,21 @@ def _make_w_space_rule(
     return rule
 
 
-@partial(jaxify, dynamic=("csqr", "rossby"))
-class HydrostaticCore(fr.model.Module):
+@partial(jaxify, dynamic=("gravity",))
+class Core(fr.model.Module):
 
-    r"""Declares u, v, w, p_hyd; owns csqr/rossby and the DIAGNOSE.
+    r"""Declares u, v, w, p_hyd; owns gravity and the DIAGNOSE.
 
     Parameters
     ----------
-    csqr : float | fr.model.Ramp, optional
-        The squared barotropic phase speed :math:`c^2 = g H`, the
-        single barotropic parameter, published as
-        ``hydrostatic.csqr`` and read by the free-surface term
-        (default: 1.0); may be an ``fr.model.Ramp``.
-    rossby_number : float | fr.model.Ramp, optional
-        The Rossby number scaling the (separate) advection term,
-        published as ``scaling.nonlinearity`` (default: 1.0); may be an
-        ``fr.model.Ramp`` for a spun-up nonlinearity.
+    gravity : float | fr.model.Ramp | None, optional
+        The gravitational acceleration :math:`g` [m/s^2]
+        (DIMENSIONAL variant); published as ``hydrostatic.gravity``
+        and referenced by the free-surface family. ``None`` is the
+        NONDIMENSIONAL variant (no physical constant at all — the
+        free surface carries the external Froude number, under a
+        nondimensional ``fr.scaling`` policy). Must be nonzero when
+        given (the energy weight divides by it) (default: None).
     vertical : str, optional
         The vertical coordinate name (default: ``"z"``).
     horizontal : tuple[str, str], optional
@@ -162,13 +178,19 @@ class HydrostaticCore(fr.model.Module):
 
     def __init__(
         self,
-        csqr: float | fr.model.Ramp = 1.0,
         *,
-        rossby_number: float | fr.model.Ramp = 1.0,
+        gravity: float | fr.model.Ramp | None = None,
         vertical: str = "z",
         horizontal: tuple[str, str] = ("x", "y"),
     ) -> None:
-        """Store the core parameter leaves and the geometry names."""
+        """Store the gravity leaf and the geometry names.
+
+        Raises
+        ------
+        TypeError
+            On malformed ``horizontal`` names, or ``gravity=0`` (the
+            energy weight and analytic consumers divide by it).
+        """
         horizontal = tuple(horizontal)
         if (len(horizontal) != 2  # noqa: PLR2004 — zonal + meridional
                 or not all(isinstance(name, str) for name in horizontal)
@@ -176,8 +198,16 @@ class HydrostaticCore(fr.model.Module):
             raise TypeError(
                 "horizontal names the (zonal, meridional) coordinates: "
                 f"two distinct strings, got {horizontal!r}")
-        self.csqr = fr.model.leaf(csqr)
-        self.rossby = fr.model.leaf(rossby_number)
+        if (isinstance(gravity, numbers.Number)
+                and float(gravity) == 0.0):
+            raise TypeError(
+                "hy.Core gravity=0 is refused: the barotropic energy "
+                "weight and the analytic consumers divide by it, so "
+                "an exact zero poisons the run far from here; pass a "
+                "nonzero gravity")
+        self.gravity = (None if gravity is None
+                        else fr.model.leaf(gravity))
+        self._nondim: bool = gravity is None
         self._vertical = vertical
         self._horizontal = horizontal
         # captured at bind: the immersed descriptor (None off a cut-cell
@@ -396,15 +426,23 @@ class HydrostaticCore(fr.model.Module):
     )
 
     # ================================================================
-    #  Parameters -- csqr and the Rossby number live on the core
+    #  Parameters -- gravity centralizes on the core (dimensional)
     # ================================================================
-    parameter_declarations = (
-        fr.model.ParameterDeclaration(CSQR, attr="csqr",
-                                units="m^2/s^2",
-                                doc="squared barotropic phase speed g*H"),
-        fr.model.ParameterDeclaration(ROSSBY, attr="rossby", units="1",
-                                doc="Rossby number (nonlinear scaling)"),
-    )
+    @property
+    def scaling_variant(self) -> str:
+        """The constructor-fixed variant (``fr.scaling`` seam)."""
+        return "nondimensional" if self._nondim else "dimensional"
+
+    @property
+    def parameter_declarations(
+        self,
+    ) -> tuple[fr.model.ParameterDeclaration, ...]:
+        """``hydrostatic.gravity`` (dimensional variant only)."""
+        if self._nondim:
+            return ()
+        return (fr.model.ParameterDeclaration(
+            GRAVITY, attr="gravity", units="m/s^2",
+            doc="gravitational acceleration"),)
 
     # ================================================================
     #  The two DIAGNOSE stages (S1')
@@ -871,7 +909,7 @@ def _up_shift_local(b: object, vertical: str) -> object:
     Description
     -----------
     The pure whole-column upward shift behind
-    :meth:`HydrostaticCore._upward_increment` (the operand is
+    :meth:`Core._upward_increment` (the operand is
     undistributed along ``vertical``, so the shift never crosses a shard
     boundary): the top cell reads a zero above, which the ``delta == 0``
     weight masks. A slice + concatenate, so the reverse pass is the exact

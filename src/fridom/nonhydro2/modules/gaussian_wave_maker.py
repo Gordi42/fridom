@@ -50,7 +50,7 @@ if TYPE_CHECKING:  # pragma: no cover
 _VELOCITY_AXES = {"u": "x", "v": "y", "w": "z"}
 
 _VARIABLE_HINT = ("the forced variable must be declared by another "
-                  "module (nh.DynamicalCore declares u, v, w; a "
+                  "module (nh.Core declares u, v, w; a "
                   "stratification module declares b)")
 
 

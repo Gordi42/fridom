@@ -64,6 +64,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from fridom.hydrostatic.model import Model
+from fridom.hydrostatic.modules.core import Core
 from fridom.hydrostatic.modules.free_surface import ImplicitFreeSurface
 from fridom.hydrostatic.modules.stratification import ConstantStratification
 from fridom.model.modules.advection import CenteredAdvection
@@ -79,10 +80,9 @@ def comparison_model(
     grid: Grid,
     dt: float,
     *,
-    csqr: float = 1.0,
+    gravity: float = 1.0,
     coriolis_f0: float = 1.0,
     n2: float = 1.0,
-    rossby_number: float = 1.0,
     epsilon: float = 1.0,
     eps: float = 0.1,
     surface_advective_flux: bool | None = None,
@@ -99,11 +99,16 @@ def comparison_model(
     (``epsilon``), centered-2 flux-form advection of momentum and the
     buoyancy tracer, explicit f-plane Coriolis, and linear
     stratification. The *numerical* configuration is fixed; only the
-    physical parameters (``csqr``, ``coriolis_f0``, ``n2``,
-    ``rossby_number``) and the two comparison knobs (``epsilon``,
-    ``eps``) are exposed, so the comparison config cannot drift
-    silently (the protocol-pin test in
-    ``tests/hydrostatic/test_comparison.py`` asserts it exactly).
+    physical parameters (``gravity``, ``coriolis_f0``, ``n2``) and
+    the two comparison knobs (``epsilon``, ``eps``) are exposed, so
+    the comparison config cannot drift silently (the protocol-pin
+    test in ``tests/hydrostatic/test_comparison.py`` asserts it
+    exactly). The preset is **dimensional** (the reference models
+    are): the barotropic physics is ``-g T^*`` with the physical
+    ``gravity`` on the core (the retired ``csqr = g H`` fold is
+    ``gravity = csqr / H`` with ``H`` the vertical mesh extent, and
+    the old ``rossby_number`` scaling of the advection is gone — the
+    dimensional advection is unscaled, today's ``rossby_number=1``).
 
     Parameters
     ----------
@@ -112,17 +117,15 @@ def comparison_model(
         vertical — the HY-D6 ``(P, P, bounded-z)`` box.
     dt : float
         The time step of the quasi-AB2 stepper.
-    csqr : float, optional
-        The squared barotropic phase speed :math:`c^2 = g H`, the single
-        barotropic parameter, set explicitly per experiment
+    gravity : float, optional
+        The gravitational acceleration :math:`g`, the single
+        barotropic parameter (on the core; the free surface
+        references it), set explicitly per experiment
         (default: 1.0).
     coriolis_f0 : float, optional
         The f-plane Coriolis parameter :math:`f_0` (default: 1.0).
     n2 : float, optional
         The constant squared buoyancy frequency :math:`N^2`
-        (default: 1.0).
-    rossby_number : float, optional
-        The Rossby number scaling the nonlinear advection term
         (default: 1.0).
     epsilon : float, optional
         The free-surface knob (static): ``1.0`` is the backward-Euler
@@ -157,9 +160,7 @@ def comparison_model(
     """
     return Model(
         grid=grid,
-        dt=dt,
-        csqr=csqr,
-        rossby_number=rossby_number,
+        core=Core(gravity=gravity),
         free_surface=ImplicitFreeSurface(epsilon=epsilon),
         coriolis=FPlaneCoriolis(f0=coriolis_f0),
         stratification=ConstantStratification(n2=n2),

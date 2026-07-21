@@ -23,7 +23,7 @@ if TYPE_CHECKING:  # pragma: no cover
     )
 
     from .composed_pressure import ComposedPressureSolver
-    from .core import DynamicalCore
+    from .core import Core
     from .gaussian_wave_maker import GaussianWaveMaker
     from .immersed_pressure import ImmersedPressureSolver
     from .mapped_pressure import MappedPressureSolver
@@ -50,7 +50,7 @@ all_imports_by_origin = {
         "FPlaneCoriolis", "BetaPlaneCoriolis",
         "RotationCoriolis", "Relaxation",
         "CenteredAdvection", "UpwindAdvection", "WENOAdvection"],
-    f"{base}.core": ["DynamicalCore"],
+    f"{base}.core": ["Core"],
     f"{base}.stratification": [
         "ConstantStratification", "MeridionalStratification"],
     f"{base}.pressure": ["SpectralPressureSolver"],
