@@ -66,6 +66,22 @@ without any elliptic work); barotropic Helmholtz on charts
 Laplace–Beltrami pressure operator + metric projection. A torus
 preset chart is a candidate pole-free test chart.
 
+## 2b. Nondimensionalization — dimensional/nondimensional variants (new 2026-07-21, owner to sequence)
+
+Every model package gets two assembly variants sharing all tendency
+modules: dimensional (physical `g`, `D`; zero scaling factors in the
+assembled modules) and nondimensional (paper scaling; Fr on the core,
+Ro on dedicated nondim Coriolis modules, thickness as a derived
+DIAGNOSE field, `scaling.rossby` renamed `scaling.nonlinearity`).
+Shallow water is fully designed and verified; **implementation is
+gated** on two companion designs (owner ruling 2026-07-21): the
+nonhydro2/hydrostatic generalization and the ramping redesign (OB/AR
+ramp the nonlinear *terms* instead of deforming the scaling
+parameter). Must land **before the docs rebuild** — it changes the
+public model-assembly API the docs would bake in
+(`csqr=`/`rossby_number=` are removed).
+Plan: [`../plans/active/nondimensionalization_plan.md`](../plans/active/nondimensionalization_plan.md).
+
 ## 3. Perf-guard checkpoint (owner-run)
 
 After **all** physics changes above land, before the Oceananigans
