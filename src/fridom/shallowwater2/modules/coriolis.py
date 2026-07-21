@@ -118,6 +118,7 @@ from fridom.model.modules.coriolis import (
     chart_rotation,
     linear_rotation,
 )
+from fridom.model.parameters import ParameterDeclaration
 from fridom.model.params import (
     CORIOLIS_ROSSBY,
     SCALING_NONLINEARITY,
@@ -649,8 +650,20 @@ class _ConservingRotation:
         "L unchanged")
 
     #: never provide ``coriolis.f0`` (provides-implies-constancy is
-    #: read by the analytic eigenmodes as "L rotates at f0")
-    parameter_declarations = ()
+    #: read by the analytic eigenmodes as "L rotates at f0"); the
+    #: nondimensional variant provides ``coriolis.rossby`` only —
+    #: the term's live epsilon/Ro ratio reads it (the L-consumers
+    #: are already refused through the linear_operator_gap)
+    @property
+    def parameter_declarations(
+        self,
+    ) -> tuple[ParameterDeclaration, ...]:
+        """``coriolis.rossby`` (nondim) / nothing (dim)."""
+        if getattr(self, "_nondim", False):
+            return (ParameterDeclaration(
+                CORIOLIS_ROSSBY, attr="rossby_number", units="1",
+                doc="Rossby number (the rotation mechanism)"),)
+        return ()
 
     @property
     def metric_weight(self) -> None:
@@ -780,10 +793,11 @@ class NonlinearFPlaneCoriolis(_ConservingRotation, FPlaneCoriolis):
     """
 
     def __init__(
-        self, f0: float = 1.0, *,
+        self, f0: float | None = None, *,
+        rossby_number: float | None = None,
         coords: tuple[str, str] = ("x", "y"),
     ) -> None:
-        """Store the Coriolis parameter and the coordinate names.
+        """Store the variant's leaf and the coordinate names.
 
         Raises
         ------
@@ -794,6 +808,8 @@ class NonlinearFPlaneCoriolis(_ConservingRotation, FPlaneCoriolis):
             ``f0(0)`` snapshot. A ramped f-plane rotation belongs on the
             *linear* module (``sw.modules.FPlaneCoriolis(f0=Ramp(...))``,
             R1); a conserving ramped f0 is a ``FieldBlend`` follow-up.
+            (A ramped ``rossby_number`` is fine: the route-B scale is
+            a stage-time ``ctx.params`` read, no field rewrite.)
         """
         if isinstance(f0, TimeDependent):
             raise TypeError(
@@ -806,7 +822,8 @@ class NonlinearFPlaneCoriolis(_ConservingRotation, FPlaneCoriolis):
                 "sw.modules.NonlinearBetaPlaneCoriolis for a ramped "
                 "rotation via its FieldBlend (roadmap 'Generalized "
                 "adiabatic ramping')")
-        FPlaneCoriolis.__init__(self, f0)
+        FPlaneCoriolis.__init__(self, f0,
+                                rossby_number=rossby_number)
         self._coords = _coord_names(coords)
 
 
@@ -837,13 +854,16 @@ class NonlinearBetaPlaneCoriolis(_ConservingRotation, BetaPlaneCoriolis):
     """
 
     def __init__(
-        self, f0: float = 1.0, beta: float = 0.0, *,
+        self, f0: float | None = None, beta: float | None = None,
+        *, rossby_number: float | None = None,
+        metric_ratio: float | None = None,
         coords: tuple[str, str] = ("x", "y"),
     ) -> None:
-        """Store the leaves and the coordinate names."""
+        """Store the variant's leaves and the coordinate names."""
         coords = _coord_names(coords)
-        BetaPlaneCoriolis.__init__(self, f0, beta,
-                                   meridional=coords[1])
+        BetaPlaneCoriolis.__init__(
+            self, f0, beta, rossby_number=rossby_number,
+            metric_ratio=metric_ratio, meridional=coords[1])
         self._coords = coords
 
 

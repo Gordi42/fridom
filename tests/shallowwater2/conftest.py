@@ -25,7 +25,8 @@ def make_model(grid=None, *, csqr=1.0, rossby_number=0.2, f0=1.0,
         grid = make_grid()
     return sw.Model(
         grid=grid, csqr=csqr, rossby_number=rossby_number,
-        coriolis=sw.modules.FPlaneCoriolis(f0=f0),
+        coriolis=sw.modules.FPlaneCoriolis(
+            rossby_number=rossby_number / f0),
         advection=advection,
         time_stepper=fr.model.time_steppers.AdamBashforth(dt, order=order),
         **kwargs)
