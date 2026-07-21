@@ -131,3 +131,10 @@ SCALING_ROSSBY: Final[ParamName] = ParamName(
     hint="provided by a nondimensional dynamical core, e.g. "
          "nh.DynamicalCore(rossby_number=...); dimensional models "
          "rely on the identity default 1.0 at the reference site")
+
+RAMPING_ENVELOPE: Final[ParamName] = ParamName(
+    "ramping.envelope",
+    units="n/a",
+    hint="provided by fr.model.modules.TendencyEnvelope (the "
+         "term-envelope module AdiabaticRamping(envelope=...) "
+         "appends)")
