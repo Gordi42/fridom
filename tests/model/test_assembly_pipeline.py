@@ -14,6 +14,7 @@ import jax.numpy as jnp
 import pytest
 
 from fridom.framework.utils import jaxify
+from fridom.model import term_predicates
 from fridom.model.assembly import (
     AssemblyArtifacts,
     Fingerprint,
@@ -33,6 +34,7 @@ from fridom.model.errors import (
     TimeDependentParameterError,
 )
 from fridom.model.module import Module
+from fridom.model.modules.ramping import TendencyEnvelope
 from fridom.model.parameters import ParameterDeclaration
 from fridom.model.report import AssemblyReport
 from fridom.model.stages import StageKind
@@ -299,6 +301,43 @@ def test_fingerprint_sees_scalar_to_ramp_spec_change():
     assert a1.fingerprint.digest != a2.fingerprint.digest
     assert "parameter toy.value differ" in a1.fingerprint.diff(
         a2.fingerprint)
+
+
+# ================================================================
+#  The term envelope: memo/fingerprint identity
+# ================================================================
+def _envelope():
+    return TendencyEnvelope(
+        terms=~term_predicates.linear & term_predicates.explicit)
+
+
+def test_enveloped_assembly_gets_a_distinct_record_and_memo(grid):
+    plain = make_artifacts(grid, modules=(Core(), Background()))
+    wrapped = make_artifacts(
+        grid, modules=(Core(), Background(), _envelope()))
+    assert plain.record != wrapped.record
+    assert plain.record.step_fn() is not wrapped.record.step_fn()
+
+
+def test_enveloped_fingerprint_marks_the_term_rows(grid):
+    wrapped = make_artifacts(
+        grid, modules=(Core(), Background(), _envelope()))
+    rows = dict(wrapped.fingerprint.source)
+    assert rows["term Core/pressure_force"] == (
+        "EXPLICIT (enveloped)")
+    assert rows["term Core/restoring"] == "EXPLICIT (enveloped)"
+
+
+def test_plain_fingerprint_term_rows_are_unchanged(grid):
+    # byte-identity gate: a non-enveloped assembly's term rows carry
+    # exactly the treatment name — no "(enveloped)" suffix ever
+    # enters existing restart fingerprints
+    plain = make_artifacts(grid, modules=(Core(), Background()))
+    rows = dict(plain.fingerprint.source)
+    assert rows["term Core/pressure_force"] == "EXPLICIT"
+    assert rows["term Core/restoring"] == "EXPLICIT"
+    assert not any("enveloped" in value
+                   for value in rows.values())
 
 
 # ================================================================
