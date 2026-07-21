@@ -12,6 +12,8 @@ import pytest
 
 import fridom as fr
 import fridom.shallowwater2 as sw
+from fridom.model.io.triggers import every
+from fridom.model.io.writer import Writer
 
 N = 8
 DT = 5e-3
@@ -159,3 +161,79 @@ def test_report_smoke_both_variants():
     dim = dim_model().units.report()
     assert "Dimensional, dimensional" in dim
     assert "[1/g]" in dim
+
+
+# ================================================================
+#  Writer round-trip (the real-model SD metadata stamp)
+# ================================================================
+def _write_store(model, path, **writer_kwargs):
+    writer = Writer(path, trigger=every(steps=1), **writer_kwargs)
+    writer.bind(model)
+    writer.write(model.carry)
+    writer.close()
+
+
+def test_writer_stamps_a_nondimensional_model(tmp_path):
+    xr = pytest.importorskip("xarray")
+    model = nondim_model(
+        coriolis=sw.modules.FPlaneCoriolis(rossby_number=RO))
+    path = tmp_path / "nondim.zarr"
+    _write_store(model, path)
+    ds = xr.open_zarr(path, consolidated=False)
+    # global scaling attrs
+    assert ds.attrs["fridom_scaling"] == "GravityWave"
+    assert ds.attrs["fridom_scaling_nondimensional"] is True
+    assert ds.attrs["fridom_scaling_L"] == L_REF
+    assert ds.attrs["fridom_scaling_U"] == U_REF
+    assert ds.attrs["fridom_scaling_g"] == G_REF
+    t_ref = FR * L_REF / U_REF
+    assert ds.attrs["fridom_scaling_T_ref"] == pytest.approx(t_ref)
+    assert ds.attrs["fridom_scaling_epsilon"] == pytest.approx(FR)
+    params = ds.attrs["fridom_scaling_parameters"]
+    assert params["scaling.nonlinearity"] == pytest.approx(FR)
+    assert params["shallowwater.froude"] == pytest.approx(FR)
+    assert params["coriolis.rossby"] == pytest.approx(RO)
+    # per-variable factors (u/v/p PROGNOSTIC + thickness DIAGNOSTIC)
+    assert ds["u"].attrs["dimensional_factor"] == pytest.approx(U_REF)
+    assert ds["u"].attrs["dimensional_units"] == "m/s"
+    assert ds["u"].attrs["dimensional_factor_expr"] == "U"
+    assert ds["p"].attrs["dimensional_factor"] == pytest.approx(
+        U_REF ** 2 / FR)
+    assert ds["thickness"].attrs["dimensional_factor"] == (
+        pytest.approx((U_REF / FR) ** 2))
+    # coordinate factors (the stagger suffix strips to the row)
+    assert ds["x_right"].attrs["dimensional_factor"] == (
+        pytest.approx(L_REF))
+    assert ds["y"].attrs["dimensional_factor"] == pytest.approx(L_REF)
+    # CF option (b): dimensionless time, no calendar anchor,
+    # dimensional_factor = T_ref alongside
+    time_attrs = ds["time"].attrs
+    assert time_attrs["units"] == "1"
+    assert "calendar" not in time_attrs
+    assert time_attrs["dimensional_factor"] == pytest.approx(t_ref)
+
+
+def test_writer_keeps_cf_time_on_a_dimensional_model(tmp_path):
+    xr = pytest.importorskip("xarray")
+    model = dim_model()
+    path = tmp_path / "dim.zarr"
+    _write_store(model, path)
+    ds = xr.open_zarr(path, consolidated=False, decode_times=False)
+    assert ds.attrs["fridom_scaling"] == "Dimensional"
+    assert ds.attrs["fridom_scaling_nondimensional"] is False
+    # identity factors with the physical units; CF attrs unchanged
+    assert ds["p"].attrs["dimensional_factor"] == 1.0
+    assert ds["time"].attrs["units"] == "seconds"
+    assert ds["time"].attrs["dimensional_factor"] == 1.0
+
+
+def test_writer_units_metadata_false_stamps_nothing(tmp_path):
+    xr = pytest.importorskip("xarray")
+    model = nondim_model()
+    path = tmp_path / "off.zarr"
+    _write_store(model, path, units_metadata=False)
+    ds = xr.open_zarr(path, consolidated=False)
+    assert not any(key.startswith("fridom_scaling")
+                   for key in ds.attrs)
+    assert "dimensional_factor" not in ds["u"].attrs
+    assert "dimensional_factor" not in ds["time"].attrs
