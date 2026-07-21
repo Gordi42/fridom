@@ -697,6 +697,38 @@ conversion *factors*; users apply them themselves.
 - Factor vocabulary: both the raw per-component factors (`p`) and the
   curated physical ones (`h`, folding the 1/g) are exposed and listed
   in the report.
+- **Dimensional-model semantics (owner ruling 2026-07-21)**: raw
+  component/coordinate/time factors are identity (1.0, physical unit
+  strings); **curated factors keep their meaning** — `factor("h")` =
+  1/g_bound on a dimensional model, so `factor("h")·p` yields meters
+  in both variants (the polymorphism goal).
+- **Time-axis CF metadata (owner ruling 2026-07-21, option b)**: on a
+  nondimensional model the writer sets the time coordinate's
+  `units = "1"` and drops the calendar anchor (model time is in units
+  of T_ref; the old unconditional "seconds since <date>" claim was
+  dimensionally false and auto-decoded as calendar time).
+  `dimensional_factor = T_ref` is stamped alongside. Dimensional
+  models keep today's CF time metadata.
+
+## F. Docs strategy (owner rulings 2026-07-21)
+
+For the docs rebuild's plan refresh (`docs_examples_plan.md` absorbs
+this; recorded here to avoid touching that in-review file):
+
+- **The beginner path is dimensional-only**: getting-started and the
+  first model tutorials use physical parameters and never mention
+  scaling (`Dimensional()` is the preset default, so no `scaling=`
+  appears at all).
+- **No central nondimensionalization chapter**: the nondimensional
+  variants are documented **inside each model's own documentation**
+  (sw docs carry the gravity-wave/paper scaling section incl. the §E
+  chart-convention formulas and the `RotationCoriolis` Ω-shape
+  spelling; nh/hy carry theirs), together with `model.units` /
+  `units.report()` usage and the writer-metadata note.
+- Examples pick their natural variant (paper-adjacent → GravityWave;
+  classical setups may stay dimensional), each with a one-line
+  comment naming the choice; plus a short "migrating from
+  `csqr=`/`rossby_number=`" note (public repo).
 
 ## E. Chart/spherical nondimensionalization — documented convention (owner ruling 2026-07-21)
 
