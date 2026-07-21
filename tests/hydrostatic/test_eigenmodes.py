@@ -22,6 +22,7 @@ from fridom.hydrostatic.eigenmodes import (
     barotropic_projector,
 )
 from fridom.model.errors import LinearOperatorGapError
+from fridom.model.time_steppers.adam_bashforth import AdamBashforth
 
 IM = fr.spatial.meshes.IntervalMesh
 
@@ -43,12 +44,16 @@ def make_grid(nx, nz, depth=DEPTH):
 
 def make_model(grid, *, n2=N2, csqr=CSQR, f0=F0, free_surface=None):
     """Assemble the linear explicit hydrostatic model."""
+    if free_surface is None:
+        free_surface = hy.ExplicitFreeSurface()
     return hy.Model(
-        grid=grid, dt=1e-3, csqr=csqr, free_surface=free_surface,
+        grid=grid,
+        core=hy.Core(gravity=csqr),
+        time_stepper=AdamBashforth(1e-3, order=3),
+        coriolis=hy.FPlaneCoriolis(f0=f0),
         stratification=hy.ConstantStratification(n2=n2),
-        coriolis=hy.FPlaneCoriolis(f0=f0), advection=False,
-        time_stepper=fr.model.time_steppers.AdamBashforth(
-            1e-3, order=3))
+        free_surface=free_surface,
+        advection=False)
 
 
 def k_disc_sq(n_mode, n_cells, length=1.0):

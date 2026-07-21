@@ -10,6 +10,7 @@ import pytest
 
 import fridom.nonhydro2 as nh
 from fridom.model.modules.boundary_flux import BoundaryFlux
+from fridom.model.time_steppers.adam_bashforth import AdamBashforth
 from fridom.spatial.grid import Grid
 from fridom.spatial.meshes.interval import IntervalMesh
 
@@ -30,9 +31,12 @@ def make_grid(*, walled="z"):
 def make_model(*modules, walled="z"):
     """Linear nh model; f0 = n2 = 0 isolates the surface forcing."""
     return nh.Model(
-        grid=make_grid(walled=walled), dt=2e-3, advection=False,
+        grid=make_grid(walled=walled),
+        core=nh.Core(),
+        time_stepper=AdamBashforth(2e-3, order=3),
         coriolis=nh.FPlaneCoriolis(f0=0.0),
         stratification=nh.ConstantStratification(n2=0.0),
+        advection=False,
         modules_extra=modules)
 
 

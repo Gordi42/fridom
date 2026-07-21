@@ -10,7 +10,7 @@ public surface mirrors the API sketches (§7):
 ``nh.eigenmodes`` (the discrete-dispersion eigenmodes),
 ``nh.eigenbasis`` / ``nh.channel_eigenmodes`` (the labeled numeric
 eigenmodes of the horizontally walled channel), and the concrete
-modules (``nh.DynamicalCore``, ``nh.FPlaneCoriolis``,
+modules (``nh.Core``, ``nh.FPlaneCoriolis``,
 ``nh.ConstantStratification``, ``nh.CenteredAdvection``, ...).
 """
 from typing import TYPE_CHECKING
@@ -50,7 +50,7 @@ if TYPE_CHECKING:  # pragma: no cover
         wave_package,
     )
     from .model import Model
-    from .modules.core import DynamicalCore
+    from .modules.core import Core
     from .modules.gaussian_wave_maker import GaussianWaveMaker
     from .modules.polarized_wave_maker import PolarizedWaveMaker
     from .modules.smagorinsky_lilly import SmagorinskyLilly
@@ -78,7 +78,7 @@ all_imports_by_origin = {
         "barotropic_jet", "jet", "coherent_eddy"],
     f"{base}.model": ["Model"],
     f"{base}.state": ["State"],
-    f"{base}.modules.core": ["DynamicalCore"],
+    f"{base}.modules.core": ["Core"],
     # the Coriolis and flux-form advection families are the shared
     # framework module library (advection rehomed under HY-D5)
     "fridom.model.modules": [

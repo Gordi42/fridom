@@ -35,7 +35,7 @@ from fridom.model.modules.advection import (
     _SelectedFaceReconstruction,
 )
 from fridom.model.time_steppers.adam_bashforth import AdamBashforth
-from fridom.nonhydro2.modules.core import DynamicalCore
+from fridom.nonhydro2.modules.core import Core
 from fridom.nonhydro2.modules.stratification import (
     ConstantStratification,
 )
@@ -375,7 +375,7 @@ def _weno_model(order, *, walled=False):
     advection = WENOAdvection(order)
     model = FrModel(
         grid=Grid(meshes),
-        modules=(DynamicalCore(), ConstantStratification(n2=1.0),
+        modules=(Core(), ConstantStratification(n2=1.0),
                  advection),
         time_stepper=AdamBashforth(0.01, order=3))
     return model, advection

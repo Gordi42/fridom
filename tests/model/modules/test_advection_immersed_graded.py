@@ -31,6 +31,7 @@ from fridom.model.modules.advection import (
     UpwindAdvection,
     WENOAdvection,
 )
+from fridom.model.time_steppers.adam_bashforth import AdamBashforth
 from fridom.spatial.grid import Grid
 from fridom.spatial.immersed_domain import ImmersedDomain
 from fridom.spatial.meshes.interval import IntervalMesh
@@ -76,23 +77,40 @@ def _box_model(fac, *, npg=12, lo=3, pressure_iterations=60):
         (x > lo) & (x < 9) & (y > lo) & (y < 9)
         & (z > lo) & (z < 9)).astype(float)
     return nh.Model(
-        grid=Grid(tuple(
-            IM(npg, (0.0, 12.0), periodic=True, name=nm)
-            for nm in ("x", "y", "z")), immersed=ImmersedDomain(box)),
-        dt=0.02, advection=fac(), coriolis=nh.FPlaneCoriolis(f0=1.0),
+        grid=Grid(
+            tuple(
+                IM(
+                    npg,
+                    (0.0, 12.0),
+                    periodic=True,
+                    name=nm) for nm in ("x",
+                    "y",
+                    "z")),
+            immersed=ImmersedDomain(box)),
+        core=nh.Core(pressure_iterations=pressure_iterations),
+        time_stepper=AdamBashforth(0.02, order=3),
+        coriolis=nh.FPlaneCoriolis(f0=1.0),
         stratification=nh.ConstantStratification(n2=0.0),
-        pressure_iterations=pressure_iterations)
+        advection=fac())
 
 
 def _walled_model(fac, *, pressure_iterations=60):
     """Build the 6^3 walled FV twin of the box's wet region."""
     return nh.Model(
-        grid=Grid(tuple(
-            IM(6, (3.0, 9.0), periodic=False, name=nm)
-            for nm in ("x", "y", "z"))),
-        dt=0.02, advection=fac(), coriolis=nh.FPlaneCoriolis(f0=1.0),
+        grid=Grid(
+            tuple(
+                IM(
+                    6,
+                    (3.0, 9.0),
+                    periodic=False,
+                    name=nm) for nm in ("x",
+                    "y",
+                    "z"))),
+        core=nh.Core(family="fv", pressure_iterations=pressure_iterations),
+        time_stepper=AdamBashforth(0.02, order=3),
+        coriolis=nh.FPlaneCoriolis(f0=1.0),
         stratification=nh.ConstantStratification(n2=0.0),
-        pressure_iterations=pressure_iterations, family="fv")
+        advection=fac())
 
 
 def _seed_box_and_wall(imm, wal, lo=3, seed=11):
@@ -203,11 +221,20 @@ def _hy_meshes():
 @pytest.mark.parametrize("fac", SCHEMES)
 def test_all_wet_immersed_matches_unimmersed_fv(fac):
     allwet = ImmersedDomain(lambda x, y, z: x * 0.0 + 1.0)  # noqa: ARG005
-    im = nh.Model(grid=Grid(_nh_meshes(), immersed=allwet), dt=0.02,
-                  advection=fac(), coriolis=nh.FPlaneCoriolis(f0=1.0),
-                  pressure_iterations=3)
-    un = nh.Model(grid=Grid(_nh_meshes()), dt=0.02, advection=fac(),
-                  coriolis=nh.FPlaneCoriolis(f0=1.0))
+    im = nh.Model(
+        grid=Grid(_nh_meshes(), immersed=allwet),
+        core=nh.Core(pressure_iterations=3),
+        time_stepper=AdamBashforth(0.02, order=3),
+        coriolis=nh.FPlaneCoriolis(f0=1.0),
+        stratification=nh.ConstantStratification(n2=1.0),
+        advection=fac())
+    un = nh.Model(
+        grid=Grid(_nh_meshes()),
+        core=nh.Core(),
+        time_stepper=AdamBashforth(0.02, order=3),
+        coriolis=nh.FPlaneCoriolis(f0=1.0),
+        stratification=nh.ConstantStratification(n2=1.0),
+        advection=fac())
     rng = np.random.default_rng(7)
     ic = {k: 0.3 * rng.standard_normal(im.state[k].data.shape)
           for k in ("u", "v", "w", "b")}
@@ -230,9 +257,20 @@ def test_all_wet_immersed_matches_unimmersed_nodal(fac):
     # Right/Center momentum): the mask path must reduce to the plain
     # reconstruction bit for bit when every DOF is wet
     allwet = ImmersedDomain(lambda x, y, z: x * 0.0 + 1.0)  # noqa: ARG005
-    im = hy.Model(grid=Grid(_hy_meshes(), immersed=allwet),
-                  dt=0.02, advection=fac())
-    un = hy.Model(grid=Grid(_hy_meshes()), dt=0.02, advection=fac())
+    im = hy.Model(
+        grid=Grid(_hy_meshes(), immersed=allwet),
+        core=hy.Core(gravity=1.0),
+        time_stepper=AdamBashforth(0.02, order=3),
+        stratification=hy.ConstantStratification(n2=1.0),
+        free_surface=hy.ExplicitFreeSurface(),
+        advection=fac())
+    un = hy.Model(
+        grid=Grid(_hy_meshes()),
+        core=hy.Core(gravity=1.0),
+        time_stepper=AdamBashforth(0.02, order=3),
+        stratification=hy.ConstantStratification(n2=1.0),
+        free_surface=hy.ExplicitFreeSurface(),
+        advection=fac())
     rng = np.random.default_rng(3)
     ic = {k: 0.3 * rng.standard_normal(im.state[k].data.shape)
           for k in ("u", "v", "b")}
@@ -289,10 +327,12 @@ def test_theta_weighted_tracer_conserved_on_partials(fac):
         for nm in ("x", "y", "z")),
         immersed=ImmersedDomain(slope, order=2, min_fraction=0.1))
     model = nh.Model(
-        grid=grid, dt=0.01, advection=fac(),
+        grid=grid,
+        core=nh.Core(pressure_iterations=25),
+        time_stepper=AdamBashforth(0.01, order=3),
         coriolis=nh.FPlaneCoriolis(f0=1.0),
         stratification=nh.ConstantStratification(n2=0.0),
-        pressure_iterations=25)
+        advection=fac())
     rng = np.random.default_rng(3)
     model.set_fields(
         b=rng.standard_normal(model.state["b"].data.shape),
@@ -331,10 +371,12 @@ def test_narrow_wet_pocket_is_stable_and_conserving(fac):
         IM(n, (0.0, 12.0), periodic=True, name=nm)
         for nm in ("x", "y", "z")), immersed=ImmersedDomain(slab))
     model = nh.Model(
-        grid=grid, dt=0.01, advection=fac(),
+        grid=grid,
+        core=nh.Core(pressure_iterations=20),
+        time_stepper=AdamBashforth(0.01, order=3),
         coriolis=nh.FPlaneCoriolis(f0=1.0),
         stratification=nh.ConstantStratification(n2=0.0),
-        pressure_iterations=20)
+        advection=fac())
     rng = np.random.default_rng(4)
     model.set_fields(
         b=rng.standard_normal(model.state["b"].data.shape),
@@ -369,8 +411,12 @@ def test_grad_through_immersed_biased_run_matches_fd():
          IM(6, (0.0, 1.0), periodic=False, name="z")),
         immersed=ImmersedDomain(slope, order=2, min_fraction=0.1))
     model = nh.Model(
-        grid=grid, dt=0.01, advection=UpwindAdvection(3),
-        coriolis=nh.FPlaneCoriolis(f0=1.0), pressure_iterations=10)
+        grid=grid,
+        core=nh.Core(pressure_iterations=10),
+        time_stepper=AdamBashforth(0.01, order=3),
+        coriolis=nh.FPlaneCoriolis(f0=1.0),
+        stratification=nh.ConstantStratification(n2=1.0),
+        advection=UpwindAdvection(3))
     rng = np.random.default_rng(0)
     model.set_fields(**{
         k: 0.2 * rng.standard_normal(model.state[k].data.shape)

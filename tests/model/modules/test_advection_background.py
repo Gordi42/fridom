@@ -18,7 +18,7 @@ from fridom.model.modules.coriolis import FPlaneCoriolis
 from fridom.model.time_steppers.adam_bashforth import (
     AdamBashforth,
 )
-from fridom.nonhydro2.modules.core import DynamicalCore
+from fridom.nonhydro2.modules.core import Core
 from fridom.nonhydro2.modules.stratification import (
     ConstantStratification,
 )
@@ -57,14 +57,28 @@ def make_grid(nx, lx=L, ny=NY):
     ))
 
 
-def make_model(nx, advection, *, lx=L, stratified=True, ro=1.0):
-    modules = [DynamicalCore(rossby_number=ro)]
-    if stratified:
+def make_model(nx, advection, *, lx=L, stratified=True, eps=None):
+    """Assemble the advection module; ``eps`` selects nondim (fr.scaling).
+
+    ``eps=None`` is the dimensional assembly (the de-scaled advection
+    carries zero scaling ops). A float assembles the NONDIMENSIONAL
+    variant through the InternalWave frame: the stratification owns
+    the epsilon leaf (froude_number=eps) and the scaling-neutral
+    advection adopts the variant at bind, so the tendency carries one
+    outer epsilon (and, with a background, U + eps*u' inside).
+    """
+    modules = [Core()]
+    scaling = None
+    if eps is not None:
+        modules.append(ConstantStratification(froude_number=eps))
+        scaling = fr.scaling.InternalWave()
+    elif stratified:
         modules.append(ConstantStratification(n2=1.0))
     modules.append(advection)
     return FrModel(grid=make_grid(nx, lx=lx),
                    modules=tuple(modules),
-                   time_stepper=AdamBashforth(DT, order=3))
+                   time_stepper=AdamBashforth(DT, order=3),
+                   scaling=scaling)
 
 
 def centers(nx, lx=L):
@@ -191,7 +205,7 @@ def test_background_rides_the_walled_biased_scheme():
     ))
     module = UpwindAdvection(3, background={"u": 1.0})
     model = FrModel(grid=grid,
-                    modules=(DynamicalCore(),
+                    modules=(Core(),
                              ConstantStratification(n2=1.0), module),
                     time_stepper=AdamBashforth(DT, order=3))
     assert module._lin_left.boundary == "graded"
@@ -213,7 +227,7 @@ def test_wall_normal_background_must_still_vanish_on_the_wall():
     ))
     with pytest.raises(ValueError, match=r"does not vanish at the"):
         FrModel(grid=grid,
-                modules=(DynamicalCore(),
+                modules=(Core(),
                          UpwindAdvection(3, background={"w": 1.0})),
                 time_stepper=AdamBashforth(DT, order=3))
 
@@ -256,7 +270,7 @@ def test_background_split_telescopes_to_the_full_scheme(cls, order):
     # module at Ro=1 whose velocity data is U + Ro u'
     n, ro = 16, 0.5
     module = make_background(cls, order)
-    model = make_model(n, module, ro=ro)
+    model = make_model(n, module, eps=ro)
     set_perturbation(model, n)
     state = model.state
     total = advection_tendency(model, cls)
@@ -281,8 +295,10 @@ def test_background_split_telescopes_to_the_full_scheme(cls, order):
 
     # independent tracer-row reference: an unsplit background=None
     # module at Ro=1 with the full velocity U + ro u' as data
+    # the honest unsplit reference is the DIMENSIONAL module with the
+    # full velocity U + eps*u' as data (the de-scaled advection)
     reference = make_model(
-        n, cls() if order is None else cls(order), ro=1.0)
+        n, cls() if order is None else cls(order))
     full = {name: ro * np.asarray(state[name].data) for name
             in ("u", "v", "w")}
     full["u"] = full["u"] + np.asarray(state["background_u"].data)
@@ -362,11 +378,11 @@ def test_background_none_reduction_is_bitwise():
     # vanishes identically)
     n = 16
     models = {
-        "default": make_model(n, UpwindAdvection(3), ro=0.5),
+        "default": make_model(n, UpwindAdvection(3), eps=0.5),
         "explicit": make_model(
-            n, UpwindAdvection(3, background=None), ro=0.5),
+            n, UpwindAdvection(3, background=None), eps=0.5),
         "zero": make_model(n, UpwindAdvection(
-            3, background={"u": 0.0, "w": 0.0}), ro=0.5),
+            3, background={"u": 0.0, "w": 0.0}), eps=0.5),
     }
     taus = {}
     for key, model in models.items():
@@ -426,7 +442,7 @@ def test_constant_background_doppler_shifts_the_spectrum():
             for name in ("x", "y", "z")))
         return FrModel(
             grid=grid,
-            modules=(DynamicalCore(dsqr=1.0, rossby_number=1.0),
+            modules=(Core(aspect_ratio=1.0),
                      FPlaneCoriolis(f0=1.0),
                      ConstantStratification(n2=1.0),
                      CenteredAdvection(background=background)),
@@ -529,7 +545,7 @@ def test_old_stack_background_parity_at_ro_one(scheme, cls, order):
 
     # --- the new stack: the two-term sum at Ro = 1 ---
     module = make_background(cls, order)
-    model = make_model(n, module, lx=lx, ro=1.0)
+    model = make_model(n, module, lx=lx, eps=1.0)
     ones = np.ones((n, NY, NY))
     xc, xf = centers(n, lx), faces(n, lx)
     model.set_fields(u=u_prof(xf)[:, None, None] * ones,

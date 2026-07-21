@@ -16,9 +16,10 @@ import pytest
 
 import fridom as fr
 import fridom.hydrostatic as hy
-from fridom.hydrostatic.params import CSQR
+from fridom.hydrostatic.params import GRAVITY
 from fridom.model.context import StepContext
 from fridom.model.model import _chunk_body
+from fridom.model.time_steppers.adam_bashforth import AdamBashforth
 from fridom.spatial.coordinate_mapping import CoordinateMapping
 
 IM = fr.spatial.meshes.IntervalMesh
@@ -52,20 +53,23 @@ def model(grid, *, eps=1.0, csqr=3.0, dt=0.05, iterations=30,
           multigrid_levels=None):
     """Return a linear hydrostatic model on the implicit free surface."""
     return hy.Model(
-        grid=grid, dt=dt, csqr=csqr,
+        grid=grid,
+        core=hy.Core(gravity=csqr),
+        time_stepper=AdamBashforth(dt, order=2),
+        coriolis=hy.FPlaneCoriolis(f0=f0),
         stratification=hy.ConstantStratification(n2=0.0),
-        coriolis=hy.FPlaneCoriolis(f0=f0), advection=False,
         free_surface=hy.ImplicitFreeSurface(
-            epsilon=eps, pressure_iterations=iterations,
+            epsilon=eps,
+            pressure_iterations=iterations,
             pressure_tolerance=tolerance,
             pressure_preconditioner=preconditioner,
             multigrid_levels=multigrid_levels),
-        time_stepper=fr.model.time_steppers.AdamBashforth(dt, order=2))
+        advection=False)
 
 
 def ctx_of(csqr, dt):
     """Return a minimal StepContext for a direct CONSTRAINT-stage call."""
-    return StepContext(params={CSQR: jnp.asarray(csqr)},
+    return StepContext(params={GRAVITY: jnp.asarray(csqr)},
                        clock=jnp.asarray(0.0), dt=jnp.asarray(dt),
                        stage_dt=jnp.asarray(dt))
 
@@ -177,12 +181,15 @@ def test_barotropic_volume_is_conserved():
 # ================================================================
 def test_grad_through_terrain_implicit_run_matches_fd():
     m = hy.Model(
-        grid=terrain_grid(8, nz=4, a=0.4), dt=0.01, csqr=1.0,
+        grid=terrain_grid(8, nz=4, a=0.4),
+        core=hy.Core(gravity=1.0),
+        time_stepper=AdamBashforth(0.01, order=2),
+        coriolis=hy.FPlaneCoriolis(f0=0.5),
         stratification=hy.ConstantStratification(n2=0.0),
-        coriolis=hy.FPlaneCoriolis(f0=0.5), advection=False,
         free_surface=hy.ImplicitFreeSurface(
-            epsilon=1.0, pressure_iterations=20),
-        time_stepper=fr.model.time_steppers.AdamBashforth(0.01, order=2))
+            epsilon=1.0,
+            pressure_iterations=20),
+        advection=False)
     rng = np.random.default_rng(11)
     m.set_fields(**{k: 0.1 * rng.standard_normal(m.state[k].data.shape)
                     for k in ("u", "v", "ps")})

@@ -146,10 +146,15 @@ def _nh_model(n: int, *, mapped: bool, periodic_x: bool = True,
     # |u| ~ 1 and dx = 2*pi/n, so 0.25 * dx keeps the advective cases
     # finite at every n; the linear cases keep their original dt.
     dt = 0.25 * TWO_PI / n if advection else 0.02
-    model = nh.Model(grid=grid, dt=dt, advection=advection,
-                     coriolis=nh.FPlaneCoriolis(f0=1.0), dsqr=0.25,
-                     pressure_iterations=iters, chunk_size=STEPS,
-                     family=family)
+    model = nh.Model(grid=grid, advection=advection,
+                     coriolis=nh.FPlaneCoriolis(f0=1.0),
+                     stratification=nh.ConstantStratification(n2=1.0),
+                     core=nh.Core(aspect_ratio=0.5,
+                                  pressure_iterations=iters,
+                                  family=family),
+                     time_stepper=fr.model.time_steppers.AdamBashforth(
+                         dt, order=3),
+                     chunk_size=STEPS)
     if periodic_x:
         hor = (np.arange(n) + 0.5) * (TWO_PI / n)
         ver = (np.arange(n) + 0.5) / n

@@ -24,6 +24,7 @@ import pytest
 
 import fridom.nonhydro2 as nh
 from fridom.model.model import _chunk_body
+from fridom.model.time_steppers.adam_bashforth import AdamBashforth
 from fridom.spatial.grid import Grid
 from fridom.spatial.immersed_domain import ImmersedDomain
 from fridom.spatial.meshes.interval import IntervalMesh
@@ -55,10 +56,14 @@ def immersed_model(*, dt=0.01, pressure_iterations=12,
          IM(6, (0.0, 1.0), periodic=False, name="z")),
         immersed=ImmersedDomain(_slope, order=2, min_fraction=0.1))
     model = nh.Model(
-        grid=grid, dt=dt, advection=True,
+        grid=grid,
+        core=nh.Core(
+            pressure_iterations=pressure_iterations,
+            pressure_tolerance=pressure_tolerance),
+        time_stepper=AdamBashforth(dt, order=3),
         coriolis=nh.FPlaneCoriolis(f0=1.0),
-        pressure_iterations=pressure_iterations,
-        pressure_tolerance=pressure_tolerance)
+        stratification=nh.ConstantStratification(n2=1.0),
+        advection=True)
     rng = np.random.default_rng(0)
     model.set_fields(**{
         k: 0.2 * rng.standard_normal(model.state[k].data.shape)
@@ -200,9 +205,15 @@ def multigrid_model(*, dt=0.01, levels=3):
          IM(6, (0.0, 1.0), periodic=False, name="z")),
         immersed=ImmersedDomain(_slope, order=2, min_fraction=0.1))
     model = nh.Model(
-        grid=grid, dt=dt, advection=True,
-        coriolis=nh.FPlaneCoriolis(f0=1.0), pressure_iterations=12,
-        pressure_preconditioner="multigrid", multigrid_levels=levels)
+        grid=grid,
+        core=nh.Core(
+            pressure_iterations=12,
+            pressure_preconditioner="multigrid",
+            multigrid_levels=levels),
+        time_stepper=AdamBashforth(dt, order=3),
+        coriolis=nh.FPlaneCoriolis(f0=1.0),
+        stratification=nh.ConstantStratification(n2=1.0),
+        advection=True)
     rng = np.random.default_rng(0)
     model.set_fields(**{
         k: 0.2 * rng.standard_normal(model.state[k].data.shape)
@@ -256,12 +267,16 @@ def immersed_mg_model(*, agglomerate, dt=0.01, pressure_iterations=8):
          IM(6, (0.0, 1.0), periodic=False, name="z")),
         immersed=ImmersedDomain(_slope, order=2, min_fraction=0.1))
     model = nh.Model(
-        grid=grid, dt=dt, advection=True,
+        grid=grid,
+        core=nh.Core(
+            pressure_iterations=pressure_iterations,
+            pressure_preconditioner="multigrid",
+            multigrid_tridiagonal_method="scan",
+            multigrid_agglomerate=agglomerate),
+        time_stepper=AdamBashforth(dt, order=3),
         coriolis=nh.FPlaneCoriolis(f0=1.0),
-        pressure_iterations=pressure_iterations,
-        pressure_preconditioner="multigrid",
-        multigrid_tridiagonal_method="scan",
-        multigrid_agglomerate=agglomerate)
+        stratification=nh.ConstantStratification(n2=1.0),
+        advection=True)
     rng = np.random.default_rng(0)
     model.set_fields(**{
         k: 0.2 * rng.standard_normal(model.state[k].data.shape)

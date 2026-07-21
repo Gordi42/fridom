@@ -4,9 +4,14 @@ Description
 -----------
 All three modules transport every ``ADVECTED`` component in flux form
 ``A(v, q) = -div(v q) = -sum_i d_i( interp(v_i) face(q) )``
-(divergence-free velocity assumed), scaled by the Rossby number
-``scaling.nonlinearity`` (a defaulted reference, so the modules stay
-Ro-ignorant — D2 reconciliation 4). The flux for axis ``i`` lives on
+(divergence-free velocity assumed). The modules are
+**scaling-neutral** (``fr.scaling``): they carry no physics kwargs and
+adopt the assembly's scaling variant at bind (``_BindTable.scaling``)
+— a **dimensional** assembly transports at the physical velocity with
+**zero** scaling operations in the trace, a **nondimensional** one
+scales the tendency by the live nonlinearity number
+:math:`\varepsilon` (``scaling.nonlinearity``, read from
+``ctx.params`` at stage time). The flux for axis ``i`` lives on
 ``q``'s control-volume face in direction ``i`` (``q`` toggled along
 ``i``); ``v_i`` is interpolated there with the registered (centered)
 ``interpolate`` row, multiplied with the scheme's face value of ``q``
@@ -67,7 +72,8 @@ staggered nodes as AUXILIARY fields (the profile-sampling precedent
 of ``MeridionalStratification`` / ``GaussianWaveMaker``). With a
 background :math:`U` set, the module contributes TWO terms whose sum
 telescopes to the module's own scheme at the full advecting velocity
-:math:`U + \mathrm{Ro}\,u'`:
+:math:`U + \varepsilon\,u'` (:math:`\varepsilon = 1` — no factor at
+all — in the dimensional variant):
 
 - ``background_advection`` (``linear=True``): a linear
   discretization :math:`L(q) = S_\mathrm{lin}(U, q)` of transport by
@@ -79,23 +85,27 @@ telescopes to the module's own scheme at the full advecting velocity
   static background face velocity — a state-independent mask, so the
   term is exactly linear in the state and ``fr.model.linearize`` keeps it.
 - ``advection`` (nonlinear): :math:`N(u', q) =
-  S_\mathrm{full}(U + \mathrm{Ro}\,u', q) - S_\mathrm{lin}(U, q)`,
+  S_\mathrm{full}(U + \varepsilon\,u', q) - S_\mathrm{lin}(U, q)`,
   the module's own scheme at the full velocity minus the linear
   piece.
 
-**Scaling convention (deliberate)**: the full advecting velocity is
-:math:`U + \mathrm{Ro}\,u'` and there is NO outer Rossby factor on
-the combined tendency — :math:`U` is an O(1) velocity of the scaled
-equations, consistent with the other linear modules (Coriolis,
-stratification). With ``background=None`` this reduces exactly to
-the single Rossby-scaled term (velocity enters the flux linearly and
-upwind selection is invariant under positive scaling, so
-:math:`S(\mathrm{Ro}\,u', q) = \mathrm{Ro}\,S(u', q)`), and the
-``background=None`` code path is literally the pre-background one.
-The OLD stack differed: ``advect_state`` multiplied the whole
-advecting velocity (background included) by the nonlinear scaling
-factor (``mset.tendencies.advection.scaling = rossby_number``), i.e.
-``Ro * S(u' + U, q)`` — old users passed pre-scaled backgrounds.
+**Scaling convention (deliberate)**: under a nondimensional scaling
+the full advecting velocity is :math:`U + \varepsilon\,u'` — the
+:math:`\varepsilon` sits INSIDE the advecting velocity, and there is
+NO outer factor on the combined tendency: :math:`U` is an O(1)
+velocity of the scaled equations, consistent with the other linear
+modules (Coriolis, stratification), and a pure output multiply would
+be wrong for the background split. The background term is unscaled
+in **both** variants. With ``background=None`` the nondimensional
+tendency reduces exactly to the single :math:`\varepsilon`-scaled
+term (velocity enters the flux linearly and upwind selection is
+invariant under positive scaling, so :math:`S(\varepsilon\,u', q) =
+\varepsilon\,S(u', q)` — the outer multiply the plain term applies),
+and the ``background=None`` dimensional code path is literally the
+pre-background one. The OLD stack differed: ``advect_state``
+multiplied the whole advecting velocity (background included) by the
+nonlinear scaling factor, i.e. ``Ro * S(u' + U, q)`` — old users
+passed pre-scaled backgrounds.
 
 **Mapped grids (centered scheme, stage C4)**: on a grid whose
 ``CoordinateMapping`` declares a mapped column ``m = M(b, params)``
@@ -2291,11 +2301,13 @@ class _FluxFormAdvection(fr.model.Module):
     stencils swap in their graded near-wall closure at bind.
 
     Without a background the module contributes the single
-    Rossby-scaled ``advection`` term. With ``background=`` set it
+    ``advection`` term (scaled by the live :math:`\varepsilon` in a
+    nondimensional assembly, unscaled in a dimensional one — the
+    bind-adopted variant). With ``background=`` set it
     contributes the difference-form split (module docstring): the
     linear ``background_advection`` term
     :math:`L(q) = S_\mathrm{lin}(U, q)` and the nonlinear
-    ``advection`` term :math:`S_\mathrm{full}(U + \mathrm{Ro}\,u',
+    ``advection`` term :math:`S_\mathrm{full}(U + \varepsilon\,u',
     q) - S_\mathrm{lin}(U, q)`; the background samples are
     AUXILIARY fields ``background_<component>`` on each velocity
     component's own space.
@@ -2334,12 +2346,6 @@ class _FluxFormAdvection(fr.model.Module):
     tri-state. The correction covers only the plain ``advection`` term,
     not the ``background_advection`` split.
     """
-
-    parameter_references = (
-        fr.model.ParameterReference(
-            fr.model.params.SCALING_NONLINEARITY, default=1.0,
-            hint="Rossby number (nh.DynamicalCore)"),
-    )
 
     #: whether the scheme's face values work on walled grids (the
     #: centered hooks do structurally; the biased subclasses do
@@ -2411,6 +2417,10 @@ class _FluxFormAdvection(fr.model.Module):
         self._surface_flux: bool | None = surface_flux
         # the resolved per-grid decision (bind); False before bind
         self._surface_flux_on: bool = False
+        # the bind-adopted scaling variant (scaling-neutral module):
+        # nondimensional assemblies scale the tendency by the live
+        # epsilon; dimensional traces carry no scaling op (fr.scaling)
+        self._nondim: bool = False
 
     # ------------------------------------------------------------
     #  Background declarations (AUXILIARY profile samples)
@@ -2450,7 +2460,7 @@ class _FluxFormAdvection(fr.model.Module):
         return tuple(
             fr.model.FieldReference(
                 name, hint="the background flow rides the declared "
-                           "velocity components (nh.DynamicalCore "
+                           "velocity components (nh.Core "
                            "declares u, v, w)")
             for name in _VELOCITY_AXES if name in self._background)
 
@@ -2471,6 +2481,11 @@ class _FluxFormAdvection(fr.model.Module):
             wall-normal background component does not vanish on its
             walls (impermeability).
         """
+        # adopt the scaling variant (fr.scaling): the advection is
+        # scaling-neutral — no physics kwargs — so the variant comes
+        # from the assembly policy, a host-side static flag
+        self._nondim = bool(getattr(
+            getattr(table, "scaling", None), "nondimensional", False))
         factors = getattr(table.grid, "factors", ())
         walled = tuple(
             name for mesh in factors for name in mesh.names
@@ -2622,7 +2637,7 @@ class _FluxFormAdvection(fr.model.Module):
     #: on a mapped grid the flux divergence multiplies grid.metric
     #: coefficients the halo tracer cannot follow (V-N2): declare
     #: the stencil substitute (diff + interp chains, depth 2 — the
-    #: DynamicalCore precedent). None on flat grids: the flat path
+    #: nh core precedent). None on flat grids: the flat path
     #: stays fully halo-traced, exactly as before stage C4.
     @property
     def extra_halo(self) -> HaloSpec | None:
@@ -2709,8 +2724,8 @@ class _FluxFormAdvection(fr.model.Module):
     def tendency_terms(self) -> tuple[fr.model.TendencyTerm, ...]:
         """Return the advection term(s) of the module.
 
-        Without a background: the single Rossby-scaled ``advection``
-        term (the pre-background code path, literally unchanged).
+        Without a background: the single ``advection`` term (the
+        pre-background code path, literally unchanged).
         With one: the nonlinear ``advection`` difference term plus
         the genuinely separate ``background_advection`` term tagged
         ``linear=True`` so ``fr.model.linearize`` keeps exactly it (V-S3).
@@ -3176,7 +3191,14 @@ class _FluxFormAdvection(fr.model.Module):
     def _advect(
         self, state: object, ctx: StepContext,
     ) -> dict[str, ScalarField]:
-        r"""Flux-form transport of every advected component (Ro-scaled).
+        r"""Flux-form transport of every advected component.
+
+        The bind-adopted scaling variant (``fr.scaling``): a
+        dimensional assembly transports at the physical velocity with
+        zero scaling operations; a nondimensional one multiplies ONE
+        outer :math:`\varepsilon` (``scaling.nonlinearity``, stage-time
+        ``ctx.params``) at the old factor position — bitwise the
+        pre-refactor placement under the today-parity mapping.
 
         When the surface closure is active (``_surface_flux_on``, the
         resolved tri-state) the constancy-preserving correction
@@ -3203,16 +3225,19 @@ class _FluxFormAdvection(fr.model.Module):
         the exact full-3D form is kept (byte-identical to the pre-slice
         behavior).
         """
-        ro = ctx.params[fr.model.params.SCALING_NONLINEARITY]
+        eps = (ctx.params[fr.model.params.SCALING_NONLINEARITY]
+               if self._nondim else None)
         params = self._geometry_params(state)
         out: dict[str, ScalarField] = {}
         for qname in self._advected:
             q = state[qname]
-            tend = ro * self._immersed_scale(
+            tend = self._immersed_scale(
                 self._transport(state, q, params), q)
+            if eps is not None:
+                tend = eps * tend
             if self._surface_flux_on:
                 tend = self._surface_correction(
-                    state, q, tend, ro, params)
+                    state, q, tend, eps, params)
             out[qname] = tend
         return out
 
@@ -3226,8 +3251,8 @@ class _FluxFormAdvection(fr.model.Module):
         For every advecting axis it forms the flux ``v_face * face(q)``,
         weights it by the open-area fraction (immersed), and differences
         it back onto ``q``'s space, accumulating ``-sum_axis`` — the
-        advective divergence, **before** the Rossby and volume-fraction
-        scalings the caller applies.
+        advective divergence, **before** the scaling and
+        volume-fraction factors the caller applies.
 
         Parameters
         ----------
@@ -3266,7 +3291,7 @@ class _FluxFormAdvection(fr.model.Module):
         state: object,
         q: ScalarField,
         tend: ScalarField,
-        ro: object,
+        scale: object | None,
         params: dict | None,
     ) -> ScalarField:
         r"""Subtract the surface correction :math:`q\,A(\mathbf 1)`.
@@ -3306,10 +3331,13 @@ class _FluxFormAdvection(fr.model.Module):
         if seam and self._slice_valid(q):
             for axis, vname in seam:
                 a1 = self._surface_boundary_term(q, state[vname], axis)
-                tend = self._apply_correction(tend, q, a1, axis, ro)
+                tend = self._apply_correction(tend, q, a1, axis, scale)
             return tend
-        corr = self._correction_full(state, q, params)
-        return tend - q * (ro * self._immersed_scale(corr, q))
+        corr = self._immersed_scale(
+            self._correction_full(state, q, params), q)
+        if scale is not None:
+            corr = scale * corr
+        return tend - q * corr
 
     def _slice_valid(self, q: ScalarField) -> bool:
         r"""Whether ``q``'s slice-form :math:`A(\mathbf 1)` is exact.
@@ -3350,9 +3378,9 @@ class _FluxFormAdvection(fr.model.Module):
         the (immersed-weighted) interpolated velocity face itself: a
         lean divergence of the advecting velocity, one extra
         ``_flux_divergence`` per axis, accumulated as ``-sum_axis``. The
-        caller scales it (``ro`` and the wet-volume fraction) and
-        subtracts ``q`` times it. Byte-identical to the pre-slice
-        in-loop accumulation.
+        caller scales it (the nondimensional epsilon and the
+        wet-volume fraction) and subtracts ``q`` times it.
+        Byte-identical to the pre-slice in-loop accumulation.
         """
         corr = None
         for axis, vname in self._axis_velocity:
@@ -3429,9 +3457,9 @@ class _FluxFormAdvection(fr.model.Module):
         q: ScalarField,
         a1: ScalarField,
         axis: str,
-        ro: object,
+        scale: object | None,
     ) -> ScalarField:
-        r"""Subtract ``q * ro * scale(A(1)|top)`` via the selected lowering.
+        r"""Subtract ``q * eps * A(1)|top`` via the selected lowering.
 
         Description
         -----------
@@ -3458,10 +3486,15 @@ class _FluxFormAdvection(fr.model.Module):
             corr3d = a1.embed(axis)
             corr3d = corr3d.retag(corr3d.function_space.replace(
                 **{axis: q.function_space.bare.factor(axis)}))
-            return tend - q * (ro * self._immersed_scale(corr3d, q))
+            corr3d = self._immersed_scale(corr3d, q)
+            if scale is not None:
+                corr3d = scale * corr3d
+            return tend - q * corr3d
         corr2d = q.trace(axis, Side.HIGH) * a1
         corr2d = self._immersed_scale_2d(corr2d, q, axis)
-        return fr.spatial.operators.scatter_add(tend, -(ro * corr2d))
+        if scale is not None:
+            corr2d = scale * corr2d
+        return fr.spatial.operators.scatter_add(tend, -corr2d)
 
     def _immersed_scale_2d(
         self, corr2d: ScalarField, q: ScalarField, axis: str,
@@ -3497,15 +3530,19 @@ class _FluxFormAdvection(fr.model.Module):
 
         Description
         -----------
-        :math:`N(u', q) = S_\mathrm{full}(U + \mathrm{Ro}\,u', q) -
+        :math:`N(u', q) = S_\mathrm{full}(U + \varepsilon\,u', q) -
         S_\mathrm{lin}(U, q)`: the module's own scheme at the full
         advecting velocity minus the linear background transport, so
-        the two-term sum telescopes to the full-velocity scheme. No
-        outer Rossby factor (module docstring, scaling convention).
+        the two-term sum telescopes to the full-velocity scheme. The
+        :math:`\varepsilon` sits INSIDE the advecting velocity (a
+        pure output multiply would be wrong for this split), and the
+        dimensional variant carries no factor at all — no outer
+        factor either way (module docstring, scaling convention).
         """
-        ro = ctx.params[fr.model.params.SCALING_NONLINEARITY]
+        eps = (ctx.params[fr.model.params.SCALING_NONLINEARITY]
+               if self._nondim else None)
         return {
-            qname: (self._full_transport(state, ro, state[qname])
+            qname: (self._full_transport(state, eps, state[qname])
                     - self._linear_transport(state, state[qname]))
             for qname in self._advected}
 
@@ -3531,7 +3568,7 @@ class _FluxFormAdvection(fr.model.Module):
             for qname in self._advected}
 
     def _full_transport(
-        self, state: object, ro: object, q: ScalarField,
+        self, state: object, scale: object | None, q: ScalarField,
     ) -> ScalarField:
         """
         Flux-form transport of ``q`` by the full velocity.
@@ -3539,15 +3576,18 @@ class _FluxFormAdvection(fr.model.Module):
         Description
         -----------
         The per-axis flux loop of `_advect` with the advecting
-        velocity ``U + Ro u'`` (axes without a background sample:
-        ``Ro u'``) and no outer Rossby factor.
+        velocity ``U + eps u'`` (axes without a background sample:
+        ``eps u'``) and no outer factor. ``scale`` is the live
+        nonlinearity number of a nondimensional assembly, or ``None``
+        for the dimensional variant (the unscaled ``U + u'``).
 
         Parameters
         ----------
         state : object
             The full state (perturbation + background samples).
-        ro : object
-            The Rossby number (a traced parameter scalar).
+        scale : object | None
+            The nonlinearity number epsilon (a traced parameter
+            scalar), or None for the unscaled dimensional variant.
         q : ScalarField
             The advected quantity.
 
@@ -3559,7 +3599,9 @@ class _FluxFormAdvection(fr.model.Module):
         params = self._geometry_params(state)
         res = None
         for axis, vname in self._axis_velocity:
-            v = ro * state[vname]
+            v = state[vname]
+            if scale is not None:
+                v = scale * v
             sample = self._background_by_axis.get(axis)
             if sample is not None:
                 v = v + state[sample]

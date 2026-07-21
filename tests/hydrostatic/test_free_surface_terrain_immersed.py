@@ -19,11 +19,11 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-import fridom as fr
 import fridom.hydrostatic as hy
-from fridom.hydrostatic.params import CSQR
+from fridom.hydrostatic.params import GRAVITY
 from fridom.model.context import StepContext
 from fridom.model.model import _chunk_body
+from fridom.model.time_steppers.adam_bashforth import AdamBashforth
 from fridom.spatial.coordinate_mapping import CoordinateMapping
 from fridom.spatial.grid import Grid
 from fridom.spatial.immersed_domain import ImmersedDomain
@@ -96,15 +96,17 @@ def _pure_terrain(*, n=8, nz=8, a=0.4):
 
 def _model(grid, fs, *, csqr=3.0, n2=1.0, f0=0.5, dt=0.02):
     return hy.Model(
-        grid=grid, dt=dt, csqr=csqr,
+        grid=grid,
+        core=hy.Core(gravity=csqr),
+        time_stepper=AdamBashforth(dt, order=2),
+        coriolis=hy.FPlaneCoriolis(f0=f0),
         stratification=hy.ConstantStratification(n2=n2),
-        coriolis=hy.FPlaneCoriolis(f0=f0), advection=False,
         free_surface=fs,
-        time_stepper=fr.model.time_steppers.AdamBashforth(dt, order=2))
+        advection=False)
 
 
 def _ctx(csqr, dt):
-    return StepContext(params={CSQR: jnp.asarray(csqr)},
+    return StepContext(params={GRAVITY: jnp.asarray(csqr)},
                        clock=jnp.asarray(0.0), dt=jnp.asarray(dt),
                        stage_dt=jnp.asarray(dt))
 
@@ -176,17 +178,17 @@ def test_wet_transport_divergence_cancels(a):
          pressure_iterations=25, pressure_tolerance=None), id="implicit")])
 def test_column_equivalence_flat_bottom_on_a_chart(make_fs):
     # a flat immersed bottom (wet top 4 of 8) on a J==1 sigma chart
-    # reproduces the shallower unimmersed chart (nz=4), matched physical
-    # g: the immersed extent Z=1 vs the wet depth H'=0.5.
+    # reproduces the shallower unimmersed chart (nz=4); gravity-first,
+    # BOTH models carry the SAME physical g (no reference-depth fold).
     g = 4.0
     mi = _model(_grid(a=0.0, init=_flat_bottom, min_fraction=0.0),
-                make_fs(), csqr=g * 1.0, n2=2.0, f0=0.8, dt=0.01)
+                make_fs(), csqr=g, n2=2.0, f0=0.8, dt=0.01)
     short = Grid(
         (IM(8, (0.0, 1.0), periodic=True, name="x"),
          IM(8, (0.0, 1.0), periodic=True, name="y"),
          IM(4, (-0.5, 0.0), periodic=False, name="z")),
         mapping=_mapping(0.0))
-    mu = _model(short, make_fs(), csqr=g * 0.5, n2=2.0, f0=0.8, dt=0.01)
+    mu = _model(short, make_fs(), csqr=g, n2=2.0, f0=0.8, dt=0.01)
     rng = np.random.default_rng(0)
     icu = {k: 0.2 * rng.standard_normal(mu.state[k].data.shape)
            for k in ("u", "v", "b")}
@@ -325,7 +327,7 @@ def test_partial_bottom_asymmetry_is_real():
     # immersed path activates the well-balanced partial-bottom p_hyd
     # correction (delta > 0), the terrain-chart path defers it (PB-D3,
     # design/plans/active/partial_bottom_phyd_plan.md). The clean witness
-    # is HydrostaticCore._pb_active, resolved once at bind from the
+    # is Core._pb_active, resolved once at bind from the
     # wet-centroid offsets.
     def flat_immersed():
         return Grid(
@@ -336,8 +338,8 @@ def test_partial_bottom_asymmetry_is_real():
     ch = _model(_grid(a=0.0), hy.ImplicitFreeSurface(pressure_iterations=40))
     fl = _model(flat_immersed(),
                 hy.ImplicitFreeSurface(pressure_iterations=40))
-    assert ch.module(hy.HydrostaticCore)._pb_active is False
-    assert fl.module(hy.HydrostaticCore)._pb_active is True
+    assert ch.module(hy.Core)._pb_active is False
+    assert fl.module(hy.Core)._pb_active is True
 
 
 # ================================================================
@@ -409,10 +411,12 @@ def test_dry_dof_hygiene_over_a_run():
 # ================================================================
 def test_split_explicit_composes_on_terrain_immersed():
     m = hy.Model(
-        grid=_grid(a=0.4), dt=0.01, csqr=3.0,
+        grid=_grid(a=0.4),
+        core=hy.Core(gravity=3.0),
+        time_stepper=AdamBashforth(0.01, order=2),
+        stratification=hy.ConstantStratification(n2=1.0),
         free_surface=hy.SplitExplicitFreeSurface(substeps=8),
-        advection=False,
-        time_stepper=fr.model.time_steppers.AdamBashforth(0.01, order=2))
+        advection=False)
     fs = m.module(hy.SplitExplicitFreeSurface)
     assert fs._column is not None
     assert fs._immersed is not None
@@ -436,12 +440,15 @@ def test_split_explicit_composes_on_terrain_immersed():
 # ================================================================
 def test_grad_through_terrain_immersed_run_matches_fd():
     m = hy.Model(
-        grid=_grid(n=8, nz=4, a=0.4), dt=0.01, csqr=1.0,
+        grid=_grid(n=8, nz=4, a=0.4),
+        core=hy.Core(gravity=1.0),
+        time_stepper=AdamBashforth(0.01, order=2),
+        coriolis=hy.FPlaneCoriolis(f0=0.5),
         stratification=hy.ConstantStratification(n2=0.0),
-        coriolis=hy.FPlaneCoriolis(f0=0.5), advection=False,
         free_surface=hy.ImplicitFreeSurface(
-            epsilon=1.0, pressure_iterations=20),
-        time_stepper=fr.model.time_steppers.AdamBashforth(0.01, order=2))
+            epsilon=1.0,
+            pressure_iterations=20),
+        advection=False)
     rng = np.random.default_rng(11)
     m.set_fields(**{k: 0.1 * rng.standard_normal(m.state[k].data.shape)
                     for k in ("u", "v", "ps")})
@@ -546,13 +553,16 @@ def test_grad_through_terrain_immersed_multigrid_run_matches_fd():
     # solution, only the convergence; the wet-column alpha J divides are
     # sealed), so jax.grad is finite and matches a central FD
     m = hy.Model(
-        grid=_grid(n=8, nz=4, a=0.4), dt=0.01, csqr=1.0,
+        grid=_grid(n=8, nz=4, a=0.4),
+        core=hy.Core(gravity=1.0),
+        time_stepper=AdamBashforth(0.01, order=2),
+        coriolis=hy.FPlaneCoriolis(f0=0.5),
         stratification=hy.ConstantStratification(n2=0.0),
-        coriolis=hy.FPlaneCoriolis(f0=0.5), advection=False,
         free_surface=hy.ImplicitFreeSurface(
-            epsilon=1.0, pressure_iterations=20,
+            epsilon=1.0,
+            pressure_iterations=20,
             pressure_preconditioner="multigrid"),
-        time_stepper=fr.model.time_steppers.AdamBashforth(0.01, order=2))
+        advection=False)
     rng = np.random.default_rng(11)
     m.set_fields(**{k: 0.1 * rng.standard_normal(m.state[k].data.shape)
                     for k in ("u", "v", "ps")})

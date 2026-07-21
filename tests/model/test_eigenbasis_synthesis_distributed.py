@@ -41,12 +41,12 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-import fridom as fr
 import fridom.nonhydro2 as nh
 from fridom.model._eigenbasis import (
     _synthesize_column,
     channel_random_state,
 )
+from fridom.model.time_steppers.adam_bashforth import AdamBashforth
 from fridom.spatial.grid import Grid
 from fridom.spatial.meshes.interval import IntervalMesh
 
@@ -191,10 +191,11 @@ def make_nh_channel(device_ids=None):
         for name, n in (("x", 12), ("y", 8), ("z", 12)))
     return nh.Model(
         grid=Grid(meshes, device_ids=device_ids),
-        advection=False, dsqr=2.0,
+        core=nh.Core(aspect_ratio=(2.0) ** 0.5),
+        time_stepper=AdamBashforth(5e-3, order=3),
         coriolis=nh.FPlaneCoriolis(f0=1.5),
         stratification=nh.ConstantStratification(n2=3.0),
-        time_stepper=fr.model.time_steppers.AdamBashforth(5e-3, order=3))
+        advection=False)
 
 
 @pytest.fixture(scope="module")

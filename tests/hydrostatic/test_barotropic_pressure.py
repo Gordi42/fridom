@@ -55,7 +55,7 @@ def make_solver(grid, *, eps=0.0, iterations=40, tolerance=None,
     """Return a solver on the grid's ps space (tight-budget gates)."""
     return BarotropicPressureSolver(
         grid, ps_space_of(grid), ("zp", "z"), "z",
-        epsilon=eps, inv_depth=1.0, iterations=iterations,
+        epsilon=eps, iterations=iterations,
         tolerance=tolerance, preconditioner=preconditioner,
         multigrid_levels=multigrid_levels)
 
@@ -146,7 +146,7 @@ def test_properties():
 def test_operator_is_self_adjoint(a, eps):
     grid = terrain_grid(16, a=a)
     solver = make_solver(grid, eps=eps)
-    op = solver.operator(csqr=CSQR, dt=DT)
+    op = solver.operator(gravity=CSQR, dt=DT)
     p, q = rand_ps(grid, 1), rand_ps(grid, 2)
     apq, paq = inner(op(p), q), inner(p, op(q))
     assert abs(apq - paq) <= 1e-12 * abs(apq)
@@ -156,7 +156,7 @@ def test_operator_is_self_adjoint(a, eps):
 def test_walled_operator_is_self_adjoint(eps):
     grid = terrain_grid(16, a=0.4, y_periodic=False)
     solver = make_solver(grid, eps=eps)
-    op = solver.operator(csqr=CSQR, dt=DT)
+    op = solver.operator(gravity=CSQR, dt=DT)
     p, q = rand_ps(grid, 3), rand_ps(grid, 4)
     apq, paq = inner(op(p), q), inner(p, op(q))
     assert abs(apq - paq) <= 1e-12 * abs(apq)
@@ -169,8 +169,8 @@ def test_solve_inverts_operator():
     grid = terrain_grid(16, a=0.4)
     solver = make_solver(grid, eps=1.0, iterations=40, tolerance=None)
     rhs = rand_ps(grid, 5)
-    ps = solver.solve(rhs, csqr=CSQR, dt=DT)
-    residual = rhs - solver.operator(csqr=CSQR, dt=DT)(ps)
+    ps = solver.solve(rhs, gravity=CSQR, dt=DT)
+    residual = rhs - solver.operator(gravity=CSQR, dt=DT)(ps)
     rel = np.sqrt(inner(residual, residual)) / np.sqrt(inner(rhs, rhs))
     assert rel < 1e-11
 
@@ -180,7 +180,7 @@ def test_flat_chart_preconditioner_is_exact():
     # preconditioner is the exact inverse and PCG converges in ~1 step
     grid = terrain_grid(16, a=0.0)
     solver = make_solver(grid, eps=1.0, iterations=30, tolerance=1e-8)
-    cg = solver.krylov(csqr=CSQR, dt=DT)
+    cg = solver.krylov(gravity=CSQR, dt=DT)
     _ps, info = cg.solve(rand_ps(grid, 6))
     assert int(info["iterations"]) <= 2
 
@@ -207,7 +207,7 @@ def test_transport_divergence_cancels(y_periodic):
     t0 = raw_t(u, v)
     pre = float(jnp.abs(t0.data).max())
     rhs = -DT * CSQR * t0
-    ps = solver.solve(rhs, csqr=CSQR, dt=DT)
+    ps = solver.solve(rhs, gravity=CSQR, dt=DT)
     # the z-uniform correction (the same C-grid gradient the operator
     # legs use), broadcast onto the collocated-difference velocity faces
     u_new = u - DT * ps.diff("x").to(u)
@@ -224,7 +224,7 @@ def test_rigid_lid_solution_is_mean_free():
     solver = make_solver(grid, eps=0.0, iterations=40, tolerance=None)
     u, v, raw_t = wall_transport(grid, seed=9)
     rhs = -DT * CSQR * raw_t(u, v)
-    ps = solver.solve(rhs, csqr=CSQR, dt=DT)
+    ps = solver.solve(rhs, gravity=CSQR, dt=DT)
     mean = float(ps.mean().data.ravel()[0])
     scale = float(jnp.abs(ps.data).max())
     assert abs(mean) <= 1e-12 * scale
@@ -239,8 +239,8 @@ def test_warm_start_matches_cold_start(eps):
     solver = make_solver(grid, eps=eps, iterations=40, tolerance=None)
     u, v, raw_t = wall_transport(grid, seed=8)
     rhs = -DT * CSQR * raw_t(u, v)
-    cold = solver.solve(rhs, csqr=CSQR, dt=DT)
-    warm = solver.solve(rhs, rand_ps(grid, 12), csqr=CSQR, dt=DT)
+    cold = solver.solve(rhs, gravity=CSQR, dt=DT)
+    warm = solver.solve(rhs, rand_ps(grid, 12), gravity=CSQR, dt=DT)
     diff = float(jnp.abs((warm - cold).data).max())
     scale = float(jnp.abs(cold.data).max())
     assert diff <= 1e-11 * scale
@@ -255,7 +255,7 @@ def test_warm_start_rigid_lid_stays_mean_free():
     rhs = -DT * CSQR * raw_t(u, v)
     x0 = rand_ps(grid, 13)
     x0 = x0.with_data(x0.data + 5.0)       # a large nonzero mean
-    ps = solver.solve(rhs, x0, csqr=CSQR, dt=DT)
+    ps = solver.solve(rhs, x0, gravity=CSQR, dt=DT)
     mean = float(ps.mean().data.ravel()[0])
     assert abs(mean) <= 1e-12 * float(jnp.abs(ps.data).max())
 
@@ -288,14 +288,14 @@ def test_multigrid_levels_default_is_floor_limited():
     # three-level V-cycle (the vertical stays full, MG-D3)
     solver = make_solver(terrain_grid(16, a=0.8), preconditioner="multigrid")
     assert solver._multigrid_levels is None
-    vcycle = solver._build_vcycle(csqr=CSQR, dt=DT)
+    vcycle = solver._build_vcycle(gravity=CSQR, dt=DT)
     assert len(vcycle.levels) == 3
 
 
 def test_multigrid_levels_int_caps_the_depth():
     solver = make_solver(terrain_grid(16, a=0.8), preconditioner="multigrid",
                          multigrid_levels=2)
-    vcycle = solver._build_vcycle(csqr=CSQR, dt=DT)
+    vcycle = solver._build_vcycle(gravity=CSQR, dt=DT)
     assert len(vcycle.levels) == 2
 
 
@@ -304,7 +304,7 @@ def test_vcycle_smoother_is_point_jacobi_and_coarse_sweeps_eight():
     # at omega=2/3, symmetric V(1, 1), coarse_sweeps=8 (the engine
     # defaults kept)
     solver = make_solver(terrain_grid(16, a=0.8), preconditioner="multigrid")
-    vcycle = solver._build_vcycle(csqr=CSQR, dt=DT)
+    vcycle = solver._build_vcycle(gravity=CSQR, dt=DT)
     assert vcycle.pre_sweeps == vcycle.post_sweeps == 1
     assert vcycle.coarse_sweeps == 8
     assert all(level.smoother.omega == pytest.approx(2.0 / 3.0)
@@ -321,8 +321,8 @@ def test_diagonal_matches_two_colour_probe(eps):
     # the two colours together recover the whole diagonal exactly
     grid = terrain_grid(16, a=0.8)
     solver = make_solver(grid, eps=eps)
-    op = solver.operator(csqr=CSQR, dt=DT)
-    diag = np.asarray(solver.diagonal(csqr=CSQR, dt=DT).data)
+    op = solver.operator(gravity=CSQR, dt=DT)
+    diag = np.asarray(solver.diagonal(gravity=CSQR, dt=DT).data)
     black = checkerboard(grid, black=True)
     a_black = np.asarray(op(black).data)
     a_red = np.asarray(op(checkerboard(grid, black=False)).data)
@@ -338,7 +338,7 @@ def test_vcycle_is_self_adjoint(eps):
     # residuals CG feeds it — for eps=0 the constants are the nullspace)
     grid = terrain_grid(16, a=0.8)
     solver = make_solver(grid, eps=eps, preconditioner="multigrid")
-    vcycle = solver._build_vcycle(csqr=CSQR, dt=DT)
+    vcycle = solver._build_vcycle(gravity=CSQR, dt=DT)
     r, s = mean_free(rand_ps(grid, 30)), mean_free(rand_ps(grid, 31))
     mrs, rms = inner(vcycle(r), s), inner(r, vcycle(s))
     assert abs(mrs - rms) <= 1e-12 * max(abs(mrs), 1e-30)
@@ -351,8 +351,8 @@ def test_multigrid_converges_and_matches_spectral():
     sp = make_solver(grid, eps=1.0, iterations=60, tolerance=1e-8)
     mg = make_solver(grid, eps=1.0, iterations=60, tolerance=1e-8,
                      preconditioner="multigrid")
-    ps_sp, info_sp = sp.krylov(csqr=CSQR, dt=DT).solve(rhs)
-    ps_mg, info_mg = mg.krylov(csqr=CSQR, dt=DT).solve(rhs)
+    ps_sp, info_sp = sp.krylov(gravity=CSQR, dt=DT).solve(rhs)
+    ps_mg, info_mg = mg.krylov(gravity=CSQR, dt=DT).solve(rhs)
     # the mg-preconditioned CG hits 1e-8 well inside the 60-iteration
     # budget on a steep chart (spike: 11-13 flat; spectral degrades)
     assert int(info_mg["iterations"]) < int(info_sp["iterations"])
@@ -371,6 +371,6 @@ def test_multigrid_rigid_lid_is_mean_free_from_biased_start():
     rhs = -DT * CSQR * raw_t(u, v)
     x0 = rand_ps(grid, 42)
     x0 = x0.with_data(x0.data + 6.0)           # a large nonzero mean
-    ps = solver.solve(rhs, x0, csqr=CSQR, dt=DT)
+    ps = solver.solve(rhs, x0, gravity=CSQR, dt=DT)
     mean = float(ps.mean().data.ravel()[0])
     assert abs(mean) <= 1e-12 * float(jnp.abs(ps.data).max())

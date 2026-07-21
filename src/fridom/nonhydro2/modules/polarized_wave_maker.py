@@ -19,7 +19,7 @@ at wavevector index ``k``, multiplied by a Gaussian envelope and
 projected back onto the wave branch.
 
 The bind/in-step split (D2.1): ``bind`` reads the constant ``f0``,
-``N^2`` and ``dsqr`` through the gated bind-time view (a Ramp-valued
+``N^2`` and the aspect ratio through the gated bind-time view (a Ramp-valued
 parameter raises the taught ``TimeDependentParameterError`` — the
 packet's polarization is frozen structure), builds the eigenmodes,
 and precomputes the packet as plain data arrays; the four source
@@ -51,7 +51,7 @@ from fridom.model.params import (
     ParamName,
 )
 from fridom.model.scheduled_field import ProfileFunction
-from fridom.nonhydro2.params import DSQR
+from fridom.nonhydro2.params import ASPECT_RATIO
 from fridom.spatial.decomposition.halo import HaloSpec
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -76,7 +76,7 @@ POLARIZED_AMPLITUDE = ParamName(
     hint="provided by nh.PolarizedWaveMaker(amplitude=...)")
 
 _COMPONENT_HINT = ("the wave packet spans u, v, w and b: the "
-                   "velocities are declared by nh.DynamicalCore, "
+                   "velocities are declared by nh.Core, "
                    "the buoyancy by a stratification module")
 
 
@@ -110,7 +110,7 @@ class PolarizedWaveMaker(fr.model.Module):
     discrete single mode at index ``k`` of the inertia-gravity
     branch ``s`` (polarization and frequency from the analytic
     eigenmodes of the assembled model's constant ``f0``, ``N^2``,
-    ``dsqr``), enveloped by the Gaussian
+    the aspect ratio), enveloped by the Gaussian
 
     .. math::
         M(\boldsymbol{x}) =
@@ -215,7 +215,7 @@ class PolarizedWaveMaker(fr.model.Module):
             hint="the packet polarization needs a constant N^2 "
                  "(nh.ConstantStratification)"),
         fr.model.ParameterReference(
-            DSQR, hint="declared by nh.DynamicalCore"),
+            ASPECT_RATIO, hint="declared by nh.Core"),
     )
 
     # ================================================================
@@ -233,7 +233,7 @@ class PolarizedWaveMaker(fr.model.Module):
             unrepresented carrier mode.
         TimeDependentParameterError
             On any time-dependent input the frozen packet cannot
-            follow (TDF-D6): a Ramp-valued ``f0``/``N^2``/``dsqr``
+            follow (TDF-D6): a Ramp-valued ``f0``/``N^2``/``aspect_ratio``
             (caught by the bind-time parameter gate), a
             ``ProfileFunction``-valued one, or a dependency field
             marked ``time_dependent``. The packet polarization and
@@ -280,11 +280,11 @@ class PolarizedWaveMaker(fr.model.Module):
         parameters = table.parameters
         f0 = parameters[CORIOLIS_F0]
         n2 = parameters[STRATIFICATION_N2]
-        dsqr = parameters[DSQR]
+        delta = parameters[ASPECT_RATIO]
         for name, value in (
             (CORIOLIS_F0, f0),
             (STRATIFICATION_N2, n2),
-            (DSQR, dsqr),
+            (ASPECT_RATIO, delta),
         ):
             if isinstance(value, ProfileFunction):
                 raise TimeDependentParameterError(
@@ -310,7 +310,7 @@ class PolarizedWaveMaker(fr.model.Module):
             grid,
             f0=float(f0),
             n2=float(n2),
-            dsqr=float(dsqr),
+            dsqr=float(delta) ** 2,
             vertical=self._vertical)
         omega, wave = modes.mode(
             "wave", self._k, branch=self._branch)

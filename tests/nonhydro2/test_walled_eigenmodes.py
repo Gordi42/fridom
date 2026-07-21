@@ -24,6 +24,7 @@ from fridom.model.analytic_distributed import resolve_route
 from fridom.model.context import StepContext
 from fridom.model.eigen import _rest_background
 from fridom.model.modules.coriolis import FPlaneCoriolis
+from fridom.model.time_steppers.adam_bashforth import AdamBashforth
 from fridom.nonhydro2.modules.stratification import (
     ConstantStratification,
 )
@@ -79,10 +80,12 @@ def walled(request):
         IntervalMesh(N, (0.0, LZ), periodic=False, name="z")),
         device_ids=(0,))
     model = nh.Model(
-        grid=grid, dt=DT, advection=False, dsqr=DSQR,
+        grid=grid,
+        core=nh.Core(aspect_ratio=(DSQR) ** 0.5, family=request.param),
+        time_stepper=AdamBashforth(DT, order=3),
         coriolis=FPlaneCoriolis(f0=F0),
         stratification=ConstantStratification(n2=N2),
-        family=request.param)
+        advection=False)
     em = nh.eigenmodes.from_model(model)
     return grid, model, em
 
@@ -770,9 +773,12 @@ def _walled_from_model(family):
         IntervalMesh(N, (0.0, LZ), periodic=False, name="z")),
         device_ids=(0,))
     model = nh.Model(
-        grid=grid, dt=DT, advection=False, dsqr=DSQR,
+        grid=grid,
+        core=nh.Core(aspect_ratio=(DSQR) ** 0.5, family=family),
+        time_stepper=AdamBashforth(DT, order=3),
         coriolis=FPlaneCoriolis(f0=F0),
-        stratification=ConstantStratification(n2=N2), family=family)
+        stratification=ConstantStratification(n2=N2),
+        advection=False)
     return model, nh.eigenmodes.from_model(model)
 
 
@@ -901,9 +907,12 @@ def _walled_model(device_ids, *, family="nodal", n=N):
         IntervalMesh(n, (0.0, LZ), periodic=False, name="z")),
         device_ids=device_ids)
     return nh.Model(
-        grid=grid, dt=DT, advection=False, dsqr=DSQR,
+        grid=grid,
+        core=nh.Core(aspect_ratio=(DSQR) ** 0.5, family=family),
+        time_stepper=AdamBashforth(DT, order=3),
         coriolis=FPlaneCoriolis(f0=F0),
-        stratification=ConstantStratification(n2=N2), family=family)
+        stratification=ConstantStratification(n2=N2),
+        advection=False)
 
 
 @pytest.mark.multi_device

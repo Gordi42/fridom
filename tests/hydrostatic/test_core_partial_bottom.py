@@ -16,6 +16,7 @@ import pytest
 
 import fridom.hydrostatic as hy
 from fridom.model.context import StepContext
+from fridom.model.time_steppers.adam_bashforth import AdamBashforth
 from fridom.spatial.grid import Grid
 from fridom.spatial.immersed_domain import ImmersedDomain
 from fridom.spatial.meshes.interval import IntervalMesh
@@ -61,7 +62,7 @@ def _rest_pgf(model, strat):
     """
     grid = model.grid
     imm = grid.immersed
-    core = model.module(hy.HydrostaticCore)
+    core = model.module(hy.Core)
     bs = model.state["b"].function_space
     z_c = grid.evaluation_nodes(bs, "z")
     delta = imm.centroid_offset(bs, "z")
@@ -89,7 +90,13 @@ def _rest_pgf(model, strat):
 #  Genuine partial cells exist (the setup is a real partial cut)
 # ================================================================
 def test_setup_has_genuine_partial_bottom_cells():
-    model = hy.Model(grid=_grid(6, 8), dt=0.01, advection=False)
+    model = hy.Model(
+        grid=_grid(6, 8),
+        core=hy.Core(gravity=1.0),
+        time_stepper=AdamBashforth(0.01, order=3),
+        stratification=hy.ConstantStratification(n2=1.0),
+        free_surface=hy.ExplicitFreeSurface(),
+        advection=False)
     imm = model.grid.immersed
     bs = model.state["b"].function_space
     theta = np.asarray(imm.fraction(bs).data)
@@ -105,7 +112,13 @@ def test_setup_has_genuine_partial_bottom_cells():
                          [(6, 8, 8), (8, 16, 6), (5, 12, 4)])
 def test_g3_rest_state_is_machine_zero_flat(nx, nz, order):
     """Check b = N^2 z at rest over a cut z-grid gives zero PGF."""
-    model = hy.Model(grid=_grid(nx, nz, order), dt=0.01, advection=False)
+    model = hy.Model(
+        grid=_grid(nx, nz, order),
+        core=hy.Core(gravity=1.0),
+        time_stepper=AdamBashforth(0.01, order=3),
+        stratification=hy.ConstantStratification(n2=1.0),
+        free_surface=hy.ExplicitFreeSurface(),
+        advection=False)
     cor, unc = _rest_pgf(model, lambda z: 2.5 * z)
     assert unc > 1e-3               # the uncorrected error is real
     assert cor < 1e-12              # the correction cancels it exactly
@@ -117,8 +130,13 @@ def test_g3_rest_state_is_machine_zero_stretched():
         8, (0.0, 1.0),
         lambda t: t - 0.12 * jnp.sin(2 * jnp.pi * t) / (2 * jnp.pi),
         periodic=False, name="z")
-    model = hy.Model(grid=_grid(6, 8, 8, zmesh=zm), dt=0.01,
-                     advection=False)
+    model = hy.Model(
+        grid=_grid(6, 8, 8, zmesh=zm),
+        core=hy.Core(gravity=1.0),
+        time_stepper=AdamBashforth(0.01, order=3),
+        stratification=hy.ConstantStratification(n2=1.0),
+        free_surface=hy.ExplicitFreeSurface(),
+        advection=False)
     cor, unc = _rest_pgf(model, lambda z: 2.5 * z)
     assert unc > 1e-3
     assert cor < 1e-12
@@ -134,7 +152,13 @@ def test_g4_smooth_profile_is_second_order_and_below_uncorrected():
     cors = []
     uncs = []
     for nz in (8, 16, 32, 64):
-        model = hy.Model(grid=_grid(6, nz, 8), dt=0.01, advection=False)
+        model = hy.Model(
+            grid=_grid(6, nz, 8),
+            core=hy.Core(gravity=1.0),
+            time_stepper=AdamBashforth(0.01, order=3),
+            stratification=hy.ConstantStratification(n2=1.0),
+            free_surface=hy.ExplicitFreeSurface(),
+            advection=False)
         cor, unc = _rest_pgf(model, strat)
         dz.append(1.0 / nz)
         cors.append(cor)
@@ -155,8 +179,12 @@ def test_g1_all_wet_correction_is_a_byte_noop():
     # byte-identical to the plain diff (the flat, uncorrected path).
     model = hy.Model(
         grid=_grid(6, 8, 8, indic=lambda x, y, z: x * 0.0 + 1.0),  # noqa: ARG005
-        dt=0.02, advection=False)
-    core = model.module(hy.HydrostaticCore)
+        core=hy.Core(gravity=1.0),
+        time_stepper=AdamBashforth(0.02, order=3),
+        stratification=hy.ConstantStratification(n2=1.0),
+        free_surface=hy.ExplicitFreeSurface(),
+        advection=False)
+    core = model.module(hy.Core)
     assert core._pb_active is False        # no bottom cut -> skipped
     rng = np.random.default_rng(7)
     bdat = 0.3 * rng.standard_normal(model.state["b"].data.shape)
@@ -189,8 +217,14 @@ def test_g2_staircase_is_a_byte_noop():
          IM(8, (0.0, 1.0), periodic=False, name="z")),
         immersed=ImmersedDomain(
             lambda x, y, z: (z > 0.4).astype(float), order=None))  # noqa: ARG005
-    model = hy.Model(grid=grid, dt=0.01, advection=False)
-    core = model.module(hy.HydrostaticCore)
+    model = hy.Model(
+        grid=grid,
+        core=hy.Core(gravity=1.0),
+        time_stepper=AdamBashforth(0.01, order=3),
+        stratification=hy.ConstantStratification(n2=1.0),
+        free_surface=hy.ExplicitFreeSurface(),
+        advection=False)
+    core = model.module(hy.Core)
     rng = np.random.default_rng(1)
     bdat = 0.3 * rng.standard_normal(model.state["b"].data.shape)
 
@@ -221,8 +255,11 @@ def test_g5_grad_wrt_initial_buoyancy_matches_fd():
     gradient, so this certifies the added step-path arithmetic is clean.
     """
     model = hy.Model(
-        grid=_grid(6, 8, 4), dt=2e-3,
+        grid=_grid(6, 8, 4),
+        core=hy.Core(gravity=1.0),
+        time_stepper=AdamBashforth(2e-3, order=3),
         stratification=hy.ConstantStratification(n2=1.0),
+        free_surface=hy.ExplicitFreeSurface(),
         advection=False)
     rng = np.random.default_rng(11)
     model.set_fields(**{
@@ -256,8 +293,12 @@ def _advance_state(nx, ny, nz, device_ids):
                                 min_fraction=0.1),
         device_ids=device_ids)
     model = hy.Model(
-        grid=grid, dt=2e-3, csqr=10.0,
-        stratification=hy.ConstantStratification(n2=1.0), advection=True)
+        grid=grid,
+        core=hy.Core(gravity=10.0),
+        time_stepper=AdamBashforth(2e-3, order=3),
+        stratification=hy.ConstantStratification(n2=1.0),
+        free_surface=hy.ExplicitFreeSurface(),
+        advection=True)
     rng = np.random.default_rng(4)
     model.set_fields(**{
         k: 0.1 * rng.standard_normal(model.state[k].data.shape)

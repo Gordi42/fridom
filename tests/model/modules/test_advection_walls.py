@@ -17,7 +17,7 @@ from fridom.model.modules.advection import (
 from fridom.model.time_steppers.adam_bashforth import (
     AdamBashforth,
 )
-from fridom.nonhydro2.modules.core import DynamicalCore
+from fridom.nonhydro2.modules.core import Core
 from fridom.nonhydro2.modules.stratification import (
     ConstantStratification,
 )
@@ -48,14 +48,28 @@ def make_grid(nx, lx=L, ny=NY):
     ))
 
 
-def make_model(nx, advection, *, lx=L, stratified=True, ro=1.0):
-    modules = [DynamicalCore(rossby_number=ro)]
-    if stratified:
+def make_model(nx, advection, *, lx=L, stratified=True, eps=None):
+    """Assemble the advection module; ``eps`` selects nondim (fr.scaling).
+
+    ``eps=None`` is the dimensional assembly (the de-scaled advection
+    carries zero scaling ops). A float assembles the NONDIMENSIONAL
+    variant through the InternalWave frame: the stratification owns
+    the epsilon leaf (froude_number=eps) and the scaling-neutral
+    advection adopts the variant at bind, so the tendency carries one
+    outer epsilon (and, with a background, U + eps*u' inside).
+    """
+    modules = [Core()]
+    scaling = None
+    if eps is not None:
+        modules.append(ConstantStratification(froude_number=eps))
+        scaling = fr.scaling.InternalWave()
+    elif stratified:
         modules.append(ConstantStratification(n2=1.0))
     modules.append(advection)
     return FrModel(grid=make_grid(nx, lx=lx),
                    modules=tuple(modules),
-                   time_stepper=AdamBashforth(DT, order=3))
+                   time_stepper=AdamBashforth(DT, order=3),
+                   scaling=scaling)
 
 
 def faces(nx, lx=L):
@@ -82,7 +96,7 @@ def test_walled_grid_installs_the_graded_kernels(cls, order):
         IntervalMesh(8, (0.0, 1.0), periodic=False, name="z"),
     ))
     module = cls(order)
-    FrModel(grid=grid, modules=(DynamicalCore(), module),
+    FrModel(grid=grid, modules=(Core(), module),
             time_stepper=AdamBashforth(DT, order=3))
     assert module._walled == ("z",)
     for op in (module._left, module._right, module._lin_left,
@@ -90,7 +104,7 @@ def test_walled_grid_installs_the_graded_kernels(cls, order):
         assert op.boundary == "graded"
 
     plain = cls(order)
-    FrModel(grid=make_grid(8), modules=(DynamicalCore(), plain),
+    FrModel(grid=make_grid(8), modules=(Core(), plain),
             time_stepper=AdamBashforth(DT, order=3))
     assert plain._walled == ()
     for op in (plain._left, plain._right, plain._lin_left,
@@ -109,7 +123,7 @@ def test_walled_axis_too_short_for_the_ladder_is_taught(cls):
     with pytest.raises(NotImplementedError,
                        match=r"at least 6 cells on every walled axis"):
         FrModel(grid=grid,
-                modules=(DynamicalCore(), cls(5)),
+                modules=(Core(), cls(5)),
                 time_stepper=AdamBashforth(DT, order=3))
 
 
@@ -135,7 +149,7 @@ def make_walled_model(walled, advection, n=8):
         for name in ("x", "y", "z")))
     return FrModel(
         grid=grid,
-        modules=(DynamicalCore(), ConstantStratification(n2=1.0),
+        modules=(Core(), ConstantStratification(n2=1.0),
                  advection),
         time_stepper=AdamBashforth(DT, order=3))
 
@@ -414,7 +428,7 @@ def _walled_tendency_error(cls, order, n, wall="upwind1"):
     module = cls(order, wall=wall)
     model = FrModel(
         grid=grid,
-        modules=(DynamicalCore(), ConstantStratification(n2=1.0),
+        modules=(Core(), ConstantStratification(n2=1.0),
                  module),
         time_stepper=AdamBashforth(DT, order=3))
     yv = np.asarray(grid.evaluation_nodes(
@@ -659,7 +673,7 @@ def _wall_front(module, n=32, t_end=0.5):
     ))
     model = FrModel(
         grid=grid,
-        modules=(DynamicalCore(), ConstantStratification(n2=1.0),
+        modules=(Core(), ConstantStratification(n2=1.0),
                  module),
         time_stepper=AdamBashforth(DT, order=3))
     yv = np.asarray(grid.evaluation_nodes(

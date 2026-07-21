@@ -25,7 +25,7 @@ from fridom.model.modules.moving_geometry import (
 )
 from fridom.model.time_steppers.adam_bashforth import AdamBashforth
 from fridom.nonhydro2.modules.core import (
-    DynamicalCore,
+    Core,
     _fv_capable,
     fv_cgrid_overrides,
     resolve_model_family,
@@ -101,13 +101,22 @@ def _seed(model):
                   pytest.param(True, id="nonlinear")])
 def test_fv_default_is_bitwise_identical_to_nodal(advection):
     steps = 12  # >= 10
-    fv = _seed(nh.Model(coriolis=FPlaneCoriolis(f0=1.0),
-                        grid=periodic_grid(), dt=DT, dsqr=2.0,
-                        rossby_number=1.0, advection=advection))
-    nodal = _seed(nh.Model(coriolis=FPlaneCoriolis(f0=1.0),
-                           grid=periodic_grid(), dt=DT, dsqr=2.0,
-                           rossby_number=1.0, advection=advection,
-                           family="nodal"))
+    fv = _seed(
+        nh.Model(
+            grid=periodic_grid(),
+            core=nh.Core(aspect_ratio=(2.0) ** 0.5),
+            time_stepper=AdamBashforth(DT, order=3),
+            coriolis=FPlaneCoriolis(f0=1.0),
+            stratification=nh.ConstantStratification(n2=1.0),
+            advection=advection))
+    nodal = _seed(
+        nh.Model(
+            grid=periodic_grid(),
+            core=nh.Core(aspect_ratio=(2.0) ** 0.5, family="nodal"),
+            time_stepper=AdamBashforth(DT, order=3),
+            coriolis=FPlaneCoriolis(f0=1.0),
+            stratification=nh.ConstantStratification(n2=1.0),
+            advection=advection))
     fv.advance(steps)
     nodal.advance(steps)
     for c in ("u", "v", "w", "b", "p"):
@@ -134,13 +143,22 @@ def test_fv_default_biased_is_bitwise_identical_to_nodal(advection):
     # nodal -> average through the 2nd-order-identity deconvolve — the
     # numbers are preserved to the bit whatever the order.
     steps = 12  # >= 10
-    fv = _seed(nh.Model(coriolis=FPlaneCoriolis(f0=1.0),
-                        grid=periodic_grid(), dt=DT, dsqr=2.0,
-                        rossby_number=1.0, advection=advection()))
-    nodal = _seed(nh.Model(coriolis=FPlaneCoriolis(f0=1.0),
-                           grid=periodic_grid(), dt=DT, dsqr=2.0,
-                           rossby_number=1.0, advection=advection(),
-                           family="nodal"))
+    fv = _seed(
+        nh.Model(
+            grid=periodic_grid(),
+            core=nh.Core(aspect_ratio=(2.0) ** 0.5),
+            time_stepper=AdamBashforth(DT, order=3),
+            coriolis=FPlaneCoriolis(f0=1.0),
+            stratification=nh.ConstantStratification(n2=1.0),
+            advection=advection()))
+    nodal = _seed(
+        nh.Model(
+            grid=periodic_grid(),
+            core=nh.Core(aspect_ratio=(2.0) ** 0.5, family="nodal"),
+            time_stepper=AdamBashforth(DT, order=3),
+            coriolis=FPlaneCoriolis(f0=1.0),
+            stratification=nh.ConstantStratification(n2=1.0),
+            advection=advection()))
     fv.advance(steps)
     nodal.advance(steps)
     for c in ("u", "v", "w", "b", "p"):
@@ -157,21 +175,28 @@ def test_biased_advection_negotiates_the_two_sided_width(advection):
     # two-sided halo accounting (perf/halo-interval): the biased-5
     # reconstruction's asymmetric window composes with the flux
     # difference to width 3 (storage n+6) on every axis, not the
-    # scalar-sum 4 (n+8). The DynamicalCore extra_halo (derived,
+    # scalar-sum 4 (n+8). The Core extra_halo (derived,
     # symmetric 1) does not cap 3. FV and nodal families both tighten
     # to 3.
     for family in ("nodal", "fv"):
-        model = nh.Model(coriolis=FPlaneCoriolis(f0=1.0),
-                         grid=periodic_grid(), dt=DT, dsqr=2.0,
-                         rossby_number=1.0, advection=advection(),
-                         family=family)
+        model = nh.Model(
+            grid=periodic_grid(),
+            core=nh.Core(aspect_ratio=(2.0) ** 0.5, family=family),
+            time_stepper=AdamBashforth(DT, order=3),
+            coriolis=FPlaneCoriolis(f0=1.0),
+            stratification=nh.ConstantStratification(n2=1.0),
+            advection=advection())
         for name in ("x", "y", "z"):
             assert model.grid.decomposition.halo[name] == 3
 
 
 def test_fv_default_state_is_finite_volume():
-    model = nh.Model(coriolis=FPlaneCoriolis(f0=1.0),
-                     grid=periodic_grid(), dt=DT)
+    model = nh.Model(
+        grid=periodic_grid(),
+        core=nh.Core(),
+        time_stepper=AdamBashforth(DT, order=3),
+        coriolis=FPlaneCoriolis(f0=1.0),
+        stratification=nh.ConstantStratification(n2=1.0))
     # scalars on CellAvg^3, velocities face-normal (Right ⊗ CellAvg^2)
     for c in ("p", "b"):
         assert all(isinstance(f, CellAvg)
@@ -183,8 +208,13 @@ def test_fv_default_state_is_finite_volume():
 
 
 def test_projection_drives_divergence_to_machine_zero_on_fv():
-    model = nh.Model(coriolis=FPlaneCoriolis(f0=1.0),
-                     grid=periodic_grid(), dt=DT, advection=False)
+    model = nh.Model(
+        grid=periodic_grid(),
+        core=nh.Core(),
+        time_stepper=AdamBashforth(DT, order=3),
+        coriolis=FPlaneCoriolis(f0=1.0),
+        stratification=nh.ConstantStratification(n2=1.0),
+        advection=False)
     x, y, z = coords()
     model.set_fields(u=np.sin(x) * np.cos(y), v=0.3 * np.cos(x),
                      w=0.2 * np.sin(z))
@@ -227,7 +257,7 @@ def test_invalid_family_is_rejected():
     with pytest.raises(ValueError, match="one of"):
         resolve_model_family("spectral", periodic_grid())
     with pytest.raises(ValueError, match="one of"):
-        DynamicalCore(family="bogus")
+        Core(family="bogus")
 
 
 def test_fv_on_mapped_grid_is_served_explicit_and_auto():
@@ -239,11 +269,20 @@ def test_fv_on_mapped_grid_is_served_explicit_and_auto():
     # explicitly-fv and an auto-default mapped model land b on the same
     # CellAvg^3 family.
     assert resolve_model_family("fv", mapped_grid()) == "fv"
-    explicit = nh.Model(coriolis=FPlaneCoriolis(f0=1.0),
-                        grid=mapped_grid(), dt=DT, advection=False,
-                        family="fv")
-    auto = nh.Model(coriolis=FPlaneCoriolis(f0=1.0), grid=mapped_grid(),
-                    dt=DT, advection=False)  # auto -> fv
+    explicit = nh.Model(
+        grid=mapped_grid(),
+        core=nh.Core(family="fv"),
+        time_stepper=AdamBashforth(DT, order=3),
+        coriolis=FPlaneCoriolis(f0=1.0),
+        stratification=nh.ConstantStratification(n2=1.0),
+        advection=False)
+    auto = nh.Model(
+        grid=mapped_grid(),
+        core=nh.Core(),
+        time_stepper=AdamBashforth(DT, order=3),
+        coriolis=FPlaneCoriolis(f0=1.0),
+        stratification=nh.ConstantStratification(n2=1.0),
+        advection=False)  # auto -> fv
     for model in (explicit, auto):
         assert all(isinstance(f, CellAvg)
                    for f in model.state["b"].function_space.bare.factors)
@@ -265,8 +304,13 @@ def test_explicit_fv_on_walled_grid_is_now_served():
     # AUTO default also resolves FV on a walled grid (tested above);
     # this pins that an explicit "fv" agrees.
     assert resolve_model_family("fv", walled_grid()) == "fv"
-    model = nh.Model(coriolis=FPlaneCoriolis(f0=1.0), grid=walled_grid(),
-                     dt=DT, advection=False, family="fv")
+    model = nh.Model(
+        grid=walled_grid(),
+        core=nh.Core(family="fv"),
+        time_stepper=AdamBashforth(DT, order=3),
+        coriolis=FPlaneCoriolis(f0=1.0),
+        stratification=nh.ConstantStratification(n2=1.0),
+        advection=False)
     assert all(isinstance(f, CellAvg)
                for f in model.state["b"].function_space.bare.factors)
 
@@ -280,8 +324,13 @@ def test_walled_fv_eigenmodes_build():
     # is bitwise the nodal one; the parity + round-trip battery lives
     # in test_walled_eigenmodes.py.
     from fridom.spatial.bc import BC  # noqa: PLC0415
-    model = nh.Model(coriolis=FPlaneCoriolis(f0=1.0), grid=walled_grid(),
-                     dt=DT, advection=False)  # auto -> fv
+    model = nh.Model(
+        grid=walled_grid(),
+        core=nh.Core(),
+        time_stepper=AdamBashforth(DT, order=3),
+        coriolis=FPlaneCoriolis(f0=1.0),
+        stratification=nh.ConstantStratification(n2=1.0),
+        advection=False)  # auto -> fv
     assert all(isinstance(f, CellAvg)
                for f in model.state["b"].function_space.bare.factors)
     em = nh.eigenmodes.from_model(model)
@@ -331,7 +380,11 @@ def test_dynamic_mapping_auto_flips_to_fv_with_family_aware_ale():
     # b lands on CellAvg^3 (the cell average), the same family a static
     # mapped model gets
     auto = nh.Model(
-        coriolis=FPlaneCoriolis(f0=1.0), grid=mapped_grid(), dt=DT,
+        grid=mapped_grid(),
+        core=nh.Core(),
+        time_stepper=AdamBashforth(DT, order=3),
+        coriolis=FPlaneCoriolis(f0=1.0),
+        stratification=nh.ConstantStratification(n2=1.0),
         advection=False,
         modules_extra=(MovingGeometry(
             {"h": lambda x, t: 1.0 + 0.2 * jnp.sin(x) + 0.0 * t}),))
@@ -347,12 +400,15 @@ def test_explicit_fv_with_ale_binds_and_runs():
     # walled-z column staggers w onto n-1 faces, so seed w via an init
     # callable evaluated on its own nodes.
     model = nh.Model(
-        coriolis=FPlaneCoriolis(f0=1.0), grid=mapped_grid(), dt=DT,
-        advection=False, family="fv",
+        grid=mapped_grid(),
+        core=nh.Core(family="fv"),
+        time_stepper=AdamBashforth(DT, order=3),
+        coriolis=FPlaneCoriolis(f0=1.0),
+        stratification=nh.ConstantStratification(n2=1.0),
+        advection=False,
         modules_extra=(
-            MovingGeometry(
-                {"h": lambda x, t: 1.0 + 0.2 * jnp.sin(x)
-                 + 0.05 * t}),
+            MovingGeometry({"h": lambda x, t:
+                            1.0 + 0.2 * jnp.sin(x) + 0.05 * t}),
             MeshVelocityCorrection()))
     assert all(
         isinstance(f, CellAvg)
@@ -430,7 +486,12 @@ def test_fv_cgrid_overrides_skips_a_mesh_without_cell_avg():
 
 def test_fv_model_grid_carries_the_profile():
     grid = periodic_grid()
-    nh.Model(coriolis=FPlaneCoriolis(f0=1.0), grid=grid, dt=DT)
+    nh.Model(
+        grid=grid,
+        core=nh.Core(),
+        time_stepper=AdamBashforth(DT, order=3),
+        coriolis=FPlaneCoriolis(f0=1.0),
+        stratification=nh.ConstantStratification(n2=1.0))
     for mesh in grid.factors:
         assert isinstance(grid.dispatch.resolve("diff", mesh.cell_avg),
                           FaceDifference)
@@ -440,8 +501,12 @@ def test_fv_model_grid_carries_the_profile():
 
 def test_nodal_model_grid_keeps_the_nodal_diff():
     grid = periodic_grid()
-    nh.Model(coriolis=FPlaneCoriolis(f0=1.0), grid=grid, dt=DT,
-             family="nodal")
+    nh.Model(
+        grid=grid,
+        core=nh.Core(family="nodal"),
+        time_stepper=AdamBashforth(DT, order=3),
+        coriolis=FPlaneCoriolis(f0=1.0),
+        stratification=nh.ConstantStratification(n2=1.0))
     # the nodal Right -> Center chain survives (no FV override)
     right = grid.factors[0].right
     assert not isinstance(grid.dispatch.resolve("diff", right),
@@ -452,12 +517,12 @@ def test_nodal_model_grid_keeps_the_nodal_diff():
 #  Preset == explicit assembly; the grid-aware dispatch hook
 # ================================================================
 def test_explicit_assembly_fv_core_gets_the_profile_and_runs():
-    # DynamicalCore(family="fv") threads the profile through the
+    # Core(family="fv") threads the profile through the
     # grid_dispatch_overrides hook on the generic assembly path too
     grid = periodic_grid()
     model = FrModel(
         grid=grid,
-        modules=(DynamicalCore(family="fv"),
+        modules=(Core(family="fv"),
                  FPlaneCoriolis(f0=1.0),
                  ConstantStratification(n2=1.0, family="fv")),
         time_stepper=AdamBashforth(DT, order=3))
@@ -474,10 +539,20 @@ def test_two_nodal_models_share_a_grid():
     # walled grid auto-flips to FV, so the nodal frozen-grid branch is
     # pinned by an explicit family, not by the walled default.
     grid = walled_grid()
-    nh.Model(coriolis=FPlaneCoriolis(f0=1.0), grid=grid, dt=DT,
-             advection=False, family="nodal")
-    second = nh.Model(coriolis=FPlaneCoriolis(f0=1.0), grid=grid, dt=DT,
-                      advection=False, family="nodal")
+    nh.Model(
+        grid=grid,
+        core=nh.Core(family="nodal"),
+        time_stepper=AdamBashforth(DT, order=3),
+        coriolis=FPlaneCoriolis(f0=1.0),
+        stratification=nh.ConstantStratification(n2=1.0),
+        advection=False)
+    second = nh.Model(
+        grid=grid,
+        core=nh.Core(family="nodal"),
+        time_stepper=AdamBashforth(DT, order=3),
+        coriolis=FPlaneCoriolis(f0=1.0),
+        stratification=nh.ConstantStratification(n2=1.0),
+        advection=False)
     assert not any(
         isinstance(f, CellAvg)
         for f in second.state["b"].function_space.bare.factors)
@@ -487,10 +562,20 @@ def test_two_fv_models_share_a_grid():
     # the second FV model on the (now frozen) grid verifies the profile
     # is already present instead of re-merging
     grid = periodic_grid()
-    nh.Model(coriolis=FPlaneCoriolis(f0=1.0), grid=grid, dt=DT,
-             advection=False)
-    second = nh.Model(coriolis=FPlaneCoriolis(f0=1.0), grid=grid, dt=DT,
-                      advection=False)
+    nh.Model(
+        grid=grid,
+        core=nh.Core(),
+        time_stepper=AdamBashforth(DT, order=3),
+        coriolis=FPlaneCoriolis(f0=1.0),
+        stratification=nh.ConstantStratification(n2=1.0),
+        advection=False)
+    second = nh.Model(
+        grid=grid,
+        core=nh.Core(),
+        time_stepper=AdamBashforth(DT, order=3),
+        coriolis=FPlaneCoriolis(f0=1.0),
+        stratification=nh.ConstantStratification(n2=1.0),
+        advection=False)
     assert all(isinstance(f, CellAvg)
                for f in second.state["b"].function_space.bare.factors)
 
@@ -499,12 +584,17 @@ def test_fv_model_on_a_grid_frozen_nodal_is_a_taught_error():
     # a grid frozen by a nodal model cannot satisfy a later FV model's
     # profile demand — a loud error, not silently-wrong stencils
     grid = periodic_grid()
-    nh.Model(coriolis=FPlaneCoriolis(f0=1.0), grid=grid, dt=DT,
-             advection=False, family="nodal")
+    nh.Model(
+        grid=grid,
+        core=nh.Core(family="nodal"),
+        time_stepper=AdamBashforth(DT, order=3),
+        coriolis=FPlaneCoriolis(f0=1.0),
+        stratification=nh.ConstantStratification(n2=1.0),
+        advection=False)
     with pytest.raises(AssemblyError, match="frozen grid"):
         FrModel(
             grid=grid,
-            modules=(DynamicalCore(family="fv"),
+            modules=(Core(family="fv"),
                      FPlaneCoriolis(f0=1.0),
                      ConstantStratification(n2=1.0, family="fv")),
             time_stepper=AdamBashforth(DT, order=3))

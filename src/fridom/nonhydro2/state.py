@@ -9,7 +9,7 @@ algebra. Parameterful diagnostics (``ekin`` carries ``dsqr``,
 ``pot_vort`` carries ``f0``/``n2``/``rossby``/``dsqr``) are NOT here
 — they are ``model.diagnostics`` functions (D2.3).
 
-The class is supplied by ``nh.DynamicalCore`` through
+The class is supplied by ``nh.Core`` through
 ``Module.state_type`` and constructed by assembly with the base
 ``Mapping[str, ScalarField]`` constructor, so it adds no ``__init__``.
 """
@@ -53,14 +53,14 @@ class State(VectorField):
         """Zonal velocity (declared by a dynamical-core module)."""
         return self.require(
             "u", hint="declared by a dynamical-core module, "
-                      "e.g. nh.DynamicalCore")
+                      "e.g. nh.Core")
 
     @property
     def v(self) -> ScalarField:
         """Meridional velocity (declared by a dynamical-core module)."""
         return self.require(
             "v", hint="declared by a dynamical-core module, "
-                      "e.g. nh.DynamicalCore")
+                      "e.g. nh.Core")
 
     @property
     def w(self) -> ScalarField:
@@ -82,7 +82,7 @@ class State(VectorField):
         """
         return self.require(
             "w", hint="declared by a dynamical-core module, "
-                      "e.g. nh.DynamicalCore")
+                      "e.g. nh.Core")
 
     @property
     def b(self) -> ScalarField:

@@ -33,7 +33,6 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-import fridom as fr
 import fridom.nonhydro2 as nh
 import fridom.shallowwater2 as sw
 from fridom.model._eigenbasis import (
@@ -43,6 +42,7 @@ from fridom.model._eigenbasis import (
     _reject_sharded_projection,
 )
 from fridom.model.eigen_channel import _designate_half_axis
+from fridom.model.time_steppers.adam_bashforth import AdamBashforth
 from fridom.spatial.fields.vector_field import VectorField
 from fridom.spatial.grid import Grid
 from fridom.spatial.meshes.interval import IntervalMesh
@@ -277,10 +277,11 @@ def make_nh_channel(device_ids=None):
         for name, n in (("x", 12), ("y", 8), ("z", 12)))
     return nh.Model(
         grid=Grid(meshes, device_ids=device_ids),
-        advection=False, dsqr=2.0,
+        core=nh.Core(aspect_ratio=(2.0) ** 0.5),
+        time_stepper=AdamBashforth(5e-3, order=3),
         coriolis=nh.FPlaneCoriolis(f0=1.5),
         stratification=nh.ConstantStratification(n2=3.0),
-        time_stepper=fr.model.time_steppers.AdamBashforth(5e-3, order=3))
+        advection=False)
 
 
 def make_nh_channel_last_axis(device_ids=None):
@@ -299,10 +300,11 @@ def make_nh_channel_last_axis(device_ids=None):
         for name, n in (("x", 10), ("y", 8), ("z", 12)))
     return nh.Model(
         grid=Grid(meshes, device_ids=device_ids),
-        advection=False, dsqr=2.0,
+        core=nh.Core(aspect_ratio=(2.0) ** 0.5),
+        time_stepper=AdamBashforth(5e-3, order=3),
         coriolis=nh.FPlaneCoriolis(f0=1.5),
         stratification=nh.ConstantStratification(n2=3.0),
-        time_stepper=fr.model.time_steppers.AdamBashforth(5e-3, order=3))
+        advection=False)
 
 
 def nh_state(model, fields):
@@ -447,7 +449,7 @@ def _make_sw_2d_channel(device_ids=None):
             device_ids=device_ids),
         core=sw.Core(gravity=1.0, depth=0.7), advection=False,
         coriolis=sw.modules.FPlaneCoriolis(f0=1.0),
-        time_stepper=fr.model.time_steppers.AdamBashforth(5e-3, order=3))
+        time_stepper=AdamBashforth(5e-3, order=3))
 
 
 @pytest.mark.multi_device

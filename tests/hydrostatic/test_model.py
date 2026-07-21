@@ -6,6 +6,7 @@ import pytest
 import fridom as fr
 import fridom.hydrostatic as hy
 from fridom.model.model import chunk_cache_size
+from fridom.model.time_steppers.adam_bashforth import AdamBashforth
 
 IM = fr.spatial.meshes.IntervalMesh
 
@@ -22,11 +23,14 @@ def make_model(grid=None, *, dt=1e-3, **kwargs):
     """Return a minimal linear hydrostatic model through the factory."""
     if grid is None:
         grid = make_grid()
-    kwargs.setdefault("csqr", 1.0)
     kwargs.setdefault("coriolis", hy.FPlaneCoriolis(f0=1.0))
     return hy.Model(
-        grid=grid, dt=dt, advection=False,
-        time_stepper=fr.model.time_steppers.AdamBashforth(dt, order=3),
+        grid=grid,
+        core=hy.Core(gravity=1.0),
+        time_stepper=AdamBashforth(dt, order=3),
+        stratification=hy.ConstantStratification(n2=1.0),
+        free_surface=hy.ExplicitFreeSurface(),
+        advection=False,
         **kwargs)
 
 
@@ -37,24 +41,25 @@ def test_preset_equals_explicit_assembly_treedef():
     # the canonical D4 check (shallowwater precedent): ONE shared grid,
     # preset vs explicit assembly, identical full-carry treedef
     grid = make_grid()
-    stepper = fr.model.time_steppers.AdamBashforth(1e-3, order=3)
+    stepper = AdamBashforth(1e-3, order=3)
     preset = hy.Model(
-        grid=grid, csqr=3.0, rossby_number=0.2,
+        grid=grid,
+        core=hy.Core(gravity=3.0),
+        time_stepper=stepper,
         coriolis=hy.FPlaneCoriolis(f0=1.3),
         stratification=hy.ConstantStratification(n2=2.0),
-        free_surface=hy.ExplicitFreeSurface(),
-        time_stepper=stepper)
+        free_surface=hy.ExplicitFreeSurface())
     explicit = fr.model.Model(
         grid=grid,
         modules=(
-            hy.HydrostaticCore(csqr=3.0, rossby_number=0.2),
+            hy.Core(gravity=3.0),
             hy.FPlaneCoriolis(f0=1.3),
             hy.ConstantStratification(n2=2.0),
             hy.ExplicitFreeSurface(),
             # the factory default is advection=True -> CenteredAdvection,
             # appended after the free surface (H2b)
             fr.model.modules.CenteredAdvection()),
-        time_stepper=fr.model.time_steppers.AdamBashforth(1e-3, order=3))
+        time_stepper=AdamBashforth(1e-3, order=3))
     assert (jax.tree_util.tree_structure(preset._carry)
             == jax.tree_util.tree_structure(explicit._carry))
     # same module order (core, coriolis, stratification, free surface)
@@ -74,9 +79,14 @@ def test_preset_is_a_plain_model_not_a_subclass():
 # ================================================================
 def test_default_modules_and_stepper():
     # coriolis omitted -> no rotation at all
-    model = hy.Model(grid=make_grid(), csqr=1.0)
+    model = hy.Model(
+        grid=make_grid(),
+        core=hy.Core(gravity=1.0),
+        time_stepper=AdamBashforth(1.0, order=3),
+        stratification=hy.ConstantStratification(n2=1.0),
+        free_surface=hy.ExplicitFreeSurface())
     modules = model._carry.modules
-    assert any(isinstance(m, hy.HydrostaticCore) for m in modules)
+    assert any(isinstance(m, hy.Core) for m in modules)
     assert any(isinstance(m, hy.ExplicitFreeSurface) for m in modules)
     strat = [m for m in modules
              if isinstance(m, hy.ConstantStratification)]
@@ -87,7 +97,12 @@ def test_default_modules_and_stepper():
 
 
 def test_default_is_no_rotation_at_all():
-    model = hy.Model(grid=make_grid(), csqr=1.0)
+    model = hy.Model(
+        grid=make_grid(),
+        core=hy.Core(gravity=1.0),
+        time_stepper=AdamBashforth(1.0, order=3),
+        stratification=hy.ConstantStratification(n2=1.0),
+        free_surface=hy.ExplicitFreeSurface())
     assert "f_coriolis" not in model.state
     assert fr.model.params.CORIOLIS_F0 not in model.parameters
     with pytest.raises(LookupError, match="no live module matches"):
@@ -95,8 +110,13 @@ def test_default_is_no_rotation_at_all():
 
 
 def test_a_named_coriolis_is_installed():
-    model = hy.Model(grid=make_grid(), csqr=1.0,
-                     coriolis=hy.FPlaneCoriolis(f0=1.5))
+    model = hy.Model(
+        grid=make_grid(),
+        core=hy.Core(gravity=1.0),
+        time_stepper=AdamBashforth(1.0, order=3),
+        coriolis=hy.FPlaneCoriolis(f0=1.5),
+        stratification=hy.ConstantStratification(n2=1.0),
+        free_surface=hy.ExplicitFreeSurface())
     assert "f_coriolis" in model.state
     assert float(model.parameters[fr.model.params.CORIOLIS_F0]) == 1.5
 
@@ -114,13 +134,25 @@ def test_a_named_coriolis_is_installed():
     ],
 )
 def test_advection_is_installed(advection):
-    model = hy.Model(grid=make_grid(), csqr=1.0, advection=advection)
+    model = hy.Model(
+        grid=make_grid(),
+        core=hy.Core(gravity=1.0),
+        time_stepper=AdamBashforth(1.0, order=3),
+        stratification=hy.ConstantStratification(n2=1.0),
+        free_surface=hy.ExplicitFreeSurface(),
+        advection=advection)
     assert any("Advection" in type(m).__name__
                for m in model._carry.modules)
 
 
 def test_advection_false_installs_no_advection_module():
-    model = hy.Model(grid=make_grid(), csqr=1.0, advection=False)
+    model = hy.Model(
+        grid=make_grid(),
+        core=hy.Core(gravity=1.0),
+        time_stepper=AdamBashforth(1.0, order=3),
+        stratification=hy.ConstantStratification(n2=1.0),
+        free_surface=hy.ExplicitFreeSurface(),
+        advection=False)
     assert not any("Advection" in type(m).__name__
                    for m in model._carry.modules)
 
@@ -130,14 +162,25 @@ def test_advection_false_installs_no_advection_module():
 # ================================================================
 def test_modules_extra_appends():
     # a bare model (coriolis omitted) carries no rotation ...
-    bare = hy.Model(grid=make_grid(), csqr=1.0)
+    bare = hy.Model(
+        grid=make_grid(),
+        core=hy.Core(gravity=1.0),
+        time_stepper=AdamBashforth(1.0, order=3),
+        stratification=hy.ConstantStratification(n2=1.0),
+        free_surface=hy.ExplicitFreeSurface())
     assert not any(isinstance(m, fr.model.modules.FPlaneCoriolis)
                    for m in bare._carry.modules)
     # ... and an extra module is appended and assembled (its rotation
     # term and parameter take effect)
     extra = fr.model.modules.FPlaneCoriolis(f0=0.9)
-    model = hy.Model(grid=make_grid(), csqr=1.0, coriolis=None,
-                     modules_extra=(extra,))
+    model = hy.Model(
+        grid=make_grid(),
+        core=hy.Core(gravity=1.0),
+        time_stepper=AdamBashforth(1.0, order=3),
+        coriolis=None,
+        stratification=hy.ConstantStratification(n2=1.0),
+        free_surface=hy.ExplicitFreeSurface(),
+        modules_extra=(extra,))
     assert any(isinstance(m, fr.model.modules.FPlaneCoriolis)
                for m in model._carry.modules)
     assert "f_coriolis" in model.state

@@ -17,6 +17,7 @@ import pytest
 import fridom as fr
 import fridom.nonhydro2 as nh
 from fridom.model.modules.boundary_flux import BoundaryFlux
+from fridom.model.time_steppers.adam_bashforth import AdamBashforth
 from fridom.spatial.grid import Grid
 from fridom.spatial.meshes.interval import IntervalMesh
 
@@ -38,13 +39,16 @@ def make_grid():
 
 def make_model(*modules, stepper=None):
     """Linear nh model; f0 = n2 = 0 isolates the boundary flux."""
-    kwargs = ({"dt": DT} if stepper is None
-              else {"time_stepper": stepper})
+    if stepper is None:
+        stepper = AdamBashforth(DT, order=3)
     return nh.Model(
-        grid=make_grid(), advection=False,
+        grid=make_grid(),
+        core=nh.Core(),
+        time_stepper=stepper,
         coriolis=nh.FPlaneCoriolis(f0=0.0),
         stratification=nh.ConstantStratification(n2=0.0),
-        modules_extra=modules, **kwargs)
+        advection=False,
+        modules_extra=modules)
 
 
 def x_centers():
@@ -164,7 +168,7 @@ def _euler_wall_oracle(scale, q, steps):
 ])
 def test_time_dependent_scale_matches_a_hand_stepped_oracle(scale):
     q, steps = 0.7, 8
-    euler = fr.model.time_steppers.AdamBashforth(DT, order=1)
+    euler = AdamBashforth(DT, order=1)
     model = make_model(BoundaryFlux("b", "z", "right", flux=q,
                                     scale=scale), stepper=euler)
     model.advance(steps)

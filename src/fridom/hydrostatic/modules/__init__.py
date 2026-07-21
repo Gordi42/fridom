@@ -22,7 +22,7 @@ if TYPE_CHECKING:  # pragma: no cover
     )
 
     from .barotropic_pressure import BarotropicPressureSolver
-    from .core import HydrostaticCore
+    from .core import Core
     from .free_surface import (
         ExplicitFreeSurface,
         ImplicitFreeSurface,
@@ -44,7 +44,7 @@ all_imports_by_origin = {
         "FPlaneCoriolis", "BetaPlaneCoriolis", "RotationCoriolis"],
     "fridom.model.closures": ["VerticalMixing"],
     f"{base}.barotropic_pressure": ["BarotropicPressureSolver"],
-    f"{base}.core": ["HydrostaticCore"],
+    f"{base}.core": ["Core"],
     f"{base}.stratification": ["ConstantStratification"],
     f"{base}.free_surface": [
         "ExplicitFreeSurface", "ImplicitFreeSurface",

@@ -38,6 +38,7 @@ import pytest
 
 import fridom as fr
 import fridom.hydrostatic as hy
+from fridom.model.time_steppers.adam_bashforth import AdamBashforth
 from fridom.spatial.spaces.constant import ConstantSpace
 
 IM = fr.spatial.meshes.IntervalMesh
@@ -109,7 +110,7 @@ def total_energy(model, csqr, nz):
 # ================================================================
 def test_pins_the_quasi_ab2_stepper():
     # pyOM quasi-AB2: order 2, eps = 0.1 (the computational-mode damper)
-    model = hy.comparison_model(make_grid(8, 8, 4), dt=1e-2, csqr=1.0)
+    model = hy.comparison_model(make_grid(8, 8, 4), dt=1e-2, gravity=1.0)
     stepper = model._stepper
     assert isinstance(stepper, fr.model.time_steppers.AdamBashforth)
     assert stepper.order == 2
@@ -117,14 +118,14 @@ def test_pins_the_quasi_ab2_stepper():
 
 
 def test_eps_override_is_the_pyom_damper():
-    model = hy.comparison_model(make_grid(8, 8, 4), dt=1e-2, csqr=1.0,
+    model = hy.comparison_model(make_grid(8, 8, 4), dt=1e-2, gravity=1.0,
                                 eps=0.05)
     assert model._stepper.eps == 0.05
 
 
 def test_pins_the_backward_euler_implicit_free_surface():
     # Oceananigans ImplicitFreeSurface / pyOM enable_free_surface (eps=1)
-    model = hy.comparison_model(make_grid(8, 8, 4), dt=1e-2, csqr=1.0)
+    model = hy.comparison_model(make_grid(8, 8, 4), dt=1e-2, gravity=1.0)
     fs = model.module(hy.ImplicitFreeSurface)
     assert fs.epsilon == 1.0
 
@@ -132,7 +133,7 @@ def test_pins_the_backward_euler_implicit_free_surface():
 def test_epsilon_zero_selects_the_rigid_lid_veros_axis():
     # the Veros / pyOM streamfunction physics on a doubly-periodic box:
     # a rigid lid, ps DIAGNOSTIC (recomputed, no surface memory)
-    model = hy.comparison_model(make_grid(8, 8, 4), dt=1e-2, csqr=1.0,
+    model = hy.comparison_model(make_grid(8, 8, 4), dt=1e-2, gravity=1.0,
                                 epsilon=0.0)
     fs = model.module(hy.ImplicitFreeSurface)
     assert fs.epsilon == 0.0
@@ -143,7 +144,7 @@ def test_epsilon_zero_selects_the_rigid_lid_veros_axis():
 
 def test_pins_centered_advection_of_momentum_and_tracer():
     # centered-2 flux form (pyOM/Veros always; Oceananigans forced)
-    model = hy.comparison_model(make_grid(8, 8, 4), dt=1e-2, csqr=1.0)
+    model = hy.comparison_model(make_grid(8, 8, 4), dt=1e-2, gravity=1.0)
     adv = model.module(fr.model.modules.CenteredAdvection)
     assert adv is not None
     # it transports the ADVECTED set: momentum u/v AND the b tracer
@@ -152,7 +153,7 @@ def test_pins_centered_advection_of_momentum_and_tracer():
 
 
 def test_pins_fplane_coriolis_and_constant_stratification():
-    model = hy.comparison_model(make_grid(8, 8, 4), dt=1e-2, csqr=1.0,
+    model = hy.comparison_model(make_grid(8, 8, 4), dt=1e-2, gravity=1.0,
                                 coriolis_f0=1.3, n2=2.0)
     assert model.module(hy.FPlaneCoriolis) is not None
     assert model.module(hy.ConstantStratification) is not None
@@ -165,17 +166,17 @@ def test_preset_matches_explicit_assembly_treedef():
     # the pinned config equals the hand-written module tuple (D4 check)
     import jax  # noqa: PLC0415
     grid = make_grid(8, 8, 4)
-    preset = hy.comparison_model(grid, dt=1e-2, csqr=3.0, coriolis_f0=1.3,
-                                 n2=2.0, rossby_number=0.2)
+    preset = hy.comparison_model(grid, dt=1e-2, gravity=3.0,
+                                 coriolis_f0=1.3, n2=2.0)
     explicit = fr.model.Model(
         grid=grid,
         modules=(
-            hy.HydrostaticCore(csqr=3.0, rossby_number=0.2),
+            hy.Core(gravity=3.0),
             hy.FPlaneCoriolis(f0=1.3),
             hy.ConstantStratification(n2=2.0),
             hy.ImplicitFreeSurface(epsilon=1.0),
             fr.model.modules.CenteredAdvection()),
-        time_stepper=fr.model.time_steppers.AdamBashforth(
+        time_stepper=AdamBashforth(
             1e-2, order=2, eps=0.1))
     assert (jax.tree_util.tree_structure(preset._carry)
             == jax.tree_util.tree_structure(explicit._carry))
@@ -185,7 +186,7 @@ def test_preset_matches_explicit_assembly_treedef():
 
 def test_carry_treedef_is_stable_over_a_run():
     import jax  # noqa: PLC0415
-    model = hy.comparison_model(make_grid(8, 8, 4), dt=1e-2, csqr=1.0)
+    model = hy.comparison_model(make_grid(8, 8, 4), dt=1e-2, gravity=1.0)
     rng = np.random.default_rng(0)
     model.set_fields(
         u=1e-3 * rng.standard_normal(model.state["u"].shape),
@@ -203,10 +204,13 @@ def test_carry_treedef_is_stable_over_a_run():
 def test_name_and_kwargs_pass_through_to_the_model():
     # the name and any extra hy.Model kwargs ride through the preset
     grid = make_grid(8, 8, 4)
-    model = hy.comparison_model(grid, dt=1e-2, csqr=1.0, name="cmp",
-                                rossby_number=0.3)
+    model = hy.comparison_model(grid, dt=1e-2, gravity=1.0, name="cmp")
     assert model.name == "cmp"
-    assert float(model.parameters[hy.params.ROSSBY]) == 0.3
+    # the retired kwargs stay taught through the preset too
+    with pytest.raises(TypeError, match="rossby_number= is retired"):
+        hy.comparison_model(grid, dt=1e-2, rossby_number=0.3)
+    with pytest.raises(TypeError, match="csqr= is retired"):
+        hy.comparison_model(grid, dt=1e-2, csqr=1.0)
 
 
 # ================================================================
@@ -233,7 +237,7 @@ def _gamma(kx, ky, nx, ny):
 def _run_adjustment(nx, nz, csqr, f0, kx, ky, n_steps=200):
     """Release a ps mode, damp the waves, return retained fractions."""
     dt = 0.06 / np.sqrt(csqr)
-    model = hy.comparison_model(make_grid(nx, nx, nz), dt=dt, csqr=csqr,
+    model = hy.comparison_model(make_grid(nx, nx, nz), dt=dt, gravity=csqr,
                                 coriolis_f0=f0, n2=0.0)
     ps_i = mode_field(model, "ps", kx, ky, "cos")
     model.set_state(zeroed(model).replace(ps=1e-3 * ps_i))
@@ -266,7 +270,7 @@ def test_geostrophic_adjustment_matches_the_discrete_deformation_radius():
 def test_geostrophic_adjustment_settles_to_a_steady_balanced_mode():
     nx, nz, csqr, f0, kx, ky = 24, 4, 1.0, 3.0, 1, 1
     dt = 0.06
-    model = hy.comparison_model(make_grid(nx, nx, nz), dt=dt, csqr=csqr,
+    model = hy.comparison_model(make_grid(nx, nx, nz), dt=dt, gravity=csqr,
                                 coriolis_f0=f0, n2=0.0)
     ps_i = np.asarray(mode_field(model, "ps", kx, ky, "cos").data)
     model.set_state(zeroed(model).replace(
@@ -342,12 +346,13 @@ def _background_model(f0=1.0, lam=0.5, epsilon=0.0):
     adv = fr.model.modules.CenteredAdvection(
         background={"u": lambda z: lam * (z - 0.5)})
     return hy.Model(
-        grid=grid, dt=1e-2, csqr=4.0,
-        free_surface=hy.ImplicitFreeSurface(epsilon=epsilon),
+        grid=grid,
+        core=hy.Core(gravity=4.0),
+        time_stepper=AdamBashforth( 1e-2, order=2, eps=0.1),
+        coriolis=hy.FPlaneCoriolis(f0=f0),
         stratification=hy.ConstantStratification(n2=1.0),
-        coriolis=hy.FPlaneCoriolis(f0=f0), advection=adv,
-        time_stepper=fr.model.time_steppers.AdamBashforth(
-            1e-2, order=2, eps=0.1))
+        free_surface=hy.ImplicitFreeSurface(epsilon=epsilon),
+        advection=adv)
 
 
 def _thermal_wind_model(f0=1.0, lam=0.5, epsilon=0.0):
@@ -357,13 +362,14 @@ def _thermal_wind_model(f0=1.0, lam=0.5, epsilon=0.0):
     adv = fr.model.modules.CenteredAdvection(
         background={"u": tw.background_velocity()})
     return hy.Model(
-        grid=grid, dt=1e-2, csqr=4.0,
-        free_surface=hy.ImplicitFreeSurface(epsilon=epsilon),
+        grid=grid,
+        core=hy.Core(gravity=4.0),
+        time_stepper=AdamBashforth( 1e-2, order=2, eps=0.1),
+        coriolis=hy.FPlaneCoriolis(f0=f0),
         stratification=hy.ConstantStratification(n2=1.0),
-        coriolis=hy.FPlaneCoriolis(f0=f0), advection=adv,
-        modules_extra=(tw,),
-        time_stepper=fr.model.time_steppers.AdamBashforth(
-            1e-2, order=2, eps=0.1))
+        free_surface=hy.ImplicitFreeSurface(epsilon=epsilon),
+        advection=adv,
+        modules_extra=(tw,))
 
 
 def test_background_shear_composes_with_the_hydrostatic_model():
@@ -482,12 +488,13 @@ def test_internal_wave_packet_moves_at_the_discrete_group_velocity():
     # 1. discrete dispersion from the linear operator (a linear twin;
     #    the preset's advection does not change linear wave dispersion)
     lin = hy.Model(
-        grid=make_grid(nx, ny, nz, lx=lx), dt=dt, csqr=csqr,
-        free_surface=hy.ImplicitFreeSurface(epsilon=0.0),
+        grid=make_grid(nx, ny, nz, lx=lx),
+        core=hy.Core(gravity=csqr),
+        time_stepper=AdamBashforth(dt, order=2, eps=0.1),
+        coriolis=hy.FPlaneCoriolis(f0=f0),
         stratification=hy.ConstantStratification(n2=n2),
-        coriolis=hy.FPlaneCoriolis(f0=f0), advection=False,
-        time_stepper=fr.model.time_steppers.AdamBashforth(dt, order=2,
-                                                          eps=0.1))
+        free_surface=hy.ImplicitFreeSurface(epsilon=0.0),
+        advection=False)
     ev, vecs, cols = _baroclinic_spectrum(lin, kx0, lx)
     i_pos = int(np.argmax(ev.imag))
     omega = ev[i_pos].imag
@@ -502,7 +509,7 @@ def test_internal_wave_packet_moves_at_the_discrete_group_velocity():
     # 2. launch the packet on the comparison preset (rigid lid), scaled
     #    tiny so the pinned nonlinear advection is negligible
     model = hy.comparison_model(
-        make_grid(nx, ny, nz, lx=lx), dt=dt, csqr=csqr,
+        make_grid(nx, ny, nz, lx=lx), dt=dt, gravity=csqr,
         coriolis_f0=f0, n2=n2, epsilon=0.0)
     sigma, x0, scale = 0.8, lx / 2, 1e-3
 

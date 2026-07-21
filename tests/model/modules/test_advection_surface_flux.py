@@ -23,6 +23,7 @@ from fridom.model.modules.advection import (
     WENOAdvection,
 )
 from fridom.model.term_predicates import owned_by
+from fridom.model.time_steppers.adam_bashforth import AdamBashforth
 from fridom.spatial.coordinate_mapping import CoordinateMapping
 from fridom.spatial.immersed_domain import ImmersedDomain
 
@@ -80,8 +81,11 @@ def _grid(kind, nx=6, nz=5):
 def _model(kind, *, fv_tracer=True, surface_flux=True):
     extra = [_FVTracer()] if fv_tracer else []
     return hy.Model(
-        grid=_grid(kind), dt=1e-3, csqr=1.0,
+        grid=_grid(kind),
+        core=hy.Core(gravity=1.0),
+        time_stepper=AdamBashforth(1e-3, order=3),
         stratification=hy.ConstantStratification(n2=1.0),
+        free_surface=hy.ExplicitFreeSurface(),
         advection=CenteredAdvection(surface_flux=surface_flux),
         modules_extra=extra)
 
@@ -94,8 +98,11 @@ def _weno_model():
         IM(6, (0.0, 1.0), periodic=True, name="y"),
         IM(6, (0.0, 1.0), periodic=False, name="z")))
     return hy.Model(
-        grid=grid, dt=1e-3, csqr=1.0,
+        grid=grid,
+        core=hy.Core(gravity=1.0),
+        time_stepper=AdamBashforth(1e-3, order=3),
         stratification=hy.ConstantStratification(n2=1.0),
+        free_surface=hy.ExplicitFreeSurface(),
         advection=WENOAdvection(order=5))
 
 
@@ -109,7 +116,7 @@ def _diagnosed_state(model, seed=0):
     model.set_fields(**{
         k: 0.1 * rng.standard_normal(model.state[k].data.shape)
         for k in ("u", "v", "b", "c") if k in model.state})
-    core = model.module(hy.HydrostaticCore)
+    core = model.module(hy.Core)
     return model.state.replace(w=core._diagnose_w(model.state, _Ctx)["w"])
 
 
@@ -303,8 +310,11 @@ def test_surface_flux_slice_grad_matches_fd_stretched():
         IM(8, (0.0, 1.0), periodic=True, name="y"),
         MIM(4, (0.0, 1.0), _wavy, periodic=False, name="z")))
     model = hy.Model(
-        grid=grid, dt=2e-3, csqr=1.0,
+        grid=grid,
+        core=hy.Core(gravity=1.0),
+        time_stepper=AdamBashforth(2e-3, order=3),
         stratification=hy.ConstantStratification(n2=1.0),
+        free_surface=hy.ExplicitFreeSurface(),
         advection=CenteredAdvection(surface_flux=True))
     _grad_matches_fd(model, seed_init=3, seed_dir=7)
 
@@ -324,8 +334,11 @@ def test_surface_flux_slice_grad_matches_fd_immersed_sealed_top():
          IM(4, (0.0, 1.0), periodic=False, name="z")),
         immersed=ImmersedDomain(_dry_top, min_fraction=0.1))
     model = hy.Model(
-        grid=grid, dt=2e-3, csqr=1.0,
+        grid=grid,
+        core=hy.Core(gravity=1.0),
+        time_stepper=AdamBashforth(2e-3, order=3),
         stratification=hy.ConstantStratification(n2=1.0),
+        free_surface=hy.ExplicitFreeSurface(),
         advection=CenteredAdvection(surface_flux=True))
     _grad_matches_fd(model, seed_init=5, seed_dir=11)
 
@@ -352,8 +365,11 @@ def _biased_model(scheme):
         IM(6, (0.0, 1.0), periodic=True, name="y"),
         IM(6, (0.0, 1.0), periodic=False, name="z")))
     return hy.Model(
-        grid=grid, dt=1e-3, csqr=1.0,
+        grid=grid,
+        core=hy.Core(gravity=1.0),
+        time_stepper=AdamBashforth(1e-3, order=3),
         stratification=hy.ConstantStratification(n2=1.0),
+        free_surface=hy.ExplicitFreeSurface(),
         advection=scheme)
 
 
@@ -478,7 +494,10 @@ def test_surface_flux_weno_grad_matches_fd():
         IM(6, (0.0, 1.0), periodic=True, name="y"),
         IM(6, (0.0, 1.0), periodic=False, name="z")))
     model = hy.Model(
-        grid=grid, dt=1e-3, csqr=1.0,
+        grid=grid,
+        core=hy.Core(gravity=1.0),
+        time_stepper=AdamBashforth(1e-3, order=3),
         stratification=hy.ConstantStratification(n2=1.0),
+        free_surface=hy.ExplicitFreeSurface(),
         advection=WENOAdvection(order=5, surface_flux=True))
     _grad_matches_fd(model, seed_init=4, seed_dir=9)

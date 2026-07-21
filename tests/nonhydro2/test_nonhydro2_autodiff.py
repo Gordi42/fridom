@@ -17,6 +17,7 @@ import pytest
 import fridom as fr
 import fridom.nonhydro2 as nh
 from fridom.model.model import _chunk_body
+from fridom.model.time_steppers.adam_bashforth import AdamBashforth
 from fridom.spatial.grid import Grid
 from fridom.spatial.meshes.interval import IntervalMesh
 
@@ -40,7 +41,11 @@ def advecting_model(nu=1e-2):
     solve. A sheared velocity keeps advection and friction active.
     """
     model = nh.Model(
-        grid=make_grid(), coriolis=nh.FPlaneCoriolis(f0=1.0), dt=DT,
+        grid=make_grid(),
+        core=nh.Core(),
+        time_stepper=AdamBashforth(DT, order=3),
+        coriolis=nh.FPlaneCoriolis(f0=1.0),
+        stratification=nh.ConstantStratification(n2=1.0),
         advection=True,
         modules_extra=(fr.model.closures.HarmonicFriction(nu=nu),))
     ax = (np.arange(N) + 0.5) * (TWO_PI / N)

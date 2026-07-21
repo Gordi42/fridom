@@ -14,8 +14,8 @@ in the projection stage ride on top.
 import numpy as np
 import pytest
 
-import fridom as fr
 import fridom.nonhydro2 as nh
+from fridom.model.time_steppers.adam_bashforth import AdamBashforth
 from fridom.spatial.bc import BC
 from fridom.spatial.fields.vector_field import VectorField
 from fridom.spatial.grid import Grid
@@ -35,10 +35,12 @@ def make_model(*, walled="y"):
                      periodic=(name != walled), name=name)
         for name in ("x", "y", "z"))
     return nh.Model(
-        grid=Grid(meshes), advection=False, dsqr=DSQR,
+        grid=Grid(meshes),
+        core=nh.Core(aspect_ratio=(DSQR) ** 0.5),
+        time_stepper=AdamBashforth(5e-3, order=3),
         coriolis=nh.FPlaneCoriolis(f0=F0),
         stratification=nh.ConstantStratification(n2=N2),
-        time_stepper=fr.model.time_steppers.AdamBashforth(5e-3, order=3))
+        advection=False)
 
 
 @pytest.fixture(scope="module")
@@ -140,10 +142,12 @@ def test_nonlinear_advance_stays_finite_and_divergence_free(walled):
                      periodic=(name not in walled), name=name)
         for name in ("x", "y", "z"))
     model = nh.Model(
-        grid=Grid(meshes), advection=True, dsqr=DSQR,
+        grid=Grid(meshes),
+        core=nh.Core(aspect_ratio=(DSQR) ** 0.5),
+        time_stepper=AdamBashforth(5e-3, order=3),
         coriolis=nh.FPlaneCoriolis(f0=F0),
         stratification=nh.ConstantStratification(n2=N2),
-        time_stepper=fr.model.time_steppers.AdamBashforth(5e-3, order=3))
+        advection=True)
     _random_state(model, seed=6)
     model.advance(3)
     assert not model.panicked

@@ -21,6 +21,7 @@ import pytest
 import fridom as fr
 import fridom.hydrostatic as hy
 from fridom.model.model import _chunk_body
+from fridom.model.time_steppers.adam_bashforth import AdamBashforth
 from fridom.spatial.immersed_domain import ImmersedDomain
 
 IM = fr.spatial.meshes.IntervalMesh
@@ -44,11 +45,13 @@ def _grid(periodic, nx=8, ny=8, nz=4):
 def _model(grid, *, advection=False, f0=0.5, csqr=1.0, n2=0.0, dt=1e-3):
     """Return a linear explicit-free-surface hydrostatic model."""
     return hy.Model(
-        grid=grid, dt=dt, csqr=csqr, advection=advection,
-        free_surface=hy.ExplicitFreeSurface(),
-        stratification=hy.ConstantStratification(n2=n2),
+        grid=grid,
+        core=hy.Core(gravity=csqr),
+        time_stepper=AdamBashforth(dt, order=3),
         coriolis=hy.FPlaneCoriolis(f0=f0),
-        time_stepper=fr.model.time_steppers.AdamBashforth(dt, order=3))
+        stratification=hy.ConstantStratification(n2=n2),
+        free_surface=hy.ExplicitFreeSurface(),
+        advection=advection)
 
 
 def _random_ic(model, scale=0.1, seed=0):
@@ -194,9 +197,13 @@ def test_immersed_mask_on_walls_assembles_and_runs_finite():
         IM(4, (0.0, 1.0), periodic=False, name="z")),
         immersed=ImmersedDomain(lambda x, y, z: (z > 0.25).astype(float)))  # noqa: ARG005
     model = hy.Model(
-        grid=grid, dt=1e-3, csqr=1.0, advection=False,
+        grid=grid,
+        core=hy.Core(gravity=1.0),
+        time_stepper=AdamBashforth(1e-3, order=3),
+        coriolis=hy.FPlaneCoriolis(f0=0.5),
+        stratification=hy.ConstantStratification(n2=1.0),
         free_surface=hy.ExplicitFreeSurface(),
-        coriolis=hy.FPlaneCoriolis(f0=0.5))
+        advection=False)
     _random_ic(model)
     model.advance(10)
     assert not model.panicked

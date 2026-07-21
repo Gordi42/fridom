@@ -95,12 +95,14 @@ if TYPE_CHECKING:  # pragma: no cover
 #  The canonical per-model builders live beside their models
 #  (``nonhydro2.energy`` / ``shallowwater2.energy``).
 # ----------------------------------------------------------------
-_DSQR = "nonhydro.dsqr"
+_ASPECT = "nonhydro.aspect_ratio"
 _CSQR = "shallowwater.csqr"
-_HYDRO_CSQR = "hydrostatic.csqr"
+_HYDRO_GRAVITY = "hydrostatic.gravity"
+_HYDRO_FROUDE = "hydrostatic.froude"
 _SW_GRAVITY = "shallowwater.gravity"
 _SW_DEPTH = "shallowwater.depth"
 _SW_FROUDE = "shallowwater.froude"
+_STRAT_FROUDE = "stratification.froude"
 _EPSILON = "scaling.nonlinearity"
 
 # A component weight is a scalar; ScalarField widens it to a
@@ -450,10 +452,11 @@ class EnergyMetric:
                 "beta-plane / metric-ratio f(y) is not supported); "
                 "assemble with an f-plane Coriolis module (f0= or "
                 "rossby_number=)")
-        if _DSQR in params:
-            dsqr = _read_scalar(params, _DSQR, at_time)
-            if STRATIFICATION_N2 in params:
-                n2 = _read_scalar(params, STRATIFICATION_N2, at_time)
+        if _ASPECT in params:
+            delta = _read_scalar(params, _ASPECT, at_time)
+            dsqr = delta * delta
+            if STRATIFICATION_N2 in params or _STRAT_FROUDE in params:
+                n2 = _nh_effective_n2(params, at_time)
                 if n2 == 0.0:
                     raise ValueError(
                         "the nonhydro energy weight 1/N^2 needs a "
@@ -477,7 +480,7 @@ class EnergyMetric:
                     "nonzero effective phase speed (gravity * depth,"
                     " or (epsilon/Fr)^2 * depth ratio)")
             weights = {"u": 1.0, "v": 1.0, "p": 1.0 / csqr}
-        elif _HYDRO_CSQR in params:
+        elif _HYDRO_GRAVITY in params or _HYDRO_FROUDE in params:
             weights = _hydrostatic_weights(model, at_time)
         elif _state_field(model, "csqr") is not None:
             csqr_field = _profile_field(
@@ -489,8 +492,10 @@ class EnergyMetric:
         else:
             raise ValueError(
                 "unrecognized model energy: expected a "
-                f"{_DSQR!r} (nonhydro) provider, or the "
-                "shallow-water primitives "
+                f"{_ASPECT!r} (nonhydro) provider, a "
+                f"{_HYDRO_GRAVITY!r} / {_HYDRO_FROUDE!r} "
+                "(hydrostatic) provider, or the shallow-water "
+                "primitives "
                 f"({_SW_GRAVITY!r} x {_SW_DEPTH!r}, or {_SW_FROUDE!r}"
                 f" with {_SW_DEPTH!r}) on this model")
         return cls(weights)
@@ -550,80 +555,71 @@ class EnergyMetric:
 def _hydrostatic_weights(
     model: Model, at_time: float,
 ) -> dict[str, Weight | ScalarField]:
-    r"""Assemble ``diag(1, 1, 1/N^2, H_ref/c^2)`` on ``(u, v, b, ps)``.
+    r"""Assemble ``diag(1, 1, 1/N^2_eff, w_ps)`` on ``(u, v, b, ps)``.
 
     Description
     -----------
     The hydrostatic energy metric: unit weight on the horizontal
-    velocities, ``1/N^2`` on the buoyancy tracer and the
-    **depth-weighted** ``H_ref/c^2`` on the surface pressure ``ps`` (the
-    barotropic phase speed ``hydrostatic.csqr``). The ``ps`` field is
-    ``z``-constant (a ``fr.Profile``), so ``integrate`` gives it no
-    depth (the ``ConstantSpace`` reduction is the identity — the
-    physical-integral ruling); its depth must therefore ride the
-    **weight**. ``H_ref`` is the constant reference depth — the physical
-    extent of the vertical mesh axis (``hi - lo``), a scalar on every
-    hydrostatic grid: flat, stretched-z, or terrain-following.
+    velocities, the reciprocal effective ``N^2`` on the buoyancy
+    tracer (the ``stratification.n2`` provide, or the nondimensional
+    ``(eps/Fr)^2``) and the barotropic surface-pressure weight
 
-    Since the volume-exact unification (GM-D1 option 1, all three free-
-    surface variants 2026-07-19) the barotropic solve carries constant
-    gravity ``g = c^2/H_ref`` with ``H_ref`` the constant vertical mesh
-    extent, so the conserved barotropic quadratic form under which the
-    linearized dynamics is skew-adjoint has the **constant**
-    ``1/g = H_ref/c^2`` surface weight — never a field. The mapped-
-    column depth weights (``H(x, y)/c^2`` on terrain, the collapsed
-    ``\int J\,\mathrm{d}z / c^2`` on a stretched-z column) were the
-    conserved weights of the retired energy-form variant and no longer
-    belong in the metric (they leave the discrete skew ``O(slope)``
-    against the volume-exact dynamics). That constant ``H_ref`` factor
-    pairs ``-grad ps`` with the depth-mean divergence into an exactly
-    skew-adjoint operator (the dense-column channel engine keeps it in
-    this weight too and reduces the ``ps`` bounded-axis measure to unity
-    accordingly).
+    - dimensional: ``w_ps = 1/g`` (``hydrostatic.gravity``) — the
+      gravity-first spelling of the retired ``H_ref/c^2`` (identical
+      number: ``c^2 = g H_ref``);
+    - nondimensional: ``w_ps = H_ref/(eps/Fr_ext)^2`` — the analytic
+      fold of the mean-form barotropic coefficient with the vertical
+      mesh extent ``H_ref`` (a flat-only analytic path may use the
+      physical vertical extent where a ``c^2`` is genuinely needed).
+
+    The ``ps`` field is ``z``-constant (a ``fr.Profile``), so
+    ``integrate`` gives it no depth (the ``ConstantSpace`` reduction
+    is the identity — the physical-integral ruling); its depth rides
+    the **weight**, which pairs ``-grad ps`` with the barotropic
+    divergence into an exactly skew-adjoint operator (GM-D1 option 1:
+    the barotropic solve carries a constant effective gravity, so the
+    conserved quadratic form has a constant surface weight — never a
+    field).
     """
     params = model.parameters
-    csqr = _read_scalar(params, _HYDRO_CSQR, at_time)
-    if csqr == 0.0:
-        raise ValueError(
-            "the hydrostatic energy weight 1/c^2 needs a nonzero "
-            "barotropic phase speed 'hydrostatic.csqr'")
-    n2 = _read_scalar(params, STRATIFICATION_N2, at_time)
+    if _HYDRO_GRAVITY in params:
+        gravity = _read_scalar(params, _HYDRO_GRAVITY, at_time)
+        if gravity == 0.0:
+            raise ValueError(
+                "the hydrostatic energy weight 1/c^2 needs a nonzero "
+                "'hydrostatic.gravity'")
+        ps_weight = 1.0 / gravity
+    else:
+        eps = _read_scalar(params, _EPSILON, at_time)
+        froude = _read_scalar(params, _HYDRO_FROUDE, at_time)
+        ratio = eps / froude
+        ps_weight = (_vertical_extent(model.grid,
+                                      _vertical_axis(model))
+                     / (ratio * ratio))
+    n2 = _nh_effective_n2(params, at_time)
     if n2 == 0.0:
         raise ValueError(
             "the hydrostatic energy weight 1/N^2 needs a nonzero "
             "stratification 'stratification.n2'")
-    ps_weight = _ps_depth_weight(model, csqr)
     return {"u": 1.0, "v": 1.0, "b": 1.0 / n2, "ps": ps_weight}
 
 
-def _ps_depth_weight(model: Model, csqr: float) -> Weight:
-    r"""Return the constant reference-depth ``ps`` weight ``H_ref/c^2``.
+def _nh_effective_n2(
+    params: Mapping[str, object], at_time: float,
+) -> float:
+    r"""Return the effective ``N^2`` from the variant's primitives.
 
-    Description
-    -----------
-    ``H_ref`` is the constant reference depth — the physical extent of
-    the vertical **mesh** axis (``hi - lo``), a scalar on every
-    hydrostatic grid: flat, stretched-z, or terrain-following. It is
-    **not** the mapped physical column depth
-    ``H(x, y) = \int J\,\mathrm{d}z`` (which varies horizontally on a
-    terrain column and differs from the mesh extent on a nonlinear
-    stretched-z column).
-
-    The reference depth — rather than the mapped column depth — is the
-    weight because the volume-exact free-surface unification (GM-D1
-    option 1, all three variants 2026-07-19) runs the barotropic solve
-    with constant gravity ``g = c^2/H_ref`` and ``H_ref`` the constant
-    vertical mesh extent (``fr.hydrostatic.modules.free_surface`` sets
-    ``self._inv_depth = 1/(hi - lo)`` unconditionally). The conserved
-    barotropic quadratic form under which the linearized dynamics is
-    exactly skew therefore carries the **constant** ``1/g = H_ref/c^2``
-    surface weight everywhere. The mapped-column depth weights
-    (``H(x, y)/c^2`` on terrain, ``\int J\,\mathrm{d}z / c^2`` on a
-    stretched-z column) belonged to the retired energy-form variant and
-    leave the discrete skew ``O(slope)`` against the volume-exact
-    dynamics.
+    Dimensional: the ``stratification.n2`` provide. Nondimensional:
+    :math:`(\varepsilon/\mathrm{Fr})^2` from
+    ``stratification.froude`` (self-normalizing under the matching
+    ``InternalWave`` scaling).
     """
-    return _vertical_extent(model.grid, _vertical_axis(model)) / csqr
+    if _STRAT_FROUDE in params:
+        eps = _read_scalar(params, _EPSILON, at_time)
+        froude = _read_scalar(params, _STRAT_FROUDE, at_time)
+        ratio = eps / froude
+        return ratio * ratio
+    return _read_scalar(params, STRATIFICATION_N2, at_time)
 
 
 def _vertical_axis(model: Model) -> str:

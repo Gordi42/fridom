@@ -173,15 +173,15 @@ class ThermalWindBackground(fr.model.Module):
         fr.model.FieldReference(
             "u", hint="the tilting term acts on the zonal velocity, "
                       "declared by a hydrostatic core "
-                      "(hy.HydrostaticCore)"),
+                      "(hy.Core)"),
         fr.model.FieldReference(
             "v", hint="the baroclinic conversion reads the meridional "
                       "velocity, declared by a hydrostatic core "
-                      "(hy.HydrostaticCore)"),
+                      "(hy.Core)"),
         fr.model.FieldReference(
             "w", hint="the tilting term reads the diagnosed vertical "
                       "velocity, declared by a hydrostatic core "
-                      "(hy.HydrostaticCore)"),
+                      "(hy.Core)"),
         fr.model.FieldReference(
             "b", hint="the baroclinic conversion advances buoyancy, "
                       "declared by a stratification module "

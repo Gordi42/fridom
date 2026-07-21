@@ -136,6 +136,16 @@ STRATIFICATION_N2: Final[ParamName] = ParamName(
          "ConstantStratification(n2=...)",
     no_default=True)
 
+# The internal-wave Froude number Fr = U/(N H) of a NONDIMENSIONAL
+# stratification module (the ``internal_wave`` scaling mechanism);
+# no_default for the same reason as ``stratification.n2``.
+STRATIFICATION_FROUDE: Final[ParamName] = ParamName(
+    "stratification.froude",
+    units="1",
+    hint="provided by a nondimensional stratification module, e.g. "
+         "ConstantStratification(froude_number=...)",
+    no_default=True)
+
 # The nonlinearity number epsilon = T_ref / T_adv: under a
 # nondimensional scaling the assembly aliases this name onto the
 # scaling mechanism's own nonlinearity leaf (fr.scaling); dimensional
@@ -145,5 +155,5 @@ SCALING_NONLINEARITY: Final[ParamName] = ParamName(
     units="n/a",
     hint="bound by the assembly under a nondimensional fr.scaling "
          "policy (aliasing the mechanism module's nonlinearity "
-         "leaf, e.g. nh.DynamicalCore(rossby_number=...)); "
+         "leaf, e.g. FPlaneCoriolis(rossby_number=...)); "
          "dimensional models bind no row")

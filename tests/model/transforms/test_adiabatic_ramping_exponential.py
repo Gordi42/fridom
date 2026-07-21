@@ -43,6 +43,7 @@ import pytest
 
 import fridom as fr
 import fridom.shallowwater2 as sw
+from fridom.model.time_steppers.adam_bashforth import AdamBashforth
 
 F0 = 1.0
 CSQR = 1.0
@@ -64,7 +65,7 @@ def _channel(f0):
         grid=fr.spatial.Grid((mx, my), device_ids=(0,)),
         core=sw.Core(gravity=1.0, depth=CSQR),
         coriolis=sw.modules.FPlaneCoriolis(f0=f0), advection=False,
-        time_stepper=fr.model.time_steppers.AdamBashforth(DT, order=3))
+        time_stepper=AdamBashforth(DT, order=3))
 
 
 def _l2(state):

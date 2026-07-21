@@ -14,6 +14,7 @@ import pytest
 
 import fridom.nonhydro2 as nh
 from fridom.model.modules.coriolis import FPlaneCoriolis
+from fridom.model.time_steppers.adam_bashforth import AdamBashforth
 from fridom.nonhydro2.modules.core import resolve_model_family
 from fridom.nonhydro2.modules.immersed_pressure import (
     ImmersedPressureSolver,
@@ -46,9 +47,13 @@ def _warm_start_box_model():
         & (z > 0.2) & (z < 0.8)).astype(float)
     grid = Grid(_periodic(n, length=TWO_PI),
                 immersed=ImmersedDomain(box))
-    model = nh.Model(grid=grid, dt=0.01, advection=False,
-                     coriolis=FPlaneCoriolis(f0=1.0),
-                     pressure_iterations=40)
+    model = nh.Model(
+        grid=grid,
+        core=nh.Core(pressure_iterations=40),
+        time_stepper=AdamBashforth(0.01, order=3),
+        coriolis=FPlaneCoriolis(f0=1.0),
+        stratification=nh.ConstantStratification(n2=1.0),
+        advection=False)
     rng = np.random.default_rng(0)
     model.set_fields(**{
         k: 0.2 * rng.standard_normal(model.state[k].data.shape)
@@ -101,8 +106,13 @@ def test_explicit_nodal_on_immersed_is_a_taught_error():
 def test_immersed_model_installs_maskstate_and_is_fv():
     grid = Grid(_periodic(), immersed=ImmersedDomain(
         lambda x, y, z: x * 0.0 + 1.0))  # noqa: ARG005
-    model = nh.Model(grid=grid, dt=0.02, advection=False,
-                     coriolis=FPlaneCoriolis(f0=1.0))
+    model = nh.Model(
+        grid=grid,
+        core=nh.Core(),
+        time_stepper=AdamBashforth(0.02, order=3),
+        coriolis=FPlaneCoriolis(f0=1.0),
+        stratification=nh.ConstantStratification(n2=1.0),
+        advection=False)
     assert _is_fv(model)
     assert any(type(m).__name__ == "MaskState" for m in model.modules)
 
@@ -143,9 +153,13 @@ def test_biased_advection_on_immersed_binds_and_steps(advection):
         (x > 1.0) & (x < 5.0) & (y > 1.0) & (y < 5.0)
         & (z > 0.2) & (z < 0.8)).astype(float)
     grid = Grid(_periodic(n), immersed=ImmersedDomain(box))
-    model = nh.Model(grid=grid, dt=0.01, advection=advection,
-                     coriolis=FPlaneCoriolis(f0=1.0),
-                     pressure_iterations=15)
+    model = nh.Model(
+        grid=grid,
+        core=nh.Core(pressure_iterations=15),
+        time_stepper=AdamBashforth(0.01, order=3),
+        coriolis=FPlaneCoriolis(f0=1.0),
+        stratification=nh.ConstantStratification(n2=1.0),
+        advection=advection)
     rng = np.random.default_rng(0)
     model.set_fields(**{
         k: 0.2 * rng.standard_normal(model.state[k].data.shape)
@@ -170,9 +184,13 @@ def test_dry_dofs_stay_exactly_zero(advection):
         & (z > 0.2) & (z < 0.8)).astype(float)
     grid = Grid(_periodic(n, length=TWO_PI),
                 immersed=ImmersedDomain(box))
-    model = nh.Model(grid=grid, dt=0.01, advection=advection,
-                     coriolis=FPlaneCoriolis(f0=1.0),
-                     pressure_iterations=25)
+    model = nh.Model(
+        grid=grid,
+        core=nh.Core(pressure_iterations=25),
+        time_stepper=AdamBashforth(0.01, order=3),
+        coriolis=FPlaneCoriolis(f0=1.0),
+        stratification=nh.ConstantStratification(n2=1.0),
+        advection=advection)
     rng = np.random.default_rng(0)
     model.set_fields(**{
         k: 0.2 * rng.standard_normal(model.state[k].data.shape)
@@ -199,10 +217,12 @@ def test_theta_weighted_buoyancy_is_conserved_to_machine_zero():
     # n2=0: the buoyancy has no -N^2 w source, so advection alone
     # governs it — a pure conservation check
     model = nh.Model(
-        grid=grid, dt=0.01, advection=True,
+        grid=grid,
+        core=nh.Core(pressure_iterations=25),
+        time_stepper=AdamBashforth(0.01, order=3),
         coriolis=FPlaneCoriolis(f0=1.0),
         stratification=nh.ConstantStratification(n2=0.0),
-        pressure_iterations=25)
+        advection=True)
     rng = np.random.default_rng(3)
     model.set_fields(
         b=rng.standard_normal(model.state["b"].data.shape),
@@ -232,11 +252,20 @@ def test_all_wet_immersed_matches_unimmersed(advection):
         IntervalMesh(n, (0.0, TWO_PI), periodic=True, name="y"),
         IntervalMesh(n, (0.0, 1.0), periodic=False, name="z"))
     allwet = ImmersedDomain(lambda x, y, z: x * 0.0 + 1.0)  # noqa: ARG005
-    im = nh.Model(grid=Grid(meshes(), immersed=allwet), dt=0.02,
-                  advection=advection, coriolis=FPlaneCoriolis(f0=1.0),
-                  pressure_iterations=3)
-    un = nh.Model(grid=Grid(meshes()), dt=0.02, advection=advection,
-                  coriolis=FPlaneCoriolis(f0=1.0))
+    im = nh.Model(
+        grid=Grid(meshes(), immersed=allwet),
+        core=nh.Core(pressure_iterations=3),
+        time_stepper=AdamBashforth(0.02, order=3),
+        coriolis=FPlaneCoriolis(f0=1.0),
+        stratification=nh.ConstantStratification(n2=1.0),
+        advection=advection)
+    un = nh.Model(
+        grid=Grid(meshes()),
+        core=nh.Core(),
+        time_stepper=AdamBashforth(0.02, order=3),
+        coriolis=FPlaneCoriolis(f0=1.0),
+        stratification=nh.ConstantStratification(n2=1.0),
+        advection=advection)
     rng = np.random.default_rng(7)
     ic = {k: 0.3 * rng.standard_normal(im.state[k].data.shape)
           for k in ("u", "v", "w", "b")}
@@ -264,20 +293,36 @@ def test_face_aligned_box_matches_the_walled_fv_model(advection):
         (x > lo) & (x < 9) & (y > lo) & (y < 9)
         & (z > lo) & (z < 9)).astype(float)
     imm = nh.Model(
-        grid=Grid(tuple(
-            IntervalMesh(npg, (0.0, 12.0), periodic=True, name=nm)
-            for nm in ("x", "y", "z")),
+        grid=Grid(
+            tuple(
+                IntervalMesh(
+                    npg,
+                    (0.0, 12.0),
+                    periodic=True,
+                    name=nm) for nm in ("x",
+                    "y",
+                    "z")),
             immersed=ImmersedDomain(box)),
-        dt=0.02, advection=advection, coriolis=FPlaneCoriolis(f0=1.0),
+        core=nh.Core(pressure_iterations=60),
+        time_stepper=AdamBashforth(0.02, order=3),
+        coriolis=FPlaneCoriolis(f0=1.0),
         stratification=nh.ConstantStratification(n2=0.0),
-        pressure_iterations=60)
+        advection=advection)
     wal = nh.Model(
-        grid=Grid(tuple(
-            IntervalMesh(6, (3.0, 9.0), periodic=False, name=nm)
-            for nm in ("x", "y", "z"))),
-        dt=0.02, advection=advection, coriolis=FPlaneCoriolis(f0=1.0),
+        grid=Grid(
+            tuple(
+                IntervalMesh(
+                    6,
+                    (3.0, 9.0),
+                    periodic=False,
+                    name=nm) for nm in ("x",
+                    "y",
+                    "z"))),
+        core=nh.Core(family="fv", pressure_iterations=1),
+        time_stepper=AdamBashforth(0.02, order=3),
+        coriolis=FPlaneCoriolis(f0=1.0),
         stratification=nh.ConstantStratification(n2=0.0),
-        pressure_iterations=1, family="fv")
+        advection=advection)
     rng = np.random.default_rng(11)
     shapes = {k: wal.state[k].data.shape for k in ("u", "v", "w")}
     ic = {k: 0.1 * rng.standard_normal(shapes[k])
@@ -308,7 +353,7 @@ def test_face_aligned_box_matches_the_walled_fv_model(advection):
 # ================================================================
 def test_multigrid_preconditioner_model_runs_end_to_end():
     # the pressure_preconditioner='multigrid' knob threads the factory
-    # -> DynamicalCore -> ImmersedPressureSolver and assembles the
+    # -> Core -> ImmersedPressureSolver and assembles the
     # V-cycle on the FROZEN grid (the coarse-sibling hierarchy) — a full
     # immersed model steps finite and non-panicked (a bounded-z box so
     # the vertical-line smoother has a Neumann column)
@@ -322,9 +367,15 @@ def test_multigrid_preconditioner_model_runs_end_to_end():
         & (z > 0.2) & (z < 0.8)).astype(float)
     grid = Grid(meshes, immersed=ImmersedDomain(box))
     model = nh.Model(
-        grid=grid, dt=0.01, advection=False,
-        coriolis=FPlaneCoriolis(f0=1.0), pressure_iterations=25,
-        pressure_preconditioner="multigrid", multigrid_levels=3)
+        grid=grid,
+        core=nh.Core(
+            pressure_iterations=25,
+            pressure_preconditioner="multigrid",
+            multigrid_levels=3),
+        time_stepper=AdamBashforth(0.01, order=3),
+        coriolis=FPlaneCoriolis(f0=1.0),
+        stratification=nh.ConstantStratification(n2=1.0),
+        advection=False)
     rng = np.random.default_rng(0)
     model.set_fields(**{
         k: 0.2 * rng.standard_normal(model.state[k].data.shape)

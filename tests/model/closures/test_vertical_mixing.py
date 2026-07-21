@@ -28,6 +28,7 @@ from fridom.model.implicit import VerticalDiffusion
 from fridom.model.model import Model, _chunk_body
 from fridom.model.module import Module
 from fridom.model.roles import TRACER, Velocity
+from fridom.model.time_steppers.adam_bashforth import AdamBashforth
 from fridom.spatial.coordinate_mapping import CoordinateMapping
 from fridom.spatial.meshes.mapped_interval import MappedIntervalMesh
 
@@ -46,14 +47,17 @@ def make_grid(nx=NX, nz=NZ, depth=DEPTH):
         IM(nz, (0.0, depth), periodic=False, name="z")))
 
 
-def mix_model(*, dt, stepper, mixing, csqr=10.0, f0=0.0, grid=None):
+def mix_model(*, dt, stepper, mixing, csqr=10.0, f0=0.0, grid=None):  # noqa: ARG001 — dt names the stepper step at the call sites
     """Assemble a hydrostatic model carrying a VerticalMixing leg."""
     return hy.Model(
         grid=grid if grid is not None else make_grid(),
-        dt=dt, csqr=csqr, advection=False,
+        core=hy.Core(gravity=csqr),
+        time_stepper=stepper,
         coriolis=hy.FPlaneCoriolis(f0=f0),
         stratification=hy.ConstantStratification(n2=1.0),
-        modules_extra=(mixing,), time_stepper=stepper)
+        free_surface=hy.ExplicitFreeSurface(),
+        advection=False,
+        modules_extra=(mixing,))
 
 
 def neumann_operator(nz, depth, kappa):
@@ -340,7 +344,7 @@ def test_explicit_tendency_is_the_operators_own_apply():
     col = b0_column()
     model = mix_model(
         dt=dt, mixing=VerticalMixing(kb=kb, treatment=fr.model.EXPLICIT),
-        stepper=fr.model.time_steppers.AdamBashforth(dt, order=3))
+        stepper=AdamBashforth(dt, order=3))
     model.set_fields(b=broadcast_b(col))
     tendency = np.asarray(model.tendency(model.state)["b"].data)[0, 0, :]
     expected = neumann_operator(NZ, DEPTH, kb) @ col
@@ -352,7 +356,7 @@ def test_explicit_treatment_decays_under_adam_bashforth():
     col = b0_column()
     model = mix_model(
         dt=dt, mixing=VerticalMixing(kb=kb, treatment=fr.model.EXPLICIT),
-        stepper=fr.model.time_steppers.AdamBashforth(dt, order=3))
+        stepper=AdamBashforth(dt, order=3))
     model.set_fields(b=broadcast_b(col))
     model.run(steps=200, progress=False)
     data = np.asarray(model.state["b"].data)
@@ -388,7 +392,7 @@ def test_implicit_under_adam_bashforth_is_an_assembly_error():
     with pytest.raises(AssemblyError, match="not supported"):
         mix_model(
             dt=0.02, mixing=VerticalMixing(kb=0.1),
-            stepper=fr.model.time_steppers.AdamBashforth(0.02, order=2))
+            stepper=AdamBashforth(0.02, order=2))
 
 
 # ================================================================

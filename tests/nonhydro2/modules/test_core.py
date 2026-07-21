@@ -1,12 +1,12 @@
-"""DynamicalCore: the cross-module ramped-``dsqr`` guard (TDF-D4).
+"""Core: the cross-module ramped-aspect-ratio guard (TDF-D4).
 
-``dsqr`` enters the frozen linear operator ``L`` through the pressure
-projection, which is a CONSTRAINT stage rather than a ``linear=True``
-term, so the structural term sweep cannot see it. ``DynamicalCore``
-reports a ramped ``dsqr`` from its own leaf, closing the hole a model
-assembled without stratification would otherwise slip through. A
-re-reading stepper (``AdamBashforth``) is unaffected: the ramped model
-assembles and advances to finite values.
+The aspect ratio enters the frozen linear operator ``L`` through the
+pressure projection, which is a CONSTRAINT stage rather than a
+``linear=True`` term, so the structural term sweep cannot see it.
+``Core`` reports a ramped ``aspect_ratio`` from its own leaf, closing
+the hole a model assembled without stratification would otherwise slip
+through. A re-reading stepper (``AdamBashforth``) is unaffected: the
+ramped model assembles and advances to finite values.
 """
 import numpy as np
 import pytest
@@ -14,7 +14,8 @@ import pytest
 import fridom as fr
 import fridom.nonhydro2 as nh
 from fridom.model import term_predicates as terms
-from fridom.nonhydro2.params import DSQR
+from fridom.model.time_steppers.adam_bashforth import AdamBashforth
+from fridom.nonhydro2.params import ASPECT_RATIO
 
 N = 8
 F0, N2 = 1.5, 3.0
@@ -32,46 +33,57 @@ def _grid(*, periodic_y=True):
     return fr.spatial.Grid((mx, my, mz), device_ids=(0,))
 
 
-def _model(dsqr, stepper, *, grid=None):
-    """Build a small linear nonhydro model with the dsqr and stepper."""
+def _model(aspect_ratio, stepper, *, grid=None):
+    """Build a small linear nonhydro model (aspect ratio + stepper)."""
     return nh.Model(
-        grid=grid if grid is not None else _grid(), advection=False,
-        dsqr=dsqr, coriolis=nh.FPlaneCoriolis(f0=F0),
+        grid=grid if grid is not None else _grid(),
+        core=nh.Core(aspect_ratio=aspect_ratio),
+        time_stepper=stepper,
+        coriolis=nh.FPlaneCoriolis(f0=F0),
         stratification=nh.ConstantStratification(n2=N2),
-        time_stepper=stepper)
+        advection=False)
 
 
-def test_core_reports_a_ramped_dsqr():
-    """The owner-side report: () for a float dsqr, (dsqr,) for a Ramp."""
-    assert nh.DynamicalCore(
-        dsqr=2.0).time_dependent_linear_parameters() == ()
+def test_core_reports_a_ramped_aspect_ratio():
+    """The owner-side report: () for a float, (name,) for a Ramp."""
+    assert (nh.Core(aspect_ratio=2.0)
+            .time_dependent_linear_parameters() == ())
     ramp = fr.model.Ramp(1.0, 2.0, period=1.0)
-    assert nh.DynamicalCore(
-        dsqr=ramp).time_dependent_linear_parameters() == (str(DSQR),)
+    assert (nh.Core(aspect_ratio=ramp)
+            .time_dependent_linear_parameters()
+            == (str(ASPECT_RATIO),))
 
 
-def test_etdrk4_refuses_a_ramped_dsqr():
-    """A frozen-L (ETDRK4) stepper refuses a ramped dsqr, naming it.
+def test_core_refuses_zero_aspect_ratio():
+    """aspect_ratio=0 is refused at construction (taught error)."""
+    with pytest.raises(TypeError, match="aspect_ratio=0"):
+        nh.Core(aspect_ratio=0.0)
 
-    ``dsqr`` scales the pressure projection that builds ``L``, so a
-    ramped ``dsqr`` makes ``L(t)`` time-dependent; ``exp(L dt)`` from the
-    frozen eigenbasis would silently integrate a stale operator. The
-    guard fires at ASSEMBLY of the ETDRK4 model.
+
+def test_etdrk4_refuses_a_ramped_aspect_ratio():
+    """A frozen-L (ETDRK4) stepper refuses a ramped aspect ratio.
+
+    The aspect ratio scales the pressure projection that builds ``L``,
+    so a ramped leaf makes ``L(t)`` time-dependent; ``exp(L dt)`` from
+    the frozen eigenbasis would silently integrate a stale operator.
+    The guard fires at ASSEMBLY of the ETDRK4 model.
     """
     grid = _grid(periodic_y=False)
     static = _model(
-        2.0, fr.model.time_steppers.AdamBashforth(DT, order=3),
+        2.0, AdamBashforth(DT, order=3),
         grid=grid)
     basis = nh.eigenbasis(static)
     ramp = fr.model.Ramp(1.0, 2.0, period=1.0, curve="exp")
     with pytest.raises(
             fr.model.errors.TimeDependentLinearOperatorError,
-            match=r"nonhydro\.dsqr \(DynamicalCore\)") as ex:
+            match=r"nonhydro\.aspect_ratio \(Core\)") as ex:
         nh.Model(
-            grid=_grid(periodic_y=False), advection=False, dsqr=ramp,
+            grid=_grid(periodic_y=False),
+            core=nh.Core(aspect_ratio=ramp),
+            time_stepper=fr.model.time_steppers.ETDRK4(DT, basis),
             coriolis=nh.FPlaneCoriolis(f0=F0),
             stratification=nh.ConstantStratification(n2=N2),
-            time_stepper=fr.model.time_steppers.ETDRK4(DT, basis),
+            advection=False,
             term_filter=~terms.linear)
     # the taught error points at the AB fallback and the design record
     assert "AdamBashforth" in str(ex.value)
@@ -80,18 +92,19 @@ def test_etdrk4_refuses_a_ramped_dsqr():
 
 def test_core_stores_and_validates_multigrid_agglomerate():
     """Thread and validate the MG-D10 agglomeration knob on the core."""
-    assert nh.DynamicalCore(
-        dsqr=2.0, multigrid_agglomerate=4)._multigrid_agglomerate == 4
-    assert nh.DynamicalCore(dsqr=2.0)._multigrid_agglomerate is None
+    assert nh.Core(
+        aspect_ratio=2.0,
+        multigrid_agglomerate=4)._multigrid_agglomerate == 4
+    assert nh.Core(aspect_ratio=2.0)._multigrid_agglomerate is None
     with pytest.raises(ValueError, match="positive integer"):
-        nh.DynamicalCore(dsqr=2.0, multigrid_agglomerate=0)
+        nh.Core(aspect_ratio=2.0, multigrid_agglomerate=0)
 
 
-def test_ramped_dsqr_assembles_and_advances_under_adam_bashforth():
-    """A re-reading stepper handles L(t): the ramped dsqr model runs."""
+def test_ramped_aspect_ratio_advances_under_adam_bashforth():
+    """A re-reading stepper handles L(t): the ramped model runs."""
     ramp = fr.model.Ramp(1.0, 2.0, period=6 * DT, curve="cosine")
     model = _model(
-        ramp, fr.model.time_steppers.AdamBashforth(DT, order=3))
+        ramp, AdamBashforth(DT, order=3))
     model.advance(4)
     for comp in ("u", "v", "w", "b"):
         assert np.all(np.isfinite(np.asarray(model.state[comp].data)))

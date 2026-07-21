@@ -5,7 +5,7 @@ flat / immersed layers closed 2026-07-18,
 ``test_free_surface_walled.py``). On a sigma-chart terrain grid the
 slope metric ``d<mapped>_d<axis>`` chains the discrete ``H_x`` onto the
 walled-axis interior faces (``Inner``) and must reach the cell centres
-(``HydrostaticCore._diagnose_w`` via ``slope_velocity_on_w``, and the
+(``Core._diagnose_w`` via ``slope_velocity_on_w``, and the
 baroclinic ``_slope_gradient``). That ``Inner -> Center`` move has no
 BC-free ``interpolate`` row, so before the odd-tangent Dirichlet retag
 in ``CoordinateMapping._at_space`` these grids failed to assemble. The
@@ -25,6 +25,7 @@ import pytest
 import fridom as fr
 import fridom.hydrostatic as hy
 from fridom.model.model import _chunk_body
+from fridom.model.time_steppers.adam_bashforth import AdamBashforth
 from fridom.spatial.coordinate_mapping import CoordinateMapping
 
 IM = fr.spatial.meshes.IntervalMesh
@@ -61,11 +62,13 @@ def _grid(periodic, nx=8, ny=8, nz=4):
 def _model(grid, *, free_surface=None, advection=False, f0=0.5,
            dt=2e-3, n2=N2, coriolis=True):
     return hy.Model(
-        grid=grid, dt=dt, csqr=CSQR, advection=advection,
-        stratification=hy.ConstantStratification(n2=n2),
+        grid=grid,
+        core=hy.Core(gravity=CSQR),
+        time_stepper=AdamBashforth(dt, order=3),
         coriolis=hy.FPlaneCoriolis(f0=f0) if coriolis else None,
+        stratification=hy.ConstantStratification(n2=n2),
         free_surface=free_surface or hy.ExplicitFreeSurface(),
-        time_stepper=fr.model.time_steppers.AdamBashforth(dt, order=3))
+        advection=advection)
 
 
 def _random_ic(model, scale=0.1, seed=0):
@@ -111,11 +114,13 @@ def test_split_explicit_runs_finite_on_terrain_walls(wall):
     # retagged onto the Dirichlet-tagged transport face, so div(H_a ubar)
     # keys the walled diff row (zero normal transport through the wall).
     model = hy.Model(
-        grid=_grid(WALLS[wall]), dt=2e-3, csqr=CSQR, advection=False,
-        stratification=hy.ConstantStratification(n2=N2),
+        grid=_grid(WALLS[wall]),
+        core=hy.Core(gravity=CSQR),
+        time_stepper=AdamBashforth(2e-3, order=3),
         coriolis=hy.FPlaneCoriolis(f0=0.5),
+        stratification=hy.ConstantStratification(n2=N2),
         free_surface=hy.SplitExplicitFreeSurface(substeps=16),
-        time_stepper=fr.model.time_steppers.AdamBashforth(2e-3, order=3))
+        advection=False)
     rng = np.random.default_rng(0)
     model.set_fields(**{
         k: 0.1 * rng.standard_normal(model.state[k].shape)
@@ -129,11 +134,13 @@ def test_split_explicit_runs_finite_on_terrain_walls(wall):
 
 def _split_model(grid, dt):
     return hy.Model(
-        grid=grid, dt=dt, csqr=CSQR, advection=False,
-        stratification=hy.ConstantStratification(n2=0.0),
+        grid=grid,
+        core=hy.Core(gravity=CSQR),
+        time_stepper=AdamBashforth(dt, order=3),
         coriolis=None,
+        stratification=hy.ConstantStratification(n2=0.0),
         free_surface=hy.SplitExplicitFreeSurface(substeps=16),
-        time_stepper=fr.model.time_steppers.AdamBashforth(dt, order=3))
+        advection=False)
 
 
 def test_split_terrain_channel_matches_the_mirror_image_run():
@@ -203,11 +210,13 @@ def test_split_terrain_ps_volume_conserved_on_walls(wall):
     # ps volume to round-off on a no-flux wall (div(H_a ubar) telescopes to
     # zero against the walls). Measured drift <= 1e-16; pinned above.
     model = hy.Model(
-        grid=_grid(WALLS[wall]), dt=2e-3, csqr=CSQR, advection=False,
-        stratification=hy.ConstantStratification(n2=N2),
+        grid=_grid(WALLS[wall]),
+        core=hy.Core(gravity=CSQR),
+        time_stepper=AdamBashforth(2e-3, order=3),
         coriolis=hy.FPlaneCoriolis(f0=0.5),
+        stratification=hy.ConstantStratification(n2=N2),
         free_surface=hy.SplitExplicitFreeSurface(substeps=16),
-        time_stepper=fr.model.time_steppers.AdamBashforth(2e-3, order=3))
+        advection=False)
     _random_ic(model, seed=3)
 
     def volume():
@@ -313,10 +322,13 @@ def _bfun(x, y, z):
 
 def _mirror_model(grid, dt):
     return hy.Model(
-        grid=grid, dt=dt, csqr=CSQR, advection=False,
+        grid=grid,
+        core=hy.Core(gravity=CSQR),
+        time_stepper=AdamBashforth(dt, order=3),
+        coriolis=None,
         stratification=hy.ConstantStratification(n2=N2),
-        coriolis=None, free_surface=hy.ExplicitFreeSurface(),
-        time_stepper=fr.model.time_steppers.AdamBashforth(dt, order=3))
+        free_surface=hy.ExplicitFreeSurface(),
+        advection=False)
 
 
 def test_channel_matches_the_mirror_image_run():

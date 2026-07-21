@@ -18,8 +18,11 @@ the terrain analogue of the immersed
 
 The operator (volume-exact form)
 --------------------------------
-With ``dt' = ctx.stage_dt``, ``g = c^2 / H_{ref}`` (``H_{ref}`` the
-constant vertical mesh extent), ``H_a(x, y) = \int J\,\mathrm{d}z`` on
+With ``dt' = ctx.stage_dt``, ``g`` the effective gravity handed in by
+the free surface (the physical ``hydrostatic.gravity`` in a
+dimensional model; the nondimensional coefficient in a scaled one —
+no reference-depth parameter enters anywhere),
+``H_a(x, y) = \int J\,\mathrm{d}z`` on
 the a-face, and ``T^*`` the raw transport divergence
 ``\int[\partial_x(Ju) + \partial_y(Jv)]\,\mathrm{d}z``:
 
@@ -81,7 +84,7 @@ barotropic transport through the wall and a periodic axis is untouched.
 Preconditioner (GM-D2, Phase B)
 -------------------------------
 The flat separable spectral inverse at the **mean depth**: the folded
-coefficient ``c^2 \bar H / H_{ref}`` (``\bar H`` the domain-mean physical
+coefficient ``g \bar H`` (``\bar H`` the domain-mean physical
 cell depth) reduces the variable-coefficient operator to its
 constant-coefficient sibling, inverted by
 :class:`SpectralSolve` on the Neumann-tagged wall sibling. On a flat
@@ -308,9 +311,6 @@ class BarotropicPressureSolver:
         The free-surface knob: ``> 0`` the backward-Euler free surface
         (non-singular), ``== 0`` the rigid lid (the singular Poisson,
         the plain-mean nullspace gauge, GM-D7).
-    inv_depth : float
-        The reciprocal reference depth ``1/H_{ref}`` (the constant
-        vertical mesh extent).
     iterations : int
         The fixed PCG iteration budget (the maximum under a tolerance).
     tolerance : float | None
@@ -343,7 +343,6 @@ class BarotropicPressureSolver:
         vertical: str,
         *,
         epsilon: float,
-        inv_depth: float,
         iterations: int,
         tolerance: float | None,
         preconditioner: str = "spectral",
@@ -361,7 +360,6 @@ class BarotropicPressureSolver:
         self._column = column
         self._vertical = vertical
         self._epsilon = float(epsilon)
-        self._inv_depth = inv_depth
         self._iterations = iterations
         self._tolerance = tolerance
         self._preconditioner_kind = preconditioner
@@ -503,7 +501,7 @@ class BarotropicPressureSolver:
                 for factor, axis in factor_axes(self._space)}
 
     def diagonal(
-        self, *, csqr: object, dt: object,
+        self, *, gravity: object, dt: object,
     ) -> ScalarField:
         r"""Return the exact diagonal of :meth:`operator` on the space.
 
@@ -516,7 +514,7 @@ class BarotropicPressureSolver:
         .. math::
 
             \varepsilon
-            + dt'^2\, \frac{c^2}{H_{ref}} \sum_a
+            + dt'^2\, g \sum_a
               \frac{H_a^{f-} + H_a^{f+}}{\Delta a^2},
 
         with the wall faces dropped on a bounded axis
@@ -530,8 +528,8 @@ class BarotropicPressureSolver:
 
         Parameters
         ----------
-        csqr : object
-            The live squared-phase-speed leaf ``c^2``.
+        gravity : object
+            The live effective gravity ``g``.
         dt : object
             The stage increment ``dt' = ctx.stage_dt``.
 
@@ -540,7 +538,7 @@ class BarotropicPressureSolver:
         ScalarField
             The diagonal field on the surface-pressure solve space.
         """
-        g = csqr * self._inv_depth
+        g = gravity
         storage = self._axis_storage()
         stiffness: jax.Array | None = None
         for a in self._axes:
@@ -594,21 +592,20 @@ class BarotropicPressureSolver:
         return out
 
     def operator(
-        self, *, csqr: object, dt: object,
+        self, *, gravity: object, dt: object,
     ) -> Callable[[ScalarField], ScalarField]:
         r"""Return the SPD apply closure ``A`` (public for diagnostics).
 
         Description
         -----------
-        Derives the per-axis face coefficient ``H_a\,g`` once
-        (``g = c^2 / H_{ref}``) and closes over it, so a whole CG run
-        reuses one metric derivation instead of re-deriving ``H_a`` each
-        application.
+        Derives the per-axis face coefficient ``H_a\,g`` once and
+        closes over it, so a whole CG run reuses one metric derivation
+        instead of re-deriving ``H_a`` each application.
 
         Parameters
         ----------
-        csqr : object
-            The live squared-phase-speed leaf ``c^2``.
+        gravity : object
+            The live effective gravity ``g``.
         dt : object
             The stage increment ``dt' = ctx.stage_dt``.
 
@@ -617,7 +614,7 @@ class BarotropicPressureSolver:
         Callable[[ScalarField], ScalarField]
             The field-to-field operator ``A``.
         """
-        g = csqr * self._inv_depth
+        g = gravity
         coeff = {a: self._face_depth(a) * g for a in self._axes}
         return lambda ps: self._apply(ps, coeff, dt)
 
@@ -640,7 +637,7 @@ class BarotropicPressureSolver:
         Parameters
         ----------
         coeff : object
-            The folded scalar coefficient ``c^2 \bar H / H_{ref}``.
+            The folded scalar coefficient ``g \bar H``.
         dt : object
             The stage increment ``dt' = ctx.stage_dt``.
 
@@ -673,21 +670,21 @@ class BarotropicPressureSolver:
         return apply
 
     def preconditioner(
-        self, *, csqr: object, dt: object,
+        self, *, gravity: object, dt: object,
     ) -> Callable[[ScalarField], ScalarField]:
         r"""Return the flat mean-depth spectral preconditioner ``M_inv``.
 
         Description
         -----------
         The flat spectral inverse (:meth:`_flat_spectral`) at the folded
-        coefficient ``c^2 \bar H / H_{ref}`` — the exact operator inverse
+        coefficient ``g \bar H`` — the exact operator inverse
         on a flat (``a = 0``) chart, an approximate inverse whose residual
         the CG iteration removes on steep terrain.
 
         Parameters
         ----------
-        csqr : object
-            The live squared-phase-speed leaf ``c^2``.
+        gravity : object
+            The live effective gravity ``g``.
         dt : object
             The stage increment ``dt' = ctx.stage_dt``.
 
@@ -705,7 +702,7 @@ class BarotropicPressureSolver:
             The preconditioner ``M_inv``.
         """
         hbar = self._mean_depth()
-        base = self._flat_spectral(csqr * hbar * self._inv_depth, dt)
+        base = self._flat_spectral(gravity * hbar, dt)
         if self._cell_mask is None:
             return base
         cell_mask = self._cell_mask
@@ -736,7 +733,7 @@ class BarotropicPressureSolver:
         return field - self._wet * mean
 
     def _build_vcycle(
-        self, *, csqr: object, dt: object,
+        self, *, gravity: object, dt: object,
     ) -> MultigridVCycle:
         r"""Assemble the point-Jacobi multigrid V-cycle preconditioner.
 
@@ -772,8 +769,8 @@ class BarotropicPressureSolver:
 
         Parameters
         ----------
-        csqr : object
-            The live squared-phase-speed leaf ``c^2``.
+        gravity : object
+            The live effective gravity ``g``.
         dt : object
             The stage increment ``dt' = ctx.stage_dt``.
 
@@ -793,18 +790,19 @@ class BarotropicPressureSolver:
             else:
                 solver = BarotropicPressureSolver(
                     grid, space, self._column, self._vertical,
-                    epsilon=self._epsilon, inv_depth=self._inv_depth,
+                    epsilon=self._epsilon,
                     iterations=self._iterations,
                     tolerance=self._tolerance)
             smoother = DampedJacobi(
-                solver.diagonal(csqr=csqr, dt=dt), omega=_POINT_OMEGA)
+                solver.diagonal(gravity=gravity, dt=dt),
+                omega=_POINT_OMEGA)
             levels.append(MultigridLevel(
-                solver.operator(csqr=csqr, dt=dt),
+                solver.operator(gravity=gravity, dt=dt),
                 smoother, projection, transfer))
         return MultigridVCycle(tuple(levels))
 
     def krylov(
-        self, *, csqr: object, dt: object,
+        self, *, gravity: object, dt: object,
     ) -> ConjugateGradient:
         r"""Build the configured PCG solver (public for diagnostics).
 
@@ -822,8 +820,8 @@ class BarotropicPressureSolver:
 
         Parameters
         ----------
-        csqr : object
-            The live squared-phase-speed leaf ``c^2``.
+        gravity : object
+            The live effective gravity ``g``.
         dt : object
             The stage increment ``dt' = ctx.stage_dt``.
 
@@ -838,11 +836,11 @@ class BarotropicPressureSolver:
         else:
             projection = None
         if self._preconditioner_kind == "multigrid":
-            preconditioner = self._build_vcycle(csqr=csqr, dt=dt)
+            preconditioner = self._build_vcycle(gravity=gravity, dt=dt)
         else:
-            preconditioner = self.preconditioner(csqr=csqr, dt=dt)
+            preconditioner = self.preconditioner(gravity=gravity, dt=dt)
         return ConjugateGradient(
-            self.operator(csqr=csqr, dt=dt),
+            self.operator(gravity=gravity, dt=dt),
             preconditioner=preconditioner,
             iterations=self._iterations,
             tolerance=self._tolerance,
@@ -850,7 +848,7 @@ class BarotropicPressureSolver:
 
     def solve(
         self, rhs: ScalarField, x0: ScalarField | None = None,
-        *, csqr: object, dt: object,
+        *, gravity: object, dt: object,
     ) -> ScalarField:
         r"""Solve ``A p_s = rhs`` by preconditioned CG.
 
@@ -863,8 +861,8 @@ class BarotropicPressureSolver:
             None starts from zeros. CG projects the guess, so a
             non-mean-free ``x0`` is safe under the rigid-lid mean gauge
             (default: None).
-        csqr : object
-            The live squared-phase-speed leaf ``c^2``.
+        gravity : object
+            The live effective gravity ``g``.
         dt : object
             The stage increment ``dt' = ctx.stage_dt``.
 
@@ -873,7 +871,7 @@ class BarotropicPressureSolver:
         ScalarField
             The surface pressure ``p_s^{n+1}`` on ``rhs``'s space.
         """
-        ps = self.krylov(csqr=csqr, dt=dt)(rhs, x0)
+        ps = self.krylov(gravity=gravity, dt=dt)(rhs, x0)
         if self._cell_mask is not None:
             # no pressure under a full-depth land column (the physical
             # no-pressure-under-topography convention; the wet columns are

@@ -4,15 +4,30 @@ Description
 -----------
 ``ConstantStratification`` registers the buoyancy tracer ``b`` and
 contributes **both** linear coupling terms (D1's driving example):
-``+b/dsqr`` in the w-equation (buoyancy force) and ``-N^2 w`` in the
-b-equation (restoring). It owns the constant ``n2`` leaf and provides
-``stratification.n2``; ``dsqr`` is read from ``ctx.params``. The
-terms are pure field arithmetic (``.to`` interpolation across the
-staggered w-b face), so their halo stencils are traced normally and
-the module declares no ``extra_halo``.
+``+b/delta^2`` in the w-equation (buoyancy force) and the restoring
+in the b-equation. The two mutually-exclusive constructor kwarg sets
+fix the **scaling variant** (``fr.scaling``) at construction:
+
+- **dimensional** (``n2=`` [1/s^2]): the restoring is the verbatim
+  ``-N^2 w`` and the module provides ``stratification.n2``;
+- **nondimensional** (``froude_number=``, the internal Froude number
+  ``Fr = U/(N H)``): the restoring is ``-(eps/Fr)^2 w`` with the live
+  ratio read from ``ctx.params`` at stage time, and the module
+  provides ``stratification.froude``. As the ``internal_wave``
+  mechanism owner, the assembly aliases ``scaling.nonlinearity``
+  onto this leaf under ``fr.scaling.InternalWave()`` (the ratio then
+  self-normalizes to an exact ``1.0``).
+
+The aspect ratio ``delta`` is read from ``ctx.params``
+(``nonhydro.aspect_ratio``, provided by ``nh.Core``) and squared at
+the use site. The terms are pure field arithmetic (``.to``
+interpolation across the staggered w-b face), so their halo stencils
+are traced normally and the module declares no ``extra_halo``.
 
 ``MeridionalStratification`` is the varying twin (the
-FPlaneCoriolis/BetaPlaneCoriolis two-type precedent): :math:`N^2(y)`
+FPlaneCoriolis/BetaPlaneCoriolis two-type precedent, **dimensional
+only** — a varying nondimensional stratification profile is a
+recorded follow-up): :math:`N^2(y)`
 is carried as an AUXILIARY ``n2`` field on a meridional
 ``fr.spatial.Profile("y")`` and the module does **not** provide the constant
 ``stratification.n2`` (provides-implies-constancy, 02_rules).
@@ -25,7 +40,7 @@ collocated ``b`` share the meridional nodes) so the coupling pair
     \partial_t b = -N^2(y)\, w
 
 stays exactly M-skew-adjoint under the varying energy metric
-``diag(1, 1, dsqr, 1/N^2(y))`` by ``.to`` adjointness: the pointwise
+``diag(1, 1, delta^2, 1/N^2(y))`` by ``.to`` adjointness: the pointwise
 :math:`N^2` at ``b`` cancels the ``1/N^2`` metric weight there,
 leaving the plain measure-weighted interpolation pair — for **any**
 strictly positive profile. Fourier-diagonalizable consumers reject
@@ -50,29 +65,40 @@ parity on a walled grid is derived by the physics layers
 from __future__ import annotations
 
 import inspect
+import numbers
 from functools import partial
 from typing import TYPE_CHECKING
 
 import fridom as fr
 from fridom.framework.utils import jaxify
 from fridom.model.scheduled_field import ProfileFunction, profile_coords
-from fridom.nonhydro2.params import DSQR
+from fridom.nonhydro2.params import ASPECT_RATIO
 from fridom.spatial.decomposition.halo import HaloSpec
 
 if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Callable
 
 
-@partial(jaxify, dynamic=("n2",))
+@partial(jaxify, dynamic=("n2", "froude_number"))
 class ConstantStratification(fr.model.Module):
 
-    r"""Registers ``b``; contributes both linear coupling terms.
+    r"""Registers ``b``; both linear coupling terms (dual variants).
 
     Parameters
     ----------
-    n2 : float | fr.model.Ramp, optional
-        The constant squared buoyancy frequency ``N^2`` (default: 1.0);
-        may be an ``fr.model.Ramp`` for a spun-up stratification.
+    n2 : float | fr.model.Ramp | None, optional
+        The constant squared buoyancy frequency ``N^2`` [1/s^2]
+        (DIMENSIONAL variant); published as ``stratification.n2``.
+        May be an ``fr.model.Ramp`` for a spun-up stratification
+        (default: None).
+    froude_number : float | fr.model.Ramp | None, optional
+        The internal Froude number :math:`\mathrm{Fr} = U/(N H)`
+        (NONDIMENSIONAL variant); published as
+        ``stratification.froude`` and — as the ``internal_wave``
+        mechanism owner — aliased by the assembly onto
+        ``scaling.nonlinearity`` under ``fr.scaling.InternalWave()``.
+        Must be nonzero (the live ratio divides by it)
+        (default: None).
     family : str | None, optional
         The discretization family of the buoyancy tracer ``b``
         (FV-D1b): ``"fv"`` declares it on the average family
@@ -84,15 +110,50 @@ class ConstantStratification(fr.model.Module):
         nodal unless asked otherwise (default: None).
     """
 
+    #: fr.scaling traits: this family owns the internal-wave mechanism
+    scaling_mechanism = "internal_wave"
+    nonlinearity_attr = "froude_number"
+
     def __init__(
         self,
-        n2: float | fr.model.Ramp = 1.0,
+        n2: float | fr.model.Ramp | None = None,
         *,
+        froude_number: float | fr.model.Ramp | None = None,
         family: str | None = None,
     ) -> None:
-        """Store the stratification leaf and the ``b`` family."""
-        self.n2 = fr.model.leaf(n2)
+        """Store the variant's leaf (exactly one kwarg set).
+
+        Raises
+        ------
+        TypeError
+            If both or neither of ``n2``/``froude_number`` are
+            given, or ``froude_number`` is exactly zero.
+        """
+        if (n2 is None) == (froude_number is None):
+            raise TypeError(
+                "ConstantStratification takes exactly one kwarg "
+                "set: DIMENSIONAL n2= (the physical N^2 [1/s^2], "
+                "zero scaling ops in the trace) XOR NONDIMENSIONAL "
+                "froude_number= (the internal Froude number "
+                "Fr = U/(N H), under a nondimensional fr.scaling "
+                f"policy); got n2={n2!r}, "
+                f"froude_number={froude_number!r}")
+        if (isinstance(froude_number, numbers.Number)
+                and float(froude_number) == 0.0):
+            raise TypeError(
+                "ConstantStratification froude_number=0 is refused: "
+                "the restoring carries the live ratio (eps/Fr)^2, "
+                "which divides by it; pass a nonzero Froude number")
+        self.n2 = None if n2 is None else fr.model.leaf(n2)
+        self.froude_number = (None if froude_number is None
+                              else fr.model.leaf(froude_number))
+        self._nondim: bool = froude_number is not None
         self._family = family
+
+    @property
+    def scaling_variant(self) -> str:
+        """The constructor-fixed variant (``fr.scaling`` seam)."""
+        return "nondimensional" if self._nondim else "dimensional"
 
     @property
     def field_declarations(
@@ -108,38 +169,66 @@ class ConstantStratification(fr.model.Module):
     field_references = (
         fr.model.FieldReference(
             "w", hint="buoyancy couples to vertical velocity, "
-                      "declared by a dynamical core (nh.DynamicalCore)"),
-    )
-    parameter_declarations = (
-        fr.model.ParameterDeclaration(
-            fr.model.params.STRATIFICATION_N2, attr="n2",
-            units="1/s^2",
-            doc="squared buoyancy frequency N^2"),
+                      "declared by a dynamical core (nh.Core)"),
     )
     parameter_references = (
-        fr.model.ParameterReference(DSQR, hint="declared by nh.DynamicalCore"),
+        fr.model.ParameterReference(
+            ASPECT_RATIO, hint="declared by nh.Core"),
     )
 
+    @property
+    def parameter_declarations(
+        self,
+    ) -> tuple[fr.model.ParameterDeclaration, ...]:
+        """``stratification.n2`` (dim) / ``.froude`` (nondim)."""
+        if self._nondim:
+            return (fr.model.ParameterDeclaration(
+                fr.model.params.STRATIFICATION_FROUDE,
+                attr="froude_number", units="1",
+                doc="internal Froude number (the internal-wave "
+                    "mechanism)"),)
+        return (fr.model.ParameterDeclaration(
+            fr.model.params.STRATIFICATION_N2, attr="n2",
+            units="1/s^2",
+            doc="squared buoyancy frequency N^2"),)
+
     @fr.model.term(advances=("w",), linear=True,
-                   linear_params=(fr.model.params.STRATIFICATION_N2, DSQR))
+                   linear_params=(fr.model.params.STRATIFICATION_N2,
+                                  fr.model.params.STRATIFICATION_FROUDE,
+                                  ASPECT_RATIO))
     def buoyancy_force(self, state, ctx) -> dict:  # noqa: ANN001
-        """``dw/dt += b / dsqr`` (buoyancy interpolated onto the w face).
+        """``dw/dt += b / delta^2`` (buoyancy interpolated onto w).
 
-        The two ``linear=True`` coupling terms depend on ``n2`` and the
-        core's ``dsqr``; both potentially-time-dependent parameters are
-        annotated here (TDF-D4) so the structural frozen-``L`` guard
-        reports a ramped ``n2``. ``dsqr`` lives on the core module, so
-        this local annotation is inert (the leaf is out of reach); a
-        ramped ``dsqr`` is reported by ``DynamicalCore`` itself.
+        The coupling terms depend on the stratification leaf and the
+        core's aspect ratio; the potentially-time-dependent parameters
+        are annotated (TDF-D4) so the structural frozen-``L`` guard
+        reports a ramped leaf (unbound names are skipped by the
+        check). The aspect ratio lives on the core module and is
+        squared at this use site.
         """
-        dsqr = ctx.params[DSQR]
-        return {"w": state["b"].to(state["w"]) / dsqr}
+        delta = ctx.params[ASPECT_RATIO]
+        return {"w": state["b"].to(state["w"]) / (delta * delta)}
 
-    @fr.model.term(advances=("b",), linear=True)
+    @fr.model.term(advances=("b",), linear=True,
+                   linear_params=(fr.model.params.STRATIFICATION_N2,
+                                  fr.model.params.STRATIFICATION_FROUDE,
+                                  fr.model.params.SCALING_NONLINEARITY))
     def restoring(self, state, ctx) -> dict:  # noqa: ANN001
-        """``db/dt += -N^2 w`` (w interpolated onto the b cell)."""
-        n2 = ctx.params[fr.model.params.STRATIFICATION_N2]
-        return {"b": -(n2 * state["w"].to(state["b"]))}
+        r"""``db/dt += -N^2 w`` xor ``-(eps/Fr)^2 w`` (onto the b cell).
+
+        Dimensional: the verbatim ``-N^2 w``. Nondimensional: the
+        live mechanism ratio :math:`(\varepsilon/\mathrm{Fr})^2`
+        (stage-time ``ctx.params`` reads; under the matching
+        ``InternalWave`` scaling the alias row makes the ratio an
+        exact ``1.0`` — the x/x self-normalization).
+        """
+        if not self._nondim:
+            n2 = ctx.params[fr.model.params.STRATIFICATION_N2]
+            return {"b": -(n2 * state["w"].to(state["b"]))}
+        eps = ctx.params[fr.model.params.SCALING_NONLINEARITY]
+        froude = ctx.params[fr.model.params.STRATIFICATION_FROUDE]
+        ratio = eps / froude
+        return {"b": -((ratio * ratio) * state["w"].to(state["b"]))}
 
 
 @partial(jaxify, dynamic=("_n2_law",))
@@ -238,15 +327,28 @@ class MeridionalStratification(fr.model.Module):
     field_references = (
         fr.model.FieldReference(
             "w", hint="buoyancy couples to vertical velocity, "
-                      "declared by a dynamical core (nh.DynamicalCore)"),
+                      "declared by a dynamical core (nh.Core)"),
     )
     parameter_references = (
-        fr.model.ParameterReference(DSQR, hint="declared by nh.DynamicalCore"),
+        fr.model.ParameterReference(
+            ASPECT_RATIO, hint="declared by nh.Core"),
     )
 
     # ================================================================
     #  Properties
     # ================================================================
+    @property
+    def scaling_variant(self) -> str:
+        """Dimensional-only (``fr.scaling`` seam).
+
+        A varying NONDIMENSIONAL stratification profile (a Froude
+        profile) is a recorded follow-up; pinning the variant makes a
+        nondimensional assembly refuse this module with the taught
+        mixed-variant error instead of silently misreading the
+        ``n2(y)`` profile.
+        """
+        return "dimensional"
+
     @property
     def _profile_active(self) -> bool:
         """Whether a ``ProfileFunction`` drives ``n2(y, t)`` (TDF-D7).
@@ -386,11 +488,12 @@ class MeridionalStratification(fr.model.Module):
         if self._profile_active:
             self._halo_coords = tuple(table.grid.names)
 
-    @fr.model.term(advances=("w",), linear=True, linear_params=(DSQR,))
+    @fr.model.term(advances=("w",), linear=True,
+                   linear_params=(ASPECT_RATIO,))
     def buoyancy_force(self, state, ctx) -> dict:  # noqa: ANN001
-        """``dw/dt += b / dsqr`` (buoyancy interpolated onto w)."""
-        dsqr = ctx.params[DSQR]
-        return {"w": state["b"].to(state["w"]) / dsqr}
+        """``dw/dt += b / delta^2`` (buoyancy interpolated onto w)."""
+        delta = ctx.params[ASPECT_RATIO]
+        return {"w": state["b"].to(state["w"]) / (delta * delta)}
 
     @fr.model.term(advances=("b",), linear=True, linear_fields=("n2",))
     def restoring(self, state, ctx) -> dict:  # noqa: ANN001, ARG002

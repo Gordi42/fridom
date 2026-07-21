@@ -43,6 +43,7 @@ from fridom.model.errors import (
 from fridom.model.model import Model
 from fridom.model.module import Module
 from fridom.model.terms import term
+from fridom.model.time_steppers.adam_bashforth import AdamBashforth
 from fridom.model.time_steppers.runge_kutta import (
     ExplicitRungeKutta,
     tableaus,
@@ -77,7 +78,7 @@ def _channel_model(dt, *, advection):
         core=sw.Core(gravity=1.0, depth=CSQR),
         coriolis=sw.modules.BetaPlaneCoriolis(f0=F0, beta=BETA),
         advection=advection,
-        time_stepper=fr.model.time_steppers.AdamBashforth(dt, order=3))
+        time_stepper=AdamBashforth(dt, order=3))
 
 
 def _rand_state(model, seed):
@@ -241,7 +242,7 @@ def test_ob_on_a_mechanism_scaled_channel_is_refused_until_c():
         scaling=fr.scaling.GravityWave(),
         coriolis=sw.modules.FPlaneCoriolis(rossby_number=0.2),
         advection=True,
-        time_stepper=fr.model.time_steppers.AdamBashforth(
+        time_stepper=AdamBashforth(
             DT, order=3))
     reference = model.variant(updates={"coriolis.rossby": 1e6})
     p_ref = sw.transforms.VorticalProjection(sw.eigenbasis(reference))
@@ -354,7 +355,7 @@ def test_rejects_a_model_with_a_linear_operator_gap():
         grid=grid, core=sw.Core(gravity=1.0, depth=CSQR),
         coriolis=sw.modules.NonlinearBetaPlaneCoriolis(f0=F0, beta=BETA),
         advection=False,
-        time_stepper=fr.model.time_steppers.AdamBashforth(DT, order=3))
+        time_stepper=AdamBashforth(DT, order=3))
     leg = AdiabaticRamping(route_b, ramps={}, ramp_period=1.0)
     with pytest.raises(LinearOperatorGapError, match="AdiabaticProjection"):
         AdiabaticProjection(leg, Identity())

@@ -115,7 +115,7 @@ def discover_column(
             "for a map p = M(z, params) whose one base coordinate is "
             f"the vertical axis. This grid's analytic columns have "
             f"base coordinate(s) {available}; pass "
-            "vertical=<that axis> to hy.HydrostaticCore, or assemble "
+            "vertical=<that axis> to hy.Core, or assemble "
             "on a flat / stretched-only grid")
     return entry
 
@@ -145,7 +145,7 @@ def require_chart_immersed_order(
     height, so a collocation mask on a chart is a silent wrong-geometry
     mask — a taught error, never a silent unmapped mask (the nonhydro2
     ``ComposedPressureSolver`` precedent). Every hydrostatic module that
-    discovers a terrain column (``HydrostaticCore``,
+    discovers a terrain column (``Core``,
     ``ConstantStratification``, the free-surface variants) calls this at
     bind so the composition is refused (or admitted) uniformly.
 
@@ -208,7 +208,7 @@ def slope_velocity_on_w(
     the terrain face where the flux vanishes. The result rides the same
     ``w`` face set as the flux, ready to add.
 
-    This is the exact quantity :meth:`HydrostaticCore._diagnose_w` adds
+    This is the exact quantity :meth:`Core._diagnose_w` adds
     to the flux to store the physical ``w`` and that ``State.chart``
     subtracts back to recover ``J\omega``; sharing one spelling makes
     the round trip cancel to machine precision (and exactly at the

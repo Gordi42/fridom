@@ -41,6 +41,7 @@ import pytest
 import fridom as fr
 import fridom.nonhydro2 as nh
 from fridom.model.model import _compile_chunk
+from fridom.model.time_steppers.adam_bashforth import AdamBashforth
 
 #: tiny cube: the cost here is the pressure-solve compile, so keep the
 #: grid minimal (the differential is size-independent in kind).
@@ -84,9 +85,14 @@ def _make_model(*, mapped=False, periodic_x=True, periodic_z=False,
             params={"H": lambda x: 1.0 + 0.2 * jnp.sin(x)})
     grid = fr.spatial.Grid((mx, my, mz), mapping=mapping)
     dt = 0.25 * TWO_PI / N if advection else 0.02
-    return nh.Model(grid=grid, dt=dt, advection=advection,
-                    coriolis=nh.FPlaneCoriolis(f0=1.0), dsqr=0.25,
-                    pressure_iterations=8, chunk_size=1, family=family)
+    return nh.Model(
+        grid=grid,
+        core=nh.Core(aspect_ratio=0.5, family=family, pressure_iterations=8),
+        time_stepper=AdamBashforth(dt, order=3),
+        coriolis=nh.FPlaneCoriolis(f0=1.0),
+        stratification=nh.ConstantStratification(n2=1.0),
+        advection=advection,
+        chunk_size=1)
 
 
 def _opcounts(model) -> collections.Counter:

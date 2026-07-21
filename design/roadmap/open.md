@@ -66,36 +66,35 @@ without any elliptic work); barotropic Helmholtz on charts
 Laplace–Beltrami pressure operator + metric projection. A torus
 preset chart is a candidate pole-free test chart.
 
-## 2b. Nondimensionalization — Branches 2/3 on the scaling-object architecture (Branch 1 implemented 2026-07-21)
+## 2b. Nondimensionalization — Branch 3 on the scaling-object architecture (Branches 1+2 implemented 2026-07-21)
 
-**Branch 1 (framework + shallow water) is implemented** on
-`refactor/scaling-architecture` (awaiting owner integration):
-`fr.scaling` policy objects, the `scaling.nonlinearity` alias row,
-`sw.Core` dual variants with the DIAGNOSE-stage thickness, the
-dual-kwarg Coriolis family, the re-keyed eigen/energy consumers, and
-golden-file parity (all 16 pre-refactor configurations bitwise).
-Remaining:
+**Branch 1 (framework + shallow water)** and **Branch 2
+(nonhydro2 + hydrostatic, `refactor/nh-hy-scaling`, awaiting owner
+integration)** are implemented: `fr.scaling` policy objects and the
+alias row, `sw.Core` / `nh.Core(aspect_ratio=)` / gravity-first
+`hy.Core(gravity=)`, dual-kwarg Coriolis / stratification /
+free-surface families, the de-scaled bind-adopting advection, the
+re-keyed eigen/energy/diagnostics consumers, and golden-file parity
+(sw 16/16 bitwise; nh dim+Rotational bitwise; hy dim/ExternalWave/
+Rotational bitwise with the accepted H7 closure-row roundoff on the
+closure-ON dim config). Remaining:
 
-- **Branch 2** (`refactor/nh-hy-scaling`, after 1):
-  `_FluxFormAdvection` de-scaling + bind adoption, nh.Core
-  `aspect_ratio=` (DSQR retired), stratification dual kwargs, hy core
-  gravity provide + free-surface `_csqr(ctx)` + external Froude, old
-  cores deleted, parity against the Branch-1-captured nh/hy goldens.
-- **Branch 3** (`feat/ramping-envelope`, §C, after 1; independent of
-  2): `TendencyEnvelope`, composer wrap, AR `envelope=True`, OB
+- **Branch 3** (`feat/ramping-envelope`, §C; independent of 2):
+  `TendencyEnvelope`, composer wrap, AR `envelope=True`, OB
   rewritten (deletes the interim alias-row guard). Until it lands,
   OptimalBalance refuses mechanism-scaled models (taught error).
 
 §D (unit factors + writer metadata) **shipped 2026-07-21** on
 `feat/unit-factors`: `model.units` machinery, the sw amplitude
 table, the Coriolis `f_dim` row, and the default-on writer stamp
-(plan §D carries the record). Branch 2 additionally owes the nh/hy
-`unit_factors` tables — duck-typed rows, zero machinery edits.
+(plan §D carries the record). Remaining: the nh/hy `unit_factors`
+tables — duck-typed rows, zero machinery edits.
 
-Must land **before the docs rebuild** — Branch 1 already changed the
-public assembly API (`csqr=`/`rossby_number=`/`coords=` removed from
-`sw.Model`; docs/examples still spell the old surface and are part of
-the docs-rebuild pass).
+Must land **before the docs rebuild** — Branches 1+2 changed the
+public assembly API (`csqr=`/`rossby_number=`/`coords=`/`dsqr=`/
+`dt=` removed from the presets; `examples/` and `benchmarks/`'s
+old-stack files still spell the old surface and are part of the
+docs-rebuild pass).
 Plan: [`../plans/active/nondimensionalization_plan.md`](../plans/active/nondimensionalization_plan.md).
 
 ## 3. Perf-guard checkpoint (owner-run)

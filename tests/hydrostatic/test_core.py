@@ -7,6 +7,7 @@ import pytest
 
 import fridom as fr
 import fridom.hydrostatic as hy
+from fridom.model.time_steppers.adam_bashforth import AdamBashforth
 from fridom.spatial.operators.cumulative import CumulativeIntegral
 from fridom.spatial.spaces.constant import ConstantSpace
 
@@ -26,10 +27,13 @@ def make_model(grid=None, *, n2=2.0, csqr=3.0, f0=1.3, dt=1e-3):
     if grid is None:
         grid = make_grid()
     return hy.Model(
-        grid=grid, dt=dt, csqr=csqr,
+        grid=grid,
+        core=hy.Core(gravity=csqr),
+        time_stepper=AdamBashforth(dt, order=3),
+        coriolis=hy.FPlaneCoriolis(f0=f0),
         stratification=hy.ConstantStratification(n2=n2),
-        coriolis=hy.FPlaneCoriolis(f0=f0), advection=False,
-        time_stepper=fr.model.time_steppers.AdamBashforth(dt, order=3))
+        free_surface=hy.ExplicitFreeSurface(),
+        advection=False)
 
 
 # ================================================================
@@ -50,7 +54,7 @@ def test_diagnosed_w_matches_the_cumulative_integral():
         sb, init=lambda x, y, z: jnp.sin(2 * jnp.pi * x) * (z - zc)
         + 0 * y)
 
-    core = model.module(hy.HydrostaticCore)
+    core = model.module(hy.Core)
     state = model.state.replace(u=u, v=v, b=b)
     w = core._diagnose_w(state, None)["w"]
 
@@ -76,7 +80,7 @@ def test_diagnosed_p_hyd_matches_the_cumulative_integral():
         sb, init=lambda x, y, z: jnp.sin(2 * jnp.pi * x) * (z - zc)
         + 0 * y)
 
-    core = model.module(hy.HydrostaticCore)
+    core = model.module(hy.Core)
     state = model.state.replace(b=b)
     p_hyd = core._diagnose_p_hyd(state, None)["p_hyd"]
 
@@ -210,4 +214,4 @@ def test_geostrophic_null_eigenvector_is_steady():
 )
 def test_core_rejects_a_bad_horizontal(horizontal):
     with pytest.raises(TypeError, match="horizontal"):
-        hy.HydrostaticCore(horizontal=horizontal)
+        hy.Core(horizontal=horizontal)

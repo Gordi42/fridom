@@ -23,6 +23,7 @@ import fridom as fr
 import fridom.hydrostatic as hy
 from fridom.hydrostatic.modules.terrain import slope_velocity_on_w
 from fridom.model.model import _chunk_body
+from fridom.model.time_steppers.adam_bashforth import AdamBashforth
 from fridom.spatial.coordinate_mapping import CoordinateMapping
 from fridom.spatial.immersed_domain import ImmersedDomain
 from fridom.spatial.operators.cumulative import CumulativeIntegral
@@ -65,11 +66,13 @@ def _flat_grid(n):
 def _model(grid, *, coriolis=None, advection=False, dt=1e-3,
            free_surface=None):
     return hy.Model(
-        grid=grid, dt=dt, csqr=CSQR,
+        grid=grid,
+        core=hy.Core(gravity=CSQR),
+        time_stepper=AdamBashforth(dt, order=3),
+        coriolis=coriolis,
         stratification=hy.ConstantStratification(n2=N2),
-        coriolis=coriolis, advection=advection,
         free_surface=free_surface or hy.ExplicitFreeSurface(),
-        time_stepper=fr.model.time_steppers.AdamBashforth(dt, order=3))
+        advection=advection)
 
 
 def _orders(errs):
@@ -142,7 +145,7 @@ def _diagnosed(model, grid):
               model.state["v"].function_space)
     u = _smooth(grid, su, lambda **c: jnp.sin(2 * jnp.pi * c["x"]))
     v = _smooth(grid, sv, lambda **c: jnp.cos(2 * jnp.pi * c["y"]))
-    core = model.module(hy.HydrostaticCore)
+    core = model.module(hy.Core)
     w = core._diagnose_w(model.state.replace(u=u, v=v), None)["w"]
     return model.state.replace(u=u, v=v, w=w), u, v, w
 
@@ -201,7 +204,7 @@ def test_flat_w_is_byte_identical_to_the_cartesian_form():
     rng = np.random.default_rng(2)
     u = grid.create_field(su, data=rng.standard_normal(su.shape))
     v = grid.create_field(sv, data=rng.standard_normal(sv.shape))
-    core = model.module(hy.HydrostaticCore)
+    core = model.module(hy.Core)
     assert core._column is None
     w = core._diagnose_w(model.state.replace(u=u, v=v), None)["w"]
     expect = -CumulativeIntegral(direction="up", target="face")["z"](
@@ -257,7 +260,7 @@ def test_rest_state_stays_near_rest_over_a_short_run():
 def test_flat_pressure_gradient_is_the_plain_difference():
     grid = _flat_grid(8)
     model = _model(grid)
-    core = model.module(hy.HydrostaticCore)
+    core = model.module(hy.Core)
     rng = np.random.default_rng(4)
     model.set_fields(
         u=np.zeros(model.state["u"].shape),
@@ -287,7 +290,7 @@ def test_flat_restoring_is_the_plain_minus_n2_w():
         ps=np.zeros(model.state["ps"].shape))
     st = model.state
     dX = model.tendency(st)
-    core = model.module(hy.HydrostaticCore)
+    core = model.module(hy.Core)
     w = core._diagnose_w(st, None)["w"]
     expect = -(N2 * w.to(st["b"]))
     assert np.array_equal(np.asarray(dX["b"].data),
@@ -423,10 +426,12 @@ def test_terrain_advection_preserves_a_constant_tracer():
     # (restoring off, n2=0, to isolate the advection).
     grid = _terrain_grid(16)
     model = hy.Model(
-        grid=grid, dt=1e-3, csqr=CSQR,
+        grid=grid,
+        core=hy.Core(gravity=CSQR),
+        time_stepper=AdamBashforth(1e-3, order=3),
         stratification=hy.ConstantStratification(n2=0.0),
-        advection=True, free_surface=hy.ExplicitFreeSurface(),
-        time_stepper=fr.model.time_steppers.AdamBashforth(1e-3, order=3))
+        free_surface=hy.ExplicitFreeSurface(),
+        advection=True)
     u = _smooth(grid, model.state["u"].function_space,
                 lambda **c: jnp.sin(2 * jnp.pi * c["x"])
                 * jnp.cos(2 * jnp.pi * c["y"]))
@@ -453,7 +458,7 @@ def test_terrain_core_derives_the_stencil_halo():
     # wall, but a sharded interior slot reads a neighbour), so the pair
     # sums to 2.
     model = _model(_terrain_grid(8))
-    core = model.module(hy.HydrostaticCore)
+    core = model.module(hy.Core)
     assert dict(core.extra_halo.widths) == {"x": 1, "y": 1, "z": 2}
 
 
@@ -488,7 +493,7 @@ def test_terrain_immersed_assembles_with_quadrature_fractions():
     # (order >= 2) is the composed masked contravariant continuity — it
     # assembles and the masked/terrain DIAGNOSE stages compose.
     model = _model(_terrain_immersed_grid(order=4))
-    core = model.module(hy.HydrostaticCore)
+    core = model.module(hy.Core)
     assert core._column == ("zp", "z")
     assert core._immersed is not None
 

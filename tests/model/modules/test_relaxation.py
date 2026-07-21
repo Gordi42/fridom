@@ -12,6 +12,7 @@ import pytest
 import fridom.nonhydro2 as nh
 from fridom.model.errors import MissingFieldError
 from fridom.model.modules.relaxation import Relaxation
+from fridom.model.time_steppers.adam_bashforth import AdamBashforth
 from fridom.spatial.grid import Grid
 from fridom.spatial.meshes.interval import IntervalMesh
 
@@ -29,9 +30,12 @@ def make_grid():
 def make_model(*modules, n2=0.0):
     """Linear nh model; f0 = n2 = 0 isolates the relaxation term."""
     return nh.Model(
-        grid=make_grid(), dt=DT, advection=False,
+        grid=make_grid(),
+        core=nh.Core(),
+        time_stepper=AdamBashforth(DT, order=3),
         coriolis=nh.FPlaneCoriolis(f0=0.0),
         stratification=nh.ConstantStratification(n2=n2),
+        advection=False,
         modules_extra=modules)
 
 
