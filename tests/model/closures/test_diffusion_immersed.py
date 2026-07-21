@@ -299,9 +299,14 @@ def _nh_immersed_grid(n=10):
 
 
 def _build_nh(*modules_extra):
-    return nh.Model(grid=_nh_immersed_grid(), dt=0.01, advection=False,
-                    coriolis=FPlaneCoriolis(f0=1.0),
-                    modules_extra=modules_extra)
+    return nh.Model(
+        grid=_nh_immersed_grid(),
+        core=nh.Core(),
+        time_stepper=AdamBashforth(0.01, order=3),
+        coriolis=FPlaneCoriolis(f0=1.0),
+        stratification=nh.ConstantStratification(n2=1.0),
+        advection=False,
+        modules_extra=modules_extra)
 
 
 def test_smagorinsky_on_immersed_is_a_taught_error():

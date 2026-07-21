@@ -3,6 +3,7 @@ import numpy as np
 
 import fridom as fr
 import fridom.hydrostatic as hy
+from fridom.model.time_steppers.adam_bashforth import AdamBashforth
 
 IM = fr.spatial.meshes.IntervalMesh
 
@@ -18,10 +19,13 @@ def make_grid(nx=8, nz=4):
 def make_model(n2=2.0):
     """Return a minimal linear hydrostatic model (advection=False)."""
     return hy.Model(
-        grid=make_grid(), dt=1e-3, csqr=1.0,
+        grid=make_grid(),
+        core=hy.Core(gravity=1.0),
+        time_stepper=AdamBashforth(1e-3, order=3),
+        coriolis=hy.FPlaneCoriolis(f0=1.0),
         stratification=hy.ConstantStratification(n2=n2),
-        coriolis=hy.FPlaneCoriolis(f0=1.0), advection=False,
-        time_stepper=fr.model.time_steppers.AdamBashforth(1e-3, order=3))
+        free_surface=hy.ExplicitFreeSurface(),
+        advection=False)
 
 
 def test_ekin_is_half_the_horizontal_speed_squared():

@@ -34,6 +34,7 @@ from fridom.model.errors import (
     TimeDependentLinearOperatorError,
 )
 from fridom.model.parameters import ParameterDeclaration
+from fridom.model.time_steppers.adam_bashforth import AdamBashforth
 from fridom.model.time_steppers.exponential import (
     ETDRK4,
     phi_functions,
@@ -142,7 +143,7 @@ def _ramped_n_model(grid, stepper, amp):
 def basis(grid):
     """Return the UNFILTERED model's eigenbasis: the operator L."""
     return sw.eigenbasis(_model(
-        grid, fr.model.time_steppers.AdamBashforth(1e-3, order=3),
+        grid, AdamBashforth(1e-3, order=3),
         filtered=False))
 
 
@@ -337,7 +338,7 @@ def test_beats_the_ab3_gravity_cfl(grid, basis, state0):
     assert np.isfinite(_norm(out))
     assert _norm(out) < 10 * _norm(_run(model, state0, 0))
     # ... while AB3 at the same dt blows up (it is gravity-limited)
-    ab3 = _model(grid, fr.model.time_steppers.AdamBashforth(
+    ab3 = _model(grid, AdamBashforth(
         dt, order=3), filtered=False)
     with pytest.raises(fr.model.results.PanicError):
         _run(ab3, state0, 60)
@@ -488,7 +489,7 @@ def test_sharded_run_matches_one_device(forced_devices):
     rng = np.random.default_rng(11)
     # the same physical initial fields on both grids (global shapes match)
     src = _model(
-        one_grid, fr.model.time_steppers.AdamBashforth(1e-3, order=3),
+        one_grid, AdamBashforth(1e-3, order=3),
         filtered=False)
     fields = {
         c: rng.standard_normal(np.asarray(src.state[c].data).shape)
@@ -500,7 +501,7 @@ def test_sharded_run_matches_one_device(forced_devices):
         # exp(L dt) is eigenbasis-choice invariant, so the run is
         # comparable across device counts
         basis = sw.eigenbasis(_model(
-            grid, fr.model.time_steppers.AdamBashforth(1e-3, order=3),
+            grid, AdamBashforth(1e-3, order=3),
             filtered=False))
         model = _model(grid, ETDRK4(dt, basis), filtered=True)
         model.set_fields(**fields)

@@ -22,6 +22,7 @@ import pytest
 import fridom as fr
 import fridom.nonhydro2 as nh
 from fridom.model import term_predicates as terms
+from fridom.model.time_steppers.adam_bashforth import AdamBashforth
 from fridom.nonhydro2.modules.stratification import (
     ConstantStratification,
     MeridionalStratification,
@@ -51,10 +52,11 @@ def test_ramped_n2_assembles_and_advances_under_adam_bashforth():
         fr.spatial.meshes.IntervalMesh(6, (0.0, 1.0), periodic=False,
                                        name="z")))
     model = nh.Model(
-        grid=grid, dsqr=1.0,
+        grid=grid,
+        core=nh.Core(aspect_ratio=1.0),
+        time_stepper=AdamBashforth(1e-3, order=1),
         stratification=ConstantStratification(
-            n2=fr.model.Ramp(0.0, 1.0, period=1.0)),
-        time_stepper=fr.model.time_steppers.AdamBashforth(1e-3, order=1))
+            n2=fr.model.Ramp(0.0, 1.0, period=1.0)))
     assert isinstance(
         model.module(ConstantStratification).n2, fr.model.Ramp)
     model.advance(2)
@@ -87,9 +89,12 @@ def _affine_n2_law(n0=1.0, s=0.5):
 def _law_model(grid, law, *, order=1, dt=0.02):
     """Return a linear (advection-off) law-n2 channel; f-plane."""
     return nh.Model(
-        coriolis=nh.FPlaneCoriolis(f0=1.0), grid=grid, advection=False,
-        dsqr=1.0, stratification=MeridionalStratification(n2=law),
-        time_stepper=fr.model.time_steppers.AdamBashforth(dt, order=order))
+        grid=grid,
+        core=nh.Core(aspect_ratio=1.0),
+        time_stepper=AdamBashforth(dt, order=order),
+        coriolis=nh.FPlaneCoriolis(f0=1.0),
+        stratification=MeridionalStratification(n2=law),
+        advection=False)
 
 
 def test_meridional_static_carries_no_marker_stage_or_halo():
@@ -147,19 +152,24 @@ def test_meridional_law_etdrk4_refuses_while_adam_bashforth_runs():
     grid = _walled_y_grid()
     # a static-n2 channel supplies the frozen eigenbasis L
     static = nh.Model(
-        coriolis=nh.FPlaneCoriolis(f0=1.0), grid=grid, advection=False,
-        dsqr=1.0,
+        grid=grid,
+        core=nh.Core(aspect_ratio=1.0),
+        time_stepper=AdamBashforth(5e-3, order=3),
+        coriolis=nh.FPlaneCoriolis(f0=1.0),
         stratification=MeridionalStratification(
             n2=lambda y: 1.0 + 2.0 * y * y),
-        time_stepper=fr.model.time_steppers.AdamBashforth(5e-3, order=3))
+        advection=False)
     basis = nh.eigenbasis(static)
     law = _affine_n2_law()
     with pytest.raises(
             fr.model.errors.TimeDependentLinearOperatorError, match="n2"):
         nh.Model(
-            coriolis=nh.FPlaneCoriolis(f0=1.0), grid=grid, advection=False,
-            dsqr=1.0, stratification=MeridionalStratification(n2=law),
+            grid=grid,
+            core=nh.Core(aspect_ratio=1.0),
             time_stepper=fr.model.time_steppers.ETDRK4(5e-3, basis),
+            coriolis=nh.FPlaneCoriolis(f0=1.0),
+            stratification=MeridionalStratification(n2=law),
+            advection=False,
             term_filter=~terms.linear)
     # AdamBashforth runs the same law-n2 model to a finite state
     model = _law_model(grid, law, order=3, dt=5e-3)

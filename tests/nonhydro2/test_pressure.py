@@ -307,9 +307,13 @@ def test_project_state_equals_project_tendency(sign):
     dt = sign * 0.02
     dsqr = 0.25  # non-unit so the 1/dsqr vertical weighting bites
     grid = make_grid()
-    model = nh.Model(grid=grid, dt=dt, dsqr=dsqr, advection=False,
-                     coriolis=nh.FPlaneCoriolis(f0=1.0),
-                     time_stepper=AdamBashforth(dt, order=1))
+    model = nh.Model(
+        grid=grid,
+        core=nh.Core(aspect_ratio=(dsqr) ** 0.5),
+        time_stepper=AdamBashforth(dt, order=1),
+        coriolis=nh.FPlaneCoriolis(f0=1.0),
+        stratification=nh.ConstantStratification(n2=1.0),
+        advection=False)
     ax = (np.arange(N) + 0.5) * (2 * np.pi / N)
     x, y, z = np.meshgrid(ax, ax, ax, indexing="ij")
     # exactly divergence-free IC: u varies only along y, v only

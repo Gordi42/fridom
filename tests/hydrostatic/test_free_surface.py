@@ -6,6 +6,7 @@ import pytest
 
 import fridom as fr
 import fridom.hydrostatic as hy
+from fridom.model.time_steppers.adam_bashforth import AdamBashforth
 from fridom.spatial.spaces.constant import ConstantSpace
 
 IM = fr.spatial.meshes.IntervalMesh
@@ -19,13 +20,21 @@ def make_grid(nx, nz, depth=1.0):
         IM(nz, (0.0, depth), periodic=False, name="z")))
 
 
+def _zextent(grid):
+    lo, hi = next(m.extent for m in grid.factors if "z" in m.names)
+    return float(hi - lo)
+
+
 def make_model(grid, *, n2, csqr, f0, dt=1e-3):
-    """Return a linear hydrostatic model with rotation."""
+    """Return a linear hydrostatic model (legacy csqr = g*H folded)."""
     return hy.Model(
-        grid=grid, dt=dt, csqr=csqr,
+        grid=grid,
+        core=hy.Core(gravity=csqr / _zextent(grid)),
+        time_stepper=AdamBashforth(dt, order=3),
+        coriolis=hy.FPlaneCoriolis(f0=f0),
         stratification=hy.ConstantStratification(n2=n2),
-        coriolis=hy.FPlaneCoriolis(f0=f0), advection=False,
-        time_stepper=fr.model.time_steppers.AdamBashforth(dt, order=3))
+        free_surface=hy.ExplicitFreeSurface(),
+        advection=False)
 
 
 def k_disc_sq(n_mode, n_cells, length=1.0):

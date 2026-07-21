@@ -70,12 +70,13 @@ def _make_grid(nx, ny, nz, device_ids):
 def _make_model(grid, advection):
     """Return a small nonlinear hydrostatic model on the advection."""
     return hy.Model(
-        grid=grid, dt=1e-3, csqr=1000.0,
-        free_surface=hy.SplitExplicitFreeSurface(substeps=16),
+        grid=grid,
+        core=hy.Core(gravity=1000.0),
+        time_stepper=AdamBashforth(1e-3, order=2, eps=0.1),
         coriolis=hy.FPlaneCoriolis(f0=1.0),
         stratification=hy.ConstantStratification(n2=1.0),
+        free_surface=hy.SplitExplicitFreeSurface(substeps=16),
         advection=advection,
-        time_stepper=AdamBashforth(1e-3, order=2, eps=0.1),
         chunk_size=8)
 
 

@@ -14,13 +14,14 @@ import pytest
 
 import fridom as fr
 import fridom.hydrostatic as hy
-from fridom.hydrostatic.params import CSQR
+from fridom.hydrostatic.params import GRAVITY
 from fridom.model.context import StepContext
 from fridom.model.errors import LinearOperatorGapError
 from fridom.model.implicit import VerticalDiffusion
 from fridom.model.model import _chunk_body
 from fridom.model.module import Module
 from fridom.model.terms import Treatment
+from fridom.model.time_steppers.adam_bashforth import AdamBashforth
 from fridom.spatial.immersed_domain import ImmersedDomain
 from fridom.spatial.operators.integrate import Integral
 from fridom.spatial.operators.spectral_solve import SpectralSolve
@@ -40,16 +41,29 @@ def make_grid(nx, nz, depth=1.0):
         IM(nz, (0.0, depth), periodic=False, name="z")))
 
 
+def _zextent(grid):
+    """Physical vertical extent of the grid (the flat column depth)."""
+    lo, hi = next(m.extent for m in grid.factors if "z" in m.names)
+    return float(hi - lo)
+
+
 def make_model(grid, free_surface, *, n2=0.0, csqr=4.0, f0=0.0,
                dt=1e-2, stepper=None):
-    """Return a linear hydrostatic model on the given free surface."""
+    """Return a linear hydrostatic model on the given free surface.
+
+    ``csqr`` keeps the legacy barotropic parameterization c^2 = g*H:
+    the gravity handed to the core is csqr / H(grid).
+    """
     if stepper is None:
-        stepper = fr.model.time_steppers.AdamBashforth(dt, order=3)
+        stepper = AdamBashforth(dt, order=3)
     return hy.Model(
-        grid=grid, dt=dt, csqr=csqr, free_surface=free_surface,
+        grid=grid,
+        core=hy.Core(gravity=csqr / _zextent(grid)),
+        time_stepper=stepper,
+        coriolis=hy.FPlaneCoriolis(f0=f0),
         stratification=hy.ConstantStratification(n2=n2),
-        coriolis=hy.FPlaneCoriolis(f0=f0), advection=False,
-        time_stepper=stepper)
+        free_surface=free_surface,
+        advection=False)
 
 
 def k_disc_sq(n_mode, n_cells, length=1.0):
@@ -176,7 +190,7 @@ def test_ps_lifecycle_depends_on_epsilon():
 # ================================================================
 def test_core_pressure_gradient_no_longer_reads_ps():
     # HY-D3 refactor: the core reads only the baroclinic p_hyd
-    refs = {r.name for r in hy.HydrostaticCore().field_references}
+    refs = {r.name for r in hy.Core().field_references}
     assert "ps" not in refs
     assert "b" in refs
 
@@ -315,7 +329,7 @@ def test_rigid_lid_projects_the_depth_mean_divergence_free():
 
     # a single constraint removes a large divergence to machine zero
     fs = model.module(hy.ImplicitFreeSurface)
-    ctx = StepContext(params={CSQR: jnp.asarray(3.0)},
+    ctx = StepContext(params={GRAVITY: jnp.asarray(3.0 / depth)},
                       clock=jnp.asarray(0.0), dt=jnp.asarray(0.05),
                       stage_dt=jnp.asarray(0.05))
     out = fs._barotropic_solve(model.state, ctx)
@@ -351,7 +365,7 @@ def test_rigid_lid_ps_is_the_surface_pressure_poisson_solution():
     div2d = np.asarray(
         _depth_mean_div(model.state, depth).data).reshape(nx, nx)
     fs = model.module(hy.ImplicitFreeSurface)
-    ctx = StepContext(params={CSQR: jnp.asarray(csqr)},
+    ctx = StepContext(params={GRAVITY: jnp.asarray(csqr / depth)},
                       clock=jnp.asarray(0.0), dt=jnp.asarray(dt),
                       stage_dt=jnp.asarray(dt))
     ps2d = np.asarray(
@@ -453,10 +467,10 @@ def test_rigid_lid_also_declares_the_gap():
 @pytest.mark.parametrize(
     "stepper_factory",
     [pytest.param(
-        lambda dt: fr.model.time_steppers.AdamBashforth(
+        lambda dt: AdamBashforth(
             dt, order=2, eps=0.1), id="ab2-eps0.1-pyom"),
      pytest.param(
-        lambda dt: fr.model.time_steppers.AdamBashforth(dt, order=3),
+        lambda dt: AdamBashforth(dt, order=3),
         id="ab3"),
      pytest.param(
         fr.model.time_steppers.LowStorageRK3, id="rk3")],
@@ -514,12 +528,14 @@ def test_cnab2_vertical_diffusion_then_surface_constraint():
     # runs its CONSTRAINT (S4): the mixed "solve then surface" path
     grid = make_grid(16, 6)
     model = hy.Model(
-        grid=grid, csqr=4.0,
-        free_surface=hy.ImplicitFreeSurface(epsilon=1.0),
+        grid=grid,
+        core=hy.Core(gravity=4.0),
+        time_stepper=fr.model.time_steppers.CNAB2(1e-2),
+        coriolis=hy.FPlaneCoriolis(f0=0.5),
         stratification=hy.ConstantStratification(n2=1.0),
-        coriolis=hy.FPlaneCoriolis(f0=0.5), advection=False,
-        modules_extra=(_VertMix(),),
-        time_stepper=fr.model.time_steppers.CNAB2(1e-2))
+        free_surface=hy.ImplicitFreeSurface(epsilon=1.0),
+        advection=False,
+        modules_extra=(_VertMix(),))
     rng = np.random.default_rng(3)
     model.set_fields(
         u=rng.standard_normal(model.state["u"].shape),
@@ -559,12 +575,15 @@ def walled_model(grid, *, epsilon=1.0, csqr=1.0, f0=0.5, n2=0.0, dt=1e-3,
                  pressure_iterations=30):
     """Return a linear implicit-free-surface hydrostatic model."""
     return hy.Model(
-        grid=grid, dt=dt, csqr=csqr, advection=False,
-        free_surface=hy.ImplicitFreeSurface(
-            epsilon=epsilon, pressure_iterations=pressure_iterations),
-        stratification=hy.ConstantStratification(n2=n2),
+        grid=grid,
+        core=hy.Core(gravity=csqr),
+        time_stepper=AdamBashforth(dt, order=3),
         coriolis=hy.FPlaneCoriolis(f0=f0),
-        time_stepper=fr.model.time_steppers.AdamBashforth(dt, order=3))
+        stratification=hy.ConstantStratification(n2=n2),
+        free_surface=hy.ImplicitFreeSurface(
+            epsilon=epsilon,
+            pressure_iterations=pressure_iterations),
+        advection=False)
 
 
 @pytest.mark.parametrize("wall", list(WALLS), ids=list(WALLS))
@@ -601,7 +620,8 @@ def test_rigid_lid_gauge_lands_on_the_constant_mode_on_walls(wall):
     model.set_fields(u=rng.standard_normal(model.state["u"].shape),
                      v=rng.standard_normal(model.state["v"].shape))
     fs = model.module(hy.ImplicitFreeSurface)
-    ctx = StepContext(params={CSQR: jnp.asarray(3.0)},
+    # unit-depth walled grid: gravity = csqr / H = 3.0
+    ctx = StepContext(params={GRAVITY: jnp.asarray(3.0)},
                       clock=jnp.asarray(0.0), dt=jnp.asarray(0.05),
                       stage_dt=jnp.asarray(0.05))
     ps = fs._barotropic_solve(model.state, ctx)["ps"]
@@ -739,7 +759,8 @@ def test_immersed_walled_rigid_lid_projects_divergence_free():
     model.set_fields(u=rng.standard_normal(model.state["u"].shape),
                      v=rng.standard_normal(model.state["v"].shape))
     fs = model.module(hy.ImplicitFreeSurface)
-    ctx = StepContext(params={CSQR: jnp.asarray(2.0)},
+    # unit-depth immersed grid: gravity = csqr / H = 2.0
+    ctx = StepContext(params={GRAVITY: jnp.asarray(2.0)},
                       clock=jnp.asarray(0.0), dt=jnp.asarray(0.05),
                       stage_dt=jnp.asarray(0.05))
     pre = float(np.max(np.abs(np.asarray(
@@ -830,7 +851,8 @@ def test_periodic_flat_spectral_takes_the_no_retag_fast_path():
     model = make_model(grid, hy.ImplicitFreeSurface(epsilon=1.0))
     fs = model.module(hy.ImplicitFreeSurface)
     space = model.state["ps"].function_space.bare
-    solver = fs._flat_spectral(space, grid, csqr=4.0, dt=1e-2)
+    solver = fs._flat_spectral(space, grid, column_csqr=4.0,
+                               dt=1e-2)
     # the fast path returns the bound SpectralSolve.solve, not a closure
     assert isinstance(getattr(solver, "__self__", None), SpectralSolve)
 
@@ -838,5 +860,6 @@ def test_periodic_flat_spectral_takes_the_no_retag_fast_path():
     wmodel = walled_model(wgrid, epsilon=1.0)
     wfs = wmodel.module(hy.ImplicitFreeSurface)
     wsolver = wfs._flat_spectral(
-        wmodel.state["ps"].function_space.bare, wgrid, csqr=1.0, dt=1e-3)
+        wmodel.state["ps"].function_space.bare, wgrid,
+        column_csqr=1.0, dt=1e-3)
     assert getattr(wsolver, "__self__", None) is None

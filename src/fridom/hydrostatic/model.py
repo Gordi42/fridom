@@ -187,6 +187,14 @@ def Model(  # noqa: N802 — a factory that mirrors fr.model.Model's surface
     for retired, message in _RETIRED_KWARGS.items():
         if retired in kwargs:
             raise TypeError(f"hy.Model {message}")
+    if core is None or stratification is None or free_surface is None:
+        raise TypeError(
+            "hy.Model has no default physics (owner-ratified): "
+            "core=, stratification= and free_surface= are REQUIRED "
+            "modules — pass core=hy.Core(gravity=...), "
+            "stratification=hy.ConstantStratification(n2=...) and "
+            "free_surface=hy.ExplicitFreeSurface() (or the implicit "
+            "/ split-explicit variants); None is not a module")
     if scaling is None:
         scaling = fr.scaling.Dimensional()
     if advection is True:

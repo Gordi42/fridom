@@ -24,6 +24,7 @@ import pytest
 
 import fridom.hydrostatic as hy
 from fridom.model.model import _chunk_body
+from fridom.model.time_steppers.adam_bashforth import AdamBashforth
 from fridom.spatial.grid import Grid
 from fridom.spatial.immersed_domain import ImmersedDomain
 from fridom.spatial.meshes.interval import IntervalMesh
@@ -54,10 +55,12 @@ def immersed_model(*, dt=0.002):
          IM(4, (0.0, 1.0), periodic=False, name="z")),
         immersed=ImmersedDomain(_sidewall, order=4, min_fraction=0.1))
     model = hy.Model(
-        grid=grid, dt=dt, csqr=1.0,
-        free_surface=hy.ImplicitFreeSurface(pressure_iterations=20),
+        grid=grid,
+        core=hy.Core(gravity=1.0),
+        time_stepper=AdamBashforth(dt, order=3),
         coriolis=hy.FPlaneCoriolis(f0=0.5),
         stratification=hy.ConstantStratification(n2=0.0),
+        free_surface=hy.ImplicitFreeSurface(pressure_iterations=20),
         advection=True)
     rng = np.random.default_rng(11)
     model.set_fields(**{

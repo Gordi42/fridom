@@ -27,6 +27,7 @@ import pytest
 import fridom as fr
 import fridom.nonhydro2 as nh
 from fridom.model.model import _compile_chunk
+from fridom.model.time_steppers.adam_bashforth import AdamBashforth
 
 #: small, divisible by the forced-4 mesh so the sharded axis blocks
 #: evenly (the deficit leg is n = cells * P - 1); linear, one-step chunk
@@ -49,9 +50,12 @@ def _make_model(walled: tuple[str, ...]):
             periodic=(name not in walled), name=name)
         for name in ("x", "y", "z"))
     return nh.Model(
-        grid=fr.spatial.Grid(meshes), advection=False, dsqr=0.25,
+        grid=fr.spatial.Grid(meshes),
+        core=nh.Core(aspect_ratio=0.5),
+        time_stepper=AdamBashforth(0.02, order=3),
         coriolis=nh.FPlaneCoriolis(f0=1.0),
-        time_stepper=fr.model.time_steppers.AdamBashforth(0.02, order=3),
+        stratification=nh.ConstantStratification(n2=1.0),
+        advection=False,
         chunk_size=1)
 
 

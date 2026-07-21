@@ -36,6 +36,7 @@ from fridom.model.eigen_channel import (
     UNLABELED,
     ChannelEigenbasis,
 )
+from fridom.model.time_steppers.adam_bashforth import AdamBashforth
 from fridom.nonhydro2.channel_eigenmodes import (
     CONSTRAINT,
     FAMILIES,
@@ -77,10 +78,12 @@ def make_channel(f0=F0, beta=None):
     coriolis = (nh.FPlaneCoriolis(f0=f0) if beta is None
                 else nh.BetaPlaneCoriolis(f0=f0, beta=beta))
     return nh.Model(
-        grid=fr.spatial.Grid((mx, my, mz)), advection=False, dsqr=DSQR,
+        grid=fr.spatial.Grid((mx, my, mz)),
+        core=nh.Core(aspect_ratio=(DSQR) ** 0.5),
+        time_stepper=AdamBashforth(5e-3, order=3),
         coriolis=coriolis,
         stratification=nh.ConstantStratification(n2=N2),
-        time_stepper=fr.model.time_steppers.AdamBashforth(5e-3, order=3))
+        advection=False)
 
 
 @pytest.fixture(scope="module")
@@ -664,10 +667,12 @@ def test_odd_nz_channel_labels_and_completeness():
     mz = fr.spatial.meshes.IntervalMesh(nz, (0.0, LZ), periodic=True,
                                      name="z")
     model = nh.Model(
-        grid=fr.spatial.Grid((mx, my, mz)), advection=False, dsqr=DSQR,
+        grid=fr.spatial.Grid((mx, my, mz)),
+        core=nh.Core(aspect_ratio=(DSQR) ** 0.5),
+        time_stepper=AdamBashforth(5e-3, order=3),
         coriolis=nh.FPlaneCoriolis(f0=F0),
         stratification=nh.ConstantStratification(n2=N2),
-        time_stepper=fr.model.time_steppers.AdamBashforth(5e-3, order=3))
+        advection=False)
     em = ChannelEigenmodes(model)
     labels = np.asarray(em.labels)
     assert em.omega.shape == (N, nz // 2 + 1, D)
@@ -841,10 +846,12 @@ def make_varying_channel(n2=n2_profile):
     mz = fr.spatial.meshes.IntervalMesh(N, (0.0, LZ), periodic=True,
                                      name="z")
     return nh.Model(
-        grid=fr.spatial.Grid((mx, my, mz)), advection=False, dsqr=DSQR,
+        grid=fr.spatial.Grid((mx, my, mz)),
+        core=nh.Core(aspect_ratio=(DSQR) ** 0.5),
+        time_stepper=AdamBashforth(5e-3, order=3),
         coriolis=nh.FPlaneCoriolis(f0=F0),
         stratification=nh.MeridionalStratification(n2=n2),
-        time_stepper=fr.model.time_steppers.AdamBashforth(5e-3, order=3))
+        advection=False)
 
 
 @pytest.fixture(scope="module")
@@ -984,12 +991,12 @@ def test_varying_n2_analytic_paths_are_taught_errors():
                                          periodic=periodic_z,
                                          name="z")
         return nh.Model(
-            grid=fr.spatial.Grid((mx, my, mz)), advection=False,
-            dsqr=DSQR, coriolis=nh.FPlaneCoriolis(f0=F0),
-            stratification=nh.MeridionalStratification(
-                n2=n2_profile),
-            time_stepper=fr.model.time_steppers.AdamBashforth(
-                5e-3, order=3))
+            grid=fr.spatial.Grid((mx, my, mz)),
+            core=nh.Core(aspect_ratio=(DSQR) ** 0.5),
+            time_stepper=AdamBashforth( 5e-3, order=3),
+            coriolis=nh.FPlaneCoriolis(f0=F0),
+            stratification=nh.MeridionalStratification( n2=n2_profile),
+            advection=False)
 
     for periodic_z in (True, False):
         with pytest.raises(ValueError, match=r"nh\.eigenbasis"):

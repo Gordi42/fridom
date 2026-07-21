@@ -26,7 +26,7 @@ from fridom.model.modules.advection import (
 from fridom.model.time_steppers.adam_bashforth import (
     AdamBashforth,
 )
-from fridom.nonhydro2.modules.core import DynamicalCore
+from fridom.nonhydro2.modules.core import Core
 from fridom.nonhydro2.modules.stratification import (
     ConstantStratification,
 )
@@ -50,14 +50,28 @@ def make_grid(nx, lx=L, ny=NY):
     ))
 
 
-def make_model(nx, advection, *, lx=L, stratified=True, ro=1.0):
-    modules = [DynamicalCore(rossby_number=ro)]
-    if stratified:
+def make_model(nx, advection, *, lx=L, stratified=True, eps=None):
+    """Assemble the advection module; ``eps`` selects nondim (fr.scaling).
+
+    ``eps=None`` is the dimensional assembly (the de-scaled advection
+    carries zero scaling ops). A float assembles the NONDIMENSIONAL
+    variant through the InternalWave frame: the stratification owns
+    the epsilon leaf (froude_number=eps) and the scaling-neutral
+    advection adopts the variant at bind, so the tendency carries one
+    outer epsilon (and, with a background, U + eps*u' inside).
+    """
+    modules = [Core()]
+    scaling = None
+    if eps is not None:
+        modules.append(ConstantStratification(froude_number=eps))
+        scaling = fr.scaling.InternalWave()
+    elif stratified:
         modules.append(ConstantStratification(n2=1.0))
     modules.append(advection)
     return FrModel(grid=make_grid(nx, lx=lx),
                    modules=tuple(modules),
-                   time_stepper=AdamBashforth(DT, order=3))
+                   time_stepper=AdamBashforth(DT, order=3),
+                   scaling=scaling)
 
 
 def centers(nx, lx=L):
@@ -399,7 +413,7 @@ def test_step_transport_no_amplified_overshoot():
     def overshoot(advection):
         model = FrModel(
             grid=make_grid(nx),
-            modules=(DynamicalCore(), advection),
+            modules=(Core(), advection),
             time_stepper=AdamBashforth(0.02, order=3))
         xc = centers(nx)
         step = np.where((xc > L / 4) & (xc < 3 * L / 4), 1.0, 0.0)
@@ -419,18 +433,18 @@ def test_step_transport_no_amplified_overshoot():
     assert over_weno < 1e-3
 
 
-def test_rossby_scaling_and_divergence_form():
+def test_epsilon_scaling_and_divergence_form():
     n = 16
     xc = centers(n)
     taus = {}
     for ro in (1.0, 0.5):
-        model = make_model(n, UpwindAdvection(3), ro=ro)
+        model = make_model(n, UpwindAdvection(3), eps=ro)
         model.set_fields(
             u=broadcast(1.0 + 0.5 * np.sin(xc), n),
             b=broadcast(np.sin(2 * xc), n))
         taus[ro] = advection_tendency(model, UpwindAdvection)
     for name in ("u", "b"):
-        # the Rossby number scales the tendency exactly
+        # the nonlinearity number scales the tendency exactly
         np.testing.assert_allclose(
             np.asarray(taus[0.5][name].data),
             0.5 * np.asarray(taus[1.0][name].data),

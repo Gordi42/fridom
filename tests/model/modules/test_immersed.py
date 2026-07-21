@@ -7,6 +7,7 @@ import pytest
 import fridom.hydrostatic as hy
 from fridom.model.modules.immersed import _MASK_ORDER, MaskState
 from fridom.model.stages import StageKind
+from fridom.model.time_steppers.adam_bashforth import AdamBashforth
 from fridom.spatial.decomposition.halo import HaloSpec
 from fridom.spatial.grid import Grid
 from fridom.spatial.immersed_domain import ImmersedDomain
@@ -183,7 +184,11 @@ def test_maskstate_skips_constant_space_prognostics():
     grid = Grid((mx, my, mz), immersed=ImmersedDomain(
         lambda x, y, z: (z > 0.5).astype(float)))  # noqa: ARG005
     model = hy.Model(
-        grid=grid, dt=0.01, free_surface=hy.ExplicitFreeSurface(),
+        grid=grid,
+        core=hy.Core(gravity=1.0),
+        time_stepper=AdamBashforth(0.01, order=3),
+        stratification=hy.ConstantStratification(n2=1.0),
+        free_surface=hy.ExplicitFreeSurface(),
         advection=False)
     # ps is a PROGNOSTIC ConstantSpace(z) field the MaskState sees
     assert "ps" in set(model._artifacts.field_table.prognostic)

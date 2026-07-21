@@ -25,6 +25,7 @@ import pytest
 
 import fridom.nonhydro2 as nh
 from fridom.model.model import _chunk_body
+from fridom.model.time_steppers.adam_bashforth import AdamBashforth
 from fridom.spatial.coordinate_mapping import CoordinateMapping
 from fridom.spatial.grid import Grid
 from fridom.spatial.meshes.interval import IntervalMesh
@@ -59,10 +60,15 @@ def mapped_model(*, dt=0.02, family="nodal", pressure_iterations=12,
         maps={"zp": lambda z, H: z * H}, params={"H": _depth})
     grid = Grid((mx, my, mz), mapping=mapping)
     model = nh.Model(
-        grid=grid, dt=dt, advection=False, family=family,
+        grid=grid,
+        core=nh.Core(
+            family=family,
+            pressure_iterations=pressure_iterations,
+            pressure_tolerance=pressure_tolerance),
+        time_stepper=AdamBashforth(dt, order=3),
         coriolis=nh.FPlaneCoriolis(f0=1.0),
-        pressure_iterations=pressure_iterations,
-        pressure_tolerance=pressure_tolerance)
+        stratification=nh.ConstantStratification(n2=1.0),
+        advection=False)
     rng = np.random.default_rng(0)
     model.set_fields(**{
         k: 0.2 * rng.standard_normal(model.state[k].data.shape)
@@ -160,10 +166,15 @@ def stretched_multigrid_model(*, dt=0.02, pressure_iterations=12):
         maps={"zp": lambda z, H: z * H}, params={"H": _depth})
     grid = Grid((mx, my, mz), mapping=mapping)
     model = nh.Model(
-        grid=grid, dt=dt, advection=False, family="fv",
+        grid=grid,
+        core=nh.Core(
+            family="fv",
+            pressure_iterations=pressure_iterations,
+            pressure_preconditioner="multigrid"),
+        time_stepper=AdamBashforth(dt, order=3),
         coriolis=nh.FPlaneCoriolis(f0=1.0),
-        pressure_preconditioner="multigrid",
-        pressure_iterations=pressure_iterations)
+        stratification=nh.ConstantStratification(n2=1.0),
+        advection=False)
     rng = np.random.default_rng(0)
     model.set_fields(**{
         k: 0.2 * rng.standard_normal(model.state[k].data.shape)

@@ -15,11 +15,12 @@ from fridom.model.errors import (
 )
 from fridom.model.params import CORIOLIS_F0, STRATIFICATION_N2
 from fridom.model.scheduled_field import ProfileFunction
+from fridom.model.time_steppers.adam_bashforth import AdamBashforth
 from fridom.nonhydro2.modules.polarized_wave_maker import (
     _COMPONENTS,
     PolarizedWaveMaker,
 )
-from fridom.nonhydro2.params import DSQR
+from fridom.nonhydro2.params import ASPECT_RATIO
 from fridom.spatial.grid import Grid
 from fridom.spatial.meshes.interval import IntervalMesh
 
@@ -47,9 +48,14 @@ def make_maker(**kwargs):
 def make_model(maker, walled=()):
     # explicit f-plane: the wave-maker's packet polarization needs the
     # constant coriolis.f0 provide, which no longer comes for free
-    return nh.Model(grid=make_grid(walled), dt=DT, advection=False,
-                    coriolis=nh.FPlaneCoriolis(f0=1.0),
-                    modules_extra=(maker,))
+    return nh.Model(
+        grid=make_grid(walled),
+        core=nh.Core(),
+        time_stepper=AdamBashforth(DT, order=3),
+        coriolis=nh.FPlaneCoriolis(f0=1.0),
+        stratification=nh.ConstantStratification(n2=1.0),
+        advection=False,
+        modules_extra=(maker,))
 
 
 # ================================================================
@@ -119,11 +125,11 @@ class _FakeTable:
 
 @pytest.mark.parametrize(
     "pname",
-    [CORIOLIS_F0, STRATIFICATION_N2, DSQR],
-    ids=["f0", "n2", "dsqr"])
+    [CORIOLIS_F0, STRATIFICATION_N2, ASPECT_RATIO],
+    ids=["f0", "n2", "aspect_ratio"])
 def test_profile_function_parameter_is_refused_at_bind(pname):
     maker = make_maker()
-    params = {CORIOLIS_F0: 1.0, STRATIFICATION_N2: 1.0, DSQR: 1.0}
+    params = {CORIOLIS_F0: 1.0, STRATIFICATION_N2: 1.0, ASPECT_RATIO: 1.0}
     params[pname] = ProfileFunction(lambda *args: args[0])
     table = _FakeTable(make_grid(), params)
     with pytest.raises(TimeDependentParameterError,
@@ -133,7 +139,7 @@ def test_profile_function_parameter_is_refused_at_bind(pname):
 
 def test_time_dependent_dependency_field_is_refused_at_bind():
     maker = make_maker()
-    params = {CORIOLIS_F0: 1.0, STRATIFICATION_N2: 1.0, DSQR: 1.0}
+    params = {CORIOLIS_F0: 1.0, STRATIFICATION_N2: 1.0, ASPECT_RATIO: 1.0}
     # mark one packet-dependency field (u) as time_dependent
     table = _FakeTable(make_grid(), params, td_fields=("u",))
     with pytest.raises(TimeDependentParameterError,
@@ -155,10 +161,14 @@ def test_meridional_law_n2_model_is_refused_before_bind():
     maker = make_maker()
     with pytest.raises(
             MissingParameterError, match=r"stratification\.n2"):
-        nh.Model(grid=make_grid(), dt=DT, advection=False,
-                 coriolis=nh.FPlaneCoriolis(f0=1.0),
-                 stratification=nh.MeridionalStratification(n2=law),
-                 modules_extra=(maker,))
+        nh.Model(
+            grid=make_grid(),
+            core=nh.Core(),
+            time_stepper=AdamBashforth(DT, order=3),
+            coriolis=nh.FPlaneCoriolis(f0=1.0),
+            stratification=nh.MeridionalStratification(n2=law),
+            advection=False,
+            modules_extra=(maker,))
 
 
 # ================================================================

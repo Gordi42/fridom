@@ -21,6 +21,7 @@ from fridom.model.io.streams import SnapshotMismatchError
 from fridom.model.model import _chunk_body
 from fridom.model.module import Module
 from fridom.model.terms import Treatment
+from fridom.model.time_steppers.adam_bashforth import AdamBashforth
 from fridom.spatial.spaces.constant import ConstantSpace
 
 IM = fr.spatial.meshes.IntervalMesh
@@ -42,12 +43,15 @@ def make_model(grid, free_surface, *, n2=0.0, csqr=4.0, f0=0.0,
                dt=1e-2, stepper=None):
     """Return a linear hydrostatic model on the given free surface."""
     if stepper is None:
-        stepper = fr.model.time_steppers.AdamBashforth(dt, order=3)
+        stepper = AdamBashforth(dt, order=3)
     return hy.Model(
-        grid=grid, dt=dt, csqr=csqr, free_surface=free_surface,
+        grid=grid,
+        core=hy.Core(gravity=csqr),
+        time_stepper=stepper,
+        coriolis=hy.FPlaneCoriolis(f0=f0),
         stratification=hy.ConstantStratification(n2=n2),
-        coriolis=hy.FPlaneCoriolis(f0=f0), advection=False,
-        time_stepper=stepper)
+        free_surface=free_surface,
+        advection=False)
 
 
 def mode_field(model, name, kx, ky, phase, kz=0, depth=1.0):
@@ -99,11 +103,16 @@ def test_factory_assembles_and_declares_ps_U_V():
 
 
 def test_default_free_surface_is_unchanged():
-    # hy.Model()'s default free surface is still the explicit variant:
-    # no barotropic transports appear.
+    # an explicit-free-surface assembly carries no barotropic
+    # transports.
     grid = make_grid(8, 4)
-    model = hy.Model(grid=grid, advection=False,
-                     stratification=hy.ConstantStratification(n2=0.0))
+    model = hy.Model(
+        grid=grid,
+        core=hy.Core(gravity=1.0),
+        time_stepper=AdamBashforth(1.0, order=3),
+        stratification=hy.ConstantStratification(n2=0.0),
+        free_surface=hy.ExplicitFreeSurface(),
+        advection=False)
     assert "ps" in model.state.component_names
     assert "U" not in model.state.component_names
 
@@ -231,10 +240,10 @@ def test_refuses_rk_family_outer_drivers(stepper_factory):
 @pytest.mark.parametrize(
     "stepper_factory",
     [pytest.param(
-        lambda dt: fr.model.time_steppers.AdamBashforth(dt, 2, eps=0.1),
+        lambda dt: AdamBashforth(dt, 2, eps=0.1),
         id="ab2"),
      pytest.param(
-        lambda dt: fr.model.time_steppers.AdamBashforth(dt, 3),
+        lambda dt: AdamBashforth(dt, 3),
         id="ab3"),
      pytest.param(fr.model.time_steppers.CNAB2, id="cnab2"),
      pytest.param(fr.model.time_steppers.SBDF2, id="sbdf2")],
@@ -464,12 +473,14 @@ def test_tendency_sums_forcing_runs_incl_the_implicit_branch():
     # populated (the forward apply), exercising that branch.
     grid = make_grid(16, 6)
     model = hy.Model(
-        grid=grid, csqr=4.0,
-        free_surface=SEFS(substeps=8, forcing="tendency_sums"),
+        grid=grid,
+        core=hy.Core(gravity=4.0),
+        time_stepper=fr.model.time_steppers.CNAB2(1e-2),
+        coriolis=hy.FPlaneCoriolis(f0=0.5),
         stratification=hy.ConstantStratification(n2=1.0),
-        coriolis=hy.FPlaneCoriolis(f0=0.5), advection=False,
-        modules_extra=(_VertMix(),),
-        time_stepper=fr.model.time_steppers.CNAB2(1e-2))
+        free_surface=SEFS(substeps=8, forcing="tendency_sums"),
+        advection=False,
+        modules_extra=(_VertMix(),))
     rng = np.random.default_rng(3)
     model.set_fields(
         u=rng.standard_normal(model.state["u"].shape),

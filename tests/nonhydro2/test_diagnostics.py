@@ -26,7 +26,7 @@ from fridom.model.params import (
     STRATIFICATION_N2,
 )
 from fridom.nonhydro2.diagnostics import DIAGNOSTICS
-from fridom.nonhydro2.params import DSQR
+from fridom.nonhydro2.params import ASPECT_RATIO
 from fridom.spatial.errors import SpaceMismatchError
 from fridom.spatial.fields.vector_field import VectorField
 from fridom.spatial.grid import Grid
@@ -40,7 +40,7 @@ from fridom.spatial.spaces.tensor_product import TensorProductSpace
 N = 16
 LENGTH = 2 * np.pi
 PARAMS = {
-    DSQR: 0.25,
+    ASPECT_RATIO: 0.5,
     CORIOLIS_F0: 1.3,
     STRATIFICATION_N2: 2.0,
     SCALING_NONLINEARITY: 0.1,

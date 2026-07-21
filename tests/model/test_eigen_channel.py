@@ -25,6 +25,7 @@ from fridom.model.eigen_channel import (
     ChannelEigenbasis,
     channel_eigenpairs,
 )
+from fridom.model.time_steppers.adam_bashforth import AdamBashforth
 from fridom.spatial.decomposition.tensor import (
     TensorDecomposition,
 )
@@ -57,7 +58,7 @@ def make_walled_model(grid=None, *, coriolis=None):
         grid=grid if grid is not None else make_grid(),
         core=sw.Core(gravity=1.0, depth=CSQR),
         coriolis=coriolis, advection=False,
-        time_stepper=fr.model.time_steppers.AdamBashforth(5e-3, order=3))
+        time_stepper=AdamBashforth(5e-3, order=3))
 
 
 @pytest.fixture(scope="module")
@@ -293,10 +294,12 @@ def make_nh_channel(f0=F0_NH, device_ids=None):
                                      periodic=True, name="z")
     grid = fr.spatial.Grid((mx, my, mz), device_ids=device_ids)
     return nh.Model(
-        grid=grid, advection=False, dsqr=DSQR_NH,
+        grid=grid,
+        core=nh.Core(aspect_ratio=(DSQR_NH) ** 0.5),
+        time_stepper=AdamBashforth(5e-3, order=3),
         coriolis=nh.FPlaneCoriolis(f0=f0),
         stratification=nh.ConstantStratification(n2=N2_NH),
-        time_stepper=fr.model.time_steppers.AdamBashforth(5e-3, order=3))
+        advection=False)
 
 
 @pytest.fixture(scope="module")
@@ -517,7 +520,7 @@ def make_varying_sw(coriolis=None):
     return sw.Model(
         grid=make_grid(), core=sw.Core(gravity=1.0, depth=csqr_profile),
         coriolis=coriolis, advection=False,
-        time_stepper=fr.model.time_steppers.AdamBashforth(5e-3, order=3))
+        time_stepper=AdamBashforth(5e-3, order=3))
 
 
 @pytest.fixture(scope="module")
@@ -586,7 +589,7 @@ def test_varying_constant_profile_reproduces_the_constant_path(
         core=sw.Core(gravity=1.0, depth=lambda y: CSQR + 0.0 * y),
         advection=False,
         coriolis=weighted_fplane(),
-        time_stepper=fr.model.time_steppers.AdamBashforth(5e-3, order=3))
+        time_stepper=AdamBashforth(5e-3, order=3))
     cv = channel_eigenpairs(const_var)
     assert np.abs(np.asarray(cv.omega)
                   - np.asarray(basis.omega)).max() < 1e-12
@@ -647,7 +650,7 @@ def test_varying_metric_must_be_positive():
         grid=make_grid(),
         core=sw.Core(gravity=1.0, depth=lambda y: y - 0.5),
         advection=False, coriolis=weighted_fplane(),
-        time_stepper=fr.model.time_steppers.AdamBashforth(5e-3, order=3))
+        time_stepper=AdamBashforth(5e-3, order=3))
     with pytest.raises(ValueError, match="positive definite"):
         channel_eigenpairs(model)
 
@@ -662,10 +665,12 @@ def nh_varying_channel():
     mz = fr.spatial.meshes.IntervalMesh(N, (0.0, 2 * np.pi),
                                      periodic=True, name="z")
     return nh.Model(
-        grid=fr.spatial.Grid((mx, my, mz)), advection=False,
-        dsqr=DSQR_NH, coriolis=nh.FPlaneCoriolis(f0=F0_NH),
+        grid=fr.spatial.Grid((mx, my, mz)),
+        core=nh.Core(aspect_ratio=(DSQR_NH) ** 0.5),
+        time_stepper=AdamBashforth(5e-3, order=3),
+        coriolis=nh.FPlaneCoriolis(f0=F0_NH),
         stratification=nh.MeridionalStratification(n2=n2_profile),
-        time_stepper=fr.model.time_steppers.AdamBashforth(5e-3, order=3))
+        advection=False)
 
 
 @pytest.fixture(scope="module")
@@ -714,11 +719,13 @@ def test_nh_varying_constant_profile_reproduces_the_constant_path(
     mz = fr.spatial.meshes.IntervalMesh(N, (0.0, 2 * np.pi),
                                      periodic=True, name="z")
     model = nh.Model(
-        grid=fr.spatial.Grid((mx, my, mz)), advection=False,
-        dsqr=DSQR_NH, coriolis=nh.FPlaneCoriolis(f0=F0_NH),
+        grid=fr.spatial.Grid((mx, my, mz)),
+        core=nh.Core(aspect_ratio=(DSQR_NH) ** 0.5),
+        time_stepper=AdamBashforth(5e-3, order=3),
+        coriolis=nh.FPlaneCoriolis(f0=F0_NH),
         stratification=nh.MeridionalStratification(
             n2=lambda y: N2_NH + 0.0 * y),
-        time_stepper=fr.model.time_steppers.AdamBashforth(5e-3, order=3))
+        advection=False)
     cv = channel_eigenpairs(model)
     assert np.abs(np.asarray(cv.omega)
                   - np.asarray(nh_basis.omega)).max() < 1e-12
@@ -778,9 +785,13 @@ def test_bounded_measure_constant_factor():
         fr.spatial.meshes.IntervalMesh(nz, (0.0, depth), periodic=False,
                                        name="z")))
     model = hy.Model(
-        grid=grid, dt=0.02, csqr=csqr, advection=False,
+        grid=grid,
+        core=hy.Core(gravity=csqr),
+        time_stepper=AdamBashforth(0.02, order=3),
         coriolis=hy.FPlaneCoriolis(f0=0.0),
-        stratification=hy.ConstantStratification(n2=1.0))
+        stratification=hy.ConstantStratification(n2=1.0),
+        free_surface=hy.ExplicitFreeSurface(),
+        advection=False)
     basis = channel_eigenpairs(model)
     metric = np.asarray(basis.metric)
     ps_entry = metric[basis.slices["ps"]]
@@ -797,10 +808,13 @@ def test_bounded_measure_constant_factor():
 # ================================================================
 def _hydro_channel(grid, csqr=10.0, n2=1.0):
     return hy.Model(
-        grid=grid, dt=0.02, csqr=csqr, advection=False,
+        grid=grid,
+        core=hy.Core(gravity=csqr),
+        time_stepper=AdamBashforth(0.02, order=3),
         coriolis=hy.FPlaneCoriolis(f0=0.3),
         stratification=hy.ConstantStratification(n2=n2),
-        free_surface=hy.ExplicitFreeSurface())
+        free_surface=hy.ExplicitFreeSurface(),
+        advection=False)
 
 
 def _cmap_stretch_grid(nz=8):

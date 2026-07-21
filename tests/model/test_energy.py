@@ -32,6 +32,7 @@ from fridom.model.params import (
     CORIOLIS_F0,
     STRATIFICATION_N2,
 )
+from fridom.model.time_steppers.adam_bashforth import AdamBashforth
 from fridom.nonhydro2.diagnostics import ekin as nh_ekin
 from fridom.nonhydro2.diagnostics import epot as nh_epot
 from fridom.shallowwater2.diagnostics import ekin as sw_ekin
@@ -94,7 +95,7 @@ def sw_model(grid=None, *, csqr=4.0, f0=1.0):
     return sw.Model(
         grid=grid, core=sw.Core(gravity=1.0, depth=csqr),
         coriolis=sw.modules.FPlaneCoriolis(f0=f0),
-        time_stepper=fr.model.time_steppers.AdamBashforth(5e-3, order=3))
+        time_stepper=AdamBashforth(5e-3, order=3))
 
 
 # --- full-complex spectral helpers (Parseval-exact) --------------
@@ -130,8 +131,13 @@ def test_from_model_nonhydro_weights():
     # rotation is opt-in: name the f0 = 1 f-plane the old implicit
     # coriolis=None default installed (EnergyMetric.from_model needs
     # the constant coriolis.f0 provide as its diagonalizability gate)
-    model = nh.Model(grid=nh_grid(), dt=DT, advection=False,
-                     coriolis=FPlaneCoriolis(f0=1.0))
+    model = nh.Model(
+        grid=nh_grid(),
+        core=nh.Core(),
+        time_stepper=AdamBashforth(DT, order=3),
+        coriolis=FPlaneCoriolis(f0=1.0),
+        stratification=nh.ConstantStratification(n2=1.0),
+        advection=False)
     metric = EnergyMetric.from_model(model)
     assert metric.component_names == ("u", "v", "w", "b")
     # dsqr default 1.0, n2 default 1.0 -> all-unit weights
@@ -154,7 +160,7 @@ def test_from_model_nondim_shallowwater_weights():
         core=sw.Core(froude_number=0.5, depth=4.0),
         scaling=fr.scaling.GravityWave(),
         coriolis=sw.modules.FPlaneCoriolis(rossby_number=0.5),
-        time_stepper=fr.model.time_steppers.AdamBashforth(
+        time_stepper=AdamBashforth(
             5e-3, order=3))
     metric = EnergyMetric.from_model(model)
     assert metric.component_names == ("u", "v", "p")
@@ -167,8 +173,13 @@ def test_from_model_is_fr_exported():
 
 def test_from_model_rejects_beta_plane():
     grid = nh_grid()
-    bp = nh.Model(grid=grid, dt=DT, advection=False,
-                  coriolis=BetaPlaneCoriolis(f0=1.0, beta=0.5))
+    bp = nh.Model(
+        grid=grid,
+        core=nh.Core(),
+        time_stepper=AdamBashforth(DT, order=3),
+        coriolis=BetaPlaneCoriolis(f0=1.0, beta=0.5),
+        stratification=nh.ConstantStratification(n2=1.0),
+        advection=False)
     with pytest.raises(ValueError, match="coriolis"):
         EnergyMetric.from_model(bp)
 
@@ -186,9 +197,9 @@ def test_from_model_beta_plane_without_the_coriolis_gate():
 
 
 def test_from_model_freezes_ramp_at_time():
-    # a Ramp-valued dsqr must be frozen at at_time (constancy snapshot)
+    # a Ramp-valued aspect ratio is frozen at at_time (squared there)
     ramp = fr.model.Ramp(0.0, 1.0, period=1.0)
-    params = {CORIOLIS_F0: 1.0, "nonhydro.dsqr": ramp,
+    params = {CORIOLIS_F0: 1.0, "nonhydro.aspect_ratio": ramp,
               STRATIFICATION_N2: 1.0}
     model = SimpleNamespace(parameters=params)
     metric = EnergyMetric.from_model(model, at_time=1.0)
@@ -197,7 +208,7 @@ def test_from_model_freezes_ramp_at_time():
 
 
 def test_from_model_rejects_zero_stratification():
-    params = {CORIOLIS_F0: 1.0, "nonhydro.dsqr": 1.0,
+    params = {CORIOLIS_F0: 1.0, "nonhydro.aspect_ratio": 1.0,
               STRATIFICATION_N2: 0.0}
     with pytest.raises(ValueError, match="1/N"):
         EnergyMetric.from_model(SimpleNamespace(parameters=params))
@@ -218,7 +229,7 @@ def test_from_model_rejects_unknown_energy():
 
 
 def test_from_model_missing_stratification_scalar():
-    params = {CORIOLIS_F0: 1.0, "nonhydro.dsqr": 1.0}
+    params = {CORIOLIS_F0: 1.0, "nonhydro.aspect_ratio": 1.0}
     with pytest.raises(ValueError, match="constant"):
         EnergyMetric.from_model(SimpleNamespace(parameters=params))
 
@@ -269,8 +280,13 @@ def test_apply_ignores_unweighted_components():
 #  Physical inner product: identity vs the diagnostics
 # ================================================================
 def test_physical_identity_nonhydro():
-    model = nh.Model(grid=nh_grid(), dt=DT, advection=False,
-                     coriolis=FPlaneCoriolis(f0=1.0))
+    model = nh.Model(
+        grid=nh_grid(),
+        core=nh.Core(),
+        time_stepper=AdamBashforth(DT, order=3),
+        coriolis=FPlaneCoriolis(f0=1.0),
+        stratification=nh.ConstantStratification(n2=1.0),
+        advection=False)
     metric = EnergyMetric.from_model(model)
     z = collocated_nh_state(model.grid)
     params = model.parameters
@@ -378,7 +394,7 @@ def varying_sw_model(csqr_fn, grid=None):
         grid=_walled_sw_grid() if grid is None else grid,
         core=sw.Core(gravity=1.0, depth=csqr_fn), advection=False,
         coriolis=FPlaneCoriolis(f0=1.0, metric_weight="csqr"),
-        time_stepper=fr.model.time_steppers.AdamBashforth(5e-3, order=3))
+        time_stepper=AdamBashforth(5e-3, order=3))
 
 
 def varying_nh_model(n2_fn):
@@ -389,9 +405,12 @@ def varying_nh_model(n2_fn):
         IntervalMesh(8, (0.0, 2 * np.pi), periodic=True, name="z")),
         device_ids=(0,))
     return nh.Model(
-        grid=grid, dt=DT, advection=False, dsqr=2.0,
+        grid=grid,
+        core=nh.Core(aspect_ratio=(2.0) ** 0.5),
+        time_stepper=AdamBashforth(DT, order=3),
         coriolis=FPlaneCoriolis(f0=1.0),
-        stratification=nh.MeridionalStratification(n2=n2_fn))
+        stratification=nh.MeridionalStratification(n2=n2_fn),
+        advection=False)
 
 
 def csqr_tanh(y):
@@ -542,10 +561,13 @@ def hydro_grid(nx=4, nz=8, depth=1.0):
 
 def test_from_model_hydrostatic_weights():
     model = hy.Model(
-        grid=hydro_grid(), dt=DT, csqr=10.0, advection=False,
+        grid=hydro_grid(),
+        core=hy.Core(gravity=10.0),
+        time_stepper=fr.model.time_steppers.CNAB2(DT),
         coriolis=hy.FPlaneCoriolis(f0=1.0),
         stratification=hy.ConstantStratification(n2=4.0),
-        time_stepper=fr.model.time_steppers.CNAB2(DT))
+        free_surface=hy.ExplicitFreeSurface(),
+        advection=False)
     metric = EnergyMetric.from_model(model)
     assert metric.component_names == ("u", "v", "b", "ps")
     assert dict(metric.weights) == {
@@ -554,14 +576,14 @@ def test_from_model_hydrostatic_weights():
 
 
 def test_from_model_hydrostatic_rejects_zero_phase_speed():
-    params = {CORIOLIS_F0: 1.0, "hydrostatic.csqr": 0.0,
+    params = {CORIOLIS_F0: 1.0, "hydrostatic.gravity": 0.0,
               STRATIFICATION_N2: 1.0}
     with pytest.raises(ValueError, match="1/c"):
         EnergyMetric.from_model(SimpleNamespace(parameters=params))
 
 
 def test_from_model_hydrostatic_rejects_zero_stratification():
-    params = {CORIOLIS_F0: 1.0, "hydrostatic.csqr": 10.0,
+    params = {CORIOLIS_F0: 1.0, "hydrostatic.gravity": 10.0,
               STRATIFICATION_N2: 0.0}
     with pytest.raises(ValueError, match="1/N"):
         EnergyMetric.from_model(SimpleNamespace(parameters=params))
@@ -572,10 +594,13 @@ def test_from_model_hydrostatic_rejects_zero_stratification():
 # ================================================================
 def _hydro_model(grid, *, csqr=3.0, n2=2.0):
     return hy.Model(
-        grid=grid, dt=DT, csqr=csqr, advection=False, coriolis=None,
+        grid=grid,
+        core=hy.Core(gravity=csqr),
+        time_stepper=AdamBashforth(DT, order=3),
+        coriolis=None,
         stratification=hy.ConstantStratification(n2=n2),
         free_surface=hy.ExplicitFreeSurface(),
-        time_stepper=fr.model.time_steppers.AdamBashforth(DT, order=3))
+        advection=False)
 
 
 def _terrain_hydro_grid(nx=8, nz=6, a=0.2):
@@ -608,12 +633,13 @@ def _barotropic_bilinear_skew(metric, model):
 
 
 @pytest.mark.parametrize("depth", [1.0, 2.0, 3.0])
-def test_hydrostatic_ps_weight_is_depth_over_csqr(depth):
-    # the ps weight carries the physical column depth H/c^2 (a scalar
-    # on a flat grid); depth != 1 was silently wrong before this weight
+def test_hydrostatic_ps_weight_is_inverse_gravity(depth):
+    # gravity-first: the conserved barotropic weight is the constant
+    # 1/g at ANY depth (the dynamics is -g T*; the old H_ref/c^2 fold
+    # is the same number under c^2 = g H_ref)
     model = _hydro_model(hydro_grid(depth=depth), csqr=3.0)
     metric = EnergyMetric.from_model(model, require_constant_coriolis=False)
-    assert metric.weights["ps"] == pytest.approx(depth / 3.0)
+    assert metric.weights["ps"] == pytest.approx(1.0 / 3.0)
 
 
 @pytest.mark.parametrize("depth", [1.0, 2.0])
@@ -662,9 +688,9 @@ def test_hydrostatic_terrain_barotropic_energy_is_skew():
 
 
 def test_hydrostatic_ps_weight_on_a_walled_channel():
-    # a walled horizontal axis adds a second bounded axis; the depth
-    # axis is read off ps's own ConstantSpace factor, not "the bounded
-    # axis", so the channel still assembles with the H/c^2 weight
+    # a walled horizontal axis adds a second bounded axis; the 1/g
+    # weight is depth-blind, so the channel assembles without any
+    # bounded-axis disambiguation
     grid = Grid((
         IntervalMesh(4, (0.0, 1.0), periodic=True, name="x"),
         IntervalMesh(4, (0.0, 1.0), periodic=False, name="y"),
@@ -672,7 +698,7 @@ def test_hydrostatic_ps_weight_on_a_walled_channel():
         device_ids=(0,))
     model = _hydro_model(grid, csqr=4.0)
     metric = EnergyMetric.from_model(model, require_constant_coriolis=False)
-    assert metric.weights["ps"] == pytest.approx(2.0 / 4.0)
+    assert metric.weights["ps"] == pytest.approx(1.0 / 4.0)
 
 
 # ================================================================
@@ -693,7 +719,7 @@ def tracking_sw_model(grid=None, *, order=3, dt=5e-3):
         grid=_walled_sw_grid() if grid is None else grid,
         core=sw.Core(gravity=1.0, depth=_affine_csqr_law()),
         advection=False, coriolis=None,
-        time_stepper=fr.model.time_steppers.AdamBashforth(dt, order=order))
+        time_stepper=AdamBashforth(dt, order=order))
 
 
 def _seed_sw(model, seed):
@@ -806,10 +832,12 @@ def tracking_nh_model(*, order=3, dt=5e-3):
         IntervalMesh(8, (0.0, 2 * np.pi), periodic=True, name="z")),
         device_ids=(0,))
     return nh.Model(
-        grid=grid, advection=False, dsqr=2.0,
+        grid=grid,
+        core=nh.Core(aspect_ratio=(2.0) ** 0.5),
+        time_stepper=AdamBashforth(dt, order=order),
         coriolis=FPlaneCoriolis(f0=1.0),
         stratification=nh.MeridionalStratification(n2=_affine_n2_law()),
-        time_stepper=fr.model.time_steppers.AdamBashforth(dt, order=order))
+        advection=False)
 
 
 def test_state_sourced_nonhydro_reciprocal_tracks_stage_time():

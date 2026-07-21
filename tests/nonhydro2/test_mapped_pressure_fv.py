@@ -15,6 +15,7 @@ import numpy as np
 import fridom as fr
 import fridom.nonhydro2 as nh
 from fridom.model.modules.advection import CenteredAdvection
+from fridom.model.time_steppers.adam_bashforth import AdamBashforth
 from fridom.nonhydro2.modules.core import fv_cgrid_overrides
 from fridom.nonhydro2.modules.mapped_pressure import (
     MappedPressureSolver,
@@ -304,10 +305,10 @@ def test_divergence_vanishes_on_a_physical_streamfunction_flow_fv():
 
 
 # ================================================================
-#  The DynamicalCore mapped FV projection branch (gates 1, 8)
+#  The Core mapped FV projection branch (gates 1, 8)
 # ================================================================
 def make_mapped_fv_model(n=8, init=depth, dt=0.02, advection=False,
-                         **kwargs):
+                         dsqr=1.0, **core_kwargs):
     mx = IntervalMesh(n, (0.0, 2 * np.pi), periodic=True, name="x")
     my = IntervalMesh(n, (0.0, 2 * np.pi), periodic=True, name="y")
     mz = IntervalMesh(n, (0.0, 1.0), periodic=False, name="z")
@@ -315,9 +316,15 @@ def make_mapped_fv_model(n=8, init=depth, dt=0.02, advection=False,
         maps={"zp": lambda z, H: z * H},
         params={"H": init})
     grid = Grid((mx, my, mz), mapping=mapping)
-    return nh.Model(grid=grid, dt=dt, advection=advection,
-                    coriolis=nh.FPlaneCoriolis(f0=1.0),
-                    pressure_iterations=16, family="fv", **kwargs)
+    core_kwargs.setdefault("pressure_iterations", 16)
+    return nh.Model(
+        grid=grid,
+        core=nh.Core(family="fv", aspect_ratio=dsqr ** 0.5,
+                     **core_kwargs),
+        time_stepper=AdamBashforth(dt, order=3),
+        coriolis=nh.FPlaneCoriolis(f0=1.0),
+        stratification=nh.ConstantStratification(n2=1.0),
+        advection=advection)
 
 
 def _seed(model):
@@ -396,9 +403,16 @@ def test_mapped_fv_linear_matches_nodal_over_12_steps():
         mapping = CoordinateMapping(
             maps={"zp": lambda z, H: z * H}, params={"H": depth})
         grid = Grid((mx, my, mz), mapping=mapping)
-        return nh.Model(grid=grid, dt=0.02, advection=False,
-                        coriolis=nh.FPlaneCoriolis(f0=1.0),
-                        pressure_iterations=16, dsqr=DSQR, family=family)
+        return nh.Model(
+            grid=grid,
+            core=nh.Core(
+                aspect_ratio=(DSQR) ** 0.5,
+                family=family,
+                pressure_iterations=16),
+            time_stepper=AdamBashforth(0.02, order=3),
+            coriolis=nh.FPlaneCoriolis(f0=1.0),
+            stratification=nh.ConstantStratification(n2=1.0),
+            advection=False)
 
     fv = build("fv")
     nodal = build("nodal")

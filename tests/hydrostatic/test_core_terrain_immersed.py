@@ -15,9 +15,9 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-import fridom as fr
 import fridom.hydrostatic as hy
 from fridom.model.context import StepContext
+from fridom.model.time_steppers.adam_bashforth import AdamBashforth
 from fridom.spatial.coordinate_mapping import CoordinateMapping
 from fridom.spatial.grid import Grid
 from fridom.spatial.immersed_domain import ImmersedDomain
@@ -73,11 +73,13 @@ def _pure_terrain_grid(*, n=8, nz=8, a=0.4):
 
 def _model(grid, *, dt=0.01):
     return hy.Model(
-        grid=grid, dt=dt, csqr=3.0,
+        grid=grid,
+        core=hy.Core(gravity=3.0),
+        time_stepper=AdamBashforth(dt, order=2),
+        coriolis=hy.FPlaneCoriolis(f0=0.5),
         stratification=hy.ConstantStratification(n2=1.0),
-        coriolis=hy.FPlaneCoriolis(f0=0.5), advection=False,
         free_surface=hy.ImplicitFreeSurface(pressure_iterations=30),
-        time_stepper=fr.model.time_steppers.AdamBashforth(dt, order=2))
+        advection=False)
 
 
 def _masked_residual(model, u0, v0):
@@ -92,7 +94,7 @@ def _masked_residual(model, u0, v0):
     fractions concretize.
     """
     imm = model.grid.immersed
-    core = model.module(hy.HydrostaticCore)
+    core = model.module(hy.Core)
 
     @jax.jit
     def run(ud, vd):
@@ -189,7 +191,7 @@ def test_identity_chart_mask_matches_flat_immersed():
 # ================================================================
 def test_core_extra_halo_terrain_immersed():
     model = _model(_terrain_immersed_grid(a=0.4))
-    core = model.module(hy.HydrostaticCore)
+    core = model.module(hy.Core)
     # the terrain slope gradient carries the vertical reach (z=2), the
     # masked continuity is a vertical reduction (reach 0); horizontal 1
     assert dict(core.extra_halo.widths) == {"x": 1, "y": 1, "z": 2}

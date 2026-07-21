@@ -584,6 +584,10 @@ def _hydrostatic_weights(
     params = model.parameters
     if _HYDRO_GRAVITY in params:
         gravity = _read_scalar(params, _HYDRO_GRAVITY, at_time)
+        if gravity == 0.0:
+            raise ValueError(
+                "the hydrostatic energy weight 1/c^2 needs a nonzero "
+                "'hydrostatic.gravity'")
         ps_weight = 1.0 / gravity
     else:
         eps = _read_scalar(params, _EPSILON, at_time)

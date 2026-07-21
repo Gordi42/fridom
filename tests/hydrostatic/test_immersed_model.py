@@ -12,6 +12,7 @@ import pytest
 
 import fridom as fr
 import fridom.hydrostatic as hy
+from fridom.model.time_steppers.adam_bashforth import AdamBashforth
 from fridom.spatial.grid import Grid
 from fridom.spatial.immersed_domain import ImmersedDomain
 from fridom.spatial.meshes.interval import IntervalMesh
@@ -64,21 +65,28 @@ def _prognostic_names(model):
 def test_column_equivalence_flat_bottom(make_fs):
     # a flat immersed bottom (wet = top 4 of 8 cells on z in [0, 1])
     # must reproduce the unimmersed model on the shallower z in [0, 0.5]
-    # (nz = 4, same dz).  csqr uses the SAME physical gravity g = 4.0:
-    # the immersed extent Z = 1 vs the unimmersed wet depth H' = 0.5, so
-    # the immersed model recovers the wet-column wave speed internally.
+    # (nz = 4, same dz). Gravity-first, BOTH models carry the SAME
+    # physical g = 4.0 (no reference-depth fold anywhere): the immersed
+    # model recovers the wet-column wave speed internally through the
+    # wet transport depth, the unimmersed twin through its own column.
     # A fresh free-surface instance per model (bind runs exactly once).
     g = 4.0
     mi = hy.Model(
-        grid=_immersed_grid(_flat_bottom), dt=0.01, csqr=g * 1.0,
+        grid=_immersed_grid(_flat_bottom),
+        core=hy.Core(gravity=g),
+        time_stepper=AdamBashforth(0.01, order=3),
         coriolis=hy.FPlaneCoriolis(f0=0.8),
         stratification=hy.ConstantStratification(n2=2.0),
-        advection=False, free_surface=make_fs())
+        free_surface=make_fs(),
+        advection=False)
     mu = hy.Model(
-        grid=_short_grid(), dt=0.01, csqr=g * 0.5,
+        grid=_short_grid(),
+        core=hy.Core(gravity=g),
+        time_stepper=AdamBashforth(0.01, order=3),
         coriolis=hy.FPlaneCoriolis(f0=0.8),
         stratification=hy.ConstantStratification(n2=2.0),
-        advection=False, free_surface=make_fs())
+        free_surface=make_fs(),
+        advection=False)
 
     rng = np.random.default_rng(0)
     icu = {k: 0.2 * rng.standard_normal(mu.state[k].data.shape)
@@ -130,10 +138,13 @@ def test_column_equivalence_flat_bottom(make_fs):
 def test_dry_dof_hygiene_over_a_run(free_surface):
     grid = _immersed_grid(_flat_bottom)
     model = hy.Model(
-        grid=grid, dt=0.004, csqr=2.0,
+        grid=grid,
+        core=hy.Core(gravity=2.0),
+        time_stepper=AdamBashforth(0.004, order=3),
         coriolis=hy.FPlaneCoriolis(f0=0.6),
         stratification=hy.ConstantStratification(n2=1.0),
-        advection=True, free_surface=free_surface)
+        free_surface=free_surface,
+        advection=True)
     rng = np.random.default_rng(3)
     model.set_fields(**{
         k: 0.2 * rng.standard_normal(model.state[k].data.shape)
@@ -150,7 +161,7 @@ def test_dry_dof_hygiene_over_a_run(free_surface):
         assert np.abs(dry).max() == 0.0, name
     # w: closed faces are alpha_z == 0 (NOT the mask -- the valid
     # surface face is mask-dry under the dry-exterior rule)
-    core = model.module(hy.HydrostaticCore)
+    core = model.module(hy.Core)
     az = np.asarray(core._masked_w_faces(imm, model.state).data)
     w_closed = np.asarray(model.state["w"].data) * (az == 0.0)
     assert np.abs(w_closed).max() == 0.0
@@ -172,10 +183,12 @@ def test_lateral_partials_conserve_mass():
     # exchanges tracer content with the moving surface, which breaks the
     # exact theta-mass conservation this test characterizes.
     m = hy.Model(
-        grid=grid, dt=0.002, csqr=1.0,
-        free_surface=hy.ImplicitFreeSurface(pressure_iterations=40),
+        grid=grid,
+        core=hy.Core(gravity=1.0),
+        time_stepper=AdamBashforth(0.002, order=3),
         coriolis=hy.FPlaneCoriolis(f0=0.5),
         stratification=hy.ConstantStratification(n2=0.0),
+        free_surface=hy.ImplicitFreeSurface(pressure_iterations=40),
         advection=fr.model.modules.CenteredAdvection(surface_flux=False))
     rng = np.random.default_rng(11)
     m.set_fields(**{
@@ -200,21 +213,36 @@ def test_lateral_partials_conserve_mass():
 #  Family / taught gates
 # ================================================================
 def test_immersed_model_installs_maskstate():
-    model = hy.Model(grid=_immersed_grid(_flat_bottom), dt=0.01,
-                     advection=False)
+    model = hy.Model(
+        grid=_immersed_grid(_flat_bottom),
+        core=hy.Core(gravity=1.0),
+        time_stepper=AdamBashforth(0.01, order=3),
+        stratification=hy.ConstantStratification(n2=1.0),
+        free_surface=hy.ExplicitFreeSurface(),
+        advection=False)
     assert any(type(m).__name__ == "MaskState" for m in model.modules)
 
 
 def test_unimmersed_model_has_no_maskstate():
-    model = hy.Model(grid=_short_grid(), dt=0.01, advection=False)
+    model = hy.Model(
+        grid=_short_grid(),
+        core=hy.Core(gravity=1.0),
+        time_stepper=AdamBashforth(0.01, order=3),
+        stratification=hy.ConstantStratification(n2=1.0),
+        free_surface=hy.ExplicitFreeSurface(),
+        advection=False)
     assert not any(
         type(m).__name__ == "MaskState" for m in model.modules)
 
 
 def test_eigenmodes_reject_immersed():
     model = hy.Model(
-        grid=_immersed_grid(_flat_bottom), dt=0.01, advection=False,
-        free_surface=hy.ExplicitFreeSurface())
+        grid=_immersed_grid(_flat_bottom),
+        core=hy.Core(gravity=1.0),
+        time_stepper=AdamBashforth(0.01, order=3),
+        stratification=hy.ConstantStratification(n2=1.0),
+        free_surface=hy.ExplicitFreeSurface(),
+        advection=False)
     with pytest.raises(NotImplementedError, match="immersed"):
         hy.eigenmodes.from_model(model)
     with pytest.raises(NotImplementedError, match="immersed"):
@@ -223,8 +251,12 @@ def test_eigenmodes_reject_immersed():
 
 def test_transforms_reject_immersed():
     model = hy.Model(
-        grid=_immersed_grid(_flat_bottom), dt=0.01, advection=False,
-        free_surface=hy.ExplicitFreeSurface())
+        grid=_immersed_grid(_flat_bottom),
+        core=hy.Core(gravity=1.0),
+        time_stepper=AdamBashforth(0.01, order=3),
+        stratification=hy.ConstantStratification(n2=1.0),
+        free_surface=hy.ExplicitFreeSurface(),
+        advection=False)
     with pytest.raises(NotImplementedError, match="immersed"):
         hy.transforms.VorticalProjection.from_model(model)
 
@@ -240,7 +272,11 @@ def test_biased_advection_accepted_on_immersed():
     # pin only that the model assembles and a short run stays finite
     # (single-device: n=8 caps the order-3 halo on a 4-way shard).
     model = hy.Model(
-        grid=_immersed_grid(_flat_bottom), dt=0.01,
+        grid=_immersed_grid(_flat_bottom),
+        core=hy.Core(gravity=1.0),
+        time_stepper=AdamBashforth(0.01, order=3),
+        stratification=hy.ConstantStratification(n2=1.0),
+        free_surface=hy.ExplicitFreeSurface(),
         advection=fr.model.modules.UpwindAdvection(3))
     assert any(
         type(m).__name__ == "UpwindAdvection" for m in model.modules)

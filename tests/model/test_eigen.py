@@ -32,7 +32,7 @@ from fridom.model.modules.coriolis import (
 from fridom.model.time_steppers.adam_bashforth import (
     AdamBashforth,
 )
-from fridom.nonhydro2.modules.core import DynamicalCore
+from fridom.nonhydro2.modules.core import Core
 from fridom.nonhydro2.modules.stratification import (
     ConstantStratification,
 )
@@ -64,7 +64,7 @@ def nh_model(n=8, *, f0=1.0, n2=1.0, dsqr=1.0, device_ids=None):
     return Model(
         grid=grid,
         modules=(
-            DynamicalCore(dsqr=dsqr, rossby_number=1.0),
+            Core(aspect_ratio=(dsqr) ** 0.5),
             FPlaneCoriolis(f0=f0),
             ConstantStratification(n2=n2),
             CenteredAdvection()),
@@ -213,9 +213,12 @@ def test_rejects_a_walled_grid():
     my = IntervalMesh(8, (0.0, 1.0), periodic=True, name="y")
     mz = IntervalMesh(8, (0.0, 1.0), periodic=False, name="z")
     model = nh.Model(
-        grid=Grid((mx, my, mz)), advection=False,
+        grid=Grid((mx, my, mz)),
+        core=nh.Core(),
+        time_stepper=AdamBashforth(5e-3, order=3),
         coriolis=FPlaneCoriolis(f0=1.0),
-        time_stepper=AdamBashforth(5e-3, order=3))
+        stratification=nh.ConstantStratification(n2=1.0),
+        advection=False)
     with pytest.raises(
             ValueError,
             match=r"bounded axes \('z',\).*channel_eigenpairs"):
@@ -255,11 +258,12 @@ def test_rejects_a_varying_stratification_model():
         IntervalMesh(8, (0.0, 2 * np.pi), periodic=True, name=nm)
         for nm in ("x", "y", "z")))
     model = nh.Model(
-        grid=grid, advection=False,
+        grid=grid,
+        core=nh.Core(),
+        time_stepper=AdamBashforth(5e-3, order=3),
         coriolis=FPlaneCoriolis(f0=1.0),
-        stratification=nh.MeridionalStratification(
-            n2=lambda y: 1.0 + y * y),
-        time_stepper=AdamBashforth(5e-3, order=3))
+        stratification=nh.MeridionalStratification( n2=lambda y: 1.0 + y * y),
+        advection=False)
     with pytest.raises(ValueError, match=r"n2.*channel"):
         numeric_eigenpairs(model)
 

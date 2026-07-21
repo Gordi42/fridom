@@ -62,10 +62,13 @@ def make_model(*modules, mapped=True):
     these on the nodal path; the FV route has its own tests below.
     """
     return nh.Model(
-        grid=make_grid(mapped=mapped), dt=DT, advection=False,
+        grid=make_grid(mapped=mapped),
+        core=nh.Core(family="nodal"),
+        time_stepper=AdamBashforth(DT, order=3),
         coriolis=nh.FPlaneCoriolis(f0=0.0),
         stratification=nh.ConstantStratification(n2=0.0),
-        modules_extra=modules, family="nodal")
+        advection=False,
+        modules_extra=modules)
 
 
 def moving():
@@ -156,12 +159,13 @@ def test_time_only_schedule_lives_on_a_one_dof_profile():
         params={"H": lambda x: H0 + 0.0 * x})
     grid = Grid((mx, my, mz), mapping=mapping)
     model = nh.Model(
-        grid=grid, dt=DT, advection=False,
+        grid=grid, core=nh.Core(family="nodal"),
+        time_stepper=AdamBashforth(DT, order=3),
         coriolis=nh.FPlaneCoriolis(f0=0.0),
         stratification=nh.ConstantStratification(n2=0.0),
+        advection=False,
         modules_extra=(MovingGeometry(
-            {"H": lambda t: H0 + RATE * t}),),
-        family="nodal")  # moving geometry is nodal-only (C4)
+            {"H": lambda t: H0 + RATE * t}),))
     assert model.state["H"].data.size == 1
     np.testing.assert_allclose(
         float(model.state["H"].data.ravel()[0]), H0)
@@ -232,9 +236,11 @@ def test_ale_rejects_multiple_mapped_columns():
     with pytest.raises(NotImplementedError,
                        match="exactly one mapped column"):
         nh.Model(
-            grid=grid, dt=DT, advection=False,
+            grid=grid, core=nh.Core(),
+            time_stepper=AdamBashforth(DT, order=3),
             coriolis=nh.FPlaneCoriolis(f0=0.0),
             stratification=nh.ConstantStratification(n2=0.0),
+            advection=False,
             modules_extra=(
                 MovingGeometry({"H": lambda t: H0 + 0.0 * t}),
                 MeshVelocityCorrection()))
@@ -323,10 +329,13 @@ def make_fv_model(*modules, mapped=True, n=N):
     (wall-normal) column factor.
     """
     return nh.Model(
-        grid=make_grid(mapped=mapped, n=n), dt=DT, advection=False,
+        grid=make_grid(mapped=mapped, n=n),
+        core=nh.Core(family="fv"),
+        time_stepper=AdamBashforth(DT, order=3),
         coriolis=nh.FPlaneCoriolis(f0=0.0),
         stratification=nh.ConstantStratification(n2=0.0),
-        modules_extra=modules, family="fv")
+        advection=False,
+        modules_extra=modules)
 
 
 def test_fv_ale_routes_per_column_factor():
