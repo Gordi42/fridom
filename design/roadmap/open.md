@@ -86,8 +86,11 @@ closure-ON dim config). Remaining:
 §D (unit factors + writer metadata) **shipped 2026-07-21** on
 `feat/unit-factors`: `model.units` machinery, the sw amplitude
 table, the Coriolis `f_dim` row, and the default-on writer stamp
-(plan §D carries the record). Remaining: the nh/hy `unit_factors`
-tables — duck-typed rows, zero machinery edits.
+(plan §D carries the record). The nh/hy `unit_factors` tables
+followed on `feat/nh-hy-unit-factors` (duck-typed rows, zero
+machinery edits; the hy vertical rows adopt the flat-only
+convention H = the vertical mesh extent — the energy re-key's
+`H_ref` read).
 
 Must land **before the docs rebuild** — Branches 1+2 changed the
 public assembly API (`csqr=`/`rossby_number=`/`coords=`/`dsqr=`/

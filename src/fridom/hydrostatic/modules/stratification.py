@@ -47,6 +47,10 @@ from functools import partial
 
 import fridom as fr
 from fridom.framework.utils import jaxify
+from fridom.hydrostatic.units import (
+    stratification_factor,
+    vertical_extent,
+)
 
 
 @partial(jaxify, dynamic=("n2", "froude_number"))
@@ -108,6 +112,46 @@ class ConstantStratification(fr.model.Module):
         self.froude_number = (None if froude_number is None
                               else fr.model.leaf(froude_number))
         self._nondim: bool = froude_number is not None
+        # the vertical mesh extent H (the model.units vertical scale;
+        # see fridom.hydrostatic.units), captured at bind
+        self._vertical_extent: float = 1.0
+
+    def bind(self, table: object) -> None:
+        """Capture the vertical mesh extent ``H`` (``model.units``).
+
+        Description
+        -----------
+        The ``N_dim`` row inverts ``Fr_int = U/(N H)`` for ``N`` with
+        ``H`` the vertical mesh extent (the flat-only vertical
+        convention of :mod:`fridom.hydrostatic.units`). The module
+        takes no ``vertical=`` kwarg, so the vertical is discovered
+        from the referenced fields: the one axis the diagnosed ``w``
+        (vertical ``Outer`` faces) is staggered against ``b`` on.
+
+        Parameters
+        ----------
+        table : object
+            The binding table (carries the grid and the fields).
+        """
+        grid = table.grid
+        w_space = table["w"].space
+        b_space = table["b"].space
+        vertical = next(
+            (axis for axis in grid.names
+             if w_space.factor(axis) is not b_space.factor(axis)),
+            None)
+        if vertical is None:  # pragma: no cover — w rides the
+            # vertical Outer faces on every hydrostatic core
+            raise ValueError(
+                "ConstantStratification found no vertical axis: the "
+                "diagnosed w is not staggered against b on any grid "
+                "coordinate")
+        self._vertical_extent = vertical_extent(grid, vertical)
+
+    @property
+    def unit_factors(self) -> dict[str, fr.model.UnitFactor]:
+        """The derived ``N_dim`` row (``model.units``, §D)."""
+        return {"N_dim": stratification_factor(self._vertical_extent)}
 
     @property
     def scaling_variant(self) -> str:

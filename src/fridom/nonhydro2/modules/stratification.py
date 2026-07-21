@@ -73,6 +73,7 @@ import fridom as fr
 from fridom.framework.utils import jaxify
 from fridom.model.scheduled_field import ProfileFunction, profile_coords
 from fridom.nonhydro2.params import ASPECT_RATIO
+from fridom.nonhydro2.units import STRATIFICATION_FACTORS
 from fridom.spatial.decomposition.halo import HaloSpec
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -113,6 +114,9 @@ class ConstantStratification(fr.model.Module):
     #: fr.scaling traits: this family owns the internal-wave mechanism
     scaling_mechanism = "internal_wave"
     nonlinearity_attr = "froude_number"
+
+    #: model.units row: the derived N_dim = U/(Fr_int*delta*L)
+    unit_factors = STRATIFICATION_FACTORS
 
     def __init__(
         self,
@@ -323,6 +327,10 @@ class MeridionalStratification(fr.model.Module):
         self._family = family
         #: grid coordinate names for the law-path halo (set at bind)
         self._halo_coords: tuple[str, ...] = ()
+
+    #: model.units row: N_dim marks unresolvable here (the profile
+    #: binds no constant n2 — the beta-plane f_dim precedent)
+    unit_factors = STRATIFICATION_FACTORS
 
     field_references = (
         fr.model.FieldReference(
