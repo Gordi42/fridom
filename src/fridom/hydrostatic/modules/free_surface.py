@@ -112,6 +112,10 @@ from fridom.hydrostatic.modules.terrain import (
     require_chart_immersed_order,
 )
 from fridom.hydrostatic.params import FROUDE, GRAVITY
+from fridom.hydrostatic.units import (
+    SURFACE_PRESSURE_FACTOR,
+    phase_speed_factor,
+)
 from fridom.model.errors import AssemblyError
 from fridom.model.terms import Treatment
 from fridom.spatial.bc import BC
@@ -320,6 +324,20 @@ class _FreeSurfaceBase(fr.model.Module):
     def scaling_variant(self) -> str:
         """The constructor-fixed variant (``fr.scaling`` seam)."""
         return "nondimensional" if self._nondim else "dimensional"
+
+    @property
+    def unit_factors(self) -> dict[str, fr.model.UnitFactor]:
+        """Dimensional-factor rows (``model.units``, §D).
+
+        The free-surface family's rows: the surface pressure ``ps``
+        (``U^2/eps``) and the derived external phase speed ``c_dim =
+        U/Fr_ext`` (a dimensional model reports ``sqrt(g*H_ref)``
+        from the bound gravity and the bind-captured flat-column
+        depth — the flat-only reporting convention, matching the
+        energy re-key).
+        """
+        return {"ps": SURFACE_PRESSURE_FACTOR,
+                "c_dim": phase_speed_factor(self._depth)}
 
     @property
     def parameter_references(

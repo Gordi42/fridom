@@ -38,6 +38,7 @@ if TYPE_CHECKING:  # pragma: no cover
         modules,
         params,
         transforms,
+        units,
     )
     from .comparison import comparison_model
     from .eigenmodes import eigenbasis
@@ -58,7 +59,7 @@ base = "fridom.hydrostatic"
 all_modules_by_origin = {
     base: ["modules", "diagnostics", "energy", "params",
            "initial_conditions", "comparison", "eigenmodes",
-           "transforms"],
+           "transforms", "units"],
 }
 
 all_imports_by_origin = {
