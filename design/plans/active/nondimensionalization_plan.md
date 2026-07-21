@@ -654,3 +654,44 @@ stretched-exponential leakage shard for the new path.
 
 §C lands after §A on its own branch with zero §A rework; §B is
 independent of §C; no §B decision blocks §C.
+
+## D. Unit factors and scales report — designed (2026-07-21, owner-simplified)
+
+Ships after §B (needs the new primitive provides). Owner rulings:
+**no state conversion API and no coexistence of dimensional and
+nondimensional states** in the same function spaces (rejected
+2026-07-21 — making that consistent would require distinct function
+spaces per unit system, not worth it). Instead: the model exposes the
+conversion *factors*; users apply them themselves.
+
+- **Reference scales**: the scaling objects' reserved fields (`L=`,
+  `U=`, sw/hy `g=`) — stored-only, optional.
+- **The one rule**: T_ref = ε·L/U for every scaling (ε is bound:
+  Fr/Ro/1 per clock choice), so every factor is derivable from (L, U
+  [, g]) plus bound parameters — no per-scaling case analysis, no
+  copies that can go stale under sweeps/ramps:
+  x,y: L | z: δ·L | t: ε·L/U | u,v: U | w: δ·U |
+  p, ps: U²/ε | sw h [m]: U²/(ε·g) | b: U²/(ε·δ·L);
+  derived constants f_dim = U/(Ro·L), N_dim = U/(Fr_int·δL),
+  c_dim = U/Fr. (p/b rows from the simplest-linear-operator
+  normalization; the h row reproduces the paper's H = D·Fr.)
+- **Surface**: `model.units` — `.factors` (component/coordinate/time
+  → factor, with unit strings), `.factor(name)`, `.report()` (scales
+  + derived dimensional constants + per-component factors; prints
+  what the stored scales allow and marks the rest "needs U=", etc.).
+  On a `Dimensional()` model all factors are 1.0 with the physical
+  units — scripts stay polymorphic.
+- **Writer**: NetCDF output stays in model units; when the model has
+  a nondimensional scaling the writer stamps metadata — global attrs
+  (scaling class, L, U, g, T_ref, ε, the bound numbers) and
+  per-variable/coordinate/time `dimensional_factor` (+ target unit
+  string) attributes. Users multiply themselves; postprocessing tools
+  can automate it from the attrs.
+- **Explicitly out of scope**: `dimensional_state`/
+  `nondimensional_state` helpers, unit tags on `State`,
+  dimensional-coordinate arrays, dataset auto-conversion. Users who
+  want to (non)dimensionalize fields do it with the factors.
+- **Tests**: factor-table pins (paper-normalization h factor
+  U²/(ε·g) = D·Fr under GravityWave; Ñ² consistency under
+  Rotational), Dimensional-model identity factors, report smoke +
+  missing-scale marks, writer attribute round-trip.
