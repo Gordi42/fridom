@@ -34,14 +34,13 @@ Oceananigans re-run.
   (SP-D1..D9) awaits the owner before spherical implementation
   starts.
 - **Owner calls filed by the wave:**
-  - **`H_ref` convention on mapped grids** — the volume-exact
-    reference depth is the vertical *mesh* extent (GM-D1 literal,
-    shipped), so a pure vertical re-parameterization changes the
-    barotropic wave speed (a nonlinear stretch with physical depth
-    1.4 over base extent 1.0 gets `g = csqr/1.0`). Alternative: the
-    physical reference depth (chart-invariant). Small change if
-    taken (`free_surface.py` reference depth + the metric
-    one-liner).
+  - `H_ref` convention on mapped grids — **dissolved by the
+    gravity-first hydrostatic API** (owner + Branch-2 verification
+    2026-07-21; entry in [`done.md`](done.md)): with `gravity=` as
+    the input, every step-path `c²·(1/H_ref)` site collapses to the
+    plain g (verified site-by-site, no lone c² exists); depths enter
+    only as the volume-exact local H_a and the flat-only physical
+    extent in analytics/reporting.
   - **`hy.energy.hydrostatic_energy_weights` is vestigial**
     (superseded docstring, flat-only test consumers, wrong on any
     non-unit depth): delete + repoint its two tests (recommended),
