@@ -575,6 +575,34 @@ def test_from_model_hydrostatic_weights():
         "ps": pytest.approx(0.1)}
 
 
+def test_from_model_hydrostatic_nondim_ps_weight():
+    # nondim: w_ps = H_ref / (eps/Fr_ext)^2 (the flat-only analytic
+    # vertical-extent fold); n2_eff = (eps/Fr_int)^2
+    params = {CORIOLIS_F0: 1.0, "hydrostatic.froude": 0.5,
+              "scaling.nonlinearity": 1.0,
+              "stratification.froude": 0.5}
+    model = SimpleNamespace(parameters=params,
+                            grid=hydro_grid(depth=2.0))
+    metric = EnergyMetric.from_model(model)
+    assert metric.weights["ps"] == pytest.approx(2.0 / 4.0)
+    assert metric.weights["b"] == pytest.approx(0.25)
+
+
+def test_from_model_hydrostatic_nondim_needs_one_bounded_axis():
+    # the vertical-extent fold reads "the bounded axis" off a bare
+    # parameter namespace; two bounded axes are a taught refusal
+    grid = Grid((
+        IntervalMesh(4, (0.0, 1.0), periodic=True, name="x"),
+        IntervalMesh(4, (0.0, 1.0), periodic=False, name="y"),
+        IntervalMesh(4, (0.0, 1.0), periodic=False, name="z")),
+        device_ids=(0,))
+    params = {CORIOLIS_F0: 1.0, "hydrostatic.froude": 0.5,
+              "scaling.nonlinearity": 1.0, STRATIFICATION_N2: 1.0}
+    model = SimpleNamespace(parameters=params, grid=grid)
+    with pytest.raises(ValueError, match="exactly one bounded"):
+        EnergyMetric.from_model(model)
+
+
 def test_from_model_hydrostatic_rejects_zero_phase_speed():
     params = {CORIOLIS_F0: 1.0, "hydrostatic.gravity": 0.0,
               STRATIFICATION_N2: 1.0}
