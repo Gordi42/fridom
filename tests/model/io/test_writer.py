@@ -954,3 +954,188 @@ def test_open_array_recheck_flag_opens_and_sees_resize(
         exclusive_max=[3]).result()
     reread = writer_module._open_array(path / "time", recheck=True)
     assert tuple(reread.shape) == (3,)
+
+
+# ================================================================
+#  Unit-factor metadata stamps (stub-based; SD writer surface)
+# ================================================================
+class FakeEntry:
+
+    """A duck-typed FactorEntry (value/unit/expr/time_dependent)."""
+
+    def __init__(self, value, unit, expr, time_dependent=False):
+        self.value = value
+        self.unit = unit
+        self.expr = expr
+        self.time_dependent = time_dependent
+
+
+class FakeUnits:
+
+    """A duck-typed model.units surface for the writer stamp."""
+
+    def __init__(self, factors, constants=None):
+        self._factors = factors
+        self._constants = dict(constants or {})
+
+    @property
+    def factors(self):
+        return dict(self._factors)
+
+    def bound_constants(self):
+        return dict(self._constants)
+
+
+class FakeScaling:
+
+    """A duck-typed nondimensional scaling with stored scales."""
+
+    nondimensional = True
+    L = 2.0
+    U = 1.0
+    g = None
+
+
+def units_model(state, clock, *, factors, constants=None,
+                scaling=None, table=None):
+    model = FakeModel(state, clock, table=table)
+    model.units = FakeUnits(factors, constants)
+    if scaling is not None:
+        model.scaling = scaling
+    return model
+
+
+def _zattrs(path):
+    return json.loads((Path(path) / ".zattrs").read_text())
+
+
+def test_units_stamp_without_units_is_none(model):
+    assert writer_module._units_stamp(model) is None
+
+
+def test_units_stamp_swallows_a_broken_units_surface(state):
+    class ExplodingModel(FakeModel):
+        @property
+        def units(self):
+            raise RuntimeError("boom")
+
+    broken = ExplodingModel(state, clock_at(0))
+    assert writer_module._units_stamp(broken) is None
+
+
+def test_store_is_byte_identical_without_a_units_surface(
+        tmp_path, model, state):
+    paths = (tmp_path / "on.zarr", tmp_path / "off.zarr")
+    for path, units_metadata in zip(paths, (True, False),
+                                    strict=True):
+        writer = Writer(path, fields=["u", "p"],
+                        trigger=every(steps=1),
+                        units_metadata=units_metadata)
+        writer.bind(model)
+        writer.write(firing(state, 0))
+        writer.close()
+    for sidecar in ("", "u", "p", "x", "x_right", "y", "time"):
+        on = (paths[0] / sidecar / ".zattrs").read_bytes()
+        off = (paths[1] / sidecar / ".zattrs").read_bytes()
+        assert on == off
+
+
+def test_fake_units_stamp_lands_everywhere(tmp_path, model, state):
+    factors = {
+        "u": FakeEntry(0.5, "m/s", "U"),
+        "p": FakeEntry(None, "m^2/s^2", "U^2/eps",
+                       time_dependent=True),
+        "x": FakeEntry(2.0, "m", "L"),
+        "t": FakeEntry(4.0, "s", "eps*L/U"),
+        "T_ref": FakeEntry(4.0, "s", "eps*L/U"),
+    }
+    fake = units_model(
+        state, clock_at(0, start_date=np.datetime64("2020-01-01")),
+        factors=factors,
+        constants={"scaling.nonlinearity": 0.2, "toy.g": 9.81},
+        scaling=FakeScaling(), table=model.field_table)
+    path = tmp_path / "stamped.zarr"
+    writer = Writer(path, fields=["u", "p"], trigger=every(steps=1))
+    writer.bind(fake)
+    writer.write(firing(state, 0))
+    writer.close()
+    # global attrs (between fridom_version and the user attrs)
+    root = _zattrs(path)
+    assert root["fridom_scaling"] == "FakeScaling"
+    assert root["fridom_scaling_nondimensional"] is True
+    assert root["fridom_scaling_L"] == 2.0
+    assert root["fridom_scaling_U"] == 1.0
+    assert "fridom_scaling_g" not in root  # unset scale
+    assert root["fridom_scaling_T_ref"] == 4.0
+    assert root["fridom_scaling_epsilon"] == 0.2
+    assert root["fridom_scaling_parameters"] == {
+        "scaling.nonlinearity": 0.2, "toy.g": 9.81}
+    # per-variable attrs; value=None omits the numeric factor
+    u_attrs = _zattrs(path / "u")
+    assert u_attrs["dimensional_factor"] == 0.5
+    assert u_attrs["dimensional_units"] == "m/s"
+    assert u_attrs["dimensional_factor_expr"] == "U"
+    assert "dimensional_factor_time_dependent" not in u_attrs
+    p_attrs = _zattrs(path / "p")
+    assert "dimensional_factor" not in p_attrs
+    assert p_attrs["dimensional_units"] == "m^2/s^2"
+    assert p_attrs["dimensional_factor_expr"] == "U^2/eps"
+    assert p_attrs["dimensional_factor_time_dependent"] is True
+    # coordinate attrs: the stagger suffix strips back to the row
+    assert _zattrs(path / "x_right")["dimensional_factor"] == 2.0
+    assert _zattrs(path / "x")["dimensional_factor"] == 2.0
+    assert "dimensional_factor" not in _zattrs(path / "y")  # no row
+    # the CF option-(b) time rewrite: units "1", anchor dropped
+    time_attrs = _zattrs(path / "time")
+    assert time_attrs["units"] == "1"
+    assert "calendar" not in time_attrs
+    assert time_attrs["dimensional_factor"] == 4.0
+    assert time_attrs["standard_name"] == "time"
+
+
+def test_dimensional_stamp_keeps_the_cf_time_axis(
+        tmp_path, model, state):
+    fake = units_model(
+        state, clock_at(0, start_date=np.datetime64("2020-01-01")),
+        factors={"t": FakeEntry(1.0, "s", "1")},
+        table=model.field_table)  # no scaling -> dimensional
+    path = tmp_path / "dim.zarr"
+    writer = Writer(path, fields=["p"], trigger=every(steps=1))
+    writer.bind(fake)
+    writer.write(firing(
+        state, 0, start_date=np.datetime64("2020-01-01")))
+    writer.close()
+    root = _zattrs(path)
+    assert root["fridom_scaling_nondimensional"] is False
+    assert "fridom_scaling" not in root  # no scaling object
+    time_attrs = _zattrs(path / "time")
+    assert time_attrs["units"].startswith("seconds since ")
+    assert time_attrs["calendar"] == "proleptic_gregorian"
+    assert time_attrs["dimensional_factor"] == 1.0
+
+
+def test_user_attrs_win_over_the_units_stamp(tmp_path, model, state):
+    fake = units_model(state, clock_at(0), factors={},
+                       scaling=FakeScaling(),
+                       table=model.field_table)
+    path = tmp_path / "user.zarr"
+    writer = Writer(path, fields=["p"], trigger=every(steps=1),
+                    attrs={"fridom_scaling": "custom"})
+    writer.bind(fake)
+    writer.close()
+    assert _zattrs(path)["fridom_scaling"] == "custom"
+
+
+def test_units_metadata_false_opts_out(tmp_path, model, state):
+    fake = units_model(state, clock_at(0),
+                       factors={"u": FakeEntry(0.5, "m/s", "U")},
+                       scaling=FakeScaling(),
+                       table=model.field_table)
+    path = tmp_path / "opted-out.zarr"
+    writer = Writer(path, fields=["u"], trigger=every(steps=1),
+                    units_metadata=False)
+    writer.bind(fake)
+    writer.close()
+    assert not any(key.startswith("fridom_scaling")
+                   for key in _zattrs(path))
+    assert "dimensional_factor" not in _zattrs(path / "u")

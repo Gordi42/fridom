@@ -42,6 +42,7 @@ if TYPE_CHECKING:  # pragma: no cover
         modules,
         params,
         transforms,
+        units,
     )
 
     # import all classes
@@ -67,7 +68,7 @@ base = "fridom.shallowwater2"
 all_modules_by_origin = {
     base: ["modules", "eigenmodes", "channel_eigenmodes",
            "diagnostics", "params", "transforms",
-           "initial_conditions"],
+           "initial_conditions", "units"],
 }
 
 all_imports_by_origin = {

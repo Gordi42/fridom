@@ -111,6 +111,7 @@ from fridom.model.scheduled_field import ProfileFunction, profile_coords
 from fridom.model.stages import Stage, StageKind
 from fridom.model.terms import term
 from fridom.model.time_dependent import TimeDependent, resolve_at
+from fridom.model.units import UnitFactor
 from fridom.spatial.decomposition.halo import HaloSpec
 from fridom.spatial.space_patterns import Profile
 
@@ -384,6 +385,30 @@ _WEIGHT_HINT = ("the velocity energy-metric weight field (e.g. the "
                 "shallow-water csqr, declared by its dynamical core)")
 
 
+def _f_dim(values: dict) -> float:
+    """Return the dimensional frequency ``f_dim = U/(Ro*L)``."""
+    return values["U"] / (values["Ro"] * values["L"])
+
+
+def _f_bound(values: dict) -> float:
+    """Return the bound physical ``f0`` (dimensional f-plane)."""
+    return values["f0"]
+
+
+#: model.units rows of the f-plane / beta-plane family: the derived
+#: dimensional rotation frequency (nondim: U/(Ro*L); dimensional
+#: models report the bound coriolis.f0 provide instead — absent on
+#: the beta-plane, whose f is the f(y) field, so the row is marked
+#: unresolvable there rather than claiming a false constant)
+_CORIOLIS_UNIT_FACTORS: dict[str, UnitFactor] = {
+    "f_dim": UnitFactor(
+        unit="1/s", expr="U/(Ro*L)", kind="constant",
+        scales=("L", "U"), params={"Ro": CORIOLIS_ROSSBY},
+        fn=_f_dim, dim_expr="f0",
+        dim_params={"f0": CORIOLIS_F0}, dim_fn=_f_bound),
+}
+
+
 def _rotation_references(
     metric_weight: str | None,
 ) -> tuple[FieldReference, ...]:
@@ -566,6 +591,9 @@ class FPlaneCoriolis(Module):
     #: fr.scaling traits: this family owns the rotation mechanism
     scaling_mechanism = "rotation"
     nonlinearity_attr = "rossby_number"
+
+    #: model.units rows: the derived dimensional f (shared family)
+    unit_factors = _CORIOLIS_UNIT_FACTORS
 
     def __init__(
         self, f0: float | None = None, *,
@@ -763,6 +791,9 @@ class BetaPlaneCoriolis(Module):
     #: fr.scaling traits: this family owns the rotation mechanism
     scaling_mechanism = "rotation"
     nonlinearity_attr = "rossby_number"
+
+    #: model.units rows: the derived dimensional f (shared family)
+    unit_factors = _CORIOLIS_UNIT_FACTORS
 
     def __init__(
         self, f0: float | None = None, beta: float | None = None,

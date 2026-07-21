@@ -51,7 +51,7 @@ from __future__ import annotations
 import json
 import shutil
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, NamedTuple
 
 import jax
 import numpy as np
@@ -70,6 +70,11 @@ _NS_PER_S = 1_000_000_000
 
 # the accepted create/append vocabulary (V-S1; "w-" is the default)
 _MODES = ("w", "w-", "a")
+
+# the xgcm stagger-position vocabulary of the export layout: a
+# staggered dim exports as ``<name>_<position>``; stripping the
+# suffix recovers the coordinate's unit-factor row name
+_POSITIONS = ("left", "right", "outer", "inner")
 
 # iteration fill for an un-committed slice. The iteration axis is
 # written last, after a firing's variable tiles commit, so a real
@@ -115,6 +120,121 @@ def _barrier(tag: str) -> None:
 
 
 # ================================================================
+#  Unit-factor metadata (the §D writer stamp)
+# ================================================================
+class _UnitsStamp(NamedTuple):
+
+    """
+    The bind-time snapshot of the model's unit-factor metadata.
+
+    Description
+    -----------
+    Computed once at bind (``_units_stamp``) — the one deliberate
+    snapshot in the §D design (the live surface is
+    ``model.units``): identical on every rank, written by rank 0.
+
+    Parameters
+    ----------
+    global_attrs : dict
+        The ``fridom_scaling*`` store-level attributes.
+    per_name : dict
+        Per-row ``dimensional_factor`` attribute dicts, keyed by
+        the factor-row name (components, coordinates, ``"t"``).
+    nondimensional : bool
+        Whether the model is nondimensional (drives the CF
+        time-axis option-(b) rewrite).
+    """
+
+    global_attrs: dict[str, Any]
+    per_name: dict[str, dict[str, Any]]
+    nondimensional: bool
+
+
+def _units_stamp(model: Any) -> _UnitsStamp | None:
+    """
+    Build the unit-factor metadata stamp of a model (or ``None``).
+
+    Description
+    -----------
+    Pure and best-effort (metadata changes no data, so it must
+    never fail a run): a model without a ``units`` surface — or one
+    whose surface errors — yields ``None`` and the store is written
+    byte-identically to the pre-§D layout. Per row:
+    ``dimensional_factor`` (omitted when unresolvable),
+    ``dimensional_units`` and ``dimensional_factor_expr`` (always),
+    ``dimensional_factor_time_dependent`` only for Ramp-valued
+    rows. Globally: the scaling class, variant flag, stored
+    reference scales, the constant-resolvable ``T_ref`` and
+    ``epsilon``, and the bound constants the tables reference.
+    """
+    try:
+        units = model.units
+        entries = dict(units.factors)
+        per_name = {name: _stamp_row(entry)
+                    for name, entry in entries.items()}
+        scaling = getattr(model, "scaling", None)
+        nondimensional = bool(
+            getattr(scaling, "nondimensional", False))
+        global_attrs = _stamp_globals(
+            units, scaling, nondimensional, entries)
+        return _UnitsStamp(global_attrs, per_name, nondimensional)
+    except Exception:  # noqa: BLE001 — metadata is best-effort
+        return None
+
+
+def _stamp_row(entry: Any) -> dict[str, Any]:
+    """Build one row's ``dimensional_factor`` attribute dict."""
+    attrs: dict[str, Any] = {}
+    value = getattr(entry, "value", None)
+    if value is not None:
+        attrs["dimensional_factor"] = float(value)
+    attrs["dimensional_units"] = str(getattr(entry, "unit", ""))
+    attrs["dimensional_factor_expr"] = str(
+        getattr(entry, "expr", ""))
+    if getattr(entry, "time_dependent", False):
+        attrs["dimensional_factor_time_dependent"] = True
+    return attrs
+
+
+def _stamp_globals(
+    units: Any, scaling: Any, nondimensional: bool,
+    entries: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Build the ``fridom_scaling*`` store-level attribute dict."""
+    global_attrs: dict[str, Any] = {
+        "fridom_scaling_nondimensional": nondimensional}
+    if scaling is not None:
+        global_attrs["fridom_scaling"] = type(scaling).__name__
+        for scale in ("L", "U", "g"):
+            stored = getattr(scaling, scale, None)
+            if stored is not None:
+                global_attrs[f"fridom_scaling_{scale}"] = float(
+                    stored)
+    t_ref = entries.get("T_ref")
+    if getattr(t_ref, "value", None) is not None:
+        global_attrs["fridom_scaling_T_ref"] = float(t_ref.value)
+    bound = getattr(units, "bound_constants", None)
+    constants = dict(bound()) if callable(bound) else {}
+    if constants:
+        global_attrs["fridom_scaling_parameters"] = {
+            name: float(value)
+            for name, value in constants.items()}
+    epsilon = constants.get("scaling.nonlinearity")
+    if epsilon is not None:
+        global_attrs["fridom_scaling_epsilon"] = float(epsilon)
+    return global_attrs
+
+
+def _strip_position(dim: str) -> str:
+    """Strip the xgcm stagger suffix off an exported dim name."""
+    for position in _POSITIONS:
+        suffix = f"_{position}"
+        if dim.endswith(suffix):
+            return dim[: -len(suffix)]
+    return dim
+
+
+# ================================================================
 #  Writer
 # ================================================================
 class Writer:
@@ -156,6 +276,17 @@ class Writer:
         (spatial) or in single steps (``"time"``) (default: None).
     attrs : Mapping[str, str] | None, optional
         Extra global attributes merged into the store (default: None).
+    units_metadata : bool, optional
+        Stamp the model's unit-factor metadata (§D) into the store:
+        ``fridom_scaling*`` global attributes plus per-variable /
+        coordinate / time ``dimensional_factor`` (+ unit / expr)
+        attributes, snapshotted at bind. On a nondimensional model
+        the CF time coordinate's ``units`` becomes ``"1"`` and the
+        calendar anchor is dropped (model time is in units of
+        ``T_ref``; ``dimensional_factor = T_ref`` is stamped
+        alongside — owner ruling, option b). It changes no data;
+        models without a ``units`` surface are stamped with nothing
+        (default: True).
     async_writes : bool, optional
         Overlap the spatial disk writes with the model integration:
         each firing defers its writes and drains the previous firing
@@ -181,6 +312,7 @@ class Writer:
         mode: str = "w-",
         chunks: Mapping[str, int] | None = None,
         attrs: Mapping[str, str] | None = None,
+        units_metadata: bool = True,
         async_writes: bool = False,
     ) -> None:
         """Configure the stream; no file IO happens here."""
@@ -194,6 +326,9 @@ class Writer:
         self.mode = mode
         self._chunks = dict(chunks) if chunks else {}
         self._attrs = dict(attrs) if attrs else {}
+        self._units_metadata = bool(units_metadata)
+        # the bind-time unit-factor stamp (None until bind / opted out)
+        self._units: _UnitsStamp | None = None
         self._async_writes = bool(async_writes)
         # bind state (all reset until bind)
         self._bound = False
@@ -632,6 +767,12 @@ class Writer:
         model: Any,
     ) -> None:
         """Create (or reopen for append) the tensorstore zarr store."""
+        # the §D unit-factor stamp: computed identically on every
+        # rank at bind (the one deliberate snapshot); rank 0 writes
+        # it below. A mode="a" reopen keeps the existing store
+        # metadata untouched (no restamp).
+        self._units = (_units_stamp(model)
+                       if self._units_metadata else None)
         exists = self._path.exists()
         # The existence check + mode decision is evaluated identically
         # on every rank (shared filesystem) before any rank mutates the
@@ -725,7 +866,9 @@ class Writer:
         version = _fridom_version()
         if version is not None:
             attrs["fridom_version"] = version
-        attrs.update(self._attrs)
+        if self._units is not None:
+            attrs.update(self._units.global_attrs)
+        attrs.update(self._attrs)  # user attrs win
         _write_json(self._path / ".zattrs", attrs)
 
     def _write_coords(
@@ -745,6 +888,11 @@ class Writer:
                 store[...] = values
                 zattrs = {"_ARRAY_DIMENSIONS": [dim]}
                 zattrs.update(layout.coord_attrs[dim])
+                if self._units is not None:
+                    # the stagger suffix strips back to the factor
+                    # row name; no matching row -> no stamp
+                    zattrs.update(self._units.per_name.get(
+                        _strip_position(dim), {}))
                 _write_json(self._path / dim / ".zattrs", zattrs)
 
     def _write_time_axis(self, model_state: Any) -> None:
@@ -754,6 +902,16 @@ class Writer:
             self._path / "time", (0,), (chunk,), np.dtype(np.float64))
         time_attrs = {"_ARRAY_DIMENSIONS": ["time"]}
         time_attrs.update(_time_attrs(model_state.clock))
+        if self._units is not None:
+            time_attrs.update(self._units.per_name.get("t", {}))
+            if self._units.nondimensional:
+                # CF option (b), owner ruling 2026-07-21: model time
+                # is in units of T_ref, so the old "seconds since"
+                # claim was dimensionally false — declare the axis
+                # dimensionless and drop the calendar anchor (the
+                # dimensional_factor above carries T_ref)
+                time_attrs["units"] = "1"
+                time_attrs.pop("calendar", None)
         _write_json(self._path / "time" / ".zattrs", time_attrs)
         self._iteration = _create_array(
             self._path / "iteration", (0,), (chunk,),
@@ -782,6 +940,8 @@ class Writer:
                 layout.dtype)
             zattrs = {"_ARRAY_DIMENSIONS": ["time", *layout.dims]}
             zattrs.update(layout.attrs)
+            if self._units is not None:
+                zattrs.update(self._units.per_name.get(name, {}))
             # CF auxiliary-coordinate promotion: xarray reads the
             # iteration variable back as a coordinate, no post-proc.
             zattrs["coordinates"] = "iteration"

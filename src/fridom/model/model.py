@@ -78,6 +78,7 @@ from fridom.model.schedule import (
 from fridom.model.stages import StageKind
 from fridom.model.terms import Treatment
 from fridom.model.time_dependent import resolve_at
+from fridom.model.units import UnitsView
 from fridom.spatial.decomposition.halo import HaloSpec
 from fridom.spatial.fields.scalar_field import ScalarField
 from fridom.spatial.fields.vector_field import (
@@ -1612,6 +1613,21 @@ class Model:
     def diagnostics(self) -> DiagnosticsNamespace:
         """Bound package diagnostics (lazy parameter resolution)."""
         return DiagnosticsNamespace(self)
+
+    @property
+    def units(self) -> UnitsView:
+        """Live dimensional factors and scales (``fr.model.units``).
+
+        Description
+        -----------
+        The §D read surface: ``units.factors`` /
+        ``units.factor(name, at=...)`` / ``units.report()`` resolve
+        the module-contributed dimensional-factor rows against the
+        scaling object's stored reference scales and the live bound
+        parameters on every access (nothing is cached — sweeps and
+        ramps stay correct).
+        """
+        return UnitsView(self)
 
     def module(
         self,

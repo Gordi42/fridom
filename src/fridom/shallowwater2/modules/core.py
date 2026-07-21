@@ -133,6 +133,10 @@ from fridom.shallowwater2.modules.immersed_weighting import (
     weight_flux,
 )
 from fridom.shallowwater2.state import State
+from fridom.shallowwater2.units import (
+    COMPONENT_FACTORS,
+    coordinate_factors,
+)
 from fridom.spatial.decomposition.halo import HaloSpec
 from fridom.spatial.fields.vector_field import VectorField
 from fridom.spatial.scalars import Variance
@@ -321,6 +325,18 @@ class Core(fr.model.Module):
         """Whether the depth varies in space (profile or law)."""
         return (self._depth_fn is not None
                 or self._depth_law is not None)
+
+    @property
+    def unit_factors(self) -> dict[str, fr.model.UnitFactor]:
+        """Dimensional-factor rows (``model.units``, §D).
+
+        The shallow-water amplitude table
+        (:mod:`fridom.shallowwater2.units`) plus the two ``L``-valued
+        coordinate rows — an instance property because ``coords=``
+        renames the coordinate keys.
+        """
+        return {**coordinate_factors(*self._coords),
+                **COMPONENT_FACTORS}
 
     # The chart-path wave term resolves the metric-aware kinds,
     # whose multi-row block application the halo tracer cannot

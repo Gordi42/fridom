@@ -86,6 +86,12 @@ Remaining:
   rewritten (deletes the interim alias-row guard). Until it lands,
   OptimalBalance refuses mechanism-scaled models (taught error).
 
+§D (unit factors + writer metadata) **shipped 2026-07-21** on
+`feat/unit-factors`: `model.units` machinery, the sw amplitude
+table, the Coriolis `f_dim` row, and the default-on writer stamp
+(plan §D carries the record). Branch 2 additionally owes the nh/hy
+`unit_factors` tables — duck-typed rows, zero machinery edits.
+
 Must land **before the docs rebuild** — Branch 1 already changed the
 public assembly API (`csqr=`/`rossby_number=`/`coords=` removed from
 `sw.Model`; docs/examples still spell the old surface and are part of
