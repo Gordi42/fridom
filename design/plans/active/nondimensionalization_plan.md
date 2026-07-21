@@ -7,11 +7,13 @@ date: 2026-07-21
 
 Owner-directed refactor (designed 2026-07-20/21; §A/§B revised to the
 ratified scaling-object architecture 2026-07-21). Implementation
-state: **§A (framework + shallow water) is implemented** on branch
-`refactor/scaling-architecture` (Branch 1; golden-file parity against
-pre-refactor dev `a1b668be`: all 16 sw2 configurations bitwise).
-**§B (nonhydro2/hydrostatic, Branch 2)** and **§C (ramping envelope,
-Branch 3)** are open follow-ups on this architecture.
+state: **§A (framework + shallow water, Branch 1)** and **§B
+(nonhydro2/hydrostatic, Branch 2, `refactor/nh-hy-scaling`) are
+implemented** (golden-file parity against pre-refactor dev
+`a1b668be`: all 16 sw2 configurations bitwise; nh dim + Rotational
+bitwise; hy dim/ExternalWave/Rotational bitwise with the accepted H7
+closure-row roundoff on the closure-ON dimensional config). **§C
+(ramping envelope, Branch 3)** is the open follow-up.
 
 ## Goal
 
@@ -174,39 +176,121 @@ branches, taught errors, propagator-based autodiff through the
 thickness surface and the nondim-ratio path (FD-matched), one
 forced-4 multi-device thickness step-parity shard.
 
-## B. Other models (nonhydro2, hydrostatic) — Branch 2 (open)
+## B. Other models (nonhydro2, hydrostatic) — IMPLEMENTED (Branch 2)
 
 On the §A architecture (`refactor/nh-hy-scaling`, after Branch 1):
 
-- **B1 `_FluxFormAdvection` (nh/hy)**: de-scaled base + bind-adopted
-  nondim branch (×ε outer; `scale=ε` inside the background-split
-  full transport); H7 surface-closure boundary rows ≤1 ulp at ε≠1
-  (accepted). Presets in the same commit.
-- **B2 nh.Core**: **scaling-neutral** — `aspect_ratio=` (δ, live;
-  squared at use sites) in every assembly; DSQR retired (cannot
-  alias δ²); consumer re-points (stratification, wave maker, eigen,
-  energy: `dsqr = δ²`, `n2_eff = (ε/Fr)²`).
-- **B3 Stratification (nh/hy)**: `n2=` [1/s²] XOR `froude_number=`
-  (internal Fr = U/(NH)); restoring −n2·w xor −(ε/Fr)²·w; owns the
-  `internal_wave` mechanism.
-- **B4 hydrostatic**: `hy.Core(gravity=)` provides
-  `hydrostatic.gravity` (the physical constant centralizes on the
-  core; nh.Core gains `gravity=` only when a T/S+EOS consumer
-  lands); free surface: **no dimensional kwarg** — one `_csqr(ctx)`
-  helper replaces the `ctx.params[CSQR]` reads (all three variants),
-  dimensional `gravity/self._inv_depth` (H_ref inherits the roadmap
-  §1 mesh-extent convention), XOR `froude_number=` (external Fr,
-  the `external_wave` mechanism); barotropic term ×(ε/Fr_ext)².
-- **B5**: old cores deleted; test migration; golden parity against
-  the Branch-1-captured nh/hy baselines (flat dyadic configs,
-  `dsqr=0.25, n2=4.0, Ro=0.25, f0=0.5`): today ≡ `Rotational()` +
-  `aspect_ratio=δ` (δ²==dsqr exact) + `rossby_number=r` +
-  stratification `froude_number=r/√B`; hy analogous.
+- **B1 `_FluxFormAdvection`** de-scaled: the SCALING_NONLINEARITY
+  reference and the outer ro multiply are gone; the family is
+  scaling-neutral and adopts the variant at bind
+  (`_BindTable.scaling`) — nondim = ONE outer ε at the old factor
+  position (bitwise placement), background split = ε INSIDE the
+  advecting velocity (`_full_transport(state, scale, q)`,
+  `scale=None` dimensional), background term unscaled both
+  variants, the H7 surface closure's ε applied per lowering. The
+  presets flipped in the same commit. **Measured H7 acceptance**:
+  the closure-ON dimensional today-parity run seeds ≤1 ulp in the
+  surface-closure boundary rows (the folded traced-scalar multiply
+  changes the fused HLO), amplifying to ~3e-17 absolute over 10 AB3
+  steps; with `surface_advective_flux=False` the dimensional
+  mapping is bitwise, and the nondim mappings are bitwise with the
+  closure ON (the ε multiply restores the old HLO shape).
+- **B2 `nh.Core`** (replaces `DynamicalCore`, deleted):
+  scaling-neutral `aspect_ratio=` (δ, live/Ramp-able, zero refused),
+  squared at the four `_project*` routes and the elliptic weight
+  (`delta * delta`); provides `nonhydro.aspect_ratio` (new
+  ParamName); `nonhydro.dsqr` retired with a taught module
+  `__getattr__`; consumers re-pointed (stratification `b/δ²`,
+  polarized wave maker, eigenmodes `dsqr=δ²` + `f0_eff=ε/Ro` +
+  `n2_eff=(ε/Fr)²`, `EnergyMetric.from_model` re-keyed on
+  `nonhydro.aspect_ratio`, diagnostics per-variant). Solver/family
+  kwargs live on the core; the preset resolves the FV auto-flip
+  through `core.family`.
+- **B3 Stratification (nh/hy)**: dual kwargs `n2=` [1/s²] XOR
+  `froude_number=` (internal Fr, zero refused); restoring −n2·w
+  verbatim XOR −(ε/Fr)²·w (live ctx.params, x/x self-normalizing);
+  traits `scaling_mechanism="internal_wave"`,
+  `nonlinearity_attr="froude_number"` (InternalWave() designates
+  the owner). `MeridionalStratification` is pinned
+  `scaling_variant="dimensional"` (a varying Froude profile is a
+  recorded follow-up; nondim assemblies refuse it via the
+  mixed-variant taught error).
+- **B4 hydrostatic, gravity-first**: `hy.Core(gravity=)` (replaces
+  `HydrostaticCore`, deleted) provides `hydrostatic.gravity`
+  (dimensional; the nondim core takes no kwarg and provides
+  nothing); csqr/rossby dropped from the core (verified read
+  nowhere in its terms/stages). Free-surface family: **no
+  dimensional kwarg** — it references the core's gravity — XOR
+  `froude_number=` (external Fr, `hydrostatic.froude`, the
+  `external_wave` mechanism). **NO H_ref in the step path**
+  (owner-ratified), verified site by site: every `ctx.params[CSQR]`
+  read either paired with `self._inv_depth` as c²/H_ref = g
+  (explicit gravity term, implicit RHS ~937-957, immersed operator
+  coefficient ~1143, split-explicit variable path ~1809, the whole
+  `BarotropicPressureSolver`, which now takes `gravity=` and lost
+  its `inv_depth` argument) — replaced by the referenced g on the
+  raw transport divergence T* — or was the flat-column operator /
+  subcycle coefficient where the depth mean cancels against the
+  z-uniform correction's depth integral: there the coefficient is
+  `g · H_col` with H_col the **flat column's physical depth** (the
+  vertical mesh extent — genuine geometry, `self._depth` at bind,
+  the one sanctioned depth read; nondim: the bare (ε/Fr)² in the
+  mean form). **No genuinely lone c² was found.** Nondim barotropic
+  coefficient (ε/Fr_ext)²; `hydrostatic.csqr` retired with a taught
+  `__getattr__`; energy re-keyed (dim ps weight = 1/g — the same
+  number as the old H_ref/c²; nondim = H_ref/(ε/Fr_ext)², the
+  flat-only analytic vertical-extent fold); hy diagnostics
+  n2-vs-froude fork.
+- **B5 presets**: `nh.Model(*, grid, core, time_stepper,
+  scaling=None→Dimensional(), coriolis=None, stratification=None
+  (opt-in: None = NO stratification), advection=True,
+  modules_extra=(), name=None)`; `hy.Model(..., core,
+  stratification, free_surface REQUIRED (None refused taught),
+  scaling=None→Dimensional(), coriolis=None, advection=True,
+  surface_advective_flux=...)`. Retired kwargs (`dsqr=`,
+  `rossby_number=`, `csqr=`, `dt=`, the moved solver kwargs) raise
+  taught TypeErrors; `comparison_model` re-targeted gravity-first
+  (`gravity=` replaces `csqr=`/`rossby_number=`); ROSSBY param
+  aliases kept (they alias `scaling.nonlinearity`).
+
+### §B verification (measured)
+
+Golden files captured on pre-refactor `a1b668be`-equivalent trees
+(nh 8³ triply periodic, hy 8×8×4 unit-depth explicit-free-surface
+flat dyadic configs, 10 AB3 steps; capture scripts + README beside
+the .npz artifacts, env-gated tests
+`tests/{nonhydro2,hydrostatic}/test_golden_parity.py` via
+`FRIDOM_NH_GOLDEN_DIR` / `FRIDOM_HY_GOLDEN_DIR`):
+
+- nh dimensional (today ro=1) and Rotational (today ro=0.25, f0=1:
+  ε=Ro aliased, Fr_int=r/√B) — **bitwise (0 ulp)**.
+- hy dimensional with the legacy closure — **bitwise**; with the
+  default H7 closure — the accepted closure-row roundoff (≤64 ulp
+  at step 10, ~3e-17 absolute; budget 128).
+- hy ExternalWave (today csqr=1, ro=0.25, f0=0.5: ε=Fr_ext=0.25,
+  Ro=ε/f0, Fr_int=ε/√B — the (ε/Fr_ext)²=1 self-normalization) and
+  hy Rotational (today csqr=0.25, ro=0.25, f0=1: Fr_ext=ε/√csqr) —
+  **bitwise (0 ulp)**.
+- A today-parity mapping constraint discovered at capture: under
+  `Rotational()` the rotation ratio self-normalizes to exactly 1,
+  so a golden with f0≠1 has **no** Rotational representation — the
+  nh/hy Rotational goldens were recaptured at f0=1.0 (bitwise-
+  verified capture base), and the hy f0=0.5 golden is served by the
+  ExternalWave frame instead.
+
+Behavior gates in-repo: dual-kwarg/zero/mixed-variant taught
+errors, ro=1 self-normalization parity (bitwise, both packages),
+effective-number re-keys (diagnostics/eigenmodes/energy equal on
+the dim twin and the ε-aliased spelling), nondim implicit and
+split-explicit free surfaces track the dim twin to solver roundoff,
+and propagator-based autodiff FD gates through the nondim-ratio
+step paths (one per package, wrt an initial field).
 
 ### §B owner decisions (carried)
 
 - **B-2 Hydrostatic primitive**: gravity on the core, free-surface
-  c² derived per read (ratified above).
+  c² derived per read (ratified above; sharpened 2026-07-21 to "no
+  H_ref in the step path" — implemented as recorded in B4).
 - **B-3 Preset physics defaults**: `hy.Model(stratification=,
   free_surface=)` required; `nh.Model` stratification default
   absent — the "no surprising defaults" reading.
