@@ -98,6 +98,10 @@ if TYPE_CHECKING:  # pragma: no cover
 _DSQR = "nonhydro.dsqr"
 _CSQR = "shallowwater.csqr"
 _HYDRO_CSQR = "hydrostatic.csqr"
+_SW_GRAVITY = "shallowwater.gravity"
+_SW_DEPTH = "shallowwater.depth"
+_SW_FROUDE = "shallowwater.froude"
+_EPSILON = "scaling.nonlinearity"
 
 # A component weight is a scalar; ScalarField widens it to a
 # (profile) field, sampled per component through ``.to``.
@@ -355,8 +359,9 @@ class EnergyMetric:
         rejected; ``Ramp``-valued parameters are frozen at ``at_time``.
         Nonhydro (``nonhydro.dsqr`` present) yields
         ``diag(1, 1, dsqr, 1/N^2)`` on ``(u,v,w,b)``; shallow water
-        (``shallowwater.csqr`` present) yields ``diag(1, 1, 1/c^2)``
-        on ``(u,v,p)``.
+        (the ``shallowwater.gravity`` x ``shallowwater.depth`` or
+        ``shallowwater.froude`` + depth-ratio primitives present)
+        yields ``diag(1, 1, 1/c^2_eff)`` on ``(u,v,p)``.
 
         A **varying** coefficient — the absent scalar provide with
         the profile field present (``csqr`` on the shallow-water
@@ -433,12 +438,18 @@ class EnergyMetric:
             The metric with the model's energy weights.
         """
         params = model.parameters
-        if require_constant_coriolis and CORIOLIS_F0 not in params:
+        constant_rotation = (
+            CORIOLIS_F0 in params
+            or ("coriolis.rossby" in params
+                and "coriolis.metric_ratio" not in params))
+        if require_constant_coriolis and not constant_rotation:
             raise ValueError(
                 "the energy metric needs a Fourier-diagonalizable "
-                "model: no constant 'coriolis.f0' (a beta-plane f(y) "
-                "is not supported); assemble with an f-plane Coriolis "
-                "module")
+                "model: no constant rotation — no 'coriolis.f0' and "
+                "no metric-ratio-free 'coriolis.rossby' (a "
+                "beta-plane / metric-ratio f(y) is not supported); "
+                "assemble with an f-plane Coriolis module (f0= or "
+                "rossby_number=)")
         if _DSQR in params:
             dsqr = _read_scalar(params, _DSQR, at_time)
             if STRATIFICATION_N2 in params:
@@ -457,12 +468,14 @@ class EnergyMetric:
                     snapshot=snapshot)
                 weights = {
                     "u": 1.0, "v": 1.0, "w": dsqr, "b": b_weight}
-        elif _CSQR in params:
-            csqr = _read_scalar(params, _CSQR, at_time)
+        elif _SW_DEPTH in params and (
+                _SW_GRAVITY in params or _SW_FROUDE in params):
+            csqr = _sw_effective_csqr(params, at_time)
             if csqr == 0.0:
                 raise ValueError(
                     "the shallow-water energy weight 1/c^2 needs a "
-                    "nonzero phase speed 'shallowwater.csqr'")
+                    "nonzero effective phase speed (gravity * depth,"
+                    " or (epsilon/Fr)^2 * depth ratio)")
             weights = {"u": 1.0, "v": 1.0, "p": 1.0 / csqr}
         elif _HYDRO_CSQR in params:
             weights = _hydrostatic_weights(model, at_time)
@@ -476,8 +489,10 @@ class EnergyMetric:
         else:
             raise ValueError(
                 "unrecognized model energy: expected a "
-                f"{_DSQR!r} (nonhydro) or {_CSQR!r} (shallow water) "
-                "provider on this model")
+                f"{_DSQR!r} (nonhydro) provider, or the "
+                "shallow-water primitives "
+                f"({_SW_GRAVITY!r} x {_SW_DEPTH!r}, or {_SW_FROUDE!r}"
+                f" with {_SW_DEPTH!r}) on this model")
         return cls(weights)
 
     # ================================================================
@@ -748,6 +763,25 @@ def _spectral_volume(field: ScalarField) -> float:
             extent = factor.mesh.extent
             volume *= float(extent[1] - extent[0])
     return volume
+
+
+def _sw_effective_csqr(
+    params: Mapping[str, object], at_time: float,
+) -> float:
+    r"""Assemble the effective shallow-water ``c^2`` from primitives.
+
+    Dimensional: :math:`g\,D`; nondimensional:
+    :math:`(\varepsilon/\mathrm{Fr})^2\,\tilde D` (the retired
+    ``shallowwater.csqr`` provide is replaced by the variant's own
+    constants — the nondimensionalization-plan re-key).
+    """
+    depth = _read_scalar(params, _SW_DEPTH, at_time)
+    if _SW_GRAVITY in params:
+        return _read_scalar(params, _SW_GRAVITY, at_time) * depth
+    froude = _read_scalar(params, _SW_FROUDE, at_time)
+    eps = _read_scalar(params, _EPSILON, at_time)
+    ratio = eps / froude
+    return ratio * ratio * depth
 
 
 def _read_scalar(

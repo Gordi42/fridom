@@ -127,7 +127,7 @@ def sw_model(grid, stepper, *, filtered):
     """Assemble a rotating shallow-water channel; filtered drops L."""
     extra = {"term_filter": ~terms.linear} if filtered else {}
     return sw.Model(
-        grid=grid, csqr=1.0, rossby_number=0.2,
+        grid=grid, core=sw.Core(gravity=1.0, depth=1.0),
         coriolis=sw.modules.FPlaneCoriolis(f0=1.0), advection=True,
         time_stepper=stepper, **extra)
 

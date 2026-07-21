@@ -43,14 +43,18 @@ scalar with ``.item()``:
 
     e = model.diagnostics.etot_full().integrate().item()
 
-The ``DIAGNOSTICS`` mapping is contributed by ``sw.DynamicalCore``
+The ``DIAGNOSTICS`` mapping is contributed by ``sw.Core``
 (the diagnostics-namespace channel).
 """
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from fridom.shallowwater2.params import CSQR, ROSSBY
+from fridom.model.params import (
+    CORIOLIS_ROSSBY,
+    SCALING_NONLINEARITY,
+)
+from fridom.shallowwater2.params import DEPTH, FROUDE, GRAVITY
 
 if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Mapping
@@ -81,6 +85,21 @@ def ekin(
     return state["p"].with_data(0.5 * (u.data**2 + v.data**2))
 
 
+def _csqr_eff(params: Mapping[str, object]) -> object:
+    r"""Return the effective constant ``c^2`` from the primitives.
+
+    Dimensional: :math:`g\,D` (``shallowwater.gravity`` x
+    ``shallowwater.depth``); nondimensional:
+    :math:`(\varepsilon/\mathrm{Fr})^2\,\tilde D`. A
+    variable-depth model provides no constant ``shallowwater.depth``
+    and raises the hinted ``MissingParameterError``.
+    """
+    if FROUDE in params:
+        ratio = params[SCALING_NONLINEARITY] / params[FROUDE]
+        return ratio * ratio * params[DEPTH]
+    return params[GRAVITY] * params[DEPTH]
+
+
 def epot(
     state: VectorField, params: Mapping[str, object],
 ) -> ScalarField:
@@ -89,9 +108,10 @@ def epot(
     Description
     -----------
     The linearized (quadratic) potential energy consistent with the
-    energy metric weight ``1/c^2`` on ``p``. Carries ``c^2``.
+    energy metric weight ``1/c^2`` on ``p``; the effective ``c^2``
+    is assembled from the variant's primitives (:func:`_csqr_eff`).
     """
-    csqr = params[CSQR]
+    csqr = _csqr_eff(params)
     p = state["p"]
     return p.with_data(0.5 * p.data**2 / csqr)
 
@@ -99,20 +119,30 @@ def epot(
 # ================================================================
 #  The thickness-weighted (nonlinear) energy — the model's invariant
 # ================================================================
-def thickness(
+def _thickness(
     state: VectorField, params: Mapping[str, object],
 ) -> ScalarField:
-    r"""Full geopotential thickness ``h = c^2 + Ro p`` at cell center.
+    r"""Full geopotential thickness at cell centre (variant-aware).
 
     Description
     -----------
-    The same ``p_full`` the Sadourny advection and the core's flux
-    form carry (the ``csqr`` **field**, never the scalar — so a
-    variable-depth model is spatially correct).
+    The same ``p_full`` the core's DIAGNOSE stage writes into the
+    ``thickness`` state field — recomputed here from the CURRENT
+    ``(csqr, p)`` rather than read from the state, so a diagnostic
+    evaluated on a replaced/perturbed state (the semi-discrete
+    conservation gates differentiate exactly this functional) sees a
+    consistent ``h``, never a stale carry snapshot. Dimensional:
+    :math:`c^2 + p`; nondimensional: :math:`\tilde D +
+    \varepsilon(\mathrm{Fr}/\varepsilon)^2 p` (the ``x/x``
+    spelling of ``sw.Core._update_thickness``, verbatim).
     """
-    rossby = params[ROSSBY]
     p = state["p"]
-    return state["csqr"].to(p) + rossby * p
+    base = state["csqr"].to(p)
+    if FROUDE not in params:
+        return base + p
+    eps = params[SCALING_NONLINEARITY]
+    ratio = params[FROUDE] / eps
+    return base + eps * (ratio * ratio) * p
 
 
 def ekin_full(
@@ -155,7 +185,7 @@ def ekin_full(
     """
     u, v, p = state["u"], state["v"], state["p"]
     grid = u.grid
-    h = thickness(state, params)
+    h = _thickness(state, params)
     e_u = u * u * h.to(u)
     e_v = v * v * h.to(v)
     if grid.chart_coords is None:
@@ -279,31 +309,43 @@ def pot_vort(
         The shallow-water state; reads ``u``, ``v``, ``p``, ``csqr``
         and ``f_coriolis`` (through ``rel_vort`` and ``thickness``).
     params : Mapping[str, object]
-        The bound parameters; reads ``scaling.rossby`` and, through
-        ``thickness``, ``shallowwater.csqr``.
+        The bound parameters; the nondimensional variant reads
+        ``scaling.nonlinearity``, ``shallowwater.froude`` and (flat
+        rotation) ``coriolis.rossby``.
 
     Returns
     -------
     ScalarField
         The potential vorticity on the vorticity corner.
     """
-    rossby = params[ROSSBY]
     zeta = state.rel_vort
     corner = zeta.function_space
     f = state["f_coriolis"].to(corner)
-    h = thickness(state, params).to(corner)
-    q = (f + rossby * zeta) / h
+    h = _thickness(state, params).to(corner)
+    if FROUDE in params:
+        # nondimensional: zeta enters at one epsilon (the advective
+        # PV part), and a nondim flat Coriolis carries the f-SHAPE,
+        # made effective by the live epsilon/Ro ratio (a chart
+        # RotationCoriolis stays dimensional and needs no scale)
+        eps = params[SCALING_NONLINEARITY]
+        zeta = eps * zeta
+        if CORIOLIS_ROSSBY in params:
+            f = (eps / params[CORIOLIS_ROSSBY]) * f
+    q = (f + zeta) / h
     return q.with_metadata(
         name="pot_vort", long_name="Potential vorticity",
         units="s/m^2")
 
 
+#: the thickness FUNCTION is retired: the full geopotential
+#: thickness is the core's DIAGNOSE-stage state field
+#: (``model.state["thickness"]``); the private :func:`_thickness`
+#: recompute backs the conservation functionals above.
 DIAGNOSTICS = {
     "ekin": ekin,
     "epot": epot,
     "ekin_full": ekin_full,
     "epot_full": epot_full,
     "etot_full": etot_full,
-    "thickness": thickness,
     "pot_vort": pot_vort,
 }

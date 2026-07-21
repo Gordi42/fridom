@@ -6,7 +6,7 @@ Description
 declares the horizontal velocities ``u, v`` (Velocity + ADVECTED, on
 the C-grid faces), the **diagnosed** vertical velocity ``w`` and the
 **diagnosed** hydrostatic pressure ``p_hyd``; it owns the core
-parameters ``hydrostatic.csqr`` and ``scaling.rossby``; it owns the
+parameters ``hydrostatic.csqr`` and ``scaling.nonlinearity``; it owns the
 two pre-tendency **DIAGNOSE** stages (S1'); and it contributes the
 single linear pressure-gradient term. It supplies the ``hy.State``
 vocabulary class through ``state_type``.
@@ -148,7 +148,7 @@ class HydrostaticCore(fr.model.Module):
         (default: 1.0); may be an ``fr.model.Ramp``.
     rossby_number : float | fr.model.Ramp, optional
         The Rossby number scaling the (separate) advection term,
-        published as ``scaling.rossby`` (default: 1.0); may be an
+        published as ``scaling.nonlinearity`` (default: 1.0); may be an
         ``fr.model.Ramp`` for a spun-up nonlinearity.
     vertical : str, optional
         The vertical coordinate name (default: ``"z"``).

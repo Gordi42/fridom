@@ -56,7 +56,7 @@ def make_model(device_ids=None):
                                      name="y")
     return sw.Model(
         grid=fr.spatial.Grid((mx, my), device_ids=device_ids),
-        csqr=0.7, rossby_number=0.2,
+        core=sw.Core(gravity=1.0, depth=0.7),
         coriolis=sw.modules.FPlaneCoriolis(f0=1.0), advection=False,
         time_stepper=fr.model.time_steppers.AdamBashforth(5e-3, order=3))
 

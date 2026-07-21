@@ -5,8 +5,10 @@ Description
 -----------
 The module library for the shallow-water model:
 
-- :class:`DynamicalCore` — declares ``u``/``v``/``p``, owns
-  ``csqr`` and the Rossby scaling, contributes the linear physics;
+- :class:`Core` — declares ``u``/``v``/``p``, owns the ``csqr`` and
+  ``thickness`` fields and the scaling variant (dimensional
+  ``gravity=``/``depth=`` XOR nondimensional ``froude_number=``),
+  contributes the linear wave term;
 - :class:`~fridom.model.modules.FPlaneCoriolis` /
   :class:`~fridom.model.modules.BetaPlaneCoriolis` /
   :class:`~fridom.model.modules.RotationCoriolis` (chart grids:
@@ -42,7 +44,7 @@ if TYPE_CHECKING:  # pragma: no cover
         RotationCoriolis,
     )
 
-    from .core import DynamicalCore
+    from .core import Core
     from .coriolis import (
         CoriolisEnergyCorrection,
         NonlinearBetaPlaneCoriolis,
@@ -66,7 +68,7 @@ all_modules_by_origin: dict[str, list[str]] = {}
 all_imports_by_origin = {
     "fridom.model.modules": [
         "FPlaneCoriolis", "BetaPlaneCoriolis", "RotationCoriolis"],
-    f"{base}.core": ["DynamicalCore"],
+    f"{base}.core": ["Core"],
     f"{base}.coriolis": [
         "CoriolisEnergyCorrection", "NonlinearFPlaneCoriolis",
         "NonlinearBetaPlaneCoriolis", "NonlinearRotationCoriolis",

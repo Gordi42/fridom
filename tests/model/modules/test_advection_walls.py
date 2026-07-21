@@ -233,7 +233,7 @@ def test_periodic_tendency_is_bitwise_unchanged():
     state = model.state
 
     class Ctx:
-        params: dict = {fr.model.params.SCALING_ROSSBY: 1.0}  # noqa: RUF012
+        params: dict = {fr.model.params.SCALING_NONLINEARITY: 1.0}  # noqa: RUF012
 
     got = module._advect(state, Ctx)
     for qname in ("u", "v", "w", "b"):

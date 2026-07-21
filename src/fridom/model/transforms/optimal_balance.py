@@ -7,7 +7,7 @@ The Tier-2 preset that projects onto the (slow) balanced manifold via
 the optimal-balance method (08 §10.5). Composed **on**
 :class:`AdiabaticRamping` (AR-D4, §10.9 "Reconciliation with §10.5"):
 the forward (up) leg is an ``AdiabaticRamping`` that ramps
-``scaling.rossby`` from 0 to the model's own nominal value (so user
+``scaling.nonlinearity`` from 0 to the model's own nominal value (so user
 parameter choices are preserved), and the backward leg is
 ``forward.replace(term_filter=backward_filter).backward`` — its
 retrace with a flipped ``TIME_STEP`` and reversed ramp window. The
@@ -82,7 +82,7 @@ class OptimalBalance(StateTransform):
             ``round(ramp_period / |dt|)`` internal steps per leg.
         ramp : str, optional
             The ramp curve ("exp" | "cosine" | "linear") applied to
-            ``scaling.rossby`` (default: "exp").
+            ``scaling.nonlinearity`` (default: "exp").
         max_it : int, optional
             The maximum fixed-point iterations (default: 3).
         tol : float, optional
@@ -106,23 +106,48 @@ class OptimalBalance(StateTransform):
             The internal legs' report/log name prefix
             (default: ``"OptimalBalance"``).
         """
-        has_rossby = params.SCALING_ROSSBY in model.parameters
+        has_rossby = params.SCALING_NONLINEARITY in model.parameters
+        # interim guard (nondimensionalization plan): under a
+        # mechanism scaling the epsilon row ALIASES the mechanism
+        # module's own nonlinearity leaf (Fr / Ro), so ramping
+        # 'scaling.nonlinearity' would silently ramp that physical
+        # regime number too — wrong physics, refused until the
+        # term-level ramping envelope lands (design/plans/active/
+        # nondimensionalization_plan.md section C). An absent or
+        # constant row keeps today's behavior.
+        table = getattr(model, "_binding_table", None)
+        if (has_rossby and table is not None
+                and str(params.SCALING_NONLINEARITY)
+                in getattr(table, "alias_names", frozenset())
+                and table[params.SCALING_NONLINEARITY].slot
+                is not None):
+            raise NotImplementedError(
+                "OptimalBalance cannot ramp 'scaling.nonlinearity' "
+                "on this model: under a mechanism scaling the "
+                "epsilon row aliases the mechanism module's own "
+                "nonlinearity leaf (the Froude/Rossby number), so "
+                "the ramp would silently deform the physical regime "
+                "number as well. The term-level ramping envelope "
+                "(design/plans/active/nondimensionalization_plan.md "
+                "section C) is the designed replacement; until it "
+                "lands, balance a dimensional or Advective-scaled "
+                "variant of the model instead")
         ramps: dict[str, object] = {}
         if has_rossby:
             # ramp to the MODEL's nominal rossby value, preserving the
             # user's parameter choice (e.g. rossby_number=0.1 ramps
             # 0 -> 0.1, not 0 -> 1).
-            nominal = model.parameters[params.SCALING_ROSSBY]
+            nominal = model.parameters[params.SCALING_NONLINEARITY]
             try:
                 target = float(nominal)
             except TypeError as exc:
                 msg = (
                     "OptimalBalance requires a constant "
-                    "'scaling.rossby' on the model to build its ramp; "
+                    "'scaling.nonlinearity' on the model to build its ramp; "
                     f"got the time-dependent value {nominal!r}."
                 )
                 raise TypeError(msg) from exc
-            ramps = {params.SCALING_ROSSBY: (0.0, target)}
+            ramps = {params.SCALING_NONLINEARITY: (0.0, target)}
         prefix = name or "OptimalBalance"
         # OB is composed ON AdiabaticRamping (AR-D4, §10.9): the up leg
         # owns the ramp build + step snapping (empty deformation when

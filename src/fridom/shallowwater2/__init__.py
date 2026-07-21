@@ -9,8 +9,9 @@ shallow-water vocabulary and physics:
 
 - :class:`~fridom.shallowwater2.state.State` — the ``u``/``v``/``p``
   vocabulary class;
-- :mod:`~fridom.shallowwater2.modules` — the core, Coriolis, and
-  Sadourny advection modules;
+- :mod:`~fridom.shallowwater2.modules` — the core (``sw.Core``,
+  also exported at the package root), Coriolis, and Sadourny
+  advection modules;
 - :func:`~fridom.shallowwater2.model.Model` — the thin preset factory
   (``sw.Model(grid=..., coriolis=..., ...)``);
 - :mod:`~fridom.shallowwater2.eigenmodes` — ``from_model``, the
@@ -55,6 +56,7 @@ if TYPE_CHECKING:  # pragma: no cover
         single_wave,
     )
     from .model import Model
+    from .modules.core import Core
     from .state import State
 
 # ================================================================
@@ -75,6 +77,7 @@ all_imports_by_origin = {
         "random_state", "random_vortical", "random_waves",
         "single_wave", "jet", "coherent_eddy"],
     f"{base}.model": ["Model"],
+    f"{base}.modules.core": ["Core"],
     f"{base}.state": ["State"],
 }
 

@@ -4,7 +4,7 @@ Description
 -----------
 Package-specific ``ParamName`` constants (D2.1): the nondimensional
 squared aspect ratio ``nonhydro.dsqr`` and the Rossby number
-``scaling.rossby`` both live on the dynamical-core module. Coriolis
+``scaling.nonlinearity`` both live on the dynamical-core module. Coriolis
 and stratification names are framework-canonical
 (``fr.params.CORIOLIS_F0`` / ``fr.params.STRATIFICATION_N2``) and are
 re-exported here for convenience.
@@ -14,7 +14,7 @@ from __future__ import annotations
 from fridom.model.params import (
     CORIOLIS_BETA,
     CORIOLIS_F0,
-    SCALING_ROSSBY,
+    SCALING_NONLINEARITY,
     STRATIFICATION_N2,
     ParamName,
 )
@@ -26,9 +26,9 @@ DSQR: ParamName = ParamName(
     "nonhydro.dsqr", units="1",
     hint="declared by nh.DynamicalCore(dsqr=...)")
 
-# ``scaling.rossby`` is framework-canonical but owned (provided) by
+# ``scaling.nonlinearity`` is framework-canonical but owned (provided) by
 # nh.DynamicalCore; re-exported so recipes can spell nh.params.ROSSBY.
-ROSSBY: ParamName = SCALING_ROSSBY
+ROSSBY: ParamName = SCALING_NONLINEARITY
 
 # ----------------------------------------------------------------
 #  Smagorinsky-Lilly closure (nh.SmagorinskyLilly)

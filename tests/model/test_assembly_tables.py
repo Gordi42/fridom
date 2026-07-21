@@ -72,7 +72,7 @@ class Advection:
     """Consumer with a Param-defaulted constructor slot."""
 
     def __init__(self,
-                 scaling=Param("scaling.rossby",  # noqa: B008
+                 scaling=Param("scaling.nonlinearity",  # noqa: B008
                                default=1.0)):
         self.scaling = scaling
 
@@ -187,23 +187,23 @@ def test_reference_hint_wins_over_the_registry_hint():
 
 def test_identity_default_binds_a_constant_entry():
     table = ParameterBindingTable.build((Advection(),), Stepper())
-    entry = table["scaling.rossby"]
+    entry = table["scaling.nonlinearity"]
     assert entry.slot is None
     assert entry.value == 1.0
     values = table.eval_params((Advection(),), Stepper(), 0.0)
-    assert values["scaling.rossby"] == 1.0
+    assert values["scaling.nonlinearity"] == 1.0
 
 
 def test_matching_identity_defaults_share_one_entry():
     table = ParameterBindingTable.build(
         (Advection(), Advection()), Stepper())
-    assert table.names.count("scaling.rossby") == 1
+    assert table.names.count("scaling.nonlinearity") == 1
 
 
 def test_conflicting_identity_defaults_raise():
     class OtherScaling:
         parameter_references = (
-            ParameterReference("scaling.rossby", default=2.0),)
+            ParameterReference("scaling.nonlinearity", default=2.0),)
 
     with pytest.raises(AssemblyError, match="conflicting"):
         ParameterBindingTable.build(
@@ -225,13 +225,13 @@ def test_default_on_a_no_default_registry_name_raises():
 # ================================================================
 def test_untouched_param_slot_declares_the_reference():
     table = ParameterBindingTable.build((Advection(),), Stepper())
-    assert "scaling.rossby" in table
+    assert "scaling.nonlinearity" in table
 
 
 def test_explicit_value_is_an_owned_value_no_linkage():
     table = ParameterBindingTable.build(
         (Advection(scaling=0.3),), Stepper())
-    assert "scaling.rossby" not in table
+    assert "scaling.nonlinearity" not in table
 
 
 def test_use_provided_forces_resolution_through_the_table():

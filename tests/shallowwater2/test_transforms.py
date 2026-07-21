@@ -189,10 +189,11 @@ def test_from_model_builds_the_same_projection():
 def test_from_model_rejects_a_beta_plane():
     grid = make_grid()
     model = sw.Model(
-        grid=grid, csqr=1.0,
+        grid=grid,
+        core=sw.Core(gravity=1.0, depth=1.0),
         coriolis=sw.modules.BetaPlaneCoriolis(f0=1.0, beta=2.0),
         time_stepper=fr.model.time_steppers.AdamBashforth(5e-3, order=3))
-    with pytest.raises(ValueError, match=r"coriolis\.f0"):
+    with pytest.raises(ValueError, match="constant Coriolis parameter"):
         sw.transforms.VorticalProjection.from_model(model)
 
 

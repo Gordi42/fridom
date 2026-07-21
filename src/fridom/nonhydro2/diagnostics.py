@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING
 
 from fridom.model.params import (
     CORIOLIS_F0,
-    SCALING_ROSSBY,
+    SCALING_NONLINEARITY,
     STRATIFICATION_N2,
 )
 from fridom.nonhydro2.params import DSQR
@@ -116,7 +116,7 @@ def linear_pot_vort(
     """
     f0 = params[CORIOLIS_F0]
     n2 = params[STRATIFICATION_N2]
-    ro = params[SCALING_ROSSBY]
+    ro = params[SCALING_NONLINEARITY]
     center = state["p"].function_space
     # the derivative outputs carry no declared wall structure (b is
     # BC-free; the vorticity difference joins to the BC-free meet),

@@ -31,6 +31,7 @@ if TYPE_CHECKING:  # pragma: no cover
         hydrostatic,
         model,
         nonhydro,
+        scaling,
         shallowwater,
         spatial,
     )
@@ -49,6 +50,7 @@ all_modules_by_origin = {
         "hydrostatic",
         "model",
         "nonhydro",
+        "scaling",
         "shallowwater",
         "spatial",
     ],

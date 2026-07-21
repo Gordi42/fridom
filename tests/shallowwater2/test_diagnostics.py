@@ -18,6 +18,8 @@ gates here:
   quadratics (the chart branch collapses to the flat spelling now that
   the state components are physical, D4).
 """
+from types import SimpleNamespace
+
 import jax
 import numpy as np
 import pytest
@@ -33,7 +35,7 @@ LAT_MAX = float(np.deg2rad(80.0))
 
 #: the exactly-conserving pair (the Coriolis term is skew under the
 #: LINEARIZED metric instead — sadourny.py module docstring)
-SCHEME = (fr.model.term_predicates.named("DynamicalCore/gravity")
+SCHEME = (fr.model.term_predicates.named("Core/gravity")
           | fr.model.term_predicates.named("SadournyAdvection/advect"))
 
 NAMES = ("u", "v", "p")
@@ -51,8 +53,10 @@ def sphere_grid(nlon=16, nlat=8, radius=1.0):
 def sphere_model(*, ro=RO, omega=1.5):
     """Assemble the spherical shallow-water preset."""
     return sw.Model(
-        grid=sphere_grid(), coords=("lon", "lat"), csqr=CSQR,
-        rossby_number=ro,
+        grid=sphere_grid(),
+        core=sw.Core(froude_number=ro, depth=CSQR,
+                     coords=("lon", "lat")),
+        scaling=fr.scaling.GravityWave(),
         coriolis=sw.modules.RotationCoriolis(
             omega=(0.0, 0.0, omega), coords=("lon", "lat"),
             metric_weight="csqr"),
@@ -106,7 +110,7 @@ def reference_energy(model):
     ``g_ii`` factor (it is folded into the physical ``U^2``).
     """
     z = model.state
-    ro = float(model.parameters[fr.model.params.SCALING_ROSSBY])
+    ro = float(model.parameters[fr.model.params.SCALING_NONLINEARITY])
     u, v, p = z["u"], z["v"], z["p"]
     h = z["csqr"].to(p) + ro * p
     ku = 0.5 * u * u * h.to(u)
@@ -186,10 +190,17 @@ def test_the_linearized_energy_is_not_the_nonlinear_invariant(model):
 #  The individual densities (values, spaces, params)
 # ================================================================
 def test_thickness_is_the_full_geopotential():
+    # the thickness() diagnostic function is retired: the full
+    # geopotential is now the core's DIAGNOSE-stage state field,
+    # rewritten every substage. Pin the stage's spelling —
+    # h = csqr + eps * p (nondim parity: the (Fr/eps)^2 ratio is an
+    # exact 1, so the coefficient collapses to eps = Ro bitwise).
     model = flat_model()
     set_random(model)
     z = model.state
-    h = model.diagnostics.thickness()
+    assert "thickness" in z.component_names
+    ctx = SimpleNamespace(params=model.parameters, clock=0.0)
+    h = model.module(sw.Core)._update_thickness(z, ctx)["thickness"]
     expected = z["csqr"].to(z["p"]) + RO * z["p"]
     assert np.array_equal(np.asarray(h.data),
                           np.asarray(expected.data))
@@ -279,9 +290,11 @@ def test_the_linear_model_conserves_the_m_norm_exactly():
 
 def test_the_diagnostics_namespace_exposes_both_families():
     model = flat_model()
+    # the thickness FUNCTION is retired (the core's DIAGNOSE-stage
+    # state field replaces it), so the mapping no longer names it
     names = set(sw.diagnostics.DIAGNOSTICS)
     assert names == {"ekin", "epot", "ekin_full", "epot_full",
-                     "etot_full", "thickness", "pot_vort"}
+                     "etot_full", "pot_vort"}
     for name in names:
         assert isinstance(getattr(model.diagnostics, name)(),
                           fr.spatial.ScalarField)

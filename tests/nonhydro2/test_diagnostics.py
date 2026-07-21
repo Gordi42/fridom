@@ -22,7 +22,7 @@ import pytest
 
 from fridom.model.params import (
     CORIOLIS_F0,
-    SCALING_ROSSBY,
+    SCALING_NONLINEARITY,
     STRATIFICATION_N2,
 )
 from fridom.nonhydro2.diagnostics import DIAGNOSTICS
@@ -43,7 +43,7 @@ PARAMS = {
     DSQR: 0.25,
     CORIOLIS_F0: 1.3,
     STRATIFICATION_N2: 2.0,
-    SCALING_ROSSBY: 0.1,
+    SCALING_NONLINEARITY: 0.1,
 }
 INITS = {
     "u": lambda x, y, z: jnp.sin(x) * jnp.cos(y) * jnp.cos(z),

@@ -66,20 +66,30 @@ without any elliptic work); barotropic Helmholtz on charts
 Laplace–Beltrami pressure operator + metric projection. A torus
 preset chart is a candidate pole-free test chart.
 
-## 2b. Nondimensionalization — dimensional/nondimensional variants (new 2026-07-21, owner to sequence)
+## 2b. Nondimensionalization — Branches 2/3 on the scaling-object architecture (Branch 1 implemented 2026-07-21)
 
-Every model package gets two assembly variants sharing all tendency
-modules: dimensional (physical `g`, `D`; zero scaling factors in the
-assembled modules) and nondimensional (paper scaling; Fr on the core,
-Ro on dedicated nondim Coriolis modules, thickness as a derived
-DIAGNOSE field, `scaling.rossby` renamed `scaling.nonlinearity`).
-Shallow water is fully designed and verified; **implementation is
-gated** on two companion designs (owner ruling 2026-07-21): the
-nonhydro2/hydrostatic generalization and the ramping redesign (OB/AR
-ramp the nonlinear *terms* instead of deforming the scaling
-parameter). Must land **before the docs rebuild** — it changes the
-public model-assembly API the docs would bake in
-(`csqr=`/`rossby_number=` are removed).
+**Branch 1 (framework + shallow water) is implemented** on
+`refactor/scaling-architecture` (awaiting owner integration):
+`fr.scaling` policy objects, the `scaling.nonlinearity` alias row,
+`sw.Core` dual variants with the DIAGNOSE-stage thickness, the
+dual-kwarg Coriolis family, the re-keyed eigen/energy consumers, and
+golden-file parity (all 16 pre-refactor configurations bitwise).
+Remaining:
+
+- **Branch 2** (`refactor/nh-hy-scaling`, after 1):
+  `_FluxFormAdvection` de-scaling + bind adoption, nh.Core
+  `aspect_ratio=` (DSQR retired), stratification dual kwargs, hy core
+  gravity provide + free-surface `_csqr(ctx)` + external Froude, old
+  cores deleted, parity against the Branch-1-captured nh/hy goldens.
+- **Branch 3** (`feat/ramping-envelope`, §C, after 1; independent of
+  2): `TendencyEnvelope`, composer wrap, AR `envelope=True`, OB
+  rewritten (deletes the interim alias-row guard). Until it lands,
+  OptimalBalance refuses mechanism-scaled models (taught error).
+
+Must land **before the docs rebuild** — Branch 1 already changed the
+public assembly API (`csqr=`/`rossby_number=`/`coords=` removed from
+`sw.Model`; docs/examples still spell the old surface and are part of
+the docs-rebuild pass).
 Plan: [`../plans/active/nondimensionalization_plan.md`](../plans/active/nondimensionalization_plan.md).
 
 ## 3. Perf-guard checkpoint (owner-run)

@@ -164,7 +164,7 @@ class ParameterReference(NamedTuple):
     An unsatisfied `REQUIRED` reference is a ``MissingParameterError``
     attributed to the requiring module; the hint falls back to the
     canonical-name registry's hint. Defaults are for
-    physically-identity values only (``scaling.rossby`` -> 1.0,
+    physically-identity values only (``scaling.nonlinearity`` -> 1.0,
     forcing amplitudes -> 0); a default on a registry name marked
     ``no_default`` is an assembly error.
 
@@ -195,7 +195,7 @@ class Param:
     Description
     -----------
     A constructor slot whose default is
-    ``fr.Param("scaling.rossby", default=1.0)`` declares a
+    ``fr.Param("scaling.nonlinearity", default=1.0)`` declares a
     ``ParameterReference(name, default=default)`` **only when the
     caller leaves the slot untouched**; an explicit number or
     ``fr.Ramp`` is an owned value — no reference declared

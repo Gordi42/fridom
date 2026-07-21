@@ -92,7 +92,7 @@ def sw_model(grid=None, *, csqr=4.0, f0=1.0):
     if grid is None:
         grid = sw_grid()
     return sw.Model(
-        grid=grid, csqr=csqr, rossby_number=0.2,
+        grid=grid, core=sw.Core(gravity=1.0, depth=csqr),
         coriolis=sw.modules.FPlaneCoriolis(f0=f0),
         time_stepper=fr.model.time_steppers.AdamBashforth(5e-3, order=3))
 
@@ -145,6 +145,22 @@ def test_from_model_shallowwater_weights():
     assert metric.weights["p"] == pytest.approx(0.25)
 
 
+def test_from_model_nondim_shallowwater_weights():
+    # the nondimensional branch: under the matching GravityWave
+    # scaling eps/Fr = 1 exactly, so the effective csqr is the depth
+    # ratio and the p weight is 1/4.0
+    model = sw.Model(
+        grid=sw_grid(),
+        core=sw.Core(froude_number=0.5, depth=4.0),
+        scaling=fr.scaling.GravityWave(),
+        coriolis=sw.modules.FPlaneCoriolis(rossby_number=0.5),
+        time_stepper=fr.model.time_steppers.AdamBashforth(
+            5e-3, order=3))
+    metric = EnergyMetric.from_model(model)
+    assert metric.component_names == ("u", "v", "p")
+    assert metric.weights["p"] == pytest.approx(0.25)
+
+
 def test_from_model_is_fr_exported():
     assert fr.model.EnergyMetric is EnergyMetric
 
@@ -160,8 +176,9 @@ def test_from_model_rejects_beta_plane():
 def test_from_model_beta_plane_without_the_coriolis_gate():
     # the weights never involve f (rotation does no work), so a
     # consumer that tolerates a varying f — the dense-column channel
-    # probe — opts out of the constancy gate and still reads csqr
-    params = {"shallowwater.csqr": 4.0}
+    # probe — opts out of the constancy gate and still reads the
+    # effective csqr from the primitives (gravity * depth)
+    params = {"shallowwater.gravity": 1.0, "shallowwater.depth": 4.0}
     metric = EnergyMetric.from_model(
         SimpleNamespace(parameters=params),
         require_constant_coriolis=False)
@@ -187,8 +204,10 @@ def test_from_model_rejects_zero_stratification():
 
 
 def test_from_model_rejects_zero_phase_speed():
-    params = {CORIOLIS_F0: 1.0, "shallowwater.csqr": 0.0}
-    with pytest.raises(ValueError, match="1/c"):
+    params = {CORIOLIS_F0: 1.0, "shallowwater.gravity": 1.0,
+              "shallowwater.depth": 0.0}
+    with pytest.raises(ValueError,
+                       match="nonzero effective phase speed"):
         EnergyMetric.from_model(SimpleNamespace(parameters=params))
 
 
@@ -357,7 +376,7 @@ def varying_sw_model(csqr_fn, grid=None):
     """Build a walled channel with a varying csqr(y) profile."""
     return sw.Model(
         grid=_walled_sw_grid() if grid is None else grid,
-        csqr=csqr_fn, rossby_number=0.2, advection=False,
+        core=sw.Core(gravity=1.0, depth=csqr_fn), advection=False,
         coriolis=FPlaneCoriolis(f0=1.0, metric_weight="csqr"),
         time_stepper=fr.model.time_steppers.AdamBashforth(5e-3, order=3))
 
@@ -385,8 +404,9 @@ def csqr_tanh(y):
 def test_from_model_varying_shallowwater_assembles_field_weights():
     # absent scalar provide + present csqr profile field -> the
     # varying metric diag(c^2, c^2, 1), field weights on u and v
+    # (a variable-depth core provides no constant shallowwater.depth)
     model = varying_sw_model(csqr_tanh)
-    assert "shallowwater.csqr" not in model.parameters
+    assert "shallowwater.depth" not in model.parameters
     metric = EnergyMetric.from_model(
         model, require_constant_coriolis=False,
         allow_field_weights=True)
@@ -671,8 +691,8 @@ def tracking_sw_model(grid=None, *, order=3, dt=5e-3):
     """Build a walled sw channel whose csqr is a time_dependent field."""
     return sw.Model(
         grid=_walled_sw_grid() if grid is None else grid,
-        csqr=_affine_csqr_law(), rossby_number=0.2, advection=False,
-        coriolis=None,
+        core=sw.Core(gravity=1.0, depth=_affine_csqr_law()),
+        advection=False, coriolis=None,
         time_stepper=fr.model.time_steppers.AdamBashforth(dt, order=order))
 
 

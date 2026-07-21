@@ -5,7 +5,7 @@ Description
 ``DynamicalCore`` is the package's dynamical-core module (D1.3): it
 declares the velocity trio ``u, v, w`` (Velocity + ADVECTED roles, on
 the C-grid staggered faces) and the diagnostic pressure ``p``; it owns
-the core parameters ``nonhydro.dsqr`` and ``scaling.rossby``; and it
+the core parameters ``nonhydro.dsqr`` and ``scaling.nonlinearity``; and it
 owns the pressure-projection **CONSTRAINT** stage (S4). It contributes
 **no tendency terms** — Coriolis, buoyancy coupling, and advection are
 separate modules — so the minimal core is declarations + a stage

@@ -46,8 +46,11 @@ def sphere_model(*, coriolis, csqr=0.7, ro=0.4, advection=False):
     divide carries its own ``_sealed_metric_divide`` guard.
     """
     return sw.Model(
-        grid=sphere_grid(), coords=("lon", "lat"), csqr=csqr,
-        rossby_number=ro, coriolis=coriolis, advection=advection,
+        grid=sphere_grid(),
+        core=sw.Core(froude_number=ro, depth=csqr,
+                     coords=("lon", "lat")),
+        scaling=fr.scaling.GravityWave(),
+        coriolis=coriolis, advection=advection,
         time_stepper=fr.model.time_steppers.AdamBashforth(1e-3, order=3))
 
 

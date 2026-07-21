@@ -53,12 +53,18 @@ def sphere_grid(nlon, nlat, radius=1.0, device_ids=None):
         device_ids=device_ids)
 
 
-def sphere_model(nlon=32, nlat=16, *, csqr=GH0, ro=1.0,
+def sphere_model(nlon=32, nlat=16, *, csqr=GH0,
                  omega=OMEGA, dt=2e-3, device_ids=None):
-    """Assemble the spherical shallow-water preset."""
+    """Assemble the spherical shallow-water preset.
+
+    Dimensional spelling with gravity 1.0: the old nondimensional
+    Ro = 1 setup carried unit advection scaling, so csqr = 1.0 * depth
+    reproduces it verbatim (the core carries the chart coords).
+    """
     return sw.Model(
         grid=sphere_grid(nlon, nlat, device_ids=device_ids),
-        coords=("lon", "lat"), csqr=csqr, rossby_number=ro,
+        core=sw.Core(gravity=1.0, depth=csqr,
+                     coords=("lon", "lat")),
         coriolis=sw.modules.RotationCoriolis(
             omega=(0.0, 0.0, omega), coords=("lon", "lat"),
             metric_weight="csqr"),
@@ -113,16 +119,22 @@ def test_identity_chart_run_is_bitwise_flat():
     fx, fy = meshes()
     flat_grid = fr.spatial.Grid((fx, fy))
 
-    def build(grid, coriolis, **kwargs):
+    def build(grid, coriolis):
+        # today-parity nondim spelling (the old run had Ro = 0.4 —
+        # the dimensional epsilon = 1 advection is unstable here);
+        # every live ratio is an exact 1.0 multiply, so the
+        # chart-vs-flat bitwise claim is untouched
         return sw.Model(
-            grid=grid, csqr=0.7, rossby_number=0.4,
+            grid=grid, core=sw.Core(froude_number=0.4, depth=0.7),
+            scaling=fr.scaling.GravityWave(),
             coriolis=coriolis,
             time_stepper=fr.model.time_steppers.AdamBashforth(
-                2e-3, order=3), **kwargs)
+                2e-3, order=3))
 
     chart = build(chart_grid, sw.modules.RotationCoriolis(
-        omega=(0.0, 0.0, 0.5), coords=("x", "y")), coords=("x", "y"))
-    flat = build(flat_grid, sw.modules.FPlaneCoriolis(f0=1.0))
+        omega=(0.0, 0.0, 0.5), coords=("x", "y")))
+    flat = build(flat_grid, sw.modules.FPlaneCoriolis(
+        rossby_number=0.4))
     assert float(chart.state["f_coriolis"].data.min()) == 1.0
     assert float(chart.state["f_coriolis"].data.max()) == 1.0
     rng = np.random.default_rng(7)
@@ -237,8 +249,7 @@ def test_tc2_stays_steady_and_converges():
 #  AB3 run-level drift of the exact invariant
 # ================================================================
 def test_energy_drift_stays_bounded_over_a_long_run():
-    ro = 1.0
-    model = sphere_model(ro=ro)
+    model = sphere_model()
     model.set_fields(
         p=swirl,
         u=lambda lon, lat: 0.05 * jnp.sin(lat) ** 2 + 0.0 * lon)

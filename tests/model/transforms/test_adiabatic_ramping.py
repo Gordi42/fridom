@@ -6,7 +6,7 @@ verbatim-window ramps feed a Ramp-valued internal :class:`Propagator`;
 irreversible backward legs. The dynamical laws (endpoint exactness,
 the four-leg matrix, near-inverse pairs, window-vs-composition
 equivalence) are exercised on a small RK4 inertial-oscillation model
-with a ``scaling.rossby``-scaled nonlinear term and a
+with a ``scaling.nonlinearity``-scaled nonlinear term and a
 ``coriolis.f0``-scaled rotation term (both read from ``ctx.params``, so
 the ramps genuinely deform the operator).
 
@@ -91,13 +91,13 @@ class F0Provider(Module):
 @jaxify
 class NonlinearScaled(Module):
 
-    """A nonlinear self-advection scaled by ``scaling.rossby``."""
+    """A nonlinear self-advection scaled by ``scaling.nonlinearity``."""
 
     field_declarations = ()
 
     @term(name="adv", advances=("u", "v"))
     def adv(self, state, ctx):
-        ro = ctx.params[params.SCALING_ROSSBY]
+        ro = ctx.params[params.SCALING_NONLINEARITY]
         return {"u": state["u"] * state["v"] * ro,
                 "v": -state["v"] * state["u"] * ro}
 
@@ -105,11 +105,12 @@ class NonlinearScaled(Module):
 @partial(jaxify, dynamic=("rossby",))
 class RossbyProvider(Module):
 
-    """A pure provider binding ``scaling.rossby``."""
+    """A pure provider binding ``scaling.nonlinearity``."""
 
     field_declarations = ()
     parameter_declarations = (
-        ParameterDeclaration("scaling.rossby", attr="rossby", units="1"),)
+        ParameterDeclaration("scaling.nonlinearity", attr="rossby",
+                             units="1"),)
 
     def __init__(self, rossby=RO):
         self.rossby = jnp.asarray(rossby, dtype=dtype_real())
@@ -164,7 +165,7 @@ def z0(model):
 @pytest.fixture
 def up(model):
     return AdiabaticRamping(
-        model, ramps={params.SCALING_ROSSBY: (0.0, RO)},
+        model, ramps={params.SCALING_NONLINEARITY: (0.0, RO)},
         ramp_period=RAMP, curve="exp")
 
 
@@ -172,13 +173,13 @@ def up(model):
 #  Law 1: endpoint exactness
 # ================================================================
 def test_up_endpoint_exactness(up):
-    ramp = up.model.parameters[params.SCALING_ROSSBY]
+    ramp = up.model.parameters[params.SCALING_NONLINEARITY]
     assert float(ramp.at_time(0.0)) == pytest.approx(0.0, abs=1e-12)
     assert float(ramp.at_time(RAMP)) == pytest.approx(RO, abs=1e-12)
 
 
 def test_resolved_ramp_carries_the_endpoints(up):
-    ramp = up.ramps[params.SCALING_ROSSBY]
+    ramp = up.ramps[params.SCALING_NONLINEARITY]
     assert isinstance(ramp, Ramp)
     assert float(ramp.v0) == pytest.approx(0.0)
     assert float(ramp.v1) == pytest.approx(RO)
@@ -187,7 +188,7 @@ def test_resolved_ramp_carries_the_endpoints(up):
 def test_one_step_probe_runs_with_the_ramp_live(model, z0):
     # a 1-step leg advances the internal model with the ramp active
     leg = AdiabaticRamping(
-        model, ramps={params.SCALING_ROSSBY: (0.0, RO)},
+        model, ramps={params.SCALING_NONLINEARITY: (0.0, RO)},
         ramp_period=RAMP, steps=1)
     out = leg(z0)
     assert out.component_names == ("u", "v")
@@ -203,11 +204,11 @@ def test_window_form_per_parameter_endpoint_exactness(model):
         ramps={
             params.CORIOLIS_F0: Ramp(
                 4.0, F0, period=half, t0=0.0, curve="exp"),
-            params.SCALING_ROSSBY: Ramp(
+            params.SCALING_NONLINEARITY: Ramp(
                 0.0, RO, period=half, t0=half, curve="exp")},
         ramp_period=RAMP)
     f0 = leg.model.parameters[params.CORIOLIS_F0]
-    ro = leg.model.parameters[params.SCALING_ROSSBY]
+    ro = leg.model.parameters[params.SCALING_NONLINEARITY]
     # f0 ramps in [0, half]; rossby in [half, RAMP]
     assert float(f0.at_time(0.0)) == pytest.approx(4.0)
     assert float(f0.at_time(RAMP)) == pytest.approx(F0)
@@ -238,19 +239,19 @@ def test_four_leg_matrix(up, which, backward, p_start, p_end):
     dt = float(leg.model.parameters[params.TIME_STEP])
     assert leg.is_backward is backward
     assert (dt < 0.0) is backward
-    ramp = leg.model.parameters[params.SCALING_ROSSBY]
+    ramp = leg.model.parameters[params.SCALING_NONLINEARITY]
     t_end = -RAMP if backward else RAMP
     assert float(ramp.at_time(0.0)) == pytest.approx(p_start, abs=1e-9)
     assert float(ramp.at_time(t_end)) == pytest.approx(p_end, abs=1e-9)
 
 
 def test_down_and_backward_are_involutions(up):
-    back_to_up = up.down.down.ramps[params.SCALING_ROSSBY]
+    back_to_up = up.down.down.ramps[params.SCALING_NONLINEARITY]
     assert float(back_to_up.at_time(0.0)) == pytest.approx(0.0, abs=1e-9)
     assert float(back_to_up.at_time(RAMP)) == pytest.approx(RO, abs=1e-9)
     rev2 = up.backward.backward
     assert not rev2.is_backward
-    r = rev2.ramps[params.SCALING_ROSSBY]
+    r = rev2.ramps[params.SCALING_NONLINEARITY]
     assert float(r.at_time(0.0)) == pytest.approx(0.0, abs=1e-9)
 
 
@@ -258,10 +259,10 @@ def test_down_reflects_a_verbatim_window(model):
     half = RAMP / 2
     leg = AdiabaticRamping(
         model,
-        ramps={params.SCALING_ROSSBY: Ramp(
+        ramps={params.SCALING_NONLINEARITY: Ramp(
             0.0, RO, period=half, t0=half, curve="exp")},
         ramp_period=RAMP)
-    d = leg.down.ramps[params.SCALING_ROSSBY]
+    d = leg.down.ramps[params.SCALING_NONLINEARITY]
     # window [half, RAMP] reflects to [0, half]; endpoints swap
     assert float(d.t0) == pytest.approx(0.0, abs=1e-12)
     assert float(d.period) == pytest.approx(half)
@@ -302,14 +303,14 @@ def test_window_and_composition_agree(model, z0):
         ramps={
             params.CORIOLIS_F0: Ramp(
                 4.0, F0, period=half, t0=0.0, curve="exp"),
-            params.SCALING_ROSSBY: Ramp(
+            params.SCALING_NONLINEARITY: Ramp(
                 0.0, RO, period=half, t0=half, curve="exp")},
         ramp_period=RAMP)
     leg_a = AdiabaticRamping(
         model, ramps={params.CORIOLIS_F0: (4.0, F0)},
-        ramp_period=half, updates={params.SCALING_ROSSBY: 0.0})
+        ramp_period=half, updates={params.SCALING_NONLINEARITY: 0.0})
     leg_b = AdiabaticRamping(
-        model, ramps={params.SCALING_ROSSBY: (0.0, RO)},
+        model, ramps={params.SCALING_NONLINEARITY: (0.0, RO)},
         ramp_period=half, updates={params.CORIOLIS_F0: F0})
     residual = float(relative_l2(single(z0), leg_b(leg_a(z0))))
     assert residual < 1e-12  # RK4 single-step: machine-exact (~1.8e-17)
@@ -355,12 +356,12 @@ def test_replace_then_backward_filters():
 def test_verbatim_time_dependent_passes_through(model):
     ramp = Ramp(0.0, RO, period=RAMP, t0=0.0, curve="cosine")
     leg = AdiabaticRamping(
-        model, ramps={params.SCALING_ROSSBY: ramp}, ramp_period=RAMP)
-    assert leg.ramps[params.SCALING_ROSSBY] is ramp
+        model, ramps={params.SCALING_NONLINEARITY: ramp}, ramp_period=RAMP)
+    assert leg.ramps[params.SCALING_NONLINEARITY] is ramp
 
 
 def test_tuple_sugar_builds_a_full_window_ramp(up):
-    ramp = up.ramps[params.SCALING_ROSSBY]
+    ramp = up.ramps[params.SCALING_NONLINEARITY]
     assert float(ramp.t0) == pytest.approx(0.0)
     assert float(ramp.period) == pytest.approx(RAMP)
 
@@ -368,13 +369,13 @@ def test_tuple_sugar_builds_a_full_window_ramp(up):
 def test_bad_ramp_spec_raises(model):
     with pytest.raises(TypeError, match="v_ref, v_target"):
         AdiabaticRamping(
-            model, ramps={params.SCALING_ROSSBY: 3.0}, ramp_period=RAMP)
+            model, ramps={params.SCALING_NONLINEARITY: 3.0}, ramp_period=RAMP)
 
 
 def test_down_of_a_non_ramp_curve_raises(model):
     affine = Ramp(0.0, RO, period=RAMP) * 2.0  # an _Affine, not a Ramp
     leg = AdiabaticRamping(
-        model, ramps={params.SCALING_ROSSBY: affine}, ramp_period=RAMP)
+        model, ramps={params.SCALING_NONLINEARITY: affine}, ramp_period=RAMP)
     with pytest.raises(TypeError, match=r"\.down reflects"):
         leg.down  # noqa: B018 — property access triggers the reflection
 
@@ -382,7 +383,7 @@ def test_down_of_a_non_ramp_curve_raises(model):
 def test_backward_of_a_non_ramp_curve_raises(model):
     affine = Ramp(0.0, RO, period=RAMP) * 2.0
     leg = AdiabaticRamping(
-        model, ramps={params.SCALING_ROSSBY: affine}, ramp_period=RAMP)
+        model, ramps={params.SCALING_NONLINEARITY: affine}, ramp_period=RAMP)
     with pytest.raises(TypeError, match=r"\.backward reflects"):
         leg.backward  # noqa: B018 — property access triggers the reflection
 
@@ -396,14 +397,14 @@ def test_steps_default_snaps_to_ramp_period(up):
 
 def test_steps_override(model):
     leg = AdiabaticRamping(
-        model, ramps={params.SCALING_ROSSBY: (0.0, RO)},
+        model, ramps={params.SCALING_NONLINEARITY: (0.0, RO)},
         ramp_period=RAMP, steps=5)
     assert leg.steps == 5
 
 
 def test_steps_floor_is_one(model):
     leg = AdiabaticRamping(
-        model, ramps={params.SCALING_ROSSBY: (0.0, RO)},
+        model, ramps={params.SCALING_NONLINEARITY: (0.0, RO)},
         ramp_period=DT / 4)  # round(0.25) == 0 -> max(1, 0)
     assert leg.steps == 1
 
@@ -414,13 +415,13 @@ def test_steps_floor_is_one(model):
 def test_replace_preserves_ramps_by_default(up):
     replaced = up.replace(name="renamed")
     assert replaced.ramps.keys() == up.ramps.keys()
-    r = replaced.ramps[params.SCALING_ROSSBY]
+    r = replaced.ramps[params.SCALING_NONLINEARITY]
     assert float(r.at_time(RAMP)) == pytest.approx(RO)
 
 
 def test_replace_reresolves_when_ramps_given(up):
-    replaced = up.replace(ramps={params.SCALING_ROSSBY: (0.0, 0.3)})
-    r = replaced.ramps[params.SCALING_ROSSBY]
+    replaced = up.replace(ramps={params.SCALING_NONLINEARITY: (0.0, 0.3)})
+    r = replaced.ramps[params.SCALING_NONLINEARITY]
     assert float(r.at_time(RAMP)) == pytest.approx(0.3)
 
 

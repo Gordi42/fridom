@@ -96,9 +96,16 @@ def make_model(args: argparse.Namespace, *, periodic_y: bool = True):
         args.size, (0.0, length), periodic=True, name="x")
     my = fr.spatial.meshes.IntervalMesh(
         args.size, (0.0, length), periodic=periodic_y, name="y")
+    # today-parity spelling on the scaling surface. NOTE: the
+    # OptimalBalance protocol below is refused on mechanism-scaled
+    # models by the interim alias guard until the term-level ramping
+    # envelope lands (nondimensionalization plan, section C).
     return sw.Model(
-        grid=fr.spatial.Grid((mx, my)), csqr=1.0, rossby_number=1.0,
-        coriolis=sw.modules.FPlaneCoriolis(f0=1.0), advection=True,
+        grid=fr.spatial.Grid((mx, my)),
+        core=sw.Core(froude_number=1.0, depth=1.0),
+        scaling=fr.scaling.GravityWave(),
+        coriolis=sw.modules.FPlaneCoriolis(rossby_number=1.0),
+        advection=True,
         time_stepper=fr.model.time_steppers.AdamBashforth(
             args.dt, order=3))
 
