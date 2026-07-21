@@ -21,7 +21,7 @@ from fridom.model.modules.coriolis import (
     FPlaneCoriolis,
     RotationCoriolis,
 )
-from fridom.shallowwater2.modules.core import DynamicalCore
+from fridom.shallowwater2.modules.core import Core
 from fridom.shallowwater2.modules.coriolis import (
     carries_linear_rotation,
     check_rotation_modules,
@@ -160,8 +160,13 @@ def Model(  # noqa: N802 — constructor-like factory (D1.3)
         counts the rotation twice
         (``sw.modules.coriolis.check_rotation_modules``).
     """
-    core = DynamicalCore(csqr=csqr, rossby_number=rossby_number,
-                         coords=coords)
+    # interim today-parity shim (nondimensionalization refactor,
+    # replaced by the scaling-surface preset in the follow-up
+    # commit): (csqr, rossby_number) spell the GravityWave-scaled
+    # nondimensional core, whose live ratios self-normalize to
+    # today's tendencies bitwise.
+    core = Core(froude_number=rossby_number, depth=csqr,
+                coords=coords)
     modules: tuple[fr.model.Module, ...] = (core,)
     # rotation is opt-in: coriolis=None installs no module at all
     if coriolis is not None:
@@ -200,4 +205,5 @@ def Model(  # noqa: N802 — constructor-like factory (D1.3)
     if time_stepper is None:
         time_stepper = fr.model.time_steppers.AdamBashforth(dt=1.0, order=3)
     return fr.model.Model(grid=grid, modules=modules,
-                    time_stepper=time_stepper, name=name, **kwargs)
+                    time_stepper=time_stepper, name=name,
+                    scaling=fr.scaling.GravityWave(), **kwargs)

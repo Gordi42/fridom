@@ -43,7 +43,7 @@ scalar with ``.item()``:
 
     e = model.diagnostics.etot_full().integrate().item()
 
-The ``DIAGNOSTICS`` mapping is contributed by ``sw.DynamicalCore``
+The ``DIAGNOSTICS`` mapping is contributed by ``sw.Core``
 (the diagnostics-namespace channel).
 """
 from __future__ import annotations

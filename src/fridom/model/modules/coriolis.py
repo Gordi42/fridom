@@ -111,7 +111,7 @@ if TYPE_CHECKING:  # pragma: no cover
     from fridom.spatial.fields.scalar_field import ScalarField
 
 _U_HINT = ("velocities are declared by a dynamical-core module, "
-           "e.g. nh.DynamicalCore or sw.DynamicalCore")
+           "e.g. nh.DynamicalCore or sw.Core")
 
 
 def _safe_metric_divide(
