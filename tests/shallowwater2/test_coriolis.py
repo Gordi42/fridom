@@ -298,9 +298,11 @@ def test_route_b_refuses_to_linearize():
 
 
 def test_route_b_refuses_the_analytic_eigenmodes():
+    # from_model delegates to the uniform eigenbasis surface, so the
+    # gap error carries the sw.eigenbasis consumer label
     model = flat_model("B")
     with pytest.raises(LinearOperatorGapError,
-                       match=r"sw\.eigenmodes\.from_model"):
+                       match=r"sw\.eigenbasis"):
         sw.eigenmodes.from_model(model)
 
 
