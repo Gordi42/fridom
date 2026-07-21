@@ -369,9 +369,20 @@ stretched-exponential leakage shard for the new path.
 §C lands after §A on its own branch with zero §A rework; §B is
 independent of §C; no §B decision blocks §C.
 
-## D. Unit factors and scales report — designed (2026-07-21, owner-simplified)
+## D. Unit factors and scales report — shipped (2026-07-21, framework + sw; nh/hy tables owed to Branch 2)
 
-Ships after §B (needs the new primitive provides). Owner rulings:
+**Implemented** on `feat/unit-factors`: `fridom/model/units.py`
+(`UnitFactor`/`FactorEntry`/`UnitsView`, the framework `t`/`T_ref`
+rows, the centralized variant switch) behind `model.units`; the
+shallow-water amplitude table `fridom/shallowwater2/units.py` on
+`sw.Core.unit_factors` (instance property — `coords=` renames the
+coordinate keys); the Coriolis family's `f_dim` row; and the writer
+stamp (`Writer(units_metadata=True)` default: `fridom_scaling*`
+global attrs + per-variable/coordinate/time `dimensional_factor`
+attrs, the CF option-(b) time rewrite below). Rows are collected
+duck-typed off `module.unit_factors` mappings, so the nh/hy tables
+are a **Branch 2 follow-up with zero machinery edits**. Design
+record (the shipped semantics):
 **no state conversion API and no coexistence of dimensional and
 nondimensional states** in the same function spaces (rejected
 2026-07-21 — making that consistent would require distinct function
