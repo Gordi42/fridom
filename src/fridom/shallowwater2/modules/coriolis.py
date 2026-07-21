@@ -118,8 +118,10 @@ from fridom.model.modules.coriolis import (
     chart_rotation,
     linear_rotation,
 )
-from fridom.model.parameters import Param
-from fridom.model.params import SCALING_NONLINEARITY
+from fridom.model.params import (
+    CORIOLIS_ROSSBY,
+    SCALING_NONLINEARITY,
+)
 from fridom.model.terms import term
 from fridom.model.time_dependent import TimeDependent
 from fridom.shallowwater2.chart import (
@@ -143,7 +145,7 @@ LINEAR_CORIOLIS = (FPlaneCoriolis, BetaPlaneCoriolis, RotationCoriolis)
 #: shallow-water rotation)
 _WEIGHT = "csqr"
 
-_CORE_HINT = "a shallow-water core, e.g. sw.DynamicalCore"
+_CORE_HINT = "a shallow-water core, e.g. sw.Core"
 _F_HINT = ("a Coriolis module, e.g. sw.modules.FPlaneCoriolis — "
            "rotation is opt-in")
 
@@ -288,7 +290,7 @@ def _safe_pv_divide(
 
 
 def conserving_rotation(
-    state: object, *, coords: tuple[str, str], rossby: object,
+    state: object, *, coords: tuple[str, str],
 ) -> dict:
     r"""
     Return the exactly-conserving discrete Coriolis tendency.
@@ -298,35 +300,32 @@ def conserving_rotation(
     The module docstring's ``(f / h_bar) (h v)_bar``: the ``f``-part
     of the vector-invariant PV flux, on the same NE vorticity corner
     and with the same thickness averages ``SadournyAdvection`` uses
-    (flat and chart paths both). Carries **no** Rossby factor: the
-    combined potential vorticity is :math:`(f + \mathrm{Ro}\,\zeta)/h`,
-    whose :math:`\zeta` part is the (Ro-scaled) advection term and
-    whose :math:`f` part — this one — is the unscaled rotation.
+    (flat and chart paths both). The thickness is the core's
+    DIAGNOSE-stage ``thickness`` field — the same stage-fresh ``h``
+    the Sadourny scheme and the ``ekin_full`` diagnostic carry.
+    Carries no scaling factor of its own: the nondimensional route-B
+    scale :math:`s = \varepsilon/\mathrm{Ro}` is applied by the
+    calling term.
 
     Parameters
     ----------
     state : VectorField
-        The model state; reads ``u``, ``v``, ``p``, ``csqr`` and
+        The model state; reads ``u``, ``v``, ``thickness`` and
         ``f_coriolis``.
     coords : tuple[str, str]
         The (zonal, meridional) coordinate names.
-    rossby : object
-        The Rossby scaling (a traced ``ctx.params`` scalar), needed
-        for the thickness ``h = c^2 + Ro p``.
 
     Returns
     -------
     dict
         The ``u`` / ``v`` increments.
     """
-    u, v, p = state["u"], state["v"], state["p"]
-    c = state["csqr"]
+    u, v = state["u"], state["v"]
     f = state["f_coriolis"]
     meridional = coords[1]
 
-    # full geopotential thickness at the centre — the same h the
-    # Sadourny scheme and the ekin_full diagnostic carry
-    h = c.to(p) + rossby * p
+    # the full geopotential thickness at the centre (DIAGNOSE stage)
+    h = state["thickness"]
 
     # the NE vorticity corner (identical construction to the Sadourny
     # scheme: it adopts each velocity's wall tag on the OTHER
@@ -495,15 +494,22 @@ class CoriolisEnergyCorrection(Module):
         FieldReference("v", hint=_CORE_HINT),
         FieldReference("p", hint=_CORE_HINT),
         FieldReference("csqr", hint=_CORE_HINT),
+        FieldReference(
+            "thickness",
+            hint="the full geopotential thickness is a DIAGNOSE-"
+                 "stage field of the shallow-water core (sw.Core)"),
         FieldReference("f_coriolis", hint=_F_HINT),
     )
-
-    parameter_references = (Param(SCALING_NONLINEARITY, default=1.0),)
 
     def __init__(self, *, coords: tuple[str, str] = ("x", "y")) -> None:
         """Store the coordinate names; the weight is found at bind."""
         self._coords = _coord_names(coords)
         self._metric_weight: str | None = None
+        # adopted at bind from the PAIRED linear module's variant
+        # (assembly validation keeps it consistent with the policy):
+        # the nondimensional branch scales the (full - linear)
+        # difference by s = epsilon / Ro
+        self._nondim: bool = False
 
     # ================================================================
     #  Properties
@@ -562,6 +568,10 @@ class CoriolisEnergyCorrection(Module):
         check_rotation_modules(modules)
         linear = [module for module in modules
                   if carries_linear_rotation(module)]
+        # adopt the paired module's variant: the correction must
+        # subtract (and scale) EXACTLY what the linear module adds
+        self._nondim = (getattr(linear[0], "scaling_variant", None)
+                        == "nondimensional")
         weight = linear[0].metric_weight
         if weight not in (None, _WEIGHT):
             raise ValueError(
@@ -589,13 +599,20 @@ class CoriolisEnergyCorrection(Module):
         contributes nothing to the linearization (and it is declared
         ``linear=False`` regardless, so ``L`` never sees it).
         """
-        rossby = ctx.params[SCALING_NONLINEARITY]
-        full = conserving_rotation(state, coords=self._coords,
-                                   rossby=rossby)
+        full = conserving_rotation(state, coords=self._coords)
         linear = linear_coriolis(state, coords=self._coords,
                                  metric_weight=self._metric_weight)
-        return {name: full[name] - linear[name]
+        diff = {name: full[name] - linear[name]
                 for name in ("u", "v")}
+        if not self._nondim:
+            return diff
+        # nondimensional route A: the paired linear module carries
+        # the s-scaled rotation, the conserving total is the
+        # s-scaled full body, so the correction scales the
+        # difference by the same live ratio
+        scale = (ctx.params[SCALING_NONLINEARITY]
+                 / ctx.params[CORIOLIS_ROSSBY])
+        return {name: scale * diff[name] for name in ("u", "v")}
 
 
 # ================================================================
@@ -635,8 +652,6 @@ class _ConservingRotation:
     #: read by the analytic eigenmodes as "L rotates at f0")
     parameter_declarations = ()
 
-    parameter_references = (Param(SCALING_NONLINEARITY, default=1.0),)
-
     @property
     def metric_weight(self) -> None:
         """Always None: the thickness IS the weight (docstring)."""
@@ -649,12 +664,15 @@ class _ConservingRotation:
 
     @property
     def field_references(self) -> tuple[FieldReference, ...]:
-        """u/v plus the thickness ingredients ``p`` and ``csqr``."""
+        """u/v plus the core's DIAGNOSE-stage ``thickness``."""
         return (
             FieldReference("u", hint=_CORE_HINT),
             FieldReference("v", hint=_CORE_HINT),
-            FieldReference("p", hint=_CORE_HINT),
-            FieldReference("csqr", hint=_CORE_HINT),
+            FieldReference(
+                "thickness",
+                hint="the full geopotential thickness is a "
+                     "DIAGNOSE-stage field of the shallow-water "
+                     "core (sw.Core)"),
         )
 
     @property
@@ -715,10 +733,19 @@ class _ConservingRotation:
         the stage-time blend ``f(y,t)`` each substage (TDF-D11), so the
         conserving channel supports a ramped ``beta`` end to end reading
         ``state["f_coriolis"]`` plainly — no term-side blend seam.
+
+        In the **nondimensional** variant (the base family's
+        ``rossby_number=`` kwarg set) the whole conserving body is
+        scaled by :math:`s = \varepsilon/\mathrm{Ro}` — the same
+        live ratio the linear rotation carries.
         """
-        return conserving_rotation(
-            state, coords=self._coords,
-            rossby=ctx.params[SCALING_NONLINEARITY])
+        body = conserving_rotation(state, coords=self._coords)
+        if not getattr(self, "_nondim", False):
+            return body
+        scale = (ctx.params[SCALING_NONLINEARITY]
+                 / ctx.params[CORIOLIS_ROSSBY])
+        return {name: scale * value
+                for name, value in body.items()}
 
 
 class NonlinearFPlaneCoriolis(_ConservingRotation, FPlaneCoriolis):

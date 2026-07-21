@@ -16,15 +16,16 @@ variant, potential enstrophy):
 with the mass flux :math:`\boldsymbol{f_u} = p_\mathrm{full}
 \boldsymbol{u}`, the potential vorticity
 :math:`q = \zeta / p_\mathrm{full}`, and the full geopotential
-thickness :math:`p_\mathrm{full} = c^2 + \mathrm{Ro}\,p`. Every term
-is scaled by the Rossby number ``scaling.nonlinearity`` (read from
-``ctx.params``); the module owns no numeric leaves.
-
-**Signed delta vs the old model (§8.8):** the old scheme read the
-*scalar* ``csqr`` in ``p_full`` (an outright bug on variable depth).
-This port reads the ``csqr`` **field** — ``state["csqr"]`` — so
-``p_full`` is spatially correct. Bitwise-identical to the old scheme
-only for constant depth.
+thickness :math:`p_\mathrm{full}` read from the core's
+DIAGNOSE-stage ``thickness`` field (``sw.Core``: :math:`c^2 + p`
+dimensional, :math:`\tilde D + \varepsilon(\mathrm{Fr}/
+\varepsilon)^2 p` nondimensional). The module is **scaling-neutral**
+(no physics kwargs): it adopts the assembly's ``fr.scaling`` variant
+at bind — a **dimensional** assembly carries zero scaling operations
+in the trace, a **nondimensional** one multiplies each output
+(``du``, ``dv``, ``dp``) by ONE outer nonlinearity number
+:math:`\varepsilon` (``scaling.nonlinearity``, read from
+``ctx.params`` at stage time). The module owns no numeric leaves.
 
 Walled grids (free-slip)
 ------------------------
@@ -483,10 +484,11 @@ class SadournyAdvection(fr.model.Module):
         fr.model.FieldReference("u", hint="a shallow-water core"),
         fr.model.FieldReference("v", hint="a shallow-water core"),
         fr.model.FieldReference("p", hint="a shallow-water core"),
-        fr.model.FieldReference("csqr", hint="a shallow-water core"))
-
-    parameter_references = (
-        fr.model.Param(fr.model.params.SCALING_NONLINEARITY, default=1.0),)
+        fr.model.FieldReference("csqr", hint="a shallow-water core"),
+        fr.model.FieldReference(
+            "thickness",
+            hint="the full geopotential thickness is a DIAGNOSE-"
+                 "stage field of the shallow-water core (sw.Core)"))
 
     # The Rossby scaling multiplies a traced ``ctx.params`` scalar
     # into the tendency (a raw-data op the halo tracer cannot follow),
@@ -517,6 +519,10 @@ class SadournyAdvection(fr.model.Module):
                 f"two distinct strings, got {coords!r}")
         self._coords: tuple[str, str] = coords
         self._bg_axes = {"u": coords[0], "v": coords[1]}
+        # the bind-adopted scaling variant (scaling-neutral module):
+        # nondimensional assemblies scale each advective output by
+        # one outer epsilon; dimensional traces carry no scaling op
+        self._nondim: bool = False
         if background is None:
             self._background: dict[str, float | Callable] | None = (
                 None)
@@ -658,6 +664,11 @@ class SadournyAdvection(fr.model.Module):
             path is unmasked — silent wrong physics).
         """
         grid = table.grid
+        # adopt the scaling variant (fr.scaling): the advection is
+        # scaling-neutral — no physics kwargs — so the variant comes
+        # from the assembly policy, a host-side static flag
+        self._nondim = bool(getattr(
+            getattr(table, "scaling", None), "nondimensional", False))
         if (self._background is not None
                 and getattr(grid, "immersed", None) is not None):
             raise NotImplementedError(
@@ -817,7 +828,7 @@ class SadournyAdvection(fr.model.Module):
     @fr.model.term(advances=("u", "v", "p"),
              transports=("u", "v", "p"), linear=False)
     def advect(self, state, ctx) -> dict:  # noqa: ANN001
-        """Return the Sadourny vector-invariant tendency (Ro-scaled).
+        """Return the Sadourny vector-invariant tendency.
 
         Description
         -----------
@@ -830,28 +841,28 @@ class SadournyAdvection(fr.model.Module):
         is taken (module docstring); on the identity chart it
         reproduces the flat scheme bitwise.
         """
-        rossby = ctx.params[fr.model.params.SCALING_NONLINEARITY]
+        eps = (ctx.params[fr.model.params.SCALING_NONLINEARITY]
+               if self._nondim else None)
         u, v, p = state["u"], state["v"], state["p"]
-        c = state["csqr"]
         zonal, meridional = self._coords
 
-        # full geopotential thickness (centre) — the csqr-FIELD fix
-        # (c is the centre csqr field, never the scalar; old bug)
-        p_full = c.to(p) + rossby * p
+        # the full geopotential thickness: the core's DIAGNOSE-stage
+        # field, stage-fresh before any term runs (one owner of the
+        # variant-dependent surface-displacement coefficient)
+        p_full = state["thickness"]
 
         if u.grid.chart_coords is not None:
-            return self._advect_chart(u, v, p, p_full, rossby)
+            return self._advect_chart(u, v, p, p_full, eps)
 
         if getattr(u.grid, "immersed", None) is not None:
-            return self._advect_immersed(u, v, p, p_full, rossby)
+            return self._advect_immersed(u, v, p, p_full, eps)
 
-        # --- thickness tendency  dp = -Ro div(u p_e, v p_n) --------
+        # --- thickness tendency  dp = -s div(u p_e, v p_n) ---------
         # (wall-normal flux lives on interior faces; the Dirichlet
         # fill closes the divergence with a zero wall flux)
         flux_u = u * p.to(u)                       # u face (east)
         flux_v = v * p.to(v)                       # v face (north)
-        dp = rossby * -(flux_u.diff(zonal)
-                        + flux_v.diff(meridional))
+        dp = -(flux_u.diff(zonal) + flux_v.diff(meridional))
 
         # --- momentum: vorticity flux + kinetic-energy gradient ----
         # The NE-corner space adopts each velocity's wall tag on the
@@ -866,10 +877,13 @@ class SadournyAdvection(fr.model.Module):
         fu = (u * p_full.to(u)).to(zeta)           # mass flux, NE
         fv = (v * p_full.to(v)).to(zeta)
         ekin = 0.5 * ((u * u).to(p) + (v * v).to(p))  # centre
-        du = rossby * ((fv * q).to(u)
-                       - ekin.diff(zonal).retag(u))
-        dv = rossby * (-(fu * q).to(v)
-                       - ekin.diff(meridional).retag(v))
+        du = ((fv * q).to(u)
+              - ekin.diff(zonal).retag(u))
+        dv = (-(fu * q).to(v)
+              - ekin.diff(meridional).retag(v))
+        if eps is not None:
+            # nondimensional: ONE outer epsilon per output
+            du, dv, dp = eps * du, eps * dv, eps * dp
         return {"u": du, "v": dv, "p": dp}
 
     def _advect_immersed(
@@ -878,7 +892,7 @@ class SadournyAdvection(fr.model.Module):
         v: ScalarField,
         p: ScalarField,
         p_full: ScalarField,
-        rossby: object,
+        eps: object | None,
     ) -> dict:
         r"""Return the fraction-weighted Sadourny tendency (immersed).
 
@@ -941,12 +955,12 @@ class SadournyAdvection(fr.model.Module):
         zonal, meridional = self._coords
 
         # --- thickness: mass-conserving fraction-weighted transport --
-        # dp = -(Ro/theta) div(alpha u p) — the core-continuity idiom,
+        # dp = -(s/theta) div(alpha u p) — the core-continuity idiom,
         # so mass conserves to machine zero on any (partial) fractions
         flux_u = weight_flux(immersed, u * p.to(u))
         flux_v = weight_flux(immersed, v * p.to(v))
         div = -(flux_u.diff(zonal) + flux_v.diff(meridional))
-        dp = rossby * scale_divergence(immersed, div)
+        dp = scale_divergence(immersed, div)
 
         # --- momentum: fraction-weighted vorticity flux + KE gradient -
         corner = u.function_space.bare.replace(**{
@@ -973,9 +987,13 @@ class SadournyAdvection(fr.model.Module):
         # SA-D5: fraction-weighted kinetic energy so the KE-gradient /
         # mass-flux pair telescopes (semi-discrete energy machine zero).
         ekin = _wet_kinetic_energy(immersed, u, v, p)
-        du = rossby * ((fv * q).to(u) - ekin.diff(zonal).retag(u))
-        dv = rossby * (-(fu * q).to(v)
-                       - ekin.diff(meridional).retag(v))
+        du = (fv * q).to(u) - ekin.diff(zonal).retag(u)
+        dv = (-(fu * q).to(v)
+              - ekin.diff(meridional).retag(v))
+        if eps is not None:
+            # nondimensional: ONE outer epsilon per output, applied
+            # before the face mask (the mask commutes bitwise)
+            du, dv, dp = eps * du, eps * dv, eps * dp
         # no momentum tendency into a closed face
         return {
             "u": mask_field(immersed, du),
@@ -989,7 +1007,7 @@ class SadournyAdvection(fr.model.Module):
         v: ScalarField,
         p: ScalarField,
         p_full: ScalarField,
-        rossby: object,
+        eps: object | None,
     ) -> dict:
         r"""Return the metric-aware vector-invariant tendency.
 
@@ -1019,13 +1037,15 @@ class SadournyAdvection(fr.model.Module):
         u = to_contravariant(u, zonal)
         v = to_contravariant(v, meridional)
 
-        # --- thickness: dp = -(Ro/sqrt_g) d_i(sqrt_g u^i p) --------
+        # --- thickness: dp = -(s/sqrt_g) d_i(sqrt_g u^i p) ---------
         flux = VectorField({
             zonal: (u * p.to(u)).with_variance(con),
             meridional: (v * p.to(v)).with_variance(con)})
         div = dispatch.resolve(
             "div", flux[zonal].function_space.bare)
-        dp = rossby * -(div(flux))
+        dp = -(div(flux))
+        if eps is not None:
+            dp = eps * dp
 
         # --- vorticity: metric curl of the lowered components ------
         # (tags stripped before the curl so the stencil outputs
@@ -1079,11 +1099,15 @@ class SadournyAdvection(fr.model.Module):
         raised = raise_index(VectorField({
             zonal: tu, meridional: tv}))
         # exit seam: rescale the contravariant momentum tendencies to
-        # physical (dp is a scalar rate — no conversion)
-        du = to_physical_tendency(
-            rossby * raised[zonal].retag(u), zonal)
-        dv = to_physical_tendency(
-            rossby * raised[meridional].retag(v), meridional)
+        # physical (dp is a scalar rate — no conversion); the outer
+        # epsilon sits inside the exit rescale, exactly where the
+        # scaling factor always sat (bitwise placement)
+        ru = raised[zonal].retag(u)
+        rv = raised[meridional].retag(v)
+        if eps is not None:
+            ru, rv = eps * ru, eps * rv
+        du = to_physical_tendency(ru, zonal)
+        dv = to_physical_tendency(rv, meridional)
         return {"u": du, "v": dv, "p": dp}
 
     @fr.model.term(name="background_advection",
