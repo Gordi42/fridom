@@ -57,7 +57,7 @@ def h_energy_terms(model):
     """
     z = model.state
     dz = model.tendency(z)
-    ro = float(model.parameters[fr.model.params.SCALING_ROSSBY])
+    ro = float(model.parameters[fr.model.params.SCALING_NONLINEARITY])
     u, v, p = z["u"], z["v"], z["p"]
     du, dv, dp = dz["u"], dz["v"], dz["p"]
     h = z["csqr"].to(p) + ro * p

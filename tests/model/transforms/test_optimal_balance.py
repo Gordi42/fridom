@@ -101,18 +101,18 @@ def test_ramp_steps_from_period(toy_model):
 
 
 # ================================================================
-#  The scaling.rossby ramp branch (Ramp up / Ramp.reversed() down)
+#  The scaling.nonlinearity ramp branch (Ramp up / Ramp.reversed() down)
 # ================================================================
 @pytest.mark.parametrize("nominal", [1.0, 0.1])
 def test_rossby_model_applies_the_ramp(nominal):
     model = make_model(modules=(Coriolis(), RossbyProvider(nominal)))
     ob = OptimalBalance(model, _base(model), ramp_period=RAMP,
                         max_it=2)
-    # the forward leg's scaling.rossby ramps from 0 to the MODEL's
+    # the forward leg's scaling.nonlinearity ramps from 0 to the MODEL's
     # nominal value (user parameter choices are preserved); the
     # backward leg's is its time-domain reversal (spanning [-T, 0])
-    fwd_rossby = ob.forward.model.parameters["scaling.rossby"]
-    bwd_rossby = ob.backward.model.parameters["scaling.rossby"]
+    fwd_rossby = ob.forward.model.parameters["scaling.nonlinearity"]
+    bwd_rossby = ob.backward.model.parameters["scaling.nonlinearity"]
     assert float(fwd_rossby.at_time(0.0)) == pytest.approx(0.0, abs=1e-9)
     assert float(fwd_rossby.at_time(RAMP)) == pytest.approx(
         nominal, abs=1e-9)
@@ -125,8 +125,8 @@ def test_rossby_model_applies_the_ramp(nominal):
 def test_time_dependent_rossby_is_rejected():
     model = make_model(modules=(Coriolis(), RossbyProvider()))
     ramped = model.variant(
-        updates={"scaling.rossby": Ramp(0.0, 1.0, period=1.0)})
-    with pytest.raises(TypeError, match=r"constant 'scaling\.rossby'"):
+        updates={"scaling.nonlinearity": Ramp(0.0, 1.0, period=1.0)})
+    with pytest.raises(TypeError, match=r"constant 'scaling\.nonlinearity'"):
         OptimalBalance(ramped, _base(ramped), ramp_period=RAMP)
 
 

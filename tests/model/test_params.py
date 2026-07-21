@@ -74,7 +74,7 @@ def test_dotted_name_lint():
 def test_registry_constants_are_paramnames():
     constants = (params.TIME_STEP, params.CORIOLIS_F0,
                  params.CORIOLIS_BETA, params.STRATIFICATION_N2,
-                 params.SCALING_ROSSBY)
+                 params.SCALING_NONLINEARITY)
     for constant in constants:
         assert isinstance(constant, ParamName)
 
@@ -86,7 +86,7 @@ def test_registry_canonical_strings():
     assert params.CORIOLIS_F0 == "coriolis.f0"
     assert params.CORIOLIS_BETA == "coriolis.beta"
     assert params.STRATIFICATION_N2 == "stratification.n2"
-    assert params.SCALING_ROSSBY == "scaling.rossby"
+    assert params.SCALING_NONLINEARITY == "scaling.nonlinearity"
 
 
 def test_registry_no_default_marks():
@@ -96,12 +96,12 @@ def test_registry_no_default_marks():
     # identity-defaultable names stay defaultable
     assert params.CORIOLIS_F0.no_default is False
     assert params.CORIOLIS_BETA.no_default is False
-    assert params.SCALING_ROSSBY.no_default is False
+    assert params.SCALING_NONLINEARITY.no_default is False
 
 
 def test_registry_hints_are_nonempty():
     constants = (params.TIME_STEP, params.CORIOLIS_F0,
                  params.CORIOLIS_BETA, params.STRATIFICATION_N2,
-                 params.SCALING_ROSSBY)
+                 params.SCALING_NONLINEARITY)
     for constant in constants:
         assert constant.hint

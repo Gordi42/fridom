@@ -5,7 +5,7 @@ Description
 All three modules transport every ``ADVECTED`` component in flux form
 ``A(v, q) = -div(v q) = -sum_i d_i( interp(v_i) face(q) )``
 (divergence-free velocity assumed), scaled by the Rossby number
-``scaling.rossby`` (a defaulted reference, so the modules stay
+``scaling.nonlinearity`` (a defaulted reference, so the modules stay
 Ro-ignorant — D2 reconciliation 4). The flux for axis ``i`` lives on
 ``q``'s control-volume face in direction ``i`` (``q`` toggled along
 ``i``); ``v_i`` is interpolated there with the registered (centered)
@@ -2337,7 +2337,7 @@ class _FluxFormAdvection(fr.model.Module):
 
     parameter_references = (
         fr.model.ParameterReference(
-            fr.model.params.SCALING_ROSSBY, default=1.0,
+            fr.model.params.SCALING_NONLINEARITY, default=1.0,
             hint="Rossby number (nh.DynamicalCore)"),
     )
 
@@ -3203,7 +3203,7 @@ class _FluxFormAdvection(fr.model.Module):
         the exact full-3D form is kept (byte-identical to the pre-slice
         behavior).
         """
-        ro = ctx.params[fr.model.params.SCALING_ROSSBY]
+        ro = ctx.params[fr.model.params.SCALING_NONLINEARITY]
         params = self._geometry_params(state)
         out: dict[str, ScalarField] = {}
         for qname in self._advected:
@@ -3503,7 +3503,7 @@ class _FluxFormAdvection(fr.model.Module):
         the two-term sum telescopes to the full-velocity scheme. No
         outer Rossby factor (module docstring, scaling convention).
         """
-        ro = ctx.params[fr.model.params.SCALING_ROSSBY]
+        ro = ctx.params[fr.model.params.SCALING_NONLINEARITY]
         return {
             qname: (self._full_transport(state, ro, state[qname])
                     - self._linear_transport(state, state[qname]))

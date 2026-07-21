@@ -76,7 +76,7 @@ class Propagator(StateTransform):
             (the reverse leg) (default: False).
         updates : Mapping[str, object] | None, optional
             Assembly-time variant parameter updates, e.g. a Ramp-valued
-            ``scaling.rossby`` for OB's ramped legs (default: None).
+            ``scaling.nonlinearity`` for OB's ramped legs (default: None).
         term_filter : Callable | None, optional
             A term predicate threaded to the internal variant, e.g.
             ``fr.terms.linear`` (default: None).

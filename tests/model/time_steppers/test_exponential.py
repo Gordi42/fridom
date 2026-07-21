@@ -12,7 +12,7 @@ The load-bearing claims, each with a test below:
 - The double-counting guard fires: a model that still carries its
   linear terms raises ``LinearTermInTendencyError``.
 - The nonlinear scheme is fourth order, INCLUDING through a ``Ramp``
-  on ``scaling.rossby`` (which needs the per-stage clock times).
+  on ``scaling.nonlinearity`` (which needs the per-stage clock times).
 """
 import math
 
@@ -267,7 +267,7 @@ def test_beats_the_ab3_gravity_cfl(grid, basis, state0):
 
 
 def test_fourth_order_through_a_ramped_parameter(grid, basis, state0):
-    """A Ramp on scaling.rossby lives in N; the order must survive it.
+    """A Ramp on scaling.nonlinearity lives in N; the order must survive it.
 
     This is the per-stage eval_params rule: evaluating all four RK
     stages at t_n instead of at ``clock.shifted(c_i * dt)`` would
@@ -315,9 +315,9 @@ def test_time_dependent_f0_in_the_linear_operator_is_refused(grid, basis):
 
 
 def test_time_dependent_rossby_in_N_is_allowed(grid, basis, state0):
-    """AR-D7 discriminates N from L: a Ramp on scaling.rossby is fine.
+    """AR-D7 discriminates N from L: a Ramp on scaling.nonlinearity is fine.
 
-    scaling.rossby scales only the nonlinear advection (N), which the
+    scaling.nonlinearity scales only the nonlinear advection (N), which the
     RK stages evaluate at their own clock times, so the frozen L is
     untouched and the ETDRK4 model must assemble. (The order through
     such a ramp is the fourth-order test above; this pins the

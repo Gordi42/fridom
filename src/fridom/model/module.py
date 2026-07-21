@@ -456,7 +456,7 @@ class Module:
         stepper re-reads the tendency each step and is unaffected.
 
         A dependency that lives only in a ``linear=False`` term (the
-        nonlinear scaling ``scaling.rossby``, the conserving rotation)
+        nonlinear scaling ``scaling.nonlinearity``, the conserving rotation)
         is **not** reported — it lives in ``N``, where an exponential
         stepper handles time dependence correctly. A dependency the
         module reads across a module boundary (its leaf lives on another

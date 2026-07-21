@@ -95,7 +95,7 @@ def _wet_energy_terms(model):
     """
     z = model.state
     dz = model.tendency(z)
-    ro = float(model.parameters[fr.model.params.SCALING_ROSSBY])
+    ro = float(model.parameters[fr.model.params.SCALING_NONLINEARITY])
     imm = model.grid.immersed
     u, v, p = z["u"], z["v"], z["p"]
     du, dv, dp = dz["u"], dz["v"], dz["p"]
@@ -248,7 +248,7 @@ def test_corner_mass_fluxes_are_alpha_weighted():
     z = model.state
     imm = model.grid.immersed
     u, p, c = z["u"], z["p"], z["csqr"]
-    ro = float(model.parameters[fr.model.params.SCALING_ROSSBY])
+    ro = float(model.parameters[fr.model.params.SCALING_NONLINEARITY])
     p_full = c.to(p) + ro * p
     au = np.asarray(imm.fraction(u.function_space).data)
     weighted = np.asarray(weight_flux(imm, u * p_full.to(u)).data)
@@ -274,7 +274,7 @@ def test_wet_corner_thickness_drops_dry_cells():
     z = model.state
     imm = grid.immersed
     u, v, p, c = z["u"], z["v"], z["p"], z["csqr"]
-    ro = float(model.parameters[fr.model.params.SCALING_ROSSBY])
+    ro = float(model.parameters[fr.model.params.SCALING_NONLINEARITY])
     p_full = c.to(p) + ro * p
     corner = u.function_space.bare.replace(
         y=v.function_space.bare.factor("y"))

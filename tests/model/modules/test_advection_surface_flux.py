@@ -100,7 +100,7 @@ def _weno_model():
 
 
 class _Ctx:
-    params = {fr.model.params.SCALING_ROSSBY: 1.0}  # noqa: RUF012
+    params = {fr.model.params.SCALING_NONLINEARITY: 1.0}  # noqa: RUF012
 
 
 def _diagnosed_state(model, seed=0):
@@ -120,7 +120,7 @@ def _module(model):
 
 def _pre_slice_advect(module, state):
     """Return the pre-slice full-3D ``_advect`` (the reference)."""
-    ro = _Ctx.params[fr.model.params.SCALING_ROSSBY]
+    ro = _Ctx.params[fr.model.params.SCALING_NONLINEARITY]
     params = module._geometry_params(state)
     out = {}
     for qname in module._advected:
@@ -173,7 +173,7 @@ def test_slice_correction_interior_is_exactly_zero(kind):
     model = _model(kind)
     module = _module(model)
     state = _diagnosed_state(model)
-    ro = _Ctx.params[fr.model.params.SCALING_ROSSBY]
+    ro = _Ctx.params[fr.model.params.SCALING_NONLINEARITY]
     params = module._geometry_params(state)
     new = module._advect(state, _Ctx)
     checked = 0

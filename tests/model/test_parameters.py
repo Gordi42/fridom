@@ -11,7 +11,7 @@ from fridom.model.parameters import (
     ParameterReference,
     leaf,
 )
-from fridom.model.params import SCALING_ROSSBY, ParamName
+from fridom.model.params import SCALING_NONLINEARITY, ParamName
 from fridom.model.time_dependent import Ramp
 
 
@@ -57,9 +57,9 @@ def test_declaration_construction_and_defaults():
 
 
 def test_declaration_accepts_paramname():
-    decl = ParameterDeclaration(SCALING_ROSSBY, attr="rossby_input")
+    decl = ParameterDeclaration(SCALING_NONLINEARITY, attr="rossby_input")
     # the declaration keys the binding table by the plain string
-    assert decl.name == "scaling.rossby"
+    assert decl.name == "scaling.nonlinearity"
 
 
 def test_declaration_is_frozen():
@@ -88,20 +88,20 @@ def test_reference_defaults_to_required():
 
 
 def test_reference_with_identity_default():
-    ref = ParameterReference("scaling.rossby", default=1.0)
+    ref = ParameterReference("scaling.nonlinearity", default=1.0)
     assert ref.default == 1.0
 
 
 def test_reference_is_a_namedtuple():
-    ref = ParameterReference("scaling.rossby", "a hint", 1.0)
+    ref = ParameterReference("scaling.nonlinearity", "a hint", 1.0)
     name, hint, default = ref
-    assert (name, hint, default) == ("scaling.rossby", "a hint", 1.0)
+    assert (name, hint, default) == ("scaling.nonlinearity", "a hint", 1.0)
     assert isinstance(ref, tuple)
 
 
 def test_reference_value_semantics():
-    a = ParameterReference("scaling.rossby", default=1.0)
-    b = ParameterReference(ParamName("scaling.rossby"), default=1.0)
+    a = ParameterReference("scaling.nonlinearity", default=1.0)
+    b = ParameterReference(ParamName("scaling.nonlinearity"), default=1.0)
     assert a == b
     assert hash(a) == hash(b)
 
@@ -110,28 +110,28 @@ def test_reference_value_semantics():
 #  Param (reference-valued constructor slots)
 # ================================================================
 def test_param_defaults_to_required():
-    slot = Param("scaling.rossby")
-    assert slot.name == "scaling.rossby"
+    slot = Param("scaling.nonlinearity")
+    assert slot.name == "scaling.nonlinearity"
     assert slot.default is REQUIRED
 
 
 def test_param_with_identity_default():
     # the flagship consumer spelling: generic advection stays
-    # Ro-ignorant via scaling=fr.Param("scaling.rossby", default=1.0)
-    slot = Param(SCALING_ROSSBY, default=1.0)
-    assert slot.name == "scaling.rossby"
+    # Ro-ignorant via scaling=fr.Param("scaling.nonlinearity", default=1.0)
+    slot = Param(SCALING_NONLINEARITY, default=1.0)
+    assert slot.name == "scaling.nonlinearity"
     assert slot.default == 1.0
 
 
 def test_param_is_frozen():
-    slot = Param("scaling.rossby", default=1.0)
+    slot = Param("scaling.nonlinearity", default=1.0)
     with pytest.raises(dataclasses.FrozenInstanceError):
         slot.default = 2.0
 
 
 def test_param_value_semantics():
-    a = Param("scaling.rossby", default=1.0)
-    b = Param("scaling.rossby", default=1.0)
+    a = Param("scaling.nonlinearity", default=1.0)
+    b = Param("scaling.nonlinearity", default=1.0)
     assert a == b
     assert hash(a) == hash(b)
-    assert a != Param("scaling.rossby")
+    assert a != Param("scaling.nonlinearity")

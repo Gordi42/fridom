@@ -106,7 +106,7 @@ def reference_energy(model):
     ``g_ii`` factor (it is folded into the physical ``U^2``).
     """
     z = model.state
-    ro = float(model.parameters[fr.model.params.SCALING_ROSSBY])
+    ro = float(model.parameters[fr.model.params.SCALING_NONLINEARITY])
     u, v, p = z["u"], z["v"], z["p"]
     h = z["csqr"].to(p) + ro * p
     ku = 0.5 * u * u * h.to(u)

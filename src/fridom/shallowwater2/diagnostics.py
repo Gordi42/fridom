@@ -279,7 +279,7 @@ def pot_vort(
         The shallow-water state; reads ``u``, ``v``, ``p``, ``csqr``
         and ``f_coriolis`` (through ``rel_vort`` and ``thickness``).
     params : Mapping[str, object]
-        The bound parameters; reads ``scaling.rossby`` and, through
+        The bound parameters; reads ``scaling.nonlinearity`` and, through
         ``thickness``, ``shallowwater.csqr``.
 
     Returns

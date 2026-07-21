@@ -6,7 +6,7 @@ Description
 ``DynamicalCore`` declares the state vocabulary (``u``, ``v``,
 ``p``), owns the squared phase speed :math:`c^2` (the AUXILIARY
 ``csqr`` field and, when constant, the ``shallowwater.csqr`` scalar)
-and the Rossby scaling (``scaling.rossby``), and contributes the
+and the Rossby scaling (``scaling.nonlinearity``), and contributes the
 single **linear** pressure-gradient / geopotential-divergence term:
 
 .. math::
@@ -133,7 +133,7 @@ class DynamicalCore(fr.model.Module):
         (default: 1.0).
     rossby_number : float | fr.model.Ramp, optional
         The Rossby number scaling the (separate) advection term;
-        published as ``scaling.rossby`` (default: 1.0); may be a
+        published as ``scaling.nonlinearity`` (default: 1.0); may be a
         ``fr.model.Ramp`` for a spun-up nonlinearity.
     coords : tuple[str, str], optional
         The (zonal, meridional) coordinate names, in the grid's
@@ -215,7 +215,7 @@ class DynamicalCore(fr.model.Module):
                 "spatially varying time-dependent c^2 is a c^2(y,t) law: "
                 "pass an fr.model.ProfileFunction (TDF-D7). A constant "
                 "c^2 is a float; a static profile is a callable c^2(y); "
-                "ramp scaling.rossby or coriolis.f0 for a scalar "
+                "ramp scaling.nonlinearity or coriolis.f0 for a scalar "
                 "time-dependent run")
         else:
             self._csqr_law = None
@@ -291,7 +291,7 @@ class DynamicalCore(fr.model.Module):
         """Rossby always; ``shallowwater.csqr`` only when constant."""
         decls = (
             fr.model.ParameterDeclaration(
-                fr.model.params.SCALING_ROSSBY, attr="rossby_number"),
+                fr.model.params.SCALING_NONLINEARITY, attr="rossby_number"),
         )
         # provides-implies-constancy: only the constant depth publishes
         # shallowwater.csqr (a static profile or a c^2(y,t) law does not)

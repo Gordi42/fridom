@@ -540,7 +540,7 @@ def test_chart_rotation_is_the_module_term(weight):
 # SCALAR parameter (R1), not a field blend (R2): the AUXILIARY field
 # is materialized at t=0 for a stable treedef, and the rotation term
 # reads f0(t) from ctx.params (resolved at the stage clock, the same
-# seam scaling.rossby rides) each step. The static (plain-float) path
+# seam scaling.nonlinearity rides) each step. The static (plain-float) path
 # is untouched -- see test_linear_rotation_is_the_module_term above.
 RAMP_DT = 5e-3
 

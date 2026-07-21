@@ -568,7 +568,7 @@ class FPlaneCoriolis(Module):
         reads the provided ``coriolis.f0`` from ``ctx.params``, which
         the binding table has already resolved at the stage clock time
         (``eval_params`` applies ``resolve_at`` — the same seam the
-        ``scaling.rossby`` ramp rides), so the value is correct in the
+        ``scaling.nonlinearity`` ramp rides), so the value is correct in the
         assembly dry run, ``model.tendency`` and every stepper stage
         alike. Returns ``None`` for a plain-float ``f0`` (the field
         path stays bit-identical); the static branch never touches

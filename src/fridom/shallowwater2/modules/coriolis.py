@@ -119,7 +119,7 @@ from fridom.model.modules.coriolis import (
     linear_rotation,
 )
 from fridom.model.parameters import Param
-from fridom.model.params import SCALING_ROSSBY
+from fridom.model.params import SCALING_NONLINEARITY
 from fridom.model.terms import term
 from fridom.model.time_dependent import TimeDependent
 from fridom.shallowwater2.chart import (
@@ -498,7 +498,7 @@ class CoriolisEnergyCorrection(Module):
         FieldReference("f_coriolis", hint=_F_HINT),
     )
 
-    parameter_references = (Param(SCALING_ROSSBY, default=1.0),)
+    parameter_references = (Param(SCALING_NONLINEARITY, default=1.0),)
 
     def __init__(self, *, coords: tuple[str, str] = ("x", "y")) -> None:
         """Store the coordinate names; the weight is found at bind."""
@@ -520,7 +520,7 @@ class CoriolisEnergyCorrection(Module):
 
     #: The corner chain reaches two cells per coordinate (centre ->
     #: corner -> velocity), exactly as in ``SadournyAdvection``; the
-    #: term multiplies the traced ``scaling.rossby`` into the
+    #: term multiplies the traced ``scaling.nonlinearity`` into the
     #: thickness, so the module declares its stencil width and is
     #: halo-trace exempt (V-N2).
     @property
@@ -589,7 +589,7 @@ class CoriolisEnergyCorrection(Module):
         contributes nothing to the linearization (and it is declared
         ``linear=False`` regardless, so ``L`` never sees it).
         """
-        rossby = ctx.params[SCALING_ROSSBY]
+        rossby = ctx.params[SCALING_NONLINEARITY]
         full = conserving_rotation(state, coords=self._coords,
                                    rossby=rossby)
         linear = linear_coriolis(state, coords=self._coords,
@@ -635,7 +635,7 @@ class _ConservingRotation:
     #: read by the analytic eigenmodes as "L rotates at f0")
     parameter_declarations = ()
 
-    parameter_references = (Param(SCALING_ROSSBY, default=1.0),)
+    parameter_references = (Param(SCALING_NONLINEARITY, default=1.0),)
 
     @property
     def metric_weight(self) -> None:
@@ -690,7 +690,7 @@ class _ConservingRotation:
         A ramped ``f0``/``beta`` on a route-B module feeds the
         **nonlinear** ``(f/h_bar)(h v)_bar`` term (part of ``N``), not a
         ``linear=True`` term, so a frozen-``L`` stepper handles its time
-        dependence correctly (AR-D7) — exactly as ``scaling.rossby``
+        dependence correctly (AR-D7) — exactly as ``scaling.nonlinearity``
         does. (Such a model is already refused by every ``L``-consumer
         through the ``linear_operator_gap``, but the honesty seam must
         still report nothing here.)
@@ -718,7 +718,7 @@ class _ConservingRotation:
         """
         return conserving_rotation(
             state, coords=self._coords,
-            rossby=ctx.params[SCALING_ROSSBY])
+            rossby=ctx.params[SCALING_NONLINEARITY])
 
 
 class NonlinearFPlaneCoriolis(_ConservingRotation, FPlaneCoriolis):

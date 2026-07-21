@@ -56,7 +56,7 @@ SCHEMES = [
 def _ctx():
     """Return a minimal step context with the default Rossby scaling."""
     return StepContext(
-        params={fr_params.SCALING_ROSSBY: jnp.asarray(1.0)},
+        params={fr_params.SCALING_NONLINEARITY: jnp.asarray(1.0)},
         clock=None, dt=0.02, stage_dt=0.02, tendency_sums=None)
 
 

@@ -47,7 +47,7 @@ def total_energy(model):
     evaluated on cell centres.
     """
     state = model.state
-    ro = float(model.parameters[fr.model.params.SCALING_ROSSBY])
+    ro = float(model.parameters[fr.model.params.SCALING_NONLINEARITY])
     c = state["csqr"]
     p = state["p"]
     centre = p.function_space

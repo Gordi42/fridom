@@ -10,7 +10,7 @@ it interoperates with ``fr.params.*`` in exactly the same way
 (``params["shallowwater.csqr"]`` and
 ``update_parameters({sw.params.CSQR: ...})`` hit one mapping key).
 The framework-owned names (``coriolis.f0`` / ``coriolis.beta`` /
-``scaling.rossby`` / ``stepper.dt``) live in ``fr.params`` and are
+``scaling.nonlinearity`` / ``stepper.dt``) live in ``fr.params`` and are
 re-used verbatim (module-library sharing, D2.1).
 """
 from __future__ import annotations
@@ -19,7 +19,7 @@ from typing import Final
 
 from fridom.model.params import (
     CORIOLIS_F0,
-    SCALING_ROSSBY,
+    SCALING_NONLINEARITY,
     ParamName,
 )
 
@@ -36,12 +36,36 @@ CSQR: Final[ParamName] = ParamName(
     hint="provided by the shallow-water core, e.g. "
          "sw.modules.DynamicalCore(csqr=...)")
 
-# ``scaling.rossby`` is framework-canonical but owned (provided) by
+# The dimensional core primitives (provides-implies-constancy: a
+# Ramped or profile-valued leaf is still a provide; a variable-depth
+# NONDIM D-tilde profile provides no constant DEPTH).
+GRAVITY: Final[ParamName] = ParamName(
+    "shallowwater.gravity",
+    units="m/s^2",
+    hint="provided by the dimensional shallow-water core, e.g. "
+         "sw.Core(gravity=..., depth=...)")
+
+DEPTH: Final[ParamName] = ParamName(
+    "shallowwater.depth",
+    units="m",
+    hint="provided by the dimensional shallow-water core, e.g. "
+         "sw.Core(gravity=..., depth=...)")
+
+FROUDE: Final[ParamName] = ParamName(
+    "shallowwater.froude",
+    units="n/a",
+    hint="provided by the nondimensional shallow-water core, e.g. "
+         "sw.Core(froude_number=...)")
+
+# ``scaling.nonlinearity`` is framework-canonical but owned (provided) by
 # sw.DynamicalCore; re-exported so recipes can spell sw.params.ROSSBY.
-ROSSBY: Final[ParamName] = SCALING_ROSSBY
+ROSSBY: Final[ParamName] = SCALING_NONLINEARITY
 
 __all__ = [
     "CORIOLIS_F0",
     "CSQR",
+    "DEPTH",
+    "FROUDE",
+    "GRAVITY",
     "ROSSBY",
 ]

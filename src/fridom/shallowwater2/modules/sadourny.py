@@ -17,7 +17,7 @@ with the mass flux :math:`\boldsymbol{f_u} = p_\mathrm{full}
 \boldsymbol{u}`, the potential vorticity
 :math:`q = \zeta / p_\mathrm{full}`, and the full geopotential
 thickness :math:`p_\mathrm{full} = c^2 + \mathrm{Ro}\,p`. Every term
-is scaled by the Rossby number ``scaling.rossby`` (read from
+is scaled by the Rossby number ``scaling.nonlinearity`` (read from
 ``ctx.params``); the module owns no numeric leaves.
 
 **Signed delta vs the old model (§8.8):** the old scheme read the
@@ -455,7 +455,7 @@ class SadournyAdvection(fr.model.Module):
     Description
     -----------
     Reads ``u``, ``v``, ``p`` and the ``csqr`` field (all owned by
-    the core, declared here as references) and the ``scaling.rossby``
+    the core, declared here as references) and the ``scaling.nonlinearity``
     parameter. Contributes one nonlinear term transporting all three
     prognostic components by name (the D1.4 name-coupling; no role
     selection) and, when a background flow is prescribed, one
@@ -486,7 +486,7 @@ class SadournyAdvection(fr.model.Module):
         fr.model.FieldReference("csqr", hint="a shallow-water core"))
 
     parameter_references = (
-        fr.model.Param(fr.model.params.SCALING_ROSSBY, default=1.0),)
+        fr.model.Param(fr.model.params.SCALING_NONLINEARITY, default=1.0),)
 
     # The Rossby scaling multiplies a traced ``ctx.params`` scalar
     # into the tendency (a raw-data op the halo tracer cannot follow),
@@ -830,7 +830,7 @@ class SadournyAdvection(fr.model.Module):
         is taken (module docstring); on the identity chart it
         reproduces the flat scheme bitwise.
         """
-        rossby = ctx.params[fr.model.params.SCALING_ROSSBY]
+        rossby = ctx.params[fr.model.params.SCALING_NONLINEARITY]
         u, v, p = state["u"], state["v"], state["p"]
         c = state["csqr"]
         zonal, meridional = self._coords

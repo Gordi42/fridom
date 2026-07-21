@@ -4,7 +4,7 @@ Description
 -----------
 Package-specific ``ParamName`` constants (D2.1): the squared
 barotropic phase speed ``hydrostatic.csqr`` (:math:`c^2 = g H`) and
-the Rossby number ``scaling.rossby`` both live on the hydrostatic
+the Rossby number ``scaling.nonlinearity`` both live on the hydrostatic
 core. Coriolis and stratification names are framework-canonical
 (``fr.params.CORIOLIS_F0`` / ``fr.params.STRATIFICATION_N2``) and are
 re-exported here for convenience.
@@ -16,7 +16,7 @@ from typing import Final
 from fridom.model.params import (
     CORIOLIS_BETA,
     CORIOLIS_F0,
-    SCALING_ROSSBY,
+    SCALING_NONLINEARITY,
     STRATIFICATION_N2,
     ParamName,
 )
@@ -34,9 +34,9 @@ SHEAR: Final[ParamName] = ParamName(
     hint="provided by the thermal-wind background, e.g. "
          "hy.ThermalWindBackground(shear=...)")
 
-# ``scaling.rossby`` is framework-canonical but owned (provided) by
+# ``scaling.nonlinearity`` is framework-canonical but owned (provided) by
 # hy.HydrostaticCore; re-exported so recipes can spell hy.params.ROSSBY.
-ROSSBY: Final[ParamName] = SCALING_ROSSBY
+ROSSBY: Final[ParamName] = SCALING_NONLINEARITY
 
 __all__ = [
     "CORIOLIS_BETA",
