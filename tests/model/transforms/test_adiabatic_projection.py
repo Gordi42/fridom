@@ -73,7 +73,8 @@ def _channel_model(dt, *, advection):
     mx = IntervalMesh(8, (0.0, 1.0), name="x")
     my = IntervalMesh(8, (0.0, 1.0), periodic=False, name="y")
     return sw.Model(
-        grid=Grid((mx, my), device_ids=(0,)), csqr=CSQR, rossby_number=0.2,
+        grid=Grid((mx, my), device_ids=(0,)),
+        core=sw.Core(gravity=1.0, depth=CSQR),
         coriolis=sw.modules.BetaPlaneCoriolis(f0=F0, beta=BETA),
         advection=advection,
         time_stepper=fr.model.time_steppers.AdamBashforth(dt, order=3))
@@ -221,27 +222,34 @@ def test_forward_forward_is_not_phase_neutral(phase_neutrality):
 #  Gate (iv): OB INTEGRATION (appendix-B smoke)
 # ================================================================
 @pytest.fixture(scope="module")
-def ob_info():
-    """OptimalBalance on the NONLINEAR channel with base=P_adiab."""
-    model = _channel_model(DT, advection=True)
-    reference = model.variant(updates={"coriolis.beta": 0.0})
+def test_ob_on_a_mechanism_scaled_channel_is_refused_until_c():
+    """OB on the sw scaling surface hits the interim alias guard.
+
+    The old gate (OB + adiabatic base projection converging on the
+    nonlinear channel) needed the epsilon ramp, which on a
+    mechanism-scaled model would silently deform the physical Froude
+    number (the alias row binds one leaf); the interim guard refuses
+    with a taught error naming the section-C ramping envelope — the
+    redesign that will restore this capability (and this test's
+    convergence gate with it).
+    """
+    mx = IntervalMesh(8, (0.0, 1.0), name="x")
+    my = IntervalMesh(8, (0.0, 1.0), periodic=False, name="y")
+    model = sw.Model(
+        grid=Grid((mx, my), device_ids=(0,)),
+        core=sw.Core(froude_number=0.2, depth=CSQR),
+        scaling=fr.scaling.GravityWave(),
+        coriolis=sw.modules.FPlaneCoriolis(rossby_number=0.2),
+        advection=True,
+        time_stepper=fr.model.time_steppers.AdamBashforth(
+            DT, order=3))
+    reference = model.variant(updates={"coriolis.rossby": 1e6})
     p_ref = sw.transforms.VorticalProjection(sw.eigenbasis(reference))
     p_adiab = AdiabaticProjection(_up_leg(model, 0.3), p_ref)
-    ob = fr.model.OptimalBalance(
-        model, base_projection=p_adiab, ramp_period=0.3, max_it=3)
-    _, info = ob.call_with_info(_rand_state(model, seed=2))
-    return info
-
-
-def test_ob_with_adiabatic_base_projection_converges(ob_info):
-    # OB runs with the adiabatically-obtained slow projector and its
-    # fixed-point errors decrease over iterations (measured
-    # ~1.0 -> 1.9e-2 -> 9.9e-4)
-    errors = ob_info.errors
-    assert len(errors) >= 2, errors
-    assert errors[-1] < errors[0], errors
-    assert min(errors[1:]) < 0.1 * errors[0], errors
-    assert ob_info.model_steps > 0
+    with pytest.raises(NotImplementedError, match="section C"):
+        fr.model.OptimalBalance(
+            model, base_projection=p_adiab, ramp_period=0.3,
+            max_it=3)
 
 
 # ================================================================
@@ -343,7 +351,7 @@ def test_rejects_a_model_with_a_linear_operator_gap():
                  IntervalMesh(8, (0.0, 1.0), periodic=False, name="y")),
                 device_ids=(0,))
     route_b = sw.Model(
-        grid=grid, csqr=CSQR, rossby_number=0.2,
+        grid=grid, core=sw.Core(gravity=1.0, depth=CSQR),
         coriolis=sw.modules.NonlinearBetaPlaneCoriolis(f0=F0, beta=BETA),
         advection=False,
         time_stepper=fr.model.time_steppers.AdamBashforth(DT, order=3))

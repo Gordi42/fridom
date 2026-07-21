@@ -27,7 +27,7 @@ import fridom as fr
 import fridom.shallowwater2 as sw
 from fridom.model.errors import LinearOperatorGapError
 from fridom.model.model import _chunk_body
-from fridom.model.params import CORIOLIS_F0
+from fridom.model.params import CORIOLIS_F0, CORIOLIS_ROSSBY
 from fridom.shallowwater2.modules.coriolis import _safe_pv_divide
 
 CSQR = 0.7
@@ -73,14 +73,17 @@ def flat_model(route, *, periodic_y=True, csqr=CSQR, advection=True):
     """
     extra = ()
     if route == "B":
-        coriolis = sw.modules.NonlinearFPlaneCoriolis(f0=F0)
+        coriolis = sw.modules.NonlinearFPlaneCoriolis(
+            rossby_number=RO / F0)
     else:
-        coriolis = sw.modules.FPlaneCoriolis(f0=F0)
+        coriolis = sw.modules.FPlaneCoriolis(rossby_number=RO / F0)
         if route == "A":
             extra = (sw.modules.CoriolisEnergyCorrection(),)
     return sw.Model(
-        grid=flat_grid(periodic_y=periodic_y), csqr=csqr,
-        rossby_number=RO, coriolis=coriolis, advection=advection,
+        grid=flat_grid(periodic_y=periodic_y),
+        core=sw.Core(froude_number=RO, depth=csqr),
+        scaling=fr.scaling.GravityWave(),
+        coriolis=coriolis, advection=advection,
         modules_extra=extra, time_stepper=stepper())
 
 
@@ -98,8 +101,11 @@ def sphere_model(route):
             extra = (sw.modules.CoriolisEnergyCorrection(
                 coords=("lon", "lat")),)
     return sw.Model(
-        grid=sphere_grid(), coords=("lon", "lat"), csqr=CSQR,
-        rossby_number=RO, coriolis=coriolis, modules_extra=extra,
+        grid=sphere_grid(),
+        core=sw.Core(froude_number=RO, depth=CSQR,
+                     coords=("lon", "lat")),
+        scaling=fr.scaling.GravityWave(),
+        coriolis=coriolis, modules_extra=extra,
         time_stepper=stepper())
 
 
@@ -320,9 +326,12 @@ def test_route_b_refuses_a_projection():
 
 def test_route_b_provides_no_f0():
     # provides-implies-constancy: publishing coriolis.f0 would claim
-    # that L rotates at f0, which is exactly what it does not do
+    # that L rotates at f0, which is exactly what it does not do; the
+    # nondimensional route-B module still provides coriolis.rossby
+    # (a regime number, not an L-rotation claim)
     assert CORIOLIS_F0 not in flat_model("B").parameters
-    assert CORIOLIS_F0 in flat_model("linear").parameters
+    assert CORIOLIS_ROSSBY in flat_model("B").parameters
+    assert CORIOLIS_ROSSBY in flat_model("linear").parameters
 
 
 def test_route_a_keeps_the_model_linearizable():
@@ -340,14 +349,18 @@ def test_route_b_refuses_a_second_rotation_module(other):
     # assembling the conserving module next to ANY other rotation
     # module double-counts the rotation: a taught error
     modules = {
-        "linear": sw.modules.FPlaneCoriolis(f0=F0),
+        "linear": sw.modules.FPlaneCoriolis(rossby_number=RO / F0),
         "correction": sw.modules.CoriolisEnergyCorrection(),
-        "conserving": sw.modules.NonlinearBetaPlaneCoriolis(f0=F0),
+        "conserving": sw.modules.NonlinearBetaPlaneCoriolis(
+            rossby_number=RO / F0),
     }
     with pytest.raises(ValueError, match="counted twice"):
         sw.Model(
-            grid=flat_grid(), csqr=CSQR, rossby_number=RO,
-            coriolis=sw.modules.NonlinearFPlaneCoriolis(f0=F0),
+            grid=flat_grid(),
+            core=sw.Core(froude_number=RO, depth=CSQR),
+            scaling=fr.scaling.GravityWave(),
+            coriolis=sw.modules.NonlinearFPlaneCoriolis(
+                rossby_number=RO / F0),
             modules_extra=(modules[other],), time_stepper=stepper())
 
 
@@ -355,12 +368,13 @@ def test_route_b_refuses_the_correction_at_bind():
     # the same rule through explicit assembly (no preset to pre-check):
     # the conserving module's bind is the backstop
     modules = (
-        sw.modules.DynamicalCore(csqr=CSQR, rossby_number=RO),
-        sw.modules.NonlinearFPlaneCoriolis(f0=F0),
+        sw.Core(froude_number=RO, depth=CSQR),
+        sw.modules.NonlinearFPlaneCoriolis(rossby_number=RO / F0),
         sw.modules.CoriolisEnergyCorrection())
     with pytest.raises(ValueError, match="counted twice"):
         fr.model.Model(grid=flat_grid(), modules=modules,
-                       time_stepper=stepper())
+                       time_stepper=stepper(),
+                       scaling=fr.scaling.GravityWave())
 
 
 def test_two_f_coriolis_owners_collide_at_assembly():
@@ -368,12 +382,13 @@ def test_two_f_coriolis_owners_collide_at_assembly():
     # reaches bind: two modules declaring f_coriolis is a structural
     # collision (which names both of them)
     modules = (
-        sw.modules.DynamicalCore(csqr=CSQR, rossby_number=RO),
-        sw.modules.NonlinearFPlaneCoriolis(f0=F0),
-        sw.modules.FPlaneCoriolis(f0=F0))
+        sw.Core(froude_number=RO, depth=CSQR),
+        sw.modules.NonlinearFPlaneCoriolis(rossby_number=RO / F0),
+        sw.modules.FPlaneCoriolis(rossby_number=RO / F0))
     with pytest.raises(ValueError, match="declared twice"):
         fr.model.Model(grid=flat_grid(), modules=modules,
-                       time_stepper=stepper())
+                       time_stepper=stepper(),
+                       scaling=fr.scaling.GravityWave())
 
 
 def test_the_correction_needs_a_linear_coriolis_module():
@@ -381,7 +396,9 @@ def test_the_correction_needs_a_linear_coriolis_module():
     # there is nothing to correct
     with pytest.raises(ValueError, match="no module contributing"):
         sw.Model(
-            grid=flat_grid(), csqr=CSQR, rossby_number=RO,
+            grid=flat_grid(),
+            core=sw.Core(froude_number=RO, depth=CSQR),
+            scaling=fr.scaling.GravityWave(),
             modules_extra=(sw.modules.CoriolisEnergyCorrection(),),
             time_stepper=stepper())
 
@@ -391,30 +408,36 @@ def test_the_correction_needs_the_linear_rotation_term():
     # linear rotation term — then there is nothing to correct, and the
     # correction would subtract a term nobody added
     modules = (
-        sw.modules.DynamicalCore(csqr=CSQR, rossby_number=RO),
+        sw.Core(froude_number=RO, depth=CSQR),
         _ForeignCoriolisField(),
         sw.modules.CoriolisEnergyCorrection())
     with pytest.raises(ValueError, match="no module contributing"):
         fr.model.Model(grid=flat_grid(), modules=modules,
-                       time_stepper=stepper())
+                       time_stepper=stepper(),
+                       scaling=fr.scaling.GravityWave())
 
 
 def test_the_correction_refuses_two_linear_coriolis_modules():
     with pytest.raises(ValueError, match="exactly one"):
         sw.Model(
-            grid=flat_grid(), csqr=CSQR, rossby_number=RO,
-            coriolis=sw.modules.FPlaneCoriolis(f0=F0),
-            modules_extra=(sw.modules.BetaPlaneCoriolis(f0=F0),
-                           sw.modules.CoriolisEnergyCorrection()),
+            grid=flat_grid(),
+            core=sw.Core(froude_number=RO, depth=CSQR),
+            scaling=fr.scaling.GravityWave(),
+            coriolis=sw.modules.FPlaneCoriolis(rossby_number=RO / F0),
+            modules_extra=(
+                sw.modules.BetaPlaneCoriolis(rossby_number=RO / F0),
+                sw.modules.CoriolisEnergyCorrection()),
             time_stepper=stepper())
 
 
 def test_the_correction_refuses_a_foreign_metric_weight():
     with pytest.raises(ValueError, match="energy weight"):
         sw.Model(
-            grid=flat_grid(), csqr=CSQR, rossby_number=RO,
-            coriolis=sw.modules.FPlaneCoriolis(f0=F0,
-                                               metric_weight="p"),
+            grid=flat_grid(),
+            core=sw.Core(froude_number=RO, depth=CSQR),
+            scaling=fr.scaling.GravityWave(),
+            coriolis=sw.modules.FPlaneCoriolis(
+                rossby_number=RO / F0, metric_weight="p"),
             modules_extra=(sw.modules.CoriolisEnergyCorrection(),),
             time_stepper=stepper())
 
@@ -429,9 +452,11 @@ def test_the_correction_adopts_the_paired_weight():
         sw.modules.CoriolisEnergyCorrection)
     assert unweighted.metric_weight is None
     model = sw.Model(
-        grid=flat_grid(), csqr=CSQR, rossby_number=RO,
-        coriolis=sw.modules.FPlaneCoriolis(f0=F0,
-                                           metric_weight="csqr"),
+        grid=flat_grid(),
+        core=sw.Core(froude_number=RO, depth=CSQR),
+        scaling=fr.scaling.GravityWave(),
+        coriolis=sw.modules.FPlaneCoriolis(
+            rossby_number=RO / F0, metric_weight="csqr"),
         modules_extra=(sw.modules.CoriolisEnergyCorrection(),),
         time_stepper=stepper())
     assert model.module(
@@ -440,7 +465,8 @@ def test_the_correction_adopts_the_paired_weight():
 
 def test_the_conserving_modules_take_no_metric_weight():
     # the thickness IS the weight
-    assert sw.modules.NonlinearFPlaneCoriolis().metric_weight is None
+    assert sw.modules.NonlinearFPlaneCoriolis(
+        f0=F0).metric_weight is None
     assert sw.modules.NonlinearRotationCoriolis().metric_weight is None
 
 
@@ -449,7 +475,7 @@ def test_the_correction_declares_its_coords_and_halo():
     assert module.coords == ("lon", "lat")
     assert dict(module.extra_halo.widths) == {"lon": 2, "lat": 2}
     conserving = sw.modules.NonlinearBetaPlaneCoriolis(
-        beta=0.5, coords=("a", "b"))
+        f0=1.0, beta=0.5, coords=("a", "b"))
     assert conserving.coords == ("a", "b")
     assert dict(conserving.extra_halo.widths) == {"a": 2, "b": 2}
 
@@ -462,11 +488,11 @@ def test_bad_coords_are_rejected(bad):
 
 def test_carries_linear_rotation_separates_the_families():
     assert sw.modules.carries_linear_rotation(
-        sw.modules.FPlaneCoriolis())
+        sw.modules.FPlaneCoriolis(f0=1.0))
     assert sw.modules.carries_linear_rotation(
         sw.modules.RotationCoriolis())
     assert not sw.modules.carries_linear_rotation(
-        sw.modules.NonlinearFPlaneCoriolis())
+        sw.modules.NonlinearFPlaneCoriolis(f0=1.0))
     assert not sw.modules.carries_linear_rotation(
         sw.modules.CoriolisEnergyCorrection())
     assert not sw.modules.carries_linear_rotation(
@@ -477,9 +503,11 @@ def test_the_conserving_beta_plane_varies_with_y():
     # the f(y) declaration is inherited from BetaPlaneCoriolis; only
     # the term changes
     model = sw.Model(
-        grid=flat_grid(), csqr=CSQR, rossby_number=RO,
-        coriolis=sw.modules.NonlinearBetaPlaneCoriolis(f0=F0,
-                                                       beta=0.5),
+        grid=flat_grid(),
+        core=sw.Core(froude_number=RO, depth=CSQR),
+        scaling=fr.scaling.GravityWave(),
+        coriolis=sw.modules.NonlinearBetaPlaneCoriolis(
+            rossby_number=RO / F0, metric_ratio=0.5 / F0),
         time_stepper=stepper())
     f = np.asarray(model.state["f_coriolis"].data).ravel()
     assert f.size > 1
@@ -492,10 +520,12 @@ def test_the_conserving_f_plane_rejects_a_chart_grid():
     # metric-blind (the conserving term does not fix that)
     with pytest.raises(ValueError, match="metric-blind"):
         sw.Model(
-            grid=sphere_grid(), coords=("lon", "lat"), csqr=CSQR,
-            rossby_number=RO,
+            grid=sphere_grid(),
+            core=sw.Core(froude_number=RO, depth=CSQR,
+                         coords=("lon", "lat")),
+            scaling=fr.scaling.GravityWave(),
             coriolis=sw.modules.NonlinearFPlaneCoriolis(
-                f0=F0, coords=("lon", "lat")),
+                rossby_number=RO / F0, coords=("lon", "lat")),
             time_stepper=stepper())
 
 
@@ -511,9 +541,16 @@ RAMP_DT = 2e-3
 
 
 def _conserving_beta_channel(beta, f0=F0):
-    """Return a conserving (route B) beta channel; float/Ramp beta."""
+    """Return a conserving (route B) beta channel; float/Ramp beta.
+
+    A Ramp-valued beta has no nondimensional metric_ratio mapping (a
+    time-dependent metric_ratio is a taught TypeError), so the ramped
+    internal-consistency tests run the DIMENSIONAL model (csqr = 1.0
+    * CSQR, the same linear physics).
+    """
     return sw.Model(
-        grid=flat_grid(periodic_y=False), csqr=CSQR, rossby_number=RO,
+        grid=flat_grid(periodic_y=False),
+        core=sw.Core(gravity=1.0, depth=CSQR),
         coriolis=sw.modules.NonlinearBetaPlaneCoriolis(f0=f0, beta=beta),
         advection=True,
         time_stepper=fr.model.time_steppers.AdamBashforth(RAMP_DT))
@@ -580,7 +617,8 @@ def test_correction_supports_a_ramped_beta_linear_module():
     """
     ramp = fr.model.Ramp(0.0, 2.0, period=0.05, curve="exp")
     model_a = sw.Model(
-        grid=flat_grid(periodic_y=False), csqr=CSQR, rossby_number=RO,
+        grid=flat_grid(periodic_y=False),
+        core=sw.Core(gravity=1.0, depth=CSQR),
         coriolis=sw.modules.BetaPlaneCoriolis(f0=F0, beta=ramp),
         modules_extra=(sw.modules.CoriolisEnergyCorrection(),),
         advection=True, time_stepper=stepper())
@@ -616,7 +654,7 @@ def test_conserving_ramped_beta_is_device_count_invariant(forced_devices):
             16, (0.0, 1.0), periodic=False, name="y")
         return sw.Model(
             grid=fr.spatial.Grid((mx, my), device_ids=device_ids),
-            csqr=CSQR, rossby_number=RO,
+            core=sw.Core(gravity=1.0, depth=CSQR),
             coriolis=sw.modules.NonlinearBetaPlaneCoriolis(f0=F0, beta=ramp),
             advection=True,
             time_stepper=fr.model.time_steppers.AdamBashforth(RAMP_DT))
@@ -692,7 +730,7 @@ def adiabatic_channel():
                                         name="y")
     target = sw.Model(
         grid=fr.spatial.Grid((mx, my), device_ids=(0,)),
-        csqr=_AD_CSQR, rossby_number=0.2,
+        core=sw.Core(gravity=1.0, depth=_AD_CSQR),
         coriolis=sw.modules.BetaPlaneCoriolis(f0=_AD_F0, beta=_AD_BETA),
         advection=False,
         time_stepper=fr.model.time_steppers.AdamBashforth(_AD_DT, order=3))

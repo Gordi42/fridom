@@ -62,7 +62,7 @@ def _channel(f0):
         16, (0.0, 1.0), periodic=False, name="y")
     return sw.Model(
         grid=fr.spatial.Grid((mx, my), device_ids=(0,)),
-        csqr=CSQR, rossby_number=0.2,
+        core=sw.Core(gravity=1.0, depth=CSQR),
         coriolis=sw.modules.FPlaneCoriolis(f0=f0), advection=False,
         time_stepper=fr.model.time_steppers.AdamBashforth(DT, order=3))
 

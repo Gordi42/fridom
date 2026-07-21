@@ -27,8 +27,15 @@ NL_TERM = fr.model.term_predicates.named("SadournyAdvection/advect")
 #  Walled-grid helpers: the exactly-conserved discrete energy
 # ================================================================
 def walled_model(*, periodic_x=True, f0=0.0, ro=0.4, dt=2e-3):
-    """Return a nonlinear walled model (y walls; x optional)."""
+    """Return a nonlinear walled model (y walls; x optional).
+
+    ``f0 = 0`` has no nondimensional Rossby spelling (Ro -> inf), so
+    it maps to no rotation at all — the same physics (f = 0).
+    """
     grid = make_grid(periodic_x=periodic_x, periodic_y=False)
+    if f0 == 0.0:
+        return make_model(grid, csqr=CSQR, rossby_number=ro,
+                          coriolis=False, advection=True, dt=dt)
     return make_model(grid, csqr=CSQR, rossby_number=ro, f0=f0,
                       advection=True, dt=dt)
 
@@ -97,9 +104,12 @@ def test_csqr_is_a_state_field_not_a_scalar():
     np.testing.assert_allclose(np.asarray(c.data), 1.5)
 
 
-def test_csqr_scalar_is_published_for_host_reads():
+def test_depth_and_froude_scalars_are_published_for_host_reads():
+    # the retired shallowwater.csqr provide is replaced by the variant
+    # primitives: the constant depth ratio and the Froude number
     model = make_model(csqr=2.25)
-    assert float(model.parameters[sw_params.CSQR]) == 2.25
+    assert float(model.parameters[sw_params.DEPTH]) == 2.25
+    assert float(model.parameters[sw_params.FROUDE]) == 0.2
 
 
 def test_advection_changes_the_solution_vs_linear():
@@ -253,13 +263,22 @@ def test_walled_nonlinear_run_is_stable(periodic_x):
 #  Variable depth: Sadourny reads the csqr(y) FIELD (verified)
 # ================================================================
 def varying_walled_model(*, f0=0.0, ro=0.4):
-    """Build a variable-depth walled channel (csqr(y) field)."""
-    coriolis = sw.modules.FPlaneCoriolis(
-        f0=f0, metric_weight="csqr")
+    """Build a variable-depth walled channel (csqr(y) field).
+
+    ``f0 = 0`` has no nondimensional Rossby spelling, so it maps to
+    no rotation at all — the same physics (f = 0).
+    """
+    coriolis = None
+    if f0 != 0.0:
+        coriolis = sw.modules.FPlaneCoriolis(
+            rossby_number=ro / f0, metric_weight="csqr")
     return sw.Model(
         grid=make_grid(periodic_y=False),
-        csqr=lambda y: 1.0 + 0.5 * np.sin(np.pi * y),
-        rossby_number=ro, coriolis=coriolis, advection=True,
+        core=sw.Core(
+            froude_number=ro,
+            depth=lambda y: 1.0 + 0.5 * np.sin(np.pi * y)),
+        scaling=fr.scaling.GravityWave(),
+        coriolis=coriolis, advection=True,
         time_stepper=fr.model.time_steppers.AdamBashforth(2e-3, order=3))
 
 
@@ -293,8 +312,10 @@ def background_model(background, *, grid=None, ro=0.4, f0=1.0,
     if grid is None:
         grid = make_grid()
     return sw.Model(
-        grid=grid, csqr=CSQR, rossby_number=ro,
-        coriolis=sw.modules.FPlaneCoriolis(f0=f0),
+        grid=grid,
+        core=sw.Core(froude_number=ro, depth=CSQR),
+        scaling=fr.scaling.GravityWave(),
+        coriolis=sw.modules.FPlaneCoriolis(rossby_number=ro / f0),
         advection=False,
         modules_extra=(
             sw.modules.SadournyAdvection(background=background),),

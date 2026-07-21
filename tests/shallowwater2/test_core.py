@@ -1,10 +1,11 @@
-"""Derived ``extra_halo`` of the shallowwater2 dynamical core.
+"""The shallow-water core (``sw.Core``): constructor and extra_halo.
 
-The chart / immersed gravity term resolves rows the halo trace cannot
-follow, so the core declares its own ghost width -- now DERIVED at bind
-from the order-2 ``diff`` rows the term applies (width 1), not a
-hardcoded 2. On a plain flat grid the term is traced and no substitute
-is declared (``None``). See ``pressure_solver_halo.md``.
+The dual-variant constructor surface (dimensional ``gravity= + depth=``
+XOR nondimensional ``froude_number=``), the derived ``extra_halo`` of
+the chart / immersed gravity term (width 1, not a hardcoded 2; on a
+plain flat grid the term is traced and no substitute is declared), and
+the law-valued ``csqr(y,t)`` ProfileFunction path (TDF-D7). See
+``pressure_solver_halo.md``.
 """
 import jax
 import jax.numpy as jnp
@@ -26,18 +27,100 @@ def _mesh(n, name, *, periodic=True):
     return IntervalMesh(n, (0.0, 1.0), periodic=periodic, name=name)
 
 
+def _stepper(dt=5e-3, order=3):
+    return fr.model.time_steppers.AdamBashforth(dt, order=order)
+
+
 def _flat_model(**kwargs):
+    kwargs.setdefault("time_stepper", _stepper())
     grid = Grid((_mesh(8, "x"), _mesh(8, "y")))
-    return sw.Model(grid=grid, coords=("x", "y"), csqr=0.7,
-                    rossby_number=0.2, coriolis=None, advection=False,
-                    **kwargs)
+    return sw.Model(grid=grid,
+                    core=sw.Core(gravity=1.0, depth=0.7,
+                                 coords=("x", "y")),
+                    coriolis=None, advection=False, **kwargs)
+
+
+# ================================================================
+#  The dual-variant constructor (fr.scaling seam)
+# ================================================================
+def test_core_takes_exactly_one_kwarg_set():
+    with pytest.raises(TypeError, match="exactly one kwarg set"):
+        sw.Core()
+    with pytest.raises(TypeError, match="exactly one kwarg set"):
+        sw.Core(gravity=1.0, depth=1.0, froude_number=0.2)
+    with pytest.raises(TypeError, match="BOTH gravity= and depth="):
+        sw.Core(gravity=1.0)
+
+
+def test_core_refuses_exactly_zero_parameters():
+    # the live scaling ratios and analytic consumers divide by them
+    with pytest.raises(TypeError, match="gravity=0 is refused"):
+        sw.Core(gravity=0.0, depth=1.0)
+    with pytest.raises(TypeError, match="depth=0 is refused"):
+        sw.Core(gravity=1.0, depth=0.0)
+    with pytest.raises(TypeError, match="froude_number=0 is refused"):
+        sw.Core(froude_number=0.0)
+
+
+def test_core_rejects_a_callable_gravity():
+    with pytest.raises(TypeError, match="spatial variation"):
+        sw.Core(gravity=lambda y: 1.0 + 0.1 * y, depth=1.0)
+
+
+def test_scaling_variant_and_variable_depth_properties():
+    dim = sw.Core(gravity=1.0, depth=0.7)
+    assert dim.scaling_variant == "dimensional"
+    assert not dim.variable_depth
+    assert dim.coords == ("x", "y")
+    nondim = sw.Core(froude_number=0.2)
+    assert nondim.scaling_variant == "nondimensional"
+    varying = sw.Core(froude_number=0.2,
+                      depth=lambda y: 1.0 + 0.1 * y)
+    assert varying.variable_depth
+
+
+def test_provides_follow_the_variant():
+    # dimensional: GRAVITY always, DEPTH when the depth is a scalar
+    dim = {d.name for d in sw.Core(
+        gravity=9.81, depth=100.0).parameter_declarations}
+    assert dim == {sw.params.GRAVITY, sw.params.DEPTH}
+    varying = {d.name for d in sw.Core(
+        gravity=1.0,
+        depth=lambda y: 1.0 + 0.1 * y).parameter_declarations}
+    assert varying == {sw.params.GRAVITY}
+    # nondimensional: FROUDE always, DEPTH (the ratio) when constant
+    nondim = {d.name for d in sw.Core(
+        froude_number=0.2).parameter_declarations}
+    assert nondim == {sw.params.FROUDE, sw.params.DEPTH}
+
+
+def test_thickness_is_a_diagnostic_field_declaration():
+    core = sw.Core(gravity=1.0, depth=1.0)
+    decls = {d.name: d for d in core.field_declarations}
+    assert decls["thickness"].lifecycle is fr.model.Lifecycle.DIAGNOSTIC
+    assert tuple(decls) == ("u", "v", "p", "csqr", "thickness")
+
+
+def test_ramp_gravity_constructs_and_marks_csqr_time_dependent():
+    # the old csqr=Ramp TypeError is retired: a Ramp-valued gravity
+    # (or depth) is supported — csqr is marked time-dependent and a
+    # SELF_UPDATE stage rewrites it with the stage-time g(t) D
+    ramp = fr.model.Ramp(1.0, 2.0, period=1.0)
+    core = sw.Core(gravity=ramp, depth=0.7)
+    decls = {d.name: d for d in core.field_declarations}
+    assert decls["csqr"].time_dependent
+    assert any(s.kind is fr.model.StageKind.SELF_UPDATE
+               for s in core.stages)
+    depth_ramp = sw.Core(gravity=1.0, depth=ramp)
+    assert any(s.kind is fr.model.StageKind.SELF_UPDATE
+               for s in depth_ramp.stages)
 
 
 # ================================================================
 #  Flat grid: fully traced, no substitute declared
 # ================================================================
 def test_flat_core_declares_no_extra_halo():
-    core = _flat_model().module(sw.modules.DynamicalCore)
+    core = _flat_model().module(sw.Core)
     assert core.extra_halo is None
 
 
@@ -54,11 +137,14 @@ def test_non_orthogonal_chart_derives_width_one():
         (_mesh(8, "x"), _mesh(8, "y")),
         mapping=fr.spatial.CoordinateMapping(
             chart={"X": lambda x, y: (x + 0.4 * y, y, 0.0 * x)}))
-    model = sw.Model(grid=grid, coords=("x", "y"), csqr=0.7,
-                     rossby_number=0.2, coriolis=None, advection=False)
+    model = sw.Model(grid=grid,
+                     core=sw.Core(gravity=1.0, depth=0.7,
+                                  coords=("x", "y")),
+                     coriolis=None, advection=False,
+                     time_stepper=_stepper())
     # the cross-interp is genuinely present (a non-diagonal metric)
     assert not grid.mapping.orthogonal
-    core = model.module(sw.modules.DynamicalCore)
+    core = model.module(sw.Core)
     assert dict(core.extra_halo.widths) == {"x": 1, "y": 1}
     assert model.grid.decomposition.halo["x"] == 1
     assert model.grid.decomposition.halo["y"] == 1
@@ -70,9 +156,12 @@ def test_non_orthogonal_chart_derives_width_one():
 def test_immersed_core_derives_width_one():
     grid = Grid((_mesh(8, "x"), _mesh(8, "y")),
                 immersed=ImmersedDomain(lambda x, y: x * 0.0 + 1.0))  # noqa: ARG005
-    model = sw.Model(grid=grid, coords=("x", "y"), csqr=0.7,
-                     rossby_number=0.2, coriolis=None, advection=False)
-    core = model.module(sw.modules.DynamicalCore)
+    model = sw.Model(grid=grid,
+                     core=sw.Core(gravity=1.0, depth=0.7,
+                                  coords=("x", "y")),
+                     coriolis=None, advection=False,
+                     time_stepper=_stepper())
+    core = model.module(sw.Core)
     assert core.extra_halo is not None
     assert dict(core.extra_halo.widths) == {"x": 1, "y": 1}
 
@@ -95,8 +184,11 @@ def test_linear_chart_plus_immersed_is_a_taught_error():
         immersed=ImmersedDomain(lambda x, y: x * 0.0 + 1.0))  # noqa: ARG005
     with pytest.raises(NotImplementedError,
                        match="BOTH an embedding chart"):
-        sw.Model(grid=grid, coords=("x", "y"), csqr=0.7,
-                 rossby_number=0.2, coriolis=None, advection=False)
+        sw.Model(grid=grid,
+                 core=sw.Core(gravity=1.0, depth=0.7,
+                              coords=("x", "y")),
+                 coriolis=None, advection=False,
+                 time_stepper=_stepper())
 
 
 # ================================================================
@@ -108,8 +200,11 @@ def test_non_orthogonal_chart_parity_with_forced_width_two():
             (_mesh(8, "x"), _mesh(8, "y")),
             mapping=fr.spatial.CoordinateMapping(
                 chart={"X": lambda x, y: (x + 0.4 * y, y, 0.0 * x)}))
-        return sw.Model(grid=grid, coords=("x", "y"), csqr=0.7,
-                        rossby_number=0.2, coriolis=None, advection=False)
+        return sw.Model(grid=grid,
+                        core=sw.Core(gravity=1.0, depth=0.7,
+                                     coords=("x", "y")),
+                        coriolis=None, advection=False,
+                        time_stepper=_stepper())
 
     def run():
         m = build()
@@ -120,7 +215,7 @@ def test_non_orthogonal_chart_parity_with_forced_width_two():
         return {c: np.asarray(m.state[c].data) for c in ("u", "v", "p")}
 
     derived = run()
-    cls = sw.modules.DynamicalCore
+    cls = sw.Core
     orig = cls.__dict__.get("extra_halo")
     try:
         cls.extra_halo = property(
@@ -137,10 +232,10 @@ def test_non_orthogonal_chart_parity_with_forced_width_two():
 # ================================================================
 #  Law-valued csqr(y,t): the ProfileFunction path (TDF-D7)
 # ================================================================
-# A ProfileFunction c^2(y,t) makes csqr a time_dependent AUXILIARY field
+# A ProfileFunction D(y,t) makes csqr a time_dependent AUXILIARY field
 # rewritten each substage by a SELF_UPDATE stage; the gravity divergence
 # (and every other csqr consumer) reads the fresh stage-time field. There
-# is no constant shallowwater.csqr provide, and a frozen-L (ETDRK4)
+# is no constant shallowwater.depth provide, and a frozen-L (ETDRK4)
 # stepper refuses the marked field automatically.
 def _walled_grid(device_ids=None):
     """Periodic-x / walled-y channel (a periodic axis to shard)."""
@@ -158,9 +253,9 @@ def _csqr_law_model(law, *, order=3, grid=None, dt=5e-3):
     """Return a linear sw channel with a law-valued csqr (no rotation)."""
     return sw.Model(
         grid=_walled_grid() if grid is None else grid,
-        coords=("x", "y"), csqr=law, rossby_number=0.2,
+        core=sw.Core(gravity=1.0, depth=law, coords=("x", "y")),
         coriolis=None, advection=False,
-        time_stepper=fr.model.time_steppers.AdamBashforth(dt, order=order))
+        time_stepper=_stepper(dt, order))
 
 
 def _y_coords():
@@ -169,19 +264,18 @@ def _y_coords():
 
 def test_csqr_law_declares_a_time_dependent_field_and_no_provide():
     model = _csqr_law_model(_affine_csqr_law())
-    core = model.module(sw.modules.DynamicalCore)
-    assert core._csqr_law is not None
+    core = model.module(sw.Core)
+    assert core._depth_law is not None
     decls = {d.name: d for d in core.field_declarations}
     assert decls["csqr"].time_dependent
     provided = {str(p) for p in model.parameters}
-    assert "shallowwater.csqr" not in provided
+    assert "shallowwater.depth" not in provided
 
 
 def test_csqr_law_declares_the_gravity_halo_on_a_flat_grid():
     # the SELF_UPDATE rewrite exempts the module, so it declares the
     # gravity term's reach itself (one ghost per axis) even flat
-    core = _csqr_law_model(_affine_csqr_law()).module(
-        sw.modules.DynamicalCore)
+    core = _csqr_law_model(_affine_csqr_law()).module(sw.Core)
     assert core.extra_halo is not None
     assert dict(core.extra_halo.widths) == {"x": 1, "y": 1}
 
@@ -220,10 +314,12 @@ def test_csqr_law_tendency_matches_static_profile_at_stage_time(t):
     got = law.tendency(z, t=t)
 
     static = sw.Model(
-        grid=grid, coords=("x", "y"),
-        csqr=lambda y: c0 + s * t + 0.1 * y, rossby_number=0.2,
+        grid=grid,
+        core=sw.Core(gravity=1.0,
+                     depth=lambda y: c0 + s * t + 0.1 * y,
+                     coords=("x", "y")),
         coriolis=None, advection=False,
-        time_stepper=fr.model.time_steppers.AdamBashforth(5e-3, order=1))
+        time_stepper=_stepper(order=1))
     static.set_fields(**fields)
     z_static = sw.State({c: static.state[c] for c in ("u", "v", "p")})
     want = static.tendency(z_static)
@@ -234,8 +330,7 @@ def test_csqr_law_tendency_matches_static_profile_at_stage_time(t):
 
 
 def test_csqr_law_time_dependent_linear_parameters():
-    core = _csqr_law_model(_affine_csqr_law()).module(
-        sw.modules.DynamicalCore)
+    core = _csqr_law_model(_affine_csqr_law()).module(sw.Core)
     assert core.time_dependent_linear_parameters() == ("csqr",)
 
 
@@ -243,16 +338,19 @@ def test_csqr_law_etdrk4_refuses():
     """A frozen-L (ETDRK4) stepper refuses a scheduled csqr(y,t)."""
     grid = _walled_grid()
     static = sw.Model(
-        grid=grid, coords=("x", "y"), csqr=1.0, rossby_number=0.2,
+        grid=grid,
+        core=sw.Core(gravity=1.0, depth=1.0, coords=("x", "y")),
         coriolis=None, advection=True,
-        time_stepper=fr.model.time_steppers.AdamBashforth(5e-3))
+        time_stepper=_stepper())
     basis = sw.eigenbasis(static)
     with pytest.raises(
             fr.model.errors.TimeDependentLinearOperatorError,
             match=r"csqr"):
         sw.Model(
-            grid=grid, coords=("x", "y"), csqr=_affine_csqr_law(),
-            rossby_number=0.2, coriolis=None, advection=True,
+            grid=grid,
+            core=sw.Core(gravity=1.0, depth=_affine_csqr_law(),
+                         coords=("x", "y")),
+            coriolis=None, advection=True,
             time_stepper=fr.model.time_steppers.ETDRK4(5e-3, basis),
             term_filter=~terms.linear)
 

@@ -24,10 +24,14 @@ def test_betaplane_advances_with_a_profile_f_of_y():
     # the shared beta-plane carries the rotation term as pure field
     # arithmetic (no extra_halo); prove it advances a shallow-water
     # model on a real Profile("y") f(y)
-    cor = fr.model.modules.BetaPlaneCoriolis(f0=1.0, beta=0.5)
+    cor = fr.model.modules.BetaPlaneCoriolis(
+        rossby_number=0.2, metric_ratio=0.5)
     assert cor.extra_halo is None
     model = sw.Model(
-        grid=make_grid(), csqr=1.0, rossby_number=0.2, coriolis=cor,
+        grid=make_grid(),
+        core=sw.Core(froude_number=0.2, depth=1.0),
+        scaling=fr.scaling.GravityWave(),
+        coriolis=cor,
         time_stepper=fr.model.time_steppers.AdamBashforth(5e-3, order=3))
     fc = np.asarray(model.state["f_coriolis"].data)
     assert fc.std() > 0.0

@@ -400,8 +400,13 @@ def sw_flat(n):
                                         name="x")
     my = fr.spatial.meshes.IntervalMesh(n, (0.0, 1.0), periodic=True,
                                         name="y")
-    model = sw.Model(grid=fr.spatial.Grid((mx, my)), csqr=0.01,
-                     coriolis=sw.modules.FPlaneCoriolis(f0=1.0),
+    # today-parity spelling on the scaling surface (keeps the traced
+    # op count of the pre-refactor benchmark: eps ratios == 1)
+    model = sw.Model(grid=fr.spatial.Grid((mx, my)),
+                     core=sw.Core(froude_number=1.0, depth=0.01),
+                     scaling=fr.scaling.GravityWave(),
+                     coriolis=sw.modules.FPlaneCoriolis(
+                         rossby_number=1.0),
                      chunk_size=STEPS,
                      time_stepper=fr.model.time_steppers.AdamBashforth(
                          2.0 / n, order=3))
@@ -429,7 +434,10 @@ def sw_sphere(n):
             ("lon", "lat"), diagonal=True),
         "lower_index": fr.spatial.operators.LowerIndex(
             ("lon", "lat"), diagonal=True)})
-    model = sw.Model(grid=grid, coords=("lon", "lat"), csqr=0.01,
+    model = sw.Model(grid=grid,
+                     core=sw.Core(froude_number=1.0, depth=0.01,
+                                  coords=("lon", "lat")),
+                     scaling=fr.scaling.GravityWave(),
                      coriolis=sw.modules.RotationCoriolis(
                          omega=(0.0, 0.0, 1.0), coords=("lon", "lat"),
                          metric_weight="csqr"),

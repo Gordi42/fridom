@@ -36,7 +36,12 @@ from fridom.model.modules.coriolis import (
     chart_rotation,
     linear_rotation,
 )
-from fridom.model.params import CORIOLIS_BETA, CORIOLIS_F0
+from fridom.model.params import (
+    CORIOLIS_BETA,
+    CORIOLIS_F0,
+    CORIOLIS_METRIC_RATIO,
+    CORIOLIS_ROSSBY,
+)
 
 N = 8
 F0 = 1.3
@@ -54,7 +59,7 @@ def make_channel(csqr, coriolis):
                                      name="y")
     return sw.Model(
         grid=fr.spatial.Grid((mx, my), device_ids=(0,)),
-        csqr=csqr, rossby_number=0.2,
+        core=sw.Core(gravity=1.0, depth=csqr),
         coriolis=coriolis, advection=False,
         time_stepper=fr.model.time_steppers.AdamBashforth(5e-3, order=3))
 
@@ -75,7 +80,7 @@ def random_state(model, seed):
 # ================================================================
 @pytest.mark.parametrize("cls", [FPlaneCoriolis, BetaPlaneCoriolis])
 def test_metric_weight_defaults_to_none(cls):
-    module = cls()
+    module = cls(f0=1.0)
     assert module.metric_weight is None
     assert tuple(ref.name for ref in module.field_references) == (
         "u", "v")
@@ -83,7 +88,7 @@ def test_metric_weight_defaults_to_none(cls):
 
 @pytest.mark.parametrize("cls", [FPlaneCoriolis, BetaPlaneCoriolis])
 def test_metric_weight_adds_a_field_reference(cls):
-    module = cls(metric_weight="csqr")
+    module = cls(f0=1.0, metric_weight="csqr")
     assert module.metric_weight == "csqr"
     assert tuple(ref.name for ref in module.field_references) == (
         "u", "v", "csqr")
@@ -145,8 +150,7 @@ def test_unweighted_rotation_does_work_against_a_varying_metric():
     model = fr.model.Model(
         grid=fr.spatial.Grid((mx, my), device_ids=(0,)),
         modules=(
-            sw.modules.DynamicalCore(csqr=csqr_fn,
-                                     rossby_number=0.2),
+            sw.Core(gravity=1.0, depth=csqr_fn),
             FPlaneCoriolis(f0=F0)),
         time_stepper=fr.model.time_steppers.AdamBashforth(5e-3, order=3))
     assert energy_rate(model, seed=2) > 1e-6
@@ -211,7 +215,7 @@ def identity_chart_grid():
 def make_chart_model(grid, coriolis=None, *, coords, csqr=0.7):
     """Build a linear shallow-water model on a chart grid."""
     return sw.Model(
-        grid=grid, coords=coords, csqr=csqr, rossby_number=0.2,
+        grid=grid, core=sw.Core(gravity=1.0, depth=csqr, coords=coords),
         coriolis=coriolis, advection=False,
         time_stepper=fr.model.time_steppers.AdamBashforth(
             1e-3, order=3))
@@ -358,7 +362,7 @@ def test_rotation_on_the_identity_chart_is_the_f_plane():
     # reproduces FPlaneCoriolis(f0=2 Omega) -- to rounding.
     #
     # NOT bitwise, and deliberately so. Since the extra-halo gate
-    # (`fix/sw-extra-halo-gate`, lever 8) `DynamicalCore.extra_halo`
+    # (`fix/sw-extra-halo-gate`, lever 8) the sw core's `extra_halo`
     # is chart-conditional: the chart core requests a (derived) halo
     # cell per axis where the flat core requests none. The two models
     # therefore pad their storage differently, XLA fuses the `.to`
@@ -492,7 +496,7 @@ def test_the_default_needs_no_grid_guard_on_a_chart_grid():
 @pytest.mark.parametrize("cls", [FPlaneCoriolis, BetaPlaneCoriolis])
 def test_metric_blind_coriolis_is_rejected_on_a_chart_grid(cls):
     with pytest.raises(ValueError, match="metric-blind"):
-        make_chart_model(sphere_grid(), cls(),
+        make_chart_model(sphere_grid(), cls(f0=1.0),
                          coords=("lon", "lat"))
 
 
@@ -557,7 +561,7 @@ def _r1_grid():
 def _r1_channel(grid, f0, order=3):
     """Return a linear sw channel with the given (float or Ramp) f0."""
     return sw.Model(
-        grid=grid, csqr=1.0, rossby_number=0.2,
+        grid=grid, core=sw.Core(gravity=1.0, depth=1.0),
         coriolis=FPlaneCoriolis(f0=f0), advection=False,
         time_stepper=fr.model.time_steppers.AdamBashforth(
             RAMP_DT, order=order))
@@ -703,7 +707,7 @@ def test_static_config_assembly_fingerprint_is_deterministic():
 def _beta_channel(grid, f0=F0, beta=0.0, order=3):
     """Return a linear sw channel with the given (float/Ramp) f0/beta."""
     return sw.Model(
-        grid=grid, csqr=1.0, rossby_number=0.2,
+        grid=grid, core=sw.Core(gravity=1.0, depth=1.0),
         coriolis=BetaPlaneCoriolis(f0=f0, beta=beta), advection=False,
         time_stepper=fr.model.time_steppers.AdamBashforth(
             RAMP_DT, order=order))
@@ -743,7 +747,8 @@ def test_beta_plane_blend_emits_a_self_update_stage():
     (the reads name the target plus the two ingredients). A fully static
     module emits no stage.
     """
-    ramped = BetaPlaneCoriolis(beta=fr.model.Ramp(0.0, 2.0, period=1.0))
+    ramped = BetaPlaneCoriolis(
+        f0=1.0, beta=fr.model.Ramp(0.0, 2.0, period=1.0))
     (stage,) = ramped.stages
     assert stage.kind is fr.model.StageKind.SELF_UPDATE
     assert stage.writes == ("f_coriolis",)
@@ -900,7 +905,7 @@ def test_beta_plane_time_dependent_linear_parameters():
         f0=ramp).time_dependent_linear_parameters() == (
         str(CORIOLIS_F0), "f_coriolis")
     assert BetaPlaneCoriolis(
-        beta=ramp).time_dependent_linear_parameters() == (
+        f0=1.0, beta=ramp).time_dependent_linear_parameters() == (
         str(CORIOLIS_BETA), "f_coriolis")
     both = BetaPlaneCoriolis(f0=ramp, beta=ramp)
     assert both.time_dependent_linear_parameters() == (
@@ -911,7 +916,7 @@ def test_beta_plane_etdrk4_refuses_a_ramped_beta():
     """AR-D7: a frozen-L (ETDRK4) stepper refuses a ramped beta."""
     grid = _r1_grid()
     static = sw.Model(
-        grid=grid, csqr=1.0, rossby_number=0.2,
+        grid=grid, core=sw.Core(gravity=1.0, depth=1.0),
         coriolis=BetaPlaneCoriolis(f0=1.0, beta=2.0), advection=True,
         time_stepper=fr.model.time_steppers.AdamBashforth(RAMP_DT))
     basis = sw.eigenbasis(static)
@@ -920,7 +925,7 @@ def test_beta_plane_etdrk4_refuses_a_ramped_beta():
             fr.model.errors.TimeDependentLinearOperatorError,
             match=r"coriolis\.beta"):
         sw.Model(
-            grid=grid, csqr=1.0, rossby_number=0.2,
+            grid=grid, core=sw.Core(gravity=1.0, depth=1.0),
             coriolis=BetaPlaneCoriolis(f0=1.0, beta=ramp),
             advection=True,
             time_stepper=fr.model.time_steppers.ETDRK4(RAMP_DT, basis),
@@ -979,8 +984,8 @@ def test_beta_plane_blend_is_device_count_invariant(forced_devices):
 def _law_channel(grid, law, order=1):
     """Return a linear sw channel with a law-valued Coriolis f(y,t)."""
     return sw.Model(
-        grid=grid, csqr=1.0, rossby_number=0.2,
-        coriolis=BetaPlaneCoriolis(f=law), advection=False,
+        grid=grid, core=sw.Core(gravity=1.0, depth=1.0),
+        coriolis=BetaPlaneCoriolis(f0=1.0, f=law), advection=False,
         time_stepper=fr.model.time_steppers.AdamBashforth(
             RAMP_DT, order=order))
 
@@ -994,7 +999,7 @@ def _affine_law(f0=1.3, s=2.0):
 def test_beta_plane_law_rejects_a_non_profilefunction():
     with pytest.raises(TypeError,
                        match=r"must be a fr\.model\.ProfileFunction"):
-        BetaPlaneCoriolis(f=lambda y, t: y + t)
+        BetaPlaneCoriolis(f0=1.0, f=lambda y, t: y + t)
 
 
 def test_beta_plane_law_rejects_a_ramped_f0_alongside_the_law():
@@ -1066,7 +1071,7 @@ def test_beta_plane_law_field_equals_the_law_at_stage_time():
 
 def test_beta_plane_law_time_dependent_linear_parameters():
     """The frozen-L hook reports the marked f_coriolis field."""
-    module = BetaPlaneCoriolis(f=_affine_law())
+    module = BetaPlaneCoriolis(f0=1.0, f=_affine_law())
     assert module.time_dependent_linear_parameters() == ("f_coriolis",)
 
 
@@ -1074,7 +1079,7 @@ def test_beta_plane_law_etdrk4_refuses():
     """A frozen-L (ETDRK4) stepper refuses a scheduled f(y,t)."""
     grid = _r1_grid()
     static = sw.Model(
-        grid=grid, csqr=1.0, rossby_number=0.2,
+        grid=grid, core=sw.Core(gravity=1.0, depth=1.0),
         coriolis=BetaPlaneCoriolis(f0=1.0, beta=2.0), advection=True,
         time_stepper=fr.model.time_steppers.AdamBashforth(RAMP_DT))
     basis = sw.eigenbasis(static)
@@ -1084,8 +1089,8 @@ def test_beta_plane_law_etdrk4_refuses():
             fr.model.errors.TimeDependentLinearOperatorError,
             match=r"f_coriolis"):
         sw.Model(
-            grid=grid, csqr=1.0, rossby_number=0.2,
-            coriolis=BetaPlaneCoriolis(f=law), advection=True,
+            grid=grid, core=sw.Core(gravity=1.0, depth=1.0),
+            coriolis=BetaPlaneCoriolis(f0=1.0, f=law), advection=True,
             time_stepper=fr.model.time_steppers.ETDRK4(RAMP_DT, basis),
             term_filter=~terms.linear)
 
@@ -1247,7 +1252,7 @@ def _immersed_weighted_model():
                                         name="y")),
         immersed=fr.spatial.ImmersedDomain(box), device_ids=(0,))
     model = sw.Model(
-        grid=grid, csqr=0.8, rossby_number=0.3,
+        grid=grid, core=sw.Core(gravity=1.0, depth=0.8),
         coriolis=FPlaneCoriolis(f0=1.0, metric_weight="csqr"),
         advection=False,
         time_stepper=fr.model.time_steppers.AdamBashforth(0.01, order=3))
@@ -1330,3 +1335,76 @@ def test_chart_rotation_term_grad_wrt_u_is_finite_and_matches_fd():
     fd = (float(loss(u_storage + eps * direction))
           - float(loss(u_storage - eps * direction))) / (2.0 * eps)
     assert directional == pytest.approx(fd, rel=1e-4)
+
+
+# ================================================================
+#  The nondimensional variant of the shared family (fr.scaling)
+# ================================================================
+def _flat_grid(n=16):
+    """Return a fully periodic n x n grid (all components n x n)."""
+    mx = fr.spatial.meshes.IntervalMesh(n, (0.0, 1.0), periodic=True,
+                                        name="x")
+    my = fr.spatial.meshes.IntervalMesh(n, (0.0, 1.0), periodic=True,
+                                        name="y")
+    return fr.spatial.Grid((mx, my), device_ids=(0,))
+
+
+def test_nondim_fplane_scales_the_dim_body():
+    """The nondim rotation is the dim body scaled by eps/Ro, bitwise.
+
+    Under the matching GravityWave scaling epsilon aliases the core's
+    Froude leaf, so the live rotation ratio is eps/Ro = 0.4/0.2 = 2.0
+    exactly (dyadic) — equal to the dimensional f0 — and the two
+    coriolis-term tendencies agree bit-for-bit.
+    """
+    grid = _flat_grid()
+    dim = sw.Model(
+        grid=grid, core=sw.Core(gravity=1.0, depth=0.7),
+        coriolis=FPlaneCoriolis(f0=2.0), advection=False,
+        time_stepper=fr.model.time_steppers.AdamBashforth(
+            RAMP_DT, order=3))
+    nondim = sw.Model(
+        grid=grid, core=sw.Core(froude_number=0.4, depth=0.7),
+        scaling=fr.scaling.GravityWave(),
+        coriolis=FPlaneCoriolis(rossby_number=0.2), advection=False,
+        time_stepper=fr.model.time_steppers.AdamBashforth(
+            RAMP_DT, order=3))
+    rng = np.random.default_rng(21)
+    fields = {c: rng.standard_normal((16, 16))
+              for c in ("u", "v", "p")}
+    dim.set_fields(**fields)
+    nondim.set_fields(**fields)
+    filt = fr.model.term_predicates.named("FPlaneCoriolis/coriolis")
+    d_dim = dim.tendency(dim.state, filter=filt)
+    d_non = nondim.tendency(nondim.state, filter=filt)
+    for c in ("u", "v"):
+        assert np.array_equal(np.asarray(d_non[c].data),
+                              np.asarray(d_dim[c].data))
+
+
+def test_nondim_betaplane_f_shape():
+    """The nondim beta-plane carries the f-shape 1 + metric_ratio*y.
+
+    The carried field is the SHAPE (the rotation scale rides the live
+    eps/Ro ratio), and the provides are the nondimensional pair
+    (coriolis.rossby + coriolis.metric_ratio) — not f0/beta.
+    """
+    model = sw.Model(
+        grid=_flat_grid(),
+        core=sw.Core(froude_number=0.4, depth=0.7),
+        scaling=fr.scaling.GravityWave(),
+        coriolis=BetaPlaneCoriolis(rossby_number=0.2,
+                                   metric_ratio=0.5),
+        advection=False,
+        time_stepper=fr.model.time_steppers.AdamBashforth(
+            RAMP_DT, order=3))
+    f = model.state["f_coriolis"]
+    y = model.grid.evaluation_nodes(f.function_space, "y").data
+    np.testing.assert_allclose(
+        np.asarray(f.data),
+        np.asarray(1.0 + 0.5 * y + 0.0 * f.data),
+        rtol=0.0, atol=1e-14)
+    assert CORIOLIS_ROSSBY in model.parameters
+    assert CORIOLIS_METRIC_RATIO in model.parameters
+    assert CORIOLIS_F0 not in model.parameters
+    assert CORIOLIS_BETA not in model.parameters

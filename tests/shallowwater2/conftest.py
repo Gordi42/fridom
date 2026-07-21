@@ -19,14 +19,28 @@ def make_grid(n=N, *, periodic_x=True, periodic_y=True):
 
 
 def make_model(grid=None, *, csqr=1.0, rossby_number=0.2, f0=1.0,
-               dt=DT, order=3, advection=True, **kwargs):
-    """Build a shallow-water model through the preset factory."""
+               dt=DT, order=3, advection=True, coriolis=True,
+               **kwargs):
+    """Build a shallow-water model on the scaling surface.
+
+    The (csqr, rossby_number, f0) knobs keep the historical test
+    parametrization and spell the TODAY-PARITY nondimensional model:
+    GravityWave scaling, core froude_number = rossby_number with the
+    depth ratio csqr, Coriolis Ro = rossby_number / f0 (the live
+    epsilon/Ro ratio then equals f0 exactly for dyadic pins).
+    """
     if grid is None:
         grid = make_grid()
+    if coriolis is True:
+        coriolis = sw.modules.FPlaneCoriolis(
+            rossby_number=rossby_number / f0)
+    elif coriolis is False:
+        coriolis = None
     return sw.Model(
-        grid=grid, csqr=csqr, rossby_number=rossby_number,
-        coriolis=sw.modules.FPlaneCoriolis(
-            rossby_number=rossby_number / f0),
+        grid=grid,
+        core=sw.Core(froude_number=rossby_number, depth=csqr),
+        scaling=fr.scaling.GravityWave(),
+        coriolis=coriolis,
         advection=advection,
         time_stepper=fr.model.time_steppers.AdamBashforth(dt, order=order),
         **kwargs)

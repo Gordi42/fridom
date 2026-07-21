@@ -26,7 +26,7 @@ OMEGA = 1.5
 LAT_MAX = float(np.deg2rad(80.0))
 
 ADVECT = fr.model.term_predicates.named("SadournyAdvection/advect")
-GRAVITY = fr.model.term_predicates.named("DynamicalCore/gravity")
+GRAVITY = fr.model.term_predicates.named("Core/gravity")
 
 
 def sphere_grid(nlon=2 * N, nlat=N, radius=1.0):
@@ -41,8 +41,10 @@ def sphere_model(grid=None, *, advection=True, omega=OMEGA,
     if grid is None:
         grid = sphere_grid()
     return sw.Model(
-        grid=grid, coords=("lon", "lat"), csqr=csqr,
-        rossby_number=ro,
+        grid=grid,
+        core=sw.Core(froude_number=ro, depth=csqr,
+                     coords=("lon", "lat")),
+        scaling=fr.scaling.GravityWave(),
         coriolis=sw.modules.RotationCoriolis(
             omega=(0.0, 0.0, omega), coords=("lon", "lat"),
             metric_weight="csqr"),
@@ -92,7 +94,7 @@ def test_chart_model_keeps_the_exempt_halo():
     # derives 1 (the cross-interp telescopes two-sided;
     # pressure_solver_halo.md).
     model = sphere_model(advection=False)
-    core = model.module(sw.modules.DynamicalCore)
+    core = model.module(sw.Core)
     assert core.extra_halo is not None  # exemption kept
     halo = model.grid.decomposition.halo
     assert halo["lon"] == 1
@@ -238,13 +240,18 @@ def test_explicit_cartesian_coords_are_bitwise_neutral():
     # coords=("x", "y") spelled out == the defaults, bit for bit
     grid = make_grid()
     default = sw.Model(
-        grid=grid, csqr=CSQR, rossby_number=RO,
-        coriolis=sw.modules.FPlaneCoriolis(f0=1.0),
+        grid=grid,
+        core=sw.Core(froude_number=RO, depth=CSQR),
+        scaling=fr.scaling.GravityWave(),
+        coriolis=sw.modules.FPlaneCoriolis(rossby_number=RO),
         time_stepper=fr.model.time_steppers.AdamBashforth(
             1e-3, order=3))
     explicit = sw.Model(
-        grid=grid, csqr=CSQR, rossby_number=RO, coords=("x", "y"),
-        coriolis=sw.modules.FPlaneCoriolis(f0=1.0),
+        grid=grid,
+        core=sw.Core(froude_number=RO, depth=CSQR,
+                     coords=("x", "y")),
+        scaling=fr.scaling.GravityWave(),
+        coriolis=sw.modules.FPlaneCoriolis(rossby_number=RO),
         time_stepper=fr.model.time_steppers.AdamBashforth(
             1e-3, order=3))
     rng = np.random.default_rng(2)
@@ -265,8 +272,10 @@ def test_flat_state_diagnostics_are_unchanged():
     # the generalized State sugar reproduces the Cartesian forms
     grid = make_grid()
     model = sw.Model(
-        grid=grid, csqr=CSQR, rossby_number=RO,
-        coriolis=sw.modules.FPlaneCoriolis(f0=1.0),
+        grid=grid,
+        core=sw.Core(froude_number=RO, depth=CSQR),
+        scaling=fr.scaling.GravityWave(),
+        coriolis=sw.modules.FPlaneCoriolis(rossby_number=RO),
         time_stepper=fr.model.time_steppers.AdamBashforth(
             1e-3, order=3))
     rng = np.random.default_rng(6)
@@ -337,8 +346,10 @@ def test_chart_view_is_the_identity_on_a_flat_grid():
     # on a flat grid u/v are already physical == chart-native
     grid = make_grid()
     model = sw.Model(
-        grid=grid, csqr=CSQR, rossby_number=RO,
-        coriolis=sw.modules.FPlaneCoriolis(f0=1.0),
+        grid=grid,
+        core=sw.Core(froude_number=RO, depth=CSQR),
+        scaling=fr.scaling.GravityWave(),
+        coriolis=sw.modules.FPlaneCoriolis(rossby_number=RO),
         time_stepper=fr.model.time_steppers.AdamBashforth(
             1e-3, order=3))
     rng = np.random.default_rng(4)
@@ -386,17 +397,21 @@ def test_ekin_diagnostic_is_the_physical_quadratic_on_the_sphere():
 #  Taught errors
 # ================================================================
 def test_core_rejects_bad_coords():
+    # coords are validated before the kwarg-set check, so no physics
+    # kwargs are needed to reach the taught error
     with pytest.raises(TypeError, match="two distinct strings"):
-        sw.modules.DynamicalCore(coords=("x",))
+        sw.Core(coords=("x",))
     with pytest.raises(TypeError, match="two distinct strings"):
         sw.modules.SadournyAdvection(coords=("x", "x"))
 
 
 def test_core_coords_must_match_the_chart():
     with pytest.raises(ValueError,
-                       match=r"DynamicalCore coords.*chart"):
+                       match=r"sw\.Core coords.*chart"):
         sw.Model(
-            grid=sphere_grid(), csqr=CSQR,
+            grid=sphere_grid(),
+            core=sw.Core(froude_number=1.0, depth=CSQR),
+            scaling=fr.scaling.GravityWave(),
             coriolis=sw.modules.RotationCoriolis(
                 omega=(0.0, 0.0, OMEGA), coords=("lon", "lat")),
             advection=False,
@@ -411,11 +426,12 @@ def test_advection_coords_must_match_the_chart():
         fr.model.Model(
             grid=grid,
             modules=(
-                sw.modules.DynamicalCore(
-                    csqr=CSQR, coords=("lon", "lat")),
+                sw.Core(froude_number=1.0, depth=CSQR,
+                        coords=("lon", "lat")),
                 sw.modules.SadournyAdvection()),
             time_stepper=fr.model.time_steppers.AdamBashforth(
-                1e-3, order=3))
+                1e-3, order=3),
+            scaling=fr.scaling.GravityWave())
 
 
 def test_background_flow_is_rejected_on_chart_grids():
@@ -425,17 +441,18 @@ def test_background_flow_is_rejected_on_chart_grids():
         fr.model.Model(
             grid=grid,
             modules=(
-                sw.modules.DynamicalCore(
-                    csqr=CSQR, coords=("lon", "lat")),
+                sw.Core(froude_number=1.0, depth=CSQR,
+                        coords=("lon", "lat")),
                 sw.modules.SadournyAdvection(
                     background={"u": 0.1},
                     coords=("lon", "lat"))),
             time_stepper=fr.model.time_steppers.AdamBashforth(
-                1e-3, order=3))
+                1e-3, order=3),
+            scaling=fr.scaling.GravityWave())
 
 
 def test_core_coords_property_round_trips():
-    core = sw.modules.DynamicalCore(coords=("lon", "lat"))
+    core = sw.Core(froude_number=1.0, coords=("lon", "lat"))
     assert core.coords == ("lon", "lat")
     adv = sw.modules.SadournyAdvection(coords=("lon", "lat"))
     assert adv.coords == ("lon", "lat")

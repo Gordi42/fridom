@@ -12,9 +12,13 @@ The load-bearing claims, each with a test below:
 - The double-counting guard fires: a model that still carries its
   linear terms raises ``LinearTermInTendencyError``.
 - The nonlinear scheme is fourth order, INCLUDING through a ``Ramp``
-  on ``scaling.nonlinearity`` (which needs the per-stage clock times).
+  on a pure-N coefficient (which needs the per-stage clock times).
+  On the scaling surface a ramped Froude number is NOT pure-N (the
+  epsilon alias feeds the declared linear couplings), so that spelling
+  is gated as a frozen-L refusal instead.
 """
 import math
+from functools import partial
 
 import jax
 import jax.numpy as jnp
@@ -23,11 +27,13 @@ import pytest
 
 import fridom as fr
 import fridom.shallowwater2 as sw
+from fridom.framework.utils import jaxify
 from fridom.model import term_predicates as terms
 from fridom.model.errors import (
     LinearTermInTendencyError,
     TimeDependentLinearOperatorError,
 )
+from fridom.model.parameters import ParameterDeclaration
 from fridom.model.time_steppers.exponential import (
     ETDRK4,
     phi_functions,
@@ -53,13 +59,83 @@ def grid():
     return fr.spatial.Grid((mx, my), device_ids=(0,))
 
 
-def _model(grid, stepper, rossby=0.2, *, filtered):
-    """Assemble a shallow-water channel; filtered drops linear terms."""
+@jaxify
+class _ZeroN(fr.model.Module):
+
+    """An identically-zero nonlinear term (keeps N non-empty).
+
+    The composer refuses an empty kept-term set, so the pure
+    exp(L dt) gates (linear terms filtered, advection off) carry
+    this exact zero in N — bitwise the same evolution.
+    """
+
+    field_references = (fr.model.FieldReference("u"),
+                        fr.model.FieldReference("v"),
+                        fr.model.FieldReference("p"))
+
+    @fr.model.term(name="zero", advances=("u", "v", "p"),
+                   linear=False)
+    def zero(self, state, ctx):  # noqa: ARG002
+        return {name: state[name] * 0.0
+                for name in ("u", "v", "p")}
+
+
+@partial(jaxify, dynamic=("amp",))
+class _RampedN(fr.model.Module):
+
+    """A nonlinear term with a (rampable) pure-N coefficient.
+
+    The coefficient lives only in this ``linear=False`` term, so a
+    Ramp on it is the honest pure-ramp-in-N spelling on the scaling
+    surface (a ramped Froude number is refused under frozen-L: the
+    epsilon alias sits in the declared linear couplings).
+    """
+
+    field_references = (fr.model.FieldReference("u"),
+                        fr.model.FieldReference("v"),
+                        fr.model.FieldReference("p"))
+    parameter_declarations = (
+        ParameterDeclaration("toy.amp", attr="amp", units="1"),)
+
+    def __init__(self, amp=0.0):
+        self.amp = fr.model.leaf(amp)
+
+    @fr.model.term(name="skew", advances=("u", "v", "p"),
+                   linear=False)
+    def skew(self, state, ctx):
+        a = ctx.params["toy.amp"]
+        u, v, p = state["u"], state["v"], state["p"]
+        return {"u": a * (v.to(u) * v.to(u)),
+                "v": -(a * (u.to(v) * u.to(v))),
+                "p": p * 0.0}
+
+
+def _model(grid, stepper, rossby=0.2, *, filtered, advection=True):
+    """Assemble a shallow-water channel; filtered drops linear terms.
+
+    Today-parity nondimensional spelling: GravityWave scaling, the
+    core Froude number carries the old rossby knob and the Coriolis
+    Ro = 0.2, so at the default rossby the live rotation ratio
+    eps/Ro = 1.0 reproduces the old f0 = 1.0 exactly.
+    """
     extra = {"term_filter": ~terms.linear} if filtered else {}
     return sw.Model(
-        grid=grid, csqr=1.0, rossby_number=rossby,
-        coriolis=sw.modules.FPlaneCoriolis(f0=1.0), advection=True,
+        grid=grid,
+        core=sw.Core(froude_number=rossby, depth=1.0),
+        scaling=fr.scaling.GravityWave(),
+        coriolis=sw.modules.FPlaneCoriolis(rossby_number=0.2),
+        advection=advection,
+        modules_extra=(() if advection else (_ZeroN(),)),
         time_stepper=stepper, **extra)
+
+
+def _ramped_n_model(grid, stepper, amp):
+    """Dimensional channel + the synthetic ramped pure-N term."""
+    return sw.Model(
+        grid=grid, core=sw.Core(gravity=1.0, depth=1.0),
+        coriolis=sw.modules.FPlaneCoriolis(f0=1.0),
+        advection=False, modules_extra=(_RampedN(amp),),
+        time_stepper=stepper, term_filter=~terms.linear)
 
 
 @pytest.fixture(scope="module")
@@ -182,9 +258,9 @@ def test_linear_answer_is_independent_of_dt(grid, basis, state0):
     results = []
     for steps in (1, 8, 64):
         dt = 64 * AB3_DT / steps
-        # rossby = 0 kills the (only) nonlinear term: pure exp(L dt)
-        model = _model(grid, ETDRK4(dt, basis), rossby=0.0,
-                       filtered=True)
+        # advection=False drops the (only) nonlinear term: exp(L dt)
+        model = _model(grid, ETDRK4(dt, basis), filtered=True,
+                       advection=False)
         results.append(_run(model, state0, steps))
     for other in results[1:]:
         assert _rel_error(other, results[0]) < 1e-11
@@ -193,10 +269,10 @@ def test_linear_answer_is_independent_of_dt(grid, basis, state0):
 def test_propagator_obeys_the_group_law(grid, basis, state0):
     """exp(L dt) applied twice == exp(L 2dt) -- to machine precision."""
     dt = 8 * AB3_DT
-    coarse = _run(_model(grid, ETDRK4(2 * dt, basis), rossby=0.0,
-                         filtered=True), state0, 4)
-    fine = _run(_model(grid, ETDRK4(dt, basis), rossby=0.0,
-                       filtered=True), state0, 8)
+    coarse = _run(_model(grid, ETDRK4(2 * dt, basis), filtered=True,
+                         advection=False), state0, 4)
+    fine = _run(_model(grid, ETDRK4(dt, basis), filtered=True,
+                       advection=False), state0, 8)
     assert _rel_error(fine, coarse) < 1e-11
 
 
@@ -207,7 +283,8 @@ def test_propagator_does_not_damp(grid, basis, state0):
     stability by damping the very waves it is asked to carry.
     """
     dt = 30 * AB3_DT
-    model = _model(grid, ETDRK4(dt, basis), rossby=0.0, filtered=True)
+    model = _model(grid, ETDRK4(dt, basis), filtered=True,
+                   advection=False)
     start = _norm(_run(model, state0, 0))
     for steps in (1, 10, 100):
         assert _norm(_run(model, state0, steps)) / start == \
@@ -280,8 +357,8 @@ def test_fourth_order_through_a_ramped_parameter(grid, basis, state0):
     ramp = fr.model.Ramp(0.0, 0.2, period=total, curve="cosine")
 
     def integrate(count):
-        return _run(_model(grid, ETDRK4(total / count, basis), ramp,
-                           filtered=True), state0, count)
+        return _run(_ramped_n_model(
+            grid, ETDRK4(total / count, basis), ramp), state0, count)
 
     reference = integrate(64)
     errors = [_rel_error(integrate(count), reference)
@@ -305,7 +382,7 @@ def test_time_dependent_f0_in_the_linear_operator_is_refused(grid, basis):
     ramp = fr.model.Ramp(0.5, 1.5, period=1.0, curve="exp")
     with pytest.raises(TimeDependentLinearOperatorError,
                        match=r"coriolis\.f0 \(FPlaneCoriolis\)") as ex:
-        sw.Model(grid=grid, csqr=1.0, rossby_number=0.2,
+        sw.Model(grid=grid, core=sw.Core(gravity=1.0, depth=1.0),
                  coriolis=sw.modules.FPlaneCoriolis(f0=ramp),
                  advection=True, time_stepper=ETDRK4(AB3_DT, basis),
                  term_filter=~terms.linear)
@@ -314,20 +391,35 @@ def test_time_dependent_f0_in_the_linear_operator_is_refused(grid, basis):
     assert "exponential_stepper.md" in str(ex.value)
 
 
-def test_time_dependent_rossby_in_N_is_allowed(grid, basis, state0):
-    """AR-D7 discriminates N from L: a Ramp on scaling.nonlinearity is fine.
+def test_time_dependent_pure_n_parameter_is_allowed(grid, basis,
+                                                    state0):
+    """AR-D7 discriminates N from L: a Ramp on a pure-N leaf is fine.
 
-    scaling.nonlinearity scales only the nonlinear advection (N), which the
-    RK stages evaluate at their own clock times, so the frozen L is
-    untouched and the ETDRK4 model must assemble. (The order through
-    such a ramp is the fourth-order test above; this pins the
-    assembly-time gate, the exact regression AR-D7 must not break.)
+    The synthetic ``toy.amp`` lives only in a ``linear=False`` term,
+    so the frozen L is untouched and the ETDRK4 model must assemble
+    and run. (The order through such a ramp is the fourth-order test
+    above; this pins the assembly-time gate, the exact regression
+    AR-D7 must not break.)
     """
     ramp = fr.model.Ramp(0.0, 0.2, period=1.0)
-    # assembling with the ramp in N must NOT raise (the AR-D7 gate),
-    # and the model must run
-    model = _model(grid, ETDRK4(AB3_DT, basis), ramp, filtered=True)
+    model = _ramped_n_model(grid, ETDRK4(AB3_DT, basis), ramp)
     assert np.isfinite(_norm(_run(model, state0, 1)))
+
+
+def test_ramped_froude_under_frozen_l_is_refused(grid, basis):
+    """A ramped Froude number is NOT pure-N on the scaling surface.
+
+    Under GravityWave the epsilon alias binds ``scaling.nonlinearity``
+    to the SAME Froude leaf that sits in the wave/rotation terms'
+    declared linear couplings, so a Ramp there makes L(t)
+    time-dependent (the live eps/Ro rotation ratio ramps) and the
+    frozen-L guard refuses the ETDRK4 assembly — the honest new
+    behavior replacing the old "a Ramp on scaling.nonlinearity is
+    N-only" premise.
+    """
+    ramp = fr.model.Ramp(0.0, 0.2, period=1.0)
+    with pytest.raises(TimeDependentLinearOperatorError):
+        _model(grid, ETDRK4(AB3_DT, basis), ramp, filtered=True)
 
 
 # ================================================================

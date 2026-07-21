@@ -42,19 +42,26 @@ NH_COMPONENTS = ("u", "v", "w", "b")
 #  Model and state builders
 # ================================================================
 def make_sw_model(*, ro=0.1, periodic_y=True, coriolis=None, n=N):
-    """Build a small shallow-water model (walled y if requested)."""
+    """Build a small shallow-water model (walled y if requested).
+
+    Today-parity nondimensional spelling: GravityWave scaling with
+    the core Froude number = ro and Coriolis Ro = ro, so the live
+    rotation ratio eps/Ro = 1.0 reproduces the old f0 = 1.0 and the
+    advection carries epsilon = ro (the T2 slope knob).
+    """
     mx = fr.spatial.meshes.IntervalMesh(n, (0.0, 1.0), periodic=True,
                                      name="x")
     my = fr.spatial.meshes.IntervalMesh(n, (0.0, 1.0),
                                      periodic=periodic_y, name="y")
     if coriolis is None:
-        coriolis = sw.modules.FPlaneCoriolis(f0=1.0)
+        coriolis = sw.modules.FPlaneCoriolis(rossby_number=ro)
     return sw.Model(
         # Pin to one device: the balance expansion projects through the
         # naive change-of-representation transform, which raises the
         # Tier-1 guard on a sharded transform axis (see transform.py).
         grid=fr.spatial.Grid((mx, my), device_ids=(0,)),
-        csqr=1.0, rossby_number=ro,
+        core=sw.Core(froude_number=ro, depth=1.0),
+        scaling=fr.scaling.GravityWave(),
         coriolis=coriolis, advection=True,
         time_stepper=fr.model.time_steppers.AdamBashforth(5e-3, order=3))
 
@@ -276,7 +283,8 @@ def test_sw_beta_channel_balances_a_predicate_slow_band():
     # spectral gap (the eb.projector grammar)
     model = make_sw_model(
         periodic_y=False,
-        coriolis=sw.modules.BetaPlaneCoriolis(f0=1.0, beta=2.0))
+        coriolis=sw.modules.BetaPlaneCoriolis(rossby_number=0.1,
+                                              metric_ratio=2.0))
     z = sw_state(model, walled=True)
     eb = sw.eigenbasis(model)
     labels = np.asarray(eb.labels)
@@ -346,8 +354,10 @@ def test_lint_skips_a_selection_with_zero_nonlinear_tendency():
         # Pin to one device: the naive transform raises the Tier-1 guard
         # on a sharded transform axis (see transform.py).
         grid=fr.spatial.Grid((mx, my), device_ids=(0,)),
-        csqr=1.0, rossby_number=0.1,
-        coriolis=sw.modules.FPlaneCoriolis(f0=1.0), advection=True,
+        core=sw.Core(froude_number=0.1, depth=1.0),
+        scaling=fr.scaling.GravityWave(),
+        coriolis=sw.modules.FPlaneCoriolis(rossby_number=0.1),
+        advection=True,
         modules_extra=(ZeroQuadratic(),),
         time_stepper=fr.model.time_steppers.AdamBashforth(5e-3, order=3))
     with warnings.catch_warnings():

@@ -56,10 +56,18 @@ def _partial_grid(*, periodic_x=True, device_ids=None):
 
 
 def _model(grid, *, csqr=0.8, ro=0.3, f0=0.0, dt=0.01, advection=True):
-    """Build an immersed shallow-water model (f0=0 for the energy gate)."""
+    """Build an immersed shallow-water model (f0=0 for the energy gate).
+
+    ``f0 = 0`` has no nondimensional Rossby spelling (Ro -> inf), so
+    it maps to no rotation at all — the same physics (f = 0).
+    """
+    coriolis = (None if f0 == 0.0
+                else sw.modules.FPlaneCoriolis(rossby_number=ro / f0))
     return sw.Model(
-        grid=grid, csqr=csqr, rossby_number=ro,
-        coriolis=sw.modules.FPlaneCoriolis(f0=f0), advection=advection,
+        grid=grid,
+        core=sw.Core(froude_number=ro, depth=csqr),
+        scaling=fr.scaling.GravityWave(),
+        coriolis=coriolis, advection=advection,
         time_stepper=fr.model.time_steppers.AdamBashforth(dt, order=3))
 
 
@@ -376,8 +384,11 @@ def test_chart_plus_immersed_is_a_taught_error():
     with pytest.raises(NotImplementedError,
                        match="BOTH an embedding chart"):
         sw.Model(
-            grid=grid, coords=("lon", "lat"), csqr=0.7,
-            rossby_number=0.3, coriolis=None, advection=True,
+            grid=grid,
+            core=sw.Core(froude_number=0.3, depth=0.7,
+                         coords=("lon", "lat")),
+            scaling=fr.scaling.GravityWave(),
+            coriolis=None, advection=True,
             time_stepper=fr.model.time_steppers.AdamBashforth(2e-3))
 
 

@@ -359,8 +359,9 @@ class EnergyMetric:
         rejected; ``Ramp``-valued parameters are frozen at ``at_time``.
         Nonhydro (``nonhydro.dsqr`` present) yields
         ``diag(1, 1, dsqr, 1/N^2)`` on ``(u,v,w,b)``; shallow water
-        (``shallowwater.csqr`` present) yields ``diag(1, 1, 1/c^2)``
-        on ``(u,v,p)``.
+        (the ``shallowwater.gravity`` x ``shallowwater.depth`` or
+        ``shallowwater.froude`` + depth-ratio primitives present)
+        yields ``diag(1, 1, 1/c^2_eff)`` on ``(u,v,p)``.
 
         A **varying** coefficient — the absent scalar provide with
         the profile field present (``csqr`` on the shallow-water
@@ -444,9 +445,11 @@ class EnergyMetric:
         if require_constant_coriolis and not constant_rotation:
             raise ValueError(
                 "the energy metric needs a Fourier-diagonalizable "
-                "model: no constant rotation (a beta-plane / "
-                "metric-ratio f(y) is not supported); assemble with "
-                "an f-plane Coriolis module (f0= or rossby_number=)")
+                "model: no constant rotation — no 'coriolis.f0' and "
+                "no metric-ratio-free 'coriolis.rossby' (a "
+                "beta-plane / metric-ratio f(y) is not supported); "
+                "assemble with an f-plane Coriolis module (f0= or "
+                "rossby_number=)")
         if _DSQR in params:
             dsqr = _read_scalar(params, _DSQR, at_time)
             if STRATIFICATION_N2 in params:

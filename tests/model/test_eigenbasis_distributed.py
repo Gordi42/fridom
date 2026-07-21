@@ -445,7 +445,7 @@ def _make_sw_2d_channel(device_ids=None):
             IntervalMesh(16, (0.0, 2 * np.pi), periodic=True, name="x"),
             IntervalMesh(8, (0.0, 1.0), periodic=False, name="y")),
             device_ids=device_ids),
-        csqr=0.7, rossby_number=0.2, advection=False,
+        core=sw.Core(gravity=1.0, depth=0.7), advection=False,
         coriolis=sw.modules.FPlaneCoriolis(f0=1.0),
         time_stepper=fr.model.time_steppers.AdamBashforth(5e-3, order=3))
 

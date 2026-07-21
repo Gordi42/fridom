@@ -50,8 +50,8 @@ def sw_model(n=16, *, f0=1.0, csqr=1.0, device_ids=None):
     mx = IntervalMesh(n, (0.0, 1.0), periodic=True, name="x")
     my = IntervalMesh(n, (0.0, 1.0), periodic=True, name="y")
     return sw.Model(
-        grid=Grid((mx, my), device_ids=device_ids), csqr=csqr,
-        rossby_number=0.2,
+        grid=Grid((mx, my), device_ids=device_ids),
+        core=sw.Core(gravity=1.0, depth=csqr),
         coriolis=sw.modules.FPlaneCoriolis(f0=f0), advection=True,
         time_stepper=AdamBashforth(5e-3, order=3))
 
@@ -226,10 +226,10 @@ def test_rejects_a_beta_plane_model():
     mx = IntervalMesh(16, (0.0, 1.0), periodic=True, name="x")
     my = IntervalMesh(16, (0.0, 1.0), periodic=True, name="y")
     model = sw.Model(
-        grid=Grid((mx, my)), csqr=1.0,
+        grid=Grid((mx, my)), core=sw.Core(gravity=1.0, depth=1.0),
         coriolis=sw.modules.BetaPlaneCoriolis(f0=1.0, beta=2.0),
         time_stepper=AdamBashforth(5e-3, order=3))
-    with pytest.raises(ValueError, match=r"coriolis\.f0|Fourier"):
+    with pytest.raises(ValueError, match="Fourier"):
         numeric_eigenpairs(model)
 
 
@@ -241,7 +241,8 @@ def test_rejects_a_varying_csqr_model():
     my = IntervalMesh(8, (0.0, 1.0), periodic=True, name="y")
     model = sw.Model(
         grid=Grid((mx, my)),
-        csqr=lambda y: 1.0 + 0.5 * np.sin(2 * np.pi * y),
+        core=sw.Core(gravity=1.0,
+                     depth=lambda y: 1.0 + 0.5 * np.sin(2 * np.pi * y)),
         advection=False,
         coriolis=FPlaneCoriolis(f0=1.0, metric_weight="csqr"),
         time_stepper=AdamBashforth(5e-3, order=3))

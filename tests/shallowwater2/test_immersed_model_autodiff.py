@@ -51,8 +51,11 @@ def immersed_model(*, dt=0.01):
          IM(12, (0.0, 6.0), periodic=True, name="y")),
         immersed=ImmersedDomain(_slope, order=2, min_fraction=0.0))
     model = sw.Model(
-        grid=grid, csqr=0.8, rossby_number=0.3,
-        coriolis=sw.modules.FPlaneCoriolis(f0=1.0), advection=True,
+        grid=grid,
+        core=sw.Core(froude_number=0.3, depth=0.8),
+        scaling=fr.scaling.GravityWave(),
+        coriolis=sw.modules.FPlaneCoriolis(rossby_number=0.3),
+        advection=True,
         time_stepper=fr.model.time_steppers.AdamBashforth(dt, order=3))
     rng = np.random.default_rng(2)
     mask = np.asarray(

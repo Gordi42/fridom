@@ -87,8 +87,8 @@ def make_walled_model(*, csqr=CSQR, coriolis=None):
     # checked for device-count invariance in
     # test_varying_projection_on_a_sharded_grid_matches_one_device.
     return sw.Model(
-        grid=fr.spatial.Grid((mx, my), device_ids=(0,)), csqr=csqr,
-        rossby_number=0.2,
+        grid=fr.spatial.Grid((mx, my), device_ids=(0,)),
+        core=sw.Core(gravity=1.0, depth=csqr),
         coriolis=coriolis, advection=False,
         time_stepper=fr.model.time_steppers.AdamBashforth(5e-3, order=3))
 
@@ -961,7 +961,7 @@ def make_varying_model(csqr=csqr_profile, device_ids=(0,)):
                                      name="y")
     return sw.Model(
         grid=fr.spatial.Grid((mx, my), device_ids=device_ids),
-        csqr=csqr, rossby_number=0.2, advection=False,
+        core=sw.Core(gravity=1.0, depth=csqr), advection=False,
         coriolis=sw.modules.FPlaneCoriolis(f0=1.0,
                                            metric_weight="csqr"),
         time_stepper=fr.model.time_steppers.AdamBashforth(5e-3, order=3))
@@ -1102,7 +1102,8 @@ def test_varying_periodic_grid_is_a_taught_error():
     my = fr.spatial.meshes.IntervalMesh(N, (0.0, LY), periodic=True,
                                      name="y")
     model = sw.Model(
-        grid=fr.spatial.Grid((mx, my)), csqr=csqr_profile,
+        grid=fr.spatial.Grid((mx, my)),
+        core=sw.Core(gravity=1.0, depth=csqr_profile),
         advection=False,
         coriolis=sw.modules.FPlaneCoriolis(f0=1.0,
                                            metric_weight="csqr"),
