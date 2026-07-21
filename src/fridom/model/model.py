@@ -2928,6 +2928,7 @@ class Model:
         *,
         term_filter: Callable | None = None,
         updates: Mapping[str, object] | None = None,
+        extra_modules: tuple = (),
         name: str | None = None,
     ) -> Model:
         """
@@ -2946,6 +2947,12 @@ class Model:
         ``update_parameters``; the carry treedef may then differ, but
         the State treedef (the load-bearing identity) does not.
 
+        ``extra_modules=`` appends field-free modules (parameter
+        providers, the ``fr.modules.TendencyEnvelope`` term
+        envelope) to the cloned parent tuple. A module declaring
+        fields is refused: it would extend the FieldTable and break
+        the shared parent/variant State treedef.
+
         Parameters
         ----------
         term_filter : Callable | None, optional
@@ -2955,6 +2962,9 @@ class Model:
         updates : Mapping[str, object] | None, optional
             Assembly-time parameter value (or spec) changes, resolved
             through the parent's binding table (default: None).
+        extra_modules : tuple, optional
+            Field-free modules appended (as fresh clones) after the
+            parent's modules (default: ``()``).
         name : str | None, optional
             The variant's report/log name (default: ``"{parent}/
             variant"``).
@@ -2963,6 +2973,12 @@ class Model:
         -------
         Model
             The derived model (a full lifecycle citizen).
+
+        Raises
+        ------
+        AssemblyError
+            If an extra module declares fields, or an update names an
+            unbound/identity-defaulted parameter.
         """
         # fresh clones: the child assembly binds (and freezes) the
         # module instances it is handed — cloning keeps the parent's
@@ -2981,6 +2997,18 @@ class Model:
             else:
                 modules[entry.slot] = self._replace_leaf(
                     modules[entry.slot], entry.attr, value)
+        # extras append AFTER the updates loop (parent binding slots
+        # index the parent tuple) and BEFORE the filter-name check
+        # (named() filters may reference extra-module terms)
+        for extra in tuple(extra_modules):
+            if tuple(getattr(extra, "field_declarations", ())):
+                raise AssemblyError(
+                    f"variant extra module {type(extra).__name__} "
+                    "declares fields; extra_modules may not extend "
+                    "the FieldTable (the parent/variant shared state "
+                    "treedef is the load-bearing identity) — "
+                    "assemble a new model instead")
+            modules.append(self._fresh_clone(extra))
         _validate_filter_names(
             term_filter, tuple(self._terms_by_key(tuple(modules))))
         if name is not None:
