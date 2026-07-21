@@ -697,6 +697,23 @@ conversion *factors*; users apply them themselves.
 - Factor vocabulary: both the raw per-component factors (`p`) and the
   curated physical ones (`h`, folding the 1/g) are exposed and listed
   in the report.
+
+## E. Chart/spherical nondimensionalization — documented convention (owner ruling 2026-07-21)
+
+Nondimensional assemblies on chart grids are supported by
+**convention, not machinery** (option 1): the user builds the sphere
+grid with the nondimensional radius R̃ = R/L and the rotation with the
+scaled rate Ω̃ = Ω·T_ref; the docs give the two formulas and one
+worked spherical example. The docs round must also fix the
+`RotationCoriolis` nondimensional kwarg spelling (the Ω-shape
+normalization pairing with `rossby_number` — i.e. how Ro is defined
+against 2Ω on the sphere) — defined there with a verification pass,
+not improvised here. Deeper support (the grid builder consuming the
+scaling object to auto-scale the radius; a scaling-aware
+`RotationCoriolis`) is an **agenda item for the spherical-models plan
+owner review** (`spherical_models_plan.md`), not part of this
+refactor. Until the docs land, the scaling validation keeps a taught
+pointer for nondim chart assemblies.
 - **Explicitly out of scope**: `dimensional_state`/
   `nondimensional_state` helpers, unit tags on `State`,
   dimensional-coordinate arrays, dataset auto-conversion. Users who
