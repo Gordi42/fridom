@@ -1,4 +1,4 @@
-"""
+r"""
 OptimalBalance: nonlinear balancing by ramped propagation (wave 7 B).
 
 Description
@@ -6,9 +6,14 @@ Description
 The Tier-2 preset that projects onto the (slow) balanced manifold via
 the optimal-balance method (08 §10.5). Composed **on**
 :class:`AdiabaticRamping` (AR-D4, §10.9 "Reconciliation with §10.5"):
-the forward (up) leg is an ``AdiabaticRamping`` that ramps
-``scaling.rossby`` from 0 to the model's own nominal value (so user
-parameter choices are preserved), and the backward leg is
+the forward (up) leg is ``AdiabaticRamping(model, envelope=True,
+...)`` — it ramps the **nonlinearity as a whole** (a term-envelope
+:math:`\rho(t)` on the ``~fr.terms.linear & fr.terms.explicit``
+terms, §C), so OB works identically on dimensional models (no
+scaling parameter bound) and nondimensional ones. A bound scaling
+parameter :math:`\varepsilon` (constant *or* ``fr.Ramp``-valued) is
+never touched: the effective nonlinearity mid-ramp is
+:math:`\rho(t)\,\varepsilon`. The backward leg is
 ``forward.replace(term_filter=backward_filter).backward`` — its
 retrace with a flipped ``TIME_STEP`` and reversed ramp window. The
 legs' internal Propagators form the
@@ -29,7 +34,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Literal
 
-from fridom.model import params
 from fridom.model.transforms.adiabatic_ramping import AdiabaticRamping
 from fridom.model.transforms.base import StateTransform
 from fridom.model.transforms.fixed_point import FixedPoint
@@ -82,7 +86,7 @@ class OptimalBalance(StateTransform):
             ``round(ramp_period / |dt|)`` internal steps per leg.
         ramp : str, optional
             The ramp curve ("exp" | "cosine" | "linear") applied to
-            ``scaling.rossby`` (default: "exp").
+            the term envelope ``ramping.envelope`` (default: "exp").
         max_it : int, optional
             The maximum fixed-point iterations (default: 3).
         tol : float, optional
@@ -106,35 +110,23 @@ class OptimalBalance(StateTransform):
             The internal legs' report/log name prefix
             (default: ``"OptimalBalance"``).
         """
-        has_rossby = params.SCALING_ROSSBY in model.parameters
-        ramps: dict[str, object] = {}
-        if has_rossby:
-            # ramp to the MODEL's nominal rossby value, preserving the
-            # user's parameter choice (e.g. rossby_number=0.1 ramps
-            # 0 -> 0.1, not 0 -> 1).
-            nominal = model.parameters[params.SCALING_ROSSBY]
-            try:
-                target = float(nominal)
-            except TypeError as exc:
-                msg = (
-                    "OptimalBalance requires a constant "
-                    "'scaling.rossby' on the model to build its ramp; "
-                    f"got the time-dependent value {nominal!r}."
-                )
-                raise TypeError(msg) from exc
-            ramps = {params.SCALING_ROSSBY: (0.0, target)}
         prefix = name or "OptimalBalance"
-        # OB is composed ON AdiabaticRamping (AR-D4, §10.9): the up leg
-        # owns the ramp build + step snapping (empty deformation when
-        # the model has no rossby param); the backward leg is its
-        # "replace-then-backward" retrace (flipped TIME_STEP, reversed
-        # window). backward_filter=None reuses the forward filter
-        # (today's exact semantics). The AR-D6 guard fires on the dt<0
-        # leg — inert on OB's closure-free legs; a closured model with
-        # no backward_filter now raises (the sanctioned §10.8 behavior).
+        # OB is composed ON AdiabaticRamping (AR-D4, §10.9): the up
+        # leg owns the envelope build + step snapping — envelope=True
+        # ramps the nonlinearity as a whole (rho(t) on the
+        # ~linear & explicit terms, §C), never a scaling parameter,
+        # so OB balances dimensional and (Ramp-)nondimensional models
+        # alike. A purely linear model is refused at assembly (the
+        # taught empty-match error) instead of silently running a
+        # no-ramp cycle. The backward leg is the "replace-then-
+        # backward" retrace (flipped TIME_STEP, reversed window).
+        # backward_filter=None reuses the forward filter. The AR-D6
+        # guard fires on the dt<0 leg — inert on OB's closure-free
+        # legs; a closured model with no backward_filter raises (the
+        # sanctioned §10.8 behavior).
         forward_leg = AdiabaticRamping(
-            model, ramps=ramps, ramp_period=ramp_period, curve=ramp,
-            term_filter=filter, name=prefix)
+            model, envelope=True, ramp_period=ramp_period,
+            curve=ramp, term_filter=filter, name=prefix)
         bwd_filter = (filter if backward_filter is None
                       else backward_filter)
         backward_leg = forward_leg.replace(term_filter=bwd_filter).backward
