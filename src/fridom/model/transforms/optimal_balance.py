@@ -107,6 +107,31 @@ class OptimalBalance(StateTransform):
             (default: ``"OptimalBalance"``).
         """
         has_rossby = params.SCALING_NONLINEARITY in model.parameters
+        # interim guard (nondimensionalization plan): under a
+        # mechanism scaling the epsilon row ALIASES the mechanism
+        # module's own nonlinearity leaf (Fr / Ro), so ramping
+        # 'scaling.nonlinearity' would silently ramp that physical
+        # regime number too — wrong physics, refused until the
+        # term-level ramping envelope lands (design/plans/active/
+        # nondimensionalization_plan.md section C). An absent or
+        # constant row keeps today's behavior.
+        table = getattr(model, "_binding_table", None)
+        if (has_rossby and table is not None
+                and str(params.SCALING_NONLINEARITY)
+                in getattr(table, "alias_names", frozenset())
+                and table[params.SCALING_NONLINEARITY].slot
+                is not None):
+            raise NotImplementedError(
+                "OptimalBalance cannot ramp 'scaling.nonlinearity' "
+                "on this model: under a mechanism scaling the "
+                "epsilon row aliases the mechanism module's own "
+                "nonlinearity leaf (the Froude/Rossby number), so "
+                "the ramp would silently deform the physical regime "
+                "number as well. The term-level ramping envelope "
+                "(design/plans/active/nondimensionalization_plan.md "
+                "section C) is the designed replacement; until it "
+                "lands, balance a dimensional or Advective-scaled "
+                "variant of the model instead")
         ramps: dict[str, object] = {}
         if has_rossby:
             # ramp to the MODEL's nominal rossby value, preserving the

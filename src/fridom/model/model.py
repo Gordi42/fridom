@@ -1398,6 +1398,15 @@ class Model:
         step; the cache entry swaps to the full executable at a later
         chunk boundary. Steady-state results and performance are
         unchanged (default: False).
+    scaling : object | None, optional
+        The ``fr.scaling`` policy object naming the model's
+        reference time frame. A nondimensional policy injects the
+        ``scaling.nonlinearity`` binding row (constant 1.0 for
+        ``Advective``; an alias onto the designated mechanism
+        module's nonlinearity leaf otherwise);
+        ``fr.scaling.Dimensional()`` / None inject no row. ``None``
+        — no scaling policy — is legal only when no assembled
+        module participates in a scaling variant (default: None).
     """
 
     def __init__(
@@ -1412,6 +1421,7 @@ class Model:
         chunk_size: int = _DEFAULT_CHUNK,
         async_chunk_compile: bool = False,
         term_filter: Callable | None = None,
+        scaling: object | None = None,
     ) -> None:
         """Assemble (steps 1-7, 9) and allocate the carry (step 8)."""
         if isinstance(chunk_size, bool) or not isinstance(
@@ -1429,9 +1439,11 @@ class Model:
                     "run-config only (one resume path, never two); "
                     "pass them to run(snapshots=...)")
         modules = tuple(modules)
+        self._scaling = scaling
         self._artifacts: AssemblyArtifacts = assemble(
             grid=grid, modules=modules, time_stepper=time_stepper,
-            state_type=state_type, name=name, term_filter=term_filter)
+            state_type=state_type, name=name, term_filter=term_filter,
+            scaling=scaling)
         self._grid = grid
         self._stepper = time_stepper
         self._name = name
@@ -1665,6 +1677,18 @@ class Model:
     def grid(self) -> Grid:
         """The (frozen) grid this model was assembled on."""
         return self._grid
+
+    @property
+    def scaling(self) -> object | None:
+        """The ``fr.scaling`` policy this model was assembled with.
+
+        ``None`` means no scaling policy at all (legal only when no
+        assembled module participates in a scaling variant); a
+        nondimensional policy is visible in the binding table as the
+        injected ``scaling.nonlinearity`` row. Carried through
+        :meth:`variant` reconstruction.
+        """
+        return self._scaling
 
     @property
     def clock(self) -> Clock:
@@ -2072,6 +2096,12 @@ class Model:
         (old-physics buffers; dt sign flips require it). Does NOT
         clear the panic flag (changing nu after a NaN is not a
         resume path).
+
+        Under a nondimensional scaling the canonical
+        ``scaling.nonlinearity`` name aliases the mechanism module's
+        own nonlinearity leaf (two names, one leaf): a write through
+        either name updates the same leaf, and writing BOTH names in
+        one call is last-wins (dict iteration order of ``updates``).
 
         Parameters
         ----------
@@ -2995,7 +3025,8 @@ class Model:
             state_type=self._artifacts.record.state_type,
             name=variant_name, term_filter=term_filter,
             chunk_size=self._chunk_size,
-            async_chunk_compile=self._async_chunk_compile)
+            async_chunk_compile=self._async_chunk_compile,
+            scaling=self._scaling)
 
     # ================================================================
     #  Persistence (section 6.4)

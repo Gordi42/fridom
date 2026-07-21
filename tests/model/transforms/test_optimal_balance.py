@@ -7,11 +7,23 @@ exactly (the exchange is a projector by construction), the two ramped
 legs use ``Ramp.reversed()`` / a flipped dt, and the Tier-2 trace
 guard fires. No dependence on the wave-7 C projections.
 """
+from functools import partial
+
 import jax
+import jax.numpy as jnp
 import pytest
 
+import fridom as fr
+from fridom.framework.utils import dtype_real, jaxify
 from fridom.model import term_predicates as terms
+from fridom.model.model import Model as FrModel
+from fridom.model.module import Module
+from fridom.model.parameters import ParameterDeclaration
 from fridom.model.time_dependent import Ramp
+from fridom.model.time_steppers.runge_kutta import (
+    ExplicitRungeKutta,
+    tableaus,
+)
 from fridom.model.transforms.errors import TraceError
 from fridom.model.transforms.norms import relative_l2
 from fridom.model.transforms.optimal_balance import OptimalBalance
@@ -201,3 +213,34 @@ def test_trace_guard_raises_on_a_tracer(toy_model, toy_state):
     assert ob.traceable is False
     with pytest.raises(TraceError, match="Tier-2"):
         jax.jit(ob)(toy_state)
+
+
+# ================================================================
+#  The interim scaling-alias guard (nondimensionalization plan)
+# ================================================================
+def test_alias_backed_epsilon_row_is_refused():
+    # under a mechanism scaling the epsilon row aliases the mechanism
+    # module's own nonlinearity leaf; ramping it would deform the
+    # physical regime number too — a taught refusal naming section C
+    @partial(jaxify, dynamic=("froude_number",))
+    class MechProvider(Module):
+        scaling_mechanism = "gravity_wave"
+        nonlinearity_attr = "froude_number"
+        scaling_variant = "nondimensional"
+        field_declarations = ()
+        parameter_declarations = (
+            ParameterDeclaration("toy.froude", attr="froude_number",
+                                 units="1"),)
+
+        def __init__(self, froude_number=0.2):
+            self.froude_number = jnp.asarray(froude_number,
+                                             dtype=dtype_real())
+
+    plain = make_model()
+    nondim = FrModel(
+        grid=plain.grid,
+        modules=(Coriolis(), MechProvider()),
+        time_stepper=ExplicitRungeKutta(2e-3, tableau=tableaus.RK4),
+        scaling=fr.scaling.GravityWave())
+    with pytest.raises(NotImplementedError, match="section C"):
+        OptimalBalance(nondim, _base(nondim), ramp_period=RAMP)
