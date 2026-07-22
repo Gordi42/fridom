@@ -49,7 +49,7 @@ from fridom.model.time_steppers.runge_kutta import (
 )
 from fridom.model.transforms.adiabatic_ramping import AdiabaticRamping
 from fridom.model.transforms.norms import relative_l2
-from fridom.nonhydro2.modules.core import DynamicalCore
+from fridom.nonhydro2.modules.core import Core as NonhydroCore
 from fridom.nonhydro2.modules.stratification import (
     ConstantStratification,
 )
@@ -301,9 +301,13 @@ def test_etdrk4_with_an_enveloped_nonlinearity_runs():
     grid = fr.spatial.Grid((mx, my), device_ids=(0,))
 
     def channel(stepper, **extra):
+        # today-parity spelling of the retired (csqr=1.0,
+        # rossby_number=0.2, f0=1.0) channel: GravityWave scaling
+        # with Fr = 0.2 and the rotation as Ro = Fr / f0
         return sw.Model(
-            grid=grid, csqr=1.0, rossby_number=0.2,
-            coriolis=sw.modules.FPlaneCoriolis(f0=1.0),
+            grid=grid, scaling=fr.scaling.GravityWave(),
+            core=sw.Core(froude_number=0.2, depth=1.0),
+            coriolis=sw.modules.FPlaneCoriolis(rossby_number=0.2),
             advection=True, time_stepper=stepper, **extra)
 
     basis = sw.eigenbasis(channel(AdamBashforth(1e-3, order=3)))
@@ -330,7 +334,7 @@ def test_enveloped_variant_verifies_on_a_frozen_immersed_grid():
         for nm in ("x", "y", "z")), immersed=ImmersedDomain(box))
     parent = Model(
         grid=grid,
-        modules=(DynamicalCore(family="fv"),
+        modules=(NonhydroCore(family="fv"),
                  ConstantStratification(n2=0.0, family="fv"),
                  FPlaneCoriolis(f0=1.0), CenteredAdvection()),
         time_stepper=AdamBashforth(1e-2, order=3))

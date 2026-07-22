@@ -46,14 +46,21 @@ TAUS = (5.0, 10.0, 20.0, 40.0)
 #  Builders (self-contained: no cross-test-file imports)
 # ================================================================
 def _channel():
-    """Build the 16x16 sw2 channel with advection on."""
+    """Build the 16x16 sw2 channel with advection on.
+
+    Today-parity spelling of the retired (csqr=CSQR,
+    rossby_number=0.2, f0=F0) channel: GravityWave scaling with
+    Fr = 0.2 and the rotation as Ro = Fr / f0.
+    """
     mx = fr.spatial.meshes.IntervalMesh(16, (0.0, 1.0), name="x")
     my = fr.spatial.meshes.IntervalMesh(
         16, (0.0, 1.0), periodic=False, name="y")
     return sw.Model(
         grid=fr.spatial.Grid((mx, my), device_ids=(0,)),
-        csqr=CSQR, rossby_number=0.2,
-        coriolis=sw.modules.FPlaneCoriolis(f0=F0), advection=True,
+        scaling=fr.scaling.GravityWave(),
+        core=sw.Core(froude_number=0.2, depth=CSQR),
+        coriolis=sw.modules.FPlaneCoriolis(rossby_number=0.2 / F0),
+        advection=True,
         time_stepper=fr.model.time_steppers.AdamBashforth(DT, order=3))
 
 
