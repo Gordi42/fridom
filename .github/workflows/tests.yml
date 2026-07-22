@@ -46,7 +46,7 @@ jobs:
       fail-fast: false
       matrix:
         python-version: ["3.11"]  # TODO: Add more versions
-        group: [1, 2, 3, 4]
+        group: [1, 2, 3, 4, 5, 6, 7, 8]
 
     steps:
     - uses: actions/checkout@v4
@@ -60,10 +60,11 @@ jobs:
       run: |
         uv sync --extra dev
 
-    - name: Run the tests (single device, shard ${{ matrix.group }}/4)
+    - name: Run the tests (single device, shard ${{ matrix.group }}/8)
       run: |
         uv run pytest tests/ \
-          --splits 4 --group ${{ matrix.group }} \
+          --splits 8 --group ${{ matrix.group }} \
+          --durations-path .test_durations \
           -n 4 --dist loadfile \
           --cov --cov-report= --cov-fail-under=0 \
           --junitxml=junit-${{ matrix.group }}.xml -o junit_family=legacy
@@ -86,12 +87,13 @@ jobs:
 
   # The multi-device suite covers the distributed code paths of the
   # domain decomposition on a single process forced to expose 4 devices.
-  # It is a fixed, small file list (no OOM risk), so it runs as one
-  # unsharded job. The model and field legs are here because the guards
-  # they carry (the chunk out_shardings fixed point, the cached
-  # re-blocking shard_maps, the ghost-claim exchange elision) protect
-  # bugs that only manifest on several devices.
-  multi-device:
+  # It is a fixed, small file list (no OOM risk). It is split into three
+  # parallel jobs (general / parity / grad) so the three legs run
+  # concurrently instead of serially. The model and field legs are here
+  # because the guards they carry (the chunk out_shardings fixed point,
+  # the cached re-blocking shard_maps, the ghost-claim exchange elision)
+  # protect bugs that only manifest on several devices.
+  multi-device-general:
     runs-on: ubuntu-22.04
 
     steps:
@@ -131,9 +133,32 @@ jobs:
           tests/nonhydro2/test_distributed_projection.py -q \
           --cov --cov-report= --cov-fail-under=0
 
-    # The multigrid parity battery is the drift net for the 2026-07-18
-    # semicoarsening multi-device break. Its parity/convergence tests
-    # fail only on >= 2 devices, so single-device CI never exercises them.
+    - name: Upload coverage data
+      uses: actions/upload-artifact@v4
+      with:
+        name: coverage-multi-general
+        path: .coverage
+        include-hidden-files: true
+        retention-days: 1
+
+  # The multigrid parity battery is the drift net for the 2026-07-18
+  # semicoarsening multi-device break. Its parity/convergence tests
+  # fail only on >= 2 devices, so single-device CI never exercises them.
+  multi-device-parity:
+    runs-on: ubuntu-22.04
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v5
+      with:
+        python-version: "3.11"
+
+    - name: Install dependencies
+      run: |
+        uv sync --extra dev
+
     - name: Run the multigrid parity battery (multiple devices)
       env:
         XLA_FLAGS: --xla_force_host_platform_device_count=4
@@ -143,13 +168,36 @@ jobs:
           tests/nonhydro2/test_mapped_pressure_multigrid.py \
           tests/nonhydro2/test_mapped_pressure_stretched.py \
           -k "forced4 or converges or full_and_semi or hlo_grows or vcycle_is_symmetric or builds_and_solves or semicoarsening_knob" \
-          -q --cov --cov-append --cov-report= --cov-fail-under=0
+          -q --cov --cov-report= --cov-fail-under=0
 
-    # The three full-coarsening multigrid grad regressions built only
-    # single-device until the transfer P^T forward-primitive spelling
-    # cured the XLA SPMD transpose-of-roll miscompile at one cell per
-    # coarse shard. They now run on any device count; this leg is the
-    # multi-device drift net.
+    - name: Upload coverage data
+      uses: actions/upload-artifact@v4
+      with:
+        name: coverage-multi-parity
+        path: .coverage
+        include-hidden-files: true
+        retention-days: 1
+
+  # The three full-coarsening multigrid grad regressions built only
+  # single-device until the transfer P^T forward-primitive spelling
+  # cured the XLA SPMD transpose-of-roll miscompile at one cell per
+  # coarse shard. They now run on any device count; this leg is the
+  # multi-device drift net.
+  multi-device-grad:
+    runs-on: ubuntu-22.04
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v5
+      with:
+        python-version: "3.11"
+
+    - name: Install dependencies
+      run: |
+        uv sync --extra dev
+
     - name: Run the multigrid grad regressions (multiple devices)
       env:
         XLA_FLAGS: --xla_force_host_platform_device_count=4
@@ -160,12 +208,12 @@ jobs:
           tests/nonhydro2/test_mapped_model_autodiff.py \
           tests/nonhydro2/test_composed_pressure_stretched.py \
           -k "multigrid_solve_grad or stretched_multigrid_grad or stretched_composed_solve_grad" \
-          -q --cov --cov-append --cov-report= --cov-fail-under=0
+          -q --cov --cov-report= --cov-fail-under=0
 
     - name: Upload coverage data
       uses: actions/upload-artifact@v4
       with:
-        name: coverage-multi
+        name: coverage-multi-grad
         path: .coverage
         include-hidden-files: true
         retention-days: 1
@@ -175,7 +223,7 @@ jobs:
   # if an upstream job failed so that test results and partial coverage
   # still reach Codecov for diagnosis.
   coverage:
-    needs: [single-device, multi-device]
+    needs: [single-device, multi-device-general, multi-device-parity, multi-device-grad]
     if: ${{ !cancelled() }}
     runs-on: ubuntu-22.04
 
