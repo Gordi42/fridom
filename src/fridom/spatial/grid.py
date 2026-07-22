@@ -369,6 +369,42 @@ class Grid:
         """All coordinate names, collected from the meshes in order."""
         return self._names
 
+    def factor(self, name: str) -> Mesh:
+        """
+        Return the factor mesh carrying the coordinate ``name``.
+
+        Description
+        -----------
+        The singular of :attr:`factors`, keyed by coordinate name — the
+        grid-level echo of the established ``space.factor(name)``
+        vocabulary: it locates the one mesh factor whose ``names``
+        contains ``name`` (names are flatly unique across factors, so
+        the match is unique). Reach a mesh descriptor by name with it,
+        e.g. ``grid.factor("x").dx`` for the uniform cell width of a
+        Cartesian axis.
+
+        Parameters
+        ----------
+        name : str
+            A coordinate name (one of :attr:`names`).
+
+        Returns
+        -------
+        Mesh
+            The unique factor mesh carrying ``name``.
+
+        Raises
+        ------
+        ValueError
+            If ``name`` is not a coordinate of this grid.
+        """
+        for mesh in self._meshes:
+            if name in mesh.names:
+                return mesh
+        raise ValueError(
+            f"{name!r} is not a coordinate of this grid; the grid "
+            f"coordinates are {self._names}")
+
     @property
     def default_family(self) -> str:
         """

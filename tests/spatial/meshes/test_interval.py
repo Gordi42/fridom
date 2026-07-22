@@ -28,6 +28,13 @@ def test_periodic_default_true():
     assert IntervalMesh(N, (0, 1), name="x").periodic is True
 
 
+def test_scalar_extent_shorthand(periodic):
+    scalar = IntervalMesh(N, 1.0, name="x")
+    assert scalar.extent == (0.0, 1.0)
+    assert scalar.extent == periodic.extent
+    assert scalar.dx == periodic.dx
+
+
 # ================================================================
 #  Boundary
 # ================================================================

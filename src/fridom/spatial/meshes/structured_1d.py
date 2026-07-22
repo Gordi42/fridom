@@ -78,18 +78,23 @@ class StructuredMesh1D(Mesh):
     ----------
     shape : int
         The number of primal cells n.
-    extent : tuple[float, float]
-        The physical interval (x_min, x_max).
+    extent : float | tuple[float, float]
+        The physical interval (x_min, x_max); a bare scalar ``L`` is
+        the shorthand for the interval ``(0.0, L)``.
     periodic : bool
         Whether the interval is periodic (mesh topology, not a BC).
     name : str
         The mandatory coordinate name.
     """
 
-    def __init__(self, shape: int, extent: tuple[float, float],
+    def __init__(self, shape: int, extent: float | tuple[float, float],
                  periodic: bool, *, name: str) -> None:
         """Store cell count, extent, periodicity, and name."""
         super().__init__((name,))
+        # scalar-``L`` sugar: a bare number is the interval (0.0, L),
+        # normalized before the pair unpack so every subclass shares it
+        if isinstance(extent, (int, float)):
+            extent = (0.0, float(extent))
         if isinstance(shape, bool) or not isinstance(shape, int):
             raise TypeError(
                 f"shape must be an integer cell count, got {shape!r}")
