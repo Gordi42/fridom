@@ -85,6 +85,7 @@ scalar — an f0 provide would be a false constancy claim).
 from __future__ import annotations
 
 import inspect
+import numbers
 from functools import partial
 from typing import TYPE_CHECKING
 
@@ -99,11 +100,18 @@ from fridom.model.declarations import (
 from fridom.model.field_blend import BlendIngredient, FieldBlend
 from fridom.model.module import Module
 from fridom.model.parameters import ParameterDeclaration, leaf
-from fridom.model.params import CORIOLIS_BETA, CORIOLIS_F0
+from fridom.model.params import (
+    CORIOLIS_BETA,
+    CORIOLIS_F0,
+    CORIOLIS_METRIC_RATIO,
+    CORIOLIS_ROSSBY,
+    SCALING_NONLINEARITY,
+)
 from fridom.model.scheduled_field import ProfileFunction, profile_coords
 from fridom.model.stages import Stage, StageKind
 from fridom.model.terms import term
 from fridom.model.time_dependent import TimeDependent, resolve_at
+from fridom.model.units import UnitFactor
 from fridom.spatial.decomposition.halo import HaloSpec
 from fridom.spatial.space_patterns import Profile
 
@@ -111,7 +119,7 @@ if TYPE_CHECKING:  # pragma: no cover
     from fridom.spatial.fields.scalar_field import ScalarField
 
 _U_HINT = ("velocities are declared by a dynamical-core module, "
-           "e.g. nh.DynamicalCore or sw.DynamicalCore")
+           "e.g. nh.Core or sw.Core")
 
 
 def _safe_metric_divide(
@@ -308,7 +316,8 @@ def chart_rotation(
 
 
 @term(advances=("u", "v"), linear=True, name="coriolis",
-      linear_params=(CORIOLIS_F0, CORIOLIS_BETA),
+      linear_params=(CORIOLIS_F0, CORIOLIS_BETA, CORIOLIS_ROSSBY,
+                     CORIOLIS_METRIC_RATIO, SCALING_NONLINEARITY),
       linear_fields=("f_coriolis",))
 def _coriolis(self, state, ctx) -> dict:  # noqa: ANN001
     r"""``du/dt = f v``; ``dv/dt = -f u`` as pure field arithmetic.
@@ -357,13 +366,47 @@ def _coriolis(self, state, ctx) -> dict:  # noqa: ANN001
     """
     stage_f = getattr(self, "_stage_scalar_f", None)
     f_override = stage_f(ctx) if stage_f is not None else None
-    return linear_rotation(
+    body = linear_rotation(
         state, metric_weight=self._metric_weight,
         f_override=f_override)
+    if not getattr(self, "_nondim", False):
+        return body
+    # nondimensional variant: the carried f_coriolis is the SHAPE
+    # (1, or 1 + metric_ratio * y) and the whole rotation is scaled
+    # by the live ratio epsilon / Ro (stage-time ctx.params reads;
+    # under the matching Rotational scaling the alias row makes the
+    # ratio an exact 1.0)
+    scale = (ctx.params[SCALING_NONLINEARITY]
+             / ctx.params[CORIOLIS_ROSSBY])
+    return {name: scale * value for name, value in body.items()}
 
 
 _WEIGHT_HINT = ("the velocity energy-metric weight field (e.g. the "
                 "shallow-water csqr, declared by its dynamical core)")
+
+
+def _f_dim(values: dict) -> float:
+    """Return the dimensional frequency ``f_dim = U/(Ro*L)``."""
+    return values["U"] / (values["Ro"] * values["L"])
+
+
+def _f_bound(values: dict) -> float:
+    """Return the bound physical ``f0`` (dimensional f-plane)."""
+    return values["f0"]
+
+
+#: model.units rows of the f-plane / beta-plane family: the derived
+#: dimensional rotation frequency (nondim: U/(Ro*L); dimensional
+#: models report the bound coriolis.f0 provide instead — absent on
+#: the beta-plane, whose f is the f(y) field, so the row is marked
+#: unresolvable there rather than claiming a false constant)
+_CORIOLIS_UNIT_FACTORS: dict[str, UnitFactor] = {
+    "f_dim": UnitFactor(
+        unit="1/s", expr="U/(Ro*L)", kind="constant",
+        scales=("L", "U"), params={"Ro": CORIOLIS_ROSSBY},
+        fn=_f_dim, dim_expr="f0",
+        dim_params={"f0": CORIOLIS_F0}, dim_fn=_f_bound),
+}
 
 
 def _rotation_references(
@@ -455,6 +498,32 @@ _BETA_BLEND = FieldBlend((
 ))
 
 
+def _check_rotation_kwargs(
+    name: str, dim_value: object, rossby_number: object,
+) -> None:
+    """Validate the dual kwarg sets of the Coriolis family.
+
+    Exactly one of the dimensional leaf (``f0``) and the
+    nondimensional ``rossby_number`` must be given, and the Rossby
+    number must be nonzero (the live rotation ratio divides by it —
+    cheaper refused at construction than guarded per step).
+    """
+    if (dim_value is None) == (rossby_number is None):
+        raise TypeError(
+            f"{name} takes exactly one kwarg set: DIMENSIONAL "
+            "f0= (physical rotation, zero scaling ops in the "
+            "trace) XOR NONDIMENSIONAL rossby_number= (the "
+            "rotation scaled by the live epsilon/Ro ratio, under a "
+            "nondimensional fr.scaling policy); got "
+            f"f0={dim_value!r}, rossby_number={rossby_number!r}")
+    if (isinstance(rossby_number, numbers.Number)
+            and float(rossby_number) == 0.0):
+        raise TypeError(
+            f"{name} rossby_number=0 is refused: the rotation "
+            "carries the live ratio epsilon/Ro, which divides by "
+            "it; pass a nonzero Rossby number")
+
+
 def _reject_chart_grid(module: Module, table: object) -> None:
     """Refuse a metric-blind rotation on a chart-coupled grid.
 
@@ -480,23 +549,38 @@ def _reject_chart_grid(module: Module, table: object) -> None:
         "run without rotation")
 
 
-@partial(jaxify, dynamic=("f0",))
+@partial(jaxify, dynamic=("f0", "rossby_number"))
 class FPlaneCoriolis(Module):
 
     r"""
-    Constant-rotation Coriolis on the f-plane; provides ``coriolis.f0``.
+    Constant-rotation Coriolis on the f-plane (dual scaling variants).
 
     Description
     -----------
     Declares the AUXILIARY ``f_coriolis`` field on ``fr.Profile()``
-    (one degree of freedom, :math:`f \equiv f_0` everywhere) and
-    carries the linear rotation term. Provides the constant
-    ``coriolis.f0`` (provides-implies-constancy).
+    (one degree of freedom) and carries the linear rotation term.
+    The two mutually-exclusive kwarg sets fix the **variant** at
+    construction (``fr.scaling``):
+
+    - **dimensional** (``f0=``): :math:`f \equiv f_0` everywhere,
+      the rotation term verbatim (zero scaling ops); provides the
+      constant ``coriolis.f0`` (provides-implies-constancy);
+    - **nondimensional** (``rossby_number=``): the field is the
+      f-shape ``1`` and the rotation is scaled by the live ratio
+      :math:`\varepsilon/\mathrm{Ro}`; provides
+      ``coriolis.rossby``. As the ``rotation`` mechanism owner, the
+      assembly aliases ``scaling.nonlinearity`` onto this leaf under
+      ``fr.scaling.Rotational()``.
 
     Parameters
     ----------
-    f0 : float, optional
-        The constant Coriolis parameter :math:`f_0` (default: 1.0).
+    f0 : float | fr.Ramp | None, optional
+        The constant Coriolis parameter :math:`f_0` [1/s]
+        (dimensional variant) (default: None).
+    rossby_number : float | fr.Ramp | None, optional
+        The Rossby number :math:`\mathrm{Ro}` (nondimensional
+        variant); must be nonzero (the live ratio divides by it)
+        (default: None).
     metric_weight : str | None, optional
         Name of a state field weighting the velocity energy metric
         (e.g. the variable-depth shallow-water ``"csqr"``); switches
@@ -504,17 +588,51 @@ class FPlaneCoriolis(Module):
         M-skew pairing under ``diag(w, w, ...)`` (default: None).
     """
 
+    #: fr.scaling traits: this family owns the rotation mechanism
+    scaling_mechanism = "rotation"
+    nonlinearity_attr = "rossby_number"
+
+    #: model.units rows: the derived dimensional f (shared family)
+    unit_factors = _CORIOLIS_UNIT_FACTORS
+
     def __init__(
-        self, f0: float = 1.0, *, metric_weight: str | None = None,
+        self, f0: float | None = None, *,
+        rossby_number: float | None = None,
+        metric_weight: str | None = None,
     ) -> None:
-        """Store the Coriolis parameter as a dynamic leaf."""
-        self.f0 = leaf(f0)
+        """Store the variant's leaf (exactly one kwarg set).
+
+        Raises
+        ------
+        TypeError
+            If both or neither of ``f0``/``rossby_number`` are
+            given, or ``rossby_number`` is exactly zero.
+        """
+        _check_rotation_kwargs(type(self).__name__, f0,
+                               rossby_number)
+        self.f0 = None if f0 is None else leaf(f0)
+        self.rossby_number = (None if rossby_number is None
+                              else leaf(rossby_number))
+        self._nondim: bool = rossby_number is not None
         self._metric_weight = metric_weight
 
-    parameter_declarations = (
-        ParameterDeclaration(CORIOLIS_F0, attr="f0", units="1/s",
-                             doc="constant Coriolis parameter"),
-    )
+    @property
+    def scaling_variant(self) -> str:
+        """The constructor-fixed variant (``fr.scaling`` seam)."""
+        return "nondimensional" if self._nondim else "dimensional"
+
+    @property
+    def parameter_declarations(
+        self,
+    ) -> tuple[ParameterDeclaration, ...]:
+        """``coriolis.f0`` (dim) / ``coriolis.rossby`` (nondim)."""
+        if self._nondim:
+            return (ParameterDeclaration(
+                CORIOLIS_ROSSBY, attr="rossby_number", units="1",
+                doc="Rossby number (the rotation mechanism)"),)
+        return (ParameterDeclaration(
+            CORIOLIS_F0, attr="f0", units="1/s",
+            doc="constant Coriolis parameter"),)
 
     @property
     def metric_weight(self) -> str | None:
@@ -554,8 +672,10 @@ class FPlaneCoriolis(Module):
         carry-resident AUXILIARY field keeps a stable scan treedef
         without being pre-synced to full halo.
         """
+        value = (1.0 if self._nondim
+                 else resolve_at(self.f0, 0.0))
         return grid.create_field(
-            space, data=jnp.full(space.shape, resolve_at(self.f0, 0.0)),
+            space, data=jnp.full(space.shape, value),
             name="f_coriolis")
 
     def _stage_scalar_f(self, ctx: object) -> object | None:
@@ -568,7 +688,7 @@ class FPlaneCoriolis(Module):
         reads the provided ``coriolis.f0`` from ``ctx.params``, which
         the binding table has already resolved at the stage clock time
         (``eval_params`` applies ``resolve_at`` — the same seam the
-        ``scaling.rossby`` ramp rides), so the value is correct in the
+        ``scaling.nonlinearity`` ramp rides), so the value is correct in the
         assembly dry run, ``model.tendency`` and every stepper stage
         alike. Returns ``None`` for a plain-float ``f0`` (the field
         path stays bit-identical); the static branch never touches
@@ -577,7 +697,7 @@ class FPlaneCoriolis(Module):
         """
         if isinstance(self.f0, TimeDependent):
             return ctx.params[CORIOLIS_F0]
-        return None
+        return None  # nondim shape field is static (f0 is None)
 
     def bind(self, table) -> None:  # noqa: ANN001
         """Reject chart-coupled grids (metric-blind rotation).
@@ -619,7 +739,8 @@ def _check_profile_law(
     return f
 
 
-@partial(jaxify, dynamic=("f0", "beta", "_f_law"))
+@partial(jaxify, dynamic=("f0", "beta", "rossby_number",
+                          "metric_ratio", "_f_law"))
 class BetaPlaneCoriolis(Module):
 
     r"""
@@ -667,9 +788,18 @@ class BetaPlaneCoriolis(Module):
         field rewritten each substage (default: None).
     """
 
+    #: fr.scaling traits: this family owns the rotation mechanism
+    scaling_mechanism = "rotation"
+    nonlinearity_attr = "rossby_number"
+
+    #: model.units rows: the derived dimensional f (shared family)
+    unit_factors = _CORIOLIS_UNIT_FACTORS
+
     def __init__(
-        self, f0: float = 1.0, beta: float = 0.0,
-        *, meridional: str = "y", metric_weight: str | None = None,
+        self, f0: float | None = None, beta: float | None = None,
+        *, rossby_number: float | None = None,
+        metric_ratio: float | None = None,
+        meridional: str = "y", metric_weight: str | None = None,
         f: ProfileFunction | None = None,
     ) -> None:
         r"""Store the leaves and the meridional coordinate name.
@@ -689,20 +819,100 @@ class BetaPlaneCoriolis(Module):
         stage sampling the law at the stage clock; ``f0``/``beta`` become
         inert. A frozen-``L`` (ETDRK4) stepper then refuses the model
         automatically (the marker feeds the frozen-``L`` guard).
+
+        The NONDIMENSIONAL kwarg set (``rossby_number=`` + optional
+        ``metric_ratio=``) replaces ``f0``/``beta``: the carried
+        field is the f-shape ``1 + metric_ratio * y`` and the
+        rotation is scaled by the live epsilon/Ro ratio. A ramped
+        ``metric_ratio`` is refused (the shape field carries no
+        blend for it — a recorded follow-up); ramp ``rossby_number``
+        instead (a stage-time ``ctx.params`` read, no field
+        rewrite needed).
+
+        Raises
+        ------
+        TypeError
+            On a mixed kwarg set, a zero ``rossby_number``, a
+            time-dependent ``metric_ratio``, or an ``f`` law next to
+            the nondimensional set.
         """
-        self.f0 = leaf(f0)
-        self.beta = leaf(beta)
+        _check_rotation_kwargs(type(self).__name__, f0,
+                               rossby_number)
+        if rossby_number is not None:
+            if beta is not None:
+                raise TypeError(
+                    "BetaPlaneCoriolis beta= belongs to the "
+                    "DIMENSIONAL kwarg set (f0= + beta=); the "
+                    "nondimensional set spells the meridional "
+                    "variation as metric_ratio= (f-shape "
+                    "1 + metric_ratio * y)")
+            if f is not None:
+                raise TypeError(
+                    "BetaPlaneCoriolis f= (the full f(y,t) law) is "
+                    "the DIMENSIONAL path; the nondimensional set "
+                    "takes rossby_number= + metric_ratio=")
+            if isinstance(metric_ratio, TimeDependent):
+                raise TypeError(
+                    "BetaPlaneCoriolis metric_ratio= is "
+                    "time-dependent, but the nondimensional f-shape "
+                    "field carries no blend for it (a recorded "
+                    "follow-up); ramp rossby_number= instead — the "
+                    "rotation reads it from ctx.params at stage "
+                    "time")
+            metric_ratio = 0.0 if metric_ratio is None else metric_ratio
+        else:
+            if metric_ratio is not None:
+                raise TypeError(
+                    "BetaPlaneCoriolis metric_ratio= belongs to the "
+                    "NONDIMENSIONAL kwarg set (rossby_number= + "
+                    "metric_ratio=); the dimensional set spells the "
+                    "meridional variation as beta=")
+            beta = 0.0 if beta is None else beta
+        self.f0 = None if f0 is None else leaf(f0)
+        self.beta = None if beta is None else leaf(beta)
+        self.rossby_number = (None if rossby_number is None
+                              else leaf(rossby_number))
+        self.metric_ratio = (None if metric_ratio is None
+                             else leaf(metric_ratio))
+        self._nondim: bool = rossby_number is not None
         self._meridional = meridional
         self._metric_weight = metric_weight
-        self._f_law = _check_profile_law(f, self.f0, self.beta)
+        self._f_law = (None if self._nondim else
+                       _check_profile_law(f, self.f0, self.beta))
         #: grid coordinate names for the profile-path halo (set at bind)
         self._halo_coords: tuple[str, ...] = ()
 
-    parameter_declarations = (
-        ParameterDeclaration(CORIOLIS_BETA, attr="beta",
-                             units="1/(m s)",
-                             doc="meridional Coriolis gradient"),
-    )
+    @property
+    def scaling_variant(self) -> str:
+        """The constructor-fixed variant (``fr.scaling`` seam)."""
+        return "nondimensional" if self._nondim else "dimensional"
+
+    @property
+    def parameter_declarations(
+        self,
+    ) -> tuple[ParameterDeclaration, ...]:
+        """``coriolis.beta`` (dim) / rossby + metric_ratio (nondim).
+
+        The dimensional variant deliberately does **not** provide
+        ``coriolis.f0`` (its Coriolis parameter is the ``f(y)``
+        field, not a constant — 02_rules).
+        """
+        if self._nondim:
+            return (
+                ParameterDeclaration(
+                    CORIOLIS_ROSSBY, attr="rossby_number",
+                    units="1",
+                    doc="Rossby number (the rotation mechanism)"),
+                ParameterDeclaration(
+                    CORIOLIS_METRIC_RATIO, attr="metric_ratio",
+                    units="1",
+                    doc="meridional f-shape gradient (nondim)"),
+            )
+        return (
+            ParameterDeclaration(CORIOLIS_BETA, attr="beta",
+                                 units="1/(m s)",
+                                 doc="meridional Coriolis gradient"),
+        )
 
     @property
     def metric_weight(self) -> str | None:
@@ -874,8 +1084,12 @@ class BetaPlaneCoriolis(Module):
         bit-identical to the static case. No pre-syncing (GAP-B) — see
         ``FPlaneCoriolis._f_default``.
         """
-        f0 = resolve_at(self.f0, 0.0)
-        beta = resolve_at(self.beta, 0.0)
+        if self._nondim:
+            f0 = 1.0
+            beta = resolve_at(self.metric_ratio, 0.0)
+        else:
+            f0 = resolve_at(self.f0, 0.0)
+            beta = resolve_at(self.beta, 0.0)
         mer = self._meridional
 
         def init(**coords: object) -> object:

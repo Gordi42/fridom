@@ -14,6 +14,7 @@ def _model():
     # divergence) are parameter-free kinematics and the model never
     # advances, so the no-rotation default is the right assembly here
     return sw.Model(grid=make_grid(),
+                    core=sw.Core(gravity=1.0, depth=1.0),
                     time_stepper=fr.model.time_steppers.AdamBashforth(
                         5e-3, order=3))
 
@@ -49,6 +50,7 @@ def test_rest_state_has_zero_diagnostics():
 def test_walled_rel_vort_lands_on_the_free_slip_corner_space():
     model = sw.Model(
         grid=make_grid(periodic_y=False),
+        core=sw.Core(gravity=1.0, depth=1.0),
         time_stepper=fr.model.time_steppers.AdamBashforth(5e-3, order=3))
     rng = np.random.default_rng(2)
     u = rng.standard_normal(model.state["u"].shape)

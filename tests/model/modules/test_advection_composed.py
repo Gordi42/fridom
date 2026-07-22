@@ -13,6 +13,7 @@ import numpy as np
 import pytest
 
 import fridom.nonhydro2 as nh
+from fridom.model.time_steppers.adam_bashforth import AdamBashforth
 from fridom.spatial.coordinate_mapping import CoordinateMapping
 from fridom.spatial.grid import Grid
 from fridom.spatial.immersed_domain import ImmersedDomain
@@ -52,11 +53,17 @@ def composed_grid(n=N, init=depth, ind=cut, order=4):
 def composed_model(grid, **kw):
     """Return a composed nh.Model (advection + a converging PCG)."""
     return nh.Model(
-        grid=grid, dt=DT, advection=True,
+        grid=grid,
+        core=nh.Core(
+            aspect_ratio=(0.5) ** 0.5,
+            pressure_iterations=30,
+            pressure_tolerance=None,
+            pressure_preconditioner="multigrid"),
+        time_stepper=AdamBashforth(DT, order=3),
         coriolis=nh.FPlaneCoriolis(f0=1.0),
         stratification=nh.ConstantStratification(n2=0.0),
-        pressure_iterations=30, pressure_tolerance=None,
-        pressure_preconditioner="multigrid", dsqr=0.5, **kw)
+        advection=True,
+        **kw)
 
 
 def set_random(model, seed=0):
@@ -126,11 +133,16 @@ def test_all_wet_chart_advection_matches_the_pure_mapped_run():
         maps={"zp": lambda z, H: z * H}, params={"H": depth})
     grid_m = Grid((mx, my, mz), mapping=mapping)
     model_m = nh.Model(
-        grid=grid_m, dt=DT, advection=True,
+        grid=grid_m,
+        core=nh.Core(
+            aspect_ratio=(0.5) ** 0.5,
+            pressure_iterations=30,
+            pressure_tolerance=None,
+            pressure_preconditioner="multigrid"),
+        time_stepper=AdamBashforth(DT, order=3),
         coriolis=nh.FPlaneCoriolis(f0=1.0),
         stratification=nh.ConstantStratification(n2=0.0),
-        pressure_iterations=30, pressure_tolerance=None,
-        pressure_preconditioner="multigrid", dsqr=0.5)
+        advection=True)
     rng = np.random.default_rng(3)
     fields = {c: rng.standard_normal(model_c.state[c].data.shape)
               for c in ("u", "v", "w", "b")}
@@ -157,5 +169,9 @@ def test_biased_advection_still_rejects_a_composed_grid(advection):
     grid = composed_grid()
     with pytest.raises(NotImplementedError,
                        match="does not support mapped grids"):
-        nh.Model(grid=grid, dt=DT, advection=advection,
-                 pressure_preconditioner="multigrid")
+        nh.Model(
+            grid=grid,
+            core=nh.Core(pressure_preconditioner="multigrid"),
+            time_stepper=AdamBashforth(DT, order=3),
+            stratification=nh.ConstantStratification(n2=1.0),
+            advection=advection)

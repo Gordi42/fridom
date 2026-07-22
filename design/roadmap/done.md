@@ -2646,3 +2646,19 @@ Implementation record:
     `e5466047`). `origin/dev` fast-forwarded to `9df88aef` — the
     whole wave is published; CI validates the merged tree per
     push.
+
+## H_ref convention on mapped grids — dissolved (2026-07-21)
+
+The open owner call (mesh extent vs physical reference depth for the
+constant-coefficient barotropic solve) was resolved by removing its
+subject: under the gravity-first hydrostatic API (Branch 2 of the
+nondimensionalization refactor), the free-surface family takes the
+core-provided physical `gravity` and every former `c²·(1/H_ref)`
+step-path site collapses to the plain g — verified site-by-site
+(explicit gravity term, implicit RHS/operator, immersed coefficient,
+split-explicit subcycle, barotropic solver): no genuinely lone c²
+exists. Local depths enter volume-exactly (H_a = ∫J dz); a wave speed
+c² = g·H survives only in flat-only analytics and reporting, where
+the physical vertical extent is unambiguous. Chart-invariance holds
+by construction. Record: `plans/active/nondimensionalization_plan.md`
+(§B, H_ref verification).

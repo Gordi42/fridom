@@ -302,7 +302,7 @@ class ImmersedPressureSolver:
                 "composition plan, stage M2): this grid declares both a "
                 "terrain-following mapped column and an immersed domain, "
                 "so the flat masked ImmersedPressureSolver does not apply "
-                "— use ComposedPressureSolver (the DynamicalCore routes a "
+                "— use ComposedPressureSolver (the core routes a "
                 "composed grid there automatically)")
         self._grid = grid
         self._space: SpaceLike = space.bare

@@ -112,7 +112,7 @@ if TYPE_CHECKING:  # pragma: no cover
     from fridom.spatial.fields.scalar_field import ScalarField
 
 _VEL_HINT = ("the velocity trio is declared by the dynamical core "
-             "(nh.DynamicalCore)")
+             "(nh.Core)")
 
 
 def _positive_part(field: ScalarField) -> ScalarField:
@@ -370,7 +370,7 @@ class SmagorinskyLilly(ClosureBase):
             raise AssemblyError(
                 f"{owner} finds no PROGNOSTIC Velocity-role fields "
                 "to apply the stress to; a dynamical core declares "
-                "them (nh.DynamicalCore)")
+                "them (nh.Core)")
         axes = tuple(axis for _, axis in self._vel_axes)
         if self._vertical not in axes:
             raise AssemblyError(

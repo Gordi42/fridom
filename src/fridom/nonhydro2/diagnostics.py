@@ -8,7 +8,7 @@ resolved through ``model.parameters``. Each takes ``(state, params)``
 and returns a ``ScalarField``. Parameter-free diagnostics
 (``rel_vort_z``) live on ``nh.State`` instead.
 
-The ``DIAGNOSTICS`` mapping is contributed by ``nh.DynamicalCore``
+The ``DIAGNOSTICS`` mapping is contributed by ``nh.Core``
 (the diagnostics-namespace channel).
 """
 from __future__ import annotations
@@ -17,10 +17,12 @@ from typing import TYPE_CHECKING
 
 from fridom.model.params import (
     CORIOLIS_F0,
-    SCALING_ROSSBY,
+    CORIOLIS_ROSSBY,
+    SCALING_NONLINEARITY,
+    STRATIFICATION_FROUDE,
     STRATIFICATION_N2,
 )
-from fridom.nonhydro2.params import DSQR
+from fridom.nonhydro2.params import ASPECT_RATIO
 from fridom.spatial.operators.interp import LinearInterp
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -71,14 +73,16 @@ def _to_center_one_sided(
 def ekin(
     state: VectorField, params: Mapping[str, object],
 ) -> ScalarField:
-    """Kinetic energy ``0.5 (u^2 + v^2 + dsqr w^2)`` at cell center.
+    """Kinetic energy ``0.5 (u^2 + v^2 + delta^2 w^2)`` at cell center.
 
     Description
     -----------
-    Carries ``dsqr`` (so it is a bound diagnostic, not a State
-    property). Velocities are interpolated onto the pressure cell.
+    Carries the aspect ratio (so it is a bound diagnostic, not a
+    State property; ``nonhydro.aspect_ratio``, squared at this use
+    site). Velocities are interpolated onto the pressure cell.
     """
-    dsqr = params[DSQR]
+    delta = params[ASPECT_RATIO]
+    dsqr = delta * delta
     center = state["p"].function_space
     u = state["u"].to(center).data
     v = state["v"].to(center).data
@@ -86,19 +90,35 @@ def ekin(
     return state["p"].with_data(0.5 * (u**2 + v**2 + dsqr * w**2))
 
 
+def _n2_eff(params: Mapping[str, object]) -> object:
+    r"""Return the effective ``N^2`` from the variant's primitives.
+
+    Dimensional: the ``stratification.n2`` provide. Nondimensional:
+    :math:`(\varepsilon/\mathrm{Fr})^2` (the live internal-wave
+    ratio; under the matching ``InternalWave`` scaling it
+    self-normalizes to 1.0).
+    """
+    if STRATIFICATION_FROUDE in params:
+        ratio = (params[SCALING_NONLINEARITY]
+                 / params[STRATIFICATION_FROUDE])
+        return ratio * ratio
+    return params[STRATIFICATION_N2]
+
+
 def epot(
     state: VectorField, params: Mapping[str, object],
 ) -> ScalarField:
-    """Potential energy ``0.5 b^2 / N^2`` at cell center.
+    """Potential energy ``0.5 b^2 / N^2_eff`` at cell center.
 
     Description
     -----------
     The linearized (quadratic) potential energy consistent with the
-    energy metric weight ``1/N^2`` on ``b`` (``fr.EnergyMetric``).
-    Carries ``N^2``; the buoyancy is interpolated onto the pressure
+    energy metric weight ``1/N^2_eff`` on ``b`` (``fr.EnergyMetric``);
+    the effective ``N^2`` is assembled from the variant's primitives
+    (:func:`_n2_eff`). The buoyancy is interpolated onto the pressure
     cell.
     """
-    n2 = params[STRATIFICATION_N2]
+    n2 = _n2_eff(params)
     center = state["p"].function_space
     b = state["b"].to(center).data
     return state["p"].with_data(0.5 * b**2 / n2)
@@ -107,16 +127,22 @@ def epot(
 def linear_pot_vort(
     state: VectorField, params: Mapping[str, object],
 ) -> ScalarField:
-    """Linear potential vorticity ``Ro (f0/N^2 d_z b + zeta_z)``.
+    """Linear potential vorticity ``eps (f_eff/N^2_eff d_z b + zeta_z)``.
 
     Description
     -----------
-    The linearized Ertel PV (the old ``linear_pot_vort``). Carries
-    ``f0``, ``N^2`` and the Rossby number.
+    The linearized Ertel PV, variant-aware from the primitives:
+    dimensional ``f0/N^2 d_z b + zeta_z`` (no scaling factor at all);
+    nondimensional ``eps (f_eff/N^2_eff d_z b + zeta_z)`` with
+    ``f_eff = eps/Ro`` (a nondim f-plane) and
+    ``N^2_eff = (eps/Fr)^2``.
     """
-    f0 = params[CORIOLIS_F0]
-    n2 = params[STRATIFICATION_N2]
-    ro = params[SCALING_ROSSBY]
+    if CORIOLIS_ROSSBY in params:
+        f0 = (params[SCALING_NONLINEARITY]
+              / params[CORIOLIS_ROSSBY])
+    else:
+        f0 = params[CORIOLIS_F0]
+    n2 = _n2_eff(params)
     center = state["p"].function_space
     # the derivative outputs carry no declared wall structure (b is
     # BC-free; the vorticity difference joins to the BC-free meet),
@@ -126,7 +152,10 @@ def linear_pot_vort(
         state["b"].diff("z"), center).data
     zeta = _to_center_one_sided(
         state["v"].diff("x") - state["u"].diff("y"), center)
-    return state["p"].with_data(ro * (f0 / n2 * dbdz + zeta.data))
+    q = f0 / n2 * dbdz + zeta.data
+    if SCALING_NONLINEARITY in params:
+        q = params[SCALING_NONLINEARITY] * q
+    return state["p"].with_data(q)
 
 
 DIAGNOSTICS = {

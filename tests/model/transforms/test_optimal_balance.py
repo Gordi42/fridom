@@ -5,7 +5,7 @@ injected (test-double) base projection. OB's forward leg is
 ``AdiabaticRamping(model, envelope=True, ...)`` (§C): it ramps the
 **nonlinear terms as a whole** through ``"ramping.envelope"`` and
 never touches a scaling parameter — so OB balances dimensional
-models (no ``scaling.rossby`` bound) and accepts Ramp-valued
+models (no ``scaling.nonlinearity`` bound) and accepts Ramp-valued
 scaling. The machinery under test: the FixedPoint iteration
 converges, the base-coordinate invariant holds exactly (the exchange
 is a projector by construction), the two ramped legs carry the
@@ -17,12 +17,25 @@ The shared conftest toy (Coriolis + F0Provider) is purely linear, so
 this file builds its own model with the conftest ``NonlinearU``
 term (weak: 0.1*u^2) — OB needs something to envelope.
 """
+from functools import partial
+
 import jax
+import jax.numpy as jnp
 import pytest
 
+import fridom as fr
+from fridom.framework.utils import dtype_real, jaxify
+from fridom.model import params
 from fridom.model import term_predicates as terms
 from fridom.model.errors import AssemblyError
+from fridom.model.model import Model as FrModel
+from fridom.model.module import Module
+from fridom.model.parameters import ParameterDeclaration
 from fridom.model.time_dependent import Ramp
+from fridom.model.time_steppers.runge_kutta import (
+    ExplicitRungeKutta,
+    tableaus,
+)
 from fridom.model.transforms.errors import TraceError
 from fridom.model.transforms.norms import relative_l2
 from fridom.model.transforms.optimal_balance import OptimalBalance
@@ -84,9 +97,9 @@ def test_stopped_by_is_reported(model, state):
 
 
 def test_balances_without_any_scaling_parameter(model, state):
-    # the §C headline: a DIMENSIONAL model (no scaling.rossby bound)
+    # the §C headline: a DIMENSIONAL model (no scaling bound)
     # is genuinely balanced — the envelope ramps the terms themselves
-    assert "scaling.rossby" not in model.parameters
+    assert params.SCALING_NONLINEARITY not in model.parameters
     ob = OptimalBalance(model, _base(model), ramp_period=RAMP,
                         max_it=4, tol=1e-12)
     _, info = ob.call_with_info(state)
@@ -170,35 +183,36 @@ def test_forward_leg_marks_the_nonlinear_term_enveloped(model):
 #  Scaling parameters are never touched (§C acceptance)
 # ================================================================
 @pytest.mark.parametrize("nominal", [1.0, 0.1])
-def test_constant_rossby_stays_constant_through_the_legs(nominal):
+def test_constant_scaling_stays_constant_through_the_legs(nominal):
     model = make_model(modules=(Coriolis(), NonlinearU(),
                                 RossbyProvider(nominal)))
     ob = OptimalBalance(model, _base(model), ramp_period=RAMP,
                         max_it=2)
     for leg in (ob.forward, ob.backward):
-        eps = leg.model.parameters["scaling.rossby"]
+        eps = leg.model.parameters[params.SCALING_NONLINEARITY]
         assert not isinstance(eps, Ramp)
         assert float(eps) == pytest.approx(nominal)
 
 
-def test_time_dependent_rossby_is_accepted():
+def test_time_dependent_scaling_is_accepted():
     # replaces the old Ramp-eps TypeError: OB no longer floats eps as
     # a ramp target, so a Ramp-valued scaling parameter is legal and
     # rides the legs untouched — the envelope carries the ramp
     model = make_model(modules=(Coriolis(), NonlinearU(),
                                 RossbyProvider()))
     eps_ramp = Ramp(0.0, 1.0, period=1.0)
-    ramped = model.variant(updates={"scaling.rossby": eps_ramp})
+    ramped = model.variant(
+        updates={params.SCALING_NONLINEARITY: eps_ramp})
     ob = OptimalBalance(ramped, _base(ramped), ramp_period=RAMP)
     for leg in (ob.forward, ob.backward):
-        eps = leg.model.parameters["scaling.rossby"]
+        eps = leg.model.parameters[params.SCALING_NONLINEARITY]
         assert isinstance(eps, Ramp)
         assert float(eps.at_time(1.0)) == pytest.approx(1.0)
         assert isinstance(
             leg.model.parameters["ramping.envelope"], Ramp)
 
 
-def test_rossby_model_balances():
+def test_scaled_model_balances():
     model = make_model(modules=(Coriolis(), NonlinearU(),
                                 RossbyProvider()))
     ob = OptimalBalance(model, _base(model), ramp_period=RAMP,
@@ -283,3 +297,45 @@ def test_trace_guard_raises_on_a_tracer(model, state):
     assert ob.traceable is False
     with pytest.raises(TraceError, match="Tier-2"):
         jax.jit(ob)(state)
+
+
+# ================================================================
+#  Mechanism-scaled (nondimensional) models balance too (§C)
+# ================================================================
+def test_mechanism_scaled_model_builds_and_ramps_the_envelope():
+    # replaces the interim alias-row guard (deleted by §C): under a
+    # mechanism scaling the epsilon row aliases the mechanism
+    # module's own nonlinearity leaf — OB no longer ramps that row,
+    # so the model is accepted; the envelope carries the ramp and
+    # epsilon stays the constant regime number through both legs
+    @partial(jaxify, dynamic=("froude_number",))
+    class MechProvider(Module):
+        scaling_mechanism = "gravity_wave"
+        nonlinearity_attr = "froude_number"
+        scaling_variant = "nondimensional"
+        field_declarations = ()
+        parameter_declarations = (
+            ParameterDeclaration("toy.froude", attr="froude_number",
+                                 units="1"),)
+
+        def __init__(self, froude_number=0.2):
+            self.froude_number = jnp.asarray(froude_number,
+                                             dtype=dtype_real())
+
+    plain = make_model()
+    nondim = FrModel(
+        grid=plain.grid,
+        modules=(Coriolis(), NonlinearU(), MechProvider()),
+        time_stepper=ExplicitRungeKutta(2e-3, tableau=tableaus.RK4),
+        scaling=fr.scaling.GravityWave())
+    ob = OptimalBalance(nondim, _base(nondim), ramp_period=RAMP)
+    for leg in (ob.forward, ob.backward):
+        rho = leg.model.parameters["ramping.envelope"]
+        assert isinstance(rho, Ramp)
+        eps = leg.model.parameters[params.SCALING_NONLINEARITY]
+        assert not isinstance(eps, Ramp)
+        assert float(eps) == pytest.approx(0.2)
+    fwd_rho = ob.forward.model.parameters["ramping.envelope"]
+    assert float(fwd_rho.at_time(0.0)) == pytest.approx(0.0, abs=1e-9)
+    assert float(fwd_rho.at_time(RAMP)) == pytest.approx(1.0,
+                                                         abs=1e-9)

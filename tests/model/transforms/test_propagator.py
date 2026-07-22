@@ -9,6 +9,7 @@ import jax
 import jax.numpy as jnp
 import pytest
 
+from fridom.model import params
 from fridom.model.transforms.errors import TraceError
 from fridom.model.transforms.norms import relative_l2
 from fridom.model.transforms.propagator import Propagator
@@ -70,10 +71,10 @@ def test_forward_keeps_a_positive_internal_dt(toy_model):
 def test_extra_modules_reach_the_internal_variant(toy_model):
     prop = Propagator(toy_model, steps=2,
                       extra_modules=(RossbyProvider(0.3),))
-    bound = prop.model.parameters["scaling.rossby"]
+    bound = prop.model.parameters[params.SCALING_NONLINEARITY]
     assert float(bound) == pytest.approx(0.3)
     # the passed model never grows the provider (§10.3 law 3)
-    assert "scaling.rossby" not in toy_model.parameters
+    assert params.SCALING_NONLINEARITY not in toy_model.parameters
 
 
 # ================================================================

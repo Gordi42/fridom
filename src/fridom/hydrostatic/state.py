@@ -9,7 +9,7 @@ algebra. Parameterful diagnostics (``ekin`` carries ``n2``,
 ``pot_vort`` carries ``f0``/``n2``) live in ``hy.diagnostics`` (D2.3),
 not here.
 
-The class is supplied by ``hy.HydrostaticCore`` through
+The class is supplied by ``hy.Core`` through
 ``Module.state_type`` and constructed by assembly with the base
 ``Mapping[str, ScalarField]`` constructor, so it adds no ``__init__``.
 """
@@ -53,14 +53,14 @@ class State(VectorField):
         """Zonal velocity (declared by a hydrostatic core)."""
         return self.require(
             "u", hint="declared by a hydrostatic core, "
-                      "e.g. hy.HydrostaticCore")
+                      "e.g. hy.Core")
 
     @property
     def v(self) -> ScalarField:
         """Meridional velocity (declared by a hydrostatic core)."""
         return self.require(
             "v", hint="declared by a hydrostatic core, "
-                      "e.g. hy.HydrostaticCore")
+                      "e.g. hy.Core")
 
     @property
     def w(self) -> ScalarField:
@@ -85,7 +85,7 @@ class State(VectorField):
         """
         return self.require(
             "w", hint="diagnosed by a hydrostatic core, "
-                      "e.g. hy.HydrostaticCore")
+                      "e.g. hy.Core")
 
     @property
     def b(self) -> ScalarField:

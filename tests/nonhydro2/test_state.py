@@ -5,6 +5,7 @@ import pytest
 
 import fridom as fr
 import fridom.nonhydro2 as nh
+from fridom.model.time_steppers.adam_bashforth import AdamBashforth
 from fridom.nonhydro2.state import State
 from fridom.spatial.coordinate_mapping import CoordinateMapping
 
@@ -53,7 +54,12 @@ def test_chart_w_equals_hand_built_contravariant_flux():
     # same quantity the mapped pressure solver's divergence RHS derives
     # from the stored PHYSICAL w.
     grid = _mapped_grid()
-    st = _set_random(nh.Model(grid=grid, dt=1e-3))
+    st = _set_random(
+        nh.Model(
+            grid=grid,
+            core=nh.Core(),
+            time_stepper=AdamBashforth(1e-3, order=3),
+            stratification=nh.ConstantStratification(n2=1.0)))
     assert isinstance(st, State)
     chart_w = st.chart["w"]
 
@@ -72,14 +78,24 @@ def test_chart_w_equals_hand_built_contravariant_flux():
 #  Flat identity and the read-only surface
 # ================================================================
 def test_chart_is_identity_on_a_flat_grid():
-    st = _set_random(nh.Model(grid=_flat_grid(), dt=1e-3))
+    st = _set_random(
+        nh.Model(
+            grid=_flat_grid(),
+            core=nh.Core(),
+            time_stepper=AdamBashforth(1e-3, order=3),
+            stratification=nh.ConstantStratification(n2=1.0)))
     assert st.chart["w"] is st["w"]
     assert st.chart["u"] is st["u"]
     assert st.chart.w is st["w"]
 
 
 def test_chart_velocities_and_read_only():
-    st = _set_random(nh.Model(grid=_flat_grid(), dt=1e-3))
+    st = _set_random(
+        nh.Model(
+            grid=_flat_grid(),
+            core=nh.Core(),
+            time_stepper=AdamBashforth(1e-3, order=3),
+            stratification=nh.ConstantStratification(n2=1.0)))
     u, v, w = st.chart.velocities
     assert u is st["u"]
     assert v is st["v"]

@@ -33,6 +33,7 @@ import fridom as fr
 import fridom.hydrostatic as hy
 import fridom.model.term_predicates as tp
 from fridom.model.errors import MissingParameterError
+from fridom.model.time_steppers.adam_bashforth import AdamBashforth
 from fridom.spatial.operators.cumulative import CumulativeIntegral
 from fridom.spatial.spaces.constant import ConstantSpace
 
@@ -67,13 +68,14 @@ def eady_model(*, nx=32, ny=4, nz=12, lx=1.0, depth=1.0, csqr=30.0,
     if free_surface is None:
         free_surface = hy.ImplicitFreeSurface(epsilon=epsilon)
     model = hy.Model(
-        grid=make_grid(nx, ny, nz, lx=lx, depth=depth), dt=dt, csqr=csqr,
-        free_surface=free_surface,
+        grid=make_grid(nx, ny, nz, lx=lx, depth=depth),
+        core=hy.Core(gravity=csqr / depth),
+        time_stepper=AdamBashforth(dt, order=2, eps=0.1),
+        coriolis=hy.FPlaneCoriolis(f0=f0),
         stratification=hy.ConstantStratification(n2=n2),
-        coriolis=hy.FPlaneCoriolis(f0=f0), advection=advection,
-        modules_extra=(tw,),
-        time_stepper=fr.model.time_steppers.AdamBashforth(
-            dt, order=2, eps=0.1))
+        free_surface=free_surface,
+        advection=advection,
+        modules_extra=(tw,))
     return model, tw
 
 
@@ -163,10 +165,14 @@ def test_requires_a_constant_coriolis_parameter():
     # hy.FPlaneCoriolis the coriolis.f0 provide is missing
     with pytest.raises(MissingParameterError, match=r"coriolis\.f0"):
         hy.Model(
-            grid=make_grid(8, 8, 6), dt=1e-2, csqr=1.0, coriolis=None,
+            grid=make_grid(8, 8, 6),
+            core=hy.Core(gravity=1.0),
+            time_stepper=AdamBashforth(1e-2),
+            coriolis=None,
+            stratification=hy.ConstantStratification(n2=1.0),
+            free_surface=hy.ExplicitFreeSurface(),
             advection=False,
-            modules_extra=(hy.ThermalWindBackground(shear=0.5),),
-            time_stepper=fr.model.time_steppers.AdamBashforth(1e-2))
+            modules_extra=(hy.ThermalWindBackground(shear=0.5),))
 
 
 def test_background_velocity_is_the_matching_shear_profile():

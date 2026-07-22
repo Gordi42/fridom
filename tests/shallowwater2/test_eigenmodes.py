@@ -527,7 +527,8 @@ def _walled_model(*, periodic_x=True, coriolis=None):
     if coriolis is None:
         coriolis = sw.modules.FPlaneCoriolis(f0=1.0)
     return sw.Model(
-        grid=fr.spatial.Grid((mx, my)), csqr=1.0, rossby_number=0.2,
+        grid=fr.spatial.Grid((mx, my)),
+        core=sw.Core(gravity=1.0, depth=1.0),
         coriolis=coriolis, advection=False,
         time_stepper=fr.model.time_steppers.AdamBashforth(5e-3, order=3))
 
@@ -590,10 +591,11 @@ def test_eigenbasis_rejects_a_multi_walled_box():
 def test_from_model_rejects_a_beta_plane():
     grid = make_grid()
     model = sw.Model(
-        grid=grid, csqr=1.0,
+        grid=grid,
+        core=sw.Core(gravity=1.0, depth=1.0),
         coriolis=sw.modules.BetaPlaneCoriolis(f0=1.0, beta=2.0),
         time_stepper=fr.model.time_steppers.AdamBashforth(5e-3, order=3))
-    with pytest.raises(ValueError, match=r"coriolis\.f0"):
+    with pytest.raises(ValueError, match="constant Coriolis parameter"):
         sw.eigenmodes.from_model(model)
 
 

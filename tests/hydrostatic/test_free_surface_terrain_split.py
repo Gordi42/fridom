@@ -26,6 +26,7 @@ import fridom as fr
 import fridom.hydrostatic as hy
 from fridom.model.io.streams import SnapshotMismatchError
 from fridom.model.model import _chunk_body
+from fridom.model.time_steppers.adam_bashforth import AdamBashforth
 from fridom.spatial.coordinate_mapping import CoordinateMapping
 from fridom.spatial.immersed_domain import ImmersedDomain
 
@@ -65,12 +66,13 @@ def _flat_grid(n, nz, *, zext=1.0):
 def _model(grid, *, free_surface=None, substeps=16, csqr=CSQR, f0=0.5,
            n2=1.0, dt=1e-2, stepper=None):
     return hy.Model(
-        grid=grid, dt=dt, csqr=csqr, advection=False,
-        stratification=hy.ConstantStratification(n2=n2),
+        grid=grid,
+        core=hy.Core(gravity=csqr),
+        time_stepper=stepper or AdamBashforth(dt, order=3),
         coriolis=hy.FPlaneCoriolis(f0=f0) if f0 else None,
+        stratification=hy.ConstantStratification(n2=n2),
         free_surface=free_surface or SEFS(substeps=substeps),
-        time_stepper=stepper
-        or fr.model.time_steppers.AdamBashforth(dt, order=3))
+        advection=False)
 
 
 def _random_ic(model, *, seed=0, scale=1.0):

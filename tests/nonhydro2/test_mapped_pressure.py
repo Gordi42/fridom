@@ -4,7 +4,7 @@ The SPD license of the flux-form mapped operator (exact symmetry,
 negative semidefiniteness, the constants nullspace), the mapped-flat
 coefficient fold, the flux-consistent projection identity, the
 preconditioned solve, the dynamic-parameter seam, the taught
-construction errors, and the DynamicalCore mapped projection branch.
+construction errors, and the Core mapped projection branch.
 """
 import jax
 import jax.numpy as jnp
@@ -12,6 +12,7 @@ import numpy as np
 import pytest
 
 import fridom.nonhydro2 as nh
+from fridom.model.time_steppers.adam_bashforth import AdamBashforth
 from fridom.nonhydro2.modules.mapped_pressure import (
     MappedPressureSolver,
 )
@@ -502,7 +503,7 @@ def test_solve_matches_the_unmemoized_operator_to_rounding():
 
 
 def test_project_matches_the_separate_calls_bitwise():
-    # DynamicalCore's projection runs divergence -> solve ->
+    # Core's projection runs divergence -> solve ->
     # correction on ONE shared derivation; the result must equal the
     # three separate calls exactly
     solver, grid, mx, ms = build_solver()
@@ -624,9 +625,10 @@ def test_unknown_weight_axes_are_rejected():
 
 
 # ================================================================
-#  The DynamicalCore mapped projection branch
+#  The Core mapped projection branch
 # ================================================================
-def make_mapped_model(n=8, init=depth, dt=0.02, family="nodal", **kwargs):
+def make_mapped_model(n=8, init=depth, dt=0.02, family="nodal",
+                      dsqr=1.0, **core_kwargs):
     mx = IntervalMesh(n, (0.0, 2 * np.pi), periodic=True, name="x")
     my = IntervalMesh(n, (0.0, 2 * np.pi), periodic=True, name="y")
     mz = IntervalMesh(n, (0.0, 1.0), periodic=False, name="z")
@@ -642,9 +644,15 @@ def make_mapped_model(n=8, init=depth, dt=0.02, family="nodal", **kwargs):
     # converged there (measured post-step mapped divergence 3.4e-12
     # already at 12, 1.1e-13 at 30; the gate below is 1e-10) and the
     # unrolled CG loop is what the mapped model's trace pays for
-    return nh.Model(grid=grid, dt=dt, advection=False, family=family,
-                    coriolis=nh.FPlaneCoriolis(f0=1.0),
-                    pressure_iterations=16, **kwargs)
+    core_kwargs.setdefault("pressure_iterations", 16)
+    return nh.Model(
+        grid=grid,
+        core=nh.Core(family=family, aspect_ratio=dsqr ** 0.5,
+                     **core_kwargs),
+        time_stepper=AdamBashforth(dt, order=3),
+        coriolis=nh.FPlaneCoriolis(f0=1.0),
+        stratification=nh.ConstantStratification(n2=1.0),
+        advection=False)
 
 
 def test_core_projects_on_a_mapped_grid():
@@ -697,7 +705,7 @@ def test_mapped_solver_default_tolerance_is_1e_8():
 def test_model_threads_pressure_tolerance_to_the_core():
     def core_of(model):
         return next(m for m in model._carry.modules
-                    if type(m).__name__ == "DynamicalCore")
+                    if type(m).__name__ == "Core")
     assert core_of(
         make_mapped_model(pressure_tolerance=1e-9))._pressure_tolerance \
         == 1e-9

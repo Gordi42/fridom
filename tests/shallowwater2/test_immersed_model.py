@@ -29,8 +29,11 @@ def _mesh(n, a, b, *, periodic, name):
 def _model(grid, *, csqr=0.8, rossby=0.3, f0=1.0, dt=0.01, order=3,
            advection=True, **kwargs):
     return sw.Model(
-        grid=grid, csqr=csqr, rossby_number=rossby,
-        coriolis=sw.modules.FPlaneCoriolis(f0=f0), advection=advection,
+        grid=grid,
+        core=sw.Core(froude_number=rossby, depth=csqr),
+        scaling=fr.scaling.GravityWave(),
+        coriolis=sw.modules.FPlaneCoriolis(rossby_number=rossby / f0),
+        advection=advection,
         time_stepper=fr.model.time_steppers.AdamBashforth(dt, order=order),
         **kwargs)
 
@@ -279,7 +282,9 @@ def test_background_on_immersed_is_a_taught_error():
                 immersed=ImmersedDomain(lambda x, y: x * 0.0 + 1.0))  # noqa: ARG005
     with pytest.raises(NotImplementedError, match="immersed"):
         sw.Model(
-            grid=grid, coriolis=sw.modules.FPlaneCoriolis(f0=1.0),
+            grid=grid,
+            core=sw.Core(gravity=1.0, depth=1.0),
+            coriolis=sw.modules.FPlaneCoriolis(f0=1.0),
             advection=False,
             modules_extra=(sw.modules.SadournyAdvection(
                 background={"u": 0.0}),),

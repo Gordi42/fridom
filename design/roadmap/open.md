@@ -34,14 +34,13 @@ Oceananigans re-run.
   (SP-D1..D9) awaits the owner before spherical implementation
   starts.
 - **Owner calls filed by the wave:**
-  - **`H_ref` convention on mapped grids** — the volume-exact
-    reference depth is the vertical *mesh* extent (GM-D1 literal,
-    shipped), so a pure vertical re-parameterization changes the
-    barotropic wave speed (a nonlinear stretch with physical depth
-    1.4 over base extent 1.0 gets `g = csqr/1.0`). Alternative: the
-    physical reference depth (chart-invariant). Small change if
-    taken (`free_surface.py` reference depth + the metric
-    one-liner).
+  - `H_ref` convention on mapped grids — **dissolved by the
+    gravity-first hydrostatic API** (owner + Branch-2 verification
+    2026-07-21; entry in [`done.md`](done.md)): with `gravity=` as
+    the input, every step-path `c²·(1/H_ref)` site collapses to the
+    plain g (verified site-by-site, no lone c² exists); depths enter
+    only as the volume-exact local H_a and the flat-only physical
+    extent in analytics/reporting.
   - **`hy.energy.hydrostatic_energy_weights` is vestigial**
     (superseded docstring, flat-only test consumers, wrong on any
     non-unit depth): delete + repoint its two tests (recommended),
@@ -66,20 +65,38 @@ without any elliptic work); barotropic Helmholtz on charts
 Laplace–Beltrami pressure operator + metric projection. A torus
 preset chart is a candidate pole-free test chart.
 
-## 2b. Nondimensionalization — dimensional/nondimensional variants (new 2026-07-21, owner to sequence)
+## 2b. Nondimensionalization — Branch 3 on the scaling-object architecture (Branches 1+2 implemented 2026-07-21)
 
-Every model package gets two assembly variants sharing all tendency
-modules: dimensional (physical `g`, `D`; zero scaling factors in the
-assembled modules) and nondimensional (paper scaling; Fr on the core,
-Ro on dedicated nondim Coriolis modules, thickness as a derived
-DIAGNOSE field, `scaling.rossby` renamed `scaling.nonlinearity`).
-Shallow water is fully designed and verified; **implementation is
-gated** on two companion designs (owner ruling 2026-07-21): the
-nonhydro2/hydrostatic generalization and the ramping redesign (OB/AR
-ramp the nonlinear *terms* instead of deforming the scaling
-parameter). Must land **before the docs rebuild** — it changes the
-public model-assembly API the docs would bake in
-(`csqr=`/`rossby_number=` are removed).
+**Branch 1 (framework + shallow water)** and **Branch 2
+(nonhydro2 + hydrostatic, `refactor/nh-hy-scaling`, awaiting owner
+integration)** are implemented: `fr.scaling` policy objects and the
+alias row, `sw.Core` / `nh.Core(aspect_ratio=)` / gravity-first
+`hy.Core(gravity=)`, dual-kwarg Coriolis / stratification /
+free-surface families, the de-scaled bind-adopting advection, the
+re-keyed eigen/energy/diagnostics consumers, and golden-file parity
+(sw 16/16 bitwise; nh dim+Rotational bitwise; hy dim/ExternalWave/
+Rotational bitwise with the accepted H7 closure-row roundoff on the
+closure-ON dim config). Remaining:
+
+- **Branch 3** (`feat/ramping-envelope`, §C; independent of 2):
+  `TendencyEnvelope`, composer wrap, AR `envelope=True`, OB
+  rewritten (deletes the interim alias-row guard). Until it lands,
+  OptimalBalance refuses mechanism-scaled models (taught error).
+
+§D (unit factors + writer metadata) **shipped 2026-07-21** on
+`feat/unit-factors`: `model.units` machinery, the sw amplitude
+table, the Coriolis `f_dim` row, and the default-on writer stamp
+(plan §D carries the record). The nh/hy `unit_factors` tables
+followed on `feat/nh-hy-unit-factors` (duck-typed rows, zero
+machinery edits; the hy vertical rows adopt the flat-only
+convention H = the vertical mesh extent — the energy re-key's
+`H_ref` read).
+
+Must land **before the docs rebuild** — Branches 1+2 changed the
+public assembly API (`csqr=`/`rossby_number=`/`coords=`/`dsqr=`/
+`dt=` removed from the presets; `examples/` and `benchmarks/`'s
+old-stack files still spell the old surface and are part of the
+docs-rebuild pass).
 Plan: [`../plans/active/nondimensionalization_plan.md`](../plans/active/nondimensionalization_plan.md).
 
 ## 3. Perf-guard checkpoint (owner-run)

@@ -18,7 +18,7 @@ from fridom.model.closures.diffusion import HarmonicFriction
 from fridom.model.errors import AssemblyError
 from fridom.model.model import Model, _chunk_body
 from fridom.model.time_steppers.adam_bashforth import AdamBashforth
-from fridom.nonhydro2.modules.core import DynamicalCore
+from fridom.nonhydro2.modules.core import Core
 from fridom.nonhydro2.modules.smagorinsky_lilly import SmagorinskyLilly
 from fridom.nonhydro2.modules.stratification import ConstantStratification
 from fridom.nonhydro2.params import (
@@ -47,7 +47,7 @@ def make_grid(periodic, length=L, nz=N, device_ids=None):
 def smag_model(grid, n2=0.0, **kwargs):
     return Model(
         grid=grid,
-        modules=(DynamicalCore(), ConstantStratification(n2=n2),
+        modules=(Core(), ConstantStratification(n2=n2),
                  SmagorinskyLilly(**kwargs)),
         time_stepper=AdamBashforth(DT, order=3))
 
@@ -55,7 +55,7 @@ def smag_model(grid, n2=0.0, **kwargs):
 def friction_model(grid, nu, slip="free", n2=0.0):
     return Model(
         grid=grid,
-        modules=(DynamicalCore(), ConstantStratification(n2=n2),
+        modules=(Core(), ConstantStratification(n2=n2),
                  HarmonicFriction(nu, slip=slip)),
         time_stepper=AdamBashforth(DT, order=3))
 
@@ -196,7 +196,7 @@ def test_walled_finite_volume_grid_is_a_taught_rejection():
     with pytest.raises(NotImplementedError,
                        match="walled finite-volume"):
         Model(grid=grid,
-              modules=(DynamicalCore(family="fv"),
+              modules=(Core(family="fv"),
                        ConstantStratification(n2=0.0),
                        SmagorinskyLilly()),
               time_stepper=AdamBashforth(DT, order=3))

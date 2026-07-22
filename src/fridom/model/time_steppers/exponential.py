@@ -61,7 +61,7 @@ naming the offending terms.
 
 **Time-dependent parameters.** ``L`` is frozen: the eigenbasis is a
 snapshot. A time-dependent parameter that lives in ``N`` (a ``Ramp``
-on ``scaling.rossby`` — the optimal-balance ramp) is fully correct,
+on ``scaling.nonlinearity`` — the optimal-balance ramp) is fully correct,
 and the RK stages are evaluated at their own clock times
 (``clock.shifted(c_i * dt)``) so the scheme keeps fourth order
 through it. A parameter that lives in ``L`` itself is NOT supported:

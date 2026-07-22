@@ -27,7 +27,7 @@ from fridom.model.modules.coriolis import FPlaneCoriolis
 from fridom.model.time_steppers.adam_bashforth import (
     AdamBashforth,
 )
-from fridom.nonhydro2.modules.core import DynamicalCore
+from fridom.nonhydro2.modules.core import Core
 from fridom.nonhydro2.modules.stratification import (
     ConstantStratification,
 )
@@ -74,7 +74,7 @@ def make_grid(walled=(), n=12):
 
 def make_model(walled, adv, family="fv", n=12):
     return FrModel(grid=make_grid(walled, n),
-        modules=(DynamicalCore(), FPlaneCoriolis(f0=0.5),
+        modules=(Core(), FPlaneCoriolis(f0=0.5),
                  _PassiveTracer(family=family), adv),
         time_stepper=AdamBashforth(DT, order=3))
 
@@ -282,7 +282,7 @@ def test_fv_tracer_tendency_matches_the_nodal_tracer(factory, walled):
 def test_mixed_fv_tracer_model_runs_and_projects(adv):
     m = FrModel(
         grid=make_grid(),
-        modules=(DynamicalCore(), FPlaneCoriolis(f0=0.5),
+        modules=(Core(), FPlaneCoriolis(f0=0.5),
                  ConstantStratification(n2=1.0, family="fv"), adv),
         time_stepper=AdamBashforth(DT, order=3))
     # the buoyancy tracer is fully on CellAvg; the pressure and the
@@ -340,7 +340,7 @@ def test_fv_tracer_on_a_mapped_grid_conserves_physical_content(
     # the column Jacobian), so ``tau["b"].integrate()`` IS int(J q dx).
     grid = make_mapped_grid(periodic_column=periodic_column)
     model = FrModel(grid=grid,
-                    modules=(DynamicalCore(),
+                    modules=(Core(),
                              _PassiveTracer(family="fv"),
                              CenteredAdvection()),
                     time_stepper=AdamBashforth(DT, order=3))
@@ -360,12 +360,12 @@ def test_fv_mapped_tracer_conserves_and_nodal_does_not():
     # ``tau.integrate()`` measures int(J q dx) directly.
     grid = make_mapped_grid()
     fv = FrModel(grid=grid,
-                 modules=(DynamicalCore(),
+                 modules=(Core(),
                           _PassiveTracer(family="fv"),
                           CenteredAdvection()),
                  time_stepper=AdamBashforth(DT, order=3))
     nodal = FrModel(grid=make_mapped_grid(),
-                    modules=(DynamicalCore(),
+                    modules=(Core(),
                              _PassiveTracer(family="nodal"),
                              CenteredAdvection()),
                     time_stepper=AdamBashforth(DT, order=3))
@@ -400,9 +400,13 @@ BIASED_FV = [
 
 
 def _nh_model(walled, factory, family=None, n=8):
-    return nh.Model(coriolis=FPlaneCoriolis(f0=1.0),
-                    grid=make_grid(walled, n=n), dt=DT, dsqr=2.0,
-                    advection=factory(), family=family)
+    return nh.Model(
+        grid=make_grid(walled, n=n),
+        core=nh.Core(aspect_ratio=(2.0) ** 0.5, family=family),
+        time_stepper=AdamBashforth(DT, order=3),
+        coriolis=FPlaneCoriolis(f0=1.0),
+        stratification=nh.ConstantStratification(n2=1.0),
+        advection=factory())
 
 
 def _seed_pair(fv, nodal, seed=7):

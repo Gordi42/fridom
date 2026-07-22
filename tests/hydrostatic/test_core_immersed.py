@@ -11,6 +11,7 @@ import pytest
 
 import fridom.hydrostatic as hy
 from fridom.model.context import StepContext
+from fridom.model.time_steppers.adam_bashforth import AdamBashforth
 from fridom.spatial.decomposition.halo import HaloSpec
 from fridom.spatial.grid import Grid
 from fridom.spatial.immersed_domain import ImmersedDomain
@@ -47,7 +48,7 @@ def _masked_residual(model, u0, v0):
     quadrature fractions concretize.
     """
     imm = model.grid.immersed
-    core = model.module(hy.HydrostaticCore)
+    core = model.module(hy.Core)
 
     @jax.jit
     def run(ud, vd):
@@ -94,7 +95,11 @@ def test_masked_continuity_residual_is_machine_zero(
         init, order, min_fraction, label):
     model = hy.Model(
         grid=grid(init, order=order, min_fraction=min_fraction),
-        dt=0.01, advection=False)
+        core=hy.Core(gravity=1.0),
+        time_stepper=AdamBashforth(0.01, order=3),
+        stratification=hy.ConstantStratification(n2=1.0),
+        free_surface=hy.ExplicitFreeSurface(),
+        advection=False)
     rng = np.random.default_rng(0)
     shape = model.state["u"].data.shape
     residual, w_closed = _masked_residual(
@@ -160,11 +165,14 @@ def test_masked_w_faces_matches_raw_data_surgery_bitwise(
         init, n, nz, order, min_fraction, id_):
     """The machinery path reproduces the raw ``.data`` surgery exactly."""
     model = hy.Model(
-        grid=grid(init, n=n, nz=nz, order=order,
-                  min_fraction=min_fraction),
-        dt=0.01, advection=False)
+        grid=grid(init, n=n, nz=nz, order=order, min_fraction=min_fraction),
+        core=hy.Core(gravity=1.0),
+        time_stepper=AdamBashforth(0.01, order=3),
+        stratification=hy.ConstantStratification(n2=1.0),
+        free_surface=hy.ExplicitFreeSurface(),
+        advection=False)
     imm = model.grid.immersed
-    core = model.module(hy.HydrostaticCore)
+    core = model.module(hy.Core)
     old = np.asarray(_old_masked_w_faces(core, imm, model.state).data)
     new = np.asarray(core._masked_w_faces(imm, model.state).data)
     assert np.array_equal(old, new), id_          # bitwise equivalence
@@ -173,11 +181,16 @@ def test_masked_w_faces_matches_raw_data_surgery_bitwise(
 def test_partial_surface_cell_is_a_true_partial():
     """The ``partial-surface`` case copies a genuine partial (not 0/1)."""
     model = hy.Model(
-        grid=grid(lambda x, y, z: jnp.clip(  # noqa: ARG005
-            (z - 0.85) / (1.0 / 4) + 0.5, 0.0, 1.0),
+        grid=grid(
+            lambda x, y, z: jnp.clip(  # noqa: ARG005
+                (z - 0.85) / (1.0 / 4) + 0.5, 0.0, 1.0),
             n=4, nz=4, order=4, min_fraction=0.1),
-        dt=0.01, advection=False)
-    core = model.module(hy.HydrostaticCore)
+        core=hy.Core(gravity=1.0),
+        time_stepper=AdamBashforth(0.01, order=3),
+        stratification=hy.ConstantStratification(n2=1.0),
+        free_surface=hy.ExplicitFreeSurface(),
+        advection=False)
+    core = model.module(hy.Core)
     az = np.asarray(core._masked_w_faces(
         model.grid.immersed, model.state).data)
     surface = az[..., -1]
@@ -189,9 +202,13 @@ def test_surface_face_is_a_genuine_dof_not_dry():
     # (the barotropic column-divergence carrier), NOT the dry-exterior 0
     model = hy.Model(
         grid=grid(lambda x, y, z: (z > 0.5).astype(float)),  # noqa: ARG005
-        dt=0.01, advection=False)
+        core=hy.Core(gravity=1.0),
+        time_stepper=AdamBashforth(0.01, order=3),
+        stratification=hy.ConstantStratification(n2=1.0),
+        free_surface=hy.ExplicitFreeSurface(),
+        advection=False)
     imm = model.grid.immersed
-    core = model.module(hy.HydrostaticCore)
+    core = model.module(hy.Core)
     az = np.asarray(core._masked_w_faces(
         imm, model.state).data)
     # bottom-most and interior dry faces are closed; the surface (last
@@ -204,9 +221,20 @@ def test_surface_face_is_a_genuine_dof_not_dry():
 #  All-wet immersed reproduces the unimmersed diagnosis (byte-exact)
 # ================================================================
 def test_all_wet_matches_unimmersed_bytewise():
-    im = hy.Model(grid=grid(lambda x, y, z: x * 0.0 + 1.0),  # noqa: ARG005
-                  dt=0.02, advection=False)
-    un = hy.Model(grid=plain_grid(), dt=0.02, advection=False)
+    im = hy.Model(
+        grid=grid(lambda x, y, z: x * 0.0 + 1.0),  # noqa: ARG005
+        core=hy.Core(gravity=1.0),
+        time_stepper=AdamBashforth(0.02, order=3),
+        stratification=hy.ConstantStratification(n2=1.0),
+        free_surface=hy.ExplicitFreeSurface(),
+        advection=False)
+    un = hy.Model(
+        grid=plain_grid(),
+        core=hy.Core(gravity=1.0),
+        time_stepper=AdamBashforth(0.02, order=3),
+        stratification=hy.ConstantStratification(n2=1.0),
+        free_surface=hy.ExplicitFreeSurface(),
+        advection=False)
     rng = np.random.default_rng(7)
     ic = {k: 0.3 * rng.standard_normal(im.state[k].data.shape)
           for k in ("u", "v", "b")}
@@ -225,12 +253,22 @@ def test_all_wet_matches_unimmersed_bytewise():
 def test_core_extra_halo_only_when_immersed():
     imm_model = hy.Model(
         grid=grid(lambda x, y, z: (z > 0.5).astype(float)),  # noqa: ARG005
-        dt=0.01, advection=False)
-    plain = hy.Model(grid=plain_grid(), dt=0.01, advection=False)
-    imm_halo = imm_model.module(hy.HydrostaticCore).extra_halo
+        core=hy.Core(gravity=1.0),
+        time_stepper=AdamBashforth(0.01, order=3),
+        stratification=hy.ConstantStratification(n2=1.0),
+        free_surface=hy.ExplicitFreeSurface(),
+        advection=False)
+    plain = hy.Model(
+        grid=plain_grid(),
+        core=hy.Core(gravity=1.0),
+        time_stepper=AdamBashforth(0.01, order=3),
+        stratification=hy.ConstantStratification(n2=1.0),
+        free_surface=hy.ExplicitFreeSurface(),
+        advection=False)
+    imm_halo = imm_model.module(hy.Core).extra_halo
     assert isinstance(imm_halo, HaloSpec)
     # DERIVED from the masked stencils (not a literal 2): reach 1 on
     # each horizontal coordinate, 0 on the vertical — the masked
     # continuity's column sum is a reduction with no vertical stencil
     assert dict(imm_halo.widths) == {"x": 1, "y": 1, "z": 0}
-    assert plain.module(hy.HydrostaticCore).extra_halo is None
+    assert plain.module(hy.Core).extra_halo is None

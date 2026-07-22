@@ -34,12 +34,12 @@ from fridom.model.roles import ADVECTED, TRACER, Velocity
 from fridom.model.time_steppers.adam_bashforth import (
     AdamBashforth,
 )
-from fridom.nonhydro2.modules.core import DynamicalCore
+from fridom.nonhydro2.modules.core import Core
 from fridom.nonhydro2.modules.stratification import (
     ConstantStratification,
     MeridionalStratification,
 )
-from fridom.nonhydro2.params import DSQR
+from fridom.nonhydro2.params import ASPECT_RATIO
 from fridom.nonhydro2.state import State
 from fridom.spatial.bc import BC
 from fridom.spatial.coordinate_mapping import CoordinateMapping
@@ -95,11 +95,16 @@ def test_preset_equals_explicit_assembly_treedef():
     # the same grid follows uniformly — identical treedefs (the modules
     # carry family=None on both sides)
     grid = make_grid()
-    preset = nh.Model(coriolis=fplane(), grid=grid, dt=DT)
+    preset = nh.Model(
+        grid=grid,
+        core=nh.Core(),
+        time_stepper=AdamBashforth(DT, order=3),
+        coriolis=fplane(),
+        stratification=nh.ConstantStratification(n2=1.0))
     explicit = FrModel(
         grid=grid,
         modules=(
-            DynamicalCore(dsqr=1.0, rossby_number=1.0),
+            Core(aspect_ratio=1.0),
             FPlaneCoriolis(f0=1.0),
             ConstantStratification(n2=1.0),
             CenteredAdvection()),
@@ -109,7 +114,12 @@ def test_preset_equals_explicit_assembly_treedef():
 
 
 def test_preset_is_a_plain_fr_model():
-    model = nh.Model(coriolis=fplane(), grid=make_grid(), dt=DT)
+    model = nh.Model(
+        grid=make_grid(),
+        core=nh.Core(),
+        time_stepper=AdamBashforth(DT, order=3),
+        coriolis=fplane(),
+        stratification=nh.ConstantStratification(n2=1.0))
     assert isinstance(model, FrModel)
     assert isinstance(model.state, State)
 
@@ -118,8 +128,13 @@ def test_preset_is_a_plain_fr_model():
 #  A treedef-stable, single-compile run
 # ================================================================
 def test_linear_run_is_treedef_stable():
-    model = nh.Model(coriolis=fplane(), grid=make_grid(), dt=DT,
-                     advection=False)
+    model = nh.Model(
+        grid=make_grid(),
+        core=nh.Core(),
+        time_stepper=AdamBashforth(DT, order=3),
+        coriolis=fplane(),
+        stratification=nh.ConstantStratification(n2=1.0),
+        advection=False)
     _, _, z = grid_coords()
     model.set_fields(b=0.01 * np.cos(z))
     before = jax.tree_util.tree_structure(model._carry)
@@ -129,8 +144,13 @@ def test_linear_run_is_treedef_stable():
 
 
 def test_second_advance_compiles_nothing(compile_counter):
-    model = nh.Model(coriolis=fplane(), grid=make_grid(), dt=DT,
-                     advection=False)
+    model = nh.Model(
+        grid=make_grid(),
+        core=nh.Core(),
+        time_stepper=AdamBashforth(DT, order=3),
+        coriolis=fplane(),
+        stratification=nh.ConstantStratification(n2=1.0),
+        advection=False)
     _, _, z = grid_coords()
     model.set_fields(b=0.01 * np.cos(z))
     model.advance(4)
@@ -140,7 +160,12 @@ def test_second_advance_compiles_nothing(compile_counter):
 
 
 def test_full_model_advances_treedef_stable():
-    model = nh.Model(coriolis=fplane(), grid=make_grid(), dt=DT)
+    model = nh.Model(
+        grid=make_grid(),
+        core=nh.Core(),
+        time_stepper=AdamBashforth(DT, order=3),
+        coriolis=fplane(),
+        stratification=nh.ConstantStratification(n2=1.0))
     _, y, z = grid_coords()
     model.set_fields(u=0.01 * np.sin(y), b=0.01 * np.cos(z))
     before = jax.tree_util.tree_structure(model._carry)
@@ -152,8 +177,13 @@ def test_full_model_advances_treedef_stable():
 #  The CONSTRAINT projection reduces div(u) to machine zero
 # ================================================================
 def test_projection_drives_divergence_to_machine_zero():
-    model = nh.Model(coriolis=fplane(), grid=make_grid(), dt=DT,
-                     advection=False)
+    model = nh.Model(
+        grid=make_grid(),
+        core=nh.Core(),
+        time_stepper=AdamBashforth(DT, order=3),
+        coriolis=fplane(),
+        stratification=nh.ConstantStratification(n2=1.0),
+        advection=False)
     x, y, z = grid_coords()
     # a non-divergence-free velocity IC
     model.set_fields(u=np.sin(x) * np.cos(y), v=0.3 * np.cos(x),
@@ -166,19 +196,19 @@ def test_projection_drives_divergence_to_machine_zero():
 #  Single-precision pressure-solve option (Change A plumbing)
 # ================================================================
 def test_single_precision_solve_plumbs_through_the_preset():
-    core = DynamicalCore(single_precision_solve=True)
+    core = Core(single_precision_solve=True)
     assert core._single_precision_solve is True
     # default off
-    assert DynamicalCore()._single_precision_solve is False
+    assert Core()._single_precision_solve is False
 
 
 def test_single_precision_solve_is_static_treedef_aux():
     # the option is a static (non-leaf) attribute: two cores differing
     # only in the flag must produce DIFFERENT treedefs (a distinct
     # compiled program), and neither adds a dynamic leaf
-    full = jax.tree_util.tree_structure(DynamicalCore())
+    full = jax.tree_util.tree_structure(Core())
     low = jax.tree_util.tree_structure(
-        DynamicalCore(single_precision_solve=True))
+        Core(single_precision_solve=True))
     assert full != low
 
 
@@ -186,7 +216,7 @@ def test_single_precision_solve_is_static_treedef_aux():
 #  Pressure preconditioner knob (B4 plumbing)
 # ================================================================
 def test_pressure_preconditioner_plumbs_through_the_preset():
-    core = DynamicalCore(pressure_preconditioner="multigrid",
+    core = Core(pressure_preconditioner="multigrid",
                          multigrid_levels=5)
     assert core._pressure_preconditioner == "multigrid"
     assert core._multigrid_levels == 5
@@ -194,26 +224,35 @@ def test_pressure_preconditioner_plumbs_through_the_preset():
     # spectral preconditioner (byte-identical to the previous default), a
     # composed mapped + immersed grid resolves to multigrid; an explicit
     # string is honoured on every route unchanged.
-    default = DynamicalCore()
+    default = Core()
     assert default._pressure_preconditioner is None
     assert default._resolved_preconditioner(composed=False) == "spectral"
     assert default._resolved_preconditioner(composed=True) == "multigrid"
-    explicit = DynamicalCore(pressure_preconditioner="spectral")
+    explicit = Core(pressure_preconditioner="spectral")
     assert explicit._resolved_preconditioner(composed=True) == "spectral"
-    assert DynamicalCore()._multigrid_levels is None
+    assert Core()._multigrid_levels is None
     # the nh.Model factory forwards both knobs to the dynamical core
-    model = nh.Model(coriolis=fplane(), grid=make_grid(), advection=False,
-                     pressure_preconditioner="multigrid",
-                     multigrid_levels=4)
+    model = nh.Model(
+        grid=make_grid(),
+        core=nh.Core(pressure_preconditioner="multigrid", multigrid_levels=4),
+        time_stepper=AdamBashforth(1.0, order=3),
+        coriolis=fplane(),
+        stratification=nh.ConstantStratification(n2=1.0),
+        advection=False)
     dc = next(m for m in model._carry.modules
-              if type(m).__name__ == "DynamicalCore")
+              if type(m).__name__ == "Core")
     assert dc._pressure_preconditioner == "multigrid"
     assert dc._multigrid_levels == 4
-    # the None default forwards along Model -> DynamicalCore too
-    default = nh.Model(coriolis=fplane(), grid=make_grid(),
-                       advection=False)
+    # the None default forwards along Model -> Core too
+    default = nh.Model(
+        grid=make_grid(),
+        core=nh.Core(),
+        time_stepper=AdamBashforth(1.0, order=3),
+        coriolis=fplane(),
+        stratification=nh.ConstantStratification(n2=1.0),
+        advection=False)
     dc_default = next(m for m in default._carry.modules
-                      if type(m).__name__ == "DynamicalCore")
+                      if type(m).__name__ == "Core")
     assert dc_default._multigrid_levels is None
 
 
@@ -221,62 +260,79 @@ def test_pressure_preconditioner_is_static_treedef_aux():
     # both knobs are static (non-leaf) attributes: two cores differing
     # only in one must produce DIFFERENT treedefs (a distinct compiled
     # program), like single_precision_solve
-    spectral = jax.tree_util.tree_structure(DynamicalCore())
+    spectral = jax.tree_util.tree_structure(Core())
     multigrid = jax.tree_util.tree_structure(
-        DynamicalCore(pressure_preconditioner="multigrid"))
+        Core(pressure_preconditioner="multigrid"))
     assert spectral != multigrid
     levels3 = jax.tree_util.tree_structure(
-        DynamicalCore(multigrid_levels=3))
+        Core(multigrid_levels=3))
     assert spectral != levels3
     # the tridiagonal-kernel knob is static too (distinct treedef)
     scan_method = jax.tree_util.tree_structure(
-        DynamicalCore(multigrid_tridiagonal_method="scan"))
+        Core(multigrid_tridiagonal_method="scan"))
     assert spectral != scan_method
     # the full-coarsening knob (GM-D9) is a static aux too
     semicoarsen = jax.tree_util.tree_structure(
-        DynamicalCore(multigrid_coarsen_vertical=False))
+        Core(multigrid_coarsen_vertical=False))
     assert spectral != semicoarsen
 
 
 def test_multigrid_coarsen_vertical_plumbs_through_the_preset():
     # GM-D9: the full-coarsening knob defaults True and forwards
-    # Model -> DynamicalCore -> MappedPressureSolver
-    core = DynamicalCore(pressure_preconditioner="multigrid",
+    # Model -> Core -> MappedPressureSolver
+    core = Core(pressure_preconditioner="multigrid",
                          multigrid_coarsen_vertical=False)
     assert core._multigrid_coarsen_vertical is False
     # the owner-ratified default is full 3-D coarsening (True)
-    assert DynamicalCore()._multigrid_coarsen_vertical is True
+    assert Core()._multigrid_coarsen_vertical is True
     # the nh.Model factory forwards the knob to the dynamical core
-    model = nh.Model(coriolis=fplane(), grid=make_grid(), advection=False,
-                     pressure_preconditioner="multigrid",
-                     multigrid_coarsen_vertical=False)
+    model = nh.Model(
+        grid=make_grid(),
+        core=nh.Core(
+            pressure_preconditioner="multigrid",
+            multigrid_coarsen_vertical=False),
+        time_stepper=AdamBashforth(1.0, order=3),
+        coriolis=fplane(),
+        stratification=nh.ConstantStratification(n2=1.0),
+        advection=False)
     dc = next(m for m in model._carry.modules
-              if type(m).__name__ == "DynamicalCore")
+              if type(m).__name__ == "Core")
     assert dc._multigrid_coarsen_vertical is False
-    # the True default forwards along Model -> DynamicalCore too
-    default = nh.Model(coriolis=fplane(), grid=make_grid(),
-                       advection=False)
+    # the True default forwards along Model -> Core too
+    default = nh.Model(
+        grid=make_grid(),
+        core=nh.Core(),
+        time_stepper=AdamBashforth(1.0, order=3),
+        coriolis=fplane(),
+        stratification=nh.ConstantStratification(n2=1.0),
+        advection=False)
     dc_default = next(m for m in default._carry.modules
-                      if type(m).__name__ == "DynamicalCore")
+                      if type(m).__name__ == "Core")
     assert dc_default._multigrid_coarsen_vertical is True
 
 
 def test_multigrid_tridiagonal_method_plumbs_through_the_preset():
-    core = DynamicalCore(pressure_preconditioner="multigrid",
+    core = Core(pressure_preconditioner="multigrid",
                          multigrid_tridiagonal_method="pcr")
     assert core._multigrid_tridiagonal_method == "pcr"
     # the default resolves the kernel against the backend at solve time
-    assert DynamicalCore()._multigrid_tridiagonal_method == "auto"
+    assert Core()._multigrid_tridiagonal_method == "auto"
     # an unknown kernel name fails at assembly, not at first trace
     with pytest.raises(ValueError,
                        match="tridiagonal method must be one of"):
-        DynamicalCore(multigrid_tridiagonal_method="thomas")
+        Core(multigrid_tridiagonal_method="thomas")
     # the nh.Model factory forwards the knob to the dynamical core
-    model = nh.Model(coriolis=fplane(), grid=make_grid(), advection=False,
-                     pressure_preconditioner="multigrid",
-                     multigrid_tridiagonal_method="scan")
+    model = nh.Model(
+        grid=make_grid(),
+        core=nh.Core(
+            pressure_preconditioner="multigrid",
+            multigrid_tridiagonal_method="scan"),
+        time_stepper=AdamBashforth(1.0, order=3),
+        coriolis=fplane(),
+        stratification=nh.ConstantStratification(n2=1.0),
+        advection=False)
     dc = next(m for m in model._carry.modules
-              if type(m).__name__ == "DynamicalCore")
+              if type(m).__name__ == "Core")
     assert dc._multigrid_tridiagonal_method == "scan"
 
 
@@ -285,10 +341,15 @@ def test_second_advance_with_both_options_compiles_nothing(
     # zero-recompile on repeated advance with both reduced-precision
     # options on (the options are static: one program per value)
     model = nh.Model(
-        coriolis=fplane(), grid=make_grid(), advection=False,
-        single_precision_solve=True,
+        grid=make_grid(),
+        core=nh.Core(single_precision_solve=True),
         time_stepper=AdamBashforth(
-            DT, order=3, single_precision_history=True))
+            DT,
+            order=3,
+            single_precision_history=True),
+        coriolis=fplane(),
+        stratification=nh.ConstantStratification(n2=1.0),
+        advection=False)
     _, _, z = grid_coords()
     model.set_fields(b=0.01 * np.cos(z))
     model.advance(4)
@@ -300,8 +361,13 @@ def test_second_advance_with_both_options_compiles_nothing(
 def test_single_precision_solve_model_still_projects():
     # a full single-precision-solve model runs and drives divergence
     # to the single-precision floor (well below the IC divergence)
-    model = nh.Model(coriolis=fplane(), grid=make_grid(), dt=DT,
-                     advection=False, single_precision_solve=True)
+    model = nh.Model(
+        grid=make_grid(),
+        core=nh.Core(single_precision_solve=True),
+        time_stepper=AdamBashforth(DT, order=3),
+        coriolis=fplane(),
+        stratification=nh.ConstantStratification(n2=1.0),
+        advection=False)
     x, y, z = grid_coords()
     model.set_fields(u=np.sin(x) * np.cos(y), v=0.3 * np.cos(x),
                      w=0.2 * np.sin(z))
@@ -313,8 +379,13 @@ def test_single_precision_solve_model_still_projects():
 
 
 def test_energy_stays_bounded():
-    model = nh.Model(coriolis=fplane(), grid=make_grid(), dt=DT,
-                     advection=False)
+    model = nh.Model(
+        grid=make_grid(),
+        core=nh.Core(),
+        time_stepper=AdamBashforth(DT, order=3),
+        coriolis=fplane(),
+        stratification=nh.ConstantStratification(n2=1.0),
+        advection=False)
     _, y, z = grid_coords()
     model.set_fields(u=0.05 * np.sin(y), b=0.05 * np.cos(z))
     energies = []
@@ -424,8 +495,13 @@ def test_eigenmodes_from_model_rejects_an_immersed_grid():
               for n in ("x", "y", "z")),
         immersed=ImmersedDomain(
             lambda x, y, z: x * 0.0 + 1.0), device_ids=(0,))  # noqa: ARG005
-    model = nh.Model(grid=grid, dt=0.02, advection=False,
-                     coriolis=FPlaneCoriolis(f0=1.0))
+    model = nh.Model(
+        grid=grid,
+        core=nh.Core(),
+        time_stepper=AdamBashforth(0.02, order=3),
+        coriolis=FPlaneCoriolis(f0=1.0),
+        stratification=nh.ConstantStratification(n2=1.0),
+        advection=False)
     with pytest.raises(NotImplementedError, match="immersed"):
         nh.eigenmodes.from_model(model)
 
@@ -437,7 +513,7 @@ def test_tendency_eigenrelation_lq_equals_minus_i_omega_q():
     model = FrModel(
         grid=grid,
         modules=(
-            DynamicalCore(dsqr=1.0, rossby_number=1.0),
+            Core(aspect_ratio=1.0),
             FPlaneCoriolis(f0=1.0),
             ConstantStratification(n2=1.0),
             CenteredAdvection()),
@@ -492,7 +568,7 @@ def nyquist_setup():
     model = FrModel(
         grid=make_grid(),
         modules=(
-            DynamicalCore(dsqr=2.0, rossby_number=1.0),
+            Core(aspect_ratio=(2.0) ** 0.5),
             FPlaneCoriolis(f0=1.5),
             ConstantStratification(n2=3.0)),
         time_stepper=AdamBashforth(DT, order=3))
@@ -710,13 +786,24 @@ def test_odd_grid_columns_are_bitwise_the_composed_formula():
 # ================================================================
 def test_fplane_provides_coriolis_f0_betaplane_does_not():
     grid = make_grid()
-    fp = nh.Model(coriolis=fplane(), grid=grid, dt=DT, advection=False)
+    fp = nh.Model(
+        grid=grid,
+        core=nh.Core(),
+        time_stepper=AdamBashforth(DT, order=3),
+        coriolis=fplane(),
+        stratification=nh.ConstantStratification(n2=1.0),
+        advection=False)
     assert CORIOLIS_F0 in fp.parameters
     # from_model succeeds on the f-plane
     nh.eigenmodes.from_model(fp)
 
-    bp = nh.Model(grid=grid, dt=DT, advection=False,
-                  coriolis=BetaPlaneCoriolis(f0=1.0, beta=0.5))
+    bp = nh.Model(
+        grid=grid,
+        core=nh.Core(),
+        time_stepper=AdamBashforth(DT, order=3),
+        coriolis=BetaPlaneCoriolis(f0=1.0, beta=0.5),
+        stratification=nh.ConstantStratification(n2=1.0),
+        advection=False)
     assert CORIOLIS_F0 not in bp.parameters
     with pytest.raises(ValueError, match="constant"):
         nh.eigenmodes.from_model(bp)
@@ -728,8 +815,13 @@ def test_betaplane_advances_with_a_profile_f_of_y():
     # assembles AND advances treedef-stably on a real Profile("y") f(y)
     cor = BetaPlaneCoriolis(f0=1.0, beta=0.5)
     assert cor.extra_halo is None
-    model = nh.Model(grid=make_grid(), dt=DT, advection=False,
-                     coriolis=cor)
+    model = nh.Model(
+        grid=make_grid(),
+        core=nh.Core(),
+        time_stepper=AdamBashforth(DT, order=3),
+        coriolis=cor,
+        stratification=nh.ConstantStratification(n2=1.0),
+        advection=False)
     # the auxiliary Coriolis field genuinely varies in y
     fc = np.asarray(model.state["f_coriolis"].data)
     assert fc.std() > 0.0
@@ -747,7 +839,11 @@ def test_omitting_coriolis_runs_without_rotation():
     # and no coriolis.f0 provide (advection stays on: with neither
     # rotation nor advection nothing would advance u/v and the D1.4
     # coverage lint would fire, correctly — see the test below)
-    model = nh.Model(grid=make_grid(), dt=DT)
+    model = nh.Model(
+        grid=make_grid(),
+        core=nh.Core(),
+        time_stepper=AdamBashforth(DT, order=3),
+        stratification=nh.ConstantStratification(n2=1.0))
     assert "f_coriolis" not in model.state
     assert CORIOLIS_F0 not in model.parameters
     assert not any(
@@ -765,13 +861,23 @@ def test_a_linear_model_without_rotation_trips_the_coverage_lint():
     # D1.4 coverage lint refuses the assembly (a taught error, not a
     # silently frozen velocity)
     with pytest.raises(AssemblyError, match="coverage lint"):
-        nh.Model(grid=make_grid(), dt=DT, advection=False)
+        nh.Model(
+            grid=make_grid(),
+            core=nh.Core(),
+            time_stepper=AdamBashforth(DT, order=3),
+            stratification=nh.ConstantStratification(n2=1.0),
+            advection=False)
 
 
 def test_coriolis_is_the_shared_framework_module():
     assert nh.FPlaneCoriolis is fr.model.modules.FPlaneCoriolis
     assert nh.BetaPlaneCoriolis is fr.model.modules.BetaPlaneCoriolis
-    model = nh.Model(coriolis=fplane(), grid=make_grid(), dt=DT)
+    model = nh.Model(
+        grid=make_grid(),
+        core=nh.Core(),
+        time_stepper=AdamBashforth(DT, order=3),
+        coriolis=fplane(),
+        stratification=nh.ConstantStratification(n2=1.0))
     coriolis_modules = [
         m for m in model._carry.modules
         if isinstance(m, fr.model.modules.FPlaneCoriolis)]
@@ -779,7 +885,12 @@ def test_coriolis_is_the_shared_framework_module():
 
 
 def test_velocity_roles_and_pressure_is_role_free():
-    table = nh.Model(coriolis=fplane(), grid=make_grid(), dt=DT).field_table
+    table = nh.Model(
+        grid=make_grid(),
+        core=nh.Core(),
+        time_stepper=AdamBashforth(DT, order=3),
+        coriolis=fplane(),
+        stratification=nh.ConstantStratification(n2=1.0)).field_table
     assert Velocity("x") in table["u"].roles
     assert Velocity("z") in table["w"].roles
     assert TRACER in table["b"].roles
@@ -790,10 +901,15 @@ def test_velocity_roles_and_pressure_is_role_free():
     assert sel.transverse == ()
 
 
-def test_stratification_provides_n2_and_dsqr_lives_on_core():
-    model = nh.Model(coriolis=fplane(), grid=make_grid(), dt=DT)
+def test_stratification_provides_n2_and_delta_lives_on_core():
+    model = nh.Model(
+        grid=make_grid(),
+        core=nh.Core(),
+        time_stepper=AdamBashforth(DT, order=3),
+        coriolis=fplane(),
+        stratification=nh.ConstantStratification(n2=1.0))
     assert STRATIFICATION_N2 in model.parameters
-    assert DSQR in model.parameters
+    assert ASPECT_RATIO in model.parameters
     assert float(model.parameters[STRATIFICATION_N2]) == 1.0
 
 
@@ -801,7 +917,12 @@ def test_stratification_provides_n2_and_dsqr_lives_on_core():
 #  The State vocabulary
 # ================================================================
 def test_state_accessors_and_missing_component_hint():
-    model = nh.Model(coriolis=fplane(), grid=make_grid(), dt=DT)
+    model = nh.Model(
+        grid=make_grid(),
+        core=nh.Core(),
+        time_stepper=AdamBashforth(DT, order=3),
+        coriolis=fplane(),
+        stratification=nh.ConstantStratification(n2=1.0))
     st = model.state
     assert st.u is st["u"]
     assert st.v is st["v"]
@@ -812,7 +933,12 @@ def test_state_accessors_and_missing_component_hint():
 
 
 def test_bound_diagnostics_evaluate_on_the_carry():
-    model = nh.Model(coriolis=fplane(), grid=make_grid(), dt=DT)
+    model = nh.Model(
+        grid=make_grid(),
+        core=nh.Core(),
+        time_stepper=AdamBashforth(DT, order=3),
+        coriolis=fplane(),
+        stratification=nh.ConstantStratification(n2=1.0))
     epot = model.diagnostics.epot()
     pv = model.diagnostics.linear_pot_vort()
     assert bool(np.all(np.isfinite(np.asarray(epot.data))))
@@ -823,7 +949,7 @@ def test_model_without_stratification_has_no_buoyancy():
     grid = make_grid()
     model = FrModel(
         grid=grid,
-        modules=(DynamicalCore(dsqr=1.0),
+        modules=(Core(aspect_ratio=1.0),
                  FPlaneCoriolis(f0=1.0),
                  CenteredAdvection()),   # advects w -> coverage lint ok
         time_stepper=AdamBashforth(DT, order=3))
@@ -857,8 +983,14 @@ def walled_coords(n=N, lz=LZ):
 
 def make_walled_model(**kwargs):
     grid, _ = make_walled_grid()
-    return nh.Model(coriolis=fplane(), grid=grid, dt=DT,
-                    advection=False, **kwargs)
+    return nh.Model(
+        grid=grid,
+        core=nh.Core(),
+        time_stepper=AdamBashforth(DT, order=3),
+        coriolis=fplane(),
+        stratification=nh.ConstantStratification(n2=1.0),
+        advection=False,
+        **kwargs)
 
 
 def test_walled_grid_derives_the_wall_spaces():
@@ -867,8 +999,13 @@ def test_walled_grid_derives_the_wall_spaces():
     # spaces (Center / Inner). Since the 2026-07-16 ruling a walled grid
     # auto-flips to FV (scalars on CellAvg), so the nodal wall-space
     # derivation is now pinned by an explicit family, not by the default.
-    model = nh.Model(coriolis=fplane(), grid=grid, dt=DT, advection=False,
-                     family="nodal")
+    model = nh.Model(
+        grid=grid,
+        core=nh.Core(family="nodal"),
+        time_stepper=AdamBashforth(DT, order=3),
+        coriolis=fplane(),
+        stratification=nh.ConstantStratification(n2=1.0),
+        advection=False)
     # w: Dirichlet on its own bounded component axis (impermeability)
     w_z = model.state["w"].function_space.bare.factor("z")
     assert w_z is mz.nodal(NodeSet.INNER, bc=BC.DIRICHLET)
@@ -937,7 +1074,12 @@ def test_walled_default_model_assembles_with_advection():
     # keep their taught rejection (test_advection.py)
     grid, _ = make_walled_grid()
     # the default advection module
-    model = nh.Model(coriolis=fplane(), grid=grid, dt=DT)
+    model = nh.Model(
+        grid=grid,
+        core=nh.Core(),
+        time_stepper=AdamBashforth(DT, order=3),
+        coriolis=fplane(),
+        stratification=nh.ConstantStratification(n2=1.0))
     _, y, z = walled_coords()
     model.set_fields(u=0.05 * np.sin(y),
                      b=0.05 * np.cos(np.pi * z / LZ))
@@ -968,9 +1110,13 @@ def test_meridional_stratification_declares_the_profile():
     # materialized from the callable; provides-implies-constancy
     # means the constant scalar is absent
     model = nh.Model(
-        coriolis=fplane(), grid=make_walled_y_grid(), dt=DT, advection=False,
+        grid=make_walled_y_grid(),
+        core=nh.Core(),
+        time_stepper=AdamBashforth(DT, order=3),
+        coriolis=fplane(),
         stratification=MeridionalStratification(
-            n2=lambda y: 1.0 + 2.0 * y * y))
+            n2=lambda y: 1.0 + 2.0 * y * y),
+        advection=False)
     assert STRATIFICATION_N2 not in model.parameters
     n2 = model.state["n2"]
     centres = (np.arange(N) + 0.5) / N
@@ -983,12 +1129,19 @@ def test_meridional_constant_profile_tendency_matches_constant():
     # the coupling terms agree with ConstantStratification bitwise
     n0 = 3.0
     varying = nh.Model(
-        coriolis=fplane(), grid=make_walled_y_grid(), dt=DT, advection=False,
-        stratification=MeridionalStratification(
-            n2=lambda y: n0 + 0.0 * y))
+        grid=make_walled_y_grid(),
+        core=nh.Core(),
+        time_stepper=AdamBashforth(DT, order=3),
+        coriolis=fplane(),
+        stratification=MeridionalStratification( n2=lambda y: n0 + 0.0 * y),
+        advection=False)
     constant = nh.Model(
-        coriolis=fplane(), grid=make_walled_y_grid(), dt=DT, advection=False,
-        stratification=ConstantStratification(n2=n0))
+        grid=make_walled_y_grid(),
+        core=nh.Core(),
+        time_stepper=AdamBashforth(DT, order=3),
+        coriolis=fplane(),
+        stratification=ConstantStratification(n2=n0),
+        advection=False)
     rng = np.random.default_rng(7)
     fields = {c: rng.standard_normal(
         np.asarray(constant.state[c].data).shape)
@@ -1010,7 +1163,10 @@ def test_constant_stratification_fv_family_puts_b_on_cellavg():
     # family="fv" declares b on the average family (CellAvg^3); the
     # default advection (CenteredAdvection) transports it in flux form
     model = nh.Model(
-        coriolis=fplane(), grid=make_grid(), dt=DT,
+        grid=make_grid(),
+        core=nh.Core(),
+        time_stepper=AdamBashforth(DT, order=3),
+        coriolis=fplane(),
         stratification=ConstantStratification(n2=1.0, family="fv"))
     factors = model.state["b"].function_space.bare.factors
     assert all(isinstance(f, CellAvg) for f in factors)
@@ -1020,7 +1176,12 @@ def test_default_periodic_model_puts_b_on_cellavg():
     # the F3 flip: a plain periodic nonhydro model is finite-volume by
     # default, so the factory-built stratification declares b on
     # CellAvg^3 (uniform FV — the whole default state is finite-volume)
-    model = nh.Model(coriolis=fplane(), grid=make_grid(), dt=DT)
+    model = nh.Model(
+        grid=make_grid(),
+        core=nh.Core(),
+        time_stepper=AdamBashforth(DT, order=3),
+        coriolis=fplane(),
+        stratification=nh.ConstantStratification(n2=1.0))
     factors = model.state["b"].function_space.bare.factors
     assert all(isinstance(f, CellAvg) for f in factors)
 
@@ -1029,8 +1190,12 @@ def test_nodal_family_keeps_b_on_the_center_cell():
     # family="nodal" is the point-value C-grid (the pre-F3 default):
     # b stays collocated with the nodal pressure cell. Nodal coverage
     # is now pinned by an explicit family, not by the default.
-    model = nh.Model(coriolis=fplane(), grid=make_grid(), dt=DT,
-                     family="nodal")
+    model = nh.Model(
+        grid=make_grid(),
+        core=nh.Core(family="nodal"),
+        time_stepper=AdamBashforth(DT, order=3),
+        coriolis=fplane(),
+        stratification=nh.ConstantStratification(n2=1.0))
     factors = model.state["b"].function_space.bare.factors
     assert not any(isinstance(f, CellAvg) for f in factors)
     assert model.state["b"].function_space.bare.factor(
@@ -1046,10 +1211,14 @@ def test_meridional_stratification_fv_family_puts_b_on_cellavg():
     # auto-flips to FV, which would carry the family=None n2 Profile
     # onto CellAvg too (a uniform-FV model), not the mixed corner here.
     model = nh.Model(
-        coriolis=fplane(), grid=make_walled_y_grid(), dt=DT,
-        advection=False, family="nodal",
+        grid=make_walled_y_grid(),
+        core=nh.Core(family="nodal"),
+        time_stepper=AdamBashforth(DT, order=3),
+        coriolis=fplane(),
         stratification=MeridionalStratification(
-            n2=lambda y: 1.0 + y * y, family="fv"))
+            n2=lambda y: 1.0 + y * y,
+            family="fv"),
+        advection=False)
     factors = model.state["b"].function_space.bare.factors
     assert all(isinstance(f, CellAvg) for f in factors)
     n2_factors = model.state["n2"].function_space.bare.factors
@@ -1063,9 +1232,12 @@ def test_meridional_stratification_fv_family_puts_b_on_cellavg():
 def function_setup():
     """One linear periodic model + eigenmodes for the f(L) tests."""
     model = nh.Model(
-        grid=make_grid(), dt=DT, advection=False, dsqr=2.0,
+        grid=make_grid(),
+        core=nh.Core(aspect_ratio=(2.0) ** 0.5),
+        time_stepper=AdamBashforth(DT, order=3),
         coriolis=FPlaneCoriolis(f0=1.5),
-        stratification=ConstantStratification(n2=3.0))
+        stratification=ConstantStratification(n2=3.0),
+        advection=False)
     return model, nh.eigenmodes.from_model(model)
 
 
@@ -1190,12 +1362,18 @@ def _make_terrain_model(init, *modules):
     # a moving-geometry model on the nodal path. Pinning nodal here
     # makes the static reference and the moving model like-for-like
     # (both nodal) and states that C4 is a nodal-path feature.
-    return nh.Model(coriolis=fplane(), grid=grid, dt=DT, advection=False,
-                    modules_extra=modules, family="nodal")
+    return nh.Model(
+        grid=grid,
+        core=nh.Core(family="nodal"),
+        time_stepper=AdamBashforth(DT, order=3),
+        coriolis=fplane(),
+        stratification=nh.ConstantStratification(n2=1.0),
+        advection=False,
+        modules_extra=modules)
 
 
 def test_projection_reads_the_current_mapping_parameters():
-    # the stage-C4 seam of DynamicalCore._project_mapped: a
+    # the stage-C4 seam of Core._project_mapped: a
     # MovingGeometry frozen at a depth DIFFERENT from the grid's
     # static default drives the solve — the run matches a static
     # grid built at that depth, and a static mapped grid (no
@@ -1235,16 +1413,21 @@ def test_projection_reads_the_current_mapping_parameters():
 def test_core_extra_halo_is_none_before_bind():
     # the projection's halo substitute is derived at bind, not a
     # literal; an unassembled core has none yet
-    assert DynamicalCore().extra_halo is None
+    assert Core().extra_halo is None
 
 
 def test_core_derives_width_one_triperiodic():
     # div and grad are order-2 staggered differences on opposite sides
     # of the spectral transform barrier: max(1, 1) = 1, not the old
     # scalar-summed literal 2
-    model = nh.Model(grid=make_grid(), dt=DT, coriolis=fplane(),
-                     advection=False)
-    core = model.module(DynamicalCore)
+    model = nh.Model(
+        grid=make_grid(),
+        core=nh.Core(),
+        time_stepper=AdamBashforth(DT, order=3),
+        coriolis=fplane(),
+        stratification=nh.ConstantStratification(n2=1.0),
+        advection=False)
+    core = model.module(Core)
     assert dict(core.extra_halo.widths) == {"x": 1, "y": 1, "z": 1}
     halo = model.grid.decomposition.halo
     assert all(halo[a] == 1 for a in ("x", "y", "z"))
@@ -1252,8 +1435,14 @@ def test_core_derives_width_one_triperiodic():
 
 def test_core_derives_width_one_walled():
     grid, _ = make_walled_grid()
-    model = nh.Model(grid=grid, dt=DT, coriolis=fplane(), advection=False)
-    core = model.module(DynamicalCore)
+    model = nh.Model(
+        grid=grid,
+        core=nh.Core(),
+        time_stepper=AdamBashforth(DT, order=3),
+        coriolis=fplane(),
+        stratification=nh.ConstantStratification(n2=1.0),
+        advection=False)
+    core = model.module(Core)
     # the bounded axis derives 1 too (the div leg carries the reach the
     # bounded gradient shrinks away)
     assert dict(core.extra_halo.widths) == {"x": 1, "y": 1, "z": 1}
@@ -1261,8 +1450,13 @@ def test_core_derives_width_one_walled():
 
 def test_derived_width_matches_forced_width_two_bitwise():
     def run():
-        model = nh.Model(grid=make_grid(16), dt=0.005, dsqr=0.5,
-                         coriolis=fplane(), advection=CenteredAdvection())
+        model = nh.Model(
+            grid=make_grid(16),
+            core=nh.Core(aspect_ratio=(0.5) ** 0.5),
+            time_stepper=AdamBashforth(0.005, order=3),
+            coriolis=fplane(),
+            stratification=nh.ConstantStratification(n2=1.0),
+            advection=CenteredAdvection())
         rng = np.random.default_rng(0)
         model.set_fields(**{c: 0.05 * rng.standard_normal(model.state[c].shape)
                             for c in ("u", "v", "w", "b")})
@@ -1271,14 +1465,14 @@ def test_derived_width_matches_forced_width_two_bitwise():
                 for c in ("u", "v", "w", "b")}
 
     derived = run()
-    orig = DynamicalCore.__dict__.get("extra_halo")
+    orig = Core.__dict__.get("extra_halo")
     try:
-        DynamicalCore.extra_halo = property(
+        Core.extra_halo = property(
             lambda self: (None if self._extra_halo is None
                           else HaloSpec(dict.fromkeys(self._coords, 2))))
         forced = run()
     finally:
-        DynamicalCore.extra_halo = orig
+        Core.extra_halo = orig
     md = max(float(np.max(np.abs(derived[c] - forced[c])))
              for c in ("u", "v", "w", "b"))
     assert md == 0.0  # the narrowing is bit-transparent on the spectral path
@@ -1288,8 +1482,13 @@ def test_derived_width_matches_forced_width_two_bitwise():
 #  The uniform eigenbasis surface (family-string mode; entry point)
 # ================================================================
 def test_eigenbasis_dispatches_the_fully_periodic_grid():
-    model = nh.Model(coriolis=fplane(), grid=make_grid(), dt=DT,
-                     advection=False)
+    model = nh.Model(
+        grid=make_grid(),
+        core=nh.Core(),
+        time_stepper=AdamBashforth(DT, order=3),
+        coriolis=fplane(),
+        stratification=nh.ConstantStratification(n2=1.0),
+        advection=False)
     em = nh.eigenbasis(model)
     assert isinstance(em, nh.eigenmodes.Eigenmodes)
     assert isinstance(nh.eigenmodes.from_model(model),
@@ -1297,8 +1496,13 @@ def test_eigenbasis_dispatches_the_fully_periodic_grid():
 
 
 def test_mode_uniform_family_surface():
-    model = nh.Model(coriolis=fplane(), grid=make_grid(), dt=DT,
-                     advection=False)
+    model = nh.Model(
+        grid=make_grid(),
+        core=nh.Core(),
+        time_stepper=AdamBashforth(DT, order=3),
+        coriolis=fplane(),
+        stratification=nh.ConstantStratification(n2=1.0),
+        advection=False)
     em = nh.eigenbasis(model)
     assert dict(em.families) == {"vortical": 0, "wave+": 1,
                                  "wave-": -1}

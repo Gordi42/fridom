@@ -22,6 +22,7 @@ import pytest
 import fridom as fr
 import fridom.hydrostatic as hy
 from fridom.model.model import _chunk_body
+from fridom.model.time_steppers.adam_bashforth import AdamBashforth
 from fridom.spatial.coordinate_mapping import CoordinateMapping
 from fridom.spatial.operators.integrate import Integral
 
@@ -67,12 +68,13 @@ def _flat_grid(n, nz=None):
 def _model(grid, *, free_surface=None, coriolis=None, dt=2e-3,
            stepper=None):
     return hy.Model(
-        grid=grid, dt=dt, csqr=CSQR,
+        grid=grid,
+        core=hy.Core(gravity=CSQR),
+        time_stepper=stepper or AdamBashforth(dt, order=3),
+        coriolis=coriolis,
         stratification=hy.ConstantStratification(n2=N2),
-        coriolis=coriolis, advection=False,
         free_surface=free_surface or hy.ExplicitFreeSurface(),
-        time_stepper=stepper
-        or fr.model.time_steppers.AdamBashforth(dt, order=3))
+        advection=False)
 
 
 def _bound_fs(model):
@@ -217,7 +219,7 @@ def test_split_free_surface_engages_on_terrain():
     grid = _terrain_grid(8)
     model = _model(grid,
                    free_surface=hy.SplitExplicitFreeSurface(substeps=4),
-                   stepper=fr.model.time_steppers.AdamBashforth(2e-3, order=2))
+                   stepper=AdamBashforth(2e-3, order=2))
     assert {"ps", "U", "V"} <= set(model.state.component_names)
     fs = model.module(hy.SplitExplicitFreeSurface)
     assert fs._column == ("zp", "z")
@@ -312,7 +314,7 @@ def test_explicit_and_implicit_terrain_track_at_small_dt():
                  free_surface=hy.ImplicitFreeSurface(
                      epsilon=1.0, pressure_iterations=40,
                      pressure_tolerance=None),
-                 stepper=fr.model.time_steppers.AdamBashforth(dt, order=2))
+                 stepper=AdamBashforth(dt, order=2))
     rng = np.random.default_rng(2)
     ic = {k: 0.1 * rng.standard_normal(exp.state[k].shape)
           for k in ("u", "v", "ps")}
@@ -332,11 +334,13 @@ def test_grad_through_terrain_explicit_run_matches_fd():
     # guarded-division NaN hazard) and matches a central finite
     # difference to rtol 1e-4 (the differentiability policy regression).
     m = hy.Model(
-        grid=_terrain_grid(8, nz=4), dt=0.01, csqr=CSQR,
+        grid=_terrain_grid(8, nz=4),
+        core=hy.Core(gravity=CSQR),
+        time_stepper=AdamBashforth(0.01, order=3),
+        coriolis=hy.FPlaneCoriolis(f0=0.5),
         stratification=hy.ConstantStratification(n2=0.0),
-        coriolis=hy.FPlaneCoriolis(f0=0.5), advection=False,
         free_surface=hy.ExplicitFreeSurface(),
-        time_stepper=fr.model.time_steppers.AdamBashforth(0.01, order=3))
+        advection=False)
     rng = np.random.default_rng(11)
     m.set_fields(**{k: 0.1 * rng.standard_normal(m.state[k].data.shape)
                     for k in ("u", "v", "ps")})

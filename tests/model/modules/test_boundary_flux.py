@@ -14,6 +14,7 @@ import fridom.nonhydro2 as nh
 from fridom.model.declarations import Lifecycle
 from fridom.model.errors import MissingFieldError
 from fridom.model.modules.boundary_flux import BoundaryFlux
+from fridom.model.time_steppers.adam_bashforth import AdamBashforth
 from fridom.spatial.bc import BC
 from fridom.spatial.grid import Grid
 from fridom.spatial.meshes.interval import IntervalMesh
@@ -38,9 +39,12 @@ def make_grid(*, walled="z", device_ids=None):
 def make_model(*modules, grid=None):
     """Linear nh model; f0 = n2 = 0 isolates the boundary flux."""
     return nh.Model(
-        grid=make_grid() if grid is None else grid, dt=1e-3,
-        advection=False, coriolis=nh.FPlaneCoriolis(f0=0.0),
+        grid=make_grid() if grid is None else grid,
+        core=nh.Core(),
+        time_stepper=AdamBashforth(1e-3, order=3),
+        coriolis=nh.FPlaneCoriolis(f0=0.0),
         stratification=nh.ConstantStratification(n2=0.0),
+        advection=False,
         modules_extra=modules)
 
 

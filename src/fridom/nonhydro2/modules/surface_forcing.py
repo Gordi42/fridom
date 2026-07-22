@@ -70,7 +70,7 @@ if TYPE_CHECKING:  # pragma: no cover
     from fridom.spatial.fields.scalar_field import ScalarField
 
 _VELOCITY_HINT = ("the velocities are declared by the dynamical core "
-                  "(nh.DynamicalCore declares u, v, w)")
+                  "(nh.Core declares u, v, w)")
 
 
 def _signed_flux(factor: float, flux: float | Callable) -> float | Callable:

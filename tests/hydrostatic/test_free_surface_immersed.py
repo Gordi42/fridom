@@ -16,9 +16,10 @@ import pytest
 
 import fridom.hydrostatic as hy
 from fridom.hydrostatic.modules import free_surface
-from fridom.hydrostatic.params import CSQR
+from fridom.hydrostatic.params import GRAVITY
 from fridom.model.context import StepContext
 from fridom.model.modules.advection import CenteredAdvection
+from fridom.model.time_steppers.adam_bashforth import AdamBashforth
 from fridom.spatial.grid import Grid
 from fridom.spatial.immersed_domain import ImmersedDomain
 from fridom.spatial.meshes.interval import IntervalMesh
@@ -64,9 +65,13 @@ def ps_mode(model, kx):
 
 def build(grid, free_surface, *, csqr=4.0, n2=0.0, f0=0.0, dt=0.01):
     return hy.Model(
-        grid=grid, dt=dt, csqr=csqr, free_surface=free_surface,
+        grid=grid,
+        core=hy.Core(gravity=csqr),
+        time_stepper=AdamBashforth(dt, order=3),
+        coriolis=hy.FPlaneCoriolis(f0=f0),
         stratification=hy.ConstantStratification(n2=n2),
-        coriolis=hy.FPlaneCoriolis(f0=f0), advection=False)
+        free_surface=free_surface,
+        advection=False)
 
 
 # ================================================================
@@ -202,7 +207,7 @@ def test_immersed_rigid_lid_projects_masked_depth_mean_divergence_free():
         u=rng.standard_normal(model.state["u"].shape),
         v=rng.standard_normal(model.state["v"].shape))
     fs = model.module(hy.ImplicitFreeSurface)
-    ctx = StepContext(params={CSQR: jnp.asarray(3.0)},
+    ctx = StepContext(params={GRAVITY: jnp.asarray(3.0)},
                       clock=jnp.asarray(0.0), dt=jnp.asarray(0.05),
                       stage_dt=jnp.asarray(0.05))
     pre = float(np.max(np.abs(np.asarray(
@@ -229,7 +234,7 @@ def test_immersed_warm_start_matches_zero_start():
         u=rng.standard_normal(model.state["u"].shape),
         v=rng.standard_normal(model.state["v"].shape))
     fs = model.module(hy.ImplicitFreeSurface)
-    ctx = StepContext(params={CSQR: jnp.asarray(3.0)},
+    ctx = StepContext(params={GRAVITY: jnp.asarray(3.0)},
                       clock=jnp.asarray(0.0), dt=jnp.asarray(0.05),
                       stage_dt=jnp.asarray(0.05))
     ps_cold = fs._barotropic_solve(model.state, ctx)["ps"]
@@ -255,7 +260,7 @@ def test_immersed_rigid_lid_ps_masked_to_wet_columns():
     model.set_fields(u=rng.standard_normal(model.state["u"].shape),
                      v=rng.standard_normal(model.state["v"].shape))
     fs = model.module(hy.ImplicitFreeSurface)
-    ctx = StepContext(params={CSQR: jnp.asarray(2.0)},
+    ctx = StepContext(params={GRAVITY: jnp.asarray(2.0)},
                       clock=jnp.asarray(0.0), dt=jnp.asarray(0.01),
                       stage_dt=jnp.asarray(0.01))
     ps = np.asarray(fs._barotropic_solve(
@@ -318,10 +323,12 @@ def test_split_theta_mass_conserved_to_machine_zero():
     # the moving free surface, so exact theta-mass conservation is the
     # legacy fixed-domain closure's property.
     model = hy.Model(
-        grid=grid, dt=0.005, csqr=4.0,
-        free_surface=hy.SplitExplicitFreeSurface(substeps=8),
-        stratification=hy.ConstantStratification(n2=0.0),
+        grid=grid,
+        core=hy.Core(gravity=4.0),
+        time_stepper=AdamBashforth(0.005, order=3),
         coriolis=hy.FPlaneCoriolis(f0=0.5),
+        stratification=hy.ConstantStratification(n2=0.0),
+        free_surface=hy.SplitExplicitFreeSurface(substeps=8),
         advection=CenteredAdvection(surface_flux=False))
     rng = np.random.default_rng(0)
     model.set_fields(**{k: 0.2 * rng.standard_normal(
@@ -344,13 +351,20 @@ def test_split_all_wet_matches_unimmersed():
         return Grid(_meshes(8, 4, 1.0), **kw)
     im = hy.Model(
         grid=mk(lambda x, y, z: x * 0.0 + 1.0),  # noqa: ARG005
-        dt=0.005, csqr=4.0,
+        core=hy.Core(gravity=4.0),
+        time_stepper=AdamBashforth(0.005, order=3),
+        coriolis=hy.FPlaneCoriolis(f0=0.5),
+        stratification=hy.ConstantStratification(n2=1.0),
         free_surface=hy.SplitExplicitFreeSurface(substeps=8),
-        coriolis=hy.FPlaneCoriolis(f0=0.5), advection=False)
+        advection=False)
     un = hy.Model(
-        grid=mk(None), dt=0.005, csqr=4.0,
+        grid=mk(None),
+        core=hy.Core(gravity=4.0),
+        time_stepper=AdamBashforth(0.005, order=3),
+        coriolis=hy.FPlaneCoriolis(f0=0.5),
+        stratification=hy.ConstantStratification(n2=1.0),
         free_surface=hy.SplitExplicitFreeSurface(substeps=8),
-        coriolis=hy.FPlaneCoriolis(f0=0.5), advection=False)
+        advection=False)
     rng = np.random.default_rng(4)
     ic = {k: 0.3 * rng.standard_normal(im.state[k].data.shape)
           for k in ("u", "v", "b", "ps", "U", "V")}
@@ -374,10 +388,12 @@ def test_split_transport_depth_consistency_no_coast_leak():
         return (x > 0.25).astype(float)
     grid = Grid(_meshes(8, 4, 1.0), immersed=ImmersedDomain(coast))
     model = hy.Model(
-        grid=grid, dt=0.002, csqr=1.0,
-        free_surface=hy.SplitExplicitFreeSurface(substeps=8),
-        stratification=hy.ConstantStratification(n2=0.0),
+        grid=grid,
+        core=hy.Core(gravity=1.0),
+        time_stepper=AdamBashforth(0.002, order=3),
         coriolis=hy.FPlaneCoriolis(f0=0.5),
+        stratification=hy.ConstantStratification(n2=0.0),
+        free_surface=hy.SplitExplicitFreeSurface(substeps=8),
         advection=CenteredAdvection(surface_flux=False))
     rng = np.random.default_rng(6)
     model.set_fields(**{k: 0.1 * rng.standard_normal(
@@ -405,9 +421,13 @@ def test_split_ic_hook_derives_U_transport_depth_consistent():
         return (x > 0.25).astype(float)
     grid = Grid(_meshes(8, 4, 1.0), immersed=ImmersedDomain(coast))
     model = hy.Model(
-        grid=grid, dt=0.005, csqr=4.0,
+        grid=grid,
+        core=hy.Core(gravity=4.0),
+        time_stepper=AdamBashforth(0.005, order=3),
+        coriolis=hy.FPlaneCoriolis(f0=0.0),
+        stratification=hy.ConstantStratification(n2=1.0),
         free_surface=hy.SplitExplicitFreeSurface(substeps=8),
-        coriolis=hy.FPlaneCoriolis(f0=0.0), advection=False)
+        advection=False)
     ushape = model.state["u"].data.shape
     plane = np.random.default_rng(0).standard_normal((*ushape[:2], 1))
     model.set_fields(u=np.broadcast_to(plane, ushape).copy())

@@ -1,42 +1,71 @@
 r"""
-The shallow-water dynamical core module.
+The shallow-water core module (``sw.Core``): dual scaling variants.
 
 Description
 -----------
-``DynamicalCore`` declares the state vocabulary (``u``, ``v``,
-``p``), owns the squared phase speed :math:`c^2` (the AUXILIARY
-``csqr`` field and, when constant, the ``shallowwater.csqr`` scalar)
-and the Rossby scaling (``scaling.rossby``), and contributes the
-single **linear** pressure-gradient / geopotential-divergence term:
+``Core`` declares the state vocabulary (``u``, ``v``, ``p``), owns the
+squared phase speed field ``csqr`` and the DIAGNOSE-stage ``thickness``
+field, and contributes the single **linear** wave (pressure-gradient /
+geopotential-divergence) term. It is the shallow-water owner of the
+``gravity_wave`` scaling mechanism (``fr.scaling``): the two
+mutually-exclusive constructor kwarg sets fix the **variant** at
+construction —
+
+- **dimensional** (``gravity=`` + ``depth=``): physical parameters,
+  the ``csqr`` field is :math:`c^2 = g\,D`, and the traced step
+  carries **zero** scaling operations:
+
+  .. math::
+      \partial_t \boldsymbol{u} = - \nabla p , \qquad
+      \partial_t p = -\nabla\cdot\left(c^2 \boldsymbol{u}\right)
+
+- **nondimensional** (``froude_number=`` + optional ``depth=``
+  :math:`\tilde D` profile): the ``csqr`` field is the depth ratio
+  :math:`\tilde D` and the geopotential divergence carries the live
+  mechanism ratio :math:`(\varepsilon/\mathrm{Fr})^2` **outside** the
+  flux (read from ``ctx.params`` at stage time; under the matching
+  ``fr.scaling.GravityWave()`` the ratio self-normalizes to an exact
+  ``1.0``):
+
+  .. math::
+      \partial_t \boldsymbol{u} = - \nabla p , \qquad
+      \partial_t p = -\left(\frac{\varepsilon}{\mathrm{Fr}}\right)^2
+          \nabla\cdot\left(\tilde D\,\boldsymbol{u}\right)
+
+**Thickness (DIAGNOSE)**: the full geopotential thickness is a
+DIAGNOSTIC-lifecycle field ``thickness`` on ``p``'s centre space (the
+hydrostatic ``w``/``p_hyd`` precedent), recomputed every substage
+before any term runs, so every consumer (the Sadourny advection, the
+conserving Coriolis routes, diagnostics) reads one stage-fresh field:
 
 .. math::
-    \partial_t \boldsymbol{u} = - \nabla p , \qquad
-    \partial_t p = -\nabla\cdot\left(c^2 \boldsymbol{u}\right)
+    h = c^2 + p \quad\text{(dimensional)}, \qquad
+    h = \tilde D + \varepsilon
+        \left(\frac{\mathrm{Fr}}{\varepsilon}\right)^2 p
+    \quad\text{(nondimensional)}
 
-**Variable depth**: ``csqr`` accepts a callable :math:`c^2(y)` (the
-coriolis two-type precedent, folded into one core because the core
-also owns the whole state vocabulary): the ``csqr`` field is then
-declared on a meridional ``fr.spatial.Profile("y")`` and the constant
-``shallowwater.csqr`` scalar is **not** provided
-(provides-implies-constancy, 02_rules) — analytic consumers keyed on
-the provide reject the model, the dense-column channel engine serves
-it. The tendency terms are untouched either way: they read the
-``csqr`` *field* (:math:`c^2` sits inside the divergence — the flux
-form), which is exactly the sampling the variable-depth energy
-metric ``diag(c^2, c^2, 1)`` pairs with. Pair a varying ``csqr``
-with a Coriolis module carrying ``metric_weight="csqr"`` (the
-thickness-weighted rotation) so the rotation stays energy-conserving
-under that metric; the ``sw.Model`` preset wires this automatically.
+The nondimensional surface-displacement coefficient is spelled
+:math:`\varepsilon\,(\mathrm{Fr}/\varepsilon)^2` VERBATIM — do not
+simplify to :math:`\mathrm{Fr}^2/\varepsilon`: under the matching
+scaling the ratio is an exact ``1.0`` (the alias row binds
+:math:`\varepsilon` and :math:`\mathrm{Fr}` to ONE leaf), which is
+what makes the today-parity mapping bitwise.
 
-The rotation :math:`f\,\underset{\neg}{\boldsymbol{u}}` is **not** a
-core term: it is carried by the shared Coriolis module
-(``fr.model.modules.FPlaneCoriolis`` / ``BetaPlaneCoriolis``, or
-``RotationCoriolis`` on a chart grid), which declares the
-``f_coriolis`` field and the ``+f v`` / ``-f u`` coupling — and is
-opt-in: a model assembled without one simply does not rotate. The
-gravity term here is unscaled (the Rossby number multiplies only the
-advection, D2.2). The nonlinear Sadourny advection is a separate
-module.
+**Variable depth**: ``depth`` accepts a callable ``D(y)`` (static
+profile) or a ``fr.model.ProfileFunction`` ``D(y,t)`` (TDF-D7) in both
+variants; the ``csqr`` field is then declared on a meridional
+``fr.spatial.Profile`` and the constant ``shallowwater.depth`` scalar
+is **not** provided (provides-implies-constancy). A time-dependent
+``gravity``/``depth`` (an ``fr.Ramp``, or a law) marks ``csqr``
+``time_dependent`` and a SELF_UPDATE stage rewrites it each substage
+with the stage-time :math:`g(t)\,D(y,t)` (or :math:`\tilde D(y,t)`).
+Pair a spatially varying depth with a Coriolis module carrying
+``metric_weight="csqr"`` (the thickness-weighted rotation); the
+``sw.Model`` preset checks this via :attr:`Core.variable_depth`.
+
+The rotation is **not** a core term: it is carried by the shared
+Coriolis module family, opt-in. The nonlinear Sadourny advection is a
+separate module.
 
 Chart grids (coordinate-systems plan, stage C2)
 -----------------------------------------------
@@ -51,7 +80,7 @@ hand-builds metric compositions.
 **Velocity convention (physical components, ruling (c)):** on every
 grid the prognostic ``u`` / ``v`` are the **physical** (m/s) velocity
 components (``physical_state_components.md`` ruling (c)). The chart
-gravity term is written for the **contravariant** coordinate
+wave term is written for the **contravariant** coordinate
 velocities :math:`u^\lambda = \dot\lambda`, :math:`u^\varphi =
 \dot\varphi`, so it converts at the seams (``chart.py``, D1): the
 geopotential flux consumes :math:`u^i = U_i/\sqrt{g_{ii}}` (sealed
@@ -64,22 +93,23 @@ convention degenerates to the usual physical velocities and the flat
 code path is taken verbatim (bitwise; the hard results-neutrality
 gate).
 
-The chart gravity term is
+The chart wave term is
 
 .. math::
     \partial_t u^i = -\,g^{ij}\,\partial_j p , \qquad
-    \partial_t p = -\frac{1}{\sqrt{g}}\,
+    \partial_t p = -\frac{s}{\sqrt{g}}\,
         \partial_i\left(\sqrt{g}\, c^2 u^i\right)
 
-via ``grad`` -> ``raise_index`` on the pressure and the flux-form
-metric ``div`` on the tagged geopotential flux (both in contravariant
-components between the seam conversions). A spherical model is
-assembled through the same preset (see ``sw.Model``'s ``coords=``
-docs for the grid recipe).
+with :math:`s = 1` (dimensional) or
+:math:`s = (\varepsilon/\mathrm{Fr})^2` (nondimensional), via
+``grad`` -> ``raise_index`` on the pressure and the flux-form metric
+``div`` on the tagged geopotential flux (both in contravariant
+components between the seam conversions).
 """
 from __future__ import annotations
 
 import inspect
+import numbers
 from functools import partial
 from typing import TYPE_CHECKING
 
@@ -90,7 +120,7 @@ from fridom.framework.utils import jaxify
 from fridom.model.halo_demand import derive_extra_halo
 from fridom.model.scheduled_field import ProfileFunction, profile_coords
 from fridom.model.stages import Stage, StageKind
-from fridom.model.time_dependent import TimeDependent
+from fridom.model.time_dependent import TimeDependent, resolve_at
 from fridom.shallowwater2 import params as sw_params
 from fridom.shallowwater2.chart import (
     to_contravariant,
@@ -103,6 +133,10 @@ from fridom.shallowwater2.modules.immersed_weighting import (
     weight_flux,
 )
 from fridom.shallowwater2.state import State
+from fridom.shallowwater2.units import (
+    COMPONENT_FACTORS,
+    coordinate_factors,
+)
 from fridom.spatial.decomposition.halo import HaloSpec
 from fridom.spatial.fields.vector_field import VectorField
 from fridom.spatial.scalars import Variance
@@ -111,36 +145,76 @@ if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Callable
 
 
-@partial(jaxify, dynamic=("csqr", "rossby_number", "_csqr_law"))
-class DynamicalCore(fr.model.Module):
+def _check_coords(coords: object) -> tuple[str, str]:
+    """Validate the (zonal, meridional) coordinate names."""
+    coords = tuple(coords)
+    if (len(coords) != 2  # noqa: PLR2004 — zonal + meridional
+            or not all(isinstance(c, str) for c in coords)
+            or coords[0] == coords[1]):
+        raise TypeError(
+            "coords names the (zonal, meridional) coordinates: "
+            f"two distinct strings, got {coords!r}")
+    return coords
+
+
+def _check_nonzero(name: str, value: object) -> None:
+    r"""Refuse an exactly-zero float parameter (taught, cheap).
+
+    The live scaling ratios divide by these leaves
+    (:math:`\varepsilon/\mathrm{Fr}`), and the analytic consumers
+    invert :math:`c^2`, so an exact zero would poison the run (and
+    its VJP) far from the construction site. Ramp-valued leaves are
+    not probed (their endpoints are live leaves).
+    """
+    if isinstance(value, numbers.Number) and float(value) == 0.0:
+        raise TypeError(
+            f"sw.Core {name}=0 is refused: the scaling ratios and "
+            "the analytic consumers divide by it, so an exact zero "
+            "poisons the run far from here; pass a nonzero value")
+
+
+@partial(jaxify, dynamic=("gravity", "depth", "froude_number",
+                          "_depth_law"))
+class Core(fr.model.Module):
 
     r"""
-    Shallow-water core: declares ``u``, ``v``, ``p``; linear physics.
+    Shallow-water core: ``u``/``v``/``p``, wave term, thickness.
+
+    Description
+    -----------
+    See the module docstring. The variant is fixed at construction by
+    the kwarg set — dimensional ``gravity=`` + ``depth=`` XOR
+    nondimensional ``froude_number=`` (+ optional ``depth=``
+    :math:`\tilde D` profile) — and reported through
+    :attr:`scaling_variant` for the assembly's ``fr.scaling``
+    validation.
 
     Parameters
     ----------
-    csqr : float | Callable | fr.model.ProfileFunction, optional
-        The squared gravity-wave phase speed :math:`c^2`. A float is
-        the constant depth: published as ``shallowwater.csqr`` and
-        materialized into the one-DOF ``csqr`` field. A callable
-        ``csqr(y)`` (evaluated on the meridional coordinate) is the
-        static variable depth: materialized into a ``csqr`` field on
-        ``fr.spatial.Profile("y")``, with **no** ``shallowwater.csqr``
-        provide (provides-implies-constancy). A ``ProfileFunction``
-        ``c^2(y,t)`` is the time-dependent variable depth (TDF-D7): the
-        ``csqr`` field is marked ``time_dependent`` and rewritten each
-        substage by a SELF_UPDATE stage (also no scalar provide)
-        (default: 1.0).
-    rossby_number : float | fr.model.Ramp, optional
-        The Rossby number scaling the (separate) advection term;
-        published as ``scaling.rossby`` (default: 1.0); may be a
-        ``fr.model.Ramp`` for a spun-up nonlinearity.
+    gravity : float | fr.model.Ramp | None, optional
+        The gravitational acceleration :math:`g` [m/s^2]
+        (dimensional variant only); published as
+        ``shallowwater.gravity``. A Ramp drives a per-substage
+        SELF_UPDATE of the ``csqr`` field (default: None).
+    depth : float | Callable | ProfileFunction | None, optional
+        The water depth :math:`D` [m] (dimensional; REQUIRED there)
+        or the depth ratio :math:`\tilde D` (nondimensional;
+        default 1.0). A float publishes ``shallowwater.depth``; a
+        callable ``D(y)`` is the static variable depth; a
+        ``ProfileFunction`` ``D(y,t)`` (TDF-D7) or an ``fr.Ramp``
+        marks ``csqr`` time-dependent (default: None).
+    froude_number : float | fr.model.Ramp | None, optional
+        The Froude number :math:`\mathrm{Fr}` (nondimensional
+        variant only); published as ``shallowwater.froude`` and — as
+        the ``gravity_wave`` mechanism owner — aliased by the
+        assembly onto ``scaling.nonlinearity`` under
+        ``fr.scaling.GravityWave()`` (default: None).
     coords : tuple[str, str], optional
         The (zonal, meridional) coordinate names, in the grid's
         factor order — ``("lon", "lat")`` on the standard sphere
         chart (default: ``("x", "y")``).
     meridional : str | None, optional
-        The meridional coordinate name a callable ``csqr`` varies
+        The meridional coordinate name a callable ``depth`` varies
         along; None uses ``coords[1]`` (default: None).
     """
 
@@ -150,90 +224,87 @@ class DynamicalCore(fr.model.Module):
     #: Bound parameterful diagnostics (the D1.3 commitment-4 channel).
     diagnostics = DIAGNOSTICS
 
-    # The chart-path gravity term resolves the metric-aware kinds,
-    # whose multi-row block application the halo tracer cannot
-    # follow (it collects traced operands into VectorFields), so the
-    # module declares its stencil width and is halo-trace exempt
-    # (V-N2, the Sadourny precedent). On an immersed grid the flux-form
-    # continuity multiplies the concrete open-area / plan-area fraction
-    # fields (IP-D4) — a raw-data op the halo tracer cannot follow (the
-    # fraction field is materialized, not traced), exactly the advection
-    # precedent — so the immersed path is halo-trace exempt and declares
-    # its (order-2 staggered) FD-stencil halo here too. The width is
-    # DERIVED at bind from the ``diff`` rows the term applies (width 1 —
-    # the cross-interp hop telescopes, see ``_derive_extra_halo``), not
-    # a literal. None on a plain flat grid: the unimmersed path stays
-    # fully halo-traced (the parity guard).
-    @property
-    def extra_halo(self) -> HaloSpec | None:
-        """Derived staggered ghost width on chart / immersed grids."""
-        return self._extra_halo
+    #: fr.scaling traits: this family owns the gravity-wave mechanism
+    scaling_mechanism = "gravity_wave"
+    nonlinearity_attr = "froude_number"
 
     def __init__(
         self,
-        csqr: float | Callable = 1.0,
-        rossby_number: float | fr.model.Ramp = 1.0,
         *,
+        gravity: float | None = None,
+        depth: float | Callable | None = None,
+        froude_number: float | None = None,
         coords: tuple[str, str] = ("x", "y"),
         meridional: str | None = None,
     ) -> None:
-        """Store the leaves; a callable ``csqr`` stays static.
+        """Store the leaves; fix the variant from the kwarg set.
 
         Raises
         ------
         TypeError
-            On invalid ``coords``, or a *scalar* time-dependent ``csqr``
-            (an ``fr.Ramp``) — the phase speed is the AUXILIARY ``csqr``
-            FIELD read by several terms, so a spatially varying
-            time-dependent ``c^2`` is a ``c^2(y,t)`` law
-            (``fr.model.ProfileFunction``, TDF-D7), not a scalar ramp.
+            On invalid ``coords``, a mixed/missing kwarg set, a
+            callable ``gravity`` (spatial variation belongs in
+            ``depth``), or a zero ``gravity``/``depth``/
+            ``froude_number`` (the live ratios divide by them).
         """
-        coords = tuple(coords)
-        if (len(coords) != 2  # noqa: PLR2004 — zonal + meridional
-                or not all(isinstance(c, str) for c in coords)
-                or coords[0] == coords[1]):
+        coords = _check_coords(coords)
+        if (gravity is None) == (froude_number is None):
             raise TypeError(
-                "coords names the (zonal, meridional) coordinates: "
-                f"two distinct strings, got {coords!r}")
-        # a ProfileFunction c^2(y,t) is the general time-dependent path
-        # (TDF-D7): the csqr field is marked time_dependent and rewritten
-        # each substage by a SELF_UPDATE stage. It is neither callable nor
-        # a scalar TimeDependent, so it must be routed before both.
-        if isinstance(csqr, ProfileFunction):
-            self._csqr_law: ProfileFunction | None = csqr
-            self._csqr_fn = None
-            self.csqr = None
-        elif isinstance(csqr, TimeDependent):
-            # a scalar Ramp is callable, so this MUST precede the
-            # callable(csqr) profile branch or it would be read as c^2(y)
-            raise TypeError(
-                f"csqr={csqr!r} is a scalar time-dependent value, but "
-                "c^2 is materialized as the AUXILIARY csqr FIELD and "
-                "read as a field by several terms (the gravity flux "
-                "divergence with c^2 inside the divergence, the Sadourny "
-                "advection, and the thickness-weighted rotation), so a "
-                "spatially varying time-dependent c^2 is a c^2(y,t) law: "
-                "pass an fr.model.ProfileFunction (TDF-D7). A constant "
-                "c^2 is a float; a static profile is a callable c^2(y); "
-                "ramp scaling.rossby or coriolis.f0 for a scalar "
-                "time-dependent run")
+                "sw.Core takes exactly one kwarg set: DIMENSIONAL "
+                "gravity= + depth= (physical parameters, zero "
+                "scaling ops in the trace) XOR NONDIMENSIONAL "
+                "froude_number= (+ optional depth= as the depth "
+                "ratio profile, default 1.0) under a nondimensional "
+                "fr.scaling policy; got "
+                f"gravity={gravity!r}, froude_number="
+                f"{froude_number!r}")
+        if gravity is not None:
+            if callable(gravity) and not isinstance(
+                    gravity, TimeDependent):
+                raise TypeError(
+                    "gravity= is the constant gravitational "
+                    "acceleration (a float, or an fr.Ramp); spatial "
+                    "variation belongs in depth= (a callable D(y) "
+                    f"or a ProfileFunction D(y,t)); got {gravity!r}")
+            if depth is None:
+                raise TypeError(
+                    "the dimensional sw.Core needs BOTH gravity= "
+                    "and depth= (csqr = g * D); pass depth= (a "
+                    "float, a callable D(y), or a ProfileFunction "
+                    "D(y,t))")
+        elif depth is None:
+            depth = 1.0  # nondim: the flat depth ratio
+        _check_nonzero("gravity", gravity)
+        _check_nonzero("froude_number", froude_number)
+        _check_nonzero("depth", depth)
+        self.gravity = (None if gravity is None
+                        else fr.model.leaf(gravity))
+        self.froude_number = (None if froude_number is None
+                              else fr.model.leaf(froude_number))
+        # depth forms: law | scalar leaf (float / Ramp) | callable
+        if isinstance(depth, ProfileFunction):
+            self._depth_law: ProfileFunction | None = depth
+            self._depth_fn = None
+            self.depth = None
+        elif isinstance(depth, TimeDependent) or not callable(depth):
+            self._depth_law = None
+            self._depth_fn = None
+            self.depth = fr.model.leaf(depth)
         else:
-            self._csqr_law = None
-            self._csqr_fn = csqr if callable(csqr) else None
-            self.csqr = None if callable(csqr) else fr.model.leaf(csqr)
-        self.rossby_number = fr.model.leaf(rossby_number)
+            self._depth_law = None
+            self._depth_fn = depth
+            self.depth = None
         self._coords: tuple[str, str] = coords
         self._meridional = (coords[1] if meridional is None
                             else meridional)
+        #: the constructor-fixed variant flag (host-side static)
+        self._nondim: bool = froude_number is not None
         # whether the bound grid is chart-coupled; set by bind()
-        # (assembly step 4, before the extra_halo merge of step 7)
         self._charted: bool = False
-        # whether the bound grid carries an immersed domain (masked
-        # continuity + pressure gradient); set by bind()
+        # whether the bound grid carries an immersed domain; bind()
         self._immersed: bool = False
-        # the chart / immersed gravity term's derived halo substitute
-        # (V-N2), computed at bind from the staggered rows it applies;
-        # None on a plain flat grid (the traceable path).
+        # the chart / immersed wave term's derived halo substitute
+        # (V-N2); None on a plain flat grid (the traceable path)
         self._extra_halo: HaloSpec | None = None
 
     # ================================================================
@@ -244,31 +315,78 @@ class DynamicalCore(fr.model.Module):
         """The (zonal, meridional) coordinate names."""
         return self._coords
 
+    @property
+    def scaling_variant(self) -> str:
+        """The constructor-fixed variant (``fr.scaling`` seam)."""
+        return "nondimensional" if self._nondim else "dimensional"
+
+    @property
+    def variable_depth(self) -> bool:
+        """Whether the depth varies in space (profile or law)."""
+        return (self._depth_fn is not None
+                or self._depth_law is not None)
+
+    @property
+    def unit_factors(self) -> dict[str, fr.model.UnitFactor]:
+        """Dimensional-factor rows (``model.units``, §D).
+
+        The shallow-water amplitude table
+        (:mod:`fridom.shallowwater2.units`) plus the two ``L``-valued
+        coordinate rows — an instance property because ``coords=``
+        renames the coordinate keys.
+        """
+        return {**coordinate_factors(*self._coords),
+                **COMPONENT_FACTORS}
+
+    # The chart-path wave term resolves the metric-aware kinds,
+    # whose multi-row block application the halo tracer cannot
+    # follow, so the module declares its stencil width and is
+    # halo-trace exempt (V-N2, the Sadourny precedent). On an
+    # immersed grid the flux-form continuity multiplies concrete
+    # fraction fields (IP-D4) — also exempt. The width is DERIVED at
+    # bind from the ``diff`` rows the term applies (width 1). None on
+    # a plain flat grid: the unimmersed path stays fully halo-traced
+    # (the parity guard).
+    @property
+    def extra_halo(self) -> HaloSpec | None:
+        """Derived staggered ghost width on chart / immersed grids."""
+        return self._extra_halo
+
+    @property
+    def _csqr_time_dependent(self) -> bool:
+        """Whether the ``csqr`` field needs a per-substage rewrite."""
+        return (self._depth_law is not None
+                or isinstance(self.depth, TimeDependent)
+                or isinstance(self.gravity, TimeDependent))
+
     # ================================================================
     #  Declarations
     # ================================================================
     @property
     def field_declarations(self) -> tuple[fr.model.FieldDeclaration, ...]:
-        """U (east face), v (north face), p (centre), csqr (AUX)."""
-        if self._csqr_law is not None:
+        """U/v/p, the ``csqr`` AUXILIARY, the ``thickness`` DIAGNOSTIC."""
+        time_dependent = self._csqr_time_dependent
+        if self.depth is not None:
+            csqr_decl = fr.model.FieldDeclaration(
+                "csqr", space=fr.spatial.Profile(),
+                lifecycle=fr.model.Lifecycle.AUXILIARY,
+                default=self._csqr_default,
+                long_name="Squared phase speed", units="m^2/s^2",
+                time_dependent=time_dependent)
+        elif self._depth_law is not None:
             csqr_decl = fr.model.FieldDeclaration(
                 "csqr", space=fr.spatial.Profile(self._meridional),
                 lifecycle=fr.model.Lifecycle.AUXILIARY,
                 default=self._csqr_law_default,
                 long_name="Squared phase speed", units="m^2/s^2",
                 time_dependent=True)
-        elif self._csqr_fn is None:
-            csqr_decl = fr.model.FieldDeclaration(
-                "csqr", space=fr.spatial.Profile(),
-                lifecycle=fr.model.Lifecycle.AUXILIARY,
-                default=self._csqr_default,
-                long_name="Squared phase speed", units="m^2/s^2")
         else:
             csqr_decl = fr.model.FieldDeclaration(
                 "csqr", space=fr.spatial.Profile(self._meridional),
                 lifecycle=fr.model.Lifecycle.AUXILIARY,
                 default=self._csqr_profile_default,
-                long_name="Squared phase speed", units="m^2/s^2")
+                long_name="Squared phase speed", units="m^2/s^2",
+                time_dependent=time_dependent)
         zonal, meridional = self._coords
         return (
             fr.model.FieldDeclaration.velocity(
@@ -282,57 +400,79 @@ class DynamicalCore(fr.model.Module):
                 "p", space=fr.spatial.Collocated(),
                 long_name="Pressure (g*eta)", units="m^2/s^2"),
             csqr_decl,
+            fr.model.FieldDeclaration(
+                "thickness", space=fr.spatial.Collocated(),
+                lifecycle=fr.model.Lifecycle.DIAGNOSTIC,
+                long_name="Full geopotential thickness",
+                units="m^2/s^2"),
         )
 
     @property
     def parameter_declarations(
         self,
     ) -> tuple[fr.model.ParameterDeclaration, ...]:
-        """Rossby always; ``shallowwater.csqr`` only when constant."""
-        decls = (
-            fr.model.ParameterDeclaration(
-                fr.model.params.SCALING_ROSSBY, attr="rossby_number"),
-        )
-        # provides-implies-constancy: only the constant depth publishes
-        # shallowwater.csqr (a static profile or a c^2(y,t) law does not)
-        if self._csqr_fn is None and self._csqr_law is None:
-            decls += (
-                fr.model.ParameterDeclaration(
-                    sw_params.CSQR, attr="csqr", units="m^2/s^2"),
-            )
+        """The variant's provides (provides-implies-constancy).
+
+        Dimensional: ``shallowwater.gravity`` always, plus
+        ``shallowwater.depth`` when the depth is a scalar leaf (a
+        spatially varying depth provides no constant).
+        Nondimensional: ``shallowwater.froude`` always, plus
+        ``shallowwater.depth`` (the depth RATIO) when constant. The
+        retired ``shallowwater.csqr`` is provided by neither —
+        analytic consumers read the primitives.
+        """
+        decls: tuple[fr.model.ParameterDeclaration, ...]
+        if self._nondim:
+            decls = (fr.model.ParameterDeclaration(
+                sw_params.FROUDE, attr="froude_number", units="1",
+                doc="Froude number (the gravity-wave mechanism)"),)
+        else:
+            decls = (fr.model.ParameterDeclaration(
+                sw_params.GRAVITY, attr="gravity", units="m/s^2",
+                doc="gravitational acceleration"),)
+        if self.depth is not None:
+            decls += (fr.model.ParameterDeclaration(
+                sw_params.DEPTH, attr="depth", units="m",
+                doc=("water depth" if not self._nondim
+                     else "depth ratio (nondimensional)")),)
         return decls
 
+    # ================================================================
+    #  csqr materialization (the one shared g*D / D-tilde recipe)
+    # ================================================================
     def _csqr_default(
         self, grid, space,  # noqa: ANN001
     ) -> fr.spatial.ScalarField:
-        """Owner-method default: fill the one-DOF profile with ``csqr``.
+        """Owner-method default: fill the one-DOF profile.
 
-        The field is declared on ``fr.spatial.Profile()`` (constant depth is a
-        single degree of freedom); the GAP-A ConstantSpace/Profile
-        broadcast lifts it to the nodal join wherever a term multiplies
-        it (``c.to(u) * u``). No ``grid.sync``
-        pre-syncing: the GAP-B fix keeps carry-resident AUXILIARY
-        fields scan-treedef-stable without pre-flooding their halos.
+        ``g * D`` (dimensional) or the depth ratio (nondimensional),
+        with time-dependent leaves materialized at ``t = 0`` (the
+        SELF_UPDATE stage rewrites them per substage). No pre-syncing
+        (GAP-B).
         """
+        value = resolve_at(self.depth, 0.0)
+        if not self._nondim:
+            value = resolve_at(self.gravity, 0.0) * value
         return grid.create_field(
-            space, data=jnp.full(space.shape, self.csqr),
-            name="csqr")
+            space, data=jnp.full(space.shape, value), name="csqr")
 
     def _csqr_profile_default(
         self, grid, space,  # noqa: ANN001
     ) -> fr.spatial.ScalarField:
-        """Owner-method default: materialize the ``csqr(y)`` profile.
+        """Owner-method default: materialize the static profile.
 
-        The meridional profile carries a single non-constant
-        coordinate, so ``init`` names exactly that coordinate; the
-        signature is stamped dynamically to match ``self._meridional``
-        (the ``BetaPlaneCoriolis._f_default`` precedent). No
-        pre-syncing (GAP-B).
+        ``g(0) * D(y)`` (dimensional) or the ratio profile; the
+        signature is stamped dynamically to match
+        ``self._meridional`` (the ``BetaPlaneCoriolis._f_default``
+        precedent). No pre-syncing (GAP-B).
         """
-        fn, mer = self._csqr_fn, self._meridional
+        fn, mer = self._depth_fn, self._meridional
+        gravity = (None if self._nondim
+                   else resolve_at(self.gravity, 0.0))
 
         def init(**coords: object) -> object:
-            return fn(coords[mer])
+            depth = fn(coords[mer])
+            return depth if gravity is None else gravity * depth
 
         init.__signature__ = inspect.Signature(  # type: ignore[attr-defined]
             [inspect.Parameter(
@@ -342,43 +482,90 @@ class DynamicalCore(fr.model.Module):
     def _csqr_law_default(
         self, grid, space,  # noqa: ANN001
     ) -> fr.spatial.ScalarField:
-        """Owner-method default: sample the ``c^2(y,t)`` law at ``t = 0``.
+        """Owner-method default: sample the depth law at ``t = 0``.
 
-        The AUXILIARY field is materialized as the ``t = 0`` snapshot so
-        it keeps a valid static treedef; the SELF_UPDATE stage rewrites it
-        with the stage-time value each substage (the frozen snapshot is
-        never read at run time). No pre-syncing (GAP-B).
+        The AUXILIARY field is materialized as the ``t = 0`` snapshot
+        so it keeps a valid static treedef; the SELF_UPDATE stage
+        rewrites it with the stage-time value each substage (the
+        frozen snapshot is never read at run time). No pre-syncing
+        (GAP-B).
         """
         coords = profile_coords(grid, space, (self._meridional,))
-        data = self._csqr_law.sample(coords, 0.0, space.shape)
+        data = self._depth_law.sample(coords, 0.0, space.shape)
+        if not self._nondim:
+            data = resolve_at(self.gravity, 0.0) * data
         return grid.create_field(space, data=data, name="csqr")
 
     # ================================================================
-    #  The SELF_UPDATE stage (law path only, S1 per substage)
+    #  Stages: SELF_UPDATE (time-dependent csqr) + DIAGNOSE thickness
     # ================================================================
     @property
     def stages(self) -> tuple[Stage, ...]:
-        """The per-substage ``c^2(y,t)`` recompute (law path only)."""
-        if self._csqr_law is None:
-            return ()
-        return (Stage(
-            kind=StageKind.SELF_UPDATE, fn="_update_csqr", name="csqr",
-            reads=("csqr",), writes=("csqr",)),)
+        """The csqr rewrite (when time-dependent) + the thickness."""
+        stages: tuple[Stage, ...] = ()
+        if self._csqr_time_dependent:
+            stages += (Stage(
+                kind=StageKind.SELF_UPDATE, fn="_update_csqr",
+                name="csqr", reads=("csqr",), writes=("csqr",)),)
+        stages += (Stage(
+            kind=StageKind.DIAGNOSE, fn="_update_thickness",
+            name="thickness"),)
+        return stages
 
     def _update_csqr(self, state, ctx) -> dict:  # noqa: ANN001
-        """Re-evaluate the ``c^2(y,t)`` law at the substage clock (TDF-D7).
+        """Re-evaluate ``csqr`` at the substage clock (TDF-D7).
 
-        SELF_UPDATE runs first in every substage (S1), so every ``csqr``
-        consumer — the gravity divergence, Sadourny advection, the
-        thickness-weighted rotation, the energy metric, diagnostics —
-        reads the stage-time field, consistent with ``eval_params``.
+        SELF_UPDATE runs first in every substage (S1), so every
+        ``csqr`` consumer — the wave term, the thickness DIAGNOSE,
+        the Sadourny advection, the thickness-weighted rotation, the
+        energy metric, diagnostics — reads the stage-time
+        ``g(t) D(y,t)`` (or the ratio profile), consistent with
+        ``eval_params``. A static-callable depth under a ramped
+        ``gravity`` is re-evaluated on the profile coordinates here
+        (the callable must be jax-traceable on that path).
         """
         time = getattr(ctx.clock, "time", ctx.clock)
         field = state["csqr"]
         space = field.function_space
-        coords = profile_coords(field.grid, space, (self._meridional,))
-        value = self._csqr_law.sample(coords, time, space.shape)
+        if self._depth_law is not None:
+            coords = profile_coords(field.grid, space,
+                                    (self._meridional,))
+            value = self._depth_law.sample(coords, time, space.shape)
+        elif self._depth_fn is not None:
+            coords = profile_coords(field.grid, space,
+                                    (self._meridional,))
+            value = jnp.broadcast_to(
+                jnp.asarray(
+                    self._depth_fn(coords[self._meridional])),
+                space.shape)
+        else:
+            value = jnp.full(space.shape,
+                             resolve_at(self.depth, time))
+        if not self._nondim:
+            value = resolve_at(self.gravity, time) * value
         return {"csqr": field.with_data(value)}
+
+    def _update_thickness(self, state, ctx) -> dict:  # noqa: ANN001
+        r"""Diagnose the full geopotential thickness (S1').
+
+        Dimensional: :math:`h = c^2 + p`. Nondimensional:
+        :math:`h = \tilde D + \varepsilon\,(\mathrm{Fr}/
+        \varepsilon)^2\,p` — the ``x/x`` spelling is VERBATIM (module
+        docstring): under the matching ``GravityWave`` scaling the
+        ratio is an exact ``1.0`` because :math:`\varepsilon` and
+        :math:`\mathrm{Fr}` alias one leaf, so the coefficient
+        collapses to :math:`\varepsilon` bitwise (today-parity).
+        Pointwise on the centre space — halo-safe (at most one extra
+        scalar exchange per substage multi-device).
+        """
+        p = state["p"]
+        base = state["csqr"].to(p)
+        if not self._nondim:
+            return {"thickness": base + p}
+        eps = ctx.params[fr.model.params.SCALING_NONLINEARITY]
+        froude = ctx.params[sw_params.FROUDE]
+        ratio = froude / eps
+        return {"thickness": base + eps * (ratio * ratio) * p}
 
     # ================================================================
     #  Bind-time validation (taught errors)
@@ -395,7 +582,7 @@ class DynamicalCore(fr.model.Module):
             to axes positionally, so the order is load-bearing).
         NotImplementedError
             If the grid carries **both** an embedding chart and an
-            immersed domain: the chart gravity/continuity path is
+            immersed domain: the chart wave/continuity path is
             unmasked, so it would silently ignore the immersed mask
             (silent wrong physics) — the same deferral the Sadourny
             advection guard names. This fires regardless of the
@@ -407,9 +594,9 @@ class DynamicalCore(fr.model.Module):
         self._charted = chart is not None
         if chart is not None and self._immersed:
             raise NotImplementedError(
-                "DynamicalCore does not support a grid carrying "
+                "sw.Core does not support a grid carrying "
                 "BOTH an embedding chart and an immersed (cut-cell) "
-                "domain: the metric-aware chart gravity/continuity "
+                "domain: the metric-aware chart wave/continuity "
                 "path is unmasked, so it would silently ignore the "
                 "immersed mask and let the geopotential flux cross "
                 "the wet-region boundary (silent wrong physics — the "
@@ -424,7 +611,7 @@ class DynamicalCore(fr.model.Module):
                 name for name in grid.names if name in set(chart))
             if self._coords != expected:
                 raise ValueError(
-                    f"DynamicalCore coords={self._coords!r} do not "
+                    f"sw.Core coords={self._coords!r} do not "
                     f"match the grid's chart coordinates {expected!r} "
                     "(in factor order); pass coords=(zonal, meridional) "
                     "matching the grid, e.g. coords=('lon', 'lat') on "
@@ -432,33 +619,22 @@ class DynamicalCore(fr.model.Module):
         self._extra_halo = self._derive_extra_halo(table)
 
     def _derive_extra_halo(self, table) -> HaloSpec | None:  # noqa: ANN001
-        r"""Derive the chart / immersed gravity term's ghost width (V-N2).
+        r"""Derive the chart / immersed wave term's ghost width (V-N2).
 
         Description
         -----------
-        On a plain flat grid the gravity term is a traceable staggered
-        difference, so no substitute is declared (``None``) — **unless**
-        a ``c^2(y,t)`` law drives a SELF_UPDATE rewrite of ``csqr`` from
-        raw data (halo-trace exempt, V-N2), in which case the module
-        declares the term's reach itself (one ghost per axis, merged with
-        any chart/immersed derivation). On a
+        On a plain flat grid the wave term is a traceable staggered
+        difference, so no substitute is declared (``None``) —
+        **unless** a time-dependent ``csqr`` drives a SELF_UPDATE
+        rewrite from raw data (halo-trace exempt, V-N2), in which
+        case the module declares the term's reach itself (one ghost
+        per axis, merged with any chart/immersed derivation). On a
         **chart** or **immersed** grid it resolves metric-aware /
         fraction-weighted rows the halo trace cannot follow, so the
         module declares its own width — derived from the order-2
-        staggered ``diff`` rows the term applies, not a literal. The
-        pressure gradient differences the cell pressure onto the
-        velocity faces (reach 1 per coordinate) and the geopotential /
-        continuity flux differences the face flux back onto the cell
-        (reach 1); the two are parallel outputs, so the demand is their
-        per-side max, 1.
-
-        On a **non-orthogonal** chart the contravariant tendency adds a
-        ``raise_index`` cross-interpolation hop, but its window is
-        opposite-biased to the gradient difference it re-aligns and
-        telescopes two-sidedly back to reach 1
-        (``[0, +1] ⊕ [-1, 0] = [-1, +1]``, ``storage_halo_width.md``
-        §1) — so the chart gravity is 1 whether or not the chart is
-        orthogonal (empirically bitwise-verified,
+        staggered ``diff`` rows the term applies, not a literal
+        (reach 1 per coordinate; the cross-interp hop telescopes
+        two-sidedly, ``storage_halo_width.md`` §1,
         ``pressure_solver_halo.md``). A registry override of the
         differences moves the value.
         """
@@ -478,34 +654,59 @@ class DynamicalCore(fr.model.Module):
                 div_leg[axis] = [("diff", face)]
             derived = derive_extra_halo(
                 registry, self._coords, [div_leg, grad_leg])
-        # a c^2(y,t) law SELF_UPDATE rewrites csqr from raw sampled data
-        # (halo-trace exempt, V-N2), so the module declares the gravity
-        # term's reach itself: one ghost per axis covers the staggered
-        # diff / interp hops (reach 1), merged with any chart/immersed
-        # derivation above.
-        if self._csqr_law is not None:
+        # a time-dependent csqr SELF_UPDATE rewrites the field from
+        # raw sampled data (halo-trace exempt, V-N2), so the module
+        # declares the wave term's reach itself: one ghost per axis
+        # covers the staggered diff / interp hops (reach 1), merged
+        # with any chart/immersed derivation above.
+        if self._csqr_time_dependent:
             profile = HaloSpec(dict.fromkeys(grid.names, 1))
             derived = (profile if derived is None
                        else derived.merge_max(profile))
         return derived
 
     # ================================================================
-    #  Tendency terms (linear)
+    #  The wave term (linear)
     # ================================================================
+    def _wave_factor(self, ctx) -> object:  # noqa: ANN001
+        r"""Return the live ratio :math:`(\varepsilon/\mathrm{Fr})^2`.
+
+        Nondimensional variant only (the dimensional trace never
+        calls this). Under the matching ``GravityWave`` scaling the
+        alias row binds :math:`\varepsilon` and :math:`\mathrm{Fr}`
+        to ONE leaf, so the ratio is an exact ``1.0`` and the
+        multiply is bitwise-neutral (today-parity).
+        """
+        eps = ctx.params[fr.model.params.SCALING_NONLINEARITY]
+        froude = ctx.params[sw_params.FROUDE]
+        ratio = eps / froude
+        return ratio * ratio
+
     @fr.model.term(advances=("u", "v", "p"), linear=True,
-                   linear_fields=("csqr",))
-    def gravity(self, state, ctx) -> dict:  # noqa: ANN001, ARG002
+                   linear_fields=("csqr",),
+                   linear_params=(
+                       fr.model.params.SCALING_NONLINEARITY,
+                       sw_params.FROUDE),
+                   name="gravity")
+    def gravity_term(self, state, ctx) -> dict:  # noqa: ANN001
         r"""Pressure gradient and geopotential divergence.
 
         .. math::
             \partial_t \boldsymbol{u} = - \nabla p , \qquad
-            \partial_t p = -\nabla\cdot\left(c^2 \boldsymbol{u}\right)
+            \partial_t p = -\,s\,
+                \nabla\cdot\left(c^2 \boldsymbol{u}\right)
 
-        Pure field arithmetic: ``c^2`` sits INSIDE the divergence
-        (``(c.to(u) * u).diff("x")``, the flux form) so the discrete
-        stencil matches ``diff(c^2 u)``. The ``csqr`` field lifts from
-        its one-DOF ``fr.spatial.Profile()`` onto each velocity face via the
-        ConstantSpace broadcast in ``.to``.
+        with :math:`s = 1` (dimensional — the branch carries ZERO
+        scaling operations, verbatim the pre-scaling flux form) or
+        :math:`s = (\varepsilon/\mathrm{Fr})^2` (nondimensional; the
+        factor multiplies OUTSIDE the flux divergence on all three
+        paths — flat, immersed, chart — read from ``ctx.params`` at
+        stage time). Pure field arithmetic: ``c^2`` sits INSIDE the
+        divergence (``(c.to(u) * u).diff("x")``, the flux form) so
+        the discrete stencil matches ``diff(c^2 u)``. The ``csqr``
+        field lifts from its one-DOF ``fr.spatial.Profile()`` onto
+        each velocity face via the ConstantSpace broadcast in
+        ``.to``.
 
         The pressure-gradient entries retag onto their velocities:
         nodal stencil outputs are BC-free, but on a walled grid each
@@ -516,36 +717,31 @@ class DynamicalCore(fr.model.Module):
         tag (BC-sibling adoption) and the divergence lands BC-free,
         which is ``p``'s space.
 
-        On a chart grid (module docstring) the physical components are
-        converted to the contravariant coordinate velocities at entry
-        (``chart.py``) and the same physics resolves the seeded
-        metric-aware kinds: ``grad`` -> ``raise_index`` turns the
-        covariant pressure gradient into the contravariant tendency
-        (``-g^{ij} d_j p``), and the flux-form ``div`` carries the
-        ``sqrt_g``-weighted geopotential flux; the raised momentum
-        tendencies are rescaled back to physical at exit and the retags
-        restore the velocities' wall tags (``dp`` needs no conversion).
-        On the identity chart every metric factor is an
-        exact 1.0, reproducing the flat path **to rounding** — not
-        bitwise: ``extra_halo`` is chart-conditional (2 cells per
-        axis on a chart, none on a flat grid), so the two pad their
-        storage differently and XLA fuses the stencil differently
-        (FMA contraction in one path, multiply-then-add in the
-        other). The results-neutrality gate that *is* bitwise is the
-        one that matters and is unaffected: a **flat** grid takes the
-        flat branch verbatim (module docstring).
+        On a chart grid (module docstring) the physical components
+        are converted to the contravariant coordinate velocities at
+        entry (``chart.py``) and the same physics resolves the
+        seeded metric-aware kinds: ``grad`` -> ``raise_index`` turns
+        the covariant pressure gradient into the contravariant
+        tendency (``-g^{ij} d_j p``), and the flux-form ``div``
+        carries the ``sqrt_g``-weighted geopotential flux; the
+        raised momentum tendencies are rescaled back to physical at
+        exit and the retags restore the velocities' wall tags
+        (``dp`` needs no conversion).
         """
         u, v, p = state["u"], state["v"], state["p"]
         csqr = state["csqr"]
         zonal, meridional = self._coords
         if u.grid.chart_coords is None:
             if getattr(u.grid, "immersed", None) is not None:
-                return self._gravity_immersed(u, v, p, csqr)
+                return self._gravity_immersed(u, v, p, csqr, ctx)
+            dp = (-(csqr.to(u) * u).diff(zonal)
+                  - (csqr.to(v) * v).diff(meridional))
+            if self._nondim:
+                dp = self._wave_factor(ctx) * dp
             return {
                 "u": (-p.diff(zonal)).retag(u),
                 "v": (-p.diff(meridional)).retag(v),
-                "p": (-(csqr.to(u) * u).diff(zonal)
-                      - (csqr.to(v) * v).diff(meridional)),
+                "p": dp,
             }
         # entry seam: physical U -> contravariant u^i for the flux
         # (the raised pressure gradient does not read u/v); chart.py
@@ -563,16 +759,19 @@ class DynamicalCore(fr.model.Module):
             meridional: (csqr.to(v) * v).with_variance(con)})
         div = dispatch.resolve(
             "div", flux[zonal].function_space.bare)
+        dp = -div(flux)
+        if self._nondim:
+            dp = self._wave_factor(ctx) * dp
         # exit seam: rescale the contravariant momentum tendencies to
         # physical (dp is a scalar rate — no conversion)
         return {
             "u": to_physical_tendency((-raised[zonal]).retag(u), zonal),
             "v": to_physical_tendency(
                 (-raised[meridional]).retag(v), meridional),
-            "p": -div(flux),
+            "p": dp,
         }
 
-    def _gravity_immersed(self, u, v, p, csqr) -> dict:  # noqa: ANN001
+    def _gravity_immersed(self, u, v, p, csqr, ctx) -> dict:  # noqa: ANN001
         r"""Masked pressure gradient and fraction-weighted continuity.
 
         Description
@@ -581,29 +780,35 @@ class DynamicalCore(fr.model.Module):
 
         .. math::
             \partial_t \boldsymbol{u} = -\,m \odot \nabla p , \qquad
-            \partial_t p = -\frac{1}{\theta}\,
+            \partial_t p = -\frac{s}{\theta}\,
                 \nabla\cdot\left(\alpha \odot c^2 \boldsymbol{u}\right)
 
-        The geopotential flux :math:`c^2 u` is weighted by the open-area
-        face fraction :math:`\alpha_f` before the divergence, whose sum
-        is then divided by the wet plan-area fraction :math:`\theta_c`
-        (guarded: a dry cell stays exactly ``0``) — the ``theta V``-
-        weighted mass ``sum_c theta_c V_c p_c`` is conserved to machine
-        zero (the open-area flux differences telescope, an
-        :math:`\alpha = 0` face carrying none). The pressure gradient is
-        the plain two-point difference masked by the boolean per-space
-        face mask :math:`m` (``theta > 0``), so no tendency drives a
-        closed face. This path runs **only** on an immersed grid; the
-        term is halo-trace exempt here (``extra_halo``) because the
-        fraction multiplies drop to concrete fields.
+        The geopotential flux :math:`c^2 u` is weighted by the
+        open-area face fraction :math:`\alpha_f` before the
+        divergence, whose sum is then divided by the wet plan-area
+        fraction :math:`\theta_c` (guarded: a dry cell stays exactly
+        ``0``) — the ``theta V``-weighted mass ``sum_c theta_c V_c
+        p_c`` is conserved to machine zero (the open-area flux
+        differences telescope, an :math:`\alpha = 0` face carrying
+        none). The pressure gradient is the plain two-point
+        difference masked by the boolean per-space face mask
+        :math:`m` (``theta > 0``), so no tendency drives a closed
+        face. The nondimensional factor :math:`s` multiplies OUTSIDE
+        the whole scaled divergence. This path runs **only** on an
+        immersed grid; the term is halo-trace exempt here
+        (``extra_halo``) because the fraction multiplies drop to
+        concrete fields.
         """
         immersed = u.grid.immersed
         zonal, meridional = self._coords
         flux_u = weight_flux(immersed, csqr.to(u) * u)
         flux_v = weight_flux(immersed, csqr.to(v) * v)
         div = -(flux_u.diff(zonal) + flux_v.diff(meridional))
+        dp = scale_divergence(immersed, div)
+        if self._nondim:
+            dp = self._wave_factor(ctx) * dp
         return {
             "u": mask_field(immersed, (-p.diff(zonal)).retag(u)),
             "v": mask_field(immersed, (-p.diff(meridional)).retag(v)),
-            "p": scale_divergence(immersed, div),
+            "p": dp,
         }

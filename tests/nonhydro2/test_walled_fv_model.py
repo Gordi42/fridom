@@ -22,6 +22,7 @@ import pytest
 
 import fridom as fr
 import fridom.nonhydro2 as nh
+from fridom.model.time_steppers.adam_bashforth import AdamBashforth
 from fridom.nonhydro2.modules import CenteredAdvection
 from fridom.spatial.bc import BC
 from fridom.spatial.fields.vector_field import VectorField
@@ -47,10 +48,12 @@ def _walled_grid(walled):
 
 def _build(family, walled, advection):
     return nh.Model(
-        coriolis=nh.FPlaneCoriolis(f0=1.5), grid=_walled_grid(walled),
-        dt=DT, dsqr=2.0,
+        grid=_walled_grid(walled),
+        core=nh.Core(aspect_ratio=(2.0) ** 0.5, family=family),
+        time_stepper=AdamBashforth(DT, order=3),
+        coriolis=nh.FPlaneCoriolis(f0=1.5),
         stratification=nh.ConstantStratification(n2=3.0),
-        advection=advection, family=family)
+        advection=advection)
 
 
 def _seed_pair(fv, nodal, seed=7):

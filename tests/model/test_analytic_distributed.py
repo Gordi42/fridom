@@ -21,6 +21,7 @@ from fridom.model.analytic_distributed import (
     hermitian_reframe,
     resolve_route,
 )
+from fridom.model.time_steppers.adam_bashforth import AdamBashforth
 
 
 def _eigenmodes(device_ids, *, walled=None, n=8):
@@ -31,9 +32,11 @@ def _eigenmodes(device_ids, *, walled=None, n=8):
         for name in ("x", "y", "z"))
     model = nh.Model(
         grid=fr.spatial.Grid(meshes, device_ids=device_ids),
-        advection=False, dsqr=1.0, coriolis=nh.FPlaneCoriolis(f0=1.0),
+        core=nh.Core(aspect_ratio=1.0),
+        time_stepper=AdamBashforth(5e-3, order=3),
+        coriolis=nh.FPlaneCoriolis(f0=1.0),
         stratification=nh.ConstantStratification(n2=3.0),
-        time_stepper=fr.model.time_steppers.AdamBashforth(5e-3, order=3))
+        advection=False)
     return nh.eigenmodes.from_model(model)
 
 

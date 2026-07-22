@@ -17,25 +17,56 @@ from .conftest import N, make_grid
 def test_preset_equals_explicit_assembly_treedef():
     grid = make_grid()
     stepper = fr.model.time_steppers.AdamBashforth(5e-3, order=3)
-    preset = sw.Model(grid=grid, csqr=1.0, rossby_number=0.2,
-                      coriolis=sw.modules.FPlaneCoriolis(f0=1.0),
-                      time_stepper=stepper)
+    preset = sw.Model(
+        grid=grid,
+        core=sw.Core(froude_number=0.2, depth=1.0),
+        scaling=fr.scaling.GravityWave(),
+        coriolis=sw.modules.FPlaneCoriolis(rossby_number=0.2),
+        time_stepper=stepper)
     explicit = fr.model.Model(
         grid=grid,
-        modules=(sw.modules.DynamicalCore(csqr=1.0,
-                                          rossby_number=0.2),
-                 sw.modules.FPlaneCoriolis(f0=1.0),
+        modules=(sw.Core(froude_number=0.2, depth=1.0),
+                 sw.modules.FPlaneCoriolis(rossby_number=0.2),
                  sw.modules.SadournyAdvection()),
-        time_stepper=fr.model.time_steppers.AdamBashforth(5e-3, order=3))
+        time_stepper=fr.model.time_steppers.AdamBashforth(5e-3, order=3),
+        scaling=fr.scaling.GravityWave())
     assert (jax.tree_util.tree_structure(preset._carry)
             == jax.tree_util.tree_structure(explicit._carry))
 
 
 def test_preset_is_a_plain_model_not_a_subclass():
     model = sw.Model(grid=make_grid(),
+                     core=sw.Core(gravity=1.0, depth=1.0),
                      time_stepper=fr.model.time_steppers.AdamBashforth(
                          5e-3, order=3))
     assert type(model) is fr.model.Model
+
+
+# ================================================================
+#  The retired preset kwargs teach the new spelling
+# ================================================================
+@pytest.mark.parametrize(("kwargs", "match"), [
+    pytest.param({"csqr": 1.0}, "csqr= is retired", id="csqr"),
+    pytest.param({"rossby_number": 0.2},
+                 "rossby_number= is retired", id="rossby-number"),
+    pytest.param({"coords": ("x", "y")}, "coords= is retired",
+                 id="coords"),
+])
+def test_retired_preset_kwargs_teach_the_new_spelling(kwargs, match):
+    with pytest.raises(TypeError, match=match):
+        sw.Model(
+            grid=make_grid(),
+            core=sw.Core(gravity=1.0, depth=1.0),
+            time_stepper=fr.model.time_steppers.AdamBashforth(5e-3),
+            **kwargs)
+
+
+def test_time_stepper_is_required():
+    # the old preset default stepper is retired: the preset requires
+    # an explicit time stepper
+    with pytest.raises(TypeError, match="time_stepper"):
+        sw.Model(grid=make_grid(),
+                 core=sw.Core(gravity=1.0, depth=1.0))
 
 
 # ================================================================
@@ -43,6 +74,7 @@ def test_preset_is_a_plain_model_not_a_subclass():
 # ================================================================
 def test_core_supplies_the_state_vocabulary():
     model = sw.Model(grid=make_grid(),
+                     core=sw.Core(gravity=1.0, depth=1.0),
                      time_stepper=fr.model.time_steppers.AdamBashforth(
                          5e-3, order=3))
     assert isinstance(model.state, State)
@@ -51,6 +83,7 @@ def test_core_supplies_the_state_vocabulary():
 
 def test_vocabulary_accessors_return_components():
     model = sw.Model(grid=make_grid(),
+                     core=sw.Core(gravity=1.0, depth=1.0),
                      time_stepper=fr.model.time_steppers.AdamBashforth(
                          5e-3, order=3))
     state = model.state
@@ -80,29 +113,33 @@ def weighted_fplane(f0=1.0):
 
 
 def make_varying(coriolis=None):
-    # coriolis=None is the preset default and means NO rotation
+    # coriolis=None is the preset default and means NO rotation;
+    # dimensional core (csqr = 1.0 * D(y) = the old profile)
     return sw.Model(
-        grid=make_grid(periodic_y=False), csqr=csqr_profile,
-        rossby_number=0.2, coriolis=coriolis, advection=False,
+        grid=make_grid(periodic_y=False),
+        core=sw.Core(gravity=1.0, depth=csqr_profile),
+        coriolis=coriolis, advection=False,
         time_stepper=fr.model.time_steppers.AdamBashforth(5e-3, order=3))
 
 
-def test_varying_csqr_declares_a_profile_and_drops_the_provide():
+def test_varying_depth_declares_a_profile_and_drops_the_provide():
     # provides-implies-constancy: the callable path materializes the
-    # meridional csqr field and provides NO shallowwater.csqr scalar
+    # meridional csqr field and provides NO constant depth scalar
     model = make_varying()
-    assert sw.params.CSQR not in model.parameters
+    assert sw.params.DEPTH not in model.parameters
     csqr = model.state["csqr"]
     centres = (np.arange(N) + 0.5) / N
     np.testing.assert_allclose(
         np.asarray(csqr.data).ravel(), csqr_profile(centres))
 
 
-def test_constant_csqr_still_provides_the_scalar():
+def test_constant_depth_still_provides_the_scalar():
     model = sw.Model(
-        grid=make_grid(), csqr=0.7,
+        grid=make_grid(),
+        core=sw.Core(gravity=1.0, depth=0.7),
         time_stepper=fr.model.time_steppers.AdamBashforth(5e-3, order=3))
-    assert float(model.parameters[sw.params.CSQR]) == 0.7
+    assert float(model.parameters[sw.params.DEPTH]) == 0.7
+    assert float(model.parameters[sw.params.GRAVITY]) == 1.0
     # the constant field stays one-DOF
     assert np.asarray(model.state["csqr"].data).size == 1
 
@@ -112,7 +149,8 @@ def test_the_default_is_no_rotation_at_all():
     # module: no f_coriolis field, no rotation term, no coriolis.f0
     # provide. Rotation is opt-in.
     model = sw.Model(
-        grid=make_grid(), csqr=0.7,
+        grid=make_grid(),
+        core=sw.Core(gravity=1.0, depth=0.7),
         time_stepper=fr.model.time_steppers.AdamBashforth(5e-3, order=3))
     assert "f_coriolis" not in model.state
     assert fr.model.params.CORIOLIS_F0 not in model.parameters
@@ -120,13 +158,14 @@ def test_the_default_is_no_rotation_at_all():
         model.module(FPlaneCoriolis)
     # ... and a named rotation is simply installed as given
     rotating = sw.Model(
-        grid=make_grid(), csqr=0.7,
+        grid=make_grid(),
+        core=sw.Core(gravity=1.0, depth=0.7),
         coriolis=sw.modules.FPlaneCoriolis(f0=1.5),
         time_stepper=fr.model.time_steppers.AdamBashforth(5e-3, order=3))
     assert float(rotating.parameters[fr.model.params.CORIOLIS_F0]) == 1.5
 
 
-def test_varying_csqr_with_an_unweighted_coriolis_is_taught():
+def test_varying_depth_with_an_unweighted_coriolis_is_taught():
     with pytest.raises(ValueError, match="metric_weight='csqr'"):
         make_varying(coriolis=sw.modules.FPlaneCoriolis(f0=1.0))
     with pytest.raises(ValueError, match="metric_weight='csqr'"):
@@ -134,20 +173,20 @@ def test_varying_csqr_with_an_unweighted_coriolis_is_taught():
             f0=1.0, beta=0.5))
 
 
-def test_varying_csqr_with_a_weighted_coriolis_assembles():
+def test_varying_depth_with_a_weighted_coriolis_assembles():
     model = make_varying(coriolis=sw.modules.BetaPlaneCoriolis(
         f0=1.0, beta=0.5, metric_weight="csqr"))
     assert type(model) is fr.model.Model
 
 
-def test_varying_csqr_guard_skips_non_framework_modules():
+def test_varying_depth_guard_skips_non_framework_modules():
     # the guard inspects only the framework Coriolis types; a
     # rotation-free custom module slot assembles untouched
     model = make_varying(coriolis=sw.modules.SadournyAdvection())
     assert type(model) is fr.model.Model
 
 
-def test_varying_csqr_model_steps():
+def test_varying_depth_model_steps():
     # the tendency terms read the csqr FIELD, so the varying model
     # integrates as-is (advection included via a separate test);
     # the thickness-weighted f-plane the old implicit default
@@ -168,9 +207,12 @@ def test_flat_linear_model_negotiates_the_traced_halo():
     # difference the tracer follows exactly, so a linear flat model
     # negotiates width 1 — an unconditional declaration would pay halo
     # bytes for a chart path a flat model never runs
-    model = sw.Model(grid=make_grid(), csqr=1.0,
-                     coriolis=sw.modules.FPlaneCoriolis(f0=1.0),
-                     advection=False)
+    model = sw.Model(
+        grid=make_grid(),
+        core=sw.Core(gravity=1.0, depth=1.0),
+        coriolis=sw.modules.FPlaneCoriolis(f0=1.0),
+        advection=False,
+        time_stepper=fr.model.time_steppers.AdamBashforth(5e-3, order=3))
     halo = model.grid.decomposition.halo
     assert halo["x"] == 1
     assert halo["y"] == 1
@@ -179,32 +221,12 @@ def test_flat_linear_model_negotiates_the_traced_halo():
 def test_sadourny_model_keeps_its_declared_halo():
     # the advective model is unaffected by the gate: Sadourny
     # declares its own 2 (the corner chain), which masks the core's
-    model = sw.Model(grid=make_grid(), csqr=1.0,
-                     coriolis=sw.modules.FPlaneCoriolis(f0=1.0),
-                     advection=True)
+    model = sw.Model(
+        grid=make_grid(),
+        core=sw.Core(gravity=1.0, depth=1.0),
+        coriolis=sw.modules.FPlaneCoriolis(f0=1.0),
+        advection=True,
+        time_stepper=fr.model.time_steppers.AdamBashforth(5e-3, order=3))
     halo = model.grid.decomposition.halo
     assert halo["x"] == 2
     assert halo["y"] == 2
-
-
-def test_default_time_stepper_is_adam_bashforth():
-    # the preset's cutover default (pass an explicit one for a real
-    # run); assembly succeeds and the model advances
-    model = sw.Model(grid=make_grid())
-    assert isinstance(model._stepper,
-                      fr.model.time_steppers.AdamBashforth)
-
-
-def test_time_dependent_csqr_is_taught():
-    # a Ramp is callable, so without the guard it would be silently
-    # taken as a c^2(y) profile; c^2 is the AUXILIARY csqr FIELD read
-    # by several terms, so a scalar time-dependent c^2 is a c^2(y,t) law
-    # (a ProfileFunction, TDF-D7) -- a taught error at construction,
-    # both direct and via the preset
-    ramp = fr.model.Ramp(1.0, 2.0, period=1.0)
-    with pytest.raises(TypeError, match="ProfileFunction"):
-        sw.modules.DynamicalCore(csqr=ramp)
-    with pytest.raises(TypeError, match="ProfileFunction"):
-        sw.Model(
-            grid=make_grid(), csqr=ramp,
-            time_stepper=fr.model.time_steppers.AdamBashforth(5e-3))

@@ -5,11 +5,29 @@ Description
 The free-surface family (HY-D3) owns the surface pressure ``ps = g*eta``
 (2D, on the constant-along-z ``Profile("x", "y")`` space — the
 barotropic mode) and **both sides of the barotropic coupling**: the
-``-c^2\nabla_h\cdot\bar u`` gravity term that evolves ``ps`` and the
-``-\nabla_h p_s`` force it exerts on the momentum. The hydrostatic core
-reads only the baroclinic ``p_hyd``, so an implicit variant's force
-cannot double-count with the constraint's own velocity correction
-(H3 refactor).
+gravity term that evolves ``ps`` and the ``-\nabla_h p_s`` force it
+exerts on the momentum. The hydrostatic core reads only the
+baroclinic ``p_hyd``, so an implicit variant's force cannot
+double-count with the constraint's own velocity correction (H3
+refactor).
+
+**Gravity-first, dual scaling variants (the nondimensionalization
+refactor).** The family carries **no dimensional kwarg**: the
+dimensional variant references the core's ``hydrostatic.gravity``
+(``hy.Core(gravity=...)``) and spells the barotropic update on the
+raw transport divergence, ``\partial_t p_s = -g\,T^*`` with
+``T^* = \int \nabla_h\cdot\boldsymbol{u}\,\mathrm{d}z`` — **no
+reference depth enters the step path** (every depth that appears is
+genuine column geometry: the flat column's physical extent, the
+immersed wet transport depth ``\int\alpha\,\mathrm{d}z``, the
+terrain ``\int J\,\mathrm{d}z``). The NONDIMENSIONAL variant
+(``froude_number=``, the external Froude number) spells the update on
+the depth-mean divergence with the live coefficient
+:math:`(\varepsilon/\mathrm{Fr}_{\rm ext})^2` (``ctx.params``,
+stage time); as the ``external_wave`` mechanism owner the assembly
+aliases ``scaling.nonlinearity`` onto the Froude leaf under
+``fr.scaling.ExternalWave()`` (the ratio then self-normalizes to an
+exact ``1.0``). The old ``c^2 = g H_{ref}`` parameter is retired.
 
 Three variants live here:
 
@@ -70,6 +88,7 @@ Three variants live here:
 """
 from __future__ import annotations
 
+import numbers
 from functools import partial
 from typing import TYPE_CHECKING
 
@@ -92,7 +111,11 @@ from fridom.hydrostatic.modules.terrain import (
     jacobian_name,
     require_chart_immersed_order,
 )
-from fridom.hydrostatic.params import CSQR
+from fridom.hydrostatic.params import FROUDE, GRAVITY
+from fridom.hydrostatic.units import (
+    SURFACE_PRESSURE_FACTOR,
+    phase_speed_factor,
+)
 from fridom.model.errors import AssemblyError
 from fridom.model.terms import Treatment
 from fridom.spatial.bc import BC
@@ -149,14 +172,24 @@ class _FreeSurfaceBase(fr.model.Module):
     Description
     -----------
     Holds the geometry names, the depth-mean divisor ``1/H`` (frozen at
-    bind from the mesh extent), the velocity references, the ``c^2``
-    parameter reference and the depth-mean divergence
-    ``\nabla_h\cdot\bar u`` — everything the explicit and implicit
-    variants share. Not jaxified / never instantiated directly; the
-    concrete variants are the pytree citizens.
+    bind from the mesh extent), the velocity references, the scaling
+    variant (dimensional gravity reference XOR the nondimensional
+    ``froude_number=`` leaf) and the barotropic transport / depth-mean
+    divergences — everything the explicit and implicit variants share.
+    Not jaxified / never instantiated directly; the concrete variants
+    are the pytree citizens.
 
     Parameters
     ----------
+    froude_number : float | fr.model.Ramp | None, optional
+        The external Froude number (NONDIMENSIONAL variant); provided
+        as ``hydrostatic.froude`` and — as the ``external_wave``
+        mechanism owner — aliased by the assembly onto
+        ``scaling.nonlinearity`` under ``fr.scaling.ExternalWave()``.
+        ``None`` is the DIMENSIONAL variant, which references the
+        core's ``hydrostatic.gravity`` instead (no dimensional kwarg
+        on the family). Must be nonzero (the live ratio divides by
+        it) (default: None).
     vertical : str, optional
         The vertical coordinate the depth mean reduces over
         (default: ``"z"``).
@@ -165,19 +198,44 @@ class _FreeSurfaceBase(fr.model.Module):
         divergence (default: ``("x", "y")``).
     """
 
+    #: fr.scaling traits: this family owns the external-wave mechanism
+    scaling_mechanism = "external_wave"
+    nonlinearity_attr = "froude_number"
+
     def __init__(
         self,
         *,
+        froude_number: float | fr.model.Ramp | None = None,
         vertical: str = "z",
         horizontal: tuple[str, str] = ("x", "y"),
     ) -> None:
-        """Store the geometry names; see the class docstring."""
+        """Store the variant leaf and the geometry names.
+
+        Raises
+        ------
+        TypeError
+            On ``froude_number=0`` (the live ratio divides by it).
+        """
+        if (isinstance(froude_number, numbers.Number)
+                and float(froude_number) == 0.0):
+            raise TypeError(
+                f"{type(self).__name__} froude_number=0 is refused: "
+                "the barotropic coefficient carries the live ratio "
+                "(eps/Fr)^2, which divides by it; pass a nonzero "
+                "Froude number")
+        self.froude_number = (None if froude_number is None
+                              else fr.model.leaf(froude_number))
+        self._nondim: bool = froude_number is not None
         self._vertical = vertical
         self._horizontal = _validate_horizontal(horizontal)
         # the total vertical measure (the depth H); the exact divisor
         # of ScalarField.mean, frozen at bind (host constant, not
-        # traced) so the depth mean stays tracer-compatible
+        # traced) so the depth mean stays tracer-compatible. On a flat
+        # (unmapped) grid the mesh extent IS the physical column
+        # depth, so self._depth is genuine geometry, not a reference
+        # parameter.
         self._inv_depth: float = 1.0
+        self._depth: float = 1.0
         # the immersed descriptor (None off a cut-cell grid), captured
         # at bind: an id-hashable static aux (like MaskState's), read to
         # switch the barotropic reductions onto their masked forms. The
@@ -237,7 +295,8 @@ class _FreeSurfaceBase(fr.model.Module):
         for mesh in grid.factors:
             if self._vertical in mesh.names:
                 lo, hi = mesh.extent
-                self._inv_depth = 1.0 / float(hi - lo)
+                self._depth = float(hi - lo)
+                self._inv_depth = 1.0 / self._depth
                 return
         raise ValueError(  # pragma: no cover — z-less grid fails at the
             # core's vertical declarations (w on Outer(z)) first
@@ -254,18 +313,99 @@ class _FreeSurfaceBase(fr.model.Module):
         return (
             fr.model.FieldReference(
                 "u", hint="the barotropic divergence reads the "
-                          "horizontal velocity (hy.HydrostaticCore "
+                          "horizontal velocity (hy.Core "
                           f"declares {zonal}/{meridional} as u/v)"),
             fr.model.FieldReference(
                 "v", hint="the barotropic divergence reads the "
-                          "horizontal velocity (hy.HydrostaticCore)"),
+                          "horizontal velocity (hy.Core)"),
         )
 
-    parameter_references = (
-        fr.model.ParameterReference(
-            CSQR, hint="the squared phase speed c^2 = g*H is provided "
-                       "by hy.HydrostaticCore(csqr=...)"),
-    )
+    @property
+    def scaling_variant(self) -> str:
+        """The constructor-fixed variant (``fr.scaling`` seam)."""
+        return "nondimensional" if self._nondim else "dimensional"
+
+    @property
+    def unit_factors(self) -> dict[str, fr.model.UnitFactor]:
+        """Dimensional-factor rows (``model.units``, §D).
+
+        The free-surface family's rows: the surface pressure ``ps``
+        (``U^2/eps``) and the derived external phase speed ``c_dim =
+        U/Fr_ext`` (a dimensional model reports ``sqrt(g*H_ref)``
+        from the bound gravity and the bind-captured flat-column
+        depth — the flat-only reporting convention, matching the
+        energy re-key).
+        """
+        return {"ps": SURFACE_PRESSURE_FACTOR,
+                "c_dim": phase_speed_factor(self._depth)}
+
+    @property
+    def parameter_references(
+        self,
+    ) -> tuple[fr.model.ParameterReference, ...]:
+        """The dimensional gravity reference (nondim: none)."""
+        if self._nondim:
+            return ()
+        return (fr.model.ParameterReference(
+            GRAVITY,
+            hint="the gravitational acceleration is provided by the "
+                 "dimensional hydrostatic core, hy.Core(gravity=...)"),)
+
+    @property
+    def parameter_declarations(
+        self,
+    ) -> tuple[fr.model.ParameterDeclaration, ...]:
+        """``hydrostatic.froude`` (nondimensional variant only)."""
+        if not self._nondim:
+            return ()
+        return (fr.model.ParameterDeclaration(
+            FROUDE, attr="froude_number", units="1",
+            doc="external Froude number (the external-wave "
+                "mechanism)"),)
+
+    # ================================================================
+    #  The variant's live coefficients (stage-time ctx.params reads)
+    # ================================================================
+    def _wave_factor(self, ctx) -> object:  # noqa: ANN001
+        r"""Return the live ratio :math:`(\varepsilon/\mathrm{Fr})^2`.
+
+        Nondimensional variant only (the dimensional trace never
+        calls this). Under the matching ``ExternalWave`` scaling the
+        alias row binds :math:`\varepsilon` and :math:`\mathrm{Fr}`
+        to ONE leaf, so the ratio is an exact ``1.0`` and the
+        multiply is bitwise-neutral (today-parity).
+        """
+        eps = ctx.params[fr.model.params.SCALING_NONLINEARITY]
+        froude = ctx.params[FROUDE]
+        ratio = eps / froude
+        return ratio * ratio
+
+    def _effective_gravity(self, ctx) -> object:  # noqa: ANN001
+        r"""Return the effective gravity multiplying ``T^*``.
+
+        Dimensional: the referenced physical ``hydrostatic.gravity``.
+        Nondimensional: :math:`(\varepsilon/\mathrm{Fr})^2/\tilde H`
+        — the mean-form coefficient folded with the (geometric)
+        depth-mean divisor, so both variants share the transport-form
+        call sites that need a per-depth coefficient.
+        """
+        if self._nondim:
+            return self._wave_factor(ctx) * self._inv_depth
+        return ctx.params[GRAVITY]
+
+    def _column_csqr(self, ctx) -> object:  # noqa: ANN001
+        r"""Return the flat-column squared wave speed of the operator.
+
+        Dimensional: :math:`g\,H` with ``H`` the flat column's
+        physical depth (the vertical mesh extent — geometry, not a
+        reference parameter). Nondimensional: the bare
+        :math:`(\varepsilon/\mathrm{Fr})^2` (the mean-form operator
+        coefficient; the depth cancels between the depth mean and the
+        z-uniform correction).
+        """
+        if self._nondim:
+            return self._wave_factor(ctx)
+        return ctx.params[GRAVITY] * self._depth
 
     # ================================================================
     #  The depth-mean divergence (the C-grid barotropic divergence)
@@ -322,32 +462,39 @@ class _FreeSurfaceBase(fr.model.Module):
         ScalarField
             The depth-mean divergence on the ``Profile`` cell.
         """
+        return self._transport_div(state) * self._inv_depth
+
+    def _transport_div(self, state: object) -> ScalarField:
+        r"""Return the raw transport divergence ``T^*`` on the ``ps`` cell.
+
+        Description
+        -----------
+        The un-normalized barotropic transport divergence — the
+        quantity the dimensional gravity term scales by the referenced
+        physical ``g`` (``d_t ps = -g T^*``, no reference depth): the
+        plain ``\int \nabla_h\cdot u\,\mathrm{d}z`` on a flat
+        grid, the fraction-weighted wet transport on an immersed grid
+        (IP-D9; ``alpha == 1`` collapses byte-identically), and the
+        ``J``-weighted terrain transport (GM-D1 option 1 — no
+        ``1/H(x, y)`` division anywhere, so plain ``int(ps)`` is
+        conserved to round-off and there is no guarded-division
+        autodiff hazard). :meth:`_depth_mean_div` divides it by the
+        (geometric) vertical extent for the mean-form nondimensional
+        spelling.
+        """
         zonal, meridional = self._horizontal
         u, v = state["u"], state["v"]
         if self._column is not None:
-            # terrain (GM-D1 option 1, volume-exact): the flux-form
-            # horizontal transport divergence T* = int[d_x(Ju) + d_y(Jv)]
-            # dz divided by the constant REFERENCE depth H_ref (the scalar
-            # self._inv_depth), NOT the physical column depth H(x, y). The
-            # gravity term it feeds becomes -c^2/H_ref T* = -(g) T* with
-            # the constant gravity g = c^2/H_ref (matching the implicit RHS
-            # and the split subcycle), so plain int(ps) is conserved to
-            # round-off and the path carries no 1/H(x, y) division (no
-            # guarded-division autodiff hazard). The flux form is the exact
-            # adjoint (under the plain measure) of the -grad ps momentum
-            # force on the z-constant ps, so the pair stays energy-
-            # conserving under the constant 1/g = H_ref/c^2 surface weight.
-            # The transport read is in-trace.
             transport_div, _ = self._terrain_transport_div(state)
-            return transport_div * self._inv_depth
+            return transport_div
         if self._immersed is None:
             div_h = u.diff(zonal) + v.diff(meridional)
-            return Integral()[self._vertical](div_h) * self._inv_depth
+            return Integral()[self._vertical](div_h)
         alpha_x = self._immersed.fraction(u.function_space)
         alpha_y = self._immersed.fraction(v.function_space)
         div_h = ((alpha_x * u).diff(zonal)
                  + (alpha_y * v).diff(meridional))
-        return Integral()[self._vertical](div_h) * self._inv_depth
+        return Integral()[self._vertical](div_h)
 
     # ================================================================
     #  Terrain (sigma-coordinate) physical depth
@@ -528,7 +675,7 @@ class _FreeSurfaceBase(fr.model.Module):
         return alpha.with_data((alpha.data > 0.0).astype(dtype_real()))
 
 
-@partial(jaxify, dynamic=())
+@partial(jaxify, dynamic=("froude_number",))
 class ExplicitFreeSurface(_FreeSurfaceBase):
 
     r"""Declares ``ps``; the two linear barotropic terms (H3).
@@ -537,16 +684,22 @@ class ExplicitFreeSurface(_FreeSurfaceBase):
     -----------
     The explicit (oracle) free surface. ``ps`` is a PROGNOSTIC field on
     ``Profile("x", "y")`` and the barotropic coupling is the adjoint
-    C-grid pair of linear terms: ``d_t ps = -c^2 (d_x ubar + d_y vbar)``
-    (the depth-mean divergence lands on the ``ps`` cell) and
-    ``d_t u = -d_x ps`` / ``d_t v = -d_y ps`` (the surface-pressure
-    gradient reaches the velocity faces through the ConstantSpace
-    broadcast in ``.to``). Under the ``1/c^2`` energy weight integrated
-    over the full depth, the pair is exactly skew-adjoint (the H2
-    energy gate).
+    C-grid pair of linear terms: ``d_t ps = -g T*`` (dimensional; the
+    raw transport divergence scaled by the referenced physical
+    gravity) XOR ``d_t ps = -(eps/Fr)^2 (d_x ubar + d_y vbar)``
+    (nondimensional; the depth-mean divergence scaled by the live
+    external-wave ratio), and ``d_t u = -d_x ps`` / ``d_t v = -d_y ps``
+    (the surface-pressure gradient reaches the velocity faces through
+    the ConstantSpace broadcast in ``.to``). Under the ``1/g`` energy
+    weight (dimensional; nondim: the matching effective reciprocal)
+    the pair is exactly skew-adjoint (the H2 energy gate).
 
     Parameters
     ----------
+    froude_number : float | fr.model.Ramp | None, optional
+        The external Froude number (NONDIMENSIONAL variant); ``None``
+        is the dimensional variant referencing the core's
+        ``hydrostatic.gravity`` (default: None).
     vertical : str, optional
         The vertical coordinate name the depth mean reduces over
         (default: ``"z"``).
@@ -590,25 +743,35 @@ class ExplicitFreeSurface(_FreeSurfaceBase):
             return None
         return HaloSpec(dict.fromkeys(self._horizontal, 1))
 
-    @fr.model.term(advances=("ps",), linear=True)
+    @fr.model.term(advances=("ps",), linear=True,
+                   linear_params=(GRAVITY, FROUDE,
+                                  fr.model.params.SCALING_NONLINEARITY))
     def gravity(self, state, ctx) -> dict:  # noqa: ANN001
-        r"""``d_t ps = -c^2 (d_x ubar + d_y vbar)`` (depth-mean divergence).
+        r"""``d_t ps = -g T^*`` xor ``-(eps/Fr)^2 div(ubar)``.
 
-        The depth means ``ubar = u.mean(z)`` / ``vbar = v.mean(z)`` are
-        the measure-exact ``integrate(z) / H`` reductions onto the
-        barotropic ``ConstantSpace`` factor; their horizontal
-        divergence lands on the ``ps`` cell (the adjoint of the
-        ``-grad ps`` momentum forcing below).
+        Dimensional: the raw transport divergence ``T^*`` scaled by
+        the referenced physical gravity (``d_t ps = -g\,T^*``) — on
+        every geometry (flat, immersed, terrain: GM-D1 option 1),
+        with **no** reference depth and **no** ``1/H(x, y)`` division;
+        the identical discrete barotropic physics as the implicit and
+        split variants, conserving the plain ``\int p_s`` to
+        round-off.
 
-        On a terrain (sigma) grid this is the volume-exact form (GM-D1
-        option 1): the raw transport divergence ``T^*`` scaled by the
-        constant gravity ``g = c^2/H_{ref}`` (``d_t ps = -g\,T^*``), with
-        **no** ``1/H(x, y)`` division — the identical discrete barotropic
-        physics as the implicit and split variants, conserving the plain
-        ``\int p_s`` to round-off.
+        Nondimensional: the depth-mean divergence
+        ``d_x ubar + d_y vbar`` (the measure-exact ``integrate(z)/H``
+        reductions onto the barotropic ``ConstantSpace`` factor)
+        scaled by the live external-wave ratio
+        :math:`(\varepsilon/\mathrm{Fr})^2` (stage-time
+        ``ctx.params``; self-normalizing under the matching
+        ``ExternalWave`` scaling). Either way the divergence lands on
+        the ``ps`` cell — the adjoint of the ``-grad ps`` momentum
+        forcing below.
         """
-        csqr = ctx.params[CSQR]
-        return {"ps": -(csqr * self._depth_mean_div(state))}
+        if self._nondim:
+            factor = self._wave_factor(ctx)
+            return {"ps": -(factor * self._depth_mean_div(state))}
+        gravity = ctx.params[GRAVITY]
+        return {"ps": -(gravity * self._transport_div(state))}
 
     @fr.model.term(advances=("u", "v"), linear=True)
     def pressure_gradient(self, state, ctx) -> dict:  # noqa: ANN001, ARG002
@@ -638,7 +801,7 @@ class ExplicitFreeSurface(_FreeSurfaceBase):
         }
 
 
-@partial(jaxify, dynamic=())
+@partial(jaxify, dynamic=("froude_number",))
 class ImplicitFreeSurface(_FreeSurfaceBase):
 
     r"""Declares ``ps``; the CONSTRAINT-stage 2D projection (HY-D4).
@@ -698,6 +861,10 @@ class ImplicitFreeSurface(_FreeSurfaceBase):
         ``1 + c^2 dt'^2 k_disc^2``, non-singular); ``0.0`` is the rigid
         lid (the singular Poisson, ``where_zero`` mean gauge). Must be
         ``>= 0`` (default: 1.0).
+    froude_number : float | fr.model.Ramp | None, optional
+        The external Froude number (NONDIMENSIONAL variant); ``None``
+        is the dimensional variant referencing the core's
+        ``hydrostatic.gravity`` (default: None).
     pressure_iterations : int, optional
         The fixed PCG iteration budget of the immersed / terrain
         barotropic solve (mirrors ``nh.Model(pressure_iterations=...)``);
@@ -764,6 +931,7 @@ class ImplicitFreeSurface(_FreeSurfaceBase):
         self,
         *,
         epsilon: float = 1.0,
+        froude_number: float | fr.model.Ramp | None = None,
         pressure_iterations: int = 30,
         pressure_tolerance: float | None = 1e-8,
         pressure_preconditioner: str = "spectral",
@@ -772,7 +940,8 @@ class ImplicitFreeSurface(_FreeSurfaceBase):
         horizontal: tuple[str, str] = ("x", "y"),
     ) -> None:
         """Validate ``epsilon``; store the geometry names."""
-        super().__init__(vertical=vertical, horizontal=horizontal)
+        super().__init__(froude_number=froude_number,
+                         vertical=vertical, horizontal=horizontal)
         if (isinstance(epsilon, bool)
                 or not isinstance(epsilon, int | float)
                 or epsilon < 0):
@@ -934,35 +1103,42 @@ class ImplicitFreeSurface(_FreeSurfaceBase):
         exactly cancels the RHS divergence — for ``epsilon == 0`` the
         corrected depth-mean flow is non-divergent to machine precision.
         """
-        csqr = ctx.params[CSQR]
         dt = ctx.stage_dt
+        gravity = self._effective_gravity(ctx)
+        column_csqr = self._column_csqr(ctx)
         zonal, meridional = self._horizontal
         u, v = state["u"], state["v"]
         if self._column is not None:
             # terrain (GM-D1 option 1, volume-exact): the RHS uses the
-            # RAW transport divergence T* with the constant gravity
-            # coefficient g = c^2 / H_ref (no 1/H(x, y) division), and the
-            # variable-coefficient operator carries the physical face
-            # depth H_a. RHS = eps * ps_old - dt' * g * T*.
+            # RAW transport divergence T* with the constant effective
+            # gravity (no 1/H(x, y) division, no reference depth), and
+            # the variable-coefficient operator carries the physical
+            # face depth H_a. RHS = eps * ps_old - dt' * g * T*.
             transport_div, _ = self._terrain_transport_div(state)
             rhs = (self._epsilon * state["ps"]
-                   - dt * csqr * self._inv_depth * transport_div)
+                   - dt * gravity * transport_div)
             # warm start from the previous ps (CG projects the guess, so
             # a non-mean-free x0 is safe under the eps=0 mean gauge)
             ps_new = self._solve_terrain(
-                rhs, x0=state["ps"], csqr=csqr, dt=dt)
+                rhs, x0=state["ps"], gravity=gravity, dt=dt)
         else:
-            div_bar = self._depth_mean_div(state)  # masked on a cut cell
-            # RHS: eps * ps_old - dt' * c^2 * div(ubar*)  (eps=0 drops ps)
-            rhs = self._epsilon * state["ps"] - dt * csqr * div_bar
+            if self._nondim:
+                # nondim mean form: eps * ps - dt' * (eps/Fr)^2 * div(ubar)
+                rhs = (self._epsilon * state["ps"]
+                       - dt * column_csqr * self._depth_mean_div(state))
+            else:
+                # dimensional transport form: eps * ps - dt' * g * T*
+                rhs = (self._epsilon * state["ps"]
+                       - dt * gravity * self._transport_div(state))
             if self._immersed is None:
-                ps_new = self._solve(rhs, csqr=csqr, dt=dt)
+                ps_new = self._solve(rhs, column_csqr=column_csqr, dt=dt)
             else:
                 # warm start the CG from the previous surface pressure
                 # (prognostic for eps > 0, previous diagnostic for
                 # eps = 0; both are valid guesses — Phase E)
                 ps_new = self._solve_immersed(
-                    rhs, state, csqr=csqr, dt=dt, x0=state["ps"])
+                    rhs, state, column_csqr=column_csqr,
+                    gravity=gravity, dt=dt, x0=state["ps"])
         # z-uniform correction: broadcast the ConstantSpace ps gradient
         # onto the velocity faces (the same C-grid diff the solve uses).
         # On an immersed grid the boolean open-face mask keeps the
@@ -981,9 +1157,14 @@ class ImplicitFreeSurface(_FreeSurfaceBase):
 
     def _flat_spectral(
         self, space: SpaceLike, grid: Grid, *,
-        csqr: object, dt: object,
+        column_csqr: object, dt: object,
     ) -> Callable[[ScalarField], ScalarField]:
-        r"""Build the flat (mean-depth) ``(eps - dt'^2 div(c^2 grad))`` solve.
+        r"""Build the flat ``(eps - dt'^2 div(c^2_col grad))`` solve.
+
+        ``column_csqr`` is the flat-column squared wave speed
+        (:meth:`_column_csqr`): the dimensional ``g H`` (``H`` the
+        flat column's physical depth — geometry, not a reference
+        parameter) or the nondimensional ``(eps/Fr)^2``.
 
         Description
         -----------
@@ -1013,7 +1194,7 @@ class ImplicitFreeSurface(_FreeSurfaceBase):
         """
         solve_space = _neumann_sibling(space)
         axes = solve_space.active_axis_names
-        neg = -(dt**2) * csqr
+        neg = -(dt**2) * column_csqr
         grad_block = Gradient().expand(solve_space, grid)
         mid = tuple(
             _dirichlet_mid(sib, axis)
@@ -1034,7 +1215,7 @@ class ImplicitFreeSurface(_FreeSurfaceBase):
         return apply
 
     def _solve(
-        self, rhs: ScalarField, *, csqr: object, dt: object,
+        self, rhs: ScalarField, *, column_csqr: object, dt: object,
     ) -> ScalarField:
         r"""Invert ``(eps - dt'^2 div(c^2 grad))`` on the ``ps`` cell.
 
@@ -1050,8 +1231,9 @@ class ImplicitFreeSurface(_FreeSurfaceBase):
         ----------
         rhs : ScalarField
             The right-hand side on the 2D ``Profile`` cell.
-        csqr : object
-            The live squared-phase-speed leaf ``c^2``.
+        column_csqr : object
+            The live flat-column squared wave speed
+            (:meth:`_column_csqr`).
         dt : object
             The stage increment ``dt' = ctx.stage_dt``.
 
@@ -1062,11 +1244,12 @@ class ImplicitFreeSurface(_FreeSurfaceBase):
         """
         space: SpaceLike = rhs.function_space.bare
         return self._flat_spectral(
-            space, rhs.grid, csqr=csqr, dt=dt)(rhs)
+            space, rhs.grid, column_csqr=column_csqr, dt=dt)(rhs)
 
     def _solve_immersed(
         self, rhs: ScalarField, state: object, *,
-        csqr: object, dt: object, x0: ScalarField | None = None,
+        column_csqr: object, gravity: object, dt: object,
+        x0: ScalarField | None = None,
     ) -> ScalarField:
         r"""Invert the variable-coefficient barotropic Helmholtz (IP-D9).
 
@@ -1097,8 +1280,12 @@ class ImplicitFreeSurface(_FreeSurfaceBase):
         state : object
             The current state (supplies the velocity face fractions and
             the cell fractions for the wet-column indicator).
-        csqr : object
-            The live squared-phase-speed leaf ``c^2``.
+        column_csqr : object
+            The live flat-column squared wave speed (the constant-
+            coefficient preconditioner).
+        gravity : object
+            The live effective gravity (the per-column operator
+            coefficient ``g H_a``).
         dt : object
             The stage increment ``dt' = ctx.stage_dt``.
         x0 : ScalarField | None, optional
@@ -1139,8 +1326,8 @@ class ImplicitFreeSurface(_FreeSurfaceBase):
             grad[a] = g
             tagged[a] = tag
             div[a] = registry.resolve("diff", tag.factor(a))[a]
-            coeff[a] = (self._transport_depth(vel[a]) * (
-                csqr * self._inv_depth)).retag(face)
+            coeff[a] = (self._transport_depth(vel[a])
+                        * gravity).retag(face)
 
         def apply(ps: ScalarField) -> ScalarField:
             out = self._epsilon * ps
@@ -1150,7 +1337,7 @@ class ImplicitFreeSurface(_FreeSurfaceBase):
             return out
 
         spectral = self._flat_spectral(
-            solve_space, grid, csqr=csqr, dt=dt)
+            solve_space, grid, column_csqr=column_csqr, dt=dt)
         theta_col = Integral()[self._vertical](
             self._immersed.fraction(state["p_hyd"].function_space))
         cell_mask = (theta_col.data > 0.0).astype(dtype_real())
@@ -1177,7 +1364,7 @@ class ImplicitFreeSurface(_FreeSurfaceBase):
 
     def _solve_terrain(
         self, rhs: ScalarField, x0: ScalarField | None = None,
-        *, csqr: object, dt: object,
+        *, gravity: object, dt: object,
     ) -> ScalarField:
         r"""Invert the volume-exact terrain barotropic Helmholtz (H3).
 
@@ -1206,8 +1393,9 @@ class ImplicitFreeSurface(_FreeSurfaceBase):
         x0 : ScalarField | None, optional
             The initial guess (the previous ``ps`` for a warm start);
             None starts from zeros (default: None).
-        csqr : object
-            The live squared-phase-speed leaf ``c^2``.
+        gravity : object
+            The live effective gravity ``g`` (the operator
+            coefficient ``g H_a``).
         dt : object
             The stage increment ``dt' = ctx.stage_dt``.
 
@@ -1219,12 +1407,11 @@ class ImplicitFreeSurface(_FreeSurfaceBase):
         solver = BarotropicPressureSolver(
             rhs.grid, rhs.function_space.bare, self._column,
             self._vertical, epsilon=self._epsilon,
-            inv_depth=self._inv_depth,
             iterations=self._pressure_iterations,
             tolerance=self._pressure_tolerance,
             preconditioner=self._pressure_preconditioner,
             multigrid_levels=self._multigrid_levels)
-        return solver.solve(rhs, x0, csqr=csqr, dt=dt)
+        return solver.solve(rhs, x0, gravity=gravity, dt=dt)
 
 
 # ================================================================
@@ -1310,7 +1497,7 @@ def _sm2005_weights(
     return tuple(float(w) for w in weights / total)
 
 
-@partial(jaxify, dynamic=())
+@partial(jaxify, dynamic=("froude_number",))
 class SplitExplicitFreeSurface(_FreeSurfaceBase):
 
     r"""Declares ``ps, U, V``; the barotropic subcycle + correction (H6).
@@ -1410,6 +1597,10 @@ class SplitExplicitFreeSurface(_FreeSurfaceBase):
         ``(2, 4, 0.18927)``).
     forcing : {"increment", "tendency_sums"}, optional
         The slow-forcing convention (default: ``"increment"``).
+    froude_number : float | fr.model.Ramp | None, optional
+        The external Froude number (NONDIMENSIONAL variant); ``None``
+        is the dimensional variant referencing the core's
+        ``hydrostatic.gravity`` (default: None).
     vertical : str, optional
         The vertical coordinate the depth mean reduces over
         (default: ``"z"``).
@@ -1442,11 +1633,13 @@ class SplitExplicitFreeSurface(_FreeSurfaceBase):
         substeps: int = 16,
         filter: tuple[int, int, float] = (2, 4, 0.18927),  # noqa: A002 — §5.4 keyword
         forcing: str = "increment",
+        froude_number: float | fr.model.Ramp | None = None,
         vertical: str = "z",
         horizontal: tuple[str, str] = ("x", "y"),
     ) -> None:
         """Validate the integrator statics; store the geometry names."""
-        super().__init__(vertical=vertical, horizontal=horizontal)
+        super().__init__(froude_number=froude_number,
+                         vertical=vertical, horizontal=horizontal)
         if (isinstance(substeps, bool) or not isinstance(substeps, int)
                 or substeps < 2):  # noqa: PLR2004 — a subcycle needs >= 2
             raise ValueError(
@@ -1776,24 +1969,27 @@ class SplitExplicitFreeSurface(_FreeSurfaceBase):
         cell, ``int alpha J dz`` on a **terrain + immersed** grid), so the
         substep steps the barotropic velocity ``ub = U/H_a`` with the
         volume-exact ps forward step
-        ``ps <- ps - dtau (c^2/H_ref) div(H_a ub)`` (a CONSTANT gravity
+        ``ps <- ps - dtau g div(H_a ub)`` (a CONSTANT effective-gravity
         coefficient, no ``1/H(x, y)`` division, GM-D1 option 1) and
         commits ``U = H_a ubar``. A cut face (``H_a == 0``) is gated
         closed. The SM2005 filter is unchanged.
         """
-        csqr = ctx.params[CSQR]
         dt = ctx.stage_dt
+        gravity = self._effective_gravity(ctx)
+        column_csqr = self._column_csqr(ctx)
+        nondim = self._nondim
+        inv_depth = self._inv_depth
         zonal, meridional = self._horizontal
         g_u, g_v = self._slow_forcing(state, ctx, dt)
         ps0 = state["ps"]
         # a variable-depth grid (terrain OR immersed) steps the barotropic
         # VELOCITY ub = U/H_a and commits U = H_a ubar with the per-face
         # depth H_a; the ps forward step is the volume-exact transport
-        # divergence (1/H_ref) div(H_a ubar) with the CONSTANT gravity
-        # coefficient c^2/H_ref (GM-D1 option 1 — no 1/H(x, y) division,
-        # so plain int(ps) is conserved to round-off and there is no
-        # guarded-division autodiff hazard in the substep path). A flat
-        # grid keeps the scalar 1/H_ref fast path, byte-identical.
+        # divergence scaled by the CONSTANT effective gravity (GM-D1
+        # option 1 — no 1/H(x, y) division, so plain int(ps) is
+        # conserved to round-off and there is no guarded-division
+        # autodiff hazard in the substep path). A flat grid keeps the
+        # scalar flat-column coefficient fast path, byte-identical.
         variable = self._column is not None or self._immersed is not None
         (ubar0, vbar0, depth_u, depth_v,
          fmask_u, fmask_v) = self._subcycle_faces(state)
@@ -1805,13 +2001,20 @@ class SplitExplicitFreeSurface(_FreeSurfaceBase):
         ) -> tuple[tuple, None]:
             ps_c, ub_c, vb_c, aps, au, av = carry
             # forward: ps from the OLD barotropic transport divergence
+            # (dimensional: the raw transport scaled by the effective
+            # gravity; nondimensional: the mean form scaled by the
+            # live (eps/Fr)^2 — no reference depth either way)
             if variable:
-                div = self._inv_depth * (
-                    (depth_u * ub_c).diff(zonal)
-                    + (depth_v * vb_c).diff(meridional))
+                div_t = ((depth_u * ub_c).diff(zonal)
+                         + (depth_v * vb_c).diff(meridional))
+                if nondim:
+                    ps_n = ps_c - dtau * column_csqr * (
+                        inv_depth * div_t)
+                else:
+                    ps_n = ps_c - dtau * gravity * div_t
             else:
                 div = ub_c.diff(zonal) + vb_c.diff(meridional)
-            ps_n = ps_c - dtau * csqr * div
+                ps_n = ps_c - dtau * column_csqr * div
             # backward: velocity from the NEW ps + the slow forcing
             grad_u = ps_n.diff(zonal).retag(ub_c)
             grad_v = ps_n.diff(meridional).retag(vb_c)

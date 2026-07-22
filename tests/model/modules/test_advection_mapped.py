@@ -19,7 +19,7 @@ from fridom.model.modules.moving_geometry import MovingGeometry
 from fridom.model.time_steppers.adam_bashforth import (
     AdamBashforth,
 )
-from fridom.nonhydro2.modules.core import DynamicalCore
+from fridom.nonhydro2.modules.core import Core
 from fridom.nonhydro2.modules.stratification import (
     ConstantStratification,
 )
@@ -47,14 +47,28 @@ def make_grid(nx, lx=L, ny=NY):
     ))
 
 
-def make_model(nx, advection, *, lx=L, stratified=True, ro=1.0):
-    modules = [DynamicalCore(rossby_number=ro)]
-    if stratified:
+def make_model(nx, advection, *, lx=L, stratified=True, eps=None):
+    """Assemble the advection module; ``eps`` selects nondim (fr.scaling).
+
+    ``eps=None`` is the dimensional assembly (the de-scaled advection
+    carries zero scaling ops). A float assembles the NONDIMENSIONAL
+    variant through the InternalWave frame: the stratification owns
+    the epsilon leaf (froude_number=eps) and the scaling-neutral
+    advection adopts the variant at bind, so the tendency carries one
+    outer epsilon (and, with a background, U + eps*u' inside).
+    """
+    modules = [Core()]
+    scaling = None
+    if eps is not None:
+        modules.append(ConstantStratification(froude_number=eps))
+        scaling = fr.scaling.InternalWave()
+    elif stratified:
         modules.append(ConstantStratification(n2=1.0))
     modules.append(advection)
     return FrModel(grid=make_grid(nx, lx=lx),
                    modules=tuple(modules),
-                   time_stepper=AdamBashforth(DT, order=3))
+                   time_stepper=AdamBashforth(DT, order=3),
+                   scaling=scaling)
 
 
 def centers(nx, lx=L):
@@ -103,7 +117,7 @@ def make_mapped_grid(n, init=depth, ny=4, periodic_column=False):
 def make_mapped_model(n, advection, *, init=depth, ny=4):
     return FrModel(
         grid=make_mapped_grid(n, init=init, ny=ny),
-        modules=(DynamicalCore(),
+        modules=(Core(),
                  ConstantStratification(n2=0.0),
                  advection),
         time_stepper=AdamBashforth(DT, order=3))
@@ -121,7 +135,7 @@ def test_mapped_flat_advection_matches_the_flat_grid():
             IntervalMesh(n, (0.0, L), name="y"),
             IntervalMesh(n, (0.0, H0), periodic=False, name="z"),
         )),
-        modules=(DynamicalCore(), ConstantStratification(n2=0.0),
+        modules=(Core(), ConstantStratification(n2=0.0),
                  CenteredAdvection()),
         time_stepper=AdamBashforth(DT, order=3))
     mapped = make_mapped_model(
@@ -180,7 +194,7 @@ def test_mapped_grid_is_a_taught_error_for_biased_schemes(cls):
                        match=r"does not support mapped grids"
                              r".*CenteredAdvection"):
         FrModel(grid=grid,
-                modules=(DynamicalCore(), cls(3)),
+                modules=(Core(), cls(3)),
                 time_stepper=AdamBashforth(DT, order=3))
 
 
@@ -217,7 +231,7 @@ def test_stretched_mesh_is_a_taught_error_for_biased_schemes(
                   r".*'z'.*uniform-offset.*silently drop to 2nd "
                   r"order.*CenteredAdvection"):
         FrModel(grid=grid,
-                modules=(DynamicalCore(), cls(order)),
+                modules=(Core(), cls(order)),
                 time_stepper=AdamBashforth(DT, order=3))
 
 
@@ -329,7 +343,7 @@ def test_mapped_advection_reads_the_current_geometry():
     n = 8
     moving = FrModel(
         grid=make_mapped_grid(n),
-        modules=(DynamicalCore(), ConstantStratification(n2=0.0),
+        modules=(Core(), ConstantStratification(n2=0.0),
                  CenteredAdvection(),
                  MovingGeometry(
                      {"H": lambda x, t: other(x) + 0.0 * t})),

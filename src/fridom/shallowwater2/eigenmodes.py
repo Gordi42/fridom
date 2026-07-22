@@ -845,6 +845,75 @@ def _reject_immersed(model: Model) -> None:
             "grid for eigenmode analysis and from_model transforms.")
 
 
+def _effective_f0(view: object, at_time: float) -> float:
+    r"""Resolve the effective constant Coriolis parameter.
+
+    Dimensional: the ``coriolis.f0`` provide. Nondimensional
+    (f-plane): :math:`f_0^{\rm eff} = \varepsilon/\mathrm{Ro}`
+    times the constant f-shape 1 — a ``coriolis.rossby`` provide
+    WITHOUT ``coriolis.metric_ratio`` (the nondim beta-plane's
+    varying shape is not Fourier-diagonalizable, exactly like the
+    dimensional beta-plane).
+
+    Raises
+    ------
+    ValueError
+        If no constant rotation is provided.
+    """
+    if fr.model.params.CORIOLIS_F0 in view:
+        return resolve_at(view[fr.model.params.CORIOLIS_F0], at_time)
+    if (fr.model.params.CORIOLIS_ROSSBY in view
+            and fr.model.params.CORIOLIS_METRIC_RATIO not in view):
+        eps = resolve_at(
+            view[fr.model.params.SCALING_NONLINEARITY], at_time)
+        rossby = resolve_at(
+            view[fr.model.params.CORIOLIS_ROSSBY], at_time)
+        return eps / rossby
+    raise ValueError(
+        "shallow-water eigenmodes need a constant Coriolis "
+        "parameter (a beta-plane / metric-ratio f(y) is not "
+        "Fourier-diagonalizable); assemble with "
+        "sw.modules.FPlaneCoriolis(f0=...) (dimensional) or "
+        "FPlaneCoriolis(rossby_number=...) (nondimensional): no "
+        "constant rotation provider on this model")
+
+
+def _effective_csqr(view: object, at_time: float) -> float:
+    r"""Resolve the effective constant squared phase speed.
+
+    Dimensional: :math:`g\,D` from ``shallowwater.gravity`` x
+    ``shallowwater.depth``; nondimensional:
+    :math:`(\varepsilon/\mathrm{Fr})^2 \tilde D`. A variable
+    depth provides no constant ``shallowwater.depth`` and is not
+    Fourier-diagonalizable (served only on the single-walled
+    channel, by ``sw.eigenbasis``).
+
+    Raises
+    ------
+    ValueError
+        If no constant phase speed can be assembled.
+    """
+    depth_ok = sw_params.DEPTH in view
+    if depth_ok and sw_params.GRAVITY in view:
+        return (resolve_at(view[sw_params.GRAVITY], at_time)
+                * resolve_at(view[sw_params.DEPTH], at_time))
+    if depth_ok and sw_params.FROUDE in view:
+        eps = resolve_at(
+            view[fr.model.params.SCALING_NONLINEARITY], at_time)
+        froude = resolve_at(view[sw_params.FROUDE], at_time)
+        ratio = eps / froude
+        return ratio * ratio * resolve_at(
+            view[sw_params.DEPTH], at_time)
+    raise ValueError(
+        "shallow-water eigenmodes need a constant squared phase "
+        "speed (a variable-depth D(y) is not "
+        "Fourier-diagonalizable; it is served only on the "
+        "single-walled channel, by sw.eigenbasis); assemble with a "
+        "constant-depth sw.Core (gravity= + depth=, or "
+        "froude_number= + a constant depth ratio): no constant "
+        "'shallowwater.depth' provider on this model")
+
+
 def eigenbasis(
     model: Model, *, at_time: float = 0.0,
 ) -> Eigenmodes | ChannelEigenmodes:
@@ -890,8 +959,12 @@ def eigenbasis(
     ------
     ValueError
         On a multi-walled grid, or — on the fully periodic path —
-        if ``coriolis.f0`` or ``shallowwater.csqr`` is not provided
-        (a non-constant-coefficient system).
+        if no constant rotation / phase speed can be assembled from
+        the variant's primitives (``coriolis.f0`` or
+        ``coriolis.rossby``; ``shallowwater.gravity`` x
+        ``shallowwater.depth`` or the
+        ``(epsilon/Fr)^2 * depth-ratio`` pair) — a
+        non-constant-coefficient system.
     LinearOperatorGapError
         If a module declares a linear-operator gap — a conserving
         (route-B) Coriolis module carries its rotation in a
@@ -912,23 +985,8 @@ def eigenbasis(
     if bounded:
         return ChannelEigenmodes(model, at_time=at_time)
     view = model.parameters
-    for name, why in (
-        (fr.model.params.CORIOLIS_F0,
-         "a constant Coriolis parameter (a beta-plane f(y) is not "
-         "Fourier-diagonalizable); assemble with "
-         "sw.modules.FPlaneCoriolis"),
-        (sw_params.CSQR,
-         "a constant squared phase speed (a variable-depth "
-         "csqr(y) is not Fourier-diagonalizable; it is served "
-         "only on the single-walled channel, by sw.eigenbasis); "
-         "assemble with a constant-depth DynamicalCore"),
-    ):
-        if name not in view:
-            raise ValueError(
-                f"shallow-water eigenmodes need {why}: no {name!r} "
-                "provider on this model")
-    f0 = resolve_at(view[fr.model.params.CORIOLIS_F0], at_time)
-    csqr = resolve_at(view[sw_params.CSQR], at_time)
+    f0 = _effective_f0(view, at_time)
+    csqr = _effective_csqr(view, at_time)
     return Eigenmodes(model.grid, f0=f0, csqr=csqr)
 
 

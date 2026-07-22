@@ -22,6 +22,7 @@ from fridom.model.modules.advection import (
     WENOAdvection,
 )
 from fridom.model.term_predicates import owned_by
+from fridom.model.time_steppers.adam_bashforth import AdamBashforth
 
 IM = fr.spatial.meshes.IntervalMesh
 
@@ -38,9 +39,13 @@ def make_model(grid=None, *, advection=True, dt=1e-3):
     """Build a hydrostatic model with the given advection option."""
     if grid is None:
         grid = make_grid()
-    return hy.Model(grid=grid, dt=dt, csqr=1.0,
-                    stratification=hy.ConstantStratification(n2=1.0),
-                    advection=advection)
+    return hy.Model(
+        grid=grid,
+        core=hy.Core(gravity=1.0),
+        time_stepper=AdamBashforth(dt, order=3),
+        stratification=hy.ConstantStratification(n2=1.0),
+        free_surface=hy.ExplicitFreeSurface(),
+        advection=advection)
 
 
 def _set(model, grid, **inits):
@@ -321,8 +326,11 @@ def test_surface_flux_grad_through_a_short_run_matches_fd():
     # a flux divergence of the advecting velocity).
     grid = make_grid(nx=8, nz=4)
     model = hy.Model(
-        grid=grid, dt=2e-3, csqr=1.0,
+        grid=grid,
+        core=hy.Core(gravity=1.0),
+        time_stepper=AdamBashforth(2e-3, order=3),
         stratification=hy.ConstantStratification(n2=1.0),
+        free_surface=hy.ExplicitFreeSurface(),
         advection=CenteredAdvection(surface_flux=True))
     rng = np.random.default_rng(3)
     model.set_fields(**{

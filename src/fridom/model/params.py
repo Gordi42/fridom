@@ -115,6 +115,19 @@ CORIOLIS_BETA: Final[ParamName] = ParamName(
     hint="provided by a beta-plane Coriolis module, e.g. "
          "fr.modules.BetaPlaneCoriolis(beta=...)")
 
+CORIOLIS_ROSSBY: Final[ParamName] = ParamName(
+    "coriolis.rossby",
+    units="n/a",
+    hint="provided by a nondimensional Coriolis module, e.g. "
+         "fr.modules.FPlaneCoriolis(rossby_number=...)")
+
+CORIOLIS_METRIC_RATIO: Final[ParamName] = ParamName(
+    "coriolis.metric_ratio",
+    units="n/a",
+    hint="provided by a nondimensional beta-plane Coriolis module, "
+         "e.g. fr.modules.BetaPlaneCoriolis(rossby_number=..., "
+         "metric_ratio=...)")
+
 # no_default: a reference default would silently un-stratify a run.
 STRATIFICATION_N2: Final[ParamName] = ParamName(
     "stratification.n2",
@@ -123,14 +136,27 @@ STRATIFICATION_N2: Final[ParamName] = ParamName(
          "ConstantStratification(n2=...)",
     no_default=True)
 
-# The physically-identity default 1.0 lives at the reference sites
-# (fr.Param("scaling.rossby", default=1.0)), never on the name.
-SCALING_ROSSBY: Final[ParamName] = ParamName(
-    "scaling.rossby",
+# The internal-wave Froude number Fr = U/(N H) of a NONDIMENSIONAL
+# stratification module (the ``internal_wave`` scaling mechanism);
+# no_default for the same reason as ``stratification.n2``.
+STRATIFICATION_FROUDE: Final[ParamName] = ParamName(
+    "stratification.froude",
+    units="1",
+    hint="provided by a nondimensional stratification module, e.g. "
+         "ConstantStratification(froude_number=...)",
+    no_default=True)
+
+# The nonlinearity number epsilon = T_ref / T_adv: under a
+# nondimensional scaling the assembly aliases this name onto the
+# scaling mechanism's own nonlinearity leaf (fr.scaling); dimensional
+# assemblies bind no row (row presence <=> nondimensional).
+SCALING_NONLINEARITY: Final[ParamName] = ParamName(
+    "scaling.nonlinearity",
     units="n/a",
-    hint="provided by a nondimensional dynamical core, e.g. "
-         "nh.DynamicalCore(rossby_number=...); dimensional models "
-         "rely on the identity default 1.0 at the reference site")
+    hint="bound by the assembly under a nondimensional fr.scaling "
+         "policy (aliasing the mechanism module's nonlinearity "
+         "leaf, e.g. FPlaneCoriolis(rossby_number=...)); "
+         "dimensional models bind no row")
 
 RAMPING_ENVELOPE: Final[ParamName] = ParamName(
     "ramping.envelope",

@@ -11,6 +11,7 @@ import pytest
 import fridom as fr
 import fridom.nonhydro2 as nh
 from fridom.model.errors import MissingFieldError
+from fridom.model.time_steppers.adam_bashforth import AdamBashforth
 from fridom.nonhydro2.modules.gaussian_wave_maker import (
     GaussianWaveMaker,
 )
@@ -36,9 +37,14 @@ def make_model(maker, walled=()):
     # rotation": name the f0 = 1 f-plane the old implicit default
     # installed (a linear model with no rotation at all would advance
     # neither u nor v -- the D1.4 coverage lint)
-    return nh.Model(grid=make_grid(walled), dt=DT, advection=False,
-                    coriolis=nh.FPlaneCoriolis(f0=1.0),
-                    modules_extra=(maker,))
+    return nh.Model(
+        grid=make_grid(walled),
+        core=nh.Core(),
+        time_stepper=AdamBashforth(DT, order=3),
+        coriolis=nh.FPlaneCoriolis(f0=1.0),
+        stratification=nh.ConstantStratification(n2=1.0),
+        advection=False,
+        modules_extra=(maker,))
 
 
 def nodes(model, variable, axis):
@@ -98,10 +104,10 @@ def test_non_collocated_unknown_variable_space_is_rejected():
     with pytest.raises(ValueError, match="samples its envelope"):
         fr.model.Model(
             grid=make_grid(),
-            modules=(nh.DynamicalCore(), nh.FPlaneCoriolis(),
-                     nh.ConstantStratification(), StaggeredTracer(),
+            modules=(nh.Core(), nh.FPlaneCoriolis(f0=1.0),
+                     nh.ConstantStratification(n2=1.0), StaggeredTracer(),
                      maker),
-            time_stepper=fr.model.time_steppers.AdamBashforth(DT, order=3))
+            time_stepper=AdamBashforth(DT, order=3))
 
 
 # ================================================================

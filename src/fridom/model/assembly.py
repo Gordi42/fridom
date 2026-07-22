@@ -54,7 +54,11 @@ from fridom.model.parameters import (
     ParameterDeclaration,
     ParameterReference,
 )
-from fridom.model.params import TIME_STEP, ParamName
+from fridom.model.params import (
+    SCALING_NONLINEARITY,
+    TIME_STEP,
+    ParamName,
+)
 from fridom.model.report import (
     RUN_START_PLACEHOLDER,
     AssemblyReport,
@@ -111,7 +115,9 @@ def _stepper_label(stepper: object) -> str:
 
 
 def _check_frozen_linear_operator(
-    modules: tuple, stepper: object,
+    modules: tuple,
+    stepper: object,
+    binding_table: ParameterBindingTable | None = None,
 ) -> None:
     """
     Refuse a frozen-``L`` stepper whose ``L`` is time-dependent (AR-D7).
@@ -121,28 +127,76 @@ def _check_frozen_linear_operator(
     An exponential (ETD) stepper integrates the LINEAR operator from a
     frozen eigenbasis snapshot (``TimeStepper.freezes_linear_operator``),
     so a time-dependent parameter inside a ``linear=True`` term would
-    be silently frozen. Each module reports such couplings through
-    ``Module.time_dependent_linear_parameters`` (the author knows the
-    term/parameter link, so no tracing is needed); a non-empty union
-    under a frozen-``L`` stepper raises the taught error. Every other
-    stepper re-reads the tendency each step and is unaffected — the
-    guard is a no-op there.
+    be silently frozen. Two complementary passes feed the check:
+
+    - each module reports its own couplings through
+      ``Module.time_dependent_linear_parameters`` (the author knows
+      the term/parameter link, so no tracing is needed) — this
+      covers consumed-but-unbound leaves (the beta-plane ``f0``);
+    - each module's ``linear_operator_parameters()`` names are
+      additionally resolved **through the binding table** (unbound
+      names skipped), so a cross-module leaf feeding ``L`` — e.g.
+      the ``scaling.nonlinearity`` alias row onto another module's
+      nonlinearity leaf — is caught when its live provider value is
+      a ``TimeDependent`` curve.
+
+    A non-empty union under a frozen-``L`` stepper raises the taught
+    error. Every other stepper re-reads the tendency each step and is
+    unaffected — the guard is a no-op there.
     """
     if not getattr(stepper, "freezes_linear_operator", False):
         return
-    offenders = tuple(
-        (type(module).__name__, str(name))
-        for module in modules
-        for name in _time_dependent_linear_params(module))
+    offenders: dict[tuple[str, str], None] = {}
+    for module in modules:
+        for name in _time_dependent_linear_params(module):
+            offenders.setdefault((type(module).__name__, str(name)))
+        for name in _table_resolved_time_dependent(
+                module, modules, stepper, binding_table):
+            offenders.setdefault((type(module).__name__, name))
     if offenders:
         raise TimeDependentLinearOperatorError(
-            offenders, stepper=type(stepper).__name__)
+            tuple(offenders), stepper=type(stepper).__name__)
+
+
+def _table_resolved_time_dependent(
+    module: object,
+    modules: tuple,
+    stepper: object,
+    binding_table: ParameterBindingTable | None,
+) -> tuple[str, ...]:
+    """Resolve a module's ``L``-feeding names through the table.
+
+    Unbound names are skipped (nothing feeds ``L`` through them);
+    constant rows are never time-dependent. What remains is read
+    from the live provider leaf — a ``TimeDependent`` there feeds a
+    stale ``exp(L dt)``.
+    """
+    if binding_table is None:
+        return ()
+    names = []
+    for name in _linear_operator_params(module):
+        if name not in binding_table:
+            continue
+        entry = binding_table[name]
+        if entry.slot is None:
+            continue
+        leaf = _read_leaf(entry, modules, stepper)
+        if isinstance(leaf, TimeDependent):
+            names.append(name)
+    return tuple(names)
 
 
 def _time_dependent_linear_params(module: object) -> tuple[str, ...]:
     """Read a module's time-dependent-``L`` parameter report (duck)."""
     hook = getattr(module, "time_dependent_linear_parameters", None)
     return tuple(hook()) if callable(hook) else ()
+
+
+def _linear_operator_params(module: object) -> tuple[str, ...]:
+    """Read a module's ``L``-feeding parameter names (duck)."""
+    hook = getattr(module, "linear_operator_parameters", None)
+    return tuple(str(name) for name in hook()) if callable(hook) \
+        else ()
 
 
 # ================================================================
@@ -374,12 +428,21 @@ class ParameterBindingTable:
     ----------
     entries : Iterable[ParameterBinding]
         The resolved rows, binding order.
+    alias_names : Iterable[str], optional
+        Names of assembly-injected rows (the ``fr.scaling`` alias
+        machinery): a provider-backed alias row binds a SECOND name
+        onto another row's live leaf — two names, one leaf, which is
+        legal because collision checks are per-name. Recorded so
+        host consumers (the optimal-balance interim guard) can tell
+        an aliased slot from a module-declared provide
+        (default: ()).
     """
 
-    __slots__ = ("_by_name", "_entries")
+    __slots__ = ("_alias_names", "_by_name", "_entries")
 
     def __init__(
         self, entries: Iterable[ParameterBinding],
+        alias_names: Iterable[str] = (),
     ) -> None:
         """Validate one-provider-per-name and freeze."""
         entries = tuple(entries)
@@ -399,6 +462,8 @@ class ParameterBindingTable:
             by_name[name] = entry
         object.__setattr__(self, "_entries", entries)
         object.__setattr__(self, "_by_name", by_name)
+        object.__setattr__(self, "_alias_names",
+                           frozenset(str(n) for n in alias_names))
 
     def __setattr__(self, name: str, value: object) -> None:
         """Reject mutation: the table is frozen after step 2."""
@@ -414,6 +479,7 @@ class ParameterBindingTable:
         cls,
         modules: tuple,
         stepper: object,
+        extra_rows: Iterable[ParameterBinding] | None = None,
     ) -> ParameterBindingTable:
         """
         Resolve provides/requires over a module tuple + stepper.
@@ -431,6 +497,17 @@ class ParameterBindingTable:
         References resolve against the provider rows; identity
         defaults bind to constant entries.
 
+        ``extra_rows`` are assembly-injected rows (the ``fr.scaling``
+        alias machinery): injected AFTER provider collection (a
+        module provide of the same name collides, named) and BEFORE
+        reference resolution (so a defaulted reference to the name
+        resolves against the injected row instead of binding an
+        identity-default constant). A provider-backed injected row
+        aliases a SECOND name onto another row's live leaf — two
+        names, one leaf, legal because collision checks are
+        per-name; ``update_parameters`` writes through either name
+        hit the same leaf (a double write in one call is last-wins).
+
         Parameters
         ----------
         modules : tuple
@@ -438,6 +515,9 @@ class ParameterBindingTable:
             / ``parameter_references`` read when present).
         stepper : object
             The time stepper (duck-typed: its ``dt`` leaf).
+        extra_rows : Iterable[ParameterBinding] | None, optional
+            Assembly-injected rows, recorded as alias names
+            (default: None).
 
         Returns
         -------
@@ -464,9 +544,23 @@ class ParameterBindingTable:
             _collect_module(module, slot, rows, providers,
                             references)
         _collect_stepper(stepper, rows, providers, references)
+        alias_names: list[str] = []
+        for row in tuple(extra_rows or ()):
+            name = str(row.name)
+            other = providers.get(name)
+            if other is not None:
+                raise ParameterCollisionError(
+                    f"parameter {name!r} has two providers: {other} "
+                    "and the assembly-injected scaling alias row; "
+                    "one provider per name (a module must not "
+                    "provide the canonical scaling name itself when "
+                    "a nondimensional scaling policy injects it)")
+            providers[name] = "the scaling policy (assembly-injected)"
+            rows[name] = row
+            alias_names.append(name)
         for label, reference in references:
             _resolve_reference(label, reference, rows, providers)
-        return cls(tuple(rows.values()))
+        return cls(tuple(rows.values()), alias_names=alias_names)
 
     # ================================================================
     #  Mapping-style access
@@ -475,6 +569,11 @@ class ParameterBindingTable:
     def names(self) -> tuple[str, ...]:
         """The bound dotted names, binding order."""
         return tuple(str(entry.name) for entry in self._entries)
+
+    @property
+    def alias_names(self) -> frozenset[str]:
+        """Names bound by assembly-injected (scaling alias) rows."""
+        return self._alias_names
 
     def __getitem__(self, name: str) -> ParameterBinding:
         """
@@ -605,11 +704,15 @@ class ParameterBindingTable:
         tuple
             Human-diffable token rows.
         """
-        return tuple(
+        rows = tuple(
             (str(entry.name), str(entry.slot), entry.attr,
              type(entry.value).__name__ if entry.slot is None
              else "")
             for entry in self._entries)
+        if self._alias_names:
+            rows += (("<scaling aliases>",
+                      ",".join(sorted(self._alias_names)), "", ""),)
+        return rows
 
     def __eq__(self, other: object) -> bool:
         """Structural equality over the binding rows."""
@@ -1217,6 +1320,12 @@ class _BindTable:
     surface refuses a non-multistep outer driver (its
     ``supports_split_advance`` capability, 03 section 5.4).
 
+    ``scaling`` is the assembly's ``fr.scaling`` policy object (or
+    None), read-only, so a scaling-neutral module family (the
+    advection schemes) can **adopt the variant at bind** — its term
+    bodies branch on the adopted host-side flag, never on a traced
+    value.
+
     Parameters
     ----------
     table : FieldTable
@@ -1227,9 +1336,12 @@ class _BindTable:
         The assembled module tuple, in module order (default: ()).
     time_stepper : object | None, optional
         The assembly's outer time stepper (default: None).
+    scaling : object | None, optional
+        The assembly's ``fr.scaling`` policy (default: None).
     """
 
-    __slots__ = ("_table", "modules", "parameters", "time_stepper")
+    __slots__ = ("_table", "modules", "parameters", "scaling",
+                 "time_stepper")
 
     def __init__(
         self,
@@ -1237,12 +1349,14 @@ class _BindTable:
         parameters: BindParameterView,
         modules: tuple = (),
         time_stepper: object | None = None,
+        scaling: object | None = None,
     ) -> None:
         """Pair the frozen table with the gated parameter view."""
         self._table = table
         self.parameters = parameters
         self.modules = tuple(modules)
         self.time_stepper = time_stepper
+        self.scaling = scaling
 
     def __getattr__(self, name: str) -> object:
         """Delegate everything else to the field table."""
@@ -1614,6 +1728,158 @@ class AssemblyArtifacts:
 
 
 # ================================================================
+#  The fr.scaling policy: validation + the injected epsilon row
+# ================================================================
+def _scaling_participants(
+    modules: tuple,
+) -> tuple[tuple[int, object, str], ...]:
+    """Collect ``(slot, module, variant)`` of the scaled families.
+
+    A module participates in the scaling policy when it exposes a
+    non-None ``scaling_variant`` instance property (``"dimensional"``
+    or ``"nondimensional"``, fixed at construction by its kwarg set).
+    Scaling-neutral modules (advection schemes) expose none and adopt
+    the variant at bind instead.
+    """
+    rows = []
+    for slot, module in enumerate(modules):
+        variant = getattr(module, "scaling_variant", None)
+        if variant is not None:
+            rows.append((slot, module, str(variant)))
+    return tuple(rows)
+
+
+def _scaling_rows(
+    modules: tuple, scaling: object | None,
+) -> tuple[ParameterBinding, ...]:
+    """
+    Validate the scaling policy and build the injected epsilon row.
+
+    Description
+    -----------
+    The assembly-side owner of the ``fr.scaling`` rules:
+
+    - modules of MIXED variants (one dimensional, one
+      nondimensional) never assemble — taught error listing the
+      offenders;
+    - a nondimensional module without a nondimensional policy (and
+      the converse: a nondimensional policy over dimensional
+      modules) is a policy/variant mismatch — taught error;
+    - a mechanism-named policy (``Rotational`` / ``GravityWave`` /
+      ...) needs exactly ONE assembled module owning that mechanism
+      (class trait ``scaling_mechanism``) in its nondimensional
+      variant: none is a structural refusal, two a collision;
+    - the injected row: ``Advective`` binds a constant 1.0; a
+      mechanism policy aliases ``scaling.nonlinearity`` onto the
+      owner's ``nonlinearity_attr`` leaf (two names, one leaf);
+      ``Dimensional`` / None bind no row (row presence <=>
+      nondimensional).
+
+    Parameters
+    ----------
+    modules : tuple
+        The assembled module tuple.
+    scaling : object | None
+        The ``fr.scaling`` policy object (duck-typed on the
+        ``nondimensional`` / ``mechanism`` traits), or None.
+
+    Returns
+    -------
+    tuple[ParameterBinding, ...]
+        The rows to inject (empty for dimensional/None).
+
+    Raises
+    ------
+    AssemblyError
+        On any of the taught refusals above.
+    """
+    participants = _scaling_participants(modules)
+    mixed = {variant for _, _, variant in participants}
+    if len(mixed) > 1:
+        offenders = "; ".join(
+            f"modules[{slot}] ({type(module).__name__}): {variant}"
+            for slot, module, variant in participants)
+        raise AssemblyError(
+            "modules of MIXED scaling variants never assemble — "
+            "every scaled module family must be constructed with "
+            "the same kwarg set (all dimensional, or all "
+            f"nondimensional): {offenders}")
+    nondim_policy = bool(getattr(scaling, "nondimensional", False))
+    nondim_modules = [
+        (slot, module) for slot, module, variant in participants
+        if variant == "nondimensional"]
+    if nondim_modules and not nondim_policy:
+        offenders = ", ".join(
+            f"modules[{slot}] ({type(module).__name__})"
+            for slot, module in nondim_modules)
+        policy = ("no scaling policy (scaling=None)"
+                  if scaling is None else f"scaling={scaling!r}")
+        raise AssemblyError(
+            f"nondimensional module(s) {offenders} need a "
+            "nondimensional scaling policy naming the reference "
+            "time frame, but the assembly carries "
+            f"{policy}; pass e.g. "
+            "Model(scaling=fr.scaling.GravityWave()) — or construct "
+            "the modules with their dimensional kwarg set")
+    if not nondim_policy:
+        return ()
+    if participants and not nondim_modules:
+        offenders = ", ".join(
+            f"modules[{slot}] ({type(module).__name__})"
+            for slot, module, _ in participants)
+        raise AssemblyError(
+            f"scaling={scaling!r} is nondimensional, but every "
+            f"scaled module ({offenders}) is constructed with its "
+            "dimensional kwarg set; pass scaling="
+            "fr.scaling.Dimensional() (or drop scaling=) for "
+            "dimensional physics, or construct the modules with "
+            "their nondimensional kwargs")
+    mechanism = getattr(scaling, "mechanism", None)
+    if mechanism is None:
+        # the advective frame: epsilon = 1, a constant row
+        return (ParameterBinding(
+            name=SCALING_NONLINEARITY, slot=None, attr="",
+            declaration=ParameterDeclaration(
+                SCALING_NONLINEARITY,
+                doc="epsilon = 1 (the advective time frame)"),
+            value=1.0),)
+    owners = [
+        (slot, module) for slot, module in nondim_modules
+        if getattr(module, "scaling_mechanism", None) == mechanism]
+    if not owners:
+        raise AssemblyError(
+            f"scaling={scaling!r} makes the {mechanism!r} "
+            "mechanism's nonlinearity number the reference epsilon, "
+            "but no assembled module owns that mechanism in its "
+            "nondimensional variant; assemble the mechanism's "
+            "module family (nondimensional kwargs), or pick a "
+            "scaling whose mechanism the model carries")
+    if len(owners) > 1:
+        names = ", ".join(
+            f"modules[{slot}] ({type(module).__name__})"
+            for slot, module in owners)
+        raise AssemblyError(
+            f"scaling={scaling!r}: the {mechanism!r} mechanism has "
+            f"two owners ({names}); exactly one module may own the "
+            "epsilon-designated nonlinearity leaf")
+    slot, owner = owners[0]
+    attr = getattr(owner, "nonlinearity_attr", None)
+    if not attr:
+        raise AssemblyError(
+            f"modules[{slot}] ({type(owner).__name__}) owns the "
+            f"{mechanism!r} mechanism but declares no "
+            "nonlinearity_attr trait; the module family must name "
+            "the leaf the scaling alias row binds")
+    return (ParameterBinding(
+        name=SCALING_NONLINEARITY, slot=slot, attr=attr,
+        declaration=ParameterDeclaration(
+            SCALING_NONLINEARITY, attr=attr,
+            doc=(f"scaling alias onto modules[{slot}] "
+                 f"({type(owner).__name__}).{attr}")),
+    ),)
+
+
+# ================================================================
 #  assemble() — the nine-step pipeline (steps 1-7 + 9)
 # ================================================================
 def assemble(
@@ -1624,6 +1890,7 @@ def assemble(
     state_type: type | None = None,
     name: str | None = None,
     term_filter: Callable | None = None,
+    scaling: object | None = None,
 ) -> AssemblyArtifacts:
     """
     Run the nine-step assembly pipeline (model.md section 6.2).
@@ -1669,6 +1936,13 @@ def assemble(
         Variant term predicate ``(key, term) -> bool`` (2.8
         mechanics; declarations/stages never filtered)
         (default: None).
+    scaling : object | None, optional
+        The ``fr.scaling`` policy object. A nondimensional policy
+        injects the ``scaling.nonlinearity`` binding row (a
+        constant 1.0 for ``Advective``, an alias onto the
+        designated mechanism module's nonlinearity leaf otherwise);
+        ``Dimensional`` / None inject no row. Validated against the
+        modules' declared scaling variants (default: None).
 
     Returns
     -------
@@ -1701,9 +1975,11 @@ def assemble(
     state_type = _resolve_state_type(modules, state_type)
 
     # -- step 2: parameters --------------------------------------
-    binding_table = ParameterBindingTable.build(modules,
-                                                time_stepper)
-    _check_frozen_linear_operator(modules, time_stepper)
+    extra_rows = _scaling_rows(modules, scaling)
+    binding_table = ParameterBindingTable.build(
+        modules, time_stepper, extra_rows=extra_rows)
+    _check_frozen_linear_operator(modules, time_stepper,
+                                  binding_table)
 
     # -- step 3: dispatch merge (before bind/dry-run/negotiate) --
     overrides = _collect_dispatch_overrides(modules, grid)
@@ -1726,7 +2002,7 @@ def assemble(
     bind_table = _BindTable(table, BindParameterView({
         str(entry.name): _read_leaf(entry, modules, time_stepper)
         for entry in binding_table}), modules,
-        time_stepper=time_stepper)
+        time_stepper=time_stepper, scaling=scaling)
     for module in modules:
         bind = getattr(module, "bind", None)
         if callable(bind):

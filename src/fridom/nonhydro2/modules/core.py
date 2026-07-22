@@ -1,26 +1,30 @@
-"""The nonhydrostatic dynamical core module.
+r"""The nonhydrostatic dynamical core module.
 
 Description
 -----------
-``DynamicalCore`` is the package's dynamical-core module (D1.3): it
-declares the velocity trio ``u, v, w`` (Velocity + ADVECTED roles, on
-the C-grid staggered faces) and the diagnostic pressure ``p``; it owns
-the core parameters ``nonhydro.dsqr`` and ``scaling.rossby``; and it
-owns the pressure-projection **CONSTRAINT** stage (S4). It contributes
-**no tendency terms** — Coriolis, buoyancy coupling, and advection are
-separate modules — so the minimal core is declarations + a stage
-(the decisive D1.3 evidence). It supplies the ``nh.State`` vocabulary
-class through ``state_type``.
+``Core`` is the package's dynamical-core module (D1.3): it declares
+the velocity trio ``u, v, w`` (Velocity + ADVECTED roles, on the
+C-grid staggered faces) and the diagnostic pressure ``p``; it owns
+the aspect ratio :math:`\delta` (``nonhydro.aspect_ratio``, squared
+at every use site); and it owns the pressure-projection
+**CONSTRAINT** stage (S4). It contributes **no tendency terms** —
+Coriolis, buoyancy coupling, and advection are separate modules — so
+the minimal core is declarations + a stage (the decisive D1.3
+evidence). It supplies the ``nh.State`` vocabulary class through
+``state_type``.
 
-The ``dsqr`` and ``rossby`` scalars are additionally published as 1-DOF
-``ConstantSpace`` AUXILIARY fields so the coupling/advection terms scale
-by them through halo-traceable field-times-field products (the tracer
-forbids raw ``.data`` scaling outside the ``extra_halo`` exemption);
-the scalar provides are the second read surface for analytic consumers
-(the pressure eigenvalue, ``nh.eigenmodes``).
+The core is **scaling-neutral** (``fr.scaling``): the aspect ratio
+:math:`\delta = H/L` is a pure geometry number present in every
+assembly — dimensional and nondimensional alike — and the core
+carries no nonlinearity leaf of its own (the scaling variant is fixed
+by the Coriolis / stratification module kwarg sets and the
+``Model(scaling=)`` policy). The projection's vertical weight is the
+live :math:`1/\delta^2`, squared at the use site from the provided
+:math:`\delta` (``ctx.params``, stage time — Ramp-able).
 """
 from __future__ import annotations
 
+import numbers
 from functools import partial
 from typing import TYPE_CHECKING
 
@@ -39,8 +43,9 @@ from fridom.nonhydro2.modules.mapped_pressure import (
     MappedPressureSolver,
 )
 from fridom.nonhydro2.modules.pressure import SpectralPressureSolver
-from fridom.nonhydro2.params import DSQR, ROSSBY
+from fridom.nonhydro2.params import ASPECT_RATIO
 from fridom.nonhydro2.state import State
+from fridom.nonhydro2.units import COMPONENT_FACTORS, coordinate_factors
 from fridom.spatial.bc import BC
 from fridom.spatial.fields.vector_field import VectorField
 from fridom.spatial.operators.banded import validate_tridiagonal_method
@@ -267,7 +272,7 @@ def resolve_model_family(family: str | None, grid: Grid) -> str:
     Description
     -----------
     The nonhydro model-assembly family (``nh.Model(family=...)`` /
-    ``DynamicalCore(family=...)``, scoping study §8): ``None`` is the
+    ``Core(family=...)``, scoping study §8): ``None`` is the
     **auto** default — it follows the grid's own ``default_family``,
     and *promotes* the ``"nodal"`` grid default to ``"fv"`` whenever
     the grid can carry the FV C-grid (:func:`_fv_capable`, now every
@@ -325,19 +330,20 @@ def resolve_model_family(family: str | None, grid: Grid) -> str:
     return family
 
 
-@partial(jaxify, dynamic=("dsqr", "rossby"))
-class DynamicalCore(fr.model.Module):
+@partial(jaxify, dynamic=("aspect_ratio",))
+class Core(fr.model.Module):
 
-    """Declares u, v, w, p; owns dsqr/rossby and the projection.
+    r"""Declares u, v, w, p; owns the aspect ratio and the projection.
 
     Parameters
     ----------
-    dsqr : float | fr.model.Ramp, optional
-        The squared aspect ratio ``(H/L)^2`` (default: 1.0); may be an
-        ``fr.model.Ramp`` for a time-dependent aspect ratio.
-    rossby_number : float | fr.model.Ramp, optional
-        The Rossby number scaling the nonlinear terms (default: 1.0);
-        may be a ``fr.model.Ramp`` for a spun-up nonlinearity.
+    aspect_ratio : float | fr.model.Ramp, optional
+        The aspect ratio :math:`\delta = H/L` (default: 1.0);
+        published as ``nonhydro.aspect_ratio`` and **squared at the
+        use sites** (the projection's vertical weight
+        :math:`1/\delta^2`, the coupling terms' ``delta**2``). May
+        be an ``fr.model.Ramp`` for a time-dependent aspect ratio;
+        must be nonzero (the projection divides by its square).
     vertical : str, optional
         The vertical coordinate name (default: ``"z"``).
     coords : tuple[str, ...], optional
@@ -446,9 +452,8 @@ class DynamicalCore(fr.model.Module):
 
     def __init__(
         self,
-        dsqr: float | fr.model.Ramp = 1.0,
         *,
-        rossby_number: float | fr.model.Ramp = 1.0,
+        aspect_ratio: float | fr.model.Ramp = 1.0,
         vertical: str = "z",
         coords: tuple[str, ...] = ("x", "y", "z"),
         single_precision_solve: bool = False,
@@ -461,13 +466,29 @@ class DynamicalCore(fr.model.Module):
         multigrid_agglomerate: int | None = None,
         family: str | None = None,
     ) -> None:
-        """Store the core parameter leaves and the geometry names."""
+        """Store the core parameter leaves and the geometry names.
+
+        Raises
+        ------
+        ValueError
+            On an unknown ``family``.
+        TypeError
+            On ``aspect_ratio=0`` (the projection's vertical weight
+            divides by its square, so an exact zero poisons the run
+            far from here).
+        """
         if family is not None and family not in FAMILIES:
             raise ValueError(
                 f"family must be one of {FAMILIES} or None, got "
                 f"{family!r}")
-        self.dsqr = fr.model.leaf(dsqr)
-        self.rossby = fr.model.leaf(rossby_number)
+        if (isinstance(aspect_ratio, numbers.Number)
+                and float(aspect_ratio) == 0.0):
+            raise TypeError(
+                "nh.Core aspect_ratio=0 is refused: the pressure "
+                "projection divides by its square, so an exact zero "
+                "poisons the run (and its VJP) far from here; pass a "
+                "nonzero aspect ratio")
+        self.aspect_ratio = fr.model.leaf(aspect_ratio)
         self._vertical = vertical
         self._coords = coords
         self._single_precision_solve = bool(single_precision_solve)
@@ -610,30 +631,51 @@ class DynamicalCore(fr.model.Module):
         return fv_cgrid_overrides(grid.factors)
 
     # ================================================================
-    #  Parameters -- dsqr and the Rossby number live on the core
+    #  Parameters -- the aspect ratio lives on the core
     # ================================================================
     parameter_declarations = (
-        fr.model.ParameterDeclaration(DSQR, attr="dsqr", units="1",
-                                doc="squared aspect ratio (H/L)^2"),
-        fr.model.ParameterDeclaration(ROSSBY, attr="rossby", units="1",
-                                doc="Rossby number (nonlinear scaling)"),
+        fr.model.ParameterDeclaration(
+            ASPECT_RATIO, attr="aspect_ratio", units="1",
+            doc="aspect ratio H/L (squared at the use sites)"),
     )
 
-    def time_dependent_linear_parameters(self) -> tuple[str, ...]:
-        """Report a ramped ``dsqr`` feeding the frozen linear operator.
+    @property
+    def unit_factors(self) -> dict[str, fr.model.UnitFactor]:
+        """Dimensional-factor rows (``model.units``, §D).
 
-        ``dsqr`` enters ``L`` through the pressure projection, which is
-        a CONSTRAINT stage (S4) rather than a ``linear=True`` term, so
-        the structural term sweep (TDF-D4) cannot see it: a model
-        assembled without stratification would otherwise slip a ramped
-        ``dsqr`` past a frozen-``L`` (exponential) stepper silently. The
-        core owns the leaf, so it reports it here directly (and closes
-        the cross-module hole where a stratification term consumes but
-        does not own ``dsqr``).
+        The nonhydrostatic amplitude table
+        (:mod:`fridom.nonhydro2.units`) plus the coordinate rows —
+        an instance property because ``coords=`` / ``vertical=``
+        rename the coordinate keys (the vertical row is
+        ``delta*L``).
+        """
+        return {**coordinate_factors(self._coords, self._vertical),
+                **COMPONENT_FACTORS}
+
+    @property
+    def family(self) -> str | None:
+        """The requested discretization family (None = grid default).
+
+        The ``nh.Model`` preset reads this to resolve the auto flip
+        against the grid (``resolve_model_family``) before assembly.
+        """
+        return self._family
+
+    def time_dependent_linear_parameters(self) -> tuple[str, ...]:
+        """Report a ramped aspect ratio feeding the frozen linear operator.
+
+        The aspect ratio enters ``L`` through the pressure projection,
+        which is a CONSTRAINT stage (S4) rather than a ``linear=True``
+        term, so the structural term sweep (TDF-D4) cannot see it: a
+        model assembled without stratification would otherwise slip a
+        ramped aspect ratio past a frozen-``L`` (exponential) stepper
+        silently. The core owns the leaf, so it reports it here
+        directly (and closes the cross-module hole where a
+        stratification term consumes but does not own it).
         """
         names = list(super().time_dependent_linear_parameters())
-        if isinstance(self.dsqr, fr.model.TimeDependent):
-            names.append(str(DSQR))
+        if isinstance(self.aspect_ratio, fr.model.TimeDependent):
+            names.append(str(ASPECT_RATIO))
         return tuple(names)
 
     # ================================================================
@@ -736,7 +778,8 @@ class DynamicalCore(fr.model.Module):
             return self._project_mapped(state, ctx)
         if immersed:
             return self._project_immersed(state, ctx)
-        dsqr = ctx.params[DSQR]
+        delta = ctx.params[ASPECT_RATIO]
+        dsqr = delta * delta
         vel = VectorField({
             "u": state["u"], "v": state["v"], "w": state["w"]})
         div = Divergence()(vel)
@@ -797,7 +840,8 @@ class DynamicalCore(fr.model.Module):
         zero guess, and the mean gauge is enforced start-independently
         inside the solve, so the result is unchanged.
         """
-        dsqr = ctx.params[DSQR]
+        delta = ctx.params[ASPECT_RATIO]
+        dsqr = delta * delta
         grid = state["u"].grid
         vel = {
             "x": state["u"],
@@ -859,7 +903,8 @@ class DynamicalCore(fr.model.Module):
         inside the solve, so a good guess only saves iterations. The
         first step's zero ``p`` seeds a zero guess (unchanged).
         """
-        dsqr = ctx.params[DSQR]
+        delta = ctx.params[ASPECT_RATIO]
+        dsqr = delta * delta
         grid = state["u"].grid
         vel = {
             "x": state["u"],
@@ -916,7 +961,8 @@ class DynamicalCore(fr.model.Module):
         is seeded with the previous step's potential
         ``x0 = state["p"] * ctx.stage_dt``.
         """
-        dsqr = ctx.params[DSQR]
+        delta = ctx.params[ASPECT_RATIO]
+        dsqr = delta * delta
         grid = state["u"].grid
         vel = {
             "x": state["u"],

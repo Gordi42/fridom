@@ -21,7 +21,7 @@ from fridom.model.model import Model, _chunk_body
 from fridom.model.time_steppers.adam_bashforth import (
     AdamBashforth,
 )
-from fridom.nonhydro2.modules.core import DynamicalCore
+from fridom.nonhydro2.modules.core import Core
 from fridom.nonhydro2.modules.smagorinsky_lilly import SmagorinskyLilly
 from fridom.nonhydro2.modules.stratification import (
     ConstantStratification,
@@ -53,7 +53,7 @@ def make_model(n2=0.0, grid=None, stratification=None, **kwargs):
         stratification = ConstantStratification(n2=n2)
     return Model(
         grid=grid or make_grid(),
-        modules=(DynamicalCore(), stratification,
+        modules=(Core(), stratification,
                  SmagorinskyLilly(**kwargs)),
         time_stepper=AdamBashforth(DT, order=3))
 

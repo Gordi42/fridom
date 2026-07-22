@@ -25,6 +25,7 @@ import pytest
 import fridom as fr
 import fridom.nonhydro2 as nh
 from fridom.model.terms import term
+from fridom.model.time_steppers.adam_bashforth import AdamBashforth
 from fridom.model.transforms.errors import SignatureMismatchError
 from fridom.model.transforms.projection import EigenProjection
 from fridom.spatial.grid import Grid
@@ -52,8 +53,13 @@ def make_grid(n=8, length=2 * np.pi):
 def _model():
     # the f0 = 1 f-plane the old implicit coriolis=None default
     # installed, now named explicitly (rotation is opt-in)
-    return nh.Model(grid=make_grid(), dt=DT, advection=False,
-                    coriolis=nh.FPlaneCoriolis(f0=1.0))
+    return nh.Model(
+        grid=make_grid(),
+        core=nh.Core(),
+        time_stepper=AdamBashforth(DT, order=3),
+        coriolis=nh.FPlaneCoriolis(f0=1.0),
+        stratification=nh.ConstantStratification(n2=1.0),
+        advection=False)
 
 
 def _state(model, seed=1):
@@ -231,9 +237,14 @@ def test_projection_rest_zero_completes_a_passive_tracer():
     # a state extended by a prognostic passive tracer: the vortical
     # projection (rest="zero") returns the tracer as a zero field on
     # its own space, and the residual carries it fully (§10.7.2)
-    model = nh.Model(grid=make_grid(), dt=DT, advection=False,
-                     coriolis=nh.FPlaneCoriolis(f0=1.0),
-                     modules_extra=(_PassiveTracer(),))
+    model = nh.Model(
+        grid=make_grid(),
+        core=nh.Core(),
+        time_stepper=AdamBashforth(DT, order=3),
+        coriolis=nh.FPlaneCoriolis(f0=1.0),
+        stratification=nh.ConstantStratification(n2=1.0),
+        advection=False,
+        modules_extra=(_PassiveTracer(),))
     _state(model, seed=13)
     rng = np.random.default_rng(14)
     shape = np.asarray(model.state["c"].data).shape
@@ -280,10 +291,12 @@ def make_channel_model(*, walled="y", beta=None, device_ids=(0,),
     coriolis = (nh.FPlaneCoriolis(f0=F0) if beta is None
                 else nh.BetaPlaneCoriolis(f0=F0, beta=beta))
     return nh.Model(
-        grid=Grid(meshes, device_ids=device_ids), advection=False,
-        dsqr=DSQR, coriolis=coriolis, family=family,
+        grid=Grid(meshes, device_ids=device_ids),
+        core=nh.Core(aspect_ratio=(DSQR) ** 0.5, family=family),
+        time_stepper=AdamBashforth(5e-3, order=3),
+        coriolis=coriolis,
         stratification=nh.ConstantStratification(n2=N2),
-        time_stepper=fr.model.time_steppers.AdamBashforth(5e-3, order=3))
+        advection=False)
 
 
 @pytest.fixture(scope="module")
@@ -504,10 +517,12 @@ def test_multiwalled_grids_are_rejected():
                      name=name)
         for name in ("x", "y", "z"))
     model = nh.Model(
-        grid=Grid(meshes), advection=False, dsqr=DSQR,
+        grid=Grid(meshes),
+        core=nh.Core(aspect_ratio=(DSQR) ** 0.5),
+        time_stepper=AdamBashforth(5e-3, order=3),
         coriolis=nh.FPlaneCoriolis(f0=F0),
         stratification=nh.ConstantStratification(n2=N2),
-        time_stepper=fr.model.time_steppers.AdamBashforth(5e-3, order=3))
+        advection=False)
     with pytest.raises(ValueError, match="multi-walled"):
         nh.eigenbasis(model)
     with pytest.raises(ValueError, match="multi-walled"):
@@ -584,9 +599,12 @@ def _periodic_model(device_ids, n=16):
         IntervalMesh(n, (0.0, 2 * np.pi), periodic=True, name=name)
         for name in ("x", "y", "z")), device_ids=device_ids)
     return nh.Model(
-        grid=grid, dt=DT, advection=False,
-        coriolis=nh.FPlaneCoriolis(f0=F0), dsqr=DSQR,
-        stratification=nh.ConstantStratification(n2=N2))
+        grid=grid,
+        core=nh.Core(aspect_ratio=(DSQR) ** 0.5),
+        time_stepper=AdamBashforth(DT, order=3),
+        coriolis=nh.FPlaneCoriolis(f0=F0),
+        stratification=nh.ConstantStratification(n2=N2),
+        advection=False)
 
 
 @pytest.mark.multi_device

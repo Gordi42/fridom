@@ -20,7 +20,7 @@ from fridom.model.modules.advection import (
 )
 from fridom.model.modules.coriolis import FPlaneCoriolis
 from fridom.model.time_steppers.adam_bashforth import AdamBashforth
-from fridom.nonhydro2.modules.core import DynamicalCore
+from fridom.nonhydro2.modules.core import Core
 from fridom.nonhydro2.modules.stratification import (
     ConstantStratification,
 )
@@ -43,9 +43,9 @@ def _immersed_grid(n=10):
 
 
 def _fv_modules(advection):
-    """DynamicalCore(fv) + b + advection, an assemblable module set."""
+    """Core(fv) + b + advection, an assemblable module set."""
     return (
-        DynamicalCore(family="fv"),
+        Core(family="fv"),
         ConstantStratification(n2=0.0, family="fv"),
         FPlaneCoriolis(f0=1.0),
         advection,

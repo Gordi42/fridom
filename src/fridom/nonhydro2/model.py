@@ -2,12 +2,22 @@
 
 Description
 -----------
-``nh.Model(grid=..., coriolis=..., stratification=..., ...)`` is a thin
-**factory function** (never a class — D1.3 commitment 2): it builds the
-module tuple and delegates to a plain ``fr.model.Model``. Preset assembly and
-explicit assembly produce identical carry treedefs (the D4 preset
-test). The default stepper is ``AdamBashforth(order=3)`` (the nh
-cutover default, V-N3).
+``nh.Model(grid=..., core=..., time_stepper=..., ...)`` is a thin
+**factory function** (never a class — D1.3 commitment 2): it builds
+the module tuple and delegates to a plain ``fr.model.Model``. Preset
+assembly and explicit assembly produce identical carry treedefs (the
+D4 preset test).
+
+The physics lives on the **core** (``nh.Core``, which also carries
+the solver/family knobs), the physics modules (Coriolis /
+stratification, whose kwarg sets fix the scaling variant) and the
+**scaling** policy (``fr.scaling``): ``scaling=`` names the reference
+time frame (default: ``fr.scaling.Dimensional()`` — a dimensional
+assembly needs no scaling argument at all). The retired preset kwargs
+(``dsqr=``, ``rossby_number=``, the solver knobs, ``dt=``) raise
+taught TypeErrors naming the new spelling. Stratification is
+**opt-in**: ``stratification=None`` (the default) installs no
+stratification module at all.
 """
 from __future__ import annotations
 
@@ -15,13 +25,7 @@ from typing import TYPE_CHECKING
 
 import fridom as fr
 from fridom.model.modules.advection import CenteredAdvection
-from fridom.nonhydro2.modules.core import (
-    DynamicalCore,
-    resolve_model_family,
-)
-from fridom.nonhydro2.modules.stratification import (
-    ConstantStratification,
-)
+from fridom.nonhydro2.modules.core import resolve_model_family
 
 if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Sequence
@@ -30,27 +34,47 @@ if TYPE_CHECKING:  # pragma: no cover
     from fridom.model.time_steppers.base import TimeStepper
     from fridom.spatial.grid import Grid
 
+#: retired preset kwargs -> the taught replacement spelling
+_RETIRED_KWARGS = {
+    "dsqr": (
+        "dsqr= is retired: the core carries the aspect ratio — pass "
+        "core=nh.Core(aspect_ratio=...) (squared at the use sites, "
+        "so aspect_ratio=sqrt(dsqr))"),
+    "rossby_number": (
+        "rossby_number= is retired: the nonlinearity number is the "
+        "scaling mechanism's own regime number — pass a "
+        "nondimensional Coriolis module "
+        "(FPlaneCoriolis(rossby_number=...)) with "
+        "scaling=fr.scaling.Rotational() (epsilon = Ro), or a "
+        "nondimensional stratification "
+        "(ConstantStratification(froude_number=...)) with "
+        "scaling=fr.scaling.InternalWave() (epsilon = Fr)"),
+    "dt": (
+        "dt= is retired on the preset: pass the stepper explicitly, "
+        "time_stepper=fr.model.time_steppers.AdamBashforth(dt, "
+        "order=3)"),
+}
+
+#: solver/family kwargs that moved onto the core (one taught message)
+_CORE_KWARGS = (
+    "family", "single_precision_solve", "pressure_iterations",
+    "pressure_tolerance", "pressure_preconditioner",
+    "multigrid_levels", "multigrid_tridiagonal_method",
+    "multigrid_coarsen_vertical", "multigrid_agglomerate", "vertical",
+    "coords",
+)
+
 
 def Model(  # noqa: N802 — a factory that mirrors fr.model.Model's surface
     *,
     grid: Grid,
-    dsqr: float = 1.0,
-    rossby_number: float | fr.model.Ramp = 1.0,
+    core: fr.model.Module,
+    time_stepper: TimeStepper,
+    scaling: object | None = None,
     coriolis: fr.model.Module | None = None,
     stratification: fr.model.Module | None = None,
     advection: fr.model.Module | bool = True,
-    pressure_iterations: int = 30,
-    pressure_tolerance: float | None = 1e-8,
-    pressure_preconditioner: str | None = None,
-    multigrid_levels: int | None = None,
-    multigrid_tridiagonal_method: str = "auto",
-    multigrid_coarsen_vertical: bool = True,
-    multigrid_agglomerate: int | None = None,
     modules_extra: Sequence[fr.model.Module] = (),
-    time_stepper: TimeStepper | None = None,
-    dt: float = 1.0,
-    single_precision_solve: bool = False,
-    family: str | None = None,
     name: str | None = None,
     **kwargs: object,
 ) -> _Model:
@@ -60,135 +84,54 @@ def Model(  # noqa: N802 — a factory that mirrors fr.model.Model's surface
     ----------
     grid : Grid
         The grid to assemble on.
-    dsqr : float, optional
-        Squared aspect ratio for the dynamical core (default: 1.0).
-    rossby_number : float | fr.model.Ramp, optional
-        Rossby number (default: 1.0).
+    core : fr.model.Module
+        The dynamical core, ``nh.Core``: carries the aspect ratio
+        (``aspect_ratio=``, squared at the use sites) and the
+        pressure-solver / discretization-family knobs. The preset
+        resolves the family auto-flip against the grid through
+        ``core.family``.
+    time_stepper : TimeStepper
+        The time stepper (e.g.
+        ``fr.model.time_steppers.AdamBashforth(dt, order=3)``).
+    scaling : object | None, optional
+        The ``fr.scaling`` policy naming the reference time frame;
+        ``None`` defaults to ``fr.scaling.Dimensional()`` — a
+        dimensional assembly needs no scaling argument. A
+        nondimensional Coriolis/stratification kwarg set needs the
+        matching nondimensional policy (``fr.scaling.Rotational()`` /
+        ``InternalWave()`` / ``Advective()``); the assembly refuses a
+        mismatch with a taught error (default: None).
     coriolis : fr.model.Module | None, optional
         The Coriolis module. ``None`` — the argument omitted, the
         default — means **no rotation at all**: no Coriolis module
         is installed, so the model carries no ``f_coriolis`` field,
-        no rotation term and no ``coriolis.f0`` provide. Rotation is
-        opt-in: pass ``nh.FPlaneCoriolis(f0=...)`` /
+        no rotation term and no rotation provide. Rotation is
+        opt-in: pass ``nh.FPlaneCoriolis(f0=...)`` (dimensional) /
+        ``FPlaneCoriolis(rossby_number=...)`` (nondimensional) /
         ``nh.BetaPlaneCoriolis(...)`` on a flat grid, or
-        ``fr.modules.RotationCoriolis(omega=(0.0, 0.0, Omega),
+        ``fr.model.modules.RotationCoriolis(omega=(0.0, 0.0, Omega),
         coords=...)`` on a chart-coupled grid (default: None).
 
         Note that a non-rotating **linear** nonhydrostatic model
-        (``advection=False``) leaves ``u``/``v`` advanced by no term
-        at all and is rejected by the D1.4 coverage lint — a linear
-        run needs a Coriolis module.
+        (``advection=False``) with no stratification leaves
+        ``u``/``v`` advanced by no term at all and is rejected by
+        the D1.4 coverage lint.
     stratification : fr.model.Module | None, optional
-        The stratification module
-        (default: ``ConstantStratification(n2=1.0)``).
+        The stratification module. ``None`` — the default — installs
+        **no stratification at all** (explicit opt-in; there is no
+        surprising default N^2): pass
+        ``nh.ConstantStratification(n2=...)`` (dimensional) /
+        ``ConstantStratification(froude_number=...)``
+        (nondimensional) / ``nh.MeridionalStratification(...)``
+        (default: None).
     advection : fr.model.Module | bool, optional
         The advection module: ``True`` uses the default
         ``CenteredAdvection()``, ``False`` omits advection (a linear
-        model), and a module instance is used as given (default: True).
-    pressure_iterations : int, optional
-        The fixed PCG iteration budget of the fixed-iteration pressure
-        solve, forwarded to the dynamical core; consumed on a
-        coordinate-mapped grid *and* on an immersed (cut-cell) grid
-        (both run the fixed-iteration PCG). The flat spectral solve is
-        exact and iterates nothing (default: 30).
-    pressure_tolerance : float | None, optional
-        The PCG convergence break forwarded to the dynamical
-        core (the measure-weighted true relative residual; masked scan,
-        exact gradient — see ``DynamicalCore`` and
-        :class:`ConjugateGradient`). The default ``1e-8`` makes
-        ``pressure_iterations`` the maximum budget; ``None`` is the
-        opt-out that runs the fixed count (default: 1e-8).
-    pressure_preconditioner : str | None, optional
-        The PCG preconditioner of the fixed-iteration pressure solve
-        (B4), forwarded to the dynamical core: ``"spectral"``,
-        ``"multigrid"`` or ``"none"``. ``None`` (the default) is auto —
-        a mapped or immersed grid resolves to ``"spectral"``, a composed
-        mapped + immersed grid to ``"multigrid"`` (MI-D3); an explicit
-        string is honoured unchanged. Consumed on a mapped / immersed /
-        composed grid; a flat grid uses the exact spectral solve and
-        ignores it (default: None).
-    multigrid_levels : int | None, optional
-        The multigrid depth when ``pressure_preconditioner="multigrid"``;
-        ignored otherwise. ``None`` (the default) coarsens to the
-        four-cell horizontal floor (floor-limited depth, h-independent
-        iteration counts at every size); an ``int`` is a maximum cap as
-        before (floored on small grids either way) (default: None).
-    multigrid_tridiagonal_method : str, optional
-        The vertical-line tridiagonal kernel of the multigrid smoother
-        (``"auto"`` / ``"cusparse"`` / ``"pcr"`` / ``"scan"``),
-        forwarded to the dynamical core; ``"auto"`` picks the batched
-        cuSPARSE solve on a GPU and pure-jax parallel cyclic reduction
-        elsewhere. Consumed only for
-        ``pressure_preconditioner="multigrid"`` (default: ``"auto"``).
-    multigrid_coarsen_vertical : bool, optional
-        Whether the mapped multigrid V-cycle coarsens the vertical
-        column too (full 3-D coarsening), forwarded to the dynamical
-        core and on to the :class:`MappedPressureSolver` (the immersed
-        solver keeps semicoarsening, out of GM-D9's scope). ``True`` —
-        the owner-ratified default (GM-D9, 2026-07-18) — coarsens the
-        vertical alongside the horizontals wherever the vertical mesh
-        supports it (identical 10-iteration convergence, -6..-11% per CG
-        iteration at 128/256/512^3 on the GB-2 mapped protocol),
-        degrading to horizontal semicoarsening automatically where it
-        cannot (a Chebyshev vertical, an indivisible ``n_z``); ``False``
-        restores pure semicoarsening. Consumed only on a mapped grid with
-        ``pressure_preconditioner="multigrid"`` (default: True).
-    multigrid_agglomerate : int | None, optional
-        The coarse-grid agglomeration threshold ``tau`` in planes
-        (MG-D10), forwarded to the dynamical core and on to the mapped
-        and immersed solvers. From the first coarse level whose shortest
-        would-be per-shard extent falls below ``tau`` (and that is small
-        enough to replicate), that level and every level below it are
-        built fully replicated, so the redundant coarse compute runs
-        collective-free instead of paying a ring halo exchange to shard
-        one or two planes. ``None`` (the default) disables
-        agglomeration; a no-op on one device. Consumed only for
-        ``pressure_preconditioner="multigrid"`` (default: None).
+        model), and a module instance is used as given. The module
+        is scaling-neutral and adopts the assembly's variant at bind
+        (default: True).
     modules_extra : Sequence[fr.model.Module], optional
         Additional modules (tracers, closures) (default: ()).
-    time_stepper : TimeStepper | None, optional
-        Override the default ``AdamBashforth(dt, order=3)``.
-    dt : float, optional
-        Time step for the default stepper (default: 1.0).
-    single_precision_solve : bool, optional
-        Run the spectral machinery of the pressure projection in
-        single precision (``float32``/``complex64``) while the state
-        stays ``float64`` — the whole solve on a flat grid, the PCG
-        preconditioner on a mapped one. A performance option
-        forwarded to ``DynamicalCore`` (see its
-        ``single_precision_solve`` doc). Off by default
-        (default: False).
-    family : str | None, optional
-        The discretization family of the whole model (FV-D3, stage
-        F3): ``"fv"`` is the finite-volume C-grid (scalars on
-        ``CellAvg``, velocities on the faces — FV-D2 option A),
-        ``"nodal"`` the point-value C-grid. ``None`` is the auto
-        default: **``"fv"`` on every grid** — periodic, walled, mapped
-        (terrain-following, static *or* dynamically driven) or immersed
-        — so a plain nonhydro model is finite-volume by default (owner
-        ruling 2026-07-17: FV wherever capable, no surprising family
-        changes by grid type). It is at bitwise parity with the nodal
-        model on flat/walled grids (scoping study §1; the walled solve
-        is eager-bitwise, ≤1.2e-14 jitted, §11), the mapped FV pressure
-        operator is likewise bit-identical to nodal (§13), and an
-        immersed grid runs the masked FV path (stage I2). The family
-        threads to every field (``u, v, w, p`` and the default
-        stratification's ``b``) and seeds the FV C-grid ``diff``
-        profile — on a walled grid the pressure DCT-II runs on the
-        Neumann ``CellAvg`` origin (stage F4), on a mapped grid the
-        projection routes to the family-aware ``MappedPressureSolver``
-        (stage F5), on an immersed grid to the masked
-        ``ImmersedPressureSolver`` (stage I2). A **moving geometry** —
-        a ``MovingGeometry`` in ``modules_extra`` — is FV by default
-        too since the ALE-on-FV closure (2026-07-17): the ALE
-        mesh-velocity correction (``MeshVelocityCorrection``) is
-        family-aware (the conservative flux form on the ``CellAvg``
-        column factors of ``b`` / ``u`` / ``v``, the advective form on
-        the wall-normal velocity). An immersed grid rejects an explicit
-        ``"nodal"`` (the mask is FV-only, IP-D7), and a grid with both
-        a mapped column and an immersed domain rejects an explicit
-        ``"fv"`` (the mapped and masked PCGs are not yet composed)
-        (default: None).
     name : str | None, optional
         Model name (default: None).
     **kwargs : object
@@ -198,47 +141,44 @@ def Model(  # noqa: N802 — a factory that mirrors fr.model.Model's surface
     -------
     fr.model.Model
         The assembled model.
+
+    Raises
+    ------
+    TypeError
+        On the retired kwargs ``dsqr=`` / ``rossby_number=`` /
+        ``dt=`` and the solver/family kwargs that moved onto the
+        core (taught messages naming the new spelling).
     """
+    for retired, message in _RETIRED_KWARGS.items():
+        if retired in kwargs:
+            raise TypeError(f"nh.Model {message}")
+    moved = [key for key in _CORE_KWARGS if key in kwargs]
+    if moved:
+        raise TypeError(
+            f"nh.Model kwargs {moved} moved onto the core: pass "
+            "them to nh.Core(...) — e.g. core=nh.Core("
+            "aspect_ratio=..., pressure_iterations=..., "
+            "family=...)")
+    if scaling is None:
+        scaling = fr.scaling.Dimensional()
     # resolve the model family against the grid and adopt it as the
     # grid's default (auto-flip: every grid promotes None -> "fv";
-    # owner ruling 2026-07-17, FV wherever capable). Since the ALE-on-FV
-    # closure (2026-07-17) a moving-geometry mapping is FV-capable too —
-    # the ALE mesh-velocity correction is family-aware — so a dynamically
-    # driven mapping no longer carves the auto default back to nodal.
-    # Every family=None field of the model — u/v/w/p, the default b, and
-    # any user tracer — then follows uniformly, so an FV model has no
-    # accidental nodal field (only an explicit family="nodal" is the
-    # documented mixed corner). Explicit "fv" is served on periodic,
-    # walled, mapped (F4, F5) and immersed (I2) grids; only a grid with
-    # both a mapped column and an immersed domain is a taught error, and
-    # explicit "nodal" on an immersed grid is a taught error too (mask
-    # is FV-only, IP-D7).
-    resolved = resolve_model_family(family, grid)
+    # owner ruling 2026-07-17, FV wherever capable). The requested
+    # family lives on the core (core.family); every family=None field
+    # of the model then follows the grid default uniformly.
+    resolved = resolve_model_family(
+        getattr(core, "family", None), grid)
     grid.set_default_family(resolved)
-    if stratification is None:
-        stratification = ConstantStratification(n2=1.0)
     if advection is True:
         advection = CenteredAdvection()
-    if time_stepper is None:
-        time_stepper = fr.model.time_steppers.AdamBashforth(dt, order=3)
 
-    modules: list[fr.model.Module] = [
-        DynamicalCore(dsqr=dsqr, rossby_number=rossby_number,
-                      single_precision_solve=single_precision_solve,
-                      pressure_iterations=pressure_iterations,
-                      pressure_tolerance=pressure_tolerance,
-                      pressure_preconditioner=pressure_preconditioner,
-                      multigrid_levels=multigrid_levels,
-                      multigrid_tridiagonal_method=(
-                          multigrid_tridiagonal_method),
-                      multigrid_coarsen_vertical=(
-                          multigrid_coarsen_vertical),
-                      multigrid_agglomerate=multigrid_agglomerate),
-    ]
+    modules: list[fr.model.Module] = [core]
     # rotation is opt-in: coriolis=None installs no module at all
     if coriolis is not None:
         modules.append(coriolis)
-    modules.append(stratification)
+    # stratification is opt-in too (no surprising default N^2)
+    if stratification is not None:
+        modules.append(stratification)
     if advection is not False:
         modules.append(advection)
     modules.extend(modules_extra)
@@ -252,4 +192,5 @@ def Model(  # noqa: N802 — a factory that mirrors fr.model.Model's surface
         modules.append(fr.model.modules.MaskState())
 
     return fr.model.Model(grid=grid, modules=tuple(modules),
-                          time_stepper=time_stepper, name=name, **kwargs)
+                          time_stepper=time_stepper, name=name,
+                          scaling=scaling, **kwargs)

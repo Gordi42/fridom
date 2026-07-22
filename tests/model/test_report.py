@@ -69,7 +69,7 @@ class Core(Module):
     parameter_declarations = (
         ParameterDeclaration("core.nu", attr="nu", units="1"),)
     parameter_references = (
-        ParameterReference("scaling.rossby", default=1.0),)
+        ParameterReference("scaling.nonlinearity", default=1.0),)
 
     @term(advances=("u",))
     def pressure_force(self, state, _ctx):
@@ -189,7 +189,7 @@ def test_parameters_section_lists_bindings_and_identity_defaults(
     assert "stepper.dt" in parameters
     assert "the time stepper" in parameters
     # the untouched Param-style reference binds an identity default
-    assert "identity defaults in effect: scaling.rossby" \
+    assert "identity defaults in effect: scaling.nonlinearity" \
         in parameters
 
 

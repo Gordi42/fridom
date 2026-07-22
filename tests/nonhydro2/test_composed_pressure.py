@@ -18,6 +18,7 @@ import numpy as np
 import pytest
 
 import fridom.nonhydro2 as nh
+from fridom.model.time_steppers.adam_bashforth import AdamBashforth
 from fridom.nonhydro2.modules.composed_pressure import (
     ComposedPressureSolver,
 )
@@ -530,11 +531,15 @@ def test_composed_model_default_preconditioner_reaches_machine_zero():
                 (z - 0.15 - 0.1 * jnp.sin(x)) * 6 + 0.5, 0.0, 1.0),
             order=4, min_fraction=0.1))
     # no pressure_preconditioner passed -> None = auto -> multigrid
-    model = nh.Model(grid=grid, dt=0.01, advection=False,
-                     coriolis=nh.FPlaneCoriolis(f0=1.0),
-                     pressure_tolerance=None, dsqr=0.5)
+    model = nh.Model(
+        grid=grid,
+        core=nh.Core(aspect_ratio=(0.5) ** 0.5, pressure_tolerance=None),
+        time_stepper=AdamBashforth(0.01, order=3),
+        coriolis=nh.FPlaneCoriolis(f0=1.0),
+        stratification=nh.ConstantStratification(n2=1.0),
+        advection=False)
     core = next(m for m in model._carry.modules
-                if type(m).__name__ == "DynamicalCore")
+                if type(m).__name__ == "Core")
     assert core._pressure_preconditioner is None
     assert core._resolved_preconditioner(composed=True) == "multigrid"
     rng = np.random.default_rng(1)

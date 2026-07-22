@@ -209,11 +209,11 @@ class NonlinearU(Module):
 @partial(jaxify, dynamic=("rossby",))
 class RossbyProvider(Module):
 
-    """A pure provider binding ``scaling.rossby`` (no consuming term)."""
+    """A pure provider binding ``scaling.nonlinearity`` (no consuming term)."""
 
     field_declarations = ()
     parameter_declarations = (
-        ParameterDeclaration("scaling.rossby", attr="rossby",
+        ParameterDeclaration("scaling.nonlinearity", attr="rossby",
                              units="1"),)
 
     def __init__(self, rossby=1.0):

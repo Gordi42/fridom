@@ -15,6 +15,7 @@ import pytest
 import fridom.nonhydro2 as nh
 import fridom.spatial.operators.spectral_solve as spectral_solve_mod
 from fridom.model.modules.coriolis import FPlaneCoriolis
+from fridom.model.time_steppers.adam_bashforth import AdamBashforth
 from fridom.spatial.coordinate_mapping import CoordinateMapping
 from fridom.spatial.grid import Grid
 from fridom.spatial.meshes.interval import IntervalMesh
@@ -32,8 +33,13 @@ def _make_model(*, periodic_z, family=None):
         IntervalMesh(N, (0.0, LENGTH), periodic=periodic, name=name)
         for name, periodic in (("x", True), ("y", True),
                                ("z", periodic_z))))
-    model = nh.Model(grid=grid, dt=0.02, advection=False,
-                     coriolis=FPlaneCoriolis(f0=1.0), family=family)
+    model = nh.Model(
+        grid=grid,
+        core=nh.Core(family=family),
+        time_stepper=AdamBashforth(0.02, order=3),
+        coriolis=FPlaneCoriolis(f0=1.0),
+        stratification=nh.ConstantStratification(n2=1.0),
+        advection=False)
     model.set_fields(u=np.ones(model.state["u"].data.shape))
     return model
 
@@ -49,8 +55,13 @@ def _make_prime_model(*, device_ids=None):
     grid = Grid(tuple(
         IntervalMesh(N_PRIME, (0.0, LENGTH), periodic=True, name=name)
         for name in ("x", "y", "z")), device_ids=device_ids)
-    return nh.Model(grid=grid, dt=0.02, advection=False,
-                    coriolis=FPlaneCoriolis(f0=1.0))
+    return nh.Model(
+        grid=grid,
+        core=nh.Core(),
+        time_stepper=AdamBashforth(0.02, order=3),
+        coriolis=FPlaneCoriolis(f0=1.0),
+        stratification=nh.ConstantStratification(n2=1.0),
+        advection=False)
 
 
 @pytest.fixture
@@ -134,8 +145,13 @@ def test_walled_x_fv_projection_dodges_the_wall_and_distributes(
     grid = Grid(tuple(
         IntervalMesh(N, (0.0, LENGTH), periodic=periodic, name=name)
         for name, periodic in (("x", False), ("y", True), ("z", True))))
-    model = nh.Model(grid=grid, dt=0.02, advection=False,
-                     coriolis=FPlaneCoriolis(f0=1.0), family="fv")
+    model = nh.Model(
+        grid=grid,
+        core=nh.Core(family="fv"),
+        time_stepper=AdamBashforth(0.02, order=3),
+        coriolis=FPlaneCoriolis(f0=1.0),
+        stratification=nh.ConstantStratification(n2=1.0),
+        advection=False)
     default = grid.decomposition.default_layout
     assert default.is_local("x")       # the walled axis is dodged
     assert not default.is_local("y")   # a periodic axis is sharded
@@ -158,8 +174,13 @@ def test_walled_x_fv_step_is_device_count_invariant():
             for name, periodic in (("x", False), ("y", True),
                                    ("z", True))),
             device_ids=device_ids)
-        return nh.Model(grid=grid, dt=0.02, advection=False,
-                        coriolis=FPlaneCoriolis(f0=1.0), family="fv")
+        return nh.Model(
+            grid=grid,
+            core=nh.Core(family="fv"),
+            time_stepper=AdamBashforth(0.02, order=3),
+            coriolis=FPlaneCoriolis(f0=1.0),
+            stratification=nh.ConstantStratification(n2=1.0),
+            advection=False)
 
     one = build((0,))
     rng = np.random.default_rng(0)
@@ -193,8 +214,13 @@ def test_walled_x_projection_dodges_the_wall_and_distributes(
     grid = Grid(tuple(
         IntervalMesh(N, (0.0, LENGTH), periodic=periodic, name=name)
         for name, periodic in (("x", False), ("y", True), ("z", True))))
-    model = nh.Model(grid=grid, dt=0.02, advection=False,
-                     coriolis=FPlaneCoriolis(f0=1.0), family="nodal")
+    model = nh.Model(
+        grid=grid,
+        core=nh.Core(family="nodal"),
+        time_stepper=AdamBashforth(0.02, order=3),
+        coriolis=FPlaneCoriolis(f0=1.0),
+        stratification=nh.ConstantStratification(n2=1.0),
+        advection=False)
     default = grid.decomposition.default_layout
     assert default.is_local("x")       # the walled axis is dodged
     assert not default.is_local("y")   # a periodic axis is sharded
@@ -221,8 +247,13 @@ def test_walled_x_step_is_device_count_invariant():
             for name, periodic in (("x", False), ("y", True),
                                    ("z", True))),
             device_ids=device_ids)
-        return nh.Model(grid=grid, dt=0.02, advection=False,
-                        coriolis=FPlaneCoriolis(f0=1.0), family="nodal")
+        return nh.Model(
+            grid=grid,
+            core=nh.Core(family="nodal"),
+            time_stepper=AdamBashforth(0.02, order=3),
+            coriolis=FPlaneCoriolis(f0=1.0),
+            stratification=nh.ConstantStratification(n2=1.0),
+            advection=False)
 
     one = build((0,))
     rng = np.random.default_rng(0)
@@ -297,9 +328,13 @@ def _make_mapped_fv_model(*, device_ids=None):
         IntervalMesh(N, (0.0, LENGTH), periodic=True, name="y"),
         IntervalMesh(N, (0.0, 1.0), periodic=False, name="z")),
         mapping=mapping, device_ids=device_ids)
-    return nh.Model(grid=grid, dt=0.02, advection=True,
-                    coriolis=FPlaneCoriolis(f0=1.0),
-                    pressure_iterations=16, family="fv")
+    return nh.Model(
+        grid=grid,
+        core=nh.Core(family="fv", pressure_iterations=16),
+        time_stepper=AdamBashforth(0.02, order=3),
+        coriolis=FPlaneCoriolis(f0=1.0),
+        stratification=nh.ConstantStratification(n2=1.0),
+        advection=True)
 
 
 def test_mapped_fv_step_is_device_count_invariant():
@@ -342,9 +377,13 @@ def _make_immersed_model(*, device_ids=None):
         IntervalMesh(N, (0.0, LENGTH), periodic=True, name="y"),
         IntervalMesh(N, (0.0, 1.0), periodic=False, name="z")),
         immersed=ImmersedDomain(box), device_ids=device_ids)
-    return nh.Model(grid=grid, dt=0.02, advection=True,
-                    coriolis=FPlaneCoriolis(f0=1.0),
-                    pressure_iterations=25)
+    return nh.Model(
+        grid=grid,
+        core=nh.Core(pressure_iterations=25),
+        time_stepper=AdamBashforth(0.02, order=3),
+        coriolis=FPlaneCoriolis(f0=1.0),
+        stratification=nh.ConstantStratification(n2=1.0),
+        advection=True)
 
 
 def test_immersed_step_is_device_count_invariant():
@@ -393,9 +432,13 @@ def _make_partial_immersed_model(*, device_ids=None):
         IntervalMesh(N, (0.0, LENGTH), periodic=True, name="y"),
         IntervalMesh(N, (0.0, 1.0), periodic=False, name="z")),
         immersed=ImmersedDomain(blob, order=4), device_ids=device_ids)
-    return nh.Model(grid=grid, dt=0.02, advection=True,
-                    coriolis=FPlaneCoriolis(f0=1.0),
-                    pressure_iterations=25)
+    return nh.Model(
+        grid=grid,
+        core=nh.Core(pressure_iterations=25),
+        time_stepper=AdamBashforth(0.02, order=3),
+        coriolis=FPlaneCoriolis(f0=1.0),
+        stratification=nh.ConstantStratification(n2=1.0),
+        advection=True)
 
 
 @pytest.mark.multi_device

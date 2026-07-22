@@ -415,9 +415,13 @@ def mapped_advective_model(chunk_size):
         maps={"zp": lambda z, H: z * H}, params={"H": _depth})
     grid = Grid((mx, my, mz), mapping=mapping)
     model = nh.Model(
-        grid=grid, dt=0.005, advection=True,
-        coriolis=nh.FPlaneCoriolis(f0=1.0), dsqr=0.25,
-        pressure_iterations=8, chunk_size=chunk_size)
+        grid=grid,
+        core=nh.Core(aspect_ratio=0.5, pressure_iterations=8),
+        time_stepper=AdamBashforth(0.005, order=3),
+        coriolis=nh.FPlaneCoriolis(f0=1.0),
+        stratification=nh.ConstantStratification(n2=1.0),
+        advection=True,
+        chunk_size=chunk_size)
     model.set_fields(
         u=lambda x, y, z: jnp.sin(x) * jnp.cos(y) + 0.0 * z,
         v=lambda x, y, z: 0.3 * jnp.cos(x) + 0.0 * y + 0.0 * z,

@@ -83,7 +83,7 @@ from fridom.model.eigenstates import (
 )
 from fridom.nonhydro2.channel_eigenmodes import ChannelEigenmodes
 from fridom.nonhydro2.energy import nonhydro_energy_weights
-from fridom.nonhydro2.params import DSQR
+from fridom.nonhydro2.params import ASPECT_RATIO
 from fridom.nonhydro2.state import State
 from fridom.spatial.bc import BC
 from fridom.spatial.operators.symbol import Symbol
@@ -1232,11 +1232,15 @@ def eigenbasis(
     engine-specific accessors. A multi-walled box has no periodic
     axis left to diagonalize over and is rejected.
 
-    On the analytic path ``coriolis.f0``, ``stratification.n2``
-    and ``nonhydro.dsqr`` are read from ``model.parameters`` with
-    the constancy check — a ``BetaPlaneCoriolis`` model does not
-    provide ``coriolis.f0`` and is rejected (not
-    Fourier-diagonalizable). The eigenmodes are a
+    On the analytic path the effective constants are assembled from
+    the variant's primitives in ``model.parameters`` (the
+    nondimensionalization re-key): ``f0`` from ``coriolis.f0`` or the
+    nondim :math:`\varepsilon/\mathrm{Ro}`; ``n2`` from
+    ``stratification.n2`` or :math:`(\varepsilon/\mathrm{Fr})^2`;
+    ``dsqr`` as the square of ``nonhydro.aspect_ratio`` — with the
+    constancy check (a ``BetaPlaneCoriolis`` model does not provide a
+    constant rotation and is rejected, not Fourier-diagonalizable).
+    The eigenmodes are a
     fixed-``at_time`` snapshot — a time-dependent parameter is
     frozen at that instant (default 0.0) and the modes do not
     evolve with the run (TDF-D6, a deliberately time-frozen
@@ -1300,11 +1304,27 @@ def eigenbasis(
             return float(value.at_time(at_time))
         return float(value)
 
+    # effective constants from the variant's primitives (the
+    # nondimensionalization re-key): f0_eff = f0 or eps/Ro (the
+    # metric-ratio-free nondim f-plane), n2_eff = N^2 or (eps/Fr)^2
+    if (fr.model.params.CORIOLIS_ROSSBY in params
+            and fr.model.params.CORIOLIS_METRIC_RATIO not in params):
+        f0 = (_read(fr.model.params.SCALING_NONLINEARITY)
+              / _read(fr.model.params.CORIOLIS_ROSSBY))
+    else:
+        f0 = _read(fr.model.params.CORIOLIS_F0)
+    if fr.model.params.STRATIFICATION_FROUDE in params:
+        ratio = (_read(fr.model.params.SCALING_NONLINEARITY)
+                 / _read(fr.model.params.STRATIFICATION_FROUDE))
+        n2 = ratio * ratio
+    else:
+        n2 = _read(fr.model.params.STRATIFICATION_N2)
+    delta = _read(ASPECT_RATIO)
     return Eigenmodes(
         model.grid,
-        f0=_read(fr.model.params.CORIOLIS_F0),
-        n2=_read(fr.model.params.STRATIFICATION_N2),
-        dsqr=_read(DSQR),
+        f0=f0,
+        n2=n2,
+        dsqr=delta * delta,
         family=_model_family(model))
 
 

@@ -17,6 +17,7 @@ import pytest
 
 import fridom as fr
 import fridom.nonhydro2 as nh
+from fridom.model.time_steppers.adam_bashforth import AdamBashforth
 
 N = 8
 F0, N2, DSQR = 1.5, 3.0, 2.0
@@ -46,10 +47,12 @@ def make_model(*, periodic_y=True, periodic_z=True, family=None):
     # corner). Since stage F5 the analytic walled-vertical eigenmode kit
     # runs on both families, so the walled-vertical fixture covers both.
     return nh.Model(
-        grid=grid, advection=False, family=family,
-        dsqr=DSQR, coriolis=nh.FPlaneCoriolis(f0=F0),
+        grid=grid,
+        core=nh.Core(aspect_ratio=(DSQR) ** 0.5, family=family),
+        time_stepper=AdamBashforth(DT, order=3),
+        coriolis=nh.FPlaneCoriolis(f0=F0),
         stratification=nh.ConstantStratification(n2=N2),
-        time_stepper=fr.model.time_steppers.AdamBashforth(DT, order=3))
+        advection=False)
 
 
 @pytest.fixture(scope="module")
@@ -401,9 +404,11 @@ def _periodic_model_at(device_ids, n=16):
         for name in ("x", "y", "z"))
     return nh.Model(
         grid=fr.spatial.Grid(meshes, device_ids=device_ids),
-        advection=False, dsqr=DSQR, coriolis=nh.FPlaneCoriolis(f0=F0),
+        core=nh.Core(aspect_ratio=(DSQR) ** 0.5),
+        time_stepper=AdamBashforth(DT, order=3),
+        coriolis=nh.FPlaneCoriolis(f0=F0),
         stratification=nh.ConstantStratification(n2=N2),
-        time_stepper=fr.model.time_steppers.AdamBashforth(DT, order=3))
+        advection=False)
 
 
 @pytest.mark.multi_device

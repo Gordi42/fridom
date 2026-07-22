@@ -11,7 +11,7 @@ constant-along-z); diagnosed ``w`` (continuity) and ``p_hyd``
 
 The public surface mirrors the sibling packages:
 ``hy.Model`` (a preset factory), ``hy.State`` (the vocabulary class),
-and the concrete modules (``hy.HydrostaticCore``,
+and the concrete modules (``hy.Core``,
 ``hy.ConstantStratification``, ``hy.ExplicitFreeSurface``,
 ``hy.FPlaneCoriolis``, ...). ``hy.eigenmodes`` / ``hy.transforms``
 are the numeric eigenbasis and its vortical / wave / barotropic /
@@ -38,12 +38,13 @@ if TYPE_CHECKING:  # pragma: no cover
         modules,
         params,
         transforms,
+        units,
     )
     from .comparison import comparison_model
     from .eigenmodes import eigenbasis
     from .initial_conditions import jet, single_wave
     from .model import Model
-    from .modules.core import HydrostaticCore
+    from .modules.core import Core
     from .modules.free_surface import (
         ExplicitFreeSurface,
         ImplicitFreeSurface,
@@ -58,7 +59,7 @@ base = "fridom.hydrostatic"
 all_modules_by_origin = {
     base: ["modules", "diagnostics", "energy", "params",
            "initial_conditions", "comparison", "eigenmodes",
-           "transforms"],
+           "transforms", "units"],
 }
 
 all_imports_by_origin = {
@@ -67,7 +68,7 @@ all_imports_by_origin = {
     f"{base}.comparison": ["comparison_model"],
     f"{base}.model": ["Model"],
     f"{base}.state": ["State"],
-    f"{base}.modules.core": ["HydrostaticCore"],
+    f"{base}.modules.core": ["Core"],
     f"{base}.modules.stratification": ["ConstantStratification"],
     f"{base}.modules.thermal_wind": ["ThermalWindBackground"],
     f"{base}.modules.free_surface": [

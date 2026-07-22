@@ -27,6 +27,7 @@ import fridom as fr
 import fridom.nonhydro2 as nh
 import fridom.shallowwater2 as sw
 from fridom.framework.utils import jaxify
+from fridom.model.time_steppers.adam_bashforth import AdamBashforth
 from fridom.model.transforms.balance_expansion import (
     BalanceExpansion,
 )
@@ -42,21 +43,28 @@ NH_COMPONENTS = ("u", "v", "w", "b")
 #  Model and state builders
 # ================================================================
 def make_sw_model(*, ro=0.1, periodic_y=True, coriolis=None, n=N):
-    """Build a small shallow-water model (walled y if requested)."""
+    """Build a small shallow-water model (walled y if requested).
+
+    Today-parity nondimensional spelling: GravityWave scaling with
+    the core Froude number = ro and Coriolis Ro = ro, so the live
+    rotation ratio eps/Ro = 1.0 reproduces the old f0 = 1.0 and the
+    advection carries epsilon = ro (the T2 slope knob).
+    """
     mx = fr.spatial.meshes.IntervalMesh(n, (0.0, 1.0), periodic=True,
                                      name="x")
     my = fr.spatial.meshes.IntervalMesh(n, (0.0, 1.0),
                                      periodic=periodic_y, name="y")
     if coriolis is None:
-        coriolis = sw.modules.FPlaneCoriolis(f0=1.0)
+        coriolis = sw.modules.FPlaneCoriolis(rossby_number=ro)
     return sw.Model(
         # Pin to one device: the balance expansion projects through the
         # naive change-of-representation transform, which raises the
         # Tier-1 guard on a sharded transform axis (see transform.py).
         grid=fr.spatial.Grid((mx, my), device_ids=(0,)),
-        csqr=1.0, rossby_number=ro,
+        core=sw.Core(froude_number=ro, depth=1.0),
+        scaling=fr.scaling.GravityWave(),
         coriolis=coriolis, advection=True,
-        time_stepper=fr.model.time_steppers.AdamBashforth(5e-3, order=3))
+        time_stepper=AdamBashforth(5e-3, order=3))
 
 
 def sw_state(model, *, walled=False, n=N):
@@ -77,18 +85,27 @@ def sw_state(model, *, walled=False, n=N):
 
 
 def make_nh_model(*, ro=0.05, walled=None, n=8, **kwargs):
-    """Build a small nonhydro model (optionally walled along y)."""
+    """Build a small nonhydro model (optionally walled along y).
+
+    Today-parity nondimensional spelling (Rotational): the Coriolis
+    owns epsilon = Ro = ro (rotation ratio 1.0 reproduces the old
+    f0 = 1.0) and the stratification Froude reproduces n2 = 4.0
+    ((eps/Fr)^2 = 4 -> Fr = ro/2), so the advection carries the old
+    outer ro.
+    """
     meshes = tuple(
         fr.spatial.meshes.IntervalMesh(
             n, (0.0, 2 * np.pi), periodic=(name != walled), name=name)
         for name in ("x", "y", "z"))
     return nh.Model(
+        core=nh.Core(aspect_ratio=1.0),
+        scaling=fr.scaling.Rotational(),
+        time_stepper=AdamBashforth(0.02, order=3),
+        coriolis=nh.FPlaneCoriolis(rossby_number=ro),
+        stratification=nh.ConstantStratification(froude_number=ro / 2),
         # Pin to one device: the naive transform raises the Tier-1 guard
         # on a sharded transform axis (see transform.py).
-        grid=fr.spatial.Grid(meshes, device_ids=(0,)),
-        dt=0.02, rossby_number=ro,
-        dsqr=1.0, coriolis=nh.FPlaneCoriolis(f0=1.0),
-        stratification=nh.ConstantStratification(n2=4.0), **kwargs)
+        grid=fr.spatial.Grid(meshes, device_ids=(0,)), **kwargs)
 
 
 def nh_state(model, *, names=NH_COMPONENTS, seed=3):
@@ -276,7 +293,8 @@ def test_sw_beta_channel_balances_a_predicate_slow_band():
     # spectral gap (the eb.projector grammar)
     model = make_sw_model(
         periodic_y=False,
-        coriolis=sw.modules.BetaPlaneCoriolis(f0=1.0, beta=2.0))
+        coriolis=sw.modules.BetaPlaneCoriolis(rossby_number=0.1,
+                                              metric_ratio=2.0))
     z = sw_state(model, walled=True)
     eb = sw.eigenbasis(model)
     labels = np.asarray(eb.labels)
@@ -346,10 +364,12 @@ def test_lint_skips_a_selection_with_zero_nonlinear_tendency():
         # Pin to one device: the naive transform raises the Tier-1 guard
         # on a sharded transform axis (see transform.py).
         grid=fr.spatial.Grid((mx, my), device_ids=(0,)),
-        csqr=1.0, rossby_number=0.1,
-        coriolis=sw.modules.FPlaneCoriolis(f0=1.0), advection=True,
+        core=sw.Core(froude_number=0.1, depth=1.0),
+        scaling=fr.scaling.GravityWave(),
+        coriolis=sw.modules.FPlaneCoriolis(rossby_number=0.1),
+        advection=True,
         modules_extra=(ZeroQuadratic(),),
-        time_stepper=fr.model.time_steppers.AdamBashforth(5e-3, order=3))
+        time_stepper=AdamBashforth(5e-3, order=3))
     with warnings.catch_warnings():
         warnings.simplefilter("error")
         BalanceExpansion(
@@ -511,7 +531,8 @@ def _nh_model_at(device_ids, n=8):
         for name in ("x", "y", "z"))
     return nh.Model(
         grid=fr.spatial.Grid(meshes, device_ids=device_ids),
-        dt=0.02, rossby_number=0.05, dsqr=1.0,
+        core=nh.Core(aspect_ratio=1.0),
+        time_stepper=AdamBashforth(0.02, order=3),
         coriolis=nh.FPlaneCoriolis(f0=1.0),
         stratification=nh.ConstantStratification(n2=4.0))
 
@@ -552,7 +573,8 @@ def _nh_walled_model_at(device_ids, n=8):
         for name in ("x", "y", "z"))
     return nh.Model(
         grid=fr.spatial.Grid(meshes, device_ids=device_ids),
-        dt=0.02, rossby_number=0.05, dsqr=1.0,
+        core=nh.Core(aspect_ratio=1.0),
+        time_stepper=AdamBashforth(0.02, order=3),
         coriolis=nh.FPlaneCoriolis(f0=1.0),
         stratification=nh.ConstantStratification(n2=4.0))
 

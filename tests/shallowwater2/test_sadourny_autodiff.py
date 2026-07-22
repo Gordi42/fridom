@@ -36,9 +36,9 @@ def advecting_model(nu=0.02, *, csqr=1.0, rossby=0.2):
     """Return a tiny nonlinear (Sadourny) SW model with friction."""
     model = sw.Model(
         grid=make_grid(),
-        csqr=csqr,
-        rossby_number=rossby,
-        coriolis=sw.modules.FPlaneCoriolis(f0=1.0),
+        core=sw.Core(froude_number=rossby, depth=csqr),
+        scaling=fr.scaling.GravityWave(),
+        coriolis=sw.modules.FPlaneCoriolis(rossby_number=rossby),
         advection=True,
         time_stepper=fr.model.time_steppers.AdamBashforth(5e-3, order=3),
         modules_extra=(fr.model.closures.HarmonicFriction(nu=nu),))
@@ -177,8 +177,11 @@ def immersed_advecting_model():
          IntervalMesh(12, (0.0, 12.0), periodic=True, name="y")),
         immersed=ImmersedDomain(box))
     model = sw.Model(
-        grid=grid, csqr=0.8, rossby_number=0.3,
-        coriolis=sw.modules.FPlaneCoriolis(f0=1.0), advection=True,
+        grid=grid,
+        core=sw.Core(froude_number=0.3, depth=0.8),
+        scaling=fr.scaling.GravityWave(),
+        coriolis=sw.modules.FPlaneCoriolis(rossby_number=0.3),
+        advection=True,
         time_stepper=fr.model.time_steppers.AdamBashforth(0.01, order=3))
     rng = np.random.default_rng(0)
     mask = np.asarray(
@@ -231,8 +234,11 @@ def sphere_advecting_model(*, csqr=0.7, rossby=0.4):
         (16, 8), radius=1.0, lat_extent=(-LAT_MAX, LAT_MAX),
         device_ids=(0,))
     model = sw.Model(
-        grid=grid, coords=("lon", "lat"), csqr=csqr,
-        rossby_number=rossby, coriolis=None, advection=True,
+        grid=grid,
+        core=sw.Core(froude_number=rossby, depth=csqr,
+                     coords=("lon", "lat")),
+        scaling=fr.scaling.GravityWave(),
+        coriolis=None, advection=True,
         time_stepper=fr.model.time_steppers.AdamBashforth(2e-3, order=3))
     rng = np.random.default_rng(3)
     model.set_fields(

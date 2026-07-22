@@ -43,6 +43,7 @@ from fridom.model.errors import (
 from fridom.model.model import Model
 from fridom.model.module import Module
 from fridom.model.terms import term
+from fridom.model.time_steppers.adam_bashforth import AdamBashforth
 from fridom.model.time_steppers.runge_kutta import (
     ExplicitRungeKutta,
     tableaus,
@@ -73,10 +74,11 @@ def _channel_model(dt, *, advection):
     mx = IntervalMesh(8, (0.0, 1.0), name="x")
     my = IntervalMesh(8, (0.0, 1.0), periodic=False, name="y")
     return sw.Model(
-        grid=Grid((mx, my), device_ids=(0,)), csqr=CSQR, rossby_number=0.2,
+        grid=Grid((mx, my), device_ids=(0,)),
+        core=sw.Core(gravity=1.0, depth=CSQR),
         coriolis=sw.modules.BetaPlaneCoriolis(f0=F0, beta=BETA),
         advection=advection,
-        time_stepper=fr.model.time_steppers.AdamBashforth(dt, order=3))
+        time_stepper=AdamBashforth(dt, order=3))
 
 
 def _rand_state(model, seed):
@@ -222,7 +224,13 @@ def test_forward_forward_is_not_phase_neutral(phase_neutrality):
 # ================================================================
 @pytest.fixture(scope="module")
 def ob_info():
-    """OptimalBalance on the NONLINEAR channel with base=P_adiab."""
+    """OptimalBalance on the NONLINEAR channel with base=P_adiab.
+
+    Restored §C gate: OB's forward leg now ramps the term envelope
+    (``ramping.envelope``) instead of a scaling parameter, so the
+    interim alias guard (and its refusal test) is gone and OB runs
+    on nonlinear channels — mechanism-scaled ones included — again.
+    """
     model = _channel_model(DT, advection=True)
     reference = model.variant(updates={"coriolis.beta": 0.0})
     p_ref = sw.transforms.VorticalProjection(sw.eigenbasis(reference))
@@ -235,8 +243,7 @@ def ob_info():
 
 def test_ob_with_adiabatic_base_projection_converges(ob_info):
     # OB runs with the adiabatically-obtained slow projector and its
-    # fixed-point errors decrease over iterations (measured
-    # ~1.0 -> 1.9e-2 -> 9.9e-4)
+    # fixed-point errors decrease over iterations
     errors = ob_info.errors
     assert len(errors) >= 2, errors
     assert errors[-1] < errors[0], errors
@@ -343,10 +350,10 @@ def test_rejects_a_model_with_a_linear_operator_gap():
                  IntervalMesh(8, (0.0, 1.0), periodic=False, name="y")),
                 device_ids=(0,))
     route_b = sw.Model(
-        grid=grid, csqr=CSQR, rossby_number=0.2,
+        grid=grid, core=sw.Core(gravity=1.0, depth=CSQR),
         coriolis=sw.modules.NonlinearBetaPlaneCoriolis(f0=F0, beta=BETA),
         advection=False,
-        time_stepper=fr.model.time_steppers.AdamBashforth(DT, order=3))
+        time_stepper=AdamBashforth(DT, order=3))
     leg = AdiabaticRamping(route_b, ramps={}, ramp_period=1.0)
     with pytest.raises(LinearOperatorGapError, match="AdiabaticProjection"):
         AdiabaticProjection(leg, Identity())

@@ -2,19 +2,29 @@
 
 Description
 -----------
-``hy.Model(grid=..., free_surface=..., ...)`` is a thin **factory
-function** (never a class — D1.3 commitment 2): it builds the module
-tuple and delegates to a plain ``fr.model.Model``. Preset assembly and
-explicit assembly produce identical carry treedefs (the D4 preset
-test). The default stepper is ``AdamBashforth(dt, order=3)``.
+``hy.Model(grid=..., core=..., time_stepper=..., ...)`` is a thin
+**factory function** (never a class — D1.3 commitment 2): it builds
+the module tuple and delegates to a plain ``fr.model.Model``. Preset
+assembly and explicit assembly produce identical carry treedefs (the
+D4 preset test).
+
+The physics lives on the **core** (``hy.Core``, gravity-first: the
+physical constant centralizes there), the required physics modules
+(``stratification=`` and ``free_surface=`` have **no defaults** —
+owner-ratified, no surprising default physics) and the **scaling**
+policy (``fr.scaling``): ``scaling=`` names the reference time frame
+(default: ``fr.scaling.Dimensional()`` — a dimensional assembly needs
+no scaling argument at all). The retired preset kwargs (``csqr=``,
+``rossby_number=``, ``dt=``) raise taught TypeErrors naming the new
+spelling.
 
 **Advection (stage H2b).** The diagnosed vertical velocity ``w`` lives
 on the both-boundary vertical face set ``Outer`` (required for the
 machine-exact continuity fundamental theorem and the machine-exact
-linear energy conservation — see ``hy.modules.HydrostaticCore``). The
-shared flux-form advection family (``fr.model.modules.CenteredAdvection``
-et al.) transports a cell-centred tracer through the **interior**
-vertical faces (``Inner``) and resolves the advecting velocity there
+linear energy conservation — see ``hy.Core``). The shared flux-form
+advection family (``fr.model.modules.CenteredAdvection`` et al.)
+transports a cell-centred tracer through the **interior** vertical
+faces (``Inner``) and resolves the advecting velocity there
 (``w.to(Inner)``). Stage H2b seeds the spatial-layer
 ``fr.operators.Restriction`` row for that hop: ``Outer ⊃ Inner`` on a
 bounded mesh, so ``Outer -> Inner`` is the exact drop of the two
@@ -25,7 +35,7 @@ equation, not by advection). The surface velocity ``w(0)`` therefore
 never enters an advective flux, so a transported tracer's mass is
 conserved to roundoff.
 
-The factory default is now ``CenteredAdvection()`` (the common-
+The factory default is ``CenteredAdvection()`` (the common-
 denominator scheme); ``advection=False`` recovers the linear model
 (what the dispersion, geostrophic-balance and energy-conservation
 gates validate), and ``UpwindAdvection`` / ``WENOAdvection`` are
@@ -37,11 +47,6 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import fridom as fr
-from fridom.hydrostatic.modules.core import HydrostaticCore
-from fridom.hydrostatic.modules.free_surface import ExplicitFreeSurface
-from fridom.hydrostatic.modules.stratification import (
-    ConstantStratification,
-)
 from fridom.model.modules.advection import CenteredAdvection
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -51,19 +56,42 @@ if TYPE_CHECKING:  # pragma: no cover
     from fridom.model.time_steppers.base import TimeStepper
     from fridom.spatial.grid import Grid
 
+#: retired preset kwargs -> the taught replacement spelling
+_RETIRED_KWARGS = {
+    "csqr": (
+        "csqr= is retired: gravity is the physical constant and it "
+        "centralizes on the core — pass core=hy.Core(gravity=...) "
+        "(dimensional; the barotropic update is -g T*, every column "
+        "depth is genuine geometry) or a nondimensional free surface "
+        "(free_surface=hy.ExplicitFreeSurface(froude_number=...)) "
+        "with scaling=fr.scaling.ExternalWave()"),
+    "rossby_number": (
+        "rossby_number= is retired: the nonlinearity number is the "
+        "scaling mechanism's own regime number — pass a "
+        "nondimensional Coriolis module "
+        "(FPlaneCoriolis(rossby_number=...)) with "
+        "scaling=fr.scaling.Rotational() (epsilon = Ro), or a "
+        "nondimensional free surface "
+        "(hy.ExplicitFreeSurface(froude_number=...)) with "
+        "scaling=fr.scaling.ExternalWave() (epsilon = Fr_ext)"),
+    "dt": (
+        "dt= is retired on the preset: pass the stepper explicitly, "
+        "time_stepper=fr.model.time_steppers.AdamBashforth(dt, "
+        "order=3)"),
+}
+
 
 def Model(  # noqa: N802 — a factory that mirrors fr.model.Model's surface
     *,
     grid: Grid,
-    dt: float = 1.0,
-    free_surface: fr.model.Module | None = None,
-    csqr: float | fr.model.Ramp = 1.0,
-    rossby_number: float | fr.model.Ramp = 1.0,
+    core: fr.model.Module,
+    stratification: fr.model.Module,
+    free_surface: fr.model.Module,
+    time_stepper: TimeStepper,
+    scaling: object | None = None,
     coriolis: fr.model.Module | None = None,
-    stratification: fr.model.Module | None = None,
     advection: fr.model.Module | bool = True,
     surface_advective_flux: bool | None = None,
-    time_stepper: TimeStepper | None = None,
     modules_extra: Sequence[fr.model.Module] = (),
     name: str | None = None,
     **kwargs: object,
@@ -76,36 +104,53 @@ def Model(  # noqa: N802 — a factory that mirrors fr.model.Model's surface
         The grid to assemble on: doubly-periodic horizontal, bounded
         vertical (the ``CumulativeIntegral`` needs a bounded z to seed
         the running integral).
-    dt : float, optional
-        Time step for the default stepper (default: 1.0).
-    free_surface : fr.model.Module | None, optional
-        The barotropic (surface-pressure) module
-        (default: ``ExplicitFreeSurface()``). Owns the ``ps``
+    core : fr.model.Module
+        The dynamical core, ``hy.Core``: the gravity-first physical
+        constant lives here (``gravity=``, dimensional) — the
+        free-surface family references it; the nondimensional core
+        takes no kwarg at all.
+    stratification : fr.model.Module
+        The stratification module — REQUIRED, no default physics:
+        pass ``hy.ConstantStratification(n2=...)`` (dimensional) /
+        ``ConstantStratification(froude_number=...)``
+        (nondimensional).
+    free_surface : fr.model.Module
+        The barotropic (surface-pressure) module — REQUIRED, no
+        default: ``hy.ExplicitFreeSurface(...)`` /
+        ``hy.ImplicitFreeSurface(...)`` /
+        ``hy.SplitExplicitFreeSurface(...)``. Owns the ``ps``
         declaration and its evolution.
-    csqr : float | fr.model.Ramp, optional
-        The squared barotropic phase speed ``c^2 = g H``, forwarded to
-        the core and read by the free surface (default: 1.0).
-    rossby_number : float | fr.model.Ramp, optional
-        The Rossby number scaling the (separate) advection term
-        (default: 1.0).
+    time_stepper : TimeStepper
+        The time stepper (e.g.
+        ``fr.model.time_steppers.AdamBashforth(dt, order=3)``).
+    scaling : object | None, optional
+        The ``fr.scaling`` policy naming the reference time frame;
+        ``None`` defaults to ``fr.scaling.Dimensional()`` — a
+        dimensional assembly needs no scaling argument. A
+        nondimensional module kwarg set needs the matching
+        nondimensional policy (``fr.scaling.Rotational()`` /
+        ``InternalWave()`` / ``ExternalWave()`` / ``Advective()``);
+        the assembly refuses a mismatch with a taught error
+        (default: None).
     coriolis : fr.model.Module | None, optional
         The Coriolis module. ``None`` — the default — means **no
         rotation at all**: no Coriolis module is installed, so the
         model carries no ``f_coriolis`` field and no rotation term.
-        Rotation is opt-in: pass ``hy.FPlaneCoriolis(f0=...)`` /
-        ``hy.BetaPlaneCoriolis(...)`` (default: None).
-    stratification : fr.model.Module | None, optional
-        The stratification module
-        (default: ``ConstantStratification(n2=1.0)``).
+        Rotation is opt-in: pass ``hy.FPlaneCoriolis(f0=...)``
+        (dimensional) / ``FPlaneCoriolis(rossby_number=...)``
+        (nondimensional) / ``hy.BetaPlaneCoriolis(...)``
+        (default: None).
     advection : fr.model.Module | bool, optional
         Nonlinear advection of ``u``/``v``/``b``. ``True`` (the
         default) installs ``CenteredAdvection()``; ``False`` omits
         advection (the linear hydrostatic model); a module instance
         (``UpwindAdvection`` / ``WENOAdvection`` / a configured
-        ``CenteredAdvection``) is installed as given. The vertical leg
-        consumes the diagnosed ``w`` on the ``Outer`` faces through the
-        seeded ``Outer -> Inner`` restriction (module docstring); the
-        boundary-face flux is a structural zero (default: True).
+        ``CenteredAdvection``) is installed as given. The module is
+        scaling-neutral and adopts the assembly's variant at bind.
+        The vertical leg consumes the diagnosed ``w`` on the
+        ``Outer`` faces through the seeded ``Outer -> Inner``
+        restriction (module docstring); the boundary-face flux is a
+        structural zero (default: True).
     surface_advective_flux : bool | None, optional
         Tri-state control of the constancy-preserving **surface
         closure** on the default advection module. The default ``None``
@@ -121,8 +166,6 @@ def Model(  # noqa: N802 — a factory that mirrors fr.model.Model's surface
         default-constructed advection; a user-passed module carries its
         own ``surface_flux`` (whose ``None`` auto-resolves to the same
         closure on the hydrostatic ``Outer``-``w`` grid) (default: None).
-    time_stepper : TimeStepper | None, optional
-        Override the default ``AdamBashforth(dt, order=3)``.
     modules_extra : Sequence[fr.model.Module], optional
         Additional modules (default: ()).
     name : str | None, optional
@@ -134,19 +177,30 @@ def Model(  # noqa: N802 — a factory that mirrors fr.model.Model's surface
     -------
     fr.model.Model
         The assembled model.
+
+    Raises
+    ------
+    TypeError
+        On the retired kwargs ``csqr=`` / ``rossby_number=`` /
+        ``dt=`` (taught messages naming the new spelling).
     """
-    if free_surface is None:
-        free_surface = ExplicitFreeSurface()
-    if stratification is None:
-        stratification = ConstantStratification(n2=1.0)
+    for retired, message in _RETIRED_KWARGS.items():
+        if retired in kwargs:
+            raise TypeError(f"hy.Model {message}")
+    if core is None or stratification is None or free_surface is None:
+        raise TypeError(
+            "hy.Model has no default physics (owner-ratified): "
+            "core=, stratification= and free_surface= are REQUIRED "
+            "modules — pass core=hy.Core(gravity=...), "
+            "stratification=hy.ConstantStratification(n2=...) and "
+            "free_surface=hy.ExplicitFreeSurface() (or the implicit "
+            "/ split-explicit variants); None is not a module")
+    if scaling is None:
+        scaling = fr.scaling.Dimensional()
     if advection is True:
         advection = CenteredAdvection(surface_flux=surface_advective_flux)
-    if time_stepper is None:
-        time_stepper = fr.model.time_steppers.AdamBashforth(dt, order=3)
 
-    modules: list[fr.model.Module] = [
-        HydrostaticCore(csqr=csqr, rossby_number=rossby_number),
-    ]
+    modules: list[fr.model.Module] = [core]
     # rotation is opt-in: coriolis=None installs no module at all
     if coriolis is not None:
         modules.append(coriolis)
@@ -170,4 +224,5 @@ def Model(  # noqa: N802 — a factory that mirrors fr.model.Model's surface
         modules.append(fr.model.modules.MaskState())
 
     return fr.model.Model(grid=grid, modules=tuple(modules),
-                          time_stepper=time_stepper, name=name, **kwargs)
+                          time_stepper=time_stepper, name=name,
+                          scaling=scaling, **kwargs)

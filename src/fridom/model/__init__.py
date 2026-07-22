@@ -48,6 +48,7 @@ if TYPE_CHECKING:  # pragma: no cover
         time_dependent,
         time_steppers,
         transforms,
+        units,
     )
     from ._eigenbasis import eigenbasis
 
@@ -108,6 +109,7 @@ if TYPE_CHECKING:  # pragma: no cover
     from .transforms.optimal_balance import OptimalBalance
     from .transforms.propagator import Propagator
     from .transforms.time_average import TimeAverage
+    from .units import FactorEntry, UnitFactor, UnitsView
 
 # ================================================================
 #  Setup lazy loading
@@ -122,7 +124,7 @@ all_modules_by_origin = {
         "field_table", "assembly", "module", "composer", "schedule",
         "clock", "results", "report", "errors", "eigen",
         "eigen_channel", "modules", "transforms", "io", "ops",
-        "halo_demand"],
+        "halo_demand", "units"],
     f"{base}.io": ["slurm"],
 }
 
@@ -161,6 +163,7 @@ all_imports_by_origin = {
     f"{base}.results": [
         "RunStatus", "AdvanceResult", "RunResult", "PanicError",
         "RunTargetError"],
+    f"{base}.units": ["UnitFactor", "FactorEntry", "UnitsView"],
     f"{base}.io.triggers": ["every", "at"],
 }
 

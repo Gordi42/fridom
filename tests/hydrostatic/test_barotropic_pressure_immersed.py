@@ -79,7 +79,7 @@ def _ps_space(grid):
 def _solver(grid, *, eps=0.0, iterations=60, tolerance=None,
             preconditioner="spectral"):
     return BarotropicPressureSolver(
-        grid, _ps_space(grid), ("zp", "z"), "z", epsilon=eps, inv_depth=1.0,
+        grid, _ps_space(grid), ("zp", "z"), "z", epsilon=eps,
         iterations=iterations, tolerance=tolerance,
         preconditioner=preconditioner)
 
@@ -104,7 +104,7 @@ def _inner(a, b):
 def test_wet_operator_is_self_adjoint(a, eps):
     grid = _grid(a=a)
     solver = _solver(grid, eps=eps)
-    op = solver.operator(csqr=CSQR, dt=DT)
+    op = solver.operator(gravity=CSQR, dt=DT)
     p, q = _rand(grid, 1), _rand(grid, 2)
     apq, paq = _inner(op(p), q), _inner(p, op(q))
     assert abs(apq - paq) <= 1e-12 * abs(apq)
@@ -142,8 +142,8 @@ def test_rigid_lid_solution_is_wet_mean_free_and_masks_land():
     solver = _solver(grid, eps=0.0, iterations=80)
     # a range-compatible RHS: A applied to a random field
     rand = _rand(grid, 5)
-    rhs = solver.operator(csqr=CSQR, dt=DT)(rand)
-    ps = solver.solve(rhs, csqr=CSQR, dt=DT)
+    rhs = solver.operator(gravity=CSQR, dt=DT)(rand)
+    ps = solver.solve(rhs, gravity=CSQR, dt=DT)
     # the wet-column indicator (theta_col > 0) on the ps cell
     theta_col = Integral()["z"](
         grid.immersed.fraction(fr.spatial.Collocated().resolve(grid)))
@@ -159,7 +159,7 @@ def test_rigid_lid_solution_is_wet_mean_free_and_masks_land():
                  theta_col.with_data(cell_mask.astype(ps_data.dtype))))
     assert abs(wet_mean) <= 1e-11 * (float(np.abs(ps_data).max()) + 1.0)
     # the solve inverts its own operator on the wet region
-    residual = rhs - solver.operator(csqr=CSQR, dt=DT)(ps)
+    residual = rhs - solver.operator(gravity=CSQR, dt=DT)(ps)
     rel = np.sqrt(_inner(residual, residual)) / np.sqrt(_inner(rhs, rhs))
     assert rel < 1e-8
 
@@ -173,7 +173,7 @@ def test_spectral_converges_within_budget_on_a_cut_chart(a):
     grid = _grid(a=a)
     solver = _solver(grid, eps=1.0, iterations=40, tolerance=1e-8)
     rhs = _rand(grid, 4)
-    _ps, info = solver.krylov(csqr=CSQR, dt=DT).solve(rhs)
+    _ps, info = solver.krylov(gravity=CSQR, dt=DT).solve(rhs)
     # the masked mean-depth spectral inverse converges well inside the
     # 40-iteration budget on a genuine cut chart (measured 12 at a=0.4,
     # 17 at a=0.8)
@@ -190,7 +190,7 @@ def test_multigrid_composes_with_immersed_grid():
     # immersed grid (nx=16 -> 8 -> 4, a three-level cycle)
     solver = _solver(_grid(n=16, a=0.8), preconditioner="multigrid")
     assert solver._immersed is not None
-    vcycle = solver._build_vcycle(csqr=CSQR, dt=DT)
+    vcycle = solver._build_vcycle(gravity=CSQR, dt=DT)
     assert len(vcycle.levels) == 3
 
 
@@ -207,7 +207,7 @@ def test_coarse_levels_requantify_the_wet_fractions():
     assert coarse_grid.immersed is not None      # descriptor propagated
     coarse = BarotropicPressureSolver(
         coarse_grid, coarse_space, ("zp", "z"), "z", epsilon=1.0,
-        inv_depth=1.0, iterations=1, tolerance=None)
+        iterations=1, tolerance=None)
     assert coarse._immersed is not None
     h_x = np.asarray(coarse._face_depth("x").data)
     # a genuine partial: re-quadratured wet, strictly inside (0, full)
@@ -231,13 +231,13 @@ def test_all_wet_cut_chart_multigrid_matches_pure_terrain(eps):
         pure.create_field(_ps_space(pure)).data.shape))
     r_wet = wet.create_field(_ps_space(wet)).with_data(data)
     r_pure = pure.create_field(_ps_space(pure)).with_data(data)
-    z_wet = s_wet._build_vcycle(csqr=CSQR, dt=DT)(r_wet)
-    z_pure = s_pure._build_vcycle(csqr=CSQR, dt=DT)(r_pure)
+    z_wet = s_wet._build_vcycle(gravity=CSQR, dt=DT)(r_wet)
+    z_pure = s_pure._build_vcycle(gravity=CSQR, dt=DT)(r_pure)
     assert np.array_equal(np.asarray(z_wet.data), np.asarray(z_pure.data))
     # the full preconditioned solve agrees to machine precision (the
     # fields live on different grid objects, so compare the raw data)
-    x_wet = np.asarray(s_wet.solve(r_wet, csqr=CSQR, dt=DT).data)
-    x_pure = np.asarray(s_pure.solve(r_pure, csqr=CSQR, dt=DT).data)
+    x_wet = np.asarray(s_wet.solve(r_wet, gravity=CSQR, dt=DT).data)
+    x_pure = np.asarray(s_pure.solve(r_pure, gravity=CSQR, dt=DT).data)
     scale = float(np.abs(x_pure).max()) + 1e-30
     assert float(np.abs(x_wet - x_pure).max()) / scale <= 1e-12
 
@@ -250,9 +250,9 @@ def test_multigrid_converges_machine_zero_on_a_cut_chart(eps):
     # a wet-supported RHS (the physical transport divergence is zero on
     # dry columns): A applied to a random field is range-compatible
     rand = _rand(grid, 9)
-    rhs = solver.operator(csqr=CSQR, dt=DT)(rand)
-    ps = solver.solve(rhs, csqr=CSQR, dt=DT)
-    residual = rhs - solver.operator(csqr=CSQR, dt=DT)(ps)
+    rhs = solver.operator(gravity=CSQR, dt=DT)(rand)
+    ps = solver.solve(rhs, gravity=CSQR, dt=DT)
+    residual = rhs - solver.operator(gravity=CSQR, dt=DT)(ps)
     rel = np.sqrt(_inner(residual, residual)) / np.sqrt(_inner(rhs, rhs))
     assert rel < 1e-8
 
@@ -265,8 +265,8 @@ def test_multigrid_beats_spectral_on_a_steep_shelf():
     sp = _solver(grid, eps=1.0, iterations=200, tolerance=1e-8)
     mg = _solver(grid, eps=1.0, iterations=200, tolerance=1e-8,
                  preconditioner="multigrid")
-    _p, info_sp = sp.krylov(csqr=CSQR, dt=DT).solve(_rand(grid, 4))
-    _q, info_mg = mg.krylov(csqr=CSQR, dt=DT).solve(_rand(grid, 4))
+    _p, info_sp = sp.krylov(gravity=CSQR, dt=DT).solve(_rand(grid, 4))
+    _q, info_mg = mg.krylov(gravity=CSQR, dt=DT).solve(_rand(grid, 4))
     assert int(info_mg["iterations"]) < int(info_sp["iterations"])
     assert int(info_mg["iterations"]) <= 20
 
@@ -279,7 +279,7 @@ def test_multigrid_iterations_stay_flat_with_resolution():
         grid = _grid(n=n, a=0.8)
         solver = _solver(grid, eps=1.0, iterations=200, tolerance=1e-8,
                          preconditioner="multigrid")
-        _p, info = solver.krylov(csqr=CSQR, dt=DT).solve(_rand(grid, 4))
+        _p, info = solver.krylov(gravity=CSQR, dt=DT).solve(_rand(grid, 4))
         counts.append(int(info["iterations"]))
     assert all(c <= 15 for c in counts)
     assert abs(counts[1] - counts[0]) <= 3          # flat, not h-growing
@@ -293,7 +293,7 @@ def test_multigrid_vcycle_is_self_adjoint_on_a_wet_chart(eps):
     # level; the outer CG carries the exact wet-column-mean gauge)
     grid = _grid(n=16, a=0.8, init=_coast)
     solver = _solver(grid, eps=eps, preconditioner="multigrid")
-    vcycle = solver._build_vcycle(csqr=CSQR, dt=DT)
+    vcycle = solver._build_vcycle(gravity=CSQR, dt=DT)
     r, s = _mean_free(_rand(grid, 30)), _mean_free(_rand(grid, 31))
     mrs, rms = _inner(vcycle(r), s), _inner(r, vcycle(s))
     assert abs(mrs - rms) <= 1e-11 * max(abs(mrs), 1e-30)
@@ -304,8 +304,8 @@ def test_multigrid_rigid_lid_solution_is_wet_mean_free_and_masks_land():
     solver = _solver(grid, eps=0.0, iterations=80, tolerance=1e-8,
                      preconditioner="multigrid")
     rand = _rand(grid, 5)
-    rhs = solver.operator(csqr=CSQR, dt=DT)(rand)
-    ps = solver.solve(rhs, csqr=CSQR, dt=DT)
+    rhs = solver.operator(gravity=CSQR, dt=DT)(rand)
+    ps = solver.solve(rhs, gravity=CSQR, dt=DT)
     theta_col = Integral()["z"](
         grid.immersed.fraction(fr.spatial.Collocated().resolve(grid)))
     cell_mask = np.asarray(theta_col.data > 0.0)
@@ -315,6 +315,6 @@ def test_multigrid_rigid_lid_solution_is_wet_mean_free_and_masks_land():
     wet_ind = theta_col.with_data(cell_mask.astype(ps_data.dtype))
     wet_mean = float(_inner(wet_ind, ps) / _inner(wet_ind, wet_ind))
     assert abs(wet_mean) <= 1e-11 * (float(np.abs(ps_data).max()) + 1.0)
-    residual = rhs - solver.operator(csqr=CSQR, dt=DT)(ps)
+    residual = rhs - solver.operator(gravity=CSQR, dt=DT)(ps)
     rel = np.sqrt(_inner(residual, residual)) / np.sqrt(_inner(rhs, rhs))
     assert rel < 1e-8

@@ -17,7 +17,8 @@ epsilon-slope ladder instead):
    the quadratic term the two spellings are dynamically
    equivalent). Historical note: this started as a workaround for
    ``OptimalBalance`` hard-coding a 0 -> 1 rossby ramp; OB now ramps
-   to the model's own nominal value, so ``rossby_number=Ro`` with an
+   the term envelope (``ramping.envelope``, section C) and leaves
+   every scaling number untouched, so ``rossby_number=Ro`` with an
    O(1) amplitude works equally well;
 3. for each balance method M: ``z_b = M(z)``; integrate the FULL
    nonlinear model for one eddy turnover ``T = turnover / Ro``;
@@ -96,9 +97,17 @@ def make_model(args: argparse.Namespace, *, periodic_y: bool = True):
         args.size, (0.0, length), periodic=True, name="x")
     my = fr.spatial.meshes.IntervalMesh(
         args.size, (0.0, length), periodic=periodic_y, name="y")
+    # today-parity spelling on the scaling surface. The
+    # OptimalBalance protocol below runs on this mechanism-scaled
+    # model: OB ramps the term envelope (ramping.envelope, section C
+    # of the nondimensionalization plan), never the aliased
+    # nonlinearity row, so the Froude number stays untouched.
     return sw.Model(
-        grid=fr.spatial.Grid((mx, my)), csqr=1.0, rossby_number=1.0,
-        coriolis=sw.modules.FPlaneCoriolis(f0=1.0), advection=True,
+        grid=fr.spatial.Grid((mx, my)),
+        core=sw.Core(froude_number=1.0, depth=1.0),
+        scaling=fr.scaling.GravityWave(),
+        coriolis=sw.modules.FPlaneCoriolis(rossby_number=1.0),
+        advection=True,
         time_stepper=fr.model.time_steppers.AdamBashforth(
             args.dt, order=3))
 

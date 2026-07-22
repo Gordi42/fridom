@@ -89,21 +89,21 @@ class State(VectorField):
         """Zonal velocity (declared by a shallow-water core)."""
         return self.require(
             "u", hint="declared by a shallow-water core module, "
-                      "e.g. sw.modules.DynamicalCore")
+                      "e.g. sw.Core")
 
     @property
     def v(self) -> fr.spatial.ScalarField:
         """Meridional velocity (declared by a shallow-water core)."""
         return self.require(
             "v", hint="declared by a shallow-water core module, "
-                      "e.g. sw.modules.DynamicalCore")
+                      "e.g. sw.Core")
 
     @property
     def p(self) -> fr.spatial.ScalarField:
         r"""Pressure / geopotential perturbation :math:`p = g\eta`."""
         return self.require(
             "p", hint="declared by a shallow-water core module, "
-                      "e.g. sw.modules.DynamicalCore")
+                      "e.g. sw.Core")
 
     def _axes(self) -> tuple[str, str]:
         """Read the (zonal, meridional) names off the ``u`` space."""
