@@ -77,6 +77,22 @@ def test_structure(grid, mx, my):
     assert grid.names == ("x", "y")
 
 
+def test_factor_returns_the_named_mesh(grid, mx, my):
+    assert grid.factor("x") is mx
+    assert grid.factor("y") is my
+
+
+def test_factor_dx_equals_extent_over_n(grid, mx):
+    assert grid.factor("x").dx == mx.dx
+    assert grid.factor("x").dx == pytest.approx(1.0 / 8)
+
+
+def test_factor_unknown_name_raises(grid):
+    with pytest.raises(ValueError,
+                       match=r"not a coordinate.*'x', 'y'"):
+        grid.factor("z")
+
+
 def test_empty_meshes_rejected():
     with pytest.raises(ValueError, match="at least one mesh"):
         Grid(())

@@ -40,8 +40,18 @@ class Grid(_Grid):
     ----------
     shape : tuple[int, ...]
         Cell count per axis.
-    extent : tuple[tuple[float, float], ...]
-        The physical ``(min, max)`` interval per axis.
+    extent : float | tuple[float | tuple[float, float], ...]
+        The physical interval per axis. A bare scalar ``L`` broadcasts
+        the interval ``(0.0, L)`` to every axis (mirroring how a single
+        ``periodic`` bool broadcasts). A length-``ndim`` sequence is
+        **always** interpreted per-axis, each entry either a scalar
+        ``L`` (the axis interval ``(0.0, L)``) or an explicit
+        ``(min, max)`` pair. Because the sequence is per-axis,
+        ``extent=(0, 10)`` on a 2-D grid is the two axis scalars ``0``
+        and ``10`` — the ``0`` axis expands to the degenerate
+        ``(0.0, 0.0)`` and trips the increasing-interval guard
+        (intended self-protection); nest a pair to give one axis an
+        offset interval.
     periodic : bool | tuple[bool, ...], optional
         Whether each axis is periodic; a single bool broadcasts to all
         axes (default: True).
@@ -69,7 +79,7 @@ class Grid(_Grid):
     def __init__(
         self,
         shape: tuple[int, ...],
-        extent: tuple[tuple[float, float], ...],
+        extent: float | tuple[float | tuple[float, float], ...],
         periodic: bool | tuple[bool, ...] = True,
         names: tuple[str, ...] | None = None,
         *,
@@ -80,9 +90,16 @@ class Grid(_Grid):
     ) -> None:
         """Build uniform IntervalMesh factors and assemble the grid."""
         ndim = len(shape)
-        if len(extent) != ndim:
+        # scalar-``L`` sugar broadcasts the interval (0.0, L) to every
+        # axis, mirroring the single-``periodic``-bool broadcast below;
+        # a sequence is per-axis, each entry a scalar or a (min, max)
+        # pair, normalized by IntervalMesh (via its base class)
+        extents = (
+            (extent,) * ndim if isinstance(extent, (int, float))
+            else tuple(extent))
+        if len(extents) != ndim:
             raise ValueError(
-                f"extent has {len(extent)} intervals but shape has "
+                f"extent has {len(extents)} intervals but shape has "
                 f"{ndim} axes")
         periodics = (
             (periodic,) * ndim if isinstance(periodic, bool)
@@ -105,7 +122,7 @@ class Grid(_Grid):
         meshes = tuple(
             IntervalMesh(n, ext, periodic=p, name=name)
             for n, ext, p, name in zip(
-                shape, extent, periodics, names, strict=True))
+                shape, extents, periodics, names, strict=True))
         super().__init__(
             meshes, dispatch=dispatch, mapping=mapping,
             immersed=immersed, device_ids=device_ids)

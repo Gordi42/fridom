@@ -57,6 +57,39 @@ def test_builds_a_usable_grid():
 
 
 # ================================================================
+#  Extent sugar (scalar broadcast / per-axis floats)
+# ================================================================
+def test_scalar_extent_broadcasts_to_every_axis():
+    grid = Grid((8, 8), 2.0)
+    assert [f.extent for f in grid.factors] == [(0.0, 2.0), (0.0, 2.0)]
+
+
+def test_per_axis_scalar_extents():
+    grid = Grid((8, 4), (1.0, 3.0))
+    assert [f.extent for f in grid.factors] == [(0.0, 1.0), (0.0, 3.0)]
+
+
+def test_mixed_scalar_and_pair_extents():
+    grid = Grid((8, 4), (1.0, (2.0, 5.0)))
+    mx, my = grid.factors
+    assert mx.extent == (0.0, 1.0)
+    assert my.extent == (2.0, 5.0)
+
+
+def test_per_axis_pairs_are_unchanged():
+    grid = Grid((8, 8), ((0.0, 1.0), (0.0, 2.0)))
+    assert [f.extent for f in grid.factors] == [(0.0, 1.0), (0.0, 2.0)]
+
+
+def test_degenerate_scalar_axis_is_rejected():
+    # a length-ndim sequence is always per-axis: (0, 10) is the two
+    # axis scalars 0 and 10, and the 0 axis expands to the degenerate
+    # (0.0, 0.0), which trips the increasing-interval guard
+    with pytest.raises(ValueError, match="increasing"):
+        Grid((8, 8), (0, 10))
+
+
+# ================================================================
 #  Construction errors (taught)
 # ================================================================
 def test_extent_length_must_match_shape():

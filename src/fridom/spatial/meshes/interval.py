@@ -33,15 +33,16 @@ class IntervalMesh(StructuredMesh1D):
     ----------
     shape : int
         The cell count n.
-    extent : tuple[float, float]
-        The physical interval (x_min, x_max).
+    extent : float | tuple[float, float]
+        The physical interval (x_min, x_max); a bare scalar ``L`` is
+        the shorthand for the interval ``(0.0, L)``.
     periodic : bool, optional
         Whether the interval is periodic (default: True).
     name : str
         The mandatory coordinate name.
     """
 
-    def __init__(self, shape: int, extent: tuple[float, float],
+    def __init__(self, shape: int, extent: float | tuple[float, float],
                  periodic: bool = True, *, name: str) -> None:
         """Store the uniform interval (shape is the cell count)."""
         super().__init__(shape, extent, periodic, name=name)

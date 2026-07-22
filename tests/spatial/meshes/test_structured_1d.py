@@ -57,6 +57,14 @@ def test_extent_must_increase():
         IntervalMesh(8, (0, 0, 1), name="x")
 
 
+def test_scalar_extent_is_shorthand_for_zero_to_l():
+    scalar = IntervalMesh(N, 2.0, name="x")
+    pair = IntervalMesh(N, (0.0, 2.0), name="x")
+    assert scalar.extent == (0.0, 2.0)
+    assert scalar.extent == pair.extent
+    assert scalar.dx == pair.dx
+
+
 def test_geometry_descriptors(periodic):
     assert periodic.n_cells == N
     assert periodic.extent == (0, 1)
