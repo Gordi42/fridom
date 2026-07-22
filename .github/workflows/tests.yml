@@ -65,7 +65,7 @@ jobs:
         uv run pytest tests/ \
           --splits 4 --group ${{ matrix.group }} \
           -n 4 --dist loadfile \
-          --cov --cov-report= \
+          --cov --cov-report= --cov-fail-under=0 \
           --junitxml=junit-${{ matrix.group }}.xml -o junit_family=legacy
 
     - name: Upload coverage data
@@ -129,7 +129,7 @@ jobs:
           tests/model/test_eigen.py \
           tests/spatial/test_freeze_fingerprint.py \
           tests/nonhydro2/test_distributed_projection.py -q \
-          --cov --cov-report=
+          --cov --cov-report= --cov-fail-under=0
 
     # The multigrid parity battery is the drift net for the 2026-07-18
     # semicoarsening multi-device break. Its parity/convergence tests
@@ -143,7 +143,7 @@ jobs:
           tests/nonhydro2/test_mapped_pressure_multigrid.py \
           tests/nonhydro2/test_mapped_pressure_stretched.py \
           -k "forced4 or converges or full_and_semi or hlo_grows or vcycle_is_symmetric or builds_and_solves or semicoarsening_knob" \
-          -q --cov --cov-append --cov-report=
+          -q --cov --cov-append --cov-report= --cov-fail-under=0
 
     # The three full-coarsening multigrid grad regressions built only
     # single-device until the transfer P^T forward-primitive spelling
@@ -160,7 +160,7 @@ jobs:
           tests/nonhydro2/test_mapped_model_autodiff.py \
           tests/nonhydro2/test_composed_pressure_stretched.py \
           -k "multigrid_solve_grad or stretched_multigrid_grad or stretched_composed_solve_grad" \
-          -q --cov --cov-append --cov-report=
+          -q --cov --cov-append --cov-report= --cov-fail-under=0
 
     - name: Upload coverage data
       uses: actions/upload-artifact@v4
