@@ -1623,8 +1623,9 @@ class AssemblyRecord:
             in self.binding_table.fingerprint_token())
         for entry in self.schedule.entries:
             if entry.is_term:
-                rows.append((f"term {entry.key}",
-                             entry.treatment.name))
+                token = entry.treatment.name + (
+                    " (enveloped)" if entry.enveloped else "")
+                rows.append((f"term {entry.key}", token))
             else:
                 rows.append((f"stage {entry.key}",
                              f"{entry.kind.name} "

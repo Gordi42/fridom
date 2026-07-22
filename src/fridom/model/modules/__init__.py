@@ -38,6 +38,7 @@ if TYPE_CHECKING:  # pragma: no cover
         MovingGeometry,
         mapping_params,
     )
+    from .ramping import TendencyEnvelope
     from .relaxation import Relaxation
 
 base = "fridom.model.modules"
@@ -55,6 +56,7 @@ all_imports_by_origin = {
     f"{base}.moving_geometry": ["MovingGeometry",
                                 "MeshVelocityCorrection",
                                 "mapping_params"],
+    f"{base}.ramping": ["TendencyEnvelope"],
     f"{base}.relaxation": ["Relaxation"],
 }
 

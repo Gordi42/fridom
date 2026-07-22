@@ -29,6 +29,7 @@ in collection order (module tuple index paired with the
 #    dry run, accumulation)
 from __future__ import annotations
 
+import dataclasses
 import warnings
 from itertools import combinations
 from typing import TYPE_CHECKING, Any
@@ -42,6 +43,7 @@ from fridom.model.errors import (
     AssemblyError,
     ImplicitCollisionError,
 )
+from fridom.model.params import RAMPING_ENVELOPE
 from fridom.model.schedule import (
     Schedule,
     ScheduleEntry,
@@ -147,7 +149,9 @@ class TendencyComposer:
         own_diag = _owned(self._records, Lifecycle.DIAGNOSTIC)
 
         term_entries = self._collect_terms(terms, time_stepper)
-        term_entries = self._filter_terms(term_entries, terms)
+        pairs = tuple(zip(term_entries, terms, strict=True))
+        pairs = self._filter_pairs(pairs)
+        term_entries = self._apply_envelope(pairs)
         stage_entries = self._collect_stages(
             stages, own_aux, own_diag)
         _static_advance_overlap(stage_entries)
@@ -424,30 +428,108 @@ class TendencyComposer:
                 implicit=term.implicit, linear=term.linear))
         return tuple(entries)
 
-    def _filter_terms(
+    def _filter_pairs(
         self,
-        entries: tuple[ScheduleEntry, ...],
-        terms: Sequence[tuple[int, TendencyTerm]],
-    ) -> tuple[ScheduleEntry, ...]:
+        pairs: tuple[tuple[ScheduleEntry, tuple[int, TendencyTerm]],
+                     ...],
+    ) -> tuple[tuple[ScheduleEntry, tuple[int, TendencyTerm]], ...]:
         """Apply the variant term filter (terms only, 08 10.4)."""
         if self._term_filter is None:
-            return entries
+            return pairs
         # module-aware predicates (fr.terms, wants_module=True) receive
         # the owning module for owned_by's isinstance check; legacy
         # two-argument callables keep the (key, term) signature.
         wants_module = getattr(self._term_filter, "wants_module", False)
         kept = tuple(
-            entry for entry, (slot, term) in zip(entries, terms,
-                                                 strict=True)
+            (entry, (slot, term)) for entry, (slot, term) in pairs
             if (self._term_filter(entry.key, term, self._modules[slot])
                 if wants_module
                 else self._term_filter(entry.key, term)))
-        if entries and not kept:
+        if pairs and not kept:
             raise AssemblyError(
                 "the term filter drops every collected term; an "
                 "empty filter result is a build error (model.md, "
                 "variant mechanics)")
         return kept
+
+    def _apply_envelope(
+        self,
+        pairs: tuple[tuple[ScheduleEntry, tuple[int, TendencyTerm]],
+                     ...],
+    ) -> tuple[ScheduleEntry, ...]:
+        """Wrap the envelope-matched term hooks (C1 mechanism).
+
+        Description
+        -----------
+        Detects (at most) one term-envelope module — any module whose
+        ``envelope_terms`` capability attribute is a term predicate
+        (``fr.modules.TendencyEnvelope``) — and wraps every filter-
+        surviving matched term's hook so its contribution dict is
+        scaled by the stage-time ``ctx.params["ramping.envelope"]``
+        (never a host-captured value — the D2 rule). Taught refusals:
+        a second envelope module, a matched ``IMPLICIT`` term (the
+        solve inverts ``1 - dt*gamma*L``, not ``rho*(...)``), a
+        matched ``linear=True`` term (ramping ``L`` is the
+        parameter-deformation path's job), and an empty match — an
+        error without a ``term_filter``, a warning under one (a
+        filtered variant, e.g. an all-linear backward leg, keeps an
+        inert envelope and must still build).
+        """
+        entries = tuple(entry for entry, _ in pairs)
+        envelopes = tuple(
+            (slot, module)
+            for slot, module in enumerate(self._modules)
+            if getattr(module, "envelope_terms", None) is not None)
+        if not envelopes:
+            return entries
+        if len(envelopes) > 1:
+            named = ", ".join(
+                f"modules[{slot}] ({type(module).__name__})"
+                for slot, module in envelopes)
+            raise AssemblyError(
+                f"more than one term-envelope module in this "
+                f"assembly: {named}; one envelope module per "
+                "assembly — compose one predicate with | instead")
+        predicate = envelopes[0][1].envelope_terms
+        wrapped: list[ScheduleEntry] = []
+        matched = False
+        for entry, (slot, term) in pairs:
+            if not predicate(entry.key, term, self._modules[slot]):
+                wrapped.append(entry)
+                continue
+            matched = True
+            if entry.treatment is Treatment.IMPLICIT:
+                raise AssemblyError(
+                    f"the term envelope matches the IMPLICIT term "
+                    f"{entry.key}: an enveloped implicit solve is "
+                    "unsound — the solve inverts (1 - dt*gamma*L), "
+                    "not rho*(...); narrow the envelope predicate "
+                    "(e.g. & fr.terms.explicit) or treat the term "
+                    "explicitly")
+            if entry.linear:
+                raise AssemblyError(
+                    f"the term envelope matches the linear=True term "
+                    f"{entry.key}: ramping the linear operator is "
+                    "the parameter-deformation path's job — ramp its "
+                    "coefficient instead (ramps={...}, the f0-ramp "
+                    "idiom), or exclude it (~fr.terms.linear)")
+            fn = (entry.fn if entry.fn is not None
+                  else entry.implicit.apply)
+            wrapped.append(dataclasses.replace(
+                entry, fn=_wrap_envelope(fn), enveloped=True))
+        if not matched:
+            message = (
+                f"the term envelope "
+                f"({predicate.fingerprint_token()}) matches no "
+                "collected term; an inert envelope silently skips "
+                "the ramp")
+            if self._term_filter is not None:
+                # info downgrade under a variant filter: a filtered
+                # leg (e.g. linear-only backward) must still build
+                warnings.warn(message, stacklevel=3)
+            else:
+                raise AssemblyError(message)
+        return tuple(wrapped)
 
     def _collect_stages(
         self,
@@ -761,6 +843,40 @@ def _normalize_owned_hook(key: str, fn: object, owner: object) -> object:
             "(a bound method captures the assembly-time instance "
             "while live parameters ride the carry)")
     return fn.__func__
+
+
+def _wrap_envelope(fn: Callable) -> Callable:
+    """
+    Wrap a term hook in the stage-time envelope multiply.
+
+    Description
+    -----------
+    The returned hook scales every contribution of ``fn`` by
+    ``ctx.params["ramping.envelope"]`` — the envelope value is read
+    from the per-substage context (the ``TendencyEnvelope`` module's
+    live leaf, stage-time resolved), never closed over as a host
+    value (the D2 no-host-capture rule: a captured value would bake
+    the ramp endpoints into the jitted step as constants).
+
+    Parameters
+    ----------
+    fn : Callable
+        The unbound term hook ``(module, state, ctx) -> dict``.
+
+    Returns
+    -------
+    Callable
+        The enveloped hook, same signature.
+    """
+    def enveloped(
+        module: object, state: object, ctx: StepContext,
+    ) -> dict:
+        """Scale the wrapped hook's contributions by rho(t)."""
+        rho = ctx.params[RAMPING_ENVELOPE]
+        return {name: value * rho
+                for name, value in fn(module, state, ctx).items()}
+
+    return enveloped
 
 
 def _implicit_groups(

@@ -458,3 +458,31 @@ def test_manual_schedule_equality_ignores_fn_identity():
     s2 = make(lambda *_args: {})
     assert s1 == s2
     assert hash(s1) == hash(s2)
+
+
+# ================================================================
+#  The enveloped flag (memo identity, never fingerprint bytes)
+# ================================================================
+def _term_entry(**overrides):
+    kwargs = {"key": "M/t", "kind": None, "slot": 0, "order": 0,
+              "index": 0, "fn": lambda *_args: {}, "gate": ("u",),
+              "treatment": Treatment.EXPLICIT}
+    kwargs.update(overrides)
+    return ScheduleEntry(**kwargs)
+
+
+def test_enveloped_defaults_to_false():
+    assert _term_entry().enveloped is False
+
+
+def test_static_token_carries_the_enveloped_flag():
+    assert _term_entry().static_token()[-1] is False
+    assert _term_entry(enveloped=True).static_token()[-1] is True
+
+
+def test_enveloped_separates_schedule_equality_and_hash():
+    plain = Schedule((_term_entry(),), prognostic=("u",))
+    enveloped = Schedule((_term_entry(enveloped=True),),
+                         prognostic=("u",))
+    assert plain != enveloped
+    assert hash(plain) != hash(enveloped)

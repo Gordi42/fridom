@@ -222,6 +222,29 @@ def test_variant_updates_unknown_parameter_errors():
         model.variant(updates={"nope.param": 1.0})
 
 
+def test_variant_extra_module_binds_its_parameter():
+    model = make_model()
+    assert "toy.value" not in model.parameters
+    variant = model.variant(extra_modules=(Provider(3.0),))
+    assert float(variant.parameters["toy.value"]) == pytest.approx(3.0)
+    # the parent stays untouched (the extra joins a fresh clone tuple)
+    assert "toy.value" not in model.parameters
+
+
+def test_variant_extra_module_shares_the_state_treedef():
+    model = make_model()
+    _ic(model)
+    variant = model.variant(extra_modules=(Provider(),))
+    assert (jax.tree_util.tree_structure(model.state)
+            == jax.tree_util.tree_structure(variant.state))
+
+
+def test_variant_field_declaring_extra_module_refused():
+    model = make_model()
+    with pytest.raises(AssemblyError, match="declares fields"):
+        model.variant(extra_modules=(Core(),))
+
+
 def test_tendency_plain_callable_filter():
     # a legacy two-argument callable (no fr.terms metadata)
     model = make_model()

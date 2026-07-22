@@ -24,6 +24,16 @@ compose (``ramp.down.backward``). ``.replace(**overrides)`` is the
 frozen-config copy-with (OB's backward leg needs a different
 ``term_filter``).
 
+Two orthogonal deformation paths (§C of the nondimensionalization
+plan): ``ramps={key: (v0, v1)}`` deforms bound **parameters** (the
+f0 spin-up idiom — it changes ``L``), while ``envelope=`` ramps the
+selected **tendency terms as a whole** — a ``TendencyEnvelope``
+module scales matched term outputs by ``rho(t)`` read from
+``ctx.params["ramping.envelope"]`` at stage time (never a
+host-captured value). ``envelope=True`` selects
+``~fr.terms.linear & fr.terms.explicit``, so ``rho = 0`` is exactly
+``fr.linearize(model)`` and ``rho = 1`` the nominal model.
+
 ``OptimalBalance`` is re-homed **onto** this surface (composition, not
 subclass); this is the leg machinery it owns.
 """
@@ -35,6 +45,7 @@ from fridom.model import params
 from fridom.model import term_predicates as terms
 from fridom.model.closures.base import ClosureBase
 from fridom.model.errors import IrreversibleTermError
+from fridom.model.modules.ramping import TendencyEnvelope
 from fridom.model.time_dependent import Ramp, TimeDependent
 from fridom.model.transforms.base import StateTransform
 from fridom.model.transforms.propagator import Propagator
@@ -59,10 +70,11 @@ class AdiabaticRamping(StateTransform):
         self,
         model: object,
         *,
-        ramps: Mapping[str, object],
         ramp_period: float,
         curve: str | Callable = "exp",
         steps: int | None = None,
+        envelope: bool | terms.TermPredicate = False,
+        ramps: Mapping[str, object] | None = None,
         term_filter: Callable | None = None,
         updates: Mapping[str, object] | None = None,
         name: str | None = None,
@@ -79,21 +91,25 @@ class AdiabaticRamping(StateTransform):
         ``Ramp(v_ref, v_target, period=ramp_period, curve=curve)``; an
         explicit :class:`TimeDependent` is taken verbatim — its own
         ``t0``/``period`` window is the AR-D5 *interleaved* protocol
-        form. The resolved Ramp-valued updates are merged with the
-        passthrough ``updates`` and fed to an internal
-        :class:`Propagator` over ``model.variant`` (never storing the
-        passed model — §10.3 law 3). ``_backward``/``_resolved``/
-        ``_down`` are private slots the leg accessors use; user code
-        never sets them.
+        form. ``envelope=`` adds the term-envelope deformation: the
+        envelope Ramp ``0 -> 1`` joins the resolved ramps under
+        ``fr.params.RAMPING_ENVELOPE``, so the derived-leg machinery
+        (reflection, reversal) applies to it verbatim; on a model not
+        already binding ``"ramping.envelope"`` the first leg appends
+        a ``fr.modules.TendencyEnvelope`` via
+        ``Propagator(extra_modules=...)``, and derived legs update
+        the bound leaf through ``updates=``. The resolved Ramp-valued
+        updates are merged with the passthrough ``updates`` and fed
+        to an internal :class:`Propagator` over ``model.variant``
+        (never storing the passed model — §10.3 law 3).
+        ``_backward``/``_resolved``/``_down`` are private slots the
+        leg accessors use; user code never sets them.
 
         Parameters
         ----------
         model : Model
             The assembly spec; a fresh internal variant is built from
             it (never stored/mutated — §10.3 law 3).
-        ramps : Mapping[str, tuple | TimeDependent]
-            ``{param_key: (v_ref, v_target) | TimeDependent}``; tuples
-            become the up-leg Ramp, TimeDependents pass verbatim.
         ramp_period : float
             The ramping duration, in seconds; the leg advances
             ``steps`` internal steps and the tuple-sugar Ramps span
@@ -105,6 +121,17 @@ class AdiabaticRamping(StateTransform):
         steps : int | None, optional
             Overrides the default ``max(1, round(ramp_period / |dt|))``
             internal step count (default: None).
+        envelope : bool | TermPredicate, optional
+            The term-envelope deformation: ``True`` ramps
+            ``~fr.terms.linear & fr.terms.explicit`` (the
+            nonlinearity as a whole, so the leg starts at exactly
+            ``fr.linearize(model)``); an ``fr.terms`` predicate
+            narrows/widens the selection; ``False`` ramps no terms
+            (default: False).
+        ramps : Mapping[str, tuple | TimeDependent] | None, optional
+            ``{param_key: (v_ref, v_target) | TimeDependent}``; tuples
+            become the up-leg Ramp, TimeDependents pass verbatim
+            (default: None).
         term_filter : Callable | None, optional
             A term predicate (``fr.terms``) threaded to the internal
             variant (default: None).
@@ -114,6 +141,13 @@ class AdiabaticRamping(StateTransform):
         name : str | None, optional
             The internal variant's report/log name prefix
             (default: ``"AdiabaticRamping"``).
+
+        Raises
+        ------
+        TypeError
+            On a malformed ``ramps`` spec, a non-predicate
+            ``envelope``, or an envelope ramp without a predicate on
+            a model that does not bind ``"ramping.envelope"``.
         """
         dt = abs(float(model.parameters[params.TIME_STEP]))
         self._ramp_period = float(ramp_period)
@@ -125,20 +159,62 @@ class AdiabaticRamping(StateTransform):
         self._down = bool(_down)
         self._steps = (steps if steps is not None
                        else max(1, round(self._ramp_period / dt)))
+        self._envelope = envelope
+        self._envelope_pred = self._resolve_envelope(envelope)
         if _resolved is not None:
             self._resolved = dict(_resolved)
         else:
-            self._resolved = self._resolve_ramps(ramps)
+            self._resolved = self._resolve_ramps(ramps or {})
+            if self._envelope_pred is not None:
+                # an explicit ramps={RAMPING_ENVELOPE: ...} wins
+                self._resolved.setdefault(
+                    params.RAMPING_ENVELOPE,
+                    Ramp(0.0, 1.0, period=self._ramp_period,
+                         curve=self._curve))
         merged = {**self._passthrough, **self._resolved}
+        extra_modules: tuple = ()
+        rho = merged.get(params.RAMPING_ENVELOPE)
+        if (rho is not None
+                and params.RAMPING_ENVELOPE not in model.parameters):
+            if self._envelope_pred is None:
+                raise TypeError(
+                    "an envelope ramp "
+                    f"(ramps[{str(params.RAMPING_ENVELOPE)!r}]) on a "
+                    "model that does not bind 'ramping.envelope' "
+                    "needs the enveloped-term selection: pass "
+                    "envelope=True (~fr.terms.linear & "
+                    "fr.terms.explicit) or an fr.terms predicate")
+            # first leg: the module carries the Ramp leaf directly;
+            # derived legs find the parameter bound and go via updates
+            merged.pop(params.RAMPING_ENVELOPE)
+            extra_modules = (TendencyEnvelope(
+                terms=self._envelope_pred, envelope=rho),)
         prefix = name or "AdiabaticRamping"
         suffix = ("/down" if self._down else "") + (
             "/backward" if self._backward else "/up")
         self._propagator = Propagator(
             model, steps=self._steps, backward=self._backward,
             updates=merged, term_filter=term_filter,
+            extra_modules=extra_modules,
             name=f"{prefix}{suffix}")
         if self._backward:
             self._check_reversible()
+
+    @staticmethod
+    def _resolve_envelope(
+        envelope: bool | terms.TermPredicate,
+    ) -> terms.TermPredicate | None:
+        """Resolve the ``envelope=`` spec to a predicate (or None)."""
+        if envelope is True:
+            return ~terms.linear & terms.explicit
+        if envelope is False:
+            return None
+        if isinstance(envelope, terms.TermPredicate):
+            return envelope
+        raise TypeError(
+            "envelope= takes True (ramp ~fr.terms.linear & "
+            "fr.terms.explicit), False, or an fr.terms predicate; "
+            f"got {envelope!r}")
 
     def _resolve_ramps(
         self, ramps: Mapping[str, object],
@@ -233,8 +309,8 @@ class AdiabaticRamping(StateTransform):
         ----------
         **overrides : object
             Constructor keywords to replace (``ramps``, ``ramp_period``,
-            ``curve``, ``steps``, ``term_filter``, ``updates``,
-            ``name``).
+            ``curve``, ``steps``, ``envelope``, ``term_filter``,
+            ``updates``, ``name``).
 
         Returns
         -------
@@ -248,6 +324,7 @@ class AdiabaticRamping(StateTransform):
             ramp_period=overrides.get("ramp_period", self._ramp_period),
             curve=overrides.get("curve", self._curve),
             steps=overrides.get("steps", self._steps),
+            envelope=overrides.get("envelope", self._envelope),
             term_filter=overrides.get("term_filter", self._term_filter),
             updates=overrides.get("updates", self._passthrough),
             name=overrides.get("name", self._name),
@@ -265,7 +342,8 @@ class AdiabaticRamping(StateTransform):
         return AdiabaticRamping(
             self._propagator.model, ramps={},
             ramp_period=self._ramp_period, curve=self._curve,
-            steps=self._steps, term_filter=self._term_filter,
+            steps=self._steps, envelope=self._envelope,
+            term_filter=self._term_filter,
             updates=self._passthrough, name=self._name,
             _backward=self._backward if backward is None else backward,
             _resolved=resolved,
@@ -341,6 +419,11 @@ class AdiabaticRamping(StateTransform):
     def ramps(self) -> dict[str, TimeDependent]:
         """The resolved per-parameter ramp curves of this leg."""
         return dict(self._resolved)
+
+    @property
+    def envelope(self) -> terms.TermPredicate | None:
+        """The resolved enveloped-term predicate (None: no envelope)."""
+        return self._envelope_pred
 
     # ================================================================
     #  Application (delegated Tier-2 call, §10.3 law 1)

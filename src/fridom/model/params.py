@@ -157,3 +157,10 @@ SCALING_NONLINEARITY: Final[ParamName] = ParamName(
          "policy (aliasing the mechanism module's nonlinearity "
          "leaf, e.g. FPlaneCoriolis(rossby_number=...)); "
          "dimensional models bind no row")
+
+RAMPING_ENVELOPE: Final[ParamName] = ParamName(
+    "ramping.envelope",
+    units="n/a",
+    hint="provided by fr.model.modules.TendencyEnvelope (the "
+         "term-envelope module AdiabaticRamping(envelope=...) "
+         "appends)")

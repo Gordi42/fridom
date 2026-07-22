@@ -132,6 +132,12 @@ class ScheduleEntry:
         eigenbasis rather than from the tendency — can verify at
         trace time that those terms were filtered out of the
         tendency, instead of silently double-counting them.
+    enveloped : bool
+        Whether the composer wrapped this term's ``fn`` in the
+        term-envelope multiply (``ctx.params["ramping.envelope"]``,
+        the ``TendencyEnvelope`` module); ``False`` for stages and
+        unmatched terms. Part of :meth:`static_token`, so enveloped
+        and plain assemblies never share a memoized step body.
     """
 
     key: str
@@ -147,6 +153,7 @@ class ScheduleEntry:
     writes: tuple[str, ...] | None = None
     implicit: ImplicitOperator | None = None
     linear: bool = False
+    enveloped: bool = False
 
     @property
     def is_term(self) -> bool:
@@ -172,10 +179,10 @@ class ScheduleEntry:
         Description
         -----------
         Attribution key, kind, slot, order, index, treatment, gate,
-        advances, and reads — deliberately excluding the ``fn``
-        callable and the implicit operator object (identity-hashed
-        host objects; two identical module configurations must
-        produce equal tokens).
+        advances, reads, and the ``enveloped`` flag — deliberately
+        excluding the ``fn`` callable and the implicit operator
+        object (identity-hashed host objects; two identical module
+        configurations must produce equal tokens).
 
         Returns
         -------
@@ -193,6 +200,7 @@ class ScheduleEntry:
             self.gate,
             self.advances,
             self.reads,
+            self.enveloped,
         )
 
 

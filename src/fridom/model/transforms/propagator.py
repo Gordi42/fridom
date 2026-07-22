@@ -55,6 +55,7 @@ class Propagator(StateTransform):
         backward: bool = False,
         updates: Mapping[str, object] | None = None,
         term_filter: Callable | None = None,
+        extra_modules: tuple = (),
         name: str | None = None,
     ) -> None:
         """
@@ -76,10 +77,14 @@ class Propagator(StateTransform):
             (the reverse leg) (default: False).
         updates : Mapping[str, object] | None, optional
             Assembly-time variant parameter updates, e.g. a Ramp-valued
-            ``scaling.nonlinearity`` for OB's ramped legs (default: None).
+            ``coriolis.f0`` for a ramped leg (default: None).
         term_filter : Callable | None, optional
             A term predicate threaded to the internal variant, e.g.
             ``fr.terms.linear`` (default: None).
+        extra_modules : tuple, optional
+            Field-free modules appended to the internal variant —
+            ``AdiabaticRamping``'s envelope leg delivers its
+            ``fr.modules.TendencyEnvelope`` here (default: ``()``).
         name : str | None, optional
             The internal variant's report/log name
             (default: ``"Propagator/internal"``).
@@ -91,6 +96,7 @@ class Propagator(StateTransform):
         merged[params.TIME_STEP] = -dt if backward else dt
         self._model = model.variant(
             term_filter=term_filter, updates=merged,
+            extra_modules=extra_modules,
             name=name or "Propagator/internal")
         self._prognostic = self._model.field_table.prognostic
         self._signature = StateSignature.of_prognostic(self._model)
