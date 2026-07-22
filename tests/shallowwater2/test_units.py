@@ -12,8 +12,8 @@ import pytest
 
 import fridom as fr
 import fridom.shallowwater2 as sw
-from fridom.model.io.triggers import every
-from fridom.model.io.writer import Writer
+from fridom.io.triggers import every
+from fridom.io.writer import Writer
 
 N = 8
 DT = 5e-3

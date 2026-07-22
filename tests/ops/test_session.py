@@ -1,4 +1,4 @@
-"""Tests for fridom.model.ops.session (fr.ops.Session).
+"""Tests for fridom.ops.session (fr.ops.Session).
 
 Covers the single-model iteration-1 surface: constructor keying and
 rejections, the reentrancy/single-use guards, the __enter__ duties
@@ -15,21 +15,21 @@ import jax.numpy as jnp
 import pytest
 
 from fridom.framework.utils import dtype_real, jaxify
+from fridom.io import snapshots as snap
+from fridom.io import triggers
+from fridom.io.streams import IOCollisionError
 from fridom.model.declarations import FieldDeclaration
-from fridom.model.io import snapshots as snap
-from fridom.model.io import triggers
-from fridom.model.io.streams import IOCollisionError
 from fridom.model.model import Model
 from fridom.model.module import Module
-from fridom.model.ops import session as session_mod
-from fridom.model.ops.protocols import WalltimeGuard
-from fridom.model.ops.session import Session
 from fridom.model.parameters import ParameterDeclaration
 from fridom.model.results import PanicError, RunStatus
 from fridom.model.terms import term
 from fridom.model.time_steppers.adam_bashforth import (
     AdamBashforth,
 )
+from fridom.ops import session as session_mod
+from fridom.ops.protocols import WalltimeGuard
+from fridom.ops.session import Session
 from fridom.spatial.decomposition.halo import HaloSpec
 from fridom.spatial.grid import Grid
 from fridom.spatial.meshes.interval import IntervalMesh

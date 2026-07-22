@@ -15,9 +15,9 @@ import pytest
 
 import fridom as fr
 import fridom.hydrostatic as hy
+from fridom.io.streams import SnapshotMismatchError
 from fridom.model.errors import AssemblyError, LinearOperatorGapError
 from fridom.model.implicit import VerticalDiffusion
-from fridom.model.io.streams import SnapshotMismatchError
 from fridom.model.model import _chunk_body
 from fridom.model.module import Module
 from fridom.model.terms import Treatment

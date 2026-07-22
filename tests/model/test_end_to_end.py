@@ -26,8 +26,8 @@ import numpy as np
 import pytest
 
 from fridom.framework.utils import dtype_real, jaxify
+from fridom.io.streams import SnapshotMismatchError
 from fridom.model.declarations import FieldDeclaration
-from fridom.model.io.streams import SnapshotMismatchError
 from fridom.model.model import Model, chunk_cache_size
 from fridom.model.module import Module
 from fridom.model.parameters import ParameterDeclaration

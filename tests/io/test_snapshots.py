@@ -1,11 +1,11 @@
-"""Tests for fridom.model.io.snapshots (store + config)."""
+"""Tests for fridom.io.snapshots (store + config)."""
 import dataclasses
 import json
 
 import numpy as np
 import pytest
 
-from fridom.model.io.snapshots import (
+from fridom.io.snapshots import (
     FORMAT_VERSION,
     SnapshotManifest,
     Snapshots,
@@ -17,8 +17,8 @@ from fridom.model.io.snapshots import (
     rotate,
     write_snapshot,
 )
-from fridom.model.io.streams import SnapshotMismatchError
-from fridom.model.io.triggers import every
+from fridom.io.streams import SnapshotMismatchError
+from fridom.io.triggers import every
 
 # ================================================================
 #  Fixtures / builders

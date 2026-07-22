@@ -44,12 +44,7 @@ import jax.numpy as jnp
 import numpy as np
 
 from fridom.framework.utils import dtype_real, jaxify
-from fridom.model.assembly import _collect_terms, assemble
-from fridom.model.clock import Clock
-from fridom.model.context import StepContext
-from fridom.model.declarations import Lifecycle
-from fridom.model.errors import AssemblyError, MissingParameterError
-from fridom.model.io.snapshots import (
+from fridom.io.snapshots import (
     FORMAT_VERSION,
     SnapshotManifest,
     Snapshots,
@@ -59,10 +54,15 @@ from fridom.model.io.snapshots import (
     read_manifest,
     write_snapshot,
 )
-from fridom.model.io.streams import (
+from fridom.io.streams import (
     IOCollisionError,
     SnapshotMismatchError,
 )
+from fridom.model.assembly import _collect_terms, assemble
+from fridom.model.clock import Clock
+from fridom.model.context import StepContext
+from fridom.model.declarations import Lifecycle
+from fridom.model.errors import AssemblyError, MissingParameterError
 from fridom.model.results import (
     AdvanceResult,
     PanicError,
@@ -2699,7 +2699,7 @@ class Model:
         RunResult
             The aggregated single-model run result.
         """
-        from fridom.model.ops.session import (  # noqa: PLC0415 — avoids the ops<->model import cycle
+        from fridom.ops.session import (  # noqa: PLC0415 — avoids the ops<->model import cycle
             Session,
         )
         if profile is not None:

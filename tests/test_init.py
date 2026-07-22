@@ -15,8 +15,8 @@ def test_module_import(import_name):
     assert attr is not None
 
 
-def test_io_root_alias():
-    # ``fr.io`` is a lazy root alias for ``fridom.model.io``; both
-    # spellings must resolve to the same module.
-    assert test_module.io is test_module.model.io
-    assert test_module.io.Writer is test_module.model.io.Writer
+def test_io_ops_top_level():
+    # ``fr.io`` and ``fr.ops`` are real top-level packages (rehomed out
+    # of ``fr.model``); their headline surfaces resolve.
+    assert test_module.io.Writer is not None
+    assert test_module.ops.Session is not None

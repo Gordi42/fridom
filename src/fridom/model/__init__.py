@@ -4,10 +4,10 @@
 Description
 -----------
 Everything about orchestrating a model through time: the model core
-(assembly, run loop, schedule), tendency modules, time steppers,
-state transforms, io, and ops. Consumes ``fridom.spatial`` read-only;
-the concrete models (``fridom.nonhydro2``, ``fridom.shallowwater2``)
-build on this package.
+(assembly, run loop, schedule), tendency modules, time steppers, and
+state transforms. Consumes ``fridom.spatial`` read-only and drives the
+top-level ``fridom.io`` / ``fridom.ops`` layers; the concrete models
+(``fridom.nonhydro2``, ``fridom.shallowwater2``) build on this package.
 """
 from typing import TYPE_CHECKING
 
@@ -31,10 +31,8 @@ if TYPE_CHECKING:  # pragma: no cover
         field_table,
         halo_demand,
         implicit,
-        io,
         module,
         modules,
-        ops,
         parameters,
         params,
         report,
@@ -64,8 +62,6 @@ if TYPE_CHECKING:  # pragma: no cover
     from .eigen_channel import ChannelEigenbasis, channel_eigenpairs
     from .energy import EnergyMetric
     from .halo_demand import derive_extra_halo, row_reach
-    from .io import slurm
-    from .io.triggers import at, every
     from .model import Model
     from .module import Module
     from .parameters import (
@@ -123,9 +119,8 @@ all_modules_by_origin = {
         "terms", "term_predicates", "implicit", "stages", "context",
         "field_table", "assembly", "module", "composer", "schedule",
         "clock", "results", "report", "errors", "eigen",
-        "eigen_channel", "modules", "transforms", "io", "ops",
+        "eigen_channel", "modules", "transforms",
         "halo_demand", "units"],
-    f"{base}.io": ["slurm"],
 }
 
 all_imports_by_origin = {
@@ -164,7 +159,6 @@ all_imports_by_origin = {
         "RunStatus", "AdvanceResult", "RunResult", "PanicError",
         "RunTargetError"],
     f"{base}.units": ["UnitFactor", "FactorEntry", "UnitsView"],
-    f"{base}.io.triggers": ["every", "at"],
 }
 
 setup(__name__, all_modules_by_origin, all_imports_by_origin)

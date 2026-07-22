@@ -27,8 +27,8 @@ from typing import TYPE_CHECKING, Any, Final
 
 import numpy as np
 
-from fridom.model.io.streams import SnapshotMismatchError
-from fridom.model.io.triggers import Trigger
+from fridom.io.streams import SnapshotMismatchError
+from fridom.io.triggers import Trigger
 from fridom.model.params import TIME_STEP
 
 if TYPE_CHECKING:

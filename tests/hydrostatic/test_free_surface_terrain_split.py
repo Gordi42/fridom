@@ -24,7 +24,7 @@ import pytest
 
 import fridom as fr
 import fridom.hydrostatic as hy
-from fridom.model.io.streams import SnapshotMismatchError
+from fridom.io.streams import SnapshotMismatchError
 from fridom.model.model import _chunk_body
 from fridom.model.time_steppers.adam_bashforth import AdamBashforth
 from fridom.spatial.coordinate_mapping import CoordinateMapping

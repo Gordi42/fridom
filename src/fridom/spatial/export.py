@@ -19,7 +19,7 @@ Owning class doc: ``design/specs/grid/classes/grid.md``, section 4
   variable to collide with, so its staggered dims export under the
   plain coordinate name (``x``) and the position survives in the
   ``c_grid_axis_shift`` attribute. Multi-variable exports
-  (``VectorField.xr``, the ``fr.model.io.Writer`` store) keep the
+  (``VectorField.xr``, the ``fr.io.Writer`` store) keep the
   position-suffixed names: two components staggered differently
   along the same axis carry different coordinate values and cannot
   share a dim name in one ``Dataset``.
@@ -128,7 +128,7 @@ class ExportLayout:
     The label/coordinate/attribute skeleton of a field's ``xarray``
     export, built by :func:`export_layout` **without gathering the
     field data**. ``scalar_to_dataarray`` pairs it with the gathered
-    values; the ``fr.model.io.Writer`` builds its store from the
+    values; the ``fr.io.Writer`` builds its store from the
     layout at bind, so bind needs neither ``decomposition.gather``
     nor ``xarray`` (see ``gather_free_output_plan.md``).
 
@@ -313,7 +313,7 @@ def gathered_values(
     the global true array (halo and padding never leave the
     decomposition layer), then squeeze the constant-factor axes that
     ``layout`` dropped. Requires no ``xarray`` — the
-    ``fr.model.io.Writer`` write path consumes it directly.
+    ``fr.io.Writer`` write path consumes it directly.
 
     Parameters
     ----------

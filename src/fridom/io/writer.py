@@ -56,12 +56,12 @@ from typing import TYPE_CHECKING, Any, NamedTuple
 import jax
 import numpy as np
 
-from fridom.model.io.streams import reject_walltime_trigger
+from fridom.io.streams import reject_walltime_trigger
 
 if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Callable, Mapping, Sequence
 
-    from fridom.model.io.triggers import Trigger
+    from fridom.io.triggers import Trigger
     from fridom.spatial.export import ExportLayout
     from fridom.spatial.fields.scalar_field import ScalarField
 
