@@ -26,6 +26,8 @@ if TYPE_CHECKING:  # pragma: no cover
     )
     from .boundary_flux import BoundaryFlux
     from .coriolis import (
+        OMEGA_EARTH,
+        RADIUS_EARTH,
         BetaPlaneCoriolis,
         FPlaneCoriolis,
         RotationCoriolis,
@@ -51,7 +53,8 @@ all_imports_by_origin = {
     f"{base}.boundary_flux": ["BoundaryFlux"],
     f"{base}.coriolis": ["FPlaneCoriolis", "BetaPlaneCoriolis",
                           "RotationCoriolis", "linear_rotation",
-                          "chart_rotation"],
+                          "chart_rotation", "OMEGA_EARTH",
+                          "RADIUS_EARTH"],
     f"{base}.immersed": ["MaskState"],
     f"{base}.moving_geometry": ["MovingGeometry",
                                 "MeshVelocityCorrection",
