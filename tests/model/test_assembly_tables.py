@@ -50,6 +50,9 @@ class Stepper:
 
 
 class Core:
+
+    """Duck-typed fake provider — NOT nh.Core (its dsqr= stays)."""
+
     parameter_declarations = (
         ParameterDeclaration("nonhydro.dsqr", attr="dsqr",
                              units="1"),)
@@ -243,7 +246,7 @@ def test_use_provided_forces_resolution_through_the_table():
             self.value = value
 
     table = ParameterBindingTable.build(
-        (Core(aspect_ratio=(USE_PROVIDED) ** 0.5), DsqrProvider()), Stepper())
+        (Core(dsqr=USE_PROVIDED), DsqrProvider()), Stepper())
     entry = table["nonhydro.dsqr"]
     assert entry.slot == 1
     assert entry.attr == "value"
@@ -253,7 +256,7 @@ def test_use_provided_without_a_provider_is_required():
     with pytest.raises(MissingParameterError,
                        match=r"nonhydro\.dsqr"):
         ParameterBindingTable.build(
-            (Core(aspect_ratio=(USE_PROVIDED) ** 0.5),), Stepper())
+            (Core(dsqr=USE_PROVIDED),), Stepper())
 
 
 def test_use_provided_on_an_undeclared_slot_raises():
@@ -301,7 +304,7 @@ def test_static_provided_leaf_fails_the_lint():
 #  eval_params (stage-time reads) and Params
 # ================================================================
 def test_eval_params_resolves_a_ramp_at_stage_time():
-    modules = (Core(aspect_ratio=(Ramp(0.0, 1.0, period=10.0)) ** 0.5),)
+    modules = (Core(dsqr=Ramp(0.0, 1.0, period=10.0)),)
     stepper = Stepper(60.0)
     table = ParameterBindingTable.build(modules, stepper)
     at_start = table.eval_params(modules, stepper, 0.0)
@@ -313,10 +316,10 @@ def test_eval_params_resolves_a_ramp_at_stage_time():
 
 
 def test_eval_params_reads_current_leaves():
-    modules = (Core(aspect_ratio=1.0),)
+    modules = (Core(dsqr=1.0),)
     stepper = Stepper()
     table = ParameterBindingTable.build(modules, stepper)
-    swept = (Core(aspect_ratio=(7.0) ** 0.5),)
+    swept = (Core(dsqr=7.0),)
     assert table.eval_params(swept, stepper, 0.0)[
         "nonhydro.dsqr"] == 7.0
 
@@ -350,7 +353,7 @@ def test_params_is_a_pytree_with_dynamic_leaves():
 # ================================================================
 def test_host_view_returns_ramp_objects_raw():
     ramp = Ramp(0.0, 1.0, period=10.0)
-    modules = (Core(aspect_ratio=(ramp) ** 0.5),)
+    modules = (Core(dsqr=ramp),)
     stepper = Stepper()
     table = ParameterBindingTable.build(modules, stepper)
     view = table.host_view(modules, stepper)

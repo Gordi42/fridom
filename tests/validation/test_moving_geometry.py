@@ -24,6 +24,7 @@ from fridom.model.modules.moving_geometry import (
     MovingGeometry,
     mapping_params,
 )
+from fridom.model.time_steppers.adam_bashforth import AdamBashforth
 from fridom.nonhydro2.modules.mapped_pressure import (
     MappedPressureSolver,
 )
@@ -72,10 +73,17 @@ def make_terrain_model(*modules, n=N, init=depth, advection=True,
         IntervalMesh(n, (0.0, TWO_PI), periodic=True, name="y"),
         IntervalMesh(n, (0.0, 1.0), periodic=False, name="z"),
     ), mapping=mapping, device_ids=device_ids)
-    return nh.Model(grid=grid, dt=DT, dsqr=DSQR, family=family,
+    # the old preset defaults, spelled explicitly on the new surface:
+    # dsqr -> aspect_ratio**2 on the core, the AdamBashforth(dt,
+    # order=3) default stepper, and the old implicit n2=1 default
+    return nh.Model(grid=grid,
+                    core=nh.Core(aspect_ratio=DSQR ** 0.5,
+                                 family=family,
+                                 pressure_iterations=ITERATIONS),
+                    time_stepper=AdamBashforth(DT, order=3),
                     coriolis=nh.FPlaneCoriolis(f0=1.0),
-                    advection=advection, modules_extra=modules,
-                    pressure_iterations=ITERATIONS)
+                    stratification=nh.ConstantStratification(n2=1.0),
+                    advection=advection, modules_extra=modules)
 
 
 def terrain_fields(n=N):
@@ -167,8 +175,11 @@ def make_ale_model(n, *modules, family="nodal"):
         IntervalMesh(n, (0.0, 1.0), periodic=False, name="z"),
     ), mapping=mapping)
     return nh.Model(
-        grid=grid, dt=DT, advection=False, family=family,
-        pressure_iterations=ITERATIONS,
+        grid=grid,
+        core=nh.Core(family=family,
+                     pressure_iterations=ITERATIONS),
+        time_stepper=AdamBashforth(DT, order=3),
+        advection=False,
         coriolis=nh.FPlaneCoriolis(f0=0.0),
         stratification=nh.ConstantStratification(n2=0.0),
         modules_extra=(
@@ -262,10 +273,13 @@ def make_channel_model(*modules, n=N, family="nodal", dt=DT,
         IntervalMesh(n, (0.0, 1.0), periodic=False, name="z"),
     ), mapping=mapping)
     return nh.Model(
-        grid=grid, dt=dt, dsqr=DSQR, family=family,
+        grid=grid,
+        core=nh.Core(aspect_ratio=DSQR ** 0.5, family=family,
+                     pressure_iterations=ITERATIONS,
+                     pressure_tolerance=pressure_tolerance),
+        time_stepper=AdamBashforth(dt, order=3),
         coriolis=nh.FPlaneCoriolis(f0=1.0),
-        pressure_iterations=ITERATIONS,
-        pressure_tolerance=pressure_tolerance,
+        stratification=nh.ConstantStratification(n2=1.0),
         modules_extra=(
             MovingGeometry({"YN": channel_width}), *modules))
 

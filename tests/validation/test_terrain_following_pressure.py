@@ -17,6 +17,7 @@ import numpy as np
 import pytest
 
 import fridom.nonhydro2 as nh
+from fridom.model.time_steppers.adam_bashforth import AdamBashforth
 from fridom.nonhydro2.modules.mapped_pressure import (
     MappedPressureSolver,
 )
@@ -66,15 +67,22 @@ def build_column_grid(n, init=depth):
 # installed: the mapped/flat comparison must compare the same physics,
 # and a linear nonhydro model with no rotation at all would advance
 # neither u nor v (the D1.4 coverage lint).
-def make_flat_model(**kwargs):
+def make_flat_model(*, dt, dsqr, advection):
+    # the old preset defaults, spelled explicitly on the new surface:
+    # dsqr -> aspect_ratio**2 on the core, the AdamBashforth(dt,
+    # order=3) default stepper, and the old implicit n2=1 default
     mx = IntervalMesh(N, (0.0, TWO_PI), periodic=True, name="x")
     my = IntervalMesh(N, (0.0, TWO_PI), periodic=True, name="y")
     mz = IntervalMesh(N, (0.0, H0), periodic=False, name="z")
     return nh.Model(grid=Grid((mx, my, mz)),
-                    coriolis=nh.FPlaneCoriolis(f0=1.0), **kwargs)
+                    core=nh.Core(aspect_ratio=dsqr ** 0.5),
+                    time_stepper=AdamBashforth(dt, order=3),
+                    coriolis=nh.FPlaneCoriolis(f0=1.0),
+                    stratification=nh.ConstantStratification(n2=1.0),
+                    advection=advection)
 
 
-def make_mapped_flat_model(**kwargs):
+def make_mapped_flat_model(*, dt, dsqr, advection):
     mx = IntervalMesh(N, (0.0, TWO_PI), periodic=True, name="x")
     my = IntervalMesh(N, (0.0, TWO_PI), periodic=True, name="y")
     mz = IntervalMesh(N, (0.0, 1.0), periodic=False, name="z")
@@ -88,8 +96,12 @@ def make_mapped_flat_model(**kwargs):
     # deviation from the flat run (5.5e-15 relative after 200 steps)
     # at 4, 8 and 30 iterations
     return nh.Model(grid=Grid((mx, my, mz), mapping=mapping),
+                    core=nh.Core(aspect_ratio=dsqr ** 0.5,
+                                 pressure_iterations=4),
+                    time_stepper=AdamBashforth(dt, order=3),
                     coriolis=nh.FPlaneCoriolis(f0=1.0),
-                    pressure_iterations=4, **kwargs)
+                    stratification=nh.ConstantStratification(n2=1.0),
+                    advection=advection)
 
 
 def test_mapped_flat_identity_reproduces_the_unmapped_run():
@@ -244,7 +256,8 @@ def channel_width(x):
     return 1.0 - 0.2 * jnp.cos(x)
 
 
-def make_channel_model(n=N, **kwargs):
+def make_channel_model(n=N, *, dt, dsqr, advection,
+                       pressure_tolerance=1e-8):
     mx = IntervalMesh(n, (0.0, TWO_PI), periodic=True, name="x")
     my = IntervalMesh(n, (0.0, 1.0), periodic=False, name="y")
     mz = IntervalMesh(n, (0.0, 1.0), periodic=False, name="z")
@@ -256,8 +269,14 @@ def make_channel_model(n=N, **kwargs):
     # and transport spread 1.1e-16 at BOTH 16 and 30 (the assertions
     # keep their tolerances); 8 would NOT do (divergence 1.8e-9)
     return nh.Model(grid=Grid((mx, my, mz), mapping=mapping),
+                    core=nh.Core(
+                        aspect_ratio=dsqr ** 0.5,
+                        pressure_iterations=16,
+                        pressure_tolerance=pressure_tolerance),
+                    time_stepper=AdamBashforth(dt, order=3),
                     coriolis=nh.FPlaneCoriolis(f0=1.0),
-                    pressure_iterations=16, **kwargs)
+                    stratification=nh.ConstantStratification(n2=1.0),
+                    advection=advection)
 
 
 def test_boundary_fitted_channel_assembles_and_projects():
