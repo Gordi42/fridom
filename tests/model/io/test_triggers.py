@@ -76,6 +76,26 @@ def test_every_walltime_bad_string():
         every(walltime="h")
 
 
+def test_every_time_units_is_a_seconds_node():
+    # the unit-neutral cadence lowers through the seconds path (1.0)
+    trig = every(time_units=2.0)
+    assert isinstance(trig, Every)
+    assert trig.seconds == 2.0
+
+
+def test_every_time_units_lowers_like_seconds():
+    tu = lower_trigger(every(time_units=1.0), t0=0.0, dt=0.25,
+                       n_steps=20)
+    sec = lower_trigger(every(seconds=1.0), t0=0.0, dt=0.25,
+                        n_steps=20)
+    assert tu == sec
+
+
+def test_every_time_units_guarded_against_other_cadence():
+    with pytest.raises(ValueError, match="exactly one cadence"):
+        every(time_units=1.0, seconds=1.0)
+
+
 # ================================================================
 #  at() — explicit model times
 # ================================================================

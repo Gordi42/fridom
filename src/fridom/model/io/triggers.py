@@ -36,8 +36,12 @@ if TYPE_CHECKING:
 # ================================================================
 #  Time spellings
 # ================================================================
-# model-time cadence kwargs, in seconds per unit
+# model-time cadence kwargs, in seconds per unit; ``time_units`` is
+# the unit-neutral model-clock cadence (factor 1.0, like ``seconds``),
+# meaning SI seconds for a dimensional model and advective units for a
+# nondimensional one
 _CADENCE_SECONDS: Final[dict[str, float]] = {
+    "time_units": 1.0,
     "seconds": 1.0,
     "minutes": 60.0,
     "hours": 3600.0,
@@ -284,6 +288,7 @@ def _flat(trigger: Trigger) -> tuple[Trigger, ...]:
 def every(
     *,
     steps: int | None = None,
+    time_units: float | np.timedelta64 | None = None,
     seconds: float | np.timedelta64 | None = None,
     minutes: float | np.timedelta64 | None = None,
     hours: float | np.timedelta64 | None = None,
@@ -305,8 +310,14 @@ def every(
     ----------
     steps : int, optional
         Fire every ``steps`` steps.
+    time_units : float or np.timedelta64, optional
+        Fire at this cadence in the model clock's own units — SI
+        seconds when the model is dimensional, advective units when
+        it is nondimensional. The unit-neutral spelling; it shares
+        the exact lowering path as ``seconds=`` (factor 1.0).
     seconds, minutes, hours, days : float or np.timedelta64, optional
-        Fire at this model-time cadence along the run direction.
+        Fire at this model-time cadence along the run direction (the
+        dimensional spellings).
     walltime : str or float or np.timedelta64, optional
         Wall-clock cadence: seconds, ``"7.5h"``-style string, or
         timedelta; evaluated by the ``WalltimeGuard``, never
@@ -321,16 +332,17 @@ def every(
         The frozen trigger node (wrapped in a window if bounded).
     """
     cadences: dict[str, object] = {
-        "steps": steps, "seconds": seconds, "minutes": minutes,
-        "hours": hours, "days": days, "walltime": walltime}
+        "steps": steps, "time_units": time_units, "seconds": seconds,
+        "minutes": minutes, "hours": hours, "days": days,
+        "walltime": walltime}
     given = [name for name, value in cadences.items() if value is not None]
     if len(given) != 1:
         spelled = ", ".join(given) if given else "none"
         raise ValueError(
             "fr.every() takes exactly one cadence kwarg (steps=, "
-            f"seconds=, minutes=, hours=, days= or walltime=); got "
-            f"{spelled}. Compose cadences with |, e.g. "
-            "fr.every(steps=10) | fr.every(hours=1).")
+            "time_units=, seconds=, minutes=, hours=, days= or "
+            f"walltime=); got {spelled}. Compose cadences with |, "
+            "e.g. fr.every(steps=10) | fr.every(hours=1).")
     if steps is not None:
         if isinstance(steps, bool) or not isinstance(steps, int):
             raise TypeError(f"steps= must be an int; got {steps!r}")
