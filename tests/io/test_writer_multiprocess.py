@@ -145,9 +145,9 @@ def _run(process_id, outdir):
     """Drive the writer on one rank; rank 0 returns pass/fail."""
     from jax.experimental import multihost_utils  # noqa: PLC0415
 
+    from fridom.io.triggers import every  # noqa: PLC0415
+    from fridom.io.writer import Writer  # noqa: PLC0415
     from fridom.model.clock import Clock  # noqa: PLC0415
-    from fridom.model.io.triggers import every  # noqa: PLC0415
-    from fridom.model.io.writer import Writer  # noqa: PLC0415
     from fridom.spatial.fields.vector_field import (  # noqa: PLC0415
         VectorField,
     )

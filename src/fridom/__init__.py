@@ -29,15 +29,14 @@ if TYPE_CHECKING:  # pragma: no cover
         benchmarking,
         framework,
         hydrostatic,
+        io,
         model,
         nonhydro,
+        ops,
         scaling,
         shallowwater,
         spatial,
     )
-
-    # root alias: ``fr.io`` re-exports ``fridom.model.io``
-    from .model import io
 
 # ================================================================
 #  Setup lazy loading
@@ -48,14 +47,14 @@ all_modules_by_origin = {
         "benchmarking",
         "framework",
         "hydrostatic",
+        "io",
         "model",
         "nonhydro",
+        "ops",
         "scaling",
         "shallowwater",
         "spatial",
     ],
-    # root alias: ``fr.io`` resolves to ``fridom.model.io``
-    "fridom.model": ["io"],
 }
 
 all_imports_by_origin = {}

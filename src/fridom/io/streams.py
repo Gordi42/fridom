@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-    from fridom.model.io.triggers import Trigger
+    from fridom.io.triggers import Trigger
 
 
 # ================================================================
@@ -156,7 +156,7 @@ def reject_snapshots_config(
     slot : str, optional
         The slot name for the error message (default "outputs").
     """
-    from fridom.model.io.snapshots import (  # noqa: PLC0415 — snapshots.py imports this module (SnapshotMismatchError)
+    from fridom.io.snapshots import (  # noqa: PLC0415 — snapshots.py imports this module (SnapshotMismatchError)
         Snapshots,
     )
     if isinstance(candidate, Snapshots):

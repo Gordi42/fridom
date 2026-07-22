@@ -1,4 +1,4 @@
-"""Tests for fridom.model.io.timeseries (the CSV scalar sink).
+"""Tests for fridom.io.timeseries (the CSV scalar sink).
 
 The oracles: bind writes a header from the bound columns and one row
 per firing (iteration, time, values); values come from scalar
@@ -13,9 +13,9 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
+from fridom.io.timeseries import TimeSeries
+from fridom.io.triggers import every
 from fridom.model.clock import Clock
-from fridom.model.io.timeseries import TimeSeries
-from fridom.model.io.triggers import every
 from fridom.spatial.grid import Grid
 from fridom.spatial.meshes.interval import IntervalMesh
 

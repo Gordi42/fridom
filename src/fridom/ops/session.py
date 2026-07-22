@@ -38,17 +38,17 @@ from typing import TYPE_CHECKING, Any
 import jax
 import numpy as np
 
-from fridom.model.io.snapshots import (
+from fridom.io.snapshots import (
     Snapshots,
     find_latest,
     rotate,
 )
-from fridom.model.io.streams import (
+from fridom.io.streams import (
     dedupe_streams,
     reject_snapshots_config,
     reject_walltime_trigger,
 )
-from fridom.model.io.triggers import (
+from fridom.io.triggers import (
     Every,
     Trigger,
     Union,
@@ -56,15 +56,15 @@ from fridom.model.io.triggers import (
     lower_trigger,
 )
 from fridom.model.model import _CHUNK_COMPILE_LOG
-from fridom.model.ops.protocols import (
-    ChunkStats,
-    WalltimeGuard,
-)
 from fridom.model.results import (
     AdvanceResult,
     PanicError,
     RunResult,
     RunStatus,
+)
+from fridom.ops.protocols import (
+    ChunkStats,
+    WalltimeGuard,
 )
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -72,7 +72,7 @@ if TYPE_CHECKING:  # pragma: no cover
     from types import TracebackType
     from typing import Self
 
-    from fridom.model.io.streams import OutputStream
+    from fridom.io.streams import OutputStream
     from fridom.model.model import Model
 
 _log = logging.getLogger(__name__)

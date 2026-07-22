@@ -22,7 +22,7 @@ Shared file: orchestrator-owned; raise sites land wave by wave.
 """
 from __future__ import annotations
 
-from fridom.model.io.streams import (
+from fridom.io.streams import (
     IOCollisionError,
     SnapshotMismatchError,
 )

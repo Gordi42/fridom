@@ -31,12 +31,12 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
-from fridom.model.io.streams import reject_walltime_trigger
+from fridom.io.streams import reject_walltime_trigger
 
 if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Callable, Mapping
 
-    from fridom.model.io.triggers import Trigger
+    from fridom.io.triggers import Trigger
 
 # the two leading columns before the user's scalar expressions
 _LEADING = ("iteration", "time")

@@ -1,4 +1,4 @@
-"""Tests for fridom.model.io.writer (the tensorstore zarr sink).
+"""Tests for fridom.io.writer (the tensorstore zarr sink).
 
 The round-trip and resume oracles: the written store opens in xarray
 with the ``f.xr`` layout (xgcm dims, coords, attrs) plus a CF time
@@ -17,10 +17,10 @@ import xarray as xr
 from jax.experimental import multihost_utils
 
 import fridom.spatial.export as export_module
+from fridom.io import writer as writer_module
+from fridom.io.triggers import every
+from fridom.io.writer import Writer
 from fridom.model.clock import Clock
-from fridom.model.io import writer as writer_module
-from fridom.model.io.triggers import every
-from fridom.model.io.writer import Writer
 from fridom.spatial.decomposition.tensor import TensorDecomposition
 from fridom.spatial.export import export_layout, scalar_to_dataarray
 from fridom.spatial.fields.vector_field import VectorField

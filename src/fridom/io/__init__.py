@@ -4,10 +4,10 @@ The IO namespace (``fr.io``).
 Description
 -----------
 Owning class spec: ``design/specs/model/classes/io_ops.md``.
-Wave 4 C adds the trigger factories (``every``/``at`` — also
-re-exported at the framework top level), ``lower_trigger``, the
-stream protocol + IO errors, ``Snapshots`` + the snapshot store, and
-``resubmit``; Wave 5 C adds ``Writer`` and ``TimeSeries``.
+Wave 4 C adds the trigger factories (``fr.io.every`` / ``fr.io.at``),
+``lower_trigger``, the stream protocol + IO errors, ``Snapshots`` +
+the snapshot store, and ``resubmit``; Wave 5 C adds ``Writer`` and
+``TimeSeries``.
 """
 from typing import TYPE_CHECKING
 
@@ -37,7 +37,7 @@ if TYPE_CHECKING:  # pragma: no cover
     from .triggers import at, every, lower_trigger
     from .writer import Writer
 
-base = "fridom.model.io"
+base = "fridom.io"
 
 all_modules_by_origin = {
     base: ["triggers", "streams", "snapshots", "slurm"],

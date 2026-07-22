@@ -10,8 +10,8 @@ import pytest
 
 import fridom as fr
 import fridom.hydrostatic as hy
-from fridom.model.io.triggers import every
-from fridom.model.io.writer import Writer
+from fridom.io.triggers import every
+from fridom.io.writer import Writer
 
 DT = 2.0 ** -7
 

@@ -1,8 +1,8 @@
-"""Tests for fridom.model.io.streams (protocol + errors)."""
+"""Tests for fridom.io.streams (protocol + errors)."""
 import pytest
 
-from fridom.model.io.snapshots import Snapshots
-from fridom.model.io.streams import (
+from fridom.io.snapshots import Snapshots
+from fridom.io.streams import (
     IOCollisionError,
     OutputStream,
     SnapshotMismatchError,
@@ -10,7 +10,7 @@ from fridom.model.io.streams import (
     reject_snapshots_config,
     reject_walltime_trigger,
 )
-from fridom.model.io.triggers import at, every
+from fridom.io.triggers import at, every
 
 
 # ================================================================

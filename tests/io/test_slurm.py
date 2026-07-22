@@ -1,7 +1,7 @@
-"""Tests for fridom.model.io.slurm (mocked environment)."""
+"""Tests for fridom.io.slurm (mocked environment)."""
 import pytest
 
-from fridom.model.io import slurm
+from fridom.io import slurm
 
 SCONTROL_OUTPUT = (
     "JobId=123 JobName=run\n"

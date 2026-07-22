@@ -16,7 +16,7 @@ if TYPE_CHECKING:  # pragma: no cover
     from .protocols import ChunkStats, ProgressReporter, WalltimeGuard
     from .session import Session
 
-base = "fridom.model.ops"
+base = "fridom.ops"
 
 all_modules_by_origin = {}
 

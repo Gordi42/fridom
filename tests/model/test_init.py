@@ -8,8 +8,6 @@ PACKAGES = [
     "fridom.model.time_steppers",
     "fridom.model.closures",
     "fridom.model.transforms",
-    "fridom.model.io",
-    "fridom.model.ops",
 ]
 
 
