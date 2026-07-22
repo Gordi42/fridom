@@ -65,39 +65,17 @@ without any elliptic work); barotropic Helmholtz on charts
 Laplace–Beltrami pressure operator + metric projection. A torus
 preset chart is a candidate pole-free test chart.
 
-## 2b. Nondimensionalization — Branch 3 on the scaling-object architecture (Branches 1+2 implemented 2026-07-21)
+## 2b. Nondimensionalization — SHIPPED except docs (2026-07-21; entry in [`done.md`](done.md))
 
-**Branch 1 (framework + shallow water)** and **Branch 2
-(nonhydro2 + hydrostatic, `refactor/nh-hy-scaling`, awaiting owner
-integration)** are implemented: `fr.scaling` policy objects and the
-alias row, `sw.Core` / `nh.Core(aspect_ratio=)` / gravity-first
-`hy.Core(gravity=)`, dual-kwarg Coriolis / stratification /
-free-surface families, the de-scaled bind-adopting advection, the
-re-keyed eigen/energy/diagnostics consumers, and golden-file parity
-(sw 16/16 bitwise; nh dim+Rotational bitwise; hy dim/ExternalWave/
-Rotational bitwise with the accepted H7 closure-row roundoff on the
-closure-ON dim config). Remaining:
-
-- **Branch 3** (`feat/ramping-envelope`, §C; independent of 2):
-  `TendencyEnvelope`, composer wrap, AR `envelope=True`, OB
-  rewritten (deletes the interim alias-row guard). Until it lands,
-  OptimalBalance refuses mechanism-scaled models (taught error).
-
-§D (unit factors + writer metadata) **shipped 2026-07-21** on
-`feat/unit-factors`: `model.units` machinery, the sw amplitude
-table, the Coriolis `f_dim` row, and the default-on writer stamp
-(plan §D carries the record). The nh/hy `unit_factors` tables
-followed on `feat/nh-hy-unit-factors` (duck-typed rows, zero
-machinery edits; the hy vertical rows adopt the flat-only
-convention H = the vertical mesh extent — the energy re-key's
-`H_ref` read).
-
-Must land **before the docs rebuild** — Branches 1+2 changed the
-public assembly API (`csqr=`/`rossby_number=`/`coords=`/`dsqr=`/
-`dt=` removed from the presets; `examples/` and `benchmarks/`'s
-old-stack files still spell the old surface and are part of the
-docs-rebuild pass).
+All code landed on dev: the scaling-object architecture across all
+three packages, the term-envelope ramping (OB/AR redesign), and the
+unit-factors/report/writer-metadata feature. **What remains is
+reader-facing and belongs to the docs rebuild (item 5)**: `examples/`
+and the old-stack `benchmarks/` files still spell the retired
+`csqr=`/`rossby_number=`/`dsqr=` surface, plus the per-model
+nondimensionalization doc sections (plan §E/§F).
 Plan: [`../plans/active/nondimensionalization_plan.md`](../plans/active/nondimensionalization_plan.md).
+
 
 ## 3. Perf-guard checkpoint (owner-run)
 

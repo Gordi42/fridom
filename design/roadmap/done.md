@@ -2662,3 +2662,24 @@ c² = g·H survives only in flat-only analytics and reporting, where
 the physical vertical extent is unambiguous. Chart-invariance holds
 by construction. Record: `plans/active/nondimensionalization_plan.md`
 (§B, H_ref verification).
+
+## Nondimensionalization — scaling-object architecture (shipped 2026-07-21)
+
+Designed and implemented in one day across five merges on dev
+(`9f52c232` framework+sw, `ac3743f8` unit factors, `3c997a4d` nh/hy,
+`0cf7292e` nh/hy amplitude tables, `b4cfcecc` term-envelope ramping):
+`fr.scaling` policy objects (Dimensional/Advective/Rotational/
+GravityWave/InternalWave/ExternalWave) with the ε alias-row binding;
+single dual-kwarg module families (sw.Core, nh.Core(aspect_ratio=),
+gravity-first hy.Core, Coriolis/stratification/free-surface);
+DIAGNOSE-stage thickness; de-scaled bind-adopting advection;
+eigen/energy consumers on primitive provides; the
+`scaling.rossby → scaling.nonlinearity` rename; §C term-envelope
+ramping (TendencyEnvelope, AR envelope=True, OB without the
+stored-nominal hack — works on dimensional and Ramp-ε models);
+§D `model.units` factors/report + default-on writer dimensional
+metadata (CF time "1" on nondim runs). Golden parity vs pre-refactor
+dev: sw 16/16 bitwise; nh/hy bitwise except the accepted ≤1-ulp H7
+closure rows. The H_ref owner call dissolved (see its own entry).
+Docs/examples migration remains with the docs rebuild.
+Record: `plans/active/nondimensionalization_plan.md`.
