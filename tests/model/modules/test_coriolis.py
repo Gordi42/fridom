@@ -29,6 +29,8 @@ from fridom.model import term_predicates as terms
 from fridom.model.energy import EnergyMetric
 from fridom.model.model import _chunk_body
 from fridom.model.modules.coriolis import (
+    OMEGA_EARTH,
+    RADIUS_EARTH,
     BetaPlaneCoriolis,
     FPlaneCoriolis,
     RotationCoriolis,
@@ -1409,3 +1411,72 @@ def test_nondim_betaplane_f_shape():
     assert CORIOLIS_METRIC_RATIO in model.parameters
     assert CORIOLIS_F0 not in model.parameters
     assert CORIOLIS_BETA not in model.parameters
+
+
+# ================================================================
+#  from_latitude alternative constructors (dimensional)
+# ================================================================
+def test_fplane_from_latitude_is_2_omega_sin_phi():
+    """f0 = 2 Omega sin(phi), Earth defaults, dimensional variant."""
+    mod = FPlaneCoriolis.from_latitude(30.0)
+    expected = 2.0 * OMEGA_EARTH * np.sin(np.radians(30.0))
+    assert float(mod.f0) == pytest.approx(expected)
+    assert mod.rossby_number is None
+    assert mod.scaling_variant == "dimensional"
+
+
+def test_fplane_from_latitude_custom_rotation_rate_and_sign():
+    """rotation_rate overrides Omega; a southern latitude flips f0's sign."""
+    north = FPlaneCoriolis.from_latitude(90.0, rotation_rate=1.0)
+    assert float(north.f0) == pytest.approx(2.0)  # 2 * 1 * sin(90)
+    south = FPlaneCoriolis.from_latitude(-30.0, rotation_rate=1.0)
+    assert float(south.f0) == pytest.approx(-1.0)  # 2 * 1 * sin(-30)
+
+
+def test_fplane_from_latitude_forwards_metric_weight():
+    """metric_weight rides through to the built module."""
+    mod = FPlaneCoriolis.from_latitude(45.0, metric_weight="csqr")
+    assert mod.metric_weight == "csqr"
+
+
+def test_beta_from_latitude_is_the_tangent_plane_formulas():
+    """f0 = 2 Omega sin(phi); beta = 2 Omega cos(phi) / R (Earth)."""
+    lat = 30.0
+    mod = BetaPlaneCoriolis.from_latitude(lat)
+    f0 = 2.0 * OMEGA_EARTH * np.sin(np.radians(lat))
+    beta = 2.0 * OMEGA_EARTH * np.cos(np.radians(lat)) / RADIUS_EARTH
+    assert float(mod.f0) == pytest.approx(f0)
+    assert float(mod.beta) == pytest.approx(beta)
+    assert mod.rossby_number is None
+    assert mod.metric_ratio is None
+    assert mod.scaling_variant == "dimensional"
+
+
+def test_beta_from_latitude_at_the_equator():
+    """The equator gives f0 = 0 with a strictly positive beta."""
+    mod = BetaPlaneCoriolis.from_latitude(0.0)
+    assert float(mod.f0) == pytest.approx(0.0)
+    assert float(mod.beta) > 0.0
+
+
+def test_beta_from_latitude_forwards_radius_meridional_and_weight():
+    """The radius scales beta; meridional and metric_weight ride through."""
+    mod = BetaPlaneCoriolis.from_latitude(
+        45.0, rotation_rate=1.0, radius=2.0,
+        meridional="lat", metric_weight="csqr")
+    assert float(mod.beta) == pytest.approx(
+        2.0 * 1.0 * np.cos(np.radians(45.0)) / 2.0)
+    assert mod._meridional == "lat"
+    assert mod.metric_weight == "csqr"
+
+
+def test_from_latitude_builds_a_runnable_module():
+    """The derived f-plane assembles and provides the constant f0."""
+    lat = 20.0
+    mod = FPlaneCoriolis.from_latitude(lat, rotation_rate=1.0)
+    model = make_channel(0.7, mod)
+    f = model.state["f_coriolis"]
+    expected = 2.0 * 1.0 * np.sin(np.radians(lat))
+    np.testing.assert_allclose(
+        np.asarray(f.data), expected, rtol=0.0, atol=1e-14)
+    assert float(model.parameters[CORIOLIS_F0]) == pytest.approx(expected)

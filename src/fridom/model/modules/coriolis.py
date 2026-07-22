@@ -85,9 +85,10 @@ scalar — an f0 provide would be a false constancy claim).
 from __future__ import annotations
 
 import inspect
+import math
 import numbers
 from functools import partial
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Final, Self
 
 import jax.numpy as jnp
 
@@ -120,6 +121,31 @@ if TYPE_CHECKING:  # pragma: no cover
 
 _U_HINT = ("velocities are declared by a dynamical-core module, "
            "e.g. nh.Core or sw.Core")
+
+
+# ================================================================
+#  Planetary constants (the from_latitude defaults)
+# ================================================================
+#: Earth's mean rotation rate :math:`\Omega` [rad/s] — the default
+#: ``rotation_rate`` of the ``from_latitude`` tangent-plane
+#: constructors (:math:`f_0 = 2\Omega\sin\varphi`).
+OMEGA_EARTH: Final[float] = 7.292e-5
+#: Earth's mean radius :math:`R` [m] — the default ``radius`` of
+#: ``BetaPlaneCoriolis.from_latitude`` (:math:`\beta =
+#: 2\Omega\cos\varphi / R`).
+RADIUS_EARTH: Final[float] = 6.371e6
+
+
+def _f0_from_latitude(latitude: float, rotation_rate: float) -> float:
+    r"""Return the f-plane :math:`f_0 = 2\Omega\sin\varphi` (phi in deg)."""
+    return 2.0 * rotation_rate * math.sin(math.radians(latitude))
+
+
+def _beta_from_latitude(
+    latitude: float, rotation_rate: float, radius: float,
+) -> float:
+    r"""Return :math:`\beta = 2\Omega\cos\varphi / R` (phi in degrees)."""
+    return 2.0 * rotation_rate * math.cos(math.radians(latitude)) / radius
 
 
 def _safe_metric_divide(
@@ -616,6 +642,52 @@ class FPlaneCoriolis(Module):
         self._nondim: bool = rossby_number is not None
         self._metric_weight = metric_weight
 
+    # ================================================================
+    #  Alternative constructors
+    # ================================================================
+    @classmethod
+    def from_latitude(
+        cls, latitude: float, *,
+        rotation_rate: float = OMEGA_EARTH,
+        metric_weight: str | None = None,
+    ) -> Self:
+        r"""
+        Build the f-plane from a reference latitude (dimensional).
+
+        Description
+        -----------
+        The tangent-plane convenience: the constant Coriolis parameter
+        at latitude :math:`\varphi` is :math:`f_0 = 2\Omega\sin\varphi`,
+        so ``FPlaneCoriolis.from_latitude(45.0)`` is exactly
+        ``FPlaneCoriolis(f0=2*OMEGA_EARTH*sin(radians(45)))`` — the
+        caller need not compute :math:`f_0` by hand. Only the
+        **dimensional** variant carries a latitude; the nondimensional
+        ``rossby_number=`` set is a different scaling and keeps the
+        direct constructor. For a time-dependent (``fr.Ramp``) rotation
+        pass an explicit ``f0=`` instead.
+
+        Parameters
+        ----------
+        latitude : float
+            The reference latitude :math:`\varphi` in **degrees**
+            (positive north; a negative latitude gives a negative
+            :math:`f_0`). Required — there is no default latitude.
+        rotation_rate : float, optional
+            The planetary angular velocity :math:`\Omega` [rad/s]
+            (default: Earth's ``OMEGA_EARTH``).
+        metric_weight : str | None, optional
+            Forwarded to the constructor: the velocity energy-metric
+            weight field name (default: None).
+
+        Returns
+        -------
+        FPlaneCoriolis
+            The dimensional f-plane module with the derived ``f0``.
+        """
+        return cls(
+            f0=_f0_from_latitude(latitude, rotation_rate),
+            metric_weight=metric_weight)
+
     @property
     def scaling_variant(self) -> str:
         """The constructor-fixed variant (``fr.scaling`` seam)."""
@@ -881,6 +953,69 @@ class BetaPlaneCoriolis(Module):
                        _check_profile_law(f, self.f0, self.beta))
         #: grid coordinate names for the profile-path halo (set at bind)
         self._halo_coords: tuple[str, ...] = ()
+
+    # ================================================================
+    #  Alternative constructors
+    # ================================================================
+    @classmethod
+    def from_latitude(
+        cls, latitude: float, *,
+        rotation_rate: float = OMEGA_EARTH,
+        radius: float = RADIUS_EARTH,
+        meridional: str = "y",
+        metric_weight: str | None = None,
+    ) -> Self:
+        r"""
+        Build the beta-plane from a reference latitude (dimensional).
+
+        Description
+        -----------
+        The tangent-plane convenience: at latitude :math:`\varphi` both
+        the Coriolis parameter and its meridional gradient follow from
+        the single latitude,
+
+        .. math::
+            f_0 = 2\Omega\sin\varphi , \qquad
+            \beta = \frac{\mathrm{d}f}{\mathrm{d}y}
+                  = \frac{2\Omega\cos\varphi}{R} ,
+
+        so ``BetaPlaneCoriolis.from_latitude(45.0)`` is exactly
+        ``BetaPlaneCoriolis(f0=..., beta=...)`` with both derived — the
+        caller need not compute either by hand. Only the **dimensional**
+        variant carries a latitude; the nondimensional
+        ``rossby_number=`` / ``metric_ratio=`` set is a different
+        scaling and keeps the direct constructor. For a time-dependent
+        (``fr.Ramp``) rotation pass explicit ``f0=``/``beta=`` instead.
+
+        Parameters
+        ----------
+        latitude : float
+            The reference latitude :math:`\varphi` in **degrees**
+            (positive north; the equator gives :math:`f_0 = 0` with
+            :math:`\beta > 0`). Required — there is no default latitude.
+        rotation_rate : float, optional
+            The planetary angular velocity :math:`\Omega` [rad/s]
+            (default: Earth's ``OMEGA_EARTH``).
+        radius : float, optional
+            The planetary radius :math:`R` [m], dividing the beta
+            gradient (default: Earth's ``RADIUS_EARTH``).
+        meridional : str, optional
+            Forwarded to the constructor: the meridional coordinate
+            name (default: ``"y"``).
+        metric_weight : str | None, optional
+            Forwarded to the constructor: the velocity energy-metric
+            weight field name (default: None).
+
+        Returns
+        -------
+        BetaPlaneCoriolis
+            The dimensional beta-plane module with the derived
+            ``f0``/``beta``.
+        """
+        return cls(
+            f0=_f0_from_latitude(latitude, rotation_rate),
+            beta=_beta_from_latitude(latitude, rotation_rate, radius),
+            meridional=meridional, metric_weight=metric_weight)
 
     @property
     def scaling_variant(self) -> str:
