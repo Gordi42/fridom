@@ -81,11 +81,11 @@ def _channel_model(dt, *, advection):
         time_stepper=AdamBashforth(dt, order=3))
 
 
-def _rand_state(model, seed):
+def _rand_state(model, seed, amp=1.0):
     """Fill a channel model with random prognostics; return the state."""
     rng = np.random.default_rng(seed)
     model.set_fields(**{
-        c: rng.standard_normal(np.asarray(model.state[c].data).shape)
+        c: amp * rng.standard_normal(np.asarray(model.state[c].data).shape)
         for c in COMPS})
     return sw.State({c: model.state[c] for c in COMPS})
 
@@ -230,6 +230,16 @@ def ob_info():
     (``ramping.envelope``) instead of a scaling parameter, so the
     interim alias guard (and its refusal test) is gone and OB runs
     on nonlinear channels — mechanism-scaled ones included — again.
+
+    The channel is DIMENSIONAL (the beta-ramp legs need the bound
+    ``coriolis.beta``), so its effective Rossby number is set by the
+    state amplitude (``f0 = L = 1``): ``amp=0.2`` reproduces the
+    retired nondimensional channel's ``rossby_number=0.2`` regime
+    (measured errors ~1.0 -> 1.9e-2 -> 9.8e-4, matching the
+    pre-migration record). The full-amplitude O(1) noise state sits
+    outside the nonlinear channel's stability envelope — the plain
+    (transform-free) model panics within 30 steps — so it cannot
+    gate OB.
     """
     model = _channel_model(DT, advection=True)
     reference = model.variant(updates={"coriolis.beta": 0.0})
@@ -237,7 +247,7 @@ def ob_info():
     p_adiab = AdiabaticProjection(_up_leg(model, 0.3), p_ref)
     ob = fr.model.OptimalBalance(
         model, base_projection=p_adiab, ramp_period=0.3, max_it=3)
-    _, info = ob.call_with_info(_rand_state(model, seed=2))
+    _, info = ob.call_with_info(_rand_state(model, seed=2, amp=0.2))
     return info
 
 
@@ -249,6 +259,25 @@ def test_ob_with_adiabatic_base_projection_converges(ob_info):
     assert errors[-1] < errors[0], errors
     assert min(errors[1:]) < 0.1 * errors[0], errors
     assert ob_info.model_steps > 0
+
+
+def test_ob_backward_leg_retraces_the_envelope_one_to_zero():
+    # regression pin for the OB leg-derivation composition
+    # (forward.replace(term_filter=...).backward) on the dimensional
+    # channel: the derived backward leg carries the time-domain-
+    # reversed envelope — rho = 1 at leg start (clock 0), rho = 0 at
+    # leg end (clock -ramp_period) — under a flipped dt. Host-side
+    # parameter assertions only, no integration.
+    model = _channel_model(DT, advection=True)
+    ob = fr.model.OptimalBalance(
+        model, base_projection=Identity(), ramp_period=0.3, max_it=1)
+    fwd_rho = ob.forward.model.parameters["ramping.envelope"]
+    assert float(fwd_rho.at_time(0.0)) == pytest.approx(0.0, abs=1e-12)
+    assert float(fwd_rho.at_time(0.3)) == pytest.approx(1.0, abs=1e-12)
+    bwd_rho = ob.backward.model.parameters["ramping.envelope"]
+    assert float(ob.backward.model.parameters["stepper.dt"]) < 0.0
+    assert float(bwd_rho.at_time(0.0)) == pytest.approx(1.0, abs=1e-12)
+    assert float(bwd_rho.at_time(-0.3)) == pytest.approx(0.0, abs=1e-12)
 
 
 # ================================================================
