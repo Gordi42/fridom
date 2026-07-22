@@ -194,6 +194,23 @@ term vanishes at u = v = 0), flat byte-identity, and a
 `Model.propagator` autodiff gate (grad wrt initial `u`, which the new
 term feeds into `db/dt`; finite + central-FD-matched to rtol 1e-4).
 
+**Gate-metric addendum (2026-07-22).** The volume-exact explicit
+terrain free surface (`961c2046`, owner ruling 2026-07-19:
+`d_t ps = -g T*`, no `1/H(x, y)` division) flipped the barotropic
+pair's skew-making surface weight from the depth-mean spelling's
+`H(x, y)/c²` to the constant `1/g` **area** weight — which is also the
+true physical surface PE `ps²/(2g)` per area. That commit updated
+`test_free_surface_terrain.py` but not this gate's hand-built metric
+(`_phys_skew` still lifted `ps` to 3D and J-integrated), so the gate
+sat red from `961c2046` with a resolution-independent ps-leg leak
+(−6.5e-3; total skew ~0.75 flat in n) that mimicked the pre-fix
+missing-term signature. A per-leg decomposition confirmed the physics
+intact (buoyancy `−N²·w_phys` to 1e-14; baroclinic u+b residual
+2nd-order; ps leg machine-zero skew under `1/g`). Fixed 2026-07-22:
+the ps leg is now the 2D `1/g` area integral; gate values
+1.9e-1 / 2.8e-2 / 6.1e-3 (orders 2.80 / 2.21), matching the §4
+post-fix record.
+
 Corrects the stretched+terrain done-entry over-claim ("baroclinic
 energy legs machine-precision"): that held only for single-mode states.
 Both remainders are now closed: the "w is Jω" output labeling by the

@@ -338,12 +338,15 @@ def _phys_skew(model, seeds_x, seeds_y):
 
     ``<X, L Y>_M + <Y, L X>_M`` (relative to the exchange scale) under
     the hand-built PHYSICAL metric M: the u/v/b legs J-weighted at their
-    faces / cell (the seeded ``integrate``), the ps leg lifted to the
-    3D b space so the plain J-weighted volume integral supplies the
-    per-column physical depth ``H/c^2`` (NOT ``EnergyMetric``, whose ps
-    weight is fixed elsewhere). Independent broadband states X, Y (all
-    components, fixed seeds) — robust to the state-selection accident of
-    the old single-mode gate.
+    faces / cell (the seeded ``integrate``), the ps leg the constant
+    ``1/g`` AREA weight (the 2D ``Profile`` integral, no ``H(x, y)``
+    factor) — the physical surface PE ``ps^2/(2g)`` per area, and the
+    weight under which the volume-exact barotropic pair
+    (``d_t ps = -g T*``, adopted in 961c2046) is exactly skew-adjoint.
+    The pre-961c2046 depth-mean spelling paired against ``H/c^2``
+    instead (the 3D lift this metric carried until then). Independent
+    broadband states X, Y (all components, fixed seeds) — robust to the
+    state-selection accident of the old single-mode gate.
     """
     grid = model.state["b"].grid
     fields = ("u", "v", "b", "ps")
@@ -361,7 +364,6 @@ def _phys_skew(model, seeds_x, seeds_y):
 
     x_state, lx = state_and_tendency(seeds_x)
     y_state, ly = state_and_tendency(seeds_y)
-    p3 = model.state["b"].function_space
 
     def jint(f):
         return float(f.integrate().data.ravel()[0])
@@ -369,7 +371,7 @@ def _phys_skew(model, seeds_x, seeds_y):
     def pairing(a, db):
         return (jint(a["u"] * db["u"]) + jint(a["v"] * db["v"])
                 + jint((a["b"] / N2) * db["b"])
-                + jint((a["ps"].to(p3) / CSQR) * db["ps"].to(p3)))
+                + jint((a["ps"] / CSQR) * db["ps"]))
 
     # bilinear cross terms <X, L Y>_M + <Y, L X>_M (not the diagonal)
     xy, yx = pairing(x_state, ly), pairing(y_state, lx)
