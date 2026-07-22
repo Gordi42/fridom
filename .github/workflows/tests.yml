@@ -1,5 +1,16 @@
 # This workflow will run the tests on every push and pull request that
 # touches code; docs/examples/design-only changes are skipped.
+#
+# The single-device suite (~6.7k tests) is SHARDED across a matrix of
+# parallel runners with pytest-split. Each GitHub-hosted runner has only
+# 16 GB of RAM, and a single process running the whole suite accumulates
+# jax's unbounded in-process compilation cache (measured ~13 GB across
+# four xdist workers on 2026-07-18, and growing with the suite) until the
+# runner OOMs and "loses communication with the server". Sharding gives
+# each runner a fraction of the tests, restoring memory headroom, and
+# runs the shards in parallel, cutting wall-clock. The per-shard coverage
+# is combined in a final job that enforces the 95% gate and uploads the
+# merged report to Codecov.
 
 name: Tests
 
@@ -26,12 +37,16 @@ concurrency:
   cancel-in-progress: ${{ github.ref != 'refs/heads/dev' && github.ref != 'refs/heads/main' }}
 
 jobs:
-  build:
+  # The single-device suite, sharded 4 ways across parallel runners.
+  # pytest-split deselects all but this group's slice of the collected
+  # tests; xdist then distributes that slice across -n 4 workers.
+  single-device:
     runs-on: ubuntu-22.04
     strategy:
       fail-fast: false
       matrix:
         python-version: ["3.11"]  # TODO: Add more versions
+        group: [1, 2, 3, 4]
 
     steps:
     - uses: actions/checkout@v4
@@ -45,19 +60,52 @@ jobs:
       run: |
         uv sync --extra dev
 
-    - name: Run the tests (single device)
+    - name: Run the tests (single device, shard ${{ matrix.group }}/4)
       run: |
-        uv run pytest tests/ -n 4 --dist loadfile \
+        uv run pytest tests/ \
+          --splits 4 --group ${{ matrix.group }} \
+          -n 4 --dist loadfile \
           --cov --cov-report= \
-          --junitxml=junit.xml -o junit_family=legacy
+          --junitxml=junit-${{ matrix.group }}.xml -o junit_family=legacy
 
-    # the multi-device suite covers the distributed code paths of the
-    # domain decomposition; its coverage is appended to the report.
-    # The model and field legs are here because the guards they carry
-    # (the chunk out_shardings fixed point, the cached re-blocking
-    # shard_maps, the ghost-claim exchange elision) protect bugs that
-    # only manifest on several devices — running them single-device
-    # only would leave those optimizations unguarded.
+    - name: Upload coverage data
+      uses: actions/upload-artifact@v4
+      with:
+        name: coverage-single-${{ matrix.group }}
+        path: .coverage
+        include-hidden-files: true
+        retention-days: 1
+
+    - name: Upload test results
+      if: ${{ !cancelled() }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: junit-single-${{ matrix.group }}
+        path: junit-${{ matrix.group }}.xml
+        retention-days: 1
+
+  # The multi-device suite covers the distributed code paths of the
+  # domain decomposition on a single process forced to expose 4 devices.
+  # It is a fixed, small file list (no OOM risk), so it runs as one
+  # unsharded job. The model and field legs are here because the guards
+  # they carry (the chunk out_shardings fixed point, the cached
+  # re-blocking shard_maps, the ghost-claim exchange elision) protect
+  # bugs that only manifest on several devices.
+  multi-device:
+    runs-on: ubuntu-22.04
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v5
+      with:
+        python-version: "3.11"
+
+    - name: Install dependencies
+      run: |
+        uv sync --extra dev
+
     - name: Run the tests (multiple devices)
       env:
         XLA_FLAGS: --xla_force_host_platform_device_count=4
@@ -81,17 +129,11 @@ jobs:
           tests/model/test_eigen.py \
           tests/spatial/test_freeze_fingerprint.py \
           tests/nonhydro2/test_distributed_projection.py -q \
-          --cov --cov-append --cov-report=
+          --cov --cov-report=
 
     # The multigrid parity battery is the drift net for the 2026-07-18
-    # semicoarsening multi-device break (root cause + closure in
-    # design/research/semicoarsen_multidevice_regression.md). Its
-    # parity/convergence tests — including the exact bisect predicate
-    # test_forced4_multigrid_solve_matches_single_device[
-    # replicated-x12-coarse6] — fail only on >= 2 devices, so
-    # single-device CI never exercises them. It is a separate forced-4
-    # invocation (not a -k added to the hand-picked list above, which
-    # would filter that list's other files too).
+    # semicoarsening multi-device break. Its parity/convergence tests
+    # fail only on >= 2 devices, so single-device CI never exercises them.
     - name: Run the multigrid parity battery (multiple devices)
       env:
         XLA_FLAGS: --xla_force_host_platform_device_count=4
@@ -103,14 +145,11 @@ jobs:
           -k "forced4 or converges or full_and_semi or hlo_grows or vcycle_is_symmetric or builds_and_solves or semicoarsening_knob" \
           -q --cov --cov-append --cov-report=
 
-    # The three full-coarsening multigrid grad regressions (mapped,
-    # stretched-model, stretched-composed) built only single-device
-    # until the transfer P^T forward-primitive spelling (transfer.py)
+    # The three full-coarsening multigrid grad regressions built only
+    # single-device until the transfer P^T forward-primitive spelling
     # cured the XLA SPMD transpose-of-roll miscompile at one cell per
-    # coarse shard (design/research/semicoarsen_multidevice_regression.md).
-    # They now run on any device count; this leg is the multi-device
-    # drift net (the transfer-level guard rides the multi-device leg
-    # above via test_transfer.py).
+    # coarse shard. They now run on any device count; this leg is the
+    # multi-device drift net.
     - name: Run the multigrid grad regressions (multiple devices)
       env:
         XLA_FLAGS: --xla_force_host_platform_device_count=4
@@ -123,16 +162,67 @@ jobs:
           -k "multigrid_solve_grad or stretched_multigrid_grad or stretched_composed_solve_grad" \
           -q --cov --cov-append --cov-report=
 
-    - name: Generate the coverage report
+    - name: Upload coverage data
+      uses: actions/upload-artifact@v4
+      with:
+        name: coverage-multi
+        path: .coverage
+        include-hidden-files: true
+        retention-days: 1
+
+  # Combine coverage from every shard + the multi-device job, enforce the
+  # 95% gate locally, and upload the merged report to Codecov. Runs even
+  # if an upstream job failed so that test results and partial coverage
+  # still reach Codecov for diagnosis.
+  coverage:
+    needs: [single-device, multi-device]
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-22.04
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v5
+      with:
+        python-version: "3.11"
+
+    - name: Install dependencies
       run: |
+        uv sync --extra dev
+
+    - name: Download coverage artifacts
+      uses: actions/download-artifact@v4
+      with:
+        pattern: coverage-*
+        path: coverage-data
+
+    - name: Combine coverage and enforce the gate
+      run: |
+        # Each artifact dir holds one .coverage file; give them unique
+        # names so `coverage combine` merges rather than overwrites.
+        i=0
+        for f in coverage-data/*/.coverage; do
+          cp "$f" ".coverage.$i"
+          i=$((i + 1))
+        done
+        uv run coverage combine
         uv run coverage xml
         uv run coverage report
 
-    - name: Upload test results
+    - name: Download test results
+      if: ${{ !cancelled() }}
+      uses: actions/download-artifact@v4
+      with:
+        pattern: junit-*
+        path: junit-data
+
+    - name: Upload test results to Codecov
       if: ${{ !cancelled() }}
       uses: codecov/test-results-action@v1
       with:
         token: ${{ secrets.CODECOV_TOKEN }}
+        directory: junit-data
 
     - name: Upload coverage reports to Codecov
       if: ${{ !cancelled() }}
