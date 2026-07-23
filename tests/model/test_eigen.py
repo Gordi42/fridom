@@ -217,7 +217,7 @@ def test_rejects_a_walled_grid():
         core=nh.Core(),
         time_stepper=AdamBashforth(5e-3, order=3),
         coriolis=FPlaneCoriolis(f0=1.0),
-        stratification=nh.ConstantStratification(n2=1.0),
+        buoyancy=nh.ConstantStratification(n2=1.0),
         advection=False)
     with pytest.raises(
             ValueError,
@@ -262,7 +262,7 @@ def test_rejects_a_varying_stratification_model():
         core=nh.Core(),
         time_stepper=AdamBashforth(5e-3, order=3),
         coriolis=FPlaneCoriolis(f0=1.0),
-        stratification=nh.MeridionalStratification( n2=lambda y: 1.0 + y * y),
+        buoyancy=nh.MeridionalStratification( n2=lambda y: 1.0 + y * y),
         advection=False)
     with pytest.raises(ValueError, match=r"n2.*channel"):
         numeric_eigenpairs(model)

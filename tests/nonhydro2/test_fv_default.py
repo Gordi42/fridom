@@ -107,7 +107,7 @@ def test_fv_default_is_bitwise_identical_to_nodal(advection):
             core=nh.Core(aspect_ratio=(2.0) ** 0.5),
             time_stepper=AdamBashforth(DT, order=3),
             coriolis=FPlaneCoriolis(f0=1.0),
-            stratification=nh.ConstantStratification(n2=1.0),
+            buoyancy=nh.ConstantStratification(n2=1.0),
             advection=advection))
     nodal = _seed(
         nh.Model(
@@ -115,7 +115,7 @@ def test_fv_default_is_bitwise_identical_to_nodal(advection):
             core=nh.Core(aspect_ratio=(2.0) ** 0.5, family="nodal"),
             time_stepper=AdamBashforth(DT, order=3),
             coriolis=FPlaneCoriolis(f0=1.0),
-            stratification=nh.ConstantStratification(n2=1.0),
+            buoyancy=nh.ConstantStratification(n2=1.0),
             advection=advection))
     fv.advance(steps)
     nodal.advance(steps)
@@ -149,7 +149,7 @@ def test_fv_default_biased_is_bitwise_identical_to_nodal(advection):
             core=nh.Core(aspect_ratio=(2.0) ** 0.5),
             time_stepper=AdamBashforth(DT, order=3),
             coriolis=FPlaneCoriolis(f0=1.0),
-            stratification=nh.ConstantStratification(n2=1.0),
+            buoyancy=nh.ConstantStratification(n2=1.0),
             advection=advection()))
     nodal = _seed(
         nh.Model(
@@ -157,7 +157,7 @@ def test_fv_default_biased_is_bitwise_identical_to_nodal(advection):
             core=nh.Core(aspect_ratio=(2.0) ** 0.5, family="nodal"),
             time_stepper=AdamBashforth(DT, order=3),
             coriolis=FPlaneCoriolis(f0=1.0),
-            stratification=nh.ConstantStratification(n2=1.0),
+            buoyancy=nh.ConstantStratification(n2=1.0),
             advection=advection()))
     fv.advance(steps)
     nodal.advance(steps)
@@ -184,7 +184,7 @@ def test_biased_advection_negotiates_the_two_sided_width(advection):
             core=nh.Core(aspect_ratio=(2.0) ** 0.5, family=family),
             time_stepper=AdamBashforth(DT, order=3),
             coriolis=FPlaneCoriolis(f0=1.0),
-            stratification=nh.ConstantStratification(n2=1.0),
+            buoyancy=nh.ConstantStratification(n2=1.0),
             advection=advection())
         for name in ("x", "y", "z"):
             assert model.grid.decomposition.halo[name] == 3
@@ -196,7 +196,7 @@ def test_fv_default_state_is_finite_volume():
         core=nh.Core(),
         time_stepper=AdamBashforth(DT, order=3),
         coriolis=FPlaneCoriolis(f0=1.0),
-        stratification=nh.ConstantStratification(n2=1.0))
+        buoyancy=nh.ConstantStratification(n2=1.0))
     # scalars on CellAvg^3, velocities face-normal (Right ⊗ CellAvg^2)
     for c in ("p", "b"):
         assert all(isinstance(f, CellAvg)
@@ -213,7 +213,7 @@ def test_projection_drives_divergence_to_machine_zero_on_fv():
         core=nh.Core(),
         time_stepper=AdamBashforth(DT, order=3),
         coriolis=FPlaneCoriolis(f0=1.0),
-        stratification=nh.ConstantStratification(n2=1.0),
+        buoyancy=nh.ConstantStratification(n2=1.0),
         advection=False)
     x, y, z = coords()
     model.set_fields(u=np.sin(x) * np.cos(y), v=0.3 * np.cos(x),
@@ -274,14 +274,14 @@ def test_fv_on_mapped_grid_is_served_explicit_and_auto():
         core=nh.Core(family="fv"),
         time_stepper=AdamBashforth(DT, order=3),
         coriolis=FPlaneCoriolis(f0=1.0),
-        stratification=nh.ConstantStratification(n2=1.0),
+        buoyancy=nh.ConstantStratification(n2=1.0),
         advection=False)
     auto = nh.Model(
         grid=mapped_grid(),
         core=nh.Core(),
         time_stepper=AdamBashforth(DT, order=3),
         coriolis=FPlaneCoriolis(f0=1.0),
-        stratification=nh.ConstantStratification(n2=1.0),
+        buoyancy=nh.ConstantStratification(n2=1.0),
         advection=False)  # auto -> fv
     for model in (explicit, auto):
         assert all(isinstance(f, CellAvg)
@@ -309,7 +309,7 @@ def test_explicit_fv_on_walled_grid_is_now_served():
         core=nh.Core(family="fv"),
         time_stepper=AdamBashforth(DT, order=3),
         coriolis=FPlaneCoriolis(f0=1.0),
-        stratification=nh.ConstantStratification(n2=1.0),
+        buoyancy=nh.ConstantStratification(n2=1.0),
         advection=False)
     assert all(isinstance(f, CellAvg)
                for f in model.state["b"].function_space.bare.factors)
@@ -329,7 +329,7 @@ def test_walled_fv_eigenmodes_build():
         core=nh.Core(),
         time_stepper=AdamBashforth(DT, order=3),
         coriolis=FPlaneCoriolis(f0=1.0),
-        stratification=nh.ConstantStratification(n2=1.0),
+        buoyancy=nh.ConstantStratification(n2=1.0),
         advection=False)  # auto -> fv
     assert all(isinstance(f, CellAvg)
                for f in model.state["b"].function_space.bare.factors)
@@ -384,7 +384,7 @@ def test_dynamic_mapping_auto_flips_to_fv_with_family_aware_ale():
         core=nh.Core(),
         time_stepper=AdamBashforth(DT, order=3),
         coriolis=FPlaneCoriolis(f0=1.0),
-        stratification=nh.ConstantStratification(n2=1.0),
+        buoyancy=nh.ConstantStratification(n2=1.0),
         advection=False,
         modules_extra=(MovingGeometry(
             {"h": lambda x, t: 1.0 + 0.2 * jnp.sin(x) + 0.0 * t}),))
@@ -404,7 +404,7 @@ def test_explicit_fv_with_ale_binds_and_runs():
         core=nh.Core(family="fv"),
         time_stepper=AdamBashforth(DT, order=3),
         coriolis=FPlaneCoriolis(f0=1.0),
-        stratification=nh.ConstantStratification(n2=1.0),
+        buoyancy=nh.ConstantStratification(n2=1.0),
         advection=False,
         modules_extra=(
             MovingGeometry({"h": lambda x, t:
@@ -491,7 +491,7 @@ def test_fv_model_grid_carries_the_profile():
         core=nh.Core(),
         time_stepper=AdamBashforth(DT, order=3),
         coriolis=FPlaneCoriolis(f0=1.0),
-        stratification=nh.ConstantStratification(n2=1.0))
+        buoyancy=nh.ConstantStratification(n2=1.0))
     for mesh in grid.factors:
         assert isinstance(grid.dispatch.resolve("diff", mesh.cell_avg),
                           FaceDifference)
@@ -506,7 +506,7 @@ def test_nodal_model_grid_keeps_the_nodal_diff():
         core=nh.Core(family="nodal"),
         time_stepper=AdamBashforth(DT, order=3),
         coriolis=FPlaneCoriolis(f0=1.0),
-        stratification=nh.ConstantStratification(n2=1.0))
+        buoyancy=nh.ConstantStratification(n2=1.0))
     # the nodal Right -> Center chain survives (no FV override)
     right = grid.factors[0].right
     assert not isinstance(grid.dispatch.resolve("diff", right),
@@ -544,14 +544,14 @@ def test_two_nodal_models_share_a_grid():
         core=nh.Core(family="nodal"),
         time_stepper=AdamBashforth(DT, order=3),
         coriolis=FPlaneCoriolis(f0=1.0),
-        stratification=nh.ConstantStratification(n2=1.0),
+        buoyancy=nh.ConstantStratification(n2=1.0),
         advection=False)
     second = nh.Model(
         grid=grid,
         core=nh.Core(family="nodal"),
         time_stepper=AdamBashforth(DT, order=3),
         coriolis=FPlaneCoriolis(f0=1.0),
-        stratification=nh.ConstantStratification(n2=1.0),
+        buoyancy=nh.ConstantStratification(n2=1.0),
         advection=False)
     assert not any(
         isinstance(f, CellAvg)
@@ -567,14 +567,14 @@ def test_two_fv_models_share_a_grid():
         core=nh.Core(),
         time_stepper=AdamBashforth(DT, order=3),
         coriolis=FPlaneCoriolis(f0=1.0),
-        stratification=nh.ConstantStratification(n2=1.0),
+        buoyancy=nh.ConstantStratification(n2=1.0),
         advection=False)
     second = nh.Model(
         grid=grid,
         core=nh.Core(),
         time_stepper=AdamBashforth(DT, order=3),
         coriolis=FPlaneCoriolis(f0=1.0),
-        stratification=nh.ConstantStratification(n2=1.0),
+        buoyancy=nh.ConstantStratification(n2=1.0),
         advection=False)
     assert all(isinstance(f, CellAvg)
                for f in second.state["b"].function_space.bare.factors)
@@ -589,7 +589,7 @@ def test_fv_model_on_a_grid_frozen_nodal_is_a_taught_error():
         core=nh.Core(family="nodal"),
         time_stepper=AdamBashforth(DT, order=3),
         coriolis=FPlaneCoriolis(f0=1.0),
-        stratification=nh.ConstantStratification(n2=1.0),
+        buoyancy=nh.ConstantStratification(n2=1.0),
         advection=False)
     with pytest.raises(AssemblyError, match="frozen grid"):
         FrModel(

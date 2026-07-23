@@ -28,7 +28,7 @@ def make_model(grid=None, *, dt=1e-3, **kwargs):
         grid=grid,
         core=hy.Core(gravity=1.0),
         time_stepper=AdamBashforth(dt, order=3),
-        stratification=hy.ConstantStratification(n2=1.0),
+        buoyancy=hy.ConstantStratification(n2=1.0),
         free_surface=hy.ExplicitFreeSurface(),
         advection=False,
         **kwargs)
@@ -47,7 +47,7 @@ def test_preset_equals_explicit_assembly_treedef():
         core=hy.Core(gravity=3.0),
         time_stepper=stepper,
         coriolis=hy.FPlaneCoriolis(f0=1.3),
-        stratification=hy.ConstantStratification(n2=2.0),
+        buoyancy=hy.ConstantStratification(n2=2.0),
         free_surface=hy.ExplicitFreeSurface())
     explicit = fr.model.Model(
         grid=grid,
@@ -83,7 +83,7 @@ def test_default_modules_and_stepper():
         grid=make_grid(),
         core=hy.Core(gravity=1.0),
         time_stepper=AdamBashforth(1.0, order=3),
-        stratification=hy.ConstantStratification(n2=1.0),
+        buoyancy=hy.ConstantStratification(n2=1.0),
         free_surface=hy.ExplicitFreeSurface())
     modules = model._carry.modules
     assert any(isinstance(m, hy.Core) for m in modules)
@@ -101,7 +101,7 @@ def test_default_is_no_rotation_at_all():
         grid=make_grid(),
         core=hy.Core(gravity=1.0),
         time_stepper=AdamBashforth(1.0, order=3),
-        stratification=hy.ConstantStratification(n2=1.0),
+        buoyancy=hy.ConstantStratification(n2=1.0),
         free_surface=hy.ExplicitFreeSurface())
     assert "f_coriolis" not in model.state
     assert fr.model.params.CORIOLIS_F0 not in model.parameters
@@ -115,7 +115,7 @@ def test_a_named_coriolis_is_installed():
         core=hy.Core(gravity=1.0),
         time_stepper=AdamBashforth(1.0, order=3),
         coriolis=hy.FPlaneCoriolis(f0=1.5),
-        stratification=hy.ConstantStratification(n2=1.0),
+        buoyancy=hy.ConstantStratification(n2=1.0),
         free_surface=hy.ExplicitFreeSurface())
     assert "f_coriolis" in model.state
     assert float(model.parameters[fr.model.params.CORIOLIS_F0]) == 1.5
@@ -138,7 +138,7 @@ def test_advection_is_installed(advection):
         grid=make_grid(),
         core=hy.Core(gravity=1.0),
         time_stepper=AdamBashforth(1.0, order=3),
-        stratification=hy.ConstantStratification(n2=1.0),
+        buoyancy=hy.ConstantStratification(n2=1.0),
         free_surface=hy.ExplicitFreeSurface(),
         advection=advection)
     assert any("Advection" in type(m).__name__
@@ -150,7 +150,7 @@ def test_advection_false_installs_no_advection_module():
         grid=make_grid(),
         core=hy.Core(gravity=1.0),
         time_stepper=AdamBashforth(1.0, order=3),
-        stratification=hy.ConstantStratification(n2=1.0),
+        buoyancy=hy.ConstantStratification(n2=1.0),
         free_surface=hy.ExplicitFreeSurface(),
         advection=False)
     assert not any("Advection" in type(m).__name__
@@ -166,7 +166,7 @@ def test_modules_extra_appends():
         grid=make_grid(),
         core=hy.Core(gravity=1.0),
         time_stepper=AdamBashforth(1.0, order=3),
-        stratification=hy.ConstantStratification(n2=1.0),
+        buoyancy=hy.ConstantStratification(n2=1.0),
         free_surface=hy.ExplicitFreeSurface())
     assert not any(isinstance(m, fr.model.modules.FPlaneCoriolis)
                    for m in bare._carry.modules)
@@ -178,7 +178,7 @@ def test_modules_extra_appends():
         core=hy.Core(gravity=1.0),
         time_stepper=AdamBashforth(1.0, order=3),
         coriolis=None,
-        stratification=hy.ConstantStratification(n2=1.0),
+        buoyancy=hy.ConstantStratification(n2=1.0),
         free_surface=hy.ExplicitFreeSurface(),
         modules_extra=(extra,))
     assert any(isinstance(m, fr.model.modules.FPlaneCoriolis)

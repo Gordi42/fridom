@@ -97,7 +97,7 @@ def test_masked_continuity_residual_is_machine_zero(
         grid=grid(init, order=order, min_fraction=min_fraction),
         core=hy.Core(gravity=1.0),
         time_stepper=AdamBashforth(0.01, order=3),
-        stratification=hy.ConstantStratification(n2=1.0),
+        buoyancy=hy.ConstantStratification(n2=1.0),
         free_surface=hy.ExplicitFreeSurface(),
         advection=False)
     rng = np.random.default_rng(0)
@@ -168,7 +168,7 @@ def test_masked_w_faces_matches_raw_data_surgery_bitwise(
         grid=grid(init, n=n, nz=nz, order=order, min_fraction=min_fraction),
         core=hy.Core(gravity=1.0),
         time_stepper=AdamBashforth(0.01, order=3),
-        stratification=hy.ConstantStratification(n2=1.0),
+        buoyancy=hy.ConstantStratification(n2=1.0),
         free_surface=hy.ExplicitFreeSurface(),
         advection=False)
     imm = model.grid.immersed
@@ -187,7 +187,7 @@ def test_partial_surface_cell_is_a_true_partial():
             n=4, nz=4, order=4, min_fraction=0.1),
         core=hy.Core(gravity=1.0),
         time_stepper=AdamBashforth(0.01, order=3),
-        stratification=hy.ConstantStratification(n2=1.0),
+        buoyancy=hy.ConstantStratification(n2=1.0),
         free_surface=hy.ExplicitFreeSurface(),
         advection=False)
     core = model.module(hy.Core)
@@ -204,7 +204,7 @@ def test_surface_face_is_a_genuine_dof_not_dry():
         grid=grid(lambda x, y, z: (z > 0.5).astype(float)),  # noqa: ARG005
         core=hy.Core(gravity=1.0),
         time_stepper=AdamBashforth(0.01, order=3),
-        stratification=hy.ConstantStratification(n2=1.0),
+        buoyancy=hy.ConstantStratification(n2=1.0),
         free_surface=hy.ExplicitFreeSurface(),
         advection=False)
     imm = model.grid.immersed
@@ -225,14 +225,14 @@ def test_all_wet_matches_unimmersed_bytewise():
         grid=grid(lambda x, y, z: x * 0.0 + 1.0),  # noqa: ARG005
         core=hy.Core(gravity=1.0),
         time_stepper=AdamBashforth(0.02, order=3),
-        stratification=hy.ConstantStratification(n2=1.0),
+        buoyancy=hy.ConstantStratification(n2=1.0),
         free_surface=hy.ExplicitFreeSurface(),
         advection=False)
     un = hy.Model(
         grid=plain_grid(),
         core=hy.Core(gravity=1.0),
         time_stepper=AdamBashforth(0.02, order=3),
-        stratification=hy.ConstantStratification(n2=1.0),
+        buoyancy=hy.ConstantStratification(n2=1.0),
         free_surface=hy.ExplicitFreeSurface(),
         advection=False)
     rng = np.random.default_rng(7)
@@ -255,14 +255,14 @@ def test_core_extra_halo_only_when_immersed():
         grid=grid(lambda x, y, z: (z > 0.5).astype(float)),  # noqa: ARG005
         core=hy.Core(gravity=1.0),
         time_stepper=AdamBashforth(0.01, order=3),
-        stratification=hy.ConstantStratification(n2=1.0),
+        buoyancy=hy.ConstantStratification(n2=1.0),
         free_surface=hy.ExplicitFreeSurface(),
         advection=False)
     plain = hy.Model(
         grid=plain_grid(),
         core=hy.Core(gravity=1.0),
         time_stepper=AdamBashforth(0.01, order=3),
-        stratification=hy.ConstantStratification(n2=1.0),
+        buoyancy=hy.ConstantStratification(n2=1.0),
         free_surface=hy.ExplicitFreeSurface(),
         advection=False)
     imm_halo = imm_model.module(hy.Core).extra_halo

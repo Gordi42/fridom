@@ -62,7 +62,7 @@ if TYPE_CHECKING:  # pragma: no cover
 
 _FIELD_HINT = ("the relaxed field must be declared by another "
                "module (e.g. a dynamical core registers the "
-               "velocities, a stratification module registers b); "
+               "velocities, a buoyancy module registers b); "
                "check the Relaxation field-name spelling")
 
 

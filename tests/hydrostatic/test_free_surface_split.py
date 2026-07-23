@@ -49,7 +49,7 @@ def make_model(grid, free_surface, *, n2=0.0, csqr=4.0, f0=0.0,
         core=hy.Core(gravity=csqr),
         time_stepper=stepper,
         coriolis=hy.FPlaneCoriolis(f0=f0),
-        stratification=hy.ConstantStratification(n2=n2),
+        buoyancy=hy.ConstantStratification(n2=n2),
         free_surface=free_surface,
         advection=False)
 
@@ -110,7 +110,7 @@ def test_default_free_surface_is_unchanged():
         grid=grid,
         core=hy.Core(gravity=1.0),
         time_stepper=AdamBashforth(1.0, order=3),
-        stratification=hy.ConstantStratification(n2=0.0),
+        buoyancy=hy.ConstantStratification(n2=0.0),
         free_surface=hy.ExplicitFreeSurface(),
         advection=False)
     assert "ps" in model.state.component_names
@@ -477,7 +477,7 @@ def test_tendency_sums_forcing_runs_incl_the_implicit_branch():
         core=hy.Core(gravity=4.0),
         time_stepper=fr.model.time_steppers.CNAB2(1e-2),
         coriolis=hy.FPlaneCoriolis(f0=0.5),
-        stratification=hy.ConstantStratification(n2=1.0),
+        buoyancy=hy.ConstantStratification(n2=1.0),
         free_surface=SEFS(substeps=8, forcing="tendency_sums"),
         advection=False,
         modules_extra=(_VertMix(),))

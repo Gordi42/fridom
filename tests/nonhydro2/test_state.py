@@ -59,7 +59,7 @@ def test_chart_w_equals_hand_built_contravariant_flux():
             grid=grid,
             core=nh.Core(),
             time_stepper=AdamBashforth(1e-3, order=3),
-            stratification=nh.ConstantStratification(n2=1.0)))
+            buoyancy=nh.ConstantStratification(n2=1.0)))
     assert isinstance(st, State)
     chart_w = st.chart["w"]
 
@@ -83,7 +83,7 @@ def test_chart_is_identity_on_a_flat_grid():
             grid=_flat_grid(),
             core=nh.Core(),
             time_stepper=AdamBashforth(1e-3, order=3),
-            stratification=nh.ConstantStratification(n2=1.0)))
+            buoyancy=nh.ConstantStratification(n2=1.0)))
     assert st.chart["w"] is st["w"]
     assert st.chart["u"] is st["u"]
     assert st.chart.w is st["w"]
@@ -95,7 +95,7 @@ def test_chart_velocities_and_read_only():
             grid=_flat_grid(),
             core=nh.Core(),
             time_stepper=AdamBashforth(1e-3, order=3),
-            stratification=nh.ConstantStratification(n2=1.0)))
+            buoyancy=nh.ConstantStratification(n2=1.0)))
     u, v, w = st.chart.velocities
     assert u is st["u"]
     assert v is st["v"]

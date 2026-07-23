@@ -90,7 +90,7 @@ def _make_model(*, mapped=False, periodic_x=True, periodic_z=False,
         core=nh.Core(aspect_ratio=0.5, family=family, pressure_iterations=8),
         time_stepper=AdamBashforth(dt, order=3),
         coriolis=nh.FPlaneCoriolis(f0=1.0),
-        stratification=nh.ConstantStratification(n2=1.0),
+        buoyancy=nh.ConstantStratification(n2=1.0),
         advection=advection,
         chunk_size=1)
 

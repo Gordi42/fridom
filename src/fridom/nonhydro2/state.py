@@ -86,10 +86,10 @@ class State(VectorField):
 
     @property
     def b(self) -> ScalarField:
-        """Buoyancy (present when a stratification module is used)."""
+        """Buoyancy (present when a buoyancy module is used)."""
         return self.require(
-            "b", hint="add a stratification module, e.g. "
-                      "nh.ConstantStratification")
+            "b", hint="add a buoyancy module, e.g. "
+                      "nh.ConstantStratification or nh.BuoyancyTracer")
 
     # ================================================================
     #  Chart-native view (read-only expert surface)

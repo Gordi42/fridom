@@ -40,17 +40,17 @@ def rot_model():
         core=nh.Core(aspect_ratio=DELTA),
         scaling=fr.scaling.Rotational(L=L_REF, U=U_REF),
         coriolis=nh.FPlaneCoriolis(rossby_number=RO),
-        stratification=nh.ConstantStratification(froude_number=FR_INT),
+        buoyancy=nh.ConstantStratification(froude_number=FR_INT),
         advection=False,
         time_stepper=fr.model.time_steppers.AdamBashforth(DT, order=2))
 
 
-def dim_model(*, stratification=None):
+def dim_model(*, buoyancy=None):
     return nh.Model(
         grid=make_grid(),
         core=nh.Core(aspect_ratio=DELTA),
         coriolis=nh.FPlaneCoriolis(f0=F0),
-        stratification=stratification
+        buoyancy=buoyancy
         or nh.ConstantStratification(n2=N2),
         advection=False,
         time_stepper=fr.model.time_steppers.AdamBashforth(DT, order=2))
@@ -110,7 +110,7 @@ def test_dimensional_constants_report_bound_values():
 def test_meridional_stratification_marks_n_dim():
     # the profile binds no constant n2 -> the row is marked, never a
     # false constant (the beta-plane f_dim precedent)
-    model = dim_model(stratification=nh.MeridionalStratification(
+    model = dim_model(buoyancy=nh.MeridionalStratification(
         lambda y: 1.0 + 0.0 * y))
     entry = model.units.factors["N_dim"]
     assert entry.value is None

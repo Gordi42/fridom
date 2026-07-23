@@ -41,7 +41,7 @@ def dim_model(*, free_surface=None, advection=True):
     return hy.Model(
         grid=make_grid(), core=hy.Core(gravity=1.0),
         coriolis=hy.FPlaneCoriolis(f0=0.5),
-        stratification=hy.ConstantStratification(n2=4.0),
+        buoyancy=hy.ConstantStratification(n2=4.0),
         free_surface=free_surface or hy.ExplicitFreeSurface(),
         advection=advection, surface_advective_flux=False,
         time_stepper=AdamBashforth(DT, order=3))
@@ -58,7 +58,7 @@ def ext_model(*, ro=1.0, free_surface_cls=hy.ExplicitFreeSurface,
         grid=make_grid(), core=hy.Core(),
         scaling=fr.scaling.ExternalWave(),
         coriolis=hy.FPlaneCoriolis(rossby_number=2.0 * ro),
-        stratification=hy.ConstantStratification(froude_number=ro / 2),
+        buoyancy=hy.ConstantStratification(froude_number=ro / 2),
         free_surface=free_surface_cls(froude_number=ro, **fs_kwargs),
         advection=advection, surface_advective_flux=False,
         time_stepper=AdamBashforth(DT, order=3))
@@ -78,11 +78,14 @@ def random_fields(model, amp=0.02, seed=9):
     [pytest.param({"csqr": 1.0}, "csqr= is retired", id="csqr"),
      pytest.param({"rossby_number": 0.5},
                   "rossby_number= is retired", id="rossby"),
-     pytest.param({"dt": 0.1}, "dt= is retired", id="dt")])
+     pytest.param({"dt": 0.1}, "dt= is retired", id="dt"),
+     pytest.param({"stratification": None},
+                  "stratification= was renamed to buoyancy=",
+                  id="stratification")])
 def test_preset_teaches_the_retired_kwargs(kwarg, match):
     with pytest.raises(TypeError, match=match):
         hy.Model(grid=make_grid(), core=hy.Core(gravity=1.0),
-                 stratification=hy.ConstantStratification(n2=1.0),
+                 buoyancy=hy.ConstantStratification(n2=1.0),
                  free_surface=hy.ExplicitFreeSurface(),
                  time_stepper=AdamBashforth(DT, order=3), **kwarg)
 
@@ -90,8 +93,14 @@ def test_preset_teaches_the_retired_kwargs(kwarg, match):
 def test_preset_requires_the_physics_modules():
     with pytest.raises(TypeError, match="REQUIRED"):
         hy.Model(grid=make_grid(), core=hy.Core(gravity=1.0),
-                 stratification=hy.ConstantStratification(n2=1.0),
+                 buoyancy=hy.ConstantStratification(n2=1.0),
                  free_surface=None,
+                 time_stepper=AdamBashforth(DT, order=3))
+    # buoyancy= carries a None default only so the renamed kwarg can
+    # be taught; omitting it is the same taught REQUIRED error
+    with pytest.raises(TypeError, match="REQUIRED"):
+        hy.Model(grid=make_grid(), core=hy.Core(gravity=1.0),
+                 free_surface=hy.ExplicitFreeSurface(),
                  time_stepper=AdamBashforth(DT, order=3))
 
 
@@ -189,14 +198,14 @@ def test_nondim_surface_closure_tracks_the_dim_twin():
     dim = hy.Model(
         grid=make_grid(), core=hy.Core(gravity=1.0),
         coriolis=hy.FPlaneCoriolis(f0=0.5),
-        stratification=hy.ConstantStratification(n2=4.0),
+        buoyancy=hy.ConstantStratification(n2=4.0),
         free_surface=hy.ExplicitFreeSurface(),
         advection=True, time_stepper=stepper)
     ext = hy.Model(
         grid=make_grid(), core=hy.Core(),
         scaling=fr.scaling.ExternalWave(),
         coriolis=hy.FPlaneCoriolis(rossby_number=2.0),
-        stratification=hy.ConstantStratification(froude_number=0.5),
+        buoyancy=hy.ConstantStratification(froude_number=0.5),
         free_surface=hy.ExplicitFreeSurface(froude_number=1.0),
         advection=True, time_stepper=AdamBashforth(DT, order=3))
     fields = random_fields(dim)

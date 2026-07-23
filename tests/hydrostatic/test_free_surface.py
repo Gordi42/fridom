@@ -32,7 +32,7 @@ def make_model(grid, *, n2, csqr, f0, dt=1e-3):
         core=hy.Core(gravity=csqr / _zextent(grid)),
         time_stepper=AdamBashforth(dt, order=3),
         coriolis=hy.FPlaneCoriolis(f0=f0),
-        stratification=hy.ConstantStratification(n2=n2),
+        buoyancy=hy.ConstantStratification(n2=n2),
         free_surface=hy.ExplicitFreeSurface(),
         advection=False)
 

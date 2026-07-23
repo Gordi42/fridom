@@ -35,7 +35,7 @@ def _eigenmodes(device_ids, *, walled=None, n=8):
         core=nh.Core(aspect_ratio=1.0),
         time_stepper=AdamBashforth(5e-3, order=3),
         coriolis=nh.FPlaneCoriolis(f0=1.0),
-        stratification=nh.ConstantStratification(n2=3.0),
+        buoyancy=nh.ConstantStratification(n2=3.0),
         advection=False)
     return nh.eigenmodes.from_model(model)
 

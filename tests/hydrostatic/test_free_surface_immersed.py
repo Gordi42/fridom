@@ -69,7 +69,7 @@ def build(grid, free_surface, *, csqr=4.0, n2=0.0, f0=0.0, dt=0.01):
         core=hy.Core(gravity=csqr),
         time_stepper=AdamBashforth(dt, order=3),
         coriolis=hy.FPlaneCoriolis(f0=f0),
-        stratification=hy.ConstantStratification(n2=n2),
+        buoyancy=hy.ConstantStratification(n2=n2),
         free_surface=free_surface,
         advection=False)
 
@@ -327,7 +327,7 @@ def test_split_theta_mass_conserved_to_machine_zero():
         core=hy.Core(gravity=4.0),
         time_stepper=AdamBashforth(0.005, order=3),
         coriolis=hy.FPlaneCoriolis(f0=0.5),
-        stratification=hy.ConstantStratification(n2=0.0),
+        buoyancy=hy.ConstantStratification(n2=0.0),
         free_surface=hy.SplitExplicitFreeSurface(substeps=8),
         advection=CenteredAdvection(surface_flux=False))
     rng = np.random.default_rng(0)
@@ -354,7 +354,7 @@ def test_split_all_wet_matches_unimmersed():
         core=hy.Core(gravity=4.0),
         time_stepper=AdamBashforth(0.005, order=3),
         coriolis=hy.FPlaneCoriolis(f0=0.5),
-        stratification=hy.ConstantStratification(n2=1.0),
+        buoyancy=hy.ConstantStratification(n2=1.0),
         free_surface=hy.SplitExplicitFreeSurface(substeps=8),
         advection=False)
     un = hy.Model(
@@ -362,7 +362,7 @@ def test_split_all_wet_matches_unimmersed():
         core=hy.Core(gravity=4.0),
         time_stepper=AdamBashforth(0.005, order=3),
         coriolis=hy.FPlaneCoriolis(f0=0.5),
-        stratification=hy.ConstantStratification(n2=1.0),
+        buoyancy=hy.ConstantStratification(n2=1.0),
         free_surface=hy.SplitExplicitFreeSurface(substeps=8),
         advection=False)
     rng = np.random.default_rng(4)
@@ -392,7 +392,7 @@ def test_split_transport_depth_consistency_no_coast_leak():
         core=hy.Core(gravity=1.0),
         time_stepper=AdamBashforth(0.002, order=3),
         coriolis=hy.FPlaneCoriolis(f0=0.5),
-        stratification=hy.ConstantStratification(n2=0.0),
+        buoyancy=hy.ConstantStratification(n2=0.0),
         free_surface=hy.SplitExplicitFreeSurface(substeps=8),
         advection=CenteredAdvection(surface_flux=False))
     rng = np.random.default_rng(6)
@@ -425,7 +425,7 @@ def test_split_ic_hook_derives_U_transport_depth_consistent():
         core=hy.Core(gravity=4.0),
         time_stepper=AdamBashforth(0.005, order=3),
         coriolis=hy.FPlaneCoriolis(f0=0.0),
-        stratification=hy.ConstantStratification(n2=1.0),
+        buoyancy=hy.ConstantStratification(n2=1.0),
         free_surface=hy.SplitExplicitFreeSurface(substeps=8),
         advection=False)
     ushape = model.state["u"].data.shape

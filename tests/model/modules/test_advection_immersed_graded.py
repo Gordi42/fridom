@@ -90,7 +90,7 @@ def _box_model(fac, *, npg=12, lo=3, pressure_iterations=60):
         core=nh.Core(pressure_iterations=pressure_iterations),
         time_stepper=AdamBashforth(0.02, order=3),
         coriolis=nh.FPlaneCoriolis(f0=1.0),
-        stratification=nh.ConstantStratification(n2=0.0),
+        buoyancy=nh.ConstantStratification(n2=0.0),
         advection=fac())
 
 
@@ -109,7 +109,7 @@ def _walled_model(fac, *, pressure_iterations=60):
         core=nh.Core(family="fv", pressure_iterations=pressure_iterations),
         time_stepper=AdamBashforth(0.02, order=3),
         coriolis=nh.FPlaneCoriolis(f0=1.0),
-        stratification=nh.ConstantStratification(n2=0.0),
+        buoyancy=nh.ConstantStratification(n2=0.0),
         advection=fac())
 
 
@@ -226,14 +226,14 @@ def test_all_wet_immersed_matches_unimmersed_fv(fac):
         core=nh.Core(pressure_iterations=3),
         time_stepper=AdamBashforth(0.02, order=3),
         coriolis=nh.FPlaneCoriolis(f0=1.0),
-        stratification=nh.ConstantStratification(n2=1.0),
+        buoyancy=nh.ConstantStratification(n2=1.0),
         advection=fac())
     un = nh.Model(
         grid=Grid(_nh_meshes()),
         core=nh.Core(),
         time_stepper=AdamBashforth(0.02, order=3),
         coriolis=nh.FPlaneCoriolis(f0=1.0),
-        stratification=nh.ConstantStratification(n2=1.0),
+        buoyancy=nh.ConstantStratification(n2=1.0),
         advection=fac())
     rng = np.random.default_rng(7)
     ic = {k: 0.3 * rng.standard_normal(im.state[k].data.shape)
@@ -261,14 +261,14 @@ def test_all_wet_immersed_matches_unimmersed_nodal(fac):
         grid=Grid(_hy_meshes(), immersed=allwet),
         core=hy.Core(gravity=1.0),
         time_stepper=AdamBashforth(0.02, order=3),
-        stratification=hy.ConstantStratification(n2=1.0),
+        buoyancy=hy.ConstantStratification(n2=1.0),
         free_surface=hy.ExplicitFreeSurface(),
         advection=fac())
     un = hy.Model(
         grid=Grid(_hy_meshes()),
         core=hy.Core(gravity=1.0),
         time_stepper=AdamBashforth(0.02, order=3),
-        stratification=hy.ConstantStratification(n2=1.0),
+        buoyancy=hy.ConstantStratification(n2=1.0),
         free_surface=hy.ExplicitFreeSurface(),
         advection=fac())
     rng = np.random.default_rng(3)
@@ -331,7 +331,7 @@ def test_theta_weighted_tracer_conserved_on_partials(fac):
         core=nh.Core(pressure_iterations=25),
         time_stepper=AdamBashforth(0.01, order=3),
         coriolis=nh.FPlaneCoriolis(f0=1.0),
-        stratification=nh.ConstantStratification(n2=0.0),
+        buoyancy=nh.ConstantStratification(n2=0.0),
         advection=fac())
     rng = np.random.default_rng(3)
     model.set_fields(
@@ -375,7 +375,7 @@ def test_narrow_wet_pocket_is_stable_and_conserving(fac):
         core=nh.Core(pressure_iterations=20),
         time_stepper=AdamBashforth(0.01, order=3),
         coriolis=nh.FPlaneCoriolis(f0=1.0),
-        stratification=nh.ConstantStratification(n2=0.0),
+        buoyancy=nh.ConstantStratification(n2=0.0),
         advection=fac())
     rng = np.random.default_rng(4)
     model.set_fields(
@@ -415,7 +415,7 @@ def test_grad_through_immersed_biased_run_matches_fd():
         core=nh.Core(pressure_iterations=10),
         time_stepper=AdamBashforth(0.01, order=3),
         coriolis=nh.FPlaneCoriolis(f0=1.0),
-        stratification=nh.ConstantStratification(n2=1.0),
+        buoyancy=nh.ConstantStratification(n2=1.0),
         advection=UpwindAdvection(3))
     rng = np.random.default_rng(0)
     model.set_fields(**{

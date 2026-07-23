@@ -102,7 +102,7 @@ def make_nh_model(*, ro=0.05, walled=None, n=8, **kwargs):
         scaling=fr.scaling.Rotational(),
         time_stepper=AdamBashforth(0.02, order=3),
         coriolis=nh.FPlaneCoriolis(rossby_number=ro),
-        stratification=nh.ConstantStratification(froude_number=ro / 2),
+        buoyancy=nh.ConstantStratification(froude_number=ro / 2),
         # Pin to one device: the naive transform raises the Tier-1 guard
         # on a sharded transform axis (see transform.py).
         grid=fr.spatial.Grid(meshes, device_ids=(0,)), **kwargs)
@@ -534,7 +534,7 @@ def _nh_model_at(device_ids, n=8):
         core=nh.Core(aspect_ratio=1.0),
         time_stepper=AdamBashforth(0.02, order=3),
         coriolis=nh.FPlaneCoriolis(f0=1.0),
-        stratification=nh.ConstantStratification(n2=4.0))
+        buoyancy=nh.ConstantStratification(n2=4.0))
 
 
 @pytest.mark.multi_device
@@ -576,7 +576,7 @@ def _nh_walled_model_at(device_ids, n=8):
         core=nh.Core(aspect_ratio=1.0),
         time_stepper=AdamBashforth(0.02, order=3),
         coriolis=nh.FPlaneCoriolis(f0=1.0),
-        stratification=nh.ConstantStratification(n2=4.0))
+        buoyancy=nh.ConstantStratification(n2=4.0))
 
 
 @pytest.mark.multi_device

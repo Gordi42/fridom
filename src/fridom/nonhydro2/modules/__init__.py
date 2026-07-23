@@ -4,8 +4,9 @@ Description
 -----------
 The concrete ``fr.Module`` subclasses of the nonhydrostatic model:
 the dynamical core (declarations + pressure projection), the Coriolis
-family, constant stratification, centered advection, and the wave
-makers (Gaussian and polarized forcing).
+family, the buoyancy family (constant/meridional stratification and
+the bare buoyancy tracer), centered advection, and the wave makers
+(Gaussian and polarized forcing).
 """
 from typing import TYPE_CHECKING
 
@@ -22,6 +23,7 @@ if TYPE_CHECKING:  # pragma: no cover
         WENOAdvection,
     )
 
+    from .buoyancy_tracer import BuoyancyTracer
     from .composed_pressure import ComposedPressureSolver
     from .core import Core
     from .gaussian_wave_maker import GaussianWaveMaker
@@ -50,6 +52,7 @@ all_imports_by_origin = {
         "FPlaneCoriolis", "BetaPlaneCoriolis",
         "RotationCoriolis", "Relaxation",
         "CenteredAdvection", "UpwindAdvection", "WENOAdvection"],
+    f"{base}.buoyancy_tracer": ["BuoyancyTracer"],
     f"{base}.core": ["Core"],
     f"{base}.stratification": [
         "ConstantStratification", "MeridionalStratification"],

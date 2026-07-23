@@ -148,7 +148,7 @@ def _nh_model(n: int, *, mapped: bool, periodic_x: bool = True,
     dt = 0.25 * TWO_PI / n if advection else 0.02
     model = nh.Model(grid=grid, advection=advection,
                      coriolis=nh.FPlaneCoriolis(f0=1.0),
-                     stratification=nh.ConstantStratification(n2=1.0),
+                     buoyancy=nh.ConstantStratification(n2=1.0),
                      core=nh.Core(aspect_ratio=0.5,
                                   pressure_iterations=iters,
                                   family=family),

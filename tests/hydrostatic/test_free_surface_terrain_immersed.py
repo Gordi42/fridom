@@ -100,7 +100,7 @@ def _model(grid, fs, *, csqr=3.0, n2=1.0, f0=0.5, dt=0.02):
         core=hy.Core(gravity=csqr),
         time_stepper=AdamBashforth(dt, order=2),
         coriolis=hy.FPlaneCoriolis(f0=f0),
-        stratification=hy.ConstantStratification(n2=n2),
+        buoyancy=hy.ConstantStratification(n2=n2),
         free_surface=fs,
         advection=False)
 
@@ -414,7 +414,7 @@ def test_split_explicit_composes_on_terrain_immersed():
         grid=_grid(a=0.4),
         core=hy.Core(gravity=3.0),
         time_stepper=AdamBashforth(0.01, order=2),
-        stratification=hy.ConstantStratification(n2=1.0),
+        buoyancy=hy.ConstantStratification(n2=1.0),
         free_surface=hy.SplitExplicitFreeSurface(substeps=8),
         advection=False)
     fs = m.module(hy.SplitExplicitFreeSurface)
@@ -444,7 +444,7 @@ def test_grad_through_terrain_immersed_run_matches_fd():
         core=hy.Core(gravity=1.0),
         time_stepper=AdamBashforth(0.01, order=2),
         coriolis=hy.FPlaneCoriolis(f0=0.5),
-        stratification=hy.ConstantStratification(n2=0.0),
+        buoyancy=hy.ConstantStratification(n2=0.0),
         free_surface=hy.ImplicitFreeSurface(
             epsilon=1.0,
             pressure_iterations=20),
@@ -557,7 +557,7 @@ def test_grad_through_terrain_immersed_multigrid_run_matches_fd():
         core=hy.Core(gravity=1.0),
         time_stepper=AdamBashforth(0.01, order=2),
         coriolis=hy.FPlaneCoriolis(f0=0.5),
-        stratification=hy.ConstantStratification(n2=0.0),
+        buoyancy=hy.ConstantStratification(n2=0.0),
         free_surface=hy.ImplicitFreeSurface(
             epsilon=1.0,
             pressure_iterations=20,

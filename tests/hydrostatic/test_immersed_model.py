@@ -76,7 +76,7 @@ def test_column_equivalence_flat_bottom(make_fs):
         core=hy.Core(gravity=g),
         time_stepper=AdamBashforth(0.01, order=3),
         coriolis=hy.FPlaneCoriolis(f0=0.8),
-        stratification=hy.ConstantStratification(n2=2.0),
+        buoyancy=hy.ConstantStratification(n2=2.0),
         free_surface=make_fs(),
         advection=False)
     mu = hy.Model(
@@ -84,7 +84,7 @@ def test_column_equivalence_flat_bottom(make_fs):
         core=hy.Core(gravity=g),
         time_stepper=AdamBashforth(0.01, order=3),
         coriolis=hy.FPlaneCoriolis(f0=0.8),
-        stratification=hy.ConstantStratification(n2=2.0),
+        buoyancy=hy.ConstantStratification(n2=2.0),
         free_surface=make_fs(),
         advection=False)
 
@@ -142,7 +142,7 @@ def test_dry_dof_hygiene_over_a_run(free_surface):
         core=hy.Core(gravity=2.0),
         time_stepper=AdamBashforth(0.004, order=3),
         coriolis=hy.FPlaneCoriolis(f0=0.6),
-        stratification=hy.ConstantStratification(n2=1.0),
+        buoyancy=hy.ConstantStratification(n2=1.0),
         free_surface=free_surface,
         advection=True)
     rng = np.random.default_rng(3)
@@ -187,7 +187,7 @@ def test_lateral_partials_conserve_mass():
         core=hy.Core(gravity=1.0),
         time_stepper=AdamBashforth(0.002, order=3),
         coriolis=hy.FPlaneCoriolis(f0=0.5),
-        stratification=hy.ConstantStratification(n2=0.0),
+        buoyancy=hy.ConstantStratification(n2=0.0),
         free_surface=hy.ImplicitFreeSurface(pressure_iterations=40),
         advection=fr.model.modules.CenteredAdvection(surface_flux=False))
     rng = np.random.default_rng(11)
@@ -217,7 +217,7 @@ def test_immersed_model_installs_maskstate():
         grid=_immersed_grid(_flat_bottom),
         core=hy.Core(gravity=1.0),
         time_stepper=AdamBashforth(0.01, order=3),
-        stratification=hy.ConstantStratification(n2=1.0),
+        buoyancy=hy.ConstantStratification(n2=1.0),
         free_surface=hy.ExplicitFreeSurface(),
         advection=False)
     assert any(type(m).__name__ == "MaskState" for m in model.modules)
@@ -228,7 +228,7 @@ def test_unimmersed_model_has_no_maskstate():
         grid=_short_grid(),
         core=hy.Core(gravity=1.0),
         time_stepper=AdamBashforth(0.01, order=3),
-        stratification=hy.ConstantStratification(n2=1.0),
+        buoyancy=hy.ConstantStratification(n2=1.0),
         free_surface=hy.ExplicitFreeSurface(),
         advection=False)
     assert not any(
@@ -240,7 +240,7 @@ def test_eigenmodes_reject_immersed():
         grid=_immersed_grid(_flat_bottom),
         core=hy.Core(gravity=1.0),
         time_stepper=AdamBashforth(0.01, order=3),
-        stratification=hy.ConstantStratification(n2=1.0),
+        buoyancy=hy.ConstantStratification(n2=1.0),
         free_surface=hy.ExplicitFreeSurface(),
         advection=False)
     with pytest.raises(NotImplementedError, match="immersed"):
@@ -254,7 +254,7 @@ def test_transforms_reject_immersed():
         grid=_immersed_grid(_flat_bottom),
         core=hy.Core(gravity=1.0),
         time_stepper=AdamBashforth(0.01, order=3),
-        stratification=hy.ConstantStratification(n2=1.0),
+        buoyancy=hy.ConstantStratification(n2=1.0),
         free_surface=hy.ExplicitFreeSurface(),
         advection=False)
     with pytest.raises(NotImplementedError, match="immersed"):
@@ -275,7 +275,7 @@ def test_biased_advection_accepted_on_immersed():
         grid=_immersed_grid(_flat_bottom),
         core=hy.Core(gravity=1.0),
         time_stepper=AdamBashforth(0.01, order=3),
-        stratification=hy.ConstantStratification(n2=1.0),
+        buoyancy=hy.ConstantStratification(n2=1.0),
         free_surface=hy.ExplicitFreeSurface(),
         advection=fr.model.modules.UpwindAdvection(3))
     assert any(

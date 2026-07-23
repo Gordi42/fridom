@@ -48,12 +48,12 @@ def make_grid(periodic=True):
         for name in ("x", "y", "z")))
 
 
-def make_model(n2=0.0, grid=None, stratification=None, **kwargs):
-    if stratification is None:
-        stratification = ConstantStratification(n2=n2)
+def make_model(n2=0.0, grid=None, buoyancy=None, **kwargs):
+    if buoyancy is None:
+        buoyancy = ConstantStratification(n2=n2)
     return Model(
         grid=grid or make_grid(),
-        modules=(Core(), stratification,
+        modules=(Core(), buoyancy,
                  SmagorinskyLilly(**kwargs)),
         time_stepper=AdamBashforth(DT, order=3))
 
@@ -239,7 +239,7 @@ def test_meridional_stratification_lacks_the_constant_n2():
                        match=r"stratification\.n2"):
         make_model(
             grid=grid,
-            stratification=MeridionalStratification(
+            buoyancy=MeridionalStratification(
                 n2=lambda y: 1.0 + 0.0 * y, meridional="y"))
 
 

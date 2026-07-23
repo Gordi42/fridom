@@ -54,7 +54,7 @@ def mix_model(*, dt, stepper, mixing, csqr=10.0, f0=0.0, grid=None):  # noqa: AR
         core=hy.Core(gravity=csqr),
         time_stepper=stepper,
         coriolis=hy.FPlaneCoriolis(f0=f0),
-        stratification=hy.ConstantStratification(n2=1.0),
+        buoyancy=hy.ConstantStratification(n2=1.0),
         free_surface=hy.ExplicitFreeSurface(),
         advection=False,
         modules_extra=(mixing,))

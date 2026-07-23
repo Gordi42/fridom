@@ -26,7 +26,7 @@ def make_model():
         core=hy.Core(gravity=1.0),
         time_stepper=AdamBashforth(1e-3, order=3),
         coriolis=hy.FPlaneCoriolis(f0=1.0),
-        stratification=hy.ConstantStratification(n2=1.0),
+        buoyancy=hy.ConstantStratification(n2=1.0),
         free_surface=hy.ExplicitFreeSurface(),
         advection=False)
 
@@ -61,7 +61,7 @@ def test_vocabulary_accessors_return_components():
         pytest.param("u", "hydrostatic core", id="u"),
         pytest.param("v", "hydrostatic core", id="v"),
         pytest.param("w", "hydrostatic core", id="w"),
-        pytest.param("b", "stratification", id="b"),
+        pytest.param("b", "buoyancy module", id="b"),
         pytest.param("ps", "free-surface", id="ps"),
     ],
 )

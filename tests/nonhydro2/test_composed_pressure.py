@@ -536,7 +536,7 @@ def test_composed_model_default_preconditioner_reaches_machine_zero():
         core=nh.Core(aspect_ratio=(0.5) ** 0.5, pressure_tolerance=None),
         time_stepper=AdamBashforth(0.01, order=3),
         coriolis=nh.FPlaneCoriolis(f0=1.0),
-        stratification=nh.ConstantStratification(n2=1.0),
+        buoyancy=nh.ConstantStratification(n2=1.0),
         advection=False)
     core = next(m for m in model._carry.modules
                 if type(m).__name__ == "Core")

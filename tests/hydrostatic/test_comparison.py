@@ -350,7 +350,7 @@ def _background_model(f0=1.0, lam=0.5, epsilon=0.0):
         core=hy.Core(gravity=4.0),
         time_stepper=AdamBashforth( 1e-2, order=2, eps=0.1),
         coriolis=hy.FPlaneCoriolis(f0=f0),
-        stratification=hy.ConstantStratification(n2=1.0),
+        buoyancy=hy.ConstantStratification(n2=1.0),
         free_surface=hy.ImplicitFreeSurface(epsilon=epsilon),
         advection=adv)
 
@@ -366,7 +366,7 @@ def _thermal_wind_model(f0=1.0, lam=0.5, epsilon=0.0):
         core=hy.Core(gravity=4.0),
         time_stepper=AdamBashforth( 1e-2, order=2, eps=0.1),
         coriolis=hy.FPlaneCoriolis(f0=f0),
-        stratification=hy.ConstantStratification(n2=1.0),
+        buoyancy=hy.ConstantStratification(n2=1.0),
         free_surface=hy.ImplicitFreeSurface(epsilon=epsilon),
         advection=adv,
         modules_extra=(tw,))
@@ -492,7 +492,7 @@ def test_internal_wave_packet_moves_at_the_discrete_group_velocity():
         core=hy.Core(gravity=csqr),
         time_stepper=AdamBashforth(dt, order=2, eps=0.1),
         coriolis=hy.FPlaneCoriolis(f0=f0),
-        stratification=hy.ConstantStratification(n2=n2),
+        buoyancy=hy.ConstantStratification(n2=n2),
         free_surface=hy.ImplicitFreeSurface(epsilon=0.0),
         advection=False)
     ev, vecs, cols = _baroclinic_spectrum(lin, kx0, lx)

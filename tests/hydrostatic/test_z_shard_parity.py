@@ -74,7 +74,7 @@ def _make_model(grid, advection):
         core=hy.Core(gravity=1000.0),
         time_stepper=AdamBashforth(1e-3, order=2, eps=0.1),
         coriolis=hy.FPlaneCoriolis(f0=1.0),
-        stratification=hy.ConstantStratification(n2=1.0),
+        buoyancy=hy.ConstantStratification(n2=1.0),
         free_surface=hy.SplitExplicitFreeSurface(substeps=16),
         advection=advection,
         chunk_size=8)

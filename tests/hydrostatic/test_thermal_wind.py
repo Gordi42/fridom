@@ -72,7 +72,7 @@ def eady_model(*, nx=32, ny=4, nz=12, lx=1.0, depth=1.0, csqr=30.0,
         core=hy.Core(gravity=csqr / depth),
         time_stepper=AdamBashforth(dt, order=2, eps=0.1),
         coriolis=hy.FPlaneCoriolis(f0=f0),
-        stratification=hy.ConstantStratification(n2=n2),
+        buoyancy=hy.ConstantStratification(n2=n2),
         free_surface=free_surface,
         advection=advection,
         modules_extra=(tw,))
@@ -169,7 +169,7 @@ def test_requires_a_constant_coriolis_parameter():
             core=hy.Core(gravity=1.0),
             time_stepper=AdamBashforth(1e-2),
             coriolis=None,
-            stratification=hy.ConstantStratification(n2=1.0),
+            buoyancy=hy.ConstantStratification(n2=1.0),
             free_surface=hy.ExplicitFreeSurface(),
             advection=False,
             modules_extra=(hy.ThermalWindBackground(shear=0.5),))

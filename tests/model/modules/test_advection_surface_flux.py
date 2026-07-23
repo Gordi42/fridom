@@ -84,7 +84,7 @@ def _model(kind, *, fv_tracer=True, surface_flux=True):
         grid=_grid(kind),
         core=hy.Core(gravity=1.0),
         time_stepper=AdamBashforth(1e-3, order=3),
-        stratification=hy.ConstantStratification(n2=1.0),
+        buoyancy=hy.ConstantStratification(n2=1.0),
         free_surface=hy.ExplicitFreeSurface(),
         advection=CenteredAdvection(surface_flux=surface_flux),
         modules_extra=extra)
@@ -101,7 +101,7 @@ def _weno_model():
         grid=grid,
         core=hy.Core(gravity=1.0),
         time_stepper=AdamBashforth(1e-3, order=3),
-        stratification=hy.ConstantStratification(n2=1.0),
+        buoyancy=hy.ConstantStratification(n2=1.0),
         free_surface=hy.ExplicitFreeSurface(),
         advection=WENOAdvection(order=5))
 
@@ -313,7 +313,7 @@ def test_surface_flux_slice_grad_matches_fd_stretched():
         grid=grid,
         core=hy.Core(gravity=1.0),
         time_stepper=AdamBashforth(2e-3, order=3),
-        stratification=hy.ConstantStratification(n2=1.0),
+        buoyancy=hy.ConstantStratification(n2=1.0),
         free_surface=hy.ExplicitFreeSurface(),
         advection=CenteredAdvection(surface_flux=True))
     _grad_matches_fd(model, seed_init=3, seed_dir=7)
@@ -337,7 +337,7 @@ def test_surface_flux_slice_grad_matches_fd_immersed_sealed_top():
         grid=grid,
         core=hy.Core(gravity=1.0),
         time_stepper=AdamBashforth(2e-3, order=3),
-        stratification=hy.ConstantStratification(n2=1.0),
+        buoyancy=hy.ConstantStratification(n2=1.0),
         free_surface=hy.ExplicitFreeSurface(),
         advection=CenteredAdvection(surface_flux=True))
     _grad_matches_fd(model, seed_init=5, seed_dir=11)
@@ -368,7 +368,7 @@ def _biased_model(scheme):
         grid=grid,
         core=hy.Core(gravity=1.0),
         time_stepper=AdamBashforth(1e-3, order=3),
-        stratification=hy.ConstantStratification(n2=1.0),
+        buoyancy=hy.ConstantStratification(n2=1.0),
         free_surface=hy.ExplicitFreeSurface(),
         advection=scheme)
 
@@ -497,7 +497,7 @@ def test_surface_flux_weno_grad_matches_fd():
         grid=grid,
         core=hy.Core(gravity=1.0),
         time_stepper=AdamBashforth(1e-3, order=3),
-        stratification=hy.ConstantStratification(n2=1.0),
+        buoyancy=hy.ConstantStratification(n2=1.0),
         free_surface=hy.ExplicitFreeSurface(),
         advection=WENOAdvection(order=5, surface_flux=True))
     _grad_matches_fd(model, seed_init=4, seed_dir=9)

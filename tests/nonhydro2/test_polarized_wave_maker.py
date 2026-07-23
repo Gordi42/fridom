@@ -53,7 +53,7 @@ def make_model(maker, walled=()):
         core=nh.Core(),
         time_stepper=AdamBashforth(DT, order=3),
         coriolis=nh.FPlaneCoriolis(f0=1.0),
-        stratification=nh.ConstantStratification(n2=1.0),
+        buoyancy=nh.ConstantStratification(n2=1.0),
         advection=False,
         modules_extra=(maker,))
 
@@ -166,7 +166,7 @@ def test_meridional_law_n2_model_is_refused_before_bind():
             core=nh.Core(),
             time_stepper=AdamBashforth(DT, order=3),
             coriolis=nh.FPlaneCoriolis(f0=1.0),
-            stratification=nh.MeridionalStratification(n2=law),
+            buoyancy=nh.MeridionalStratification(n2=law),
             advection=False,
             modules_extra=(maker,))
 

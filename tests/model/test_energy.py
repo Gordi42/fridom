@@ -136,7 +136,7 @@ def test_from_model_nonhydro_weights():
         core=nh.Core(),
         time_stepper=AdamBashforth(DT, order=3),
         coriolis=FPlaneCoriolis(f0=1.0),
-        stratification=nh.ConstantStratification(n2=1.0),
+        buoyancy=nh.ConstantStratification(n2=1.0),
         advection=False)
     metric = EnergyMetric.from_model(model)
     assert metric.component_names == ("u", "v", "w", "b")
@@ -178,7 +178,7 @@ def test_from_model_rejects_beta_plane():
         core=nh.Core(),
         time_stepper=AdamBashforth(DT, order=3),
         coriolis=BetaPlaneCoriolis(f0=1.0, beta=0.5),
-        stratification=nh.ConstantStratification(n2=1.0),
+        buoyancy=nh.ConstantStratification(n2=1.0),
         advection=False)
     with pytest.raises(ValueError, match="coriolis"):
         EnergyMetric.from_model(bp)
@@ -285,7 +285,7 @@ def test_physical_identity_nonhydro():
         core=nh.Core(),
         time_stepper=AdamBashforth(DT, order=3),
         coriolis=FPlaneCoriolis(f0=1.0),
-        stratification=nh.ConstantStratification(n2=1.0),
+        buoyancy=nh.ConstantStratification(n2=1.0),
         advection=False)
     metric = EnergyMetric.from_model(model)
     z = collocated_nh_state(model.grid)
@@ -409,7 +409,7 @@ def varying_nh_model(n2_fn):
         core=nh.Core(aspect_ratio=(2.0) ** 0.5),
         time_stepper=AdamBashforth(DT, order=3),
         coriolis=FPlaneCoriolis(f0=1.0),
-        stratification=nh.MeridionalStratification(n2=n2_fn),
+        buoyancy=nh.MeridionalStratification(n2=n2_fn),
         advection=False)
 
 
@@ -565,7 +565,7 @@ def test_from_model_hydrostatic_weights():
         core=hy.Core(gravity=10.0),
         time_stepper=fr.model.time_steppers.CNAB2(DT),
         coriolis=hy.FPlaneCoriolis(f0=1.0),
-        stratification=hy.ConstantStratification(n2=4.0),
+        buoyancy=hy.ConstantStratification(n2=4.0),
         free_surface=hy.ExplicitFreeSurface(),
         advection=False)
     metric = EnergyMetric.from_model(model)
@@ -626,7 +626,7 @@ def _hydro_model(grid, *, csqr=3.0, n2=2.0):
         core=hy.Core(gravity=csqr),
         time_stepper=AdamBashforth(DT, order=3),
         coriolis=None,
-        stratification=hy.ConstantStratification(n2=n2),
+        buoyancy=hy.ConstantStratification(n2=n2),
         free_surface=hy.ExplicitFreeSurface(),
         advection=False)
 
@@ -864,7 +864,7 @@ def tracking_nh_model(*, order=3, dt=5e-3):
         core=nh.Core(aspect_ratio=(2.0) ** 0.5),
         time_stepper=AdamBashforth(dt, order=order),
         coriolis=FPlaneCoriolis(f0=1.0),
-        stratification=nh.MeridionalStratification(n2=_affine_n2_law()),
+        buoyancy=nh.MeridionalStratification(n2=_affine_n2_law()),
         advection=False)
 
 

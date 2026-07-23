@@ -39,7 +39,7 @@ def make_model(*, walled="y"):
         core=nh.Core(aspect_ratio=(DSQR) ** 0.5),
         time_stepper=AdamBashforth(5e-3, order=3),
         coriolis=nh.FPlaneCoriolis(f0=F0),
-        stratification=nh.ConstantStratification(n2=N2),
+        buoyancy=nh.ConstantStratification(n2=N2),
         advection=False)
 
 
@@ -146,7 +146,7 @@ def test_nonlinear_advance_stays_finite_and_divergence_free(walled):
         core=nh.Core(aspect_ratio=(DSQR) ** 0.5),
         time_stepper=AdamBashforth(5e-3, order=3),
         coriolis=nh.FPlaneCoriolis(f0=F0),
-        stratification=nh.ConstantStratification(n2=N2),
+        buoyancy=nh.ConstantStratification(n2=N2),
         advection=True)
     _random_state(model, seed=6)
     model.advance(3)

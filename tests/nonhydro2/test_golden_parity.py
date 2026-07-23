@@ -59,13 +59,13 @@ def build(config):
         return nh.Model(
             grid=make_grid(), core=nh.Core(aspect_ratio=0.5),
             coriolis=nh.FPlaneCoriolis(f0=0.5),
-            stratification=nh.ConstantStratification(n2=4.0),
+            buoyancy=nh.ConstantStratification(n2=4.0),
             advection=True, time_stepper=stepper)
     return nh.Model(
         grid=make_grid(), core=nh.Core(aspect_ratio=0.5),
         scaling=fr.scaling.Rotational(),
         coriolis=nh.FPlaneCoriolis(rossby_number=0.25),
-        stratification=nh.ConstantStratification(froude_number=0.125),
+        buoyancy=nh.ConstantStratification(froude_number=0.125),
         advection=True, time_stepper=stepper)
 
 

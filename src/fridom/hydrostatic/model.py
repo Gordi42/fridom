@@ -10,13 +10,13 @@ D4 preset test).
 
 The physics lives on the **core** (``hy.Core``, gravity-first: the
 physical constant centralizes there), the required physics modules
-(``stratification=`` and ``free_surface=`` have **no defaults** —
+(``buoyancy=`` and ``free_surface=`` have **no defaults** —
 owner-ratified, no surprising default physics) and the **scaling**
 policy (``fr.scaling``): ``scaling=`` names the reference time frame
 (default: ``fr.scaling.Dimensional()`` — a dimensional assembly needs
 no scaling argument at all). The retired preset kwargs (``csqr=``,
-``rossby_number=``, ``dt=``) raise taught TypeErrors naming the new
-spelling.
+``rossby_number=``, ``dt=``, the renamed ``stratification=``) raise
+taught TypeErrors naming the new spelling.
 
 **Advection (stage H2b).** The diagnosed vertical velocity ``w`` lives
 on the both-boundary vertical face set ``Outer`` (required for the
@@ -78,6 +78,11 @@ _RETIRED_KWARGS = {
         "dt= is retired on the preset: pass the stepper explicitly, "
         "time_stepper=fr.model.time_steppers.AdamBashforth(dt, "
         "order=3)"),
+    "stratification": (
+        "stratification= was renamed to buoyancy= — the slot holds "
+        "the buoyancy formulation: pass "
+        "buoyancy=hy.ConstantStratification(n2=...) (dimensional) / "
+        "ConstantStratification(froude_number=...) (nondimensional)"),
 }
 
 
@@ -85,9 +90,9 @@ def Model(  # noqa: N802 — a factory that mirrors fr.model.Model's surface
     *,
     grid: Grid,
     core: fr.model.Module,
-    stratification: fr.model.Module,
     free_surface: fr.model.Module,
     time_stepper: TimeStepper,
+    buoyancy: fr.model.Module | None = None,
     scaling: object | None = None,
     coriolis: fr.model.Module | None = None,
     advection: fr.model.Module | bool = True,
@@ -109,11 +114,6 @@ def Model(  # noqa: N802 — a factory that mirrors fr.model.Model's surface
         constant lives here (``gravity=``, dimensional) — the
         free-surface family references it; the nondimensional core
         takes no kwarg at all.
-    stratification : fr.model.Module
-        The stratification module — REQUIRED, no default physics:
-        pass ``hy.ConstantStratification(n2=...)`` (dimensional) /
-        ``ConstantStratification(froude_number=...)``
-        (nondimensional).
     free_surface : fr.model.Module
         The barotropic (surface-pressure) module — REQUIRED, no
         default: ``hy.ExplicitFreeSurface(...)`` /
@@ -123,6 +123,13 @@ def Model(  # noqa: N802 — a factory that mirrors fr.model.Model's surface
     time_stepper : TimeStepper
         The time stepper (e.g.
         ``fr.model.time_steppers.AdamBashforth(dt, order=3)``).
+    buoyancy : fr.model.Module
+        The buoyancy formulation — REQUIRED, no default physics:
+        pass ``hy.ConstantStratification(n2=...)`` (dimensional) /
+        ``ConstantStratification(froude_number=...)``
+        (nondimensional). The ``None`` sentinel default exists only
+        so an omitted module and the renamed ``stratification=``
+        spelling raise the taught TypeError.
     scaling : object | None, optional
         The ``fr.scaling`` policy naming the reference time frame;
         ``None`` defaults to ``fr.scaling.Dimensional()`` — a
@@ -182,17 +189,18 @@ def Model(  # noqa: N802 — a factory that mirrors fr.model.Model's surface
     ------
     TypeError
         On the retired kwargs ``csqr=`` / ``rossby_number=`` /
-        ``dt=`` (taught messages naming the new spelling).
+        ``dt=`` and the renamed ``stratification=`` (now
+        ``buoyancy=``) (taught messages naming the new spelling).
     """
     for retired, message in _RETIRED_KWARGS.items():
         if retired in kwargs:
             raise TypeError(f"hy.Model {message}")
-    if core is None or stratification is None or free_surface is None:
+    if core is None or buoyancy is None or free_surface is None:
         raise TypeError(
             "hy.Model has no default physics (owner-ratified): "
-            "core=, stratification= and free_surface= are REQUIRED "
+            "core=, buoyancy= and free_surface= are REQUIRED "
             "modules — pass core=hy.Core(gravity=...), "
-            "stratification=hy.ConstantStratification(n2=...) and "
+            "buoyancy=hy.ConstantStratification(n2=...) and "
             "free_surface=hy.ExplicitFreeSurface() (or the implicit "
             "/ split-explicit variants); None is not a module")
     if scaling is None:
@@ -204,7 +212,7 @@ def Model(  # noqa: N802 — a factory that mirrors fr.model.Model's surface
     # rotation is opt-in: coriolis=None installs no module at all
     if coriolis is not None:
         modules.append(coriolis)
-    modules.append(stratification)
+    modules.append(buoyancy)
     modules.append(free_surface)
     if advection is not False:
         modules.append(advection)

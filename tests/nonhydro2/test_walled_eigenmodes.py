@@ -84,7 +84,7 @@ def walled(request):
         core=nh.Core(aspect_ratio=(DSQR) ** 0.5, family=request.param),
         time_stepper=AdamBashforth(DT, order=3),
         coriolis=FPlaneCoriolis(f0=F0),
-        stratification=ConstantStratification(n2=N2),
+        buoyancy=ConstantStratification(n2=N2),
         advection=False)
     em = nh.eigenmodes.from_model(model)
     return grid, model, em
@@ -777,7 +777,7 @@ def _walled_from_model(family):
         core=nh.Core(aspect_ratio=(DSQR) ** 0.5, family=family),
         time_stepper=AdamBashforth(DT, order=3),
         coriolis=FPlaneCoriolis(f0=F0),
-        stratification=ConstantStratification(n2=N2),
+        buoyancy=ConstantStratification(n2=N2),
         advection=False)
     return model, nh.eigenmodes.from_model(model)
 
@@ -911,7 +911,7 @@ def _walled_model(device_ids, *, family="nodal", n=N):
         core=nh.Core(aspect_ratio=(DSQR) ** 0.5, family=family),
         time_stepper=AdamBashforth(DT, order=3),
         coriolis=FPlaneCoriolis(f0=F0),
-        stratification=ConstantStratification(n2=N2),
+        buoyancy=ConstantStratification(n2=N2),
         advection=False)
 
 

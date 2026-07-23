@@ -293,7 +293,11 @@ step paths (one per package, wrt an initial field).
   H_ref in the step path" — implemented as recorded in B4).
 - **B-3 Preset physics defaults**: `hy.Model(stratification=,
   free_surface=)` required; `nh.Model` stratification default
-  absent — the "no surprising defaults" reading.
+  absent — the "no surprising defaults" reading. (Amended
+  2026-07-23: the slot is renamed `buoyancy=` on both presets and
+  `nh.Model` defaults `core=None` to a plain `nh.Core()`; the
+  hy required-physics ruling stands. See
+  `design/decisions/buoyancy_slot_and_core_default.md`.)
 
 ## C. Ramping / optimal-balance redesign — designed (2026-07-21)
 
