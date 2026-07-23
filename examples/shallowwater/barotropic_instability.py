@@ -2,114 +2,118 @@ r"""
 Barotropic Instability
 ======================
 
-A narrow zonal jet is barotropically unstable: small perturbations
-feed on the horizontal shear and grow until the jet rolls up into a
-street of vortices. We integrate this classic experiment with the
-shallow-water model on a doubly periodic f-plane, write the run to a
-zarr store, and render the vorticity animation from that store with
-CDFViewer.
+A narrow zonal jet rolls up into a street of vortices.
 """
 
 # %%
 # Experiment Settings
 # -------------------
-# Two nondimensional numbers characterize the jet. The Rossby number
-# :math:`\mathrm{Ro} = U / (f_0 L_\mathrm{jet})` measures the strength
-# of the nonlinear advection relative to the rotation, and the Burger
-# number :math:`\mathrm{Bu} = c^2 / (f_0 L)^2` relates the deformation
-# radius to the domain size. We choose the jet velocity
-# :math:`U = f_0 L_\mathrm{jet}`, so the Rossby number is one, and a
-# small Burger number, so the deformation radius is one tenth of the
-# domain:
+# We work in nondimensional *advective* units, so the jet has unit
+# width and unit velocity and one time unit is one eddy turnover. Two
+# numbers set the regime. The Rossby number
+# :math:`\mathrm{Ro} = U / (f L)` measures the advection against the
+# rotation and the Froude number :math:`\mathrm{Fr} = U / c` against
+# the gravity waves. Together they fix the deformation radius
+# :math:`L_d = (\mathrm{Ro} / \mathrm{Fr})\,L`, here two jet widths.
 import os
 import subprocess
+
+import jax.numpy as jnp
+import matplotlib.pyplot as plt
 
 # sphinx_gallery_thumbnail_number = 2
 import fridom as fr
 import fridom.shallowwater2 as sw
-from fridom.spatial.meshes import IntervalMesh
 
-f0 = 1.0                     # Coriolis parameter
-L = 1.0                      # square domain of size L x L
-jet_width = L / 20
-u_jet = f0 * jet_width       # Rossby number Ro = 1
-csqr = (0.1 * f0 * L) ** 2   # Burger number Bu = 1/100
+rossby_number = 0.7       # Ro = U / (f L): advection vs. rotation
+froude_number = 0.35      # Fr = U / c: advection vs. gravity waves
+scaling = fr.scaling.Advective()   # time unit prop to eddy turnover times
+domain_size = 10.0        # square domain, ten jet widths on a side
+seed_amplitude = 1e-2     # weak vortical mode that seeds the instability
 
 fast = "FRIDOM_EXAMPLES_FAST" in os.environ
-nx = ny = 96 if fast else 192
-runlen = 30.0 if fast else 120.0
+nx = ny = 64 if fast else 128
+runlen = 30.0 if fast else 60.0
 
 # %%
 # Grid and Model
 # --------------
-# The domain is a doubly periodic square, built from one
-# ``IntervalMesh`` per axis. The ``sw.Model`` preset assembles the
-# shallow-water dynamical core, the rotation, and the Sadourny
-# advection scheme on that grid. Moreover, we add a weak biharmonic
-# friction that dissipates the enstrophy the roll-up cascades to the
-# grid scale:
-mesh_x = IntervalMesh(nx, (0.0, L), periodic=True, name="x")
-mesh_y = IntervalMesh(ny, (0.0, L), periodic=True, name="y")
-grid = fr.spatial.Grid((mesh_x, mesh_y))
+# A doubly periodic square with the shallow-water core, the f-plane
+# rotation, and the Sadourny advection. A weak biharmonic friction
+# absorbs the enstrophy that the roll-up cascades to the grid scale.
+grid = fr.spatial.cartesian.Grid(
+    shape=(nx, ny),
+    extent=(domain_size, domain_size),
+    periodic=(True, True))
+
+dx = grid.factor("x").dx
+dt = 0.2 * froude_number * dx      # gravity-wave Courant number 0.2
+# set dissipation (nu k^4) to advection (Uk) ratio at the grid scale to 0.3.
+k_max = jnp.pi / dx                # grid-scale (Nyquist) wavenumber
+hyperviscosity = 0.3 / k_max ** 3
 
 model = sw.Model(
     grid=grid,
-    csqr=csqr,
-    rossby_number=1.0,
-    coriolis=sw.modules.FPlaneCoriolis(f0=f0),
-    time_stepper=fr.model.time_steppers.AdamBashforth(2.0 / nx, order=3),
-    modules_extra=(fr.model.closures.BiharmonicFriction(
-        nu=0.01 * u_jet * (L / nx) ** 3),))
+    core=sw.Core(froude_number=froude_number),
+    scaling=scaling,
+    coriolis=sw.modules.FPlaneCoriolis(rossby_number=rossby_number),
+    time_stepper=fr.model.time_steppers.AdamBashforth(dt, order=3),
+    modules_extra=(fr.model.closures.BiharmonicFriction(nu=hyperviscosity),))
 
 # %%
 # Initial Condition
 # -----------------
-# ``sw.initial_conditions.jet`` samples a Gaussian zonal jet, projects
-# it onto the geostrophic subspace, and adds a small single-mode
-# perturbation of zonal wavenumber two that seeds the instability. The
-# factory normalizes the largest velocity to one. Therefore we scale
-# the state to the jet velocity before assigning it:
-z = sw.initial_conditions.jet(
-    model, width=jet_width / L, wavenum=2, waveamp=1e-2)
-model.set_state(u_jet * z)
+# A Gaussian zonal jet in geostrophic balance, seeded with a weak
+# vortical mode of zonal wavenumber two.
 
-_ = model.state.u.xr.plot(x="x")
+# a Gaussian zonal jet of unit width, centered in the domain
+jet = model.blank_state(
+    u=lambda x, y: jnp.exp(-((y - 0.5 * domain_size) ** 2)))
+
+# project onto the vortical subspace to attach the geostrophic pressure
+eigenmodes = sw.eigenbasis(model)
+project_vortical = sw.transforms.VorticalProjection(eigenmodes)
+balanced = project_vortical(jet)
+balanced /= balanced.u.max()   # the projection lowers the peak velocity
+
+# seed the instability and set the initial condition
+_, perturbation = eigenmodes.mode("vortical", indices={"x": 2, "y": 0})
+model.set_state(balanced + seed_amplitude * perturbation)
+
+# plot the initial condition
+fig, axs = plt.subplots(1, 3, figsize=(12, 3.2), constrained_layout=True)
+model.state.u.xr.plot(x="x", ax=axs[0])
+model.state.v.xr.plot(x="x", ax=axs[1])
+_ = model.state.p.xr.plot(x="x", ax=axs[2])
 
 # %%
-# The plot shows the unperturbed picture: a narrow band of eastward
-# velocity centered at :math:`y = L/2`. The perturbation is far too
-# weak to be visible at this stage.
+# The jet sits in geostrophic balance, :math:`u` against its pressure
+# :math:`p`, while :math:`v` carries the wavenumber-two seed.
 #
 # Running and Writing Output
 # --------------------------
-# A ``Writer`` streams selected fields to a zarr store while the model
-# runs, and the store opens in xarray with no post-processing. We store
-# the pressure and, as a derived output evaluated at write time, the
-# relative vorticity, interpolated from the vorticity corners to the
-# cell centers so every store variable shares the plain ``x``/``y``
-# coordinates. The trigger fires once per model time unit:
+# We write the pressure and the relative vorticity, interpolated to the
+# cell centers, every 0.5 time units to a zarr store.
 center = model.state.p.function_space
-writer = fr.model.io.Writer(
+writer = fr.io.Writer(
     "barotropic_instability.zarr",
     fields=["p"],
     derived={"rel_vort": lambda ms: ms.state.rel_vort.to(center)},
-    trigger=fr.model.io.every(seconds=1.0),
+    trigger=fr.io.every(time_units=0.5),
     mode="w")
 
 model.run(runlen=runlen, outputs=(writer,), progress=False)
 
 # %%
-# By the end of the run the instability has saturated: the jet has
-# broken up into a wavenumber-two street of coherent vortices,
-# connected by filaments of vorticity:
+# By the end of the run the jet has broken up into a wavenumber-two
+# street of vortices connected by filaments of vorticity.
 _ = model.state.rel_vort.xr.plot(x="x")
 
 # %%
 # Rendering the Animation
 # -----------------------
-# We use `CDFViewer <https://gordi42.github.io/CDFViewer.jl/>`_ to
-# render the vorticity animation from the zarr store. With
-# ``--record`` it writes the video and exits:
+# `CDFViewer <https://gordi42.github.io/CDFViewer.jl/>`_ records the
+# vorticity animation from the store.
 command = (
     "cdfviewer barotropic_instability.zarr"
     " -v rel_vort -x x -y y -p heatmap -a time"
@@ -117,8 +121,3 @@ command = (
     " --record -s 'filename=\"barotropic_instability.mp4\", framerate=24'"
 )
 _ = subprocess.run(command, shell=True, check=True)
-
-# %%
-# The animation shows the full life cycle: the shear instability grows
-# out of an imperceptible perturbation, overturns, and settles into a
-# street of eddies.
