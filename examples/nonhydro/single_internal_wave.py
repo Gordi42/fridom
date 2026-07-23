@@ -2,132 +2,93 @@ r"""
 Single Internal Wave
 ====================
 
-A polarized single internal wave in a triple periodic domain.
-
-This example shows the :py:class:`SingleWave <fridom.nonhydro.initial_conditions.SingleWave>`
-initial condition.
-
-Top view
---------
-.. video:: videos/single_internal_wave_top.mp4
-    :loop:
-
-Front view
-----------
-.. video:: videos/single_internal_wave_front.mp4
-    :loop:
+One polarized internal-wave mode crosses a rotating stratified box.
 """
-import fridom.nonhydro as nh
+
+# %%
+# Experiment Settings
+# -------------------
+# A triply periodic box with mid-latitude rotation and a constant
+# stratification. The two frequencies bracket the internal-wave
+# band, :math:`f < \omega < N`.
+import subprocess
+
 import numpy as np
 
-# ----------------------------------------------------------------
-#  Settings
-# ----------------------------------------------------------------
-make_video  = True
-fps         = 30
-make_netcdf = False
-exp_name    = "single_internal_wave"
-thumbnail   = f"figures/{exp_name}.png"
+# sphinx_gallery_thumbnail_number = 1
+import fridom as fr
+import fridom.nonhydro2 as nh
 
-# ----------------------------------------------------------------
-#  Plotting
-# ----------------------------------------------------------------
-class TopPlotter(nh.modules.animation.ModelPlotter):
-    def create_figure():
-        import matplotlib.pyplot as plt
-        return plt.figure(figsize=(6, 4.5), dpi=256, tight_layout=False)
+CORIOLIS_F0 = 1e-4                 # 1/s
+STRATIFICATION_N2 = 2.5e-5         # 1/s^2
+LX, LY, LZ = 300.0, 100.0, 100.0   # box extents, m
 
-    def prepare_arguments(mz: nh.ModelState) -> dict:
-        skip = 4
-        return {"b": mz.z.b.xrs[:,:,-1],
-                "p": mz.z_diag.p.xrs[:,:,-1],
-                "z": mz.z.xrs[::skip,::skip,-1],
-                "t": mz.clock.time}
+nx, ny, nz = 96, 32, 32            # a single mode needs no more
+frames = 60
 
-    def update_figure(fig, b, p, z, t) -> None:
-        time = nh.utils.humanize_number(t, unit="seconds")
-        ax = fig.add_subplot(211)
-        p.plot(ax=ax, cmap="RdBu_r", vmax=0.9, vmin=-0.9, extend='both')
-        ax.set_aspect('equal')
-        z.plot.quiver("x", "y", "u", "v", ax=ax, scale=700, add_guide=False)
+# %%
+# Grid and Model
+# --------------
+# The wave solves the linearized equations, so we assemble the model
+# without the advection module. Internal-wave frequencies are capped
+# by :math:`N`, so a time step that resolves :math:`N` resolves every
+# mode in the box.
+grid = fr.spatial.cartesian.Grid(
+    shape=(nx, ny, nz),
+    extent=(LX, LY, LZ),
+    periodic=(True, True, True))
 
-        ax = fig.add_subplot(212)
-        b.plot(ax=ax, cmap="RdBu_r", vmax=0.09, vmin=-0.09, extend='both')
-        ax.set_aspect('equal')
-        z.plot.quiver("x", "y", "u", "v", ax=ax, scale=700, add_guide=False)
-        fig.suptitle(f"t = {time}")
+dt = 0.1 / np.sqrt(STRATIFICATION_N2)      # omega dt <= 0.1
 
-class FrontPlotter(nh.modules.animation.ModelPlotter):
-    def create_figure():
-        import matplotlib.pyplot as plt
-        return plt.figure(figsize=(6, 4.5), dpi=256, tight_layout=False)
+model = nh.Model(
+    grid=grid,
+    core=nh.Core(),
+    coriolis=nh.FPlaneCoriolis(f0=CORIOLIS_F0),
+    stratification=nh.ConstantStratification(n2=STRATIFICATION_N2),
+    advection=False,
+    time_stepper=fr.model.time_steppers.AdamBashforth(dt, order=3))
 
-    def prepare_arguments(mz: nh.ModelState) -> dict:
-        skip = 4
-        return {"b": mz.z.b.xrs[:,0,:],
-                "p": mz.z_diag.p.xrs[:,0,:],
-                "z": mz.z.xrs[::skip,-1,::skip],
-                "t": mz.clock.time}
+# %%
+# One Mode from the Eigenbasis
+# ----------------------------
+# On the fully periodic grid ``nh.eigenbasis`` diagonalizes the
+# linearized model analytically. We take the positive inertia-gravity
+# branch with two zonal wavelengths, no meridional structure, and one
+# vertical wavelength, and set it as the initial condition.
+eigenmodes = nh.eigenbasis(model)
+omega, wave = eigenmodes.mode("wave+", indices={"x": 2, "y": 0, "z": 1})
+period = 2.0 * np.pi / abs(omega)
+model.set_state(wave)
 
-    def update_figure(fig, b, p, z, t) -> None:
-        time = nh.utils.humanize_number(t, unit="seconds")
-        ax = fig.add_subplot(211)
-        p.plot(ax=ax, cmap="RdBu_r", vmax=0.9, vmin=-0.9, extend='both')
-        ax.set_aspect('equal')
-        z.plot.quiver("x", "z", "u", "w", ax=ax, scale=700, add_guide=False)
+# plot the initial buoyancy in the front plane
+_ = model.state.b.xr.isel(y=0).plot(x="x", size=2.4, aspect=3)
 
-        ax = fig.add_subplot(212)
-        b.plot(ax=ax, cmap="RdBu_r", vmax=0.09, vmin=-0.09, extend='both')
-        ax.set_aspect('equal')
-        z.plot.quiver("x", "z", "u", "w", ax=ax, scale=700, add_guide=False)
-        fig.suptitle(f"t = {time}")
+# %%
+# Running and Recording
+# ---------------------
+# We write the buoyancy once per frame over one wave period and
+# record a top view and a front view of the store.
+writer = fr.io.Writer(
+    "single_internal_wave.zarr", fields=["b"],
+    trigger=fr.io.every(seconds=period / frames), mode="w")
+model.run(runlen=period, outputs=(writer,), progress=False)
 
-# ----------------------------------------------------------------
-#  The main model
-# ----------------------------------------------------------------
-@nh.utils.skip_on_doc_build
-def main():
-    # Create the grid and model settings
-    grid = nh.grid.cartesian.Grid(
-        shape=[64*3, 64, 64], domain_size=[300, 100, 100], periodic_bounds=(True, True, True))
-    mset = nh.ModelSettings(grid=grid, f0=1e-4, stratification_n2=2.5e-5)
-    mset.time_stepper.dt = np.timedelta64(20, 's')
-    mset.tendencies.advection.disable()
+views = {
+    "top": ("-x x -y y --dims=z=0", "y"),
+    "front": ("-x x -y z --dims=y=0", "z"),
+}
+for view, (axes, yax) in views.items():
+    _ = subprocess.run(
+        f"cdfviewer single_internal_wave.zarr -v b {axes} -p heatmap"
+        f" -a time --kwargs='colormap=:balance, figsize=(1000, 450),"
+        f" titlesize=28, xlabelsize=24, ylabelsize=24,"
+        f' xlabel="x [m]", ylabel="{yax} [m]",'
+        f" title=\"Single internal wave, {view} view\"'"
+        f" --record -s 'filename=\"single_internal_wave_{view}.mp4\","
+        f" framerate=24'",
+        shell=True, check=True)
 
-    # add a video writer
-    if make_video:
-        mset.diagnostics.add_module(nh.modules.animation.VideoWriter(
-            TopPlotter,
-            model_time_per_second=np.timedelta64(10, "m"),
-            filename=f"{exp_name}_top", fps=fps))
-        mset.diagnostics.add_module(nh.modules.animation.VideoWriter(
-            FrontPlotter,
-            model_time_per_second=np.timedelta64(10, "m"),
-            filename=f"{exp_name}_front", fps=fps))
-
-    # create a NetCDF writer to save the output
-    if make_netcdf:
-        mset.diagnostics.add_module(nh.modules.NetCDFWriter(
-            write_trigger = nh.ClockTrigger(time_interval=np.timedelta64(1, "m")),
-            filename=exp_name))
-
-    mset.setup()
-
-    model = nh.Model(mset)
-    # Create the initial conditions
-    z = nh.initial_conditions.SingleWave(mset, k=(2, 0, 1)) 
-    period = float(z.period)
-
-    # set the initial conditions and run the model
-    model.z = z * 2e4
-    model.run(runlen=float(period))
-
-    # plot the final state (thumbnail)
-    import os
-    os.makedirs("figures", exist_ok=True)
-    fig = FrontPlotter(model.model_state)
-    fig.savefig(thumbnail)
-
-
-if __name__ == "__main__":
-    main()
+# %%
+# The crests translate through the box and return to their initial
+# position after one period. The front view shows the phase lines
+# tilted by the wave vector.
