@@ -70,7 +70,7 @@ def _model(grid, *, free_surface=None, substeps=16, csqr=CSQR, f0=0.5,
         core=hy.Core(gravity=csqr),
         time_stepper=stepper or AdamBashforth(dt, order=3),
         coriolis=hy.FPlaneCoriolis(f0=f0) if f0 else None,
-        stratification=hy.ConstantStratification(n2=n2),
+        buoyancy=hy.ConstantStratification(n2=n2),
         free_surface=free_surface or SEFS(substeps=substeps),
         advection=False)
 

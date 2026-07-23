@@ -66,7 +66,7 @@ def _model(grid, *, free_surface=None, advection=False, f0=0.5,
         core=hy.Core(gravity=CSQR),
         time_stepper=AdamBashforth(dt, order=3),
         coriolis=hy.FPlaneCoriolis(f0=f0) if coriolis else None,
-        stratification=hy.ConstantStratification(n2=n2),
+        buoyancy=hy.ConstantStratification(n2=n2),
         free_surface=free_surface or hy.ExplicitFreeSurface(),
         advection=advection)
 
@@ -118,7 +118,7 @@ def test_split_explicit_runs_finite_on_terrain_walls(wall):
         core=hy.Core(gravity=CSQR),
         time_stepper=AdamBashforth(2e-3, order=3),
         coriolis=hy.FPlaneCoriolis(f0=0.5),
-        stratification=hy.ConstantStratification(n2=N2),
+        buoyancy=hy.ConstantStratification(n2=N2),
         free_surface=hy.SplitExplicitFreeSurface(substeps=16),
         advection=False)
     rng = np.random.default_rng(0)
@@ -138,7 +138,7 @@ def _split_model(grid, dt):
         core=hy.Core(gravity=CSQR),
         time_stepper=AdamBashforth(dt, order=3),
         coriolis=None,
-        stratification=hy.ConstantStratification(n2=0.0),
+        buoyancy=hy.ConstantStratification(n2=0.0),
         free_surface=hy.SplitExplicitFreeSurface(substeps=16),
         advection=False)
 
@@ -214,7 +214,7 @@ def test_split_terrain_ps_volume_conserved_on_walls(wall):
         core=hy.Core(gravity=CSQR),
         time_stepper=AdamBashforth(2e-3, order=3),
         coriolis=hy.FPlaneCoriolis(f0=0.5),
-        stratification=hy.ConstantStratification(n2=N2),
+        buoyancy=hy.ConstantStratification(n2=N2),
         free_surface=hy.SplitExplicitFreeSurface(substeps=16),
         advection=False)
     _random_ic(model, seed=3)
@@ -326,7 +326,7 @@ def _mirror_model(grid, dt):
         core=hy.Core(gravity=CSQR),
         time_stepper=AdamBashforth(dt, order=3),
         coriolis=None,
-        stratification=hy.ConstantStratification(n2=N2),
+        buoyancy=hy.ConstantStratification(n2=N2),
         free_surface=hy.ExplicitFreeSurface(),
         advection=False)
 

@@ -434,7 +434,7 @@ class Core(fr.model.Module):
     field_references = (
         fr.model.FieldReference(
             "b", hint="the hydrostatic pressure integrates buoyancy; "
-                      "add a stratification module "
+                      "add a buoyancy module "
                       "(hy.ConstantStratification)"),
     )
 

@@ -68,7 +68,7 @@ def build(config):
         return hy.Model(
             grid=make_grid(), core=hy.Core(gravity=1.0),
             coriolis=hy.FPlaneCoriolis(f0=0.5),
-            stratification=hy.ConstantStratification(n2=4.0),
+            buoyancy=hy.ConstantStratification(n2=4.0),
             free_surface=hy.ExplicitFreeSurface(),
             advection=True,
             surface_advective_flux=(False if config == "dim_nosf"
@@ -79,7 +79,7 @@ def build(config):
             grid=make_grid(), core=hy.Core(),
             scaling=fr.scaling.ExternalWave(),
             coriolis=hy.FPlaneCoriolis(rossby_number=0.5),
-            stratification=hy.ConstantStratification(
+            buoyancy=hy.ConstantStratification(
                 froude_number=0.125),
             free_surface=hy.ExplicitFreeSurface(froude_number=0.25),
             advection=True, time_stepper=stepper)
@@ -87,7 +87,7 @@ def build(config):
         grid=make_grid(), core=hy.Core(),
         scaling=fr.scaling.Rotational(),
         coriolis=hy.FPlaneCoriolis(rossby_number=0.25),
-        stratification=hy.ConstantStratification(froude_number=0.125),
+        buoyancy=hy.ConstantStratification(froude_number=0.125),
         free_surface=hy.ExplicitFreeSurface(froude_number=0.5),
         advection=True, time_stepper=stepper)
 

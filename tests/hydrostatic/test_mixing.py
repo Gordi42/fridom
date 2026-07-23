@@ -55,7 +55,7 @@ def test_mixing_with_implicit_free_surface_under_cnab2():
         core=hy.Core(gravity=100.0),
         time_stepper=fr.model.time_steppers.CNAB2(dt),
         coriolis=hy.FPlaneCoriolis(f0=0.5),
-        stratification=hy.ConstantStratification(n2=1.0),
+        buoyancy=hy.ConstantStratification(n2=1.0),
         free_surface=hy.ImplicitFreeSurface(),
         advection=False,
         modules_extra=(VerticalMixing(kv=0.03, kb=0.05),))
@@ -91,7 +91,7 @@ def test_mixing_targets_are_the_velocities_and_buoyancy():
         core=hy.Core(gravity=100.0),
         time_stepper=fr.model.time_steppers.CNAB2(0.02),
         coriolis=hy.FPlaneCoriolis(f0=0.5),
-        stratification=hy.ConstantStratification(n2=1.0),
+        buoyancy=hy.ConstantStratification(n2=1.0),
         free_surface=hy.ExplicitFreeSurface(),
         advection=False,
         modules_extra=(VerticalMixing(kv=0.03, kb=0.05),))
@@ -112,7 +112,7 @@ def test_explicit_mixing_run_stays_finite_under_adam_bashforth():
         core=hy.Core(gravity=100.0),
         time_stepper=AdamBashforth(dt, order=3),
         coriolis=hy.FPlaneCoriolis(f0=0.5),
-        stratification=hy.ConstantStratification(n2=1.0),
+        buoyancy=hy.ConstantStratification(n2=1.0),
         free_surface=hy.ExplicitFreeSurface(),
         advection=False,
         modules_extra=(VerticalMixing(

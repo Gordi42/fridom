@@ -59,7 +59,7 @@ def immersed_model(*, dt=0.002):
         core=hy.Core(gravity=1.0),
         time_stepper=AdamBashforth(dt, order=3),
         coriolis=hy.FPlaneCoriolis(f0=0.5),
-        stratification=hy.ConstantStratification(n2=0.0),
+        buoyancy=hy.ConstantStratification(n2=0.0),
         free_surface=hy.ImplicitFreeSurface(pressure_iterations=20),
         advection=True)
     rng = np.random.default_rng(11)

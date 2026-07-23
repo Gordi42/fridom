@@ -43,7 +43,7 @@ def make_model(grid=None, *, advection=True, dt=1e-3):
         grid=grid,
         core=hy.Core(gravity=1.0),
         time_stepper=AdamBashforth(dt, order=3),
-        stratification=hy.ConstantStratification(n2=1.0),
+        buoyancy=hy.ConstantStratification(n2=1.0),
         free_surface=hy.ExplicitFreeSurface(),
         advection=advection)
 
@@ -329,7 +329,7 @@ def test_surface_flux_grad_through_a_short_run_matches_fd():
         grid=grid,
         core=hy.Core(gravity=1.0),
         time_stepper=AdamBashforth(2e-3, order=3),
-        stratification=hy.ConstantStratification(n2=1.0),
+        buoyancy=hy.ConstantStratification(n2=1.0),
         free_surface=hy.ExplicitFreeSurface(),
         advection=CenteredAdvection(surface_flux=True))
     rng = np.random.default_rng(3)

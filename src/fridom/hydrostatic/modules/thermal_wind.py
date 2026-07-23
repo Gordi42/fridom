@@ -184,7 +184,7 @@ class ThermalWindBackground(fr.model.Module):
                       "(hy.Core)"),
         fr.model.FieldReference(
             "b", hint="the baroclinic conversion advances buoyancy, "
-                      "declared by a stratification module "
+                      "declared by a buoyancy module "
                       "(hy.ConstantStratification)"),
     )
     parameter_declarations = (

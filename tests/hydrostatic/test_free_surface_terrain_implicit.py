@@ -57,7 +57,7 @@ def model(grid, *, eps=1.0, csqr=3.0, dt=0.05, iterations=30,
         core=hy.Core(gravity=csqr),
         time_stepper=AdamBashforth(dt, order=2),
         coriolis=hy.FPlaneCoriolis(f0=f0),
-        stratification=hy.ConstantStratification(n2=0.0),
+        buoyancy=hy.ConstantStratification(n2=0.0),
         free_surface=hy.ImplicitFreeSurface(
             epsilon=eps,
             pressure_iterations=iterations,
@@ -185,7 +185,7 @@ def test_grad_through_terrain_implicit_run_matches_fd():
         core=hy.Core(gravity=1.0),
         time_stepper=AdamBashforth(0.01, order=2),
         coriolis=hy.FPlaneCoriolis(f0=0.5),
-        stratification=hy.ConstantStratification(n2=0.0),
+        buoyancy=hy.ConstantStratification(n2=0.0),
         free_surface=hy.ImplicitFreeSurface(
             epsilon=1.0,
             pressure_iterations=20),

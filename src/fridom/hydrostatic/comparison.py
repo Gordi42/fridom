@@ -163,7 +163,7 @@ def comparison_model(
         core=Core(gravity=gravity),
         free_surface=ImplicitFreeSurface(epsilon=epsilon),
         coriolis=FPlaneCoriolis(f0=coriolis_f0),
-        stratification=ConstantStratification(n2=n2),
+        buoyancy=ConstantStratification(n2=n2),
         advection=CenteredAdvection(surface_flux=surface_advective_flux),
         time_stepper=AdamBashforth(dt, order=2, eps=eps),
         name=name,

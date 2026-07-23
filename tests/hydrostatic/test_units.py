@@ -42,7 +42,7 @@ def rot_model(*, free_surface=None):
         core=hy.Core(),
         scaling=fr.scaling.Rotational(L=L_REF, U=U_REF),
         coriolis=hy.FPlaneCoriolis(rossby_number=RO),
-        stratification=hy.ConstantStratification(froude_number=FR_INT),
+        buoyancy=hy.ConstantStratification(froude_number=FR_INT),
         free_surface=free_surface
         or hy.ExplicitFreeSurface(froude_number=FR_EXT),
         advection=False, surface_advective_flux=False,
@@ -54,7 +54,7 @@ def dim_model():
         grid=make_grid(depth=H_DIM),
         core=hy.Core(gravity=G),
         coriolis=hy.FPlaneCoriolis(f0=F0),
-        stratification=hy.ConstantStratification(n2=N2),
+        buoyancy=hy.ConstantStratification(n2=N2),
         free_surface=hy.ExplicitFreeSurface(),
         advection=False, surface_advective_flux=False,
         time_stepper=fr.model.time_steppers.AdamBashforth(DT, order=3))

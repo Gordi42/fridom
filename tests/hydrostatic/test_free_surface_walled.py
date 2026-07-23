@@ -49,7 +49,7 @@ def _model(grid, *, advection=False, f0=0.5, csqr=1.0, n2=0.0, dt=1e-3):
         core=hy.Core(gravity=csqr),
         time_stepper=AdamBashforth(dt, order=3),
         coriolis=hy.FPlaneCoriolis(f0=f0),
-        stratification=hy.ConstantStratification(n2=n2),
+        buoyancy=hy.ConstantStratification(n2=n2),
         free_surface=hy.ExplicitFreeSurface(),
         advection=advection)
 
@@ -201,7 +201,7 @@ def test_immersed_mask_on_walls_assembles_and_runs_finite():
         core=hy.Core(gravity=1.0),
         time_stepper=AdamBashforth(1e-3, order=3),
         coriolis=hy.FPlaneCoriolis(f0=0.5),
-        stratification=hy.ConstantStratification(n2=1.0),
+        buoyancy=hy.ConstantStratification(n2=1.0),
         free_surface=hy.ExplicitFreeSurface(),
         advection=False)
     _random_ic(model)

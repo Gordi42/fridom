@@ -77,7 +77,7 @@ def _model(grid, *, dt=0.01):
         core=hy.Core(gravity=3.0),
         time_stepper=AdamBashforth(dt, order=2),
         coriolis=hy.FPlaneCoriolis(f0=0.5),
-        stratification=hy.ConstantStratification(n2=1.0),
+        buoyancy=hy.ConstantStratification(n2=1.0),
         free_surface=hy.ImplicitFreeSurface(pressure_iterations=30),
         advection=False)
 

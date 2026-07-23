@@ -70,7 +70,7 @@ def _model(grid, *, coriolis=None, advection=False, dt=1e-3,
         core=hy.Core(gravity=CSQR),
         time_stepper=AdamBashforth(dt, order=3),
         coriolis=coriolis,
-        stratification=hy.ConstantStratification(n2=N2),
+        buoyancy=hy.ConstantStratification(n2=N2),
         free_surface=free_surface or hy.ExplicitFreeSurface(),
         advection=advection)
 
@@ -431,7 +431,7 @@ def test_terrain_advection_preserves_a_constant_tracer():
         grid=grid,
         core=hy.Core(gravity=CSQR),
         time_stepper=AdamBashforth(1e-3, order=3),
-        stratification=hy.ConstantStratification(n2=0.0),
+        buoyancy=hy.ConstantStratification(n2=0.0),
         free_surface=hy.ExplicitFreeSurface(),
         advection=True)
     u = _smooth(grid, model.state["u"].function_space,

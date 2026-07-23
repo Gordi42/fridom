@@ -94,7 +94,7 @@ def test_setup_has_genuine_partial_bottom_cells():
         grid=_grid(6, 8),
         core=hy.Core(gravity=1.0),
         time_stepper=AdamBashforth(0.01, order=3),
-        stratification=hy.ConstantStratification(n2=1.0),
+        buoyancy=hy.ConstantStratification(n2=1.0),
         free_surface=hy.ExplicitFreeSurface(),
         advection=False)
     imm = model.grid.immersed
@@ -116,7 +116,7 @@ def test_g3_rest_state_is_machine_zero_flat(nx, nz, order):
         grid=_grid(nx, nz, order),
         core=hy.Core(gravity=1.0),
         time_stepper=AdamBashforth(0.01, order=3),
-        stratification=hy.ConstantStratification(n2=1.0),
+        buoyancy=hy.ConstantStratification(n2=1.0),
         free_surface=hy.ExplicitFreeSurface(),
         advection=False)
     cor, unc = _rest_pgf(model, lambda z: 2.5 * z)
@@ -134,7 +134,7 @@ def test_g3_rest_state_is_machine_zero_stretched():
         grid=_grid(6, 8, 8, zmesh=zm),
         core=hy.Core(gravity=1.0),
         time_stepper=AdamBashforth(0.01, order=3),
-        stratification=hy.ConstantStratification(n2=1.0),
+        buoyancy=hy.ConstantStratification(n2=1.0),
         free_surface=hy.ExplicitFreeSurface(),
         advection=False)
     cor, unc = _rest_pgf(model, lambda z: 2.5 * z)
@@ -156,7 +156,7 @@ def test_g4_smooth_profile_is_second_order_and_below_uncorrected():
             grid=_grid(6, nz, 8),
             core=hy.Core(gravity=1.0),
             time_stepper=AdamBashforth(0.01, order=3),
-            stratification=hy.ConstantStratification(n2=1.0),
+            buoyancy=hy.ConstantStratification(n2=1.0),
             free_surface=hy.ExplicitFreeSurface(),
             advection=False)
         cor, unc = _rest_pgf(model, strat)
@@ -181,7 +181,7 @@ def test_g1_all_wet_correction_is_a_byte_noop():
         grid=_grid(6, 8, 8, indic=lambda x, y, z: x * 0.0 + 1.0),  # noqa: ARG005
         core=hy.Core(gravity=1.0),
         time_stepper=AdamBashforth(0.02, order=3),
-        stratification=hy.ConstantStratification(n2=1.0),
+        buoyancy=hy.ConstantStratification(n2=1.0),
         free_surface=hy.ExplicitFreeSurface(),
         advection=False)
     core = model.module(hy.Core)
@@ -221,7 +221,7 @@ def test_g2_staircase_is_a_byte_noop():
         grid=grid,
         core=hy.Core(gravity=1.0),
         time_stepper=AdamBashforth(0.01, order=3),
-        stratification=hy.ConstantStratification(n2=1.0),
+        buoyancy=hy.ConstantStratification(n2=1.0),
         free_surface=hy.ExplicitFreeSurface(),
         advection=False)
     core = model.module(hy.Core)
@@ -258,7 +258,7 @@ def test_g5_grad_wrt_initial_buoyancy_matches_fd():
         grid=_grid(6, 8, 4),
         core=hy.Core(gravity=1.0),
         time_stepper=AdamBashforth(2e-3, order=3),
-        stratification=hy.ConstantStratification(n2=1.0),
+        buoyancy=hy.ConstantStratification(n2=1.0),
         free_surface=hy.ExplicitFreeSurface(),
         advection=False)
     rng = np.random.default_rng(11)
@@ -296,7 +296,7 @@ def _advance_state(nx, ny, nz, device_ids):
         grid=grid,
         core=hy.Core(gravity=10.0),
         time_stepper=AdamBashforth(2e-3, order=3),
-        stratification=hy.ConstantStratification(n2=1.0),
+        buoyancy=hy.ConstantStratification(n2=1.0),
         free_surface=hy.ExplicitFreeSurface(),
         advection=True)
     rng = np.random.default_rng(4)

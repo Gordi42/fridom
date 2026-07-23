@@ -61,7 +61,7 @@ def make_model(grid, free_surface, *, n2=0.0, csqr=4.0, f0=0.0,
         core=hy.Core(gravity=csqr / _zextent(grid)),
         time_stepper=stepper,
         coriolis=hy.FPlaneCoriolis(f0=f0),
-        stratification=hy.ConstantStratification(n2=n2),
+        buoyancy=hy.ConstantStratification(n2=n2),
         free_surface=free_surface,
         advection=False)
 
@@ -532,7 +532,7 @@ def test_cnab2_vertical_diffusion_then_surface_constraint():
         core=hy.Core(gravity=4.0),
         time_stepper=fr.model.time_steppers.CNAB2(1e-2),
         coriolis=hy.FPlaneCoriolis(f0=0.5),
-        stratification=hy.ConstantStratification(n2=1.0),
+        buoyancy=hy.ConstantStratification(n2=1.0),
         free_surface=hy.ImplicitFreeSurface(epsilon=1.0),
         advection=False,
         modules_extra=(_VertMix(),))
@@ -579,7 +579,7 @@ def walled_model(grid, *, epsilon=1.0, csqr=1.0, f0=0.5, n2=0.0, dt=1e-3,
         core=hy.Core(gravity=csqr),
         time_stepper=AdamBashforth(dt, order=3),
         coriolis=hy.FPlaneCoriolis(f0=f0),
-        stratification=hy.ConstantStratification(n2=n2),
+        buoyancy=hy.ConstantStratification(n2=n2),
         free_surface=hy.ImplicitFreeSurface(
             epsilon=epsilon,
             pressure_iterations=pressure_iterations),

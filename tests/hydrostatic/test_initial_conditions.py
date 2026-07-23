@@ -28,7 +28,7 @@ def make_model(grid=None):
         core=hy.Core(gravity=1.0),
         time_stepper=AdamBashforth(1e-3, order=3),
         coriolis=hy.FPlaneCoriolis(f0=1.0),
-        stratification=hy.ConstantStratification(n2=1.0),
+        buoyancy=hy.ConstantStratification(n2=1.0),
         free_surface=hy.ExplicitFreeSurface(),
         advection=False)
 
