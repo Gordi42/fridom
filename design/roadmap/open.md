@@ -122,10 +122,12 @@ the owner implements upstream; revisit the example scripts'
 `cdfviewer` invocations when they ship. Collected so far:
 model-time label displayed as the animation plays (in progress
 upstream); colorbar height auto-matched to the plot height (a manual
-`figsize=` tuned to the domain aspect works around it, applied in the
-equatorial-waves example 2026-07-23); axis labels that carry the
-units; tick labels in scaled units (2000 km rather than 2.0x10^6); a
-larger (or adjustable) title size.
+`figsize=` tuned to the domain aspect works around it); axis labels
+that carry the units read from the store metadata (manual
+`xlabel=`/`ylabel=` kwargs work around it); tick labels in scaled
+units (2000 km rather than 2.0x10^6). Title and label sizes turned
+out to be plain kwargs (`titlesize=`, `xlabelsize=`) — applied in
+the equatorial-waves example 2026-07-23, no upstream work needed.
 Related and separately owned: the writer names the zarr record
 dimension `iteration`, so `cdfviewer -a time` warns
 ("Animation dimension 'time' not found") and falls back to the
