@@ -42,7 +42,6 @@ dt = 0.1 / np.sqrt(STRATIFICATION_N2)      # omega dt <= 0.1
 
 model = nh.Model(
     grid=grid,
-    core=nh.Core(),
     coriolis=nh.FPlaneCoriolis(f0=CORIOLIS_F0),
     buoyancy=nh.ConstantStratification(n2=STRATIFICATION_N2),
     advection=False,
