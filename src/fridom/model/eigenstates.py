@@ -30,10 +30,19 @@ untouched.
   amplitude conventions of the single-mode and random states;
 - :func:`evaluate_frequency_function` — the guarded host-side
   ``f(omega)`` weight evaluation behind ``em.function(f, sel)`` /
-  ``eb.function(f, sel)`` on every eigenmode tier.
+  ``eb.function(f, sel)`` on every eigenmode tier;
+- :func:`gaussian_envelope` / :func:`envelope_axes` /
+  :func:`sample_envelope` — the wave-packet envelope surface (a
+  coordinate-named callable, sampled at each component's own
+  staggered nodes);
+- :func:`traveling_carrier` — the single-sided (traveling) packet
+  carrier on bounded trig axes (the standing structure replaced by
+  the running-wave combination whose group drift has the requested
+  sign).
 """
 from __future__ import annotations
 
+import inspect
 from typing import TYPE_CHECKING
 
 import jax.numpy as jnp
@@ -52,6 +61,7 @@ from fridom.spatial.spaces.coefficient import (
     FourierSpace,
     SineSpace,
 )
+from fridom.spatial.spaces.constant import ConstantSpace
 
 if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Callable, Iterable, Mapping
@@ -335,6 +345,359 @@ def normalize_max_component(
                for name in names)
     scale = peak if peak > 0.0 else 1.0
     return {name: field / scale for name, field in fields.items()}
+
+
+# ================================================================
+#  Wave-packet envelopes (coordinate-named callables)
+# ================================================================
+def gaussian_envelope(
+    pos: Mapping[str, float],
+    width: Mapping[str, float],
+) -> Callable[..., jax.Array]:
+    r"""
+    Build the Gaussian wave-packet envelope callable.
+
+    Description
+    -----------
+    Returns the coordinate-named callable
+
+    .. math::
+        E(\boldsymbol{x}) =
+            \prod_{i} \exp\left(-\frac{(x_i - p_i)^2}{w_i^2}\right)
+
+    over the coordinates named in ``pos`` / ``width``. Its signature
+    names exactly those coordinates, so the wave-packet factories
+    envelope along them and stay constant along every other axis.
+
+    Parameters
+    ----------
+    pos : Mapping[str, float]
+        Envelope centres, keyed by coordinate name.
+    width : Mapping[str, float]
+        Envelope widths; same keys as ``pos``.
+
+    Returns
+    -------
+    Callable[..., jax.Array]
+        The envelope callable (keyword coordinates to values).
+
+    Raises
+    ------
+    ValueError
+        On mismatched ``pos`` / ``width`` keys.
+    """
+    if set(pos) != set(width):
+        raise ValueError(
+            f"pos and width must name the same coordinates; got "
+            f"pos keys {tuple(sorted(pos))} and width keys "
+            f"{tuple(sorted(width))}")
+
+    def envelope(**coords: jax.Array) -> jax.Array:
+        value = jnp.asarray(1.0)
+        for axis, centre in pos.items():
+            value = value * jnp.exp(
+                -((coords[axis] - centre) ** 2) / width[axis] ** 2)
+        return value
+
+    envelope.__signature__ = inspect.Signature(  # type: ignore[attr-defined]
+        [inspect.Parameter(
+            coordinate, inspect.Parameter.POSITIONAL_OR_KEYWORD)
+         for coordinate in pos])
+    return envelope
+
+
+def envelope_axes(
+    envelope: Callable[..., jax.Array],
+    grid_names: tuple[str, ...],
+    what: str,
+) -> tuple[str, ...]:
+    r"""
+    Read the enveloped axes off an envelope callable's signature.
+
+    Description
+    -----------
+    The coordinate names the callable declares are the enveloped
+    axes (unnamed axes stay constant); every name must be a grid
+    axis. A named-but-unused coordinate is harmless — an envelope
+    constant along an axis is simply unenveloped there.
+
+    Parameters
+    ----------
+    envelope : Callable[..., jax.Array]
+        The coordinate-named envelope callable.
+    grid_names : tuple[str, ...]
+        The grid's axis names.
+    what : str
+        The consuming factory's name (for the taught errors).
+
+    Returns
+    -------
+    tuple[str, ...]
+        The declared coordinate names, in signature order.
+
+    Raises
+    ------
+    ValueError
+        On a coordinate the grid does not have, or an envelope
+        naming no coordinate at all.
+    """
+    names = tuple(inspect.signature(envelope).parameters)
+    unknown = sorted(set(names) - set(grid_names))
+    if unknown:
+        raise ValueError(
+            f"the {what} envelope names the coordinate(s) "
+            f"{unknown}, which the grid does not have "
+            f"(coordinates: {tuple(grid_names)})")
+    if not names:
+        raise ValueError(
+            f"the {what} envelope names no coordinate: declare "
+            "the coordinates it varies along as parameters "
+            "(e.g. envelope=lambda x, z: ...), or build one with "
+            "gaussian_envelope(pos=..., width=...)")
+    return names
+
+
+def _stamped_sampler(
+    space: SpaceLike,
+    values: Callable[[dict[str, jax.Array]], jax.Array],
+) -> Callable[..., jax.Array]:
+    """Wrap ``values`` as an ``init=`` with the space's signature.
+
+    Description
+    -----------
+    ``grid.create_field(init=...)`` passes the coordinates the
+    ``init`` signature declares; stamping all of the space's
+    non-constant coordinate names hands ``values`` the full
+    coordinate dict (the ``sample_gaussian_mask`` precedent).
+    """
+    names = tuple(
+        coordinate for factor in space.factors
+        if not isinstance(factor, ConstantSpace)
+        for coordinate in factor.names)
+
+    def init(**coords: jax.Array) -> jax.Array:
+        return jnp.asarray(values(coords))
+
+    init.__signature__ = inspect.Signature(  # type: ignore[attr-defined]
+        [inspect.Parameter(
+            coordinate, inspect.Parameter.POSITIONAL_OR_KEYWORD)
+         for coordinate in names])
+    return init
+
+
+def sample_envelope(
+    grid: Grid,
+    space: SpaceLike,
+    envelope: Callable[..., jax.Array],
+    axes: tuple[str, ...],
+) -> ScalarField:
+    r"""
+    Sample an envelope callable at a space's own node positions.
+
+    Description
+    -----------
+    Evaluates the coordinate-named callable at the target space's
+    evaluation nodes (staggered faces or cell centres) through
+    ``grid.create_field(init=...)``; the callable receives exactly
+    the coordinates in ``axes`` (its own declared names).
+
+    Parameters
+    ----------
+    grid : Grid
+        The grid to materialize on.
+    space : SpaceLike
+        The target function space (the component's own space).
+    envelope : Callable[..., jax.Array]
+        The coordinate-named envelope callable.
+    axes : tuple[str, ...]
+        The declared coordinate names (:func:`envelope_axes`).
+
+    Returns
+    -------
+    ScalarField
+        The sampled envelope on the space's nodes.
+    """
+    return grid.create_field(space, init=_stamped_sampler(
+        space,
+        lambda coords: envelope(
+            **{axis: coords[axis] for axis in axes})))
+
+
+# ================================================================
+#  Traveling wave-packet carriers (single-sided on bounded axes)
+# ================================================================
+def _trig_factor(
+    space: SpaceLike, name: str,
+) -> tuple[SineSpace | CosineSpace, int] | None:
+    """Return axis ``name``'s trig factor and array axis, or None."""
+    for factor, axis in factor_axes(space.bare):
+        if name in getattr(factor, "names", ()):
+            if isinstance(factor, SineSpace | CosineSpace):
+                return factor, axis
+            return None
+    return None
+
+
+def _validate_traveling(
+    coeff0: SpaceLike,
+    indices: Mapping[str, int],
+    traveling: Mapping[str, int],
+) -> None:
+    """Teach the structural traveling-selection errors."""
+    for axis, direction in traveling.items():
+        if direction not in (1, -1):
+            raise ValueError(
+                f"traveling drift signs are +1 or -1; got "
+                f"{direction!r} for axis {axis!r}")
+        if _trig_factor(coeff0, axis) is None:
+            raise ValueError(
+                f"axis {axis!r} is not a bounded (walled) axis of "
+                "this grid: on a periodic axis the sign of the "
+                "carrier index already selects the direction (a "
+                "negative index is the mirror-running carrier); "
+                "traveling= names bounded axes only")
+        if axis in indices and int(indices[axis]) == 0:
+            raise ValueError(
+                f"the carrier has no oscillation along the "
+                f"traveling axis {axis!r} (index 0): a packet can "
+                "only travel along an axis its carrier waves in")
+
+
+def _group_slope_sign(
+    em: object,
+    name: str,
+    indices: Mapping[str, int],
+    axis: str,
+    omega: float,
+    phase: float,
+) -> float:
+    """Sign of the discrete group slope ``d omega / d m``."""
+    m = int(indices[axis])
+    omegas = {}
+    for shift in (-1, 1):
+        trial = dict(indices)
+        trial[axis] = m + shift
+        try:
+            omegas[shift], _ = em.mode(name, trial, phase=phase)
+        except ValueError:
+            continue
+    if not omegas:
+        raise ValueError(
+            f"cannot resolve the group slope along {axis!r}: "
+            f"neither neighbor of the carrier index {m} is "
+            "represented on the lattice")
+    slope = ((omegas.get(1, omega) - omegas.get(-1, omega))
+             / ((1 in omegas) + (-1 in omegas)))
+    if slope == 0.0:
+        raise ValueError(
+            f"the carrier sits at a frequency extremum along "
+            f"{axis!r} (d omega = 0): the group drift direction "
+            "is undefined there — move the carrier index off the "
+            "extremum")
+    return 1.0 if slope > 0.0 else -1.0
+
+
+def traveling_carrier(
+    em: object,
+    name: str,
+    indices: Mapping[str, int],
+    *,
+    components: tuple[str, ...],
+    traveling: Mapping[str, int],
+    phase: float = 0.0,
+) -> tuple[float, dict[str, ScalarField]]:
+    r"""
+    Synthesize the single-sided (traveling) wave-packet carrier.
+
+    Description
+    -----------
+    The real traveling-carrier state of one labeled analytic mode:
+    along each axis named in ``traveling`` (a bounded trig axis) the
+    standing trig structure of the discrete mode is replaced by the
+    running-wave combination whose envelope drifts with the
+    requested sign; every other axis keeps exactly the mode's
+    structure. Enveloping this carrier and projecting onto the mode
+    family yields a packet whose group drift along each named axis
+    has the requested sign (the one-way coefficient phases; the
+    counter-running content sits at the wall-image position and
+    enters the domain as the reflection).
+
+    Per component, the non-traveling structure ``R`` is extracted
+    from the temporal quadrature pair (the mode at ``phase`` and
+    ``phase + pi/2``) by contraction against the component's own
+    sampled trig vector — family and slot read off the coefficient
+    space, the argument ``m pi (x - x_min) / L`` per the amplitude
+    convention of the trig transforms — and the carrier is
+    ``Re[R e^{i sigma theta}]``, with ``sigma`` oriented by the
+    sign of the discrete group slope ``d omega / d m`` resolved
+    from the frequencies at the neighboring carrier indices.
+
+    Parameters
+    ----------
+    em : object
+        The analytic eigenmodes (any model package).
+    name : str
+        The resolved signed family name (e.g. ``"wave+"``).
+    indices : Mapping[str, int]
+        Axis-keyed integer carrier indices, one per grid axis.
+    components : tuple[str, ...]
+        The prognostic component names.
+    traveling : Mapping[str, int]
+        Axis-keyed envelope drift signs (+1 / -1), bounded axes
+        only.
+    phase : float, optional
+        The carrier phase shift (default: 0.0).
+
+    Returns
+    -------
+    tuple[float, dict[str, ScalarField]]
+        The carrier frequency and the real, unenveloped,
+        unprojected carrier fields.
+
+    Raises
+    ------
+    ValueError
+        On a drift sign outside ``{+1, -1}``, a traveling key
+        naming a periodic axis, a zero carrier index along a
+        traveling axis, or an unresolvable / vanishing group slope.
+    """
+    grid = em.grid
+    _validate_traveling(em.kit.coeff(components[0]), indices,
+                        traveling)
+    omega, z0 = em.mode(name, indices, phase=phase)
+    _, z1 = em.mode(name, indices, phase=phase + 0.5 * np.pi)
+    signs = {
+        axis: _group_slope_sign(em, name, indices, axis, omega,
+                                phase)
+        for axis in traveling}
+    fields = {}
+    for c in components:
+        space = z0[c].function_space
+        signal = z0[c].data + 1j * z1[c].data
+        for axis, direction in traveling.items():
+            trig = _trig_factor(em.kit.coeff(c), axis)
+            if trig is None:  # pragma: no cover — components agree
+                continue
+            factor, ax = trig
+            mesh = next(mm for mm in grid.factors
+                        if axis in mm.names)
+            x0, x1 = float(mesh.extent[0]), float(mesh.extent[1])
+            coords = grid.create_field(space, init=_stamped_sampler(
+                space, lambda cs, a=axis: cs[a])).data
+            theta = (int(indices[axis]) * np.pi / (x1 - x0)
+                     * (coords - x0))
+            standing = (jnp.sin(theta)
+                        if isinstance(factor, SineSpace)
+                        else jnp.cos(theta))
+            num = (signal * standing).sum(axis=ax, keepdims=True)
+            den = (standing * standing).sum(axis=ax, keepdims=True)
+            ratio = jnp.where(
+                den > 0.0, num / jnp.where(den > 0.0, den, 1.0),
+                0.0)
+            sigma = float(direction) * signs[axis]
+            signal = ratio * jnp.exp(1j * sigma * theta)
+        fields[c] = z0[c].with_data(signal.real)
+    return omega, fields
 
 
 # ================================================================

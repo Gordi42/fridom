@@ -186,6 +186,18 @@ class Eigenmodes:
             self._field_metadata)
 
     # ================================================================
+    #  Accessors
+    # ================================================================
+    @property
+    def kit(self) -> GridSymbols:
+        """The per-component transform kit (``forward``/``backward``).
+
+        The public spelling shared with the nonhydro analytic tier
+        (the model-layer eigenstate kernels read it).
+        """
+        return self._kit
+
+    # ================================================================
     #  Dispersion
     # ================================================================
     def _omega2(self) -> Symbol:
