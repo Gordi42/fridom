@@ -2683,3 +2683,18 @@ dev: sw 16/16 bitwise; nh/hy bitwise except the accepted ≤1-ulp H7
 closure rows. The H_ref owner call dissolved (see its own entry).
 Docs/examples migration remains with the docs rebuild.
 Record: `plans/active/nondimensionalization_plan.md`.
+
+## set_state/set_fields re-warm the stepper (shipped 2026-07-23)
+
+Owner ruling on the stale-multistep footgun surfaced by the
+equatorial-waves review: after a run, the AB tendency ring survived
+`set_state`/`set_fields`, so the first steps of the next experiment
+blended the previous state's tendencies into the new one (measured
+~2% fast-wave contamination on the mode-1 Rossby animation — the
+cause of its jitter; every internal consumer already used the
+reset-then-set pattern, so nothing relied on the old behaviour).
+Both prognostic writes now re-warm unconditionally — no keep-the-ring
+opt-out (owner: the niche small-increment case does not justify the
+silent-corruption default) — which also makes either write a full
+NaN-resume path. The clock stays untouched; `reset()` remains the
+full restart. Spec: `specs/model/04_run_loop_io.md` §6.5.

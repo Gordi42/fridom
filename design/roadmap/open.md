@@ -48,16 +48,9 @@ Oceananigans re-run.
   - **`ThermalWindBackground` naming** — keep the shipped name
     (recommended) or rename to the roadmap's old candidate
     `ThermalWindShear` (public export, wide-ish rename).
-  - **`Model.set_state` keeps the stale multistep history** (filed
-    from the equatorial-waves review 2026-07-23): after a run, the
-    AB tendency ring survives `set_state`, so the first steps of the
-    next experiment blend the previous state's tendencies into the
-    new one (measured ~2% fast-wave contamination on the mode-1
-    Rossby animation — the cause of its jitter; `reset()` before
-    `set_state` avoids it, and `update_parameters` already rewarms
-    by default). Decide: rewarm by default in `set_state` (symmetry
-    with `update_parameters`), add a `rewarm=` kwarg, or keep and
-    document the reset-then-set pattern.
+  - **`Model.set_state` stale-multistep footgun — resolved** (owner
+    ruling 2026-07-23: both prognostic writes re-warm
+    unconditionally; entry in [`done.md`](done.md)).
 
 ## 2. Spherical 3-D models (3.7 — promoted, owner 2026-07-19)
 
