@@ -243,6 +243,15 @@ def test_mode_normalization_and_realness(channel):
         assert float(np.abs(np.asarray(z0[c].data)).max()) <= 1 + 1e-12
 
 
+def test_mode_state_carries_the_model_field_metadata(channel):
+    # synthesized states are plotted directly; they must carry the
+    # model's field annotations (name/units), not the defaults
+    model, em = channel
+    _, z = em.mode("kelvin+", {"x": 2, "y": 0})
+    for c in em.components:
+        assert z[c].metadata == model.state[c].metadata
+
+
 def test_mode_projectors_confirm_the_family(channel):
     _, em = channel
     _, z = em.mode("kelvin+", {"x": 2, "y": 0})

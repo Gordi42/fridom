@@ -981,3 +981,12 @@ def test_walled_operator_matrix_is_a_projector_and_guards(forced_devices):
     with pytest.raises(ValueError, match="non-finite"):
         em.operator_matrix(route.coeff_of, branches=(0,),
                            f=lambda w: 1.0 / w)
+
+
+def test_mode_state_carries_the_model_field_metadata(walled):
+    # synthesized states are plotted directly; they must carry the
+    # model's field annotations (name/units), not the defaults
+    _, model, em = walled
+    _, state = em.mode("wave+", {"x": 2, "y": 1, "z": 3})
+    for c in ("u", "v", "w", "b"):
+        assert state[c].metadata == model.state[c].metadata
