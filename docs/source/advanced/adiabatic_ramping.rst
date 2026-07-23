@@ -14,9 +14,7 @@ the diabatic leakage that the protocol leaves behind.
 
 **Prerequisites.** The state-transform algebra (composition with
 ``@``, Tier-1 versus Tier-2 transforms) and the eigenmode projections
-(``VorticalProjection`` and its siblings). The worked protocol is the
-gallery example :doc:`/auto_examples/shallowwater/adiabatic_double_ramp`,
-which this chapter refers to throughout.
+(``VorticalProjection`` and its siblings).
 
 .. _adiabatic-ramping-deformation:
 
@@ -296,7 +294,5 @@ consumer.
 Where to Go Next
 ================
 
-- The worked protocol, with figures and runtimes, is
-  :doc:`/auto_examples/shallowwater/adiabatic_double_ramp`.
-- The reference-end projectors it relies on are the subject of the
-  eigenmode-decomposition chapter.
+- The reference-end projectors the protocol relies on are the
+  subject of the eigenmode-decomposition chapter.
