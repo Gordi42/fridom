@@ -711,3 +711,12 @@ def test_function_rejects_bad_branch_selections(mode_setup):
     for bad in (2, (), (1, 1), 1.5, "wave"):
         with pytest.raises(ValueError, match="branches"):
             em.function(np.ones_like, bad)
+
+
+def test_mode_state_carries_the_model_field_metadata(mode_setup):
+    # synthesized states are plotted directly; they must carry the
+    # model's field annotations (name/units), not the defaults
+    model, em = mode_setup
+    _, state = em.mode("wave+", {"x": 3, "y": 2})
+    for c in COMPONENTS:
+        assert state[c].metadata == model.state[c].metadata

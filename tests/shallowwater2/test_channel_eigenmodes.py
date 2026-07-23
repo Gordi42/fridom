@@ -1145,3 +1145,11 @@ def test_varying_projection_on_a_sharded_grid_matches_one_device(
                               - np.asarray(po[c].data)).max())
                  for c in ("u", "v", "p"))
     assert absmax <= 1e-11
+
+
+def test_mode_state_carries_the_model_field_metadata(model, em):
+    # synthesized states are plotted directly; they must carry the
+    # model's field annotations (name/units), not the defaults
+    _, state = em.mode("wave+", indices={"x": 2, "y": 1})
+    for c in ("u", "v", "p"):
+        assert state[c].metadata == model.state[c].metadata

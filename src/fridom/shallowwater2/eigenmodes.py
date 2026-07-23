@@ -52,7 +52,10 @@ import jax.numpy as jnp
 import numpy as np
 
 import fridom as fr
-from fridom.model._eigenbasis import _resolve_mode_family
+from fridom.model._eigenbasis import (
+    _resolve_mode_family,
+    annotate_fields,
+)
 from fridom.model.eigenstates import (
     assemble_operator_matrix,
     coefficient_index,
@@ -77,6 +80,7 @@ if TYPE_CHECKING:  # pragma: no cover
     import jax
 
     from fridom.model.model import Model
+    from fridom.spatial.fields.metadata import FieldMetadata
     from fridom.spatial.fields.scalar_field import ScalarField
     from fridom.spatial.grid import Grid
     from fridom.spatial.spaces.tensor_product import SpaceLike
@@ -108,6 +112,10 @@ class Eigenmodes:
         The (constant) Coriolis parameter.
     csqr : float
         The (constant) squared gravity-wave phase speed.
+    field_metadata : Mapping[str, FieldMetadata] | None, optional
+        Per-component annotation records stamped onto synthesized
+        states and templates; :func:`eigenbasis` passes the model's
+        (default: None — name-only annotation).
     """
 
     #: the labeled family vocabulary (name -> branch integer); the
@@ -118,8 +126,13 @@ class Eigenmodes:
     #: no engine-artifact families on the analytic tier
     nonphysical_families: ClassVar[tuple[str, ...]] = ()
 
-    def __init__(self, grid: Grid, *, f0: float, csqr: float) -> None:
+    def __init__(
+        self, grid: Grid, *, f0: float, csqr: float,
+        field_metadata: Mapping[str, FieldMetadata] | None = None,
+    ) -> None:
         """Build the symbol kit and the per-axis operator diagonals."""
+        self._field_metadata: dict[str, FieldMetadata] = dict(
+            field_metadata or {})
         if float(f0) == 0.0 and float(csqr) == 0.0:
             raise ValueError(
                 "degenerate eigenmode system: f0 == csqr == 0")
@@ -167,9 +180,10 @@ class Eigenmodes:
         # transforming a nodal field, which hits the Tier-1 taught error
         # on a grid that shards a transform axis (the analytic surface
         # must build on a sharded grid for the distributed route)
-        self._templates: dict[str, ScalarField] = {
-            c: grid.create_field(kit.coeff(c)).with_metadata(name=c)
-            for c in ("u", "v", "p")}
+        self._templates: dict[str, ScalarField] = annotate_fields(
+            {c: grid.create_field(kit.coeff(c)).with_metadata(name=c)
+             for c in ("u", "v", "p")},
+            self._field_metadata)
 
     # ================================================================
     #  Dispersion
@@ -662,7 +676,9 @@ class Eigenmodes:
         z0 = synth(0.0)
         z1 = synth(jnp.pi / 2.0)
         scale = envelope_scale(z0, z1, ("u", "v"))
-        state = State({c: z0[c] / scale for c in components})
+        state = State(annotate_fields(
+            {c: z0[c] / scale for c in components},
+            self._field_metadata))
         shape = self._templates["p"].data.shape
         omega = float(jnp.broadcast_to(
             self.omega(s).data, shape)[slots["p"]])
@@ -987,7 +1003,10 @@ def eigenbasis(
     view = model.parameters
     f0 = _effective_f0(view, at_time)
     csqr = _effective_csqr(view, at_time)
-    return Eigenmodes(model.grid, f0=f0, csqr=csqr)
+    return Eigenmodes(
+        model.grid, f0=f0, csqr=csqr,
+        field_metadata={c: model.state[c].metadata
+                        for c in ("u", "v", "p")})
 
 
 def from_model(

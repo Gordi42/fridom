@@ -29,6 +29,7 @@ share around that split:
 """
 from __future__ import annotations
 
+import dataclasses
 from abc import ABC, abstractmethod
 from importlib import import_module
 from types import MappingProxyType
@@ -62,8 +63,45 @@ if TYPE_CHECKING:  # pragma: no cover
     from fridom.model.eigen_channel import ChannelEigenbasis
     from fridom.model.model import Model
     from fridom.model.transforms.base import StateTransform
+    from fridom.spatial.fields.metadata import FieldMetadata
     from fridom.spatial.fields.scalar_field import ScalarField
     from fridom.spatial.grid import Grid
+
+
+def annotate_fields(
+    fields: dict[str, ScalarField],
+    metadata: Mapping[str, FieldMetadata],
+) -> dict[str, ScalarField]:
+    """
+    Stamp model field annotations onto synthesized fields.
+
+    Description
+    -----------
+    Field arithmetic deliberately resets annotation metadata to the
+    defaults, so states synthesized from an eigenbasis would come
+    out ``unnamed`` with no units. The eigen surfaces stamp the
+    owning model's per-component :class:`FieldMetadata` back on at
+    their public exits; names absent from ``metadata`` pass through
+    unchanged.
+
+    Parameters
+    ----------
+    fields : dict[str, ScalarField]
+        The synthesized per-component fields.
+    metadata : Mapping[str, FieldMetadata]
+        Per-component annotation records (typically captured from
+        ``model.state`` at eigenbasis construction).
+
+    Returns
+    -------
+    dict[str, ScalarField]
+        The re-annotated fields.
+    """
+    return {
+        name: (field.with_metadata(
+                   **dataclasses.asdict(metadata[name]))
+               if name in metadata else field)
+        for name, field in fields.items()}
 
 
 # ================================================================
@@ -324,6 +362,10 @@ class ChannelEigenmodesBase(ABC):
         self._spaces: Mapping[str, object] = MappingProxyType({
             name: model.state[name].function_space.bare
             for name in self.basis.components})
+        self._field_metadata: Mapping[str, FieldMetadata] = (
+            MappingProxyType({
+                name: model.state[name].metadata
+                for name in self.basis.components}))
 
     # ================================================================
     #  Passthrough surface (the labeled basis)
@@ -584,8 +626,9 @@ class ChannelEigenmodesBase(ABC):
             self, slots,
             column * jnp.exp(-1j * (float(phase) + jnp.pi / 2.0)))
         scale = envelope_scale(z0, z1, _horizontal_velocities(self))
-        state = self.state_class(
-            {c: z0[c] / scale for c in self.components})
+        state = self.state_class(annotate_fields(
+            {c: z0[c] / scale for c in self.components},
+            self._field_metadata))
         return float(omega[col]), state
 
 
