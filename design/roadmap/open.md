@@ -48,6 +48,16 @@ Oceananigans re-run.
   - **`ThermalWindBackground` naming** — keep the shipped name
     (recommended) or rename to the roadmap's old candidate
     `ThermalWindShear` (public export, wide-ish rename).
+  - **`Model.set_state` keeps the stale multistep history** (filed
+    from the equatorial-waves review 2026-07-23): after a run, the
+    AB tendency ring survives `set_state`, so the first steps of the
+    next experiment blend the previous state's tendencies into the
+    new one (measured ~2% fast-wave contamination on the mode-1
+    Rossby animation — the cause of its jitter; `reset()` before
+    `set_state` avoids it, and `update_parameters` already rewarms
+    by default). Decide: rewarm by default in `set_state` (symmetry
+    with `update_parameters`), add a `rewarm=` kwarg, or keep and
+    document the reset-then-set pattern.
 
 ## 2. Spherical 3-D models (3.7 — promoted, owner 2026-07-19)
 
@@ -113,11 +123,14 @@ content is owner-reviewed privately before it reaches `dev`
 (AGENTS.md).
 [`../plans/active/docs_examples_plan.md`](../plans/active/docs_examples_plan.md)
 
-**Time label on the recorded animations** (owner 2026-07-23): the
-`cdfviewer --record` animations should display the model time as they
-play. **Blocked on upstream** — the owner is implementing the
-CDFViewer.jl feature that makes it possible, so this waits until that
-ships; revisit the example scripts' `cdfviewer` invocations then.
+**CDFViewer upstream wishlist** (owner 2026-07-23): improvements to
+the `cdfviewer --record` animations that need CDFViewer.jl features —
+the owner implements upstream; revisit the example scripts'
+`cdfviewer` invocations when they ship. Collected so far:
+model-time label displayed as the animation plays (in progress
+upstream); colorbar height matched to the plot height; axis labels
+that carry the units; tick labels in scaled units (2000 km rather
+than 2.0x10^6); a larger (or adjustable) title size.
 Related and separately owned: the writer names the zarr record
 dimension `iteration`, so `cdfviewer -a time` warns
 ("Animation dimension 'time' not found") and falls back to the
