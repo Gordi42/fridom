@@ -2,11 +2,16 @@
 
 Covers the Masur & Oliver geostrophic spectrum, the axis-keyed
 coefficient-index resolution (Fourier half/full layouts, the trig
-union lattice), the Hermitian single-mode placement, and the
-amplitude-convention helpers. The synthesis pipelines built on these
-(``em.mode`` / ``eb.mode`` / the random states) are exercised end to
-end by the package suites and ``test_eigenbasis``.
+union lattice), the Hermitian single-mode placement, the
+amplitude-convention helpers, and the wave-packet envelope surface
+(``gaussian_envelope`` / ``envelope_axes`` / ``sample_envelope``).
+The synthesis pipelines built on these (``em.mode`` / ``eb.mode`` /
+the random states) are exercised end to end by the package suites
+and ``test_eigenbasis``; the traveling-carrier kernel is exercised
+through the nonhydro wave_package drift tests.
 """
+import inspect
+
 import jax.numpy as jnp
 import numpy as np
 import pytest
@@ -14,10 +19,13 @@ import pytest
 import fridom as fr
 from fridom.model.eigenstates import (
     coefficient_index,
+    envelope_axes,
     envelope_scale,
+    gaussian_envelope,
     geostrophic_energy_spectrum,
     hermitian_mode_data,
     normalize_max_component,
+    sample_envelope,
 )
 from fridom.spatial.bc import BC
 from fridom.spatial.grid import Grid
@@ -179,3 +187,42 @@ def test_normalize_max_component_zero_velocity_is_untouched():
               "p": _Field([3.0])}
     out = normalize_max_component(fields, ("u", "v"))
     assert float(out["p"].data.max()) == 3.0
+
+
+# ================================================================
+#  Wave-packet envelopes
+# ================================================================
+def test_gaussian_envelope_is_the_product_gaussian():
+    envelope = gaussian_envelope(pos={"x": 1.0, "z": 2.0},
+                                 width={"x": 0.5, "z": 2.0})
+    value = float(envelope(x=jnp.asarray(1.5), z=jnp.asarray(3.0)))
+    assert value == pytest.approx(np.exp(-1.0) * np.exp(-0.25))
+    assert tuple(inspect.signature(envelope).parameters) == ("x", "z")
+
+
+def test_gaussian_envelope_rejects_mismatched_keys():
+    with pytest.raises(ValueError, match="same coordinates"):
+        gaussian_envelope(pos={"x": 1.0}, width={"z": 1.0})
+
+
+def test_envelope_axes_reads_the_signature():
+    assert envelope_axes(lambda x, z: x * z, ("x", "y", "z"),
+                         "test") == ("x", "z")
+
+
+def test_envelope_axes_taught_errors():
+    with pytest.raises(ValueError, match="does not have"):
+        envelope_axes(lambda q: q, ("x", "y"), "test")
+    with pytest.raises(ValueError, match="names no coordinate"):
+        envelope_axes(lambda: 1.0, ("x", "y"), "test")
+
+
+def test_sample_envelope_evaluates_on_the_space_nodes():
+    mx = IntervalMesh(N, (0.0, 2.0), periodic=True, name="x")
+    mz = IntervalMesh(8, (0.0, 1.0), periodic=False, name="z")
+    grid = Grid((mx, mz))
+    space = mx.center * mz.center
+    field = sample_envelope(grid, space, lambda x: x, ("x",))
+    coords = np.asarray(
+        grid.create_field(space, init=lambda x, z: x + 0.0 * z).data)
+    assert np.allclose(np.asarray(field.data), coords)

@@ -42,6 +42,7 @@ if TYPE_CHECKING:  # pragma: no cover
     from .initial_conditions import (
         barotropic_jet,
         coherent_eddy,
+        gaussian_envelope,
         jet,
         kelvin_wave,
         random_state,
@@ -77,7 +78,8 @@ all_imports_by_origin = {
     f"{base}.initial_conditions": [
         "random_state", "random_vortical", "random_waves",
         "single_wave", "kelvin_wave", "wave_package",
-        "barotropic_jet", "jet", "coherent_eddy"],
+        "gaussian_envelope", "barotropic_jet", "jet",
+        "coherent_eddy"],
     f"{base}.model": ["Model"],
     f"{base}.state": ["State"],
     f"{base}.modules.buoyancy_tracer": ["BuoyancyTracer"],

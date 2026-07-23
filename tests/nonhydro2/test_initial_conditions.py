@@ -12,6 +12,7 @@ wave-pure, the geostrophically projected jets are steady, and the
 coherent eddy is discretely divergence-free.
 """
 import jax
+import jax.numpy as jnp
 import numpy as np
 import pytest
 
@@ -261,7 +262,8 @@ def test_wave_package_localizes_and_stays_wave_pure(periodic):
     _, em = periodic
     omega, z = nh.wave_package(
         em, {"x": 2, "y": 0, "z": 1}, "wave+",
-        mask_pos={"x": np.pi}, mask_width={"x": 1.5})
+        envelope=nh.gaussian_envelope(pos={"x": np.pi},
+                                      width={"x": 1.5}))
     assert omega > 0.0
     # localized: the envelope suppresses the far side of the domain
     profile = np.abs(np.asarray(z["u"].data)).max(axis=(1, 2))
@@ -274,14 +276,166 @@ def test_wave_package_localizes_and_stays_wave_pure(periodic):
     assert vort / total < 1e-10
 
 
+def test_wave_package_gaussian_helper_matches_a_plain_callable(
+        periodic):
+    _, em = periodic
+    helper = nh.gaussian_envelope(
+        pos={"x": np.pi, "z": np.pi}, width={"x": 1.5, "z": 1.5})
+
+    def plain(x, z):
+        return (jnp.exp(-((x - np.pi) ** 2) / 1.5 ** 2)
+                * jnp.exp(-((z - np.pi) ** 2) / 1.5 ** 2))
+
+    _, za = nh.wave_package(em, {"x": 2, "y": 0, "z": 1},
+                            envelope=helper)
+    _, zb = nh.wave_package(em, {"x": 2, "y": 0, "z": 1},
+                            envelope=plain)
+    assert _same(za, zb)
+
+
 def test_wave_package_taught_errors(periodic):
     _, em = periodic
     with pytest.raises(ValueError, match="same"):
-        nh.wave_package(em, {"x": 2, "y": 0, "z": 1},
-                        mask_pos={"x": 1.0}, mask_width={"y": 1.0})
+        nh.gaussian_envelope(pos={"x": 1.0}, width={"y": 1.0})
     with pytest.raises(ValueError, match="does not have"):
+        nh.wave_package(
+            em, {"x": 2, "y": 0, "z": 1},
+            envelope=nh.gaussian_envelope(pos={"q": 1.0},
+                                          width={"q": 1.0}))
+    with pytest.raises(ValueError, match="names no coordinate"):
         nh.wave_package(em, {"x": 2, "y": 0, "z": 1},
-                        mask_pos={"q": 1.0}, mask_width={"q": 1.0})
+                        envelope=lambda: 1.0)
+
+
+# ================================================================
+#  wave_package traveling= (single-sided packets on walled z)
+# ================================================================
+_DRIFT_K = {"x": 4, "y": 0, "z": 5}
+_DRIFT_ENVELOPE = {"pos": {"x": 500.0, "z": 500.0},
+                   "width": {"x": 220.0, "z": 220.0}}
+
+
+@pytest.fixture(scope="module")
+def drift_model():
+    """Build a walled-z slice sized to show drift (48 x 1 x 32)."""
+    mx = fr.spatial.meshes.IntervalMesh(48, (0.0, 2000.0),
+                                     periodic=True, name="x")
+    my = fr.spatial.meshes.IntervalMesh(1, (0.0, 1.0),
+                                     periodic=True, name="y")
+    mz = fr.spatial.meshes.IntervalMesh(32, (0.0, 1000.0),
+                                     periodic=False, name="z")
+    grid = fr.spatial.Grid((mx, my, mz), device_ids=(0,))
+    return nh.Model(
+        grid=grid,
+        coriolis=nh.FPlaneCoriolis(f0=1e-4),
+        buoyancy=nh.ConstantStratification(n2=2.5e-5),
+        advection=False,
+        time_stepper=AdamBashforth(60.0, order=3))
+
+
+def _b_centroid(model):
+    b = np.asarray(model.state.b.data)[:, 0, :]
+    profile = (b ** 2).sum(axis=0)
+    centres = (np.arange(b.shape[1]) + 0.5) * (1000.0 / b.shape[1])
+    return float((profile * centres).sum() / profile.sum())
+
+
+@pytest.mark.parametrize("direction", [
+    pytest.param(-1, id="down"), pytest.param(1, id="up")])
+def test_wave_package_traveling_drifts_the_requested_way(
+        drift_model, direction):
+    omega, packet = nh.wave_package(
+        drift_model, _DRIFT_K, "wave+",
+        envelope=nh.gaussian_envelope(**_DRIFT_ENVELOPE),
+        traveling={"z": direction})
+    assert omega > 0.0
+    drift_model.reset()
+    drift_model.set_state(packet)
+    start = _b_centroid(drift_model)
+    drift_model.run(runlen=2400.0, progress=False)
+    moved = _b_centroid(drift_model) - start
+    # the continuum group drift is cg_z * t = 281 m (measured
+    # 271-277 m at this resolution); the sign is the request
+    assert np.sign(moved) == direction
+    assert 0.7 * 281.0 < abs(moved) < 1.1 * 281.0
+
+
+def test_wave_package_traveling_is_wave_pure(drift_model):
+    em = nh.eigenbasis(drift_model)
+    _, packet = nh.wave_package(
+        em, _DRIFT_K, "wave+",
+        envelope=nh.gaussian_envelope(**_DRIFT_ENVELOPE),
+        traveling={"z": -1})
+    total = _energy(packet)
+    wave = _energy(nh.transforms.WaveProjection(em)(packet))
+    vort = _energy(nh.transforms.VorticalProjection(em)(packet))
+    assert wave / total > 1.0 - 1e-9
+    assert vort / total < 1e-9
+
+
+def test_wave_package_traveling_resolves_a_one_sided_slope(
+        drift_model):
+    # at the top of the wave lattice (m = nz - 1) the m + 1 neighbor
+    # is the structurally absent buoyancy-top stratum, so the group
+    # slope falls back to the one-sided difference
+    omega, packet = nh.wave_package(
+        drift_model, {"x": 4, "y": 0, "z": 31}, "wave+",
+        envelope=nh.gaussian_envelope(**_DRIFT_ENVELOPE),
+        traveling={"z": -1})
+    assert omega > 0.0
+    assert all(np.isfinite(np.asarray(packet[c].data)).all()
+               for c in COMPONENTS)
+
+
+def test_wave_package_traveling_needs_a_represented_neighbor():
+    # nz = 2 leaves one wave stratum (m = 1) with both neighbors
+    # structurally absent (m = 0 barotropic, m = 2 buoyancy top)
+    mx = fr.spatial.meshes.IntervalMesh(8, (0.0, 2000.0),
+                                     periodic=True, name="x")
+    my = fr.spatial.meshes.IntervalMesh(1, (0.0, 1.0),
+                                     periodic=True, name="y")
+    mz = fr.spatial.meshes.IntervalMesh(2, (0.0, 1000.0),
+                                     periodic=False, name="z")
+    grid = fr.spatial.Grid((mx, my, mz), device_ids=(0,))
+    model = nh.Model(
+        grid=grid,
+        coriolis=nh.FPlaneCoriolis(f0=1e-4),
+        buoyancy=nh.ConstantStratification(n2=2.5e-5),
+        advection=False,
+        time_stepper=AdamBashforth(60.0, order=3))
+    with pytest.raises(ValueError, match="cannot resolve"):
+        nh.wave_package(
+            model, {"x": 2, "y": 0, "z": 1},
+            envelope=nh.gaussian_envelope(pos={"z": 500.0},
+                                          width={"z": 300.0}),
+            traveling={"z": -1})
+
+
+def test_wave_package_traveling_taught_errors(periodic, drift_model):
+    _, em = periodic
+    envelope = nh.gaussian_envelope(**_DRIFT_ENVELOPE)
+    with pytest.raises(ValueError, match="bounded axes only"):
+        nh.wave_package(
+            em, {"x": 2, "y": 0, "z": 1},
+            envelope=nh.gaussian_envelope(
+                pos={"x": np.pi, "z": np.pi},
+                width={"x": 1.0, "z": 1.0}),
+            traveling={"z": -1})
+    with pytest.raises(ValueError, match="does not vary"):
+        nh.wave_package(
+            drift_model, _DRIFT_K,
+            envelope=nh.gaussian_envelope(pos={"x": 500.0},
+                                          width={"x": 220.0}),
+            traveling={"z": -1})
+    with pytest.raises(ValueError, match="drift signs"):
+        nh.wave_package(drift_model, _DRIFT_K, envelope=envelope,
+                        traveling={"z": 0})
+    with pytest.raises(ValueError, match="does not propagate"):
+        nh.wave_package(drift_model, _DRIFT_K, "vortical",
+                        envelope=envelope, traveling={"z": -1})
+    with pytest.raises(ValueError, match="no oscillation"):
+        nh.wave_package(drift_model, {"x": 4, "y": 0, "z": 0},
+                        envelope=envelope, traveling={"z": -1})
 
 
 # ================================================================

@@ -36,8 +36,10 @@ axes as horizontal (the vertical coordinate is ``"z"``).
 
 Named analytic states port the reference initial-condition classes:
 :func:`single_wave` and :func:`wave_package` (thin wrappers over the
-analytic mode accessor ``em.mode``, the latter with a Gaussian
-envelope and a re-projection onto the mode branch),
+analytic mode accessor ``em.mode``, the latter with a
+coordinate-named envelope callable — :func:`gaussian_envelope`
+builds the common case — a re-projection onto the mode branch, and
+optional single-sided ``traveling=`` carriers on bounded axes),
 :func:`kelvin_wave` (the labeled boundary-trapped mode of the walled
 channel eigenbasis), :func:`barotropic_jet` / :func:`jet` (unstable
 zonal jets plus a single-mode perturbation, geostrophically
@@ -58,17 +60,20 @@ from fridom.model._eigenbasis import (
     channel_random_state,
 )
 from fridom.model.eigenstates import (
-    geostrophic_energy_spectrum as geostrophic_energy_spectrum,  # noqa: PLC0414 — re-export
-)
-from fridom.model.eigenstates import (
+    envelope_axes,
     normalize_max_component,
     prescribed_spectra_coefficients,
+    sample_envelope,
+    traveling_carrier,
+)
+from fridom.model.eigenstates import (
+    gaussian_envelope as gaussian_envelope,  # noqa: PLC0414 — re-export
+)
+from fridom.model.eigenstates import (
+    geostrophic_energy_spectrum as geostrophic_energy_spectrum,  # noqa: PLC0414 — re-export
 )
 from fridom.nonhydro2.channel_eigenmodes import ChannelEigenmodes
 from fridom.nonhydro2.eigenmodes import Eigenmodes, from_model
-from fridom.nonhydro2.modules.gaussian_wave_maker import (
-    sample_gaussian_mask,
-)
 from fridom.nonhydro2.state import State
 from fridom.nonhydro2.transforms import (
     VorticalProjection,
@@ -510,28 +515,35 @@ def wave_package(
     family: str = "wave+",
     *,
     branch: int | None = None,
-    mask_pos: Mapping[str, float],
-    mask_width: Mapping[str, float],
+    envelope: Callable[..., jax.Array],
+    traveling: Mapping[str, int] | None = None,
     phase: float = 0.0,
     at_time: float = 0.0,
 ) -> tuple[float, State]:
     r"""
-    Build a Gaussian-enveloped single wave (``WavePackage``).
+    Build an enveloped single-mode wave packet (``WavePackage``).
 
     Description
     -----------
-    The single mode of :func:`single_wave` multiplied by the
-    stationary Gaussian envelope
+    The single carrier mode of :func:`single_wave` multiplied by the
+    stationary envelope :math:`E(\boldsymbol{x})` — a callable whose
+    signature names the coordinates it varies along (unnamed axes
+    stay constant), sampled at each component's own staggered nodes;
+    :func:`gaussian_envelope` builds the common Gaussian case — and
+    re-projected onto the carrier's mode family so the packet stays
+    polarized. The returned frequency is the carrier mode's.
 
-    .. math::
-        M(\boldsymbol{x}) =
-            \prod_{i} \exp\left(-\frac{(x_i - p_i)^2}{w_i^2}\right)
-
-    over the coordinates named in ``mask_pos`` / ``mask_width``
-    (constant along the others), sampled at each component's own
-    staggered nodes, and re-projected onto the carrier's mode
-    family so the package stays polarized. The returned frequency
-    is the carrier mode's.
+    On a bounded (walled) axis a single mode is standing, so an
+    envelope localized along it holds both running directions and
+    the packet splits into two counter-propagating beams.
+    ``traveling`` selects one side instead: per named bounded axis
+    the standing carrier is replaced by the running-wave carrier
+    whose **envelope drift** (group velocity) has the given sign —
+    ``traveling={"z": -1}`` sinks, ``+1`` rises, whatever the phase
+    tilt does. On periodic axes the sign of the carrier index in
+    ``k`` already selects the direction. Validity window: the
+    envelope should be smooth, several carrier wavelengths wide,
+    and well inside the domain (its tails small at the walls).
 
     Parameters
     ----------
@@ -546,11 +558,12 @@ def wave_package(
     branch : int | None, optional
         The signed branch (+1 / -1) of an unsigned family root
         (default: None).
-    mask_pos : Mapping[str, float]
-        Envelope centres, keyed by coordinate name; unnamed axes
-        are unmasked.
-    mask_width : Mapping[str, float]
-        Envelope widths; same keys as ``mask_pos``.
+    envelope : Callable[..., jax.Array]
+        The coordinate-named envelope callable (e.g.
+        ``lambda x, z: ...`` or :func:`gaussian_envelope`).
+    traveling : Mapping[str, int] | None, optional
+        Axis-keyed envelope drift signs (+1 / -1) along bounded
+        axes; None keeps the standing carrier (default: None).
     phase : float, optional
         The carrier phase shift (default: 0.0).
     at_time : float, optional
@@ -565,31 +578,43 @@ def wave_package(
     Raises
     ------
     ValueError
-        On mismatched envelope keys, an envelope coordinate the
-        grid does not have, or a horizontally walled channel.
+        On an envelope coordinate the grid does not have, a
+        horizontally walled channel, or a bad ``traveling``
+        selection: a periodic axis (use the sign of ``k``), an
+        axis the envelope does not name, a drift sign outside
+        ``{+1, -1}``, the non-propagating vortical family, or a
+        zero carrier index along a traveling axis.
     """
     em = _analytic(source, "wave_package", at_time)
-    if set(mask_pos) != set(mask_width):
-        raise ValueError(
-            f"mask_pos and mask_width must name the same "
-            f"coordinates; got mask_pos keys "
-            f"{tuple(sorted(mask_pos))} and mask_width keys "
-            f"{tuple(sorted(mask_width))}")
-    unknown = sorted(set(mask_pos) - set(em.grid.names))
-    if unknown:
-        raise ValueError(
-            f"the wave-package envelope names the coordinate(s) "
-            f"{unknown}, which the grid does not have "
-            f"(coordinates: {em.grid.names})")
-    omega, z = em.mode(family, k, branch=branch, phase=phase)
+    axes = envelope_axes(envelope, tuple(em.grid.names),
+                         "wave-package")
     name = _resolve_mode_family(em, family, branch)
-    masked = {}
-    for c in _COMPONENTS:
-        mask = sample_gaussian_mask(
-            em.grid, z[c].function_space, mask_pos, mask_width)
-        masked[c] = z[c] * mask
+    if traveling:
+        unnamed = sorted(set(traveling) - set(axes))
+        if unnamed:
+            raise ValueError(
+                f"traveling names the axis/axes {unnamed}, but "
+                "the envelope does not vary along them — a "
+                "single-sided packet needs a localized envelope "
+                "along its traveling axis (declare them in the "
+                "envelope signature)")
+        if em.families[name] == 0:
+            raise ValueError(
+                "the vortical family does not propagate "
+                "(omega = 0): traveling= applies to the wave "
+                "branches")
+        omega, carrier = traveling_carrier(
+            em, name, k, components=_COMPONENTS,
+            traveling=traveling, phase=phase)
+    else:
+        omega, z = em.mode(name, k, phase=phase)
+        carrier = {c: z[c] for c in _COMPONENTS}
+    enveloped = {
+        c: carrier[c] * sample_envelope(
+            em.grid, carrier[c].function_space, envelope, axes)
+        for c in _COMPONENTS}
     return omega, mode_projection(
-        em, em.families[name])(State(masked))
+        em, em.families[name])(State(enveloped))
 
 
 # ================================================================

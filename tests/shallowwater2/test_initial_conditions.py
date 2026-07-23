@@ -307,6 +307,56 @@ def test_single_wave_needs_the_analytic_tier(channel):
 
 
 # ================================================================
+#  wave_package (the enveloped single mode)
+# ================================================================
+def test_wave_package_localizes_and_stays_wave_pure(periodic):
+    _, em = periodic
+    omega, z = sw.wave_package(
+        em, {"x": 3, "y": 0}, "wave+",
+        envelope=sw.gaussian_envelope(pos={"x": 0.5},
+                                      width={"x": 0.15}))
+    assert omega > 0.0
+    # localized: the envelope suppresses the far side of the domain
+    profile = np.abs(np.asarray(z["u"].data)).max(axis=1)
+    assert profile.min() < 0.2 * profile.max()
+    # polarized: the re-projection keeps the state wave-pure
+    total = _energy(z)
+    wave = _energy(sw.transforms.WaveProjection(em)(z))
+    vort = _energy(sw.transforms.VorticalProjection(em)(z))
+    assert wave / total > 1.0 - 1e-10
+    assert vort / total < 1e-10
+
+
+def test_wave_package_traveling_always_teaches_here(periodic):
+    # both analytic axes are periodic: direction lives in the signs
+    # of k, and every traveling= selection is a taught error
+    _, em = periodic
+    envelope = sw.gaussian_envelope(pos={"x": 0.5, "y": 0.5},
+                                    width={"x": 0.15, "y": 0.15})
+    with pytest.raises(ValueError, match="bounded axes only"):
+        sw.wave_package(em, {"x": 3, "y": 0}, "wave+",
+                        envelope=envelope, traveling={"y": 1})
+    with pytest.raises(ValueError, match="does not vary"):
+        sw.wave_package(
+            em, {"x": 3, "y": 0}, "wave+",
+            envelope=sw.gaussian_envelope(pos={"x": 0.5},
+                                          width={"x": 0.15}),
+            traveling={"y": 1})
+    with pytest.raises(ValueError, match="does not propagate"):
+        sw.wave_package(em, {"x": 3, "y": 0}, "vortical",
+                        envelope=envelope, traveling={"y": 1})
+
+
+def test_wave_package_needs_the_analytic_tier(channel):
+    _, eb = channel
+    with pytest.raises(ValueError, match="walled channel"):
+        sw.wave_package(
+            eb, {"x": 2, "y": 1},
+            envelope=sw.gaussian_envelope(pos={"x": 0.5},
+                                          width={"x": 0.15}))
+
+
+# ================================================================
 #  jet (the Jet port)
 # ================================================================
 def test_geostrophic_jet_is_steady_in_the_linear_model(periodic):

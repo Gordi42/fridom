@@ -166,3 +166,15 @@ stays a per-closure kwarg or becomes a per-wall grid/field
 declaration (one source of truth across advection, friction,
 Smagorinsky, open boundaries).
 [`../research/smagorinsky_walls_scoping.md`](../research/smagorinsky_walls_scoping.md)
+
+## Traveling wave packets P3 — the channel tier
+
+The `traveling=` single-sided packets ship on the analytic tiers
+only; the numeric channel tier (packets along the bounded channel
+axis: Poincaré packets running into a wall) needs the discrete
+Hilbert quadrature of the channel column profiles plus the
+multi-device legalization of the channel synthesis (currently
+single-device-tested). Plan §P3:
+[`../plans/active/traveling_wave_packets_plan.md`](../plans/active/traveling_wave_packets_plan.md).
+**Trigger:** the first docs example or user request needing a
+single-sided packet in a walled channel.

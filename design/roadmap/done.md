@@ -2698,3 +2698,28 @@ opt-out (owner: the niche small-increment case does not justify the
 silent-corruption default) — which also makes either write a full
 NaN-resume path. The clock stays untouched; `reset()` remains the
 full restart. Spec: `specs/model/04_run_loop_io.md` §6.5.
+
+## Traveling wave packets — envelope + direction surface (shipped 2026-07-23)
+
+Owner feature from the wave_package example port: on a bounded axis a
+single mode is standing, so the enveloped packet always split into
+two counter-propagating beams (investigation cleared the eigenmodes —
+that is the correct physics of masking a standing carrier). Shipped
+P1 + P2 of the plan
+([`../plans/active/traveling_wave_packets_plan.md`](../plans/active/traveling_wave_packets_plan.md),
+WP-D1..D7 approved as recommended): the shared eigenstate kernel
+(`traveling_carrier` — per component, the complex analytic signal of
+the temporal quadrature pair is contracted against the component's
+own sampled trig vector and re-emitted as the running wave whose
+group drift, oriented by the discrete `d omega / d m` sign from
+neighboring mode frequencies, matches the requested sign), the
+envelope surface (`envelope=` coordinate-named callable +
+`gaussian_envelope` helper, replacing `mask_pos`/`mask_width`
+outright — unreleased, no deprecation), `traveling=` on
+`nh.wave_package`, and the `sw.wave_package` parity factory (periodic
+tier: direction lives in the `k` signs; `traveling=` teaches).
+Measured: drift at 96–102% of the continuum group speed both ways,
+wave-fraction 1.0, compact envelope (no counter-beam); the standing
+default keeps the old construction value-identical. sw2 `Eigenmodes`
+gained the public `kit` property (tier parity with nh2). P3 (channel
+tier) deferred; P4 (the example switch) rides the docs cycle.

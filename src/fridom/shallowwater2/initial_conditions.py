@@ -31,9 +31,14 @@ largest horizontal-velocity value is one.
 
 Named analytic states port the reference initial-condition classes:
 :func:`single_wave` (one discrete eigenmode, a thin wrapper over
-``em.mode``), :func:`jet` (two opposing zonal jets plus a geostrophic
-single-mode perturbation), :func:`coherent_eddy` (a Gaussian
-streamfunction or vorticity eddy in exact geostrophic balance).
+``em.mode``), :func:`wave_package` (the mode under a
+coordinate-named envelope callable — :func:`gaussian_envelope`
+builds the common case — re-projected onto its family; the
+``traveling=`` bounded-axis drift selector of the walled tiers
+always teaches on this fully periodic tier), :func:`jet` (two
+opposing zonal jets plus a geostrophic single-mode perturbation),
+:func:`coherent_eddy` (a Gaussian streamfunction or vorticity eddy
+in exact geostrophic balance).
 Wave factories return ``(omega, state)`` like ``em.mode``; profile
 factories return the state alone. Beta-plane wave modes (equatorial
 Rossby, Yanai, Kelvin, gravity) are selected numerically through
@@ -48,18 +53,30 @@ from typing import TYPE_CHECKING
 import jax.numpy as jnp
 
 import fridom as fr
-from fridom.model._eigenbasis import channel_random_state
-from fridom.model.eigenstates import (
-    geostrophic_energy_spectrum as geostrophic_energy_spectrum,  # noqa: PLC0414 — re-export
+from fridom.model._eigenbasis import (
+    _resolve_mode_family,
+    channel_random_state,
 )
 from fridom.model.eigenstates import (
+    envelope_axes,
     normalize_max_component,
     prescribed_spectra_coefficients,
+    sample_envelope,
+    traveling_carrier,
+)
+from fridom.model.eigenstates import (
+    gaussian_envelope as gaussian_envelope,  # noqa: PLC0414 — re-export
+)
+from fridom.model.eigenstates import (
+    geostrophic_energy_spectrum as geostrophic_energy_spectrum,  # noqa: PLC0414 — re-export
 )
 from fridom.shallowwater2.channel_eigenmodes import ChannelEigenmodes
 from fridom.shallowwater2.eigenmodes import Eigenmodes, from_model
 from fridom.shallowwater2.state import State
-from fridom.shallowwater2.transforms import VorticalProjection
+from fridom.shallowwater2.transforms import (
+    VorticalProjection,
+    mode_projection,
+)
 from fridom.spatial.spaces.constant import ConstantSpace
 from fridom.spatial.symbols import GridSymbols, ModeChart
 
@@ -75,6 +92,9 @@ if TYPE_CHECKING:  # pragma: no cover
 
 #: The analytic-tier family vocabulary -> eigenmode branches.
 _ANALYTIC_BRANCHES = {"vortical": (0,), "wave": (1, -1)}
+
+#: The prognostic components of the analytic tier.
+_COMPONENTS = ("u", "v", "p")
 
 
 def flat_spectrum(*wavenumbers: jax.Array) -> jax.Array:  # noqa: ARG001
@@ -175,7 +195,7 @@ def random_state(
             "families are 'vortical' and 'wave'")
     fields = prescribed_spectra_coefficients(
         grid=em.grid,
-        kit=em._kit,  # noqa: SLF001 — package-internal kit access
+        kit=em.kit,
         chart=ModeChart(em.grid),
         columns=tuple(em.q(s) for s in branches),
         components=("u", "v", "p"),
@@ -421,6 +441,105 @@ def single_wave(
     """
     em = _analytic(source, "single_wave", at_time)
     return em.mode(family, k, branch=branch, phase=phase)
+
+
+def wave_package(
+    source: Model | Eigenmodes | ChannelEigenmodes,
+    k: Mapping[str, int],
+    family: str = "wave+",
+    *,
+    branch: int | None = None,
+    envelope: Callable[..., jax.Array],
+    traveling: Mapping[str, int] | None = None,
+    phase: float = 0.0,
+    at_time: float = 0.0,
+) -> tuple[float, State]:
+    r"""
+    Build an enveloped single-mode wave packet (``WavePackage``).
+
+    Description
+    -----------
+    The single carrier mode of :func:`single_wave` multiplied by the
+    stationary envelope :math:`E(\boldsymbol{x})` — a callable whose
+    signature names the coordinates it varies along (unnamed axes
+    stay constant), sampled at each component's own staggered nodes;
+    :func:`gaussian_envelope` builds the common Gaussian case — and
+    re-projected onto the carrier's mode family so the packet stays
+    polarized. The returned frequency is the carrier mode's.
+
+    Both axes of the fully periodic analytic tier are periodic, so
+    the packet direction lives in the signs of the carrier indices
+    in ``k``; ``traveling`` (the bounded-axis drift selector of the
+    walled tiers) therefore always teaches here — it exists for
+    surface parity across the model packages.
+
+    Parameters
+    ----------
+    source : Model | Eigenmodes | ChannelEigenmodes
+        The assembled model or an analytic eigenmodes object.
+    k : Mapping[str, int]
+        Axis-keyed integer wavenumber indices of the carrier.
+    family : str, optional
+        The carrier's labeled mode family: ``"vortical"``,
+        ``"wave+"`` / ``"wave-"``, or the unsigned root ``"wave"``
+        with ``branch=`` (default: "wave+").
+    branch : int | None, optional
+        The signed branch (+1 / -1) of an unsigned family root
+        (default: None).
+    envelope : Callable[..., jax.Array]
+        The coordinate-named envelope callable (e.g.
+        ``lambda x, y: ...`` or :func:`gaussian_envelope`).
+    traveling : Mapping[str, int] | None, optional
+        Axis-keyed envelope drift signs along bounded axes; the
+        periodic tier has none, so any key teaches (default: None).
+    phase : float, optional
+        The carrier phase shift (default: 0.0).
+    at_time : float, optional
+        Parameter evaluation time when resolving from a model
+        (default: 0.0).
+
+    Returns
+    -------
+    tuple[float, State]
+        The carrier frequency and the enveloped state.
+
+    Raises
+    ------
+    ValueError
+        On an envelope coordinate the grid does not have, a walled
+        channel, or any ``traveling`` key (periodic axes take the
+        sign of ``k``).
+    """
+    em = _analytic(source, "wave_package", at_time)
+    axes = envelope_axes(envelope, tuple(em.grid.names),
+                         "wave-package")
+    name = _resolve_mode_family(em, family, branch)
+    if traveling:
+        unnamed = sorted(set(traveling) - set(axes))
+        if unnamed:
+            raise ValueError(
+                f"traveling names the axis/axes {unnamed}, but "
+                "the envelope does not vary along them — a "
+                "single-sided packet needs a localized envelope "
+                "along its traveling axis (declare them in the "
+                "envelope signature)")
+        if em.families[name] == 0:
+            raise ValueError(
+                "the vortical family does not propagate "
+                "(omega = 0): traveling= applies to the wave "
+                "branches")
+        omega, carrier = traveling_carrier(
+            em, name, k, components=_COMPONENTS,
+            traveling=traveling, phase=phase)
+    else:
+        omega, z = em.mode(name, k, phase=phase)
+        carrier = {c: z[c] for c in _COMPONENTS}
+    enveloped = {
+        c: carrier[c] * sample_envelope(
+            em.grid, carrier[c].function_space, envelope, axes)
+        for c in _COMPONENTS}
+    return omega, mode_projection(
+        em, em.families[name])(State(enveloped))
 
 
 # ================================================================
