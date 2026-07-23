@@ -44,7 +44,7 @@ model = nh.Model(
     grid=grid,
     core=nh.Core(),
     coriolis=nh.FPlaneCoriolis(f0=CORIOLIS_F0),
-    stratification=nh.ConstantStratification(n2=STRATIFICATION_N2),
+    buoyancy=nh.ConstantStratification(n2=STRATIFICATION_N2),
     advection=False,
     time_stepper=fr.model.time_steppers.AdamBashforth(dt, order=3))
 
