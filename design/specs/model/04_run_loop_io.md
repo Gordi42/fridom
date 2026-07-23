@@ -331,7 +331,14 @@ post-assembly (host, chunk boundaries) allows `set_fields`
 (PROGNOSTIC-only, incoming fields re-homed), `set_state` (PROGNOSTIC
 subset; AUX/DIAG in the input ignored; **missing components are
 left untouched** — amended V-C12, so `rest="zero"`-trimmed
-transform outputs feed larger models cleanly),
+transform outputs feed larger models cleanly) — **both re-warm the
+stepper (owner ruling 2026-07-23): a prognostic write starts a new
+trajectory, and the overwritten state's buffered multistep
+tendencies would otherwise blend into it (measured as ~2%
+cross-experiment contamination in the equatorial-waves example);
+the clock stays untouched, `reset()` remains the full restart, and
+there is deliberately no keep-the-ring opt-out; this also makes
+either write a full NaN-resume path**,
 **`set_aux` (amended V-C1: the declaration-consented host write for
 module-owned AUX — the coupler exchange path; no rewarm by default;
 02_rules)**, `constrain` (+ `set_state`), `update_parameters`,

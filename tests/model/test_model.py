@@ -544,12 +544,14 @@ def test_set_fields_rejects_wrong_shape(model):
 
 def test_set_fields_clears_panic(model):
     panic_the_model(model)
-    # the FLAG clears (a resume path); note the multistep ring may
-    # still hold non-finite tendencies — the full NaN-resume
-    # recipes are reset() and load_snapshot()
+    # the FLAG clears and the stepper re-warms, so the ring cannot
+    # retain the panicked run's non-finite tendencies: a prognostic
+    # write is a full NaN-resume path
     model.set_fields(b=ic(), u=np.zeros(N))
     assert not model.panicked
     assert not bool(model.carry.panic.flag)
+    model.advance(1)
+    assert not model.panicked
 
 
 def test_set_state_partial_overwrite_ignores_extras(model):
@@ -578,6 +580,42 @@ def test_set_state_clears_panic(model):
     panic_the_model(model)
     model.set_state(make_model(grid=model.grid).state)
     assert not model.panicked
+
+
+def test_set_state_rewarms_the_multistep_ring():
+    # a prognostic write starts a new trajectory: the previous
+    # run's buffered tendencies must not blend into it
+    grid = make_grid()
+    donor = make_model(grid=grid)
+    donor.set_fields(b=ic(), u=np.full(N, 0.25))
+    used = make_model(grid=grid)
+    used.set_fields(b=ic(0.5), u=np.full(N, -1.0))
+    used.advance(5)
+    used.set_state(donor.state)
+    used.advance(5)
+    fresh = make_model(grid=grid)
+    fresh.set_state(donor.state)
+    fresh.advance(5)
+    for name in ("u", "b"):
+        assert np.array_equal(
+            np.asarray(used.state[name].data),
+            np.asarray(fresh.state[name].data))
+
+
+def test_set_fields_rewarms_the_multistep_ring():
+    grid = make_grid()
+    used = make_model(grid=grid)
+    used.set_fields(b=ic(0.5), u=np.full(N, -1.0))
+    used.advance(5)
+    used.set_fields(b=ic(), u=np.full(N, 0.25))
+    used.advance(5)
+    fresh = make_model(grid=grid)
+    fresh.set_fields(b=ic(), u=np.full(N, 0.25))
+    fresh.advance(5)
+    for name in ("u", "b"):
+        assert np.array_equal(
+            np.asarray(used.state[name].data),
+            np.asarray(fresh.state[name].data))
 
 
 # ================================================================

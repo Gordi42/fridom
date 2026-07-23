@@ -1895,7 +1895,10 @@ class Model:
         -----------
         Non-PROGNOSTIC names error, pointing at :meth:`set_aux`;
         incoming values are re-homed per the decomposition (the
-        true-shape re-pad). Clears the panic flag (a resume path).
+        true-shape re-pad). Clears the panic flag and re-warms the
+        stepper — a prognostic write starts a new trajectory, so
+        stale multistep tendencies never survive it (a full
+        NaN-resume path).
 
         Parameters
         ----------
@@ -1924,7 +1927,9 @@ class Model:
         new_state = self._derive_initial_fields(
             state.replace(**updates), frozenset(fields))
         self._commit(self._carry.replace(
-            state=new_state, panic=_fresh_panic()))
+            state=new_state,
+            stepper_state=self._fresh_stepper_state(),
+            panic=_fresh_panic()))
         self._panicked = False
         self._panic_it = None
 
@@ -1980,6 +1985,10 @@ class Model:
         Missing PROGNOSTIC components are left untouched (amended
         V-C12); AUXILIARY/DIAGNOSTIC components in the input are
         ignored with a debug log. Re-homes; clears the panic flag.
+        Re-warms the stepper: the buffered multistep tendencies
+        belong to the overwritten state, so keeping them would
+        blend the previous trajectory into the new one. The clock
+        is untouched; :meth:`reset` remains the full restart.
 
         Parameters
         ----------
@@ -2001,6 +2010,7 @@ class Model:
             for name in table.prognostic if name in state}
         self._commit(self._carry.replace(
             state=incumbent.replace(**updates),
+            stepper_state=self._fresh_stepper_state(),
             panic=_fresh_panic()))
         self._panicked = False
         self._panic_it = None
