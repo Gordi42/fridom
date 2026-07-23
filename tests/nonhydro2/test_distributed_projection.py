@@ -38,7 +38,7 @@ def _make_model(*, periodic_z, family=None):
         core=nh.Core(family=family),
         time_stepper=AdamBashforth(0.02, order=3),
         coriolis=FPlaneCoriolis(f0=1.0),
-        stratification=nh.ConstantStratification(n2=1.0),
+        buoyancy=nh.ConstantStratification(n2=1.0),
         advection=False)
     model.set_fields(u=np.ones(model.state["u"].data.shape))
     return model
@@ -60,7 +60,7 @@ def _make_prime_model(*, device_ids=None):
         core=nh.Core(),
         time_stepper=AdamBashforth(0.02, order=3),
         coriolis=FPlaneCoriolis(f0=1.0),
-        stratification=nh.ConstantStratification(n2=1.0),
+        buoyancy=nh.ConstantStratification(n2=1.0),
         advection=False)
 
 
@@ -150,7 +150,7 @@ def test_walled_x_fv_projection_dodges_the_wall_and_distributes(
         core=nh.Core(family="fv"),
         time_stepper=AdamBashforth(0.02, order=3),
         coriolis=FPlaneCoriolis(f0=1.0),
-        stratification=nh.ConstantStratification(n2=1.0),
+        buoyancy=nh.ConstantStratification(n2=1.0),
         advection=False)
     default = grid.decomposition.default_layout
     assert default.is_local("x")       # the walled axis is dodged
@@ -179,7 +179,7 @@ def test_walled_x_fv_step_is_device_count_invariant():
             core=nh.Core(family="fv"),
             time_stepper=AdamBashforth(0.02, order=3),
             coriolis=FPlaneCoriolis(f0=1.0),
-            stratification=nh.ConstantStratification(n2=1.0),
+            buoyancy=nh.ConstantStratification(n2=1.0),
             advection=False)
 
     one = build((0,))
@@ -219,7 +219,7 @@ def test_walled_x_projection_dodges_the_wall_and_distributes(
         core=nh.Core(family="nodal"),
         time_stepper=AdamBashforth(0.02, order=3),
         coriolis=FPlaneCoriolis(f0=1.0),
-        stratification=nh.ConstantStratification(n2=1.0),
+        buoyancy=nh.ConstantStratification(n2=1.0),
         advection=False)
     default = grid.decomposition.default_layout
     assert default.is_local("x")       # the walled axis is dodged
@@ -252,7 +252,7 @@ def test_walled_x_step_is_device_count_invariant():
             core=nh.Core(family="nodal"),
             time_stepper=AdamBashforth(0.02, order=3),
             coriolis=FPlaneCoriolis(f0=1.0),
-            stratification=nh.ConstantStratification(n2=1.0),
+            buoyancy=nh.ConstantStratification(n2=1.0),
             advection=False)
 
     one = build((0,))
@@ -333,7 +333,7 @@ def _make_mapped_fv_model(*, device_ids=None):
         core=nh.Core(family="fv", pressure_iterations=16),
         time_stepper=AdamBashforth(0.02, order=3),
         coriolis=FPlaneCoriolis(f0=1.0),
-        stratification=nh.ConstantStratification(n2=1.0),
+        buoyancy=nh.ConstantStratification(n2=1.0),
         advection=True)
 
 
@@ -382,7 +382,7 @@ def _make_immersed_model(*, device_ids=None):
         core=nh.Core(pressure_iterations=25),
         time_stepper=AdamBashforth(0.02, order=3),
         coriolis=FPlaneCoriolis(f0=1.0),
-        stratification=nh.ConstantStratification(n2=1.0),
+        buoyancy=nh.ConstantStratification(n2=1.0),
         advection=True)
 
 
@@ -437,7 +437,7 @@ def _make_partial_immersed_model(*, device_ids=None):
         core=nh.Core(pressure_iterations=25),
         time_stepper=AdamBashforth(0.02, order=3),
         coriolis=FPlaneCoriolis(f0=1.0),
-        stratification=nh.ConstantStratification(n2=1.0),
+        buoyancy=nh.ConstantStratification(n2=1.0),
         advection=True)
 
 

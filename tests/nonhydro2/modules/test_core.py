@@ -40,7 +40,7 @@ def _model(aspect_ratio, stepper, *, grid=None):
         core=nh.Core(aspect_ratio=aspect_ratio),
         time_stepper=stepper,
         coriolis=nh.FPlaneCoriolis(f0=F0),
-        stratification=nh.ConstantStratification(n2=N2),
+        buoyancy=nh.ConstantStratification(n2=N2),
         advection=False)
 
 
@@ -82,7 +82,7 @@ def test_etdrk4_refuses_a_ramped_aspect_ratio():
             core=nh.Core(aspect_ratio=ramp),
             time_stepper=fr.model.time_steppers.ETDRK4(DT, basis),
             coriolis=nh.FPlaneCoriolis(f0=F0),
-            stratification=nh.ConstantStratification(n2=N2),
+            buoyancy=nh.ConstantStratification(n2=N2),
             advection=False,
             term_filter=~terms.linear)
     # the taught error points at the AB fallback and the design record

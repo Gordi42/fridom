@@ -87,7 +87,7 @@ _SIGN: dict[str, float] = {"left": 1.0, "right": -1.0}
 
 _FIELD_HINT = ("the forced field must be declared by another module "
                "(e.g. a dynamical core registers the velocities, a "
-               "stratification module registers b); check the "
+               "buoyancy module registers b); check the "
                "BoundaryFlux field-name spelling")
 
 

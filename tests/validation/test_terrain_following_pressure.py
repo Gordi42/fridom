@@ -78,7 +78,7 @@ def make_flat_model(*, dt, dsqr, advection):
                     core=nh.Core(aspect_ratio=dsqr ** 0.5),
                     time_stepper=AdamBashforth(dt, order=3),
                     coriolis=nh.FPlaneCoriolis(f0=1.0),
-                    stratification=nh.ConstantStratification(n2=1.0),
+                    buoyancy=nh.ConstantStratification(n2=1.0),
                     advection=advection)
 
 
@@ -100,7 +100,7 @@ def make_mapped_flat_model(*, dt, dsqr, advection):
                                  pressure_iterations=4),
                     time_stepper=AdamBashforth(dt, order=3),
                     coriolis=nh.FPlaneCoriolis(f0=1.0),
-                    stratification=nh.ConstantStratification(n2=1.0),
+                    buoyancy=nh.ConstantStratification(n2=1.0),
                     advection=advection)
 
 
@@ -275,7 +275,7 @@ def make_channel_model(n=N, *, dt, dsqr, advection,
                         pressure_tolerance=pressure_tolerance),
                     time_stepper=AdamBashforth(dt, order=3),
                     coriolis=nh.FPlaneCoriolis(f0=1.0),
-                    stratification=nh.ConstantStratification(n2=1.0),
+                    buoyancy=nh.ConstantStratification(n2=1.0),
                     advection=advection)
 
 

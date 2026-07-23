@@ -58,7 +58,7 @@ def _model():
         core=nh.Core(),
         time_stepper=AdamBashforth(DT, order=3),
         coriolis=nh.FPlaneCoriolis(f0=1.0),
-        stratification=nh.ConstantStratification(n2=1.0),
+        buoyancy=nh.ConstantStratification(n2=1.0),
         advection=False)
 
 
@@ -242,7 +242,7 @@ def test_projection_rest_zero_completes_a_passive_tracer():
         core=nh.Core(),
         time_stepper=AdamBashforth(DT, order=3),
         coriolis=nh.FPlaneCoriolis(f0=1.0),
-        stratification=nh.ConstantStratification(n2=1.0),
+        buoyancy=nh.ConstantStratification(n2=1.0),
         advection=False,
         modules_extra=(_PassiveTracer(),))
     _state(model, seed=13)
@@ -295,7 +295,7 @@ def make_channel_model(*, walled="y", beta=None, device_ids=(0,),
         core=nh.Core(aspect_ratio=(DSQR) ** 0.5, family=family),
         time_stepper=AdamBashforth(5e-3, order=3),
         coriolis=coriolis,
-        stratification=nh.ConstantStratification(n2=N2),
+        buoyancy=nh.ConstantStratification(n2=N2),
         advection=False)
 
 
@@ -521,7 +521,7 @@ def test_multiwalled_grids_are_rejected():
         core=nh.Core(aspect_ratio=(DSQR) ** 0.5),
         time_stepper=AdamBashforth(5e-3, order=3),
         coriolis=nh.FPlaneCoriolis(f0=F0),
-        stratification=nh.ConstantStratification(n2=N2),
+        buoyancy=nh.ConstantStratification(n2=N2),
         advection=False)
     with pytest.raises(ValueError, match="multi-walled"):
         nh.eigenbasis(model)
@@ -603,7 +603,7 @@ def _periodic_model(device_ids, n=16):
         core=nh.Core(aspect_ratio=(DSQR) ** 0.5),
         time_stepper=AdamBashforth(DT, order=3),
         coriolis=nh.FPlaneCoriolis(f0=F0),
-        stratification=nh.ConstantStratification(n2=N2),
+        buoyancy=nh.ConstantStratification(n2=N2),
         advection=False)
 
 

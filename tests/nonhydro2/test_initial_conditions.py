@@ -51,7 +51,7 @@ def make_model(*, periodic_y=True, periodic_z=True, family=None):
         core=nh.Core(aspect_ratio=(DSQR) ** 0.5, family=family),
         time_stepper=AdamBashforth(DT, order=3),
         coriolis=nh.FPlaneCoriolis(f0=F0),
-        stratification=nh.ConstantStratification(n2=N2),
+        buoyancy=nh.ConstantStratification(n2=N2),
         advection=False)
 
 
@@ -407,7 +407,7 @@ def _periodic_model_at(device_ids, n=16):
         core=nh.Core(aspect_ratio=(DSQR) ** 0.5),
         time_stepper=AdamBashforth(DT, order=3),
         coriolis=nh.FPlaneCoriolis(f0=F0),
-        stratification=nh.ConstantStratification(n2=N2),
+        buoyancy=nh.ConstantStratification(n2=N2),
         advection=False)
 
 

@@ -651,7 +651,7 @@ def make_mapped_model(n=8, init=depth, dt=0.02, family="nodal",
                      **core_kwargs),
         time_stepper=AdamBashforth(dt, order=3),
         coriolis=nh.FPlaneCoriolis(f0=1.0),
-        stratification=nh.ConstantStratification(n2=1.0),
+        buoyancy=nh.ConstantStratification(n2=1.0),
         advection=False)
 
 

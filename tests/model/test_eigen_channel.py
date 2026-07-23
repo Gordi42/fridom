@@ -298,7 +298,7 @@ def make_nh_channel(f0=F0_NH, device_ids=None):
         core=nh.Core(aspect_ratio=(DSQR_NH) ** 0.5),
         time_stepper=AdamBashforth(5e-3, order=3),
         coriolis=nh.FPlaneCoriolis(f0=f0),
-        stratification=nh.ConstantStratification(n2=N2_NH),
+        buoyancy=nh.ConstantStratification(n2=N2_NH),
         advection=False)
 
 
@@ -669,7 +669,7 @@ def nh_varying_channel():
         core=nh.Core(aspect_ratio=(DSQR_NH) ** 0.5),
         time_stepper=AdamBashforth(5e-3, order=3),
         coriolis=nh.FPlaneCoriolis(f0=F0_NH),
-        stratification=nh.MeridionalStratification(n2=n2_profile),
+        buoyancy=nh.MeridionalStratification(n2=n2_profile),
         advection=False)
 
 
@@ -723,7 +723,7 @@ def test_nh_varying_constant_profile_reproduces_the_constant_path(
         core=nh.Core(aspect_ratio=(DSQR_NH) ** 0.5),
         time_stepper=AdamBashforth(5e-3, order=3),
         coriolis=nh.FPlaneCoriolis(f0=F0_NH),
-        stratification=nh.MeridionalStratification(
+        buoyancy=nh.MeridionalStratification(
             n2=lambda y: N2_NH + 0.0 * y),
         advection=False)
     cv = channel_eigenpairs(model)
@@ -789,7 +789,7 @@ def test_bounded_measure_constant_factor():
         core=hy.Core(gravity=csqr),
         time_stepper=AdamBashforth(0.02, order=3),
         coriolis=hy.FPlaneCoriolis(f0=0.0),
-        stratification=hy.ConstantStratification(n2=1.0),
+        buoyancy=hy.ConstantStratification(n2=1.0),
         free_surface=hy.ExplicitFreeSurface(),
         advection=False)
     basis = channel_eigenpairs(model)
@@ -812,7 +812,7 @@ def _hydro_channel(grid, csqr=10.0, n2=1.0):
         core=hy.Core(gravity=csqr),
         time_stepper=AdamBashforth(0.02, order=3),
         coriolis=hy.FPlaneCoriolis(f0=0.3),
-        stratification=hy.ConstantStratification(n2=n2),
+        buoyancy=hy.ConstantStratification(n2=n2),
         free_surface=hy.ExplicitFreeSurface(),
         advection=False)
 

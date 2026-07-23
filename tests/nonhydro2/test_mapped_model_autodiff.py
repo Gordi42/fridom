@@ -67,7 +67,7 @@ def mapped_model(*, dt=0.02, family="nodal", pressure_iterations=12,
             pressure_tolerance=pressure_tolerance),
         time_stepper=AdamBashforth(dt, order=3),
         coriolis=nh.FPlaneCoriolis(f0=1.0),
-        stratification=nh.ConstantStratification(n2=1.0),
+        buoyancy=nh.ConstantStratification(n2=1.0),
         advection=False)
     rng = np.random.default_rng(0)
     model.set_fields(**{
@@ -173,7 +173,7 @@ def stretched_multigrid_model(*, dt=0.02, pressure_iterations=12):
             pressure_preconditioner="multigrid"),
         time_stepper=AdamBashforth(dt, order=3),
         coriolis=nh.FPlaneCoriolis(f0=1.0),
-        stratification=nh.ConstantStratification(n2=1.0),
+        buoyancy=nh.ConstantStratification(n2=1.0),
         advection=False)
     rng = np.random.default_rng(0)
     model.set_fields(**{

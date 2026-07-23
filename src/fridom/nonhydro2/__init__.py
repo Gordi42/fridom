@@ -51,6 +51,7 @@ if TYPE_CHECKING:  # pragma: no cover
         wave_package,
     )
     from .model import Model
+    from .modules.buoyancy_tracer import BuoyancyTracer
     from .modules.core import Core
     from .modules.gaussian_wave_maker import GaussianWaveMaker
     from .modules.polarized_wave_maker import PolarizedWaveMaker
@@ -79,6 +80,7 @@ all_imports_by_origin = {
         "barotropic_jet", "jet", "coherent_eddy"],
     f"{base}.model": ["Model"],
     f"{base}.state": ["State"],
+    f"{base}.modules.buoyancy_tracer": ["BuoyancyTracer"],
     f"{base}.modules.core": ["Core"],
     # the Coriolis and flux-form advection families are the shared
     # framework module library (advection rehomed under HY-D5)

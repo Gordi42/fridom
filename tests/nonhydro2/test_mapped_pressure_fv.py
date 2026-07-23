@@ -323,7 +323,7 @@ def make_mapped_fv_model(n=8, init=depth, dt=0.02, advection=False,
                      **core_kwargs),
         time_stepper=AdamBashforth(dt, order=3),
         coriolis=nh.FPlaneCoriolis(f0=1.0),
-        stratification=nh.ConstantStratification(n2=1.0),
+        buoyancy=nh.ConstantStratification(n2=1.0),
         advection=advection)
 
 
@@ -411,7 +411,7 @@ def test_mapped_fv_linear_matches_nodal_over_12_steps():
                 pressure_iterations=16),
             time_stepper=AdamBashforth(0.02, order=3),
             coriolis=nh.FPlaneCoriolis(f0=1.0),
-            stratification=nh.ConstantStratification(n2=1.0),
+            buoyancy=nh.ConstantStratification(n2=1.0),
             advection=False)
 
     fv = build("fv")

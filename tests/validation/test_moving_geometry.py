@@ -82,7 +82,7 @@ def make_terrain_model(*modules, n=N, init=depth, advection=True,
                                  pressure_iterations=ITERATIONS),
                     time_stepper=AdamBashforth(DT, order=3),
                     coriolis=nh.FPlaneCoriolis(f0=1.0),
-                    stratification=nh.ConstantStratification(n2=1.0),
+                    buoyancy=nh.ConstantStratification(n2=1.0),
                     advection=advection, modules_extra=modules)
 
 
@@ -181,7 +181,7 @@ def make_ale_model(n, *modules, family="nodal"):
         time_stepper=AdamBashforth(DT, order=3),
         advection=False,
         coriolis=nh.FPlaneCoriolis(f0=0.0),
-        stratification=nh.ConstantStratification(n2=0.0),
+        buoyancy=nh.ConstantStratification(n2=0.0),
         modules_extra=(
             MovingGeometry({"H": lambda t: H0 + RATE * t}),
             *modules))
@@ -279,7 +279,7 @@ def make_channel_model(*modules, n=N, family="nodal", dt=DT,
                      pressure_tolerance=pressure_tolerance),
         time_stepper=AdamBashforth(dt, order=3),
         coriolis=nh.FPlaneCoriolis(f0=1.0),
-        stratification=nh.ConstantStratification(n2=1.0),
+        buoyancy=nh.ConstantStratification(n2=1.0),
         modules_extra=(
             MovingGeometry({"YN": channel_width}), *modules))
 

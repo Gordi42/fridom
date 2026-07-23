@@ -419,7 +419,7 @@ def mapped_advective_model(chunk_size):
         core=nh.Core(aspect_ratio=0.5, pressure_iterations=8),
         time_stepper=AdamBashforth(0.005, order=3),
         coriolis=nh.FPlaneCoriolis(f0=1.0),
-        stratification=nh.ConstantStratification(n2=1.0),
+        buoyancy=nh.ConstantStratification(n2=1.0),
         advection=True,
         chunk_size=chunk_size)
     model.set_fields(

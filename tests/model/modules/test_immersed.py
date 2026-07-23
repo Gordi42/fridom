@@ -187,7 +187,7 @@ def test_maskstate_skips_constant_space_prognostics():
         grid=grid,
         core=hy.Core(gravity=1.0),
         time_stepper=AdamBashforth(0.01, order=3),
-        stratification=hy.ConstantStratification(n2=1.0),
+        buoyancy=hy.ConstantStratification(n2=1.0),
         free_surface=hy.ExplicitFreeSurface(),
         advection=False)
     # ps is a PROGNOSTIC ConstantSpace(z) field the MaskState sees

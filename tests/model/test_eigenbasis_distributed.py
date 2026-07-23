@@ -280,7 +280,7 @@ def make_nh_channel(device_ids=None):
         core=nh.Core(aspect_ratio=(2.0) ** 0.5),
         time_stepper=AdamBashforth(5e-3, order=3),
         coriolis=nh.FPlaneCoriolis(f0=1.5),
-        stratification=nh.ConstantStratification(n2=3.0),
+        buoyancy=nh.ConstantStratification(n2=3.0),
         advection=False)
 
 
@@ -303,7 +303,7 @@ def make_nh_channel_last_axis(device_ids=None):
         core=nh.Core(aspect_ratio=(2.0) ** 0.5),
         time_stepper=AdamBashforth(5e-3, order=3),
         coriolis=nh.FPlaneCoriolis(f0=1.5),
-        stratification=nh.ConstantStratification(n2=3.0),
+        buoyancy=nh.ConstantStratification(n2=3.0),
         advection=False)
 
 

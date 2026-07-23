@@ -77,7 +77,7 @@ POLARIZED_AMPLITUDE = ParamName(
 
 _COMPONENT_HINT = ("the wave packet spans u, v, w and b: the "
                    "velocities are declared by nh.Core, "
-                   "the buoyancy by a stratification module")
+                   "the buoyancy by a buoyancy module")
 
 
 def _source_default(component: str) -> Callable:

@@ -34,7 +34,7 @@ def dim_model(**kwargs):
     return nh.Model(
         grid=make_grid(), core=nh.Core(aspect_ratio=0.5),
         coriolis=nh.FPlaneCoriolis(f0=1.0),
-        stratification=nh.ConstantStratification(n2=4.0),
+        buoyancy=nh.ConstantStratification(n2=4.0),
         advection=True,
         time_stepper=AdamBashforth(DT, order=3), **kwargs)
 
@@ -45,7 +45,7 @@ def rot_model(*, ro=0.25, **kwargs):
         grid=make_grid(), core=nh.Core(aspect_ratio=0.5),
         scaling=fr.scaling.Rotational(),
         coriolis=nh.FPlaneCoriolis(rossby_number=ro),
-        stratification=nh.ConstantStratification(froude_number=ro / 2),
+        buoyancy=nh.ConstantStratification(froude_number=ro / 2),
         advection=True,
         time_stepper=AdamBashforth(DT, order=3), **kwargs)
 
@@ -65,6 +65,9 @@ def random_fields(model, amp=0.05, seed=7):
      pytest.param({"rossby_number": 0.5},
                   "rossby_number= is retired", id="rossby"),
      pytest.param({"dt": 0.1}, "dt= is retired", id="dt"),
+     pytest.param({"stratification": None},
+                  "stratification= was renamed to buoyancy=",
+                  id="stratification"),
      pytest.param({"pressure_iterations": 5},
                   "moved onto the core", id="solver-kwarg"),
      pytest.param({"family": "fv"}, "moved onto the core",
@@ -115,12 +118,12 @@ def test_meridional_stratification_is_pinned_dimensional():
             grid=make_grid(), core=nh.Core(),
             scaling=fr.scaling.Rotational(),
             coriolis=nh.FPlaneCoriolis(rossby_number=0.25),
-            stratification=module,
+            buoyancy=module,
             time_stepper=AdamBashforth(DT, order=3))
 
 
-def test_stratification_is_opt_in_on_the_preset():
-    # stratification=None installs NO stratification module at all
+def test_buoyancy_is_opt_in_on_the_preset():
+    # buoyancy=None installs NO buoyancy module at all
     model = nh.Model(
         grid=make_grid(), core=nh.Core(),
         coriolis=nh.FPlaneCoriolis(f0=1.0),
@@ -129,13 +132,24 @@ def test_stratification_is_opt_in_on_the_preset():
     assert "stratification.n2" not in model.parameters
 
 
+def test_core_defaults_to_a_plain_core():
+    # core=None (the default) is a plain nh.Core(): the assembly
+    # carries the aspect-ratio provide at its default value 1
+    model = nh.Model(
+        grid=make_grid(),
+        coriolis=nh.FPlaneCoriolis(f0=1.0),
+        time_stepper=AdamBashforth(DT, order=3))
+    assert model.module(nh.Core).aspect_ratio == 1.0
+    assert "w" in model.state.component_names
+
+
 def test_internal_wave_frame_self_normalizes():
     # under InternalWave() the restoring ratio (eps/Fr)^2 is an exact
     # 1.0 (alias row: one leaf) — the nondim model runs finite
     model = nh.Model(
         grid=make_grid(), core=nh.Core(aspect_ratio=0.5),
         scaling=fr.scaling.InternalWave(),
-        stratification=nh.ConstantStratification(froude_number=0.25),
+        buoyancy=nh.ConstantStratification(froude_number=0.25),
         advection=True,
         time_stepper=AdamBashforth(DT, order=3))
     eps = model.parameters[fr.model.params.SCALING_NONLINEARITY]

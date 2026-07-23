@@ -61,7 +61,7 @@ def composed_model(grid, **kw):
             pressure_preconditioner="multigrid"),
         time_stepper=AdamBashforth(DT, order=3),
         coriolis=nh.FPlaneCoriolis(f0=1.0),
-        stratification=nh.ConstantStratification(n2=0.0),
+        buoyancy=nh.ConstantStratification(n2=0.0),
         advection=True,
         **kw)
 
@@ -141,7 +141,7 @@ def test_all_wet_chart_advection_matches_the_pure_mapped_run():
             pressure_preconditioner="multigrid"),
         time_stepper=AdamBashforth(DT, order=3),
         coriolis=nh.FPlaneCoriolis(f0=1.0),
-        stratification=nh.ConstantStratification(n2=0.0),
+        buoyancy=nh.ConstantStratification(n2=0.0),
         advection=True)
     rng = np.random.default_rng(3)
     fields = {c: rng.standard_normal(model_c.state[c].data.shape)
@@ -173,5 +173,5 @@ def test_biased_advection_still_rejects_a_composed_grid(advection):
             grid=grid,
             core=nh.Core(pressure_preconditioner="multigrid"),
             time_stepper=AdamBashforth(DT, order=3),
-            stratification=nh.ConstantStratification(n2=1.0),
+            buoyancy=nh.ConstantStratification(n2=1.0),
             advection=advection)

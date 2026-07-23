@@ -405,7 +405,7 @@ def _nh_model(walled, factory, family=None, n=8):
         core=nh.Core(aspect_ratio=(2.0) ** 0.5, family=family),
         time_stepper=AdamBashforth(DT, order=3),
         coriolis=FPlaneCoriolis(f0=1.0),
-        stratification=nh.ConstantStratification(n2=1.0),
+        buoyancy=nh.ConstantStratification(n2=1.0),
         advection=factory())
 
 

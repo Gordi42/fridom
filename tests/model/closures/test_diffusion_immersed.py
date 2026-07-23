@@ -304,7 +304,7 @@ def _build_nh(*modules_extra):
         core=nh.Core(),
         time_stepper=AdamBashforth(0.01, order=3),
         coriolis=FPlaneCoriolis(f0=1.0),
-        stratification=nh.ConstantStratification(n2=1.0),
+        buoyancy=nh.ConstantStratification(n2=1.0),
         advection=False,
         modules_extra=modules_extra)
 

@@ -82,7 +82,7 @@ def make_channel(f0=F0, beta=None):
         core=nh.Core(aspect_ratio=(DSQR) ** 0.5),
         time_stepper=AdamBashforth(5e-3, order=3),
         coriolis=coriolis,
-        stratification=nh.ConstantStratification(n2=N2),
+        buoyancy=nh.ConstantStratification(n2=N2),
         advection=False)
 
 
@@ -671,7 +671,7 @@ def test_odd_nz_channel_labels_and_completeness():
         core=nh.Core(aspect_ratio=(DSQR) ** 0.5),
         time_stepper=AdamBashforth(5e-3, order=3),
         coriolis=nh.FPlaneCoriolis(f0=F0),
-        stratification=nh.ConstantStratification(n2=N2),
+        buoyancy=nh.ConstantStratification(n2=N2),
         advection=False)
     em = ChannelEigenmodes(model)
     labels = np.asarray(em.labels)
@@ -850,7 +850,7 @@ def make_varying_channel(n2=n2_profile):
         core=nh.Core(aspect_ratio=(DSQR) ** 0.5),
         time_stepper=AdamBashforth(5e-3, order=3),
         coriolis=nh.FPlaneCoriolis(f0=F0),
-        stratification=nh.MeridionalStratification(n2=n2),
+        buoyancy=nh.MeridionalStratification(n2=n2),
         advection=False)
 
 
@@ -995,7 +995,7 @@ def test_varying_n2_analytic_paths_are_taught_errors():
             core=nh.Core(aspect_ratio=(DSQR) ** 0.5),
             time_stepper=AdamBashforth( 5e-3, order=3),
             coriolis=nh.FPlaneCoriolis(f0=F0),
-            stratification=nh.MeridionalStratification( n2=n2_profile),
+            buoyancy=nh.MeridionalStratification( n2=n2_profile),
             advection=False)
 
     for periodic_z in (True, False):

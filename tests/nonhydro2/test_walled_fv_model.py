@@ -52,7 +52,7 @@ def _build(family, walled, advection):
         core=nh.Core(aspect_ratio=(2.0) ** 0.5, family=family),
         time_stepper=AdamBashforth(DT, order=3),
         coriolis=nh.FPlaneCoriolis(f0=1.5),
-        stratification=nh.ConstantStratification(n2=3.0),
+        buoyancy=nh.ConstantStratification(n2=3.0),
         advection=advection)
 
 

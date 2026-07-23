@@ -54,7 +54,7 @@ def _make_model(walled: tuple[str, ...]):
         core=nh.Core(aspect_ratio=0.5),
         time_stepper=AdamBashforth(0.02, order=3),
         coriolis=nh.FPlaneCoriolis(f0=1.0),
-        stratification=nh.ConstantStratification(n2=1.0),
+        buoyancy=nh.ConstantStratification(n2=1.0),
         advection=False,
         chunk_size=1)
 

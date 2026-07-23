@@ -52,7 +52,7 @@ def _warm_start_box_model():
         core=nh.Core(pressure_iterations=40),
         time_stepper=AdamBashforth(0.01, order=3),
         coriolis=FPlaneCoriolis(f0=1.0),
-        stratification=nh.ConstantStratification(n2=1.0),
+        buoyancy=nh.ConstantStratification(n2=1.0),
         advection=False)
     rng = np.random.default_rng(0)
     model.set_fields(**{
@@ -111,7 +111,7 @@ def test_immersed_model_installs_maskstate_and_is_fv():
         core=nh.Core(),
         time_stepper=AdamBashforth(0.02, order=3),
         coriolis=FPlaneCoriolis(f0=1.0),
-        stratification=nh.ConstantStratification(n2=1.0),
+        buoyancy=nh.ConstantStratification(n2=1.0),
         advection=False)
     assert _is_fv(model)
     assert any(type(m).__name__ == "MaskState" for m in model.modules)
@@ -158,7 +158,7 @@ def test_biased_advection_on_immersed_binds_and_steps(advection):
         core=nh.Core(pressure_iterations=15),
         time_stepper=AdamBashforth(0.01, order=3),
         coriolis=FPlaneCoriolis(f0=1.0),
-        stratification=nh.ConstantStratification(n2=1.0),
+        buoyancy=nh.ConstantStratification(n2=1.0),
         advection=advection)
     rng = np.random.default_rng(0)
     model.set_fields(**{
@@ -189,7 +189,7 @@ def test_dry_dofs_stay_exactly_zero(advection):
         core=nh.Core(pressure_iterations=25),
         time_stepper=AdamBashforth(0.01, order=3),
         coriolis=FPlaneCoriolis(f0=1.0),
-        stratification=nh.ConstantStratification(n2=1.0),
+        buoyancy=nh.ConstantStratification(n2=1.0),
         advection=advection)
     rng = np.random.default_rng(0)
     model.set_fields(**{
@@ -221,7 +221,7 @@ def test_theta_weighted_buoyancy_is_conserved_to_machine_zero():
         core=nh.Core(pressure_iterations=25),
         time_stepper=AdamBashforth(0.01, order=3),
         coriolis=FPlaneCoriolis(f0=1.0),
-        stratification=nh.ConstantStratification(n2=0.0),
+        buoyancy=nh.ConstantStratification(n2=0.0),
         advection=True)
     rng = np.random.default_rng(3)
     model.set_fields(
@@ -257,14 +257,14 @@ def test_all_wet_immersed_matches_unimmersed(advection):
         core=nh.Core(pressure_iterations=3),
         time_stepper=AdamBashforth(0.02, order=3),
         coriolis=FPlaneCoriolis(f0=1.0),
-        stratification=nh.ConstantStratification(n2=1.0),
+        buoyancy=nh.ConstantStratification(n2=1.0),
         advection=advection)
     un = nh.Model(
         grid=Grid(meshes()),
         core=nh.Core(),
         time_stepper=AdamBashforth(0.02, order=3),
         coriolis=FPlaneCoriolis(f0=1.0),
-        stratification=nh.ConstantStratification(n2=1.0),
+        buoyancy=nh.ConstantStratification(n2=1.0),
         advection=advection)
     rng = np.random.default_rng(7)
     ic = {k: 0.3 * rng.standard_normal(im.state[k].data.shape)
@@ -306,7 +306,7 @@ def test_face_aligned_box_matches_the_walled_fv_model(advection):
         core=nh.Core(pressure_iterations=60),
         time_stepper=AdamBashforth(0.02, order=3),
         coriolis=FPlaneCoriolis(f0=1.0),
-        stratification=nh.ConstantStratification(n2=0.0),
+        buoyancy=nh.ConstantStratification(n2=0.0),
         advection=advection)
     wal = nh.Model(
         grid=Grid(
@@ -321,7 +321,7 @@ def test_face_aligned_box_matches_the_walled_fv_model(advection):
         core=nh.Core(family="fv", pressure_iterations=1),
         time_stepper=AdamBashforth(0.02, order=3),
         coriolis=FPlaneCoriolis(f0=1.0),
-        stratification=nh.ConstantStratification(n2=0.0),
+        buoyancy=nh.ConstantStratification(n2=0.0),
         advection=advection)
     rng = np.random.default_rng(11)
     shapes = {k: wal.state[k].data.shape for k in ("u", "v", "w")}
@@ -374,7 +374,7 @@ def test_multigrid_preconditioner_model_runs_end_to_end():
             multigrid_levels=3),
         time_stepper=AdamBashforth(0.01, order=3),
         coriolis=FPlaneCoriolis(f0=1.0),
-        stratification=nh.ConstantStratification(n2=1.0),
+        buoyancy=nh.ConstantStratification(n2=1.0),
         advection=False)
     rng = np.random.default_rng(0)
     model.set_fields(**{
