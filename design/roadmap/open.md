@@ -108,9 +108,12 @@ re-enumerate the examples (two on-disk examples are uninventoried),
 add the missing chapters (Models/Hydrostatic, spherical, terrain,
 differentiability), per-chapter planning notes for Advanced.
 Reviews parked into this cycle (owner 2026-07-19): the
-adiabatic-ramping example/page review (R6 landed unreviewed;
-[`../plans/done/adiabatic_ramping.md`](../plans/done/adiabatic_ramping.md))
-and the `examples/hydrostatic/comparison_baseline.py` review — sweep
+adiabatic-ramping page review (R6 landed unreviewed;
+[`../plans/done/adiabatic_ramping.md`](../plans/done/adiabatic_ramping.md);
+the companion `adiabatic_double_ramp.py` example was **deleted** —
+owner decision 2026-07-23 — so the review also reconciles the
+chapter's remaining in-prose references to it) and the
+`examples/hydrostatic/comparison_baseline.py` review — sweep
 `REVIEW:` markers / direct edits when they run. Reader-facing
 content is owner-reviewed privately before it reaches `dev`
 (AGENTS.md).
