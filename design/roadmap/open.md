@@ -113,6 +113,18 @@ content is owner-reviewed privately before it reaches `dev`
 (AGENTS.md).
 [`../plans/active/docs_examples_plan.md`](../plans/active/docs_examples_plan.md)
 
+**Time label on the recorded animations** (owner 2026-07-23): the
+`cdfviewer --record` animations should display the model time as they
+play. **Blocked on upstream** — the owner is implementing the
+CDFViewer.jl feature that makes it possible, so this waits until that
+ships; revisit the example scripts' `cdfviewer` invocations then.
+Related and separately owned: the writer names the zarr record
+dimension `iteration`, so `cdfviewer -a time` warns
+("Animation dimension 'time' not found") and falls back to the
+iteration axis. The animation is still correctly time-ordered, and
+swapping the flag to `-a iteration` was rejected — the fix belongs on
+the time-dimension side.
+
 ## 6. Hydrostatic external comparison legs (3.1 remainder)
 
 After docs (owner 2026-07-19): the **Veros and pyOM3 legs** (pyOM3
