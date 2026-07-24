@@ -313,7 +313,7 @@ def test_wave_package_localizes_and_stays_wave_pure(periodic):
     _, em = periodic
     omega, z = sw.wave_package(
         em, {"x": 3, "y": 0}, "wave+",
-        envelope=sw.gaussian_envelope(pos={"x": 0.5},
+        envelope=sw.gaussian(pos={"x": 0.5},
                                       width={"x": 0.15}))
     assert omega > 0.0
     # localized: the envelope suppresses the far side of the domain
@@ -331,7 +331,7 @@ def test_wave_package_traveling_always_teaches_here(periodic):
     # both analytic axes are periodic: direction lives in the signs
     # of k, and every traveling= selection is a taught error
     _, em = periodic
-    envelope = sw.gaussian_envelope(pos={"x": 0.5, "y": 0.5},
+    envelope = sw.gaussian(pos={"x": 0.5, "y": 0.5},
                                     width={"x": 0.15, "y": 0.15})
     with pytest.raises(ValueError, match="bounded axes only"):
         sw.wave_package(em, {"x": 3, "y": 0}, "wave+",
@@ -339,7 +339,7 @@ def test_wave_package_traveling_always_teaches_here(periodic):
     with pytest.raises(ValueError, match="does not vary"):
         sw.wave_package(
             em, {"x": 3, "y": 0}, "wave+",
-            envelope=sw.gaussian_envelope(pos={"x": 0.5},
+            envelope=sw.gaussian(pos={"x": 0.5},
                                           width={"x": 0.15}),
             traveling={"y": 1})
     with pytest.raises(ValueError, match="does not propagate"):
@@ -352,7 +352,7 @@ def test_wave_package_needs_the_analytic_tier(channel):
     with pytest.raises(ValueError, match="walled channel"):
         sw.wave_package(
             eb, {"x": 2, "y": 1},
-            envelope=sw.gaussian_envelope(pos={"x": 0.5},
+            envelope=sw.gaussian(pos={"x": 0.5},
                                           width={"x": 0.15}))
 
 

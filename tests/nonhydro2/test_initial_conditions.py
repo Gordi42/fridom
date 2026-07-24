@@ -262,7 +262,7 @@ def test_wave_package_localizes_and_stays_wave_pure(periodic):
     _, em = periodic
     omega, z = nh.wave_package(
         em, {"x": 2, "y": 0, "z": 1}, "wave+",
-        envelope=nh.gaussian_envelope(pos={"x": np.pi},
+        envelope=nh.gaussian(pos={"x": np.pi},
                                       width={"x": 1.5}))
     assert omega > 0.0
     # localized: the envelope suppresses the far side of the domain
@@ -279,7 +279,7 @@ def test_wave_package_localizes_and_stays_wave_pure(periodic):
 def test_wave_package_gaussian_helper_matches_a_plain_callable(
         periodic):
     _, em = periodic
-    helper = nh.gaussian_envelope(
+    helper = nh.gaussian(
         pos={"x": np.pi, "z": np.pi}, width={"x": 1.5, "z": 1.5})
 
     def plain(x, z):
@@ -296,11 +296,11 @@ def test_wave_package_gaussian_helper_matches_a_plain_callable(
 def test_wave_package_taught_errors(periodic):
     _, em = periodic
     with pytest.raises(ValueError, match="same"):
-        nh.gaussian_envelope(pos={"x": 1.0}, width={"y": 1.0})
+        nh.gaussian(pos={"x": 1.0}, width={"y": 1.0})
     with pytest.raises(ValueError, match="does not have"):
         nh.wave_package(
             em, {"x": 2, "y": 0, "z": 1},
-            envelope=nh.gaussian_envelope(pos={"q": 1.0},
+            envelope=nh.gaussian(pos={"q": 1.0},
                                           width={"q": 1.0}))
     with pytest.raises(ValueError, match="names no coordinate"):
         nh.wave_package(em, {"x": 2, "y": 0, "z": 1},
@@ -346,7 +346,7 @@ def test_wave_package_traveling_drifts_the_requested_way(
         drift_model, direction):
     omega, packet = nh.wave_package(
         drift_model, _DRIFT_K, "wave+",
-        envelope=nh.gaussian_envelope(**_DRIFT_ENVELOPE),
+        envelope=nh.gaussian(**_DRIFT_ENVELOPE),
         traveling={"z": direction})
     assert omega > 0.0
     drift_model.reset()
@@ -364,7 +364,7 @@ def test_wave_package_traveling_is_wave_pure(drift_model):
     em = nh.eigenbasis(drift_model)
     _, packet = nh.wave_package(
         em, _DRIFT_K, "wave+",
-        envelope=nh.gaussian_envelope(**_DRIFT_ENVELOPE),
+        envelope=nh.gaussian(**_DRIFT_ENVELOPE),
         traveling={"z": -1})
     total = _energy(packet)
     wave = _energy(nh.transforms.WaveProjection(em)(packet))
@@ -380,7 +380,7 @@ def test_wave_package_traveling_resolves_a_one_sided_slope(
     # slope falls back to the one-sided difference
     omega, packet = nh.wave_package(
         drift_model, {"x": 4, "y": 0, "z": 31}, "wave+",
-        envelope=nh.gaussian_envelope(**_DRIFT_ENVELOPE),
+        envelope=nh.gaussian(**_DRIFT_ENVELOPE),
         traveling={"z": -1})
     assert omega > 0.0
     assert all(np.isfinite(np.asarray(packet[c].data)).all()
@@ -406,25 +406,25 @@ def test_wave_package_traveling_needs_a_represented_neighbor():
     with pytest.raises(ValueError, match="cannot resolve"):
         nh.wave_package(
             model, {"x": 2, "y": 0, "z": 1},
-            envelope=nh.gaussian_envelope(pos={"z": 500.0},
+            envelope=nh.gaussian(pos={"z": 500.0},
                                           width={"z": 300.0}),
             traveling={"z": -1})
 
 
 def test_wave_package_traveling_taught_errors(periodic, drift_model):
     _, em = periodic
-    envelope = nh.gaussian_envelope(**_DRIFT_ENVELOPE)
+    envelope = nh.gaussian(**_DRIFT_ENVELOPE)
     with pytest.raises(ValueError, match="bounded axes only"):
         nh.wave_package(
             em, {"x": 2, "y": 0, "z": 1},
-            envelope=nh.gaussian_envelope(
+            envelope=nh.gaussian(
                 pos={"x": np.pi, "z": np.pi},
                 width={"x": 1.0, "z": 1.0}),
             traveling={"z": -1})
     with pytest.raises(ValueError, match="does not vary"):
         nh.wave_package(
             drift_model, _DRIFT_K,
-            envelope=nh.gaussian_envelope(pos={"x": 500.0},
+            envelope=nh.gaussian(pos={"x": 500.0},
                                           width={"x": 220.0}),
             traveling={"z": -1})
     with pytest.raises(ValueError, match="drift signs"):

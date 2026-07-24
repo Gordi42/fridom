@@ -31,10 +31,10 @@ untouched.
 - :func:`evaluate_frequency_function` — the guarded host-side
   ``f(omega)`` weight evaluation behind ``em.function(f, sel)`` /
   ``eb.function(f, sel)`` on every eigenmode tier;
-- :func:`gaussian_envelope` / :func:`envelope_axes` /
-  :func:`sample_envelope` — the wave-packet envelope surface (a
-  coordinate-named callable, sampled at each component's own
-  staggered nodes);
+- :func:`pattern_axes` / :func:`sample_pattern` — the wave-packet
+  envelope surface (a coordinate-named callable, sampled at each
+  component's own staggered nodes; the Gaussian shape builder lives
+  in :mod:`fridom.model.shapes`);
 - :func:`traveling_carrier` — the single-sided (traveling) packet
   carrier on bounded trig axes (the standing structure replaced by
   the running-wave combination whose group drift has the requested
@@ -350,63 +350,7 @@ def normalize_max_component(
 # ================================================================
 #  Wave-packet envelopes (coordinate-named callables)
 # ================================================================
-def gaussian_envelope(
-    pos: Mapping[str, float],
-    width: Mapping[str, float],
-) -> Callable[..., jax.Array]:
-    r"""
-    Build the Gaussian wave-packet envelope callable.
-
-    Description
-    -----------
-    Returns the coordinate-named callable
-
-    .. math::
-        E(\boldsymbol{x}) =
-            \prod_{i} \exp\left(-\frac{(x_i - p_i)^2}{w_i^2}\right)
-
-    over the coordinates named in ``pos`` / ``width``. Its signature
-    names exactly those coordinates, so the wave-packet factories
-    envelope along them and stay constant along every other axis.
-
-    Parameters
-    ----------
-    pos : Mapping[str, float]
-        Envelope centres, keyed by coordinate name.
-    width : Mapping[str, float]
-        Envelope widths; same keys as ``pos``.
-
-    Returns
-    -------
-    Callable[..., jax.Array]
-        The envelope callable (keyword coordinates to values).
-
-    Raises
-    ------
-    ValueError
-        On mismatched ``pos`` / ``width`` keys.
-    """
-    if set(pos) != set(width):
-        raise ValueError(
-            f"pos and width must name the same coordinates; got "
-            f"pos keys {tuple(sorted(pos))} and width keys "
-            f"{tuple(sorted(width))}")
-
-    def envelope(**coords: jax.Array) -> jax.Array:
-        value = jnp.asarray(1.0)
-        for axis, centre in pos.items():
-            value = value * jnp.exp(
-                -((coords[axis] - centre) ** 2) / width[axis] ** 2)
-        return value
-
-    envelope.__signature__ = inspect.Signature(  # type: ignore[attr-defined]
-        [inspect.Parameter(
-            coordinate, inspect.Parameter.POSITIONAL_OR_KEYWORD)
-         for coordinate in pos])
-    return envelope
-
-
-def envelope_axes(
+def pattern_axes(
     envelope: Callable[..., jax.Array],
     grid_names: tuple[str, ...],
     what: str,
@@ -453,7 +397,7 @@ def envelope_axes(
             f"the {what} envelope names no coordinate: declare "
             "the coordinates it varies along as parameters "
             "(e.g. envelope=lambda x, z: ...), or build one with "
-            "gaussian_envelope(pos=..., width=...)")
+            "gaussian(pos=..., width=...)")
     return names
 
 
@@ -485,7 +429,7 @@ def _stamped_sampler(
     return init
 
 
-def sample_envelope(
+def sample_pattern(
     grid: Grid,
     space: SpaceLike,
     envelope: Callable[..., jax.Array],
@@ -510,7 +454,7 @@ def sample_envelope(
     envelope : Callable[..., jax.Array]
         The coordinate-named envelope callable.
     axes : tuple[str, ...]
-        The declared coordinate names (:func:`envelope_axes`).
+        The declared coordinate names (:func:`pattern_axes`).
 
     Returns
     -------

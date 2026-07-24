@@ -37,7 +37,7 @@ axes as horizontal (the vertical coordinate is ``"z"``).
 Named analytic states port the reference initial-condition classes:
 :func:`single_wave` and :func:`wave_package` (thin wrappers over the
 analytic mode accessor ``em.mode``, the latter with a
-coordinate-named envelope callable — :func:`gaussian_envelope`
+coordinate-named envelope callable — :func:`gaussian`
 builds the common case — a re-projection onto the mode branch, and
 optional single-sided ``traveling=`` carriers on bounded axes),
 :func:`kelvin_wave` (the labeled boundary-trapped mode of the walled
@@ -60,17 +60,17 @@ from fridom.model._eigenbasis import (
     channel_random_state,
 )
 from fridom.model.eigenstates import (
-    envelope_axes,
+    geostrophic_energy_spectrum as geostrophic_energy_spectrum,  # noqa: PLC0414 — re-export
+)
+from fridom.model.eigenstates import (
     normalize_max_component,
+    pattern_axes,
     prescribed_spectra_coefficients,
-    sample_envelope,
+    sample_pattern,
     traveling_carrier,
 )
-from fridom.model.eigenstates import (
-    gaussian_envelope as gaussian_envelope,  # noqa: PLC0414 — re-export
-)
-from fridom.model.eigenstates import (
-    geostrophic_energy_spectrum as geostrophic_energy_spectrum,  # noqa: PLC0414 — re-export
+from fridom.model.shapes import (
+    gaussian as gaussian,  # noqa: PLC0414 — re-export
 )
 from fridom.nonhydro2.channel_eigenmodes import ChannelEigenmodes
 from fridom.nonhydro2.eigenmodes import Eigenmodes, from_model
@@ -529,7 +529,7 @@ def wave_package(
     stationary envelope :math:`E(\boldsymbol{x})` — a callable whose
     signature names the coordinates it varies along (unnamed axes
     stay constant), sampled at each component's own staggered nodes;
-    :func:`gaussian_envelope` builds the common Gaussian case — and
+    :func:`gaussian` builds the common Gaussian case — and
     re-projected onto the carrier's mode family so the packet stays
     polarized. The returned frequency is the carrier mode's.
 
@@ -560,7 +560,7 @@ def wave_package(
         (default: None).
     envelope : Callable[..., jax.Array]
         The coordinate-named envelope callable (e.g.
-        ``lambda x, z: ...`` or :func:`gaussian_envelope`).
+        ``lambda x, z: ...`` or :func:`gaussian`).
     traveling : Mapping[str, int] | None, optional
         Axis-keyed envelope drift signs (+1 / -1) along bounded
         axes; None keeps the standing carrier (default: None).
@@ -586,8 +586,8 @@ def wave_package(
         zero carrier mode number along a traveling axis.
     """
     em = _analytic(source, "wave_package", at_time)
-    axes = envelope_axes(envelope, tuple(em.grid.names),
-                         "wave-package")
+    axes = pattern_axes(envelope, tuple(em.grid.names),
+                        "wave-package")
     name = _resolve_mode_family(em, family, branch)
     if traveling:
         unnamed = sorted(set(traveling) - set(axes))
@@ -610,7 +610,7 @@ def wave_package(
         omega, z = em.mode(name, mode_number, phase=phase)
         carrier = {c: z[c] for c in _COMPONENTS}
     enveloped = {
-        c: carrier[c] * sample_envelope(
+        c: carrier[c] * sample_pattern(
             em.grid, carrier[c].function_space, envelope, axes)
         for c in _COMPONENTS}
     return omega, mode_projection(
