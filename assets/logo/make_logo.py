@@ -12,14 +12,15 @@ Each letter is a standalone ``<g id="letter-X" transform="translate(...)">``
 group, so letters can be moved individually in Inkscape.  Letter offsets
 snap to the cell grid so the mosaics of all letters stay aligned.
 
-The shipped logo, ``fridom-final.svg``, is a hand-tuned (Inkscape) pick
-from the ``fridom-logo-v3-*`` variant family this script writes;
-regenerated variants are gitignored.  The shipped file also carries a
-hand-added ``<style>`` media-query block (not produced by this script)
-that switches to a simplified flat rendering when fewer than roughly
-550 device pixels span the logo; keep that block when editing or
-replacing the file.  ``docs/source/_static/fridom-title.svg`` is a
-byte-identical copy.
+The shipped logo, ``fridom.svg``, combines two hand-tuned (Inkscape)
+artworks derived from the ``fridom-logo-v3-*`` variant family this
+script writes (regenerated variants are gitignored): a fine-grid
+version (``<g id="hi">``) and a hand-drawn grid-less version
+(``<g id="lo">``).  A hand-added ``<style>`` media-query block (not
+produced by this script) shows ``#lo`` instead of ``#hi`` when fewer
+than roughly 550 device pixels span the logo; keep both groups and
+that block when editing or replacing the file.
+``docs/source/_static/fridom-title.svg`` is a byte-identical copy.
 
 Usage::
 

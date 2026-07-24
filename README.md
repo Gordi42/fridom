@@ -3,7 +3,7 @@
 [![codecov](https://codecov.io/github/Gordi42/fridom/graph/badge.svg?token=6LY1CFM6KU)](https://codecov.io/github/Gordi42/fridom)
 [![DOI](https://zenodo.org/badge/714260615.svg)](https://doi.org/10.5281/zenodo.14536978)
 
-[![](assets/logo/fridom-final.svg)](https://www.youtube.com/watch?v=Fotni4P2ZQs)
+[![](assets/logo/fridom.svg)](https://www.youtube.com/watch?v=Fotni4P2ZQs)
 
 # Framework for Idealized Ocean Models (FRIDOM)
 
