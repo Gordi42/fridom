@@ -1114,6 +1114,41 @@ def test_dimensional_stamp_keeps_the_cf_time_axis(
     assert time_attrs["dimensional_factor"] == 1.0
 
 
+def test_dimensional_stamp_gives_coordinates_cf_units(
+        tmp_path, model, state):
+    factors = {
+        "x": FakeEntry(1.0, "m", "1"),
+        "t": FakeEntry(1.0, "s", "1"),
+    }
+    fake = units_model(state, clock_at(0), factors=factors,
+                       table=model.field_table)  # no scaling -> dim
+    path = tmp_path / "dim-coords.zarr"
+    writer = Writer(path, fields=["u", "p"], trigger=every(steps=1))
+    writer.bind(fake)
+    writer.write(firing(state, 0))
+    writer.close()
+    # the stagger suffix strips back to the same factor row
+    assert _zattrs(path / "x")["units"] == "m"
+    assert _zattrs(path / "x_right")["units"] == "m"
+    assert "units" not in _zattrs(path / "y")  # no factor row
+
+
+def test_nondimensional_coordinates_claim_no_cf_units(
+        tmp_path, model, state):
+    fake = units_model(state, clock_at(0),
+                       factors={"x": FakeEntry(2.0, "m", "L")},
+                       scaling=FakeScaling(),
+                       table=model.field_table)
+    path = tmp_path / "nondim-coords.zarr"
+    writer = Writer(path, fields=["p"], trigger=every(steps=1))
+    writer.bind(fake)
+    writer.write(firing(state, 0))
+    writer.close()
+    x_attrs = _zattrs(path / "x")
+    assert "units" not in x_attrs
+    assert x_attrs["dimensional_units"] == "m"
+
+
 def test_user_attrs_win_over_the_units_stamp(tmp_path, model, state):
     fake = units_model(state, clock_at(0), factors={},
                        scaling=FakeScaling(),
