@@ -54,8 +54,6 @@ if TYPE_CHECKING:  # pragma: no cover
     from .model import Model
     from .modules.buoyancy_tracer import BuoyancyTracer
     from .modules.core import Core
-    from .modules.gaussian_wave_maker import GaussianWaveMaker
-    from .modules.polarized_wave_maker import PolarizedWaveMaker
     from .modules.smagorinsky_lilly import SmagorinskyLilly
     from .modules.stratification import (
         ConstantStratification,
@@ -91,8 +89,6 @@ all_imports_by_origin = {
         "CenteredAdvection", "UpwindAdvection", "WENOAdvection"],
     f"{base}.modules.stratification": [
         "ConstantStratification", "MeridionalStratification"],
-    f"{base}.modules.gaussian_wave_maker": ["GaussianWaveMaker"],
-    f"{base}.modules.polarized_wave_maker": ["PolarizedWaveMaker"],
     f"{base}.modules.smagorinsky_lilly": ["SmagorinskyLilly"],
     f"{base}.modules.surface_forcing": [
         "WindStress", "SurfaceBuoyancyFlux"],

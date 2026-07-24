@@ -23,7 +23,6 @@ from fridom.model.errors import (
 from fridom.model.model import _chunk_body
 from fridom.model.modules.source import Source
 from fridom.model.time_steppers.adam_bashforth import AdamBashforth
-from fridom.nonhydro2.modules.gaussian_wave_maker import GaussianWaveMaker
 from fridom.spatial.grid import Grid
 from fridom.spatial.meshes.interval import IntervalMesh
 
@@ -159,35 +158,62 @@ def test_scalar_width_broadcasts_over_named_axes():
 
 
 # ================================================================
-#  Parity gate: Source(Harmonic(A, f, phase=-pi/2)) == GaussianWaveMaker
+#  Closed-form gate: Source(Harmonic(A, f, phase=-pi/2)) is
+#  A sin(2 pi f t) prod exp(-(x - p)^2 / w^2) on the variable's own
+#  nodes — the exact forcing of the deleted Gaussian wave maker.
 # ================================================================
 @pytest.mark.parametrize("variable", ["u", "b"])
-def test_parity_with_gaussian_wave_maker(variable):
+def test_gaussian_forcing_matches_the_closed_form(variable):
     pos = {"x": np.pi} if variable == "u" else {"z": np.pi}
     width = {"x": 0.5} if variable == "u" else {"z": 0.7}
+    axis, w = next(iter(pos.items())), next(iter(width.values()))
     src = Source(
         "wm", {variable: fr.model.gaussian(pos=pos, width=width)},
         law=fr.model.Harmonic(AMP, FREQ, phase=-np.pi / 2))
-    gwm = GaussianWaveMaker(pos, width, FREQ, AMP, variable=variable)
-    model_s = make_model(src)
-    model_g = make_model(gwm)
+    model = make_model(src)
+    coord = nodes(model, variable, axis[0])
+    envelope = gauss(coord, axis[1], w)
     for t in (0.03, 0.09, 1.0 / (4.0 * FREQ)):
+        expected = AMP * np.sin(2 * np.pi * FREQ * t) * envelope
+        got = tendency(model, variable, t)
         np.testing.assert_allclose(
-            tendency(model_s, variable, t),
-            tendency(model_g, variable, t), atol=1e-15, rtol=0.0)
+            got, np.broadcast_to(expected, got.shape),
+            atol=1e-15, rtol=0.0)
 
 
-def test_parity_on_a_walled_grid_forces_w_at_its_faces():
+def test_gaussian_forcing_on_a_walled_grid_forces_w_at_its_faces():
     src = Source(
         "wm", {"w": fr.model.gaussian(pos={"z": np.pi}, width=0.7)},
         law=fr.model.Harmonic(AMP, FREQ, phase=-np.pi / 2))
-    gwm = GaussianWaveMaker({"z": np.pi}, {"z": 0.7}, FREQ, AMP,
-                            variable="w")
     ms = make_model(src, walled=("z",))
-    mg = make_model(gwm, walled=("z",))
-    t = 1.0 / (4.0 * FREQ)
+    t = 1.0 / (4.0 * FREQ)  # sin(2 pi f t) = 1
+    z = nodes(ms, "w", "z")
+    got = tendency(ms, "w", t)
     np.testing.assert_allclose(
-        tendency(ms, "w", t), tendency(mg, "w", t), atol=1e-15)
+        got, np.broadcast_to(AMP * gauss(z, np.pi, 0.7), got.shape),
+        atol=1e-15)
+
+
+def test_state_pattern_is_accepted_as_a_vocabulary_mapping():
+    # a State / VectorField is a component-named vocabulary object
+    # (iteration yields fields, not names): Source reads its
+    # ``.components`` mapping so a packet State drives it directly. The
+    # packet lives on the model's own interned spaces, so it is built
+    # from an eigenbasis on the SAME grid the Source binds to.
+    grid = make_grid()
+    _, packet = nh.wave_package(
+        make_model(grid=grid), {"x": 1, "y": 0, "z": 1}, "wave+",
+        envelope=fr.model.gaussian(pos={"x": np.pi}, width=1.5))
+    src = Source("wm", packet,
+                 law=fr.model.Harmonic(AMP, FREQ, phase=-np.pi / 2))
+    assert set(src.variables) == {"u", "v", "w", "b"}
+    model_s = make_model(src, grid=grid)
+    t = 1.0 / (4.0 * FREQ)
+    for c in ("u", "w"):
+        got = tendency(model_s, c, t)
+        expected = AMP * np.sin(2 * np.pi * FREQ * t) * np.asarray(
+            packet[c].data)
+        np.testing.assert_allclose(got, expected, atol=1e-14)
 
 
 # ================================================================
@@ -400,8 +426,8 @@ def test_ramped_amplitude_evaluates_at_stage_time():
 # The public Model.propagator refuses source.<label>.* here: the
 # Source module materializes AUXILIARY pattern fields at assembly, and
 # the propagator's per-owner "materialized-owner parameter" guard
-# (model.py) refuses every scalar leaf of such an owner (the
-# GaussianWaveMaker inherits the same limitation). The pattern does not
+# (model.py) refuses every scalar leaf of such an owner. The pattern
+# does not
 # depend on amplitude/frequency, so the gradient IS well-defined — the
 # differentiability-policy regression differentiates the pure kernel
 # _chunk_body directly (AGENTS.md permits either surface), splicing the
