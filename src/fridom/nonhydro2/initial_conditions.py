@@ -519,6 +519,7 @@ def wave_package(
     traveling: Mapping[str, int] | None = None,
     phase: float = 0.0,
     at_time: float = 0.0,
+    quadrature: bool = False,
 ) -> tuple[float, State]:
     r"""
     Build an enveloped single-mode wave packet (``WavePackage``).
@@ -545,6 +546,42 @@ def wave_package(
     envelope should be smooth, several carrier wavelengths wide,
     and well inside the domain (its tails small at the walls).
 
+    ``quadrature=True`` returns the **complex** packet :math:`Q`
+    instead of the real one, so the packet can drive a
+    :class:`~fridom.model.modules.Source` directly. :math:`Q` is the
+    analytic signal of the packet along the mode's own time
+    evolution: with :math:`\omega` the returned carrier frequency it
+    satisfies, for every :math:`t`,
+
+    .. math::
+        \mathrm{Re}\!\left[Q\,e^{-i\omega t}\right]
+            = \texttt{wave\_package(..., phase=phase} + \omega t
+              \texttt{)}
+
+    (the real packet phase-advanced by :math:`\omega t`, which is the
+    single mode's linear time evolution — ``single_wave``: the state
+    at time :math:`t` is the same packet at phase
+    ``phase + omega * t``). It is built from the phase quadrature pair
+    :math:`Q = z(\varphi) + i\,z(\varphi + \pi/2)` (``z`` the real
+    packet at ``phase`` :math:`\varphi`), which is exact for every
+    tier and path — periodic, standing walled, and ``traveling=`` —
+    because the family projection is a real operator and the mode is
+    :math:`\mathrm{Re}[W(\boldsymbol{x})\,e^{-i\varphi}]`. Feed it to a
+    factor-free harmonic source as
+
+    .. code-block:: python
+
+        omega, packet = nh.initial_conditions.wave_package(
+            model, mode_number, envelope=env, quadrature=True)
+        src = fr.model.modules.Source(
+            "packet", pattern=packet,
+            law=fr.model.Harmonic(
+                amplitude=A, frequency=omega / (2 * jnp.pi)))
+
+    so the forcing runs at the resonant :math:`\omega`, with the
+    frequency now an ordinary sweepable ``source.packet.frequency``
+    (deliberate detuning off resonance is a one-line change).
+
     Parameters
     ----------
     source : Model | Eigenmodes | ChannelEigenmodes
@@ -569,11 +606,17 @@ def wave_package(
     at_time : float, optional
         Parameter evaluation time when resolving from a model
         (default: 0.0).
+    quadrature : bool, optional
+        Return the complex analytic-signal packet :math:`Q` (for a
+        complex :class:`~fridom.model.modules.Source` pattern) instead
+        of the real packet (default: False).
 
     Returns
     -------
     tuple[float, State]
-        The carrier frequency and the enveloped state.
+        The carrier frequency and the enveloped state — real for
+        ``quadrature=False``, the complex analytic-signal packet
+        :math:`Q` for ``quadrature=True``.
 
     Raises
     ------
@@ -603,18 +646,32 @@ def wave_package(
                 "the vortical family does not propagate "
                 "(omega = 0): traveling= applies to the wave "
                 "branches")
-        omega, carrier = traveling_carrier(
-            em, name, mode_number, components=_COMPONENTS,
-            traveling=traveling, phase=phase)
-    else:
-        omega, z = em.mode(name, mode_number, phase=phase)
-        carrier = {c: z[c] for c in _COMPONENTS}
-    enveloped = {
-        c: carrier[c] * sample_pattern(
-            em.grid, carrier[c].function_space, envelope, axes)
-        for c in _COMPONENTS}
-    return omega, mode_projection(
-        em, em.families[name])(State(enveloped))
+    project = mode_projection(em, em.families[name])
+
+    def real_packet(ph: float) -> tuple[float, State]:
+        """Return the real enveloped, re-projected packet at phase ``ph``."""
+        if traveling:
+            omega, carrier = traveling_carrier(
+                em, name, mode_number, components=_COMPONENTS,
+                traveling=traveling, phase=ph)
+        else:
+            omega, z = em.mode(name, mode_number, phase=ph)
+            carrier = {c: z[c] for c in _COMPONENTS}
+        enveloped = {
+            c: carrier[c] * sample_pattern(
+                em.grid, carrier[c].function_space, envelope, axes)
+            for c in _COMPONENTS}
+        return omega, project(State(enveloped))
+
+    if not quadrature:
+        return real_packet(phase)
+    # the analytic-signal packet Q = z(phase) + i z(phase + pi/2), so
+    # Re[Q e^{-i omega t}] = z(phase + omega t) (the mode's own time
+    # evolution) — for a complex, factor-free Source pattern (SRC-D7).
+    omega, real = real_packet(phase)
+    _, imag = real_packet(phase + 0.5 * jnp.pi)
+    return omega, State(
+        {c: real[c] + 1j * imag[c] for c in _COMPONENTS})
 
 
 # ================================================================

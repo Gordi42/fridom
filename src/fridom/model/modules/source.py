@@ -181,7 +181,11 @@ class Source(Module):
                 f"Source label {label!r} contains a dot; the label "
                 "keys the flat AUXILIARY field names and the dotted "
                 "source.<label>.* parameter namespace (D2.1)")
-        pattern = dict(pattern)
+        # a State / VectorField is a component-named vocabulary object
+        # (its own iteration yields the fields, not the names), so read
+        # its ``.components`` mapping; a plain Mapping is taken directly.
+        components = getattr(pattern, "components", None)
+        pattern = dict(pattern if components is None else components)
         if not pattern:
             raise ValueError(
                 "Source needs at least one forced variable in "
