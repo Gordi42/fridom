@@ -891,8 +891,17 @@ class Writer:
                 if self._units is not None:
                     # the stagger suffix strips back to the factor
                     # row name; no matching row -> no stamp
-                    zattrs.update(self._units.per_name.get(
-                        _strip_position(dim), {}))
+                    row = self._units.per_name.get(
+                        _strip_position(dim), {})
+                    zattrs.update(row)
+                    # a dimensional model stores coordinates at their
+                    # physical values, so the row's unit is a true CF
+                    # claim; nondimensional coordinates stay unitless
+                    # (dimensional_factor carries the scale)
+                    unit = row.get("dimensional_units", "")
+                    if (unit and not self._units.nondimensional
+                            and "units" not in zattrs):
+                        zattrs["units"] = unit
                 _write_json(self._path / dim / ".zattrs", zattrs)
 
     def _write_time_axis(self, model_state: Any) -> None:
