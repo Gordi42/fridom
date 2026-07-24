@@ -96,16 +96,18 @@ rows (needs a 4-GPU allocation; new runs report the honest
 writing pass — it may surface regressions docs content must not bake
 in. Suite lives out-of-tree in `benchmarks/comparison` (by design).
 
-## 4b. Generalized source module (plan filed 2026-07-24, awaits owner)
+## 4b. Generalized source module — P4 remainder (P1–P3 shipped 2026-07-24, entry in [`done.md`](done.md))
 
-[`../plans/active/source_module_plan.md`](../plans/active/source_module_plan.md)
-(SRC-D1..D8): one generic `fr.model.modules.Source` (separable
-`Q(x)·g(t)` term, complex-pattern quadrature, `Harmonic` law,
-`gaussian_envelope` → `gaussian` in a new `shapes.py`,
-`wave_package(quadrature=True)`) replaces and deletes the two
-v1-ported wave makers. Sequencing is the owner's call; it gates the
-`internal_wave_maker` / `multiple_wave_makers` example ports in §5,
-so it wants to land before those.
+What remains of
+[`../plans/active/source_module_plan.md`](../plans/active/source_module_plan.md):
+**P4, the example re-spells** — `internal_wave_maker.py` and
+`multiple_wave_makers.py` still call the deleted
+`nh.GaussianWaveMaker`/`nh.PolarizedWaveMaker`, and `wave_package.py`
+(plus any other example using it) the renamed `gaussian_envelope` —
+all ride the docs cycle in §5 under the private owner-review
+workflow. Candidate follow-up parked in the plan: `Model.propagator`
+blanket-refuses `wrt=` parameters of modules that own materialized
+AUX fields, so `source.*` gradients need the `_chunk_body` surface.
 
 ## 5. Docs & examples rebuild
 

@@ -2723,3 +2723,36 @@ wave-fraction 1.0, compact envelope (no counter-beam); the standing
 default keeps the old construction value-identical. sw2 `Eigenmodes`
 gained the public `kit` property (tier parity with nh2). P3 (channel
 tier) deferred; P4 (the example switch) rides the docs cycle.
+
+## Generalized source module — separable volumetric forcing (shipped 2026-07-24)
+
+Owner feature from the wave-maker generalization brainstorm: the two
+v1-ported makers were special cases of one machine, `δz += Q(x)·g(t)`.
+Shipped P1–P3 of the plan
+([`../plans/active/source_module_plan.md`](../plans/active/source_module_plan.md),
+SRC-D1..D8 approved as recommended): the model-agnostic
+`fr.model.modules.Source` (one instance = one separable term; label →
+`source.<label>.{amplitude,frequency,phase}`; real patterns give
+`A cos(2πft+φ)·Q`, complex patterns the quadrature pair
+`A[cosθ·ReQ + sinθ·ImQ]`), the `Harmonic` time law (rampable
+amplitude, frequency deliberately not rampable — the `f + t·f'`
+instantaneous-frequency footgun teaches the `TimeFunction` chirp
+escape hatch), the `LikeField(name)` declarations-layer descriptor
+(an AUX field adopts the referenced field's own resolved space — the
+generic replacement for the nh staggering table), the shapes rename
+(`gaussian_envelope` → `fr.model.gaussian` in the new
+`model/shapes.py`, float-width broadcast; `pattern_axes` /
+`sample_pattern` helper renames), and
+`wave_package(quadrature=True)` returning the complex packet `Q =
+z(phase) + i·z(phase+π/2)` with the exact phase-advance property
+`Re[Q e^{−iωt}] == wave_package(phase=phase0+ωt)` (~5e-16 on
+periodic/walled, standing/traveling — no refused tiers). Both
+v1-ported nonhydro2 makers deleted; parity pinned first (Gaussian:
+closed form, atol 1e-15; polarized: real packet +
+`Harmonic(2A, ω/2π, −π/2)`, atol 1e-13 — the v1 doubling stays in
+the packet). Gates: mirrored tests + ruff green; autodiff grad vs FD
+≤3e-8 via the `_chunk_body` surface (`Model.propagator` still
+blanket-refuses materialized-owner parameters — candidate follow-up
+noted in the plan). P4 (re-spelling `internal_wave_maker`,
+`multiple_wave_makers`, and the `gaussian_envelope` call sites in
+the example scripts) rides the docs cycle.

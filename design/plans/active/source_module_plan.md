@@ -5,10 +5,23 @@ date: 2026-07-24
 
 # Generalized source module — separable volumetric forcing
 
-**Status: SRC-D1..D8 approved as recommended (owner, 2026-07-24),
-including the SRC-D5 generic-law call. Implementation in flight
-(P1–P3); P4 rides the docs cycle.** Driver (owner brainstorm,
-2026-07-24): the
+**Status: SRC-D1..D8 approved as recommended (owner, 2026-07-24);
+P1–P3 shipped 2026-07-24 (entry in `../../roadmap/done.md`; gates:
+mirrored tests + ruff green, Gaussian parity exact at atol 1e-15,
+polarized parity at atol 1e-13 with the factor-2 bookkeeping below,
+autodiff grad vs FD at ≤3e-8). P4 (example re-spells) remains and
+rides the docs cycle.** Shipped facts that refine the drafted text:
+the quadrature defining property is spelled through **phase
+advance** — `Re[Q e^{−iωt}] == wave_package(..., phase=phase0+ωt)`
+(`at_time=` only freezes time-dependent parameters, so the drafted
+`at_time` spelling was untestable); `Q = z(phase) + i·z(phase+π/2)`
+is exact (~5e-16) on periodic-standing, walled-standing and
+walled-traveling tiers — **no refused combinations** (the drafted
+walled-standing caveat proved false: the mode is `Re[W e^{−iφ}]`
+regardless of walls); the v1 doubling stays in the packet, so the
+replacement spelling of the old `PolarizedWaveMaker(amplitude=A)`
+is the **real** (non-quadrature) packet with `Harmonic(2A,
+ω/(2π), phase=−π/2)`. Driver (owner brainstorm, 2026-07-24): the
 two v1-ported wave makers (`nh.GaussianWaveMaker`,
 `nh.PolarizedWaveMaker`) are special cases of one machine — a sum of
 separable terms `Q(x) · g(t)` added to the tendency, where `Q` is a
