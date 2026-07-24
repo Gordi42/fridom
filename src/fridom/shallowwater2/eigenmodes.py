@@ -570,7 +570,7 @@ class Eigenmodes:
     def mode(
         self,
         family: str,
-        indices: Mapping[str, int],
+        mode_number: Mapping[str, int],
         *,
         branch: int | None = None,
         phase: float = 0.0,
@@ -588,8 +588,8 @@ class Eigenmodes:
         same call selects modes whether the eigenmodes are the
         analytic Fourier modes of a fully periodic grid or the
         numerically computed channel modes.
-        ``indices`` is an axis-keyed mapping of integer wavenumber
-        indices (e.g. ``{"x": 3, "y": 0}``) — the half-spectrum
+        ``mode_number`` is an axis-keyed mapping of integer mode
+        numbers (e.g. ``{"x": 3, "y": 0}``) — the half-spectrum
         axis runs ``0..n//2``, full-spectrum axes take any integer
         modulo ``n``. The state is the real Hermitian-closed
         physical mode
@@ -611,8 +611,8 @@ class Eigenmodes:
         family : str
             A labeled family name (:attr:`families`), signed or
             unsigned.
-        indices : Mapping[str, int]
-            Axis-keyed integer wavenumber indices, one per grid
+        mode_number : Mapping[str, int]
+            Axis-keyed integer mode numbers, one per grid
             axis.
         branch : int | None, optional
             The signed branch (+1 / -1) of an unsigned family root
@@ -629,7 +629,7 @@ class Eigenmodes:
         ------
         ValueError
             On unknown families, a Kelvin request (boundary-trapped
-            modes need walls), bad indices, or a structurally
+            modes need walls), bad mode numbers, or a structurally
             unrepresented mode (only on degenerate-parameter
             systems, e.g. the ``f_0 = 0`` geostrophic mean: the
             standard family is complete, Nyquist strata included).
@@ -644,25 +644,26 @@ class Eigenmodes:
                 "then resolves the labeled channel modes")
         name = _resolve_mode_family(self, family, branch)
         return self._mode_branch(
-            self.families[name], indices, phase=phase)
+            self.families[name], mode_number, phase=phase)
 
     def _mode_branch(
         self,
         s: int,
-        indices: Mapping[str, int],
+        mode_number: Mapping[str, int],
         *,
         phase: float = 0.0,
     ) -> tuple[float, State]:
         """Synthesize one mode of the integer branch ``s``."""
         components = ("u", "v", "p")
         q = self.q(s)
-        slots = {c: coefficient_index(q[c].function_space, indices)
+        slots = {c: coefficient_index(q[c].function_space, mode_number)
                  for c in components}
         amps = {c: q[c].data[slots[c]] for c in components}
         if all(float(jnp.abs(a)) == 0.0 for a in amps.values()):
             raise ValueError(
-                f"the branch-{s} mode at {dict(indices)!r} is structurally "
-                "unrepresented on the discrete lattice (the mode "
+                f"the branch-{s} mode at {dict(mode_number)!r} is "
+                "structurally unrepresented on the discrete lattice "
+                "(the mode "
                 "family is complete on the standard f0 != 0, "
                 "csqr != 0 system; degenerate parameters drop "
                 "strata, e.g. f0 = 0 empties the geostrophic mean)")
@@ -958,7 +959,7 @@ def eigenbasis(
     :class:`~fridom.shallowwater2.channel_eigenmodes.ChannelEigenmodes`
     (the labeled dense-column channel eigenbasis, beta-plane
     included). Both tiers expose the uniform surface — the
-    ``families`` vocabulary and ``mode(family, indices, *,
+    ``families`` vocabulary and ``mode(family, mode_number, *,
     branch=None, phase=0.0)`` — plus their engine-specific
     accessors. A multi-walled box has no periodic axis left to
     diagonalize over and is rejected.

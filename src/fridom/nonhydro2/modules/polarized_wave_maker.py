@@ -15,7 +15,7 @@ where :math:`\omega` is read off the operator-sourced analytic
 eigenmodes (:class:`~fridom.nonhydro2.eigenmodes.Eigenmodes` — the
 discrete dispersion relation, spatial-discretization errors included)
 and :math:`\boldsymbol{z}_W` is the packet: the polarized single mode
-at wavevector index ``k``, multiplied by a Gaussian envelope and
+at the carrier ``mode_number``, multiplied by a Gaussian envelope and
 projected back onto the wave branch.
 
 The bind/in-step split (D2.1): ``bind`` reads the constant ``f0``,
@@ -107,7 +107,7 @@ class PolarizedWaveMaker(fr.model.Module):
     -----------
     Adds :math:`A \sin(\omega t)\,\boldsymbol{z}_W` to the ``u``,
     ``v``, ``w``, ``b`` tendencies: :math:`\boldsymbol{z}_W` is the
-    discrete single mode at index ``k`` of the inertia-gravity
+    discrete single mode at the carrier ``mode_number`` of the inertia-gravity
     branch ``s`` (polarization and frequency from the analytic
     eigenmodes of the assembled model's constant ``f0``, ``N^2``,
     the aspect ratio), enveloped by the Gaussian
@@ -122,8 +122,8 @@ class PolarizedWaveMaker(fr.model.Module):
 
     Parameters
     ----------
-    k : Mapping[str, int]
-        Axis-keyed integer mode indices of the carrier wave, one
+    mode_number : Mapping[str, int]
+        Axis-keyed integer mode numbers of the carrier wave, one
         entry per grid coordinate (e.g. ``{"x": 2, "y": 0, "z": 1}``).
     position : Mapping[str, float]
         Center of the Gaussian envelope, keyed by coordinate name;
@@ -141,7 +141,7 @@ class PolarizedWaveMaker(fr.model.Module):
 
     def __init__(
         self,
-        k: Mapping[str, int],
+        mode_number: Mapping[str, int],
         position: Mapping[str, float],
         width: Mapping[str, float],
         *,
@@ -164,7 +164,7 @@ class PolarizedWaveMaker(fr.model.Module):
                 f"coordinates; got position keys "
                 f"{tuple(sorted(position))} and width keys "
                 f"{tuple(sorted(width))}")
-        self._k: dict[str, int] = dict(k)
+        self._mode_number: dict[str, int] = dict(mode_number)
         self._position: dict[str, float] = position
         self._width: dict[str, float] = width
         self._branch: int = branch
@@ -258,11 +258,12 @@ class PolarizedWaveMaker(fr.model.Module):
                 f"(bounded coordinates: {walled}): the packet is "
                 "synthesized from the analytic Fourier eigenmodes")
         names = set(grid.names)
-        if set(self._k) != names:
+        if set(self._mode_number) != names:
             raise ValueError(
-                f"the carrier index k names {tuple(sorted(self._k))}"
-                f", but the grid coordinates are {grid.names}; give "
-                "one integer mode index per coordinate")
+                f"the carrier mode_number names "
+                f"{tuple(sorted(self._mode_number))}, but the grid "
+                f"coordinates are {grid.names}; give "
+                "one integer mode number per coordinate")
         unknown = sorted(set(self._position) - names)
         if unknown:
             raise ValueError(
@@ -313,7 +314,7 @@ class PolarizedWaveMaker(fr.model.Module):
             dsqr=float(delta) ** 2,
             vertical=self._vertical)
         omega, wave = modes.mode(
-            "wave", self._k, branch=self._branch)
+            "wave", self._mode_number, branch=self._branch)
 
         # mask each component at its own nodes, re-project onto the
         # branch, and keep the doubled real packet (the v1

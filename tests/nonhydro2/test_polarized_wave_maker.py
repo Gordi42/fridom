@@ -39,7 +39,7 @@ def make_grid(walled=()):
 
 
 def make_maker(**kwargs):
-    defaults = {"k": K, "position": {"x": np.pi},
+    defaults = {"mode_number": K, "position": {"x": np.pi},
                 "width": {"x": 1.0}, "amplitude": AMP}
     defaults.update(kwargs)
     return PolarizedWaveMaker(**defaults)
@@ -83,9 +83,9 @@ def test_walled_grids_are_rejected_at_bind():
         make_model(make_maker(), walled=("z",))
 
 
-def test_carrier_index_must_key_every_coordinate():
-    with pytest.raises(ValueError, match="one integer mode index"):
-        make_model(make_maker(k={"x": 2}))
+def test_carrier_mode_number_must_key_every_coordinate():
+    with pytest.raises(ValueError, match="one integer mode number"):
+        make_model(make_maker(mode_number={"x": 2}))
 
 
 def test_unknown_envelope_coordinate_is_rejected_at_bind():

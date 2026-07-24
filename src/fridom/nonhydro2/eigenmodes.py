@@ -885,7 +885,7 @@ class Eigenmodes:
     def mode(
         self,
         family: str,
-        indices: Mapping[str, int],
+        mode_number: Mapping[str, int],
         *,
         branch: int | None = None,
         phase: float = 0.0,
@@ -903,8 +903,8 @@ class Eigenmodes:
         same call selects modes whether the eigenmodes are the
         analytic trigonometric modes or the numerically computed
         channel modes.
-        ``indices`` is an axis-keyed mapping of integer mode
-        indices (e.g. ``{"x": 3, "y": 0, "z": 2}``) — the
+        ``mode_number`` is an axis-keyed mapping of integer mode
+        numbers (e.g. ``{"x": 3, "y": 0, "z": 2}``) — the
         half-spectrum axis runs ``0..n//2``, full-spectrum axes
         take any integer modulo ``n``, and a walled vertical takes
         the **physical** vertical mode on the ``0..n`` union
@@ -929,8 +929,8 @@ class Eigenmodes:
         family : str
             A labeled family name (:attr:`families`), signed or
             unsigned.
-        indices : Mapping[str, int]
-            Axis-keyed integer mode indices, one per grid axis.
+        mode_number : Mapping[str, int]
+            Axis-keyed integer mode numbers, one per grid axis.
         branch : int | None, optional
             The signed branch (+1 / -1) of an unsigned family root
             (default: None).
@@ -946,7 +946,7 @@ class Eigenmodes:
         ------
         ValueError
             On unknown families, a Kelvin request (boundary-trapped
-            modes need horizontal walls), bad indices, or a
+            modes need horizontal walls), bad mode numbers, or a
             structurally unrepresented mode (e.g. a wave branch on
             a vortical-only stratum: the ``k_h = 0`` columns, the
             walled barotropic ``m = 0`` and buoyancy-top ``m = n``
@@ -962,27 +962,28 @@ class Eigenmodes:
                 "resolves the labeled channel modes")
         name = _resolve_mode_family(self, family, branch)
         return self._mode_branch(
-            self.families[name], indices, phase=phase)
+            self.families[name], mode_number, phase=phase)
 
     def _mode_branch(
         self,
         s: int,
-        indices: Mapping[str, int],
+        mode_number: Mapping[str, int],
         *,
         phase: float = 0.0,
     ) -> tuple[float, State]:
         """Synthesize one mode of the integer branch ``s``."""
         components = ("u", "v", "w", "b")
         q = self.q(s)
-        slots = {c: coefficient_index(q[c].function_space, indices)
+        slots = {c: coefficient_index(q[c].function_space, mode_number)
                  for c in components}
         amps = {c: q[c].data[slots[c]] for c in components
                 if slots[c] is not None}
         if (s != 0 and slots["w"] is None) or all(
                 float(jnp.abs(a)) == 0.0 for a in amps.values()):
             raise ValueError(
-                f"the branch-{s} mode at {dict(indices)!r} is structurally "
-                "unrepresented on the discrete lattice (wave "
+                f"the branch-{s} mode at {dict(mode_number)!r} is "
+                "structurally unrepresented on the discrete lattice "
+                "(wave "
                 "branches vanish at k_h = 0, outside the vertical "
                 "w strata, and on the doubly degenerate Nyquist "
                 "strata; the geostrophic column vanishes at the "
@@ -1242,7 +1243,7 @@ def eigenbasis(
     included — the walls the rotation couples to, where no
     trigonometric basis exists). Both tiers expose the uniform
     surface — the ``families`` vocabulary and ``mode(family,
-    indices, *, branch=None, phase=0.0)`` — plus their
+    mode_number, *, branch=None, phase=0.0)`` — plus their
     engine-specific accessors. A multi-walled box has no periodic
     axis left to diagonalize over and is rejected.
 
