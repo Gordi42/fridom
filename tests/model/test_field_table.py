@@ -7,6 +7,7 @@ from fridom.model.declarations import (
     FieldDeclaration,
     FieldReference,
     Lifecycle,
+    LikeField,
 )
 from fridom.model.errors import (
     AssemblyError,
@@ -127,6 +128,37 @@ def test_from_declaration_resolves_the_space(table, meshes):
     assert table["v"].space.factors == (x.center, z.center)
     assert table["n2"].space.factors == (x.constant, z.center)
     assert table["u"].space.layout is None  # bare, pre-layout
+
+
+def test_like_field_adopts_the_referenced_space(grid):
+    """A LikeField AUX field resolves to the referenced field's space."""
+    u = FieldDeclaration.velocity("u", "x", space=Staggered("x"))
+    mask = FieldDeclaration("mask", space=LikeField("u"),
+                            lifecycle=Lifecycle.AUXILIARY)
+    resolved = {"u": u.space.resolve(grid)}
+    urec = FieldRecord.from_declaration(
+        u, owner=0, owner_type="Core", grid=grid, resolved=resolved)
+    mrec = FieldRecord.from_declaration(
+        mask, owner=1, owner_type="Source", grid=grid,
+        resolved=resolved)
+    # the AUX field lands on the identical interned space object
+    assert mrec.space is urec.space
+    # the LikeField descriptor is the record's fingerprint pattern
+    assert mrec.pattern == LikeField("u")
+
+
+def test_like_field_missing_reference_is_taught(grid):
+    """A LikeField naming no concrete field raises MissingFieldError."""
+    mask = FieldDeclaration("mask", space=LikeField("nope"),
+                            lifecycle=Lifecycle.AUXILIARY)
+    with pytest.raises(MissingFieldError, match="LikeField"):
+        FieldRecord.from_declaration(
+            mask, owner=0, owner_type="Source", grid=grid,
+            resolved={"u": Staggered("x").resolve(grid)})
+    # a LikeField cannot resolve without the concrete-space map at all
+    with pytest.raises(MissingFieldError, match="nope"):
+        FieldRecord.from_declaration(
+            mask, owner=0, owner_type="Source", grid=grid)
 
 
 def test_record_carries_the_structural_row(table):

@@ -37,6 +37,7 @@ from fridom.model.composer import TendencyComposer
 from fridom.model.context import StepContext
 from fridom.model.declarations import (
     Lifecycle,
+    LikeField,
     _leads_with_self,
 )
 from fridom.model.errors import (
@@ -1962,10 +1963,17 @@ def assemble(
 
     # -- step 1: fields ------------------------------------------
     declarations = _collect_declarations(modules)
+    # pre-resolve every concrete (non-LikeField) declaration so a
+    # LikeField AUX field can adopt the referenced field's own space
+    concrete_spaces = {
+        declaration.name: declaration.space.resolve(grid)
+        for _slot, declaration in declarations
+        if not isinstance(declaration.space, LikeField)}
     table = FieldTable(
         (FieldRecord.from_declaration(
             declaration, owner=slot,
-            owner_type=type(modules[slot]).__qualname__, grid=grid)
+            owner_type=type(modules[slot]).__qualname__, grid=grid,
+            resolved=concrete_spaces)
          for slot, declaration in declarations),
         grid=grid)
     for slot, module in enumerate(modules):

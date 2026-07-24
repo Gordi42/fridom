@@ -25,7 +25,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from fridom.model.declarations import Lifecycle
+from fridom.model.declarations import Lifecycle, LikeField
 from fridom.model.errors import (
     AssemblyError,
     FieldCollisionError,
@@ -34,7 +34,7 @@ from fridom.model.errors import (
 from fridom.model.roles import Role, Velocity
 
 if TYPE_CHECKING:  # pragma: no cover
-    from collections.abc import Iterable, Iterator
+    from collections.abc import Iterable, Iterator, Mapping
 
     from fridom.model.declarations import (
         FieldDeclaration,
@@ -50,6 +50,40 @@ if TYPE_CHECKING:  # pragma: no cover
     from fridom.spatial.spaces.tensor_product import (
         TensorProductSpace,
     )
+
+
+# ================================================================
+#  Space resolution (SpacePattern / SpaceRule / LikeField)
+# ================================================================
+def _resolve_declared_space(
+    descriptor: SpacePattern | SpaceRule | LikeField,
+    grid: Grid,
+    resolved: Mapping[str, TensorProductSpace] | None,
+) -> TensorProductSpace:
+    """
+    Resolve one declared space descriptor to a bare interned space.
+
+    Description
+    -----------
+    A ``SpacePattern`` / ``SpaceRule`` resolves against the grid; a
+    ``LikeField(name)`` adopts the referenced field's already-resolved
+    bare space from ``resolved`` (assembly step 1 pre-resolves every
+    concrete declaration into that map). A reference the map cannot
+    satisfy — an undeclared field, or one declared only through
+    another ``LikeField`` — raises the taught `MissingFieldError`.
+    """
+    if not isinstance(descriptor, LikeField):
+        return descriptor.resolve(grid)
+    if resolved is not None and descriptor.name in resolved:
+        return resolved[descriptor.name]
+    available = ", ".join(sorted(resolved)) if resolved else "none"
+    raise MissingFieldError(
+        f"a field declared LikeField({descriptor.name!r}) — adopting "
+        f"the space of the field {descriptor.name!r} — but no module "
+        f"declares {descriptor.name!r} with a concrete space (fields "
+        f"declared with a SpacePattern/SpaceRule: {available}); the "
+        "referenced field must be declared with a SpacePattern or "
+        "SpaceRule (a LikeField cannot reference another LikeField)")
 
 
 # ================================================================
@@ -117,16 +151,21 @@ class FieldRecord:
         owner: int,
         owner_type: str,
         grid: Grid,
+        resolved: Mapping[str, TensorProductSpace] | None = None,
     ) -> FieldRecord:
         """
         Resolve one declaration against a grid (table-build seam).
 
         Description
         -----------
-        Space resolution happens here: the declared pattern/rule is
-        resolved through the grid-level ``("declared_space", mesh)``
-        resolver rows into the bare interned space. The declaration's
-        annotation is folded into the surviving `FieldMetadata`.
+        Space resolution happens here: a declared ``SpacePattern`` /
+        ``SpaceRule`` is resolved through the grid-level
+        ``("declared_space", mesh)`` resolver rows into the bare
+        interned space, while a ``LikeField(name)`` adopts the
+        already-resolved bare space of the referenced field, looked
+        up in ``resolved`` (built by assembly step 1 from every
+        concrete declaration). The declaration's annotation is folded
+        into the surviving `FieldMetadata`.
 
         Parameters
         ----------
@@ -138,18 +177,29 @@ class FieldRecord:
             Qualified class name of the owner.
         grid : Grid
             The grid whose resolver rows bind the pattern.
+        resolved : Mapping[str, TensorProductSpace] | None, optional
+            The concrete declarations' resolved bare spaces, keyed by
+            field name; consulted only to resolve a ``LikeField``
+            reference (default: None).
 
         Returns
         -------
         FieldRecord
             The resolved row.
+
+        Raises
+        ------
+        MissingFieldError
+            If the declaration is a ``LikeField`` whose referenced
+            field is not among the concrete declarations.
         """
         return cls(
             name=declaration.name,
             owner=owner,
             owner_type=owner_type,
             pattern=declaration.space,
-            space=declaration.space.resolve(grid),
+            space=_resolve_declared_space(
+                declaration.space, grid, resolved),
             lifecycle=declaration.lifecycle,
             roles=declaration.roles,
             host_writable=declaration.host_writable,

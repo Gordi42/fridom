@@ -443,6 +443,102 @@ class TimeSeries(TimeDependent):
 
 
 # ================================================================
+#  Harmonic (the blessed forcing law: A(t) cos(2 pi f t + phi))
+# ================================================================
+@partial(jaxify, dynamic=("amplitude", "frequency", "phase"))
+class Harmonic(TimeDependent):
+
+    r"""
+    The harmonic forcing law ``g(t) = A(t) cos(2 pi f t + phi)``.
+
+    Description
+    -----------
+    The blessed :class:`~fridom.model.modules.Source` law (SRC-D5): a
+    monochromatic oscillation whose three parameters publish as the
+    sweepable dynamic leaves ``source.<label>.{amplitude, frequency,
+    phase}``. The phase convention is fixed so ``phi = -pi/2`` is a
+    sine and ``phi = 0`` a cosine:
+
+    .. math::
+        g(t) = A(t)\,\cos(2\pi f t + \varphi),
+
+    i.e. the real part of the single-convention forcing
+    :math:`A\,\mathrm{Re}[\,e^{-i(2\pi f t + \varphi)}]` (a complex
+    :class:`~fridom.model.modules.Source` pattern reuses the same
+    :math:`2\pi f t + \varphi` in its quadrature expansion). A
+    Gaussian wave maker ``A sin(2 pi f t)`` is exactly
+    ``Harmonic(A, f, phase=-pi/2)``.
+
+    - ``amplitude`` is ``float | TimeDependent``: the spin-up
+      doctrine ("ramp the amplitude, not the structure"), so a
+      ``fr.Ramp`` amplitude is evaluated at the stage time ``t``.
+    - ``frequency`` MUST be a plain number: a ``TimeDependent``
+      frequency is refused with the chirp teaching (the naive
+      ``A sin(2 pi f(t) t)`` has instantaneous frequency
+      ``f + t f'``, not ``f(t)`` — a correct chirp needs the
+      explicit phase integral, spelled as a
+      :class:`TimeFunction` law instead).
+    - ``phase`` is a plain number.
+
+    The three slots are dynamic leaves, so sweeping them never
+    recompiles and ``jax.grad`` flows through them.
+
+    Parameters
+    ----------
+    amplitude : float | TimeDependent
+        The oscillation amplitude :math:`A` (a number or a
+        time curve such as ``fr.Ramp``).
+    frequency : float
+        The oscillation frequency :math:`f` (a plain number; the
+        oscillation runs at :math:`2\pi f`).
+    phase : float, optional
+        The phase shift :math:`\varphi` in radians; ``-pi/2`` is a
+        sine, ``0`` a cosine (default: 0.0).
+
+    Raises
+    ------
+    TypeError
+        If ``frequency`` is a ``TimeDependent`` (the chirp footgun).
+    """
+
+    def __init__(
+        self,
+        amplitude: float | TimeDependent,
+        frequency: float,
+        phase: float = 0.0,
+    ) -> None:
+        """Coerce the leaves; refuse a time-dependent frequency."""
+        if isinstance(frequency, TimeDependent):
+            raise TypeError(
+                "Harmonic frequency must be a plain number, not a "
+                "TimeDependent: the naive A sin(2 pi f(t) t) has "
+                "instantaneous frequency f + t f'(t), not f(t), so a "
+                "time-dependent frequency is a footgun. A correct "
+                "chirp needs the explicit phase integral — write it "
+                "as the Source law directly, e.g. TimeFunction("
+                "lambda t, f0, rate: jnp.cos(2*jnp.pi*(f0 + "
+                "0.5*rate*t)*t), params=(f0, rate))")
+        self.amplitude: object = (
+            amplitude if isinstance(amplitude, TimeDependent)
+            else jnp.asarray(amplitude))
+        self.frequency = jnp.asarray(frequency)
+        self.phase = jnp.asarray(phase)
+
+    def __call__(self, t: jax.Array | float) -> jax.Array:
+        """Evaluate ``A(t) cos(2 pi f t + phi)``; valid for all t."""
+        t = jnp.asarray(t)
+        theta = 2.0 * jnp.pi * self.frequency * t + self.phase
+        amp = resolve_at(self.amplitude, t)
+        return amp * jnp.cos(theta)
+
+    def __repr__(self) -> str:
+        """Repr naming the three concrete leaves."""
+        return (f"Harmonic(amplitude={_leaf_repr(self.amplitude)}, "
+                f"frequency={_leaf_repr(self.frequency)}, "
+                f"phase={_leaf_repr(self.phase)})")
+
+
+# ================================================================
 #  resolve_at (the universal consumption idiom)
 # ================================================================
 def resolve_at(value: object, t: jax.Array | float) -> object:

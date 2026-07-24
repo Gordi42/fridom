@@ -58,6 +58,7 @@ if TYPE_CHECKING:  # pragma: no cover
         FieldDeclaration,
         FieldReference,
         Lifecycle,
+        LikeField,
     )
     from .eigen import NumericEigenmodes, numeric_eigenpairs
     from .eigen_channel import ChannelEigenbasis, channel_eigenpairs
@@ -95,6 +96,7 @@ if TYPE_CHECKING:  # pragma: no cover
         term,
     )
     from .time_dependent import (
+        Harmonic,
         Ramp,
         TimeDependent,
         TimeFunction,
@@ -127,13 +129,14 @@ all_modules_by_origin = {
 
 all_imports_by_origin = {
     f"{base}.declarations": [
-        "FieldDeclaration", "Lifecycle", "FieldReference"],
+        "FieldDeclaration", "Lifecycle", "FieldReference",
+        "LikeField"],
     f"{base}.parameters": [
         "ParameterDeclaration", "ParameterReference", "Param",
         "USE_PROVIDED", "leaf"],
     f"{base}.time_dependent": [
         "TimeDependent", "Ramp", "TimeFunction", "TimeSeries",
-        "resolve_at"],
+        "Harmonic", "resolve_at"],
     f"{base}.scheduled_field": ["ProfileFunction"],
     f"{base}.shapes": ["gaussian"],
     f"{base}.terms": [
