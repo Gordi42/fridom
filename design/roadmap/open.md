@@ -96,6 +96,17 @@ rows (needs a 4-GPU allocation; new runs report the honest
 writing pass — it may surface regressions docs content must not bake
 in. Suite lives out-of-tree in `benchmarks/comparison` (by design).
 
+## 4b. Generalized source module (plan filed 2026-07-24, awaits owner)
+
+[`../plans/active/source_module_plan.md`](../plans/active/source_module_plan.md)
+(SRC-D1..D8): one generic `fr.model.modules.Source` (separable
+`Q(x)·g(t)` term, complex-pattern quadrature, `Harmonic` law,
+`gaussian_envelope` → `gaussian` in a new `shapes.py`,
+`wave_package(quadrature=True)`) replaces and deletes the two
+v1-ported wave makers. Sequencing is the owner's call; it gates the
+`internal_wave_maker` / `multiple_wave_makers` example ports in §5,
+so it wants to land before those.
+
 ## 5. Docs & examples rebuild
 
 The bulk: **11+ example ports** and the **entire prose page tree**
