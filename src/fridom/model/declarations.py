@@ -88,8 +88,10 @@ class FieldDeclaration:
     name : str
         The flat, dot-free field name (dots are the parameter
         namespace separator, D2.1).
-    space : SpacePattern | SpaceRule
-        The grid-free space descriptor (keyword-only, mandatory).
+    space : SpacePattern | SpaceRule | LikeField
+        The grid-free space descriptor (keyword-only, mandatory); a
+        ``LikeField(name)`` adopts another declared field's own
+        resolved space.
     lifecycle : Lifecycle, optional
         Who advances the field (default: Lifecycle.PROGNOSTIC).
     roles : Iterable[Role], optional
@@ -126,7 +128,7 @@ class FieldDeclaration:
         self,
         name: str,
         *,
-        space: SpacePattern | SpaceRule,
+        space: SpacePattern | SpaceRule | LikeField,
         lifecycle: Lifecycle = Lifecycle.PROGNOSTIC,
         roles: Iterable[Role] = (),
         default: float | Callable | None = None,
@@ -138,7 +140,7 @@ class FieldDeclaration:
     ) -> None:
         """Normalize and locally validate the declaration."""
         self._name: str = _check_name(name)
-        self._space: SpacePattern | SpaceRule = _check_space(
+        self._space: SpacePattern | SpaceRule | LikeField = _check_space(
             name, space)
         if not isinstance(lifecycle, Lifecycle):
             raise TypeError(
@@ -187,8 +189,8 @@ class FieldDeclaration:
         return self._name
 
     @property
-    def space(self) -> SpacePattern | SpaceRule:
-        """The grid-free space descriptor (pattern or rule)."""
+    def space(self) -> SpacePattern | SpaceRule | LikeField:
+        """The grid-free space descriptor (pattern, rule, or LikeField)."""
         return self._space
 
     @property
@@ -440,6 +442,58 @@ class FieldDeclaration:
 
 
 @final
+@dataclasses.dataclass(frozen=True)
+class LikeField:
+
+    """
+    Space descriptor adopting another declared field's own space.
+
+    Description
+    -----------
+    A tiny declarations-layer sentinel for the "same space as field
+    X" need: a module declaring an AUXILIARY field that must land on
+    exactly the negotiated space of a PROGNOSTIC field it forces
+    (staggered faces for a velocity, cell centres for a scalar)
+    without hardcoding a model's staggering vocabulary. It is neither
+    a ``SpacePattern`` (it names no tags) nor a ``SpaceRule`` (it
+    consults no grid): it references a *field name* and is resolved
+    during assembly step 1 to that field's already-resolved bare
+    space (``FieldRecord.from_declaration``'s ``resolved`` map). The
+    referenced field must be declared with a concrete
+    ``SpacePattern`` / ``SpaceRule`` (a chain of ``LikeField``s does
+    not resolve); an undeclared reference raises the taught
+    ``MissingFieldError`` naming it.
+
+    A frozen, value-hashable descriptor: two ``LikeField("u")`` compare
+    and hash equal, so it is a stable ``FieldRecord`` fingerprint token
+    (the resolved bare space enters the fingerprint separately).
+
+    Parameters
+    ----------
+    name : str
+        The referenced field's name (its own space is adopted).
+    """
+
+    name: str
+
+    def __post_init__(self) -> None:
+        """Validate the referenced name (non-empty, dot-free)."""
+        if not isinstance(self.name, str) or not self.name:
+            raise TypeError(
+                f"LikeField references a field by name; got "
+                f"{self.name!r}")
+        if "." in self.name:
+            raise ValueError(
+                f"LikeField name {self.name!r} contains a dot; field "
+                "names are flat (dots are the parameter namespace "
+                "separator, D2.1)")
+
+    def __repr__(self) -> str:
+        """Round-tripping repr, e.g. ``LikeField('u')``."""
+        return f"LikeField({self.name!r})"
+
+
+@final
 class FieldReference(NamedTuple):
 
     """
@@ -524,13 +578,14 @@ def _check_name(name: str) -> str:
 
 def _check_space(
     name: str, space: object,
-) -> SpacePattern | SpaceRule:
-    """Validate the space slot (pattern or rule; one protocol)."""
-    if isinstance(space, SpacePattern | SpaceRule):
+) -> SpacePattern | SpaceRule | LikeField:
+    """Validate the space slot (pattern, rule, or LikeField)."""
+    if isinstance(space, SpacePattern | SpaceRule | LikeField):
         return space
     raise TypeError(
         f"field {name!r}: space must be a SpacePattern (Collocated/"
-        f"Staggered/Profile) or a SpaceRule, got {space!r}")
+        f"Staggered/Profile), a SpaceRule, or a LikeField, got "
+        f"{space!r}")
 
 
 def _check_roles(

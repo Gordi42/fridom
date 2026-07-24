@@ -7,6 +7,7 @@ import numpy as np
 import pytest
 
 from fridom.model.time_dependent import (
+    Harmonic,
     Ramp,
     TimeDependent,
     TimeFunction,
@@ -369,6 +370,79 @@ def test_time_function_grad_flows_through_params():
 def _named_law(t, a, b):
     """Return a named law so the repr shows a stable ``__name__``."""
     return a * jnp.cos(b * t)
+
+
+# ================================================================
+#  Harmonic (the blessed forcing law: A(t) cos(2 pi f t + phi))
+# ================================================================
+def test_harmonic_evaluates_the_cosine_law():
+    curve = Harmonic(0.3, 2.0, phase=0.4)
+    assert isinstance(curve, TimeDependent)
+    for t in (-1.0, 0.0, 0.7, 3.0):
+        np.testing.assert_allclose(
+            curve(t), 0.3 * math.cos(2 * math.pi * 2.0 * t + 0.4),
+            atol=1e-13)
+
+
+def test_harmonic_phase_conventions():
+    # phase = -pi/2 is a sine, phase = 0 a cosine (the SRC-D5 convention)
+    sine = Harmonic(1.0, 2.0, phase=-math.pi / 2)
+    cosine = Harmonic(1.0, 2.0)
+    for t in (0.03, 0.09, 0.31):
+        np.testing.assert_allclose(
+            sine(t), math.sin(2 * math.pi * 2.0 * t), atol=1e-13)
+        np.testing.assert_allclose(
+            cosine(t), math.cos(2 * math.pi * 2.0 * t), atol=1e-13)
+
+
+def test_harmonic_amplitude_can_ramp():
+    # a Ramp amplitude is evaluated at the same t as the oscillation
+    ramp = Ramp(0.0, 2.0, period=1.0)
+    curve = Harmonic(ramp, 1.0)
+    for t in (0.25, 0.5, 1.5):
+        np.testing.assert_allclose(
+            curve(t),
+            float(ramp.at_time(t)) * math.cos(2 * math.pi * t),
+            atol=1e-13)
+
+
+def test_harmonic_rejects_a_time_dependent_frequency():
+    with pytest.raises(TypeError, match="instantaneous frequency"):
+        Harmonic(1.0, Ramp(1.0, 2.0, period=1.0))
+    with pytest.raises(TypeError, match="chirp"):
+        Harmonic(1.0, TimeFunction(lambda t: t))
+
+
+def test_harmonic_repr_names_the_leaves():
+    assert repr(Harmonic(0.3, 2.0, phase=-0.5)) == \
+        "Harmonic(amplitude=0.3, frequency=2.0, phase=-0.5)"
+
+
+def test_harmonic_param_sweep_does_not_recompile(compile_counter):
+    @jax.jit
+    def evaluate(curve, t):
+        return curve(t)
+
+    t = jnp.asarray(0.1)
+    evaluate(Harmonic(0.3, 2.0, phase=0.0), t).block_until_ready()
+
+    compile_counter.reset()
+    for a, f, p in ((0.5, 2.0, 0.0), (0.5, 3.5, 0.1), (0.7, 1.0, -0.5)):
+        evaluate(Harmonic(a, f, phase=p), t).block_until_ready()
+    assert compile_counter.count == 0
+
+
+def test_harmonic_grad_flows_through_amplitude_and_frequency():
+    curve = Harmonic(0.3, 2.0, phase=0.1)
+    t = 0.2
+    grad = jax.grad(lambda c: c(t))(curve)
+    theta = 2 * math.pi * 2.0 * t + 0.1
+    np.testing.assert_allclose(
+        grad.amplitude, math.cos(theta), rtol=1e-10)
+    # d/df [A cos(2 pi f t + phi)] = -A 2 pi t sin(theta)
+    np.testing.assert_allclose(
+        grad.frequency,
+        -0.3 * 2 * math.pi * t * math.sin(theta), rtol=1e-10)
 
 
 # ================================================================

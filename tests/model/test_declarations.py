@@ -5,6 +5,7 @@ from fridom.model.declarations import (
     FieldDeclaration,
     FieldReference,
     Lifecycle,
+    LikeField,
 )
 from fridom.model.roles import ADVECTED, TRACER, Role, Velocity
 from fridom.spatial.bc import BC
@@ -82,6 +83,31 @@ def test_space_slot_accepts_pattern_or_rule():
         FieldDeclaration("q", space="collocated")
     with pytest.raises(TypeError):
         FieldDeclaration("q")  # space is mandatory
+
+
+def test_space_slot_accepts_like_field():
+    decl = FieldDeclaration("mask", space=LikeField("u"),
+                            lifecycle=Lifecycle.AUXILIARY)
+    assert decl.space == LikeField("u")
+    # the taught error names LikeField among the accepted descriptors
+    with pytest.raises(TypeError, match="LikeField"):
+        FieldDeclaration("q", space="collocated")
+
+
+def test_like_field_validates_the_referenced_name():
+    like = LikeField("u")
+    assert like.name == "u"
+    assert repr(like) == "LikeField('u')"
+    # value-hashable: two references to one name compare and hash equal
+    assert LikeField("u") == LikeField("u")
+    assert hash(LikeField("u")) == hash(LikeField("u"))
+    assert LikeField("u") != LikeField("v")
+    with pytest.raises(TypeError, match="references a field by name"):
+        LikeField("")
+    with pytest.raises(TypeError, match="references a field by name"):
+        LikeField(3)
+    with pytest.raises(ValueError, match="dot"):
+        LikeField("a.b")
 
 
 def test_lifecycle_and_roles_validation():

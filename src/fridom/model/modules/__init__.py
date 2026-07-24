@@ -42,6 +42,7 @@ if TYPE_CHECKING:  # pragma: no cover
     )
     from .ramping import TendencyEnvelope
     from .relaxation import Relaxation
+    from .source import Source
 
 base = "fridom.model.modules"
 
@@ -61,6 +62,7 @@ all_imports_by_origin = {
                                 "mapping_params"],
     f"{base}.ramping": ["TendencyEnvelope"],
     f"{base}.relaxation": ["Relaxation"],
+    f"{base}.source": ["Source"],
 }
 
 setup(__name__, all_modules_by_origin, all_imports_by_origin)
