@@ -302,7 +302,7 @@ def _analytic(
             "fully periodic grid; this model is a walled channel — "
             "synthesize labeled channel modes through the "
             "eigenbasis instead, e.g. "
-            "sw.eigenbasis(model).mode('kelvin', indices, "
+            "sw.eigenbasis(model).mode('kelvin', mode_number, "
             "branch=+1)")
     return em
 
@@ -382,7 +382,7 @@ def _invert_laplacian(grid: Grid, field: ScalarField) -> ScalarField:
 # ================================================================
 def single_wave(
     source: Model | Eigenmodes | ChannelEigenmodes,
-    k: Mapping[str, int],
+    mode_number: Mapping[str, int],
     family: str = "wave+",
     *,
     branch: int | None = None,
@@ -395,7 +395,7 @@ def single_wave(
     Description
     -----------
     The thin wrapper over the analytic mode accessor
-    ``em.mode(family, k, phase=...)``: the real Hermitian-closed
+    ``em.mode(family, mode_number, phase=...)``: the real Hermitian-closed
     physical mode
     :math:`\mathrm{Re}(q^s(k)\,e^{i(k\cdot x - \mathrm{phase})})`
     with exact discrete dispersion, normalized so the largest
@@ -410,8 +410,8 @@ def single_wave(
     ----------
     source : Model | Eigenmodes | ChannelEigenmodes
         The assembled model or an analytic eigenmodes object.
-    k : Mapping[str, int]
-        Axis-keyed integer wavenumber indices (e.g.
+    mode_number : Mapping[str, int]
+        Axis-keyed integer mode numbers (e.g.
         ``{"x": 3, "y": 0}``); a wavenumber of one is a wave with
         one wavelength across the domain.
     family : str, optional
@@ -436,16 +436,16 @@ def single_wave(
     ------
     ValueError
         On a walled channel (labeled modes come from
-        ``sw.eigenbasis``), bad indices, or a structurally
+        ``sw.eigenbasis``), bad mode numbers, or a structurally
         unrepresented mode.
     """
     em = _analytic(source, "single_wave", at_time)
-    return em.mode(family, k, branch=branch, phase=phase)
+    return em.mode(family, mode_number, branch=branch, phase=phase)
 
 
 def wave_package(
     source: Model | Eigenmodes | ChannelEigenmodes,
-    k: Mapping[str, int],
+    mode_number: Mapping[str, int],
     family: str = "wave+",
     *,
     branch: int | None = None,
@@ -468,8 +468,8 @@ def wave_package(
     polarized. The returned frequency is the carrier mode's.
 
     Both axes of the fully periodic analytic tier are periodic, so
-    the packet direction lives in the signs of the carrier indices
-    in ``k``; ``traveling`` (the bounded-axis drift selector of the
+    the packet direction lives in the signs of the carrier entries
+    in ``mode_number``; ``traveling`` (the bounded-axis drift selector of the
     walled tiers) therefore always teaches here — it exists for
     surface parity across the model packages.
 
@@ -477,8 +477,8 @@ def wave_package(
     ----------
     source : Model | Eigenmodes | ChannelEigenmodes
         The assembled model or an analytic eigenmodes object.
-    k : Mapping[str, int]
-        Axis-keyed integer wavenumber indices of the carrier.
+    mode_number : Mapping[str, int]
+        Axis-keyed integer mode numbers of the carrier.
     family : str, optional
         The carrier's labeled mode family: ``"vortical"``,
         ``"wave+"`` / ``"wave-"``, or the unsigned root ``"wave"``
@@ -508,7 +508,7 @@ def wave_package(
     ValueError
         On an envelope coordinate the grid does not have, a walled
         channel, or any ``traveling`` key (periodic axes take the
-        sign of ``k``).
+        sign of ``mode_number``).
     """
     em = _analytic(source, "wave_package", at_time)
     axes = envelope_axes(envelope, tuple(em.grid.names),
@@ -529,10 +529,10 @@ def wave_package(
                 "(omega = 0): traveling= applies to the wave "
                 "branches")
         omega, carrier = traveling_carrier(
-            em, name, k, components=_COMPONENTS,
+            em, name, mode_number, components=_COMPONENTS,
             traveling=traveling, phase=phase)
     else:
-        omega, z = em.mode(name, k, phase=phase)
+        omega, z = em.mode(name, mode_number, phase=phase)
         carrier = {c: z[c] for c in _COMPONENTS}
     enveloped = {
         c: carrier[c] * sample_envelope(

@@ -117,7 +117,7 @@ class ModeFamilySurface(Protocol):
     The uniform user surface of the eigenmode engines: the analytic
     (fully periodic) tiers and the numeric channel tiers both carry
     the ``families`` name -> code vocabulary and resolve
-    ``mode(family, indices, *, branch=None, phase=0.0)`` requests
+    ``mode(family, mode_number, *, branch=None, phase=0.0)`` requests
     through :func:`_resolve_mode_family`, so the caller never sees
     which engine the topology selected.
     """
@@ -539,7 +539,7 @@ class ChannelEigenmodesBase(ABC):
     def mode(
         self,
         family: str,
-        indices: Mapping[str, int],
+        mode_number: Mapping[str, int],
         *,
         branch: int | None = None,
         phase: float = 0.0,
@@ -552,8 +552,8 @@ class ChannelEigenmodesBase(ABC):
         The mode-indexed accessor of the channel eigenbasis:
         ``family`` names a labeled family (a signed name like
         ``"wave+"``, or an unsigned root with ``branch=+1/-1``);
-        ``indices`` is an axis-keyed mapping covering every grid
-        axis — the periodic axes carry integer wavenumber indices
+        ``mode_number`` is an axis-keyed mapping covering every grid
+        axis — the periodic axes carry integer mode numbers
         (the half-spectrum axis runs ``0..n//2``, full axes take
         any integer modulo ``n``), and the bounded axis carries the
         **within-family mode ordinal**. Ordinals order the family's
@@ -581,8 +581,8 @@ class ChannelEigenmodesBase(ABC):
         family : str
             A labeled family name (``self.families``), signed or
             unsigned-with-``branch``.
-        indices : Mapping[str, int]
-            Axis-keyed mode indices; the bounded axis keys the
+        mode_number : Mapping[str, int]
+            Axis-keyed mode numbers; the bounded axis keys the
             within-family ordinal.
         branch : int | None, optional
             ``+1``/``-1`` selects the signed branch of an unsigned
@@ -599,11 +599,11 @@ class ChannelEigenmodesBase(ABC):
         Raises
         ------
         ValueError
-            On unknown/nonphysical families, bad indices, or a
+            On unknown/nonphysical families, bad mode numbers, or a
             plane holding no (or too few) columns of the family.
         """
         name = _resolve_mode_family(self, family, branch)
-        slots, ordinal = _plane_slots(self, indices)
+        slots, ordinal = _plane_slots(self, mode_number)
         omega = np.asarray(self.omega)[slots]
         labels = np.asarray(self.labels)[slots]
         q = np.asarray(self.q)[slots]
@@ -1148,8 +1148,8 @@ def _resolve_mode_family(
         raise TypeError(
             f"mode() selects by family name, got {family!r}: the "
             "vocabulary is em.families — e.g. mode('vortical', "
-            "indices), mode('wave+', indices) or mode('wave', "
-            "indices, branch=+1). Integer branches survive only on "
+            "mode_number), mode('wave+', mode_number) or mode('wave', "
+            "mode_number, branch=+1). Integer branches survive only on "
             "the low-level analytic q(s)/omega(s)/projector(s) "
             "surface")
     name = family
@@ -1183,17 +1183,17 @@ def _resolve_mode_family(
 
 def _plane_slots(
     em: ChannelEigenmodesBase,
-    indices: Mapping[str, int],
+    mode_number: Mapping[str, int],
 ) -> tuple[tuple[int, ...], int]:
-    """Resolve axis-keyed indices to (plane slots, family ordinal)."""
+    """Resolve axis-keyed mode numbers to (plane slots, family ordinal)."""
     names = em.grid.names
-    if set(indices) != set(names):
+    if set(mode_number) != set(names):
         raise ValueError(
-            "mode indices are keyed by the grid axes "
+            "mode numbers are keyed by the grid axes "
             f"{tuple(names)!r} (the bounded axis "
             f"{em.bounded_axis!r} keys the within-family ordinal); "
-            f"got keys {tuple(indices)!r}")
-    ordinal = int(indices[em.bounded_axis])
+            f"got keys {tuple(mode_number)!r}")
+    ordinal = int(mode_number[em.bounded_axis])
     if ordinal < 0:
         raise ValueError(
             f"the bounded-axis index is the within-family mode "
@@ -1203,12 +1203,12 @@ def _plane_slots(
         if name == em.bounded_axis:
             continue
         n = _axis_cells(em.grid, name)
-        m = int(indices[name])
+        m = int(mode_number[name])
         if name == em.periodic_axis:
             if not 0 <= m <= n // 2:
                 raise ValueError(
                     f"axis {name!r} stores the Hermitian half "
-                    f"spectrum: mode indices run 0..{n // 2}; "
+                    f"spectrum: mode numbers run 0..{n // 2}; "
                     f"got {m}")
             slots.append(m)
         else:

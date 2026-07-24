@@ -1150,6 +1150,6 @@ def test_varying_projection_on_a_sharded_grid_matches_one_device(
 def test_mode_state_carries_the_model_field_metadata(model, em):
     # synthesized states are plotted directly; they must carry the
     # model's field annotations (name/units), not the defaults
-    _, state = em.mode("wave+", indices={"x": 2, "y": 1})
+    _, state = em.mode("wave+", mode_number={"x": 2, "y": 1})
     for c in ("u", "v", "p"):
         assert state[c].metadata == model.state[c].metadata

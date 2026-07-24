@@ -326,7 +326,7 @@ def _analytic(
             "periodic or walled-vertical grids); this model is a "
             "horizontally walled channel — synthesize labeled "
             "channel modes through the eigenbasis instead, e.g. "
-            "nh.eigenbasis(model).mode(family, indices), or "
+            "nh.eigenbasis(model).mode(family, mode_number), or "
             "nh.initial_conditions.kelvin_wave for the "
             "boundary-trapped pair")
     return em
@@ -380,7 +380,7 @@ def _sample(
 # ================================================================
 def single_wave(
     source: Model | Eigenmodes | ChannelEigenmodes,
-    k: Mapping[str, int],
+    mode_number: Mapping[str, int],
     family: str = "wave+",
     *,
     branch: int | None = None,
@@ -393,7 +393,7 @@ def single_wave(
     Description
     -----------
     The thin wrapper over the analytic mode accessor
-    ``em.mode(family, k, phase=...)``: the real Hermitian-closed
+    ``em.mode(family, mode_number, phase=...)``: the real Hermitian-closed
     physical mode
     :math:`\mathrm{Re}(q^s(k)\,e^{i(k\cdot x - \mathrm{phase})})`
     with exact discrete dispersion, normalized so the largest
@@ -403,16 +403,16 @@ def single_wave(
     ``+k``: ``"wave+"`` is the positive-frequency branch, moving
     with the wavevector (eastward for positive ``kx``), ``"wave-"``
     the mirror branch, ``"vortical"`` the geostrophic one. On a
-    walled vertical the ``z`` index is the physical vertical mode
+    walled vertical the ``z`` mode number is the physical vertical mode
     on the ``0..n`` union lattice.
 
     Parameters
     ----------
     source : Model | Eigenmodes | ChannelEigenmodes
         The assembled model or an analytic eigenmodes object.
-    k : Mapping[str, int]
-        Axis-keyed integer wavenumber indices (e.g.
-        ``{"x": 3, "y": 0, "z": 2}``); a wavenumber of one is a
+    mode_number : Mapping[str, int]
+        Axis-keyed integer mode numbers (e.g.
+        ``{"x": 3, "y": 0, "z": 2}``); mode number one is a
         wave with one wavelength across the domain.
     family : str, optional
         The labeled mode family: ``"vortical"``, ``"wave+"`` /
@@ -436,16 +436,16 @@ def single_wave(
     ------
     ValueError
         On a horizontally walled channel (labeled modes come from
-        ``nh.eigenbasis``), bad indices, or a structurally
+        ``nh.eigenbasis``), bad mode numbers, or a structurally
         unrepresented mode.
     """
     em = _analytic(source, "single_wave", at_time)
-    return em.mode(family, k, branch=branch, phase=phase)
+    return em.mode(family, mode_number, branch=branch, phase=phase)
 
 
 def kelvin_wave(
     source: Model | Eigenmodes | ChannelEigenmodes,
-    k: Mapping[str, int],
+    mode_number: Mapping[str, int],
     *,
     branch: int = 1,
     phase: float = 0.0,
@@ -457,12 +457,12 @@ def kelvin_wave(
     Description
     -----------
     The thin wrapper over the labeled channel eigenbasis accessor
-    ``eb.mode("kelvin", k, branch=...)``: the numerically exact
+    ``eb.mode("kelvin", mode_number, branch=...)``: the numerically exact
     discrete Kelvin mode trapped at the channel walls, normalized so
     the largest horizontal-velocity envelope is one. ``branch``
     selects the signed frequency branch (the two branches are
     trapped at opposite walls; ``branch=+1`` is the positive-omega,
-    eastward-propagating branch); the bounded-axis entry of ``k`` is
+    eastward-propagating branch); the bounded-axis entry of ``mode_number`` is
     the within-family mode ordinal and defaults to 0 (the
     fundamental) when absent.
 
@@ -470,8 +470,8 @@ def kelvin_wave(
     ----------
     source : Model | Eigenmodes | ChannelEigenmodes
         The assembled channel model or its labeled eigenbasis.
-    k : Mapping[str, int]
-        Axis-keyed indices: integer wavenumbers on the periodic
+    mode_number : Mapping[str, int]
+        Axis-keyed mode numbers: integer wavenumbers on the periodic
         axes, the within-family ordinal on the bounded axis
         (optional, default 0).
     branch : int, optional
@@ -504,14 +504,14 @@ def kelvin_wave(
             "horizontally walled channel grid, or use "
             "nh.initial_conditions.single_wave for the plane-wave "
             "modes of the periodic grid")
-    indices = dict(k)
-    indices.setdefault(em.bounded_axis, 0)
-    return em.mode("kelvin", indices, branch=branch, phase=phase)
+    numbers = dict(mode_number)
+    numbers.setdefault(em.bounded_axis, 0)
+    return em.mode("kelvin", numbers, branch=branch, phase=phase)
 
 
 def wave_package(
     source: Model | Eigenmodes | ChannelEigenmodes,
-    k: Mapping[str, int],
+    mode_number: Mapping[str, int],
     family: str = "wave+",
     *,
     branch: int | None = None,
@@ -540,8 +540,8 @@ def wave_package(
     the standing carrier is replaced by the running-wave carrier
     whose **envelope drift** (group velocity) has the given sign —
     ``traveling={"z": -1}`` sinks, ``+1`` rises, whatever the phase
-    tilt does. On periodic axes the sign of the carrier index in
-    ``k`` already selects the direction. Validity window: the
+    tilt does. On periodic axes the sign of the carrier entry in
+    ``mode_number`` already selects the direction. Validity window: the
     envelope should be smooth, several carrier wavelengths wide,
     and well inside the domain (its tails small at the walls).
 
@@ -549,8 +549,8 @@ def wave_package(
     ----------
     source : Model | Eigenmodes | ChannelEigenmodes
         The assembled model or an analytic eigenmodes object.
-    k : Mapping[str, int]
-        Axis-keyed integer wavenumber indices of the carrier.
+    mode_number : Mapping[str, int]
+        Axis-keyed integer mode numbers of the carrier.
     family : str, optional
         The carrier's labeled mode family: ``"vortical"``,
         ``"wave+"`` / ``"wave-"``, or the unsigned root ``"wave"``
@@ -580,10 +580,10 @@ def wave_package(
     ValueError
         On an envelope coordinate the grid does not have, a
         horizontally walled channel, or a bad ``traveling``
-        selection: a periodic axis (use the sign of ``k``), an
+        selection: a periodic axis (use the sign of ``mode_number``), an
         axis the envelope does not name, a drift sign outside
         ``{+1, -1}``, the non-propagating vortical family, or a
-        zero carrier index along a traveling axis.
+        zero carrier mode number along a traveling axis.
     """
     em = _analytic(source, "wave_package", at_time)
     axes = envelope_axes(envelope, tuple(em.grid.names),
@@ -604,10 +604,10 @@ def wave_package(
                 "(omega = 0): traveling= applies to the wave "
                 "branches")
         omega, carrier = traveling_carrier(
-            em, name, k, components=_COMPONENTS,
+            em, name, mode_number, components=_COMPONENTS,
             traveling=traveling, phase=phase)
     else:
-        omega, z = em.mode(name, k, phase=phase)
+        omega, z = em.mode(name, mode_number, phase=phase)
         carrier = {c: z[c] for c in _COMPONENTS}
     enveloped = {
         c: carrier[c] * sample_envelope(

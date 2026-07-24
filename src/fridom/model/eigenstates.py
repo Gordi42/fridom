@@ -5,8 +5,8 @@ Description
 -----------
 The package-shared building blocks behind the eigenmode initial
 conditions: the mode-indexed single-mode accessors
-(``em.mode(s, indices)`` on the analytic eigenmodes,
-``eb.mode(family, indices)`` on the channel eigenbasis) and the
+(``em.mode(s, mode_number)`` on the analytic eigenmodes,
+``eb.mode(family, mode_number)`` on the channel eigenbasis) and the
 prescribed-spectra random states (``sw.random_state`` /
 ``nh.random_state``). Everything here is host-side construction
 code; the sharded application paths (transforms, projections) are
@@ -15,7 +15,7 @@ untouched.
 - :func:`geostrophic_energy_spectrum` — the Masur & Oliver [2020]
   geostrophic spectral energy density (the default vortical
   spectrum);
-- :func:`coefficient_index` — axis-keyed integer mode indices
+- :func:`coefficient_index` — axis-keyed integer mode numbers
   resolved to storage slots on a coefficient space (Fourier
   half/full layouts, trig union-lattice modes);
 - :func:`hermitian_mode_data` — a single Hermitian-closed mode
@@ -128,23 +128,23 @@ def geostrophic_energy_spectrum(
 
 
 # ================================================================
-#  Axis-keyed mode indices on coefficient spaces
+#  Axis-keyed mode numbers on coefficient spaces
 # ================================================================
 def coefficient_index(
     space: SpaceLike,
-    indices: Mapping[str, int],
+    mode_number: Mapping[str, int],
 ) -> tuple[int, ...] | None:
     r"""
-    Resolve axis-keyed mode indices to storage slots on ``space``.
+    Resolve axis-keyed mode numbers to storage slots on ``space``.
 
     Description
     -----------
-    ``indices`` keys every grid axis by name and gives the integer
+    ``mode_number`` keys every grid axis by name and gives the integer
     mode along it: on a half-spectrum (real-origin Fourier) factor
-    the index must lie in ``0..n//2`` (the stored half); on a
+    the mode number must lie in ``0..n//2`` (the stored half); on a
     full-spectrum factor any integer is taken modulo ``n`` (fft
     layout, negative wavenumbers included); on a trig (sine/cosine)
-    factor the index is the **physical** mode on the ``0..n`` union
+    factor the mode number is the **physical** mode on the ``0..n`` union
     lattice — a mode the component's own trig family does not hold
     resolves to ``None`` (the component is structurally absent from
     that stratum), never an error.
@@ -153,8 +153,8 @@ def coefficient_index(
     ----------
     space : SpaceLike
         The component's coefficient space.
-    indices : Mapping[str, int]
-        Axis-keyed integer mode indices, one per grid axis.
+    mode_number : Mapping[str, int]
+        Axis-keyed integer mode numbers, one per grid axis.
 
     Returns
     -------
@@ -165,24 +165,24 @@ def coefficient_index(
     Raises
     ------
     ValueError
-        On wrong axis keys or out-of-range mode indices.
+        On wrong axis keys or out-of-range mode numbers.
     """
     names = space.names
-    if set(indices) != set(names):
+    if set(mode_number) != set(names):
         raise ValueError(
-            "mode indices are keyed by the grid axes "
-            f"{tuple(names)!r}; got keys {tuple(indices)!r}")
+            "mode numbers are keyed by the grid axes "
+            f"{tuple(names)!r}; got keys {tuple(mode_number)!r}")
     slots = []
     for name, (factor, _axis) in zip(
             names, factor_axes(space.bare), strict=True):
-        m = int(indices[name])
+        m = int(mode_number[name])
         if isinstance(factor, FourierSpace):
             n = factor.origin.shape[0]
             if factor.scalars is Scalars.REAL:
                 if not 0 <= m <= n // 2:
                     raise ValueError(
                         f"axis {name!r} stores the Hermitian half "
-                        f"spectrum: mode indices run 0..{n // 2} "
+                        f"spectrum: mode numbers run 0..{n // 2} "
                         f"(a negative mode is the conjugate of its "
                         f"mirror image); got {m}")
                 slots.append(m)
@@ -202,7 +202,7 @@ def coefficient_index(
             # a value error (bad space choice), not a type error
             raise ValueError(  # noqa: TRY004
                 f"axis {name!r} of {space!r} is not a coefficient "
-                "factor; mode indices resolve on coefficient "
+                "factor; mode numbers resolve on coefficient "
                 "spaces only")
     return tuple(slots)
 
@@ -540,7 +540,7 @@ def _trig_factor(
 
 def _validate_traveling(
     coeff0: SpaceLike,
-    indices: Mapping[str, int],
+    mode_number: Mapping[str, int],
     traveling: Mapping[str, int],
 ) -> None:
     """Teach the structural traveling-selection errors."""
@@ -556,7 +556,7 @@ def _validate_traveling(
                 "carrier index already selects the direction (a "
                 "negative index is the mirror-running carrier); "
                 "traveling= names bounded axes only")
-        if axis in indices and int(indices[axis]) == 0:
+        if axis in mode_number and int(mode_number[axis]) == 0:
             raise ValueError(
                 f"the carrier has no oscillation along the "
                 f"traveling axis {axis!r} (index 0): a packet can "
@@ -566,16 +566,16 @@ def _validate_traveling(
 def _group_slope_sign(
     em: object,
     name: str,
-    indices: Mapping[str, int],
+    mode_number: Mapping[str, int],
     axis: str,
     omega: float,
     phase: float,
 ) -> float:
     """Sign of the discrete group slope ``d omega / d m``."""
-    m = int(indices[axis])
+    m = int(mode_number[axis])
     omegas = {}
     for shift in (-1, 1):
-        trial = dict(indices)
+        trial = dict(mode_number)
         trial[axis] = m + shift
         try:
             omegas[shift], _ = em.mode(name, trial, phase=phase)
@@ -600,7 +600,7 @@ def _group_slope_sign(
 def traveling_carrier(
     em: object,
     name: str,
-    indices: Mapping[str, int],
+    mode_number: Mapping[str, int],
     *,
     components: tuple[str, ...],
     traveling: Mapping[str, int],
@@ -630,7 +630,7 @@ def traveling_carrier(
     convention of the trig transforms — and the carrier is
     ``Re[R e^{i sigma theta}]``, with ``sigma`` oriented by the
     sign of the discrete group slope ``d omega / d m`` resolved
-    from the frequencies at the neighboring carrier indices.
+    from the frequencies at the neighboring carrier mode numbers.
 
     Parameters
     ----------
@@ -638,8 +638,8 @@ def traveling_carrier(
         The analytic eigenmodes (any model package).
     name : str
         The resolved signed family name (e.g. ``"wave+"``).
-    indices : Mapping[str, int]
-        Axis-keyed integer carrier indices, one per grid axis.
+    mode_number : Mapping[str, int]
+        Axis-keyed integer carrier mode numbers, one per grid axis.
     components : tuple[str, ...]
         The prognostic component names.
     traveling : Mapping[str, int]
@@ -662,12 +662,12 @@ def traveling_carrier(
         traveling axis, or an unresolvable / vanishing group slope.
     """
     grid = em.grid
-    _validate_traveling(em.kit.coeff(components[0]), indices,
+    _validate_traveling(em.kit.coeff(components[0]), mode_number,
                         traveling)
-    omega, z0 = em.mode(name, indices, phase=phase)
-    _, z1 = em.mode(name, indices, phase=phase + 0.5 * np.pi)
+    omega, z0 = em.mode(name, mode_number, phase=phase)
+    _, z1 = em.mode(name, mode_number, phase=phase + 0.5 * np.pi)
     signs = {
-        axis: _group_slope_sign(em, name, indices, axis, omega,
+        axis: _group_slope_sign(em, name, mode_number, axis, omega,
                                 phase)
         for axis in traveling}
     fields = {}
@@ -684,7 +684,7 @@ def traveling_carrier(
             x0, x1 = float(mesh.extent[0]), float(mesh.extent[1])
             coords = grid.create_field(space, init=_stamped_sampler(
                 space, lambda cs, a=axis: cs[a])).data
-            theta = (int(indices[axis]) * np.pi / (x1 - x0)
+            theta = (int(mode_number[axis]) * np.pi / (x1 - x0)
                      * (coords - x0))
             standing = (jnp.sin(theta)
                         if isinstance(factor, SineSpace)
