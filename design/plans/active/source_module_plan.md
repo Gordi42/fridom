@@ -93,6 +93,12 @@ the staggering-aware duplicate `sample_gaussian_mask` is deleted.
 Patterns materialize as AUXILIARY fields `source_<label>_<var>`
 (two per component for complex patterns, SRC-D4).
 
+Shipped mechanism (P2): a new declarations-layer descriptor
+`LikeField(name)` — an AUX declaration on `LikeField("u")` adopts
+the referenced field's own resolved space during assembly step 1,
+so `Source` hardcodes no staggering vocabulary (the generalization
+of the nh `_variable_pattern` table).
+
 Bind-time validation (the GaussianWaveMaker precedent): every
 pattern coordinate must be a grid coordinate; every forced variable
 must exist and be PROGNOSTIC; a field-valued pattern must live on
@@ -106,9 +112,13 @@ substitute (V-N2) carries over.
 
 The term is
 
-    S(x, t) = A · Re[ Q(x) · e^{-i(2π f t - φ)} ]
+    S(x, t) = A · Re[ Q(x) · e^{-i(2π f t + φ)} ]
 
-- real `Q` ⇒ `A cos(2π f t - φ) Q(x)` (sine = `φ = -π/2`);
+(sign convention corrected during P2: the drafted `−φ` spelling
+contradicted its own sine parenthetical and the v1 `+A sin` parity —
+only `+φ` satisfies both)
+
+- real `Q` ⇒ `A cos(2π f t + φ) Q(x)` (sine = `φ = -π/2`);
 - complex `Q` ⇒ the traveling quadrature pair
   `A [cos(·) Re Q + sin(·) Im Q]`, expanded internally into two
   real AUXILIARY fields per component.
@@ -229,10 +239,15 @@ Chirp through the escape hatch (explicit phase law):
   bind-time refusals) plus an nh parity shard — the new spelling
   reproduces the deleted makers' tendencies (Gaussian: exactly;
   polarized: to tolerance, factor conventions pinned).
-- Differentiability policy: one autodiff regression via
-  `Model.propagator` — `jax.grad` of a quadratic loss w.r.t.
-  `source.<label>.amplitude` and `.frequency`, finite and matching
-  central FD to rtol 1e-4 (≤16²/8³ grid, ≤10 steps).
+- Differentiability policy: one autodiff regression — `jax.grad`
+  of a quadratic loss w.r.t. `source.<label>.amplitude` and
+  `.frequency`, finite and matching central FD to rtol 1e-4
+  (≤16²/8³ grid, ≤10 steps). Shipped via the `_chunk_body` kernel
+  surface (policy-sanctioned): `Model.propagator` blanket-refuses
+  `wrt=` parameters of modules that own materialized AUX fields —
+  a pre-existing limitation the old maker shared. Relaxing the
+  per-owner refusal for parameters the materialization does not
+  depend on is a candidate follow-up, not in this plan's scope.
 - Coverage ≥ 95% patch; `ruff` zero errors; merge gates per
   AGENTS.md.
 
