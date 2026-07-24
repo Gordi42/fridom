@@ -5,8 +5,10 @@ Description
 The concrete ``fr.Module`` subclasses of the nonhydrostatic model:
 the dynamical core (declarations + pressure projection), the Coriolis
 family, the buoyancy family (constant/meridional stratification and
-the bare buoyancy tracer), centered advection, and the wave makers
-(Gaussian and polarized forcing).
+the bare buoyancy tracer), and centered advection. Volumetric forcing
+(the former Gaussian / polarized wave makers) is the model-agnostic
+``fr.model.modules.Source``, fed a wave-packet pattern by
+``nh.initial_conditions.wave_package``.
 """
 from typing import TYPE_CHECKING
 
@@ -26,10 +28,8 @@ if TYPE_CHECKING:  # pragma: no cover
     from .buoyancy_tracer import BuoyancyTracer
     from .composed_pressure import ComposedPressureSolver
     from .core import Core
-    from .gaussian_wave_maker import GaussianWaveMaker
     from .immersed_pressure import ImmersedPressureSolver
     from .mapped_pressure import MappedPressureSolver
-    from .polarized_wave_maker import PolarizedWaveMaker
     from .pressure import SpectralPressureSolver
     from .smagorinsky_lilly import SmagorinskyLilly
     from .stratification import (
@@ -60,8 +60,6 @@ all_imports_by_origin = {
     f"{base}.mapped_pressure": ["MappedPressureSolver"],
     f"{base}.immersed_pressure": ["ImmersedPressureSolver"],
     f"{base}.composed_pressure": ["ComposedPressureSolver"],
-    f"{base}.gaussian_wave_maker": ["GaussianWaveMaker"],
-    f"{base}.polarized_wave_maker": ["PolarizedWaveMaker"],
     f"{base}.smagorinsky_lilly": ["SmagorinskyLilly"],
     f"{base}.surface_forcing": ["WindStress", "SurfaceBuoyancyFlux"],
 }

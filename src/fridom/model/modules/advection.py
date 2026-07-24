@@ -69,7 +69,7 @@ the widened stencil up from the trace.
 mapping of velocity-component names to profiles (callables of
 coordinates, or constants), sampled at each component's own
 staggered nodes as AUXILIARY fields (the profile-sampling precedent
-of ``MeridionalStratification`` / ``GaussianWaveMaker``). With a
+of ``MeridionalStratification`` / the ``Source`` module). With a
 background :math:`U` set, the module contributes TWO terms whose sum
 telescopes to the module's own scheme at the full advecting velocity
 :math:`U + \varepsilon\,u'` (:math:`\varepsilon = 1` — no factor at
@@ -2659,7 +2659,7 @@ class _FluxFormAdvection(fr.model.Module):
         """Freeze the axis -> background-sample mapping.
 
         Validates that every background sample landed on its
-        component's own space (the GaussianWaveMaker precedent) and
+        component's own space (the ``Source``-module precedent) and
         records the per-axis sample names in the flux-loop axis
         order.
         """
