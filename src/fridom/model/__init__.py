@@ -40,6 +40,7 @@ if TYPE_CHECKING:  # pragma: no cover
         roles,
         schedule,
         scheduled_field,
+        shapes,
         stages,
         term_predicates,
         terms,
@@ -79,6 +80,7 @@ if TYPE_CHECKING:  # pragma: no cover
         RunTargetError,
     )
     from .scheduled_field import ProfileFunction
+    from .shapes import gaussian
     from .stages import Stage, StageKind, self_update
     from .term_predicates import (
         linear_operator_gaps,
@@ -120,7 +122,7 @@ all_modules_by_origin = {
         "field_table", "assembly", "module", "composer", "schedule",
         "clock", "results", "report", "errors", "eigen",
         "eigen_channel", "modules", "transforms",
-        "halo_demand", "units"],
+        "halo_demand", "units", "shapes"],
 }
 
 all_imports_by_origin = {
@@ -133,6 +135,7 @@ all_imports_by_origin = {
         "TimeDependent", "Ramp", "TimeFunction", "TimeSeries",
         "resolve_at"],
     f"{base}.scheduled_field": ["ProfileFunction"],
+    f"{base}.shapes": ["gaussian"],
     f"{base}.terms": [
         "TendencyTerm", "term", "Treatment", "EXPLICIT", "IMPLICIT"],
     f"{base}.stages": ["Stage", "StageKind", "self_update"],

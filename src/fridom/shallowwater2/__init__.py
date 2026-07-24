@@ -50,7 +50,7 @@ if TYPE_CHECKING:  # pragma: no cover
     from .eigenmodes import eigenbasis
     from .initial_conditions import (
         coherent_eddy,
-        gaussian_envelope,
+        gaussian,
         jet,
         random_state,
         random_vortical,
@@ -78,7 +78,7 @@ all_imports_by_origin = {
     f"{base}.eigenmodes": ["eigenbasis"],
     f"{base}.initial_conditions": [
         "random_state", "random_vortical", "random_waves",
-        "single_wave", "wave_package", "gaussian_envelope",
+        "single_wave", "wave_package", "gaussian",
         "jet", "coherent_eddy"],
     f"{base}.model": ["Model"],
     f"{base}.modules.core": ["Core"],
