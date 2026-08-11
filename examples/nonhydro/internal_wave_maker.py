@@ -1,107 +1,201 @@
 r"""
-Internal Gravity Wave Maker
-===========================
+Internal Wave Maker
+===================
 
-An internal gravity wave maker using a gaussian wave maker.
-
-In this example we use the :py:class:`GaussianWaveMaker <fridom.nonhydro.modules.forcings.GaussianWaveMaker>` 
-module to add an internal gravity wave to the model.
-
-.. note::
-    This example uses the cmocean package for colormaps. You can install it with:
-
-    .. code-block:: bash
-
-        pip install cmocean
-
-.. video:: videos/internal_wave_maker.mp4
+A localized oscillating force radiates internal gravity waves along
+four beams.
 """
-import fridom.nonhydro as nh
-import numpy as np
 
-# ----------------------------------------------------------------
-#  Settings
-# ----------------------------------------------------------------
-make_video  = True
-fps         = 30
-make_netcdf = False
-wave_width  = 4                          # width of the wave maker
-wave_period = 45 * 60                    # period of the wave maker (in seconds)
-run_length  = np.timedelta64(6, 'h')     # simulation run length
-exp_name    = "internal_wave_maker"
-thumbnail   = f"figures/{exp_name}.png"
+# %%
+# Experiment Settings
+# -------------------
+# A rotating stratified x-z slice, one cell thick in y, with rigid
+# walls at the top and the bottom. A small oscillating force in the
+# lower half of the box drives waves at a period of 45 minutes. The
+# forcing frequency lies between :math:`f` and :math:`N`, the band
+# in which internal gravity waves exist, so the response radiates
+# away from the source.
+import subprocess
 
-# ----------------------------------------------------------------
-#  Plotting
-# ----------------------------------------------------------------
-class Plotter(nh.modules.animation.ModelPlotter):
-    def create_figure():
-        import matplotlib.pyplot as plt
-        return plt.figure(figsize=(8, 4.5), dpi=256, tight_layout=True)
+import jax.numpy as jnp
 
-    def prepare_arguments(mz: nh.ModelState) -> dict:
-        return {"b": mz.z.b.xr, "etot": mz.z.etot.xr, "t": mz.clock.time}
+# sphinx_gallery_thumbnail_number = 1
+import fridom as fr
+import fridom.nonhydro2 as nh
 
-    def update_figure(fig, b, etot, t) -> None:
-        import cmocean
-        time = nh.utils.humanize_number(t, unit="seconds")
+CORIOLIS_F0 = 1e-4                  # 1/s
+STRATIFICATION_N2 = 2.5e-5          # 1/s^2
+LX, LY, LZ = 800.0, 1.0, 200.0      # box extents, m
 
-        ax = fig.add_subplot(211)
-        b.plot(ax=ax, cmap=cmocean.cm.balance, 
-               vmax=7e-6, vmin=-7e-6, extend='both')
-        ax.set_aspect('equal')
+FORCING_PERIOD = 45.0 * 60.0        # s
+# the tendency amplitude is weak enough to keep the waves linear
+FORCING_AMPLITUDE = 1e-5            # m/s^2
 
-        ax = fig.add_subplot(212)
-        etot.plot(ax=ax, cmap=cmocean.cm.matter, 
-                  vmax=1e-6, vmin=0, extend='max')
-        ax.set_aspect('equal')
-        fig.suptitle(f'Buoancy and Energy:  t={time}', fontsize=18)
+nx, ny, nz = 512, 1, 128
+frames = 180
 
-# ----------------------------------------------------------------
-#  The main model
-# ----------------------------------------------------------------
-@nh.utils.skip_on_doc_build
-def main():
-    # Create the grid and model settings
-    grid = nh.grid.cartesian.Grid(
-        shape=(512, 1, 512), 
-        domain_size=(800, 1, 200), 
-        periodic_bounds=(True, True, False))
-    mset = nh.ModelSettings(
-        grid=grid, f0=1e-4, stratification_n2=2.5e-5)
-    mset.time_stepper.dt = np.timedelta64(1, 'm')
+# %%
+# Grid and Model
+# --------------
+# The forcing is weak, so we solve the linearized equations and
+# assemble the model without the advection module. The wave maker
+# is a source module and joins the preset assembly through
+# ``modules_extra``. A source module adds a separable term
+#
+# .. math::
+#     S(x, z, t) = A \cos(2\pi f t + \varphi) \, Q(x, z)
+#
+# to the tendency of the field it forces, here the zonal velocity.
+# The pattern :math:`Q` is a stationary Gaussian mask, sampled on
+# the zonal velocity's own nodes. The default phase
+# :math:`\varphi = -\pi/2` makes the law a sine, so the forcing
+# starts from zero and ramps up gently.
+grid = fr.spatial.cartesian.Grid(
+    shape=(nx, ny, nz),
+    extent=(LX, LY, LZ),
+    periodic=(True, True, False))
 
-    # add a video writer
-    if make_video:
-        mset.diagnostics.add_module(nh.modules.animation.VideoWriter(
-            Plotter,
-            model_time_per_second=np.timedelta64(1, "h"),
-            filename=exp_name, fps=fps))
+dt = 0.1 / STRATIFICATION_N2 ** 0.5        # omega dt <= 0.1
 
-    # create a NetCDF writer to save the output
-    if make_netcdf:
-        mset.diagnostics.add_module(nh.modules.NetCDFWriter(
-            get_variables = lambda mz: [mz.z.etot, mz.z.b],
-            write_trigger = nh.ClockTrigger(time_interval=np.timedelta64(20, "m")),
-            filename=exp_name))
+wave_maker = fr.model.modules.Source(
+    "wave_maker",
+    pattern={"u": nh.gaussian(pos={"x": 400.0, "z": 75.0}, width=4.0)},
+    law=fr.Harmonic(
+        amplitude=FORCING_AMPLITUDE,
+        frequency=1.0 / FORCING_PERIOD))
 
-    # add a Gaussian wave maker
-    mset.tendencies.add_module(nh.modules.forcings.GaussianWaveMaker(
-        position = (400, None, 75),
-        width = (wave_width, None, wave_width),
-        frequency = 1/(wave_period), 
-        amplitude = 1e-5))
+model = nh.Model(
+    grid=grid,
+    coriolis=nh.FPlaneCoriolis(f0=CORIOLIS_F0),
+    buoyancy=nh.ConstantStratification(n2=STRATIFICATION_N2),
+    advection=False,
+    modules_extra=(wave_maker,),
+    time_stepper=fr.model.time_steppers.AdamBashforth(dt, order=3))
 
-    mset.setup()
-    model = nh.Model(mset)
-    model.run(runlen=run_length)
+# %%
+# Wave Beams
+# ----------
+# The dispersion relation of internal gravity waves ties the wave
+# frequency to the direction of the wavevector alone. Energy leaves
+# an oscillating source along beams whose angle :math:`\alpha`
+# above the horizontal satisfies
+#
+# .. math::
+#     \omega^2 = N^2 \sin^2\alpha + f^2 \cos^2\alpha,
+#
+# independent of the wavelength. The 45 minute period gives
+# :math:`\omega / N = 0.47`, so the four beams leave the source at
+# about 28 degrees.
+#
+# Running and Recording
+# ---------------------
+# Six hours are eight forcing periods, enough for the beams to
+# cross the box and reflect off the walls. We write the buoyancy
+# and the wave energy once per frame. The energy is the model's
+# bound ``etot`` diagnostic, the kinetic energy plus the available
+# potential energy :math:`b^2 / (2 N^2)`.
+runlen = 6.0 * 3600.0
 
-    # plot the final state (thumbnail)
-    import os
-    os.makedirs("figures", exist_ok=True)
-    fig = Plotter(model.model_state)
-    fig.savefig(thumbnail)
+writer = fr.io.Writer(
+    "internal_wave_maker.zarr", fields=["b"],
+    derived={"e": lambda ms: model.diagnostics.etot(ms.state)},
+    trigger=fr.io.every(seconds=runlen / frames), mode="w")
+model.run(runlen=runlen, outputs=(writer,), progress=False)
+
+# plot the final buoyancy in the slice plane
+_ = model.state.b.xr.isel(y=0).plot(x="x", size=1.6, aspect=4)
+
+# %%
+_ = subprocess.run(
+    "cdfviewer internal_wave_maker.zarr -v b -x x -y z --dims=y=0"
+    " -p heatmap -a time"
+    " --kwargs='colormap=:balance, colorrange=(-7e-6, 7e-6),"
+    " figsize=(1000, 400),"
+    " titlesize=28, xlabelsize=24, ylabelsize=24,"
+    " title=\"Internal wave beams\"'"
+    " --record -s 'filename=\"internal_wave_maker.mp4\", framerate=24'",
+    shell=True, check=True)
+
+# %%
+# The energy travels along the same four beams and shows the ray
+# pattern even more cleanly than the buoyancy.
+_ = subprocess.run(
+    "cdfviewer internal_wave_maker.zarr -v e -x x -y z --dims=y=0"
+    " -p heatmap -a time"
+    " --kwargs='colormap=:thermal, colorrange=(0.0, 3.0e-7),"
+    " figsize=(1000, 400),"
+    " titlesize=28, xlabelsize=24, ylabelsize=24,"
+    " title=\"Wave energy\"'"
+    " --record -s 'filename=\"internal_wave_maker_energy.mp4\","
+    " framerate=24'",
+    shell=True, check=True)
+
+# %%
+# The four beams grow out of the source and keep their inclination
+# as they cross the box. Where a beam meets the top or the bottom
+# wall it reflects at the same angle to the horizontal, because the
+# angle is set by the forcing frequency alone. The crossing beams
+# interfere into the steady ray pattern of the closing frames.
+
+# %%
+# Chirped Forcing
+# ---------------
+# The beam angle follows the forcing frequency, so a forcing that
+# sweeps through the wave band draws beams that steepen over time.
+# ``Harmonic`` deliberately keeps its frequency constant, because
+# the naive :math:`A \sin(2\pi f(t) t)` oscillates at the
+# instantaneous frequency :math:`f + t f'` rather than
+# :math:`f(t)`. A correct chirp advances the phase by the integral
+# of the instantaneous frequency, and we spell that integral
+# directly as a ``TimeFunction`` law. The instantaneous period
+# falls from 60 to 25 minutes over the run, so the beam angle
+# rises from about 20 to almost 60 degrees. We record only the
+# wave energy this time.
+CHIRP_PERIOD_START = 60.0 * 60.0    # s
+CHIRP_PERIOD_END = 25.0 * 60.0      # s
+
+def chirp(t, amp, freq_lo, freq_hi):
+    """Advance the phase as the integral of a linear frequency sweep."""
+    freq_slope = (freq_hi - freq_lo) / runlen
+    phase = 2.0 * jnp.pi * (freq_lo + 0.5 * freq_slope * t) * t
+    return amp * jnp.sin(phase)
+
+chirp_maker = fr.model.modules.Source(
+    "wave_maker",
+    pattern={"u": nh.gaussian(pos={"x": 400.0, "z": 75.0}, width=4.0)},
+    law=fr.TimeFunction(
+        chirp, params=(FORCING_AMPLITUDE,
+                       1.0 / CHIRP_PERIOD_START,
+                       1.0 / CHIRP_PERIOD_END)))
+
+chirp_model = nh.Model(
+    grid=grid,
+    coriolis=nh.FPlaneCoriolis(f0=CORIOLIS_F0),
+    buoyancy=nh.ConstantStratification(n2=STRATIFICATION_N2),
+    advection=False,
+    modules_extra=(chirp_maker,),
+    time_stepper=fr.model.time_steppers.AdamBashforth(dt, order=3))
 
 
-if __name__ == "__main__":
-    main()
+chirp_writer = fr.io.Writer(
+    "internal_wave_maker_chirp.zarr", fields=[],
+    derived={"e": lambda ms: chirp_model.diagnostics.etot(ms.state)},
+    trigger=fr.io.every(seconds=runlen / frames), mode="w")
+chirp_model.run(runlen=runlen, outputs=(chirp_writer,), progress=False)
+
+_ = subprocess.run(
+    "cdfviewer internal_wave_maker_chirp.zarr -v e -x x -y z"
+    " --dims=y=0 -p heatmap -a time"
+    " --kwargs='colormap=:thermal, colorrange=(0.0, 3.0e-7),"
+    " figsize=(1000, 400),"
+    " titlesize=28, xlabelsize=24, ylabelsize=24,"
+    " title=\"Wave energy, chirped forcing\"'"
+    " --record -s 'filename=\"internal_wave_maker_chirp.mp4\","
+    " framerate=24'",
+    shell=True, check=True)
+
+# %%
+# Waves keep the frequency they were born with, so beams radiated
+# early in the run hold their shallow angle while fresh beams leave
+# the source ever steeper. The fan of rays fills from shallow to
+# steep as the sweep proceeds.

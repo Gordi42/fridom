@@ -2,115 +2,160 @@ r"""
 Multiple Wave Makers
 ====================
 
-Multiple internal waves with different angles
-
-In this example we add three polarized wave makers to the model. Each wave maker
-has a different angle and is located at a different position in the x-direction.
-The phase and group velocity of the waves depend on the angle of the wave vector,
-and hence differ between the different wave makers.
-
-.. video:: videos/multiple_wave_makers.mp4
+Two oscillating sources radiate internal-wave beams at two
+different angles.
 """
-import fridom.nonhydro as nh
-import numpy as np
-import matplotlib.pyplot as plt
 
-# ----------------------------------------------------------------
-#  Settings
-# ----------------------------------------------------------------
-make_video  = True
-fps         = 30
-make_netcdf = False
-resolution  = 1024                       # number of grid points in x,z
-wave_length = 5                          # wave length in meters
-wave_angles = [65, 45, 25]               # angle(kx, kz) in degrees
-run_length  = np.timedelta64(12, 'h')    # simulation run length
+# %%
+# Experiment Settings
+# -------------------
+# A rotating stratified x-z slice, one cell thick in y, periodic on
+# every side. Two small oscillating sources sit at different
+# positions along x and force the flow, each from a carrier
+# wavevector pointing in a different direction. The carrier
+# direction sets the wave frequency, and both frequencies lie
+# between :math:`f` and :math:`N`, the band in which internal
+# gravity waves exist, so each source radiates.
+import subprocess
 
-exp_name    = "multiple_wave_makers"
-thumbnail   = f"figures/{exp_name}.png"
+import jax.numpy as jnp
 
-# ----------------------------------------------------------------
-#  Plotting
-# ----------------------------------------------------------------
-class Plotter(nh.modules.animation.ModelPlotter):
-    def create_figure():
-        return plt.figure(figsize=(12.8, 7.2), dpi=200)
+# sphinx_gallery_thumbnail_number = 1
+import fridom as fr
+import fridom.nonhydro2 as nh
 
-    def prepare_arguments(mz: nh.ModelState) -> dict:
-        return {"b": mz.z.b.xr, "t": mz.clock.time}
+CORIOLIS_F0 = 1e-4                  # 1/s
+STRATIFICATION_N2 = 2.5e-5          # 1/s^2
+LX, LY, LZ = 250.0, 1.0, 200.0      # box extents, m
 
-    def update_figure(fig, b, t) -> None:
-        # convert the time to a human readable format
-        time = nh.utils.humanize_number(t, unit="seconds")
-        # create the plot
-        ax = fig.add_subplot(111)
-        plot = b.plot(ax=ax, cmap='RdBu_r', vmin=-1, vmax=1, extend='both')
-        # make the plot look nice
-        ax.set_aspect('equal')
-        ax.set_title(f"Time: {time}", fontsize=20)
-        ax.tick_params(axis='x', labelsize=16)
-        ax.set_xlabel(ax.get_xlabel(), fontsize=18)
-        ax.tick_params(axis='y', labelsize=16)
-        ax.set_ylabel(ax.get_ylabel(), fontsize=18)
-        cbar = plot.colorbar
-        cbar.ax.tick_params(labelsize=16)
-        cbar.set_label(cbar.ax.get_ylabel(), fontsize=18)
-        return
+WAVE_LENGTH = 10.0                  # carrier wavelength, m
+WAVE_ANGLES = (60.0, 30.0)          # carrier angle(kx, kz), degrees
+# both beams travel down and to the right, so the sources sit high
+# and to the left and the run ends before either one meets a wall
+MAKER_X = (50.0, 140.0)             # source positions along x, m
+MAKER_Z = 140.0                     # source height, m
+ENVELOPE_WIDTH = 25.0               # packet envelope width, m
+# the tendency amplitude keeps the isopycnal displacement near a
+# tenth of a wavelength, so the linearization stays self-consistent
+FORCING_AMPLITUDE = 3.1e-7          # m/s^2
 
-# ----------------------------------------------------------------
-#  The main model
-# ----------------------------------------------------------------
-@nh.utils.skip_on_doc_build
-def main():
+nx, ny, nz = 512, 1, 320
+frames = 288
 
-    grid = nh.grid.cartesian.Grid(
-        shape=(resolution, 1, resolution), domain_size=(300, 1, 200), 
-        periodic_bounds=(True, True, True))
-    mset = nh.ModelSettings(grid=grid, f0=1e-4, stratification_n2=2.5e-5)
-    mset.time_stepper.dt = np.timedelta64(30, 's')
-    mset.tendencies.advection.disable()
+# %%
+# Grid and Model
+# --------------
+# The sources are weak, so we solve the linearized equations and
+# assemble the model without the advection module. Each source
+# carries a polarized wave packet drawn from the model eigenmodes,
+# so we assemble a plain model first, build the packets from it, and
+# then assemble the running model with the three sources attached
+# through ``modules_extra``. A source multiplies its packet by a
+# sine in time and adds the product to the tendency, so the forcing
+# starts from zero and ramps up gently.
+grid = fr.spatial.cartesian.Grid(
+    shape=(nx, ny, nz),
+    extent=(LX, LY, LZ),
+    periodic=(True, True, True))
 
-    # add a video writer
-    if make_video:
-        mset.diagnostics.add_module(nh.modules.animation.VideoWriter(
-            Plotter, 
-            model_time_per_second=np.timedelta64(1, "h"),
-            filename=exp_name, fps=fps))
+dt = 0.1 / STRATIFICATION_N2 ** 0.5        # omega dt <= 0.1
 
-    # create a NetCDF writer to save the output
-    if make_netcdf:
-        mset.diagnostics.add_module(nh.modules.NetCDFWriter(
-            get_variables = lambda mz: [*mz.z.field_list, mz.z.etot, mz.z.ekin],
-            write_trigger = nh.ClockTrigger(time_interval=np.timedelta64(20, "m")),
-            filename=exp_name))
+base = nh.Model(
+    grid=grid,
+    coriolis=nh.FPlaneCoriolis(f0=CORIOLIS_F0),
+    buoyancy=nh.ConstantStratification(n2=STRATIFICATION_N2),
+    advection=False,
+    time_stepper=fr.model.time_steppers.AdamBashforth(dt, order=3))
 
-    # Add 3 wave makers with different angles
-    for angle, x in zip(wave_angles, [25, 125, 225]):
-        # convert the angle to actual wave vector components
-        kx = 2 * np.pi / wave_length * np.cos(np.deg2rad(angle))
-        kz = 2 * np.pi / wave_length * np.sin(np.deg2rad(angle))
+makers = []
+for i, (angle, x) in enumerate(zip(WAVE_ANGLES, MAKER_X, strict=True)):
+    # the carrier direction fixes the wavevector components
+    kx = 2.0 * jnp.pi / WAVE_LENGTH * jnp.cos(jnp.deg2rad(angle))
+    kz = 2.0 * jnp.pi / WAVE_LENGTH * jnp.sin(jnp.deg2rad(angle))
+    # nearest integer mode numbers on the periodic box (k = 2 pi m / L)
+    mx = round(kx * LX / (2.0 * jnp.pi))
+    mz = round(kz * LZ / (2.0 * jnp.pi))
+    omega, packet = nh.wave_package(
+        base,
+        mode_number={"x": mx, "y": 0, "z": mz},
+        family="wave+",
+        envelope=nh.gaussian(pos={"x": x, "z": MAKER_Z},
+                             width=ENVELOPE_WIDTH))
+    makers.append(fr.model.modules.Source(
+        f"maker_{i}",
+        pattern=packet,
+        law=fr.Harmonic(
+            amplitude=FORCING_AMPLITUDE,
+            frequency=omega / (2.0 * jnp.pi))))
 
-        # convert the wave vector to wavenumber of the grid (k = 2pi/L * kp)
-        wavenum_x = int(kx * grid.domain_size[0] / (2 * np.pi))
-        wavenum_z = int(kz * grid.domain_size[2] / (2 * np.pi))
+model = nh.Model(
+    grid=grid,
+    coriolis=nh.FPlaneCoriolis(f0=CORIOLIS_F0),
+    buoyancy=nh.ConstantStratification(n2=STRATIFICATION_N2),
+    advection=False,
+    modules_extra=tuple(makers),
+    time_stepper=fr.model.time_steppers.AdamBashforth(dt, order=3))
 
-        mset.tendencies.add_module(nh.modules.forcings.PolarizedWaveMaker(
-            position = (x, None, 150),
-            width = (10, None, 10),
-            k = (wavenum_x, 0, wavenum_z),
-            amplitude=20.0))
+# %%
+# Beam Angles
+# -----------
+# The dispersion relation of internal gravity waves sets the wave
+# frequency from the direction of the wavevector alone. A carrier
+# wavevector at angle :math:`\theta` to the horizontal oscillates at
+#
+# .. math::
+#     \omega^2 = N^2 \cos^2\theta + f^2 \sin^2\theta,
+#
+# independent of the wavelength. Energy leaves the source along a
+# beam perpendicular to the wavevector, so a steeper wavevector
+# radiates a shallower beam. The two carriers point at 60 and 30
+# degrees, so the sources run at different frequencies and send
+# their beams off at different angles. Every axis is periodic here,
+# so the sign of each carrier picks one running direction rather
+# than a standing pair, and each source emits a single beam instead
+# of a fan.
+#
+# Each source drives its own eigenmode at exactly that mode's
+# frequency, and the box is periodic with no damping, so the forcing
+# pumps the mode resonantly and the amplitude keeps climbing while
+# the run lasts.
+#
+# Running and Recording
+# ---------------------
+# Six hours are long enough for both beams to cross most of the box
+# and meet, and short enough that neither one reaches a wall, so no
+# beam wraps around and re-enters from the far side. We write the
+# buoyancy once per frame and render the slice.
+runlen = 6.0 * 3600.0
 
-    mset.setup()
-    model = nh.Model(mset)
-    model.run(runlen=run_length)
+writer = fr.io.Writer(
+    "multiple_wave_makers.zarr", fields=["b"],
+    trigger=fr.io.every(seconds=runlen / frames), mode="w")
+model.run(runlen=runlen, outputs=(writer,), progress=False)
 
-    # plot the final state (thumbnail)
-    import os
-    os.makedirs("figures", exist_ok=True)
-    fig = Plotter(model.model_state)
-    fig.savefig(thumbnail, dpi=200)
-    return
+# plot the final buoyancy in the slice plane. The colorbar takes its
+# width out of the figure, so the figure aspect runs wider than the
+# box and the data aspect is set on the axes, where the beam angles
+# are read off.
+plot = model.state.b.xr.isel(y=0).plot(x="x", size=3.6, aspect=1.6)
+_ = plot.axes.set_aspect("equal")
 
+# %%
+_ = subprocess.run(
+    "cdfviewer multiple_wave_makers.zarr -v b -x x -y z --dims=y=0"
+    " -p heatmap -a time"
+    " --kwargs='colormap=:balance, colorrange=(-2e-5, 2e-5),"
+    " figsize=(900, 600),"
+    " titlesize=28, xlabelsize=24, ylabelsize=24,"
+    ' animlabel="{duration}",'
+    " title=\"Wave beams at two angles\"'"
+    " --record -s 'filename=\"multiple_wave_makers.mp4\", framerate=24'",
+    shell=True, check=True)
 
-if __name__ == "__main__":
-    main()
+# %%
+# Each beam grows out of its source and keeps the angle its carrier
+# sets. The steeper carrier gives the shallower beam, so the beam
+# from the 60 degree source runs out across the box while the one
+# from the 30 degree source drops almost twice as steeply for the
+# ground it covers. Their paths converge, and the two beams overlap
+# in the lower middle of the box in the closing frames.
