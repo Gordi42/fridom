@@ -387,7 +387,7 @@ def test_harmonic_evaluates_the_cosine_law():
 def test_harmonic_phase_conventions():
     # phase = -pi/2 is a sine, phase = 0 a cosine (the SRC-D5 convention)
     sine = Harmonic(1.0, 2.0, phase=-math.pi / 2)
-    cosine = Harmonic(1.0, 2.0)
+    cosine = Harmonic(1.0, 2.0, phase=0.0)
     for t in (0.03, 0.09, 0.31):
         np.testing.assert_allclose(
             sine(t), math.sin(2 * math.pi * 2.0 * t), atol=1e-13)
@@ -395,10 +395,20 @@ def test_harmonic_phase_conventions():
             cosine(t), math.cos(2 * math.pi * 2.0 * t), atol=1e-13)
 
 
+def test_harmonic_defaults_to_the_sine():
+    # the default phase is -pi/2, so a forcing that starts from zero
+    # needs no phase= at all (the wave-maker spelling)
+    curve = Harmonic(0.7, 3.0)
+    np.testing.assert_allclose(curve(0.0), 0.0, atol=1e-13)
+    for t in (0.02, 0.11, 0.47):
+        np.testing.assert_allclose(
+            curve(t), 0.7 * math.sin(2 * math.pi * 3.0 * t), atol=1e-13)
+
+
 def test_harmonic_amplitude_can_ramp():
     # a Ramp amplitude is evaluated at the same t as the oscillation
     ramp = Ramp(0.0, 2.0, period=1.0)
-    curve = Harmonic(ramp, 1.0)
+    curve = Harmonic(ramp, 1.0, phase=0.0)
     for t in (0.25, 0.5, 1.5):
         np.testing.assert_allclose(
             curve(t),

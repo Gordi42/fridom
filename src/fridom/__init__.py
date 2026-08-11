@@ -38,6 +38,16 @@ if TYPE_CHECKING:  # pragma: no cover
         spatial,
     )
 
+    # the time-law family, aliased at the root (the spelling the
+    # docstrings across the package already use, e.g. ``fr.Ramp``)
+    from .model.time_dependent import (
+        Harmonic,
+        Ramp,
+        TimeDependent,
+        TimeFunction,
+        TimeSeries,
+    )
+
 # ================================================================
 #  Setup lazy loading
 # ================================================================
@@ -57,7 +67,11 @@ all_modules_by_origin = {
     ],
 }
 
-all_imports_by_origin = {}
+all_imports_by_origin = {
+    "fridom.model.time_dependent": [
+        "TimeDependent", "Ramp", "TimeFunction", "TimeSeries",
+        "Harmonic"],
+}
 
 # Enable the persistent JAX compilation cache before any lazy import can
 # trigger a compile (see fridom/_compile_cache.py); a no-op when already
