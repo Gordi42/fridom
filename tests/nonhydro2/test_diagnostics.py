@@ -111,9 +111,9 @@ def _fv_state(*, cgrid_diff=False):
 
 
 # ================================================================
-#  ekin / epot — need only F1's conversion rows
+#  ekin / epot / etot — need only F1's conversion rows
 # ================================================================
-@pytest.mark.parametrize("name", ["ekin", "epot"])
+@pytest.mark.parametrize("name", ["ekin", "epot", "etot"])
 def test_energy_diagnostics_run_on_fv_and_match_nodal(name):
     diag = DIAGNOSTICS[name]
     _, nodal = _nodal_state()
@@ -127,6 +127,18 @@ def test_energy_diagnostics_run_on_fv_and_match_nodal(name):
     assert jnp.allclose(np.asarray(out_nodal.data),
                         np.asarray(out_fv.data),
                         rtol=0.0, atol=1e-12)
+
+
+def test_etot_is_the_sum_of_the_two_energies():
+    # the total is exactly ekin + epot on the same cell, so a user no
+    # longer needs a derived= callable to write the wave energy out
+    _, nodal = _nodal_state()
+    total = DIAGNOSTICS["etot"](nodal, PARAMS)
+    parts = (DIAGNOSTICS["ekin"](nodal, PARAMS).data
+             + DIAGNOSTICS["epot"](nodal, PARAMS).data)
+    assert total.function_space is nodal["p"].function_space
+    np.testing.assert_array_equal(np.asarray(total.data),
+                                  np.asarray(parts))
 
 
 # ================================================================

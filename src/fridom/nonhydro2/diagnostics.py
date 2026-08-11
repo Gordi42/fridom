@@ -124,6 +124,35 @@ def epot(
     return state["p"].with_data(0.5 * b**2 / n2)
 
 
+def etot(
+    state: VectorField, params: Mapping[str, object],
+) -> ScalarField:
+    r"""Total wave energy ``ekin + epot`` at cell center.
+
+    Description
+    -----------
+    The sum of the linearized kinetic and available potential
+    densities,
+
+    .. math::
+        E = \tfrac12 (u^2 + v^2 + \delta^2 w^2)
+            + \tfrac12 \frac{b^2}{N^2_\mathrm{eff}},
+
+    i.e. the quadratic energy of the metric ``M`` that the eigenmode
+    and projection machinery norms with (``fr.EnergyMetric``), which
+    the linear model (``advection=False``) conserves. Both parts are
+    sampled at the cell centre, so the integral is a centre-sampled
+    proxy of the ``M``-norm rather than that norm to machine
+    precision. Integrate it and read the scalar with
+
+    .. code-block:: python
+
+        e = model.diagnostics.etot().integrate().item()
+    """
+    kin = ekin(state, params)
+    return kin + epot(state, params)
+
+
 def linear_pot_vort(
     state: VectorField, params: Mapping[str, object],
 ) -> ScalarField:
@@ -161,5 +190,6 @@ def linear_pot_vort(
 DIAGNOSTICS = {
     "ekin": ekin,
     "epot": epot,
+    "etot": etot,
     "linear_pot_vort": linear_pot_vort,
 }
