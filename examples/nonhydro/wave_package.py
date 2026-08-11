@@ -1,99 +1,124 @@
 r"""
-Reflecting Wave Package
-=======================
+Reflecting Wave Packet
+======================
 
-A polarized internal wave package reflecting on the bottom.
-
-This example shows the :py:class:`WavePackage <fridom.nonhydro.initial_conditions.WavePackage>`
-initial condition.
-
-.. video:: videos/wave_package.mp4
+A polarized internal-wave packet sinks through a stratified box and
+reflects off the bottom.
 """
-import fridom.nonhydro as nh
-import numpy as np
 
-# ----------------------------------------------------------------
-#  Settings
-# ----------------------------------------------------------------
-make_video  = True
-fps         = 60
-make_netcdf = False
-exp_name    = "wave_package"
-thumbnail   = f"figures/{exp_name}.png"
+# %%
+# Experiment Settings
+# -------------------
+# An x-z slice, one cell thick in y, with mid-latitude rotation and
+# a constant stratification. Rigid walls close the box at the top
+# and the bottom. The horizontal directions stay periodic.
+import subprocess
 
-# ----------------------------------------------------------------
-#  Plotting
-# ----------------------------------------------------------------
+import jax.numpy as jnp
 
-class Plotter(nh.modules.animation.ModelPlotter):
-    def create_figure():
-        import matplotlib.pyplot as plt
-        return plt.figure(figsize=(8, 4.5), dpi=256, tight_layout=True)
+# sphinx_gallery_thumbnail_number = 1
+import fridom as fr
+import fridom.nonhydro2 as nh
 
-    def prepare_arguments(mz: nh.ModelState) -> dict:
-        return {"b": mz.z.b.xr, "t": mz.clock.time}
+CORIOLIS_F0 = 1e-4                  # 1/s
+STRATIFICATION_N2 = 2.5e-5          # 1/s^2
+LX, LY, LZ = 2000.0, 1.0, 1000.0    # box extents, m
 
-    def update_figure(fig, b, t) -> None:
-        ax = fig.add_subplot(111)
-        b.plot(ax=ax, cmap="RdBu_r", extend='both', vmax=7e-5, vmin=-7e-5)
-        ax.set_aspect('equal')
-        ax.set_title(f"t = {nh.utils.humanize_number(t, 'seconds')}", fontsize=16)
+nx, ny, nz = 256, 1, 128
+frames = 240
 
-# ----------------------------------------------------------------
-#  The main model
-# ----------------------------------------------------------------
-@nh.utils.skip_on_doc_build
-def main():
-    grid = nh.grid.cartesian.Grid(
-        shape=(1024, 1, 512), domain_size=(8000, 1, 4000), periodic_bounds=(True, True, False))
-    mset = nh.ModelSettings(grid=grid, f0=1e-4, stratification_n2=2.5e-5)
-    mset.time_stepper.dt = np.timedelta64(20, 's')
+# %%
+# Grid and Model
+# --------------
+# The packet solves the linearized equations, so we assemble the
+# model without the advection module.
+grid = fr.spatial.cartesian.Grid(
+    shape=(nx, ny, nz),
+    extent=(LX, LY, LZ),
+    periodic=(True, True, False))
 
-    # add a video writer
-    if make_video:
-        mset.diagnostics.add_module(nh.modules.animation.VideoWriter(
-            Plotter,
-            model_time_per_second=np.timedelta64(4, "h"),
-            filename=f"{exp_name}", fps=fps))
+dt = 0.1 / STRATIFICATION_N2 ** 0.5        # omega dt <= 0.1
 
-    # create a NetCDF writer to save the output
-    if make_netcdf:
-        mset.diagnostics.add_module(nh.modules.NetCDFWriter(
-            write_trigger = nh.ClockTrigger(time_interval=np.timedelta64(1, "m")),
-            filename=exp_name))
+model = nh.Model(
+    grid=grid,
+    coriolis=nh.FPlaneCoriolis(f0=CORIOLIS_F0),
+    buoyancy=nh.ConstantStratification(n2=STRATIFICATION_N2),
+    advection=False,
+    time_stepper=fr.model.time_steppers.AdamBashforth(dt, order=3))
 
-    mset.setup()
+# %%
+# A Traveling Packet from One Carrier Mode
+# ----------------------------------------
+# ``nh.wave_package`` multiplies one eigenmode with an envelope
+# function and projects the product back onto its wave family, so
+# the packet stays polarized. Between rigid walls a single mode is
+# standing in z, and an envelope alone would split into an upward
+# and a downward beam. ``traveling={"z": -1}`` selects the sinking
+# one. The sign is the direction the envelope drifts. On the walled
+# vertical the ``z`` mode number counts half wavelengths over the
+# depth. This carrier has a 133 m wavelength in x and in z.
+def envelope(x, z):
+    """Gaussian bump at the middle of the slice, 1/e radius 150 m."""
+    r2 = (x - 500.0) ** 2 + (z - 500.0) ** 2
+    return jnp.exp(-r2 / 150.0 ** 2)
 
+omega, packet = nh.wave_package(
+    model,
+    mode_number={"x": 15, "y": 0, "z": 15},
+    family="wave+",
+    envelope=envelope,
+    traveling={"z": -1})
+print(f"carrier period: {2 * jnp.pi / omega / 60:.1f} min")
 
-    # *********************************************************************
-    #  Create the initial condition
-    # *********************************************************************
-    # For the correct fourier transform, we need triple periodic boundaries
-    grid_periodic = nh.grid.cartesian.Grid(
-        shape=(1024, 1, 512), domain_size=(8000, 1, 4000), periodic_bounds=(True, True, True))
-    mset_periodic = nh.ModelSettings(grid=grid_periodic, f0=1e-4, stratification_n2=2.5e-5)
-    mset_periodic.setup()
-    # Create the initial conditions from the periodic settings
-    z = nh.initial_conditions.WavePackage(
-        mset_periodic, 
-        mask_pos=(1000, None, 2000), 
-        mask_width=(400, None, 400), 
-        k=(60, 0, 30))
+# normalize the packet so the largest buoyancy value is one
+packet /= packet.b.max()
+model.set_state(packet)
 
+# plot the initial buoyancy in the slice plane
+_ = model.state.b.xr.isel(y=0).plot(x="x", size=3.2, aspect=2)
 
-    # create model and set the initial conditions
-    model = nh.Model(mset)
-    model.z = z * 1e2
+# %%
+# .. note::
+#     The built-in ``nh.gaussian`` builds the same callable, with a
+#     single width applied to every named axis.
+#
+#     .. code-block:: python
+#
+#         envelope = nh.gaussian(
+#             pos={"x": 500.0, "z": 500.0}, width=150.0)
 
-    # plot the initial state (thumbnail)
-    import os
-    os.makedirs("figures", exist_ok=True)
-    fig = Plotter(model.model_state)
-    fig.savefig(thumbnail)
+# %%
+# Running and Recording
+# ---------------------
+# The envelope sinks at about 4 cm/s and meets the bottom after
+# roughly four hours. Eight hours shows the descent, the
+# reflection, and the climb back toward mid depth. We write the
+# buoyancy once per frame and render the slice.
+runlen = 8.0 * 3600.0
 
-    # run the model
-    model.run(runlen=np.timedelta64(1, 'D'))
+writer = fr.io.Writer(
+    "wave_package.zarr", fields=["b"],
+    trigger=fr.io.every(seconds=runlen / frames), mode="w")
+model.run(runlen=runlen, outputs=(writer,), progress=False)
 
+_ = subprocess.run(
+    "cdfviewer wave_package.zarr -v b -x x -y z --dims=y=0"
+    " -p heatmap -a time"
+    " --kwargs='colormap=:balance, colorrange=(-1, 1),"
+    " figsize=(1000, 500),"
+    " titlesize=28, xlabelsize=24, ylabelsize=24,"
+    ' xlabel="x [m]", ylabel="z [m]",'
+    " title=\"Reflecting internal-wave packet\"'"
+    " --record -s 'filename=\"wave_package.mp4\", framerate=24'",
+    shell=True, check=True)
 
-if __name__ == "__main__":
-    main()
+# %%
+# The packet glides down along the tilted phase lines of the
+# carrier, reflects off the bottom into its mirror image, and
+# climbs back. Within the envelope the crests keep sweeping through
+# at the carrier period of about half an hour. The packet also
+# smears out as it travels. The envelope holds a band of modes
+# around the carrier, and each mode moves at a slightly different
+# group velocity. A larger carrier wavenumber or a wider envelope
+# (both narrower relative to the carrier in spectral space) would
+# keep the packet compact for longer.
