@@ -274,7 +274,8 @@ def test_field_valued_pattern_on_the_variables_own_space():
         probe.state["b"].function_space.bare.shape))
     field = probe.state["b"].with_data(data)
     model = make_model(
-        Source("wm", {"b": field}, law=fr.model.Harmonic(AMP, FREQ)),
+        Source("wm", {"b": field},
+               law=fr.model.Harmonic(AMP, FREQ, phase=0.0)),
         grid=grid)
     t = 0.05
     np.testing.assert_allclose(

@@ -157,7 +157,12 @@ leaves:
   `f + t f'`, not `f(t)` — the naive law is a footgun, and a
   correct chirp needs the explicit phase integral. Chirps are
   spelled through the escape hatch.
-- `phase : float`.
+- `phase : float`, defaulting to `-π/2` — the sine that starts from
+  zero, which is what a wave maker wants, so the common case needs no
+  `phase=` at all (owner ruling, 2026-08-11, from the
+  `internal_wave_maker` docs review). The SRC-D4 convention is
+  untouched: the term is still `A·Re[Q e^{-i(2πft+φ)}]`, and a cosine
+  is the explicit `phase=0.0`.
 
 Escape hatch: `law=` accepts any `TimeDependent` (e.g. a
 `TimeFunction` chirp with the phase law written out; its `params`

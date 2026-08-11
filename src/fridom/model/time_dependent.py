@@ -457,7 +457,8 @@ class Harmonic(TimeDependent):
     monochromatic oscillation whose three parameters publish as the
     sweepable dynamic leaves ``source.<label>.{amplitude, frequency,
     phase}``. The phase convention is fixed so ``phi = -pi/2`` is a
-    sine and ``phi = 0`` a cosine:
+    sine and ``phi = 0`` a cosine, and the **default is the sine**, so
+    a forcing that starts from zero needs no ``phase=`` at all:
 
     .. math::
         g(t) = A(t)\,\cos(2\pi f t + \varphi),
@@ -467,7 +468,7 @@ class Harmonic(TimeDependent):
     :class:`~fridom.model.modules.Source` pattern reuses the same
     :math:`2\pi f t + \varphi` in its quadrature expansion). A
     Gaussian wave maker ``A sin(2 pi f t)`` is exactly
-    ``Harmonic(A, f, phase=-pi/2)``.
+    ``Harmonic(A, f)``; a cosine is ``Harmonic(A, f, phase=0.0)``.
 
     - ``amplitude`` is ``float | TimeDependent``: the spin-up
       doctrine ("ramp the amplitude, not the structure"), so a
@@ -478,7 +479,7 @@ class Harmonic(TimeDependent):
       ``f + t f'``, not ``f(t)`` — a correct chirp needs the
       explicit phase integral, spelled as a
       :class:`TimeFunction` law instead).
-    - ``phase`` is a plain number.
+    - ``phase`` is a plain number, defaulting to the sine.
 
     The three slots are dynamic leaves, so sweeping them never
     recompiles and ``jax.grad`` flows through them.
@@ -493,7 +494,8 @@ class Harmonic(TimeDependent):
         oscillation runs at :math:`2\pi f`).
     phase : float, optional
         The phase shift :math:`\varphi` in radians; ``-pi/2`` is a
-        sine, ``0`` a cosine (default: 0.0).
+        sine, ``0`` a cosine (default: ``-pi/2``, the sine that
+        starts from zero).
 
     Raises
     ------
@@ -505,7 +507,7 @@ class Harmonic(TimeDependent):
         self,
         amplitude: float | TimeDependent,
         frequency: float,
-        phase: float = 0.0,
+        phase: float = -jnp.pi / 2,
     ) -> None:
         """Coerce the leaves; refuse a time-dependent frequency."""
         if isinstance(frequency, TimeDependent):
