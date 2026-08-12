@@ -346,7 +346,8 @@ def pot_vort(
     q = (f + zeta) / h
     return q.with_metadata(
         name="pot_vort", long_name="Potential vorticity",
-        units="s/m^2")
+        units="s/m^2",
+        nondimensional=state["p"].metadata.nondimensional)
 
 
 #: the thickness FUNCTION is retired: the full geopotential

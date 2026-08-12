@@ -138,7 +138,8 @@ class State(VectorField):
         dudy = self.u.diff("y").to(dvdx)
         return (dvdx - dudy).with_metadata(
             name="rel_vort_z", long_name="Vertical relative vorticity",
-            units="1/s")
+            units="1/s",
+            nondimensional=self.v.metadata.nondimensional)
 
     @property
     def hor_divergence(self) -> ScalarField:
@@ -153,4 +154,5 @@ class State(VectorField):
         div = self.u.diff("x") + self.v.diff("y")
         return div.with_metadata(
             name="hor_divergence", long_name="Horizontal divergence",
-            units="1/s")
+            units="1/s",
+            nondimensional=self.u.metadata.nondimensional)

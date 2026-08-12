@@ -319,7 +319,10 @@ def test_pot_vort_is_the_scaled_vector_invariant():
     assert np.array_equal(np.asarray(got.data),
                           np.asarray(expected.data))
     assert got.metadata.name == "pot_vort"
-    assert got.metadata.units == "s/m^2"
+    # flat_model() is the nondimensional (GravityWave) variant, so the
+    # physical unit is declared and the reported CF claim renders "1"
+    assert got.metadata.physical_units == "s/m^2"
+    assert got.metadata.units == "1"
 
 
 def test_pot_vort_of_a_rest_state_is_f_over_h():
