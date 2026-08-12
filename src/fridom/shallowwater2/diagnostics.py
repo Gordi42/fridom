@@ -82,7 +82,9 @@ def ekin(
     center = state["p"].function_space
     u = state["u"].to(center)
     v = state["v"].to(center)
-    return state["p"].with_data(0.5 * (u.data**2 + v.data**2))
+    return state["p"].new_quantity(
+        0.5 * (u.data**2 + v.data**2),
+        name="ekin", long_name="Kinetic energy", units="m^2/s^2")
 
 
 def _csqr_eff(params: Mapping[str, object]) -> object:
@@ -113,7 +115,9 @@ def epot(
     """
     csqr = _csqr_eff(params)
     p = state["p"]
-    return p.with_data(0.5 * p.data**2 / csqr)
+    return p.new_quantity(
+        0.5 * p.data**2 / csqr,
+        name="epot", long_name="Potential energy", units="m^2/s^2")
 
 
 # ================================================================
@@ -189,12 +193,16 @@ def ekin_full(
     e_u = u * u * h.to(u)
     e_v = v * v * h.to(v)
     if grid.chart_coords is None:
-        return p.with_data(0.5 * (e_u.to(p) + e_v.to(p)).data)
-    e_u = grid.metric(u.function_space.bare, "sqrt_g") * e_u
-    e_v = grid.metric(v.function_space.bare, "sqrt_g") * e_v
-    sqrt_g = grid.metric(p.function_space.bare, "sqrt_g")
-    return p.with_data(
-        (0.5 * (e_u.to(p) + e_v.to(p)) / sqrt_g).data)
+        data = (0.5 * (e_u.to(p) + e_v.to(p))).data
+    else:
+        e_u = grid.metric(u.function_space.bare, "sqrt_g") * e_u
+        e_v = grid.metric(v.function_space.bare, "sqrt_g") * e_v
+        sqrt_g = grid.metric(p.function_space.bare, "sqrt_g")
+        data = (0.5 * (e_u.to(p) + e_v.to(p)) / sqrt_g).data
+    return p.new_quantity(
+        data, name="ekin_full",
+        long_name="Thickness-weighted kinetic energy",
+        units="m^4/s^4")
 
 
 def epot_full(
@@ -213,7 +221,9 @@ def epot_full(
     two terms are fixed by (exact) mass conservation.
     """
     p = state["p"]
-    return p.with_data(0.5 * p.data**2)
+    return p.new_quantity(
+        0.5 * p.data**2, name="epot_full",
+        long_name="Available potential energy", units="m^4/s^4")
 
 
 def etot_full(
@@ -256,8 +266,10 @@ def etot_full(
     **including** rotation — on flat, walled and chart grids
     (``sw.modules.coriolis``).
     """
-    kin = ekin_full(state, params)
-    return kin + epot_full(state, params)
+    total = ekin_full(state, params) + epot_full(state, params)
+    return state["p"].new_quantity(
+        total.data, name="etot_full",
+        long_name="Total thickness-weighted energy", units="m^4/s^4")
 
 
 # ================================================================
@@ -334,7 +346,8 @@ def pot_vort(
     q = (f + zeta) / h
     return q.with_metadata(
         name="pot_vort", long_name="Potential vorticity",
-        units="s/m^2")
+        units="s/m^2",
+        nondimensional=state["p"].metadata.nondimensional)
 
 
 #: the thickness FUNCTION is retired: the full geopotential

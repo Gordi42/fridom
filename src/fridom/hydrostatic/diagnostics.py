@@ -42,7 +42,8 @@ def ekin(
     center = state["p_hyd"].function_space
     u = state["u"].to(center).data
     v = state["v"].to(center).data
-    return state["p_hyd"].with_data(0.5 * (u**2 + v**2)).with_metadata(
+    return state["p_hyd"].new_quantity(
+        0.5 * (u**2 + v**2),
         name="ekin", long_name="Kinetic energy", units="m^2/s^2")
 
 
@@ -76,7 +77,8 @@ def epot(
     """
     n2 = _n2_eff(params)
     b = state["b"].data
-    return state["b"].with_data(0.5 * b**2 / n2).with_metadata(
+    return state["b"].new_quantity(
+        0.5 * b**2 / n2,
         name="epot", long_name="Potential energy", units="m^2/s^2")
 
 
