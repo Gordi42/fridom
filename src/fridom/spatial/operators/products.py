@@ -67,8 +67,8 @@ def _elementwise(
     valid = f.halo_valid
     for other in others:
         valid = valid.merge_min(other.halo_valid)
-    return type(f)(f.grid, f.function_space.bare, data, None,
-                   halo_valid=valid)
+    return type(f)(f.grid, f.function_space.bare, data,
+                   f.metadata.cleared(), halo_valid=valid)
 
 
 @final
@@ -321,4 +321,4 @@ class Abs(UnaryOperator):
         return type(f)(
             f.grid, codomain,
             jnp.abs(f._data),  # noqa: SLF001 — storage seam
-            None, halo_valid=f.halo_valid)
+            f.metadata.cleared(), halo_valid=f.halo_valid)

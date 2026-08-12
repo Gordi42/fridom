@@ -162,6 +162,31 @@ class FieldMetadata:
                    nondimensional=nondimensional,
                    nc_attrs=_normalize_nc_attrs(nc_attrs))
 
+    def cleared(self) -> FieldMetadata:
+        """
+        Drop the identity; keep the scaling frame.
+
+        Description
+        -----------
+        What a value-computing operation leaves behind. The name,
+        long name, unit and nc-attrs of the operands say nothing
+        about the result — ``u * b`` is neither a velocity nor a
+        buoyancy — so the algebra resets them. :attr:`nondimensional`
+        is different in kind: it describes the **value system** the
+        numbers live in, not the quantity they measure, and anything
+        computed from nondimensionalized values is itself
+        nondimensionalized. So it rides through the algebra, and a
+        derived quantity that re-declares its annotation on an
+        algebra result renders correctly without its declaration
+        site having to restate the scaling.
+
+        Returns
+        -------
+        FieldMetadata
+            A default record carrying only the scaling frame.
+        """
+        return FieldMetadata(nondimensional=self.nondimensional)
+
     def replace(self, **changes: object) -> FieldMetadata:
         """
         Functional update (dataclasses.replace wrapper).

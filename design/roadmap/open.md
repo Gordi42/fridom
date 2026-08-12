@@ -80,7 +80,7 @@ nondimensionalization doc sections (plan §E/§F).
 Plan: [`../plans/active/nondimensionalization_plan.md`](../plans/active/nondimensionalization_plan.md).
 
 
-## 2c. Units and field metadata — SHIPPED except one gap (2026-08-12)
+## 2c. Units and field metadata — SHIPPED (2026-08-12)
 
 Both owner-reported defects and all four collateral ones are fixed
 on dev (rulings + outcome in §11/§12 of the record). `FieldMetadata`
@@ -92,16 +92,17 @@ Derived quantities declare their own annotation through
 `ScalarField.new_quantity`; a per-package name-identity gate fails
 when one carries a borrowed or default record.
 
-**What remains**: value-computing ops reset the whole metadata
-record, including the `nondimensional` flag, so six re-declaring
-sites that cannot use `new_quantity` (no receiver on their result's
-space) pass `nondimensional=` explicitly. The fix is for the algebra
-to preserve the flag through a reset — it describes the value
-system, not the quantity — which needs a pass over the operator
-layer's result construction. Gated meanwhile: every derived quantity
-is checked on a nondimensional model, so a forgotten flag fails a
-test. Also not addressed: `FieldMetadata.physical_units` and
-`UnitFactor.unit` remain two hand-maintained copies (§5.5), now
+The scaling frame also rides through the algebra:
+`FieldMetadata.cleared()` drops the identity a value-computing op
+invalidates and keeps `nondimensional`, which describes the value
+system rather than the quantity — so no declaration site spells the
+scaling, and an unregistered derived quantity can no longer ship a
+false physical claim. (That pass also found `_lift_field` dropping
+metadata outright on the constant-space broadcast, which is why
+`f_coriolis` lost its annotation inside `sw.pot_vort`.)
+
+**What remains**: `FieldMetadata.physical_units` and
+`UnitFactor.unit` are still two hand-maintained copies (§5.5), now
 provably different for coordinates, so a drift lint would have to
 compare component rows only.
 

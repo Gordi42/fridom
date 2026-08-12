@@ -182,8 +182,7 @@ class State(VectorField):
             zeta = curl(covariant).retag(corner)
         return zeta.with_metadata(
             name="rel_vort", long_name="Relative vorticity",
-            units="1/s",
-            nondimensional=self.u.metadata.nondimensional)
+            units="1/s")
 
     @property
     def divergence(self) -> fr.spatial.ScalarField:
@@ -217,5 +216,4 @@ class State(VectorField):
                 "div", u.function_space.bare)(vec)
         return div.with_metadata(
             name="divergence", long_name="Horizontal divergence",
-            units="1/s",
-            nondimensional=self.u.metadata.nondimensional)
+            units="1/s")

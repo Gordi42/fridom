@@ -416,24 +416,29 @@ for problem 2, as recommended.
   `grid.create_field`) fixed. The remat table takes its metadata from
   the field record, so AUX fields carry the scaling stamp too,
   including across `update_parameters` re-runs.
-- **Known gap (accepted, gated).** Value-computing ops reset the
-  *whole* metadata record, including the `nondimensional` flag the
-  assembly stamps. `new_quantity` inherits the flag from its
-  receiver, but six re-declaring sites do not land on a state
-  field's space (`sw.rel_vort`, `sw.divergence`, `sw.pot_vort`,
-  both hydrostatic kinematics, `nh.rel_vort_z`) and therefore pass
-  `nondimensional=` explicitly — which cuts against "declaration
-  sites spell the physical unit and never the scaling". The
-  principled fix is for the algebra to preserve the flag through a
-  reset (it describes the *value system*, not the quantity, so it
-  should survive arithmetic the way name/units should not); that
-  needs a pass over the operator layer's result construction, not
-  just the three sites in `scalar_field.py`. Until then the
-  per-package gate is parametrized over **every** derived quantity
-  on a nondimensional model, so a forgotten flag fails a test
-  rather than shipping a false physical claim. A derived quantity
-  added without being registered in the gate's key list is still
-  ungated — the residual hole.
+- **The scaling frame now rides through the algebra** (closed
+  2026-08-12, `fix/scaling-flag-propagation`). This shipped first as
+  an accepted gap: value-computing ops reset the *whole* metadata
+  record, so six re-declaring sites that do not land on a state
+  field's space passed `nondimensional=` by hand — which cut against
+  "declaration sites spell the physical unit and never the scaling",
+  and left an unregistered derived quantity able to ship a false
+  physical claim. `FieldMetadata.cleared()` now expresses the right
+  rule: the identity (name, long name, unit, nc-attrs) is dropped
+  because the operands say nothing about the result, while
+  `nondimensional` survives because it describes the **value
+  system** the numbers live in, not the quantity they measure.
+  Applied at every reset site — the elementwise products path, the
+  two staggered-kernel chokepoints (`reconstruct`/`staggering`,
+  covering `diff`, flux-diff and the graded ladder), `__neg__`,
+  `abs`, the linear-combine fast path, and both scalar
+  shift/scale paths — and all six hand-threadings deleted.
+  Verified across `+ - * / ** abs -` , `diff` and `to`.
+  One genuine bug fell out: `_lift_field` (the constant-space
+  broadcast a sanctioned lift performs) dropped metadata entirely,
+  so `f_coriolis` lost its annotation the moment it entered an
+  expression — `sw.pot_vort` was the visible casualty. A lift is a
+  conversion, not a computation, so it now keeps the record.
 
 - §5.5 (the two hand-maintained unit copies) is **not** addressed:
   `FieldMetadata.physical_units` and `UnitFactor.unit` remain

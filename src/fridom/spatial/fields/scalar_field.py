@@ -1071,7 +1071,7 @@ class ScalarField:
         # every ghost fill (linear-homogeneous), so valid ghost
         # slots stay valid (task 1.8, stage B)
         return ScalarField(self._grid, self._function_space,
-                           -self._data,
+                           -self._data, self._metadata.cleared(),
                            halo_valid=self._halo_valid)
 
     def __pos__(self) -> ScalarField:
@@ -1294,11 +1294,12 @@ def _bases_first(
     return bases + rest
 
 
-def _wrap(grid: Grid, space: SpaceLike,
-          true_data: jax.Array) -> ScalarField:
+def _wrap(grid: Grid, space: SpaceLike, true_data: jax.Array,
+          metadata: FieldMetadata | None = None) -> ScalarField:
     """Build a default-metadata result field from true-shape data."""
     return ScalarField(grid, space,
-                       store(grid.decomposition, space, true_data))
+                       store(grid.decomposition, space, true_data),
+                       metadata)
 
 
 def _check_grids(a: ScalarField, b: ScalarField,
@@ -1428,8 +1429,10 @@ def _linear_combine(
         return type(a)(
             a.grid, joined,
             data_op(a._data, b._data),  # noqa: SLF001 — storage seam
+            a.metadata.cleared(),
             halo_valid=a.halo_valid.merge_min(b.halo_valid))
-    return _wrap(a.grid, joined, data_op(a.data, b.data))
+    return _wrap(a.grid, joined, data_op(a.data, b.data),
+                 a.metadata.cleared())
 
 
 def _is_0d_array(value: object) -> bool:
@@ -1489,7 +1492,7 @@ def _scalar_shift(
         for name in factor.names})
     return type(f)(f.grid, space,
                    data_op(f._data, value),  # noqa: SLF001 — storage seam
-                   halo_valid=valid)
+                   f.metadata.cleared(), halo_valid=valid)
 
 
 def _scalar_scale(
@@ -1512,7 +1515,7 @@ def _scalar_scale(
         space = _promoted_space(space)
     return type(f)(f.grid, space,
                    data_op(f._data, value),  # noqa: SLF001 — storage seam
-                   halo_valid=f.halo_valid)
+                   f.metadata.cleared(), halo_valid=f.halo_valid)
 
 
 # ================================================================
@@ -1527,13 +1530,24 @@ def _scalar_scale(
 
 
 def _lift_field(f: ScalarField, joined: SpaceLike) -> ScalarField:
-    """Materialize the lift of ``f`` onto the joined space."""
+    """
+    Materialize the lift of ``f`` onto the joined space.
+
+    Description
+    -----------
+    A sanctioned lift is a **conversion**, not a computation: a
+    constant-space field broadcast onto the joined space is the same
+    quantity at more nodes, so it keeps its annotation (the
+    ``.to()`` / interpolation precedent). Dropping it here made a
+    constant-space operand such as ``f_coriolis`` lose its scaling
+    frame the moment it entered an expression.
+    """
     if f.function_space is joined:
         return f
     data = jnp.broadcast_to(f.data, joined.shape)
     data = data.astype(
         jnp.promote_types(data.dtype, storage_dtype(joined)))
-    return _wrap(f.grid, joined, data)
+    return _wrap(f.grid, joined, data, f.metadata)
 
 
 # Coefficient-space fields form a vector space, not an algebra (owner
