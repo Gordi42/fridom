@@ -80,6 +80,35 @@ nondimensionalization doc sections (plan §E/§F).
 Plan: [`../plans/active/nondimensionalization_plan.md`](../plans/active/nondimensionalization_plan.md).
 
 
+## 2c. Units and field metadata (owner-reported 2026-08-12)
+
+Two independent defects sharing one data structure, plus four
+collateral ones. **(1)** Nondimensional runs still report physical
+units on variables: the CF option-(b) ruling of §D was applied to the
+time axis only, and the writer decides the question in three places
+with three different conventions (`io/writer.py:900-904` coordinates,
+`:915-923` time, `:950-953` variables). **(2)** Derived fields lose or
+borrow annotations: field algebra resets metadata by design, ~10
+derived sites never re-declare, and 7 use `state["p"].with_data(...)`
+to borrow pressure's *space* and inherit its *identity* (`ekin` ships
+as `long_name: "Pressure"`; `.xr` names it `"p"`). Measured: 22 of 47
+user-visible quantities carry a unit string that is false under
+nondimensional scaling; 22 of 47 have no usable `long_name`.
+
+Collateral, each standalone: `lon`/`lat` in radians stamped
+`units="m"` on the sphere — **wrong in the dimensional variant**
+(`shallowwater2/units.py:156` + `io/writer.py:904`); all 23 AUXILIARY
+declaration sites discard their annotations at allocation
+(`RematerializationEntry` has no metadata field; 12-line fix
+prototyped); `units="n/a"` reaches NetCDF unparseable;
+`grid.create_field` has no `long_name=`.
+
+Investigation (options, prior art, disqualification of dimensional
+analysis through the algebra, five owner rulings):
+[`../research/units_metadata_investigation.md`](../research/units_metadata_investigation.md).
+**Blocked on the owner rulings in §11 of that record.**
+
+
 ## 3. Perf-guard checkpoint (owner-run)
 
 After **all** physics changes above land, before the Oceananigans
