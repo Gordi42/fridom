@@ -671,6 +671,24 @@ def test_materialized_sync_mirrors_the_map_edge_cases(bounded):
         decomp.sync(padded, bounded.center, materialize=True), padded)
 
 
+def test_materialized_sync_mirrors_the_map_on_a_zero_dof_factor():
+    # the edge case the 4-DOF Center above cannot reach: a walled
+    # one-cell axis empties the Dirichlet face lattice, and the vacant
+    # ghost slot then needs a *shape*, not a DOF. The write spelling
+    # used to read a DOF for it and refuse where its twin filled zeros.
+    # The whole (space, bc, n_cells) matrix lives in
+    # test_tensor_flat_axis.py; this keeps the twin claim next to it.
+    mesh = IntervalMesh(1, (0.0, 1.0), periodic=False, name="y")
+    space = mesh.nodal(NodeSet.INNER, bc=BC.DIRICHLET)
+    assert space.shape == (0,)
+    decomp = _mesh_decomp(mesh, 1)
+    padded = decomp.pad(jnp.zeros((0,)), space)
+    written = decomp.sync(padded, space, materialize=True)
+    assert jnp.array_equal(written,
+                           decomp.sync(padded, space, materialize=False))
+    assert jnp.array_equal(written, jnp.zeros((2,)))
+
+
 def test_coefficient_factors_carry_no_halo_storage():
     mesh = IntervalMesh(8, (0.0, 1.0), name="x")
     decomp = _mesh_decomp(mesh, 2)

@@ -1493,7 +1493,20 @@ def _bounded_ghosts(
         index = k - 1 if side == 0 else n - k
         return _take(true, axis, slice(index, index + 1))
 
-    ghosts = _ghost_values(kind, distance, dof, width, factor)
+    def zero_slot() -> jax.Array:
+        """Return one exactly-zero ghost slot, shaped like a DOF."""
+        # the Dirichlet _VACANT slot needs a *shape*, not a DOF: it is
+        # the constrained boundary DOF, which is zero whatever the
+        # interior holds. Reading a DOF for it would refuse the walled
+        # axis whose space is empty (a 1-cell walled axis leaves no
+        # interior face, so the wall-normal factor has 0 DOFs), while
+        # the map spelling (_axis_map) fills it happily -- the two are
+        # documented twins and must not disagree.
+        shape = list(true.shape)
+        shape[axis] = 1
+        return jnp.zeros(tuple(shape), true.dtype)
+
+    ghosts = _ghost_values(kind, distance, dof, zero_slot, width, factor)
     if side == 0:
         ghosts.reverse()
     return jnp.concatenate(ghosts, axis=axis)
@@ -1579,6 +1592,7 @@ def _ghost_values(
     kind: BC,
     distance: float,
     dof: Callable[[int], jax.Array],
+    zero_slot: Callable[[], jax.Array],
     width: int,
     factor: FunctionSpace,
 ) -> list[jax.Array]:
@@ -1591,6 +1605,11 @@ def _ghost_values(
     multi-device physical-boundary fill (a shard's block is filled
     from received/local slabs, not by remapping an axis).
 
+    The ``sign == 0`` slot is built by ``zero_slot`` rather than from a
+    DOF: ``_ghost_slot`` reports a meaningless rank there, so reading a
+    DOF for it would refuse a factor with too few (possibly zero) DOFs
+    that the map spelling fills without complaint.
+
     Parameters
     ----------
     kind : BC
@@ -1599,6 +1618,8 @@ def _ghost_values(
         The nearest-true-DOF distance class (``_boundary_geometry``).
     dof : Callable[[int], jax.Array]
         Accessor for the k-th true DOF from this side (k=1 nearest).
+    zero_slot : Callable[[], jax.Array]
+        Builder for one exactly-zero, DOF-shaped ghost slot.
     width : int
         The ghost width to fill.
     factor : FunctionSpace
@@ -1613,7 +1634,7 @@ def _ghost_values(
     for k in range(1, width + 1):
         rank, sign = _ghost_slot(kind, distance, k, factor)
         if not sign:
-            values.append(jnp.zeros_like(dof(rank)))
+            values.append(zero_slot())
         elif sign < 0:
             values.append(-dof(rank))
         else:

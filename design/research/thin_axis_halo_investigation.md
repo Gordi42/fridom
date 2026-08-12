@@ -499,7 +499,22 @@ measurement) and the asymmetric halo (recommendation 5).
 - `_check_walled_extent` keys `min_cells` on cells while the bounded
   fill guard keys on DOFs; `OUTER/NEUMANN` has 2 DOFs at `n_cells = 1`
   yet still trips at width 2. Worth aligning.
-- Zero-DOF spaces flow through `_axis_map` undefended (§5).
+- ~~Zero-DOF spaces flow through `_axis_map` undefended (§5).~~
+  **Closed** by `fix/walled-thin-axis-fill`, 2026-08-12. The map was
+  never the problem — it honours the `sign == 0` vacant-slot rule and
+  returns exact zeros. Its documented twin `_write_axis` did not: via
+  `_ghost_values` it read `dof(rank)` purely to obtain a *shape* for
+  that slot, so a walled `nz = 1` model assembled and then raised
+  `NotImplementedError` from the first step (`w` lands on
+  `Inner(DIRICHLET)` with 0 DOFs). `_bounded_ghosts` now builds the
+  slot from the storage frame (`zero_slot`) and passes it in; values
+  are unchanged for every `n >= 1`, and the multi-device caller
+  (`_exchange_block`, always `n = width + 1 >= 2`) is byte-identical.
+  Semantics, owner's call: a walled 1-cell axis **runs**, stepping a
+  genuinely empty wall-normal velocity — no assembly-time refusal, no
+  interior face to carry flow. The twin invariant is now asserted over
+  the whole bounded matrix in
+  `tests/spatial/decomposition/test_tensor_flat_axis.py`.
 - `done.md` ~2370 claims "The weno5 momentum z-seam residual is the one
   item left open in this family (`open.md`)", but no such entry exists
   in `open.md` today.
