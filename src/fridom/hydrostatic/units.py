@@ -85,6 +85,34 @@ _PRESSURE_FACTOR = UnitFactor(
     scales=("U",), params={"eps": SCALING_NONLINEARITY},
     fn=_pressure)
 
+def _vorticity(values: Mapping[str, float]) -> float:
+    """Return the vorticity amplitude ``U/L``."""
+    return values["U"] / values["L"]
+
+
+def _energy(values: Mapping[str, float]) -> float:
+    """Return the specific-energy amplitude ``U^2``."""
+    return values["U"] ** 2
+
+
+_VORTICITY_FACTOR = UnitFactor(
+    target_unit="1/s", expr="U/L", kind="derived",
+    scales=("L", "U"), fn=_vorticity)
+
+_SPECIFIC_ENERGY_FACTOR = UnitFactor(
+    target_unit="m^2/s^2", expr="U^2", kind="derived",
+    scales=("U",), fn=_energy)
+
+#: the diagnosed quantities' rows (5.6)
+DERIVED_FACTORS: dict[str, UnitFactor] = {
+    "rel_vort_z": _VORTICITY_FACTOR,
+    "hor_divergence": _VORTICITY_FACTOR,
+    "ekin": _SPECIFIC_ENERGY_FACTOR,
+    # epot = 0.5*b^2/N^2_eff, the nh cancellation: the amplitude
+    # ratio U^2*(Fr/eps)^2 meets N^2_eff = (eps/Fr)^2
+    "epot": _SPECIFIC_ENERGY_FACTOR,
+}
+
 #: the core's geometry-free component rows (u, v, p_hyd)
 COMPONENT_FACTORS: dict[str, UnitFactor] = {
     "u": _VELOCITY_FACTOR,

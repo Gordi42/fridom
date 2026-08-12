@@ -63,6 +63,7 @@ if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Callable, Mapping, Sequence
 
     from fridom.io.triggers import Trigger
+    from fridom.model.units import UnitFactor
     from fridom.spatial.export import ExportLayout
     from fridom.spatial.fields.scalar_field import ScalarField
 
@@ -151,7 +152,9 @@ class _UnitsStamp(NamedTuple):
     nondimensional: bool
 
 
-def _units_stamp(model: Any) -> _UnitsStamp | None:
+def _units_stamp(
+    model: Any, extra: Mapping[str, Any] | None = None,
+) -> _UnitsStamp | None:
     """
     Build the unit-factor metadata stamp of a model (or ``None``).
 
@@ -167,10 +170,17 @@ def _units_stamp(model: Any) -> _UnitsStamp | None:
     rows. Globally: the scaling class, variant flag, stored
     reference scales, the constant-resolvable ``T_ref`` and
     ``epsilon``, and the bound constants the tables reference.
+
+    ``extra`` carries the writer's own ``unit_factors=`` rows —
+    ad-hoc quantities no package table can know about. They are
+    resolved through the same surface and win over a collected row
+    of the same name.
     """
     try:
         units = model.units
         entries = dict(units.factors)
+        for name, factor in (extra or {}).items():
+            entries[name] = units.resolve(name, factor)
         per_name = {name: _stamp_row(entry)
                     for name, entry in entries.items()}
         scaling = getattr(model, "scaling", None)
@@ -289,6 +299,13 @@ class Writer:
         alongside — owner ruling, option b). It changes no data;
         models without a ``units`` surface are stamped with nothing
         (default: True).
+    unit_factors : Mapping[str, UnitFactor] | None, optional
+        Conversion rows for quantities the model's own tables cannot
+        know about — an ad-hoc ``derived=`` diagnostic. Keyed by the
+        output name and resolved through ``model.units`` like any
+        shipped row, so an ad-hoc quantity can carry a
+        ``dimensional_factor`` too; a row given here wins over a
+        collected one of the same name (default: None).
     async_writes : bool, optional
         Overlap the spatial disk writes with the model integration:
         each firing defers its writes and drains the previous firing
@@ -315,6 +332,7 @@ class Writer:
         chunks: Mapping[str, int] | None = None,
         attrs: Mapping[str, str] | None = None,
         units_metadata: bool = True,
+        unit_factors: Mapping[str, UnitFactor] | None = None,
         async_writes: bool = False,
     ) -> None:
         """Configure the stream; no file IO happens here."""
@@ -329,6 +347,8 @@ class Writer:
         self._chunks = dict(chunks) if chunks else {}
         self._attrs = dict(attrs) if attrs else {}
         self._units_metadata = bool(units_metadata)
+        self._unit_factors: dict[str, UnitFactor] = dict(
+            unit_factors or {})
         # the bind-time unit-factor stamp (None until bind / opted out)
         self._units: _UnitsStamp | None = None
         self._async_writes = bool(async_writes)
@@ -773,8 +793,9 @@ class Writer:
         # rank at bind (the one deliberate snapshot); rank 0 writes
         # it below. A mode="a" reopen keeps the existing store
         # metadata untouched (no restamp).
-        self._units = (_units_stamp(model)
-                       if self._units_metadata else None)
+        self._units = (
+            _units_stamp(model, self._unit_factors)
+            if self._units_metadata else None)
         exists = self._path.exists()
         # The existence check + mode decision is evaluated identically
         # on every rank (shared filesystem) before any rank mutates the
@@ -958,7 +979,14 @@ class Writer:
             zattrs = {"_ARRAY_DIMENSIONS": ["time", *layout.dims]}
             zattrs.update(layout.attrs)
             if self._units is not None:
-                zattrs.update(self._units.per_name.get(name, {}))
+                # the output key is the USER's (derived={"vort": …});
+                # a package row can only be keyed canonically, so
+                # fall back to the field's own name, which the
+                # per-package name-identity gate pins to that key
+                row = self._units.per_name.get(name)
+                if row is None:
+                    row = self._units.per_name.get(layout.name, {})
+                zattrs.update(row)
             # CF auxiliary-coordinate promotion: xarray reads the
             # iteration variable back as a coordinate, no post-proc.
             zattrs["coordinates"] = "iteration"

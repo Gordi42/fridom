@@ -42,8 +42,12 @@ from fridom.model.time_dependent import TimeDependent, resolve_at
 if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Callable
 
-#: the raw row kinds — identity (1.0) on a dimensional model
-_RAW_KINDS = frozenset({"component", "coordinate", "time"})
+#: the raw row kinds — identity (1.0) on a dimensional model.
+#: ``derived`` rows annotate a diagnosed quantity rather than a
+#: state component; they are raw because a dimensional model
+#: computes them directly in physical units.
+_RAW_KINDS = frozenset(
+    {"component", "coordinate", "time", "derived"})
 
 #: the full row-kind vocabulary
 _KINDS = _RAW_KINDS | {"curated", "constant"}
@@ -190,7 +194,7 @@ _T_REF_FACTOR = UnitFactor(
 
 #: display order of the row kinds in :meth:`UnitsView.report`
 _REPORT_ORDER = ("constant", "time", "coordinate", "component",
-                 "curated")
+                 "derived", "curated")
 
 
 # ================================================================
@@ -252,6 +256,40 @@ class UnitsView:
     # ================================================================
     #  Resolution (live; the centralized variant switch)
     # ================================================================
+    def resolve(
+        self, name: str, factor: UnitFactor, *,
+        at: float | None = None,
+    ) -> FactorEntry:
+        """
+        Resolve one row that the model does not itself contribute.
+
+        Description
+        -----------
+        The seam for a factor declared **outside** the module
+        tables — an ad-hoc diagnostic a user writes through
+        ``fr.io.Writer(derived=...)``, which no package table can
+        know about. Resolution is identical to a collected row's
+        (same scaling switch, same live parameter reads, same
+        unresolvable marking), so a user row behaves exactly like a
+        shipped one.
+
+        Parameters
+        ----------
+        name : str
+            The row name, used in the returned entry and in the
+            unresolvable marks.
+        factor : UnitFactor
+            The declared row.
+        at : float | None, optional
+            Evaluation time for Ramp-valued inputs (default: None).
+
+        Returns
+        -------
+        FactorEntry
+            The resolved row.
+        """
+        return self._resolve(name, factor, at=at)
+
     def _resolve(
         self, name: str, factor: UnitFactor, *,
         at: float | None = None,

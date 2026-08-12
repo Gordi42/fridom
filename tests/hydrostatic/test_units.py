@@ -194,3 +194,22 @@ def test_component_rows_agree_with_the_field_annotations():
     drifted = {name: pair for name, pair in overlap.items()
                if pair[0] != pair[1]}
     assert drifted == {}
+
+
+# ================================================================
+#  Derived-quantity rows (5.6: converting a diagnostic back)
+# ================================================================
+def test_derived_rows_resolve_to_the_declared_amplitudes():
+    units = rot_model().units
+    for name in ("rel_vort_z", "hor_divergence"):
+        assert units.factor(name) == pytest.approx(U_REF / L_REF), name
+    for name in ("ekin", "epot"):
+        assert units.factor(name) == pytest.approx(U_REF ** 2), name
+
+
+def test_derived_rows_are_identity_on_a_dimensional_model():
+    units = dim_model().units
+    rows = dict(units.factors)
+    for name in ("rel_vort_z", "hor_divergence", "ekin", "epot"):
+        assert units.factor(name) == 1.0, name
+        assert rows[name].kind == "derived"

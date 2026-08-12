@@ -108,24 +108,18 @@ closed: `UnitFactor.unit` is now `target_unit` (the unit of
 `factor * value`, whose misreading produced the lat-lon bug) and a
 per-package lint pins the component overlap.
 
-Open: **derived quantities carry no conversion row**, so a
-nondimensional store has `vort` with `units="1"` and no
-`dimensional_factor` while `u` carries one — honest but
-unrecoverable. Investigated 2026-08-12 (§5.6): the factor **cannot**
-be derived from the unit string (measured: declared/from-dimensions
-ratios are `eps` for `u`/`p` and `delta` for `b` — each amplitude is
-an independent normalization and `delta*L` is a second length), so
-per-quantity rows are the only route; no new machinery is needed
-(`module.unit_factors` + live-parameter `UnitFactor`s); the writer
-must additionally fall back from the user-chosen output name to
-`field.metadata.name`, which the name-identity gate already pins.
-Ten of the seventeen are mechanical (`U/L` for the vorticity /
-divergence family, `U^2` for the energies), `nh.linear_pot_vort` is
-`U/(eps*L)` rather than `U/L` because its definition folds in `eps`,
-and `sw.ekin_full` / `etot_full` / `pot_vort` need the geopotential
-conventions settled before their rows can be written — an absent row
-is honest, a wrong one repeats §5.1. Recommendation: package rows +
-a user-declarable factor on the `derived=` channel, staged.
+Derived-quantity conversion shipped 2026-08-12 (§5.6): a `derived`
+row kind, 14 rows across the three packages, a writer fallback from
+the user-chosen output key to the canonical name, and
+`Writer(unit_factors=)` + `UnitsView.resolve` for ad-hoc quantities.
+
+**What remains**: `sw.ekin_full`, `sw.etot_full` and `sw.pot_vort`
+carry no row, deliberately — their factors turn on the geopotential
+thickness convention (the `thickness` row is `(U/Fr)^2` while `p` is
+`U^2/eps`, which do not reconcile under a non-`GravityWave` sw
+scaling). **Owner call.** A test asserts the absence so it reads as
+a decision, not an oversight; an absent row leaves the quantity
+honestly unconvertible where a guessed one would repeat §5.1.
 
 Record: [`../research/units_metadata_investigation.md`](../research/units_metadata_investigation.md).
 
