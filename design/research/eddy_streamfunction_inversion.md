@@ -36,8 +36,11 @@ families.**
   every walled topology, for reasons given below.
 - Discrete round-trip error 3.3e-16 to 1.1e-15 at every resolution
   tested, on all six topologies, both families. Divergence of the
-  resulting velocities is exactly zero on a walled grid and 2e-15 on
-  a periodic one.
+  resulting velocities is at round-off, 2e-15 relative to `max |u|`
+  or below. (Corrected 2026-08-12: this bullet used to claim
+  *exactly* zero on a walled grid. That is luck, not structure —
+  see the divergence section below, which leaves 3.8e-17 on a
+  `(2 pi)^2` box. Bound the divergence relative to `max |u|`.)
 - No iterative fallback is needed. Every topology is spectral.
 
 ## What the boundary condition is, and why
