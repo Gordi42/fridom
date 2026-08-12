@@ -416,6 +416,25 @@ for problem 2, as recommended.
   `grid.create_field`) fixed. The remat table takes its metadata from
   the field record, so AUX fields carry the scaling stamp too,
   including across `update_parameters` re-runs.
+- **Known gap (accepted, gated).** Value-computing ops reset the
+  *whole* metadata record, including the `nondimensional` flag the
+  assembly stamps. `new_quantity` inherits the flag from its
+  receiver, but six re-declaring sites do not land on a state
+  field's space (`sw.rel_vort`, `sw.divergence`, `sw.pot_vort`,
+  both hydrostatic kinematics, `nh.rel_vort_z`) and therefore pass
+  `nondimensional=` explicitly — which cuts against "declaration
+  sites spell the physical unit and never the scaling". The
+  principled fix is for the algebra to preserve the flag through a
+  reset (it describes the *value system*, not the quantity, so it
+  should survive arithmetic the way name/units should not); that
+  needs a pass over the operator layer's result construction, not
+  just the three sites in `scalar_field.py`. Until then the
+  per-package gate is parametrized over **every** derived quantity
+  on a nondimensional model, so a forgotten flag fails a test
+  rather than shipping a false physical claim. A derived quantity
+  added without being registered in the gate's key list is still
+  ungated — the residual hole.
+
 - §5.5 (the two hand-maintained unit copies) is **not** addressed:
   `FieldMetadata.physical_units` and `UnitFactor.unit` remain
   independent. They now mean provably different things for
