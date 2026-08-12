@@ -168,57 +168,25 @@ grows an `is_free` guard (a no-op in the pressure path, whose space
 is always the BC-free cell scalar); today it raises on every walled
 topology.
 
-## 2e. Flat-axis halo elision (promoted 2026-08-12, owner)
+## 2e. Thin-axis remainder (elision + the walled fill shipped 2026-08-12; entry in [`done.md`](done.md))
 
-A size-1 **periodic** axis stores `1 + 2H` slots (7 at WENO5) and pays
-for every one of them, because same-space field arithmetic and the
-other axes' stencils all run on the storage-shaped `_data`. Promoted
-out of [`deferred.md`](deferred.md) on **cpu** evidence: measured
-**2.2x** (centered+biharmonic) to **7.7x** (WENO5) step-time speedup at
-128²–1024², three independent harnesses agreeing on ratios, with the
-step bandwidth-bound by 11–37x per post-fusion cost analysis. The
-prior "5–13%" estimate was a bad two-point extrapolation; corrections
-in [`../research/thin_axis_halo_investigation.md`](../research/thin_axis_halo_investigation.md) §12.
-
-Open items:
-
-- **Land the merge-ready implementation** — repeat-and-run in the two
-  shared stencil tails, `_width -> 0`, `decomposition.halo` untouched,
-  gated on `factor.mesh.periodic and factor.mesh.n_cells == 1` with a
-  loud in-gate assertion that the realized fill really is a copy of the
-  single DOF. Never key on `n_cells == 1` or `shape[0] == 1` alone
-  (§12.4: a shipped walled `nz=2` model has a bounded z factor with
-  `shape[0] == 1` and a nonzero `±1/dz` divergence).
-- **Make the co-operand rule enforceable** rather than remembered — the
-  one trap of ~12 stencil families: a kernel that *closes over* a
-  storage array is not widened by handing the tail a widened operand
-  (§12.7).
-- **Retarget** `test_periodic_wrap_wider_than_the_axis_tiles` — under
-  elision the tiling branch is only reachable for `2 <= n < width`, so
-  the shipped thin-axis fix loses coverage otherwise.
-- **A100 confirmation** (owner-submitted, confirmatory not gating):
-  `benchmarks/ci/` job ready; `S >= 0.50` at the largest size confirms,
-  predicted 0.83–0.87 for WENO5.
+- **A100 confirmation of flat-axis elision** (owner-submitted,
+  confirmatory — the cpu evidence already carried the decision):
+  `benchmarks/ci/` job written and dry-run verified. `S >= 0.50` at the
+  largest size confirms; predicted 0.83–0.87 for WENO5. A leg-B
+  arithmetic intensity above ~4.8 FLOP/byte would be the genuine
+  surprise, overturning the bandwidth-bound premise.
 - **Real `srun -n N` verification** (owner-submitted). Forced-4 host
-  devices already pass, and a size-1 axis is never sharded at any device
-  count (§4), so the risk is low.
-- **Not covered by any flat rule:** `n = 2` still pays 3x/5x. Extending
-  the widening to a modular tiled gather for `n < halo` looks worth
-  costing given the measured size of the win.
-
-## 2f. Walled 1-cell axis — the two fill spellings disagree at 0 DOFs
-
-A walled `nz=1` model assembles and then raises
-`NotImplementedError: the bounded halo fill ... reaches deeper than the
-0 DOFs along the axis` at the first step, because `_ghost_values` calls
-`dof()` purely for a *shape* on a zero-DOF Dirichlet factor while
-`_axis_map` returns exact zeros for the same slot. Predates the
-thin-axis fix. Owner ruling (2026-08-12): **make it run** with a
-genuinely empty wall-normal velocity — the `sign == 0` slot takes its
-shape from the storage frame. Fix the divergence itself: two functions
-documented as producing "the same values" must not disagree on any
-input.
-[`../research/thin_axis_halo_investigation.md`](../research/thin_axis_halo_investigation.md) §12.8.
+  devices pass (462 tests), and a size-1 axis is never sharded at any
+  device count, so the flat path only ever takes the single-shard
+  branch — low risk, unverified under a true multi-host launch.
+- **The merely-thin axis is still uncovered:** `n = 2` pays 3x/5x and no
+  flat rule reaches it. Extending the widening to a modular tiled gather
+  for `n < halo` looks worth costing given the measured size of the win.
+- **`examples/nonhydro/dancing_eddies.py`** prose still says a thin
+  vertical rules out the wide reconstruction stencils. Now doubly stale
+  (the wrap fix lifted it; elision makes the flat axis the *cheap* one).
+  Docs-review scope — owner-reviewed privately, per AGENTS.md.
 
 ## 3. Perf-guard checkpoint (owner-run)
 

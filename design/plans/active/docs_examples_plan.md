@@ -106,10 +106,10 @@ Two consequences worth keeping here:
 
 ## Open upstream items (found while porting; fix in `src/`, not in the page)
 
-- `fr.io` root alias missing: the io_ops spec spells `fr.io.Writer`, the
-  pilot writes `fr.model.io.Writer`.
-- `pot_vort` is not implemented on shallowwater2 (the pilot animates
-  `rel_vort` instead).
+None currently. The pilot's two finds are resolved: the `fr.io` root
+alias landed (`78caad70`) and `pot_vort` ships in
+`sw.diagnostics` — whether the pilot's animation switches from
+`rel_vort` to it is an owner call during its revision pass.
 
 ## Phase 0.5 — Content-independent groundwork (partly done)
 

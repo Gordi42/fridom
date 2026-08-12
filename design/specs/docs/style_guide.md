@@ -139,6 +139,11 @@ of them must still be able to follow the page.
   operators and named quantities upright (`\mathrm{Ro}`).
 - Number an equation only if the text references it; refer to it as
   "Eq. (n)" via `:eq:`.
+- **Symbols in prose are math, not code literals.** A field or
+  variable referred to as a physical quantity is `:math:`u`` (or plain
+  `u`), never ``` ``u`` ``` — double-backtick literal markup is for
+  code identifiers and API names, and reads as clutter on a symbol
+  (owner review 2026-07-22).
 - **The notation page is the single source of symbols.** A chapter
   introducing a symbol that already exists on the notation page uses
   that symbol; a chapter needing a new symbol adds it there in the
@@ -159,8 +164,11 @@ of them must still be able to follow the page.
   CI runner, per the build plan).
 - Individual blocks stay under ~20 lines; longer listings are split
   and interleaved with prose.
-- Code follows the house style (double quotes, 79 chars); comments in
-  snippets are rare because the surrounding prose does that job.
+- Code follows the house style (double quotes, 79 chars). The prose
+  between cells explains *why*; short inline comments above the
+  nontrivial steps of a construction sequence say *what* each step
+  does (owner preference 2026-07-20 — do not leave a multi-step
+  block bare).
 
 Gallery-script rules (owner review of the Phase 2 pilot, 2026-07-11):
 
@@ -172,18 +180,102 @@ Gallery-script rules (owner review of the Phase 2 pilot, 2026-07-11):
 - **Imports go through the root alias** (`import fridom as fr`), as
   everywhere. Importing a class directly is the exception, not the
   rule: use it only where the aliased path forces awkward wrapping
-  and the direct import genuinely reads better (e.g. `IntervalMesh`
-  constructor lines).
+  and the direct import genuinely reads better.
 - **Suppress bare object reprs** at the end of a code block
   (`_ = field.xr.plot(...)`); reprs that inform the reader (a
   `RunResult` after `model.run`) stay unsuppressed.
-- **Build mechanics stay out of the prose.** The
-  `FRIDOM_EXAMPLES_FAST` resolution switch appears as plain code in
-  the settings block, without a paragraph explaining CI; the
-  convention is documented in the build plan, not to readers.
+- **Build mechanics stay out of the prose**, and out of the code too.
+  Examples ship at one resolution, the good one. The
+  `FRIDOM_EXAMPLES_FAST` switch is retired (owner ruling
+  2026-08-12); an example that is too slow at full resolution is
+  made cheaper by choosing a smaller problem, not by branching on an
+  environment variable.
 - **Name tools in one working sentence** ("We use CDFViewer to render
   the vorticity animation from the zarr store"), not a capability
   pitch. §2's promotional-language ban applies to tools we ship too.
+
+Further gallery-script rules (owner review of the revision pass,
+2026-07-20):
+
+- **Shortest public spelling.** Use the most convenient public
+  surface: `fr.io.Writer` (root alias), not `fr.model.io.Writer`;
+  uniform grids through `fr.spatial.cartesian.Grid(shape, extent,
+  periodic=...)`, not hand-assembled `IntervalMesh` factors.
+- **Descriptive state names.** Never one-letter state variables
+  (`z`); name what the state is (`initial_state`, `balanced`).
+- **Initial conditions in the open.** Build initial states explicitly
+  in the example (sample analytic profiles with
+  `grid.create_field(init=...)`, project, add modes) rather than
+  calling an `initial_conditions` factory — the construction is part
+  of what the page teaches.
+- **Tuned coefficients get a why-comment.** A magic number (e.g. a
+  biharmonic viscosity) is pulled out into a named variable carrying
+  a short comment justifying its scaling; amplitudes and similar
+  constants get named variables too, never inline literals.
+- **Uniform eigenmode surface.** Pages spell `sw.eigenbasis(model)` /
+  `nh.eigenbasis(model)` (never `from_model`) and family-string
+  `mode("vortical" | "wave+" | ..., mode_number=...)`; build transform
+  objects on their own line (`project_vortical =
+  sw.transforms.VorticalProjection(eigenmodes)`) instead of one-line
+  construct-and-call chains.
+
+Concision rules (owner review of the barotropic-instability pass,
+2026-07-22):
+
+- **The docstring is a title plus one short sentence.** Sphinx-gallery
+  shows that sentence as the card/tooltip text in the gallery, where
+  only a few words fit; a multi-sentence opening paragraph is truncated
+  there and reads as bloat on the page. Any longer framing belongs in
+  the first `# %%` block — or nowhere.
+- **Examples stay short; the guide owns the concepts.** Do not
+  re-explain machinery the prose pages teach (how a `Writer` streams to
+  a store, how a state is assembled, what a projection does). Repeating
+  it once per example duplicates the guide across the whole gallery.
+  Explain only what is specific to *this* experiment, and prefer a
+  short inline comment on the line over a paragraph above the block.
+  **Cutting prose never means cutting the step comments**: §7's "do not
+  leave a multi-step block bare" still binds, and each code block may
+  open with a one-line comment saying what it does ("project the jet
+  onto the vortical subspace", "plot the initial condition").
+- **No discussion residue.** Findings from the design conversation that
+  produced the example — why one parameter regime was picked over
+  another, how symmetric the saturated state turned out, benchmark
+  numbers — are review artifacts, not reader content. They belong in
+  `design/`, not in the script.
+
+Rules from the equatorial-waves review (owner review, 2026-07-23):
+
+- **Plain settings, library constructors.** Declare experiment
+  settings as the numbers the reader should picture (a 6000 km by
+  3000 km basin), not as derived geographic quantities (degrees of
+  longitude times an Earth radius). And never hand-derive constants
+  the API provides — `BetaPlaneCoriolis.from_latitude(0.0)`, not a
+  hand-computed rotation rate and beta.
+- **No overclaims in the physics prose.** When a modeling choice is
+  one of convenience, say so ("simpler than adapting the analytic
+  solutions to the bounded domain"); never justify it with an
+  unverified impossibility claim ("has no closed form").
+- **No editorial ratings.** Fame or importance framing ("the most
+  famous equatorial mode") is voice, not physics; state what the
+  mode does instead. And near-coincidences stay approximate in
+  prose ("nearly equal frequency", not "twins at the same
+  frequency") — exact-sounding claims about almost-degenerate
+  quantities are overclaims too.
+
+Rules from the wave-package review (owner review, 2026-07-24):
+
+- **A justification appears once across the gallery.** When a
+  sibling example already explains a shared choice (the internal-wave
+  time step resolving N), later examples do not repeat the paragraph
+  — the inline comment on the line (`# omega dt <= 0.1`) carries the
+  reasoning alone.
+- **Convention details take the smallest slot that holds them.** A
+  formula with competing conventions (the Gaussian width) pins its
+  meaning where it is defined — the docstring says "1/e radius
+  150 m" — not in a prose paragraph about conventions. An equivalent
+  built-in spelling (`gaussian_envelope`) is alternative syntax and
+  goes in a `.. note::` callout after the code block, not into the
+  running prose.
 
 ## 8. Figures (plots)
 
@@ -267,3 +359,15 @@ dashes outside literals, emoji anywhere, and **no open `REVIEW:`
 markers** (the owner's in-file review comments; an unaddressed marker
 blocks the merge — see the review workflow in AGENTS.md). Every new
 renderer quirk or style violation we hit once becomes a check.
+
+**The humanizer pass is mandatory** (owner ruling 2026-07-23). Every
+prose block an author writes or edits — rst prose, gallery `# %%`
+blocks, docstrings — goes through the `humanizer` skill before the
+content is handed to the owner for review, and again after any rewrite
+made while applying his feedback. Its hard constraints are no em or en
+dashes, no colons or semicolons in running prose, no curly quotes, and
+none of the AI-tell vocabulary. Docs prose is technical register, so
+the skill's "add personality" section does not apply: plain and
+neutral is the correct human voice here, and no first person or
+opinions enter the text. The mechanics live in the `docs-review`
+skill, step 2.

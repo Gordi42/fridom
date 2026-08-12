@@ -2784,3 +2784,65 @@ multi-device is untouched (a size-1 axis is never sharded).
 Analysis: [`../research/thin_axis_halo_investigation.md`](../research/thin_axis_halo_investigation.md).
 Follow-ups parked in [`deferred.md`](deferred.md): flat-axis halo
 elision, and the asymmetric halo.
+
+## 2e. Thin-axis wide stencils, flat-axis elision, and the walled 1-cell fill (2026-08-12)
+
+Three landings on one axis-length theme, in order.
+
+**The periodic wrap (`fix/thin-axis-halo-wrap`).** A periodic axis
+shorter than its negotiated halo was refused outright, so WENO5 (halo
+3) could not run at `nz` 1 or 2 and the flat "2-D direction" had to
+downgrade to centered advection. `_axis_map` now builds the modular
+index `src[i] = width + (i - width) % n` — bitwise identical to the two
+slice copies wherever they were defined (verified exhaustively for
+`n <= 11`) and extending to arbitrary width; `_write_axis` keeps its
+`dynamic_update_slice` perf contract with a tiled gather behind a wide
+predicate.
+
+**Flat-axis halo elision (`perf/flat-axis-elision`).** A periodic
+single-cell axis carries one DOF per space family and the wrap makes
+every ghost a copy of it, so the ghosts carry no information — yet
+storage held `1 + 2H` slots and paid for all of them, because
+same-space field arithmetic and the *other* axes' stencils run on the
+storage-shaped `_data`. Measured **2.4x** (centered+biharmonic) to
+**8.5x** (WENO5) at 128²x1 and **7.6x** at 512²x1, three independent
+harnesses agreeing on ratios; the step is bandwidth-bound by 11–37x
+(arithmetic intensity 0.13–0.44 FLOP/byte against an A100 fp64 balance
+of 4.76). `Mesh.is_flat` (periodic **and** one cell) surfaces as
+`FunctionSpace.is_flat` beside `collapses_axis`; `_width` returns 0
+through `_flat_elided_width`, whose gate re-audits the realized fill
+via `_axis_map` and raises if a widened predicate ever admits a factor
+whose ghosts are not copies. `decomposition.halo` is deliberately
+untouched, so the reach guards and `require_solver_halo` keep reading
+the negotiated width — no exemption needed anywhere.
+
+Promoted out of `deferred.md` on **cpu** evidence (owner 2026-08-12);
+the prior "5–13%" figure was a two-point extrapolation whose fixed term
+was ~10x too large. One trap of ~12 stencil families: a kernel that
+*closes over* a storage array is not widened by handing the tail a
+widened operand, and at some alignments the stale one-slot array
+broadcasts rather than erroring — `co_operands=` declares them and
+`flat_captures` refuses an undeclared one.
+
+**The walled 1-cell fill (`fix/walled-thin-axis-fill`).** A walled
+`nz=1` model assembled and then raised from inside the halo fill at the
+first step: `_ghost_values` read `dof(rank)` purely to obtain a *shape*
+for the Dirichlet vacant slot, and `dof` refuses `k > n`, while its
+documented twin `_axis_map` filled the same slot with exact zeros. Such
+a model now runs, stepping a genuinely empty wall-normal velocity
+(owner ruling — no interior face at one cell means no normal flow to
+carry). Values are unchanged for every `n >= 1` and the multi-device
+caller is byte-identical; the twin invariant is asserted over the whole
+bounded matrix (7 spaces x 3 bcs x `n_cells` 1..4 x widths 1–2) rather
+than at one 4-DOF point.
+
+Also shipped: the `_weighted_windows` guard (`fix/weighted-windows-guard`)
+— the one unguarded slicer, whose empty windows `apply_fv_staggered`'s
+pad tail turned into exact zeros. Latent in shipped code, reachable
+under elision. The **asymmetric halo** was declined as a measured
+negative (see [`declined.md`](declined.md)); the mapped-grid
+`extra_halo = 2` floor it was reaching for is real and sits in
+[`deferred.md`](deferred.md), as does a genuinely 2-D `nonhydro2`
+configuration. Remainder (A100 confirmation, `srun -n N`, the `n = 2`
+case, the `dancing_eddies` prose) in [`open.md`](open.md) 2e.
+[`../research/thin_axis_halo_investigation.md`](../research/thin_axis_halo_investigation.md)

@@ -720,10 +720,23 @@ reconstructions.
 `_SelectedFaceReconstruction` (`advection.py` ~1790) closes over
 `pos_data = positive._data` and slices it with the *rebuilt* window's
 length. `jnp.repeat` widens only the array the tail is handed, never
-what a kernel **captured** — so it broke loudly with
-`ValueError: Incompatible shapes for broadcasting: shapes=[(14,14,0),
-(14,14,2),(14,14,2)]`. **Repeat-and-run is transparent to kernels but
-not to kernel closures.** §6 did not anticipate this.
+what a kernel **captured**. **Repeat-and-run is transparent to kernels
+but not to kernel closures.** §6 did not anticipate this.
+
+**Correction (the merge-ready pass): the co-operand trap is not
+reliably loud.** The prototype broke with `ValueError: Incompatible
+shapes for broadcasting: shapes=[(14,14,0),(14,14,2),(14,14,2)]` only
+because WENO5's `m0 = 2` slices the stale one-slot capture to length
+**0**. At `m0 = 0` it slices to length **1**, which *broadcasts*
+against the rebuilt window instead of erroring — a **silently wrong**
+answer. Discovered by writing the negative test, which failed to raise.
+So a `co_operands=` declaration is necessary but not sufficient: the
+shipped implementation adds `staggering.flat_captures`, which on the
+flat path inspects the kernel's closure for a `jax.Array` of the
+operand's rank holding one slot on the flat axis and refuses, naming
+the free variable and `co_operands=`. Zero false positives across 13
+configs, and not a proof — an array inside a custom object escapes it,
+which its docstring states.
 
 Verified non-issues, contradicting §6's predictions: `require_solver_halo`
 needs **no exemption** (the CG/immersed/mapped cores read `.data`, not
@@ -738,7 +751,26 @@ holds under elision.
 Elision is *more* exact than the deep run: §10's `w`-at-1e-20 residual
 comes from stenciling wrap-filled ghosts, and with no ghosts to stencil
 the vertical flux difference cancels identically — `w` and `b` become
-**exactly 0**. One real coverage loss: with elision, `_axis_map`'s
+**exactly 0**.
+
+**Correction: "`u`/`v`/`p` bitwise" is not an invariant.** Across 13
+configs on the merge-ready implementation, the `nz = 2` control and
+every flat-**y** config are fully bitwise (all fields, `w` and `b`
+included), and 6 of 10 flat-**z** configs are bitwise on `u`/`v`/`p` —
+but the other four (WENO5, FV, immersed, multigrid, walled-x CG) differ
+by **exactly 1 ulp** (rel 1e-16 on `u`/`v`, ~2e-15 on `p`). Traced
+rather than assumed: stepping WENO5 at 16², steps 1–3 are bitwise and
+the 1 ulp appears at step 4. The *deep* run's `w` residual grows
+1.0e-19 -> 3.3e-19 while the flat run's stays exactly 0, that residual
+feeds `b` through `w·N²` and then the projection, and the two
+trajectories separate at the 1-ulp level once it is large enough. The
+elided run is the cleaner of the two — the divergence is the baseline's
+own roundoff, not an elision error. The prototype's "bitwise `u`/`v`/`p`"
+held at its step counts and sizes; it does not generalize. The
+load-bearing checks are stronger and do hold bitwise:
+`test_flat_run_reproduces_a_z_replicated_deep_run` on `u`/`v`/`p`, and
+every advection tendency at orders 3 and 5 against a replicated deep
+run. One real coverage loss: with elision, `_axis_map`'s
 tiling branch (§10) is only reachable for `2 <= n < width`, so
 `test_periodic_wrap_wider_than_the_axis_tiles` needs retargeting rather
 than deleting.
