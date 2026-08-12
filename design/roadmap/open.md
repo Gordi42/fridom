@@ -97,11 +97,8 @@ nondimensional scaling; 22 of 47 have no usable `long_name`.
 
 Collateral, each standalone: `lon`/`lat` in radians stamped
 `units="m"` on the sphere — **wrong in the dimensional variant**
-(`shallowwater2/units.py:156` + `io/writer.py:904`); all 23 AUXILIARY
-declaration sites discard their annotations at allocation
-(`RematerializationEntry` has no metadata field; 12-line fix
-prototyped); `units="n/a"` reaches NetCDF unparseable;
-`grid.create_field` has no `long_name=`.
+(`shallowwater2/units.py:156` + `io/writer.py:904`); `units="n/a"`
+reaches NetCDF unparseable.
 
 Investigation (options, prior art, disqualification of dimensional
 analysis through the algebra, five owner rulings):

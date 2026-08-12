@@ -527,6 +527,9 @@ def test_init_data_and_init_coeff_are_pairwise_exclusive(grid):
 def test_metadata_and_sugar_are_exclusive(grid):
     with pytest.raises(ValueError, match="mutually exclusive"):
         grid.create_field(metadata=FieldMetadata(), name="f")
+    with pytest.raises(ValueError, match="mutually exclusive"):
+        grid.create_field(metadata=FieldMetadata(),
+                          long_name="Buoyancy")
 
 
 def test_metadata_sugar(grid):
@@ -534,7 +537,17 @@ def test_metadata_sugar(grid):
     assert f.metadata == FieldMetadata.create(name="u", units="m/s")
     g = grid.create_field(units="K")
     assert g.metadata.units == "K"
-    assert g.metadata.name == "unnamed"
+    assert g.metadata.name == FieldMetadata().name
+
+
+def test_long_name_sugar(grid):
+    f = grid.create_field(name="b", long_name="Buoyancy",
+                          units="m/s^2")
+    assert f.metadata == FieldMetadata.create(
+        name="b", long_name="Buoyancy", units="m/s^2")
+    # unset sugar falls back to the FieldMetadata defaults
+    g = grid.create_field(long_name="Buoyancy")
+    assert g.metadata == FieldMetadata.create(long_name="Buoyancy")
 
 
 def test_full_metadata_record(grid):

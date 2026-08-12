@@ -1025,6 +1025,7 @@ class Grid:
         data: jax.Array | None = None,
         order: int | None = None,
         name: str | None = None,
+        long_name: str | None = None,
         units: str | None = None,
         metadata: FieldMetadata | None = None,
     ) -> ScalarField:
@@ -1075,11 +1076,14 @@ class Grid:
             None).
         name : str | None, optional
             Metadata name sugar (default: None).
+        long_name : str | None, optional
+            Metadata long-name sugar (default: None).
         units : str | None, optional
             Metadata units sugar (default: None).
         metadata : FieldMetadata | None, optional
             Full metadata record; mutually exclusive with the sugar
-            (default: None).
+            (default: None). Sugar left unset takes the
+            `FieldMetadata` default.
 
         Returns
         -------
@@ -1092,16 +1096,16 @@ class Grid:
                 "init=, init_coeff= and data= are pairwise "
                 "exclusive")
         _check_order(order)
-        if metadata is not None and (name is not None
-                                     or units is not None):
+        sugar = {"name": name, "long_name": long_name,
+                 "units": units}
+        given = {key: value for key, value in sugar.items()
+                 if value is not None}
+        if metadata is not None and given:
             raise ValueError(
                 "metadata= is mutually exclusive with the "
-                "name=/units= sugar")
-        if metadata is None and (name is not None
-                                 or units is not None):
-            metadata = FieldMetadata.create(
-                name=name if name is not None else "unnamed",
-                units=units if units is not None else "n/a")
+                "name=/long_name=/units= sugar")
+        if metadata is None and given:
+            metadata = FieldMetadata.create(**given)
         space = (self._default_space() if space is None
                  else self._laid_out(space))
         if init is not None and any(
