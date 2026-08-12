@@ -9,6 +9,7 @@ convergence order, ENO step transport, Rossby scaling, divergence
 form) rides on top.
 """
 
+import jax.numpy as jnp
 import numpy as np
 import pytest
 
@@ -22,6 +23,7 @@ from fridom.model.modules.advection import (
     _BiasedFaceReconstruction,
     _CenteredFaceInterpolation,
     _linear_row,
+    _weighted_windows,
 )
 from fridom.model.time_steppers.adam_bashforth import (
     AdamBashforth,
@@ -521,3 +523,18 @@ def test_surface_flux_cancels_the_divergence_of_a_constant():
     tb_on = np.asarray(advection_tendency(on, CenteredAdvection)["b"].data)
     assert np.max(np.abs(tb_off)) > 1e-2  # the flux form is not constant-safe
     assert np.max(np.abs(tb_on)) <= 1e-13  # the correction makes it so
+
+
+def test_weighted_windows_refuses_an_axis_shorter_than_the_stencil():
+    # the twin of stencil_kernels._stencil_windows / weno._window_views:
+    # without the guard a too-short axis slices EMPTY windows and
+    # apply_fv_staggered's pad-to-codomain tail fills the result with
+    # exact zeros -- a silent wrong answer instead of a raise
+    arr = jnp.ones((4, 4, 1))
+    row = (0.1, 0.2, 0.4, 0.2, 0.1)
+    with pytest.raises(ValueError, match="shorter than the 5-point"):
+        _weighted_windows(arr, 2, row)
+    # the guard is a pre-condition only: a long-enough axis is unchanged
+    out = _weighted_windows(jnp.ones((4, 4, 5)), 2, row)
+    assert out.shape == (4, 4, 1)
+    np.testing.assert_allclose(np.asarray(out), 1.0)
