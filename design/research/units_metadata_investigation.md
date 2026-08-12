@@ -213,16 +213,101 @@ was actually actionable split three ways:
    throughout (rows, `FactorEntry`, the writer stamp) 2026-08-12.
    The on-disk attribute was already correctly named
    `dimensional_units` and is unchanged.
-3. **Derived quantities have no conversion row — still open.** In a
-   nondimensional store `ekin` lands with `units="1"` and no
-   `dimensional_factor`, because the writer keys the stamp by output
-   name and no package contributes rows for its derived quantities.
-   The store is honest but the value is unrecoverable, unlike `u`.
-   Closing it means ~15 derivations across the three packages off
-   the existing amplitude tables (`ekin`/`epot`/`etot` = `U^2`,
-   `rel_vort_z` = `U/L`, …); each wants checking rather than
-   pattern-matching, since `linear_pot_vort` was wrong by four
-   powers for exactly that reason.
+3. **Derived quantities have no conversion row — still open.**
+   Scoped 2026-08-12; see §5.6.
+
+### 5.6 Converting derived quantities back (the open item)
+
+Demonstrated on a `Rotational(L=2e3, U=0.5)` nonhydro store **[m]**,
+writing `fields=["u"]` and `derived={"vort": …rel_vort_z}`:
+
+| variable | `units` | `long_name` | `dimensional_factor` |
+|---|---|---|---|
+| `u` | `1` | Zonal velocity | `0.5` (= `U`) |
+| `vort` | `1` | Vertical relative vorticity | **absent** |
+
+Both are honest; only one is recoverable. Four findings bound the fix.
+
+**(a) The factor cannot be derived from the unit string — it must be
+declared.** If the nondimensionalization were a consistent `(L, T)`
+rescaling, `m/s` would imply `L/T_ref`. Measured against the declared
+rows on that model **[m]**:
+
+| | declared | from dimensions | ratio |
+|---|---|---|---|
+| `u` `[m/s]` | 0.5 | 2 | `eps` |
+| `p` `[m^2/s^2]` | 1 | 4 | `eps` |
+| `b` `[m/s^2]` | 0.001 | 0.002 | `delta` |
+
+The discrepancy is not even a single consistent factor: each variable's
+amplitude follows the simplest-linear-operator rule independently, and
+the vertical scale `delta*L` is a second length. Dimensional analysis
+under-determines the answer, so per-quantity rows are the only route.
+
+**(b) No new machinery is needed.** Rows arrive through the duck-typed
+`module.unit_factors` mapping, which the cores already use for
+components and coordinates; `UnitFactor` reads live bound parameters
+(`params={"eps": SCALING_NONLINEARITY}` + `fn`), so `eps`- and
+`delta`-dependent factors are expressible; and `UnitsView` marks a row
+unresolvable rather than failing when its inputs are unbound — which
+is what a diagnostic that needs an absent module should do.
+
+**(c) The stamp is keyed by the wrong name.** `io/writer.py` looks the
+row up by **output name**, which the user chooses (`derived={"vort":
+…}`), while a package row can only be keyed by the canonical name
+(`rel_vort_z`). The fix is a fallback to `field.metadata.name`, which
+the per-package name-identity gate now pins to the canonical key — a
+second use for that gate beyond the one it was built for.
+
+**(d) Ten of the seventeen are mechanical; the rest are not.**
+
+| factor | quantities |
+|---|---|
+| `U/L` | `nh.rel_vort_z`, `hy.rel_vort_z`, `hy.hor_divergence`, `sw.rel_vort`, `sw.divergence` |
+| `U^2` | `ekin`, `epot`, `etot` in nh / sw / hy |
+
+`nh.epot` is worth spelling out because it looks scaling-dependent and
+is not: `factor_b^2 / factor_N^2` = `[U^2/(eps*delta*L)]^2 *
+[Fr*delta*L/U]^2` = `U^2*(Fr/eps)^2`, and the nondimensional definition
+carries `N^2_eff = (eps/Fr)^2`, which cancels it back to `U^2` — so it
+agrees with `ekin` and `etot` is well defined.
+
+The remaining five need deriving individually, not pattern-matching:
+
+- **`nh.linear_pot_vort` = `U/(eps*L)`, not `U/L`.** Its nondimensional
+  definition multiplies through by `eps` (`diagnostics.py:191`), so it
+  is *not* the plain vorticity factor despite sharing the unit `1/s`.
+  This is the same quantity whose borrowed unit was wrong by four
+  powers; it punishes pattern-matching twice.
+- **`sw.epot_full` = `(U^2/eps)^2`** from `0.5*p^2`.
+- **`sw.ekin_full`, `sw.etot_full`, `sw.pot_vort`** — unresolved here.
+  `ekin_full` is thickness-weighted (`0.5*h_bar*u^2`) and the shipped
+  `thickness` row is `(U/Fr)^2` while `p` is `U^2/eps`; I could not
+  reconcile those into one factor that also makes `etot_full =
+  ekin_full + epot_full` consistent under a non-`GravityWave` sw
+  scaling without reading further into the sw geopotential
+  conventions. **Owner call / further derivation needed** — flagged
+  rather than guessed.
+
+**(e) A package row can never cover a user's own quantity.**
+`derived={"my_thing": lambda ms: …}` is opaque to every table, so
+full coverage additionally needs a way for the writer's derived
+channel to accept a declared factor alongside the callable.
+
+**Options.** (A) package rows for the shipped seventeen + the
+`metadata.name` keying fallback; (B) a user-declarable factor on the
+`derived=` channel, for ad-hoc quantities; (C) both; (D) none —
+document that derived quantities are unconvertible and let users
+apply the component factors themselves. A alone leaves ad-hoc
+quantities out; B alone leaves the shipped diagnostics needing
+hand-declaration at every call site.
+
+**Recommendation: C, staged.** A first — the mechanical ten plus
+`nh.linear_pot_vort` and `sw.epot_full` — with the three unresolved
+`sw` rows deliberately absent (an absent row is honest; a wrong one
+is the §5.1 failure mode again). Then B, which is small and makes the
+feature complete rather than partial. Then the `sw` family once the
+geopotential conventions are settled.
 
 ## 6. Constraints that bound the design
 

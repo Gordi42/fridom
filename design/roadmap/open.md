@@ -101,18 +101,31 @@ false physical claim. (That pass also found `_lift_field` dropping
 metadata outright on the constant-space broadcast, which is why
 `f_coriolis` lost its annotation inside `sw.pot_vort`.)
 
-**What remains** (§5.5, re-scoped 2026-08-12 — the "two copies of
-one fact" framing was wrong; the measured overlap is five component
-rows and the rest is complementary): the naming and drift halves are
-closed — `UnitFactor.unit` is now `target_unit` (the unit of
+**What remains** (§5.5 re-scoped 2026-08-12 — the "two copies of one
+fact" framing was wrong; the measured overlap is five component rows
+and the rest is complementary). The naming and drift halves are
+closed: `UnitFactor.unit` is now `target_unit` (the unit of
 `factor * value`, whose misreading produced the lat-lon bug) and a
-per-package lint pins the component overlap. Open: **derived
-quantities carry no conversion row**, so a nondimensional store has
-`ekin` with `units="1"` and no `dimensional_factor` — honest but
-unrecoverable, unlike `u`. Closing it is ~15 derivations across the
-three packages off the existing amplitude tables, each worth
-checking individually (`linear_pot_vort` was wrong by four powers
-from pattern-matching).
+per-package lint pins the component overlap.
+
+Open: **derived quantities carry no conversion row**, so a
+nondimensional store has `vort` with `units="1"` and no
+`dimensional_factor` while `u` carries one — honest but
+unrecoverable. Investigated 2026-08-12 (§5.6): the factor **cannot**
+be derived from the unit string (measured: declared/from-dimensions
+ratios are `eps` for `u`/`p` and `delta` for `b` — each amplitude is
+an independent normalization and `delta*L` is a second length), so
+per-quantity rows are the only route; no new machinery is needed
+(`module.unit_factors` + live-parameter `UnitFactor`s); the writer
+must additionally fall back from the user-chosen output name to
+`field.metadata.name`, which the name-identity gate already pins.
+Ten of the seventeen are mechanical (`U/L` for the vorticity /
+divergence family, `U^2` for the energies), `nh.linear_pot_vort` is
+`U/(eps*L)` rather than `U/L` because its definition folds in `eps`,
+and `sw.ekin_full` / `etot_full` / `pot_vort` need the geopotential
+conventions settled before their rows can be written — an absent row
+is honest, a wrong one repeats §5.1. Recommendation: package rows +
+a user-declarable factor on the `derived=` channel, staged.
 
 Record: [`../research/units_metadata_investigation.md`](../research/units_metadata_investigation.md).
 
