@@ -2756,3 +2756,31 @@ blanket-refuses materialized-owner parameters — candidate follow-up
 noted in the plan). P4 (re-spelling `internal_wave_maker`,
 `multiple_wave_makers`, and the `gaussian_envelope` call sites in
 the example scripts) rides the docs cycle.
+
+## Wide stencils on a thin periodic axis — the halo wrap generalized
+
+High-order advection (WENO/upwind, halo 2–3) could not run on a
+periodic axis shorter than its halo: `_axis_map` and `_write_axis`
+spelled the periodic ghost fill as a single slice wrap and refused
+`width > n` with a `NotImplementedError`. The flat axis (`nz = 1`, the
+"2-D direction") was the motivating case — `dancing_eddies` carried the
+downgrade-to-centered workaround in reader-facing prose — but the
+restriction was really *halo wider than axis*, so WENO5 also failed at
+`nz = 2`. Fixed by the modular fill `src[i] = width + (i - width) % n`,
+which is bitwise identical to the slice form wherever that form was
+defined (verified exhaustively for `n <= 11`, all `width, trail <= n`)
+and extends to arbitrary width; `_write_axis` keeps its
+`dynamic_update_slice` perf contract and only gathers its O(halo) slab
+differently. A flat WENO5 run now reproduces a z-replicated deep run
+bitwise on the horizontal state (`w` at ~1e-20, CG-projection
+roundoff), and `jax.grad` through `Model.propagator` matches central FD
+— WENO's `alpha = d/(beta + eps)**2` adds the epsilon before squaring,
+so the constant column is not a masked singularity. The guards were
+wave-2C defensive asserts, not a ratified deferral: no design entry, no
+doc pointer, no test, and the governing spec scopes every
+length-vs-halo constraint to *shards*, not axes. Bounded thin axes stay
+refused (the wall-normal velocity space is empty at one cell) and
+multi-device is untouched (a size-1 axis is never sharded).
+Analysis: [`../research/thin_axis_halo_investigation.md`](../research/thin_axis_halo_investigation.md).
+Follow-ups parked in [`deferred.md`](deferred.md): flat-axis halo
+elision, and the asymmetric halo.

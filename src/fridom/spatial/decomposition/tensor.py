@@ -1348,6 +1348,46 @@ def _set(arr: jax.Array, axis: int, start: int | jax.Array,
     return jax.lax.dynamic_update_slice_in_dim(arr, values, start, axis)
 
 
+def _tiled(
+    arr: jax.Array,
+    axis: int,
+    n: int,
+    width: int,
+    offsets: np.ndarray,
+) -> jax.Array:
+    """
+    Gather a ghost slab by tiling the true region of one axis.
+
+    Description
+    -----------
+    Ghost offset ``o`` (measured from the start of the true region,
+    negative on the leading side) reads true DOF ``o % n``. This is
+    the write spelling's counterpart to the modular index the map
+    spelling builds in :func:`_axis_map`, and it is only needed when
+    the halo is wider than the axis, where a single wrap falls short.
+
+    Parameters
+    ----------
+    arr : jax.Array
+        The storage-shaped array.
+    axis : int
+        The storage axis being filled.
+    n : int
+        The true DOF count along ``axis``.
+    width : int
+        The negotiated ghost width along ``axis``.
+    offsets : np.ndarray
+        The ghost offsets to gather, in slot order.
+
+    Returns
+    -------
+    jax.Array
+        The slab of gathered ghost values.
+    """
+    true = _take(arr, axis, slice(width, width + n))
+    return jnp.take(true, jnp.asarray(offsets % n), axis=axis)
+
+
 def _boundary_geometry(
     factor: FunctionSpace, side: int,
 ) -> tuple[BC, float]:
@@ -1621,12 +1661,17 @@ def _axis_map(
     zero = np.zeros(size, dtype=bool)
     trail = size - n - width
     if factor.mesh.periodic:
-        if width > n or trail > n:
-            raise NotImplementedError(
-                f"periodic wrap with halo {width} wider than the "
-                f"axis length {n} is not supported")
-        src[:width] = np.arange(n, n + width)
-        src[width + n:] = np.arange(width, width + trail)
+        if n < 1:
+            raise ValueError(
+                f"a periodic axis needs at least one DOF to wrap "
+                f"around, got {n}")
+        # Modular wrap. Identical to the two slice copies this
+        # generalizes whenever width <= n and trail <= n, and the only
+        # spelling that also reaches when the halo is *wider* than the
+        # axis -- a thin periodic direction (n = 1 is the flat "2-D"
+        # direction) under a wide stencil, where one wrap falls short
+        # and the slice form would source ghost slots.
+        src = (width + (np.arange(size) - width) % n).astype(np.int32)
         return src, neg, zero
     for side, depth in ((0, width), (1, trail)):
         if not depth:
@@ -1786,16 +1831,27 @@ def _write_axis(
     """
     trail = arr.shape[axis] - n - width
     if factor.mesh.periodic:
-        if width > n or trail > n:
-            raise NotImplementedError(
-                f"periodic wrap with halo {width} wider than the "
-                f"axis length {n} is not supported")
+        if n < 1:
+            raise ValueError(
+                f"a periodic axis needs at least one DOF to wrap "
+                f"around, got {n}")
+        # A halo wider than the axis needs more than one wrap, and the
+        # plain slices would then source ghost slots. Only the slab
+        # construction changes: it becomes a gather over the true
+        # region under the same modular index the map spelling uses,
+        # while the O(halo) in-place DUS write -- the whole point of
+        # this spelling -- is untouched, and the sides stay sequenced
+        # (see above).
+        wide = width > n or trail > n
         if width:
-            arr = _set(arr, axis, 0,
-                       _take(arr, axis, slice(n, n + width)))
+            slab = (_tiled(arr, axis, n, width, np.arange(-width, 0))
+                    if wide else _take(arr, axis, slice(n, n + width)))
+            arr = _set(arr, axis, 0, slab)
         if trail:
-            arr = _set(arr, axis, width + n,
-                       _take(arr, axis, slice(width, width + trail)))
+            slab = (_tiled(arr, axis, n, width, np.arange(trail))
+                    if wide else
+                    _take(arr, axis, slice(width, width + trail)))
+            arr = _set(arr, axis, width + n, slab)
         return arr
     true = _take(arr, axis, slice(width, width + n))
     left = _bounded_ghosts(true, axis, n, width, factor, 0)

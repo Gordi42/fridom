@@ -611,26 +611,64 @@ def test_bounded_fill_deeper_than_the_axis_raises(bounded):
         _filled(decomp, space, [1.0, 2.0, 3.0, 4.0])
 
 
-def test_periodic_wrap_wider_than_the_axis_raises():
-    mesh = IntervalMesh(2, (0.0, 1.0), name="x")
+@pytest.mark.parametrize("materialize", [False, True])
+def test_periodic_wrap_wider_than_the_axis_tiles(materialize):
+    # a halo wider than the axis needs more than one wrap: the fill
+    # tiles the true region instead of refusing (a flat periodic
+    # direction under a wide stencil is the motivating case)
+    mesh = IntervalMesh(1, (0.0, 1.0), name="x")
     decomp = _mesh_decomp(mesh, 3)
-    with pytest.raises(NotImplementedError, match="wider"):
-        _filled(decomp, mesh.center, [1.0, 2.0])
+    padded = decomp.pad(jnp.asarray([7.0]), mesh.center)
+    out = decomp.sync(padded, mesh.center, materialize=materialize)
+    # one cell: every one of the 7 storage slots is that cell
+    assert jnp.array_equal(out, jnp.full((7,), 7.0))
+
+    mesh2 = IntervalMesh(2, (0.0, 1.0), name="x")
+    decomp2 = _mesh_decomp(mesh2, 3)
+    padded2 = decomp2.pad(jnp.asarray([1.0, 2.0]), mesh2.center)
+    out2 = decomp2.sync(padded2, mesh2.center, materialize=materialize)
+    assert jnp.array_equal(
+        out2, jnp.array([2.0, 1.0, 2.0, 1.0, 2.0, 1.0, 2.0, 1.0]))
+
+
+@pytest.mark.parametrize("materialize", [False, True])
+@pytest.mark.parametrize("n", [2, 3, 4, 5, 6])
+def test_periodic_wrap_matches_the_single_wrap_form(n, materialize):
+    # the modular fill is a strict generalization: wherever a single
+    # wrap suffices it must reproduce the slice form exactly
+    mesh = IntervalMesh(n, (0.0, 1.0), name="x")
+    values = jnp.arange(1.0, n + 1.0)
+    for width in range(1, n + 1):
+        decomp = _mesh_decomp(mesh, width)
+        out = decomp.sync(decomp.pad(values, mesh.center), mesh.center,
+                          materialize=materialize)
+        expect = jnp.concatenate(
+            [values[n - width:], values, values[:width]])
+        assert jnp.array_equal(out, expect), (n, width)
+
+
+@pytest.mark.parametrize("materialize", [False, True])
+def test_periodic_axis_without_dofs_raises(materialize):
+    # the modular wrap is undefined without a DOF to wrap onto (numpy
+    # would warn and yield 0 rather than raise), so both spellings
+    # refuse up front
+    space = StandInSpace(shape=(0,), names=("x",),
+                         mesh=_PERIODIC_MESH)
+    decomp = TensorDecomposition(
+        meshes=(_PERIODIC_MESH,), names=("x",),
+        halo=HaloSpec({"x": 2}), layouts=(Layout({}),))
+    with pytest.raises(ValueError, match="at least one DOF"):
+        decomp.sync(jnp.zeros((4,)), space, materialize=materialize)
 
 
 def test_materialized_sync_mirrors_the_map_edge_cases(bounded):
-    # the write spelling honors the same contracts as the map: R1
-    # (BC-free sides stay untouched) and the too-wide wrap refusal
+    # the write spelling honors the same contract as the map: R1
+    # (BC-free sides stay untouched)
     decomp = _mesh_decomp(bounded, 1)
     padded = decomp.pad(jnp.asarray([1.0, 2.0, 3.0, 4.0]),
                         bounded.center)
     assert jnp.array_equal(
         decomp.sync(padded, bounded.center, materialize=True), padded)
-    mesh = IntervalMesh(2, (0.0, 1.0), name="x")
-    wide = _mesh_decomp(mesh, 3)
-    with pytest.raises(NotImplementedError, match="wider"):
-        wide.sync(wide.pad(jnp.asarray([1.0, 2.0]), mesh.center),
-                  mesh.center, materialize=True)
 
 
 def test_coefficient_factors_carry_no_halo_storage():
