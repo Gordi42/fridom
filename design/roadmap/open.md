@@ -139,7 +139,7 @@ CF-correct and the decision sits in the presentation layer).
 Found while building the general streamfunction inversion
 (`fridom.model.streamfunction`, record
 [`../research/eddy_streamfunction_inversion.md`](../research/eddy_streamfunction_inversion.md)).
-Neither blocks that work, which routes around both, but each is a
+None blocks that work, which routes around them, but each is a
 real limit the next caller will hit.
 
 - **No mixed `Sine x Cosine` transform product.** `_seed_transform_rows`
@@ -152,15 +152,36 @@ real limit the next caller will hit.
   bounded axes, which is sound only while the vertical is passive
   (the symbol never reads its mode index). A caller that genuinely
   needs `DST(x) x DCT(z)` needs axis-restrictable trig transforms.
-- **`nh.State.rel_vort_z` is half-tagged on a walled grid.** It
-  returns `Inner(x) tensor Inner(y, bc=DIRICHLET)`, x losing its tag
-  because `v.diff("x")` emits a BC-free bounded output. The
-  consequence is family-dependent: under `fv` the result still
-  differentiates, under `nodal` `state.rel_vort_z.diff("x")` raises
-  `DispatchError: no operator registered for kind 'diff' on
-  Inner(x)`. The sw2 sibling retags onto the Dirichlet corner and
-  nh2 does not, so the asymmetry looks unintended rather than
-  designed.
+- **The FV staggering family does not enforce R1.**
+  `LinearInterp.codomain` calls `require_grounded_bounded_sides`;
+  `LinearReconstruction._physical_codomain` does not, so three
+  bounded BC-free rows stay seeded although their true-shape output
+  reaches outside the true region: `Inner -> CellAvg` (exterior
+  reach `(1, 1)`), `Right -> CellAvg` `(1, 0)` and
+  `FaceAvg -> Center` `(1, 1)`. They read an unrepaired wall ghost
+  instead of raising — the silence that let nh2's half-tagged
+  `rel_vort_z` report an `O(v/dx)` wall column for as long as it did
+  (fixed; [`done.md`](done.md)). The class docstring already commits
+  to R1 and `_target_codomain` spells it by hand for
+  `CellAvg -> Outer`, so this is a gap rather than a policy.
+  Adding the guard needs a `reach=` override on
+  `require_grounded_bounded_sides` plus an `fv_exterior_reach` twin
+  of `staggering.exterior_reach` (`fv_node_offset` alignment), and
+  un-seeds exactly those three rows with periodic rows untouched.
+  **Blocked on one thing.** `_FluxFormAdvection._flux_divergence`'s
+  mapped-column correction (`model/modules/advection.py`) hops a
+  BC-free `Inner(z)` onto `CellAvg(z)` on every terrain-following FV
+  run, so the guard breaks that assembly. Measured: the ghost it
+  reads today holds an exact zero, so no number is presently wrong.
+  A homogeneous Dirichlet claim there is bitwise identical on the FV
+  path but **moves the nodal mapped trajectory**, because the nodal
+  family already seeds `LinearInterp(boundary="one_sided")` for
+  `("interpolate", Inner(z))` on a mapped grid — the R2 designed
+  closure. The FV analogue is the missing piece: a
+  `boundary="one_sided"` `Inner -> CellAvg` reconstruction row
+  (today the opt-in grounds `CellAvg -> Outer` only), seeded the same
+  way. That row lands first, then the guard, and the mapped-FV
+  trajectory moves once — correctly.
 
 - **`spectral_sibling` refuses a 3-D operand on a walled horizontal
   plus a rigid lid.** On `channel-x+lid` and `box-xy+lid` a walled
