@@ -123,7 +123,15 @@ class State(VectorField):
         Parameter-free (the ``dsqr``/``Ro`` weightings live on the
         parameterful ``pot_vort`` diagnostic). ``dvdx`` sets the
         target position; ``dudy`` is interpolated onto it.
+
+        The declaration carries ``v``'s ``nondimensional`` flag: the
+        difference is a value-computing op, so it resets the whole
+        record, and re-declaring only the physical unit would claim
+        ``1/s`` on a nondimensional model.
         """
         dvdx = self.v.diff("x")
         dudy = self.u.diff("y").to(dvdx)
-        return dvdx - dudy
+        return (dvdx - dudy).with_metadata(
+            name="rel_vort_z", long_name="Vertical relative vorticity",
+            units="1/s",
+            nondimensional=self.v.metadata.nondimensional)

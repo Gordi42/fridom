@@ -80,33 +80,42 @@ nondimensionalization doc sections (plan §E/§F).
 Plan: [`../plans/active/nondimensionalization_plan.md`](../plans/active/nondimensionalization_plan.md).
 
 
-## 2c. Units and field metadata (owner-reported 2026-08-12)
+## 2c. Units and field metadata — SHIPPED except one gap (2026-08-12)
 
-Two independent defects sharing one data structure, plus four
-collateral ones. **(1)** Nondimensional runs still report physical
-units on variables: the CF option-(b) ruling of §D was applied to the
-time axis only, and the writer decides the question in three places
-with three different conventions (`io/writer.py:900-904` coordinates,
-`:915-923` time, `:950-953` variables). **(2)** Derived fields lose or
-borrow annotations: field algebra resets metadata by design, ~10
-derived sites never re-declare, and 7 use `state["p"].with_data(...)`
-to borrow pressure's *space* and inherit its *identity* (`ekin` ships
-as `long_name: "Pressure"`; `.xr` names it `"p"`). Measured: 22 of 47
-user-visible quantities carry a unit string that is false under
-nondimensional scaling; 22 of 47 have no usable `long_name`.
+Both owner-reported defects and all four collateral ones are fixed
+on dev (rulings + outcome in §11/§12 of the record). `FieldMetadata`
+stores the physical unit plus a `nondimensional` flag and derives
+`units` from the pair; the assembly stamps the flag once from the
+scaling, so nondimensional runs report `"1"` in the store, in `.xr`
+and in memory, and the three writer seams answer from one rule.
+Derived quantities declare their own annotation through
+`ScalarField.new_quantity`; a per-package name-identity gate fails
+when one carries a borrowed or default record.
 
-Collateral, each standalone: `lon`/`lat` in radians stamped
-`units="m"` on the sphere — **wrong in the dimensional variant**
-(`shallowwater2/units.py:156` + `io/writer.py:904`); all 23 AUXILIARY
-declaration sites discard their annotations at allocation
-(`RematerializationEntry` has no metadata field; 12-line fix
-prototyped); `units="n/a"` reaches NetCDF unparseable;
-`grid.create_field` has no `long_name=`.
+**What remains**: value-computing ops reset the whole metadata
+record, including the `nondimensional` flag, so six re-declaring
+sites that cannot use `new_quantity` (no receiver on their result's
+space) pass `nondimensional=` explicitly. The fix is for the algebra
+to preserve the flag through a reset — it describes the value
+system, not the quantity — which needs a pass over the operator
+layer's result construction. Gated meanwhile: every derived quantity
+is checked on a nondimensional model, so a forgotten flag fails a
+test. Also not addressed: `FieldMetadata.physical_units` and
+`UnitFactor.unit` remain two hand-maintained copies (§5.5), now
+provably different for coordinates, so a drift lint would have to
+compare component rows only.
 
-Investigation (options, prior art, disqualification of dimensional
-analysis through the algebra, five owner rulings):
-[`../research/units_metadata_investigation.md`](../research/units_metadata_investigation.md).
-**Blocked on the owner rulings in §11 of that record.**
+Record: [`../research/units_metadata_investigation.md`](../research/units_metadata_investigation.md).
+
+**Reader-facing consequence for the docs rebuild (item 5)**:
+nondimensional coordinates now carry `units="1"` where they
+previously carried no attribute, so CDFViewer renders `x [1]` on
+`barotropic_jet.py` and `barotropic_instability.py`
+(`Data.jl:690` brackets any non-empty unit; `"1"` is not a
+registered display unit so it is never converted away). **Open —
+awaiting the owner**: accept the `[1]` label, or suppress `"1"` in
+the viewer's label composition (the recommendation: the store stays
+CF-correct and the decision sits in the presentation layer).
 
 
 ## 3. Perf-guard checkpoint (owner-run)

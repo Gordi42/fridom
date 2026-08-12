@@ -237,3 +237,63 @@ def test_writer_units_metadata_false_stamps_nothing(tmp_path):
                    for key in ds.attrs)
     assert "dimensional_factor" not in ds["u"].attrs
     assert "dimensional_factor" not in ds["time"].attrs
+
+
+# ================================================================
+#  Scaling-rendered CF units (variables, coordinates, the sphere)
+# ================================================================
+def test_nondimensional_store_claims_no_physical_unit(tmp_path):
+    xr = pytest.importorskip("xarray")
+    model = nondim_model()
+    path = tmp_path / "rendered.zarr"
+    _write_store(model, path)
+    ds = xr.open_zarr(path, consolidated=False)
+    # every variable, every coordinate and the time axis agree
+    for name in ("u", "v", "p", "thickness"):
+        assert ds[name].attrs["units"] == "1"
+    for name in ("x", "y", "x_right", "time"):
+        assert ds[name].attrs["units"] == "1"
+    # the physical unit survives as the conversion target
+    assert ds["u"].attrs["dimensional_units"] == "m/s"
+
+
+def test_dimensional_store_keeps_the_physical_units(tmp_path):
+    xr = pytest.importorskip("xarray")
+    model = dim_model()
+    path = tmp_path / "physical.zarr"
+    _write_store(model, path)
+    ds = xr.open_zarr(path, consolidated=False, decode_times=False)
+    assert ds["u"].attrs["units"] == "m/s"
+    assert ds["p"].attrs["units"] == "m^2/s^2"
+    assert ds["x"].attrs["units"] == "m"
+
+
+def test_state_fields_report_the_rendered_units():
+    # the in-memory surface agrees with the store (the .xr path)
+    nondim = nondim_model().state
+    assert nondim["u"].metadata.units == "1"
+    assert nondim["u"].metadata.physical_units == "m/s"
+    assert dim_model().state["u"].metadata.units == "m/s"
+
+
+def test_spherical_coordinates_are_radians_not_metres(tmp_path):
+    # the row's unit is the unit of factor*value (metres of arc);
+    # the stored values are angles, and the chart says so
+    xr = pytest.importorskip("xarray")
+    grid = fr.spatial.spherical.Grid((16, 8), radius=6.371e6,
+                                     lat_extent=(-1.0, 1.0))
+    model = sw.Model(
+        grid=grid,
+        core=sw.Core(gravity=G_REF, depth=100.0,
+                     coords=("lon", "lat")),
+        advection=False,
+        time_stepper=fr.model.time_steppers.AdamBashforth(
+            DT, order=2))
+    path = tmp_path / "sphere.zarr"
+    _write_store(model, path)
+    ds = xr.open_zarr(path, consolidated=False, decode_times=False)
+    for name in ("lon", "lat"):
+        assert ds[name].attrs["units"] == "rad"
+        # the metres-of-arc conversion is still stamped alongside
+        assert ds[name].attrs["dimensional_units"] == "m"
+    assert float(ds["lat"].max()) <= 1.0

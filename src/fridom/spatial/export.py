@@ -275,6 +275,12 @@ def export_layout(
                 attrs["c_grid_axis_shift"] = _AXIS_SHIFT[position]
             if isinstance(factor, CellAvg | FaceAvg):
                 attrs["representation"] = "cell_mean"
+            # a chart that knows what its coordinate values MEAN
+            # (angles on the sphere) states it here; everything else
+            # takes the model's scaling-rendered unit at the writer
+            declared = grid.coordinate_units.get(name)
+            if declared is not None:
+                attrs["units"] = declared
         labels = _host_labels(vector.data).reshape(-1)
         if np.iscomplexobj(labels):
             # wavenumbers are real by construction; the accessor

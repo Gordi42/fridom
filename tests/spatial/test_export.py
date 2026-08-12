@@ -9,6 +9,7 @@ import xarray as xr
 from jax.experimental import multihost_utils
 
 import fridom.spatial.export as export_module
+from fridom.spatial.charts import lonlat_sphere
 from fridom.spatial.export import (
     ExportLayout,
     _host_labels,
@@ -74,7 +75,7 @@ def test_center_dataarray(grid):
 def test_default_metadata_attrs(grid):
     da = grid.create_field(init=init).xr
     assert da.name == "unnamed"
-    assert da.attrs["units"] == "n/a"
+    assert da.attrs["units"] == "unknown"
 
 
 def test_nc_attrs_are_mapped(grid):
@@ -370,3 +371,24 @@ def test_host_labels_gathers_non_addressable(monkeypatch):
     assert seen["tiled"] is True  # tiled=True is mandatory for a shard
     assert seen["arr"] is fake
     assert np.array_equal(out, np.array([1.0, 2.0, 3.0]))
+
+
+# ================================================================
+#  Declared coordinate units (the chart's stored-value claim)
+# ================================================================
+def test_declared_coordinate_units_reach_the_coord_attrs():
+    two_pi = 2.0 * float(np.pi)
+    mlon = IntervalMesh(8, (0.0, two_pi), name="lon")
+    mlat = IntervalMesh(4, (-1.0, 1.0), periodic=False, name="lat")
+    grid = Grid((mlon, mlat), mapping=lonlat_sphere(),
+                device_ids=(0,))
+    layout = export_layout(grid.create_field(name="q"))
+    assert layout.coord_attrs["lon"]["units"] == "rad"
+    assert layout.coord_attrs["lat"]["units"] == "rad"
+
+
+def test_undeclared_coordinates_carry_no_units_at_export(grid):
+    # a plain grid leaves the unit to the model's scaling, which the
+    # writer renders; export must not invent one
+    layout = export_layout(grid.create_field(name="q"))
+    assert "units" not in layout.coord_attrs["x"]

@@ -30,7 +30,10 @@ from typing import TYPE_CHECKING, NamedTuple, final
 
 from fridom.model.roles import ADVECTED, TRACER, Role, Velocity
 from fridom.spatial.bc import BC
-from fridom.spatial.fields.metadata import FieldMetadata
+from fridom.spatial.fields.metadata import (
+    UNKNOWN_UNITS,
+    FieldMetadata,
+)
 from fridom.spatial.space_patterns import (
     Collocated,
     SpacePattern,
@@ -106,7 +109,7 @@ class FieldDeclaration:
     long_name : str, optional
         Descriptive nc-style name (default: "Unnamed").
     units : str, optional
-        Physical units annotation (default: "n/a").
+        Physical units annotation (default: "unknown").
     nc_attrs : Mapping[str, str] | None, optional
         Extra netCDF attributes; normalized to sorted tuple pairs
         (default: None).
@@ -134,7 +137,7 @@ class FieldDeclaration:
         default: float | Callable | None = None,
         host_writable: bool = False,
         long_name: str = "Unnamed",
-        units: str = "n/a",
+        units: str = UNKNOWN_UNITS,
         nc_attrs: Mapping[str, str] | None = None,
         time_dependent: bool = False,
     ) -> None:
@@ -266,7 +269,7 @@ class FieldDeclaration:
         space: SpacePattern | SpaceRule | None = None,
         default: float | Callable | None = None,
         long_name: str = "Unnamed",
-        units: str = "n/a",
+        units: str = UNKNOWN_UNITS,
         nc_attrs: Mapping[str, str] | None = None,
     ) -> FieldDeclaration:
         """
@@ -289,7 +292,7 @@ class FieldDeclaration:
         long_name : str, optional
             Descriptive nc-style name (default: "Unnamed").
         units : str, optional
-            Physical units annotation (default: "n/a").
+            Physical units annotation (default: "unknown").
         nc_attrs : Mapping[str, str] | None, optional
             Extra netCDF attributes (default: None).
 
@@ -315,7 +318,7 @@ class FieldDeclaration:
         space: SpacePattern | SpaceRule,
         default: float | Callable | None = None,
         long_name: str = "Unnamed",
-        units: str = "n/a",
+        units: str = UNKNOWN_UNITS,
         nc_attrs: Mapping[str, str] | None = None,
     ) -> FieldDeclaration:
         """
@@ -350,7 +353,7 @@ class FieldDeclaration:
         long_name : str, optional
             Descriptive nc-style name (default: "Unnamed").
         units : str, optional
-            Physical units annotation (default: "n/a").
+            Physical units annotation (default: "unknown").
         nc_attrs : Mapping[str, str] | None, optional
             Extra netCDF attributes (default: None).
 
@@ -422,7 +425,7 @@ class FieldDeclaration:
         """
         return FieldMetadata(
             name=self._name, long_name=self._long_name,
-            units=self._units, nc_attrs=self._nc_attrs)
+            physical_units=self._units, nc_attrs=self._nc_attrs)
 
     def __repr__(self) -> str:
         """Render the non-default declaration data."""

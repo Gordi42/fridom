@@ -21,6 +21,7 @@ from fridom.io import writer as writer_module
 from fridom.io.triggers import every
 from fridom.io.writer import Writer
 from fridom.model.clock import Clock
+from fridom.spatial.charts import lonlat_sphere
 from fridom.spatial.decomposition.tensor import TensorDecomposition
 from fridom.spatial.export import export_layout, scalar_to_dataarray
 from fridom.spatial.fields.vector_field import VectorField
@@ -1133,8 +1134,11 @@ def test_dimensional_stamp_gives_coordinates_cf_units(
     assert "units" not in _zattrs(path / "y")  # no factor row
 
 
-def test_nondimensional_coordinates_claim_no_cf_units(
+def test_nondimensional_coordinates_are_dimensionless(
         tmp_path, model, state):
+    # they used to carry no units attribute at all -- CF reads that
+    # as dimensionless too, but only by omission, while the time axis
+    # next door already said "1". One rule for all three seams now.
     fake = units_model(state, clock_at(0),
                        factors={"x": FakeEntry(2.0, "m", "L")},
                        scaling=FakeScaling(),
@@ -1145,8 +1149,9 @@ def test_nondimensional_coordinates_claim_no_cf_units(
     writer.write(firing(state, 0))
     writer.close()
     x_attrs = _zattrs(path / "x")
-    assert "units" not in x_attrs
+    assert x_attrs["units"] == "1"
     assert x_attrs["dimensional_units"] == "m"
+    assert x_attrs["dimensional_factor"] == 2.0
 
 
 def test_user_attrs_win_over_the_units_stamp(tmp_path, model, state):
@@ -1174,3 +1179,36 @@ def test_units_metadata_false_opts_out(tmp_path, model, state):
     assert not any(key.startswith("fridom_scaling")
                    for key in _zattrs(path))
     assert "dimensional_factor" not in _zattrs(path / "u")
+
+
+# ================================================================
+#  Coordinate units: the chart declares what its values mean
+# ================================================================
+def test_a_charts_declared_coordinate_unit_wins_over_the_row(
+        tmp_path):
+    # the row's unit is the unit of factor*value: on the sphere the
+    # factor converts radians to metres of arc, so stamping the row
+    # as a CF claim labelled radian lon/lat as metres -- and it was
+    # wrong on a DIMENSIONAL model (investigation 5.1)
+    two_pi = 2.0 * float(np.pi)
+    mlon = IntervalMesh(8, (0.0, two_pi), name="lon")
+    mlat = IntervalMesh(4, (-1.0, 1.0), periodic=False, name="lat")
+    grid = Grid((mlon, mlat), mapping=lonlat_sphere(6.371e6))
+    sphere_state = VectorField(
+        {"q": grid.create_field(name="q", units="m/s")})
+    radius = 6.371e6
+    fake = units_model(
+        sphere_state, clock_at(0),
+        factors={"lon": FakeEntry(radius, "m", "L"),
+                 "lat": FakeEntry(radius, "m", "L")},
+        table=FakeTable(prognostic=("q",)))
+    path = tmp_path / "sphere.zarr"
+    writer = Writer(path, fields=["q"], trigger=every(steps=1))
+    writer.bind(fake)
+    writer.write(firing(sphere_state, 0))
+    writer.close()
+    for coord in ("lon", "lat"):
+        attrs = _zattrs(path / coord)
+        assert attrs["units"] == "rad"          # what is stored
+        assert attrs["dimensional_units"] == "m"  # factor * value
+        assert attrs["dimensional_factor"] == radius

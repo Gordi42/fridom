@@ -59,7 +59,7 @@ from fridom.spatial.spaces.tensor_product import (
 )
 
 if TYPE_CHECKING:  # pragma: no cover
-    from collections.abc import Callable
+    from collections.abc import Callable, Mapping
 
     import jax
     import xarray as xr
@@ -279,6 +279,58 @@ class ScalarField:
         """
         return ScalarField(self._grid, self._function_space, data,
                            self._metadata)
+
+    def new_quantity(
+        self,
+        data: jax.Array,
+        *,
+        name: str,
+        long_name: str,
+        units: str,
+        nc_attrs: Mapping[str, str] | None = None,
+    ) -> ScalarField:
+        """
+        Return a **different quantity** on this field's space.
+
+        Description
+        -----------
+        The declaring spelling for derived quantities that borrow a
+        space. :meth:`with_data` borrows the space *and* keeps the
+        incumbent annotation, which is right for a functional update
+        of the same quantity and wrong for a new one — it is how
+        ``ekin`` came to ship as ``long_name="Pressure"``
+        (``design/research/units_metadata_investigation.md`` §3).
+        This method takes the new annotation instead, and inherits
+        only :attr:`FieldMetadata.nondimensional` from ``self``, so a
+        diagnostic declares its **physical** unit once and reports
+        the right thing under either scaling.
+
+        Parameters
+        ----------
+        data : jax.Array
+            A true-shape array on this field's space.
+        name : str
+            Short variable name of the new quantity.
+        long_name : str
+            Descriptive nc-style name of the new quantity.
+        units : str
+            The **physical** unit of the new quantity.
+        nc_attrs : Mapping[str, str] | None, optional
+            Extra netCDF attributes (default: None).
+
+        Returns
+        -------
+        ScalarField
+            The new quantity; ``self`` is unchanged.
+        """
+        metadata = FieldMetadata.create(
+            name=name, long_name=long_name, units=units,
+            nc_attrs=nc_attrs,
+            nondimensional=self._metadata.nondimensional)
+        space = self._function_space
+        stored = store(self._grid.decomposition, space,
+                       jnp.asarray(data))
+        return ScalarField(self._grid, space, stored, metadata)
 
     def with_metadata(self, **changes: object) -> ScalarField:
         """

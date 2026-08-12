@@ -44,7 +44,8 @@ class ToyCore(Module):
     nonlinearity_attr = "froude_number"
 
     field_declarations = (
-        FieldDeclaration("u", space=Collocated()),)
+        FieldDeclaration("u", space=Collocated(),
+                         long_name="Zonal velocity", units="m/s"),)
 
     def __init__(self, *, gravity=None, froude_number=None):
         if (gravity is None) == (froude_number is None):
@@ -335,3 +336,36 @@ def test_alias_names_enter_the_fingerprint_token():
     token = model._binding_table.fingerprint_token()
     assert ("<scaling aliases>", "scaling.nonlinearity", "", "") \
         in token
+
+
+# ================================================================
+#  Unit rendering (the scaling is the authority on stored meaning)
+# ================================================================
+def test_nondimensional_scaling_stamps_the_field_metadata():
+    model = make_model((ToyCore(froude_number=0.5),),
+                       scaling=fr.scaling.GravityWave())
+    metadata = model.state["u"].metadata
+    assert metadata.nondimensional is True
+    assert metadata.units == "1"
+    # the physical string survives for the dimensional_factor stamp
+    # and for converting back
+    assert metadata.physical_units == "m/s"
+    assert metadata.long_name == "Zonal velocity"
+
+
+def test_dimensional_scaling_keeps_the_physical_unit():
+    for scaling in (None, fr.scaling.Dimensional()):
+        model = make_model((ToyCore(gravity=9.81),),
+                           scaling=scaling)
+        metadata = model.state["u"].metadata
+        assert metadata.nondimensional is False
+        assert metadata.units == "m/s"
+
+
+def test_no_field_claims_a_physical_unit_when_nondimensional():
+    # the invariant behind "correct reliably": a nondimensional
+    # assembly cannot leave a physical claim anywhere in the state
+    model = make_model((ToyCore(froude_number=0.5),),
+                       scaling=fr.scaling.GravityWave())
+    for field in model.state:
+        assert field.metadata.units in {"1", "unknown"}

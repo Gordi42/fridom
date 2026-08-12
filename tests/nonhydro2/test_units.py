@@ -160,3 +160,43 @@ def test_writer_stamps_a_nondimensional_model(tmp_path):
     assert ds["z_right"].attrs["dimensional_factor"] == pytest.approx(
         DELTA * L_REF)
     assert ds["time"].attrs["units"] == "1"
+
+
+# ================================================================
+#  The scaling-purity invariant (units are correct RELIABLY)
+# ================================================================
+def test_a_nondimensional_model_claims_no_physical_unit():
+    # the standing gate: a physical unit string anywhere on a
+    # nondimensional model's state is a bug, whatever declared it
+    state = rot_model().state
+    offenders = {
+        name: state[name].metadata.units
+        for name in state.component_names
+        if state[name].metadata.units not in {"1", "unknown"}}
+    assert offenders == {}
+
+
+def test_a_dimensional_model_keeps_its_physical_units():
+    state = dim_model().state
+    units = {name: state[name].metadata.units
+             for name in state.component_names}
+    assert units["u"] == "m/s"
+    assert units["b"] == "m/s^2"
+
+
+def test_the_physical_unit_survives_nondimensionalization():
+    # what the dimensional_factor converts BACK to
+    field = rot_model().state["u"]
+    assert field.metadata.units == "1"
+    assert field.metadata.physical_units == "m/s"
+
+
+def test_auxiliary_fields_share_the_rendering():
+    # csqr/f_coriolis and friends are AUXILIARY: they take the
+    # declared annotation through the re-materialization table, and
+    # must not report a physical unit a PROGNOSTIC field would not
+    dim = dim_model().state
+    assert dim["f_coriolis"].metadata.units == "1/s"
+    rot = rot_model().state
+    assert rot["f_coriolis"].metadata.units == "1"
+    assert rot["f_coriolis"].metadata.physical_units == "1/s"

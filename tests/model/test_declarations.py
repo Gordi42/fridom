@@ -286,9 +286,9 @@ def test_field_metadata_folding():
     decl = FieldDeclaration(
         "b", space=Collocated(), long_name="Buoyancy",
         units="m/s²", nc_attrs={"positive": "up"})
-    assert decl.field_metadata() == FieldMetadata(
+    assert decl.field_metadata() == FieldMetadata.create(
         name="b", long_name="Buoyancy", units="m/s²",
-        nc_attrs=(("positive", "up"),))
+        nc_attrs={"positive": "up"})
 
 
 def test_repr_names_the_essentials():

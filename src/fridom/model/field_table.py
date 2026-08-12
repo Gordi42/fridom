@@ -152,6 +152,7 @@ class FieldRecord:
         owner_type: str,
         grid: Grid,
         resolved: Mapping[str, TensorProductSpace] | None = None,
+        nondimensional: bool = False,
     ) -> FieldRecord:
         """
         Resolve one declaration against a grid (table-build seam).
@@ -181,6 +182,10 @@ class FieldRecord:
             The concrete declarations' resolved bare spaces, keyed by
             field name; consulted only to resolve a ``LikeField``
             reference (default: None).
+        nondimensional : bool, optional
+            The scaling's nondimensionality, stamped onto the folded
+            metadata so the field reports ``units = "1"`` rather than
+            the declared physical string (default: False).
 
         Returns
         -------
@@ -203,7 +208,8 @@ class FieldRecord:
             lifecycle=declaration.lifecycle,
             roles=declaration.roles,
             host_writable=declaration.host_writable,
-            metadata=declaration.field_metadata(),
+            metadata=declaration.field_metadata().replace(
+                nondimensional=nondimensional),
             time_dependent=declaration.time_dependent)
 
     def fingerprint_token(self) -> tuple:
