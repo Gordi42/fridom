@@ -126,4 +126,6 @@ class State(VectorField):
         """
         dvdx = self.v.diff("x")
         dudy = self.u.diff("y").to(dvdx)
-        return dvdx - dudy
+        return (dvdx - dudy).with_metadata(
+            name="rel_vort_z", long_name="Vertical relative vorticity",
+            units="1/s")

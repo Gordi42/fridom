@@ -266,8 +266,10 @@ def etot_full(
     **including** rotation — on flat, walled and chart grids
     (``sw.modules.coriolis``).
     """
-    kin = ekin_full(state, params)
-    return kin + epot_full(state, params)
+    total = ekin_full(state, params) + epot_full(state, params)
+    return state["p"].new_quantity(
+        total.data, name="etot_full",
+        long_name="Total thickness-weighted energy", units="m^4/s^4")
 
 
 # ================================================================

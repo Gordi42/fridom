@@ -153,8 +153,10 @@ def etot(
 
         e = model.diagnostics.etot().integrate().item()
     """
-    kin = ekin(state, params)
-    return kin + epot(state, params)
+    total = ekin(state, params) + epot(state, params)
+    return state["p"].new_quantity(
+        total.data,
+        name="etot", long_name="Total energy", units="m^2/s^2")
 
 
 def linear_pot_vort(
