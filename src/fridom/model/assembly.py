@@ -23,6 +23,7 @@ owners only, host-writable entries skipped — CS-2).
 #    AssemblyArtifacts, AssemblyRecord, Fingerprint
 from __future__ import annotations
 
+import dataclasses
 import hashlib
 import numbers
 from collections.abc import Mapping
@@ -77,6 +78,7 @@ from fridom.model.time_dependent import (
     resolve_at,
 )
 from fridom.spatial.decomposition.halo import HaloSpec
+from fridom.spatial.fields.metadata import FieldMetadata
 from fridom.spatial.fields.scalar_field import ScalarField
 from fridom.spatial.fields.vector_field import VectorField
 from fridom.spatial.operators.registry import check_override_key
@@ -932,6 +934,11 @@ class RematerializationEntry:
     host_writable : bool, optional
         Exempt from re-runs (CS-2): the host write is the source of
         truth; the default is initialization-only (default: False).
+    metadata : FieldMetadata | None, optional
+        The declaration's annotation, stamped onto the materialized
+        field (the AUXILIARY counterpart of ``FieldRecord.metadata``,
+        which annotates the PROGNOSTIC/DIAGNOSTIC allocations); None
+        keeps the bare field-name annotation (default: None).
     """
 
     field: str
@@ -939,6 +946,7 @@ class RematerializationEntry:
     default: Callable | float | None
     space: TensorProductSpace
     host_writable: bool = False
+    metadata: FieldMetadata | None = None
 
     def __post_init__(self) -> None:
         """Reject bound-method defaults (the aliasing lint)."""
@@ -961,6 +969,7 @@ class RematerializationEntry:
         owner: int,
         space: TensorProductSpace,
         owner_instance: object = None,
+        metadata: FieldMetadata | None = None,
     ) -> RematerializationEntry:
         """
         Retain one AUXILIARY declaration's default.
@@ -972,7 +981,10 @@ class RematerializationEntry:
         instance, it is normalized to its ``__func__`` so the retained
         default stays UNBOUND and is called ``default(module, grid,
         space)`` with the *live* module at re-materialization. A bound
-        method of any OTHER object is the D2 aliasing trap.
+        method of any OTHER object is the D2 aliasing trap. The
+        declaration's annotation is retained too, so the materialized
+        field carries the declared ``long_name``/``units`` (the
+        `FieldRecord.metadata` counterpart for AUXILIARY fields).
 
         Parameters
         ----------
@@ -986,6 +998,12 @@ class RematerializationEntry:
             The owning module instance; enables normalizing a bound
             owner-method default to unbound (default: None — no
             normalization, an unbound default is required).
+        metadata : FieldMetadata | None, optional
+            The annotation to retain; None folds the declaration's
+            own. Assembly passes the field table's record, which
+            already carries the scaling's unit rendering, so an
+            AUXILIARY field reports the same units as a PROGNOSTIC
+            one (default: None).
 
         Returns
         -------
@@ -1012,7 +1030,9 @@ class RematerializationEntry:
         return cls(
             field=declaration.name, owner=owner,
             default=default, space=space,
-            host_writable=declaration.host_writable)
+            host_writable=declaration.host_writable,
+            metadata=(declaration.field_metadata()
+                      if metadata is None else metadata))
 
 
 def _normalize_default(
@@ -1188,7 +1208,10 @@ def _materialize_entry(
     The four ``default=`` forms of D1.1: None is zeros; a number is
     a constant fill; an unbound owner method ``(self, grid, space)``
     is called with the *live* module; any other callable is a
-    coordinate function routed through ``grid.create_field``.
+    coordinate function routed through ``grid.create_field``. The
+    retained annotation is stamped on all four ways out — an
+    owner-method default builds its own field, so its metadata is
+    replaced rather than passed in.
 
     Parameters
     ----------
@@ -1202,15 +1225,17 @@ def _materialize_entry(
     Returns
     -------
     ScalarField
-        The materialized field.
+        The materialized field, carrying the declared annotation.
     """
+    metadata = (entry.metadata if entry.metadata is not None
+                else FieldMetadata(name=entry.field))
     default = entry.default
     if default is None:
-        return grid.create_field(entry.space, name=entry.field)
+        return grid.create_field(entry.space, metadata=metadata)
     if isinstance(default, numbers.Number):
         data = jnp.full(entry.space.shape, default)
         return grid.create_field(entry.space, data=data,
-                                 name=entry.field)
+                                 metadata=metadata)
     if _leads_with_self(default):
         field = default(module, grid, entry.space)
         if not isinstance(field, ScalarField):
@@ -1218,9 +1243,41 @@ def _materialize_entry(
                 f"field {entry.field!r}: the owner-method default "
                 f"of {type(module).__name__} must return a "
                 f"ScalarField, got {field!r}")
-        return field
+        if entry.metadata is None:
+            return field
+        return _annotated(field, entry.metadata)
     return grid.create_field(entry.space, init=default,
-                             name=entry.field)
+                             metadata=metadata)
+
+
+def _annotated(
+    field: ScalarField, metadata: FieldMetadata,
+) -> ScalarField:
+    """
+    Stamp a metadata record onto an owner-built field.
+
+    Description
+    -----------
+    ``ScalarField.with_metadata`` takes per-attribute changes, so the
+    record is spread field-by-field (``dataclasses.fields``) rather
+    than enumerated — a new `FieldMetadata` attribute is carried
+    without a change here.
+
+    Parameters
+    ----------
+    field : ScalarField
+        The field the owner-method default returned.
+    metadata : FieldMetadata
+        The declared annotation.
+
+    Returns
+    -------
+    ScalarField
+        The re-annotated field; ``field`` is unchanged.
+    """
+    return field.with_metadata(**{
+        attribute.name: getattr(metadata, attribute.name)
+        for attribute in dataclasses.fields(metadata)})
 
 
 # ================================================================
@@ -2294,7 +2351,8 @@ def _build_remat_table(
         RematerializationEntry.from_declaration(
             declaration, owner=slot,
             space=table[declaration.name].space,
-            owner_instance=modules[slot])
+            owner_instance=modules[slot],
+            metadata=table[declaration.name].metadata)
         for slot, declaration in declarations
         if declaration.lifecycle is Lifecycle.AUXILIARY))
 

@@ -189,3 +189,14 @@ def test_the_physical_unit_survives_nondimensionalization():
     field = rot_model().state["u"]
     assert field.metadata.units == "1"
     assert field.metadata.physical_units == "m/s"
+
+
+def test_auxiliary_fields_share_the_rendering():
+    # csqr/f_coriolis and friends are AUXILIARY: they take the
+    # declared annotation through the re-materialization table, and
+    # must not report a physical unit a PROGNOSTIC field would not
+    dim = dim_model().state
+    assert dim["f_coriolis"].metadata.units == "1/s"
+    rot = rot_model().state
+    assert rot["f_coriolis"].metadata.units == "1"
+    assert rot["f_coriolis"].metadata.physical_units == "1/s"

@@ -516,6 +516,66 @@ def test_from_declaration_retains_the_aux_default(grid):
     assert entry.host_writable is False
 
 
+def test_from_declaration_retains_the_declared_annotation(grid):
+    declaration = FieldDeclaration(
+        "n2", space=Profile(), lifecycle=Lifecycle.AUXILIARY,
+        default=Strat.make_n2, long_name="Squared stratification",
+        units="1/s^2")
+    entry = RematerializationEntry.from_declaration(
+        declaration, owner=0, space=Profile().resolve(grid))
+    assert entry.metadata == declaration.field_metadata()
+
+
+def test_declared_annotation_reaches_the_materialized_field(grid):
+    """The AUX counterpart of FieldRecord.metadata (the 5.2 gap)."""
+    declaration = FieldDeclaration(
+        "n2", space=Profile(), lifecycle=Lifecycle.AUXILIARY,
+        default=Strat.make_n2, long_name="Squared stratification",
+        units="1/s^2")
+    table = RematerializationTable((
+        RematerializationEntry.from_declaration(
+            declaration, owner=0, space=Profile().resolve(grid)),))
+    # the owner method builds its own field (name= sugar only): the
+    # declared annotation must still win
+    field = table.materialize((Strat(),), grid)["n2"]
+    assert field.metadata.name == "n2"
+    assert field.metadata.long_name == "Squared stratification"
+    assert field.metadata.units == "1/s^2"
+
+
+@pytest.mark.parametrize(
+    "default",
+    [pytest.param(None, id="zeros"),
+     pytest.param(2.5, id="constant"),
+     pytest.param(lambda x: 2.0 * x, id="coordinate")])
+def test_declared_annotation_survives_every_default_form(
+        grid, default):
+    declaration = FieldDeclaration(
+        "n2", space=Collocated(), lifecycle=Lifecycle.AUXILIARY,
+        default=default, long_name="Squared stratification",
+        units="1/s^2")
+    table = RematerializationTable((
+        RematerializationEntry.from_declaration(
+            declaration, owner=0,
+            space=Collocated().resolve(grid)),))
+    field = table.materialize((Strat(),), grid)["n2"]
+    assert field.metadata == declaration.field_metadata()
+
+
+def test_entries_without_metadata_keep_the_bare_annotation(grid):
+    """Hand-built rows: the field name, owner-built fields untouched."""
+    collocated = Collocated().resolve(grid)
+    table = RematerializationTable((
+        RematerializationEntry("zero", 0, None, collocated),
+        RematerializationEntry("n2", 0, Strat.make_n2,
+                               Profile().resolve(grid)),
+    ))
+    fields = table.materialize((Strat(),), grid)
+    assert fields["zero"].metadata.name == "zero"
+    # the owner method's own annotation is left alone
+    assert fields["n2"].metadata.name == "n2"
+
+
 def test_from_declaration_normalizes_a_bound_owner_method(grid):
     owner = Strat()
     declaration = FieldDeclaration(
