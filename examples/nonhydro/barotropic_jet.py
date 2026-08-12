@@ -34,8 +34,8 @@ seed_wavenumber = 2       # zonal mode number of that seed
 
 nx = ny = 128
 nz = 3                    # the thinnest vertical WENO order 5 accepts
-runlen = 25.0
-frames = 200
+runlen = 40.0
+frames = 120
 
 # %%
 # Grid and Model
