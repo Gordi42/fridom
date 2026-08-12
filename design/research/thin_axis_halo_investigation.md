@@ -496,9 +496,14 @@ measurement) and the asymmetric halo (recommendation 5).
 
 - The `dancing_eddies` prose must change when the fix lands (docs
   content -> owner review, per AGENTS.md).
-- `_check_walled_extent` keys `min_cells` on cells while the bounded
+- ~~`_check_walled_extent` keys `min_cells` on cells while the bounded
   fill guard keys on DOFs; `OUTER/NEUMANN` has 2 DOFs at `n_cells = 1`
-  yet still trips at width 2. Worth aligning.
+  yet still trips at width 2. Worth aligning.~~ **Closed as a
+  misreading** — see §12.9: the Neumann `_MEMBER` rule excludes the
+  reflected-about boundary node, so the DOF-keyed guard reduces to
+  `width <= mesh.n_cells` uniformly and the two currencies already
+  agree. `_check_walled_extent` is strictly stricter and always fires
+  first with a taught message.
 - ~~Zero-DOF spaces flow through `_axis_map` undefended (§5).~~
   **Closed** by `fix/walled-thin-axis-fill`, 2026-08-12. The map was
   never the problem — it honours the `sign == 0` vacant-slot rule and
