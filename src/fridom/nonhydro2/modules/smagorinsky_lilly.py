@@ -45,14 +45,33 @@ term advances the role-resolved tracer targets (default
 ``fr.model.roles.TRACER``; override with ``fields=`` / ``exclude=``, an
 empty resolution simply drops the mixing term). The two terms split
 under ``fr.model.term_predicates.advancing(...)``; both are
-nonlinear (dropped by ``fr.model.linearize``). The Richardson
-damping reads the constant ``stratification.n2`` provide (a
-required reference), so a model
-without a constant-N^2 stratification module rejects the closure at
-assembly.
+nonlinear (dropped by ``fr.model.linearize``).
 
-**Walled grids** (bounded mesh factors, nodal family) are supported
-with **free-slip** walls (``slip="free"``, the default). The only
+**The background** :math:`N^2_{\mathrm{bg}}`. The damping reads the
+*total* buoyancy frequency :math:`N^2 = \partial_z b +
+N^2_{\mathrm{bg}}`, where ``b`` is the deviation from whatever
+background the buoyancy formulation carries. Which background that is
+is resolved once at ``bind`` (:meth:`SmagorinskyLilly._resolve_background`)
+from the assembly itself, never assumed:
+
+- a **constant** background publishes ``stratification.n2``
+  (``nh.ConstantStratification(n2=...)``) — read live from
+  ``ctx.params``, sweepable, ramp-able;
+- **no** background at all (``nh.BuoyancyTracer``, where ``b`` *is*
+  the total buoyancy) leaves :math:`N^2_{\mathrm{bg}} = 0`, and the
+  add is dropped from the trace rather than adding a zero — the
+  tracer module's own "absent, not multiplied by zero" discipline.
+  The damping stays fully active through :math:`\partial_z b`;
+- a **varying** background (an ``n2`` profile field,
+  ``nh.MeridionalStratification``) and a **nondimensional** one
+  (``stratification.froude``, spelled as the live ratio
+  :math:`(\varepsilon/\mathrm{Fr})^2`) are refused with taught errors:
+  the damping assembles the constant only, and a defaulted zero there
+  would silently un-damp a genuinely stratified run.
+
+**Walled grids** (bounded mesh factors) are supported on **both
+discretization families** with **free-slip** walls (``slip="free"``,
+the default). The only
 wall-choice-dependent strain is the off-diagonal shear on a
 wall-normal edge; at a free-slip wall it is structurally zero, claimed
 by retagging the interior ``Inner`` edge factor onto its
@@ -67,9 +86,23 @@ odd-mirror wall shear :math:`u_{t,1}/\Delta n` into **both** the
 wall-adjacent :math:`|\Sigma|^2` and the stress drag (the MITgcm side
 drag :math:`-\nu_t u_1/\Delta n^2`), sharing one folded static
 :math:`1/\Delta n^2` weight so the wall viscosity and the wall drag
-stay consistent. Walled **finite-volume** (``CellAvg``) grids, and
-immersed / terrain grids, stay future work (a taught rejection at
-``bind``).
+stay consistent.
+
+The **finite-volume** family (``family="fv"``: ``CellAvg`` cells, the
+velocities' own staggered factor still nodal) takes the *same* chain,
+unchanged. The strain lands on the same spaces as on the nodal family
+with ``Center`` replaced by ``CellAvg``, because the FV C-grid ``diff``
+profile staggers the cell average onto the nodal interior face
+(``CellAvg -> Inner``, the walled-diffusion FV story): every factor the
+free-slip retag touches lives on a **bounded** axis, and on a bounded
+axis the differentiated factor is that nodal ``Inner`` face on both
+families — so ``_dirichlet_edge`` is the identical wall-value claim and
+no average-family retag is needed. The face-exposing ``diff`` row is
+verified per ``CellAvg`` factor at bind (``diffusion._probe_fv_face``),
+so a ``CellAvg`` field on a grid without the FV C-grid profile (whose
+collocated ``FVDerivative`` never surfaces a face flux) is refused
+rather than run. Immersed / terrain grids stay future work (a taught
+rejection at ``bind``).
 """
 from __future__ import annotations
 
@@ -88,6 +121,7 @@ from fridom.model.closures.diffusion import (
     FREE_SLIP,
     NO_SLIP,
     _coerce_slip,
+    _probe_fv_face,
     _wall_correction,
     _wall_treatment,
 )
@@ -98,6 +132,7 @@ from fridom.nonhydro2.params import (
     SMAG_BUOYANCY_MULTIPLIER,
     SMAG_CS,
     SMAG_PRANDTL,
+    STRATIFICATION_FROUDE,
     STRATIFICATION_N2,
 )
 from fridom.spatial.bc import BC
@@ -113,6 +148,8 @@ if TYPE_CHECKING:  # pragma: no cover
 
 _VEL_HINT = ("the velocity trio is declared by the dynamical core "
              "(nh.Core)")
+#: the dotted namespace the background-stratification resolution owns
+_STRAT_NAMESPACE = "stratification."
 
 
 def _positive_part(field: ScalarField) -> ScalarField:
@@ -298,6 +335,9 @@ class SmagorinskyLilly(ClosureBase):
         # per-velocity walled tangential axes the no-slip drag acts on
         # (empty for the free-slip default -> the W1 path is unchanged)
         self._no_slip_axes: dict[str, frozenset[str]] = {}
+        # whether the assembly carries a constant background N^2 to add
+        # to d(b)/dz; False drops the add from the trace entirely
+        self._has_background_n2: bool = True
 
     # ================================================================
     #  Declarations
@@ -308,8 +348,8 @@ class SmagorinskyLilly(ClosureBase):
         fr.model.FieldReference("w", hint=_VEL_HINT),
         fr.model.FieldReference(
             "b", hint="the Richardson damping reads the buoyancy, "
-                      "declared by a stratification module "
-                      "(nh.ConstantStratification)"),
+                      "declared by a buoyancy module "
+                      "(nh.ConstantStratification, nh.BuoyancyTracer)"),
     )
     parameter_declarations = (
         fr.model.ParameterDeclaration(
@@ -328,26 +368,30 @@ class SmagorinskyLilly(ClosureBase):
             SMAG_BUOYANCY_MULTIPLIER, attr="buoyancy_multiplier",
             units="1", doc="Richardson damping multiplier"),
     )
-    parameter_references = (
-        fr.model.ParameterReference(
-            STRATIFICATION_N2,
-            hint="the Richardson damping needs the constant "
-                 "background N^2 (nh.ConstantStratification)"),
-    )
+    # No ``ParameterReference`` on ``stratification.n2``: the background
+    # is not a *requirement* but a property of the buoyancy formulation,
+    # and the three cases (constant provide / no background at all /
+    # varying-or-nondimensional background) are told apart at bind by
+    # :meth:`_resolve_background`. A defaulted reference cannot express
+    # that split — ``stratification.n2`` is registry-marked
+    # ``no_default`` precisely because a zero there would silently
+    # un-damp a genuinely stratified run.
+    parameter_references = ()
 
     # ================================================================
     #  Bind: velocity axes, walls, slip, mixing axes
     # ================================================================
     def bind(self, table: FieldTable) -> None:
-        r"""Resolve mixing targets (base), velocities, walls, and slip.
+        r"""Resolve targets (base), velocities, walls, slip, background.
 
         Raises
         ------
         NotImplementedError
-            On a walled finite-volume (``CellAvg``) grid, on an
-            unsupported wall placement (a fixed-value cell wall), or
-            with transverse (slaved) velocity components (no
-            directional derivative).
+            On an unsupported wall placement (a fixed-value cell wall),
+            on a ``CellAvg`` target whose grid exposes no face-located
+            flux, with transverse (slaved) velocity components (no
+            directional derivative), or on a varying / nondimensional
+            background stratification.
         AssemblyError
             If the vertical coordinate is not a velocity axis (the
             :math:`N^2 = \partial_z b` read needs it), or a per-field
@@ -380,9 +424,79 @@ class SmagorinskyLilly(ClosureBase):
                 "the N^2 = d(b)/dz read")
         self._walled = self._classify_walls(table, owner)
         self._no_slip_axes = self._resolve_no_slip_axes(owner)
+        self._has_background_n2 = self._resolve_background(table, owner)
         self._target_axes = tuple(
             (name, tuple(table[name].space.names))
             for name in self.targets)
+
+    def _resolve_background(
+        self, table: FieldTable, owner: str,
+    ) -> bool:
+        r"""Return whether a constant background :math:`N^2` is bound.
+
+        The damping needs the **total** :math:`N^2 = \partial_z b +
+        N^2_{\mathrm{bg}}`, and ``b`` is the deviation from whatever
+        background the buoyancy formulation carries. The four cases are
+        told apart from the assembly, in order:
+
+        1. ``stratification.n2`` is bound -> a constant background;
+           read live from ``ctx.params`` (the shipped path).
+        2. some **other** ``stratification.*`` name is bound (today
+           ``stratification.froude``: the nondimensional variant spells
+           the background as the live ratio :math:`(\varepsilon /
+           \mathrm{Fr})^2`, which the damping does not assemble) ->
+           refused. The sweep is over the whole dotted namespace, so a
+           *future* stratification primitive is fenced too rather than
+           silently read as no background. The closure is otherwise
+           scaling-neutral: a nondimensional assembly whose background
+           is genuinely absent (case 4) is served.
+        3. an ``n2`` **field** is declared (the varying profile of
+           ``nh.MeridionalStratification``) -> refused: the damping
+           reads the constant only.
+        4. nothing of the sort -> **no background**
+           (``nh.BuoyancyTracer``, where ``b`` is the total buoyancy).
+           :math:`N^2_{\mathrm{bg}} = 0` is then structurally absent
+           from the trace, not an added zero, and the damping stays
+           fully active through :math:`\partial_z b`.
+
+        A bare `FieldTable` (the closure unit-test path) carries no
+        parameter view; the read is then kept, since the caller supplies
+        ``ctx.params[stratification.n2]`` itself.
+
+        Raises
+        ------
+        NotImplementedError
+            On a nondimensional or varying background stratification.
+        """
+        parameters = getattr(table, "parameters", None)
+        if parameters is None:
+            return True
+        if STRATIFICATION_N2 in parameters:
+            return True
+        other = sorted(name for name in parameters
+                       if str(name).startswith(_STRAT_NAMESPACE))
+        if other:
+            raise NotImplementedError(
+                f"{owner} reads the background N^2 as the constant "
+                f"{str(STRATIFICATION_N2)!r}, which this assembly does "
+                f"not provide — it provides {other!r} instead (today "
+                f"that is {str(STRATIFICATION_FROUDE)!r}: the "
+                "NONDIMENSIONAL variant spells the background as the "
+                "live ratio (eps/Fr)^2, which the Richardson damping "
+                "does not assemble). Use "
+                "nh.ConstantStratification(n2=...), or "
+                "nh.BuoyancyTracer() for no background at all (which "
+                "needs no scaling primitive), or drop the closure")
+        if "n2" in table:
+            raise NotImplementedError(
+                f"{owner} does not support a VARYING background "
+                "stratification yet: this assembly carries an 'n2' "
+                "profile field (nh.MeridionalStratification) instead of "
+                f"the constant {str(STRATIFICATION_N2)!r} provide, and "
+                "the Richardson damping reads the constant only. Use "
+                "nh.ConstantStratification(n2=...), nh.BuoyancyTracer() "
+                "(no background), or drop the closure")
+        return False
 
     def _resolve_no_slip_axes(
         self, owner: str,
@@ -432,30 +546,31 @@ class SmagorinskyLilly(ClosureBase):
         buoyancy ``b`` the :math:`N^2` read needs, and the mixing
         targets) is classified with the diffusion ``_wall_treatment``
         vocabulary: a periodic factor is skipped, a wall-normal
-        ``Inner[Dirichlet]`` face or a tangential / no-flux
-        ``Center`` cell marks a walled axis, and any other placement (a
-        fixed-value cell wall, a bare face) is rejected loudly. Walled
-        finite-volume (``CellAvg``) factors are a separate future-work
-        rejection — the free-slip strain retag is validated on the
-        nodal family only.
+        ``Inner[Dirichlet]`` face or a tangential / no-flux ``Center``
+        (nodal) or ``CellAvg`` (finite-volume) cell marks a walled axis,
+        and any other placement (a fixed-value cell wall, a bare face)
+        is rejected loudly.
+
+        A bounded ``CellAvg`` factor additionally pays the diffusion
+        campaign's ``_probe_fv_face``: the whole free-slip chain assumes
+        the grid's FV ``diff`` row staggers the cell average onto the
+        nodal interior face (``CellAvg -> Inner``), which is what makes
+        the ``_dirichlet_edge`` retag the *same* wall-value claim on
+        both families. On a grid without that dispatch profile the
+        collocated ``FVDerivative`` never surfaces a face flux, so the
+        wall cannot close — a taught rejection, never a silent run.
         """
         walled: set[str] = set()
         touched = ({name for name, _ in self._vel_axes}
                    | {"b"} | set(self.targets))
-        for name in touched:
+        for name in sorted(touched):
             space = table[name].space
             for axis in space.names:
                 factor = space.bare.factor(axis)
                 if _wall_treatment(factor, owner, name, axis) == _PERIODIC:
                     continue
                 if isinstance(factor, CellAvg):
-                    raise NotImplementedError(
-                        f"{owner} does not support walled "
-                        f"finite-volume (CellAvg) grids yet (target "
-                        f"{name!r} on the bounded axis {axis!r}); the "
-                        "free-slip strain retag ships on the nodal "
-                        "family only — assemble the model on the nodal "
-                        "C-grid, or drop the closure on walled FV grids")
+                    _probe_fv_face(table.grid, factor, axis, owner, name)
                 walled.add(axis)
         return frozenset(walled)
 
@@ -519,10 +634,14 @@ class SmagorinskyLilly(ClosureBase):
         \beta \max(N^2, 0),\, 0)}` — pure field arithmetic, exactly
         the old :math:`\Gamma(\mathrm{Ri})` including its
         zero-strain (``NaN -> 0``) limit.
+
+        :math:`N^2 = \partial_z b + N^2_{\mathrm{bg}}`; without a
+        background stratification (``nh.BuoyancyTracer``, bind-resolved)
+        the add is dropped from the trace and :math:`\partial_z b` is
+        the whole :math:`N^2` — the damping stays live.
         """
         cs = ctx.params[SMAG_CS]
         beta = ctx.params[SMAG_BUOYANCY_MULTIPLIER]
-        n2_bg = ctx.params[STRATIFICATION_N2]
         n = len(self._vel_axes)
         diag = [self._strain(state, i, i) for i in range(n)]
         anchor = diag[0]
@@ -540,7 +659,9 @@ class SmagorinskyLilly(ClosureBase):
             # a rigid wall, so its interior Inner face retags onto the
             # Dirichlet sibling and the interp to centers grounds
             bz = bz.retag(_dirichlet_edge(bz, self._vertical))
-        n2 = bz.to(anchor) + n2_bg
+        n2 = bz.to(anchor)
+        if self._has_background_n2:
+            n2 = n2 + ctx.params[STRATIFICATION_N2]
         damped = _positive_part(sigma2 - beta * _positive_part(n2))
         width = self._filter_width_field(anchor)
         return (cs * width) ** 2 * _guarded_sqrt(damped)

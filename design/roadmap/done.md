@@ -2954,3 +2954,71 @@ Checked and clean: `sw2`'s `rel_vort` (already retagged) and
 `epot` / `etot` (the velocities carry their own wall tags), and every
 `nh.State` component. The R1 hole in the FV staggering family that
 kept the bug *silent* is a separate item, [`open.md`](open.md) 2d.
+
+## SmagorinskyLilly reach — no-background pairing + walled FV (2026-08-13)
+
+Two taught refusals from `nh.SmagorinskyLilly`, both surfaced by the
+Rayleigh–Taylor example port, both lifted.
+
+**1. `nh.BuoyancyTracer` now pairs with the closure.** The closure
+carried a REQUIRED `ParameterReference(stratification.n2)`, so the one
+buoyancy formulation *without* a background — the natural choice for an
+unstratified problem — was refused, and the example paid a
+`ConstantStratification(n2=0.0)` restoring term instead. Neither
+candidate fix in the brief was right: `stratification.n2` is registry
+`no_default` for a real reason (`MeridionalStratification` publishes an
+`n2` **field** and no scalar, so a defaulted zero would silently un-damp
+a genuinely stratified run — that refusal is tested), and having
+`BuoyancyTracer` provide `0` would feed `1/N^2` to the energy metric and
+the internal-wave eigenmodes. The reference is instead dropped and the
+background **resolved at bind** from the assembly itself
+(`_resolve_background`): the scalar provide → read it live; another
+`stratification.*` name (today `stratification.froude`) → taught
+refusal; an `n2` profile field → taught refusal; nothing → no background,
+with the add *absent from the trace* rather than added as zero.
+
+Also worth stating because the brief's first candidate assumed
+otherwise: "no background" is **not** "no Richardson damping". The
+damping reads the *total* `N^2 = d(b)/dz + N^2_bg`; with
+`BuoyancyTracer` the resolved `d(b)/dz` is the whole of it and the
+damping stays live (measured: 384 of 512 cells clipped on a stably
+stratified `b`). `BuoyancyTracer` and `ConstantStratification(n2=0.0)`
+agree **bit-for-bit** on the full model tendency. The two refusals the
+closure previously spelled as one `MissingParameterError` are now
+separate, attributed `NotImplementedError`s; the no-buoyancy-at-all case
+still refuses through the `FieldReference("b")`.
+
+**2. Walled finite-volume (`CellAvg`) grids are served.** The W1 landing
+addendum's narrow reject (scoping record §(vii)3) turned out to fence
+almost nothing: on the FV family the strain lands on exactly the nodal
+spaces with `Center` replaced by `CellAvg`, because every factor the
+free-slip retag touches sits on a **bounded** axis, and on a bounded axis
+the FV C-grid `diff` profile staggers the cell average onto the same
+nodal `Inner` face the nodal chain uses (`CellAvg -> Inner`). So
+`_dirichlet_edge` is the identical wall-value claim and no average-family
+retag exists to be missing. The reject is replaced by the diffusion
+campaign's `_probe_fv_face`, which refuses a `CellAvg` factor whose grid
+has no face-exposing `diff` row.
+
+This mattered more than the record implied: `nh.Model`'s `family=None`
+**auto-promotes to FV on every grid**, so the walled Smagorinsky that
+W1–W3 shipped was unreachable through the default spelling — a plain
+`nh.Model(grid=walled, ..., nh.SmagorinskyLilly())` raised the FV
+reject, and only an explicit `core=nh.Core(family="nodal")` got you the
+closure.
+
+Gates (`tests/nonhydro2/test_smagorinsky_lilly_fv.py`): the FV closure
+terms match the nodal ones to <=1e-12 relative over one, two and three
+walled axes and both slips (compared at the hook, so the pressure
+projection cannot mask a difference); `Cs=0` ≡ walled FV
+`HarmonicFriction(nu/2)` bit-for-bit, free-slip and no-slip; the
+even-mirror doubled-periodic oracle bit-for-bit and the no-slip
+odd-mirror oracle to 1e-14; uniform-flow drag rows, energy decay,
+corner composition, `jax.grad` ≡ central FD for both slips, and the
+forced-4 sharded-walled ≡ single-device check.
+
+Not lifted, and not attempted: immersed and terrain/mapped Smagorinsky
+(unchanged deferrals), and the varying-`N^2(y)` background — the latter
+is a small lift (`state["n2"].to(anchor)`, a zero-reach broadcast onto
+the shared meridional nodes) but needs its own validation and an owner
+call, so it stays a taught refusal.
