@@ -2,105 +2,110 @@ r"""
 Barotropic Jet
 ==============
 
-Two opposing zonal jets roll up into a street of vortices.
+A single zonal jet in a triply periodic box rolls up into vortices.
 """
 
 # %%
 # Experiment Settings
 # -------------------
-# Two zonal jets of opposite sign sit in a triply periodic cube, with
-# a weak meridional perturbation on top. The shear between them is
-# unstable, so the perturbation grows and folds the jets into
-# vortices. We work in nondimensional advective units, where one time
-# unit is one eddy turnover. The Rossby number
+# We work in nondimensional *advective* units, so the jet has unit
+# width and unit velocity and one time unit is one eddy turnover. Two
+# numbers set the regime. The Rossby number
 # :math:`\mathrm{Ro} = U / (f L)` measures the advection against the
 # rotation and the Froude number :math:`\mathrm{Fr} = U / (N H)`
-# against the stratification. Both are 0.5 here, which puts the
-# deformation radius :math:`L_d = (\mathrm{Ro} / \mathrm{Fr}) L` at
-# one domain width.
-import os
+# against the stratification. Together they fix the deformation radius
+# :math:`L_d = (\mathrm{Ro} / \mathrm{Fr})\,H`, here two jet widths.
 import subprocess
+
+import jax.numpy as jnp
+import matplotlib.pyplot as plt
 
 # sphinx_gallery_thumbnail_number = 2
 import fridom as fr
 import fridom.nonhydro2 as nh
 
-ROSSBY_NUMBER = 0.5       # Ro = U / (f L): advection vs. rotation
-FROUDE_NUMBER = 0.5       # Fr = U / (N H): advection vs. stratification
+rossby_number = 0.7       # Ro = U / (f L): advection vs. rotation
+froude_number = 0.35      # Fr = U / (N H): advection vs. stratification
+scaling = fr.scaling.Advective()   # time unit prop to eddy turnover times
+domain_size = 10.0        # square domain, ten jet widths on a side
+box_height = 1.0          # H in the Froude number, one jet width
+seed_amplitude = 1e-2     # weak vortical mode that seeds the instability
+seed_wavenumber = 2       # zonal mode number of that seed
 
-WAVE_NUMBER = 3           # zonal wavenumber of the perturbation
-WAVE_AMPLITUDE = 0.1      # perturbation amplitude
-JET_WIDTH = 0.01          # jet width, relative to the domain
-
-fast = "FRIDOM_EXAMPLES_FAST" in os.environ
-nx = ny = 96 if fast else 128
-nz = 4                    # the flow is barotropic, so z is cheap
-runlen = 1.0 if fast else 2.0
+nx = ny = 128
+nz = 3                    # the thinnest vertical WENO order 5 accepts
+runlen = 25.0
 frames = 200
 
 # %%
 # Grid and Model
 # --------------
-# The jets are sharp and they cascade enstrophy to the grid scale, so
-# something has to absorb it. Rather than adding a closure we let the
-# advection scheme do it: fifth-order WENO reconstruction weights its
-# candidate stencils by smoothness, which leaves smooth regions alone
-# and damps the oscillations that a centered scheme would build at a
-# front. The dissipation is a property of the scheme, not a module,
-# so no friction or diffusion is assembled here.
+# The roll-up cascades enstrophy to the grid scale and something has
+# to absorb it. Instead of a closure we let the advection scheme do
+# it. Fifth-order WENO reconstruction weights its candidate stencils
+# by smoothness, so it leaves smooth regions alone and damps the
+# oscillations a centered scheme would build at a front. That is the
+# only dissipation in this run.
+#
+# The jet has no vertical structure and nothing in the periodic box
+# can give it any, so the flow stays two-dimensional. Rotation then
+# drops out of the vorticity budget and the buoyancy stays at zero,
+# which leaves the shear as the only source of growth. Three cells
+# are the thinnest vertical the scheme allows, because its stencil
+# reaches three cells past the local one and a periodic axis cannot
+# wrap a halo wider than itself.
 grid = fr.spatial.cartesian.Grid(
     shape=(nx, ny, nz),
-    extent=(1.0, 1.0, 1.0),
+    extent=(domain_size, domain_size, box_height),
     periodic=(True, True, True))
 
-# the jets peak at 2.5 in the initial condition, so the advective
-# Courant number sets the step
-dt = 0.4 * grid.factor("x").dx / 2.5
+dx = grid.factor("x").dx
+dt = 0.2 * dx             # advective Courant number 0.2
 
 model = nh.Model(
     grid=grid,
-    scaling=fr.scaling.Advective(),
-    coriolis=nh.modules.FPlaneCoriolis(rossby_number=ROSSBY_NUMBER),
-    buoyancy=nh.modules.ConstantStratification(
-        froude_number=FROUDE_NUMBER),
-    advection=nh.modules.WENOAdvection(order=5),
+    scaling=scaling,
+    coriolis=nh.FPlaneCoriolis(rossby_number=rossby_number),
+    buoyancy=nh.ConstantStratification(froude_number=froude_number),
+    advection=nh.WENOAdvection(order=5),
     time_stepper=fr.model.time_steppers.AdamBashforth(dt, order=3))
 
 # %%
 # Initial Condition
 # -----------------
-# The two jets are narrow Gaussians of opposite sign at one and three
-# quarters of the domain, carrying a meridional perturbation of zonal
-# wavenumber three. Projecting the sum onto the vortical subspace
-# attaches the pressure that balances the jets, so the run starts in
-# geostrophic balance and the instability is the only thing that
-# grows. The jet width matters: the band of unstable wavelengths
-# scales with it, and a jet several times wider than this one leaves
-# the seeded wavenumber outside that band, where it only shears over.
-model.set_state(nh.initial_conditions.barotropic_jet(
-    model,
-    wavenum=WAVE_NUMBER,
-    waveamp=WAVE_AMPLITUDE,
-    jet_width=JET_WIDTH,
-    geo_proj=True))
+# A Gaussian zonal jet in geostrophic balance, seeded with a weak
+# vortical mode of zonal wavenumber two.
 
-# the vorticity lives on the staggered corner, so it is interpolated
-# onto the cell center that the buoyancy already sits on
-center = model.state.b.function_space
+# a Gaussian zonal jet of unit width, centered in the domain
+jet = model.blank_state(
+    u=lambda x, y, z: jnp.exp(-((y - 0.5 * domain_size) ** 2)))
 
-# plot the initial vorticity in a horizontal slice
-_ = model.state.rel_vort_z.to(center).xr.isel(z=0).plot(
-    x="x", size=3.2, aspect=1.2)
+# project onto the vortical subspace, which also drops the domain
+# mean that would otherwise ring at the inertial frequency
+eigenmodes = nh.eigenbasis(model)
+project_vortical = nh.transforms.VorticalProjection(eigenmodes)
+balanced = project_vortical(jet)
+balanced /= balanced.u.max()   # the projection lowers the peak velocity
+
+# seed the instability and set the initial condition
+_, perturbation = eigenmodes.mode(
+    "vortical", mode_number={"x": seed_wavenumber, "y": 0, "z": 0})
+model.set_state(balanced + seed_amplitude * perturbation)
+
+# plot the initial condition in the lowest layer
+fig, axs = plt.subplots(1, 2, figsize=(8, 3.2), constrained_layout=True)
+model.state.u.xr.isel(z=0, drop=True).plot(x="x", ax=axs[0])
+_ = model.state.v.xr.isel(z=0, drop=True).plot(x="x", ax=axs[1])
 
 # %%
-# Each jet shows as a pair of vorticity bands, one for each flank,
-# already rippled by the seed.
+# Dropping the domain mean leaves the jet riding on a weak return
+# flow, while :math:`v` carries the wavenumber-two seed alone.
 #
 # Running and Writing Output
 # --------------------------
-# Two time units are enough for the ripple to grow, break the jets and
-# let the vortices settle. We write the vertical vorticity in a
-# horizontal slice once per frame.
+# We write the vertical vorticity, interpolated to the cell centers,
+# once per frame to a zarr store.
+center = model.state.b.function_space
 writer = fr.io.Writer(
     "barotropic_jet.zarr",
     fields=[],
@@ -111,12 +116,10 @@ writer = fr.io.Writer(
 model.run(runlen=runlen, outputs=(writer,), progress=False)
 
 # %%
-# Each jet has rolled up into three vortices, one per wavelength of
-# the seed, with filaments of vorticity drawn out between them. A
-# zonal transform of the vorticity along the jet keeps its peak at
-# wavenumber three throughout, and the harmonics that grow alongside
-# it are the sharpened vortex cores rather than a competing mode.
-_ = model.state.rel_vort_z.to(center).xr.isel(z=0).plot(
+# Each flank of the jet has rolled up into two vortices, so the
+# saturated state is a wavenumber-two street with filaments of
+# vorticity drawn out between the cores.
+_ = model.state.rel_vort_z.to(center).xr.isel(z=0, drop=True).plot(
     x="x", size=3.2, aspect=1.2)
 
 # %%
@@ -124,13 +127,13 @@ _ = model.state.rel_vort_z.to(center).xr.isel(z=0).plot(
 # -----------------------
 # `CDFViewer <https://gordi42.github.io/CDFViewer.jl/>`_ records the
 # vorticity animation from the store.
-_ = subprocess.run(
-    "cdfviewer barotropic_jet.zarr -v rel_vort_z -x x -y y --dims=z=0"
-    " -p heatmap -a time"
-    " --kwargs='colormap=:balance, colorrange=(-60, 60),"
-    " figsize=(700, 640),"
-    " titlesize=28, xlabelsize=24, ylabelsize=24,"
-    ' animlabel="{value}",'
-    " title=\"Barotropic jet\"'"
-    " --record -s 'filename=\"barotropic_jet.mp4\", framerate=24'",
-    shell=True, check=True)
+command = (
+    "cdfviewer barotropic_jet.zarr"
+    " -v rel_vort_z -x x -y y --dims=z=0 -p heatmap -a time"
+    " --kwargs='colormap=:balance, colorrange=(-1.1, 1.1),"
+    ' title="Barotropic jet",'
+    # the time axis is nondimensional, so the label drops its unit
+    ' animlabel="t = {rawvalue}", animlabelnumfmt="%.1f"'
+    "' --record -s 'filename=\"barotropic_jet.mp4\", framerate=24'"
+)
+_ = subprocess.run(command, shell=True, check=True)
