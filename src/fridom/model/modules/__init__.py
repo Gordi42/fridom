@@ -13,6 +13,9 @@ flux-form advection family (``fr.modules.CenteredAdvection`` /
 ``UpwindAdvection`` / ``WENOAdvection``) is rehomed here from
 ``nonhydro2`` so every model port shares it (hydrostatic plan HY-D5);
 ``nonhydro2`` keeps re-exports so ``nh.CenteredAdvection`` still works.
+``fr.model.modules.Tracer`` is the one-liner declaring module for plain
+user tracers (D1.5), the replacement for the v1
+``mset.custom_state_fields``.
 """
 from typing import TYPE_CHECKING
 
@@ -43,6 +46,7 @@ if TYPE_CHECKING:  # pragma: no cover
     from .ramping import TendencyEnvelope
     from .relaxation import Relaxation
     from .source import Source
+    from .tracer import Tracer
 
 base = "fridom.model.modules"
 
@@ -63,6 +67,7 @@ all_imports_by_origin = {
     f"{base}.ramping": ["TendencyEnvelope"],
     f"{base}.relaxation": ["Relaxation"],
     f"{base}.source": ["Source"],
+    f"{base}.tracer": ["Tracer"],
 }
 
 setup(__name__, all_modules_by_origin, all_imports_by_origin)
