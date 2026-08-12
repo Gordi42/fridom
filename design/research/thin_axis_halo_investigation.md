@@ -503,3 +503,259 @@ measurement) and the asymmetric halo (recommendation 5).
 - `done.md` ~2370 claims "The weno5 momentum z-seam residual is the one
   item left open in this family (`open.md`)", but no such entry exists
   in `open.md` today.
+
+## 12. Corrections — the elision campaign (2026-08-12)
+
+The follow-up campaign (four parallel investigations plus a working
+prototype) **overturns §6's payoff estimate by an order of magnitude
+and retires two of its recommendations.** Method: the recommended
+repeat-and-run shape was actually built, then A/B'd against its own
+branch point by three independent harnesses. Every number below is a
+direct measurement, not a fit.
+
+### 12.1 §6's "5–13% on cpu" is wrong; the real figure is 2.2x–7.7x
+
+| config | base | elided | speedup | z storage |
+|---|---:|---:|---:|---|
+| 128², centered+biharmonic | 13.37 ms | 6.15 ms | **2.17x** | 3 -> 1 |
+| 128², WENO5 | 30.02 ms | 3.88 ms | **7.73x** | 7 -> 1 |
+| 512², WENO5 | 308.23 ms | 41.38 ms | **7.45x** | 7 -> 1 |
+
+Three harnesses, one prototype, agreeing on ratios (WENO5 5.8–7.7x,
+centered+biharmonic 1.9–2.2x) while absolute times spread ~2x with box
+load. `u` sum-of-squares after 20 steps is **identical to the last
+digit** across arms in every pair.
+
+**Why §6 was wrong.** It had no prototype, so it extrapolated
+`t = a + b·N_stored` from two anchors (nz=4, 16) down to nz=1 — a 5x
+extrapolation below the lower anchor. The variable coefficient
+reproduces (`b ≈ 0.19` vs §6's `0.222 µs`/element); the **fixed term
+does not**. Refits on real prototype data give `a ≈ 10.6 ms`, and
+across configurations `a` swings from **−91 ms to +84 ms** — a
+two-point fit cannot separate fixed cost from curvature. §6's
+`a = 103.3 ms` (84% of its 122.9 ms step) is ~10x too large, and
+because the saving is `variable / (a + variable)`, a 10x-too-large `a`
+makes the same saving look 10x smaller. The fit passed its own
+out-of-sample nz=1 check, which is why §6 trusted it: interpolating
+one step below the lower anchor is easy, extrapolating 5x below it is
+not.
+
+**The step is bandwidth-bound, which is what carries the result to
+gpu.** Post-fusion `cost_analysis()` gives arithmetic intensity
+**0.13–0.44 FLOP/byte** (elided 0.20–0.67) against an A100-80GB fp64
+machine balance of 4.76 — bandwidth-bound by 11–37x at every size, in
+both arms. Achieved bandwidth is near-constant at 10.6–15.2 GB/s
+across schemes, sizes and arms, which is why the byte ratio predicts
+wall time. The same grid at nz=**16** reads 11.0 FLOP/byte and is
+compute-bound: ghost planes along a *constant* axis carry bytes and no
+useful arithmetic. Byte/FLOP ratios are size-invariant to 3 s.f.
+(3.40x/7.69x bytes, 2.29x/4.98x flops — FLOPs drop less because
+repeat-and-run recomputes the widened window, harmless precisely
+because the step is bandwidth-bound).
+
+### 12.2 §6's synthetic proxy is an artifact — discard it, keep the conclusion
+
+The 514² proxy's 4.9x/11.8x/15.3x at z-extent 3/5/7, and the reading
+that "a 3-long fastest-varying storage axis is a pathological SIMD
+width", do not survive a direct sweep (one process per point, 4
+samples, forward and reverse z order):
+
+| n=2048, ns/element | z=1 | 2 | 3 | 4 | **5** | 6 | **7** | **8** | 12 | 16 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| | 2.61 | 3.06 | 2.99 | 2.40 | **12.27** | 3.59 | **12.48** | **12.61** | 3.05 | 3.28 |
+
+The cliff is at z ∈ {5,7,8}, ~5x, reproducible; **z=3 shows only
+1.14–1.33x** and z=6/12/16 are fine. Slow-5 / fast-6 / slow-7 / slow-8
+/ fast-12 cannot come from "3 is a pathological vector length". There
+is also **no collapse bonus at z=1** (2.61 ns/element vs 2.40 at z=4),
+so the "XLA collapses the axis and vectorizes along y at width 0"
+mechanism is absent from the proxy. §6's figures land on a codegen
+cliff. The real step's speedup never exceeds its byte ratio (7.73x
+measured vs 7.69x bytes), so the proxy was **over**-optimistic, not
+optimistic in the right direction. The case no longer needs it.
+
+*Unresolved and immaterial:* whether a length-1 trailing axis earns a
+small bonus beyond the storage ratio. The microbenchmark says no; a
+fit residual on the real model says yes; the one measurement marginally
+above the byte ratio is within box noise.
+
+### 12.3 The asymmetric halo saves nothing — retired
+
+§6's closing bullet ("plausibly worth more than flat-axis elision")
+was a **per-row claim presented at tendency scope**. Instrumenting the
+input to `HaloSpec.symmetric` at both collapse sites (`halo.py` ~1298,
+`halo_demand.py` ~143) across nine configurations — nh centered,
+weno3, weno5, upwind5, weno5 walled-z, advection=False, sw advective
+and linear — records **zero asymmetric specs**: WENO5 arrives at the
+collapse as `(3,3)`, not `(2,3)`.
+
+The mechanism is structural. Individual applications *do* record
+asymmetry (per axis the recorder sees `(1,3)`x6 **and** `(3,1)`x2,
+`(1,0)`x10, `(0,1)`x4) and that asymmetry is already exploited per row
+(`advection.py` ~1479: "tightens to the true composed footprint,
+`n + 6` per axis for upwind5, not `n + 8`"). But a complete tendency
+leg symmetrizes: staggered schemes pair a forward difference with a
+backward one, and upwinding keeps both biased reconstructions resident
+because the flux sign selects at runtime. Storage is one array, so it
+holds the per-side max — exactly `storage_halo_width.md` §1's own
+derivation, `[-1,0] ⊕ [-2,+3] = [-3,+3]`. Ceiling had it existed:
+**4.4% / 2.3% / 1.15%** of step bytes at 64³/128³/256³. Entry moved to
+[`../roadmap/declined.md`](../roadmap/declined.md).
+
+**The lever it was reaching for is real but different:** on a *mapped*
+grid, centered negotiates halo **2** while the trace demands only 1 —
+a shape-unconditional one-plane-per-axis narrowing worth ~8% (64³) /
+~4% (128³) of step bytes. Already flagged in
+[`storage_halo_width.md`](storage_halo_width.md) §1 as
+`DynamicalCore.extra_halo = 2`; now measured on the mapped path.
+
+### 12.4 §5's bounded-axis warning holds, and the trap is worse than recorded
+
+The predicate `factor.mesh.periodic and factor.mesh.n_cells == 1`
+survives scrutiny and every load-bearing §5 claim reproduces
+(`Outer(2) -> Center(1)` of `[1,3]` is exactly `2` at `dz = 1`; a
+bounded `CellAvg(1)`+Dirichlet column syncs to `[-1, 1, -1]`, giving
+`2u/dz`). Two corrections, both making the trap **worse**:
+
+1. **§5's DOF table is the untagged column only.** Under a Dirichlet
+   tag the *member* boundary DOFs are dropped, so at `n_cells = 1`
+   `Outer`, `Left` and `Right` all collapse to **0** DOFs. So
+   `mesh.n_cells == 1` spans DOF counts **0, 1 and 2** — a three-way
+   spread, not §5's two-way one.
+2. **The sharpest trap is at `n_cells = 2`, which §5 never discusses.**
+   A walled `nz = 2` `nonhydro2` model — shipped, running today — puts
+   `w` on `Inner(z, DIRICHLET|DIRICHLET)` whose z factor has
+   `shape[0] == 1`, and its vertical divergence is `±1/dz`, **nonzero
+   for a constant column**. A contributor keying a flat rule on the
+   field's own shape rather than the mesh's cell count breaks a live
+   model where no `n_cells == 1` check and no "flat axis" intuition
+   would warn them.
+
+A *sound* bounded predicate does exist — key on the realized fill being
+a pure copy of the single DOF (`all(src == width)`, no sign flips, no
+zeroed slots) rather than on the mesh — and it additionally admits
+bounded `Center/NEUMANN` and `CellAvg/NEUMANN` at width 1. It is not
+worth promoting to the gate: on a bounded 1-cell axis the staggered
+codomain is *empty* (`Center(1) --diff-> Inner(0,)`), so the win is one
+operand's 3x; it re-opens the per-factor-vs-per-axis halo split that
+seven storage-index sites depend on; and its dangerous sibling is one
+keystroke away (`Center/DIRICHLET` has the same DOF count *and* the
+same `src` indices as the Neumann pair, differing only in `neg`).
+Keep it as an assertion **inside** the gate, never as the gate.
+
+**The one-sentence form for a future contributor:** a size-1
+*periodic* axis has one DOF and a wrap fill, so its whole storage
+column is that one DOF and every stencil along it is identity or zero;
+a size-1 *bounded* axis has zero, one or two DOFs depending on the BC
+tag and its ghost fill is a BC extension, not a copy. Never key a flat
+rule on `n_cells == 1` or on `shape[0] == 1`.
+
+### 12.5 §6's "silent wrong answers" is mostly wrong — the failure is loud
+
+Forcing `_width -> 0` with both tails untouched does **not** silently
+zero. It raises at assembly `dry_run` for every configuration:
+`TermEvaluationError: ConstantStratification/buoyancy_force: ...
+ValueError: axis 2 of length 1 is shorter than the 2-point stencil`
+(`stencil_kernels.py` ~215, twin at `weno.py` ~369).
+
+The silent zero needs `m0 <= 0` **plus** an unguarded slicer, and
+exactly one existed: `_weighted_windows` (`advection.py` ~585), which
+returned shape `(4,4,0)` on a length-1 axis for
+`apply_fv_staggered`'s `jnp.pad` to fill with exact zeros. Pinned
+configuration: size 3 with `m0 = 0`, i.e. `UpwindAdvection(order=3)`'s
+right-biased rung (`graded.biased_offset = order//2 - 1 = 0`) —
+`[0.]` where the answer is `2.0`, no diagnostic. Latent in shipped
+code (storage is always `1 + 2H >= stencil`), reachable under elision.
+**Guard shipped** on `dev` as `fix/weighted-windows-guard`.
+
+### 12.6 The function-space retag route is dead
+
+Reusing `ConstantSpace` for a flat *physical* axis fails on four
+independent grounds, three of them the defining properties of the class
+being reused. `collapses_axis` bundles halo-free storage, device
+replication, per-factor dispatch skip and squeeze-out-of-output; a flat
+physical axis wants the first two and must **not** have the last two.
+Measured: the pressure core's C-grid pair discovery (`nonhydro2/modules/
+core.py` ~580) finds the face factor as "the velocity factor that
+differs from the pressure factor", so retagging collapses the pair and
+a bare `next` raises `StopIteration` at bind — no model builds. The
+registry's real `FiniteDifference` bound to a `Constant(z)` returns
+`d/dz(1) = 1.0` (identity, where a flat axis needs **zero**) —
+**silently**. `evaluation_nodes` and `measure` raise, `.xr` drops the z
+dim and coord, and `Center(z) * Right(z)` stops raising
+`SpaceMismatchError`. The honest contribution is a *third* predicate
+(storage-only), not a retag — which is option 1's storage half under a
+better name.
+
+### 12.7 Costs and traps of the real implementation
+
+~40 executable lines across 5 files (+204/−0). **One of ~12 stencil
+families needed individual attention** — repeat-and-run's central claim
+held for FiniteDifference, LinearInterp, Restriction, the three FV
+reconstructions, WenoReconstruction, the FluxDifference family,
+UpwindOne, Fallback, the graded rungs and both private face
+reconstructions.
+
+**The exception is the campaign's genuine unknown unknown.**
+`_SelectedFaceReconstruction` (`advection.py` ~1790) closes over
+`pos_data = positive._data` and slices it with the *rebuilt* window's
+length. `jnp.repeat` widens only the array the tail is handed, never
+what a kernel **captured** — so it broke loudly with
+`ValueError: Incompatible shapes for broadcasting: shapes=[(14,14,0),
+(14,14,2),(14,14,2)]`. **Repeat-and-run is transparent to kernels but
+not to kernel closures.** §6 did not anticipate this.
+
+Verified non-issues, contradicting §6's predictions: `require_solver_halo`
+needs **no exemption** (the CG/immersed/mapped cores read `.data`, not
+raw storage, and their `jnp.roll` wraps are length-1-correct — proven by
+walled-x CG and multigrid-preconditioner runs); the `apply_staggered` /
+`apply_fv_staggered` reach guards pass unchanged and still teach,
+because `decomposition.halo` is untouched; `halo_valid` shows **no
+churn** (compile counts identical, zero extra compiles on re-run) when
+the flat axis's claim is left unconsumed; §4's multi-device conclusion
+holds under elision.
+
+Elision is *more* exact than the deep run: §10's `w`-at-1e-20 residual
+comes from stenciling wrap-filled ghosts, and with no ghosts to stencil
+the vertical flux difference cancels identically — `w` and `b` become
+**exactly 0**. One real coverage loss: with elision, `_axis_map`'s
+tiling branch (§10) is only reachable for `2 <= n < width`, so
+`test_periodic_wrap_wider_than_the_axis_tiles` needs retargeting rather
+than deleting.
+
+### 12.8 A live bug found in passing, unrelated to elision
+
+A **walled 1-cell axis** assembles and then raises at the first step:
+`NotImplementedError: the bounded halo fill of width 1 reaches deeper
+than the 0 DOFs along the axis` (`tensor.py` ~1496 `_bounded_ghosts` ->
+~1616 `_ghost_values` -> ~1490 `dof`). `nz=2` and `nz=4` are fine.
+
+The two fill spellings **disagree at `n == 0`**: `_axis_map` honours the
+Dirichlet `_VACANT` `sign == 0` rule and returns exact zeros, while
+`_ghost_values` takes the same branch as `jnp.zeros_like(dof(rank))` —
+calling `dof` purely for a *shape* — and `dof` raises when `k > n`. So
+`_write_axis`'s docstring promise of "the same values" is false for a
+zero-DOF Dirichlet factor. It fires at the scan carry, which is why it
+survives assembly and every dry run. **Predates the thin-axis fix**
+(`baf6bfd0` left the bounded path byte-unchanged). Owner ruling
+(2026-08-12): make it run with a genuinely empty wall-normal velocity —
+the `sign == 0` slot takes its shape from the storage frame instead of
+from `dof`.
+
+### 12.9 §11 follow-up resolved: `_check_walled_extent` is consistent
+
+§11 suspected a cells-vs-DOFs misalignment. There is none: the
+Neumann `_MEMBER` rule returns `rank = k + 1` because the boundary node
+is a true DOF the even extension reflects *about*, so the extra `Outer`
+node is consumed exactly and the DOF-keyed guard reduces to
+**`width <= mesh.n_cells`** uniformly for every grounded iteration-1
+space (measured: first-admitting `n_cells` per width 1..5 is
+`[1,2,3,4,5]` for BC-tagged spaces). The two currencies already agree.
+The guards also do not race — `_check_walled_extent`'s `min_cells` is
+strictly stricter and always fires first with a taught message (order 3
+needs 4 cells but the fill admits from 2; order 5 needs 6, fill admits
+from 3), so the fill guard is unreachable on that path. Worth doing
+only: state the `width <= n_cells` law in `_axis_map`'s docstring, and
+name `mesh.n_cells` in the `rank > n` message (reachable via a
+`FiniteDifference(order>=4)` registry override, which has no taught
+pre-flight).
