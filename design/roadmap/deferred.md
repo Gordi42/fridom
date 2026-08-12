@@ -178,3 +178,42 @@ single-device-tested). Plan §P3:
 [`../plans/active/traveling_wave_packets_plan.md`](../plans/active/traveling_wave_packets_plan.md).
 **Trigger:** the first docs example or user request needing a
 single-sided packet in a walled channel.
+
+## Flat-axis halo elision — halo 0 on a size-1 periodic axis
+
+*Deferred (2026-08-12). Trigger: a gpu measurement showing the step is
+bandwidth-bound at a flat-axis production size — or a production run
+that is.* A periodic axis of one cell is constant by construction, so
+interpolation along it is the identity and every derivative is zero:
+in principle it needs no ghosts at all. Today it stores `1 + 2H`
+slots (7 at WENO5), an exact 3x/5x/7x on stored field traffic, and
+that is a real FLOP multiplier because same-space field arithmetic
+runs on the storage-shaped `_data`. Measured payoff is only 5–13% of
+step time on cpu at 128² (most of the step is fixed cost), but a
+bandwidth-bound proxy at 514² gives 4.9x/11.8x/15.3x for z-extent
+3/5/7 — worse than proportional, because a 3-long fastest-varying
+storage axis is a pathological SIMD width. The gpu number is the whole
+decision and is unmeasured.
+
+Shape if promoted: repeat-and-run in the two shared stencil tails
+(`staggering.apply_staggered`, `reconstruct.apply_fv_staggered`),
+gated on `factor.mesh.periodic and factor.mesh.n_cells == 1`, with
+`_width` returning 0 and `decomposition.halo` left untouched. Two
+traps recorded in the analysis: clamping only `_width` produces
+**silent zeros** (the stencil guards still read the negotiated width,
+the kernel output has length 0 and `jnp.pad` fills the result), and a
+predicate keyed on `n_cells == 1` alone is wrong on a *bounded* axis,
+where `Outer` has 2 DOFs and a genuine flux divergence survives.
+[`../research/thin_axis_halo_investigation.md`](../research/thin_axis_halo_investigation.md) §6.
+
+## Asymmetric halo — stop rounding the two-sided reach up
+
+*Deferred (2026-08-12). Trigger: the next storage/bandwidth push, or
+any perf work that touches the negotiation.* `OperatorRequirements`
+carries `reach=(below, above)` and the two-sided value is threaded
+through the whole trace, then collapsed to symmetric in one line
+(`halo.py` ~1298). WENO5's true reach is (2,3) but storage is 3+3, so
+every grid pays an extra plane on every applied axis — not just the
+thin ones. Plausibly worth more than flat-axis elision, since it is
+not conditional on a grid shape.
+[`../research/thin_axis_halo_investigation.md`](../research/thin_axis_halo_investigation.md) §6.
