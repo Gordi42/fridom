@@ -43,22 +43,31 @@ optional single-sided ``traveling=`` carriers on bounded axes),
 :func:`kelvin_wave` (the labeled boundary-trapped mode of the walled
 channel eigenbasis), :func:`barotropic_jet` / :func:`jet` (unstable
 zonal jets plus a single-mode perturbation, geostrophically
-projected by default) and :func:`coherent_eddy` (a Gaussian
-streamfunction or vorticity eddy with a caller-supplied vertical
-structure, turned into ``u``, ``v``, ``b`` by geostrophic theory).
-Wave factories return ``(omega, state)`` like ``em.mode``; profile
+projected by default), :func:`coherent_eddy` (a Gaussian vorticity
+or streamfunction eddy, turned into ``u``, ``v``, ``b`` by
+geostrophic theory) and :func:`eddy_dipole` (a self-advecting
+counter-rotating pair of them, placed by a compass heading). Wave
+factories return ``(omega, state)`` like ``em.mode``; profile
 factories return the state alone.
 
-:func:`coherent_eddy` is the one factory that takes the **model**
-alone: it needs the component spaces and the Coriolis parameter, not
-an eigenbasis, so it serves every grid topology (the horizontally
-walled channel included) and builds no eigenmodes.
+The two eddy factories are the ones that take the **model** alone:
+they need the component spaces and the Coriolis parameter, not an
+eigenbasis, so they serve every grid topology (the horizontally
+walled channel included) and build no eigenmodes. They also share
+one construction, ``_eddy_state``, which is what keeps their
+geostrophy, their staggering and their sign convention from drifting
+apart. Both take their vertical profile either as the separable
+multiplier ``vertical_structure=`` (the fast path: the sampling and
+the elliptic inversion stay two-dimensional) or as callables of the
+vertical coordinate on the individual knobs (the general path, which
+a depth-varying width forces, since it is not separable at all).
 """
 from __future__ import annotations
 
 import inspect
 from typing import TYPE_CHECKING
 
+import jax
 import jax.numpy as jnp
 
 from fridom.model._eigenbasis import (
@@ -98,8 +107,6 @@ from fridom.spatial.symbols import ModeChart
 
 if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Callable, Mapping
-
-    import jax
 
     from fridom.model.model import Model
     from fridom.spatial.fields.scalar_field import ScalarField
@@ -930,14 +937,269 @@ def _coriolis_parameter(model: Model, at_time: float) -> float:
         "rotation at all")
 
 
+
+def _invert_horizontal(
+    field: ScalarField,
+    axes: tuple[str, str],
+    vertical: str,
+) -> ScalarField:
+    r"""
+    Solve :math:`-\nabla_h^2 g = f` on a two-dimensional operand.
+
+    Description
+    -----------
+    :func:`~fridom.model.streamfunction.invert_negative_laplacian`,
+    applied one horizontal plane at a time whatever the operand's
+    vertical extent. A one-DOF (``Constant``) vertical -- the
+    separable eddy, whose structure multiplies :math:`\psi` after the
+    inversion -- passes straight through. A vertical the prescribed
+    shape genuinely varies along, which a depth-varying width makes
+    unavoidable, is mapped over with ``jax.vmap``.
+
+    Both reasons to keep the vertical out of the transform matter,
+    and the second is the load-bearing one.
+
+    - **Cost.** A three-dimensional operand pays a vertical transform
+      pair that the horizontal Laplacian symbol never reads (measured
+      184 times the two-dimensional cost at :math:`512^2 \times 64`).
+    - **Existence.** On a rigid lid the corner's vertical face factor
+      is the untagged ``Outer`` node set, and a walled horizontal axis
+      commits the whole bounded product to the sine family, for which
+      no ``Outer`` origin exists: ``spectral_sibling`` tags it
+      Dirichlet and the retag changes the degree-of-freedom count
+      (``Outer`` is n + 1 nodes, its Dirichlet reading n - 1). Mapping
+      never asks, so the branch serves every topology.
+
+    Parameters
+    ----------
+    field : ScalarField
+        The prescribed vorticity, on the horizontal corner.
+    axes : tuple[str, str]
+        The two horizontal coordinate names.
+    vertical : str
+        The vertical coordinate name (never transformed).
+
+    Returns
+    -------
+    ScalarField
+        The solution on ``field``'s own function space.
+    """
+    space = field.function_space.bare
+    if space.factor(vertical).is_constant:
+        return invert_negative_laplacian(field, axes=axes)
+    grid = field.grid
+    position = tuple(space.names).index(vertical)
+    plane = grid.create_field(
+        space.replace(**{vertical: _constant_factor(grid, vertical)}),
+        name="zeta")
+
+    def solve(slab: jax.Array) -> jax.Array:
+        """Invert one horizontal plane of the operand."""
+        inverted = invert_negative_laplacian(
+            plane.with_data(jnp.expand_dims(slab, position)),
+            axes=axes)
+        return jnp.squeeze(inverted.data, position)
+
+    return field.with_data(jax.vmap(
+        solve, in_axes=position, out_axes=position)(field.data))
+
+
+def _at(
+    knob: float | Callable[[jax.Array], jax.Array],
+    zz: jax.Array,
+) -> jax.Array:
+    """Evaluate a float-or-callable knob at the vertical coordinate."""
+    return knob(zz) if callable(knob) else jnp.asarray(knob)
+
+
+def _curl(
+    grid: Grid,
+    psi: ScalarField,
+    spaces: Mapping[str, SpaceLike],
+    x: str,
+    y: str,
+    buoyancy: ScalarField | None,
+) -> State:
+    r"""Return the state of a corner streamfunction and its buoyancy.
+
+    Description
+    -----------
+    The standard geostrophic pairing :math:`u = -\partial_y \psi`,
+    :math:`v = \partial_x \psi`, whose discrete C-grid curl lands
+    exactly on the ``u`` and ``v`` spaces and is divergence-free to
+    machine precision, with :math:`w \equiv 0`.
+    """
+    fields = {
+        "u": (-psi.diff(y)).with_metadata(name="u"),
+        "v": psi.diff(x).with_metadata(name="v"),
+        "w": grid.create_field(spaces["w"], name="w")}
+    if buoyancy is not None:
+        fields["b"] = buoyancy.with_metadata(name="b")
+    return State(fields)
+
+
+def _eddy_state(
+    model: Model,
+    *,
+    what: str,
+    shape: Callable[[jax.Array, jax.Array, jax.Array], jax.Array],
+    depth_varying: bool,
+    gauss_field: str,
+    vertical_structure: Callable[[jax.Array], jax.Array] | None,
+    at_time: float,
+) -> State:
+    r"""
+    Turn a prescribed horizontal shape into a balanced eddy state.
+
+    Description
+    -----------
+    The construction shared by :func:`coherent_eddy` and
+    :func:`eddy_dipole`, and the whole of the geostrophy. ``shape``
+    prescribes either :math:`\psi` or :math:`\zeta` on the horizontal
+    corner; the state is the geostrophic, hydrostatic one of
+    :func:`coherent_eddy`'s docstring.
+
+    :math:`\psi` is sampled on the vertical **faces** and the
+    velocities take its face-to-centre *interpolant* while the
+    buoyancy takes its face-to-centre *difference*: the adjacent pair
+    of one staggered lattice, for which :math:`I(\delta F) =
+    \delta(I F)` holds identically, which is what makes the discrete
+    balance exact rather than second-order.
+
+    ``depth_varying`` selects between two spellings of the same
+    formula, not two constructions.
+
+    - False -- the shape is horizontal alone. It is sampled once on
+      the corner with a one-DOF vertical, and a separable
+      ``vertical_structure`` :math:`F(z)` (itself one-dimensional,
+      on the faces) carries the whole vertical. Both operators then
+      act on :math:`F`, so no three-dimensional array is built before
+      the state itself and the elliptic inversion stays a single
+      two-dimensional solve.
+    - True -- the shape varies with depth (a depth-varying width is
+      not separable at all: :math:`A(z)\exp(-r^2/R(z)^2)` is no
+      product of a horizontal shape and a vertical profile). It is
+      sampled on the corner crossed with the vertical faces, and the
+      two operators act on that.
+
+    Parameters
+    ----------
+    model : Model
+        The assembled nonhydrostatic model.
+    what : str
+        The public factory name, for the taught errors.
+    shape : Callable[[jax.Array, jax.Array, jax.Array], jax.Array]
+        ``shape(x, y, z)`` on physical coordinates; ``z`` is the
+        domain mid-depth when ``depth_varying`` is False (a
+        depth-independent shape does not read it).
+    depth_varying : bool
+        Whether ``shape`` reads its vertical coordinate.
+    gauss_field : str
+        Which field ``shape`` prescribes.
+    vertical_structure : Callable[[jax.Array], jax.Array] | None
+        The separable multiplier :math:`F(z)`, or None.
+    at_time : float
+        Parameter evaluation time for the rotation.
+
+    Returns
+    -------
+    State
+        The eddy state; ``b`` is present iff the model declares it.
+    """
+    if gauss_field not in {"vorticity", "streamfunction"}:
+        raise ValueError(
+            f"unknown gauss_field {gauss_field!r}: the Gaussian "
+            "prescribes either 'vorticity' or 'streamfunction'")
+    if isinstance(model, Eigenmodes | ChannelEigenmodes):
+        # a value error (wrong source), not a type error
+        raise ValueError(  # noqa: TRY004
+            f"{what} takes the model, not an eigenmodes object: the "
+            "eddy is an analytic geostrophic state and builds no "
+            "eigenbasis at all (the old spelling paid for a channel "
+            "eigensolve only to read the grid). Pass the assembled "
+            f"model, nh.{what}(model, ...)")
+    grid = model.grid
+    x, y = _horizontal(grid)
+    z0, z1 = _extent(grid, _VERTICAL)
+    spaces = {name: model.state[name].function_space.bare
+              for name in ("u", "v", "w")}
+    b_space = (model.state["b"].function_space.bare
+               if "b" in model.state else None)
+    baroclinic = depth_varying or vertical_structure is not None
+    if baroclinic and b_space is None:
+        raise ValueError(
+            "a depth-varying streamfunction makes the eddy "
+            "baroclinic, whose buoyancy this model cannot hold: it "
+            "declares no 'b' — add a buoyancy module "
+            "(nh.ConstantStratification(n2=...) or "
+            "nh.BuoyancyTracer()), or drop the depth dependence for "
+            "the barotropic eddy")
+    # the horizontal corner: u's x face crossed with v's y face
+    corner = spaces["u"].replace(**{y: spaces["v"].factor(y)})
+    centre_z = spaces["u"].factor(_VERTICAL)
+    face_z = _face_factor(grid, _VERTICAL)
+    flat_z = _constant_factor(grid, _VERTICAL)
+    # a depth-independent shape rides on one vertical DOF, which keeps
+    # both the sampling and the elliptic inversion two-dimensional
+    operand_z = face_z if depth_varying else flat_z
+    middle = jnp.asarray(0.5 * (z0 + z1))
+
+    def sampled(coords: dict[str, jax.Array]) -> jax.Array:
+        """Evaluate the prescribed shape at a space's own nodes."""
+        return shape(coords[x], coords[y],
+                     coords.get(_VERTICAL, middle))
+
+    field = _sample(grid, corner.replace(**{_VERTICAL: operand_z}),
+                    sampled, name="psi")
+    if gauss_field == "vorticity":
+        # this curl gives zeta = +laplacian_h psi, so psi is *minus*
+        # the inverse of the positive-definite -laplacian_h the shared
+        # solver returns; the sign lives here, next to the curl that
+        # forces it
+        field = -_invert_horizontal(field, (x, y), _VERTICAL)
+    if not baroclinic:
+        buoyancy = (None if b_space is None
+                    else grid.create_field(b_space, name="b"))
+        return _curl(grid, field.to(corner), spaces, x, y, buoyancy)
+    column = None if vertical_structure is None else _sample(
+        grid,
+        corner.replace(**{x: _constant_factor(grid, x),
+                          y: _constant_factor(grid, y),
+                          _VERTICAL: face_z}),
+        lambda coords: jnp.broadcast_to(
+            jnp.asarray(vertical_structure(coords[_VERTICAL])),
+            coords[_VERTICAL].shape),
+        name="structure")
+    if column is not None and depth_varying:
+        # a depth-varying shape times a structure is not separable
+        # either, so the two operators must act on the product itself:
+        # the discrete difference obeys no product rule
+        field, column = field * column, None
+    if column is None:
+        # psi already lives on the vertical faces
+        psi = field.to(corner)
+        slope = field.diff(_VERTICAL).to(b_space)
+    else:
+        # the separable spelling of the same two operators, applied to
+        # F alone so the one-dimensional profile stays one-dimensional
+        centre_column = column.function_space.bare.replace(
+            **{_VERTICAL: centre_z})
+        psi = field * column.to(centre_column)
+        slope = (field.to(b_space.replace(**{_VERTICAL: flat_z}))
+                 * column.diff(_VERTICAL))
+    f0 = _coriolis_parameter(model, at_time)
+    return _curl(grid, psi, spaces, x, y,
+                 (f0 * slope).to(b_space).with_metadata(name="b"))
+
+
 def coherent_eddy(
     model: Model,
     *,
-    pos_x: float = 0.5,
-    pos_y: float = 0.5,
-    width: float = 0.1,
-    amplitude: float = 1.0,
-    gauss_field: str = "streamfunction",
+    pos_x: float | Callable[[jax.Array], jax.Array] = 0.5,
+    pos_y: float | Callable[[jax.Array], jax.Array] = 0.5,
+    width: float | Callable[[jax.Array], jax.Array] = 0.1,
+    amplitude: float | Callable[[jax.Array], jax.Array] = 1.0,
+    gauss_field: str = "vorticity",
     vertical_structure: Callable[[jax.Array], jax.Array] | None = None,
     at_time: float = 0.0,
 ) -> State:
@@ -946,23 +1208,33 @@ def coherent_eddy(
 
     Description
     -----------
-    A separable streamfunction :math:`\psi(x, y, z) = G(x, y)\,F(z)`
-    turned into ``u``, ``v`` and ``b`` by geostrophic theory. The
-    horizontal shape is the Gaussian bump
+    A geostrophic streamfunction turned into ``u``, ``v`` and ``b`` by
+    geostrophic theory. The horizontal shape is the Gaussian bump
 
     .. math::
         G = A \exp\left(
         -\frac{(x - p_x L_x)^2 + (y - p_y L_y)^2}{(\sigma L_x)^2}
         \right)
 
-    which prescribes either the streamfunction directly
-    (``gauss_field="streamfunction"``, the default) or the relative
-    vorticity (``gauss_field="vorticity"``), whose streamfunction
-    follows from the horizontal inversion
-    :math:`\nabla_h^2 \psi = \zeta`. The vertical structure
-    :math:`F(z)` is the caller's callable, evaluated on the **physical**
-    vertical coordinate; the default is the constant 1, the barotropic
-    eddy.
+    which prescribes either the relative vorticity
+    (``gauss_field="vorticity"``, the default), whose streamfunction
+    follows from the horizontal inversion :math:`\nabla_h^2 \psi =
+    \zeta`, or the streamfunction directly
+    (``gauss_field="streamfunction"``).
+
+    **Depth dependence, two spellings.** ``vertical_structure``
+    :math:`F(z)` multiplies the streamfunction, giving the separable
+    :math:`\psi = G(x, y) F(z)`; the default is the constant 1, the
+    barotropic eddy. Independently, ``pos_x``, ``pos_y``, ``width``
+    and ``amplitude`` each accept a **callable of the vertical
+    coordinate** instead of a float, which is the general spelling: a
+    depth-varying width is not separable at all, since
+    :math:`A(z)\exp(-r^2/R(z)^2)` is no product of a horizontal shape
+    and a vertical profile. The two agree exactly where they overlap
+    (``amplitude=F`` reproduces ``vertical_structure=F`` to round-off),
+    and ``vertical_structure`` is the one to reach for when it applies:
+    it keeps both the sampling and the elliptic inversion
+    two-dimensional, while a callable knob makes them three-dimensional.
 
     The state is the geostrophic and hydrostatic one,
 
@@ -988,12 +1260,12 @@ def coherent_eddy(
 
     **Sign convention.** :math:`\psi` is the standard geostrophic
     streamfunction, so a positive ``amplitude`` with
+    ``gauss_field="vorticity"`` prescribes positive ``rel_vort_z``,
+    i.e. a **cyclone**, while a positive ``amplitude`` with
     ``gauss_field="streamfunction"`` is a pressure *high*, i.e. an
     **anticyclone** (clockwise for :math:`f > 0`, negative
-    ``rel_vort_z``), while a positive ``amplitude`` with
-    ``gauss_field="vorticity"`` prescribes positive ``rel_vort_z``,
-    i.e. a **cyclone**. The two branches turn opposite ways for the
-    same sign of ``amplitude``, which is the physics
+    ``rel_vort_z``). The two branches turn opposite ways for the same
+    sign of ``amplitude``, which is the physics
     (:math:`\zeta = \nabla_h^2\psi`), not a convention choice.
 
     **The vorticity branch and its gauge.** The inversion is
@@ -1001,9 +1273,10 @@ def coherent_eddy(
     which diagonalizes the *discrete* corner Laplacian on every
     horizontal topology — doubly periodic, a walled channel, a closed
     box, each with or without a rigid lid — so the branch is no more
-    restricted than the streamfunction one. Its operand is the
-    two-dimensional :math:`G` alone, since :math:`F` multiplies
-    :math:`\psi` afterwards, and the vertical is never transformed.
+    restricted than the streamfunction one. Its operand is one
+    horizontal plane: the two-dimensional :math:`G` alone under a
+    separable structure, and one mapped plane per vertical face
+    otherwise. The vertical is never transformed.
 
     What *is* topology dependent is the gauge, and a caller choosing
     between the two branches should know which one they get:
@@ -1023,13 +1296,12 @@ def coherent_eddy(
       ``width=0.25``. Prescribe the streamfunction instead when the
       peak vorticity has to be exact on a periodic grid.
 
-    **Staggering.** :math:`G` is sampled on the horizontal corner (the
-    ``u`` face in :math:`x` crossed with the ``v`` face in :math:`y`)
-    and :math:`F` on the vertical **faces**; the velocities take the
-    discrete corner curl of :math:`G` times the face-to-centre
-    *interpolant* of :math:`F`, and the buoyancy takes the
-    corner-to-centre interpolant of :math:`G` times the face-to-centre
-    *difference* of :math:`F`. The two vertical operators are the
+    **Staggering.** :math:`\psi` is sampled on the horizontal corner
+    (the ``u`` face in :math:`x` crossed with the ``v`` face in
+    :math:`y`) and on the vertical **faces**; the velocities take the
+    discrete corner curl times the face-to-centre *interpolant*, and
+    the buoyancy the corner-to-centre interpolant times the
+    face-to-centre *difference*. The two vertical operators are the
     adjacent pair of one staggered lattice, which is what makes the
     result exactly balanced rather than balanced to truncation order:
 
@@ -1054,10 +1326,10 @@ def coherent_eddy(
         energy measured at :math:`10^{-31}` of the total). Project
         afterwards when the balance argument breaks — a beta-plane or
         chart rotation, an immersed or mapped grid, a state you have
-        added a perturbation to, or a caller-supplied
-        ``vertical_structure`` so steep that it is not resolved
-        (whereupon the eddy radiates inertia-gravity waves at the
-        amplitude of its own truncation error):
+        added a perturbation to, or a caller-supplied depth profile
+        so steep that it is not resolved (whereupon the eddy radiates
+        inertia-gravity waves at the amplitude of its own truncation
+        error):
 
         .. code-block:: python
 
@@ -1070,22 +1342,24 @@ def coherent_eddy(
         The assembled nonhydrostatic model. The velocity, buoyancy
         and rotation come from the model itself; no eigenmode
         machinery is built.
-    pos_x : float, optional
-        Relative zonal position of the eddy (default: 0.5).
-    pos_y : float, optional
-        Relative meridional position of the eddy (default: 0.5).
-    width : float, optional
-        Width of the eddy relative to the zonal domain size
-        (default: 0.1).
-    amplitude : float, optional
-        Peak value of the prescribed Gaussian (streamfunction or
-        vorticity); a negative amplitude flips the rotation sense
-        (default: 1.0).
+    pos_x : float | Callable, optional
+        Relative zonal position of the eddy, or a callable of the
+        **physical** vertical coordinate (default: 0.5).
+    pos_y : float | Callable, optional
+        Relative meridional position of the eddy, or a callable of the
+        vertical coordinate (default: 0.5).
+    width : float | Callable, optional
+        Width of the eddy relative to the zonal domain size, or a
+        callable of the vertical coordinate (default: 0.1).
+    amplitude : float | Callable, optional
+        Peak value of the prescribed Gaussian (vorticity or
+        streamfunction), or a callable of the vertical coordinate; a
+        negative amplitude flips the rotation sense (default: 1.0).
     gauss_field : str, optional
-        Which field the Gaussian prescribes: ``"streamfunction"`` or
-        ``"vorticity"`` (default: "streamfunction").
+        Which field the Gaussian prescribes: ``"vorticity"`` or
+        ``"streamfunction"`` (default: "vorticity").
     vertical_structure : Callable[[jax.Array], jax.Array] | None, optional
-        The vertical structure :math:`F(z)` multiplying the
+        The separable vertical structure :math:`F(z)` multiplying the
         streamfunction, called with the **physical** vertical
         coordinate (the same convention as every other coordinate
         callable in this module) and not renormalized. None is the
@@ -1107,7 +1381,7 @@ def coherent_eddy(
     ------
     ValueError
         On an unknown ``gauss_field``; on an eigenmodes object in
-        place of the model; on a ``vertical_structure`` without a
+        place of the model; on a depth-varying eddy without a
         buoyancy module or without a constant Coriolis parameter.
         The grid topology is never a reason: both branches serve
         every one.
@@ -1122,94 +1396,469 @@ def coherent_eddy(
         import fridom.nonhydro2 as nh
 
         state = nh.coherent_eddy(
-            model, width=0.15,
+            model, width=0.15, gauss_field="streamfunction",
             vertical_structure=lambda z: jnp.exp(z / 0.2))
         model.set_state(state)
+
+    A cyclone that widens with depth, which no separable structure
+    can express:
+
+    .. code-block:: python
+
+        state = nh.coherent_eddy(
+            model, width=lambda z: 0.1 + 0.05 * jnp.cos(z))
     """
-    if gauss_field not in {"vorticity", "streamfunction"}:
-        raise ValueError(
-            f"unknown gauss_field {gauss_field!r}: the Gaussian "
-            "prescribes either 'vorticity' or 'streamfunction'")
-    if isinstance(model, Eigenmodes | ChannelEigenmodes):
-        # a value error (wrong source), not a type error
-        raise ValueError(  # noqa: TRY004
-            "coherent_eddy takes the model, not an eigenmodes "
-            "object: the eddy is an analytic geostrophic state and "
-            "builds no eigenbasis at all (the old spelling paid for "
-            "a channel eigensolve only to read the grid). Pass the "
-            "assembled model, nh.coherent_eddy(model, ...)")
     grid = model.grid
     x, y = _horizontal(grid)
     x0, x1 = _extent(grid, x)
     y0, y1 = _extent(grid, y)
     lx, ly = x1 - x0, y1 - y0
-    spaces = {name: model.state[name].function_space.bare
-              for name in ("u", "v", "w")}
-    b_space = (model.state["b"].function_space.bare
-               if "b" in model.state else None)
-    if vertical_structure is not None and b_space is None:
-        raise ValueError(
-            "a vertical_structure makes the eddy baroclinic, whose "
-            "buoyancy this model cannot hold: it declares no 'b' — "
-            "add a buoyancy module (nh.ConstantStratification(n2=...) "
-            "or nh.BuoyancyTracer()), or drop vertical_structure= "
-            "for the barotropic eddy")
-    # the horizontal corner: u's x face crossed with v's y face, one
-    # DOF in the vertical (the shape is horizontal; the structure
-    # multiplies it afterwards, so the inversion stays 2-D)
-    flat = spaces["u"].replace(**{
-        y: spaces["v"].factor(y),
-        _VERTICAL: _constant_factor(grid, _VERTICAL)})
+    knobs = (pos_x, pos_y, width, amplitude)
 
-    def bump(coords: dict[str, jax.Array]) -> jax.Array:
-        return amplitude * jnp.exp(
-            -((coords[x] - x0 - pos_x * lx) ** 2
-              + (coords[y] - y0 - pos_y * ly) ** 2)
-            / (width * lx) ** 2)
+    def bump(
+        xx: jax.Array, yy: jax.Array, zz: jax.Array,
+    ) -> jax.Array:
+        """Sample the Gaussian bump at its own depth's knobs."""
+        radius = _at(width, zz) * lx
+        return _at(amplitude, zz) * jnp.exp(
+            -((xx - x0 - _at(pos_x, zz) * lx) ** 2
+              + (yy - y0 - _at(pos_y, zz) * ly) ** 2) / radius ** 2)
 
-    shape = _sample(grid, flat, bump, name="psi")
-    if gauss_field == "vorticity":
-        # this curl gives zeta = +laplacian_h psi, so psi is *minus*
-        # the inverse of the positive-definite -laplacian_h the shared
-        # solver returns; the sign lives here, next to the curl that
-        # forces it. The operand is the two-dimensional `flat` shape,
-        # which is what keeps the transform off the vertical: the
-        # structure multiplies psi afterwards
-        shape = -invert_negative_laplacian(shape, axes=(x, y))
-    corner = flat.replace(**{
-        _VERTICAL: spaces["u"].factor(_VERTICAL)})
-    if vertical_structure is None:
-        psi = shape.to(corner)
-        buoyancy = (None if b_space is None
-                    else grid.create_field(b_space, name="b"))
+    return _eddy_state(
+        model, what="coherent_eddy", shape=bump,
+        depth_varying=any(callable(knob) for knob in knobs),
+        gauss_field=gauss_field,
+        vertical_structure=vertical_structure, at_time=at_time)
+
+
+# ================================================================
+#  Eddy dipole (a self-advecting counter-rotating pair)
+# ================================================================
+#: Argmax and peak of the streamfunction shape s -> s exp(-s^2).
+_PSI_PEAK = (0.7071067811865475, 0.4288819424803534)
+
+#: Argmax and peak of the vorticity shape s -> (1 - exp(-s^2)) / s.
+_VORT_PEAK = (1.1209064227785339, 0.6381726863389515)
+
+#: Number of vertical samples the profile checks scan.
+_PROBE = 257
+
+#: Slope below which a Newton polish step is skipped (at the peak).
+_FLAT = 1e-8
+
+#: Default separation, in widths, per prescribed field.
+#:
+#: The realized speed of a Gaussian pair depends on ``d / R`` far more
+#: strongly than the closed form says, because the pair is not a steady
+#: solution and adjusts. These are the ratios that adjust least: the
+#: vorticity pair holds together from about three widths out, where its
+#: cores stop overlapping, and the streamfunction pair keeps its shape
+#: best near 1.4 widths. Leaving ``separation`` unset takes the ratio
+#: from here **at every depth**, so a depth-varying width gives
+#: self-similar layers, which is what keeps the columns together.
+_DEFAULT_RATIO = {"streamfunction": 1.4, "vorticity": 3.0}
+
+
+def _profile(
+    value: float | Callable[[jax.Array], jax.Array],
+) -> Callable[[jax.Array], jax.Array]:
+    """Return ``value`` as a callable of the vertical coordinate."""
+    if callable(value):
+        return value
+
+    def constant(zz: jax.Array) -> jax.Array:
+        """Broadcast the scalar over the vertical coordinate."""
+        return jnp.asarray(float(value)) + jnp.zeros_like(zz)
+
+    return constant
+
+
+def _shape_of(gauss_field: str, s: jax.Array) -> jax.Array:
+    r"""Dimensionless mutual-induction shape :math:`G(d/R)`."""
+    if gauss_field == "streamfunction":
+        return s * jnp.exp(-s ** 2)
+    return -jnp.expm1(-s ** 2) / s
+
+
+def _shape_slope(gauss_field: str, s: jax.Array) -> jax.Array:
+    r"""Return the derivative :math:`G'(s)` of :func:`_shape_of`."""
+    decay = jnp.exp(-s ** 2)
+    if gauss_field == "streamfunction":
+        return decay * (1.0 - 2.0 * s ** 2)
+    return (2.0 * s ** 2 * decay - 1.0 + decay) / s ** 2
+
+
+def _gain(gauss_field: str, radius: jax.Array) -> jax.Array:
+    """Return the translation speed per unit amplitude at unit shape."""
+    if gauss_field == "streamfunction":
+        return 2.0 / radius
+    return 0.5 * radius
+
+
+def _outer_root(gauss_field: str, target: jax.Array) -> jax.Array:
+    r"""
+    Solve :math:`G(s) = \mathrm{target}` on the outer branch.
+
+    Description
+    -----------
+    :func:`_shape_of` rises from zero, peaks, and decays, so a
+    reachable target has **two** roots. The outer one (:math:`s`
+    above the peak, where :math:`G` decreases) is the coherent
+    branch: the cores overlap less and the leading-order induction
+    formula holds better. Fifty bisections bracket it from
+    ``[s_peak, s_hi]`` (an analytic upper bound), then two Newton
+    steps polish the value and restore the exact implicit
+    derivative that bisection alone would flatten to zero.
+    """
+    peak_s = (_PSI_PEAK if gauss_field == "streamfunction"
+              else _VORT_PEAK)[0]
+    if gauss_field == "streamfunction":
+        # bounded above by exp(-s^2 / 2) for s at least one
+        far = jnp.sqrt(2.0 * jnp.log(1.0 / target))
     else:
-        centre_z = spaces["u"].factor(_VERTICAL)
-        column = _sample(
-            grid,
-            flat.replace(**{
-                x: _constant_factor(grid, x),
-                y: _constant_factor(grid, y),
-                _VERTICAL: _face_factor(grid, _VERTICAL)}),
-            lambda coords: jnp.broadcast_to(
-                jnp.asarray(vertical_structure(coords[_VERTICAL])),
-                coords[_VERTICAL].shape),
-            name="structure")
-        # the velocities carry the face-to-centre *interpolant* of F,
-        # the buoyancy its face-to-centre *difference*: the adjacent
-        # pair of one staggered lattice, for which
-        # I(d F) = d(I F) holds identically — which is what makes the
-        # discrete hydrostatic balance exact rather than second-order
-        psi = shape * column.to(
-            column.function_space.bare.replace(**{_VERTICAL: centre_z}))
-        buoyancy = (
-            _coriolis_parameter(model, at_time)
-            * shape.to(b_space.replace(**{
-                _VERTICAL: _constant_factor(grid, _VERTICAL)}))
-            * column.diff(_VERTICAL)).to(b_space)
-    fields = {
-        "u": (-psi.diff(y)).with_metadata(name="u"),
-        "v": psi.diff(x).with_metadata(name="v"),
-        "w": grid.create_field(spaces["w"], name="w")}
-    if buoyancy is not None:
-        fields["b"] = buoyancy.with_metadata(name="b")
-    return State(fields)
+        # bounded above by the reciprocal of s
+        far = 1.0 / target
+    lo = jnp.zeros_like(target) + peak_s
+    hi = jnp.maximum(far, 2.0 * peak_s)
+    for _ in range(50):
+        mid = 0.5 * (lo + hi)
+        above = _shape_of(gauss_field, mid) > target
+        lo = jnp.where(above, mid, lo)
+        hi = jnp.where(above, hi, mid)
+    s = 0.5 * (lo + hi)
+    for _ in range(2):
+        slope = _shape_slope(gauss_field, s)
+        steep = jnp.abs(slope) > _FLAT
+        safe = jnp.where(steep, slope, 1.0)
+        step = (_shape_of(gauss_field, s) - target) / safe
+        s = s - jnp.where(steep, step, 0.0)
+    return s
+
+
+def _check_positive(name: str, values: jax.Array) -> None:
+    """Reject a non-positive profile over the vertical scan."""
+    worst = float(jnp.min(values))
+    if worst <= 0.0:
+        raise ValueError(
+            f"{name} must be positive everywhere in the domain, "
+            f"got a minimum of {worst:.4g} over the vertical")
+
+
+def _check_reachable(
+    gauss_field: str, target: jax.Array, speed: float,
+) -> None:
+    """Reject a target speed above the mutual-induction peak."""
+    peak_s, peak_g = (_PSI_PEAK if gauss_field == "streamfunction"
+                      else _VORT_PEAK)
+    worst = float(jnp.max(target))
+    if worst > peak_g:
+        raise ValueError(
+            f"speed={speed:.4g} is unreachable at "
+            "match='separation': the mutual induction of a Gaussian "
+            f"pair peaks at d = {peak_s:.4g} R, and no separation "
+            f"reaches more than {speed * peak_g / worst:.4g} at the "
+            "least favourable level. Raise amplitude, widen the "
+            "eddies, or use match='amplitude' instead")
+
+
+def _separation(
+    separation: float | Callable[[jax.Array], jax.Array] | None,
+    width_of: Callable[[jax.Array], jax.Array],
+    gauss_field: str,
+) -> Callable[[jax.Array], jax.Array]:
+    """Return the separation profile, defaulting to a width ratio."""
+    if separation is not None:
+        return _profile(separation)
+    ratio = _DEFAULT_RATIO[gauss_field]
+
+    def tracking(zz: jax.Array) -> jax.Array:
+        """Return the route's default separation at each depth."""
+        return ratio * width_of(zz)
+
+    return tracking
+
+
+def _resolve_knobs(
+    gauss_field: str,
+    match: str,
+    speed: float | None,
+    lx: float,
+    probe: jax.Array,
+    width_of: Callable[[jax.Array], jax.Array],
+    amp_of: Callable[[jax.Array], jax.Array],
+    sep_of: Callable[[jax.Array], jax.Array],
+) -> tuple[Callable[[jax.Array], jax.Array],
+           Callable[[jax.Array], jax.Array]]:
+    """
+    Return the amplitude and separation profiles a target implies.
+
+    Description
+    -----------
+    Without a ``speed`` the two profiles pass through. With one, the
+    ``match`` knob is replaced by the profile that realizes the
+    target level by level: the amplitude in closed form (the speed
+    is linear in it), the separation through :func:`_outer_root`.
+    """
+    _check_positive("width", width_of(probe))
+    if speed is None:
+        _check_positive("separation", sep_of(probe))
+        return amp_of, sep_of
+    if match == "amplitude":
+        _check_positive("separation", sep_of(probe))
+
+        def matched_amplitude(zz: jax.Array) -> jax.Array:
+            """Return the amplitude that realizes the target speed."""
+            shape = _shape_of(gauss_field, sep_of(zz) / width_of(zz))
+            gain = _gain(gauss_field, width_of(zz) * lx)
+            return speed / (gain * shape)
+
+        return matched_amplitude, sep_of
+    _check_positive("amplitude", amp_of(probe))
+    _check_reachable(
+        gauss_field,
+        speed / (_gain(gauss_field, width_of(probe) * lx)
+                 * amp_of(probe)),
+        speed)
+
+    def matched_separation(zz: jax.Array) -> jax.Array:
+        """Return the separation that realizes the target speed."""
+        gain = _gain(gauss_field, width_of(zz) * lx)
+        return width_of(zz) * _outer_root(
+            gauss_field, speed / (gain * amp_of(zz)))
+
+    return amp_of, matched_separation
+
+
+def eddy_dipole(
+    model: Model,
+    *,
+    pos_x: float = 0.5,
+    pos_y: float = 0.5,
+    angle: float = 0.0,
+    separation: float | Callable[[jax.Array], jax.Array] | None = None,
+    width: float | Callable[[jax.Array], jax.Array] = 0.1,
+    amplitude: float | Callable[[jax.Array], jax.Array] = 1.0,
+    speed: float | None = None,
+    match: str = "amplitude",
+    gauss_field: str = "vorticity",
+    at_time: float = 0.0,
+) -> State:
+    r"""
+    Build a self-advecting pair of counter-rotating eddies.
+
+    Description
+    -----------
+    Two Gaussian eddies of amplitude :math:`\pm A`, width :math:`R`
+    and centre separation :math:`d`, placed symmetrically about
+    ``(pos_x, pos_y)`` on the line perpendicular to the heading
+    ``angle``. Each eddy is carried by the other's flow, so the pair
+    translates along its perpendicular bisector at a speed set by the
+    mutual induction. The pair is the superposition of two
+    :func:`coherent_eddy` lobes and shares its construction exactly,
+    so it is divergence-free and exactly balanced on every topology.
+
+    **Heading.** ``angle`` is a compass bearing in **degrees**,
+    measured clockwise from north: ``0`` is north (:math:`+y`),
+    ``90`` east (:math:`+x`), ``180`` south, ``270`` west. The dipole
+    travels **toward** the bearing. The counter-clockwise eddy
+    (positive relative vorticity) sits on the **left** of the heading
+    and the clockwise one on the right, so the jet between the two
+    cores points along the heading and carries the pair with it. A
+    northward dipole therefore keeps its counter-clockwise eddy on its
+    western flank. Which *lobe* that is follows
+    :func:`coherent_eddy`'s sign convention rather than a choice made
+    here: under ``gauss_field="vorticity"`` the counter-clockwise eddy
+    is the :math:`+A` lobe, under ``"streamfunction"`` it is the
+    :math:`-A` one, because a streamfunction high is an anticyclone
+    (:math:`\zeta = \nabla_h^2\psi`). The factory places the lobes to
+    match, so the heading means the same thing on both routes. A
+    negative ``amplitude`` swaps the two eddies and reverses the
+    travel, exactly like ``angle + 180``.
+
+    **Speed.** For a Gaussian vorticity (``gauss_field="vorticity"``,
+    the default; circulation :math:`\Gamma = \pi R^2 A`) the
+    Lamb-Oseen induction gives
+
+    .. math::
+        U = \frac{\Gamma}{2 \pi d}
+            \left(1 - e^{-d^2 / R^2}\right) ,
+
+    which peaks at :math:`d = 1.121 R` and recovers the point-vortex
+    :math:`\Gamma / (2 \pi d)` within one percent beyond
+    :math:`d = 3 R`. For a Gaussian streamfunction
+    (``gauss_field="streamfunction"``) the mutual induction is instead
+
+    .. math::
+        U = \frac{2 A d}{R^2}\, e^{-d^2 / R^2} ,
+
+    which peaks at :math:`d = R / \sqrt{2}` and decays faster than
+    exponentially beyond it, because a Gaussian streamfunction eddy
+    carries **zero** net circulation and so has no far field at all.
+    That difference is why the two routes need different separations,
+    and why only the vorticity route feels a distant wall. Both
+    formulas are the continuum unbounded-domain leading order; on a
+    torus the induction is weaker by a factor depending only on
+    :math:`d / L` (0.95 at :math:`d = 0.125 L`), and the whole
+    steady-translation picture blurs once the cores overlap
+    (:math:`d \lesssim R`).
+
+    **Target speed.** ``speed`` sets :math:`U` directly, and it is a
+    *nominal* speed: exact at :math:`t = 0` up to the periodic image
+    factor, but the Gaussian pair is not a steady dipole and adjusts
+    over about one eddy turnover. Since :math:`U` is linear in
+    :math:`A` at fixed geometry, the solve costs one division when
+    ``match="amplitude"`` (the default): the amplitude follows from
+    the requested speed and the given separation, always, uniquely.
+    With ``match="separation"`` the separation is solved for instead,
+    on the outer branch of the non-monotonic shape function, and the
+    request is **unreachable** when it exceeds the peak of that
+    function (a taught error) — a dipole cannot translate faster than
+    one of its eddies swirls.
+
+    **Depth dependence.** ``width``, ``amplitude`` and ``separation``
+    each accept a callable of the vertical coordinate, and the
+    construction is :func:`coherent_eddy`'s general (non-separable)
+    one, so the thermal-wind buoyancy comes with it and the state
+    stays exactly balanced. A depth-varying radius alone shears the
+    dipole apart, since :math:`U` depends on :math:`R`. Equalizing the
+    closed-form speed is **not** enough to stop that, because the pair
+    is not a steady solution and how far its realized speed drifts
+    from the closed form depends on :math:`d / R`. What holds the
+    columns together is making every level the same shape: leave
+    ``separation`` unset so it tracks the width, and let ``speed``
+    with ``match="amplitude"`` carry the target.
+    ``match="separation"`` serves the other reading of the same
+    request, equalizing the closed-form speed at a fixed amplitude by
+    tilting the dipole axis, which both leaves the cores misaligned
+    from top to bottom and lets :math:`d / R` vary, so the levels
+    drift apart anyway.
+
+    On a **rigid lid** the vortical mode's buoyancy has sine parity
+    and must vanish at the lids, so a depth profile should have zero
+    slope at the top and bottom (:math:`\cos(\pi z / H)` does, a
+    linear profile does not).
+
+    Parameters
+    ----------
+    model : Model
+        The assembled nonhydrostatic model.
+    pos_x : float, optional
+        Relative zonal position of the dipole centre (default: 0.5).
+    pos_y : float, optional
+        Relative meridional position of the dipole centre
+        (default: 0.5).
+    angle : float, optional
+        Heading in degrees, clockwise from north (default: 0.0).
+    separation : float | Callable | None, optional
+        Centre separation :math:`d` relative to the zonal domain
+        size, or a callable of the vertical coordinate; None takes
+        the route's own default ratio of the width at every depth
+        (3.0 for ``"vorticity"``, 1.4 for ``"streamfunction"``),
+        which keeps a depth-varying dipole self-similar
+        (default: None).
+    width : float | Callable, optional
+        Eddy width :math:`R` relative to the zonal domain size, or a
+        callable of the vertical coordinate (default: 0.1).
+    amplitude : float | Callable, optional
+        Peak of each Gaussian (vorticity or streamfunction), or a
+        callable of the vertical coordinate; ignored when ``speed``
+        is given with ``match="amplitude"`` (default: 1.0).
+    speed : float | None, optional
+        Target translation speed; None keeps the given amplitude and
+        separation (default: None).
+    match : str, optional
+        Which knob ``speed`` solves for: ``"amplitude"`` (closed
+        form, unique, cores stay aligned) or ``"separation"`` (outer
+        branch of a root find, may be unreachable)
+        (default: "amplitude").
+    gauss_field : str, optional
+        Which field each Gaussian prescribes: ``"vorticity"`` or
+        ``"streamfunction"`` (default: "vorticity").
+    at_time : float, optional
+        Parameter evaluation time for a time-dependent rotation
+        (default: 0.0).
+
+    Returns
+    -------
+    State
+        The dipole state (assign with ``model.set_state``).
+
+    Raises
+    ------
+    ValueError
+        On an unknown ``gauss_field`` or ``match``, a non-positive
+        ``speed``, ``width`` or ``separation``, an eigenmodes object
+        in place of the model, a depth-varying dipole on a model with
+        no buoyancy or no constant Coriolis parameter, or a
+        ``match="separation"`` target speed the geometry cannot
+        reach.
+
+    Examples
+    --------
+    A dipole crossing the domain to the north-east at a known speed:
+
+    .. code-block:: python
+
+        state = nh.eddy_dipole(model, angle=45.0, width=0.06,
+                               speed=0.2)
+        model.set_state(state)
+    """
+    if match not in {"amplitude", "separation"}:
+        raise ValueError(
+            f"unknown match {match!r}: a target speed solves for "
+            "either 'amplitude' or 'separation'")
+    if speed is not None and speed <= 0.0:
+        raise ValueError(
+            f"speed must be positive, got {speed}: the heading "
+            "already carries the direction (angle + 180 reverses "
+            "it)")
+    if gauss_field not in _DEFAULT_RATIO:
+        raise ValueError(
+            f"unknown gauss_field {gauss_field!r}: the Gaussians "
+            "prescribe either 'vorticity' or 'streamfunction'")
+    grid = model.grid
+    x, y = _horizontal(grid)
+    x0, x1 = _extent(grid, x)
+    y0, y1 = _extent(grid, y)
+    z0, z1 = _extent(grid, _VERTICAL)
+    lx, ly = x1 - x0, y1 - y0
+    heading = jnp.deg2rad(angle)
+    # The counter-clockwise eddy belongs on the left of the heading:
+    # the jet between the two cores then points along the heading and
+    # carries the pair with it. That statement is about the relative
+    # vorticity; which *lobe* is counter-clockwise is coherent_eddy's
+    # sign convention, under which a streamfunction high is an
+    # anticyclone (zeta = laplacian_h psi), so the +A lobe sits on the
+    # left under 'vorticity' and on the right under 'streamfunction'.
+    lobe = 1.0 if gauss_field == "vorticity" else -1.0
+    left = (-lobe * jnp.cos(heading), lobe * jnp.sin(heading))
+    # a depth-varying knob is what makes the dipole baroclinic, and
+    # only the caller's own knobs count: the default separation
+    # follows the width, so it adds no depth dependence of its own
+    depth_varying = any(callable(knob)
+                        for knob in (width, amplitude, separation))
+    width_of = _profile(width)
+    amp_of, sep_of = _resolve_knobs(
+        gauss_field, match, speed, lx,
+        jnp.linspace(z0, z1, _PROBE), width_of,
+        _profile(amplitude),
+        _separation(separation, width_of, gauss_field))
+
+    def pair(
+        xx: jax.Array, yy: jax.Array, zz: jax.Array,
+    ) -> jax.Array:
+        """Sample the counter-rotating Gaussian pair."""
+        radius = width_of(zz) * lx
+        offset = 0.5 * sep_of(zz) * lx
+        cx, cy = x0 + pos_x * lx, y0 + pos_y * ly
+        plus = ((xx - cx - offset * left[0]) ** 2
+                + (yy - cy - offset * left[1]) ** 2)
+        minus = ((xx - cx + offset * left[0]) ** 2
+                 + (yy - cy + offset * left[1]) ** 2)
+        return amp_of(zz) * (jnp.exp(-plus / radius ** 2)
+                             - jnp.exp(-minus / radius ** 2))
+
+    return _eddy_state(
+        model, what="eddy_dipole", shape=pair,
+        depth_varying=depth_varying, gauss_field=gauss_field,
+        vertical_structure=None, at_time=at_time)
