@@ -140,6 +140,40 @@ the viewer's label composition (the recommendation: the store stays
 CF-correct and the decision sits in the presentation layer).
 
 
+## 2d. Operator-algebra gaps surfaced by the eddy inversion (2026-08-12)
+
+Found while building the general streamfunction inversion
+(`fridom.model.streamfunction`, record
+[`../research/eddy_streamfunction_inversion.md`](../research/eddy_streamfunction_inversion.md)).
+Neither blocks that work, which routes around both, but each is a
+real limit the next caller will hit.
+
+- **No mixed `Sine x Cosine` transform product.** `_seed_transform_rows`
+  binds each trig family instance over *all* axes its meshes ground,
+  so on a grid walled in x and z the sine instance is
+  `Sine(grid, axes=("x", "z"))` and a Dirichlet-x tensor Neumann-z
+  product raises `no DST signature on CellAvg(z, bc=NEUMANN)`. The
+  pressure solve never hits this because it tags every axis Neumann.
+  The inversion routes around it by keeping one trig family across
+  bounded axes, which is sound only while the vertical is passive
+  (the symbol never reads its mode index). A caller that genuinely
+  needs `DST(x) x DCT(z)` needs axis-restrictable trig transforms.
+- **`nh.State.rel_vort_z` is half-tagged on a walled grid.** It
+  returns `Inner(x) tensor Inner(y, bc=DIRICHLET)`, x losing its tag
+  because `v.diff("x")` emits a BC-free bounded output. The
+  consequence is family-dependent: under `fv` the result still
+  differentiates, under `nodal` `state.rel_vort_z.diff("x")` raises
+  `DispatchError: no operator registered for kind 'diff' on
+  Inner(x)`. The sw2 sibling retags onto the Dirichlet corner and
+  nh2 does not, so the asymmetry looks unintended rather than
+  designed.
+
+Also parked from the same pass: `build_flat_spectral_solve` is
+reusable for non-pressure elliptic problems once `_neumann_sibling`
+grows an `is_free` guard (a no-op in the pressure path, whose space
+is always the BC-free cell scalar); today it raises on every walled
+topology.
+
 ## 3. Perf-guard checkpoint (owner-run)
 
 After **all** physics changes above land, before the Oceananigans
