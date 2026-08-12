@@ -77,11 +77,11 @@ def _frequency_dim(values: Mapping[str, float]) -> float:
 #  The geometry-free rows
 # ================================================================
 _VELOCITY_FACTOR = UnitFactor(
-    unit="m/s", expr="U", kind="component", scales=("U",),
+    target_unit="m/s", expr="U", kind="component", scales=("U",),
     fn=_velocity)
 
 _PRESSURE_FACTOR = UnitFactor(
-    unit="m^2/s^2", expr="U^2/eps", kind="component",
+    target_unit="m^2/s^2", expr="U^2/eps", kind="component",
     scales=("U",), params={"eps": SCALING_NONLINEARITY},
     fn=_pressure)
 
@@ -161,12 +161,12 @@ def coordinate_factors(
         """Return the vertical coordinate scale ``H``."""
         return height
 
-    row = UnitFactor(unit="m", expr="L", kind="coordinate",
+    row = UnitFactor(target_unit="m", expr="L", kind="coordinate",
                      scales=("L",), fn=_length)
     return {
         horizontal[0]: row,
         horizontal[1]: row,
-        vertical: UnitFactor(unit="m", expr="H", kind="coordinate",
+        vertical: UnitFactor(target_unit="m", expr="H", kind="coordinate",
                              fn=_height),
     }
 
@@ -189,7 +189,7 @@ def vertical_velocity_factor(height: float) -> UnitFactor:
         """Return the vertical velocity amplitude ``U*H/L``."""
         return values["U"] * height / values["L"]
 
-    return UnitFactor(unit="m/s", expr="U*H/L", kind="component",
+    return UnitFactor(target_unit="m/s", expr="U*H/L", kind="component",
                       scales=("L", "U"), fn=_vertical_velocity)
 
 
@@ -211,7 +211,7 @@ def buoyancy_factor(height: float) -> UnitFactor:
         """Return the buoyancy amplitude ``U^2/(eps*H)``."""
         return values["U"] ** 2 / (values["eps"] * height)
 
-    return UnitFactor(unit="m/s^2", expr="U^2/(eps*H)",
+    return UnitFactor(target_unit="m/s^2", expr="U^2/(eps*H)",
                       kind="component", scales=("U",),
                       params={"eps": SCALING_NONLINEARITY},
                       fn=_buoyancy)
@@ -242,7 +242,7 @@ def stratification_factor(height: float) -> UnitFactor:
         """Return the dimensional frequency ``U/(Fr_int*H)``."""
         return values["U"] / (values["Fr"] * height)
 
-    return UnitFactor(unit="1/s", expr="U/(Fr_int*H)",
+    return UnitFactor(target_unit="1/s", expr="U/(Fr_int*H)",
                       kind="constant", scales=("U",),
                       params={"Fr": STRATIFICATION_FROUDE},
                       fn=_frequency, dim_expr="sqrt(n2)",
@@ -280,7 +280,7 @@ def phase_speed_factor(depth: float) -> UnitFactor:
         """Return the bound phase speed ``sqrt(g*H_ref)``."""
         return (values["g"] * depth) ** 0.5
 
-    return UnitFactor(unit="m/s", expr="U/Fr_ext", kind="constant",
+    return UnitFactor(target_unit="m/s", expr="U/Fr_ext", kind="constant",
                       scales=("U",), params={"Fr": FROUDE},
                       fn=_phase_speed, dim_expr="sqrt(g*H_ref)",
                       dim_params={"g": GRAVITY},
