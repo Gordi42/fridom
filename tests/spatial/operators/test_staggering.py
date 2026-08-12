@@ -1,6 +1,7 @@
 """Tests for fridom.spatial.operators.staggering."""
 import jax
 import jax.numpy as jnp
+import numpy as np
 import pytest
 
 from fridom.spatial.bc import BC
@@ -23,6 +24,10 @@ from fridom.spatial.operators.staggering import (
     divide_by_codomain_measure,
     exterior_reach,
     first_node_offset,
+    flat_captures,
+    flat_repeat_and_run,
+    flat_widen,
+    flat_window,
     footprint_reach,
     mapped_factor,
     mapped_mesh,
@@ -264,3 +269,188 @@ def test_periodic_reach_is_unchanged_by_the_footprint_fix(mx):
     ext = exterior_reach(center, op.codomain(center), 2)
     assert ext != (0, 0)
     assert op.requirements(center).reach == ext
+
+
+# ================================================================
+#  Flat-axis halo elision (repeat-and-run)
+# ================================================================
+@pytest.mark.parametrize(
+    ("size", "m0", "width", "expected"),
+    [
+        pytest.param(2, 0, 1, -1, id="interp-halo1"),
+        pytest.param(2, 1, 1, 0, id="interp-halo1-shifted"),
+        pytest.param(6, 3, 3, 0, id="weno5-halo3"),
+        pytest.param(1, 0, 3, -3, id="identity-halo3"),
+        pytest.param(1, 0, 0, 0, id="identity-halo0"),
+    ])
+def test_flat_window_shifts_the_alignment_into_the_rebuilt_frame(
+        size, m0, width, expected):
+    # the tails' ordinary slice-and-pad tail must then land on lo = 0
+    # and hi = s_out, i.e. take deep-frame output slot `width`
+    assert flat_window(size, m0, width, 1) == expected
+    k0 = flat_window(size, m0, width, 1)
+    length = 1 + 2 * width - (size - 1)
+    assert max(0, k0) == 0
+    assert min(1, k0 + length) == 1
+    # the slice the tail takes is exactly the true DOF
+    assert (0 - k0, 1 - k0) == (width - m0, width - m0 + 1)
+
+
+@pytest.mark.parametrize(
+    ("size", "m0", "width", "s_out"),
+    [
+        pytest.param(2, 2, 1, 1, id="alignment-past-the-halo"),
+        pytest.param(6, 0, 1, 1, id="stencil-wider-than-the-window"),
+        pytest.param(2, 1, 1, 3, id="codomain-wider-than-one-slot"),
+    ])
+def test_flat_window_refuses_a_window_it_cannot_cover(
+        size, m0, width, s_out):
+    # unreachable through the tails (their reach guard runs first and
+    # implies the fit); without it the tail would zero-pad silently
+    with pytest.raises(ValueError, match="silent zeros"):
+        flat_window(size, m0, width, s_out)
+
+
+def test_flat_widen_repeats_the_single_slot():
+    arr = jnp.arange(6.0).reshape(2, 1, 3)
+    out = flat_widen(arr, 1, 2)
+    assert out.shape == (2, 5, 3)
+    for slot in range(5):
+        assert jnp.array_equal(out[:, slot, :], arr[:, 0, :])
+
+
+def test_flat_widen_is_a_no_op_at_width_zero():
+    arr = jnp.arange(3.0).reshape(1, 3)
+    assert jnp.array_equal(flat_widen(arr, 0, 0), arr)
+
+
+def test_flat_widen_refuses_an_axis_that_is_not_one_slot():
+    arr = jnp.zeros((2, 4))
+    with pytest.raises(ValueError, match="single storage slot"):
+        flat_widen(arr, 1, 2)
+
+
+def _flat_grid(nz=1):
+    """Return (grid, mx, mz) with a periodic nz-cell z axis."""
+    mx_ = IntervalMesh(8, (0.0, 1.0), name="x")
+    mz = IntervalMesh(nz, (0.0, 1.0), name="z")
+    return Grid((mx_, mz), device_ids=(0,)), mx_, mz
+
+
+def test_apply_staggered_differentiates_a_flat_axis_to_exact_zero():
+    # every window along a flat axis is the same single DOF, so a
+    # consistent difference lands on exact zero -- no declaration,
+    # the kernel's own coefficients do it
+    grid, mx_, mz = _flat_grid()
+    f = grid.create_field(
+        mx_.center * mz.center,
+        init=lambda x, z: jnp.sin(2.0 * jnp.pi * x) + 0.0 * z)
+    assert f._data.shape[1] == 1  # the halo really is elided
+    out = f.diff("z")
+    assert out._data.shape[1] == 1
+    assert jnp.array_equal(out.data, jnp.zeros_like(out.data))
+
+
+def test_apply_staggered_interpolates_a_flat_axis_to_the_identity():
+    grid, mx_, mz = _flat_grid()
+    f = grid.create_field(
+        mx_.center * mz.center,
+        init=lambda x, z: jnp.sin(2.0 * jnp.pi * x) + 0.0 * z)
+    out = f.to(mx_.center * mz.right)
+    assert out._data.shape[1] == 1
+    assert jnp.array_equal(out.data, f.data)
+
+
+def test_a_flat_axis_costs_no_halo_validity():
+    # the axis stores no ghost slots, so its claim is vacuous: the
+    # application carries it over instead of consuming it (a consume
+    # would insert an identity Sync that refills x for real)
+    grid, mx_, mz = _flat_grid()
+    f = grid.create_field(mx_.center * mz.center,
+                          init=lambda x, z: x + 0.0 * z)
+    synced = grid.sync(f)
+    before = synced.halo_valid.interval("z")
+    after = synced.diff("z").halo_valid.interval("z")
+    assert after == before
+
+
+def test_a_deep_axis_still_stores_its_halo():
+    grid, mx_, mz = _flat_grid(nz=4)
+    f = grid.create_field(mx_.center * mz.center,
+                          init=lambda x, z: x + z)
+    assert f._data.shape[1] == 4 + 2 * grid.decomposition.halo["z"]
+
+
+# ----------------------------------------------------------------
+#  The co-operand closure audit
+# ----------------------------------------------------------------
+def test_flat_captures_finds_nothing_in_a_plain_kernel():
+    row = (0.5, 0.5)
+    size = 2
+
+    def kernel(arr, _axis_index):
+        return size * row[0] * arr
+
+    assert flat_captures(kernel, 1, 2) == ()
+    assert flat_captures(lambda arr, _a: arr, 1, 2) == ()
+
+
+def test_flat_captures_names_a_captured_storage_array():
+    captured = jnp.zeros((8, 1))
+
+    def kernel(arr, _axis_index):
+        return arr + captured
+
+    assert flat_captures(kernel, 1, 2) == ("captured",)
+
+
+def test_flat_captures_looks_inside_plain_containers():
+    pair = (jnp.zeros((8, 1)), jnp.zeros((8, 1)))
+    mapping = {"a": jnp.zeros((8, 1))}
+
+    def kernel(arr, _axis_index):
+        return arr + pair[0] + mapping["a"]
+
+    assert set(flat_captures(kernel, 1, 2)) == {"pair", "mapping"}
+
+
+@pytest.mark.parametrize(
+    ("value", "why"),
+    [
+        pytest.param(jnp.zeros((8, 4)), "wrong extent on the axis",
+                     id="not-one-slot"),
+        pytest.param(jnp.zeros(8), "wrong rank", id="wrong-rank"),
+        pytest.param(np.zeros((8, 1)), "not a jax array",
+                     id="numpy-row"),
+        pytest.param(object(), "not an array or container",
+                     id="opaque-object"),
+    ])
+def test_flat_captures_ignores_things_that_are_not_storage(value, why):
+    def kernel(arr, _axis_index):
+        return arr, value
+
+    assert flat_captures(kernel, 1, 2) == (), why
+
+
+def test_flat_repeat_and_run_refuses_an_undeclared_capture():
+    captured = jnp.zeros((8, 1))
+
+    def kernel(arr, _axis_index):
+        return arr + captured
+
+    with pytest.raises(ValueError, match="co_operands"):
+        flat_repeat_and_run(
+            kernel, jnp.zeros((8, 1)), (), "z", 1,
+            size=2, m0=1, width=1, s_out=1)
+
+
+def test_flat_repeat_and_run_widens_and_realigns():
+    def kernel(arr, _axis_index, co):
+        return arr + co
+
+    storage, co, k0 = flat_repeat_and_run(
+        kernel, jnp.ones((8, 1)), (jnp.full((8, 1), 3.0),), "z", 1,
+        size=2, m0=1, width=2, s_out=1)
+    assert storage.shape == (8, 5)
+    assert co[0].shape == (8, 5)
+    assert k0 == -1

@@ -262,6 +262,30 @@ class FunctionSpace(ABC):
         return False
 
     @property
+    def is_flat(self) -> bool:
+        """Whether this factor's axis is a periodic single-cell one.
+
+        The third *structural* per-factor predicate, alongside
+        ``collapses_axis``: the owning mesh is periodic with exactly
+        one cell, so every space family on it carries exactly one DOF
+        and the periodic wrap makes every ghost slot a copy of that
+        DOF. Ghost storage on such an axis therefore carries no
+        information and is elided
+        (``TensorDecomposition._width``); the stencil tails rebuild
+        the elided window on demand (``staggering.flat_widen``).
+
+        Unlike ``collapses_axis`` this is a property of the *mesh*,
+        not of the space — it holds uniformly across every family on
+        a flat mesh. It is **not** ``n_cells == 1`` and **not**
+        ``shape[0] == 1``: a bounded one-cell ``Outer`` has 2 DOFs and
+        a genuine flux divergence, and a walled ``nz = 2`` model puts
+        ``w`` on an ``Inner`` factor of shape ``(1,)`` whose
+        divergence is ``±1/dz``
+        (``design/research/thin_axis_halo_investigation.md`` §5).
+        """
+        return self._mesh.is_flat
+
+    @property
     def active_axis_names(self) -> tuple[str, ...]:
         """
         Coordinate names of the non-constant factors, flattened.

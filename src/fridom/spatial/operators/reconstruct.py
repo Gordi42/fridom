@@ -62,6 +62,7 @@ from fridom.spatial.operators.spectral import (
 )
 from fridom.spatial.operators.staggering import (
     first_node_offset,
+    flat_repeat_and_run,
     footprint_reach,
     require_local_axis,
 )
@@ -272,9 +273,10 @@ def apply_fv_staggered(
     f: FieldLike,
     axis: str,
     size: int,
-    kernel: Callable[[Array, int], Array],
+    kernel: Callable[..., Array],
     metadata: FieldMetadata | None,
     align: int | None = None,
+    co_operands: tuple[Array, ...] = (),
 ) -> FieldLike:
     """
     Run an aligned ``size``-point kernel along ``axis`` (FV family).
@@ -304,15 +306,25 @@ def apply_fv_staggered(
         The resolved coordinate axis.
     size : int
         The stencil size (number of input points per output).
-    kernel : Callable[[Array, int], Array]
-        Array kernel mapping (storage, axis index) to the full
-        stencil output (length shrinks by ``size - 1``).
+    kernel : Callable[..., Array]
+        Array kernel mapping (storage, axis index, *co_operands) to
+        the full stencil output (length shrinks by ``size - 1``).
     metadata : FieldMetadata | None
         Metadata of the result (None resets to the default record).
     align : int | None, optional
         Explicit window alignment ``m0``: kernel output ``t`` fills
         output slot ``t + m0``. None derives it from the midpoint
         staggering calculus (default: None).
+    co_operands : tuple[Array, ...], optional
+        Extra **storage arrays** the kernel reads alongside the
+        operand, passed on to it positionally after the axis index.
+        Declare every such array here rather than closing over it:
+        on a flat (halo-elided) axis the tail rebuilds the elided
+        window of the arrays it handles, and an array reached through
+        a closure is not one of them, so the kernel would slice a
+        one-slot array with the rebuilt window's length
+        (``design/research/thin_axis_halo_investigation.md`` §6).
+        Kernels reading only the operand pass nothing (default: ()).
 
     Returns
     -------
@@ -371,12 +383,23 @@ def apply_fv_staggered(
             f"too small for the {size}-point stencil of "
             f"{type(op).__name__}; renegotiate with a registry that "
             "declares the wider requirement")
-    full = kernel(storage, axis_index)
+    # repeat-and-run on a flat axis (``staggering.flat_window``): the
+    # elided ghosts would have been copies of the single slot, so
+    # rebuild the window, run the operator's own kernel over it, and
+    # let the ordinary slice-and-pad tail take the true DOF back out
+    # under the shifted alignment ``k0`` (the per-side footprint above
+    # still drives the halo-validity claim, stated in the true frame)
+    k0 = m0
+    if domain_factor.is_flat:
+        storage, co_operands, k0 = flat_repeat_and_run(
+            kernel, storage, co_operands, axis, axis_index,
+            size=size, m0=m0, width=width, s_out=s_out)
+    full = kernel(storage, axis_index, *co_operands)
     length = full.shape[axis_index]
-    lo = max(0, m0)
-    hi = min(s_out, m0 + length)
+    lo = max(0, k0)
+    hi = min(s_out, k0 + length)
     index: list[slice] = [slice(None)] * full.ndim
-    index[axis_index] = slice(lo - m0, hi - m0)
+    index[axis_index] = slice(lo - k0, hi - k0)
     piece = full[tuple(index)]
     pads = [(0, 0)] * full.ndim
     pads[axis_index] = (lo, s_out - hi)
@@ -391,8 +414,14 @@ def apply_fv_staggered(
     # versa). On bounded axes the claim is zero: stenciling the input's
     # BC-structured/extrapolated fill is not the BC-consistent fill of
     # the *output* field, so those ghost slots must be refilled at the
-    # next consumption.
-    if getattr(domain_factor.mesh, "periodic", False):
+    # next consumption. A **flat** axis consumes nothing: it stores no
+    # ghost slots at all, so its claim is vacuous and carrying it over
+    # keeps the elision sync-free (consuming it instead would drop the
+    # claim below every reach and insert an identity ``Sync`` -- and
+    # that sync refills the *other* axes for real).
+    if domain_factor.is_flat:
+        valid = f.halo_valid
+    elif getattr(domain_factor.mesh, "periodic", False):
         valid = f.halo_valid.consume(axis, (reach_below, reach_above))
     else:
         valid = f.halo_valid.reset(axis)

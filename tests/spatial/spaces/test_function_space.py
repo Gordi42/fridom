@@ -245,3 +245,35 @@ def test_variance_repr_markers(mesh):
     con = mesh.center.with_variance(Variance.CONTRAVARIANT)
     assert repr(cov) == "Center(x, cov)"
     assert repr(con) == "Center(x, con)"
+
+
+# ================================================================
+#  Flat-axis predicate (halo elision)
+# ================================================================
+def test_is_flat_holds_for_every_family_on_a_flat_mesh():
+    # a periodic one-cell mesh: every space family carries exactly one
+    # DOF, so the predicate is a mesh property, not a family one
+    flat = IntervalMesh(1, (0, 1), name="z")
+    families = (flat.center, flat.nodal(NodeSet.LEFT),
+                flat.nodal(NodeSet.RIGHT), flat.cell_avg,
+                flat.face_avg, flat.constant,
+                flat.fourier(origin=flat.center))
+    for space in families:
+        assert space.is_flat is True, repr(space)
+        assert space.shape == (1,), repr(space)
+
+
+def test_is_flat_is_false_off_a_flat_mesh(mesh, bounded):
+    assert mesh.center.is_flat is False
+    assert bounded.center.is_flat is False
+    # a *bounded* one-cell axis is emphatically not flat: Outer has
+    # two DOFs there and a real flux divergence (report section 5)
+    thin = IntervalMesh(1, (0, 1), periodic=False, name="z")
+    assert thin.center.is_flat is False
+    assert thin.nodal(NodeSet.OUTER).is_flat is False
+
+
+def test_is_flat_survives_layout_and_scalar_variants():
+    flat = IntervalMesh(1, (0, 1), name="z")
+    assert flat.center.with_layout("L0").is_flat is True
+    assert flat.center.as_complex().is_flat is True

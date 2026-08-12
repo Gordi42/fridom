@@ -3,25 +3,34 @@ r"""Thin axes: a wide stencil on a periodic one, walls on a thin one.
 Two regimes, in that order below.
 
 **Periodic.** A periodic axis with fewer cells than the negotiated halo
-(``nz = 1`` is the flat "2-D" direction) is filled by tiling the true
-region, so a wide stencil sees a well-defined window and needs no
-scheme downgrade. The load-bearing claims, each with a test below:
+needs more than one wrap; the fill tiles the true region, so a wide
+stencil sees a well-defined window and needs no scheme downgrade. At
+``nz = 1`` — the flat "2-D" direction — the axis goes one step further:
+every ghost would be a copy of the single DOF, so the storage halo is
+**elided** and the stencil tails rebuild the window on demand
+(``spatial/operators/staggering.py``, repeat-and-run). The load-bearing
+claims, each with a test below:
 
 - ``WENOAdvection`` at orders 3 and 5 (halo 2 and 3) assembles and
   steps on ``nz = 1`` and ``nz = 2``, both at or beyond the axis
   length.
 - A flat run reproduces a z-replicated deep run **bitwise** on the
-  horizontal state: the fill makes the column constant, so the
-  reconstruction along z is the identity and the flux difference
-  cancels. The vertical velocity is zero to roundoff (the CG
-  projection is not bit-exact, so it is not identically zero).
+  horizontal state: the column is constant, so the reconstruction
+  along z is the identity and the flux difference cancels. The
+  vertical velocity and the buoyancy are *exactly* zero — with no
+  ghost frame along z, the projection has nowhere to accumulate the
+  ~1e-20 residual a deep run carries.
+- The flat axis stores one slot per field while the negotiated
+  ``decomposition.halo`` is untouched (the stencil reach guards and
+  the solver halo demand keep reading it); ``nz = 2`` is the control
+  that keeps its ghosts.
 - ``jax.grad`` through ``Model.propagator`` on the flat grid is finite
   and matches a central finite difference (AGENTS.md,
   "Differentiability policy"). WENO's smoothness indicators all vanish
   on a constant column, so this is the case where a masked singularity
-  in the weight normalization would surface. The gradient on the ghost
-  slots is exactly zero -- the tiled fill is a pure function of the
-  true DOFs and leaks nothing back.
+  in the weight normalization would surface. The gradient is exactly
+  zero on the x/y ghost slots — the fill is a pure function of the
+  true DOFs and leaks nothing back — and nonzero on the true block.
 
 **Walled.** A thin *bounded* axis is a different story, and the two
 claims that matter are opposite in sign:
@@ -124,13 +133,41 @@ def test_flat_run_reproduces_a_z_replicated_deep_run():
         assert np.max(np.abs(got[:, :, 0] - ref[:, :, 0])) == 0.0, name
 
 
-def test_vertical_velocity_is_zero_to_roundoff_on_a_flat_axis():
+def test_vertical_velocity_and_buoyancy_vanish_on_a_flat_axis():
     # every window along z is identical, so the reconstructed face
-    # values are too and the flux difference cancels; what remains is
-    # CG-projection roundoff, ~1e-20 against an O(0.2) horizontal flow
+    # values are too and the flux difference cancels; with the flat
+    # axis's halo elided there is no ghost frame left for the
+    # projection to accumulate roundoff in, so this is exactly 0
     model = seeded(1)
     model.advance(STEPS)
-    assert np.max(np.abs(np.asarray(model.state["w"].data))) < 1e-15
+    assert np.max(np.abs(np.asarray(model.state["w"].data))) == 0.0
+    assert np.max(np.abs(np.asarray(model.state["b"].data))) == 0.0
+
+
+# ================================================================
+#  Flat-axis halo elision
+# ================================================================
+@pytest.mark.parametrize("order", [3, 5])
+def test_a_flat_axis_stores_no_ghost_slots(order):
+    # the payoff: the flat direction costs one slot, not 1 + 2 * halo,
+    # while the negotiated halo it would have occupied is unchanged
+    model = make_model(1, order=order)
+    width = dict(model.grid.decomposition.halo.widths)["z"]
+    assert width == order // 2 + 1
+    for name in ("u", "v", "w", "p", "b"):
+        storage = model.state[name]._data
+        assert storage.shape[2] == 1, name
+        # x and y keep their ghosts: only the flat axis is elided
+        assert storage.shape[0] == N + 2 * width, name
+
+
+@pytest.mark.parametrize("order", [3, 5])
+def test_a_two_cell_axis_keeps_its_ghost_slots(order):
+    # the control: nz = 2 is thin but not flat, so its halo stands
+    # (the tiled wrap fix, not the elision, is what carries it)
+    model = make_model(2, order=order)
+    width = dict(model.grid.decomposition.halo.widths)["z"]
+    assert model.state["u"]._data.shape[2] == 2 + 2 * width
 
 
 def test_grad_through_a_flat_run_matches_fd_directionally():
@@ -145,10 +182,23 @@ def test_grad_through_a_flat_run_matches_fd_directionally():
     grad = np.asarray(jax.grad(loss)(u0))
     assert bool(np.all(np.isfinite(grad)))
 
-    # the fill re-derives every ghost from the true DOFs, so no
-    # sensitivity survives on the ghost slots of the flat axis
+    # the flat axis has no ghost slots left to leak into: its halo is
+    # elided, so the storage frame -- and with it the gradient -- is
+    # one slot deep along z while the negotiated halo is still 3 wide
     width = dict(model.grid.decomposition.halo.widths)["z"]
-    assert np.max(np.abs(np.delete(grad, width, axis=2))) == 0.0
+    assert width > 0
+    assert grad.shape == (N + 2 * width, N + 2 * width, 1)
+    assert u0.shape == grad.shape
+    # the ghost-leak claim, asserted where ghosts still exist: the sync
+    # re-derives every x/y ghost from the true DOFs, so no sensitivity
+    # survives there -- while the true block does carry it, which rules
+    # out a gradient the elision merely zeroed
+    true = (slice(width, width + N), slice(width, width + N),
+            slice(None))
+    assert np.max(np.abs(grad[true])) > 0.0
+    outside = np.array(grad)
+    outside[true] = 0.0
+    assert np.max(np.abs(outside)) == 0.0
 
     rng = np.random.default_rng(0)
     direction = jnp.asarray(rng.standard_normal(u0.shape), dtype=u0.dtype)

@@ -120,3 +120,13 @@ def test_decomposition_traits_rejects_foreign_spaces():
 
 def test_generic_repr():
     assert repr(TwoNameMesh(("lon", "lat"))) == "TwoNameMesh(lon, lat)"
+
+
+# ================================================================
+#  Flat-axis predicate (halo elision)
+# ================================================================
+def test_base_mesh_is_never_flat():
+    # a mesh with no periodic 1D topology carries no flat axis: the
+    # base answer is False, and StructuredMesh1D overrides it
+    assert TwoNameMesh(("lon", "lat")).is_flat is False
+    assert IntervalMesh(8, (0, 1), name="x").boundary.is_flat is False
