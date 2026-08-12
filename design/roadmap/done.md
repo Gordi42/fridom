@@ -2846,3 +2846,76 @@ negative (see [`declined.md`](declined.md)); the mapped-grid
 configuration. Remainder (A100 confirmation, `srun -n N`, the `n = 2`
 case, the `dancing_eddies` prose) in [`open.md`](open.md) 2e.
 [`../research/thin_axis_halo_investigation.md`](../research/thin_axis_halo_investigation.md)
+
+## Eddy initial conditions — geostrophic, bounded-domain, one builder (2026-08-12)
+
+Owner-directed redesign (four requirements: both Gaussian routes, no
+modal projection, a vertical structure callable, `u`/`v`/`b` from the
+streamfunction by geostrophy) plus a fifth, a dipole parameterized by
+position, separation and bearing. Explored by three parallel agents,
+integrated in four merges.
+
+**The blocker was not the topology refusal itself.** `coherent_eddy`
+resolved its argument through `_analytic`, which built an eigenmodes
+object purely to reach the grid and the spaces — on a horizontally
+walled channel that ran the full numeric channel eigensolve and *then*
+raised. Nothing in the construction needs eigenmodes; both packages now
+take the model.
+
+- **`fridom.model.streamfunction`** — `invert_negative_laplacian` /
+  `spectral_sibling`, the shared inversion, exact (1e-15) on all six
+  topologies. Walled axes beat periodic: the C-grid's
+  `Inner(bc=DIRICHLET)` *is* the DST-I origin (no retag needed, an
+  early framing error), its modes are `k = 1..n-1`, so there is no
+  nullspace and the prescribed vorticity comes back whole. Periodic
+  loses the domain mean, exactly the bump's area fraction `pi w^2`
+  (3.14e-2 at width 0.1, 4.52e-2 at 0.12). Subsumes sw2's
+  `_invert_laplacian` byte-identically; one inversion now serves both
+  packages.
+- **Exact discrete balance**, and it is a lattice property, not a
+  separability one: sampling `psi` on the vertical *faces* makes
+  `I_z delta_z = delta_z I_z` hold identically, so `I_z b = delta_z p`
+  is exact for **any** 3-D streamfunction. Projected linear tendency
+  3.6e-16..1.7e-15 on every topology and route. **`VorticalProjection`
+  is therefore a no-op** (5.7e-15): removing the modal projection the
+  owner asked to remove costs nothing, because the state already *is*
+  the discrete vortical mode. Three rejected constructions measured
+  3.3e-3 to 9.8e-3.
+- **One builder** (`_eddy_state`) behind `coherent_eddy` and
+  `eddy_dipole`; per-knob callables of `z` for width, amplitude and
+  centre, with `vertical_structure=` kept as the separable fast path
+  (2-D operand, 184x cheaper inversion, bit-for-bit the shipped code).
+  A private dipole path was rejected precisely because it had already
+  re-derived thermal wind at truncation accuracy only (1.6e-8).
+- **Sign convention settled** on the standard geostrophic pairing
+  (`p = +f psi`, positive streamfunction is an anticyclone; owner
+  ruling). This exposed a **shipped sw2 bug**: its curl gives
+  `zeta = +laplacian(psi)` while the code inverted `(-laplacian)`, so
+  `sw.coherent_eddy(gauss_field="vorticity")` rotated backwards.
+  Fixed. Collaterally, sw2's independently sampled centre copy of
+  `psi` for `p` was not the corner interpolant (a clean second-order
+  gap); replacing it took the geostrophic residual from 1.3e-2 to
+  1.7e-15 and dropped a whole second inversion.
+- **`eddy_dipole`** — compass bearing (0 north, clockwise), travels
+  toward it, counter-clockwise eddy on the left. Bearing error
+  <= 0.28 degrees. Owner ruling: **`gauss_field="vorticity"` is the
+  default** in both packages, on the evidence (core enstrophy retained
+  0.9923 against 0.9222, separation drift 13.5% against 60.1%, and it
+  splays off a wall at 1.68 R where the streamfunction dipole collides
+  at 0.47 R).
+- **The owner's stated `d(z)` rule was measured and overturned.**
+  Equalizing the closed-form translation speed across depth is *worse
+  than doing nothing* (43.3% travel spread against 112.2% naive but
+  11.0% self-similar), because a Gaussian pair is not a steady dipole
+  and realized/nominal speed runs 0.66..5.27 over `d/R` = 1.2..2.0.
+  `d/R` is the invariant, not `U`. Owner ruling: self-similar default,
+  the stated rule kept as `match="separation"`.
+
+Records:
+[`../research/eddy_streamfunction_inversion.md`](../research/eddy_streamfunction_inversion.md),
+[`../research/eddy_initial_condition_redesign.md`](../research/eddy_initial_condition_redesign.md),
+[`../research/eddy_dipole_initial_condition.md`](../research/eddy_dipole_initial_condition.md).
+Three operator-algebra gaps this surfaced (no mixed `Sine x Cosine`
+product, nh2's half-tagged `rel_vort_z`, `spectral_sibling` on a 3-D
+operand under a walled horizontal plus lid) are in [`open.md`](open.md) 2d.
+Remaining: the `dancing_eddies` example port, which motivated the work.

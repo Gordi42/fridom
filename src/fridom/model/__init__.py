@@ -42,6 +42,7 @@ if TYPE_CHECKING:  # pragma: no cover
         scheduled_field,
         shapes,
         stages,
+        streamfunction,
         term_predicates,
         terms,
         time_dependent,
@@ -83,6 +84,10 @@ if TYPE_CHECKING:  # pragma: no cover
     from .scheduled_field import ProfileFunction
     from .shapes import gaussian
     from .stages import Stage, StageKind, self_update
+    from .streamfunction import (
+        invert_negative_laplacian,
+        spectral_sibling,
+    )
     from .term_predicates import (
         linear_operator_gaps,
         linearize,
@@ -124,7 +129,7 @@ all_modules_by_origin = {
         "field_table", "assembly", "module", "composer", "schedule",
         "clock", "results", "report", "errors", "eigen",
         "eigen_channel", "modules", "transforms",
-        "halo_demand", "units", "shapes"],
+        "halo_demand", "units", "shapes", "streamfunction"],
 }
 
 all_imports_by_origin = {
@@ -139,6 +144,8 @@ all_imports_by_origin = {
         "Harmonic", "resolve_at"],
     f"{base}.scheduled_field": ["ProfileFunction"],
     f"{base}.shapes": ["gaussian"],
+    f"{base}.streamfunction": [
+        "invert_negative_laplacian", "spectral_sibling"],
     f"{base}.terms": [
         "TendencyTerm", "term", "Treatment", "EXPLICIT", "IMPLICIT"],
     f"{base}.stages": ["Stage", "StageKind", "self_update"],

@@ -44,6 +44,11 @@ factories return the state alone. Beta-plane wave modes (equatorial
 Rossby, Yanai, Kelvin, gravity) are selected numerically through
 ``sw.eigenbasis(model).mode(...)`` — the channel labeler classifies
 them for any Coriolis profile, including ``f0 = 0``.
+
+:func:`coherent_eddy` is the one factory that takes the **model**
+alone: it needs the component spaces and the Coriolis parameter, not
+an eigenbasis, so it serves every grid topology (the walled channel
+and the closed box included) and builds no eigenmodes.
 """
 from __future__ import annotations
 
@@ -67,9 +72,17 @@ from fridom.model.eigenstates import (
     sample_pattern,
     traveling_carrier,
 )
+from fridom.model.params import (
+    CORIOLIS_F0,
+    CORIOLIS_METRIC_RATIO,
+    CORIOLIS_ROSSBY,
+    SCALING_NONLINEARITY,
+)
 from fridom.model.shapes import (
     gaussian as gaussian,  # noqa: PLC0414 — re-export
 )
+from fridom.model.streamfunction import invert_negative_laplacian
+from fridom.model.time_dependent import resolve_at
 from fridom.shallowwater2.channel_eigenmodes import ChannelEigenmodes
 from fridom.shallowwater2.eigenmodes import Eigenmodes, from_model
 from fridom.shallowwater2.state import State
@@ -78,7 +91,7 @@ from fridom.shallowwater2.transforms import (
     mode_projection,
 )
 from fridom.spatial.spaces.constant import ConstantSpace
-from fridom.spatial.symbols import GridSymbols, ModeChart
+from fridom.spatial.symbols import ModeChart
 
 if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Callable, Mapping
@@ -352,29 +365,6 @@ def _sample(
             coordinate, inspect.Parameter.POSITIONAL_OR_KEYWORD)
          for coordinate in names])
     return grid.create_field(space, init=init, name=name)
-
-
-def _invert_laplacian(grid: Grid, field: ScalarField) -> ScalarField:
-    r"""Return ``psi`` with ``psi_hat = field_hat / k_h^2``.
-
-    Description
-    -----------
-    The reference streamfunction-from-vorticity inversion, assembled
-    from the grid's own operator symbols: the squared staggered-
-    derivative magnitudes take the place of the continuous
-    :math:`k_h^2`, and ``Symbol.inverse`` maps the :math:`k = 0`
-    structural zero to zero (the zero-mean gauge, matching the
-    reference's masked division).
-    """
-    kit = GridSymbols(grid, {"psi": field.function_space.bare})
-    x, y = grid.names
-    k2 = (kit.diff(x, on="psi").magnitude ** 2
-          + kit.diff(y, on="psi").magnitude ** 2)
-    coeff = kit.forward("psi")(field)
-    inverse = jnp.broadcast_to(
-        k2.inverse().data, coeff.data.shape)
-    return kit.backward("psi")(
-        coeff.with_data(coeff.data * inverse)).real
 
 
 # ================================================================
@@ -674,8 +664,110 @@ def jet(
     return z + waveamp * wave
 
 
+# ================================================================
+#  Coherent eddies (geostrophic streamfunction states)
+# ================================================================
+def _coriolis_parameter(model: Model, at_time: float) -> float:
+    r"""
+    Read the model's **constant** Coriolis parameter.
+
+    Description
+    -----------
+    The effective :math:`f_0` of the assembly, from the variant's own
+    primitives in ``model.parameters`` (the nondimensionalization
+    re-key, matching
+    :func:`~fridom.shallowwater2.eigenmodes.eigenbasis`): the
+    dimensional ``coriolis.f0``, or the nondimensional
+    :math:`\varepsilon/\mathrm{Ro}`. A time-dependent leaf is frozen
+    at ``at_time``.
+
+    Parameters
+    ----------
+    model : Model
+        The assembled shallow-water model.
+    at_time : float
+        Parameter evaluation time.
+
+    Returns
+    -------
+    float
+        The constant Coriolis parameter.
+
+    Raises
+    ------
+    ValueError
+        When the model provides no constant rotation (no Coriolis
+        module at all, or a beta-plane / chart rotation, whose ``f``
+        is a field rather than a scalar).
+    """
+    params = model.parameters
+
+    def read(name: str) -> float:
+        value = resolve_at(params[name], at_time)
+        return float(value)
+
+    if (CORIOLIS_ROSSBY in params
+            and CORIOLIS_METRIC_RATIO not in params):
+        return read(SCALING_NONLINEARITY) / read(CORIOLIS_ROSSBY)
+    if CORIOLIS_F0 in params:
+        return read(CORIOLIS_F0)
+    raise ValueError(
+        "a geostrophic eddy needs a constant Coriolis parameter (the "
+        "pressure is the geostrophic p = f0 * psi), but this model "
+        "provides none: pass a constant rotation "
+        "(sw.modules.FPlaneCoriolis(f0=...) / "
+        "FPlaneCoriolis(rossby_number=...)) — a beta-plane or chart "
+        "rotation carries f as a field, for which no exactly balanced "
+        "streamfunction exists")
+
+
+def _streamfunction_from_vorticity(
+    zeta: ScalarField, axes: tuple[str, str],
+) -> ScalarField:
+    r"""
+    Invert the Laplacian, :math:`\nabla_h^2 \psi = \zeta`.
+
+    Description
+    -----------
+    The streamfunction of a prescribed relative vorticity on the
+    corner space, through the shared BC-aware spectral inverse
+    :func:`~fridom.model.streamfunction.invert_negative_laplacian`,
+    which is assembled from the grid's own staggered-derivative
+    symbols and therefore inverts the *discrete* ``rel_vort`` the
+    velocities go on to carry, exactly, on every horizontal topology.
+
+    The **minus sign lives here**, with the curl convention that
+    forces it. This package spells the curl :math:`u = -\delta_y\psi`,
+    :math:`v = +\delta_x\psi`, for which
+    :math:`\zeta = +\nabla_h^2\psi`, so recovering :math:`\psi` needs
+    :math:`(+\nabla_h^2)^{-1}` while the shared solver returns the
+    positive-definite :math:`(-\nabla_h^2)^{-1}`. Dropping this sign
+    is what made a prescribed positive Gaussian vorticity come back
+    as an eddy turning the wrong way.
+
+    The gauge follows the topology: a fully periodic horizontal
+    admits no net vorticity, so the constant mode is a structural
+    zero of the symbol and the recovered eddy carries the prescribed
+    Gaussian *minus its domain mean*; one walled axis removes the
+    nullspace and reproduces it exactly.
+
+    Parameters
+    ----------
+    zeta : ScalarField
+        The prescribed relative vorticity on the corner space.
+    axes : tuple[str, str]
+        The two horizontal coordinate names.
+
+    Returns
+    -------
+    ScalarField
+        The streamfunction on the same space.
+    """
+    return -invert_negative_laplacian(zeta, axes=axes)
+
+
 def coherent_eddy(
-    source: Model | Eigenmodes | ChannelEigenmodes,
+    model: Model,
     *,
     pos_x: float = 0.5,
     pos_y: float = 0.5,
@@ -697,19 +789,70 @@ def coherent_eddy(
         \right)
 
     prescribes either the streamfunction directly
-    (``gauss_field="streamfunction"``) or the vorticity
-    (``gauss_field="vorticity"``, the default), whose
-    streamfunction follows from the spectral inversion
-    :math:`\hat\psi = \hat\zeta / k_h^2` (zero-mean gauge, discrete
-    operator symbols). The velocities are the discrete C-grid curl
-    of the corner-sampled streamfunction (``u = -\delta_y \psi``,
-    ``v = \delta_x \psi``, exactly divergence-free) and the pressure
-    is the geostrophic ``p = f_0 \psi`` on the cell centres.
+    (``gauss_field="streamfunction"``) or the relative vorticity
+    (``gauss_field="vorticity"``, the default), whose streamfunction
+    follows from the discrete inversion :math:`\nabla_h^2\psi =
+    \zeta`. The state is the geostrophic one,
+
+    .. math::
+        u = -\delta_y \psi , \qquad
+        v = \delta_x \psi , \qquad
+        p = f_0\,\overline{\psi}^{xy} ,
+
+    with :math:`f_0` the model's constant Coriolis parameter (the
+    dimensional ``coriolis.f0``, or the nondimensional
+    :math:`\varepsilon/\mathrm{Ro}`).
+
+    **Staggering.** :math:`\psi` is sampled once, on the corner
+    (``u``'s normal factor tensored with ``v``'s), and the pressure
+    is its corner-to-centre *interpolant* — not a second sample of
+    the same analytic Gaussian. The two staggered identities
+    :math:`I_x^{c\to f} \delta_x^{f\to c} = \delta_x^{c\to f}
+    I_x^{f\to c}` then make :math:`f_0\,\overline{\psi}^{xy}` the
+    exact discrete potential of the Coriolis tendency, so the state
+    is a discrete steady solution of the linear model rather than a
+    state balanced to truncation order:
+
+    - the discrete divergence :math:`\delta_x u + \delta_y v` is
+      zero to machine precision (the C-grid curl);
+    - the model's own linear tendency is zero to machine precision;
+    - the diagnosed ``rel_vort`` of the ``"vorticity"`` branch is
+      the prescribed Gaussian, up to the gauge below.
+
+    **Gauge.** On a fully periodic grid a net vorticity is not
+    representable, so the ``"vorticity"`` branch reproduces the
+    prescribed Gaussian *minus its domain mean* (for ``width=0.1``
+    on a square box that is :math:`\pi\sigma^2 / L_x L_y \approx
+    0.031` of the peak). One walled horizontal axis removes the
+    nullspace — the wall condition :math:`\psi = 0` fixes the gauge —
+    and the prescribed field is reproduced exactly.
+
+    **Sign convention.** :math:`\psi` is the standard geostrophic
+    streamfunction, so a positive ``amplitude`` with
+    ``gauss_field="streamfunction"`` is a pressure *high*, i.e. an
+    **anticyclone** (clockwise for :math:`f_0 > 0`, negative
+    ``rel_vort``), while a positive ``amplitude`` with
+    ``gauss_field="vorticity"`` prescribes positive ``rel_vort``,
+    i.e. a **cyclone**. The two branches turn opposite ways for the
+    same sign of ``amplitude``, which is the physics
+    (:math:`\zeta = \nabla_h^2\psi`), not a convention choice.
+
+    **Walls.** Every topology is served, the walled channel and the
+    closed box included: the eddy builds no eigenbasis at all. On a
+    walled axis the velocity spaces omit the wall faces, so the
+    wall-normal velocity is structurally absent and the Dirichlet
+    closure supplies zero; :math:`\psi` vanishes on the wall, which
+    is the free-slip condition that the streamfunction is constant
+    along a solid boundary. An eddy placed within a few widths of a
+    wall is therefore the *truncated* Gaussian that condition
+    admits, not the free-space one.
 
     Parameters
     ----------
-    source : Model | Eigenmodes | ChannelEigenmodes
-        The assembled model or an analytic eigenmodes object.
+    model : Model
+        The assembled shallow-water model. The component spaces and
+        the rotation come from the model itself; no eigenmode
+        machinery is built.
     pos_x : float, optional
         Relative zonal position of the eddy (default: 0.5).
     pos_y : float, optional
@@ -718,36 +861,59 @@ def coherent_eddy(
         Width of the eddy relative to the zonal domain size
         (default: 0.1).
     amplitude : float, optional
-        Amplitude of the Gaussian; a negative amplitude flips the
-        rotation sense (default: 1.0).
+        Peak value of the prescribed Gaussian (vorticity or
+        streamfunction); a negative amplitude flips the rotation
+        sense (default: 1.0).
     gauss_field : str, optional
         Which field the Gaussian prescribes: ``"vorticity"`` or
         ``"streamfunction"`` (default: "vorticity").
     at_time : float, optional
-        Parameter evaluation time when resolving from a model
+        Parameter evaluation time for a time-dependent rotation
         (default: 0.0).
 
     Returns
     -------
     State
-        The balanced eddy state.
+        The balanced eddy state (assign with ``model.set_state``).
 
     Raises
     ------
     ValueError
-        On an unknown ``gauss_field`` or a walled channel.
+        On an unknown ``gauss_field``, an eigenmodes object in place
+        of the model, or a model without a constant Coriolis
+        parameter.
+
+    Examples
+    --------
+    A cyclone of prescribed vorticity in a walled box:
+
+    .. code-block:: python
+
+        import fridom.shallowwater2 as sw
+
+        state = sw.coherent_eddy(model, pos_x=0.3, width=0.12)
+        model.set_state(state)
     """
     if gauss_field not in {"vorticity", "streamfunction"}:
         raise ValueError(
             f"unknown gauss_field {gauss_field!r}: the Gaussian "
             "prescribes either 'vorticity' or 'streamfunction'")
-    em = _analytic(source, "coherent_eddy", at_time)
-    grid = em.grid
+    if isinstance(model, Eigenmodes | ChannelEigenmodes):
+        # a value error (wrong source), not a type error
+        raise ValueError(  # noqa: TRY004
+            "coherent_eddy takes the model, not an eigenmodes "
+            "object: the eddy is an analytic geostrophic state and "
+            "builds no eigenbasis at all (the old spelling paid for "
+            "a channel eigensolve only to read the grid, and refused "
+            "the walled topologies it serves). Pass the assembled "
+            "model, sw.coherent_eddy(model, ...)")
+    grid = model.grid
     x, y = grid.names
     x0, x1 = _extent(grid, x)
     y0, y1 = _extent(grid, y)
     lx, ly = x1 - x0, y1 - y0
-    spaces = _spaces(grid)
+    spaces = {name: model.state[name].function_space.bare
+              for name in _COMPONENTS}
     corner = spaces["u"].replace(**{y: spaces["v"].factor(y)})
 
     def bump(coords: dict[str, jax.Array]) -> jax.Array:
@@ -756,12 +922,14 @@ def coherent_eddy(
               + (coords[y] - y0 - pos_y * ly) ** 2)
             / (width * lx) ** 2)
 
-    psi_corner = _sample(grid, corner, bump, name="psi")
-    psi_centre = _sample(grid, spaces["p"], bump, name="psi")
+    psi = _sample(grid, corner, bump, name="psi")
     if gauss_field == "vorticity":
-        psi_corner = _invert_laplacian(grid, psi_corner)
-        psi_centre = _invert_laplacian(grid, psi_centre)
+        psi = _streamfunction_from_vorticity(psi, (x, y))
+    # p is the corner-to-centre interpolant of psi, not a second
+    # sample: I(d psi) = d(I psi) on the staggered lattice, so this
+    # is the exact discrete potential of the Coriolis tendency
+    pressure = _coriolis_parameter(model, at_time) * psi.to(spaces["p"])
     return State({
-        "u": (-psi_corner.diff(y)).with_metadata(name="u"),
-        "v": psi_corner.diff(x).with_metadata(name="v"),
-        "p": (em.f0 * psi_centre).with_metadata(name="p")})
+        "u": (-psi.diff(y)).with_metadata(name="u"),
+        "v": psi.diff(x).with_metadata(name="v"),
+        "p": pressure.with_metadata(name="p")})

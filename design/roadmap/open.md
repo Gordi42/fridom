@@ -162,6 +162,17 @@ real limit the next caller will hit.
   nh2 does not, so the asymmetry looks unintended rather than
   designed.
 
+- **`spectral_sibling` refuses a 3-D operand on a walled horizontal
+  plus a rigid lid.** On `channel-x+lid` and `box-xy+lid` a walled
+  horizontal axis commits the trig family to Dirichlet, and the
+  passive `Outer(z)` face factor has no Dirichlet origin (n+1
+  against n-1 DOFs), so the sibling raises. The eddy factories route
+  around it by `jax.vmap`-ing the 2-D solve over the vertical
+  (`_invert_horizontal`), which is bitwise identical to a per-level
+  loop and cheaper than the 3-D solve anyway, so nothing is blocked.
+  Verified **not** a distributed regression: the unmodified vorticity
+  branch already refuses a sharded horizontal transform axis.
+
 Also parked from the same pass: `build_flat_spectral_solve` is
 reusable for non-pressure elliptic problems once `_neumann_sibling`
 grows an `is_free` guard (a no-op in the pressure path, whose space

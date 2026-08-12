@@ -29,16 +29,17 @@ from .conftest import N, make_grid, make_model
 
 COMPONENTS = ("u", "v", "p")
 CSQR = 2.0
+F0 = 1.5
 
 
-def _one_device_grid(*, periodic_y=True):
+def _one_device_grid(*, periodic_x=True, periodic_y=True):
     # device_ids=(0,) twin of the conftest make_grid: pins the shared
     # module fixtures to one device so the math runs at any device
     # count, and serves as the reference build for the device-count
     # invariance tests (the sharded paths are served by the fused
     # distributed routes and compared against this twin).
     mx = fr.spatial.meshes.IntervalMesh(N, (0.0, 1.0),
-                                     periodic=True, name="x")
+                                     periodic=periodic_x, name="x")
     my = fr.spatial.meshes.IntervalMesh(N, (0.0, 1.0),
                                      periodic=periodic_y, name="y")
     return fr.spatial.Grid((mx, my), device_ids=(0,))
@@ -391,30 +392,157 @@ def test_jet_profile_peaks_where_asked(periodic):
 # ================================================================
 #  coherent_eddy (the CoherentEddy port)
 # ================================================================
+#: The three horizontal topologies the eddy serves.
+TOPOLOGIES = ["periodic", "walled y", "walled xy"]
+
+
+@pytest.fixture(scope="module")
+def eddy_models(periodic, channel):
+    """Return the eddy topologies (two reuse the shared models)."""
+    return {
+        "periodic": periodic[0],
+        "walled y": channel[0],
+        "walled xy": make_model(
+            _one_device_grid(periodic_x=False, periodic_y=False),
+            csqr=CSQR, f0=1.5, advection=False),
+    }
+
+
+def _gaussian_on(model, space, *, pos_x, pos_y, width, amplitude=1.0):
+    """Sample the eddy's Gaussian independently of the factory."""
+    xs = np.asarray(model.grid.evaluation_nodes(
+        space, "x").data).ravel()[:, None]
+    ys = np.asarray(model.grid.evaluation_nodes(
+        space, "y").data).ravel()[None, :]
+    return amplitude * np.exp(
+        -((xs - pos_x) ** 2 + (ys - pos_y) ** 2) / width ** 2)
+
+
+@pytest.mark.parametrize("topology", TOPOLOGIES)
 @pytest.mark.parametrize("gauss_field",
                          ["vorticity", "streamfunction"])
-def test_eddy_is_divergence_free_and_balanced(periodic, gauss_field):
-    model, em = periodic
-    z = sw.coherent_eddy(em, width=0.2, gauss_field=gauss_field)
+def test_eddy_is_divergence_free_and_balanced(eddy_models, topology,
+                                              gauss_field):
+    model = eddy_models[topology]
+    z = sw.coherent_eddy(model, width=0.2, gauss_field=gauss_field)
     div = float(np.abs(np.asarray(z.divergence.data)).max())
     umax = max(float(np.abs(np.asarray(z[c].data)).max())
                for c in ("u", "v"))
+    assert umax > 0.0
     assert div < 1e-12 * umax
-    # p = f0 psi balances the velocities to discretization accuracy
+    # p is the corner-to-centre interpolant of psi, not a second
+    # sample of the Gaussian, so the Coriolis tendency is exactly the
+    # discrete gradient of p: a steady state to machine precision,
+    # not one balanced to truncation order
     tendency = model.tendency(z)
     residual = max(
         float(np.abs(np.asarray(tendency[c].data)).max())
         for c in ("u", "v"))
-    assert residual < 0.15 * em.f0 * umax
+    assert residual < 1e-12 * F0 * umax
+    # the state lands on the model's own spaces, walls included
+    model.set_state(z)
+
+
+@pytest.mark.parametrize("topology", TOPOLOGIES)
+def test_eddy_vorticity_branch_reproduces_its_gaussian(eddy_models,
+                                                       topology):
+    """The prescribed positive Gaussian is the diagnosed vorticity.
+
+    The sign regression: the inversion must be ``(+laplacian)^-1``,
+    the inverse of the discrete curl the velocities carry. Inverting
+    the positive-definite ``(-laplacian)`` instead returns minus the
+    requested vorticity, an eddy turning backwards.
+    """
+    model = eddy_models[topology]
+    z = sw.coherent_eddy(model, width=0.15, gauss_field="vorticity")
+    zeta = np.asarray(z.rel_vort.data)
+    prescribed = _gaussian_on(model, z.rel_vort.function_space,
+                              pos_x=0.5, pos_y=0.5, width=0.15)
+    assert prescribed.max() == pytest.approx(1.0)   # a node is on it
+    if topology == "periodic":
+        # a doubly periodic domain admits no net vorticity: the
+        # recovered field is the prescribed one minus its domain mean
+        assert abs(zeta.mean()) < 1e-12
+        assert prescribed.mean() > 0.05
+        prescribed = prescribed - prescribed.mean()
+    assert np.abs(zeta - prescribed).max() < 1e-10
+    # it turns the way it was asked to: a cyclone, not its mirror
+    assert zeta.max() > 0.9
+    assert zeta.min() > -0.1
+
+
+def test_eddy_signs(periodic):
+    """Check psi is the standard geostrophic streamfunction."""
+    model, _ = periodic
+    high = sw.coherent_eddy(model, width=0.15,
+                            gauss_field="streamfunction")
+    p = np.asarray(high["p"].data)
+    zeta = np.asarray(high.rel_vort.data)
+    # a positive streamfunction is a pressure high: an anticyclone
+    assert p.min() >= 0.0
+    assert p.max() > 0.0
+    assert zeta.min() < 0.0
+    assert abs(zeta.min()) > 4.0 * zeta.max()
+    # a positive prescribed vorticity is a cyclone: a pressure low
+    low = sw.coherent_eddy(model, width=0.15, gauss_field="vorticity")
+    pl = np.asarray(low["p"].data)
+    zl = np.asarray(low.rel_vort.data)
+    assert zl.max() > 4.0 * abs(zl.min())
+    # (the zero-mean gauge lifts the far field, so the low is not as
+    # lopsided as the vorticity that sources it)
+    assert pl.min() < 0.0 < pl.max()
+    assert abs(pl.min()) > 2.0 * pl.max()
+
+
+@pytest.mark.parametrize("topology", ["walled y", "walled xy"])
+def test_eddy_respects_the_walls(eddy_models, topology):
+    """A walled axis carries no wall-normal velocity DOF at all."""
+    model = eddy_models[topology]
+    z = sw.coherent_eddy(model, pos_x=0.3, pos_y=0.3, width=0.12)
+    for name in COMPONENTS:
+        # the Dirichlet-Inner velocity spaces of the model itself
+        assert (z[name].function_space.bare
+                == model.state[name].function_space.bare)
+    walled = [("v", 1)] if topology == "walled y" else [("u", 0),
+                                                        ("v", 1)]
+    for name, axis in walled:
+        assert np.asarray(z[name].data).shape[axis] == N - 1
+    # the wall gauge removes the nullspace: the prescribed vorticity
+    # comes back whole, with no domain-mean shift
+    zeta = np.asarray(z.rel_vort.data)
+    prescribed = _gaussian_on(model, z.rel_vort.function_space,
+                              pos_x=0.3, pos_y=0.3, width=0.12)
+    assert np.abs(zeta - prescribed).max() < 1e-10
+
+
+def test_eddy_reads_the_dimensional_rotation():
+    """Check p = f0 psi reads the dimensional coriolis.f0 too."""
+    def dimensional(f0):
+        return sw.Model(
+            grid=_one_device_grid(),
+            core=sw.Core(gravity=1.0, depth=CSQR),
+            coriolis=sw.modules.FPlaneCoriolis(f0=f0),
+            advection=False,
+            time_stepper=fr.model.time_steppers.AdamBashforth(
+                5e-3, order=3))
+
+    one = sw.coherent_eddy(dimensional(1.0), width=0.15)
+    two = sw.coherent_eddy(dimensional(2.0), width=0.15)
+    # only the pressure carries f0; the velocities are the plain curl
+    for c in ("u", "v"):
+        assert np.array_equal(np.asarray(one[c].data),
+                              np.asarray(two[c].data))
+    assert np.allclose(np.asarray(two["p"].data),
+                       2.0 * np.asarray(one["p"].data))
 
 
 def test_eddy_streamfunction_centers_the_pressure(periodic):
-    _, em = periodic
-    z = sw.coherent_eddy(em, pos_x=0.25, pos_y=0.75, width=0.15,
+    model, _ = periodic
+    z = sw.coherent_eddy(model, pos_x=0.25, pos_y=0.75, width=0.15,
                          gauss_field="streamfunction")
     p = np.asarray(z["p"].data)
     ix, iy = np.unravel_index(np.abs(p).argmax(), p.shape)
-    grid = em.grid
+    grid = model.grid
     xs = np.asarray(grid.evaluation_nodes(
         z["p"].function_space, "x").data).ravel()
     ys = np.asarray(grid.evaluation_nodes(
@@ -422,7 +550,7 @@ def test_eddy_streamfunction_centers_the_pressure(periodic):
     assert abs(xs[ix] - 0.25) <= 0.5 / N + 1e-12
     assert abs(ys[iy] - 0.75) <= 0.5 / N + 1e-12
     # a negative amplitude flips the rotation sense exactly
-    flipped = sw.coherent_eddy(em, pos_x=0.25, pos_y=0.75,
+    flipped = sw.coherent_eddy(model, pos_x=0.25, pos_y=0.75,
                                width=0.15, amplitude=-1.0,
                                gauss_field="streamfunction")
     for c in COMPONENTS:
@@ -431,12 +559,22 @@ def test_eddy_streamfunction_centers_the_pressure(periodic):
 
 
 def test_eddy_taught_errors(periodic, channel):
-    _, em = periodic
+    model, em = periodic
     with pytest.raises(ValueError, match="unknown gauss_field"):
-        sw.coherent_eddy(em, gauss_field="pressure")
-    _, eb = channel
-    with pytest.raises(ValueError, match="walled channel"):
+        sw.coherent_eddy(model, gauss_field="pressure")
+    # the eigenmodes spelling is retired on this factory
+    with pytest.raises(ValueError, match="not an eigenmodes"):
+        sw.coherent_eddy(em)
+    channel_model, eb = channel
+    with pytest.raises(ValueError, match="not an eigenmodes"):
         sw.coherent_eddy(eb)
+    # ... and the channel *model* it used to refuse is now served
+    z = sw.coherent_eddy(channel_model, width=0.15)
+    assert float(np.abs(np.asarray(z["u"].data)).max()) > 0.0
+    with pytest.raises(ValueError, match="constant Coriolis"):
+        sw.coherent_eddy(make_model(
+            _one_device_grid(), csqr=CSQR, coriolis=False,
+            advection=False))
     with pytest.raises(ValueError, match="walled channel"):
         sw.jet(eb)
 
