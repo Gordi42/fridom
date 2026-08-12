@@ -9,7 +9,9 @@ walls, the nonphysical constraint selection).
 The named analytic ports: single_wave and kelvin_wave phase-rotate
 exactly in the linear model, the wave package stays localized and
 wave-pure, the geostrophically projected jets are steady, and the
-coherent eddy is discretely divergence-free.
+coherent eddy is divergence-free and exactly balanced (its projected
+tendency is machine zero on every topology, so it needs no vortical
+projection).
 """
 import jax
 import jax.numpy as jnp
@@ -26,13 +28,15 @@ DT = 1e-3
 COMPONENTS = ("u", "v", "w", "b")
 
 
-def make_model(*, periodic_y=True, periodic_z=True, family=None):
+def make_model(*, periodic_x=True, periodic_y=True, periodic_z=True,
+               family=None, n=N, y_extent=(0.0, 1.0), advection=False,
+               buoyancy=True, beta=None, nondimensional=False):
     """Build a small linear nonhydro model (walls as requested)."""
-    mx = fr.spatial.meshes.IntervalMesh(N, (0.0, 2 * np.pi),
-                                     periodic=True, name="x")
-    my = fr.spatial.meshes.IntervalMesh(N, (0.0, 1.0),
+    mx = fr.spatial.meshes.IntervalMesh(n, (0.0, 2 * np.pi),
+                                     periodic=periodic_x, name="x")
+    my = fr.spatial.meshes.IntervalMesh(n, y_extent,
                                      periodic=periodic_y, name="y")
-    mz = fr.spatial.meshes.IntervalMesh(N, (0.0, 2 * np.pi),
+    mz = fr.spatial.meshes.IntervalMesh(n, (0.0, 2 * np.pi),
                                      periodic=periodic_z, name="z")
     # device_ids=(0,) keeps every axis local on any device count: the
     # prescribed-spectra ICs and eigenmode projections synthesize through
@@ -47,13 +51,26 @@ def make_model(*, periodic_y=True, periodic_z=True, family=None):
     # follows the model uniformly (no mixed nodal-b-on-FV-velocities
     # corner). Since stage F5 the analytic walled-vertical eigenmode kit
     # runs on both families, so the walled-vertical fixture covers both.
+    if nondimensional:
+        return nh.Model(
+            grid=grid,
+            core=nh.Core(aspect_ratio=(DSQR) ** 0.5, family=family),
+            time_stepper=AdamBashforth(DT, order=3),
+            scaling=fr.scaling.Advective(),
+            coriolis=nh.FPlaneCoriolis(rossby_number=1.0 / F0),
+            buoyancy=nh.ConstantStratification(
+                froude_number=1.0 / N2 ** 0.5),
+            advection=advection)
+    coriolis = (nh.FPlaneCoriolis(f0=F0) if beta is None
+                else nh.BetaPlaneCoriolis(f0=F0, beta=beta))
     return nh.Model(
         grid=grid,
         core=nh.Core(aspect_ratio=(DSQR) ** 0.5, family=family),
         time_stepper=AdamBashforth(DT, order=3),
-        coriolis=nh.FPlaneCoriolis(f0=F0),
-        buoyancy=nh.ConstantStratification(n2=N2),
-        advection=False)
+        coriolis=coriolis,
+        buoyancy=(nh.ConstantStratification(n2=N2) if buoyancy
+                  else None),
+        advection=advection or not buoyancy)
 
 
 @pytest.fixture(scope="module")
@@ -512,39 +529,215 @@ def test_jets_need_the_analytic_tier(channel):
 
 
 # ================================================================
-#  coherent_eddy (the CoherentEddy port)
+#  coherent_eddy (the geostrophic Gaussian eddy)
 # ================================================================
+def _structure(zz):
+    """Return a resolved, vertically periodic structure."""
+    return 1.0 + 0.5 * jnp.cos(zz)
+
+
+def _balance(model, state):
+    """Projected tendency, relative to the raw Coriolis tendency."""
+    tendency = model.tendency(state, constraints=True)
+    raw = model.tendency(state, constraints=False)
+    scale = max(float(np.abs(np.asarray(raw[c].data)).max())
+                for c in ("u", "v"))
+    residual = max(
+        float(np.abs(np.asarray(tendency[c].data)).max())
+        for c in state.components)
+    return residual / scale
+
+
+@pytest.fixture(scope="module")
+def eddy_models():
+    """Walled and nodal eddy models (shared; periodic is a fixture)."""
+    return {
+        "walled z": make_model(periodic_z=False),
+        "walled x": make_model(periodic_x=False),
+        "nodal": make_model(family="nodal"),
+    }
+
+
+@pytest.fixture(scope="module")
+def square_model():
+    """Return a square-domain model (the eddy is round on it)."""
+    return make_model(n=16, y_extent=(0.0, 2 * np.pi))
+
+
 @pytest.mark.parametrize("gauss_field",
                          ["vorticity", "streamfunction"])
 def test_eddy_is_divergence_free(periodic, gauss_field):
-    _, em = periodic
-    z = nh.coherent_eddy(em, width=0.15, gauss_field=gauss_field)
+    model, _ = periodic
+    z = nh.coherent_eddy(model, width=0.15, gauss_field=gauss_field,
+                         vertical_structure=_structure)
     umax = max(float(np.abs(np.asarray(z[c].data)).max())
                for c in ("u", "v"))
-    div = (z["u"].diff("x") + z["v"].diff("y")).data
+    div = (z["u"].diff("x") + z["v"].diff("y")
+           + z["w"].diff("z")).data
     assert umax > 0.0
     assert float(np.abs(np.asarray(div)).max()) < 1e-12 * umax
     assert float(np.abs(np.asarray(z["w"].data)).max()) == 0.0
+
+
+def test_eddy_barotropic_has_no_buoyancy(periodic):
+    model, _ = periodic
+    z = nh.coherent_eddy(model, width=0.15)
     assert float(np.abs(np.asarray(z["b"].data)).max()) == 0.0
+    assert max(float(np.abs(np.asarray(z[c].data)).max())
+               for c in ("u", "v")) > 0.0
 
 
-def test_eddy_streamfunction_works_on_the_walled_vertical(walled):
-    z = nh.coherent_eddy(walled, gauss_field="streamfunction")
-    umax = max(float(np.abs(np.asarray(z[c].data)).max())
-               for c in ("u", "v"))
-    div = (z["u"].diff("x") + z["v"].diff("y")).data
-    assert umax > 0.0
-    assert float(np.abs(np.asarray(div)).max()) < 1e-12 * umax
+def test_eddy_periodic_is_exactly_balanced(periodic):
+    """The projected tendency is machine zero: an exact steady state."""
+    model, _ = periodic
+    for structure in (None, _structure):
+        z = nh.coherent_eddy(model, width=0.15,
+                             vertical_structure=structure)
+        model.set_state(z)
+        assert _balance(model, z) < 1e-12
 
 
-def test_eddy_taught_errors(periodic, walled, channel):
-    _, em = periodic
+@pytest.mark.parametrize("topology",
+                         ["walled z", "walled x", "nodal"])
+def test_eddy_is_exactly_balanced_on_every_topology(eddy_models,
+                                                    topology):
+    model = eddy_models[topology]
+    z = nh.coherent_eddy(model, width=0.15,
+                         vertical_structure=_structure)
+    model.set_state(z)
+    assert _balance(model, z) < 1e-12
+
+
+def test_eddy_stays_steady_under_the_linear_model(periodic):
+    model, _ = periodic
+    z0 = nh.coherent_eddy(model, width=0.15,
+                          vertical_structure=_structure)
+    model.set_state(z0)
+    model.run(steps=10, progress=False)
+    scale = max(float(np.abs(np.asarray(z0[c].data)).max())
+                for c in ("u", "v", "b"))
+    drift = max(
+        float(np.abs(np.asarray((model.state[c] - z0[c]).data)).max())
+        for c in ("u", "v", "b"))
+    assert drift < 1e-12 * scale
+    assert float(np.abs(np.asarray(model.state["w"].data)).max()) < 1e-14
+
+
+def test_eddy_needs_no_vortical_projection(periodic):
+    """The construction is already exactly vortical (no radiation)."""
+    model, em = periodic
+    z = nh.coherent_eddy(model, width=0.15,
+                         vertical_structure=_structure)
+    assert _energy(nh.transforms.WaveProjection(em)(z)) < 1e-24 * _energy(z)
+
+
+def test_eddy_signs(square_model):
+    """Check psi is the standard geostrophic streamfunction."""
+    high = nh.coherent_eddy(square_model, width=0.1,
+                            gauss_field="streamfunction")
+    # a positive streamfunction is a pressure high, i.e. an anticyclone
+    zeta = np.asarray(high.rel_vort_z.data)
+    assert zeta.min() < 0.0
+    assert abs(zeta.min()) > 4.0 * zeta.max()
+    flipped = nh.coherent_eddy(square_model, width=0.1, amplitude=-1.0)
+    assert np.allclose(np.asarray(flipped["u"].data),
+                       -np.asarray(high["u"].data))
+
+
+def test_eddy_vorticity_branch_reproduces_its_gaussian(square_model):
+    """The inversion is the exact inverse of the discrete curl."""
+    z = nh.coherent_eddy(square_model, width=0.1,
+                         gauss_field="vorticity")
+    zeta = np.asarray(z.rel_vort_z.data)[:, :, 0]
+    # the zero-mean gauge removes the domain average of the Gaussian
+    mean = zeta.mean()
+    assert abs(mean) < 1e-12
+    nodes = square_model.grid.evaluation_nodes(
+        z.rel_vort_z.function_space, "x").data
+    xs = np.asarray(nodes).ravel()
+    peak = np.abs(xs - np.pi).argmin()
+    expected = 1.0 - (np.pi * (0.1 * 2 * np.pi) ** 2
+                      / (2 * np.pi) ** 2)
+    assert zeta[peak, peak] == pytest.approx(expected, rel=0.05)
+
+
+def test_eddy_vertical_structure_is_surface_trapped(eddy_models):
+    """A decaying structure gives a surface-trapped, warm-core eddy."""
+    model = eddy_models["walled z"]
+    top = float(np.asarray(model.grid.factors[2].extent[1]))
+    z = nh.coherent_eddy(
+        model, width=0.15,
+        vertical_structure=lambda zz: jnp.exp((zz - top) / (0.3 * top)))
+    speed = np.abs(np.asarray(z["u"].data)).max(axis=(0, 1))
+    assert np.all(np.diff(speed) > 0.0)          # grows towards the top
+    assert speed[-1] > 10.0 * speed[0]
+    buoyancy = np.asarray(z["b"].data)
+    # b = f0 d_z psi > 0 under a positive, upward-growing psi (warm core)
+    assert buoyancy.min() > 0.0
+    assert buoyancy.max(axis=(0, 1))[-1] > 10.0 * buoyancy.max(
+        axis=(0, 1))[0]
+    # a negative amplitude flips the core cold
+    cold = nh.coherent_eddy(
+        model, width=0.15, amplitude=-1.0,
+        vertical_structure=lambda zz: jnp.exp((zz - top) / (0.3 * top)))
+    assert np.asarray(cold["b"].data).max() < 0.0
+
+
+def test_eddy_thermal_wind_is_second_order():
+    """Check f d_z u = -d_y b closes at truncation order."""
+    errors = []
+    for size in (8, 16):
+        model = make_model(n=size, y_extent=(0.0, 2 * np.pi))
+        z = nh.coherent_eddy(model, width=0.15,
+                             vertical_structure=_structure)
+        lhs = (F0 * z["u"].diff("z")).to(z["v"].function_space.bare)
+        rhs = -z["b"].diff("y")
+        errors.append(
+            float(np.abs(np.asarray((lhs - rhs).data)).max())
+            / float(np.abs(np.asarray(rhs.data)).max()))
+    assert errors[0] > 1e-3
+    assert errors[1] < 0.35 * errors[0]
+
+
+def test_eddy_reads_the_nondimensional_rotation():
+    """Check f is eps/Ro on a nondimensional assembly."""
+    model = make_model(nondimensional=True)
+    z = nh.coherent_eddy(model, width=0.15,
+                         vertical_structure=_structure)
+    model.set_state(z)
+    assert float(np.abs(np.asarray(z["b"].data)).max()) > 0.0
+    assert _balance(model, z) < 1e-12
+
+
+@pytest.mark.parametrize("periodic_x", [True, False],
+                         ids=["periodic", "walled-x"])
+def test_eddy_survives_a_nonlinear_run(periodic_x):
+    model = make_model(advection=True, periodic_x=periodic_x)
+    z = nh.coherent_eddy(model, width=0.15, amplitude=0.1,
+                         vertical_structure=_structure)
+    model.set_state(z)
+    model.run(steps=10, progress=False)
+    for name in COMPONENTS:
+        assert np.isfinite(np.asarray(model.state[name].data)).all()
+    assert (float(np.abs(np.asarray(model.state["u"].data)).max())
+            < 2.0 * float(np.abs(np.asarray(z["u"].data)).max()))
+
+
+def test_eddy_taught_errors(periodic, eddy_models):
+    model, em = periodic
     with pytest.raises(ValueError, match="unknown gauss_field"):
-        nh.coherent_eddy(em, gauss_field="pressure")
-    with pytest.raises(ValueError, match="fully periodic"):
-        nh.coherent_eddy(walled, gauss_field="vorticity")
-    with pytest.raises(ValueError, match="walled channel"):
-        nh.coherent_eddy(channel)
+        nh.coherent_eddy(model, gauss_field="pressure")
+    with pytest.raises(ValueError, match="not an eigenmodes"):
+        nh.coherent_eddy(em)
+    with pytest.raises(ValueError, match="horizontal axes periodic"):
+        nh.coherent_eddy(eddy_models["walled x"],
+                         gauss_field="vorticity")
+    with pytest.raises(ValueError, match="declares no 'b'"):
+        nh.coherent_eddy(make_model(buoyancy=False),
+                         vertical_structure=_structure)
+    with pytest.raises(ValueError, match="constant Coriolis"):
+        nh.coherent_eddy(make_model(beta=0.2),
+                         vertical_structure=_structure)
 
 
 # ================================================================

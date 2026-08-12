@@ -43,10 +43,16 @@ optional single-sided ``traveling=`` carriers on bounded axes),
 :func:`kelvin_wave` (the labeled boundary-trapped mode of the walled
 channel eigenbasis), :func:`barotropic_jet` / :func:`jet` (unstable
 zonal jets plus a single-mode perturbation, geostrophically
-projected by default) and :func:`coherent_eddy` (a barotropic
-Gaussian streamfunction or vorticity eddy). Wave factories return
-``(omega, state)`` like ``em.mode``; profile factories return the
-state alone.
+projected by default) and :func:`coherent_eddy` (a Gaussian
+streamfunction or vorticity eddy with a caller-supplied vertical
+structure, turned into ``u``, ``v``, ``b`` by geostrophic theory).
+Wave factories return ``(omega, state)`` like ``em.mode``; profile
+factories return the state alone.
+
+:func:`coherent_eddy` is the one factory that takes the **model**
+alone: it needs the component spaces and the Coriolis parameter, not
+an eigenbasis, so it serves every grid topology (the horizontally
+walled channel included) and builds no eigenmodes.
 """
 from __future__ import annotations
 
@@ -69,9 +75,16 @@ from fridom.model.eigenstates import (
     sample_pattern,
     traveling_carrier,
 )
+from fridom.model.params import (
+    CORIOLIS_F0,
+    CORIOLIS_METRIC_RATIO,
+    CORIOLIS_ROSSBY,
+    SCALING_NONLINEARITY,
+)
 from fridom.model.shapes import (
     gaussian as gaussian,  # noqa: PLC0414 — re-export
 )
+from fridom.model.time_dependent import resolve_at
 from fridom.nonhydro2.channel_eigenmodes import ChannelEigenmodes
 from fridom.nonhydro2.eigenmodes import Eigenmodes, from_model
 from fridom.nonhydro2.state import State
@@ -837,42 +850,276 @@ def jet(
     return z
 
 
+# ================================================================
+#  Coherent eddies (geostrophic streamfunction states)
+# ================================================================
+def _face_factor(grid: Grid, name: str) -> SpaceLike:
+    """Return the factor holding **all** faces of the axis ``name``.
+
+    Description
+    -----------
+    The staggered face node set of the axis: ``Right`` on a periodic
+    mesh (n faces, the wall-free lattice the prognostic ``w`` lives
+    on) and ``Outer`` on a bounded one (n + 1 faces, the two boundary
+    faces **included** — unlike the model's own wall-normal velocity
+    space, which drops them under its Dirichlet tag). Both difference
+    onto the n cell centres, which is what the buoyancy needs.
+    """
+    mesh = next(m for m in grid.factors if name in m.names)
+    return mesh.right if mesh.periodic else mesh.outer
+
+
+def _constant_factor(grid: Grid, name: str) -> SpaceLike:
+    """Return the one-DOF broadcast factor of the axis ``name``."""
+    mesh = next(m for m in grid.factors if name in m.names)
+    return mesh.constant
+
+
+def _coriolis_parameter(model: Model, at_time: float) -> float:
+    r"""
+    Read the model's **constant** Coriolis parameter.
+
+    Description
+    -----------
+    The effective :math:`f` of the assembly, from the variant's own
+    primitives in ``model.parameters`` (the nondimensionalization
+    re-key, matching :func:`~fridom.nonhydro2.eigenmodes.eigenbasis`):
+    the dimensional ``coriolis.f0``, or the nondimensional
+    :math:`\varepsilon/\mathrm{Ro}`. A time-dependent leaf is frozen
+    at ``at_time``.
+
+    Parameters
+    ----------
+    model : Model
+        The assembled nonhydrostatic model.
+    at_time : float
+        Parameter evaluation time.
+
+    Returns
+    -------
+    float
+        The constant Coriolis parameter.
+
+    Raises
+    ------
+    ValueError
+        When the model provides no constant rotation (no Coriolis
+        module at all, or a beta-plane / chart rotation, whose ``f``
+        is a field rather than a scalar).
+    """
+    params = model.parameters
+
+    def read(name: str) -> float:
+        value = resolve_at(params[name], at_time)
+        return float(value)
+
+    if (CORIOLIS_ROSSBY in params
+            and CORIOLIS_METRIC_RATIO not in params):
+        return read(SCALING_NONLINEARITY) / read(CORIOLIS_ROSSBY)
+    if CORIOLIS_F0 in params:
+        return read(CORIOLIS_F0)
+    raise ValueError(
+        "a baroclinic eddy needs a constant Coriolis parameter (the "
+        "buoyancy is the geostrophic f * d_z psi), but this model "
+        "provides none: pass a constant rotation "
+        "(nh.FPlaneCoriolis(f0=...) / FPlaneCoriolis(rossby_number="
+        "...)) — a beta-plane or chart rotation carries f as a field, "
+        "for which no exactly balanced buoyancy exists — or drop "
+        "vertical_structure= for the barotropic eddy, which needs no "
+        "rotation at all")
+
+
+def _streamfunction_from_vorticity(
+    grid: Grid, zeta: ScalarField,
+) -> ScalarField:
+    r"""
+    Invert the **horizontal** Laplacian, :math:`\nabla_h^2\psi = \zeta`.
+
+    Description
+    -----------
+    The streamfunction of a prescribed relative vorticity on the
+    horizontal corner, in the zero-mean gauge. The spectral route
+    assembles :math:`k_h^2` from the grid's own staggered-derivative
+    symbols (so the inversion is the exact inverse of the discrete
+    ``rel_vort_z`` the velocities go on to carry) and divides,
+    :math:`\hat\psi = -\hat\zeta / k_h^2`; ``Symbol.inverse`` maps the
+    :math:`k = 0` structural zero to zero.
+
+    The operand is **two-dimensional** — a horizontal corner field
+    with a one-DOF (``Constant``) vertical factor — because the
+    vertical structure multiplies the streamfunction *after* the
+    inversion. The vertical topology therefore plays no part here; a
+    walled vertical is served exactly like a periodic one.
+
+    .. note::
+
+        This is the **seam** for the general (walled-horizontal)
+        solver. The Fourier route below needs both horizontal axes
+        periodic; a horizontally walled domain needs the inversion of
+        the discrete corner Laplacian with the wall gauge
+        (:math:`\psi` constant along a solid boundary), which is a
+        separate solver. Everything above and below this function is
+        topology-blind: replacing this body with that solver is the
+        whole change.
+
+        Mind the sign at the swap. A general solver is naturally
+        written for the positive-definite operator
+        :math:`-\nabla_h^2`, so this function is **minus** it:
+        ``_streamfunction_from_vorticity(grid, zeta)`` is
+        ``-invert_negative_laplacian(grid, zeta, axes=(x, y))``. The
+        sign belongs here, with the curl convention it pairs with, not
+        inside the solver.
+
+    Parameters
+    ----------
+    grid : Grid
+        The grid mediating the transforms and wavenumbers.
+    zeta : ScalarField
+        The prescribed relative vorticity on the horizontal corner.
+
+    Returns
+    -------
+    ScalarField
+        The streamfunction on the same space.
+
+    Raises
+    ------
+    ValueError
+        On a horizontally walled grid (the general solver's seam).
+    """
+    x, y = _horizontal(grid)
+    walled = [name for name in (x, y)
+              if not next(m for m in grid.factors
+                          if name in m.names).periodic]
+    if walled:
+        raise ValueError(
+            "the spectral vorticity inversion needs both horizontal "
+            f"axes periodic; this grid bounds {walled!r} — prescribe "
+            "the streamfunction instead (gauss_field="
+            "'streamfunction'), which is topology-blind, or invert "
+            "the vorticity yourself and pass the result")
+    kit = GridSymbols(grid, {"psi": zeta.function_space.bare})
+    kh2 = (kit.diff(x, on="psi").magnitude ** 2
+           + kit.diff(y, on="psi").magnitude ** 2)
+    coeff = kit.forward("psi")(zeta)
+    inverse = jnp.broadcast_to(kh2.inverse().data, coeff.data.shape)
+    return kit.backward("psi")(
+        coeff.with_data(-coeff.data * inverse)).real
+
+
 def coherent_eddy(
-    source: Model | Eigenmodes | ChannelEigenmodes,
+    model: Model,
     *,
     pos_x: float = 0.5,
     pos_y: float = 0.5,
     width: float = 0.1,
     amplitude: float = 1.0,
     gauss_field: str = "streamfunction",
+    vertical_structure: Callable[[jax.Array], jax.Array] | None = None,
     at_time: float = 0.0,
 ) -> State:
     r"""
-    Build a coherent barotropic Gaussian eddy (``CoherentEddy``).
+    Build a geostrophic Gaussian eddy (``CoherentEddy``).
 
     Description
     -----------
-    The Gaussian bump
+    A separable streamfunction :math:`\psi(x, y, z) = G(x, y)\,F(z)`
+    turned into ``u``, ``v`` and ``b`` by geostrophic theory. The
+    horizontal shape is the Gaussian bump
 
     .. math::
         G = A \exp\left(
         -\frac{(x - p_x L_x)^2 + (y - p_y L_y)^2}{(\sigma L_x)^2}
         \right)
 
-    (constant in the vertical) prescribes either the streamfunction
-    directly (``gauss_field="streamfunction"``, the default) or the
+    which prescribes either the streamfunction directly
+    (``gauss_field="streamfunction"``, the default) or the relative
     vorticity (``gauss_field="vorticity"``), whose streamfunction
-    follows from the horizontal spectral inversion
-    :math:`\hat\psi = \hat\zeta / k_h^2` (zero-mean gauge, discrete
-    operator symbols). The velocities are the discrete C-grid curl
-    of the corner-sampled streamfunction (``u = \delta_y \psi``,
-    ``v = -\delta_x \psi``, exactly divergence-free); the diagnostic
-    pressure balances at the first solve.
+    follows from the horizontal inversion
+    :math:`\nabla_h^2 \psi = \zeta`. The vertical structure
+    :math:`F(z)` is the caller's callable, evaluated on the **physical**
+    vertical coordinate; the default is the constant 1, the barotropic
+    eddy.
+
+    The state is the geostrophic and hydrostatic one,
+
+    .. math::
+        u = -\partial_y \psi , \qquad
+        v = \partial_x \psi , \qquad
+        w = 0 , \qquad
+        p = f\,\psi , \qquad
+        b = \partial_z p = f\,\partial_z \psi ,
+
+    with :math:`f` the model's constant Coriolis parameter (the
+    dimensional ``coriolis.f0``, or the nondimensional
+    :math:`\varepsilon/\mathrm{Ro}`). The pressure is not part of the
+    returned state -- it is the diagnostic the projection solves for,
+    and the first solve reproduces :math:`f\,\psi` interpolated onto
+    the cell centres. Neither :math:`N^2` nor the
+    aspect ratio :math:`\delta` enters: the nondimensional
+    :math:`w`-equation is :math:`\delta^2 \partial_t w = b -
+    \partial_z p`, so hydrostatic balance is the plain
+    :math:`b = \partial_z p` on every scaling. There is **no**
+    projection onto the vortical eigenmodes — see the note below on
+    when to add one.
+
+    **Sign convention.** :math:`\psi` is the standard geostrophic
+    streamfunction, so a positive ``amplitude`` with
+    ``gauss_field="streamfunction"`` is a pressure *high*, i.e. an
+    **anticyclone** (clockwise for :math:`f > 0`, negative
+    ``rel_vort_z``), while a positive ``amplitude`` with
+    ``gauss_field="vorticity"`` prescribes positive ``rel_vort_z``,
+    i.e. a **cyclone**. The two branches turn opposite ways for the
+    same sign of ``amplitude``, which is the physics
+    (:math:`\zeta = \nabla_h^2\psi`), not a convention choice.
+
+    **Staggering.** :math:`G` is sampled on the horizontal corner (the
+    ``u`` face in :math:`x` crossed with the ``v`` face in :math:`y`)
+    and :math:`F` on the vertical **faces**; the velocities take the
+    discrete corner curl of :math:`G` times the face-to-centre
+    *interpolant* of :math:`F`, and the buoyancy takes the
+    corner-to-centre interpolant of :math:`G` times the face-to-centre
+    *difference* of :math:`F`. The two vertical operators are the
+    adjacent pair of one staggered lattice, which is what makes the
+    result exactly balanced rather than balanced to truncation order:
+
+    - the discrete divergence of :math:`(u, v, w)` is zero to
+      machine precision;
+    - the model's own tendency, after the pressure projection, is
+      zero to machine precision — the state is a discrete steady
+      solution of the linear model, hence exactly in the vortical
+      (:math:`\omega = 0`) subspace;
+    - the *continuum* correspondence holds to second order only: the
+      sampled velocity carries :math:`(F(z_{j-1/2}) +
+      F(z_{j+1/2}))/2` rather than :math:`F(z_j)`, and the thermal
+      wind :math:`f\,\partial_z u = -\partial_y b` closes only up to
+      the C-grid interpolation between the ``b`` cell and the ``w``
+      face, both :math:`O(\Delta z^2)`.
+
+    .. note::
+
+        **No projection is applied**, and on an f-plane none is
+        needed: the construction above is already exactly vortical, so
+        ``nh.transforms.VorticalProjection`` is a no-op on it (wave
+        energy measured at :math:`10^{-31}` of the total). Project
+        afterwards when the balance argument breaks — a beta-plane or
+        chart rotation, an immersed or mapped grid, a state you have
+        added a perturbation to, or a caller-supplied
+        ``vertical_structure`` so steep that it is not resolved
+        (whereupon the eddy radiates inertia-gravity waves at the
+        amplitude of its own truncation error):
+
+        .. code-block:: python
+
+            z = nh.coherent_eddy(model)
+            z = nh.transforms.VorticalProjection.from_model(model)(z)
 
     Parameters
     ----------
-    source : Model | Eigenmodes | ChannelEigenmodes
-        The assembled model or an analytic eigenmodes object.
+    model : Model
+        The assembled nonhydrostatic model. The velocity, buoyancy
+        and rotation come from the model itself; no eigenmode
+        machinery is built.
     pos_x : float, optional
         Relative zonal position of the eddy (default: 0.5).
     pos_y : float, optional
@@ -881,40 +1128,86 @@ def coherent_eddy(
         Width of the eddy relative to the zonal domain size
         (default: 0.1).
     amplitude : float, optional
-        Amplitude of the Gaussian; a negative amplitude flips the
-        rotation sense (default: 1.0).
+        Peak value of the prescribed Gaussian (streamfunction or
+        vorticity); a negative amplitude flips the rotation sense
+        (default: 1.0).
     gauss_field : str, optional
-        Which field the Gaussian prescribes: ``"streamfunction"``
-        or ``"vorticity"`` (default: "streamfunction").
+        Which field the Gaussian prescribes: ``"streamfunction"`` or
+        ``"vorticity"`` (default: "streamfunction").
+    vertical_structure : Callable[[jax.Array], jax.Array] | None, optional
+        The vertical structure :math:`F(z)` multiplying the
+        streamfunction, called with the **physical** vertical
+        coordinate (the same convention as every other coordinate
+        callable in this module) and not renormalized. None is the
+        constant 1 — the barotropic eddy, whose ``b`` is identically
+        zero and which needs no rotation at all. A structure that is
+        not periodic on a periodic vertical carries the jump of its
+        own wrap-around into ``b`` (default: None).
     at_time : float, optional
-        Parameter evaluation time when resolving from a model
+        Parameter evaluation time for a time-dependent rotation
         (default: 0.0).
 
     Returns
     -------
     State
-        The eddy state.
+        The eddy state (assign with ``model.set_state``). ``b`` is
+        present iff the model declares it.
 
     Raises
     ------
     ValueError
-        On an unknown ``gauss_field``, a horizontally walled
-        channel, or the vorticity inversion on a walled vertical
-        (the corner kit needs a fully periodic grid).
+        On an unknown ``gauss_field``; on the vorticity branch over a
+        horizontally walled grid; on a ``vertical_structure`` without
+        a buoyancy module or without a constant Coriolis parameter.
+
+    Examples
+    --------
+    A surface-intensified anticyclone on a rigid-lid grid:
+
+    .. code-block:: python
+
+        import jax.numpy as jnp
+        import fridom.nonhydro2 as nh
+
+        state = nh.coherent_eddy(
+            model, width=0.15,
+            vertical_structure=lambda z: jnp.exp(z / 0.2))
+        model.set_state(state)
     """
     if gauss_field not in {"vorticity", "streamfunction"}:
         raise ValueError(
             f"unknown gauss_field {gauss_field!r}: the Gaussian "
             "prescribes either 'vorticity' or 'streamfunction'")
-    em = _analytic(source, "coherent_eddy", at_time)
-    grid = em.grid
+    if isinstance(model, Eigenmodes | ChannelEigenmodes):
+        # a value error (wrong source), not a type error
+        raise ValueError(  # noqa: TRY004
+            "coherent_eddy takes the model, not an eigenmodes "
+            "object: the eddy is an analytic geostrophic state and "
+            "builds no eigenbasis at all (the old spelling paid for "
+            "a channel eigensolve only to read the grid). Pass the "
+            "assembled model, nh.coherent_eddy(model, ...)")
+    grid = model.grid
     x, y = _horizontal(grid)
     x0, x1 = _extent(grid, x)
     y0, y1 = _extent(grid, y)
     lx, ly = x1 - x0, y1 - y0
-    u_space = em.physical_space("u")
-    v_space = em.physical_space("v")
-    corner = u_space.replace(**{y: v_space.factor(y)})
+    spaces = {name: model.state[name].function_space.bare
+              for name in ("u", "v", "w")}
+    b_space = (model.state["b"].function_space.bare
+               if "b" in model.state else None)
+    if vertical_structure is not None and b_space is None:
+        raise ValueError(
+            "a vertical_structure makes the eddy baroclinic, whose "
+            "buoyancy this model cannot hold: it declares no 'b' — "
+            "add a buoyancy module (nh.ConstantStratification(n2=...) "
+            "or nh.BuoyancyTracer()), or drop vertical_structure= "
+            "for the barotropic eddy")
+    # the horizontal corner: u's x face crossed with v's y face, one
+    # DOF in the vertical (the shape is horizontal; the structure
+    # multiplies it afterwards, so the inversion stays 2-D)
+    flat = spaces["u"].replace(**{
+        y: spaces["v"].factor(y),
+        _VERTICAL: _constant_factor(grid, _VERTICAL)})
 
     def bump(coords: dict[str, jax.Array]) -> jax.Array:
         return amplitude * jnp.exp(
@@ -922,25 +1215,43 @@ def coherent_eddy(
               + (coords[y] - y0 - pos_y * ly) ** 2)
             / (width * lx) ** 2)
 
-    psi = _sample(grid, corner, bump, name="psi")
+    shape = _sample(grid, flat, bump, name="psi")
     if gauss_field == "vorticity":
-        if em._walled:  # noqa: SLF001 — package-internal
-            raise ValueError(
-                "the spectral vorticity inversion needs a fully "
-                "periodic grid (the corner streamfunction has no "
-                "trig parity on a walled vertical); prescribe the "
-                "streamfunction instead "
-                "(gauss_field='streamfunction')")
-        kit = GridSymbols(grid, {"psi": corner})
-        kh2 = (kit.diff(x, on="psi").magnitude ** 2
-               + kit.diff(y, on="psi").magnitude ** 2)
-        coeff = kit.forward("psi")(psi)
-        inverse = jnp.broadcast_to(
-            kh2.inverse().data, coeff.data.shape)
-        psi = kit.backward("psi")(
-            coeff.with_data(coeff.data * inverse)).real
-    return State({
-        "u": psi.diff(y).with_metadata(name="u"),
-        "v": (-psi.diff(x)).with_metadata(name="v"),
-        "w": grid.create_field(em.physical_space("w"), name="w"),
-        "b": grid.create_field(em.physical_space("b"), name="b")})
+        shape = _streamfunction_from_vorticity(grid, shape)
+    corner = flat.replace(**{
+        _VERTICAL: spaces["u"].factor(_VERTICAL)})
+    if vertical_structure is None:
+        psi = shape.to(corner)
+        buoyancy = (None if b_space is None
+                    else grid.create_field(b_space, name="b"))
+    else:
+        centre_z = spaces["u"].factor(_VERTICAL)
+        column = _sample(
+            grid,
+            flat.replace(**{
+                x: _constant_factor(grid, x),
+                y: _constant_factor(grid, y),
+                _VERTICAL: _face_factor(grid, _VERTICAL)}),
+            lambda coords: jnp.broadcast_to(
+                jnp.asarray(vertical_structure(coords[_VERTICAL])),
+                coords[_VERTICAL].shape),
+            name="structure")
+        # the velocities carry the face-to-centre *interpolant* of F,
+        # the buoyancy its face-to-centre *difference*: the adjacent
+        # pair of one staggered lattice, for which
+        # I(d F) = d(I F) holds identically — which is what makes the
+        # discrete hydrostatic balance exact rather than second-order
+        psi = shape * column.to(
+            column.function_space.bare.replace(**{_VERTICAL: centre_z}))
+        buoyancy = (
+            _coriolis_parameter(model, at_time)
+            * shape.to(b_space.replace(**{
+                _VERTICAL: _constant_factor(grid, _VERTICAL)}))
+            * column.diff(_VERTICAL)).to(b_space)
+    fields = {
+        "u": (-psi.diff(y)).with_metadata(name="u"),
+        "v": psi.diff(x).with_metadata(name="v"),
+        "w": grid.create_field(spaces["w"], name="w")}
+    if buoyancy is not None:
+        fields["b"] = buoyancy.with_metadata(name="b")
+    return State(fields)
