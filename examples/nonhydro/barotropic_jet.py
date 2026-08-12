@@ -33,8 +33,8 @@ seed_amplitude = 1e-2     # weak vortical mode that seeds the instability
 seed_wavenumber = 2       # zonal mode number of that seed
 
 nx = ny = 128
-nz = 3                    # the thinnest vertical WENO order 5 accepts
-runlen = 40.0
+nz = 1                    # the flow is 2D, so one layer is enough
+runlen = 50.0
 frames = 120
 
 # %%
@@ -50,10 +50,8 @@ frames = 120
 # The jet has no vertical structure and nothing in the periodic box
 # can give it any, so the flow stays two-dimensional. Rotation then
 # drops out of the vorticity budget and the buoyancy stays at zero,
-# which leaves the shear as the only source of growth. Three cells
-# are the thinnest vertical the scheme allows, because its stencil
-# reaches three cells past the local one and a periodic axis cannot
-# wrap a halo wider than itself.
+# which leaves the shear as the only source of growth. One cell in
+# the vertical is therefore all the run needs.
 grid = fr.spatial.cartesian.Grid(
     shape=(nx, ny, nz),
     extent=(domain_size, domain_size, box_height),
