@@ -607,8 +607,22 @@ def _weighted_windows(
     -------
     Array
         The fused weighted sum.
+
+    Raises
+    ------
+    ValueError
+        If the axis is shorter than the stencil. The twin guard of
+        ``stencil_kernels._stencil_windows`` / ``weno._window_views``:
+        without it a too-short axis slices *empty* windows and
+        ``apply_fv_staggered``'s pad-to-codomain tail fills the result
+        with exact zeros — a silent wrong answer instead of a raise
+        (``design/research/thin_axis_halo_investigation.md`` §6).
     """
     out_len = arr.shape[axis] - len(row) + 1
+    if out_len < 1:
+        raise ValueError(
+            f"axis {axis} of length {arr.shape[axis]} is shorter than "
+            f"the {len(row)}-point stencil")
     index: list[slice] = [slice(None)] * arr.ndim
     total = None
     for offset, weight in enumerate(row):
