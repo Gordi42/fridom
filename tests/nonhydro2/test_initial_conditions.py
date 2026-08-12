@@ -696,7 +696,8 @@ def test_eddy_signs(square_model):
     zeta = np.asarray(high.rel_vort_z.data)
     assert zeta.min() < 0.0
     assert abs(zeta.min()) > 4.0 * zeta.max()
-    flipped = nh.coherent_eddy(square_model, width=0.1, amplitude=-1.0)
+    flipped = nh.coherent_eddy(square_model, width=0.1, amplitude=-1.0,
+                               gauss_field="streamfunction")
     assert np.allclose(np.asarray(flipped["u"].data),
                        -np.asarray(high["u"].data))
 
@@ -802,7 +803,7 @@ def test_eddy_vertical_structure_is_surface_trapped(eddy_models):
     model = eddy_models["walled z"]
     top = float(np.asarray(model.grid.factors[2].extent[1]))
     z = nh.coherent_eddy(
-        model, width=0.15,
+        model, width=0.15, gauss_field="streamfunction",
         vertical_structure=lambda zz: jnp.exp((zz - top) / (0.3 * top)))
     speed = np.abs(np.asarray(z["u"].data)).max(axis=(0, 1))
     assert np.all(np.diff(speed) > 0.0)          # grows towards the top
@@ -814,7 +815,7 @@ def test_eddy_vertical_structure_is_surface_trapped(eddy_models):
         axis=(0, 1))[0]
     # a negative amplitude flips the core cold
     cold = nh.coherent_eddy(
-        model, width=0.15, amplitude=-1.0,
+        model, width=0.15, amplitude=-1.0, gauss_field="streamfunction",
         vertical_structure=lambda zz: jnp.exp((zz - top) / (0.3 * top)))
     assert np.asarray(cold["b"].data).max() < 0.0
 
@@ -876,6 +877,453 @@ def test_eddy_taught_errors(periodic, eddy_models):
     with pytest.raises(ValueError, match="constant Coriolis"):
         nh.coherent_eddy(make_model(beta=0.2),
                          vertical_structure=_structure)
+
+
+# ================================================================
+#  Depth-varying knobs (the non-separable eddy)
+# ================================================================
+def _widening(zz):
+    """Return a width varying by two, flat at a rigid lid."""
+    return 0.1 + 0.0333 * jnp.cos(zz)
+
+
+@pytest.mark.parametrize("gauss_field",
+                         ["vorticity", "streamfunction"])
+def test_eddy_depth_knob_reproduces_a_vertical_structure(
+        eddy_models, gauss_field):
+    """The two depth spellings are the same construction."""
+    model = eddy_models["walled z"]
+    knob = nh.coherent_eddy(model, width=0.15, gauss_field=gauss_field,
+                            amplitude=_structure)
+    separable = nh.coherent_eddy(
+        model, width=0.15, gauss_field=gauss_field,
+        vertical_structure=_structure)
+    for name in COMPONENTS:
+        scale = float(np.abs(np.asarray(separable[name].data)).max())
+        assert (float(np.abs(np.asarray(
+            (knob[name] - separable[name]).data)).max())
+            < 1e-12 * max(scale, 1e-30))
+    assert float(np.abs(np.asarray(knob["b"].data)).max()) > 0.0
+
+
+@pytest.mark.parametrize("gauss_field",
+                         ["vorticity", "streamfunction"])
+@pytest.mark.parametrize("topology", list(_TOPOLOGIES))
+def test_eddy_depth_varying_width_is_exactly_balanced(
+        topology_models, topology, gauss_field):
+    """A non-separable eddy is still a discrete steady state."""
+    model = topology_models[topology]
+    z = nh.coherent_eddy(model, width=_widening,
+                         gauss_field=gauss_field)
+    model.set_state(z)
+    assert _balance(model, z) < 1e-12
+    assert float(np.abs(np.asarray(z["b"].data)).max()) > 0.0
+
+
+@pytest.mark.parametrize("gauss_field",
+                         ["vorticity", "streamfunction"])
+def test_eddy_depth_paths_combine(eddy_models, gauss_field):
+    """A widening eddy times a structure is balanced too.
+
+    The two depth spellings multiply, and the product is not
+    separable either, so the staggered pair has to act on the
+    product itself -- a discrete difference obeys no product rule.
+    """
+    model = eddy_models["walled z"]
+    z = nh.coherent_eddy(model, width=_widening,
+                         gauss_field=gauss_field,
+                         vertical_structure=_structure)
+    model.set_state(z)
+    assert _balance(model, z) < 1e-12
+    assert float(np.abs(np.asarray(z["b"].data)).max()) > 0.0
+    # it really is the product: scaling F scales the whole state
+    twice = nh.coherent_eddy(
+        model, width=_widening, gauss_field=gauss_field,
+        vertical_structure=lambda zz: 2.0 * _structure(zz))
+    for name in ("u", "v", "b"):
+        assert np.allclose(np.asarray(twice[name].data),
+                           2.0 * np.asarray(z[name].data),
+                           rtol=1e-10)
+
+
+def test_eddy_depth_varying_width_is_not_separable(square_model):
+    """No F(z) multiplier can express a depth-varying radius."""
+    z = nh.coherent_eddy(square_model, width=_widening,
+                         gauss_field="streamfunction")
+    zeta = np.asarray(z.rel_vort_z.data)
+    # a separable psi would make every level proportional to level 0
+    ratios = zeta[:, :, 1:] / zeta[:, :, :1]
+    spread = ratios.max(axis=(0, 1)) / ratios.min(axis=(0, 1))
+    assert spread.max() > 1.5
+    # ... while the amplitude knob, which *is* separable, does not
+    flat = np.asarray(nh.coherent_eddy(
+        square_model, width=0.1, amplitude=_structure,
+        gauss_field="streamfunction").rel_vort_z.data)
+    flat_ratios = flat[:, :, 1:] / flat[:, :, :1]
+    assert np.allclose(flat_ratios.max(axis=(0, 1)),
+                       flat_ratios.min(axis=(0, 1)), rtol=1e-9)
+
+
+def test_eddy_vorticity_always_inverts_one_plane_at_a_time(
+        topology_models, monkeypatch):
+    """The elliptic operand is two-dimensional on both depth paths."""
+    seen = []
+    inversion = nh.initial_conditions.invert_negative_laplacian
+
+    def spy(field, *, axes):
+        seen.append(field.function_space.shape)
+        return inversion(field, axes=axes)
+
+    monkeypatch.setattr(nh.initial_conditions,
+                        "invert_negative_laplacian", spy)
+    model = topology_models["box-xy+lid"]
+    # the separable path: one solve on a one-DOF vertical
+    nh.coherent_eddy(model, width=0.12, gauss_field="vorticity",
+                     vertical_structure=_structure)
+    assert len(seen) == 1
+    # the general path: mapped, so the traced operand is still 2-D --
+    # a 3-D operand would both pay a vertical transform the symbol
+    # never reads and fail outright here, since no sine transform is
+    # defined on the rigid lid's untagged Outer face set
+    seen.clear()
+    z = nh.coherent_eddy(model, width=_widening,
+                         gauss_field="vorticity")
+    assert len(seen) == 1
+    assert all(shape[2] == 1 for shape in seen)
+    assert z["u"].function_space.shape[2] > 1
+
+
+# ================================================================
+#  eddy_dipole (the self-advecting counter-rotating pair)
+# ================================================================
+#: The route's default separation, in widths.
+_RATIO = {"vorticity": 3.0, "streamfunction": 1.4}
+
+
+@pytest.fixture(scope="module")
+def dipole_model():
+    """Return a resolved square unit box (no time stepping)."""
+    return _unit_box(128, advection=False)
+
+
+@pytest.fixture(scope="module")
+def dipole_run_model():
+    """Return a coarser square unit box that time-steps."""
+    return _unit_box(64, advection=True)
+
+
+def _unit_box(n, *, advection):
+    """Build a flat, doubly periodic unit-box model."""
+    meshes = (
+        fr.spatial.meshes.IntervalMesh(n, (0.0, 1.0), periodic=True,
+                                       name="x"),
+        fr.spatial.meshes.IntervalMesh(n, (0.0, 1.0), periodic=True,
+                                       name="y"),
+        fr.spatial.meshes.IntervalMesh(2, (0.0, 1.0), periodic=True,
+                                       name="z"))
+    return nh.Model(
+        grid=fr.spatial.Grid(meshes, device_ids=(0,)),
+        core=nh.Core(aspect_ratio=1.0),
+        time_stepper=AdamBashforth(2e-3, order=3),
+        coriolis=nh.FPlaneCoriolis(f0=1.0),
+        buoyancy=nh.ConstantStratification(n2=1.0),
+        advection=advection)
+
+
+def _sample_at(model, field, px, py):
+    """Bilinear sample of a periodic field at a physical point."""
+    data = np.asarray(field.data)[:, :, 0]
+    axes = []
+    for axis in ("x", "y"):
+        nodes = np.asarray(model.grid.evaluation_nodes(
+            field.function_space, axis).data).ravel()
+        axes.append(nodes)
+    (xs, ys) = axes
+    fx = (px - xs[0]) / (xs[1] - xs[0])
+    fy = (py - ys[0]) / (ys[1] - ys[0])
+    i, j = int(np.floor(fx)), int(np.floor(fy))
+    tx, ty = fx - i, fy - j
+    nx, ny = data.shape
+    return float(data[i % nx, j % ny] * (1 - tx) * (1 - ty)
+                 + data[(i + 1) % nx, j % ny] * tx * (1 - ty)
+                 + data[i % nx, (j + 1) % ny] * (1 - tx) * ty
+                 + data[(i + 1) % nx, (j + 1) % ny] * tx * ty)
+
+
+def _core_velocity(model, state, gauss_field, angle, separation):
+    """Velocity at the +amplitude core, which carries the pair."""
+    # the +A lobe is counter-clockwise (left of the heading) on the
+    # vorticity route and clockwise (right of it) on the other
+    lobe = 1.0 if gauss_field == "vorticity" else -1.0
+    head = np.deg2rad(angle)
+    cx = 0.5 - lobe * 0.5 * separation * np.cos(head)
+    cy = 0.5 + lobe * 0.5 * separation * np.sin(head)
+    return (_sample_at(model, state["u"], cx, cy),
+            _sample_at(model, state["v"], cx, cy))
+
+
+def _closed_form(gauss_field, amplitude, separation, width):
+    """Return the continuum mutual-induction translation speed."""
+    if gauss_field == "streamfunction":
+        return (2.0 * amplitude * separation / width ** 2
+                * np.exp(-(separation / width) ** 2))
+    return (0.5 * amplitude * width ** 2 / separation
+            * (1.0 - np.exp(-(separation / width) ** 2)))
+
+
+@pytest.mark.parametrize("gauss_field",
+                         ["vorticity", "streamfunction"])
+@pytest.mark.parametrize("angle", [0.0, 90.0, 217.0, 305.0],
+                         ids=["north", "east", "217", "305"])
+def test_dipole_induction_points_along_its_heading(
+        dipole_model, gauss_field, angle):
+    """The flow that carries each core points at the bearing."""
+    width, separation = 0.05, 0.05 * _RATIO[gauss_field]
+    z = nh.eddy_dipole(dipole_model, angle=angle, width=width,
+                       separation=separation, amplitude=1.0,
+                       gauss_field=gauss_field)
+    u, v = _core_velocity(dipole_model, z, gauss_field, angle,
+                          separation)
+    got = np.degrees(np.arctan2(u, v)) % 360.0
+    assert abs((got - angle + 180.0) % 360.0 - 180.0) < 1.0
+    # ... and both cores are carried the same way, which is what makes
+    # it a dipole rather than a shearing pair
+    mirror = _core_velocity(dipole_model, z, gauss_field,
+                            angle, -separation)
+    assert np.allclose(mirror, (u, v), rtol=1e-9, atol=1e-12)
+
+
+@pytest.mark.parametrize(
+    ("gauss_field", "ratio", "tol"),
+    [("vorticity", 1.5, 0.03), ("streamfunction", 1.4, 0.03)])
+def test_dipole_speed_matches_the_closed_form(
+        dipole_model, gauss_field, ratio, tol):
+    """The mutual-induction formula is the discrete field's own."""
+    width = 0.05
+    separation = ratio * width
+    z = nh.eddy_dipole(dipole_model, width=width,
+                       separation=separation, amplitude=1.0,
+                       gauss_field=gauss_field)
+    u, v = _core_velocity(dipole_model, z, gauss_field, 0.0,
+                          separation)
+    want = _closed_form(gauss_field, 1.0, separation, width)
+    assert np.hypot(u, v) == pytest.approx(want, rel=tol)
+
+
+#: Argmax of the mutual-induction shape, per route (the peak split).
+_PEAK_S = {"streamfunction": 0.7071067811865475,
+           "vorticity": 1.1209064227785339}
+
+
+def _outer_root(gauss_field, target):
+    """Bisect the outer root of the documented shape function."""
+    lo, hi = _PEAK_S[gauss_field], 60.0
+    for _ in range(200):
+        mid = 0.5 * (lo + hi)
+        shape = (mid * np.exp(-mid ** 2)
+                 if gauss_field == "streamfunction"
+                 else (1.0 - np.exp(-mid ** 2)) / mid)
+        lo, hi = (mid, hi) if shape > target else (lo, mid)
+    return 0.5 * (lo + hi)
+
+
+@pytest.mark.parametrize("gauss_field",
+                         ["vorticity", "streamfunction"])
+def test_dipole_speed_knob_realizes_the_target(dipole_model,
+                                               gauss_field):
+    """match="amplitude" inverts the closed form for the amplitude."""
+    width, target = 0.05, 0.15
+    separation = 1.5 * width
+    z = nh.eddy_dipole(dipole_model, width=width, speed=target,
+                       separation=separation, gauss_field=gauss_field)
+    u, v = _core_velocity(dipole_model, z, gauss_field, 0.0,
+                          separation)
+    assert np.hypot(u, v) == pytest.approx(target, rel=0.04)
+
+
+@pytest.mark.parametrize(
+    ("gauss_field", "amplitude"),
+    [("vorticity", 12.0), ("streamfunction", 0.02)])
+def test_dipole_match_separation_takes_the_outer_root(
+        dipole_model, gauss_field, amplitude):
+    """The separation solve is the documented shape's outer root."""
+    width, target = 0.05, 0.15
+    gain = (2.0 / width if gauss_field == "streamfunction"
+            else 0.5 * width)
+    ratio = _outer_root(gauss_field, target / (gain * amplitude))
+    assert ratio > _PEAK_S[gauss_field]     # the coherent branch
+    solved = nh.eddy_dipole(dipole_model, width=width, speed=target,
+                            amplitude=amplitude, match="separation",
+                            gauss_field=gauss_field)
+    spelled = nh.eddy_dipole(dipole_model, width=width,
+                             amplitude=amplitude,
+                             separation=ratio * width,
+                             gauss_field=gauss_field)
+    scale = float(np.abs(np.asarray(spelled["u"].data)).max())
+    assert scale > 0.0
+    assert max(float(np.abs(np.asarray(
+        (solved[c] - spelled[c]).data)).max()) for c in ("u", "v")) \
+        < 1e-9 * scale
+
+
+@pytest.mark.parametrize("gauss_field",
+                         ["vorticity", "streamfunction"])
+def test_dipole_default_separation_is_self_similar(
+        eddy_models, gauss_field):
+    """separation=None tracks the width at every depth."""
+    model = eddy_models["walled z"]
+    ratio = _RATIO[gauss_field]
+    tracking = nh.eddy_dipole(model, width=_widening,
+                              gauss_field=gauss_field)
+    spelled = nh.eddy_dipole(
+        model, width=_widening, gauss_field=gauss_field,
+        separation=lambda zz: ratio * _widening(zz))
+    for name in COMPONENTS:
+        assert np.array_equal(np.asarray(tracking[name].data),
+                              np.asarray(spelled[name].data))
+    # a fixed separation is a different state, so the default is not
+    # silently constant
+    fixed = nh.eddy_dipole(model, width=_widening,
+                           gauss_field=gauss_field,
+                           separation=ratio * 0.1)
+    assert not np.allclose(np.asarray(tracking["u"].data),
+                           np.asarray(fixed["u"].data))
+
+
+@pytest.mark.parametrize("gauss_field",
+                         ["vorticity", "streamfunction"])
+def test_dipole_is_two_coherent_eddies(square_model, gauss_field):
+    """Superposition is exact, so the pair is two lobes summed."""
+    angle, separation, width = 35.0, 0.12, 0.06
+    lobe = 1.0 if gauss_field == "vorticity" else -1.0
+    head = np.deg2rad(angle)
+    left = (-lobe * np.cos(head), lobe * np.sin(head))
+    pair = nh.eddy_dipole(square_model, angle=angle, width=width,
+                          separation=separation, amplitude=1.0,
+                          gauss_field=gauss_field)
+    lobes = (nh.coherent_eddy(
+                 square_model, width=width, amplitude=1.0,
+                 gauss_field=gauss_field,
+                 pos_x=0.5 + 0.5 * separation * left[0],
+                 pos_y=0.5 + 0.5 * separation * left[1])
+             + nh.coherent_eddy(
+                 square_model, width=width, amplitude=-1.0,
+                 gauss_field=gauss_field,
+                 pos_x=0.5 - 0.5 * separation * left[0],
+                 pos_y=0.5 - 0.5 * separation * left[1]))
+    scale = float(np.abs(np.asarray(pair["u"].data)).max())
+    assert scale > 0.0
+    assert max(float(np.abs(np.asarray(
+        (pair[c] - lobes[c]).data)).max()) for c in ("u", "v")) \
+        < 1e-11 * scale
+
+
+@pytest.mark.parametrize("gauss_field",
+                         ["vorticity", "streamfunction"])
+@pytest.mark.parametrize("topology", list(_TOPOLOGIES))
+def test_dipole_is_exactly_balanced_on_every_topology(
+        topology_models, topology, gauss_field):
+    """Barotropic and depth-varying dipoles are steady states."""
+    model = topology_models[topology]
+    flat = nh.eddy_dipole(model, width=0.08, gauss_field=gauss_field)
+    model.set_state(flat)
+    assert _balance(model, flat) < 1e-12
+    assert float(np.abs(np.asarray(flat["b"].data)).max()) == 0.0
+    tall = nh.eddy_dipole(model, width=_widening,
+                          gauss_field=gauss_field)
+    model.set_state(tall)
+    assert _balance(model, tall) < 1e-12
+    # the thermal wind is on, and it is what makes it balanced
+    assert float(np.abs(np.asarray(tall["b"].data)).max()) > 0.0
+
+
+@pytest.mark.parametrize("gauss_field",
+                         ["vorticity", "streamfunction"])
+def test_dipole_is_divergence_free(periodic, gauss_field):
+    model, _ = periodic
+    z = nh.eddy_dipole(model, width=0.1, gauss_field=gauss_field,
+                       amplitude=_structure)
+    umax = max(float(np.abs(np.asarray(z[c].data)).max())
+               for c in ("u", "v"))
+    div = (z["u"].diff("x") + z["v"].diff("y")
+           + z["w"].diff("z")).data
+    assert umax > 0.0
+    assert float(np.abs(np.asarray(div)).max()) < 1e-12 * umax
+    assert float(np.abs(np.asarray(z["w"].data)).max()) == 0.0
+
+
+@pytest.mark.parametrize("gauss_field",
+                         ["vorticity", "streamfunction"])
+def test_dipole_needs_no_vortical_projection(periodic, gauss_field):
+    """The pair is already exactly vortical (no radiation)."""
+    model, em = periodic
+    z = nh.eddy_dipole(model, width=0.1, gauss_field=gauss_field,
+                       amplitude=_structure)
+    assert _energy(nh.transforms.WaveProjection(em)(z)) < 1e-24 * _energy(z)
+    kept = nh.transforms.VorticalProjection(em)(z)
+    scale = max(float(np.abs(np.asarray(z[c].data)).max())
+                for c in COMPONENTS)
+    assert max(float(np.abs(np.asarray((kept[c] - z[c]).data)).max())
+               for c in COMPONENTS) < 1e-12 * scale
+
+
+@pytest.mark.parametrize("angle", [0.0, 90.0], ids=["north", "east"])
+def test_dipole_travels_toward_its_heading(dipole_run_model, angle):
+    """The pair really moves the way its induction points."""
+    model = dipole_run_model
+    z = nh.eddy_dipole(model, angle=angle, width=0.06, speed=0.3)
+    model.set_state(z)
+    before = _dipole_centre(model, model.state)
+    model.run(steps=60, progress=False)
+    after = _dipole_centre(model, model.state)
+    step = (after[0] - before[0], after[1] - before[1])
+    want = (np.sin(np.deg2rad(angle)), np.cos(np.deg2rad(angle)))
+    travelled = np.hypot(*step)
+    assert travelled > 0.5 * 0.3 * 60 * 2e-3
+    assert step[0] * want[0] + step[1] * want[1] \
+        == pytest.approx(travelled, rel=1e-3)
+
+
+def _dipole_centre(model, state):
+    """Midpoint of the two vorticity extrema at the bottom level."""
+    zeta = np.asarray(state.rel_vort_z.data)[:, :, 0]
+    axes = [np.asarray(model.grid.evaluation_nodes(
+        state.rel_vort_z.function_space, axis).data).ravel()
+        for axis in ("x", "y")]
+    out = []
+    for sign in (+1.0, -1.0):
+        i, j = np.unravel_index((sign * zeta).argmax(), zeta.shape)
+        out.append((axes[0][i], axes[1][j]))
+    return (0.5 * (out[0][0] + out[1][0]),
+            0.5 * (out[0][1] + out[1][1]))
+
+
+def test_dipole_taught_errors(periodic, square_model):
+    model, em = periodic
+    with pytest.raises(ValueError, match="unknown gauss_field"):
+        nh.eddy_dipole(model, gauss_field="pressure")
+    with pytest.raises(ValueError, match="unknown match"):
+        nh.eddy_dipole(model, speed=0.1, match="width")
+    with pytest.raises(ValueError, match="speed must be positive"):
+        nh.eddy_dipole(model, speed=-0.1)
+    with pytest.raises(ValueError, match="not an eigenmodes"):
+        nh.eddy_dipole(em)
+    with pytest.raises(ValueError, match="width must be positive"):
+        nh.eddy_dipole(model, width=-0.1)
+    with pytest.raises(ValueError, match="separation must be positive"):
+        nh.eddy_dipole(model, separation=0.0)
+    with pytest.raises(ValueError, match="is unreachable"):
+        # a dipole cannot translate faster than one of its eddies
+        # swirls: 0.319 A R is the vorticity route's ceiling
+        nh.eddy_dipole(square_model, width=0.1, amplitude=1.0,
+                       speed=50.0, match="separation")
+    with pytest.raises(ValueError, match="declares no 'b'"):
+        nh.eddy_dipole(make_model(buoyancy=False), width=_widening)
+    with pytest.raises(ValueError, match="constant Coriolis"):
+        nh.eddy_dipole(make_model(beta=0.2), width=_widening)
+    # a barotropic dipole needs neither, on either model
+    assert float(np.abs(np.asarray(nh.eddy_dipole(
+        make_model(beta=0.2), width=0.1)["v"].data)).max()) > 0.0
 
 
 # ================================================================
