@@ -140,6 +140,21 @@ class StructuredMesh1D(Mesh):
         return self._periodic
 
     @property
+    def is_flat(self) -> bool:
+        """Whether this is a periodic single-cell axis.
+
+        Description
+        -----------
+        The "2-D direction" idiom. Deliberately **both** conditions:
+        a bounded one-cell axis is a different animal — its spaces
+        carry 0, 1 *or* 2 DOFs depending on the node set and its ghost
+        fill is a BC extension rather than a copy, so ``Outer(2) ->
+        Center(1)`` of ``[1, 3]`` is ``2/dz``, not 0
+        (``design/research/thin_axis_halo_investigation.md`` §5).
+        """
+        return self._periodic and self._n_cells == 1
+
+    @property
     def coordinate_map(
         self,
     ) -> Callable[[jax.Array], jax.Array] | None:

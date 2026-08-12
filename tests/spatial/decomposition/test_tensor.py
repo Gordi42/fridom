@@ -13,6 +13,8 @@ from fridom.spatial.decomposition.halo import HaloSpec
 from fridom.spatial.decomposition.layout import Layout
 from fridom.spatial.decomposition.tensor import (
     TensorDecomposition,
+    _fill_axis,
+    _write_axis,
 )
 from fridom.spatial.meshes.interval import IntervalMesh
 from fridom.spatial.spaces.nodal import NodeSet
@@ -44,6 +46,11 @@ class StandInSpace:
     @property
     def collapses_axis(self):
         # a full stand-in factor: not a collapsed (constant/trace) axis
+        return False
+
+    @property
+    def is_flat(self):
+        # not a periodic single-cell axis: no halo elision
         return False
 
     @property
@@ -614,21 +621,36 @@ def test_bounded_fill_deeper_than_the_axis_raises(bounded):
 @pytest.mark.parametrize("materialize", [False, True])
 def test_periodic_wrap_wider_than_the_axis_tiles(materialize):
     # a halo wider than the axis needs more than one wrap: the fill
-    # tiles the true region instead of refusing (a flat periodic
-    # direction under a wide stencil is the motivating case)
-    mesh = IntervalMesh(1, (0.0, 1.0), name="x")
-    decomp = _mesh_decomp(mesh, 3)
-    padded = decomp.pad(jnp.asarray([7.0]), mesh.center)
-    out = decomp.sync(padded, mesh.center, materialize=materialize)
-    # one cell: every one of the 7 storage slots is that cell
-    assert jnp.array_equal(out, jnp.full((7,), 7.0))
-
+    # tiles the true region instead of refusing. Reachable through a
+    # decomposition for 2 <= n < width -- at n = 1 the axis is flat
+    # and its halo is elided before any fill runs, so that leg is
+    # covered at the fill-function level below
     mesh2 = IntervalMesh(2, (0.0, 1.0), name="x")
     decomp2 = _mesh_decomp(mesh2, 3)
     padded2 = decomp2.pad(jnp.asarray([1.0, 2.0]), mesh2.center)
     out2 = decomp2.sync(padded2, mesh2.center, materialize=materialize)
     assert jnp.array_equal(
         out2, jnp.array([2.0, 1.0, 2.0, 1.0, 2.0, 1.0, 2.0, 1.0]))
+
+    mesh3 = IntervalMesh(3, (0.0, 1.0), name="x")
+    decomp3 = _mesh_decomp(mesh3, 4)
+    padded3 = decomp3.pad(jnp.asarray([1.0, 2.0, 3.0]), mesh3.center)
+    out3 = decomp3.sync(padded3, mesh3.center, materialize=materialize)
+    assert jnp.array_equal(
+        out3, jnp.array([3.0, 1.0, 2.0, 3.0, 1.0, 2.0, 3.0,
+                         1.0, 2.0, 3.0, 1.0]))
+
+
+@pytest.mark.parametrize("fill", [_fill_axis, _write_axis])
+def test_wide_wrap_of_a_single_dof_axis_tiles(fill):
+    # the n = 1 leg of the tiling branch: a flat axis no longer
+    # reaches it through a decomposition (its halo is elided), so
+    # the fill functions are exercised directly -- the coverage the
+    # thin-axis fix bought must not evaporate with the elision
+    mesh = IntervalMesh(1, (0.0, 1.0), name="x")
+    storage = jnp.asarray([0.0, 0.0, 0.0, 7.0, 0.0, 0.0, 0.0])
+    out = fill(storage, 0, 1, 3, mesh.center)
+    assert jnp.array_equal(out, jnp.full((7,), 7.0))
 
 
 @pytest.mark.parametrize("materialize", [False, True])
@@ -669,6 +691,24 @@ def test_materialized_sync_mirrors_the_map_edge_cases(bounded):
                         bounded.center)
     assert jnp.array_equal(
         decomp.sync(padded, bounded.center, materialize=True), padded)
+
+
+def test_materialized_sync_mirrors_the_map_on_a_zero_dof_factor():
+    # the edge case the 4-DOF Center above cannot reach: a walled
+    # one-cell axis empties the Dirichlet face lattice, and the vacant
+    # ghost slot then needs a *shape*, not a DOF. The write spelling
+    # used to read a DOF for it and refuse where its twin filled zeros.
+    # The whole (space, bc, n_cells) matrix lives in
+    # test_tensor_flat_axis.py; this keeps the twin claim next to it.
+    mesh = IntervalMesh(1, (0.0, 1.0), periodic=False, name="y")
+    space = mesh.nodal(NodeSet.INNER, bc=BC.DIRICHLET)
+    assert space.shape == (0,)
+    decomp = _mesh_decomp(mesh, 1)
+    padded = decomp.pad(jnp.zeros((0,)), space)
+    written = decomp.sync(padded, space, materialize=True)
+    assert jnp.array_equal(written,
+                           decomp.sync(padded, space, materialize=False))
+    assert jnp.array_equal(written, jnp.zeros((2,)))
 
 
 def test_coefficient_factors_carry_no_halo_storage():

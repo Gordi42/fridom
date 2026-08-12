@@ -292,16 +292,18 @@ class TensorDecomposition(Decomposition):
         -----------
         Collapsed factors (``ConstantSpace`` / ``TraceSpace``) and
         coefficient factors structurally carry width 0 (their halo
-        exchange is skipped by construction); other factors read the
-        negotiated per-name width, with names outside the spec
-        carrying 0.
+        exchange is skipped by construction), and so do **flat**
+        factors (a periodic single-cell axis, ``_flat_elided_width``);
+        other factors read the negotiated per-name width, with names
+        outside the spec carrying 0.
         """
         if isinstance(factor, CoefficientSpace) or factor.collapses_axis:
             return 0
         try:
-            return self._halo[name]
+            width = self._halo[name]
         except KeyError:
             return 0
+        return _flat_elided_width(name, factor, width)
 
     def _n_shards(self, name: str, factor: object,
                   layout: Layout) -> int:
@@ -1493,7 +1495,20 @@ def _bounded_ghosts(
         index = k - 1 if side == 0 else n - k
         return _take(true, axis, slice(index, index + 1))
 
-    ghosts = _ghost_values(kind, distance, dof, width, factor)
+    def zero_slot() -> jax.Array:
+        """Return one exactly-zero ghost slot, shaped like a DOF."""
+        # the Dirichlet _VACANT slot needs a *shape*, not a DOF: it is
+        # the constrained boundary DOF, which is zero whatever the
+        # interior holds. Reading a DOF for it would refuse the walled
+        # axis whose space is empty (a 1-cell walled axis leaves no
+        # interior face, so the wall-normal factor has 0 DOFs), while
+        # the map spelling (_axis_map) fills it happily -- the two are
+        # documented twins and must not disagree.
+        shape = list(true.shape)
+        shape[axis] = 1
+        return jnp.zeros(tuple(shape), true.dtype)
+
+    ghosts = _ghost_values(kind, distance, dof, zero_slot, width, factor)
     if side == 0:
         ghosts.reverse()
     return jnp.concatenate(ghosts, axis=axis)
@@ -1579,6 +1594,7 @@ def _ghost_values(
     kind: BC,
     distance: float,
     dof: Callable[[int], jax.Array],
+    zero_slot: Callable[[], jax.Array],
     width: int,
     factor: FunctionSpace,
 ) -> list[jax.Array]:
@@ -1591,6 +1607,11 @@ def _ghost_values(
     multi-device physical-boundary fill (a shard's block is filled
     from received/local slabs, not by remapping an axis).
 
+    The ``sign == 0`` slot is built by ``zero_slot`` rather than from a
+    DOF: ``_ghost_slot`` reports a meaningless rank there, so reading a
+    DOF for it would refuse a factor with too few (possibly zero) DOFs
+    that the map spelling fills without complaint.
+
     Parameters
     ----------
     kind : BC
@@ -1599,6 +1620,8 @@ def _ghost_values(
         The nearest-true-DOF distance class (``_boundary_geometry``).
     dof : Callable[[int], jax.Array]
         Accessor for the k-th true DOF from this side (k=1 nearest).
+    zero_slot : Callable[[], jax.Array]
+        Builder for one exactly-zero, DOF-shaped ghost slot.
     width : int
         The ghost width to fill.
     factor : FunctionSpace
@@ -1613,7 +1636,7 @@ def _ghost_values(
     for k in range(1, width + 1):
         rank, sign = _ghost_slot(kind, distance, k, factor)
         if not sign:
-            values.append(jnp.zeros_like(dof(rank)))
+            values.append(zero_slot())
         elif sign < 0:
             values.append(-dof(rank))
         else:
@@ -1692,6 +1715,111 @@ def _axis_map(
             src[slot] = width + (rank - 1 if side == 0 else n - rank)
             neg[slot] = sign < 0
     return src, neg, zero
+
+
+def _flat_ghosts_are_copies(
+    name: str, factor: FunctionSpace, width: int,
+) -> bool:
+    r"""
+    Whether a factor's realized ghost fill is a pure copy of one DOF.
+
+    Description
+    -----------
+    The audit behind flat-axis halo elision: it asks ``_axis_map`` —
+    the single source of truth for the fill — what it *would* put in
+    the ``width`` ghost slots on each side, and reports whether every
+    one of them reads the same single true DOF unnegated and unzeroed.
+    That is the exact premise elision rests on; when it holds the
+    ghosts carry no information and may be dropped from storage.
+
+    Reads the map rather than re-deriving it, so the audit cannot
+    drift from the fill. Pure host-side numpy.
+
+    Parameters
+    ----------
+    name : str
+        The coordinate name of the axis.
+    factor : FunctionSpace
+        The factor space owning the axis.
+    width : int
+        The negotiated ghost width to audit (> 0).
+
+    Returns
+    -------
+    bool
+        True iff every ghost slot reads the axis's one true DOF as-is.
+    """
+    n = factor.shape[factor.names.index(name)]
+    if n != 1:
+        return False
+    src, neg, zero = _axis_map(n + 2 * width, n, width, factor)
+    return (bool(np.all(src == width))
+            and not neg.any() and not zero.any())
+
+
+def _flat_elided_width(
+    name: str, factor: FunctionSpace, width: int,
+) -> int:
+    r"""
+    Return 0 on a flat axis, else ``width`` unchanged.
+
+    Description
+    -----------
+    The **single gate** of flat-axis halo elision: a periodic
+    single-cell axis carries one DOF per space family and the wrap
+    makes every ghost a copy of it, so the ghosts carry no information
+    and the storage halo is dropped
+    (``design/research/thin_axis_halo_investigation.md`` §6). The
+    negotiated ``decomposition.halo`` is deliberately left untouched —
+    the stencil reach guards and the solver halo demand keep reading
+    it, and the shared stencil tails rebuild the elided window on
+    demand (``staggering.flat_widen``).
+
+    The gate re-verifies its own premise against the fill machinery
+    before dropping anything, because the failure mode of a
+    *mis-keyed* flat predicate is silent wrongness rather than an
+    error: a **bounded** one-cell axis passes several tempting tests
+    (``n_cells == 1``, ``shape[0] == 1``) while its ghost fill is a BC
+    extension, not a copy — ``Outer(2) -> Center(1)`` of ``[1, 3]`` is
+    ``2/dz``, not 0, and a walled ``nz = 2`` model puts ``w`` on an
+    ``Inner`` factor of shape ``(1,)`` with a nonzero ``±1/dz``
+    divergence (§5). Spelled as an explicit ``raise`` rather than an
+    ``assert`` so ``python -O`` cannot strip it.
+
+    Parameters
+    ----------
+    name : str
+        The coordinate name of the axis.
+    factor : FunctionSpace
+        The factor space owning the axis.
+    width : int
+        The negotiated ghost width along ``name``.
+
+    Returns
+    -------
+    int
+        0 if the axis is flat, else ``width``.
+
+    Raises
+    ------
+    AssertionError
+        If a factor reported flat does not in fact have a pure-copy
+        ghost fill — i.e. the flat predicate has been widened past
+        what §5 sanctions.
+    """
+    if not factor.is_flat or not width:
+        return width
+    if not _flat_ghosts_are_copies(name, factor, width):
+        raise AssertionError(
+            f"{factor!r} reports is_flat along {name!r}, but its "
+            f"realized ghost fill at width {width} is not a pure copy "
+            f"of a single true DOF, so eliding the halo would change "
+            f"the answer silently. The flat predicate must stay "
+            f"`periodic and n_cells == 1` -- see "
+            f"design/research/thin_axis_halo_investigation.md section "
+            f"5 (a bounded one-cell axis carries 0, 1 or 2 DOFs and "
+            f"its fill is a BC extension, not a copy)")
+    return 0
 
 
 def _fill_axis(

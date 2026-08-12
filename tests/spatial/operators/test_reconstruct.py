@@ -816,3 +816,114 @@ def test_walled_face_windowed_grad_is_finite_and_matches_fd(
     h = 1e-4
     fd = float((loss(c0 + h) - loss(c0 - h)) / (2.0 * h))
     assert abs(grad - fd) <= 1e-4 * abs(fd)
+
+
+# ================================================================
+#  Flat-axis halo elision (repeat-and-run + co-operands)
+# ================================================================
+def _flat_grid(nz=1):
+    """Return (grid, mx, mz) with a periodic nz-cell z axis."""
+    mesh_x = IntervalMesh(8, (0.0, 1.0), name="x")
+    mesh_z = IntervalMesh(nz, (0.0, 1.0), name="z")
+    return Grid((mesh_x, mesh_z), device_ids=(0,)), mesh_x, mesh_z
+
+
+def test_flat_axis_reconstruction_is_the_identity():
+    # every window along the flat axis is the single DOF, so a
+    # consistent reconstruction reproduces it exactly
+    grid, mesh_x, mesh_z = _flat_grid()
+    f = grid.create_field(
+        mesh_x.cell_avg * mesh_z.cell_avg,
+        init=lambda x, z: jnp.sin(2.0 * jnp.pi * x) + 0.0 * z)
+    assert f._data.shape[1] == 1
+    out = LinearReconstruction()["z"](f)
+    assert out._data.shape[1] == 1
+    assert jnp.array_equal(out.data, f.data)
+
+
+def test_flat_axis_reconstruction_matches_a_replicated_deep_run():
+    # the load-bearing equivalence: the elided answer is the
+    # non-elided one, level by level
+    flat, mesh_x, mesh_z = _flat_grid()
+    deep, deep_x, deep_z = _flat_grid(nz=4)
+
+    def init(x, z):
+        return jnp.cos(3.0 * x) + 0.0 * z
+
+    a = LinearReconstruction()["z"](
+        flat.create_field(mesh_x.cell_avg * mesh_z.cell_avg, init=init))
+    b = LinearReconstruction()["z"](
+        deep.create_field(deep_x.cell_avg * deep_z.cell_avg, init=init))
+    assert jnp.array_equal(a.data[:, 0], b.data[:, 0])
+
+
+def test_co_operands_are_widened_alongside_the_operand():
+    # the mechanism: a second storage array the kernel reads must be
+    # DECLARED, and the tail then rebuilds its elided window too
+    grid, mesh_x, mesh_z = _flat_grid()
+    space = mesh_x.cell_avg * mesh_z.cell_avg
+    f = grid.create_field(space, init=lambda x, z: x + 1.0 + 0.0 * z)
+    other = grid.create_field(space, init=lambda x, z: 10.0 + 0.0 * (x + z))
+    seen = {}
+
+    def kernel(storage, axis_index, co):
+        seen["storage"] = storage.shape
+        seen["co"] = co.shape
+        # a co-operand read sliced by the operand's window length:
+        # the trap the declaration exists to close
+        wins = storage.shape[axis_index] - 1
+        index = [slice(None)] * co.ndim
+        index[axis_index] = slice(0, wins)
+        return storage[tuple(index)] + co[tuple(index)]
+
+    op = LinearReconstruction()["z"]
+    out = apply_fv_staggered(
+        op, f, "z", 2, kernel, metadata=None,
+        co_operands=(other._data,))
+    width = grid.decomposition.halo["z"]
+    assert seen["storage"] == (f._data.shape[0], 1 + 2 * width)
+    assert seen["co"] == seen["storage"]
+    assert jnp.allclose(out.data, f.data + 10.0)
+
+
+def test_an_undeclared_co_operand_is_not_widened():
+    # the failure mode the parameter closes, pinned: this kernel's
+    # captured array would BROADCAST its single slot against the
+    # rebuilt window and return a plausible wrong answer, so the flat
+    # path audits the closure and refuses instead
+    grid, mesh_x, mesh_z = _flat_grid()
+    space = mesh_x.cell_avg * mesh_z.cell_avg
+    f = grid.create_field(space, init=lambda x, z: x + 1.0 + 0.0 * z)
+    captured = grid.create_field(
+        space, init=lambda x, z: 10.0 + 0.0 * (x + z))._data
+
+    def kernel(storage, axis_index):
+        wins = storage.shape[axis_index] - 1
+        index = [slice(None)] * captured.ndim
+        index[axis_index] = slice(0, wins)
+        return storage[(slice(None), slice(0, wins))] \
+            + captured[tuple(index)]
+
+    op = LinearReconstruction()["z"]
+    with pytest.raises(ValueError, match="co_operands"):
+        apply_fv_staggered(op, f, "z", 2, kernel, metadata=None)
+
+
+def test_a_deep_axis_leaves_co_operands_untouched():
+    grid, mesh_x, mesh_z = _flat_grid(nz=4)
+    space = mesh_x.cell_avg * mesh_z.cell_avg
+    f = grid.create_field(space, init=lambda x, z: x + z)
+    other = grid.create_field(space, init=lambda x, z: 2.0 + 0.0 * (x + z))
+    seen = {}
+
+    def kernel(storage, axis_index, co):
+        seen["co"] = co.shape
+        wins = storage.shape[axis_index] - 1
+        index = [slice(None)] * co.ndim
+        index[axis_index] = slice(0, wins)
+        return storage[tuple(index)] + co[tuple(index)]
+
+    apply_fv_staggered(
+        LinearReconstruction()["z"], f, "z", 2, kernel, metadata=None,
+        co_operands=(other._data,))
+    assert seen["co"] == other._data.shape

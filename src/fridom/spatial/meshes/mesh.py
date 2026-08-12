@@ -112,6 +112,20 @@ class Mesh(ABC):
         """
         ...
 
+    @property
+    def is_flat(self) -> bool:
+        """Whether this factor is a periodic single-cell axis.
+
+        The "2-D direction" idiom: a periodic mesh with exactly one
+        cell, where the wrap makes every neighbour the single cell
+        itself. ``False`` on this base — a mesh with no periodic
+        topology (a ``PointMesh``) is never flat — and overridden in
+        ``StructuredMesh1D``. See
+        ``design/research/thin_axis_halo_investigation.md`` §5 for
+        why a *bounded* one-cell axis is emphatically not flat.
+        """
+        return False
+
     # ================================================================
     #  Coordinate names
     # ================================================================

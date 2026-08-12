@@ -114,6 +114,48 @@ COMPONENT_FACTORS: dict[str, UnitFactor] = {
         fn=_buoyancy),
 }
 
+def _vorticity(values: Mapping[str, float]) -> float:
+    """Return the vorticity amplitude ``U/L``."""
+    return values["U"] / values["L"]
+
+
+def _energy(values: Mapping[str, float]) -> float:
+    """Return the specific-energy amplitude ``U^2``."""
+    return values["U"] ** 2
+
+
+def _linear_pot_vort(values: Mapping[str, float]) -> float:
+    """Return the linear-PV amplitude ``U/(eps*L)``."""
+    return values["U"] / (values["eps"] * values["L"])
+
+
+_ENERGY_FACTOR = UnitFactor(
+    target_unit="m^2/s^2", expr="U^2", kind="derived",
+    scales=("U",), fn=_energy)
+
+#: the diagnosed quantities' rows, so a nondimensional store can be
+#: converted back (5.6). Absent rows are deliberate, never sloppy:
+#: a quantity whose factor is not derived is better left unstamped
+#: than stamped wrong.
+DERIVED_FACTORS: dict[str, UnitFactor] = {
+    "rel_vort_z": UnitFactor(
+        target_unit="1/s", expr="U/L", kind="derived",
+        scales=("L", "U"), fn=_vorticity),
+    "ekin": _ENERGY_FACTOR,
+    # epot = 0.5*b^2/N^2_eff: the amplitude ratio is
+    # U^2*(Fr/eps)^2 and the nondimensional N^2_eff = (eps/Fr)^2
+    # cancels it, so epot shares ekin's factor and etot is well
+    # defined -- it only LOOKS scaling-dependent
+    "epot": _ENERGY_FACTOR,
+    "etot": _ENERGY_FACTOR,
+    # NOT U/L despite sharing the unit 1/s: the nondimensional
+    # definition multiplies through by eps (diagnostics.py)
+    "linear_pot_vort": UnitFactor(
+        target_unit="1/s", expr="U/(eps*L)", kind="derived",
+        scales=("L", "U"), params={"eps": SCALING_NONLINEARITY},
+        fn=_linear_pot_vort),
+}
+
 #: the stratification family's derived-constant row
 STRATIFICATION_FACTORS: dict[str, UnitFactor] = {
     "N_dim": UnitFactor(

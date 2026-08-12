@@ -102,3 +102,33 @@ consumer. *Reopen if:* one appears — the route is recorded.
 *Declined 2026-07-19 (owner): the gather was rejected outright;* the
 double-transpose pipeline (`Channel2DPlan`, all-to-all only,
 HLO-asserted no all-gather) shipped instead — merge `8752170a`.
+
+## Asymmetric halo — storing the two-sided reach instead of its max
+
+*Declined 2026-08-12: measured to save **zero** planes.* The proposal
+was to stop collapsing `reach=(below, above)` to its per-side maximum
+(`halo.py` ~1298), on the grounds that WENO5's true reach is (2,3)
+while storage is 3+3, so every grid pays an extra plane on every
+applied axis. Instrumenting the *input* to `HaloSpec.symmetric` at
+both collapse sites across nine configurations (nh centered, weno3,
+weno5, upwind5, weno5 walled-z, advection=False, sw advective and
+linear) records **zero asymmetric specs** — WENO5 arrives at the
+collapse as `(3,3)`.
+
+The asymmetry is real per *row* and **already exploited** per row
+(`advection.py` ~1479 tightens to `n + 6` per axis for upwind5, not
+`n + 8`), but a complete tendency leg symmetrizes: staggered schemes
+pair a forward difference with a backward one, and upwinding keeps
+both biased reconstructions resident because the flux sign selects at
+runtime. Storage is one array, so it holds the per-side max — exactly
+`storage_halo_width.md` §1's own derivation, `[-1,0] ⊕ [-2,+3] =
+[-3,+3]`. Ceiling had the asymmetry existed: 4.4% / 2.3% / 1.15% of
+step bytes at 64³/128³/256³. The original claim ("plausibly worth more
+than flat-axis elision") was a per-row fact stated at tendency scope.
+
+*Reopen if:* a configuration is demonstrated whose **accumulated
+per-side** demand is asymmetric — a single-bias scheme, or a wall shift
+that survives the leg union. Note the adjacent lever that *is* real and
+is now tracked separately in [`deferred.md`](deferred.md): the mapped
+grid's `extra_halo = 2` floor over a traced demand of 1.
+[`../research/thin_axis_halo_investigation.md`](../research/thin_axis_halo_investigation.md) §12.3.

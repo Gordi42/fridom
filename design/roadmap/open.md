@@ -108,24 +108,18 @@ closed: `UnitFactor.unit` is now `target_unit` (the unit of
 `factor * value`, whose misreading produced the lat-lon bug) and a
 per-package lint pins the component overlap.
 
-Open: **derived quantities carry no conversion row**, so a
-nondimensional store has `vort` with `units="1"` and no
-`dimensional_factor` while `u` carries one — honest but
-unrecoverable. Investigated 2026-08-12 (§5.6): the factor **cannot**
-be derived from the unit string (measured: declared/from-dimensions
-ratios are `eps` for `u`/`p` and `delta` for `b` — each amplitude is
-an independent normalization and `delta*L` is a second length), so
-per-quantity rows are the only route; no new machinery is needed
-(`module.unit_factors` + live-parameter `UnitFactor`s); the writer
-must additionally fall back from the user-chosen output name to
-`field.metadata.name`, which the name-identity gate already pins.
-Ten of the seventeen are mechanical (`U/L` for the vorticity /
-divergence family, `U^2` for the energies), `nh.linear_pot_vort` is
-`U/(eps*L)` rather than `U/L` because its definition folds in `eps`,
-and `sw.ekin_full` / `etot_full` / `pot_vort` need the geopotential
-conventions settled before their rows can be written — an absent row
-is honest, a wrong one repeats §5.1. Recommendation: package rows +
-a user-declarable factor on the `derived=` channel, staged.
+Derived-quantity conversion shipped 2026-08-12 (§5.6): a `derived`
+row kind, 14 rows across the three packages, a writer fallback from
+the user-chosen output key to the canonical name, and
+`Writer(unit_factors=)` + `UnitsView.resolve` for ad-hoc quantities.
+
+**What remains**: `sw.ekin_full`, `sw.etot_full` and `sw.pot_vort`
+carry no row, deliberately — their factors turn on the geopotential
+thickness convention (the `thickness` row is `(U/Fr)^2` while `p` is
+`U^2/eps`, which do not reconcile under a non-`GravityWave` sw
+scaling). **Owner call.** A test asserts the absence so it reads as
+a decision, not an oversight; an absent row leaves the quantity
+honestly unconvertible where a guessed one would repeat §5.1.
 
 Record: [`../research/units_metadata_investigation.md`](../research/units_metadata_investigation.md).
 
@@ -139,6 +133,60 @@ awaiting the owner**: accept the `[1]` label, or suppress `"1"` in
 the viewer's label composition (the recommendation: the store stays
 CF-correct and the decision sits in the presentation layer).
 
+
+## 2d. Operator-algebra gaps surfaced by the eddy inversion (2026-08-12)
+
+Found while building the general streamfunction inversion
+(`fridom.model.streamfunction`, record
+[`../research/eddy_streamfunction_inversion.md`](../research/eddy_streamfunction_inversion.md)).
+Neither blocks that work, which routes around both, but each is a
+real limit the next caller will hit.
+
+- **No mixed `Sine x Cosine` transform product.** `_seed_transform_rows`
+  binds each trig family instance over *all* axes its meshes ground,
+  so on a grid walled in x and z the sine instance is
+  `Sine(grid, axes=("x", "z"))` and a Dirichlet-x tensor Neumann-z
+  product raises `no DST signature on CellAvg(z, bc=NEUMANN)`. The
+  pressure solve never hits this because it tags every axis Neumann.
+  The inversion routes around it by keeping one trig family across
+  bounded axes, which is sound only while the vertical is passive
+  (the symbol never reads its mode index). A caller that genuinely
+  needs `DST(x) x DCT(z)` needs axis-restrictable trig transforms.
+- **`nh.State.rel_vort_z` is half-tagged on a walled grid.** It
+  returns `Inner(x) tensor Inner(y, bc=DIRICHLET)`, x losing its tag
+  because `v.diff("x")` emits a BC-free bounded output. The
+  consequence is family-dependent: under `fv` the result still
+  differentiates, under `nodal` `state.rel_vort_z.diff("x")` raises
+  `DispatchError: no operator registered for kind 'diff' on
+  Inner(x)`. The sw2 sibling retags onto the Dirichlet corner and
+  nh2 does not, so the asymmetry looks unintended rather than
+  designed.
+
+Also parked from the same pass: `build_flat_spectral_solve` is
+reusable for non-pressure elliptic problems once `_neumann_sibling`
+grows an `is_free` guard (a no-op in the pressure path, whose space
+is always the BC-free cell scalar); today it raises on every walled
+topology.
+
+## 2e. Thin-axis remainder (elision + the walled fill shipped 2026-08-12; entry in [`done.md`](done.md))
+
+- **A100 confirmation of flat-axis elision** (owner-submitted,
+  confirmatory — the cpu evidence already carried the decision):
+  `benchmarks/ci/` job written and dry-run verified. `S >= 0.50` at the
+  largest size confirms; predicted 0.83–0.87 for WENO5. A leg-B
+  arithmetic intensity above ~4.8 FLOP/byte would be the genuine
+  surprise, overturning the bandwidth-bound premise.
+- **Real `srun -n N` verification** (owner-submitted). Forced-4 host
+  devices pass (462 tests), and a size-1 axis is never sharded at any
+  device count, so the flat path only ever takes the single-shard
+  branch — low risk, unverified under a true multi-host launch.
+- **The merely-thin axis is still uncovered:** `n = 2` pays 3x/5x and no
+  flat rule reaches it. Extending the widening to a modular tiled gather
+  for `n < halo` looks worth costing given the measured size of the win.
+- **`examples/nonhydro/dancing_eddies.py`** prose still says a thin
+  vertical rules out the wide reconstruction stencils. Now doubly stale
+  (the wrap fix lifted it; elision makes the flat axis the *cheap* one).
+  Docs-review scope — owner-reviewed privately, per AGENTS.md.
 
 ## 3. Perf-guard checkpoint (owner-run)
 

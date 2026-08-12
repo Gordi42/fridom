@@ -331,3 +331,40 @@ def test_component_rows_agree_with_the_field_annotations():
     drifted = {name: pair for name, pair in overlap.items()
                if pair[0] != pair[1]}
     assert drifted == {}
+
+
+# ================================================================
+#  Derived-quantity rows (5.6: converting a diagnostic back)
+# ================================================================
+def test_derived_rows_resolve_to_the_declared_amplitudes():
+    units = nondim_model().units
+    for name in ("rel_vort", "divergence"):
+        assert units.factor(name) == pytest.approx(U_REF / L_REF), name
+    for name in ("ekin", "epot"):
+        assert units.factor(name) == pytest.approx(U_REF ** 2), name
+    assert units.factor("epot_full") == pytest.approx(
+        (U_REF ** 2 / FR) ** 2)
+
+
+def test_the_thickness_weighted_family_is_deliberately_unstamped():
+    """Absent, not forgotten: their factors turn on an open call.
+
+    ``ekin_full`` / ``etot_full`` / ``pot_vort`` weight by the
+    geopotential thickness, whose row is ``(U/Fr)^2`` while ``p`` is
+    ``U^2/eps``; reconciling those is an owner call
+    (``units_metadata_investigation.md`` 5.6). A quantity with no
+    row is honestly unconvertible — a wrong row would repeat the
+    lat-lon failure of reading a row as something it is not.
+    """
+    rows = dict(nondim_model().units.factors)
+    for name in ("ekin_full", "etot_full", "pot_vort"):
+        assert name not in rows, name
+
+
+def test_derived_row_units_match_the_declared_annotations():
+    rows = dict(dim_model().units.factors)
+    for name in ("rel_vort", "divergence"):
+        assert rows[name].target_unit == "1/s", name
+    for name in ("ekin", "epot"):
+        assert rows[name].target_unit == "m^2/s^2", name
+    assert rows["epot_full"].target_unit == "m^4/s^4"

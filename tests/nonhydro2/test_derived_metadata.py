@@ -132,3 +132,24 @@ def test_nondimensional_model_reports_dimensionless(
     metadata = derived(nondimensional, key).metadata
     assert metadata.units == DIMENSIONLESS_UNITS
     assert metadata.physical_units == DERIVED[key]
+
+
+def test_a_declared_row_agrees_with_the_declared_annotation():
+    """The second place the two unit sources overlap (5.5/5.6).
+
+    A derived quantity's conversion row is identity on a dimensional
+    model, so its ``target_unit`` must equal the physical unit the
+    diagnostic declares. A quantity with no row is skipped: absent
+    rows are deliberate where a factor is not derived.
+    """
+    model = make_model(nondimensional=False)
+    rows = dict(model.units.factors)
+    checked = {}
+    for key, unit in DERIVED.items():
+        row = rows.get(key)
+        if row is None:
+            continue
+        checked[key] = (unit, row.target_unit)
+    assert checked, "no derived quantity carries a conversion row"
+    drifted = {k: v for k, v in checked.items() if v[0] != v[1]}
+    assert drifted == {}

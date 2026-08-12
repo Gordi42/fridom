@@ -135,6 +135,7 @@ from fridom.shallowwater2.modules.immersed_weighting import (
 from fridom.shallowwater2.state import State
 from fridom.shallowwater2.units import (
     COMPONENT_FACTORS,
+    DERIVED_FACTORS,
     coordinate_factors,
 )
 from fridom.spatial.decomposition.halo import HaloSpec
@@ -332,11 +333,12 @@ class Core(fr.model.Module):
 
         The shallow-water amplitude table
         (:mod:`fridom.shallowwater2.units`) plus the two ``L``-valued
-        coordinate rows — an instance property because ``coords=``
-        renames the coordinate keys.
+        coordinate rows and the diagnosed quantities' rows — an
+        instance property because ``coords=`` renames the
+        coordinate keys.
         """
         return {**coordinate_factors(*self._coords),
-                **COMPONENT_FACTORS}
+                **COMPONENT_FACTORS, **DERIVED_FACTORS}
 
     # The chart-path wave term resolves the metric-aware kinds,
     # whose multi-row block application the halo tracer cannot

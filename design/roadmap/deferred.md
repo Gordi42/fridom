@@ -179,41 +179,37 @@ single-device-tested). Plan §P3:
 **Trigger:** the first docs example or user request needing a
 single-sided packet in a walled channel.
 
-## Flat-axis halo elision — halo 0 on a size-1 periodic axis
-
-*Deferred (2026-08-12). Trigger: a gpu measurement showing the step is
-bandwidth-bound at a flat-axis production size — or a production run
-that is.* A periodic axis of one cell is constant by construction, so
-interpolation along it is the identity and every derivative is zero:
-in principle it needs no ghosts at all. Today it stores `1 + 2H`
-slots (7 at WENO5), an exact 3x/5x/7x on stored field traffic, and
-that is a real FLOP multiplier because same-space field arithmetic
-runs on the storage-shaped `_data`. Measured payoff is only 5–13% of
-step time on cpu at 128² (most of the step is fixed cost), but a
-bandwidth-bound proxy at 514² gives 4.9x/11.8x/15.3x for z-extent
-3/5/7 — worse than proportional, because a 3-long fastest-varying
-storage axis is a pathological SIMD width. The gpu number is the whole
-decision and is unmeasured.
-
-Shape if promoted: repeat-and-run in the two shared stencil tails
-(`staggering.apply_staggered`, `reconstruct.apply_fv_staggered`),
-gated on `factor.mesh.periodic and factor.mesh.n_cells == 1`, with
-`_width` returning 0 and `decomposition.halo` left untouched. Two
-traps recorded in the analysis: clamping only `_width` produces
-**silent zeros** (the stencil guards still read the negotiated width,
-the kernel output has length 0 and `jnp.pad` fills the result), and a
-predicate keyed on `n_cells == 1` alone is wrong on a *bounded* axis,
-where `Outer` has 2 DOFs and a genuine flux divergence survives.
-[`../research/thin_axis_halo_investigation.md`](../research/thin_axis_halo_investigation.md) §6.
-
-## Asymmetric halo — stop rounding the two-sided reach up
+## Mapped-grid halo floor — `extra_halo = 2` where the trace demands 1
 
 *Deferred (2026-08-12). Trigger: the next storage/bandwidth push, or
-any perf work that touches the negotiation.* `OperatorRequirements`
-carries `reach=(below, above)` and the two-sided value is threaded
-through the whole trace, then collapsed to symmetric in one line
-(`halo.py` ~1298). WENO5's true reach is (2,3) but storage is 3+3, so
-every grid pays an extra plane on every applied axis — not just the
-thin ones. Plausibly worth more than flat-axis elision, since it is
-not conditional on a grid shape.
-[`../research/thin_axis_halo_investigation.md`](../research/thin_axis_halo_investigation.md) §6.
+any perf work that touches the negotiation.* On a **mapped** grid the
+centered chain tightens to a traced reach of 1, but
+`DynamicalCore.extra_halo = 2` floors the negotiation, so every applied
+axis carries a plane it never reads. Measured worth: **~8% of step
+bytes at 64³, ~4% at 128³** — shape-unconditional, unlike flat-axis
+elision. This is the lever the retired asymmetric-halo entry was
+reaching for. Establish first whether the floor is load-bearing for
+some mapped/immersed consumer or simply conservative.
+[`../research/storage_halo_width.md`](../research/storage_halo_width.md) §1,
+[`../research/thin_axis_halo_investigation.md`](../research/thin_axis_halo_investigation.md) §12.3.
+
+## A genuinely 2-D `nonhydro2` configuration
+
+*Deferred (2026-08-12). Trigger: a user or example that wants an (x,z)
+or (x,y) nonhydrostatic slice and should not pay for a third axis.*
+`nonhydro2` **cannot express a 2-D setup at all** today —
+`fr.spatial.Grid((mx, mz))` raises `KeyError: no factor contributes
+coordinate 'y'`. So the flat third axis is not a workaround users chose
+over a supported spelling; it is the only spelling on offer. A real
+2-D configuration would use `ConstantSpace` for its actual purpose ("an
+axis my equations do not extend along"), correctly dropping the
+geometry, the coordinate and the derivative — and would serve the
+flat-**y** linear examples (`wave_package`, `internal_wave_maker`,
+`multiple_wave_makers`) exactly, since their equations genuinely have
+no y-derivative. It would **not** replace `dancing_eddies`, which
+deliberately runs the full 3-D nonhydrostatic solver (CG projection,
+prognostic `w`) on a 2-D flow; the genuinely 2-D barotropic case is
+already `shallowwater2`. Scope: state spaces and the C-grid pair
+discovery in `nonhydro2/modules/core.py`, every module's per-axis leg
+list, and `_axis_velocity`.
+[`../research/thin_axis_halo_investigation.md`](../research/thin_axis_halo_investigation.md) §12.6.

@@ -444,3 +444,48 @@ def test_report_smoke_dimensional_and_none():
 def test_repr_lists_the_rows():
     model = make_model((Table(),))
     assert repr(model.units) == "<units: T_ref, t, u, x>"
+
+
+# ================================================================
+#  The derived row kind and the out-of-table resolution seam
+# ================================================================
+def test_derived_is_a_raw_kind():
+    """Raw: a dimensional model computes diagnostics in SI already."""
+    factor = UnitFactor(target_unit="1/s", expr="U/L",
+                        kind="derived", scales=("L", "U"),
+                        fn=lambda values: values["U"] / values["L"])
+    assert factor.kind == "derived"
+
+
+def test_unknown_kind_still_raises():
+    with pytest.raises(ValueError, match="unknown unit-factor kind"):
+        UnitFactor(target_unit="1/s", expr="U/L", kind="diagnosed")
+
+
+def test_resolve_handles_a_row_the_model_does_not_contribute():
+    """The ad-hoc seam: same switch, same live reads, same marks."""
+    model = make_model((Velocities(),),
+                       scaling=fr.scaling.Advective(
+                           L=100.0, U=2.0))
+    row = UnitFactor(
+        target_unit="m^2/s", expr="U*L", kind="derived",
+        scales=("L", "U"),
+        fn=lambda values: values["U"] * values["L"])
+    entry = model.units.resolve("mine", row)
+    assert entry.name == "mine"
+    assert entry.value == pytest.approx(200.0)
+    assert entry.target_unit == "m^2/s"
+    assert entry.expr == "U*L"
+    assert "mine" not in dict(model.units.factors)
+
+
+def test_resolve_marks_an_unresolvable_row():
+    model = make_model((Velocities(),),
+                       scaling=fr.scaling.Advective(U=2.0))
+    row = UnitFactor(
+        target_unit="m^2/s", expr="U*L", kind="derived",
+        scales=("L", "U"),
+        fn=lambda values: values["U"] * values["L"])
+    entry = model.units.resolve("mine", row)
+    assert entry.value is None
+    assert "L=" in entry.missing

@@ -234,3 +234,90 @@ def test_component_rows_agree_with_the_field_annotations():
     drifted = {name: pair for name, pair in overlap.items()
                if pair[0] != pair[1]}
     assert drifted == {}
+
+
+# ================================================================
+#  Derived-quantity rows (5.6: converting a diagnostic back)
+# ================================================================
+def test_derived_rows_resolve_to_the_declared_amplitudes():
+    units = rot_model().units
+    assert units.factor("rel_vort_z") == pytest.approx(U_REF / L_REF)
+    for name in ("ekin", "epot", "etot"):
+        assert units.factor(name) == pytest.approx(U_REF ** 2), name
+    # NOT U/L despite the shared 1/s unit: the nondimensional
+    # definition multiplies through by eps
+    assert units.factor("linear_pot_vort") == pytest.approx(
+        U_REF / (RO * L_REF))
+
+
+def test_derived_rows_are_identity_on_a_dimensional_model():
+    units = dim_model().units
+    rows = dict(units.factors)
+    for name in ("rel_vort_z", "ekin", "epot", "etot",
+                 "linear_pot_vort"):
+        assert units.factor(name) == 1.0, name
+        assert rows[name].kind == "derived"
+
+
+def test_derived_row_units_match_the_declared_annotations():
+    rows = dict(dim_model().units.factors)
+    assert rows["rel_vort_z"].target_unit == "1/s"
+    assert rows["linear_pot_vort"].target_unit == "1/s"
+    for name in ("ekin", "epot", "etot"):
+        assert rows[name].target_unit == "m^2/s^2", name
+
+
+# ================================================================
+#  The store round-trip: a diagnostic is convertible again
+# ================================================================
+def test_a_user_named_derived_variable_gets_the_canonical_row(
+        tmp_path):
+    """The output key is the user's; the row is keyed canonically."""
+    xr = pytest.importorskip("xarray")
+    model = rot_model()
+    path = tmp_path / "derived.zarr"
+    writer = Writer(
+        path, fields=["u"],
+        derived={"vort": lambda ms: ms.state.rel_vort_z},
+        trigger=every(steps=1))
+    writer.bind(model)
+    writer.write(model.carry)
+    writer.close()
+    ds = xr.open_zarr(path, consolidated=False)
+    # nondimensional store: both dimensionless, both convertible
+    assert ds["u"].attrs["units"] == "1"
+    assert ds["vort"].attrs["units"] == "1"
+    assert ds["u"].attrs["dimensional_factor"] == pytest.approx(U_REF)
+    assert ds["vort"].attrs["dimensional_factor"] == pytest.approx(
+        U_REF / L_REF)
+    assert ds["vort"].attrs["dimensional_units"] == "1/s"
+
+
+def test_an_ad_hoc_quantity_can_declare_its_own_factor(tmp_path):
+    """No package table can know a user's own diagnostic."""
+    xr = pytest.importorskip("xarray")
+    model = rot_model()
+
+    def mine(model_state):
+        zeta = model_state.state.rel_vort_z
+        return zeta.new_quantity(
+            zeta.data * 2.0, name="mine", long_name="My thing",
+            units="m/s^2")
+
+    row = fr.model.UnitFactor(
+        target_unit="m/s^2", expr="U^2/L", kind="derived",
+        scales=("L", "U"), fn=lambda values: (
+            values["U"] ** 2 / values["L"]))
+    path = tmp_path / "adhoc.zarr"
+    writer = Writer(path, fields=[], derived={"mine": mine},
+                    unit_factors={"mine": row},
+                    trigger=every(steps=1))
+    writer.bind(model)
+    writer.write(model.carry)
+    writer.close()
+    ds = xr.open_zarr(path, consolidated=False)
+    attrs = ds["mine"].attrs
+    assert attrs["dimensional_factor"] == pytest.approx(
+        U_REF ** 2 / L_REF)
+    assert attrs["dimensional_units"] == "m/s^2"
+    assert attrs["dimensional_factor_expr"] == "U^2/L"
