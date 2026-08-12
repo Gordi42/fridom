@@ -99,6 +99,7 @@ from fridom.hydrostatic.params import GRAVITY
 from fridom.hydrostatic.state import State
 from fridom.hydrostatic.units import (
     COMPONENT_FACTORS,
+    DERIVED_FACTORS,
     buoyancy_factor,
     coordinate_factors,
     vertical_extent,
@@ -462,6 +463,7 @@ class Core(fr.model.Module):
             **coordinate_factors(self._horizontal, self._vertical,
                                  height),
             **COMPONENT_FACTORS,
+            **DERIVED_FACTORS,
             "w": vertical_velocity_factor(height),
             "b": buoyancy_factor(height),
         }

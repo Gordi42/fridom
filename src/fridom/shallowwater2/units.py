@@ -102,6 +102,52 @@ _GEOPOTENTIAL_FACTOR = UnitFactor(
     target_unit="m^2/s^2", expr="(U/Fr)^2", kind="component",
     scales=("U",), params={"Fr": FROUDE}, fn=_geopotential)
 
+def _vorticity(values: Mapping[str, float]) -> float:
+    """Return the vorticity amplitude ``U/L``."""
+    return values["U"] / values["L"]
+
+
+def _energy(values: Mapping[str, float]) -> float:
+    """Return the specific-energy amplitude ``U^2``."""
+    return values["U"] ** 2
+
+
+def _energy_full(values: Mapping[str, float]) -> float:
+    """Return the thickness-weighted amplitude ``(U^2/eps)^2``."""
+    return (values["U"] ** 2 / values["eps"]) ** 2
+
+
+_VORTICITY_FACTOR = UnitFactor(
+    target_unit="1/s", expr="U/L", kind="derived",
+    scales=("L", "U"), fn=_vorticity)
+
+_SPECIFIC_ENERGY_FACTOR = UnitFactor(
+    target_unit="m^2/s^2", expr="U^2", kind="derived",
+    scales=("U",), fn=_energy)
+
+#: the diagnosed quantities' rows (5.6). ``ekin_full``,
+#: ``etot_full`` and ``pot_vort`` are DELIBERATELY absent: their
+#: factors turn on the geopotential-thickness convention (the
+#: ``thickness`` row is ``(U/Fr)^2`` while ``p`` is ``U^2/eps``),
+#: which is an open owner call. An absent row leaves the quantity
+#: honestly unconvertible; a guessed one would repeat the lat-lon
+#: failure of reading a row as something it is not.
+DERIVED_FACTORS: dict[str, UnitFactor] = {
+    "rel_vort": _VORTICITY_FACTOR,
+    "divergence": _VORTICITY_FACTOR,
+    "ekin": _SPECIFIC_ENERGY_FACTOR,
+    # epot = 0.5*p^2/c^2_eff: the nondimensional c^2_eff carries
+    # (eps/Fr)^2*D, which cancels the p amplitude's eps and the
+    # depth alike, leaving ekin's factor -- so etot is well defined
+    "epot": _SPECIFIC_ENERGY_FACTOR,
+    # epot_full = 0.5*p^2 (no 1/c^2), so it is simply the pressure
+    # amplitude squared and needs no thickness convention
+    "epot_full": UnitFactor(
+        target_unit="m^4/s^4", expr="(U^2/eps)^2", kind="derived",
+        scales=("U",), params={"eps": SCALING_NONLINEARITY},
+        fn=_energy_full),
+}
+
 #: the per-component (and curated / derived-constant) rows
 COMPONENT_FACTORS: dict[str, UnitFactor] = {
     "u": _VELOCITY_FACTOR,

@@ -45,7 +45,11 @@ from fridom.nonhydro2.modules.mapped_pressure import (
 from fridom.nonhydro2.modules.pressure import SpectralPressureSolver
 from fridom.nonhydro2.params import ASPECT_RATIO
 from fridom.nonhydro2.state import State
-from fridom.nonhydro2.units import COMPONENT_FACTORS, coordinate_factors
+from fridom.nonhydro2.units import (
+    COMPONENT_FACTORS,
+    DERIVED_FACTORS,
+    coordinate_factors,
+)
 from fridom.spatial.bc import BC
 from fridom.spatial.fields.vector_field import VectorField
 from fridom.spatial.operators.banded import validate_tridiagonal_method
@@ -644,13 +648,13 @@ class Core(fr.model.Module):
         """Dimensional-factor rows (``model.units``, §D).
 
         The nonhydrostatic amplitude table
-        (:mod:`fridom.nonhydro2.units`) plus the coordinate rows —
-        an instance property because ``coords=`` / ``vertical=``
-        rename the coordinate keys (the vertical row is
-        ``delta*L``).
+        (:mod:`fridom.nonhydro2.units`) plus the coordinate rows and
+        the diagnosed quantities' rows — an instance property
+        because ``coords=`` / ``vertical=`` rename the coordinate
+        keys (the vertical row is ``delta*L``).
         """
         return {**coordinate_factors(self._coords, self._vertical),
-                **COMPONENT_FACTORS}
+                **COMPONENT_FACTORS, **DERIVED_FACTORS}
 
     @property
     def family(self) -> str | None:

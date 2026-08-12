@@ -302,12 +302,36 @@ apply the component factors themselves. A alone leaves ad-hoc
 quantities out; B alone leaves the shipped diagnostics needing
 hand-declaration at every call site.
 
-**Recommendation: C, staged.** A first — the mechanical ten plus
-`nh.linear_pot_vort` and `sw.epot_full` — with the three unresolved
-`sw` rows deliberately absent (an absent row is honest; a wrong one
-is the §5.1 failure mode again). Then B, which is small and makes the
-feature complete rather than partial. Then the `sw` family once the
-geopotential conventions are settled.
+**Recommendation: C, staged** — accepted and **shipped**
+2026-08-12 (`feat/derived-unit-rows`), except the `sw` family.
+
+- A new raw row kind `derived` (identity on a dimensional model, as
+  a diagnostic computed in SI already is), contributed by each core
+  alongside its component and coordinate rows — no new machinery.
+- 14 rows: `U/L` for `nh.rel_vort_z`, `hy.rel_vort_z`,
+  `hy.hor_divergence`, `sw.rel_vort`, `sw.divergence`; `U^2` for
+  `ekin`/`epot`/`etot` in all three; `U/(eps*L)` for
+  `nh.linear_pot_vort`; `(U^2/eps)^2` for `sw.epot_full`. Each is
+  pinned to its arithmetic in the package's `test_units.py`.
+- `sw.ekin_full` / `etot_full` / `pot_vort` stay **absent**, with a
+  test asserting the absence and naming the open call, so nobody
+  reads it as an oversight.
+- The writer falls back from the user-chosen output key to
+  `layout.name` (the canonical name the identity gate pins), so
+  `derived={"vort": …rel_vort_z}` picks up the `rel_vort_z` row.
+- `Writer(unit_factors={...})` declares a row for an ad-hoc
+  quantity, resolved through the new public
+  `UnitsView.resolve(name, factor)` — same scaling switch, same live
+  reads, same unresolvable marking as a collected row.
+- The per-package derived-metadata gate additionally asserts that a
+  quantity's row `target_unit` equals its declared physical unit —
+  the second overlap between the two unit sources, now pinned like
+  the component one (§5.5).
+
+Measured end to end **[m]**: on the `Rotational` store that opened
+this section, `vort` now carries `dimensional_factor = U/L = 2.5e-4`
+beside `u`'s `U = 0.5`, and an ad-hoc `mine` row declared at the
+writer resolves to `U^2/L`.
 
 ## 6. Constraints that bound the design
 
