@@ -20,11 +20,13 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
+import fridom.nonhydro2 as nh
 from fridom.model.params import (
     CORIOLIS_F0,
     SCALING_NONLINEARITY,
     STRATIFICATION_N2,
 )
+from fridom.model.time_steppers.adam_bashforth import AdamBashforth
 from fridom.nonhydro2.diagnostics import DIAGNOSTICS
 from fridom.nonhydro2.params import ASPECT_RATIO
 from fridom.spatial.errors import SpaceMismatchError
@@ -146,10 +148,13 @@ def test_etot_is_the_sum_of_the_two_energies():
 # ================================================================
 def test_pot_vort_needs_the_staggered_diff_on_fv():
     # without the C-grid diff flip the collocated FV derivative does
-    # not stagger, so v.diff("x") - u.diff("y") is a strict-algebra
-    # error: linear_pot_vort is blocked on G5 (F3), not on G3/G4
+    # not stagger, so the vorticity pair never reaches a common edge
+    # and is a strict-algebra error: linear_pot_vort is blocked on G5
+    # (F3), not on G3/G4. The retag onto the shared vorticity edge is
+    # the first step to notice, and it names the offending axis.
     _, fv = _fv_state(cgrid_diff=False)
-    with pytest.raises(SpaceMismatchError, match="combine spaces"):
+    with pytest.raises(SpaceMismatchError,
+                       match=r"CellAvg\(x\) and Right\(x\)"):
         DIAGNOSTICS["linear_pot_vort"](fv, PARAMS)
 
 
@@ -163,3 +168,36 @@ def test_pot_vort_runs_on_fv_cgrid_and_matches_nodal():
     assert jnp.allclose(np.asarray(out_nodal.data),
                         np.asarray(out_fv.data),
                         rtol=0.0, atol=1e-12)
+
+
+# ================================================================
+#  linear_pot_vort on a walled horizontal
+# ================================================================
+@pytest.mark.parametrize(
+    ("periodic_x", "periodic_y"),
+    [pytest.param(False, True, id="channel-x"),
+     pytest.param(True, False, id="channel-y"),
+     pytest.param(False, False, id="box-xy")])
+def test_pot_vort_runs_on_a_walled_horizontal(periodic_x, periodic_y):
+    # regression: the vorticity pair was subtracted at whatever spaces
+    # the two differences happened to land on, and a staggered first
+    # difference emits a BC-free face while the *other* velocity's
+    # factor still carries its wall tag. The two therefore disagreed on
+    # every walled axis and the subtraction raised -- linear_pot_vort
+    # was periodic-horizontal only. Both differences now retag onto the
+    # shared free-slip edge (nh.State.rel_vort_z).
+    grid = Grid((
+        IntervalMesh(8, (0.0, LENGTH), periodic=periodic_x, name="x"),
+        IntervalMesh(8, (0.0, LENGTH), periodic=periodic_y, name="y"),
+        IntervalMesh(8, (0.0, LENGTH), periodic=False, name="z")))
+    model = nh.Model(
+        grid=grid, core=nh.Core(),
+        coriolis=nh.FPlaneCoriolis(f0=1.3),
+        buoyancy=nh.ConstantStratification(n2=2.0),
+        time_stepper=AdamBashforth(1e-3, order=3))
+    rng = np.random.default_rng(5)
+    model.set_fields(**{name: rng.standard_normal(model.state[name].shape)
+                        for name in ("u", "v", "w", "b")})
+    q = model.diagnostics.linear_pot_vort()
+    assert q.function_space is model.state["p"].function_space
+    assert np.isfinite(np.asarray(q.data)).all()

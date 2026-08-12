@@ -2917,5 +2917,40 @@ Records:
 [`../research/eddy_dipole_initial_condition.md`](../research/eddy_dipole_initial_condition.md).
 Three operator-algebra gaps this surfaced (no mixed `Sine x Cosine`
 product, nh2's half-tagged `rel_vort_z`, `spectral_sibling` on a 3-D
-operand under a walled horizontal plus lid) are in [`open.md`](open.md) 2d.
+operand under a walled horizontal plus lid) went to
+[`open.md`](open.md) 2d; the `rel_vort_z` one is fixed (below).
 Remaining: the `dancing_eddies` example port, which motivated the work.
+
+## nh2 vorticity at a wall — the free-slip edge claim (shipped 2026-08-12)
+
+`nh.State.rel_vort_z` let `v.diff("x")` set the target space, so on a
+walled axis the edge came back BC-free: a staggered difference emits a
+BC-free bounded factor, and `dudy.to(dvdx)` then *stripped* `u`'s
+Dirichlet wall tag instead of adopting it. The samples were right — the
+damage was downstream. A BC-free bounded side defines no exterior (R1),
+so converting the edge to cell centres averaged an **unrepaired wall
+ghost** into the two wall columns, and that ghost holds the difference
+kernel's own out-of-range output, `v[wall cell] / dx`. The artifact
+therefore scaled as `1/dx`: on the 192^2 walled `dancing_eddies`
+channel the wall columns read 4.82 against an interior maximum of 3.59
+and grew under refinement while the interior converged (`wall * dx` =
+0.0251 at nx = 48, 96, 192).
+
+Fixed by the sw2 precedent: both differences retag onto the shared
+vorticity edge (`u`'s x factor tensor `v`'s y factor), the free-slip
+claim `zeta = 0` at the wall that `sw.State.rel_vort` and
+`SmagorinskyLilly._strain` already make, identity on periodic axes.
+Samples unchanged; the wall cells become the mean of the claimed zero
+and the first interior edge (4.82 -> 0.0003, interior untouched). The
+missing `'diff'` row comes back with it — `state.rel_vort_z.diff("x")`
+no longer raises `DispatchError` under the `nodal` family.
+
+`nh.diagnostics.linear_pot_vort` carried the same pair and so raised
+`SpaceMismatchError` on *any* walled horizontal (it was
+periodic-horizontal only); it shares the edge construction now.
+
+Checked and clean: `sw2`'s `rel_vort` (already retagged) and
+`divergence` (lands on the centre, no conversion), nh2's `ekin` /
+`epot` / `etot` (the velocities carry their own wall tags), and every
+`nh.State` component. The R1 hole in the FV staggering family that
+kept the bug *silent* is a separate item, [`open.md`](open.md) 2d.
