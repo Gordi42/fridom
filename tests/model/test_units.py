@@ -58,9 +58,9 @@ class Table(Module):
         FieldDeclaration("u", space=Collocated()),)
 
     unit_factors: ClassVar = {
-        "u": UnitFactor(unit="m/s", expr="U", kind="component",
+        "u": UnitFactor(target_unit="m/s", expr="U", kind="component",
                         scales=("U",), fn=lambda v: v["U"]),
-        "x": UnitFactor(unit="m", expr="L", kind="coordinate",
+        "x": UnitFactor(target_unit="m", expr="L", kind="coordinate",
                         scales=("L",), fn=lambda v: v["L"]),
     }
 
@@ -76,7 +76,7 @@ class CollidingTable(Module):
 
     field_declarations = ()
     unit_factors: ClassVar = {
-        "u": UnitFactor(unit="m/s", expr="U", kind="component",
+        "u": UnitFactor(target_unit="m/s", expr="U", kind="component",
                         scales=("U",), fn=lambda v: v["U"]),
     }
 
@@ -88,7 +88,7 @@ class FrameworkCollider(Module):
 
     field_declarations = ()
     unit_factors: ClassVar = {
-        "t": UnitFactor(unit="s", expr="L/U", kind="time",
+        "t": UnitFactor(target_unit="s", expr="L/U", kind="time",
                         scales=("L", "U"),
                         fn=lambda v: v["L"] / v["U"]),
     }
@@ -105,7 +105,7 @@ class Provider(Module):
 
     unit_factors: ClassVar = {
         "amp": UnitFactor(
-            unit="m", expr="a*L", kind="constant", scales=("L",),
+            target_unit="m", expr="a*L", kind="constant", scales=("L",),
             params={"a": AMP}, fn=lambda v: v["a"] * v["L"],
             dim_expr="a", dim_params={"a": AMP},
             dim_fn=lambda v: v["a"]),
@@ -123,7 +123,7 @@ class GhostRef(Module):
     field_declarations = ()
     unit_factors: ClassVar = {
         "ghost": UnitFactor(
-            unit="m", expr="q", kind="constant",
+            target_unit="m", expr="q", kind="constant",
             params={"q": GHOST}, fn=lambda v: v["q"],
             dim_expr="q", dim_params={"q": GHOST},
             dim_fn=lambda v: v["q"]),
@@ -137,7 +137,7 @@ class BareConstant(Module):
 
     field_declarations = ()
     unit_factors: ClassVar = {
-        "bare": UnitFactor(unit="m", expr="L", kind="constant",
+        "bare": UnitFactor(target_unit="m", expr="L", kind="constant",
                            scales=("L",), fn=lambda v: v["L"]),
     }
 
@@ -215,7 +215,7 @@ def test_collision_with_a_framework_row_raises():
 
 def test_unknown_kind_is_refused_at_declaration():
     with pytest.raises(ValueError, match="unknown unit-factor kind"):
-        UnitFactor(unit="m", expr="L", kind="banana")
+        UnitFactor(target_unit="m", expr="L", kind="banana")
 
 
 # ================================================================
@@ -228,7 +228,7 @@ def test_t_and_t_ref_follow_the_one_rule():
     assert model.units.factor("t") == pytest.approx(4.0)
     assert model.units.factor("T_ref") == pytest.approx(4.0)
     entry = model.units.factors["t"]
-    assert entry.unit == "s"
+    assert entry.target_unit == "s"
     assert entry.kind == "time"
     assert entry.expr == "eps*L/U"
 
@@ -251,7 +251,7 @@ def test_raw_rows_are_identity_on_dimensional_models(scaling):
     for name, unit in (("u", "m/s"), ("x", "m"), ("t", "s")):
         entry = model.units.factors[name]
         assert entry.value == 1.0
-        assert entry.unit == unit
+        assert entry.target_unit == unit
         assert entry.expr == "1"
         assert model.units.factor(name) == 1.0
 

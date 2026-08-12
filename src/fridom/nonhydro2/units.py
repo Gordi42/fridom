@@ -92,7 +92,7 @@ def _height(values: Mapping[str, float]) -> float:
 #  The tables
 # ================================================================
 _VELOCITY_FACTOR = UnitFactor(
-    unit="m/s", expr="U", kind="component", scales=("U",),
+    target_unit="m/s", expr="U", kind="component", scales=("U",),
     fn=_velocity)
 
 #: the core's per-component rows (u, v, w, p, b)
@@ -100,15 +100,15 @@ COMPONENT_FACTORS: dict[str, UnitFactor] = {
     "u": _VELOCITY_FACTOR,
     "v": _VELOCITY_FACTOR,
     "w": UnitFactor(
-        unit="m/s", expr="delta*U", kind="component",
+        target_unit="m/s", expr="delta*U", kind="component",
         scales=("U",), params={"delta": ASPECT_RATIO},
         fn=_vertical_velocity),
     "p": UnitFactor(
-        unit="m^2/s^2", expr="U^2/eps", kind="component",
+        target_unit="m^2/s^2", expr="U^2/eps", kind="component",
         scales=("U",), params={"eps": SCALING_NONLINEARITY},
         fn=_pressure),
     "b": UnitFactor(
-        unit="m/s^2", expr="U^2/(eps*delta*L)", kind="component",
+        target_unit="m/s^2", expr="U^2/(eps*delta*L)", kind="component",
         scales=("L", "U"),
         params={"eps": SCALING_NONLINEARITY, "delta": ASPECT_RATIO},
         fn=_buoyancy),
@@ -117,7 +117,7 @@ COMPONENT_FACTORS: dict[str, UnitFactor] = {
 #: the stratification family's derived-constant row
 STRATIFICATION_FACTORS: dict[str, UnitFactor] = {
     "N_dim": UnitFactor(
-        unit="1/s", expr="U/(Fr_int*delta*L)", kind="constant",
+        target_unit="1/s", expr="U/(Fr_int*delta*L)", kind="constant",
         scales=("L", "U"),
         params={"Fr": STRATIFICATION_FROUDE, "delta": ASPECT_RATIO},
         fn=_frequency, dim_expr="sqrt(n2)",
@@ -151,9 +151,9 @@ def coordinate_factors(
     dict[str, UnitFactor]
         One coordinate row per name.
     """
-    horizontal = UnitFactor(unit="m", expr="L", kind="coordinate",
+    horizontal = UnitFactor(target_unit="m", expr="L", kind="coordinate",
                             scales=("L",), fn=_length)
-    height = UnitFactor(unit="m", expr="delta*L", kind="coordinate",
+    height = UnitFactor(target_unit="m", expr="delta*L", kind="coordinate",
                         scales=("L",), params={"delta": ASPECT_RATIO},
                         fn=_height)
     return {name: (height if name == vertical else horizontal)

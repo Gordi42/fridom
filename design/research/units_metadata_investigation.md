@@ -180,12 +180,49 @@ The public factory has `name=` / `units=` sugar but **no `long_name=`**
 (`spatial/grid.py:1028-1104`). A user cannot annotate their own field
 fully through the supported surface.
 
-### 5.5 Two hand-maintained copies of the same fact
+### 5.5 Two unit sources — mostly complementary, not duplicated
 
-`FieldMetadata.units` and `UnitFactor.unit` duplicate each unit string.
-They agree today at **18/18** across nh/sw/hy **[m]**; nothing checks
-it. Derived quantities exist only in the first, coordinates only in the
-second.
+`FieldMetadata.physical_units` and `UnitFactor.unit` were recorded
+here as "two hand-maintained copies of the same fact". Re-measured
+after the fix landed **[m]**, that framing is wrong and the correction
+matters, because it rules out the obvious remedy:
+
+| | `physical_units` | `UnitFactor` row |
+|---|---|---|
+| `u v w p b` | `m/s`, `m^2/s^2`, `m/s^2` | **identical** |
+| `f_coriolis` (AUX) | `1/s` | no row |
+| `x y z` | not fields | `m` |
+| `t`, `T_ref`, `N_dim`, `f_dim` | not fields | `s`, `1/s` |
+| derived (`ekin`, `rel_vort_z`, …) | declared | **no row** |
+
+The genuine overlap is the **five component rows**. Everything else is
+disjoint by construction, and for coordinates the two provably mean
+different things (`rad` stored vs `m` after conversion, §5.1). So
+making either side authoritative would force one concept to
+impersonate the other — which is the bug of §5.1, generalized. What
+was actually actionable split three ways:
+
+1. **Five duplicated strings, unchecked.** Closed 2026-08-12: a
+   per-package drift lint compares `physical_units` against
+   `target_unit` for `component` rows that annotate a state field,
+   with `coordinate` / `curated` / `constant` / `time` excluded and
+   the reason stated in the test.
+2. **`UnitFactor.unit` was misnamed.** It is the unit of
+   `factor * value`, not of the stored value; reading it as a CF
+   claim is what labelled radians metres. Renamed `target_unit`
+   throughout (rows, `FactorEntry`, the writer stamp) 2026-08-12.
+   The on-disk attribute was already correctly named
+   `dimensional_units` and is unchanged.
+3. **Derived quantities have no conversion row — still open.** In a
+   nondimensional store `ekin` lands with `units="1"` and no
+   `dimensional_factor`, because the writer keys the stamp by output
+   name and no package contributes rows for its derived quantities.
+   The store is honest but the value is unrecoverable, unlike `u`.
+   Closing it means ~15 derivations across the three packages off
+   the existing amplitude tables (`ekin`/`epot`/`etot` = `U^2`,
+   `rel_vort_z` = `U/L`, …); each wants checking rather than
+   pattern-matching, since `linear_pot_vort` was wrong by four
+   powers for exactly that reason.
 
 ## 6. Constraints that bound the design
 

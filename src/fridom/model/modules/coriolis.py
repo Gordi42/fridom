@@ -428,7 +428,7 @@ def _f_bound(values: dict) -> float:
 #: unresolvable there rather than claiming a false constant)
 _CORIOLIS_UNIT_FACTORS: dict[str, UnitFactor] = {
     "f_dim": UnitFactor(
-        unit="1/s", expr="U/(Ro*L)", kind="constant",
+        target_unit="1/s", expr="U/(Ro*L)", kind="constant",
         scales=("L", "U"), params={"Ro": CORIOLIS_ROSSBY},
         fn=_f_dim, dim_expr="f0",
         dim_params={"f0": CORIOLIS_F0}, dim_fn=_f_bound),

@@ -110,7 +110,7 @@ def test_dimensional_raw_factors_are_identity_with_units():
                        ("t", "s")):
         entry = units.factors[name]
         assert entry.value == 1.0
-        assert entry.unit == unit
+        assert entry.target_unit == unit
 
 
 def test_dimensional_h_keeps_its_meaning():
@@ -297,3 +297,37 @@ def test_spherical_coordinates_are_radians_not_metres(tmp_path):
         # the metres-of-arc conversion is still stamped alongside
         assert ds[name].attrs["dimensional_units"] == "m"
     assert float(ds["lat"].max()) <= 1.0
+
+
+# ================================================================
+#  Drift lint: the one place the two unit sources overlap
+# ================================================================
+def test_component_rows_agree_with_the_field_annotations():
+    """The five-ish strings kept in two places must not drift.
+
+    ``FieldMetadata.physical_units`` is the unit of the STORED
+    value; ``UnitFactor.target_unit`` is the unit of
+    ``factor * value``. They coincide only for **component** rows,
+    whose dimensional factor is the identity — which is exactly the
+    overlap this pins. Deliberately not compared:
+
+    - ``coordinate`` rows, where the two legitimately differ (the
+      lat-lon rows store radians and target metres of arc; reading
+      the row as a CF claim is what once labelled radians "m");
+    - ``curated`` rows (the shallow-water ``h`` folds ``1/g``);
+    - ``constant`` / ``time`` rows, which annotate no field at all.
+
+    Derived quantities carry metadata but no row, so they cannot
+    drift — they are simply not convertible back (roadmap 2c).
+    """
+    model = dim_model()
+    state = model.state
+    names = set(state.component_names)
+    overlap = {
+        name: (state[name].metadata.physical_units, entry.target_unit)
+        for name, entry in model.units.factors.items()
+        if entry.kind == "component" and name in names}
+    assert overlap, "no component row annotates a state field"
+    drifted = {name: pair for name, pair in overlap.items()
+               if pair[0] != pair[1]}
+    assert drifted == {}

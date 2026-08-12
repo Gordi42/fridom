@@ -71,8 +71,15 @@ class UnitFactor:
 
     Parameters
     ----------
-    unit : str
-        The target physical unit string (e.g. ``"m/s"``).
+    target_unit : str
+        The unit of ``factor * value`` — what the stored value
+        becomes **after** the conversion, not what it already is
+        (e.g. ``"m/s"``). The two coincide for component rows on a
+        dimensional model and diverge wherever the conversion does
+        real work: the lat-lon coordinate rows store radians and
+        target metres of arc. Never stamp this as a CF ``units``
+        claim on the stored array — that is
+        ``FieldMetadata.units``' job.
     expr : str
         The nondimensional factor expression, documentation only
         (e.g. ``"U^2/(eps*g)"``).
@@ -98,7 +105,7 @@ class UnitFactor:
         (default: None).
     """
 
-    unit: str
+    target_unit: str
     expr: str
     kind: str
     scales: tuple[str, ...] = ()
@@ -137,8 +144,9 @@ class FactorEntry:
         The row name.
     value : float | None
         The resolved factor, or ``None`` (see above).
-    unit : str
-        The target physical unit string.
+    target_unit : str
+        The unit of ``factor * value`` (see :class:`UnitFactor`);
+        not the unit of the stored value.
     kind : str
         The row kind (see :class:`UnitFactor`).
     expr : str
@@ -151,7 +159,7 @@ class FactorEntry:
 
     name: str
     value: float | None
-    unit: str
+    target_unit: str
     kind: str
     expr: str
     missing: tuple[str, ...] = ()
@@ -172,11 +180,11 @@ def _identity(values: Mapping[str, float]) -> float:  # noqa: ARG001
 
 
 _TIME_FACTOR = UnitFactor(
-    unit="s", expr="eps*L/U", kind="time", scales=("L", "U"),
+    target_unit="s", expr="eps*L/U", kind="time", scales=("L", "U"),
     params={"eps": SCALING_NONLINEARITY}, fn=_t_ref)
 
 _T_REF_FACTOR = UnitFactor(
-    unit="s", expr="eps*L/U", kind="constant", scales=("L", "U"),
+    target_unit="s", expr="eps*L/U", kind="constant", scales=("L", "U"),
     params={"eps": SCALING_NONLINEARITY}, fn=_t_ref,
     dim_expr="1", dim_fn=_identity)
 
@@ -259,7 +267,8 @@ class UnitsView:
             # dimensional model: raw rows are identity (physical
             # unit strings kept — scripts stay polymorphic)
             return FactorEntry(name=name, value=1.0,
-                               unit=factor.unit, kind=factor.kind,
+                               target_unit=factor.target_unit,
+                               kind=factor.kind,
                                expr="1")
         else:
             # curated/constant rows keep their meaning: resolve the
@@ -289,12 +298,12 @@ class UnitsView:
             values[symbol] = float(value)
         if missing or time_dependent:
             return FactorEntry(
-                name=name, value=None, unit=factor.unit,
+                name=name, value=None, target_unit=factor.target_unit,
                 kind=factor.kind, expr=expr,
                 missing=tuple(missing),
                 time_dependent=time_dependent)
         return FactorEntry(name=name, value=float(fn(values)),
-                           unit=factor.unit, kind=factor.kind,
+                           target_unit=factor.target_unit, kind=factor.kind,
                            expr=expr)
 
     # ================================================================
@@ -450,7 +459,7 @@ class UnitsView:
         for name in ordered:
             entry = self._resolve(name, entries[name], at=at)
             if entry.value is not None:
-                body = f"= {entry.value:.6g} {entry.unit}"
+                body = f"= {entry.value:.6g} {entry.target_unit}"
             elif entry.missing:
                 needs = ", ".join(str(m) for m in entry.missing)
                 body = f"-- needs {needs}"

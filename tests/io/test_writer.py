@@ -962,11 +962,11 @@ def test_open_array_recheck_flag_opens_and_sees_resize(
 # ================================================================
 class FakeEntry:
 
-    """A duck-typed FactorEntry (value/unit/expr/time_dependent)."""
+    """A duck-typed FactorEntry (value/target_unit/expr/td)."""
 
     def __init__(self, value, unit, expr, time_dependent=False):
         self.value = value
-        self.unit = unit
+        self.target_unit = unit
         self.expr = expr
         self.time_dependent = time_dependent
 

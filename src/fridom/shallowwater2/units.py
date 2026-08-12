@@ -95,11 +95,11 @@ def _length(values: Mapping[str, float]) -> float:
 #  The tables
 # ================================================================
 _VELOCITY_FACTOR = UnitFactor(
-    unit="m/s", expr="U", kind="component", scales=("U",),
+    target_unit="m/s", expr="U", kind="component", scales=("U",),
     fn=_velocity)
 
 _GEOPOTENTIAL_FACTOR = UnitFactor(
-    unit="m^2/s^2", expr="(U/Fr)^2", kind="component",
+    target_unit="m^2/s^2", expr="(U/Fr)^2", kind="component",
     scales=("U",), params={"Fr": FROUDE}, fn=_geopotential)
 
 #: the per-component (and curated / derived-constant) rows
@@ -107,23 +107,23 @@ COMPONENT_FACTORS: dict[str, UnitFactor] = {
     "u": _VELOCITY_FACTOR,
     "v": _VELOCITY_FACTOR,
     "p": UnitFactor(
-        unit="m^2/s^2", expr="U^2/eps", kind="component",
+        target_unit="m^2/s^2", expr="U^2/eps", kind="component",
         scales=("U",), params={"eps": SCALING_NONLINEARITY},
         fn=_pressure),
     "thickness": _GEOPOTENTIAL_FACTOR,
     "csqr": _GEOPOTENTIAL_FACTOR,
     "h": UnitFactor(
-        unit="m", expr="U^2/(eps*g)", kind="curated",
+        target_unit="m", expr="U^2/(eps*g)", kind="curated",
         scales=("U", "g"), params={"eps": SCALING_NONLINEARITY},
         fn=_height, dim_expr="1/g", dim_params={"g": GRAVITY},
         dim_fn=_height_dim),
     "c_dim": UnitFactor(
-        unit="m/s", expr="U/Fr", kind="constant", scales=("U",),
+        target_unit="m/s", expr="U/Fr", kind="constant", scales=("U",),
         params={"Fr": FROUDE}, fn=_phase_speed,
         dim_expr="sqrt(g*D)", dim_params={"g": GRAVITY, "D": DEPTH},
         dim_fn=_phase_speed_dim),
     "D": UnitFactor(
-        unit="m", expr="U^2/(Fr^2*g)", kind="constant",
+        target_unit="m", expr="U^2/(Fr^2*g)", kind="constant",
         scales=("U", "g"), params={"Fr": FROUDE}, fn=_depth_scale,
         dim_expr="D", dim_params={"D": DEPTH}, dim_fn=_depth_dim),
 }
@@ -153,6 +153,6 @@ def coordinate_factors(
     dict[str, UnitFactor]
         The two ``L``-valued coordinate rows.
     """
-    row = UnitFactor(unit="m", expr="L", kind="coordinate",
+    row = UnitFactor(target_unit="m", expr="L", kind="coordinate",
                      scales=("L",), fn=_length)
     return {zonal: row, meridional: row}

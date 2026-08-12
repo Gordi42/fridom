@@ -189,7 +189,8 @@ def _stamp_row(entry: Any) -> dict[str, Any]:
     value = getattr(entry, "value", None)
     if value is not None:
         attrs["dimensional_factor"] = float(value)
-    attrs["dimensional_units"] = str(getattr(entry, "unit", ""))
+    attrs["dimensional_units"] = str(
+        getattr(entry, "target_unit", ""))
     attrs["dimensional_factor_expr"] = str(
         getattr(entry, "expr", ""))
     if getattr(entry, "time_dependent", False):
