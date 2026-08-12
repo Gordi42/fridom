@@ -10,7 +10,9 @@ def test_defaults():
     md = FieldMetadata()
     assert md.name == "unnamed"
     assert md.long_name == "Unnamed"
-    assert md.units == "n/a"
+    assert md.units == "unknown"
+    assert md.physical_units == "unknown"
+    assert md.nondimensional is False
     assert md.nc_attrs == ()
 
 

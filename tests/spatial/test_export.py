@@ -74,7 +74,7 @@ def test_center_dataarray(grid):
 def test_default_metadata_attrs(grid):
     da = grid.create_field(init=init).xr
     assert da.name == "unnamed"
-    assert da.attrs["units"] == "n/a"
+    assert da.attrs["units"] == "unknown"
 
 
 def test_nc_attrs_are_mapped(grid):

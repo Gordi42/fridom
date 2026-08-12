@@ -57,4 +57,5 @@ def lonlat_sphere(radius: float = 1.0) -> CoordinateMapping:
             radius * jnp.cos(lat) * jnp.cos(lon),
             radius * jnp.cos(lat) * jnp.sin(lon),
             radius * jnp.sin(lat))},
-        orthogonal=True)
+        orthogonal=True,
+        coordinate_units={"lon": "rad", "lat": "rad"})

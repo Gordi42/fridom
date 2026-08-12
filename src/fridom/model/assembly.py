@@ -1969,11 +1969,17 @@ def assemble(
         declaration.name: declaration.space.resolve(grid)
         for _slot, declaration in declarations
         if not isinstance(declaration.space, LikeField)}
+    # the scaling is the single authority on what a stored value
+    # means, so the unit rendering is stamped here, once, rather than
+    # at the 45 declaration sites (which spell the physical unit)
+    nondimensional = bool(
+        getattr(scaling, "nondimensional", False))
     table = FieldTable(
         (FieldRecord.from_declaration(
             declaration, owner=slot,
             owner_type=type(modules[slot]).__qualname__, grid=grid,
-            resolved=concrete_spaces)
+            resolved=concrete_spaces,
+            nondimensional=nondimensional)
          for slot, declaration in declarations),
         grid=grid)
     for slot, module in enumerate(modules):

@@ -57,6 +57,7 @@ import jax
 import numpy as np
 
 from fridom.io.streams import reject_walltime_trigger
+from fridom.spatial.fields.metadata import DIMENSIONLESS_UNITS
 
 if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Callable, Mapping, Sequence
@@ -894,14 +895,20 @@ class Writer:
                     row = self._units.per_name.get(
                         _strip_position(dim), {})
                     zattrs.update(row)
-                    # a dimensional model stores coordinates at their
-                    # physical values, so the row's unit is a true CF
-                    # claim; nondimensional coordinates stay unitless
-                    # (dimensional_factor carries the scale)
+                    # The row's unit is the unit of factor*value, so
+                    # it is a true CF claim only on a dimensional
+                    # model; nondimensional coordinates are
+                    # dimensionless and the dimensional_factor
+                    # carries the scale. A chart that declared what
+                    # its stored values mean (angles) already put
+                    # `units` in zattrs at export and wins here --
+                    # without that guard, radian lon/lat were being
+                    # labelled metres (investigation §5.1).
                     unit = row.get("dimensional_units", "")
-                    if (unit and not self._units.nondimensional
-                            and "units" not in zattrs):
-                        zattrs["units"] = unit
+                    if unit and "units" not in zattrs:
+                        zattrs["units"] = (
+                            DIMENSIONLESS_UNITS
+                            if self._units.nondimensional else unit)
                 _write_json(self._path / dim / ".zattrs", zattrs)
 
     def _write_time_axis(self, model_state: Any) -> None:
@@ -919,7 +926,7 @@ class Writer:
                 # claim was dimensionally false — declare the axis
                 # dimensionless and drop the calendar anchor (the
                 # dimensional_factor above carries T_ref)
-                time_attrs["units"] = "1"
+                time_attrs["units"] = DIMENSIONLESS_UNITS
                 time_attrs.pop("calendar", None)
         _write_json(self._path / "time" / ".zattrs", time_attrs)
         self._iteration = _create_array(

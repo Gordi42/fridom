@@ -790,6 +790,14 @@ class CoordinateMapping:
         genuinely non-orthogonal chart: the full expansion is kept,
         and on a bounded axis it legitimately raises (default:
         False). Requires a ``chart=`` declaration.
+    coordinate_units : Mapping[str, str] | None, optional
+        The physical unit of each base coordinate's **stored
+        values**, keyed by coordinate name (e.g. ``{"lon": "rad",
+        "lat": "rad"}`` on the sphere). Absolute: unlike a
+        length-scaled Cartesian coordinate, an angle is an angle
+        under either scaling, so these are never rendered
+        dimensionless. A coordinate not listed here takes the
+        model's scaling-rendered unit instead (default: None).
     """
 
     def __init__(
@@ -802,6 +810,7 @@ class CoordinateMapping:
         params: (
             Mapping[str, Callable[..., jax.Array]] | None) = None,
         orthogonal: bool = False,
+        coordinate_units: Mapping[str, str] | None = None,
     ) -> None:
         """Declare the transform; see the class docstring."""
         maps = dict(maps or {})
@@ -848,6 +857,8 @@ class CoordinateMapping:
             self._add(name, _Supplied(decl, self._deps(decl)))
         self._declare_maps_sqrt_g()
         self._orthogonal: bool = bool(orthogonal)
+        self._coordinate_units: dict[str, str] = dict(
+            coordinate_units or {})
         self._grid: Grid | None = None
 
     # ================================================================
@@ -1259,6 +1270,30 @@ class CoordinateMapping:
             The declared orthogonality of the embedding chart.
         """
         return self._orthogonal
+
+    @property
+    def coordinate_units(self) -> dict[str, str]:
+        """
+        Declared units of the base coordinates' stored values.
+
+        Description
+        -----------
+        The ``coordinate_units=`` declaration (class docstring), as
+        a fresh dict. These are the units of the values a coordinate
+        array actually holds, which is **not** what a
+        ``model.units`` conversion row states: that row's ``unit`` is
+        the unit of ``factor * value``. On the lat-lon sphere the
+        stored values are radians while the row converts to metres of
+        arc, and reading the row as a CF claim labelled radians as
+        metres (``design/research/units_metadata_investigation.md``
+        §5.1).
+
+        Returns
+        -------
+        dict[str, str]
+            Coordinate name -> unit; empty when undeclared.
+        """
+        return dict(self._coordinate_units)
 
     # ================================================================
     #  Chart quadrature seam (immersed cut-cell fractions, MI-D1)

@@ -1435,6 +1435,27 @@ class Grid:
             return None
         return chart
 
+    @property
+    def coordinate_units(self) -> dict[str, str]:
+        """
+        Declared units of this grid's stored coordinate values.
+
+        Description
+        -----------
+        Forwards the attached mapping's ``coordinate_units=``
+        declaration (:attr:`CoordinateMapping.coordinate_units`);
+        empty on a chartless grid, where a coordinate's unit follows
+        the model's scaling instead.
+
+        Returns
+        -------
+        dict[str, str]
+            Coordinate name -> unit; empty when undeclared.
+        """
+        if self._mapping is None:
+            return {}
+        return self._mapping.coordinate_units
+
     def with_immersed(self, immersed: ImmersedDomain) -> Grid:
         """
         Attach the immersed descriptor (pre-freeze only).
