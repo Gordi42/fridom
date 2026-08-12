@@ -1735,3 +1735,8 @@ def test_cell_quadrature_fields_nodes_and_weights():
     for i in range(3):
         assert bool(jnp.all(xn[i] > i / 3.0))
         assert bool(jnp.all(xn[i] < (i + 1) / 3.0))
+
+
+def test_coordinate_units_are_empty_without_a_mapping():
+    grid = Grid((IntervalMesh(4, (0.0, 1.0), name="x"),))
+    assert grid.coordinate_units == {}

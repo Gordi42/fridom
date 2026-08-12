@@ -1253,3 +1253,55 @@ def test_terrain_mean_is_differentiable():
     minus = rng.at[idx].add(-eps)
     fd = float((loss(plus) - loss(minus)) / (2 * eps))
     assert float(g[idx]) == pytest.approx(fd, rel=1e-4, abs=1e-7)
+
+
+# ================================================================
+#  new_quantity (the non-identity-borrowing counterpart)
+# ================================================================
+def test_new_quantity_takes_a_fresh_identity(f):
+    q = f.new_quantity(jnp.zeros((8, 4)), name="ekin",
+                       long_name="Kinetic energy", units="m^2/s^2")
+    assert q.function_space is f.function_space
+    assert q.grid is f.grid
+    assert q.name == "ekin"
+    assert q.metadata.long_name == "Kinetic energy"
+    assert q.metadata.units == "m^2/s^2"
+    # the borrowed field keeps its own annotation
+    assert f.name == "f"
+
+
+def test_new_quantity_inherits_only_the_scaling_flag(f):
+    source = f.with_metadata(name="p", long_name="Pressure",
+                             units="m^2/s^2", nondimensional=True)
+    q = source.new_quantity(jnp.zeros((8, 4)), name="ekin",
+                            long_name="Kinetic energy",
+                            units="m^2/s^2")
+    assert q.metadata.nondimensional is True
+    assert q.metadata.units == "1"
+    assert q.metadata.physical_units == "m^2/s^2"
+    assert q.metadata.long_name == "Kinetic energy"
+
+
+def test_new_quantity_carries_the_data(f):
+    values = jnp.arange(32.0).reshape(8, 4) * 3.0
+    q = f.new_quantity(values, name="q", long_name="Q", units="1")
+    assert jnp.array_equal(q.data, values)
+
+
+def test_new_quantity_accepts_nc_attrs(f):
+    q = f.new_quantity(jnp.zeros((8, 4)), name="q", long_name="Q",
+                       units="1", nc_attrs={"positive": "up"})
+    assert q.metadata.nc_attrs == (("positive", "up"),)
+
+
+def test_new_quantity_is_the_counterpart_of_with_data(f):
+    parent = f.with_metadata(name="p", long_name="Pressure",
+                             units="m^2/s^2")
+    borrowed = parent.with_data(jnp.ones((8, 4)))
+    declared = parent.new_quantity(
+        jnp.ones((8, 4)), name="ekin",
+        long_name="Kinetic energy", units="m^2/s^2")
+    # with_data keeps the incumbent identity (right for a functional
+    # update of the same quantity, wrong for a different one)
+    assert borrowed.metadata.long_name == "Pressure"
+    assert declared.metadata.long_name == "Kinetic energy"

@@ -912,3 +912,27 @@ def test_column_correction_jacobian_is_the_map_derivative():
     physical, jac = mapping._column_correction({"sigma": sigma})
     assert jnp.allclose(physical["sigma"], sigma ** 2)
     assert jnp.allclose(jac, 2.0 * sigma)
+
+
+# ================================================================
+#  coordinate_units (the stored-value unit declaration)
+# ================================================================
+def _angular_chart(**kwargs):
+    return CoordinateMapping(
+        chart={"X": lambda lon, lat: (jnp.cos(lat) * jnp.cos(lon),
+                                      jnp.cos(lat) * jnp.sin(lon),
+                                      jnp.sin(lat))},
+        **kwargs)
+
+
+def test_coordinate_units_default_to_empty():
+    assert _angular_chart().coordinate_units == {}
+
+
+def test_coordinate_units_are_declared_and_copied():
+    mapping = _angular_chart(
+        coordinate_units={"lon": "rad", "lat": "rad"})
+    units = mapping.coordinate_units
+    assert units == {"lon": "rad", "lat": "rad"}
+    units["lon"] = "deg"
+    assert mapping.coordinate_units["lon"] == "rad"

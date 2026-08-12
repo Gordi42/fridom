@@ -400,3 +400,19 @@ def test_subset_of_a_foreign_state_raises(table, grid):
         {"u": grid.create_field(table["u"].space, name="u")})
     with pytest.raises(MissingFieldError, match="'v'"):
         table.subset(foreign, Lifecycle.PROGNOSTIC)
+
+
+def test_from_declaration_stamps_the_scaling_rendering(grid):
+    declaration = FieldDeclaration(
+        "u", space=Collocated(), long_name="Zonal velocity",
+        units="m/s")
+    plain = FieldRecord.from_declaration(
+        declaration, owner=0, owner_type="Toy", grid=grid)
+    scaled = FieldRecord.from_declaration(
+        declaration, owner=0, owner_type="Toy", grid=grid,
+        nondimensional=True)
+    assert plain.metadata.nondimensional is False
+    assert plain.metadata.units == "m/s"
+    assert scaled.metadata.nondimensional is True
+    assert scaled.metadata.units == "1"
+    assert scaled.metadata.physical_units == "m/s"

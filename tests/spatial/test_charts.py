@@ -45,3 +45,15 @@ def test_lonlat_sphere_metric_is_the_analytic_sphere(radius):
     assert np.abs(g_lonlat).max() < 1e-6
     assert np.allclose(g_lonlon, radius**2 * np.cos(lat) ** 2,
                        atol=1e-6)
+
+
+def test_lonlat_sphere_declares_its_coordinates_as_radians():
+    # the row in model.units converts to metres of arc (factor L), so
+    # reading that row as a CF claim labelled radians as metres
+    mapping = lonlat_sphere()
+    assert mapping.coordinate_units == {"lon": "rad", "lat": "rad"}
+
+
+def test_sphere_grid_forwards_the_declared_coordinate_units():
+    grid = _sphere_grid()
+    assert grid.coordinate_units == {"lon": "rad", "lat": "rad"}

@@ -1099,9 +1099,10 @@ class Grid:
                 "name=/units= sugar")
         if metadata is None and (name is not None
                                  or units is not None):
-            metadata = FieldMetadata.create(
-                name=name if name is not None else "unnamed",
-                units=units if units is not None else "n/a")
+            sugar = {key: value for key, value in
+                     (("name", name), ("units", units))
+                     if value is not None}
+            metadata = FieldMetadata.create(**sugar)
         space = (self._default_space() if space is None
                  else self._laid_out(space))
         if init is not None and any(
