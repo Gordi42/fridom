@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: done
 date: 2026-08-12
 ---
 
@@ -101,9 +101,24 @@ corner is the right API for accuracy as well as for physics.
 
 ## The sign convention
 
+> **Superseded 2026-08-12.** This section was measured against the
+> *pre-redesign* nonhydro2 curl `u = d_y psi`, `v = -d_x psi`. The
+> geostrophy work (`feat/eddy-ic-geostrophy`, merged the same day)
+> adopted the standard pairing `u = -d_y psi`, `v = +d_x psi`,
+> `p = +f psi`, for which `zeta = +laplacian_h psi` and the caller
+> needs **minus** this helper:
+> `psi = -invert_negative_laplacian(zeta, axes=(x, y))`. That is
+> what `coherent_eddy` now does, and the vorticity branch delivers
+> the prescribed sign under either convention (both signs flipped
+> together). `invert_negative_laplacian` itself is unaffected: it
+> inverts the positive-definite operator and takes no side on the
+> curl. `tests/model/test_streamfunction.py` still exercises the
+> old curl internally, which is self-consistent and fine — its
+> `curl_state` helper is the test's own, not nonhydro2's.
+
 `nh.State.rel_vort_z` computes `v.diff("x") - u.diff("y").to(...)`.
 Both derivatives land on the corner, so the interpolation is the
-identity, and with nonhydro2's curl
+identity, and with the curl used here
 
 ```
 zeta = d_x(-d_x psi) - d_y(d_y psi) = -laplacian_h(psi)
@@ -113,12 +128,12 @@ so the inversion the caller needs is
 `psi = (-laplacian_h)^{-1} zeta`, the inverse of the **negative**
 Laplacian, whose symbol `k_hat_x^2 + k_hat_y^2` is positive. That is what
 `invert_negative_laplacian` returns, and it is what nonhydro2's
-existing periodic branch already does, so nonhydro2's sign is
-correct: a positive prescribed Gaussian gives a counterclockwise
-eddy whose diagnosed `rel_vort_z` is that positive Gaussian
-(measured: prescribed peak +1.0000, diagnosed peak +0.9921 on a
-periodic 64^2 grid, the 0.8 percent shortfall being the domain-mean
-gauge; +1.0000 to 1e-13 in a channel).
+pre-redesign periodic branch already did: a positive prescribed
+Gaussian gives a counterclockwise eddy whose diagnosed `rel_vort_z`
+is that positive Gaussian (measured: prescribed peak +1.0000,
+diagnosed peak +0.9921 on a periodic 64^2 grid, the 0.8 percent
+shortfall being the domain-mean gauge; +1.0000 to 1e-13 in a
+channel).
 
 **shallowwater2 has the opposite sign and a resulting sign bug.**
 sw2 uses `u = -psi.diff(y)`, `v = +psi.diff(x)`, so
@@ -302,8 +317,12 @@ discrete operator.
 
 ### Prescribed vorticity and divergence
 
-A Gaussian `zeta` of width 0.12 at the domain centre, 64^2 x 64, FV
-family. The table compares the diagnosed `rel_vort_z` of the
+A Gaussian `zeta` of width **0.1** at the domain centre, 64^2 x 64,
+FV family. (The width was recorded as 0.12 here; the 3.1e-2 gauge
+column identifies it as 0.1, since the offset is exactly the bump's
+area fraction `pi w^2` on a unit box — re-measured 2026-08-12:
+3.1416e-2 at w = 0.1, 4.5239e-2 at w = 0.12, both matching `pi w^2`
+to five digits.) The table compares the diagnosed `rel_vort_z` of the
 resulting state against the prescribed field, and the discrete
 three-dimensional divergence of the velocities normalized by
 `max |u|`.
@@ -328,6 +347,15 @@ in the `coherent_eddy` docstring.
 The divergence is exactly zero, not merely small, on walled grids.
 The C-grid curl guarantees it identically, and the walled case has no
 half-spectrum round-off from the Hermitian Fourier axis.
+
+Read that as luck, not as structure (added 2026-08-12). What the
+curl guarantees is cancellation in *exact* arithmetic; the bitwise
+zero depends on the two mixed differences `d_x d_y psi` and
+`d_y d_x psi` summing in the same floating-point order, which the
+unit box happens to give. The same walled eddy on a `(2 pi)^2` box
+at n = 16 leaves 3.8e-17 in the wall-adjacent column, and a
+baroclinic one leaves 2.0e-15. Tests should bound the divergence
+relative to `max |u|`, not assert `== 0.0`.
 
 ### Walls
 
@@ -409,6 +437,23 @@ for every topology. Verified end to end on `box-xy + lid` at
 64^2 x 16: the diagnosed vorticity matches to 1.5e-14, the divergence
 is exactly zero, and the recovered `u` has zero vertical variation.
 
+Re-measured at the wiring (2026-08-12), same machine, 128^2 x 32,
+warm best-of-five, cpu float64 — the shipped 2-D operand against the
+same call on the full 3-D corner field:
+
+| topology     | 2-D operand | 3-D operand | ratio |
+| ------------ | ----------- | ----------- | ----- |
+| periodic     | 5.02 ms     | 20.1 ms     | 4.0x  |
+| channel-x    | 7.54 ms     | 46.0 ms     | 6.1x  |
+| box-xy + lid | 7.53 ms     | 143 ms      | 19.0x |
+
+The ratio grows with both `n_z` and the number of walled axes, which
+is how 19x here and 184x at 512^2 x 64 are the same statement. The
+whole `coherent_eddy` call (sampling, inversion, curl, buoyancy) is
+56 ms periodic and 68 ms on `box-xy + lid` at that size, so the 3-D
+operand would have more than doubled the factory's cost on the
+rigid-lid box.
+
 ### Differentiability
 
 `jax.grad` of `0.5 * sum(psi^2)` with respect to the amplitude of the
@@ -433,6 +478,11 @@ a transform pair around a multiplication by a constant diagonal, and
 regularization out of the differentiated path.
 
 ## Consequences for the caller
+
+All five were taken up in `nh.coherent_eddy` on
+`feat/eddy-walled-vorticity` (2026-08-12); the vertical structure
+already multiplied `psi` *after* the inversion, so the fourth arrived
+with the geostrophy work rather than this one.
 
 - **Prescribe the vorticity on the corner space** (`u`'s normal
   factor tensored with `v`'s). That is what `coherent_eddy` already

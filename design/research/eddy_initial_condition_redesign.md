@@ -2,8 +2,10 @@
 
 Status: implemented on `feat/eddy-ic-geostrophy` (2026-08-12).
 Scope: the API, the geostrophic physics and the staggering. The
-walled-horizontal vorticity inversion is a separate work item and is
-left behind a marked seam.
+walled-horizontal vorticity inversion was left behind a marked seam
+and **closed on `feat/eddy-walled-vorticity`** (2026-08-12) by
+routing the branch through `fr.model.invert_negative_laplacian`; see
+section 6.
 
 ## 1. Summary
 
@@ -486,18 +488,28 @@ consequences:
   $512^2\times 64$, a second reason to keep the vertical structure
   outside the inversion rather than folding it in;
 - the general walled-horizontal solver replaces one function body, with
-  nothing above or below it to change. Today that body raises a taught
-  `ValueError` on a horizontally walled grid, naming the
-  `gauss_field="streamfunction"` fallback.
+  nothing above or below it to change.
 
-The seam is written against the prototype
-`invert_negative_laplacian(grid, field, axes=...)` in
+**Closed 2026-08-12 (`feat/eddy-walled-vorticity`).** The seam
+function is gone; the branch is the one expression
+`shape = -invert_negative_laplacian(shape, axes=(x, y))` at the call
+site, and the taught `ValueError` on a horizontally walled grid with
+it. Measured on all six topologies (square box, `width=0.12`): the
+diagnosed `rel_vort_z` reproduces the prescribed Gaussian to
+1.9e-14 wherever a horizontal wall fixes the gauge and to 8.9e-15
+after mean removal on a fully periodic horizontal, the divergence is
+machine zero, and the balance residual of section 3.4 is 2.2e-15 to
+3.7e-15 for the barotropic and baroclinic eddy alike.
+
+The seam was written against the prototype in
 `src/fridom/model/streamfunction.py` (branch `feat/eddy-ic-inversion`),
-which solves the positive-definite $-\nabla_h^2$. This factory needs
-$+\nabla_h^2$, so the swap is
+which solves the positive-definite $-\nabla_h^2$. That helper shipped
+as `invert_negative_laplacian(field, *, axes)` — the field carries its
+own grid, so the `grid` argument sketched here never existed. This
+factory needs $+\nabla_h^2$, so the swap is
 
 ```python
-psi = -invert_negative_laplacian(grid, zeta, axes=(x, y))
+psi = -invert_negative_laplacian(zeta, axes=(x, y))
 ```
 
 with the minus sign staying on this side, next to the curl convention
@@ -555,8 +567,8 @@ regression baseline:
 
 ## 8. Open follow-ups
 
-- The walled-horizontal inversion behind the seam (owned elsewhere,
-  branch `feat/eddy-ic-inversion`).
+- ~~The walled-horizontal inversion behind the seam.~~ Closed
+  2026-08-12, section 6.
 - The sw2 vorticity sign (section 4.1). An owner decision because it is
   a behaviour change in a second package, though it breaks no test
   there.

@@ -84,6 +84,7 @@ from fridom.model.params import (
 from fridom.model.shapes import (
     gaussian as gaussian,  # noqa: PLC0414 — re-export
 )
+from fridom.model.streamfunction import invert_negative_laplacian
 from fridom.model.time_dependent import resolve_at
 from fridom.nonhydro2.channel_eigenmodes import ChannelEigenmodes
 from fridom.nonhydro2.eigenmodes import Eigenmodes, from_model
@@ -93,7 +94,7 @@ from fridom.nonhydro2.transforms import (
     mode_projection,
 )
 from fridom.spatial.spaces.constant import ConstantSpace
-from fridom.spatial.symbols import GridSymbols, ModeChart
+from fridom.spatial.symbols import ModeChart
 
 if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Callable, Mapping
@@ -929,84 +930,6 @@ def _coriolis_parameter(model: Model, at_time: float) -> float:
         "rotation at all")
 
 
-def _streamfunction_from_vorticity(
-    grid: Grid, zeta: ScalarField,
-) -> ScalarField:
-    r"""
-    Invert the **horizontal** Laplacian, :math:`\nabla_h^2\psi = \zeta`.
-
-    Description
-    -----------
-    The streamfunction of a prescribed relative vorticity on the
-    horizontal corner, in the zero-mean gauge. The spectral route
-    assembles :math:`k_h^2` from the grid's own staggered-derivative
-    symbols (so the inversion is the exact inverse of the discrete
-    ``rel_vort_z`` the velocities go on to carry) and divides,
-    :math:`\hat\psi = -\hat\zeta / k_h^2`; ``Symbol.inverse`` maps the
-    :math:`k = 0` structural zero to zero.
-
-    The operand is **two-dimensional** — a horizontal corner field
-    with a one-DOF (``Constant``) vertical factor — because the
-    vertical structure multiplies the streamfunction *after* the
-    inversion. The vertical topology therefore plays no part here; a
-    walled vertical is served exactly like a periodic one.
-
-    .. note::
-
-        This is the **seam** for the general (walled-horizontal)
-        solver. The Fourier route below needs both horizontal axes
-        periodic; a horizontally walled domain needs the inversion of
-        the discrete corner Laplacian with the wall gauge
-        (:math:`\psi` constant along a solid boundary), which is a
-        separate solver. Everything above and below this function is
-        topology-blind: replacing this body with that solver is the
-        whole change.
-
-        Mind the sign at the swap. A general solver is naturally
-        written for the positive-definite operator
-        :math:`-\nabla_h^2`, so this function is **minus** it:
-        ``_streamfunction_from_vorticity(grid, zeta)`` is
-        ``-invert_negative_laplacian(grid, zeta, axes=(x, y))``. The
-        sign belongs here, with the curl convention it pairs with, not
-        inside the solver.
-
-    Parameters
-    ----------
-    grid : Grid
-        The grid mediating the transforms and wavenumbers.
-    zeta : ScalarField
-        The prescribed relative vorticity on the horizontal corner.
-
-    Returns
-    -------
-    ScalarField
-        The streamfunction on the same space.
-
-    Raises
-    ------
-    ValueError
-        On a horizontally walled grid (the general solver's seam).
-    """
-    x, y = _horizontal(grid)
-    walled = [name for name in (x, y)
-              if not next(m for m in grid.factors
-                          if name in m.names).periodic]
-    if walled:
-        raise ValueError(
-            "the spectral vorticity inversion needs both horizontal "
-            f"axes periodic; this grid bounds {walled!r} — prescribe "
-            "the streamfunction instead (gauss_field="
-            "'streamfunction'), which is topology-blind, or invert "
-            "the vorticity yourself and pass the result")
-    kit = GridSymbols(grid, {"psi": zeta.function_space.bare})
-    kh2 = (kit.diff(x, on="psi").magnitude ** 2
-           + kit.diff(y, on="psi").magnitude ** 2)
-    coeff = kit.forward("psi")(zeta)
-    inverse = jnp.broadcast_to(kh2.inverse().data, coeff.data.shape)
-    return kit.backward("psi")(
-        coeff.with_data(-coeff.data * inverse)).real
-
-
 def coherent_eddy(
     model: Model,
     *,
@@ -1072,6 +995,33 @@ def coherent_eddy(
     i.e. a **cyclone**. The two branches turn opposite ways for the
     same sign of ``amplitude``, which is the physics
     (:math:`\zeta = \nabla_h^2\psi`), not a convention choice.
+
+    **The vorticity branch and its gauge.** The inversion is
+    :func:`~fridom.model.streamfunction.invert_negative_laplacian`,
+    which diagonalizes the *discrete* corner Laplacian on every
+    horizontal topology — doubly periodic, a walled channel, a closed
+    box, each with or without a rigid lid — so the branch is no more
+    restricted than the streamfunction one. Its operand is the
+    two-dimensional :math:`G` alone, since :math:`F` multiplies
+    :math:`\psi` afterwards, and the vertical is never transformed.
+
+    What *is* topology dependent is the gauge, and a caller choosing
+    between the two branches should know which one they get:
+
+    - with **at least one walled horizontal axis** the sine basis
+      carries no constant mode, the operator has no nullspace, and
+      the diagnosed ``rel_vort_z`` is the prescribed Gaussian
+      exactly (to round-off, :math:`10^{-13}` relative);
+    - on a **fully periodic horizontal** the constant mode is a
+      structural zero of the symbol — a periodic domain admits no
+      net vorticity, :math:`\int \zeta \, \mathrm{d}A = 0` — so the
+      state carries the prescribed Gaussian *minus its domain
+      mean*. That offset is the bump's own area fraction
+      :math:`\pi \sigma^2 / L_x L_y`, i.e. :math:`\pi \sigma_r^2`
+      on a square box for a relative ``width`` :math:`\sigma_r`:
+      4.5 percent of the peak at ``width=0.12``, 20 percent at
+      ``width=0.25``. Prescribe the streamfunction instead when the
+      peak vorticity has to be exact on a periodic grid.
 
     **Staggering.** :math:`G` is sampled on the horizontal corner (the
     ``u`` face in :math:`x` crossed with the ``v`` face in :math:`y`)
@@ -1156,9 +1106,11 @@ def coherent_eddy(
     Raises
     ------
     ValueError
-        On an unknown ``gauss_field``; on the vorticity branch over a
-        horizontally walled grid; on a ``vertical_structure`` without
-        a buoyancy module or without a constant Coriolis parameter.
+        On an unknown ``gauss_field``; on an eigenmodes object in
+        place of the model; on a ``vertical_structure`` without a
+        buoyancy module or without a constant Coriolis parameter.
+        The grid topology is never a reason: both branches serve
+        every one.
 
     Examples
     --------
@@ -1217,7 +1169,13 @@ def coherent_eddy(
 
     shape = _sample(grid, flat, bump, name="psi")
     if gauss_field == "vorticity":
-        shape = _streamfunction_from_vorticity(grid, shape)
+        # this curl gives zeta = +laplacian_h psi, so psi is *minus*
+        # the inverse of the positive-definite -laplacian_h the shared
+        # solver returns; the sign lives here, next to the curl that
+        # forces it. The operand is the two-dimensional `flat` shape,
+        # which is what keeps the transform off the vertical: the
+        # structure multiplies psi afterwards
+        shape = -invert_negative_laplacian(shape, axes=(x, y))
     corner = flat.replace(**{
         _VERTICAL: spaces["u"].factor(_VERTICAL)})
     if vertical_structure is None:

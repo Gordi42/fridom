@@ -11,7 +11,10 @@ exactly in the linear model, the wave package stays localized and
 wave-pure, the geostrophically projected jets are steady, and the
 coherent eddy is divergence-free and exactly balanced (its projected
 tendency is machine zero on every topology, so it needs no vortical
-projection).
+projection). Both eddy branches serve every topology: the vorticity
+route reproduces its prescribed Gaussian on all six (exactly where a
+wall fixes the gauge, minus the domain mean where the horizontal is
+fully periodic).
 """
 import jax
 import jax.numpy as jnp
@@ -564,6 +567,49 @@ def square_model():
     return make_model(n=16, y_extent=(0.0, 2 * np.pi))
 
 
+#: The six topologies the vorticity inversion must serve.
+_TOPOLOGIES = {
+    "periodic": (True, True, True),
+    "channel-x": (False, True, True),
+    "box-xy": (False, False, True),
+    "periodic+lid": (True, True, False),
+    "channel-x+lid": (False, True, False),
+    "box-xy+lid": (False, False, False),
+}
+
+
+@pytest.fixture(scope="module")
+def topology_models():
+    """One square-domain model per horizontal/vertical topology."""
+    return {
+        label: make_model(n=16, y_extent=(0.0, 2 * np.pi),
+                          periodic_x=px, periodic_y=py, periodic_z=pz)
+        for label, (px, py, pz) in _TOPOLOGIES.items()}
+
+
+def _eddy_corner(model):
+    """Return the eddy's vorticity corner (one DOF in the vertical)."""
+    state = model.state
+    mesh_z = next(m for m in model.grid.factors if "z" in m.names)
+    return state["u"].function_space.bare.replace(
+        y=state["v"].function_space.bare.factor("y"), z=mesh_z.constant)
+
+
+def _prescribed_gaussian(model, width):
+    """Sample coherent_eddy's own bump on the vorticity corner."""
+    grid = model.grid
+    x0, x1 = (float(v) for v in grid.factors[0].extent)
+    y0, y1 = (float(v) for v in grid.factors[1].extent)
+    lx = x1 - x0
+
+    def init(x, y):
+        return jnp.exp(
+            -((x - x0 - 0.5 * lx) ** 2
+              + (y - y0 - 0.5 * (y1 - y0)) ** 2) / (width * lx) ** 2)
+
+    return grid.create_field(_eddy_corner(model), init=init, name="zeta")
+
+
 @pytest.mark.parametrize("gauss_field",
                          ["vorticity", "streamfunction"])
 def test_eddy_is_divergence_free(periodic, gauss_field):
@@ -597,12 +643,15 @@ def test_eddy_periodic_is_exactly_balanced(periodic):
         assert _balance(model, z) < 1e-12
 
 
+@pytest.mark.parametrize("gauss_field",
+                         ["vorticity", "streamfunction"])
 @pytest.mark.parametrize("topology",
                          ["walled z", "walled x", "nodal"])
 def test_eddy_is_exactly_balanced_on_every_topology(eddy_models,
-                                                    topology):
+                                                    topology,
+                                                    gauss_field):
     model = eddy_models[topology]
-    z = nh.coherent_eddy(model, width=0.15,
+    z = nh.coherent_eddy(model, width=0.15, gauss_field=gauss_field,
                          vertical_structure=_structure)
     model.set_state(z)
     assert _balance(model, z) < 1e-12
@@ -623,12 +672,20 @@ def test_eddy_stays_steady_under_the_linear_model(periodic):
     assert float(np.abs(np.asarray(model.state["w"].data)).max()) < 1e-14
 
 
-def test_eddy_needs_no_vortical_projection(periodic):
+@pytest.mark.parametrize("gauss_field",
+                         ["vorticity", "streamfunction"])
+def test_eddy_needs_no_vortical_projection(periodic, gauss_field):
     """The construction is already exactly vortical (no radiation)."""
     model, em = periodic
-    z = nh.coherent_eddy(model, width=0.15,
+    z = nh.coherent_eddy(model, width=0.15, gauss_field=gauss_field,
                          vertical_structure=_structure)
     assert _energy(nh.transforms.WaveProjection(em)(z)) < 1e-24 * _energy(z)
+    # ... so the vortical projection is a no-op, not a correction
+    kept = nh.transforms.VorticalProjection(em)(z)
+    scale = max(float(np.abs(np.asarray(z[c].data)).max())
+                for c in COMPONENTS)
+    assert max(float(np.abs(np.asarray((kept[c] - z[c]).data)).max())
+               for c in COMPONENTS) < 1e-12 * scale
 
 
 def test_eddy_signs(square_model):
@@ -642,6 +699,85 @@ def test_eddy_signs(square_model):
     flipped = nh.coherent_eddy(square_model, width=0.1, amplitude=-1.0)
     assert np.allclose(np.asarray(flipped["u"].data),
                        -np.asarray(high["u"].data))
+
+
+@pytest.mark.parametrize("label", list(_TOPOLOGIES))
+def test_eddy_vorticity_serves_every_topology(topology_models, label):
+    """Prescribed zeta comes back, exactly where a wall fixes the gauge."""
+    periodic_x, periodic_y, _ = _TOPOLOGIES[label]
+    model = topology_models[label]
+    width = 0.12
+    z = nh.coherent_eddy(model, width=width, gauss_field="vorticity")
+    got = np.asarray(z.rel_vort_z.data).copy()
+    want = np.broadcast_to(
+        np.asarray(_prescribed_gaussian(model, width).data),
+        got.shape).copy()
+    scale = np.abs(want).max()
+    if periodic_x and periodic_y:
+        # the periodic gauge: a periodic domain admits no net
+        # vorticity, so the bump comes back minus its own area
+        # fraction pi * width^2 (the domain is square here)
+        assert (np.abs(want - got).max() / scale
+                == pytest.approx(np.pi * width ** 2, rel=1e-3))
+        want -= want.mean(axis=(0, 1), keepdims=True)
+        got -= got.mean(axis=(0, 1), keepdims=True)
+    assert np.abs(want - got).max() / scale < 1e-11
+    # divergence-free, with no wall-normal degree of freedom at all
+    umax = max(float(np.abs(np.asarray(z[c].data)).max())
+               for c in ("u", "v"))
+    divergence = (z["u"].diff("x") + z["v"].diff("y")
+                  + z["w"].diff("z")).data
+    assert float(np.abs(np.asarray(divergence)).max()) < 1e-12 * umax
+    assert float(np.abs(np.asarray(z["w"].data)).max()) == 0.0
+    if not periodic_x:
+        cells = model.grid.factors[0].n_cells
+        assert z["u"].function_space.shape[0] == cells - 1
+        # the wall-adjacent columns close on u_wall = 0: nothing
+        # leaks through the wall the space has no DOF on
+        horizontal = np.asarray(
+            (z["u"].diff("x") + z["v"].diff("y")).data)
+        assert np.abs(horizontal[0]).max() < 1e-12 * umax
+        assert np.abs(horizontal[-1]).max() < 1e-12 * umax
+
+
+def test_eddy_vorticity_inverts_a_two_dimensional_operand(
+        topology_models, monkeypatch):
+    """F multiplies psi after the inversion, so the vertical is 1 DOF."""
+    seen = []
+    inversion = nh.initial_conditions.invert_negative_laplacian
+
+    def spy(field, *, axes):
+        seen.append(field.function_space.shape)
+        return inversion(field, axes=axes)
+
+    monkeypatch.setattr(nh.initial_conditions,
+                        "invert_negative_laplacian", spy)
+    model = topology_models["box-xy+lid"]
+    z = nh.coherent_eddy(model, width=0.12, gauss_field="vorticity",
+                         vertical_structure=_structure)
+    assert len(seen) == 1
+    # a 3-D operand would pay a DST-II pair along a vertical the
+    # symbol never reads (19x the cost at 128^2 x 32)
+    assert seen[0][2] == 1
+    assert z["u"].function_space.shape[2] > 1
+
+
+def test_eddy_vorticity_baroclinic_is_the_barotropic_one_times_f(
+        topology_models):
+    """The structure scales the recovered vorticity level by level."""
+    model = topology_models["channel-x+lid"]
+    flat = np.asarray(nh.coherent_eddy(
+        model, width=0.12, gauss_field="vorticity").rel_vort_z.data)
+    tall = np.asarray(nh.coherent_eddy(
+        model, width=0.12, gauss_field="vorticity",
+        vertical_structure=_structure).rel_vort_z.data)
+    i, j = np.unravel_index(np.abs(flat[:, :, 0]).argmax(),
+                            flat.shape[:2])
+    ratios = tall[i, j] / flat[i, j]        # the vertical profile
+    for k, ratio in enumerate(ratios):
+        assert (np.abs(tall[:, :, k] - ratio * flat[:, :, k]).max()
+                < 1e-12 * np.abs(flat[:, :, k]).max())
+    assert ratios.max() / ratios.min() > 1.5    # F really varies
 
 
 def test_eddy_vorticity_branch_reproduces_its_gaussian(square_model):
@@ -729,9 +865,11 @@ def test_eddy_taught_errors(periodic, eddy_models):
         nh.coherent_eddy(model, gauss_field="pressure")
     with pytest.raises(ValueError, match="not an eigenmodes"):
         nh.coherent_eddy(em)
-    with pytest.raises(ValueError, match="horizontal axes periodic"):
-        nh.coherent_eddy(eddy_models["walled x"],
-                         gauss_field="vorticity")
+    # the topology is not a reason: the vorticity branch inverts on a
+    # walled horizontal too (test_eddy_vorticity_serves_every_topology)
+    walled = nh.coherent_eddy(eddy_models["walled x"],
+                              gauss_field="vorticity")
+    assert float(np.abs(np.asarray(walled["v"].data)).max()) > 0.0
     with pytest.raises(ValueError, match="declares no 'b'"):
         nh.coherent_eddy(make_model(buoyancy=False),
                          vertical_structure=_structure)
