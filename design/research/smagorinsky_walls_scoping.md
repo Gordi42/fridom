@@ -286,3 +286,54 @@ operator feasibility `src/fridom/spatial/operators/interp.py:132-227`,
 `src/fridom/model/declarations.py:454-478`; gates
 `tests/nonhydro2/test_smagorinsky_lilly.py`,
 `tests/model/closures/test_diffusion_walls.py`.
+
+## (viii) Walled-FV addendum (2026-08-13)
+
+§(vii)3 deferred walled `CellAvg` grids "rather than run unvalidated".
+Validated now, and the fence came down: the FV lift is a **deletion**,
+not an implementation.
+
+**Why there was nothing to build.** The nonhydro2 FV C-grid keeps each
+velocity's own staggered factor nodal and makes only the transverse
+factors `CellAvg` (`u: Right(x) ⊗ CellAvg(y) ⊗ CellAvg(z)`). Every
+factor the free-slip retag touches sits on a **bounded** axis, and on a
+bounded axis the FV `diff` profile staggers the cell average onto the
+same nodal `Inner` face the nodal chain differentiates onto
+(`CellAvg -> Inner`, the diffusion campaign's FV walled chain). So the
+whole strain table is the nodal one with `Center` replaced by
+`CellAvg`, the off-diagonal halves still meet on one edge space, and
+`_dirichlet_edge` is the identical wall-value claim. The average family
+never has to grow a Dirichlet sibling, because the retag never acts on
+an average factor. `Center`↔`CellAvg` only ever appears on *periodic*
+axes and in the `.to(anchor)` legs, where the FV rows are already
+seeded.
+
+The blanket reject is replaced by `diffusion._probe_fv_face` per
+bounded `CellAvg` factor — the sibling closure's exact check — so a
+`CellAvg` field on a grid *without* the face-exposing profile (a nodal
+model with `ConstantStratification(family="fv")`, FV-D1b) is refused
+at bind, attributed, instead of failing later inside a term.
+
+**Scope discovered while doing it.** `resolve_model_family(None, grid)`
+promotes to `"fv"` on every grid, so `nh.Model`'s default walled model
+is finite-volume: the W1–W3 walled Smagorinsky was unreachable through
+the default spelling and needed an explicit
+`core=nh.Core(family="nodal")`.
+
+**Gates** (`tests/nonhydro2/test_smagorinsky_lilly_fv.py`, the §(v)
+list re-run on FV): FV-vs-nodal closure-hook parity <=1e-12 relative
+over 1/2/3 walled axes x both slips; `Cs=0` ≡ walled FV
+`HarmonicFriction(ν_bg/2)` bit-for-bit, both slips; even-mirror oracle
+bit-for-bit, no-slip odd-mirror oracle 1e-14; uniform-flow drag rows,
+energy decay, corner composition, `jax.grad` ≡ FD, forced-4 sharded ≡
+single-device.
+
+**Not lifted.** Immersed and terrain/mapped stay deferred (§(vi)).
+One pre-existing hole is *not* the closure's: a raw `fr.model.Model`
+with `Core(family="fv")` and a `family=None` tracer produces a **mixed**
+assembly (FV velocities, nodal `b`) because only the `nh.Model` preset
+calls `grid.set_default_family`. That combination already fails
+model-wide — `CenteredAdvection` and `HarmonicDiffusion` raise the same
+`SpaceMismatchError` on periodic and walled grids alike — so the
+closure now behaves exactly like its siblings there rather than
+carrying a private guard.

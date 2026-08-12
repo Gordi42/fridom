@@ -188,18 +188,8 @@ def test_two_walled_axes_compose_and_step_finite():
                for f in final.state)
 
 
-# ================================================================
-#  Taught rejection: walled finite-volume (CellAvg) grid is future work
-# ================================================================
-def test_walled_finite_volume_grid_is_a_taught_rejection():
-    grid = make_grid({"x": True, "y": True, "z": False})
-    with pytest.raises(NotImplementedError,
-                       match="walled finite-volume"):
-        Model(grid=grid,
-              modules=(Core(family="fv"),
-                       ConstantStratification(n2=0.0),
-                       SmagorinskyLilly()),
-              time_stepper=AdamBashforth(DT, order=3))
+# Walled finite-volume (CellAvg) grids are served; their oracles live
+# in the prefix shard ``test_smagorinsky_lilly_fv.py``.
 
 
 # ================================================================

@@ -11,7 +11,7 @@ import fridom.nonhydro2 as nh
 from fridom.model.declarations import FieldDeclaration
 from fridom.model.errors import (
     AssemblyError,
-    MissingParameterError,
+    MissingFieldError,
 )
 from fridom.model.field_table import (
     FieldRecord,
@@ -21,6 +21,7 @@ from fridom.model.model import Model, _chunk_body
 from fridom.model.time_steppers.adam_bashforth import (
     AdamBashforth,
 )
+from fridom.nonhydro2.modules.buoyancy_tracer import BuoyancyTracer
 from fridom.nonhydro2.modules.core import Core
 from fridom.nonhydro2.modules.smagorinsky_lilly import SmagorinskyLilly
 from fridom.nonhydro2.modules.stratification import (
@@ -232,20 +233,128 @@ def test_explicit_buoyancy_multiplier_wins():
 # ================================================================
 # Free-slip / no-slip walled behaviour lives in the prefix shard
 # ``test_smagorinsky_lilly_walls.py`` (oversized-module rule); walled
-# grids are no longer a blanket rejection.
-def test_meridional_stratification_lacks_the_constant_n2():
+# grids are no longer a blanket rejection. The finite-volume family
+# lives in ``test_smagorinsky_lilly_fv.py``.
+def test_meridional_stratification_is_a_taught_rejection():
+    # the varying N^2(y) background is a *field*, not the constant
+    # provide: refused explicitly rather than damped against zero
     grid = make_grid()
-    with pytest.raises(MissingParameterError,
-                       match=r"stratification\.n2"):
+    with pytest.raises(NotImplementedError,
+                       match="VARYING background stratification"):
         make_model(
             grid=grid,
             buoyancy=MeridionalStratification(
                 n2=lambda y: 1.0 + 0.0 * y, meridional="y"))
 
 
+def test_nondimensional_stratification_is_a_taught_rejection():
+    # the internal-wave (eps/Fr)^2 background is not wired into the
+    # damping, and the closure's own constants are dimensional
+    with pytest.raises(NotImplementedError,
+                       match=r"stratification\.froude"):
+        Model(
+            grid=make_grid(),
+            modules=(Core(),
+                     nh.FPlaneCoriolis(rossby_number=0.25),
+                     ConstantStratification(froude_number=0.5),
+                     SmagorinskyLilly()),
+            scaling=fr.scaling.InternalWave(),
+            time_stepper=AdamBashforth(DT, order=3))
+
+
+def test_no_buoyancy_module_still_refuses_through_the_field_reference():
+    # dropping the stratification.n2 ParameterReference must not lose
+    # the refusal of a model with no buoyancy variable at all
+    with pytest.raises(MissingFieldError, match=r"'b'"):
+        Model(
+            grid=make_grid(),
+            modules=(Core(), nh.FPlaneCoriolis(f0=1.0),
+                     SmagorinskyLilly()),
+            time_stepper=AdamBashforth(DT, order=3))
+
+
+# ================================================================
+#  No background stratification at all (nh.BuoyancyTracer)
+# ================================================================
+def test_buoyancy_tracer_pairs_and_binds_no_background():
+    model = make_model(buoyancy=BuoyancyTracer())
+    closure = next(m for m in model._carry.modules
+                   if isinstance(m, SmagorinskyLilly))
+    assert closure._has_background_n2 is False
+    # the false provide is NOT introduced (the 1/N^2 consumers still
+    # refuse the model through the missing row)
+    assert str(STRATIFICATION_N2) not in model.parameters
+
+
+def test_buoyancy_tracer_matches_a_zero_constant_background():
+    # the two legal spellings of "no background" agree bit-for-bit
+    kwargs = {"smagorinsky_constant": 0.16,
+              "background_viscosity": 1e-3,
+              "background_diffusivity": 1e-3}
+    tracer = make_model(buoyancy=BuoyancyTracer(), **kwargs)
+    zero = make_model(n2=0.0, **kwargs)
+    rng = np.random.default_rng(17)
+    fields = {name: 0.3 * rng.standard_normal((N, N, N))
+              for name in ("u", "v", "w", "b")}
+    tracer.set_fields(**fields)
+    zero.set_fields(**fields)
+    td_t = tracer.tendency(tracer.state)
+    td_z = zero.tendency(zero.state)
+    for name in ("u", "v", "w", "b"):
+        np.testing.assert_array_equal(data(td_t[name]), data(td_z[name]))
+    assert np.abs(data(td_t["u"])).max() > 0.0
+
+
+def test_richardson_damping_is_live_without_a_background():
+    # "no background" is NOT "no damping": N^2 = d(b)/dz alone still
+    # clips the eddy viscosity wherever the resolved buoyancy is stable
+    model = make_model(buoyancy=BuoyancyTracer(),
+                       smagorinsky_constant=0.16,
+                       background_viscosity=0.0,
+                       buoyancy_multiplier=1.0)
+    closure = next(m for m in model._carry.modules
+                   if isinstance(m, SmagorinskyLilly))
+    ctx = SimpleNamespace(params={SMAG_CS: 0.16,
+                                  SMAG_BUOYANCY_MULTIPLIER: 1.0})
+    _, _, z = coords()
+    shear = 0.4 * np.sin(z)
+    viscosities = {}
+    for strat in (0.0, 5.0):
+        model.set_fields(u=shear, b=strat * z)
+        viscosities[strat] = data(closure._eddy_viscosity(model.state, ctx))
+    unstratified, stratified = viscosities[0.0], viscosities[5.0]
+    assert (unstratified > 0.0).all()
+    assert (stratified == 0.0).sum() > unstratified.size // 2
+    assert (stratified <= unstratified + 1e-15).all()
+
+
+def test_a_bare_field_table_keeps_the_background_read():
+    # the closure unit-test path (a raw FieldTable, no parameter view)
+    # cannot see the assembly, so the read is kept and the caller
+    # supplies ctx.params[stratification.n2] itself
+    closure = SmagorinskyLilly()
+    closure.bind(_velocity_table())
+    assert closure._has_background_n2 is True
+
+
 def test_vertical_must_be_a_velocity_axis():
     with pytest.raises(AssemblyError, match="vertical coordinate"):
         make_model(vertical="q")
+
+
+def _velocity_table():
+    """Build a raw u/v/w/b table with the velocity roles (periodic)."""
+    grid = make_grid()
+    records = [
+        FieldRecord.from_declaration(
+            FieldDeclaration.velocity(name, axis,
+                                      space=fr.spatial.Staggered(axis)),
+            owner=0, owner_type="Core", grid=grid)
+        for name, axis in (("u", "x"), ("v", "y"), ("w", "z"))]
+    records.append(FieldRecord.from_declaration(
+        FieldDeclaration.tracer("b"), owner=0, owner_type="Core",
+        grid=grid))
+    return FieldTable(tuple(records), grid)
 
 
 def _plain_table():

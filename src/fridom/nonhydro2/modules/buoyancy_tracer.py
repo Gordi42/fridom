@@ -15,7 +15,13 @@ physics kwarg, so it adopts the assembly's variant at bind and provides
 no ``stratification.n2`` / ``stratification.froude`` — consumers that
 need a background stratification (the ``1/N^2`` energy metric, the
 internal-wave eigenmodes) refuse the model through the missing provide
-with the taught registry hint.
+with the taught registry hint. Consumers that need the *total*
+:math:`N^2` rather than a background one are served: the Richardson
+damping of ``nh.SmagorinskyLilly`` resolves the background at bind and,
+with this module, reads :math:`N^2 = \partial_z b` alone — the damping
+stays live, the background add is simply absent from the trace (the
+same "absent, not multiplied by zero" discipline as the restoring
+term).
 
 ``b`` is advanced by advection alone: a **linear** assembly
 (``advection=False``) leaves ``b`` advanced by no term at all and is

@@ -82,20 +82,27 @@ no-slip consumer.*
 [`../plans/active/immersed_closures_sadourny_plan.md`](../plans/active/immersed_closures_sadourny_plan.md)
 §5
 
-## Smagorinsky — immersed, terrain/mapped, walled FV
+## Smagorinsky — immersed, terrain/mapped, varying N²
 
 *Deferred (owner 2026-07-19). Triggers: an immersed-LES consumer;
 terrain LES (needs the metric-tensor strain and the W3 J-weighted
-filter width); a walled-FV (`CellAvg`) Smagorinsky consumer (a
-narrow taught error added at the W1 landing so the FV promotion
-does not run an unvalidated cross-derivative path — the diffusion
-campaign's FV walled lift is the precedent for the small fix).*
-Layering proven safe: each stage reduces at `Cs=0` to the
-corresponding already-ratified walled/immersed/along-σ friction
+filter width).* Layering proven safe: each stage reduces at `Cs=0` to
+the corresponding already-ratified walled/immersed/along-σ friction
 closure. The walled nodal lift (W1–W3) shipped 2026-07-19
-(`c028a84d`).
+(`c028a84d`); walled **finite-volume** shipped 2026-08-13 (entry in
+[`done.md`](done.md)) — the FV strain lands on the nodal spaces with
+`Center -> CellAvg`, so the free-slip retag needed no new operator.
 [`../research/smagorinsky_walls_scoping.md`](../research/smagorinsky_walls_scoping.md)
-§(vi)–(vii)
+§(vi)–(viii)
+
+Also parked here: the **varying background** `N²(y)`
+(`nh.MeridionalStratification`), a taught refusal at bind since
+2026-08-13. Small — the damping's constant `N²_bg` becomes
+`state["n2"].to(anchor)`, a zero-reach broadcast onto the shared
+meridional nodes — but it needs its own oracles (the profile enters
+the `|Σ|²` clip, so the `Cs=0` reduction says nothing about it) and
+an owner call on whether a *time-dependent* `n2(y, t)` law should
+drive the closure too. *Trigger: a stratified-channel LES consumer.*
 
 ## Stage-5 diffusion — geopotential-correct full-metric tensor
 
