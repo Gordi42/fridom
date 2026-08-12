@@ -87,7 +87,9 @@ def ekin(
     u = state["u"].to(center).data
     v = state["v"].to(center).data
     w = state["w"].to(center).data
-    return state["p"].with_data(0.5 * (u**2 + v**2 + dsqr * w**2))
+    return state["p"].new_quantity(
+        0.5 * (u**2 + v**2 + dsqr * w**2),
+        name="ekin", long_name="Kinetic energy", units="m^2/s^2")
 
 
 def _n2_eff(params: Mapping[str, object]) -> object:
@@ -121,7 +123,9 @@ def epot(
     n2 = _n2_eff(params)
     center = state["p"].function_space
     b = state["b"].to(center).data
-    return state["p"].with_data(0.5 * b**2 / n2)
+    return state["p"].new_quantity(
+        0.5 * b**2 / n2,
+        name="epot", long_name="Potential energy", units="m^2/s^2")
 
 
 def etot(
@@ -184,7 +188,9 @@ def linear_pot_vort(
     q = f0 / n2 * dbdz + zeta.data
     if SCALING_NONLINEARITY in params:
         q = params[SCALING_NONLINEARITY] * q
-    return state["p"].with_data(q)
+    return state["p"].new_quantity(
+        q, name="linear_pot_vort",
+        long_name="Linear potential vorticity", units="1/s")
 
 
 DIAGNOSTICS = {
