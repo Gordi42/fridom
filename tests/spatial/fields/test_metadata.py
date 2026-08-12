@@ -107,3 +107,24 @@ def test_the_nondimensional_flag_is_a_functional_update():
     stamped = md.replace(nondimensional=True)
     assert stamped.units == "1"
     assert md.units == "m/s"
+
+
+def test_cleared_drops_the_identity_and_keeps_the_frame():
+    md = FieldMetadata.create(
+        name="u", long_name="Zonal velocity", units="m/s",
+        nc_attrs={"axis": "X"}, nondimensional=True)
+    blank = md.cleared()
+    assert blank.name == "unnamed"
+    assert blank.long_name == "Unnamed"
+    assert blank.physical_units == "unknown"
+    assert blank.nc_attrs == ()
+    # the value system survives: it describes the numbers, not the
+    # quantity, so a later declaration renders without restating it
+    assert blank.nondimensional is True
+    assert blank.replace(units="1/s").units == "1"
+
+
+def test_cleared_of_a_dimensional_record_stays_dimensional():
+    md = FieldMetadata.create(name="u", units="m/s")
+    assert md.cleared().nondimensional is False
+    assert md.cleared().replace(units="1/s").units == "1/s"

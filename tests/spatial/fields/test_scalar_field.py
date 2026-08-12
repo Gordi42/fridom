@@ -1305,3 +1305,52 @@ def test_new_quantity_is_the_counterpart_of_with_data(f):
     # update of the same quantity, wrong for a different one)
     assert borrowed.metadata.long_name == "Pressure"
     assert declared.metadata.long_name == "Kinetic energy"
+
+
+# ================================================================
+#  The scaling frame rides through the algebra
+# ================================================================
+@pytest.mark.parametrize("combine", [
+    pytest.param(lambda a, b: a + b, id="add"),
+    pytest.param(lambda a, b: a - b, id="sub"),
+    pytest.param(lambda a, b: a * b, id="mul"),
+    pytest.param(lambda a, b: a / b, id="div"),
+    pytest.param(lambda a, _: a + 2.0, id="scalar-shift"),
+    pytest.param(lambda a, _: 2.0 * a, id="scalar-scale"),
+    pytest.param(lambda a, _: a ** 2, id="power"),
+    pytest.param(lambda a, _: abs(a), id="abs"),
+    pytest.param(lambda a, _: -a, id="neg"),
+    pytest.param(lambda a, _: a.diff("x"), id="diff"),
+])
+def test_value_computing_ops_keep_the_scaling_frame(f, combine):
+    # the identity is dropped (u*b is neither a velocity nor a
+    # buoyancy) but the value system is not: the result of
+    # arithmetic on nondimensionalized values is nondimensionalized
+    nondim = f.with_metadata(name="u", units="m/s",
+                             nondimensional=True)
+    other = nondim.with_metadata(name="q") + 1.0
+    result = combine(nondim, other)
+    assert result.metadata.name == "unnamed"
+    assert result.metadata.physical_units == "unknown"
+    assert result.metadata.nondimensional is True
+    # so a derived quantity re-declaring here renders correctly
+    # without its declaration site mentioning the scaling
+    assert result.with_metadata(units="1/s").metadata.units == "1"
+
+
+def test_value_computing_ops_keep_a_dimensional_frame(f, g):
+    result = f.with_metadata(units="m/s") + g
+    assert result.metadata.nondimensional is False
+    assert result.with_metadata(units="1/s").metadata.units == "1/s"
+
+
+def test_a_constant_space_lift_keeps_the_annotation(grid, mx, my):
+    # a lift is a conversion, not a computation: the same quantity
+    # at more nodes (f_coriolis entering an expression)
+    constant = grid.create_field(
+        mx.constant * my.constant, name="f_coriolis",
+        units="1/s").with_metadata(nondimensional=True)
+    lifted = constant.to(mx.center * my.center)
+    assert lifted.metadata.name == "f_coriolis"
+    assert lifted.metadata.physical_units == "1/s"
+    assert lifted.metadata.nondimensional is True

@@ -843,5 +843,7 @@ def apply_staggered(
             axis, (max(m0, 0), max(reach_right, 0)))
     else:
         valid = f.halo_valid.reset(axis)
-    return type(f)(f.grid, codomain, data, metadata,
+    return type(f)(f.grid, codomain, data,
+                   f.metadata.cleared() if metadata is None
+                   else metadata,
                    halo_valid=valid)
