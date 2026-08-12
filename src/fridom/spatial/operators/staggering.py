@@ -38,6 +38,7 @@ from __future__ import annotations
 from fractions import Fraction
 from typing import TYPE_CHECKING
 
+import jax
 import jax.numpy as jnp
 
 from fridom.spatial.bc import BC
@@ -740,13 +741,265 @@ def divide_by_codomain_measure(
                         halo_valid=result.halo_valid)
 
 
+# ================================================================
+#  Flat-axis halo elision: repeat-and-run
+# ================================================================
+def flat_window(size: int, m0: int, width: int, s_out: int) -> int:
+    r"""
+    Kernel alignment of the rebuilt window of a flat axis.
+
+    Description
+    -----------
+    On a **flat** axis (periodic, one cell) the storage halo is elided
+    (``TensorDecomposition._width`` returns 0), so the axis holds a
+    single slot and a ``size``-point window cannot be aligned over it.
+    But the periodic wrap the elided ghosts *would* have carried is
+    exactly a repeat of that one slot, so the shared tails rebuild the
+    non-elided ``1 + 2 * width`` window with :func:`flat_widen`, run
+    the operator's **own** kernel over it, and take the true DOF back
+    out. Because the rebuilt window is constant along the axis, every
+    *consistent* scheme lands on identity (weights summing to 1) or
+    zero (weights summing to 0) by itself — linear or nonlinear, with
+    no per-operator declaration and no silent-wrong failure mode
+    (``design/research/thin_axis_halo_investigation.md`` §6).
+
+    This returns the one number the tails need: the alignment ``m0``
+    shifted into the rebuilt window's frame, ``m0 - width``. With it
+    the tails' ordinary slice-and-pad tail extracts deep-frame output
+    slot ``width`` — the true DOF — with no separate slicing path and
+    no padding, because ``lo`` lands on 0 and ``hi`` on ``s_out``.
+
+    Parameters
+    ----------
+    size : int
+        The stencil size (number of input points per output).
+    m0 : int
+        The window alignment: kernel entry ``t`` feeds output slot
+        ``t + m0``.
+    width : int
+        The **negotiated** halo width along the axis (the elided one;
+        ``decomposition.halo`` is deliberately left untouched).
+    s_out : int
+        The codomain's storage extent along the axis (1 on a flat
+        axis, since its halo is elided too).
+
+    Returns
+    -------
+    int
+        The kernel alignment in the rebuilt window's frame.
+
+    Raises
+    ------
+    ValueError
+        If the rebuilt window cannot cover the codomain's storage
+        extent, which would otherwise zero-pad the result silently.
+        Unreachable through the shared tails — their per-side reach
+        guard runs first and implies the fit — so this is the
+        backstop for a future caller that skips it.
+    """
+    length = 1 + 2 * width - (size - 1)
+    if m0 > width or m0 - width + length < s_out:
+        raise ValueError(
+            f"flat-axis elision: the {size}-point stencil at "
+            f"alignment {m0} does not fit the rebuilt "
+            f"{1 + 2 * width}-slot window of a halo-{width} axis with "
+            f"codomain extent {s_out}; without this check the result "
+            f"would be padded with silent zeros")
+    return m0 - width
+
+
+def flat_captures(
+    kernel: Callable[..., Array], axis_index: int, ndim: int,
+) -> tuple[str, ...]:
+    r"""
+    Free-variable names holding un-widened flat-axis storage.
+
+    Description
+    -----------
+    The enforcement half of the ``co_operands`` contract. Repeat-and-run
+    (:func:`flat_window`) is transparent to a *kernel* — it runs the
+    operator's own code over a wider window — but not to a kernel's
+    *closure*: :func:`flat_widen` widens only the arrays the tail is
+    handed, so a second storage array reached through the closure keeps
+    its single slot while the primary operand grew. The consequence is
+    not reliably loud, which is why this check exists: slicing a
+    one-slot axis with the rebuilt window's length yields length 1, and
+    length 1 **broadcasts** against the window instead of raising, so
+    the kernel returns a plausible wrong answer.
+
+    So on the flat path the tails audit the closure and refuse, naming
+    the offending free variable and the ``co_operands`` parameter that
+    fixes it. The signature looked for is precise: a ``jax.Array`` of
+    the operand's own rank carrying one slot on the flat axis, i.e.
+    something shaped like un-widened storage. Only bare arrays and
+    plain containers of them are inspected, so a captured operator or
+    mesh is never mistaken for an operand.
+
+    Not a proof — an array hidden inside a custom object escapes it —
+    but it converts the realistic mistake from a silent wrong answer
+    into a pointed error, on the first flat run.
+
+    Parameters
+    ----------
+    kernel : Callable[..., Array]
+        The operator's array kernel.
+    axis_index : int
+        The storage index of the flat axis.
+    ndim : int
+        The operand storage's rank.
+
+    Returns
+    -------
+    tuple[str, ...]
+        The free-variable names that look like un-widened storage,
+        in closure order; empty when the kernel captures none.
+    """
+    cells = getattr(kernel, "__closure__", None) or ()
+    code = getattr(kernel, "__code__", None)
+    names = getattr(code, "co_freevars", ())
+    found: list[str] = []
+    for name, cell in zip(names, cells, strict=False):
+        try:
+            value = cell.cell_contents
+        except ValueError:  # pragma: no cover — unbound (recursive) cell
+            continue
+        if not isinstance(value, (jax.Array, tuple, list, dict)):
+            continue
+        leaves = jax.tree_util.tree_leaves(value)
+        if any(isinstance(leaf, jax.Array) and leaf.ndim == ndim
+               and leaf.shape[axis_index] == 1 for leaf in leaves):
+            found.append(name)
+    return tuple(found)
+
+
+def flat_widen(arr: Array, axis_index: int, width: int) -> Array:
+    r"""
+    Rebuild the elided ``1 + 2 * width`` window of a flat axis.
+
+    Description
+    -----------
+    The array half of repeat-and-run (see :func:`flat_window`): repeat
+    the single stored slot to the non-elided window length. Applied by
+    the shared tails to the operand storage **and** to every declared
+    ``co_operands`` entry — a kernel that closes over a second storage
+    array instead of declaring it gets no widening, and the primary
+    operand's rebuilt window then no longer matches what the closure
+    slices.
+
+    Parameters
+    ----------
+    arr : Array
+        A storage array holding one slot along ``axis_index``.
+    axis_index : int
+        The storage index of the flat axis.
+    width : int
+        The negotiated halo width along that axis.
+
+    Returns
+    -------
+    Array
+        ``arr`` repeated to ``1 + 2 * width`` slots along the axis.
+
+    Raises
+    ------
+    ValueError
+        If ``arr`` does not hold exactly one slot along the axis —
+        i.e. it is not the storage of a halo-elided flat axis, and
+        repeating it would fabricate DOFs.
+    """
+    n_in = arr.shape[axis_index]
+    if n_in != 1:
+        raise ValueError(
+            f"flat-axis elision expects a single storage slot along "
+            f"axis {axis_index}, got {n_in}: this array is not the "
+            f"storage of a halo-elided flat axis")
+    return jnp.repeat(arr, 1 + 2 * width, axis=axis_index)
+
+
+def flat_repeat_and_run(
+    kernel: Callable[..., Array],
+    storage: Array,
+    co_operands: tuple[Array, ...],
+    axis: str,
+    axis_index: int,
+    *,
+    size: int,
+    m0: int,
+    width: int,
+    s_out: int,
+) -> tuple[Array, tuple[Array, ...], int]:
+    r"""
+    Prepare a flat axis for repeat-and-run: widen, audit, realign.
+
+    Description
+    -----------
+    The one call each shared tail makes on a flat axis. It audits the
+    kernel's closure for undeclared storage (:func:`flat_captures`),
+    rebuilds the elided window of the operand and of every declared
+    co-operand (:func:`flat_widen`), and returns the kernel alignment
+    shifted into that window's frame (:func:`flat_window`) so the
+    tail's ordinary slice-and-pad tail extracts the single true DOF.
+
+    Parameters
+    ----------
+    kernel : Callable[..., Array]
+        The operator's array kernel (audited, not called).
+    storage : Array
+        The operand storage (one slot along the flat axis).
+    co_operands : tuple[Array, ...]
+        The declared extra storage arrays.
+    axis : str
+        The resolved coordinate axis (error messages only).
+    axis_index : int
+        The storage index of the flat axis.
+    size : int
+        The stencil size.
+    m0 : int
+        The true-frame window alignment.
+    width : int
+        The negotiated (elided) halo width along ``axis``.
+    s_out : int
+        The codomain's storage extent along ``axis``.
+
+    Returns
+    -------
+    tuple[Array, tuple[Array, ...], int]
+        The widened operand, the widened co-operands, and the kernel
+        alignment in the rebuilt window's frame.
+
+    Raises
+    ------
+    ValueError
+        If the kernel closes over something shaped like un-widened
+        storage instead of declaring it in ``co_operands``.
+    """
+    stowed = flat_captures(kernel, axis_index, storage.ndim)
+    if stowed:
+        raise ValueError(
+            f"the kernel applied along the flat axis {axis!r} closes "
+            f"over {', '.join(stowed)}, which is shaped like "
+            f"un-widened storage. A flat (periodic single-cell) axis "
+            f"stores no ghost slots, so the tail rebuilds the elided "
+            f"window of the arrays it is handed -- a closed-over one "
+            f"keeps its single slot and then BROADCASTS against the "
+            f"rebuilt window instead of failing. Pass it as a "
+            f"`co_operands=` entry and take it as a kernel argument; "
+            f"see design/research/thin_axis_halo_investigation.md "
+            f"section 6")
+    return (flat_widen(storage, axis_index, width),
+            tuple(flat_widen(c, axis_index, width)
+                  for c in co_operands),
+            flat_window(size, m0, width, s_out))
+
+
 def apply_staggered(
     op: Operator,
     f: FieldLike,
     axis: str,
     size: int,
-    kernel: Callable[[Array, int], Array],
+    kernel: Callable[..., Array],
     metadata: FieldMetadata | None,
+    co_operands: tuple[Array, ...] = (),
 ) -> FieldLike:
     """
     Run an aligned ``size``-point kernel along ``axis``.
@@ -770,11 +1023,21 @@ def apply_staggered(
         The resolved coordinate axis.
     size : int
         The stencil size (number of input points per output).
-    kernel : Callable[[Array, int], Array]
-        Array kernel mapping (storage, axis index) to the full
-        stencil output (length shrinks by ``size - 1``).
+    kernel : Callable[..., Array]
+        Array kernel mapping (storage, axis index, *co_operands) to
+        the full stencil output (length shrinks by ``size - 1``).
     metadata : FieldMetadata | None
         Metadata of the result (None resets to the default record).
+    co_operands : tuple[Array, ...], optional
+        Extra **storage arrays** the kernel reads alongside the
+        operand, passed on to it positionally after the axis index.
+        Declare every such array here rather than closing over it:
+        on a flat (halo-elided) axis the tail rebuilds the elided
+        window of the arrays it handles, and an array reached through
+        a closure is not one of them, so the kernel would slice a
+        one-slot array with the rebuilt window's length
+        (``design/research/thin_axis_halo_investigation.md`` §6).
+        Kernels reading only the operand pass nothing (default: ()).
 
     Returns
     -------
@@ -819,12 +1082,23 @@ def apply_staggered(
             f"too small for the {size}-point stencil of "
             f"{type(op).__name__}; renegotiate with a registry that "
             "declares the wider requirement")
-    full = kernel(storage, axis_index)
+    # repeat-and-run on a flat axis (:func:`flat_window`): the elided
+    # ghosts would have been copies of the single slot, so rebuild the
+    # window, run the operator's own kernel over it, and let the
+    # ordinary slice-and-pad tail take the true DOF back out under the
+    # shifted alignment ``k0`` (``m0`` itself still drives the
+    # halo-validity claim below, which is stated in the true frame)
+    k0 = m0
+    if domain_factor.is_flat:
+        storage, co_operands, k0 = flat_repeat_and_run(
+            kernel, storage, co_operands, axis, axis_index,
+            size=size, m0=m0, width=width, s_out=s_out)
+    full = kernel(storage, axis_index, *co_operands)
     length = full.shape[axis_index]
-    lo = max(0, m0)
-    hi = min(s_out, m0 + length)
+    lo = max(0, k0)
+    hi = min(s_out, k0 + length)
     index: list[slice] = [slice(None)] * full.ndim
-    index[axis_index] = slice(lo - m0, hi - m0)
+    index[axis_index] = slice(lo - k0, hi - k0)
     piece = full[tuple(index)]
     pads = [(0, 0)] * full.ndim
     pads[axis_index] = (lo, s_out - hi)
@@ -837,8 +1111,15 @@ def apply_staggered(
     # reaches high, and vice versa). On bounded axes the claim is
     # zero: stenciling the input's BC-structured/extrapolated fill is
     # not the BC-consistent fill of the *output* field, so those ghost
-    # slots must be refilled at the next consumption.
-    if getattr(domain_factor.mesh, "periodic", False):
+    # slots must be refilled at the next consumption. A **flat** axis
+    # consumes nothing: it stores no ghost slots at all, so its claim
+    # is vacuous and carrying it over keeps the elision sync-free
+    # (consuming it instead would drop the claim below every reach and
+    # insert an identity ``Sync`` -- and that sync refills the *other*
+    # axes for real).
+    if domain_factor.is_flat:
+        valid = f.halo_valid
+    elif getattr(domain_factor.mesh, "periodic", False):
         valid = f.halo_valid.consume(
             axis, (max(m0, 0), max(reach_right, 0)))
     else:

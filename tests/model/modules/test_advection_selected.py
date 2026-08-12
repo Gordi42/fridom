@@ -532,3 +532,64 @@ def test_selected_input_halves_the_divide_count(build, recon_cls,
     assert both > 0
     assert selected <= both / 2 + 4
     assert selected < 0.6 * both
+
+
+# ================================================================
+#  Flat-axis halo elision: the co-operand seam
+# ================================================================
+def _flat_weno_model(order, nz):
+    """Build a WENO model on an NT x NT x nz periodic grid."""
+    meshes = (IntervalMesh(NT, (0.0, L), name="x"),
+              IntervalMesh(NT, (0.0, L), name="y"),
+              IntervalMesh(nz, (0.0, L), name="z"))
+    advection = WENOAdvection(order)
+    model = FrModel(
+        grid=Grid(meshes),
+        modules=(Core(), ConstantStratification(n2=1.0), advection),
+        time_stepper=AdamBashforth(0.01, order=3))
+    ax = (np.arange(NT) + 0.5) * (L / NT)
+    x, y = np.meshgrid(ax, ax, indexing="ij")
+    model.set_fields(
+        u=np.repeat((0.2 * np.sin(y))[:, :, None], nz, axis=2),
+        v=np.repeat((0.2 * np.cos(x))[:, :, None], nz, axis=2))
+    return model, advection
+
+
+@pytest.mark.parametrize("order", [3, 5])
+def test_selected_kernel_runs_on_a_flat_axis(order):
+    # the ONE stencil family whose kernel reads a second storage array
+    # (the sign carrier): on a halo-elided flat axis it must be widened
+    # in lockstep, which is what the `co_operands=` declaration buys
+    model, _ = _flat_weno_model(order, 1)
+    width = dict(model.grid.decomposition.halo.widths)["z"]
+    assert width == order // 2 + 1        # the halo is still negotiated
+    u_storage = model.state["u"]._data
+    assert u_storage.shape[2] == 1        # ... and the ghosts are gone
+    tendency = _advection_tendency(model)
+    for field in tendency:
+        arr = np.asarray(field.data)
+        assert bool(np.all(np.isfinite(arr))), field.name
+
+
+@pytest.mark.parametrize("order", [3, 5])
+def test_flat_selected_tendency_matches_a_replicated_deep_run(order):
+    # the elided answer is the non-elided one: every window along the
+    # flat axis is the single DOF, so the biased reconstruction and its
+    # sign select land on the same face value the deep run computes
+    flat, _ = _flat_weno_model(order, 1)
+    deep, _ = _flat_weno_model(order, 4)
+    got = {f.name: np.asarray(f.data) for f in _advection_tendency(flat)}
+    ref = {f.name: np.asarray(f.data) for f in _advection_tendency(deep)}
+    assert set(got) == set(ref)
+    for name, arr in got.items():
+        assert np.max(np.abs(ref[name] - ref[name][:, :, :1])) == 0.0, name
+        assert np.max(np.abs(arr[:, :, 0] - ref[name][:, :, 0])) == 0.0, name
+
+
+def test_flat_axis_vertical_advection_tendency_is_exactly_zero():
+    # the flux difference along a flat axis cancels bitwise: both face
+    # values come from bitwise-identical windows
+    flat, _ = _flat_weno_model(5, 1)
+    for field in _advection_tendency(flat):
+        if field.name == "w":
+            assert np.max(np.abs(np.asarray(field.data))) == 0.0

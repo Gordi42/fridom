@@ -1800,9 +1800,19 @@ class _SelectedFaceReconstruction(Operator):
         shift = 0 if self._family == "fv" else _wall_shift(domain)
         m0 = biased_offset(order, "left") + shift
         tables = weno_tables(order, "left")
-        pos_data = positive._data  # noqa: SLF001 — storage seam
 
-        def kernel(storage: Array, axis_index: int) -> Array:
+        # the sign carrier is a second STORAGE array the kernel reads,
+        # sliced by the window length of the operand it is handed --- so
+        # it is declared as a ``co_operands`` entry rather than closed
+        # over. On a flat (halo-elided) axis the tail rebuilds the
+        # elided window of everything it handles; a closed-over
+        # ``positive._data`` would keep its single slot and then be
+        # sliced short against the rebuilt window
+        # (thin_axis_halo_investigation.md section 6). The shared tail
+        # audits the closure and refuses if this is ever un-declared
+        def kernel(
+            storage: Array, axis_index: int, pos_data: Array,
+        ) -> Array:
             wins = _window_views(storage, axis_index, u_size)
             length = wins[0].shape[axis_index]
             index = [slice(None)] * pos_data.ndim
@@ -1818,7 +1828,8 @@ class _SelectedFaceReconstruction(Operator):
             q, _required_halo(left_op, q.function_space))
         interior = apply_fv_staggered(
             left_op, q, axis, u_size, kernel,
-            metadata=q.metadata, align=m0)
+            metadata=q.metadata, align=m0,
+            co_operands=(positive._data,))  # noqa: SLF001 — storage seam
         interior = _finalize(q, interior, codomain)
         if self._boundary == "none" or domain.mesh.periodic:
             return _to_flux_space(interior, flux_space)

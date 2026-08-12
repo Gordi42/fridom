@@ -370,3 +370,33 @@ def test_coarsened_chebyshev_refuses_real_coarsening():
         mesh.coarsened(2)
     # but the semicoarsening pass-through never asks it to coarsen
     assert mesh.coarsened(1) is mesh
+
+
+# ================================================================
+#  Flat-axis predicate (halo elision)
+# ================================================================
+@pytest.mark.parametrize(
+    ("n_cells", "periodic", "flat"),
+    [
+        pytest.param(1, True, True, id="periodic-1-flat"),
+        pytest.param(1, False, False, id="bounded-1-not-flat"),
+        pytest.param(2, True, False, id="periodic-2-not-flat"),
+        pytest.param(2, False, False, id="bounded-2-not-flat"),
+        pytest.param(N, True, False, id="periodic-many-not-flat"),
+        pytest.param(N, False, False, id="bounded-many-not-flat"),
+    ])
+def test_is_flat_needs_periodic_and_one_cell(n_cells, periodic, flat):
+    # both conditions, never n_cells == 1 alone: a bounded one-cell
+    # axis carries 0, 1 or 2 DOFs and its ghost fill is a BC
+    # extension rather than a copy (research report section 5)
+    mesh = IntervalMesh(n_cells, (0, 1), periodic=periodic, name="x")
+    assert mesh.is_flat is flat
+
+
+def test_a_bounded_one_cell_outer_space_has_two_dofs():
+    # the concrete reason `n_cells == 1` alone is not the predicate:
+    # differencing Outer(2) -> Center(1) of [1, 3] is 2/dz, not 0
+    mesh = IntervalMesh(1, (0, 1), periodic=False, name="x")
+    assert mesh.is_flat is False
+    assert mesh.nodal(NodeSet.OUTER).shape == (2,)
+    assert mesh.center.shape == (1,)

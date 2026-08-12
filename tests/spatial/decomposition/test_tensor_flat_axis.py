@@ -33,10 +33,16 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
+import fridom.spatial.decomposition.tensor as tensor_mod
 from fridom.spatial.bc import BC
 from fridom.spatial.decomposition.halo import HaloSpec
 from fridom.spatial.decomposition.layout import Layout
-from fridom.spatial.decomposition.tensor import TensorDecomposition, _axis_map
+from fridom.spatial.decomposition.tensor import (
+    TensorDecomposition,
+    _axis_map,
+    _flat_elided_width,
+    _flat_ghosts_are_copies,
+)
 from fridom.spatial.grid import Grid
 from fridom.spatial.meshes.interval import IntervalMesh
 from fridom.spatial.operators.finite_difference import FiniteDifference
@@ -159,13 +165,12 @@ def _constant_column(factor, width):
     to 1) or to exactly zero (weights sum to 0). Derived from
     ``_axis_map``, never declared per space, so a new space family
     cannot mis-declare it.
+
+    This calls the **shipped** audit that guards the elision gate
+    (``_flat_ghosts_are_copies``) rather than a copy of it, so the
+    enumeration below cannot drift away from what the gate checks.
     """
-    n = factor.shape[0]
-    if n != 1:
-        return False
-    src, neg, zero = _axis_map(1 + 2 * width, n, width, factor)
-    return (bool(np.all(src == width)) and not neg.any()
-            and not zero.any())
+    return _flat_ghosts_are_copies("z", factor, width)
 
 
 _ONE_CELL_CASES = [
@@ -211,25 +216,28 @@ def test_constant_column_holds_exactly_where_it_is_claimed():
     assert got == _CONSTANT_COLUMN_AT_ONE_CELL
 
 
-def test_the_recorded_gate_is_a_strict_subset_of_the_sound_predicate():
-    """``mesh.periodic and n_cells == 1`` never over-claims.
+def test_the_shipped_gate_is_a_strict_subset_of_the_sound_predicate():
+    """``factor.is_flat`` never over-claims.
 
-    No such gate is *shipped* -- this pins the predicate the
-    investigation records as the only safe one (Sec.5/Sec.9), so that
-    whoever implements the elision starts from a conservative gate:
-    every factor it admits really does have a constant column, at every
-    negotiated width. If someone widens the gate, this fails.
+    The shipped gate is ``mesh.periodic and n_cells == 1``, exposed as
+    ``factor.is_flat`` and consumed by ``_flat_elided_width``
+    (Sec.5/Sec.9). Every factor it admits really does have a constant
+    column, at every negotiated width. If someone widens the gate --
+    to ``n_cells == 1`` or to ``shape[0] == 1`` -- this fails.
     """
     for periodic, kind, bc in _ONE_CELL_CASES:
         try:
             space = _space(_mesh(1, periodic=periodic), kind, bc)
         except ValueError:
             continue
-        gate = space.mesh.periodic and space.mesh.n_cells == 1
-        if not gate:
+        assert space.is_flat is (space.mesh.periodic
+                                and space.mesh.n_cells == 1)
+        if not space.is_flat:
             continue
         for width in (1, 2, 3, 5):
             assert _constant_column(space, width), (space, width)
+            # ... and the gate then really does drop the ghosts
+            assert _flat_elided_width("z", space, width) == 0
 
 
 @pytest.mark.parametrize("bc", [BC.NONE, BC.DIRICHLET, BC.NEUMANN])
@@ -401,3 +409,105 @@ def test_a_one_dof_dirichlet_axis_keeps_its_exact_column():
         out = np.asarray(decomp.sync(padded, space,
                                      materialize=materialize))
         assert list(out) == [-1.0, 1.0, -1.0]
+
+
+# ================================================================
+#  Flat-axis halo elision: the shipped gate
+# ================================================================
+def test_flat_axis_stores_no_ghost_slots():
+    # the whole point: a periodic one-cell axis carries one storage
+    # slot however wide the negotiated halo is
+    mesh = _mesh(1, periodic=True)
+    for width in (1, 2, 3):
+        decomp = _decomp(mesh, width)
+        assert decomp.storage_shape(mesh.center) == (1,)
+        # ... while the negotiated halo itself is left untouched: the
+        # stencil reach guards and the solver halo demand read it
+        assert decomp.halo["z"] == width
+
+
+def test_flat_axis_pad_and_sync_are_identities():
+    mesh = _mesh(1, periodic=True)
+    decomp = _decomp(mesh, 3)
+    padded = decomp.pad(jnp.asarray([7.0]), mesh.center)
+    assert jnp.array_equal(padded, jnp.asarray([7.0]))
+    assert jnp.array_equal(decomp.sync(padded, mesh.center), padded)
+    assert jnp.array_equal(
+        decomp.sync(padded, mesh.center, materialize=True), padded)
+    assert jnp.array_equal(decomp.unpad(padded, mesh.center),
+                           jnp.asarray([7.0]))
+
+
+@pytest.mark.parametrize(
+    ("n_cells", "periodic", "stored"),
+    [
+        pytest.param(1, True, 1, id="flat-elided"),
+        pytest.param(2, True, 8, id="periodic-2-not-elided"),
+        pytest.param(1, False, 7, id="bounded-1-not-elided"),
+        pytest.param(2, False, 8, id="bounded-2-not-elided"),
+    ])
+def test_only_a_periodic_one_cell_axis_is_elided(n_cells, periodic,
+                                                stored):
+    # the nz = 2 control and the bounded controls: nothing but a
+    # periodic single-cell axis loses its ghosts
+    mesh = _mesh(n_cells, periodic=periodic)
+    decomp = _decomp(mesh, 3)
+    assert decomp.storage_shape(mesh.center) == (stored,)
+
+
+def test_a_walled_two_cell_inner_factor_keeps_its_halo():
+    # the trap the predicate must not fall into: Inner on a walled
+    # nz = 2 mesh has shape (1,) yet a nonzero +-1/dz divergence, so
+    # nothing may key on shape[0] == 1 (report section 5)
+    mesh = _mesh(2, periodic=False)
+    inner = mesh.nodal(NodeSet.INNER, bc=BC.DIRICHLET)
+    assert inner.shape == (1,)
+    assert inner.is_flat is False
+    decomp = _decomp(mesh, 2)
+    assert decomp.storage_shape(inner) == (5,)
+
+
+def test_the_audit_is_a_backstop_not_the_predicate():
+    # a bounded one-cell NEUMANN Center mirrors its single DOF, so its
+    # width-1 fill IS a pure copy and the audit alone would let it
+    # through -- what refuses it is `is_flat`, which demands a
+    # *periodic* topology. The audit catches a widened predicate, it
+    # does not define the rule (report section 5)
+    mesh = _mesh(1, periodic=False)
+    space = mesh.nodal(NodeSet.CENTER, bc=BC.NEUMANN)
+    assert _flat_ghosts_are_copies("z", space, 1) is True
+    assert space.is_flat is False
+    assert _flat_elided_width("z", space, 1) == 1
+
+
+def test_flat_ghosts_are_not_copies_when_the_axis_has_two_dofs():
+    # a periodic 2-cell axis wraps to [b, a, b, a, ...], never to a
+    # constant -- the audit rejects it on the DOF count alone
+    mesh = _mesh(2, periodic=True)
+    assert not _flat_ghosts_are_copies("z", mesh.center, 1)
+
+
+def test_elided_width_passes_non_flat_and_zero_width_through():
+    flat = _mesh(1, periodic=True)
+    deep = _mesh(8, periodic=True)
+    assert _flat_elided_width("z", deep.center, 3) == 3
+    assert _flat_elided_width("z", flat.center, 0) == 0
+    assert _flat_elided_width("z", flat.center, 3) == 0
+
+
+def test_elided_width_refuses_a_flat_axis_whose_fill_is_not_a_copy(
+        monkeypatch):
+    # the loud guard against a mis-keyed predicate: if the fill ever
+    # stops being a pure copy on an axis reported flat, the gate
+    # raises instead of dropping ghosts that carried information.
+    # A raise, not an assert, so `python -O` cannot strip it
+    mesh = _mesh(1, periodic=True)
+
+    def wrong_map(size, n, width, factor):
+        src, neg, zero = _axis_map(size, n, width, factor)
+        neg[0] = True  # a sign flip: no longer a plain copy
+        return src, neg, zero
+
+    monkeypatch.setattr(tensor_mod, "_axis_map", wrong_map)
+    with pytest.raises(AssertionError, match="section 5"):
+        _flat_elided_width("z", mesh.center, 3)
