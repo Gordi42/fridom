@@ -147,10 +147,16 @@ the sign flip. Measured on a periodic 64^2 grid,
 `sw.initial_conditions.coherent_eddy(model, gauss_field="vorticity",
 amplitude=1.0)` gives a diagnosed `rel_vort` with min -0.9686 and max
 +0.0314: the eddy rotates the wrong way, and the +0.0314 is the
-mean-gauge compensation. This is independent of the present work and
-should be fixed on its own, either by flipping sw2's curl to match
-nonhydro2 or by negating the inversion at the sw2 call site. I did
-not touch it.
+mean-gauge compensation.
+
+**Shipped 2026-08-12** (`fix/sw2-eddy-sign`), by negating the
+inversion at the sw2 call site — the second of the two routes
+sketched here. sw2 keeps its own curl, and the sign now lives in a
+`_streamfunction_from_vorticity` seam whose whole body is
+`-invert_negative_laplacian(...)`, mirroring the nonhydro2 spelling.
+The measurement above was taken against the analytic Gaussian at
+width 0.12 rather than 0.1, so the gauge reads 0.0452 there and
+0.0314 here; the sign, which is the point, is the same either way.
 
 A second sw2 issue found in passing: `coherent_eddy` inverts a
 *second*, independently sampled copy of the Gaussian on the cell
@@ -159,6 +165,14 @@ takes the DST-II parity with its annihilated top mode, and it is not
 the interpolation of the corner solution, so the pressure is not
 exactly geostrophic with the velocities. `p = f0 * psi_corner.to(p_space)`
 would be both cheaper and consistent.
+
+**Shipped 2026-08-12**, and the payoff was larger than this paragraph
+predicted. The gap is clean second order (8.25e-2, 2.15e-2, 5.41e-3,
+1.35e-3 at n = 16..128), and closing it took sw2's geostrophic
+residual from 1.3e-2 to 1.7e-15 on the streamfunction branch and
+6.1e-3 to 4.1e-15 on the vorticity branch. sw2 eddies were never as
+balanced as they looked. It also drops a whole second inversion from
+the vorticity branch, so it is cheaper as predicted.
 
 ## Routes tried
 

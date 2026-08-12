@@ -410,7 +410,12 @@ For **nh2**, this change adopts the standard pairing on both branches.
   would then have to be threaded into the buoyancy as well. The seam
   docstring records where the sign lives.
 
-For **sw2**, deliberately untouched here.
+For **sw2**, deliberately untouched here. **Shipped 2026-08-12**
+(`fix/sw2-eddy-sign`): the owner ruled to fold it into this work, and
+the analysis below held — the fix is one sign, it broke no existing
+test on that account, and the two packages now agree on what each
+`gauss_field` branch means. The `p` interpolant issue noted in section
+4.2 shipped with it.
 
 - The one-line fix is the sign of `_invert_laplacian`'s output at its
   two call sites in `coherent_eddy` (or negating the helper and
@@ -569,9 +574,10 @@ regression baseline:
 
 - ~~The walled-horizontal inversion behind the seam.~~ Closed
   2026-08-12, section 6.
-- The sw2 vorticity sign (section 4.1). An owner decision because it is
-  a behaviour change in a second package, though it breaks no test
-  there.
+- ~~The sw2 vorticity sign (section 4.1).~~ Closed 2026-08-12: the
+  owner ruled to fold it in rather than branch it separately. Both
+  packages now default to `gauss_field="vorticity"` (owner ruling) on
+  the dipole coherence evidence.
 - A baroclinic eddy on a beta-plane is refused with a taught error
   rather than approximated with the centre-latitude $f$. A varying $f$
   admits no exactly balanced $\psi$, and a silent local-$f$ buoyancy
