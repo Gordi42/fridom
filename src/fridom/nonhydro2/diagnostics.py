@@ -23,6 +23,7 @@ from fridom.model.params import (
     STRATIFICATION_N2,
 )
 from fridom.nonhydro2.params import ASPECT_RATIO
+from fridom.nonhydro2.state import vorticity_corner
 from fridom.spatial.operators.interp import LinearInterp
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -179,15 +180,19 @@ def linear_pot_vort(
         f0 = params[CORIOLIS_F0]
     n2 = _n2_eff(params)
     center = state["p"].function_space
-    # the derivative outputs carry no declared wall structure (b is
-    # BC-free; the vorticity difference joins to the BC-free meet),
-    # so the interpolation back to centers is the explicit one-sided
-    # diagnostics closure (R2, boundary_plan.md)
+    # b is BC-free, so its vertical derivative carries no declared
+    # wall structure and the interpolation back to centers is the
+    # explicit one-sided diagnostics closure (R2, boundary_plan.md)
     dbdz = _to_center_one_sided(
         state["b"].diff("z"), center).data
-    zeta = _to_center_one_sided(
-        state["v"].diff("x") - state["u"].diff("y"), center)
-    q = f0 / n2 * dbdz + zeta.data
+    # the vorticity pair does carry one: both differences retag onto
+    # the shared free-slip edge (nh.State.rel_vort_z), which is what
+    # lets them combine at all on a walled horizontal and grounds the
+    # conversion to centers
+    corner = vorticity_corner(state["u"], state["v"])
+    zeta = (state["v"].diff("x").retag(corner)
+            - state["u"].diff("y").retag(corner))
+    q = f0 / n2 * dbdz + zeta.to(center).data
     if SCALING_NONLINEARITY in params:
         q = params[SCALING_NONLINEARITY] * q
     return state["p"].new_quantity(
