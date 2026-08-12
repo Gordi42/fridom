@@ -368,20 +368,58 @@ useful:
    (§6.5) and repoint `tests/spatial/test_export.py:77`.
 5. **`long_name=` on `grid.create_field`** (§5.4).
 
-## 11. Owner rulings needed
+## 11. Owner rulings (answered 2026-08-12)
 
-1. **What does `field.metadata.units` read in-memory on a nondimensional
-   model — `"1"`, or the physical string with `"1"` rendered only at
-   I/O?** Option D assumes the former (it matches the report's wording:
-   "for a nondimensional model, all these units are 1").
-2. **Dimensionless spelling: `"1"` or omit the attribute?** §6.5 —
-   recommendation `"1"`, already the house spelling.
-3. **Replacement for the `"n/a"` default** (§5.3) — `"1"` is wrong
-   (claims dimensionless), omission loses the "nobody set this" signal.
-   An `UnrecognizedUnit`-style sentinel that serializes but is never a
-   CF claim is the prior-art answer.
-4. **Is `standard_name` wanted at all?** It must switch off under
+1. **In-memory spelling** — `field.metadata.units` reads `"1"` on a
+   nondimensional model. The record stores `physical_units` plus a
+   `nondimensional` flag and derives `units` from the pair, so there
+   is one stored truth and no stale physical claim to leave behind.
+2. **Dimensionless spelling** — `"1"`, per §6.5.
+3. **The `"n/a"` default** — `"unknown"`, the iris/cf-units spelling
+   (`Unit("unknown").is_unknown()` true, `is_dimensionless()` false;
+   [SciTools/iris#935]). It serializes and is never a CF claim.
+   Consequence adopted with it: an **undeclared** unit stays
+   `"unknown"` under *either* scaling — nondimensionalizing an
+   unknown quantity yields an unknown quantity, not a dimensionless
+   one.
+4. **`standard_name`** — not adopted. It must switch off under
    nondimensional scaling (§6.6) and does not cover four of our
-   quantities.
-5. **Is §5.1 in scope for this work** or a separate fix? It is a
-   dimensional-path bug and unrelated to what was reported.
+   quantities, so it cannot be the mechanism; revisit separately if
+   CF interchange ever becomes a goal.
+5. **§5.1** — in scope, fixed here.
+
+## 12. What shipped
+
+Option **D** for problem 1 and **A + E with the name-identity gate**
+for problem 2, as recommended.
+
+- `FieldMetadata` stores `physical_units` + `nondimensional` and
+  derives `units`; `units=` remains the writing sugar on `create()`
+  / `replace()`, so **none of the 45 declaration sites changed**.
+  The assembly stamps the flag once from the scaling
+  (`model/assembly.py` step 1 -> `FieldRecord.from_declaration`).
+- The three seams of §2 now answer from that one rule: variables and
+  `.xr` render from the metadata, coordinates render at the writer
+  (`"1"` instead of an omitted attribute), time keeps its option-(b)
+  branch with the shared constant.
+- `ScalarField.new_quantity` — borrows the space, not the identity;
+  inherits only the scaling flag, so a diagnostic declares its
+  physical unit once and reports correctly under either scaling.
+- §5.1: the fix went to the **chart**, not the factor row.
+  `CoordinateMapping` gained `coordinate_units=` (declared as radians
+  by `lonlat_sphere`), surfaced as `grid.coordinate_units` and applied
+  at export; the writer fills only a unit the layout did not declare.
+  This keeps the two facts apart — what the stored values *are* versus
+  what the factor converts them *to* — which is the confusion that
+  produced the bug.
+- §5.2 (AUXILIARY annotations) and §5.4 (`long_name=` on
+  `grid.create_field`) fixed. The remat table takes its metadata from
+  the field record, so AUX fields carry the scaling stamp too,
+  including across `update_parameters` re-runs.
+- §5.5 (the two hand-maintained unit copies) is **not** addressed:
+  `FieldMetadata.physical_units` and `UnitFactor.unit` remain
+  independent. They now mean provably different things for
+  coordinates (§5.1), so a drift lint would need to compare only the
+  component rows — left as a follow-up.
+
+[SciTools/iris#935]: https://github.com/SciTools/iris/issues/935
