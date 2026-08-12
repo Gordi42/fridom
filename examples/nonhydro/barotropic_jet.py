@@ -2,103 +2,136 @@ r"""
 Barotropic Jet
 ==============
 
-Two opposing barotropic zonal jets with a perturbation on top of it.
-
-This example shows the :py:class:`BarotropicJet <fridom.nonhydro.initial_conditions.BarotropicJet>`
-initial condition in a scaled setup (Rossby number = 0.5). 
-
-.. note::
-    This example uses the cmocean package for colormaps. You can install it with:
-
-    .. code-block:: bash
-
-        pip install cmocean
-
-.. video:: videos/barotropic_jet.mp4
+A single zonal jet in a triply periodic box rolls up into vortices.
 """
-import fridom.nonhydro as nh
 
-# ----------------------------------------------------------------
-#  Settings
-# ----------------------------------------------------------------
-make_video  = True
-fps         = 30
-make_netcdf = False
-rossby_number = 0.5
-wavenumber  = 3                          # wavenumber of the perturbation
-run_length  = 5                          # simulation run length
-exp_name    = "barotropic_jet"
-thumbnail   = f"figures/{exp_name}.png"
+# %%
+# Experiment Settings
+# -------------------
+# We work in nondimensional *advective* units, so the jet has unit
+# width and unit velocity and one time unit is one eddy turnover. Two
+# numbers set the regime. The Rossby number
+# :math:`\mathrm{Ro} = U / (f L)` measures the advection against the
+# rotation and the Froude number :math:`\mathrm{Fr} = U / (N H)`
+# against the stratification. Together they fix the deformation radius
+# :math:`L_d = (\mathrm{Ro} / \mathrm{Fr})\,H`, here two jet widths.
+import subprocess
 
-# ----------------------------------------------------------------
-#  Plotting
-# ----------------------------------------------------------------
-class Plotter(nh.modules.animation.ModelPlotter):
-    def create_figure():
-        import matplotlib.pyplot as plt
-        return plt.figure(figsize=(6, 4.5), dpi=256, tight_layout=True)
+import jax.numpy as jnp
+import matplotlib.pyplot as plt
 
-    def prepare_arguments(mz: nh.ModelState) -> dict:
-        # skip every 4th point for the quiver plot
-        skip = 4
-        return {"z": mz.z.xrs[::skip,::skip,0], 
-                "etot": mz.z.etot.xrs[:,:,0], 
-                "t": mz.clock.time}
+# sphinx_gallery_thumbnail_number = 2
+import fridom as fr
+import fridom.nonhydro2 as nh
 
-    def update_figure(fig, z, etot, t) -> None:
-        import cmocean
+rossby_number = 0.7       # Ro = U / (f L): advection vs. rotation
+froude_number = 0.35      # Fr = U / (N H): advection vs. stratification
+scaling = fr.scaling.Advective()   # time unit prop to eddy turnover times
+domain_size = 10.0        # square domain, ten jet widths on a side
+box_height = 1.0          # H in the Froude number, one jet width
+seed_amplitude = 1e-2     # weak vortical mode that seeds the instability
+seed_wavenumber = 2       # zonal mode number of that seed
 
-        ax = fig.add_subplot(111)
-        etot.plot(ax=ax, cmap=cmocean.cm.matter, vmax=2, vmin=0, extend='max')
-        key = z.plot.quiver("x", "y", "u", "v", scale=100, add_guide=False)
-        label_velo = 2
-        ax.quiverkey(key, X=0.9, Y=1.05, U=label_velo,
-                    label=f'{label_velo} [m/s]', labelpos='E')
-        ax.set_aspect('equal')
-        ax.set_title(f't={t:.3f}s', fontsize=18)
+nx = ny = 128
+nz = 1                    # the flow is 2D, so one layer is enough
+runlen = 50.0
+frames = 120
 
-# ----------------------------------------------------------------
-#  The main model
-# ----------------------------------------------------------------
-@nh.utils.skip_on_doc_build
-def main():
-    # Create the grid and model settings
-    grid = nh.grid.cartesian.Grid(
-        shape=(256, 256, 16), domain_size=(1, 1, 1), periodic_bounds=(True, True, True))
-    mset = nh.ModelSettings(
-        grid=grid, f0=1, stratification_n2=1, rossby_number=0.5)
-    mset.time_stepper.dt = 0.002
+# %%
+# Grid and Model
+# --------------
+# The roll-up cascades enstrophy to the grid scale and something has
+# to absorb it. Instead of a closure we let the advection scheme do
+# it. Fifth-order WENO reconstruction weights its candidate stencils
+# by smoothness, so it leaves smooth regions alone and damps the
+# oscillations a centered scheme would build at a front. That is the
+# only dissipation in this run.
+#
+# The jet has no vertical structure and nothing in the periodic box
+# can give it any, so the flow stays two-dimensional. Rotation then
+# drops out of the vorticity budget and the buoyancy stays at zero,
+# which leaves the shear as the only source of growth. One cell in
+# the vertical is therefore all the run needs.
+grid = fr.spatial.cartesian.Grid(
+    shape=(nx, ny, nz),
+    extent=(domain_size, domain_size, box_height),
+    periodic=(True, True, True))
 
-    # add a video writer
-    if make_video:
-        mset.diagnostics.add_module(nh.modules.animation.VideoWriter(
-            Plotter,
-            model_time_per_second=0.5,
-            filename=exp_name, fps=fps))
+dx = grid.factor("x").dx
+dt = 0.2 * dx             # advective Courant number 0.2
 
-    # create a NetCDF writer to save the output
-    if make_netcdf:
-        mset.diagnostics.add_module(nh.modules.NetCDFWriter(
-            get_variables = lambda mz: [mz.z.u, mz.z.v, mz.z.ekin],
-            write_trigger=nh.ClockTrigger(time_interval=0.1),
-            filename=exp_name))
+model = nh.Model(
+    grid=grid,
+    scaling=scaling,
+    coriolis=nh.FPlaneCoriolis(rossby_number=rossby_number),
+    buoyancy=nh.ConstantStratification(froude_number=froude_number),
+    advection=nh.WENOAdvection(order=5),
+    time_stepper=fr.model.time_steppers.AdamBashforth(dt, order=3))
 
-    mset.setup()
-    model = nh.Model(mset)
-    # Create the initial conditions
-    z = nh.initial_conditions.BarotropicJet(
-        mset, wavenum=wavenumber, waveamp=0.1, geo_proj=True, jet_width=0.01)
-    model.z = z 
+# %%
+# Initial Condition
+# -----------------
+# A Gaussian zonal jet in geostrophic balance, seeded with a weak
+# vortical mode of zonal wavenumber two.
 
-    # Run the model
-    model.run(runlen=run_length)
+# a Gaussian zonal jet of unit width, centered in the domain
+jet = model.blank_state(
+    u=lambda x, y, z: jnp.exp(-((y - 0.5 * domain_size) ** 2)))
 
-    # plot the final state (thumbnail)
-    import os
-    os.makedirs("figures", exist_ok=True)
-    fig = Plotter(model.model_state)
-    fig.savefig(thumbnail)
+# project onto the vortical subspace, which also drops the domain
+# mean that would otherwise ring at the inertial frequency
+eigenmodes = nh.eigenbasis(model)
+project_vortical = nh.transforms.VorticalProjection(eigenmodes)
+balanced = project_vortical(jet)
+balanced /= balanced.u.max()   # the projection lowers the peak velocity
 
+# seed the instability and set the initial condition
+_, perturbation = eigenmodes.mode(
+    "vortical", mode_number={"x": seed_wavenumber, "y": 0, "z": 0})
+model.set_state(balanced + seed_amplitude * perturbation)
 
-if __name__ == "__main__":
-    main()
+# plot the initial condition in the lowest layer
+fig, axs = plt.subplots(1, 2, figsize=(8, 3.2), constrained_layout=True)
+model.state.u.xr.isel(z=0, drop=True).plot(x="x", ax=axs[0])
+_ = model.state.v.xr.isel(z=0, drop=True).plot(x="x", ax=axs[1])
+
+# %%
+# Dropping the domain mean leaves the jet riding on a weak return
+# flow, while :math:`v` carries the wavenumber-two seed alone.
+#
+# Running and Writing Output
+# --------------------------
+# We write the vertical vorticity, interpolated to the cell centers,
+# once per frame to a zarr store.
+center = model.state.b.function_space
+writer = fr.io.Writer(
+    "barotropic_jet.zarr",
+    fields=[],
+    derived={"rel_vort_z": lambda ms: ms.state.rel_vort_z.to(center)},
+    trigger=fr.io.every(time_units=runlen / frames),
+    mode="w")
+
+model.run(runlen=runlen, outputs=(writer,), progress=False)
+
+# %%
+# Each flank of the jet has rolled up into two vortices, so the
+# saturated state is a wavenumber-two street with filaments of
+# vorticity drawn out between the cores.
+_ = model.state.rel_vort_z.to(center).xr.isel(z=0, drop=True).plot(
+    x="x", size=3.2, aspect=1.2)
+
+# %%
+# Rendering the Animation
+# -----------------------
+# `CDFViewer <https://gordi42.github.io/CDFViewer.jl/>`_ records the
+# vorticity animation from the store.
+command = (
+    "cdfviewer barotropic_jet.zarr"
+    " -v rel_vort_z -x x -y y --dims=z=0 -p heatmap -a time"
+    " --kwargs='colormap=:balance, colorrange=(-1.1, 1.1),"
+    ' title="Barotropic jet",'
+    # the time axis is nondimensional, so the label drops its unit
+    ' animlabel="t = {rawvalue}", animlabelnumfmt="%.1f"'
+    "' --record -s 'filename=\"barotropic_jet.mp4\", framerate=24'"
+)
+_ = subprocess.run(command, shell=True, check=True)
