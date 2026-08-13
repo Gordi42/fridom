@@ -101,8 +101,35 @@ no average-family retag is needed. The face-exposing ``diff`` row is
 verified per ``CellAvg`` factor at bind (``diffusion._probe_fv_face``),
 so a ``CellAvg`` field on a grid without the FV C-grid profile (whose
 collocated ``FVDerivative`` never surfaces a face flux) is refused
-rather than run. Immersed / terrain grids stay future work (a taught
-rejection at ``bind``).
+rather than run.
+
+**Immersed and mapped (terrain-following / chart) grids stay future
+work**, both as taught ``bind`` rejections. Immersed is the closure
+base's per-closure capability flag (``_supports_immersed = False``,
+CL-D1: the strain stencils would read across dry cells unmasked).
+Mapped is rejected here (:meth:`SmagorinskyLilly._reject_mapped`)
+because *this* closure is the one that cannot be run along-coordinate.
+A linear diffusion closure on a chart is along-coordinate but still
+defensible — the user owns ``nu``, and ROMS ships exactly that
+(``MIX_S_UV``). Smagorinsky owns no such knob: it *derives* its
+viscosity from the grid, as :math:`\nu_s = (C_s \Delta)^2 |\Sigma|
+\Gamma(\mathrm{Ri})`, and on a chart every one of those three reads is
+in **computational** units, because the chart factor lives in
+``grid.metric`` and never enters ``diff``/``measure``. On the standard
+:math:`z_p = \sigma H(x)` column with :math:`\sigma \in [0, 1]` that
+means :math:`\Delta` takes the *dimensionless* :math:`\Delta\sigma` for
+its vertical leg, :math:`N^2 = \partial_\sigma b = H \partial_{z_p} b`,
+and the vertical shear picks up the same :math:`H` — so
+:math:`\mathrm{Ri}` is off by :math:`H` and the stratification damping
+silently switches itself off in an ocean-depth column. Every one of
+those errors scales with the **arbitrary normalization of the
+computational coordinate**: the same physical grid respelled with
+:math:`\sigma \in [0, H_0]` gives a different eddy viscosity. That is
+not a coefficient the user can absorb, so the closure refuses rather
+than running plausible-looking wrong physics. Stretched *mesh factors*
+(a bare ``MappedIntervalMesh``, which declares no ``CoordinateMapping``)
+are **not** affected and are supported: there ``grid.measure`` is the
+physical cell spacing, so :math:`\Delta` and the strains are physical.
 """
 from __future__ import annotations
 
@@ -387,11 +414,13 @@ class SmagorinskyLilly(ClosureBase):
         Raises
         ------
         NotImplementedError
-            On an unsupported wall placement (a fixed-value cell wall),
-            on a ``CellAvg`` target whose grid exposes no face-located
-            flux, with transverse (slaved) velocity components (no
-            directional derivative), or on a varying / nondimensional
-            background stratification.
+            On an immersed grid (the closure base's per-closure
+            capability flag), on a mapped (terrain-following / chart)
+            grid, on an unsupported wall placement (a fixed-value cell
+            wall), on a ``CellAvg`` target whose grid exposes no
+            face-located flux, with transverse (slaved) velocity
+            components (no directional derivative), or on a varying /
+            nondimensional background stratification.
         AssemblyError
             If the vertical coordinate is not a velocity axis (the
             :math:`N^2 = \partial_z b` read needs it), or a per-field
@@ -400,6 +429,7 @@ class SmagorinskyLilly(ClosureBase):
         """
         super().bind(table)
         owner = type(self).__name__
+        self._reject_mapped(table, owner)
         selector = table.velocity()
         if selector.transverse:
             raise NotImplementedError(
@@ -428,6 +458,57 @@ class SmagorinskyLilly(ClosureBase):
         self._target_axes = tuple(
             (name, tuple(table[name].space.names))
             for name in self.targets)
+
+    def _reject_mapped(self, table: FieldTable, owner: str) -> None:
+        r"""Refuse a mapped (terrain-following / chart) grid.
+
+        Description
+        -----------
+        A ``Grid(..., mapping=CoordinateMapping(...))`` keeps its chart
+        factor in ``grid.metric``; it never enters ``diff`` or
+        ``measure``. Every read the closure derives its own viscosity
+        from — the filter width :math:`\Delta` (a ``grid.measure``
+        product), the strain norm :math:`|\Sigma|`, and
+        :math:`N^2 = \partial_z b` — is therefore in **computational**
+        units, and the resulting :math:`\nu_s` depends on the arbitrary
+        normalization of the computational coordinate rather than on
+        the physics. Refused at bind, never run silently. See the
+        module docstring for the :math:`z_p = \sigma H(x)` arithmetic.
+
+        A bare stretched ``MappedIntervalMesh`` factor declares no
+        ``CoordinateMapping``, so it passes: there ``grid.measure``
+        *is* the physical cell spacing.
+
+        Parameters
+        ----------
+        table : FieldTable
+            The resolved field table (read for its grid).
+        owner : str
+            The rejecting closure's class name.
+
+        Raises
+        ------
+        NotImplementedError
+            If the grid carries a ``CoordinateMapping``.
+        """
+        if getattr(table.grid, "mapping", None) is None:
+            return
+        raise NotImplementedError(
+            f"{owner} does not support mapped (terrain-following / "
+            "chart) grids: the chart factor lives in grid.metric and "
+            "never enters diff/measure, so the filter width Delta, "
+            "the strain norm |Sigma| and N^2 = d(b)/dz would all be "
+            "read in COMPUTATIONAL units. Unlike a linear closure "
+            "(where nu is yours to choose, and along-coordinate "
+            "mixing is the ROMS default), Smagorinsky derives its own "
+            "viscosity from the grid, so the result would scale with "
+            "the arbitrary normalization of the computational "
+            "coordinate — on a sigma column the Richardson damping "
+            "silently switches off. Use fr.model.closures."
+            "HarmonicFriction / HarmonicDiffusion (with nu_v/kappa_v "
+            "and vertical=<column coordinate>) on a mapped grid, or "
+            "drop the closure. A stretched MappedIntervalMesh factor "
+            "declaring no CoordinateMapping is supported.")
 
     def _resolve_background(
         self, table: FieldTable, owner: str,

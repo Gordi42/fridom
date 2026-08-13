@@ -33,8 +33,10 @@ from fridom.nonhydro2.params import (
     SMAG_CS,
     STRATIFICATION_N2,
 )
+from fridom.spatial.coordinate_mapping import CoordinateMapping
 from fridom.spatial.grid import Grid
 from fridom.spatial.meshes.interval import IntervalMesh
+from fridom.spatial.meshes.mapped_interval import MappedIntervalMesh
 
 N = 8
 DT = 1e-3
@@ -472,3 +474,64 @@ def test_smagorinsky_forward_mode_survives_the_custom_jvp():
     jvp = float(jvp)
     assert np.isfinite(jvp)
     np.testing.assert_allclose(jvp, float(jax.grad(loss)(x0)), rtol=1e-6)
+
+
+# ================================================================
+#  Grid kinds: mapped (terrain / chart) refused, stretched served
+# ================================================================
+def _terrain_grid(n=8):
+    """``zp = z * H(x)`` with a 20% slope -- a CoordinateMapping."""
+    mapping = CoordinateMapping(
+        maps={"zp": lambda z, H: z * H},
+        params={"H": lambda x: 1.0 + 0.2 * jnp.sin(x)})
+    return Grid((
+        IntervalMesh(n, (0.0, LZ), name="x"),
+        IntervalMesh(4, (0.0, LZ), name="y"),
+        IntervalMesh(n, (0.0, 1.0), name="z"),
+    ), mapping=mapping)
+
+
+def test_mapped_grid_is_refused_at_bind():
+    # the closure derives nu_s from the grid, and on a chart every read
+    # (Delta, |Sigma|, N^2) is in computational units -- refused rather
+    # than run as plausible-looking wrong physics
+    with pytest.raises(NotImplementedError,
+                       match="does not support mapped"):
+        make_model(n2=1.0, grid=_terrain_grid())
+
+
+def test_mapped_rejection_names_the_alternative():
+    with pytest.raises(NotImplementedError) as excinfo:
+        make_model(n2=1.0, grid=_terrain_grid())
+    message = str(excinfo.value)
+    assert "COMPUTATIONAL units" in message
+    assert "HarmonicFriction" in message
+
+
+def test_stretched_mesh_factor_is_not_caught_by_the_mapped_guard():
+    # the contrast that makes the guard precise: a bare
+    # MappedIntervalMesh declares NO CoordinateMapping, so grid.measure
+    # IS the physical cell spacing and the closure binds. (The per-cell
+    # Delta physics is test_smagorinsky_lilly_delta.py; the full nh2
+    # model cannot assemble on a raw stretched mesh, so bind on a
+    # hand-built table.)
+    def wavy(s):
+        """Smooth wavy stretching of the unit computational interval."""
+        return LZ * (s + 0.1 * jnp.sin(2.0 * jnp.pi * s) / (2.0 * jnp.pi))
+
+    grid = Grid((
+        IntervalMesh(N, (0.0, LZ), periodic=True, name="x"),
+        IntervalMesh(N, (0.0, LZ), periodic=True, name="y"),
+        MappedIntervalMesh(N, (0.0, LZ), wavy, periodic=True, name="z"),
+    ))
+    assert grid.mapping is None
+    records = [
+        FieldRecord.from_declaration(
+            FieldDeclaration.velocity(nm, ax,
+                                      space=fr.spatial.Staggered(ax)),
+            owner=0, owner_type="Core", grid=grid)
+        for nm, ax in (("u", "x"), ("v", "y"), ("w", "z"))]
+    records.append(FieldRecord.from_declaration(
+        FieldDeclaration.tracer("b"), owner=0, owner_type="Core",
+        grid=grid))
+    SmagorinskyLilly().bind(FieldTable(tuple(records), grid))
