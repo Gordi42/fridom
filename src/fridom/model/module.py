@@ -4,7 +4,7 @@ The Module base class.
 Description
 -----------
 ``Module``: the unit of physics/numerics contributing any subset of
-the capability menu to an assembled ``fr.Model`` — field
+the capability menu to an assembled ``fr.model.Model`` — field
 declarations and references (D1), provided/consumed parameters (D2),
 dispatch overrides (D4), tendency terms and stages (D3), and the
 per-substage ``self_update`` of its own dynamic state. "Computes a
@@ -12,8 +12,9 @@ tendency" is one capability, not the definition of a module. Owning
 class spec: ``design/specs/model/classes/module.md``.
 
 Modules ride the traced carry: subclasses are jaxify-registered
-pytrees (``@partial(fr.utils.jaxify, dynamic=(...))``; registration
-is automatic on subclassing, the decorator only declares leaves).
+pytrees (``@partial(fridom.framework.utils.jaxify,
+dynamic=(...))``; registration is automatic on subclassing, the
+decorator only declares leaves).
 The hardened-jaxify discipline is normative: dynamic leaves are
 numeric values coerced through ``jnp.asarray`` (or pytree values
 such as ``fr.Ramp`` / named ``ScalarField``s — legal since metadata
@@ -280,7 +281,7 @@ def _declared_linear_terms(cls: type) -> Iterator[TendencyTerm]:
     -----------
     The shared walk of the two linear-operator honesty seams
     (``time_dependent_linear_parameters`` and
-    ``linear_operator_parameters``): the ``@fr.term``-stamped methods
+    ``linear_operator_parameters``): the ``@fr.model.term``-stamped methods
     of ``cls`` in definition order, all of them, independent of any
     ``term_filter`` or schedule. Under a frozen-``L`` (exponential)
     stepper the linear terms are filtered OUT of the tendency but are
@@ -307,10 +308,10 @@ class Module:
     capability is optional. The base defines no constructor and no
     dynamic leaves; subclasses own their ``__init__`` and declare
     their pytree leaves with
-    ``@partial(fr.utils.jaxify, dynamic=("kh", "kv"))`` (pytree
+    ``@partial(fridom.framework.utils.jaxify, dynamic=("kh", "kv"))`` (pytree
     registration itself is automatic on subclassing). Convention:
     user-facing treatment overrides live on subclass constructors
-    (``VerticalMixing(kv=..., treatment=fr.IMPLICIT)``), never on
+    (``VerticalMixing(kv=..., treatment=fr.model.IMPLICIT)``), never on
     the Model.
 
     jaxify discipline for authors: dynamic = everything numeric that
@@ -370,7 +371,7 @@ class Module:
 
     parameter_references: tuple[ParameterReference, ...] = ()
     """Consumed scalars — the exact twin of `field_references`.
-    ``fr.Param(name, default=...)``-valued constructor slots are the
+    ``fr.model.Param(name, default=...)``-valued constructor slots are the
     defaulted spelling and are collected into this set by assembly
     (D2 reconciliation 4)."""
 
@@ -416,7 +417,7 @@ class Module:
     state_type: type | None = None
     """The ``State`` vocabulary class supplied by the dynamical-core
     module (D1.3 commitment 4); more than one provider across the
-    module list is an assembly error; ``fr.Model(state_type=...)``
+    module list is an assembly error; ``fr.model.Model(state_type=...)``
     is the fallback/override. Declared as a plain class attribute:
     it stays out of the instance ``__dict__`` and hence out of the
     pytree aux data entirely (no treedef or jit-cache coupling); an
@@ -431,7 +432,7 @@ class Module:
         -----------
         The honesty seam for a frozen-``L`` (exponential) stepper
         (AR-D7 / TDF-D4). The **structural default** walks this class's
-        DECLARED ``@fr.term`` terms — all of them, independent of any
+        DECLARED ``@fr.model.term`` terms — all of them, independent of any
         ``term_filter`` or schedule — and for each ``linear=True`` term
         resolves its declared dependencies against the module's own
         leaves:
@@ -447,7 +448,7 @@ class Module:
           ``time_dependent`` marker (TDF-D3).
 
         The module author declares the term/dependency coupling on the
-        term (``@fr.term(..., linear=True, linear_params=(...),
+        term (``@fr.model.term(..., linear=True, linear_params=(...),
         linear_fields=(...))``); this default needs no tracing and runs
         pre-bind (assembly resolves it against the live module). Assembly
         refuses a non-empty report under a stepper that freezes ``L`` in
@@ -463,7 +464,7 @@ class Module:
         module) is out of this local default's reach and is reported by
         that owning module instead (the ``dsqr`` case: reported by
         ``DynamicalCore``). Modules that build their terms in a
-        ``tendency_terms`` override (rather than ``@fr.term``) are not
+        ``tendency_terms`` override (rather than ``@fr.model.term``) are not
         walked here; they override this hook if they need the guard.
 
         Returns
@@ -504,7 +505,7 @@ class Module:
         (``Model.propagator``) needs the WHOLE set: a gradient with
         respect to ANY parameter frozen into ``exp(L dt)`` is silently
         stale, time-dependent or not. Same declared-term walk, same
-        ``@fr.term`` seam; ``linear_fields`` are handled by the
+        ``@fr.model.term`` seam; ``linear_fields`` are handled by the
         propagator's materialized-owner refusal (their coefficient
         fields ride the re-materialization table) and are not repeated
         here.
@@ -642,7 +643,7 @@ class Module:
 
         Description
         -----------
-        Default implementation: scan for ``@fr.term``-stamped
+        Default implementation: scan for ``@fr.model.term``-stamped
         methods in definition order (inherited terms first, an
         override at its original position) — trivial modules need
         zero ceremony; modules with constructed terms override this
@@ -674,7 +675,7 @@ class Module:
         The stage collection assembly step 5 consumes; merges, in
         deterministic order:
 
-        1. ``@fr.self_update``-stamped methods (and any other
+        1. ``@fr.model.self_update``-stamped methods (and any other
            ``Stage``-stamped method), class definition order;
         2. a bare (undecorated) ``self_update`` method, wrapped into
            a SELF_UPDATE-kind stage with ``reads=()`` — the two
@@ -747,7 +748,7 @@ class Module:
 
     # deliberately NOT defined on the base: defining a
     # ``self_update(self, state, ctx) -> dict`` method (bare, or
-    # decorated with @fr.self_update(reads=...)) opts the module in;
+    # decorated with @fr.model.self_update(reads=...)) opts the module in;
     # write gate: own AUXILIARY, applied via replace. It runs per
     # SUBSTAGE — never use it for step-frequency accumulation (the
     # S6 DIAGNOSTIC accumulation idiom is the sanctioned home).
@@ -781,7 +782,7 @@ class Module:
 # ================================================================
 # The base is jaxified with zero dynamic leaves, so every subclass is
 # automatically pytree-registered on creation; the per-class
-# @partial(fr.utils.jaxify, dynamic=(...)) decorator then only
+# @partial(fridom.framework.utils.jaxify, dynamic=(...)) decorator then only
 # declares the leaves. jaxify installs its own auto-registration
 # __init_subclass__; it is replaced below by a hook that additionally
 # installs the bind once/freeze guard on subclass-defined binds.

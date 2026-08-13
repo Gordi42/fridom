@@ -19,7 +19,7 @@ The constructor always describes the **up** leg (reference -> target,
 each returning a **new** transform with a fresh internal variant:
 ``.down`` swaps the endpoints (lambda path ``1 -> 0``, ``dt > 0``) and
 ``.backward`` retraces the same lambda path with ``dt < 0``
-(``fr.params.TIME_STEP`` sign flip + :meth:`Ramp.reversed`). They
+(``fr.model.params.TIME_STEP`` sign flip + :meth:`Ramp.reversed`). They
 compose (``ramp.down.backward``). ``.replace(**overrides)`` is the
 frozen-config copy-with (OB's backward leg needs a different
 ``term_filter``).
@@ -31,8 +31,9 @@ selected **tendency terms as a whole** — a ``TendencyEnvelope``
 module scales matched term outputs by ``rho(t)`` read from
 ``ctx.params["ramping.envelope"]`` at stage time (never a
 host-captured value). ``envelope=True`` selects
-``~fr.terms.linear & fr.terms.explicit``, so ``rho = 0`` is exactly
-``fr.linearize(model)`` and ``rho = 1`` the nominal model.
+``~fr.model.term_predicates.linear &
+fr.model.term_predicates.explicit``, so ``rho = 0`` is exactly
+``fr.model.linearize(model)`` and ``rho = 1`` the nominal model.
 
 ``OptimalBalance`` is re-homed **onto** this surface (composition, not
 subclass); this is the leg machinery it owns.
@@ -93,10 +94,10 @@ class AdiabaticRamping(StateTransform):
         ``t0``/``period`` window is the AR-D5 *interleaved* protocol
         form. ``envelope=`` adds the term-envelope deformation: the
         envelope Ramp ``0 -> 1`` joins the resolved ramps under
-        ``fr.params.RAMPING_ENVELOPE``, so the derived-leg machinery
+        ``fr.model.params.RAMPING_ENVELOPE``, so the derived-leg machinery
         (reflection, reversal) applies to it verbatim; on a model not
         already binding ``"ramping.envelope"`` the first leg appends
-        a ``fr.modules.TendencyEnvelope`` via
+        a ``fr.model.modules.TendencyEnvelope`` via
         ``Propagator(extra_modules=...)``, and derived legs update
         the bound leaf through ``updates=``. The resolved Ramp-valued
         updates are merged with the passthrough ``updates`` and fed
@@ -123,18 +124,19 @@ class AdiabaticRamping(StateTransform):
             internal step count (default: None).
         envelope : bool | TermPredicate, optional
             The term-envelope deformation: ``True`` ramps
-            ``~fr.terms.linear & fr.terms.explicit`` (the
-            nonlinearity as a whole, so the leg starts at exactly
-            ``fr.linearize(model)``); an ``fr.terms`` predicate
-            narrows/widens the selection; ``False`` ramps no terms
-            (default: False).
+            ``~fr.model.term_predicates.linear &
+            fr.model.term_predicates.explicit`` (the nonlinearity as a
+            whole, so the leg starts at exactly
+            ``fr.model.linearize(model)``); an
+            ``fr.model.term_predicates`` predicate narrows/widens the
+            selection; ``False`` ramps no terms (default: False).
         ramps : Mapping[str, tuple | TimeDependent] | None, optional
             ``{param_key: (v_ref, v_target) | TimeDependent}``; tuples
             become the up-leg Ramp, TimeDependents pass verbatim
             (default: None).
         term_filter : Callable | None, optional
-            A term predicate (``fr.terms``) threaded to the internal
-            variant (default: None).
+            A term predicate (``fr.model.term_predicates``) threaded
+            to the internal variant (default: None).
         updates : Mapping[str, object] | None, optional
             Passthrough (non-ramped) assembly-time parameter updates,
             merged under the ramp updates (default: None).
@@ -182,8 +184,9 @@ class AdiabaticRamping(StateTransform):
                     f"(ramps[{str(params.RAMPING_ENVELOPE)!r}]) on a "
                     "model that does not bind 'ramping.envelope' "
                     "needs the enveloped-term selection: pass "
-                    "envelope=True (~fr.terms.linear & "
-                    "fr.terms.explicit) or an fr.terms predicate")
+                    "envelope=True (~fr.model.term_predicates.linear "
+                    "& fr.model.term_predicates.explicit) or an "
+                    "fr.model.term_predicates predicate")
             # first leg: the module carries the Ramp leaf directly;
             # derived legs find the parameter bound and go via updates
             merged.pop(params.RAMPING_ENVELOPE)
@@ -212,8 +215,10 @@ class AdiabaticRamping(StateTransform):
         if isinstance(envelope, terms.TermPredicate):
             return envelope
         raise TypeError(
-            "envelope= takes True (ramp ~fr.terms.linear & "
-            "fr.terms.explicit), False, or an fr.terms predicate; "
+            "envelope= takes True (ramp "
+            "~fr.model.term_predicates.linear & "
+            "fr.model.term_predicates.explicit), False, or an "
+            "fr.model.term_predicates predicate; "
             f"got {envelope!r}")
 
     def _resolve_ramps(
@@ -277,7 +282,7 @@ class AdiabaticRamping(StateTransform):
 
         Description
         -----------
-        Flips ``fr.params.TIME_STEP`` on the internal variant and
+        Flips ``fr.model.params.TIME_STEP`` on the internal variant and
         reflects every Ramp window across ``t = 0``
         (:meth:`Ramp.reversed`, spanning ``[-ramp_period, 0]``), so the
         backward leg retraces this leg's values exactly. Constructing

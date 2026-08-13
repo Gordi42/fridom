@@ -3,13 +3,13 @@ The framework's shared tendency-module library.
 
 Description
 -----------
-Reusable, model-agnostic ``fr.Module`` subclasses shared across the
+Reusable, model-agnostic ``fr.model.Module`` subclasses shared across the
 model ports (D2.1 module-library sharing). Wave 6 seeds it with the
-Coriolis family (``fr.modules.FPlaneCoriolis`` /
-``fr.modules.BetaPlaneCoriolis``); both the nonhydrostatic and
+Coriolis family (``fr.model.modules.FPlaneCoriolis`` /
+``fr.model.modules.BetaPlaneCoriolis``); both the nonhydrostatic and
 shallow-water packages import from here instead of carrying a copy.
-The forcing port adds the generic ``fr.modules.Relaxation``. The
-flux-form advection family (``fr.modules.CenteredAdvection`` /
+The forcing port adds the generic ``fr.model.modules.Relaxation``. The
+flux-form advection family (``fr.model.modules.CenteredAdvection`` /
 ``UpwindAdvection`` / ``WENOAdvection``) is rehomed here from
 ``nonhydro2`` so every model port shares it (hydrostatic plan HY-D5);
 ``nonhydro2`` keeps re-exports so ``nh.CenteredAdvection`` still works.

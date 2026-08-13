@@ -1,16 +1,17 @@
 """
-The closure base class (``fr.closures.ClosureBase``).
+The closure base class (``fr.model.closures.ClosureBase``).
 
 Description
 -----------
-The framework closure base (D1.4, V-H2): the ``fr.terms.owned_by``
-predicate target that hosts the role-target resolution boilerplate
-shared by every dissipative closure. Owning class spec:
+The framework closure base (D1.4, V-H2): the
+``fr.model.term_predicates.owned_by`` predicate target that hosts the
+role-target resolution boilerplate shared by every dissipative
+closure. Owning class spec:
 ``design/specs/model/classes/module.md`` (section
-"fr.closures.ClosureBase").
+"fr.model.closures.ClosureBase").
 
 Closures default their target set *by role* — mixing closures declare
-``default_targets = fr.roles.TRACER``, friction closures the
+``default_targets = fr.model.roles.TRACER``, friction closures the
 ``Velocity`` family (the class: family match) — and take name-keyed
 constructor overrides (``fields=`` / ``exclude=`` / per-field
 coefficient mappings), validated at bind. This replaces the old
@@ -19,7 +20,7 @@ Role-driven write-targeting intersects PROGNOSTIC automatically
 (V-H2): ``Velocity`` may sit on DIAGNOSTIC fields (the hydrostatic
 diagnosed ``w``), but a closure's write targets are PROGNOSTIC by
 construction. Dropping every closure from a model is
-``model.variant(term_filter=~fr.terms.owned_by(fr.closures.
+``model.variant(term_filter=~fr.model.term_predicates.owned_by(fr.model.closures.
 ClosureBase))`` — the predicate follows free from subclassing.
 """
 from __future__ import annotations
@@ -107,7 +108,8 @@ class ClosureBase(Module, ABC):
     mapping are assembly errors with taught messages.
 
     Subclassing also enrolls the closure in the
-    ``fr.terms.owned_by(fr.closures.ClosureBase)`` predicate, so
+    ``fr.model.term_predicates.owned_by(fr.model.closures.ClosureBase)``
+    predicate, so
     inviscid variants drop all closures with no new vocabulary.
 
     Parameters
@@ -122,7 +124,7 @@ class ClosureBase(Module, ABC):
 
     default_targets: ClassVar[Role | type[Role]]
     """Subclass-declared default target selection: mixing closures
-    set ``fr.roles.TRACER``, friction closures the ``Velocity``
+    set ``fr.model.roles.TRACER``, friction closures the ``Velocity``
     family (class = family match, D1.4)."""
 
     _allow_empty_targets: ClassVar[bool] = False
@@ -197,7 +199,7 @@ class ClosureBase(Module, ABC):
                     f"{owner} declares no default_targets and got "
                     "no fields=; closure subclasses declare a Role "
                     "(or Role family) default, e.g. default_targets"
-                    " = fr.roles.TRACER")
+                    " = fr.model.roles.TRACER")
         if isinstance(selection, Role) or (
                 isinstance(selection, type)
                 and issubclass(selection, Role)):
@@ -298,7 +300,7 @@ class ClosureBase(Module, ABC):
             "(immersed_closures_sadourny_plan, CL-D1/CL-D2); the "
             "deferral designs (Smagorinsky wet-only strain rates, "
             "VerticalMixing variable-dz column, no-slip side-drag) are "
-            "recorded in the plan §5. Use fr.closures.HarmonicDiffusion "
+            "recorded in the plan §5. Use fr.model.closures.HarmonicDiffusion "
             "/ HarmonicFriction, or drop the closure on an immersed "
             "grid.")
 

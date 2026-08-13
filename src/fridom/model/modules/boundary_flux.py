@@ -26,9 +26,10 @@ wall-adjacent cell row (read from the grid measure, so stretched meshes
 are handled) and ``0`` elsewhere.
 
 Both :math:`F` and :math:`W` are assembly-materialized AUXILIARY
-``fr.Profile`` fields (R2): a constant flux is a one-DOF ``fr.Profile()``,
-a callable flux varies along the tangential coordinates its signature
-names, and :math:`W` is an index-based indicator over ``fr.Profile(coord)``
+``fr.spatial.Profile`` fields (R2): a constant flux is a one-DOF
+``fr.spatial.Profile()``, a callable flux varies along the tangential
+coordinates its signature names, and :math:`W` is an index-based
+indicator over ``fr.spatial.Profile(coord)``
 built by an unbound owner-method default — never a float-equality
 coordinate test. Both move onto the forced field with ``.to`` in the
 term (a pure broadcast on the shared cell-centre nodes along ``coord``,
@@ -156,8 +157,8 @@ def flux_declaration(
 ) -> FieldDeclaration:
     """Declare a flux pattern as an AUXILIARY profile field.
 
-    A number becomes a constant fill on the one-DOF ``fr.Profile()``; a
-    callable becomes the coordinate default of a ``fr.Profile`` over
+    A number becomes a constant fill on the one-DOF ``fr.spatial.Profile()``; a
+    callable becomes the coordinate default of a ``fr.spatial.Profile`` over
     exactly the tangential coordinates its signature names (the
     ``Relaxation`` profile normalization). Shared by ``BoundaryFlux``
     and the model-package wrappers.
@@ -252,7 +253,7 @@ def check_forced_field(
             f"{owner} forces {field!r} at the {coord} {side} wall, but "
             "its resolved boundary condition there is DIRICHLET: the "
             "wall value is pinned, so a flux cannot be prescribed. Use "
-            "the NEUMANN sibling, or fr.modules.Relaxation to nudge "
+            "the NEUMANN sibling, or fr.model.modules.Relaxation to nudge "
             "toward a target")
 
 
@@ -360,7 +361,7 @@ class BoundaryFlux(Module):
         """
         return ParamName(
             f"boundary_flux.{field}.{coord}_{side}.scale", units="n/a",
-            hint="provided by the fr.modules.BoundaryFlux instance "
+            hint="provided by the fr.model.modules.BoundaryFlux instance "
                  f"forcing {field!r} at the {coord} {side} wall")
 
     # ================================================================

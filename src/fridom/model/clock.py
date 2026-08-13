@@ -1,5 +1,5 @@
 """
-The traced clock (``fr.Clock``).
+The traced clock (``fr.model.Clock``).
 
 Description
 -----------
@@ -48,7 +48,7 @@ def _dtype_int() -> jnp.dtype:
     """Return the default integer dtype at the global width.
 
     int64 under the default x64-on run, int32 otherwise — the
-    integer twin of ``fr.utils.dtype_real`` (an explicit
+    integer twin of ``fridom.framework.utils.dtype_real`` (an explicit
     ``jnp.int64`` request would warn and truncate under x64-off).
     """
     return jnp.result_type(int)

@@ -20,7 +20,7 @@ class TendencyEnvelope(Module):
     -----------
     Declares no fields, terms, or stages: the module carries exactly
     one dynamic leaf, ``envelope``, provided as
-    ``fr.params.RAMPING_ENVELOPE`` (``"ramping.envelope"``), plus a
+    ``fr.model.params.RAMPING_ENVELOPE`` (``"ramping.envelope"``), plus a
     static :class:`~fridom.model.term_predicates.TermPredicate`
     selecting the enveloped terms. The ``TendencyComposer`` detects
     the module (through its ``envelope_terms`` capability attribute)
@@ -31,7 +31,7 @@ class TendencyEnvelope(Module):
         \partial_t z = L z + \rho(t)\,[\text{matched terms}].
 
     The envelope value is **never** closed over as a host value: the
-    wrapped hook reads ``ctx.params[fr.params.RAMPING_ENVELOPE]``,
+    wrapped hook reads ``ctx.params[fr.model.params.RAMPING_ENVELOPE]``,
     which resolves this module's live leaf at stage time (the D2
     no-host-capture rule). A ``fr.Ramp``-valued ``envelope`` therefore
     rides the carry exactly like ``FPlaneCoriolis.f0`` — stage-time
@@ -47,9 +47,10 @@ class TendencyEnvelope(Module):
     Parameters
     ----------
     terms : TermPredicate
-        The ``fr.terms`` predicate selecting the enveloped tendency
-        terms (e.g. ``~fr.terms.linear & fr.terms.explicit``);
-        keyword-only.
+        The ``fr.model.term_predicates`` predicate selecting the
+        enveloped tendency terms (e.g.
+        ``~fr.model.term_predicates.linear &
+        fr.model.term_predicates.explicit``); keyword-only.
     envelope : float | TimeDependent, optional
         The envelope value :math:`\rho` — a constant or a time
         curve such as ``fr.Ramp(0.0, 1.0, period=...)``
@@ -73,11 +74,13 @@ class TendencyEnvelope(Module):
         """Store the predicate and the envelope leaf; see class doc."""
         if not isinstance(terms, TermPredicate):
             raise TypeError(
-                "TendencyEnvelope(terms=...) takes an fr.terms "
-                "predicate (a TermPredicate, e.g. ~fr.terms.linear & "
-                f"fr.terms.explicit); got {terms!r}. A plain callable "
-                "cannot join the assembly fingerprint — compose the "
-                "selection from the fr.terms leaves instead")
+                "TendencyEnvelope(terms=...) takes an "
+                "fr.model.term_predicates predicate (a TermPredicate, "
+                "e.g. ~fr.model.term_predicates.linear & "
+                f"fr.model.term_predicates.explicit); got {terms!r}. A "
+                "plain callable cannot join the assembly fingerprint "
+                "— compose the selection from the "
+                "fr.model.term_predicates leaves instead")
         self.envelope = leaf(envelope)
         self._terms = terms
 

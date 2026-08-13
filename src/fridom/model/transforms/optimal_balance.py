@@ -8,9 +8,10 @@ the optimal-balance method (08 §10.5). Composed **on**
 :class:`AdiabaticRamping` (AR-D4, §10.9 "Reconciliation with §10.5"):
 the forward (up) leg is ``AdiabaticRamping(model, envelope=True,
 ...)`` — it ramps the **nonlinearity as a whole** (a term-envelope
-:math:`\rho(t)` on the ``~fr.terms.linear & fr.terms.explicit``
-terms, §C), so OB works identically on dimensional models (no
-scaling parameter bound) and nondimensional ones. A bound scaling
+:math:`\rho(t)` on the ``~fr.model.term_predicates.linear &
+fr.model.term_predicates.explicit`` terms, §C), so OB works
+identically on dimensional models (no scaling parameter bound) and
+nondimensional ones. A bound scaling
 parameter :math:`\varepsilon` (constant *or* ``fr.Ramp``-valued) is
 never touched: the effective nonlinearity mid-ramp is
 :math:`\rho(t)\,\varepsilon`. The backward leg is

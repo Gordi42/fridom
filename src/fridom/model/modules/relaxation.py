@@ -4,7 +4,8 @@ Shared relaxation (nudging) module: restore fields toward targets.
 Description
 -----------
 The framework's reusable relaxation forcing (the port of the v1
-``fr.modules.forcings.Relaxation``): one or more PROGNOSTIC
+``fridom.framework.modules.forcings.Relaxation``): one or more
+PROGNOSTIC
 fields are nudged toward target profiles
 
 .. math::
@@ -19,9 +20,9 @@ hard sponge edge).
 
 Following R2 (01_concepts D2.2), the target and mask are
 *intrinsically spatial* and are carried as AUXILIARY fields on the
-smallest ``fr.Profile`` that represents them: a constant target is a
-one-DOF ``fr.Profile()``; a callable target/mask varies exactly
-along its named coordinates (``lambda z: ...`` -> ``fr.Profile("z")``)
+smallest ``fr.spatial.Profile`` that represents them: a constant target is a
+one-DOF ``fr.spatial.Profile()``; a callable target/mask varies exactly
+along its named coordinates (``lambda z: ...`` -> ``fr.spatial.Profile("z")``)
 and is sampled at those coordinates' nodes when the field is
 materialized (the ``MeridionalStratification`` precedent). In the
 term the profile is moved onto each relaxed field with ``.to`` — a
@@ -183,7 +184,7 @@ class Relaxation(Module):
             None if mask is None else f"{joined}_relax_mask")
         self._rate_name: ParamName = ParamName(
             f"relaxation.{joined}.rate", units="1/s",
-            hint="provided by the fr.modules.Relaxation instance "
+            hint="provided by the fr.model.modules.Relaxation instance "
                  f"relaxing {names}")
 
     # ================================================================
@@ -245,8 +246,8 @@ class Relaxation(Module):
         """Declare one value as an AUXILIARY profile field.
 
         A number becomes a constant fill on the one-DOF
-        ``fr.Profile()``; a callable becomes the coordinate default
-        of a ``fr.Profile`` over exactly the coordinates its
+        ``fr.spatial.Profile()``; a callable becomes the coordinate default
+        of a ``fr.spatial.Profile`` over exactly the coordinates its
         signature names (sampled at those nodes — the
         MeridionalStratification precedent).
         """

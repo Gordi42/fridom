@@ -11,7 +11,7 @@ conventions. Owning class spec:
 
 The stepper is **not a Module but is a pytree** whose only dynamic
 leaf is ``dt`` — every concrete class applies
-``@partial(fr.utils.jaxify, dynamic=("dt",))`` so all other
+``@partial(fridom.framework.utils.jaxify, dynamic=("dt",))`` so all other
 attributes (order, eps, tables, tableaus) land in the static treedef
 aux, hashed by the restart fingerprint. The stepper is a
 loop-invariant traced input to the jitted chunk, never carry; it is
@@ -81,7 +81,7 @@ class TimeStepper(abc.ABC):
     :meth:`fingerprint_token`.
 
     The stepper joins the assembly binding table as provider of
-    ``fr.params.TIME_STEP`` (its ``dt`` leaf) through
+    ``fr.model.params.TIME_STEP`` (its ``dt`` leaf) through
     :attr:`parameter_declarations` — the read surface for cfl-style
     host diagnostics and the write surface for
     ``update_parameters`` (including the sign flip that replaces
@@ -102,7 +102,8 @@ class TimeStepper(abc.ABC):
     ----------
     dt : float | np.timedelta64
         The signed step size; converted once at this boundary
-        (``fr.utils.to_seconds`` -> ``dtype_real`` -> ``asarray``) —
+        (``fridom.framework.utils.to_seconds`` -> ``dtype_real`` ->
+        ``asarray``) —
         a ``timedelta64`` dies here.
 
     Raises
@@ -159,7 +160,7 @@ class TimeStepper(abc.ABC):
         -----------
         ``ParameterBindingTable.build`` duck-types the stepper
         through this attribute: the stepper provides
-        ``fr.params.TIME_STEP`` from its dynamic ``dt`` leaf.
+        ``fr.model.params.TIME_STEP`` from its dynamic ``dt`` leaf.
         Subclasses publishing additional dynamic leaves extend the
         tuple.
 
@@ -180,7 +181,7 @@ class TimeStepper(abc.ABC):
         Returns
         -------
         Mapping[str, str]
-            ``{fr.params.TIME_STEP: "dt"}`` (plus any subclass
+            ``{fr.model.params.TIME_STEP: "dt"}`` (plus any subclass
             extensions of :attr:`parameter_declarations`).
         """
         return {str(declaration.name): declaration.attr

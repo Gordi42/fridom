@@ -1,17 +1,17 @@
 """
-The canonical parameter-name registry (``fr.params``).
+The canonical parameter-name registry (``fr.model.params``).
 
 Description
 -----------
 Owning class doc: ``design/specs/model/classes/declarations.md``
-(section "ParamName and the fr.params registry"). ``ParamName`` is a
+(section "ParamName and the fr.model.params registry"). ``ParamName`` is a
 ``str`` subclass carrying registry documentation (units, provider
 hint, the ``no_default`` mark), so ``params["coriolis.f0"]`` and
-``update_parameters({fr.params.CORIOLIS_F0: f0})`` hit the same
+``update_parameters({fr.model.params.CORIOLIS_F0: f0})`` hit the same
 mapping key. The registry constants below are the framework-owned
 canonical names; package-specific names (``"nonhydro.dsqr"``, ...)
 live in the package's own registry module using this same class.
-``fr.params`` is immutable module-level data — no process-global
+``fr.model.params`` is immutable module-level data — no process-global
 mutable state.
 """
 # Wave 2 B: ParamName + the registry constants
@@ -100,32 +100,32 @@ TIME_STEP: Final[ParamName] = ParamName(
     "stepper.dt",
     units="s",
     hint="provided by the time stepper (its dt leaf) at assembly "
-         "step 2, e.g. fr.time_steppers.AdamBashforth(dt=...)",
+         "step 2, e.g. fr.model.time_steppers.AdamBashforth(dt=...)",
     no_default=True)
 
 CORIOLIS_F0: Final[ParamName] = ParamName(
     "coriolis.f0",
     units="1/s",
     hint="provided by an f-plane Coriolis module, e.g. "
-         "fr.modules.FPlaneCoriolis(f0=...)")
+         "fr.model.modules.FPlaneCoriolis(f0=...)")
 
 CORIOLIS_BETA: Final[ParamName] = ParamName(
     "coriolis.beta",
     units="1/(m s)",
     hint="provided by a beta-plane Coriolis module, e.g. "
-         "fr.modules.BetaPlaneCoriolis(beta=...)")
+         "fr.model.modules.BetaPlaneCoriolis(beta=...)")
 
 CORIOLIS_ROSSBY: Final[ParamName] = ParamName(
     "coriolis.rossby",
     units="n/a",
     hint="provided by a nondimensional Coriolis module, e.g. "
-         "fr.modules.FPlaneCoriolis(rossby_number=...)")
+         "fr.model.modules.FPlaneCoriolis(rossby_number=...)")
 
 CORIOLIS_METRIC_RATIO: Final[ParamName] = ParamName(
     "coriolis.metric_ratio",
     units="n/a",
     hint="provided by a nondimensional beta-plane Coriolis module, "
-         "e.g. fr.modules.BetaPlaneCoriolis(rossby_number=..., "
+         "e.g. fr.model.modules.BetaPlaneCoriolis(rossby_number=..., "
          "metric_ratio=...)")
 
 # no_default: a reference default would silently un-stratify a run.

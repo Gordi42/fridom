@@ -23,7 +23,7 @@ share around that split:
 - host-side labeling helpers shared by the package labelers
   (:func:`segment_energy`, :func:`recover_crisp_column`,
   :func:`split_frequency_bands`);
-- :func:`eigenbasis` — the shared ``fr.eigenbasis(model)`` surface,
+- :func:`eigenbasis` — the shared ``fr.model.eigenbasis(model)`` surface,
   dispatching to the package that owns the model's state vocabulary
   (``sw.eigenbasis`` / ``nh.eigenbasis``).
 """
@@ -1536,7 +1536,7 @@ def _plane_wavenumbers(
 
 
 # ================================================================
-#  The shared eigenbasis surface (fr.eigenbasis)
+#  The shared eigenbasis surface (fr.model.eigenbasis)
 # ================================================================
 def eigenbasis(
     model: Model, *, at_time: float = 0.0,

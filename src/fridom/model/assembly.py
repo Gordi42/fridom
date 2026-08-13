@@ -9,7 +9,7 @@ Owning class spec: ``design/specs/model/classes/model.md``
 assembly-frozen resolution of provides/requires (step 2): binding
 rows map a dotted name to a live-leaf accessor ``(slot, attr)`` on a
 provider — the time stepper joins as just another provider row, of
-``fr.params.TIME_STEP`` (its ``dt`` leaf). Consumers never hold
+``fr.model.params.TIME_STEP`` (its ``dt`` leaf). Consumers never hold
 provider objects or frozen values (the jax aliasing rule); `Params`
 is the thin frozen in-trace mapping ``eval_params`` delivers per
 stage time. `RematerializationTable` retains the AUXILIARY
@@ -253,7 +253,7 @@ class Params(Mapping):
     -----------
     The product of ``eval_params``: fresh live leaves per stage time
     (`TimeDependent` values already resolved through
-    ``fr.resolve_at``). Names live in the static treedef, values are
+    ``fr.model.resolve_at``). Names live in the static treedef, values are
     dynamic leaves — zero-recompile parameter sweeps by
     construction. Unknown-name lookups are caught by the assembly
     dry run (the raise carries the bound-name list).
@@ -491,7 +491,7 @@ class ParameterBindingTable:
         -----------
         Provider rows come from each module's
         ``parameter_declarations`` and from the stepper (which joins
-        as provider of ``fr.params.TIME_STEP`` — its ``dt`` leaf —
+        as provider of ``fr.model.params.TIME_STEP`` — its ``dt`` leaf —
         unless it publishes its own declarations). A declared slot
         whose live value is `USE_PROVIDED` converts to a `REQUIRED`
         reference; a slot holding an untouched `Param` default
@@ -636,7 +636,7 @@ class ParameterBindingTable:
         -----------
         Composed once at assembly, called at P0 of every substage:
         every leaf is read from its live provider and resolved
-        through ``fr.resolve_at`` at ``t`` (a ramped scalar and a
+        through ``fr.model.resolve_at`` at ``t`` (a ramped scalar and a
         ramped N² profile see the same time). Feeds
         ``StepContext.params``.
 
@@ -777,7 +777,7 @@ def _collect_stepper(
     providers: dict[str, str],
     references: list[tuple[str, ParameterReference]],
 ) -> None:
-    """Join the stepper as provider of ``fr.params.TIME_STEP``."""
+    """Join the stepper as provider of ``fr.model.params.TIME_STEP``."""
     label = _stepper_label(stepper)
     declarations = getattr(stepper, "parameter_declarations", None)
     if declarations is None:
@@ -1959,7 +1959,7 @@ def assemble(
     order: (1) collect declarations/references, resolve patterns
     through the grid's ``("declared_space", mesh)`` resolver rows,
     build the `FieldTable`; (2) build the `ParameterBindingTable`
-    (the stepper joins as the ``fr.params.TIME_STEP`` provider);
+    (the stepper joins as the ``fr.model.params.TIME_STEP`` provider);
     (3) the dispatch merge — resolve pattern keys through the step-1
     resolvers, ``grid.merge_overrides`` exactly once; (4)
     ``bind(table)`` in module order (the merged registry visible;
@@ -1980,7 +1980,7 @@ def assemble(
     grid : Grid
         The assembly root (frozen after step 7).
     modules : tuple
-        The module tuple (``fr.Module`` instances; duck-typed
+        The module tuple (``fr.model.Module`` instances; duck-typed
         capability reads).
     time_stepper : object
         The time stepper — REQUIRED, no default exists.

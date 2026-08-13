@@ -1,5 +1,5 @@
 """
-Implicit-operator families (``fr.implicit``).
+Implicit-operator families (``fr.model.implicit``).
 
 Description
 -----------

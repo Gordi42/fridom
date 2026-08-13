@@ -1,5 +1,5 @@
 """
-Transform error types (``fr.transforms`` cluster, task 2.8).
+Transform error types (``fr.model.transforms`` cluster, task 2.8).
 
 Description
 -----------

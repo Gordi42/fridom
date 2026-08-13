@@ -1,5 +1,5 @@
 """
-Composable term predicates (``fr.terms``) — task 2.8.
+Composable term predicates (``fr.model.term_predicates``) — task 2.8.
 
 Description
 -----------
@@ -16,11 +16,11 @@ A predicate is a callable ``(key, term, module=None) -> bool`` where
 ``TendencyTerm``, and ``module`` its owning module (used by
 ``owned_by`` for the ``isinstance`` check). ``wants_module = True``
 signals the composer/host to pass the third argument; the composer's
-legacy two-argument callables keep working. ``fr.linearize(model)``
-is ``model.variant(term_filter=fr.terms.linear)``.
+legacy two-argument callables keep working. ``fr.model.linearize(model)``
+is ``model.variant(term_filter=fr.model.term_predicates.linear)``.
 
 Owning class spec: ``design/specs/model/classes/declarations.md``
-(``fr.terms`` = ``fr.model.term_predicates``).
+(``fr.model.term_predicates`` = ``fr.model.term_predicates``).
 """
 # Wave 7 A: TermPredicate + linear/explicit/implicit/owned_by/named/
 #    advancing, combined with & | ~
@@ -112,8 +112,8 @@ class TermPredicate(ABC):
         return Not(self)
 
     def __repr__(self) -> str:
-        """Render as ``fr.terms.<fingerprint token>``."""
-        return f"fr.terms.{self.fingerprint_token()}"
+        """Render as ``fr.model.term_predicates.<token>``."""
+        return f"fr.model.term_predicates.{self.fingerprint_token()}"
 
 
 # ================================================================
@@ -303,7 +303,7 @@ class Advancing(TermPredicate):
 
 
 # ================================================================
-#  The public surface (fr.terms.*)
+#  The public surface (fr.model.term_predicates.*)
 # ================================================================
 #: match terms tagged ``linear=True``
 linear: _Linear = _Linear()
@@ -450,7 +450,7 @@ def linearize(model: object, *, name: str | None = None) -> object:
     Description
     -----------
     Top-level sugar (08 §10.4): keeps exactly the ``linear=True``
-    terms — a full lifecycle citizen ``fr.Model``, not a transform.
+    terms — a full lifecycle citizen ``fr.model.Model``, not a transform.
     Consumes the declared ``linear`` tag (V-S3: a scheme's linear
     background-advection piece must be a separate ``linear=True`` term
     or ``linearize`` drops it).

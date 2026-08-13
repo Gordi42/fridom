@@ -73,18 +73,18 @@ class Propagator(StateTransform):
             An (unsigned) model-time duration, snapped to
             ``ceil(runlen / |dt|)`` steps (default: None).
         backward : bool, optional
-            Flip ``fr.params.TIME_STEP`` sign on the internal variant
+            Flip ``fr.model.params.TIME_STEP`` sign on the internal variant
             (the reverse leg) (default: False).
         updates : Mapping[str, object] | None, optional
             Assembly-time variant parameter updates, e.g. a Ramp-valued
             ``coriolis.f0`` for a ramped leg (default: None).
         term_filter : Callable | None, optional
             A term predicate threaded to the internal variant, e.g.
-            ``fr.terms.linear`` (default: None).
+            ``fr.model.term_predicates.linear`` (default: None).
         extra_modules : tuple, optional
             Field-free modules appended to the internal variant —
             ``AdiabaticRamping``'s envelope leg delivers its
-            ``fr.modules.TendencyEnvelope`` here (default: ``()``).
+            ``fr.model.modules.TendencyEnvelope`` here (default: ``()``).
         name : str | None, optional
             The internal variant's report/log name
             (default: ``"Propagator/internal"``).

@@ -12,7 +12,7 @@ why it is the explicit-kwarg default and the energy norm cannot be.
 relative-imbalance helper ``eta(z) = ||(I - P) z|| / ||z||`` — the
 same default norm, with an ``EnergyMetric`` one kwarg away. Owning
 class spec: ``design/specs/model/classes/transforms.md`` §"relative_l2,
-assert_idempotent". ``norm=nh.diagnostics.energy_norm(model)`` is one
+assert_idempotent". ``metric=fr.model.EnergyMetric.from_model(model)`` is one
 kwarg away for dimensional stratified runs.
 """
 from __future__ import annotations

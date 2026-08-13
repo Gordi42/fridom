@@ -5,8 +5,9 @@ Description
 -----------
 The affine building block (§10.2; owning class spec
 ``design/specs/model/classes/transforms.md`` §"Shift") — OB's
-base-point exchange. Tier 1: a ``fr.utils.jaxify`` frozen pytree with
-the captured state as the dynamic leaf (the ``fr.Ramp`` pattern);
+base-point exchange. Tier 1: a ``fridom.framework.utils.jaxify``
+frozen pytree with the captured state as the dynamic leaf (the
+``fr.Ramp`` pattern);
 ``traceable=True``, ``idempotent=False``; cost zero. The endo
 signature derives from ``state0``'s components (grid + mapped subset);
 the sum runs through the State's componentwise arithmetic.

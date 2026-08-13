@@ -3,7 +3,7 @@ Tendency-term declarations.
 
 Description
 -----------
-``Treatment``, ``TendencyTerm``, and the ``@fr.term`` decorator: a
+``Treatment``, ``TendencyTerm``, and the ``@fr.model.term`` decorator: a
 module's tendency contribution as declared frozen data — the
 FieldDeclaration pattern applied to behavior. Owning class spec:
 ``design/specs/model/classes/declarations.md``; design source
@@ -40,7 +40,7 @@ class Treatment(Enum):
     -----------
     Treatment is author-declared on the term; the user override lives
     on the module constructor
-    (``VerticalMixing(kv=..., treatment=fr.IMPLICIT)``), never on the
+    (``VerticalMixing(kv=..., treatment=fr.model.IMPLICIT)``), never on the
     Model. An IMPLICIT term under a purely explicit stepper is an
     assembly error, never a silent demotion.
     """
@@ -49,12 +49,12 @@ class Treatment(Enum):
     IMPLICIT = auto()
 
 
-# module-level aliases, re-exported as fr.EXPLICIT / fr.IMPLICIT
+# module-level aliases, re-exported as fr.model.EXPLICIT / fr.model.IMPLICIT
 EXPLICIT: Final[Treatment] = Treatment.EXPLICIT
 IMPLICIT: Final[Treatment] = Treatment.IMPLICIT
 
 
-# attribute under which @fr.term stamps the declaration onto the
+# attribute under which @fr.model.term stamps the declaration onto the
 # method; the wave-3 collector (Module.tendency_terms) scans for it
 # in definition order
 TERM_ATTRIBUTE: Final[str] = "__fridom_term__"
@@ -115,8 +115,8 @@ class TendencyTerm:
     linear : bool
         Strict tag: linear in the state at fixed parameters/aux;
         state-independent forcing is *not* linear. Consumers:
-        ``fr.terms.linear``, ``fr.linearize``, the IMEX partition
-        sanity. Default: ``False``.
+        ``fr.model.term_predicates.linear``, ``fr.model.linearize``,
+        the IMEX partition sanity. Default: ``False``.
     linear_params : tuple[str, ...]
         Declared parameter names the term's *linear operator* depends
         on (TDF-D4): the honesty seam for a frozen-``L`` (exponential)
@@ -209,7 +209,7 @@ class TendencyTerm:
 
 
 # ================================================================
-#  The @fr.term decorator
+#  The @fr.model.term decorator
 # ================================================================
 def term(
     fn: Callable | None = None,
@@ -224,12 +224,12 @@ def term(
     linear_fields: Iterable[str] = (),
 ) -> Callable:
     """
-    Stamp a module method as a ``TendencyTerm`` (``@fr.term``).
+    Stamp a module method as a ``TendencyTerm`` (``@fr.model.term``).
 
     Description
     -----------
-    Supports both the bare form (``@fr.term``) and the parenthesized
-    form (``@fr.term(advances=("w",), linear=True)``). The term name
+    Supports both the bare form (``@fr.model.term``) and the parenthesized
+    form (``@fr.model.term(advances=("w",), linear=True)``). The term name
     defaults to the method name; the method itself is returned
     unchanged, so it stays plainly callable (the halo trace runs it
     un-jitted). The declaration is recorded on the function under

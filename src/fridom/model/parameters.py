@@ -5,7 +5,7 @@ Description
 -----------
 Owning class doc: ``design/specs/model/classes/declarations.md``
 (sections "ParameterDeclaration", "ParameterReference (and
-REQUIRED)", "fr.Param and USE_PROVIDED"). All of these are plain
+REQUIRED)", "fr.model.Param and USE_PROVIDED"). All of these are plain
 frozen host objects — never pytrees, never in the carry, never
 reaching jit. They are the *vocabulary* consumed by the assembly
 pipeline (model.md steps 1-2), which builds the binding table
@@ -39,7 +39,7 @@ def leaf(value: float | TimeDependent) -> object:
     The one shared coercion for module parameter slots: a plain
     number becomes a real-dtype ``jnp`` array (a dynamic leaf), while
     a `TimeDependent` value (an ``fr.Ramp``) rides through untouched
-    as its own pytree — so a slot spelled ``fr.leaf(...)`` accepts
+    as its own pytree — so a slot spelled ``fr.model.leaf(...)`` accepts
     both a swept float and a ramped curve without each module
     re-implementing the branch (and without the ``jnp.asarray``
     inline form silently choking on a Ramp).
@@ -195,7 +195,7 @@ class Param:
     Description
     -----------
     A constructor slot whose default is
-    ``fr.Param("scaling.nonlinearity", default=1.0)`` declares a
+    ``fr.model.Param("scaling.nonlinearity", default=1.0)`` declares a
     ``ParameterReference(name, default=default)`` **only when the
     caller leaves the slot untouched**; an explicit number or
     ``fr.Ramp`` is an owned value — no reference declared

@@ -4,7 +4,7 @@ Stage declarations.
 Description
 -----------
 ``StageKind`` (the closed schedule vocabulary), ``Stage`` (a
-module-owned stage declaration), and the ``fr.self_update``
+module-owned stage declaration), and the ``fr.model.self_update``
 decorator. Owning class spec:
 ``design/specs/model/classes/module.md``; design source
 ``design/specs/model/03_time_stepping.md`` sections 5.2/5.5.
@@ -27,7 +27,7 @@ if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Callable, Iterable
 
 
-# attribute under which @fr.self_update stamps the Stage declaration
+# attribute under which @fr.model.self_update stamps the Stage declaration
 # onto the method; assembly (wave 3+) wraps either spelling — the
 # stamped method or the bare undecorated method — into the schedule
 STAGE_ATTRIBUTE: Final[str] = "__fridom_stage__"
@@ -170,7 +170,7 @@ class Stage:
 
 
 # ================================================================
-#  The fr.self_update decorator
+#  The fr.model.self_update decorator
 # ================================================================
 def self_update(
     fn: Callable | None = None,
@@ -184,8 +184,8 @@ def self_update(
 
     Description
     -----------
-    Supports the bare form (``@fr.self_update``) and the
-    parenthesized form (``@fr.self_update(reads=("eta",))``); the
+    Supports the bare form (``@fr.model.self_update``) and the
+    parenthesized form (``@fr.model.self_update(reads=("eta",))``); the
     bare *undecorated* method is equivalent to ``reads=()``. The
     method is returned unchanged (plainly callable); the Stage
     declaration is recorded under ``STAGE_ATTRIBUTE`` and collected
@@ -211,7 +211,7 @@ def self_update(
     stage — the sanctioned accumulation idiom (02_rules): a
     DIAGNOSTIC stage may read its own component's previous value and
     ``replace`` with the updated sum — step-cadence, post-NaN-seam,
-    carry-resident (restart-exact). No ``fr.modules.WindowAccumulator``
+    carry-resident (restart-exact). No ``WindowAccumulator`` module
     preset is provided; the idiom stands on its own. ``cadence=`` is
     RESERVED on this declaration (CS-1) and not built: passing it raises
     ``NotImplementedError``.

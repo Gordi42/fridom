@@ -4,7 +4,7 @@ Harmonic and biharmonic diffusion closures (mixing and friction).
 Description
 -----------
 The framework-level generic diffusion closure family (the port of
-the old ``fr.modules.closures.HarmonicDiffusion`` /
+the old ``fridom.framework.modules.closures.HarmonicDiffusion`` /
 ``BiharmonicDiffusion`` and their per-model mixing/friction wrappers).
 The harmonic operator on a target :math:`q` is
 
@@ -26,7 +26,7 @@ so the user-facing :math:`\kappa_i \ge 0` is the true biharmonic
 coefficient (units :math:`\mathrm{m^4/s}`).
 
 Targets are role-driven (D1.4, `ClosureBase`): the mixing classes
-default to ``fr.roles.TRACER``, the friction classes to the
+default to ``fr.model.roles.TRACER``, the friction classes to the
 ``Velocity`` family; ``fields=`` / ``exclude=`` override by name. The
 old ``ENABLE_MIXING`` / ``ENABLE_FRICTION`` flags are gone.
 Coefficients are **provided parameters** (dynamic leaves) published
@@ -169,35 +169,35 @@ if TYPE_CHECKING:  # pragma: no cover
 # ================================================================
 MIXING_KAPPA: ParamName = ParamName(
     "mixing.kappa", units="m^2/s",
-    hint="provided by fr.closures.HarmonicDiffusion(kappa=...)")
+    hint="provided by fr.model.closures.HarmonicDiffusion(kappa=...)")
 
 MIXING_KAPPA_V: ParamName = ParamName(
     "mixing.kappa_v", units="m^2/s",
-    hint="provided by fr.closures.HarmonicDiffusion(kappa_v=...)")
+    hint="provided by fr.model.closures.HarmonicDiffusion(kappa_v=...)")
 
 MIXING_KAPPA4: ParamName = ParamName(
     "mixing.kappa4", units="m^4/s",
-    hint="provided by fr.closures.BiharmonicDiffusion(kappa=...)")
+    hint="provided by fr.model.closures.BiharmonicDiffusion(kappa=...)")
 
 MIXING_KAPPA4_V: ParamName = ParamName(
     "mixing.kappa4_v", units="m^4/s",
-    hint="provided by fr.closures.BiharmonicDiffusion(kappa_v=...)")
+    hint="provided by fr.model.closures.BiharmonicDiffusion(kappa_v=...)")
 
 FRICTION_NU: ParamName = ParamName(
     "friction.nu", units="m^2/s",
-    hint="provided by fr.closures.HarmonicFriction(nu=...)")
+    hint="provided by fr.model.closures.HarmonicFriction(nu=...)")
 
 FRICTION_NU_V: ParamName = ParamName(
     "friction.nu_v", units="m^2/s",
-    hint="provided by fr.closures.HarmonicFriction(nu_v=...)")
+    hint="provided by fr.model.closures.HarmonicFriction(nu_v=...)")
 
 FRICTION_NU4: ParamName = ParamName(
     "friction.nu4", units="m^4/s",
-    hint="provided by fr.closures.BiharmonicFriction(nu=...)")
+    hint="provided by fr.model.closures.BiharmonicFriction(nu=...)")
 
 FRICTION_NU4_V: ParamName = ParamName(
     "friction.nu4_v", units="m^4/s",
-    hint="provided by fr.closures.BiharmonicFriction(nu_v=...)")
+    hint="provided by fr.model.closures.BiharmonicFriction(nu_v=...)")
 
 
 # ================================================================
@@ -888,7 +888,7 @@ class HarmonicDiffusion(_DiffusionClosure):
 
     Description
     -----------
-    Targets every ``fr.roles.TRACER`` field by default; provides
+    Targets every ``fr.model.roles.TRACER`` field by default; provides
     ``mixing.kappa`` (and ``mixing.kappa_v`` when given). On walled
     grids tracers get **no-flux** (zero wall flux) walls structurally
     — there is no slip choice (that is friction-only).
@@ -950,7 +950,7 @@ class BiharmonicDiffusion(_DiffusionClosure):
     The Griffies & Hallberg (2000) iterated form with square-rooted
     coefficients, so ``kappa`` is the true (non-negative) biharmonic
     coefficient in :math:`\mathrm{m^4/s}`. Targets every
-    ``fr.roles.TRACER`` field by default; provides ``mixing.kappa4``
+    ``fr.model.roles.TRACER`` field by default; provides ``mixing.kappa4``
     (and ``mixing.kappa4_v`` when given). On walled grids tracers get
     **no-flux** walls on both Laplacian passes (no slip choice).
 

@@ -1,14 +1,14 @@
 """
-The closure namespace (``fr.closures``).
+The closure namespace (``fr.model.closures``).
 
 Description
 -----------
 Owning class spec: ``design/specs/model/classes/module.md``.
 ``ClosureBase`` hosts the role-target resolution (D1.4, V-H2) and is
-the ``fr.terms.owned_by`` predicate target; the concrete diffusion
-family (harmonic/biharmonic mixing and friction) ports the old
-framework closures onto role-driven targets and provided-parameter
-coefficients.
+the ``fr.model.term_predicates.owned_by`` predicate target; the
+concrete diffusion family (harmonic/biharmonic mixing and friction)
+ports the old framework closures onto role-driven targets and
+provided-parameter coefficients.
 """
 from typing import TYPE_CHECKING
 

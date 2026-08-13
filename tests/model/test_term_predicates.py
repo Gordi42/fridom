@@ -1,4 +1,4 @@
-"""Tests for fr.terms predicates (model/term_predicates.py)."""
+"""Tests for the fr.model.term_predicates predicates."""
 import pytest
 
 from fridom.model import term_predicates as terms
@@ -135,7 +135,7 @@ def test_linearize_explicit_name():
 
 
 def test_repr():
-    assert repr(terms.linear) == "fr.terms.linear"
+    assert repr(terms.linear) == "fr.model.term_predicates.linear"
 
 
 def test_combinator_notimplemented_on_bad_operand():

@@ -1,5 +1,5 @@
 """
-The time-stepper namespace (``fr.time_steppers``).
+The time-stepper namespace (``fr.model.time_steppers``).
 
 Description
 -----------

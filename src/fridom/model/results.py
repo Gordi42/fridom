@@ -270,7 +270,7 @@ class RunTargetError(ValueError):
 
     - the sign precondition ``(end - t0) * dt > 0`` is violated —
       the requested end time cannot be reached with the current
-      signed dt (flip ``fr.params.TIME_STEP`` via
+      signed dt (flip ``fr.model.params.TIME_STEP`` via
       ``update_parameters`` for backward legs);
     - inconsistent target combinations — ``run()`` takes exactly
       one of ``steps``/``runlen``/``end_time`` (none or several is

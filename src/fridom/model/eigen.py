@@ -12,13 +12,13 @@ For a constant-coefficient periodic model the linearized tendency
 :math:`L` is translation-invariant, so per Fourier wavenumber ``k`` it
 is a small :math:`m\times m` matrix :math:`L(k)` (``m`` = prognostic
 components). We obtain it by a **transfer-function probe**: apply the
-linearized ``z \mapsto Lz`` (``fr.linearize(model).tendency``) to
+linearized ``z \mapsto Lz`` (``fr.model.linearize(model).tendency``) to
 unit-impulse basis fields (one nonzero grid point per component, whose
 DFT is unity at every mode) and read
 :math:`L(k)[c',c] = \mathrm{FFT}(\text{response}_{c'})[k]` per mode.
 
 Because ``L`` is ``M``-skew-adjoint under the energy metric
-(``fr.EnergyMetric``), :math:`H := iML` is Hermitian and
+(``fr.model.EnergyMetric``), :math:`H := iML` is Hermitian and
 :math:`L q = -i\omega q \Leftrightarrow H q = \omega M q` (the
 oceanographic sign convention: a mode ``q e^{i k x}`` evolves as
 :math:`e^{i(kx - \omega t)}`, so positive ``omega`` propagates along
@@ -138,10 +138,10 @@ def numeric_eigenpairs(
     Description
     -----------
     The Phase-H0 numeric probe: builds the linear variant
-    ``fr.linearize(model)``, probes its per-mode operator ``L(k)`` (and
+    ``fr.model.linearize(model)``, probes its per-mode operator ``L(k)`` (and
     the Leray projector, if the model carries a ``CONSTRAINT`` stage)
     via unit-impulse transfer functions, reads the energy metric ``M``
-    from ``fr.EnergyMetric.from_model``, and solves the batched
+    from ``fr.model.EnergyMetric.from_model``, and solves the batched
     generalized Hermitian eigenproblem. Restricted to constant-
     coefficient periodic models (the ``EnergyMetric`` /
     ``Eigenmodes.from_model`` gate); a variable-coefficient or non-
@@ -179,7 +179,7 @@ def numeric_eigenpairs(
             "(no translation invariance there). For a grid with "
             "exactly one bounded axis use channel_eigenpairs (the "
             "dense-column channel tier); otherwise use the model's "
-            "analytic eigenmodes (e.g. nh.Eigenmodes), which handle "
+            "analytic eigenmodes (e.g. nh.eigenbasis), which handle "
             "walled verticals.")
     # snapshot=True is defensive here (allow_field_weights defaults
     # False, so a time_dependent field weight cannot arise), but the
