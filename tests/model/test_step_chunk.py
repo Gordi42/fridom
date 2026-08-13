@@ -8,7 +8,9 @@ on one grid SHARE it; the carry-canonicalization discipline keeps
 host writes on the same entry), donation ergonomics, live
 ``ctx.params`` from the carry's module leaves and the loop-invariant
 stepper input (zero-recompile parameter and dt sweeps), and the
-chunk-plan contract (lengths {C, 1} only; greedy split equivalence).
+chunk-plan contract (greedy C-chunks then a binary tail: lengths
+drawn from the bounded set {C} u {2**k}, bitwise-equal to the old
+all-length-1 tail, greedy split equivalence).
 """
 from functools import partial
 
@@ -259,14 +261,52 @@ def test_ctx_params_carry_the_live_stepper_dt():
 
 
 # ================================================================
-#  The chunk plan ({C, 1} only; greedy split equivalence)
+#  The chunk plan ({C} u {2**k}; greedy split equivalence)
 # ================================================================
-def test_chunk_plan_lengths_are_c_and_one():
+def test_chunk_plan_is_c_chunks_then_a_binary_tail():
     model = make_model(chunk_size=4)
-    assert list(model._chunk_plan(11)) == [4, 4, 1, 1, 1]
+    assert list(model._chunk_plan(11)) == [4, 4, 2, 1]
     assert list(model._chunk_plan(8)) == [4, 4]
-    assert list(model._chunk_plan(3)) == [1, 1, 1]
+    assert list(model._chunk_plan(3)) == [2, 1]
+    assert list(model._chunk_plan(1)) == [1]
     assert list(model._chunk_plan(0)) == []
+    # a call SHORTER than C (the writer-trigger pattern) no longer
+    # falls to one dispatch per step
+    short = make_model(chunk_size=256)
+    assert list(short._chunk_plan(40)) == [32, 8]
+
+
+def test_chunk_plan_sums_to_steps_with_a_bounded_length_set():
+    # the property that keeps the executable cache from growing: no
+    # matter how many DISTINCT step counts a caller passes, every
+    # emitted length is drawn from {C} u {2**k : 2**k < C}
+    c = 32
+    model = make_model(chunk_size=c)
+    allowed = {c} | {1 << k for k in range(c.bit_length() - 1)}
+    used = set()
+    for steps in range(200):
+        plan = list(model._chunk_plan(steps))
+        assert sum(plan) == steps
+        used.update(plan)
+    assert used <= allowed
+    assert len(used) <= c.bit_length() + 1
+
+
+def test_binary_tail_matches_length_one_dispatch_bitwise():
+    # the tail is a re-chunking, never a change of arithmetic: the
+    # plan's result is BITWISE the old {C, 1} plan's (all-length-1
+    # dispatch for a sub-C call)
+    grid = make_grid()
+    for steps in (1, 2, 3, 5, 11, 40):
+        binary = make_model(grid=grid, chunk_size=64)
+        single = make_model(grid=grid, chunk_size=1)
+        binary.advance(steps)
+        single.advance(steps)
+        assert np.array_equal(
+            np.asarray(binary.state["u"].data),
+            np.asarray(single.state["u"].data))
+        assert float(binary.clock.elapsed) == float(
+            single.clock.elapsed)
 
 
 def test_greedy_plan_makes_split_advance_bitwise():
@@ -276,7 +316,7 @@ def test_greedy_plan_makes_split_advance_bitwise():
     whole.advance(11)
     split.advance(8)
     split.advance(3)
-    # same greedy plan [4,4,1,1,1] == [4,4] + [1,1,1]: the same
+    # same greedy plan [4,4,2,1] == [4,4] + [2,1]: the same
     # executables in the same order -> bitwise
     assert np.array_equal(
         np.asarray(whole.state["u"].data),

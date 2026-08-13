@@ -967,10 +967,11 @@ def step_chunk(
     structure) key — replacing the first-step compile-timing hack
     and recording compile seconds + the executable's memory
     analysis — then the cached executable thereafter. Compiled
-    lengths are {C, 1} only (``Model.advance`` plans greedy
-    C-chunks plus length-1 tails). The carry's buffers are DONATED:
-    the caller must drop its reference; the stepper is passed
-    non-donated.
+    lengths are drawn from the bounded set {C} u {2**k} only
+    (``Model.advance`` plans greedy C-chunks plus a binary tail;
+    see :meth:`Model._chunk_plan`). The carry's buffers are
+    DONATED: the caller must drop its reference; the stepper is
+    passed non-donated.
 
     When ``async_compile`` is set and a miss's natural unroll is > 1
     (so ``n > 1`` too), the miss serves a cheap ``force_unroll=1``
@@ -978,8 +979,8 @@ def step_chunk(
     executable compiles on a daemon thread, then swaps the cache entry
     to the full executable at a later chunk boundary — so steady state
     is the single-tier baseline with no holder indirection and the
-    compile log records the full tier's numbers. Compiled lengths stay
-    {C, 1}; the length-1 tails always take the synchronous path.
+    compile log records the full tier's numbers. A length-1 tail chunk
+    always takes the synchronous path (its natural unroll is 1).
 
     Parameters
     ----------
@@ -1388,10 +1389,11 @@ class Model:
         Report/log attribution (default: None).
     chunk_size : int, optional
         advance()'s host-sync granularity C — compiled chunk
-        lengths are {C, 1} only. [Spec concretization of the
-        max_chunk auto ~256 knob at the Model level; ``run()``'s
-        trigger-driven plan subdivides it at wave 5]
-        (default: 256).
+        lengths are drawn from {C} u {2**k} only (greedy C-chunks
+        plus a binary tail; see :meth:`_chunk_plan`). [Spec
+        concretization of the max_chunk auto ~256 knob at the Model
+        level; ``run()``'s trigger-driven plan subdivides it at
+        wave 5] (default: 256).
     async_chunk_compile : bool, optional
         When True, a first advance on a not-yet-compiled configuration
         serves a cheap unroll-1 chunk executable while the full-unroll
@@ -2428,12 +2430,53 @@ class Model:
     #  The run loop (section 6.3)
     # ================================================================
     def _chunk_plan(self, steps: int) -> Iterator[int]:
-        """Greedy C-chunks, then length-1 tails ({C, 1} only)."""
+        r"""
+        Greedy C-chunks, then a BINARY tail (lengths {C} u {2**k}).
+
+        Description
+        -----------
+        ``steps`` splits into ``steps // C`` chunks of the host-sync
+        granularity C, then the remainder is spent in descending
+        powers of two rather than in length-1 steps. The tail costs
+        ``popcount(tail) <= floor(log2(C)) + 1`` dispatches instead of
+        ``tail`` of them — the difference that matters for the common
+        writer-trigger pattern, where every ``advance`` call is
+        SHORTER than C (``steps // C == 0``) and the whole run would
+        otherwise dispatch one step at a time.
+
+        The compiled-length set stays bounded, which is the property
+        the binary spelling buys over "compile the tail length
+        itself": every emitted length is drawn from the fixed set
+        ``{C} u {2**k : 2**k < C}``, of size at most
+        ``floor(log2(C)) + 2`` (11 at the default C = 256) NO MATTER
+        how many distinct ``steps`` values the caller passes. A
+        run-time-varying frame length therefore cannot walk the
+        executable cache; a CONSTANT one (the usual case) compiles
+        only the ``popcount(steps)`` lengths it actually uses,
+        typically two or three.
+
+        Splitting one advance into consecutive calls stays bitwise
+        only when the concatenated plans agree (as for the greedy
+        ``{C, 1}`` spelling before it): ``plan(a + b)`` is not
+        ``plan(a) + plan(b)`` in general.
+
+        Parameters
+        ----------
+        steps : int
+            Steps to plan (>= 0).
+
+        Yields
+        ------
+        int
+            The next chunk length, in dispatch order.
+        """
         full, tail = divmod(steps, self._chunk_size)
         for _ in range(full):
             yield self._chunk_size
-        for _ in range(tail):
-            yield 1
+        while tail:
+            length = 1 << (tail.bit_length() - 1)
+            yield length
+            tail -= length
 
     def advance(
         self,

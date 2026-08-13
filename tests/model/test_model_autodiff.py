@@ -74,12 +74,13 @@ def make_grid():
         for name in ("x", "z")))
 
 
-def make_model(kappa=KAPPA, dt=DT):
+def make_model(kappa=KAPPA, dt=DT, chunk_size=256):
     """Build the toy model: Core + harmonic tracer mixing."""
     model = Model(
         grid=make_grid(),
         modules=(Core(), HarmonicDiffusion(kappa)),
-        time_stepper=AdamBashforth(dt, order=3))
+        time_stepper=AdamBashforth(dt, order=3),
+        chunk_size=chunk_size)
     ax = (np.arange(N) + 0.5) * (L / N)
     x, z = np.meshgrid(ax, ax, indexing="ij")
     # smooth tracers so the harmonic mixing has a non-trivial data path
@@ -218,3 +219,41 @@ def test_grad_is_invariant_to_chunk_splitting():
     g_single = float(jax.grad(loss_single)(k0))
     g_split = float(jax.grad(loss_split)(k0))
     np.testing.assert_allclose(g_split, g_single, rtol=1e-11)
+
+
+# ================================================================
+#  (v) the binary tail plan: every chunk length stays differentiable
+# ================================================================
+def test_grad_through_the_binary_tail_plan_matches_fd():
+    r"""Grad through ``_chunk_plan``'s tail lengths matches FD.
+
+    ``Model.advance`` spends a remainder in descending powers of two
+    (lengths 2, 4, 8, ... instead of a run of length-1 chunks), so the
+    short chunk lengths are now on the step path in their own right.
+    Differentiate through exactly the plan a tail-carrying step count
+    produces and check it against both a central FD and the
+    single-scan gradient.
+    """
+    model = make_model(chunk_size=8)
+    plan = list(model._chunk_plan(11))
+    assert plan == [8, 2, 1]
+    record, carry, stepper = kernel(model)
+    k0 = kappa_leaf(carry)
+    leaves, treedef = jax.tree_util.tree_flatten(carry)
+    (idx,) = [i for i, ref in enumerate(leaves) if ref is k0]
+
+    def loss(x, lengths):
+        new = list(leaves)
+        new[idx] = x
+        state = jax.tree_util.tree_unflatten(treedef, new)
+        for n in lengths:
+            state = _chunk_body(record, n, state, stepper)
+        return state_sq(state)
+
+    grad = float(jax.grad(lambda x: loss(x, plan))(k0))
+    assert np.isfinite(grad)
+    assert abs(grad) > 0.0
+    assert grad == pytest.approx(
+        central_fd(lambda x: loss(x, plan), k0), rel=1e-4)
+    single = float(jax.grad(lambda x: loss(x, [11]))(k0))
+    np.testing.assert_allclose(grad, single, rtol=1e-11)
