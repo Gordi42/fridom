@@ -334,10 +334,12 @@ def test_fv_tracer_on_a_mapped_grid_conserves_physical_content(
     # CenteredAdvection transports a CellAvg tracer on a terrain-
     # following column in J-weighted conservative flux form (stage F5),
     # so its PHYSICAL content int(q dV) = int(J q dx) is conserved to
-    # machine zero — the FV headline property on genuine terrain, which
-    # the consistent nodal mapped divergence does not give. On this
-    # mapped grid the ``.integrate()`` verb is physical (it supplies
-    # the column Jacobian), so ``tau["b"].integrate()`` IS int(J q dx).
+    # machine zero. On this mapped grid the ``.integrate()`` verb is
+    # physical (it supplies the column Jacobian), so
+    # ``tau["b"].integrate()`` IS int(J q dx). Since A0 the nodal
+    # mapped divergence spells the same J-weighted flux form, so the
+    # property is shared — pinned next door by
+    # test_mapped_tracer_conservation_is_shared_by_both_families.
     grid = make_mapped_grid(periodic_column=periodic_column)
     model = FrModel(grid=grid,
                     modules=(Core(),
@@ -352,32 +354,64 @@ def test_fv_tracer_on_a_mapped_grid_conserves_physical_content(
     assert abs(physical) < 1e-11 * (scale + 1.0)
 
 
-def test_fv_mapped_tracer_conserves_and_nodal_does_not():
-    # the same b advected on the nodal mapped model does NOT conserve
-    # its physical content: the FV conservative flux form is the new
-    # property, not a shared one. Both grids are static terrain, so the
-    # physical ``.integrate()`` verb supplies the column Jacobian and
+@pytest.mark.parametrize("periodic_column", [True, False])
+def test_mapped_tracer_conservation_is_shared_by_both_families(
+        periodic_column):
+    # RETIRED PREMISE (was test_fv_mapped_tracer_conserves_and_nodal_
+    # does_not): this test used to assert that the nodal mapped tracer
+    # does NOT conserve its physical content — "the FV conservative
+    # flux form is the new property, not a shared one" (stage F5,
+    # fv_nonhydro_scoping.md §13). That was a statement about the
+    # nodal spelling of the day, not a design commitment, and A0
+    # showed the spelling was wrong: the product-rule form
+    # ``D_i F_i - (Z_i/J) I_b(D_b F_i)`` telescopes on no axis (hence
+    # the drift this used to pin) AND is inconsistent at a sloping
+    # wall, where it left an O(1/h) term that made mapped advection
+    # unconditionally unstable. It is now the same J-weighted flux
+    # form the FV divergence and MappedPressureSolver.divergence use,
+    # so terrain conservation is shared — as the §1 headline ("at 2nd
+    # order the family switch is numerically a retag") always said it
+    # should be, and as this file's own Gate 2 already pinned on flat
+    # and walled grids.
+    #
+    # What the two families still are is differently TYPED: CellAvg
+    # cell means vs Center point values, and only the FV one composes
+    # with an immersed mask (family="nodal" on an immersed grid is a
+    # taught error). Both grids are static terrain, so the physical
+    # ``.integrate()`` verb supplies the column Jacobian and
     # ``tau.integrate()`` measures int(J q dx) directly.
-    grid = make_mapped_grid()
-    fv = FrModel(grid=grid,
+    fv = FrModel(grid=make_mapped_grid(periodic_column=periodic_column),
                  modules=(Core(),
                           _PassiveTracer(family="fv"),
                           CenteredAdvection()),
                  time_stepper=AdamBashforth(DT, order=3))
-    nodal = FrModel(grid=make_mapped_grid(),
-                    modules=(Core(),
-                             _PassiveTracer(family="nodal"),
-                             CenteredAdvection()),
-                    time_stepper=AdamBashforth(DT, order=3))
+    nodal = FrModel(
+        grid=make_mapped_grid(periodic_column=periodic_column),
+        modules=(Core(),
+                 _PassiveTracer(family="nodal"),
+                 CenteredAdvection()),
+        time_stepper=AdamBashforth(DT, order=3))
     set_random_state(fv)
     set_random_state(nodal)
     tau_fv = advection_tendency(fv, CenteredAdvection)["b"]
     tau_nod = advection_tendency(nodal, CenteredAdvection)["b"]
+    # the families are typed apart ...
+    assert isinstance(fv.state["b"].function_space.bare.factor("z"),
+                      CellAvg)
+    assert isinstance(nodal.state["b"].function_space.bare.factor("z"),
+                      NodalSpace)
+    # ... and both conserve the physical content int(J q dx)
     w_fv = abs(float(np.asarray(tau_fv.integrate().data).ravel()[0]))
     w_nod = abs(float(np.asarray(tau_nod.integrate().data).ravel()[0]))
     scale = float(np.sum(np.abs(np.asarray(tau_fv.data))))
     assert w_fv < 1e-11 * (scale + 1.0)
-    assert w_nod > 1e-6 * scale  # the nodal form is not conservative
+    assert w_nod < 1e-11 * (scale + 1.0)
+    # ... on the same numbers (measured 6e-17 relative: the two
+    # spellings differ only in metric round-off, `diff` + Dirichlet
+    # retag vs the resolved `flux_diff`)
+    a = np.asarray(tau_fv.data)
+    b = np.asarray(tau_nod.data)
+    assert np.abs(a - b).max() < 1e-13 * np.abs(a).max()
 
 
 # ================================================================

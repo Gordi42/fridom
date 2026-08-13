@@ -185,11 +185,22 @@ form** (:meth:`_FluxFormAdvection._mapped_fv_divergence`, mirroring the
 mapped pressure operator): ``(1/J) [D_i(J F_i) + D_b(F_b - Z_i
 I(F_i))]``, whose ``J``-weighted sum telescopes, so the physical
 buoyancy content ``\int q\,\mathrm{d}V = \int J q\,\mathrm{d}x`` is
-conserved to machine zero — the FV headline property on genuine
-terrain, which the consistent (nodal) mapped divergence does not give.
-The biased schemes reject mapped geometry entirely (above). The FV
-pressure C-grid is stage F3 (the projection here never touches a
-tracer).
+conserved to machine zero. That was the FV headline property on
+genuine terrain until A0: the nodal mapped divergence spelled the
+same physical operator by the product rule, which telescopes on no
+axis (and, worse, is inconsistent at a sloping wall — the mapped
+paragraph above). **Since A0 both families spell it as the same
+J-weighted flux form, so the terrain conservation is shared**, and
+the §1 "at 2nd order the family switch is a retag" property of
+``design/plans/active/fv_nonhydro_scoping.md`` holds on mapped grids
+too (measured: the two tendencies agree to 6e-17 relative). What
+stays FV-specific on terrain is the *typing* — the conserved
+quantity IS the DOF, ``integrate`` on ``CellAvg`` is exact rather
+than midpoint — and the immersed composition, where the cross flux
+additionally carries the open-fraction gate and the nodal family is
+refused outright. The biased schemes reject mapped geometry entirely
+(above). The FV pressure C-grid is stage F3 (the projection here
+never touches a tracer).
 
 **Walled grids**: all three schemes support bounded mesh factors.
 ``CenteredAdvection`` does so structurally (next paragraph); the
@@ -2158,14 +2169,21 @@ def _is_pure_average(space: object) -> bool:
     -----------
     The scalar-tracer discriminant of the mapped FV flux divergence
     (stage F5): a ``CellAvg`` cell-scalar (buoyancy) is average along
-    every non-constant axis and takes the J-weighted conservative flux
-    form (its physical content is the FV-conserved quantity), whereas a
-    C-grid velocity is average only *transversely* (``Right(x) (x)
-    CellAvg(y) (x) CellAvg(z)``) — a mixed staggering that takes the
-    consistent nodal physical divergence instead (momentum is not
-    conserved by the tracer flux form). ``_is_average_space`` (any
-    factor) marks the flat FV path; this (all factors) separates a
-    pure tracer from a velocity on a mapped column.
+    every non-constant axis and takes
+    :meth:`_FluxFormAdvection._mapped_fv_divergence`, whereas a C-grid
+    velocity is average only *transversely* (``Right(x) (x) CellAvg(y)
+    (x) CellAvg(z)``) — a mixed staggering that takes the nodal
+    :meth:`_FluxFormAdvection._flux_divergence` instead. Since A0 the
+    two spell the SAME J-weighted flux form, so the branch is no
+    longer a change of discretization; what it still selects is the
+    mechanics the average family needs — the exact ``flux_diff``
+    resolved on the (BC-stripped) cell face rather than ``diff`` plus
+    a Dirichlet retag, and the immersed open-fraction gate on the
+    cross flux (:meth:`_FluxFormAdvection._mapped_fv_cross`), which
+    only a cell-average control volume composes with.
+    ``_is_average_space`` (any factor) marks the flat FV path; this
+    (all factors) separates a pure tracer from a velocity on a mapped
+    column.
     """
     factors = [factor for factor in space.bare.factors
                if not isinstance(factor, ConstantSpace)]
@@ -3016,10 +3034,12 @@ class _FluxFormAdvection(fr.model.Module):
                         q, flux, axis, params)
                 # a mapped C-grid velocity is cell-averaged only
                 # transversely (Right(x) (x) CellAvg(y) (x) CellAvg(z));
-                # momentum is not the FV-conserved quantity, so its
-                # transverse-CellAvg axes take the *consistent* nodal
-                # physical divergence below (correct to 2nd order, the
-                # nodal-model numbers up to metric round-off)
+                # momentum is not the FV-conserved DOF, so it takes the
+                # nodal branch below — since A0 the SAME J-weighted flux
+                # form, spelled through `diff` + the Dirichlet retag
+                # instead of the resolved `flux_diff` (the nodal-model
+                # numbers up to metric round-off, and on an FV model
+                # `diff` on a face factor IS `flux_diff`)
             else:
                 # FV (flat / walled): the exact discrete Gauss theorem.
                 # flux_diff maps the face flux back onto the cell average
@@ -3151,6 +3171,16 @@ class _FluxFormAdvection(fr.model.Module):
             cross = cross.retag(cross.function_space.replace(
                 **{base: column.mesh.nodal(
                     NodeSet.INNER, bc=BC.DIRICHLET)}))
+        # no immersed open-fraction gate here (unlike _mapped_fv_cross,
+        # MI-D5, whose gate makes the tracer's telescoping sum close at
+        # a wet/dry vertical interface). A composed mapped + immersed
+        # grid is finite-volume by construction — `nh.Core(family=
+        # "nodal")` on any immersed grid is a taught error
+        # (`nonhydro2/modules/core.py`) — so the only field reaching
+        # this line on a composed grid is a VELOCITY, which carries no
+        # telescoping claim (momentum is not the conserved DOF, the
+        # FV-D2 ledger). Unchanged by A0: the product-rule spelling
+        # this replaced had no gate either.
         return cross.diff(base).retag(div)
 
     @staticmethod

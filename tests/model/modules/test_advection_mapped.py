@@ -176,8 +176,19 @@ def test_mapped_transport_converges_at_second_order():
     # not the manufactured interior solution. The admissible
     # (Omega == 0) counterpart is
     # test_mapped_column_flux_closes_on_the_contravariant_flux.
+    #
+    # This restriction is not a weakening: before A0 the assertion ran
+    # over the FULL domain and passed, top row included (measured
+    # 1.43e-2, 3.75e-3, 9.54e-4 — 2nd order), which is exactly the
+    # symptom. A scheme with no wall closure reproduces a reference
+    # solution that flows through the wall, so the old full-domain
+    # assertion was pinning the ABSENCE of the closure. The interior
+    # numbers are unchanged by A0 to three digits (pre-fix 1.3362e-2,
+    # 3.6337e-3, 9.3861e-4), so the interior rows carry the same
+    # evidence they always did; the wall row is covered by the two
+    # tests below.
     U = 0.4
-    errors = []
+    errors, tops = [], []
     for n in (16, 32, 64):
         model = make_mapped_model(n, CenteredAdvection())
         hor = centers(n)
@@ -190,9 +201,17 @@ def test_mapped_transport_converges_at_second_order():
         exact = U * np.sin(x) * zp
         err = np.abs(np.asarray(tau["b"].data) - exact)
         errors.append(err[:, :, 1:-1].max())
+        tops.append(err[:, :, -1].max())
     orders = np.log2(np.asarray(errors[:-1])
                      / np.asarray(errors[1:]))
     assert np.all(orders > 1.8)
+    # the error constant, not only the order (a regression that keeps
+    # 2nd order but inflates the constant would slip past `orders`)
+    assert errors[0] < 2e-2
+    # and the excluded top row really is the wall closure refusing the
+    # inadmissible reference: its "error" GROWS like the missing wall
+    # flux Omega q / (J dz), i.e. like 1/h (measured 1.16, 2.50, 5.09)
+    assert tops[2] > tops[1] > tops[0] > 1.0
 
 
 # ================================================================
@@ -259,6 +278,50 @@ def test_mapped_column_flux_closes_on_the_contravariant_flux():
     assert tops[0] < 1.0
     # ... and the interior keeps its 2nd order
     assert interiors[1] < 0.35 * interiors[0]
+
+
+def test_mapped_advection_preserves_a_constant_tracer():
+    # WHY the mapped nodal divergence is the J-weighted flux form and
+    # not the (equally 2nd-order) product-rule spelling it replaced:
+    # advection must use the SAME discrete divergence the projection
+    # drives to zero, or a discretely non-divergent velocity injects a
+    # spurious source into every constant field. tau(b == 1) is
+    # -Div_adv(v), so on a projected velocity it must vanish at the CG
+    # residual. The flux form is exactly MappedPressureSolver's own
+    # divergence, so it does (measured 1.2e-7 at n = 16, 3.7e-7 at
+    # n = 32 — the projection tolerance, and it FALLS when the solve is
+    # tightened). The product-rule spelling was a different operator:
+    # O(h^2) apart in the interior and O(1/h) apart in the wall row,
+    # measured 13.0 (n = 16) and 30.8 (n = 32) here, i.e. growing.
+    for n, bound in ((16, 1e-4), (32, 1e-4)):
+        model = make_mapped_model(n, CenteredAdvection())
+        set_random_state(model, seed=5)
+        model.advance(steps=1)          # projects u, v, w
+        model.set_fields(b=1.0)
+        tau = advection_tendency(model, CenteredAdvection)
+        scale = float(np.abs(np.asarray(model.state["u"].data)).max())
+        assert np.abs(np.asarray(tau["b"].data)).max() < bound * scale
+
+
+def test_mapped_advection_preserves_a_uniform_free_stream():
+    # the discrete metric identity (free-stream preservation) the flux
+    # form needs and gets: for a CONSTANT flux the coupled-axis term is
+    # (q/J)[D_i(J) - D_b(Z_i)], which vanishes only if the two discrete
+    # metrics are compatible. They are, because grid.metric derives a
+    # parameter field's slope with the registry `diff` rows rather than
+    # analytically — so a uniform u over the bump leaves a constant
+    # tracer untouched to machine zero in the interior, exactly as the
+    # product-rule spelling did (nothing was traded away for the wall
+    # closure). The wall row is deliberately NOT machine zero: with
+    # w = 0 the state drives Omega = -Z_x u != 0 through the lid, and
+    # the tendency there is the divergence the projection would remove.
+    for n in (16, 32):
+        model = make_mapped_model(n, CenteredAdvection())
+        model.set_fields(u=0.4, v=0.0, w=0.0, b=1.0)
+        tau = advection_tendency(model, CenteredAdvection)
+        rows = np.abs(np.asarray(tau["b"].data)).max(axis=(0, 1))
+        assert rows[1:-1].max() < 1e-13
+        assert rows[0] < 1e-13
 
 
 def test_mapped_advection_holds_a_steady_flow_over_the_bump():
