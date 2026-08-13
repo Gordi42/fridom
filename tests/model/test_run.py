@@ -154,7 +154,8 @@ def test_run_needs_exactly_one_target():
 def test_runlen_reduces_to_steps_by_overshoot():
     model = make_model()
     # runlen 2.1 s at dt 0.5 -> ceil(4.2) = 5 steps (overshoot)
-    result = model.run(runlen=2.1, progress=False)
+    with pytest.warns(UserWarning, match="whole number of steps"):
+        result = model.run(runlen=2.1, progress=False)
     assert result.steps_done == 5
 
 
@@ -163,6 +164,77 @@ def test_end_time_reduces_against_the_absolute_target():
     result = model.run(end_time=2.0, progress=False)  # 2.0 / 0.5 = 4
     assert result.steps_done == 4
     assert result.final_time == pytest.approx(2.0)
+
+
+# ================================================================
+#  Partial-step targets warn (the rounding is not silent)
+# ================================================================
+def test_runlen_on_the_step_grid_is_silent():
+    # 2.0 / 0.5 = 4 exactly; the suite runs with filterwarnings=error,
+    # so a spurious warning here fails the test outright
+    result = make_model().run(runlen=2.0, progress=False)
+    assert result.steps_done == 4
+
+
+def test_runlen_warning_names_the_realized_duration_and_the_fix():
+    model = make_model()
+    with pytest.warns(UserWarning, match="not a whole number") as caught:
+        model.run(runlen=2.1, progress=False)
+    message = str(caught[0].message)
+    assert "run(runlen=2.1)" in message
+    assert "rounded UP to 5" in message           # the step count
+    assert "2.5" in message                       # realized duration
+    assert "ACCUMULATES" in message               # why it matters
+    assert "integer multiple of dt" in message    # the fix
+
+
+def test_runlen_shorter_than_a_step_warns_and_still_steps_once():
+    # the max(1, ...) floor is the sharpest rounding of all: a tenth
+    # of a step becomes a whole one
+    model = make_model()
+    with pytest.warns(UserWarning, match="whole number of steps"):
+        result = model.run(runlen=0.05, progress=False)
+    assert result.steps_done == 1
+
+
+def test_runlen_is_silent_for_a_timedelta_multiple_of_dt():
+    result = make_model().run(
+        runlen=np.timedelta64(2, "s"), progress=False)
+    assert result.steps_done == 4
+
+
+def test_end_time_off_the_step_grid_warns():
+    model = make_model()
+    with pytest.warns(UserWarning, match="step boundary") as caught:
+        result = model.run(end_time=2.1, progress=False)
+    assert result.steps_done == 5
+    assert result.final_time == pytest.approx(2.5)
+    message = str(caught[0].message)
+    assert "ends at 2.5" in message
+    assert "does not accumulate" in message       # unlike runlen=
+
+
+def test_end_time_warning_accounts_for_a_nonzero_t0():
+    model = make_model()
+    model.run(steps=1, progress=False)            # t0 = 0.5
+    with pytest.warns(UserWarning, match="step boundary"):
+        result = model.run(end_time=2.1, progress=False)
+    assert result.steps_done == 4                 # ceil(1.6/0.5) = 4
+
+
+def test_a_backward_end_time_off_the_grid_warns_too():
+    # sign-agnostic: the quotient is positive for dt < 0 as well
+    model = make_model()
+    model.update_parameters({"stepper.dt": -DT})
+    with pytest.warns(UserWarning, match="step boundary"):
+        result = model.run(end_time=-2.1, progress=False)
+    assert result.steps_done == 5
+
+
+def test_steps_never_warns_about_rounding():
+    # steps= is exact by construction; the check must not reach it
+    result = make_model().run(steps=3, progress=False)
+    assert result.steps_done == 3
 
 
 def test_end_time_wrong_direction_raises():

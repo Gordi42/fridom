@@ -17,12 +17,14 @@ N_STEPS = 5
 
 
 def build():
-    # note (finding): the ScalarField carry must be *unnamed* —
-    # binary arithmetic resets metadata to the default ("a new
-    # quantity"), and metadata is static pytree aux data, so
-    # `u + dt * du` on a named field changes the treedef and
-    # lax.scan rejects the carry. VectorField preserves component
-    # metadata (``_keep_metadata``) exactly so its carries survive.
+    # note (historical finding, since defused): the carry is left
+    # unnamed because binary arithmetic used to reset metadata to
+    # the default, which — metadata being static pytree aux —
+    # changed the treedef of `u + dt * du` and made lax.scan reject
+    # the carry. Metadata is annotation-exempt aux now (it does not
+    # enter treedef equality) and the algebra keeps what it can
+    # justify, so a named carry scans too; the unnamed spelling
+    # stays as the regression pin.
     mx = fr.spatial.meshes.IntervalMesh(N, (0.0, 1.0), name="x")
     my = fr.spatial.meshes.IntervalMesh(N, (0.0, 1.0), name="y")
     grid = fr.spatial.Grid((mx, my))

@@ -39,6 +39,14 @@ UNKNOWN_UNITS = "unknown"
 DIMENSIONLESS_UNITS = "1"
 
 
+#: the identity slots — everything the record says about *which*
+#: quantity this is. ``nondimensional`` is deliberately absent: it
+#: describes the value system, not the quantity (see
+#: :meth:`FieldMetadata.cleared`).
+_IDENTITY_SLOTS: tuple[str, ...] = (
+    "name", "long_name", "physical_units", "nc_attrs")
+
+
 def _normalize_nc_attrs(
     nc_attrs: Mapping[str, str] | tuple[tuple[str, str], ...] | None,
 ) -> tuple[tuple[str, str], ...]:
@@ -168,10 +176,14 @@ class FieldMetadata:
 
         Description
         -----------
-        What a value-computing operation leaves behind. The name,
-        long name, unit and nc-attrs of the operands say nothing
-        about the result — ``u * b`` is neither a velocity nor a
-        buoyancy — so the algebra resets them. :attr:`nondimensional`
+        What a **dimension-changing** operation leaves behind
+        (``f * g``, ``f / g``, ``f ** n``, ``diff``, the reductions).
+        The name, long name, unit and nc-attrs of the operands say
+        nothing about the result — ``u * b`` is neither a velocity
+        nor a buoyancy — so those ops reset them; the
+        unit-preserving ops keep what they can instead
+        (:meth:`merged`, and the ``ScalarField`` class doc).
+        :attr:`nondimensional`
         is different in kind: it describes the **value system** the
         numbers live in, not the quantity they measure, and anything
         computed from nondimensionalized values is itself
@@ -186,6 +198,47 @@ class FieldMetadata:
             A default record carrying only the scaling frame.
         """
         return FieldMetadata(nondimensional=self.nondimensional)
+
+    def merged(self, other: FieldMetadata) -> FieldMetadata:
+        """
+        Keep what both operands agree on; drop the rest.
+
+        Description
+        -----------
+        What a **unit-preserving binary** operation (``f + g``,
+        ``f - g``) leaves behind. Addition is only meaningful
+        between like quantities, so an annotation both operands
+        state is the annotation of the result — while a *conflict*
+        has no correct answer and falls back to the default rather
+        than picking a side. Applied per slot (xarray's
+        ``combine_attrs="drop_conflicts"`` rule), so ``u + u_bar``
+        with matching ``units="m/s"`` but differing names reports
+        the unit and no name. :attr:`nondimensional` is not an
+        identity slot and always comes from ``self``, exactly as in
+        :meth:`cleared`.
+
+        The record is returned **identically** (``is``) when the two
+        agree in full, which keeps the componentwise re-attachment
+        in ``VectorField`` on its cheap path.
+
+        Parameters
+        ----------
+        other : FieldMetadata
+            The right operand's record.
+
+        Returns
+        -------
+        FieldMetadata
+            The agreed annotation over the scaling frame of
+            ``self``.
+        """
+        if self == other:
+            return self
+        agreed = {
+            slot: getattr(self, slot) for slot in _IDENTITY_SLOTS
+            if getattr(self, slot) == getattr(other, slot)}
+        return FieldMetadata(nondimensional=self.nondimensional,
+                             **agreed)
 
     def replace(self, **changes: object) -> FieldMetadata:
         """

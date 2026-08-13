@@ -180,8 +180,9 @@ def test_scan_carries_stay_at_the_zero_validity_fixed_point(grid):
     # the persistent seam: arithmetic claims the operands' minimum
     # validity, so an update combined with the zero-claim carry
     # stays at the zero fixed point and the scan treedef is stable.
-    # (unnamed carry: arithmetic resets metadata, the known
-    # phase-1 finding — orthogonal to validity)
+    # (unnamed carry: a phase-1 habit from when arithmetic reset
+    # metadata — orthogonal to validity, and harmless now that
+    # metadata is annotation-exempt aux)
     f = grid.create_field(init=lambda x, y: x + y)
     center = f.function_space.bare
     dt = 0.01

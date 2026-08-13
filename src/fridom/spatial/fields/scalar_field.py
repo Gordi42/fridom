@@ -92,6 +92,39 @@ class ScalarField:
     construction goes through ``grid.create_field`` (and the other
     grid factories), which owns validation, padding, and sync.
 
+    Metadata through the algebra
+    ----------------------------
+    Annotation follows the physical dimension, never the values:
+
+    - **Unit-preserving ops keep the record.** Unary ``+``/``-``,
+      scaling and shifting by a Python scalar (``2 * f``, ``f / 2``,
+      ``f + 1``) — the result is the same quantity, so it keeps the
+      operand's name, long name, units and nc-attrs. This is what
+      ``VectorField`` componentwise arithmetic has always done; the
+      two surfaces now agree.
+    - **``f + g`` / ``f - g`` keep what the operands agree on**, per
+      slot (``FieldMetadata.merged``): matching ``units`` survive a
+      mismatched ``name``, and a *conflicting* slot falls back to
+      the unnamed/unknown default rather than picking a side. There
+      is no correct answer for the units of ``u + b``, and a wrong
+      label on a plot is worse than a missing one.
+    - **Dimension-changing ops reset the identity**
+      (``FieldMetadata.cleared``): ``f * g``, ``f / g``, ``f ** n``,
+      ``abs``, ``diff``, the reductions. ``u * b`` is neither a
+      velocity nor a buoyancy, and nothing here can *derive* the
+      product unit (no mesh carries one, and undimensioned constants
+      would make a derivation confidently wrong — the disqualified
+      option B of ``design/research/units_metadata_investigation.md``
+      §6.7). Such results must re-declare, e.g. via
+      ``new_quantity`` / ``with_metadata``.
+    - ``nondimensional`` is not identity and rides through
+      everything: it describes the value system, not the quantity.
+
+    The accepted hazard is the scalar that is *not* dimensionless:
+    ``u * dt`` and ``u * 100`` report ``u``'s unit, because a Python
+    number carries none to divide out. Both spell a unit change, and
+    both must say so with ``with_metadata(units=...)``.
+
     Parameters
     ----------
     grid : Grid
@@ -1080,12 +1113,12 @@ class ScalarField:
         return NotImplemented
 
     def __neg__(self) -> ScalarField:
-        """Negation (a new quantity: default metadata)."""
+        """Negation (unit-preserving: metadata kept)."""
         # pointwise on the storage frame; negation commutes with
         # every ghost fill (linear-homogeneous), so valid ghost
         # slots stay valid (task 1.8, stage B)
         return ScalarField(self._grid, self._function_space,
-                           -self._data, self._metadata.cleared(),
+                           -self._data, self._metadata,
                            halo_valid=self._halo_valid)
 
     def __pos__(self) -> ScalarField:
@@ -1439,14 +1472,14 @@ def _linear_combine(
                   operation=operation)
     _check_lift(a.function_space, joined)
     _check_lift(b.function_space, joined)
+    metadata = a.metadata.merged(b.metadata)
     if a.function_space is joined and b.function_space is joined:
         return type(a)(
             a.grid, joined,
             data_op(a._data, b._data),  # noqa: SLF001 — storage seam
-            a.metadata.cleared(),
+            metadata,
             halo_valid=a.halo_valid.merge_min(b.halo_valid))
-    return _wrap(a.grid, joined, data_op(a.data, b.data),
-                 a.metadata.cleared())
+    return _wrap(a.grid, joined, data_op(a.data, b.data), metadata)
 
 
 def _is_0d_array(value: object) -> bool:
@@ -1480,6 +1513,9 @@ def _scalar_shift(
 
     Description
     -----------
+    Unit-preserving (a shift is only meaningful by a like quantity),
+    so the operand's metadata rides through.
+
     Storage-frame shift (promotion is shape-guarded, so the frames
     stay aligned). The result keeps the operand's ghost claim on
     **periodic** axes only — the wrap fill reproduces constants,
@@ -1506,7 +1542,7 @@ def _scalar_shift(
         for name in factor.names})
     return type(f)(f.grid, space,
                    data_op(f._data, value),  # noqa: SLF001 — storage seam
-                   f.metadata.cleared(), halo_valid=valid)
+                   f.metadata, halo_valid=valid)
 
 
 def _scalar_scale(
@@ -1519,6 +1555,11 @@ def _scalar_scale(
 
     Description
     -----------
+    The scalar is taken to be **dimensionless** (Python numbers
+    carry no unit), so the operation is unit-preserving and the
+    operand's metadata rides through — see the class doc for the
+    one hazard this accepts.
+
     Storage-frame scaling (promotion is shape-guarded, so the
     frames stay aligned); scaling commutes with every ghost fill
     (linear-homogeneous), so the operand's ghost claim carries over
@@ -1529,7 +1570,7 @@ def _scalar_scale(
         space = _promoted_space(space)
     return type(f)(f.grid, space,
                    data_op(f._data, value),  # noqa: SLF001 — storage seam
-                   f.metadata.cleared(), halo_valid=f.halo_valid)
+                   f.metadata, halo_valid=f.halo_valid)
 
 
 # ================================================================
