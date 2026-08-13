@@ -299,6 +299,38 @@ Rules from the wave-package review (owner review, 2026-07-24):
   for multi-panel figures).
 - Vector output (svg) for line plots and diagrams; png only where
   rasterization is unavoidable (dense pcolormesh).
+- **A field plot forces its own data aspect** (owner review
+  2026-08-13). xarray's `aspect=` sizes the *figure*, and the colorbar
+  then takes part of that width, so a 2:1 box drawn with `aspect=2.0`
+  renders at 1.73:1. Measured skews on the reviewed examples ran from
+  0.86 to 0.83 before the fix. Keep a reference to the plot and force
+  it on the axes:
+
+  ```python
+  plot = field.xr.isel(y=0, drop=True).plot(x="x", ...)
+  plot.axes.set_aspect("equal")
+  ```
+
+- **Set `vmin`/`vmax` explicitly on a field that should read as
+  one-sided.** A scheme that overshoots slightly (WENO on a sharp
+  front, for instance) puts a few cells below zero, xarray then sees
+  signed data and picks a symmetric diverging range, and the physical
+  band is squeezed into half the colormap. This bit three reviewed
+  examples.
+
+### CDFViewer animations
+
+- **Every `--kwargs` value is a literal.** An expression value such as
+  `colormap=Reverse(:dense)` or `colorscale=Makie.Symlog10(1e-7)`
+  reaches the viewer as a string on the pinned builds, and the failure
+  is not confined to that one keyword: the whole block reverts to
+  defaults (colormap, colorrange, title and animation label alike)
+  while the process still exits 0. Use a plain symbol and pick a
+  colormap that already runs the direction you want.
+- **The animation-label keywords come first**, before `colormap`,
+  `colorrange` and `title`, and the size keywords (`titlesize`,
+  `xlabelsize`, `ylabelsize`) are not used at all. Some orderings make
+  the viewer silently discard `colorrange` and autoscale instead.
 
 ## 9. Hand-drawn diagrams (SVG)
 
