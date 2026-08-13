@@ -106,7 +106,7 @@ class SnapshotManifest:
         The iteration count at the snapshot.
     provided_parameters : mapping of str to float
         Recorded provided-parameter values; carries at least
-        ``fr.params.TIME_STEP`` ("stepper.dt").
+        ``fr.model.params.TIME_STEP`` ("stepper.dt").
     fingerprint : str
         The restart-fingerprint digest (structure only, never
         leaves).
@@ -136,7 +136,7 @@ class SnapshotManifest:
             raise KeyError(
                 "the manifest records no 'stepper.dt' — "
                 "provided_parameters must carry at least "
-                "fr.params.TIME_STEP") from exc
+                "fr.model.params.TIME_STEP") from exc
 
     def fingerprint_diff(
         self, record: Mapping[str, object],
@@ -482,7 +482,7 @@ def check_dt(manifest: SnapshotManifest, dt: float) -> None:
     -----------
     The successor of ``run_backward``'s sign re-forcing (02_rules):
     a dt SIGN mismatch errors (``SnapshotMismatchError``); a
-    magnitude change only warns (``fr.at`` times may land on
+    magnitude change only warns (``fr.io.at`` times may land on
     different realized steps).
 
     Parameters
@@ -505,7 +505,7 @@ def check_dt(manifest: SnapshotManifest, dt: float) -> None:
     if stored != fresh:
         warnings.warn(
             f"time-step magnitude changed across the restart: "
-            f"{stored} -> {fresh}; fr.at() times may land on "
+            f"{stored} -> {fresh}; fr.io.at() times may land on "
             "different realized steps.",
             stacklevel=2)
 
@@ -526,7 +526,7 @@ class Snapshots:
     / ``Session(snapshots=)`` ONLY (the ``io=`` slot and the
     ``outputs=`` tuple reject it: one resume path, never two). The
     trigger may mix model-time components (lowered to steps) with a
-    walltime component (``fr.every(walltime="7.5h")``), which the
+    walltime component (``fr.io.every(walltime="7.5h")``), which the
     ``WalltimeGuard`` evaluates predictively at chunk boundaries.
 
     Parameters
@@ -563,7 +563,7 @@ class Snapshots:
         if not isinstance(self.trigger, Trigger):
             raise TypeError(
                 "trigger= must be a Trigger built by "
-                f"fr.every/fr.at; got {self.trigger!r}")
+                f"fr.io.every/fr.io.at; got {self.trigger!r}")
         if self.keep is not None and (
                 isinstance(self.keep, bool)
                 or not isinstance(self.keep, int)

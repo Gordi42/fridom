@@ -407,7 +407,7 @@ class Writer:
 
         Parameters
         ----------
-        model : fr.Model
+        model : fr.model.Model
             The bound model (duck-typed: ``carry`` — the model_state
             with ``state``/``clock`` — and, for the lifecycle default,
             a ``field_table``).

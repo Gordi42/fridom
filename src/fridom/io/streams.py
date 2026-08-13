@@ -140,7 +140,7 @@ def reject_walltime_trigger(
         f"walltime-bearing trigger{owner}: data streams need a "
         "deterministic output grid, so walltime triggers are "
         "snapshot/action-only — move it to "
-        "fr.io.Snapshots(trigger=fr.every(walltime=...)).")
+        "fr.io.Snapshots(trigger=fr.io.every(walltime=...)).")
 
 
 def reject_snapshots_config(
