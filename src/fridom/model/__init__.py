@@ -110,6 +110,7 @@ if TYPE_CHECKING:  # pragma: no cover
     )
     from .transforms.adiabatic_projection import AdiabaticProjection
     from .transforms.adiabatic_ramping import AdiabaticRamping
+    from .transforms.balance_expansion import BalanceExpansion
     from .transforms.base import StateTransform
     from .transforms.optimal_balance import OptimalBalance
     from .transforms.propagator import Propagator
@@ -168,6 +169,7 @@ all_imports_by_origin = {
     f"{base}.transforms.adiabatic_ramping": ["AdiabaticRamping"],
     f"{base}.transforms.adiabatic_projection": ["AdiabaticProjection"],
     f"{base}.transforms.optimal_balance": ["OptimalBalance"],
+    f"{base}.transforms.balance_expansion": ["BalanceExpansion"],
     f"{base}.results": [
         "RunStatus", "AdvanceResult", "RunResult", "PanicError",
         "RunTargetError"],
