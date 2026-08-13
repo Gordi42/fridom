@@ -61,6 +61,7 @@ if TYPE_CHECKING:  # pragma: no cover
         MeridionalStratification,
     )
     from .modules.surface_forcing import SurfaceBuoyancyFlux, WindStress
+    from .modules.thermal_wind import ThermalWindBackground
     from .state import State
 
 base = "fridom.nonhydro2"
@@ -93,6 +94,7 @@ all_imports_by_origin = {
     f"{base}.modules.smagorinsky_lilly": ["SmagorinskyLilly"],
     f"{base}.modules.surface_forcing": [
         "WindStress", "SurfaceBuoyancyFlux"],
+    f"{base}.modules.thermal_wind": ["ThermalWindBackground"],
 }
 
 setup(__name__, all_modules_by_origin, all_imports_by_origin)

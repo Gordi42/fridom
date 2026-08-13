@@ -40,6 +40,15 @@ ASPECT_RATIO: ParamName = ParamName(
 ROSSBY: ParamName = SCALING_NONLINEARITY
 
 # ----------------------------------------------------------------
+#  Thermal-wind background (nh.ThermalWindBackground)
+# ----------------------------------------------------------------
+THERMAL_WIND_M2: ParamName = ParamName(
+    "thermal_wind.m2", units="1/s^2",
+    hint="the horizontal buoyancy gradient dB/dx of the "
+         "thermal-wind state, provided by "
+         "nh.ThermalWindBackground(m2=...)")
+
+# ----------------------------------------------------------------
 #  Smagorinsky-Lilly closure (nh.SmagorinskyLilly)
 # ----------------------------------------------------------------
 SMAG_CS: ParamName = ParamName(
@@ -91,4 +100,5 @@ __all__ = [
     "SMAG_PRANDTL",
     "STRATIFICATION_FROUDE",
     "STRATIFICATION_N2",
+    "THERMAL_WIND_M2",
 ]
