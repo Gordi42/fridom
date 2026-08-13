@@ -69,6 +69,13 @@ def free_memory() -> None:
 # equality that is used both for the aux_data of jaxified objects and
 # as the default `__eq__` of jaxified classes.
 
+# the root package that owns this module. Derived from `__name__` so
+# that renaming the top-level package keeps the structural comparison
+# below reaching the classes it is meant for (a hardcoded name would
+# silently send them down the identity path, and every jit dispatch
+# would miss its cache entry).
+_ROOT_PACKAGE = __name__.partition(".")[0]
+
 # pairs of object ids that are currently being compared; used to break
 # reference cycles (e.g. mset <-> module back-references)
 _EQ_IN_PROGRESS: set[tuple[int, int]] = set()
@@ -200,9 +207,9 @@ def _values_equal(a: Any, b: Any) -> bool:  # noqa: PLR0911, C901
                 and _values_equal(a.args, b.args)
                 and _values_equal(a.keywords, b.keywords))
     if (type(a).__eq__ is object.__eq__
-            and type(a).__module__.partition(".")[0] == "fridom"):
-        # fridom objects without custom equality: compare structurally
-        # instead of by identity
+            and type(a).__module__.partition(".")[0] == _ROOT_PACKAGE):
+        # objects of this package without custom equality: compare
+        # structurally instead of by identity
         return _object_eq(a, b)
     try:
         return bool(a == b)
