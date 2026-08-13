@@ -17,9 +17,27 @@ https://github.com/Gordi42/FRIDOM
 """
 from typing import TYPE_CHECKING
 
+import jax
 from lazypimp import setup
 
 from fridom._compile_cache import configure as _configure_compile_cache
+
+# ================================================================
+#  JAX configuration
+# ================================================================
+# FRIDOM uses double precision by default. Users who prefer single
+# precision can disable x64 after importing fridom (see the jax
+# documentation on double precision). The compute platform (cpu/gpu/tpu)
+# is selected through JAX directly, e.g. via the JAX_PLATFORMS
+# environment variable.
+#
+# This belongs in the root package, and as early in it as possible:
+# jax reads the flag when an array is created, so every array made
+# before the flag is set is silently float32. Setting it here makes
+# ``import fridom`` alone sufficient — no subpackage import needed —
+# which is what keeps the default at float64 once the old
+# ``fridom.framework`` tree (its previous home) is deleted.
+jax.config.update("jax_enable_x64", val=True)
 
 # ================================================================
 #  Disable lazy loading for type checking
