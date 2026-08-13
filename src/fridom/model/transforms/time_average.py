@@ -13,10 +13,11 @@ optional backward-forward pass symmetrizes.
 
 The old algorithm ported faithfully (``fridom.framework.projection.
 GeostrophicTimeAverage``), with the **signed parity delta pinned for
-cutover**: the default ``filter=fr.terms.linear`` drops Smagorinsky
-(nonlinear), which the old "linear" twin wrongly kept running. The
-accumulation is the iteration-1 host ``advance(1)`` loop (old cost,
-zero machinery). Tier 2: a host object with the inherited trace guard.
+cutover**: the default ``filter=fr.model.term_predicates.linear``
+drops Smagorinsky (nonlinear), which the old "linear" twin wrongly
+kept running. The accumulation is the iteration-1 host ``advance(1)``
+loop (old cost, zero machinery). Tier 2: a host object with the
+inherited trace guard.
 """
 from __future__ import annotations
 
@@ -74,8 +75,8 @@ class TimeAverage(StateTransform):
             backward pass (symmetrization) (default: False).
         filter : Callable | None, optional
             The term predicate for the internal variant; ``None`` reads
-            ``fr.terms.linear`` (drops advection and closures — the
-            Smagorinsky parity delta) (default: None).
+            ``fr.model.term_predicates.linear`` (drops advection and
+            closures — the Smagorinsky parity delta) (default: None).
         name : str | None, optional
             The internal variant's report/log name prefix
             (default: ``"TimeAverage"``).

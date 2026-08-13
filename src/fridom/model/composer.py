@@ -436,9 +436,10 @@ class TendencyComposer:
         """Apply the variant term filter (terms only, 08 10.4)."""
         if self._term_filter is None:
             return pairs
-        # module-aware predicates (fr.terms, wants_module=True) receive
-        # the owning module for owned_by's isinstance check; legacy
-        # two-argument callables keep the (key, term) signature.
+        # module-aware predicates (fr.model.term_predicates,
+        # wants_module=True) receive the owning module for owned_by's
+        # isinstance check; legacy two-argument callables keep the
+        # (key, term) signature.
         wants_module = getattr(self._term_filter, "wants_module", False)
         kept = tuple(
             (entry, (slot, term)) for entry, (slot, term) in pairs
@@ -463,7 +464,7 @@ class TendencyComposer:
         -----------
         Detects (at most) one term-envelope module — any module whose
         ``envelope_terms`` capability attribute is a term predicate
-        (``fr.modules.TendencyEnvelope``) — and wraps every filter-
+        (``fr.model.modules.TendencyEnvelope``) — and wraps every filter-
         surviving matched term's hook so its contribution dict is
         scaled by the stage-time ``ctx.params["ramping.envelope"]``
         (never a host-captured value — the D2 rule). Taught refusals:
@@ -504,7 +505,8 @@ class TendencyComposer:
                     f"{entry.key}: an enveloped implicit solve is "
                     "unsound — the solve inverts (1 - dt*gamma*L), "
                     "not rho*(...); narrow the envelope predicate "
-                    "(e.g. & fr.terms.explicit) or treat the term "
+                    "(e.g. & fr.model.term_predicates.explicit) or "
+                    "treat the term "
                     "explicitly")
             if entry.linear:
                 raise AssemblyError(
@@ -512,7 +514,8 @@ class TendencyComposer:
                     f"{entry.key}: ramping the linear operator is "
                     "the parameter-deformation path's job — ramp its "
                     "coefficient instead (ramps={...}, the f0-ramp "
-                    "idiom), or exclude it (~fr.terms.linear)")
+                    "idiom), or exclude it "
+                    "(~fr.model.term_predicates.linear)")
             fn = (entry.fn if entry.fn is not None
                   else entry.implicit.apply)
             wrapped.append(dataclasses.replace(
@@ -733,8 +736,8 @@ class TendencyComposer:
                 "written by a SELF_UPDATE stage of their owning module "
                 "(TDF-D3): a field marked time_dependent evolves in time, "
                 "so its owner must recompute it every substage with an "
-                "fr.self_update stage (declare writes= naming the field, "
-                "or add the stage)")
+                "fr.model.self_update stage (declare writes= naming "
+                "the field, or add the stage)")
 
 
 # ================================================================

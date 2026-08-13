@@ -5,7 +5,8 @@ Description
 -----------
 The framework's reusable Coriolis module library (D2.1 module-library
 sharing): both the nonhydrostatic and shallow-water ports consume
-``fr.modules.FPlaneCoriolis`` / ``fr.modules.BetaPlaneCoriolis`` — one
+``fr.model.modules.FPlaneCoriolis`` /
+``fr.model.modules.BetaPlaneCoriolis`` — one
 clean, field-based implementation instead of a per-package copy.
 ``RotationCoriolis`` extends the family to chart-coupled grids
 (coordinate-systems plan, stage C2): it takes the **ambient rotation
@@ -32,8 +33,8 @@ taught error naming ``RotationCoriolis``.
 Following R2 (01_concepts D2.2), the Coriolis parameter is
 *intrinsically spatial* — a constant on the f-plane, :math:`f(y)` on
 the beta-plane — so it is carried as an AUXILIARY field ``f_coriolis``
-on a **one-DOF** ``fr.Profile()`` (f-plane, constant everywhere) or a
-meridional ``fr.Profile("y")`` (beta-plane, varying in y, broadcast in
+on a **one-DOF** ``fr.spatial.Profile()`` (f-plane, constant everywhere) or a
+meridional ``fr.spatial.Profile("y")`` (beta-plane, varying in y, broadcast in
 x/z). Because the declared space is static, the f-plane and beta-plane
 are two module *types*.
 
@@ -568,7 +569,7 @@ def _reject_chart_grid(module: Module, table: object) -> None:
         "Cartesian velocity components), but this grid carries an "
         f"embedding chart on {chart}, whose rotation needs the "
         "metric-aware chart form: use "
-        "fr.modules.RotationCoriolis(omega=(0.0, 0.0, Omega), "
+        "fr.model.modules.RotationCoriolis(omega=(0.0, 0.0, Omega), "
         f"coords={chart!r}) — it derives f = 2 Omega . n_hat from "
         "the chart itself, and the lat-lon sphere with a polar Omega "
         "gives f = 2 Omega sin(lat) — or omit coriolis= entirely to "
@@ -583,7 +584,7 @@ class FPlaneCoriolis(Module):
 
     Description
     -----------
-    Declares the AUXILIARY ``f_coriolis`` field on ``fr.Profile()``
+    Declares the AUXILIARY ``f_coriolis`` field on ``fr.spatial.Profile()``
     (one degree of freedom) and carries the linear rotation term.
     The two mutually-exclusive kwarg sets fix the **variant** at
     construction (``fr.scaling``):
@@ -718,7 +719,7 @@ class FPlaneCoriolis(Module):
 
     @property
     def field_declarations(self) -> tuple[FieldDeclaration, ...]:
-        """The one-DOF constant Coriolis field (``fr.Profile()``)."""
+        """The one-DOF constant Coriolis field (``fr.spatial.Profile()``)."""
         return (
             FieldDeclaration(
                 "f_coriolis", space=Profile(),
@@ -821,7 +822,7 @@ class BetaPlaneCoriolis(Module):
     Description
     -----------
     Declares the AUXILIARY ``f_coriolis`` field on
-    ``fr.Profile("y")`` (varies in the meridional coordinate,
+    ``fr.spatial.Profile("y")`` (varies in the meridional coordinate,
     broadcast elsewhere) and carries the linear rotation term.
     Provides ``coriolis.beta`` and deliberately does **not** provide
     ``coriolis.f0`` (its Coriolis parameter is the ``f(y)`` field, not

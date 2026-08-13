@@ -5,9 +5,9 @@ Description
 -----------
 Owning class doc: ``design/specs/grid/classes/operators_transforms.md``
 ("Fourier"). Scalars drive the realization with no special-casing
-(rules section 3.1): ``fr.Real`` origins produce the Hermitian
+(rules section 3.1): ``fr.spatial.Real`` origins produce the Hermitian
 half-spectrum coefficient space via ``rfft`` (the rfft layout *is*
-the shape, section 3.2), ``fr.Complex`` origins the full spectrum via
+the shape, section 3.2), ``fr.spatial.Complex`` origins the full spectrum via
 ``fft``. Coefficients follow the **index-based amplitude convention**
 ``c = fft(v) / n`` (``norm="forward"``): ``v_j = sum_k c_k
 exp(2 pi i j k / n)``, so per-origin spaces of one mode differ by the

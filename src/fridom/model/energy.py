@@ -26,7 +26,7 @@ weight map (``diag(1, 1, dsqr, 1/N^2)`` on ``(u,v,w,b)`` for nonhydro;
 those weights from an assembled model's parameters.
 
 A weight may also be a **profile field** (a ``ScalarField`` on a
-meridional ``fr.Profile``): the varying-coefficient metrics of the
+meridional ``fr.spatial.Profile``): the varying-coefficient metrics of the
 channel engine — ``diag(c^2, c^2, 1)`` on ``(u,v,p)`` for the
 variable-depth shallow water (the ``c^2`` weight moves onto the
 velocities because :math:`c^2` sits inside the divergence flux;
@@ -572,7 +572,7 @@ def _hydrostatic_weights(
       mesh extent ``H_ref`` (a flat-only analytic path may use the
       physical vertical extent where a ``c^2`` is genuinely needed).
 
-    The ``ps`` field is ``z``-constant (a ``fr.Profile``), so
+    The ``ps`` field is ``z``-constant (a ``fr.spatial.Profile``), so
     ``integrate`` gives it no depth (the ``ConstantSpace`` reduction
     is the identity — the physical-integral ruling); its depth rides
     the **weight**, which pairs ``-grad ps`` with the barotropic
@@ -731,7 +731,7 @@ def _profile_field(
     the caller's ``allow_field_weights`` opt-in the varying case is
     a taught error — a coefficient profile breaks translation
     invariance along periodic axes, so only the dense-column channel
-    engine (``fr.channel_eigenpairs`` on a single-walled grid, via
+    engine (``fr.model.channel_eigenpairs`` on a single-walled grid, via
     ``sw.eigenbasis`` / ``nh.eigenbasis``) can serve it.
     """
     field = _state_field(model, name)
@@ -747,7 +747,7 @@ def _profile_field(
             "constant coefficients — a profile breaks translation "
             "invariance along periodic axes. On a single-walled "
             "channel use the dense-column engine instead "
-            "(fr.channel_eigenpairs / sw.eigenbasis / nh.eigenbasis)")
+            "(fr.model.channel_eigenpairs / sw.eigenbasis / nh.eigenbasis)")
     return field
 
 

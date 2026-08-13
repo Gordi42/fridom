@@ -118,7 +118,7 @@ class TimeSeries:
 
         Parameters
         ----------
-        model : fr.Model
+        model : fr.model.Model
             The bound model (duck-typed: ``carry`` — the model_state
             the columns evaluate on).
         """

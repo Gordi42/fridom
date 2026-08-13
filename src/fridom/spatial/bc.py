@@ -5,7 +5,7 @@ Description
 -----------
 Owning class doc: ``design/specs/grid/classes/meshes.md`` (static
 markers). ``BC`` is the per-boundary-component condition kind
-(re-exported at top level as ``fr.BC``); ``BCStructure`` is the
+(re-exported at top level as ``fr.spatial.BC``); ``BCStructure`` is the
 normalized per-component tuple used inside the mesh interning keys.
 Periodicity is deliberately *not* a ``BC`` member: it is mesh
 topology (``mesh.periodic``), fixed at mesh construction.
@@ -45,7 +45,7 @@ class BCStructure:
     -----------
     A small *value* type used inside space interning keys; unlike
     spaces (identity-hashed) it is deliberately hashed and compared
-    by value. Factories accept the sugar ``bc=fr.BC.DIRICHLET``
+    by value. Factories accept the sugar ``bc=fr.spatial.BC.DIRICHLET``
     (meaning: at every boundary component) and normalize through
     :meth:`normalize`.
 

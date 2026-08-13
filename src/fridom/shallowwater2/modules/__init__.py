@@ -13,7 +13,7 @@ The module library for the shallow-water model:
   :class:`~fridom.model.modules.BetaPlaneCoriolis` /
   :class:`~fridom.model.modules.RotationCoriolis` (chart grids:
   ``f = 2 Omega . n_hat``) — the shared framework Coriolis family
-  (re-exported from ``fr.modules``), which declare ``f_coriolis``
+  (re-exported from ``fr.model.modules``), which declare ``f_coriolis``
   and carry the rotation term. Rotation is opt-in: a model
   assembled without one of these simply does not rotate;
 - :class:`SadournyAdvection` — the energy/enstrophy-conserving
@@ -63,7 +63,7 @@ base = "fridom.shallowwater2.modules"
 all_modules_by_origin: dict[str, list[str]] = {}
 
 # The Coriolis family is the shared framework module library
-# (fr.modules), re-exported here so sw.modules.FPlaneCoriolis keeps
+# (fr.model.modules), re-exported here so sw.modules.FPlaneCoriolis keeps
 # working.
 all_imports_by_origin = {
     "fridom.model.modules": [

@@ -311,11 +311,11 @@ def channel_eigenpairs(
     Description
     -----------
     The dense-column probe: builds the linear variant
-    ``fr.linearize(model)``, fills the per-mode dense blocks ``S`` by
+    ``fr.model.linearize(model)``, fills the per-mode dense blocks ``S`` by
     unit-impulse columns over the bounded-axis nodes (one linearized
     tendency application each, Fourier read-out along the periodic
     axes), forms the Hermitian pencil ``H = iMS`` under the
-    measure-weighted energy metric (``fr.EnergyMetric`` times the
+    measure-weighted energy metric (``fr.model.EnergyMetric`` times the
     bounded-axis measure), and solves the whitened batched ``eigh``
     per mode plane. Requires exactly one bounded grid factor (all
     others periodic). On a model carrying a CONSTRAINT stage (the 3-D
@@ -487,7 +487,7 @@ def _metric_diagonal(
     ``1/N^2`` at the ``b`` cells), which is exactly what keeps
     ``iMS`` Hermitian for a varying profile — and read out along the
     bounded axis (profiles are constant along the periodic axes by
-    construction of ``fr.Profile``).
+    construction of ``fr.spatial.Profile``).
     """
     parts = []
     for name, weight in zip(prog, weights, strict=True):
@@ -516,7 +516,7 @@ def _bounded_measure(
     -----------
     The quadrature weight per bounded-axis node the metric diagonal
     stacks. A component that is **constant along the bounded axis** (a
-    ``fr.Profile`` barotropic field — the hydrostatic ``ps``, a single
+    ``fr.spatial.Profile`` barotropic field — the hydrostatic ``ps``, a single
     depth-integrated DOF) carries **unit** measure: its physical column
     depth ``H`` now rides the energy *weight* (``H/c^2`` in
     ``EnergyMetric``), so folding the depth in here too would

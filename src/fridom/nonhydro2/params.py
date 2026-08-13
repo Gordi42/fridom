@@ -5,8 +5,8 @@ Description
 Package-specific ``ParamName`` constants (D2.1): the aspect ratio
 ``nonhydro.aspect_ratio`` lives on the dynamical core (``nh.Core``).
 Coriolis and stratification names are framework-canonical
-(``fr.params.CORIOLIS_F0`` / ``fr.params.STRATIFICATION_N2`` /
-``fr.params.STRATIFICATION_FROUDE``) and are re-exported here for
+(``fr.model.params.CORIOLIS_F0`` / ``fr.model.params.STRATIFICATION_N2`` /
+``fr.model.params.STRATIFICATION_FROUDE``) and are re-exported here for
 convenience.
 
 The retired ``nonhydro.dsqr`` name (the squared aspect ratio the old

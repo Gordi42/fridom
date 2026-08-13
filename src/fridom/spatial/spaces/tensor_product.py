@@ -190,7 +190,8 @@ class TensorProductSpace:
     def scalars(self) -> Scalars:
         """The Körper of the product (derived, not stored).
 
-        ``fr.Complex`` if any factor is complex, else ``fr.Real``.
+        ``fr.spatial.Complex`` if any factor is complex, else
+        ``fr.spatial.Real``.
         """
         for factor in self._factors:
             if factor.scalars is Scalars.COMPLEX:

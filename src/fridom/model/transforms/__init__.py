@@ -1,12 +1,12 @@
 """
-The state-transform namespace (``fr.transforms``).
+The state-transform namespace (``fr.model.transforms``).
 
 Description
 -----------
 Owning class spec: ``design/specs/model/classes/transforms.md``;
 design source ``design/specs/model/08_state_transforms.md``
 (§10.1-10.8). Wave 7 A populates the base + algebra: the
-``StateTransform`` base (re-exported top-level as ``fr.StateTransform``),
+``StateTransform`` base (re-exported top-level as ``fr.model.StateTransform``),
 the signature/info/cost/progress vocabulary, the error types, the
 algebra nodes, ``Identity``/``Shift``/``FixedPoint``, and
 ``relative_l2``/``assert_idempotent``. The Tier-2 presets

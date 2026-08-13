@@ -6,11 +6,12 @@ Description
 ``StateTransform`` is the decision-D5 base; the algebra mirrors the
 operator algebra (``design/specs/model/08_state_transforms.md``
 §10.1/§10.2, laws §10.3). Owning class spec:
-``design/specs/model/classes/transforms.md`` §"fr.StateTransform".
+``design/specs/model/classes/transforms.md`` §"fr.model.StateTransform".
 
 Two tiers, one abstraction: Tier 1 (closed-form) subclasses are
-``fr.utils.jaxify``-registered frozen pytrees (jit/vmap-able); Tier 2
-(dynamical) subclasses are host objects with a **trace guard**
+``fridom.framework.utils.jaxify``-registered frozen pytrees
+(jit/vmap-able); Tier 2 (dynamical) subclasses are host objects
+with a **trace guard**
 (``TraceError`` on tracer-valued input). ``traceable`` ANDs under
 every combinator. Info is **returned** (``call_with_info``), never a
 mutating attribute; the law ``T(s) == call_with_info(s)[0]`` holds by

@@ -1,10 +1,10 @@
 """
-Physical roles of state components (``fr.roles``).
+Physical roles of state components (``fr.model.roles``).
 
 Description
 -----------
 Owning class spec: ``design/specs/model/classes/declarations.md``
-("Role, ``Velocity``, and the ``fr.roles`` namespace"). Roles are
+("Role, ``Velocity``, and the ``fr.model.roles`` namespace"). Roles are
 opt-in, typed, namespaced marker objects tagging what a PROGNOSTIC
 field *is*, physically (model D1.4) — with the one signed exception
 that ``Velocity`` may also mark DIAGNOSTIC fields (V-H2, the

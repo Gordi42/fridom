@@ -1,5 +1,5 @@
 """
-SLURM helpers (``fr.slurm``).
+SLURM helpers (``fr.io.slurm``).
 
 Description
 -----------
@@ -97,7 +97,7 @@ def resubmit_current() -> None:
     jid = job_id()
     if jid is None:
         raise RuntimeError(
-            "fr.slurm.resubmit_current() requires a SLURM "
+            "fr.io.slurm.resubmit_current() requires a SLURM "
             "allocation (SLURM_JOB_ID is not set)")
     if os.environ.get("SLURM_PROCID", "0") != "0":
         return  # rank-0-only submission guard
@@ -127,7 +127,7 @@ def resubmit() -> Callable[[], None]:
     -----------
     The ``fr.io.resubmit()`` acceptance-surface spelling (sketch
     7.7): a factory whose result wraps
-    ``fr.slurm.resubmit_current`` for
+    ``fr.io.slurm.resubmit_current`` for
     ``fr.io.Snapshots(on_walltime=...)``.
 
     Returns

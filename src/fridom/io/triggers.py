@@ -4,7 +4,7 @@ Output triggers and the plan-time lowering.
 Description
 -----------
 The declarative trigger algebra — the ``every``/``at`` factories
-(surfaced as ``fr.every``/``fr.at``), ``|`` unions, and
+(surfaced as ``fr.io.every``/``fr.io.at``), ``|`` unions, and
 ``after=``/``until=`` windows — plus ``lower_trigger``, the public
 plan-time lowering from a trigger to a sorted step-index set (CS-7:
 importable by drivers, no model or clock access). Owning class spec:
@@ -283,7 +283,7 @@ def _flat(trigger: Trigger) -> tuple[Trigger, ...]:
 
 
 # ================================================================
-#  The factories — the user surface (fr.every / fr.at)
+#  The factories — the user surface (fr.io.every / fr.io.at)
 # ================================================================
 def every(
     *,
@@ -339,10 +339,10 @@ def every(
     if len(given) != 1:
         spelled = ", ".join(given) if given else "none"
         raise ValueError(
-            "fr.every() takes exactly one cadence kwarg (steps=, "
+            "fr.io.every() takes exactly one cadence kwarg (steps=, "
             "time_units=, seconds=, minutes=, hours=, days= or "
             f"walltime=); got {spelled}. Compose cadences with |, "
-            "e.g. fr.every(steps=10) | fr.every(hours=1).")
+            "e.g. fr.io.every(steps=10) | fr.io.every(hours=1).")
     if steps is not None:
         if isinstance(steps, bool) or not isinstance(steps, int):
             raise TypeError(f"steps= must be an int; got {steps!r}")
@@ -400,11 +400,11 @@ def at(
     """
     if isinstance(times, (int, float, np.timedelta64)):
         raise TypeError(
-            f"fr.at() takes a sequence of model times; got the "
-            f"scalar {times!r} — spell it fr.at([{times!r}])")
+            f"fr.io.at() takes a sequence of model times; got the "
+            f"scalar {times!r} — spell it fr.io.at([{times!r}])")
     fired = tuple(_model_seconds(t, name="times") for t in times)
     if not fired:
-        raise ValueError("fr.at() needs at least one model time")
+        raise ValueError("fr.io.at() needs at least one model time")
     return _windowed(At(fired), after=after, until=until)
 
 
@@ -443,7 +443,7 @@ def lower_trigger(
     — sign-agnostic by construction: for ``dt < 0`` the division
     maps decreasing model times to increasing ``k`` and the same
     ceil snap applies. ``every()`` cadences enumerate firing times
-    in the run direction and snap up; step 0 is included. ``fr.at``
+    in the run direction and snap up; step 0 is included. ``fr.io.at``
     times outside the run interval (``ceil(k)`` not in
     ``[0, n_steps]``) error at planning. Walltime components lower
     to the empty set (they are boundary-evaluated by the
@@ -453,7 +453,7 @@ def lower_trigger(
     Parameters
     ----------
     trigger : Trigger
-        A trigger built by ``fr.every``/``fr.at`` (unions/windows
+        A trigger built by ``fr.io.every``/``fr.io.at`` (unions/windows
         included).
     t0 : float
         The run's start model time in seconds.
@@ -470,7 +470,7 @@ def lower_trigger(
     """
     if not isinstance(trigger, Trigger):
         raise TypeError(
-            f"expected a Trigger built by fr.every/fr.at; got "
+            f"expected a Trigger built by fr.io.every/fr.io.at; got "
             f"{trigger!r}")
     dt = float(dt)
     if dt == 0.0:
@@ -500,7 +500,7 @@ def _lower(
         return _lower_at(trigger, t0=t0, dt=dt, n_steps=n_steps)
     raise TypeError(
         f"cannot lower {type(trigger).__name__}; triggers are built "
-        "by fr.every/fr.at")
+        "by fr.io.every/fr.io.at")
 
 
 def _lower_every(node: Every, *, dt: float, n_steps: int) -> set[int]:
@@ -539,7 +539,7 @@ def _lower_at(
         k = _snap_ceil((time - t0) / dt)
         if k < 0 or k > n_steps:
             raise ValueError(
-                f"fr.at time {time} lies outside the run: it lowers "
+                f"fr.io.at time {time} lies outside the run: it lowers "
                 f"to step {k}, but the run covers steps "
                 f"0..{n_steps} (t0={t0}, dt={dt}). Out-of-interval "
                 "trigger times error at planning, never silently "

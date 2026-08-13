@@ -53,8 +53,8 @@ class Tracer(Module):
     :meth:`~fridom.model.declarations.FieldDeclaration.tracer`: the
     named field is PROGNOSTIC with the roles ``{TRACER, ADVECTED}``,
     so the assembled advection scheme transports it and
-    TRACER-selecting closures (``fr.closures.HarmonicMixing`` and
-    friends) diffuse it, with no further wiring.
+    TRACER-selecting closures (``fr.model.closures.HarmonicDiffusion``
+    and friends) diffuse it, with no further wiring.
 
     .. code-block:: python
 

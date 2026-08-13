@@ -5,7 +5,7 @@ Description
 -----------
 Owning class doc:
 ``design/specs/grid/classes/decomposition.md``. Public for
-transform/solver authors as ``fr.grid.decomposition``; not
+transform/solver authors as ``fr.spatial.decomposition``; not
 re-exported at ``fr.*`` level. Waves 1/3 re-export the
 decomposition classes here.
 """

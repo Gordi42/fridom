@@ -3,7 +3,7 @@ BalanceExpansion: slaving-expansion balance on the eigenmode tiers.
 
 Description
 -----------
-``fr.transforms.BalanceExpansion`` is the current form of the
+``fr.model.transforms.BalanceExpansion`` is the current form of the
 **nonlinear normal mode decomposition / initialization** (Machenhauer
 1977; Baer & Tribbia 1977; Warn, Bokhove, Shepherd & Vallis 1995;
 Eden, Chouksey & Olbers 2019; Chouksey, Eden, Masur & Oliver 2023):
@@ -22,7 +22,7 @@ form :math:`B` of the quadratic term — no per-mode bookkeeping. The
 projectors and :math:`L_w^{-1} = f(L)` with :math:`f = -1/(i\omega)`
 (the eigenmode tiers label their columns ``L q = -i omega q``)
 come from the model's eigenmode tier (the ``function(f, sel)``
-applicator), :math:`L` from ``fr.linearize(model)``, and :math:`B`
+applicator), :math:`L` from ``fr.model.linearize(model)``, and :math:`B`
 from the polarization of the nonlinear tendency. The slow space is
 **not** required to be stationary (:math:`LV \ne 0` is supported):
 a beta-plane Rossby band selected by a frequency predicate
@@ -371,7 +371,7 @@ class BalanceExpansion(StateTransform):
         -1}`` (default: "vortical").
     nonlinear : Callable | None, optional
         The term predicate selecting the quadratic tendency terms;
-        ``None`` uses ``~fr.terms.linear`` (default: None).
+        ``None`` uses ``~fr.model.term_predicates.linear`` (default: None).
     at_time : float, optional
         The clock time freezing time-dependent parameters and
         pinning every internal tendency evaluation (default: 0.0).

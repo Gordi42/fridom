@@ -2,7 +2,7 @@
 
 Description
 -----------
-A model-package vocabulary subclass of ``fr.grid.VectorField``
+A model-package vocabulary subclass of ``fr.spatial.VectorField``
 (model.md section 4): curated component accessors carrying hinted
 errors, plus **parameter-free** diagnostics written in the field
 algebra. Parameterful diagnostics (``ekin`` carries ``dsqr``,

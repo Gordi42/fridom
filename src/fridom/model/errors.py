@@ -65,7 +65,7 @@ class AssemblyError(ValueError):
 
     Description
     -----------
-    Raised while ``fr.Model`` runs the nine-step assembly pipeline;
+    Raised while ``fr.model.Model`` runs the nine-step assembly pipeline;
     every subclass attributes the failure to the responsible
     module(s) in its message. Never raised in-trace.
     """
@@ -106,7 +106,7 @@ class MissingParameterError(AssemblyError):
     Assembly step 2 (a ``ParameterReference`` with no provider and
     no default), the host ``model.parameters[...]`` lookup, and the
     lazy bound-diagnostic call. Attributed to the requiring
-    module/diagnostic; the message adds the ``fr.params`` registry
+    module/diagnostic; the message adds the ``fr.model.params`` registry
     hint and the list of provided parameters.
     """
 
@@ -281,10 +281,11 @@ class IrreversibleTermError(ValueError):
     -----------
     The AR-D6 guard (``design/specs/model/08_state_transforms.md``
     §10.9 law 3). A backward ramp leg integrates the model with a
-    negated ``fr.params.TIME_STEP``; backward diffusion is ill-posed,
+    negated ``fr.model.params.TIME_STEP``; backward diffusion is ill-posed,
     so an :class:`AdiabaticRamping` ``dt < 0`` leg refuses to build
     while its variant still carries terms matching
-    ``fr.terms.owned_by(fr.closures.ClosureBase) | fr.terms.implicit``
+    ``fr.model.term_predicates.owned_by(fr.model.closures.ClosureBase)``
+    ``| fr.model.term_predicates.implicit``
     (dissipative closures and implicitly treated terms). Raised
     host-side at leg construction (never in the science), naming the
     offending terms; the fix is an explicit ``term_filter`` that drops
@@ -305,14 +306,16 @@ class IrreversibleTermError(ValueError):
         super().__init__(
             f"a backward ramp leg (dt < 0) still carries irreversible "
             f"terms ({listed}): dissipative closures "
-            "(fr.terms.owned_by(fr.closures.ClosureBase)) and "
-            "implicitly treated terms (fr.terms.implicit) are "
+            "(fr.model.term_predicates.owned_by("
+            "fr.model.closures.ClosureBase)) and implicitly treated "
+            "terms (fr.model.term_predicates.implicit) are "
             "ill-posed integrated backward in time. Drop them from "
             "the leg with an explicit term_filter, e.g.\n"
             "    from fridom.model import term_predicates as terms\n"
-            "    leg = fr.transforms.AdiabaticRamping(\n"
+            "    leg = fr.model.transforms.AdiabaticRamping(\n"
             "        model, ramps=..., ramp_period=...,\n"
-            "        term_filter=~terms.owned_by(fr.closures.ClosureBase)"
+            "        term_filter=~terms.owned_by("
+            "fr.model.closures.ClosureBase)"
             " & ~terms.implicit)\n"
             "and take its .backward; sign-reversed ramped dissipation "
             "is out of scope.")

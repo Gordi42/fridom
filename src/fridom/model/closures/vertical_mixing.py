@@ -1,5 +1,5 @@
 r"""
-Implicit vertical mixing (``fr.closures.VerticalMixing``).
+Implicit vertical mixing (``fr.model.closures.VerticalMixing``).
 
 Description
 -----------
@@ -19,7 +19,7 @@ per-side wall rows ``VerticalDiffusion`` builds: zero-flux (Neumann) for
 the tracer always and for the free-slip velocity default, the no-slip
 (Dirichlet) wall row when ``bottom``/``top`` ask for it. That
 well-posed bounded-vertical column solve is exactly what the explicit
-harmonic closures (``fr.closures.HarmonicDiffusion``) cannot offer on a
+harmonic closures (``fr.model.closures.HarmonicDiffusion``) cannot offer on a
 walled grid. The column is measure-aware — a stretched mesh contributes
 its true non-uniform spacing and a static terrain-following grid its
 column Jacobian (the along-``sigma`` convention; see the class
@@ -73,11 +73,11 @@ if TYPE_CHECKING:  # pragma: no cover
 # ================================================================
 VERTICAL_VISCOSITY: Final[ParamName] = ParamName(
     "mixing.vertical_nu", units="m^2/s",
-    hint="provided by fr.closures.VerticalMixing(kv=...)")
+    hint="provided by fr.model.closures.VerticalMixing(kv=...)")
 
 VERTICAL_DIFFUSIVITY: Final[ParamName] = ParamName(
     "mixing.vertical_kappa", units="m^2/s",
-    hint="provided by fr.closures.VerticalMixing(kb=...)")
+    hint="provided by fr.model.closures.VerticalMixing(kb=...)")
 
 
 # ================================================================

@@ -50,9 +50,11 @@ if TYPE_CHECKING:  # pragma: no cover
         io,
         model,
         nonhydro,
+        nonhydro2,
         ops,
         scaling,
         shallowwater,
+        shallowwater2,
         spatial,
     )
 
@@ -78,9 +80,11 @@ all_modules_by_origin = {
         "io",
         "model",
         "nonhydro",
+        "nonhydro2",
         "ops",
         "scaling",
         "shallowwater",
+        "shallowwater2",
         "spatial",
     ],
 }

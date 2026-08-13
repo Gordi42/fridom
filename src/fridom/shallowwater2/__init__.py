@@ -50,6 +50,7 @@ if TYPE_CHECKING:  # pragma: no cover
     from .eigenmodes import eigenbasis
     from .initial_conditions import (
         coherent_eddy,
+        flat_spectrum,
         gaussian,
         jet,
         random_state,
@@ -79,7 +80,9 @@ all_imports_by_origin = {
     f"{base}.initial_conditions": [
         "random_state", "random_vortical", "random_waves",
         "single_wave", "wave_package", "gaussian",
-        "jet", "coherent_eddy"],
+        "jet", "coherent_eddy",
+        # the spectrum vocabulary of ``spectral_energy_density=``
+        "flat_spectrum"],
     f"{base}.model": ["Model"],
     f"{base}.modules.core": ["Core"],
     f"{base}.state": ["State"],

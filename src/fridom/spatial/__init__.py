@@ -23,19 +23,35 @@ if TYPE_CHECKING:  # pragma: no cover
         cartesian,
         charts,
         decomposition,
+        export,
         meshes,
         operators,
         space_patterns,
         spherical,
+        symbols,
     )
 
     # import all classes
     from .bc import BC
     from .coordinate_mapping import CoordinateMapping
-    from .errors import GridMismatchError, SpaceMismatchError
+    from .errors import (
+        GridFrozenError,
+        GridMismatchError,
+        ImmutableStateError,
+        MissingComponentError,
+        SpaceMismatchError,
+    )
     from .fields import FieldMetadata, ScalarField, VectorField
     from .grid import Grid
     from .immersed_domain import ImmersedDomain, Slip
+    from .meshes import (
+        ChebyshevMesh,
+        IntervalMesh,
+        MappedIntervalMesh,
+        Mesh,
+        PointMesh,
+        StructuredMesh1D,
+    )
     from .scalars import Complex, Real, Variance
     from .space_patterns import (
         Collocated,
@@ -58,14 +74,23 @@ base = "fridom.spatial"
 all_modules_by_origin = {
     base: [
         "meshes", "operators", "cartesian", "spherical", "charts",
-        "decomposition", "space_patterns"],
+        "decomposition", "space_patterns", "symbols", "export"],
 }
 
 all_imports_by_origin = {
     f"{base}.grid": ["Grid"],
     f"{base}.scalars": ["Real", "Complex", "Variance"],
     f"{base}.bc": ["BC"],
-    f"{base}.errors": ["SpaceMismatchError", "GridMismatchError"],
+    f"{base}.errors": [
+        "SpaceMismatchError", "GridMismatchError",
+        "MissingComponentError", "GridFrozenError",
+        "ImmutableStateError"],
+    # the mesh factors, lifted onto the package surface: a
+    # non-uniform grid is built from these and ``fr.spatial.Grid``
+    # in the same breath, so they belong at the same depth.
+    f"{base}.meshes": [
+        "Mesh", "StructuredMesh1D", "IntervalMesh",
+        "MappedIntervalMesh", "PointMesh", "ChebyshevMesh"],
     f"{base}.spaces.nodal": ["NodeSet"],
     f"{base}.spaces.trace": ["Side"],
     f"{base}.spaces.tensor_product": ["TensorProductSpace",

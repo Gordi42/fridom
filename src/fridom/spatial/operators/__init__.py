@@ -1,5 +1,5 @@
 """
-Free-standing operators (re-exported as ``fr.operators``).
+Free-standing operators (re-exported as ``fr.spatial.operators``).
 
 Description
 -----------
@@ -187,7 +187,7 @@ all_modules_by_origin = {
         "multigrid",
         "products",
         # the "integrate" module is NOT re-exported by name: the
-        # D3b verb below owns the ``fr.operators.integrate`` slot
+        # D3b verb below owns the ``fr.spatial.operators.integrate`` slot
         # (the module stays importable by its full path).
         "composed",
         "dealias",
@@ -254,7 +254,7 @@ all_imports_by_origin = {
         "FVDerivative",
     ],
     # the class import "Integral" and the D3b verb "integrate"
-    # coexist: only the verb owns the ``fr.operators.integrate`` slot
+    # coexist: only the verb owns the ``fr.spatial.operators.integrate`` slot
     f"{base}.integrate": ["Integral"],
     f"{base}.mapped": ["MappedDerivative", "MetricScaled"],
     f"{base}.mixed": ["ComposedTransform", "resolve_transform"],

@@ -391,7 +391,7 @@ class IMEXMultistep(TimeStepper):
 # ================================================================
 def CNAB2(dt: float | np.timedelta64) -> IMEXMultistep:  # noqa: N802 — spec spelling
     """
-    ``fr.time_steppers.CNAB2(dt=...)`` — Crank-Nicolson / AB2.
+    ``fr.model.time_steppers.CNAB2(dt=...)`` — Crank-Nicolson / AB2.
 
     Parameters
     ----------
@@ -408,7 +408,7 @@ def CNAB2(dt: float | np.timedelta64) -> IMEXMultistep:  # noqa: N802 — spec s
 
 def SBDF2(dt: float | np.timedelta64) -> IMEXMultistep:  # noqa: N802 — spec spelling
     """
-    ``fr.time_steppers.SBDF2(dt=...)`` — semi-implicit BDF2.
+    ``fr.model.time_steppers.SBDF2(dt=...)`` — semi-implicit BDF2.
 
     Parameters
     ----------
