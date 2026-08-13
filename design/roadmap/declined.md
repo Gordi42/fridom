@@ -132,3 +132,29 @@ that survives the leg union. Note the adjacent lever that *is* real and
 is now tracked separately in [`deferred.md`](deferred.md): the mapped
 grid's `extra_halo = 2` floor over a traced demand of 1.
 [`../research/thin_axis_halo_investigation.md`](../research/thin_axis_halo_investigation.md) §12.3.
+
+## Extracting `fridom.spatial` into its own repository
+
+*Declined 2026-08-13 (owner): "I don't need an extra package just for
+the spatial stuff."* Investigated on the ClimaCore analogy — spatial is
+~34% of src, near-independent, and not ocean-specific. The outward edge
+is genuinely clean (16 import lines, 4 symbols, all from the old stack's
+`framework/utils`), but the **inward** edge is not: consumers bypass the
+lazypimp facade and deep-import ~130 symbols across 40 modules, incl. 13
+private symbols and `ScalarField._data` at 14 sites, with `__all__` in
+0 of 95 modules. A split converts that seam into a permanent published
+API at bus factor 1. Decisive numbers: **30% of spatial-touching commits
+also touch model/nh2/sw2** (64 of 213 since 2026-02), the package is
+**one month old** (`0260d779`, 2026-07-11) with the boundary still
+moving, and the stated motivation — a lighter install for non-ocean
+users — **arrives free at the cutover**, since 9 of 12 runtime deps are
+old-stack-only. Prior art runs the same way: Firedrake re-absorbed PyOP2
+and TSFC, and jax-cfd's reusable FVM layer is unmaintained with no
+external dependents. The investigation surfaced three bugs, all fixed
+the same day (x64 never enabled by bare `import fridom`; `jaxify`'s
+equality gate hardcoding `"fridom"`; an inverted test import).
+*Reopen if:* a real external consumer appears, or spatial's co-change
+rate falls below ~10% over a full quarter. Note the cheaper lever if the
+goal is only installability — a second distribution built from this same
+repo needs no second repository.
+[`../research/spatial_extraction_investigation.md`](../research/spatial_extraction_investigation.md)
