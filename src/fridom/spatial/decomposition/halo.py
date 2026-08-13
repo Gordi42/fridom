@@ -1014,7 +1014,7 @@ class HaloTracer:
         Mirrors the eager dunder (scalar_field ``_dispatched_product``):
         both operands are lifted onto the join *before* dispatch, so the
         product operator's codomain resolver sees the pre-lifted common
-        space — a ``ConstantSpace`` operand (an ``fr.Profile()`` field)
+        space — a ``ConstantSpace`` operand (an ``fr.spatial.Profile()`` field)
         broadcasts to the full factor exactly as it does eagerly. The
         lift is a constant broadcast: halo 0 (it reads the single DOF and
         adds no ghost demand), so the traced depth carries over unchanged.
@@ -1049,7 +1049,7 @@ class HaloTracer:
         constant broadcast (rules 3.3) changes only the space (a
         ``ConstantSpace`` factor becomes the full factor), never the
         ghost demand. Tracer operands carry their depth over unchanged
-        (halo 0); a real captured field operand (an ``fr.Profile()``
+        (halo 0); a real captured field operand (an ``fr.spatial.Profile()``
         constant) reuses the eager broadcast so eager and traced agree.
         """
         space = operand.function_space

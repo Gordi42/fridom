@@ -271,8 +271,8 @@ class Abs(UnaryOperator):
 
     Description
     -----------
-    The one scalar-changing pointwise op (``fr.Complex ->
-    fr.Real``). Nodal-only by design: a sign change inside a cell
+    The one scalar-changing pointwise op (``fr.spatial.Complex ->
+    fr.spatial.Real``). Nodal-only by design: a sign change inside a cell
     makes ``|avg(u)| != avg(|u|)``, so an average-space shortcut
     would be silently wrong. Whole-space, not bindable.
     """
@@ -285,7 +285,7 @@ class Abs(UnaryOperator):
 
     def codomain(self, domain: SpaceLike) -> SpaceLike:
         """
-        abs: S -> the fr.Real variant of S.
+        abs: S -> the fr.spatial.Real variant of S.
 
         Parameters
         ----------
@@ -295,7 +295,7 @@ class Abs(UnaryOperator):
         Returns
         -------
         SpaceLike
-            The per-factor ``fr.Real`` variant.
+            The per-factor ``fr.spatial.Real`` variant.
         """
         if isinstance(domain, TensorProductSpace):
             return TensorProductSpace.of(

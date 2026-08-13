@@ -5,9 +5,10 @@ Description
 -----------
 Owning class doc: ``design/specs/grid/classes/meshes.md`` (static
 markers). ``Scalars`` is the field of scalars (Körper) marker with the
-module-level aliases ``Real`` / ``Complex`` (re-exported at top level
-as ``fr.Real`` / ``fr.Complex``); ``Variance`` is the designed-for
-component-variance marker for vector components on metric meshes.
+module-level aliases ``Real`` / ``Complex`` (re-exported on the
+package as ``fr.spatial.Real`` / ``fr.spatial.Complex``);
+``Variance`` is the designed-for component-variance marker for vector
+components on metric meshes.
 """
 # Wave 0: Scalars, Real, Complex, Variance
 from __future__ import annotations
@@ -23,7 +24,7 @@ class Scalars(Enum):
     Description
     -----------
     The marker denotes the Körper of the *represented function*, not
-    the storage dtype: an ``fr.Real`` Fourier space stores a complex
+    the storage dtype: an ``fr.spatial.Real`` Fourier space stores a complex
     Hermitian half-spectrum. It participates in the interned identity
     of every space, so real and complex variants are distinct
     dispatch keys.
@@ -49,6 +50,7 @@ class Variance(Enum):
     CONTRAVARIANT = auto()
 
 
-# module-level aliases, re-exported at top level as fr.Real / fr.Complex
+# module-level aliases, re-exported on the package as
+# fr.spatial.Real / fr.spatial.Complex
 Real: Scalars = Scalars.REAL
 Complex: Scalars = Scalars.COMPLEX

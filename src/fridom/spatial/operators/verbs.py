@@ -5,9 +5,9 @@ Description
 -----------
 Owning decision: ``design/specs/grid/classes/operator_algebra_merge.md``
 (D3b). The standard single-kind verbs are module-level ``Dispatched``
-singletons on ``fr.operators`` — the discoverable surface the field
+singletons on ``fr.spatial.operators`` — the discoverable surface the field
 forwarders route through (``f.diff("x")`` is
-``fr.operators.diff["x"](f)``). The ``Dispatched(kind)`` constructor
+``fr.spatial.operators.diff["x"](f)``). The ``Dispatched(kind)`` constructor
 stays public as the extension escape-hatch for custom kinds; an
 unknown kind is a clean ``DispatchError`` at resolution.
 """

@@ -1,11 +1,12 @@
 """
-Mesh factors of the domain (re-exported as ``fr.meshes``).
+Mesh factors of the domain (re-exported as ``fr.spatial.meshes``).
 
 Description
 -----------
 Owning class doc: ``design/specs/grid/classes/meshes.md``.
 Wave 1 re-exports the mesh classes (``IntervalMesh``, ...)
-here.
+here; the package surface lifts them one level further, to
+``fr.spatial.IntervalMesh`` and friends.
 """
 from typing import TYPE_CHECKING
 

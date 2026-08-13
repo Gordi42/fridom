@@ -36,9 +36,10 @@ Requirements on the decorated class
   key). The class object is prepended automatically, so distinct
   classes can never collide.
 - ``@interned`` must be the **innermost** decorator (closest to
-  ``class``, below ``@final`` / ``@fr.utils.jaxify``) so it captures the
-  real ``__init__`` before any wrapper. ``fr.utils.jaxify`` leaves
-  ``__eq__`` / ``__hash__`` untouched (they are the identity methods on
+  ``class``, below ``@final`` /
+  ``@fridom.framework.utils.jaxify``) so it captures the real
+  ``__init__`` before any wrapper. ``fridom.framework.utils.jaxify``
+  leaves ``__eq__`` / ``__hash__`` untouched (they are the identity methods on
   ``Operator``) and its ``_tree_unflatten`` rebuilds via
   ``object.__new__`` (bypassing this ``__new__``), so a jaxify pytree
   round-trip is safe.

@@ -393,14 +393,14 @@ class FunctionSpace(ABC):
     #  Scalar variants (interning lookups, not relational properties)
     # ================================================================
     def as_complex(self) -> Self:
-        """Return the interned ``fr.Complex`` variant of this space.
+        """Return the interned ``fr.spatial.Complex`` variant of this space.
 
         Idempotent on complex spaces.
         """
         return self._variant(scalars=Scalars.COMPLEX)
 
     def as_real(self) -> Self:
-        """Return the interned ``fr.Real`` variant of this space.
+        """Return the interned ``fr.spatial.Real`` variant of this space.
 
         The codomain of ``f.real``; idempotent on real spaces.
         """

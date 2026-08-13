@@ -45,7 +45,7 @@ class Grid(_Grid):
     ``(0, lat_max)`` gives a single-hemisphere domain.
 
     The prognostic velocities on the resulting grid are the contravariant
-    chart components; see ``sw.modules.DynamicalCore``.
+    chart components; see ``sw.modules.Core``.
 
     Parameters
     ----------

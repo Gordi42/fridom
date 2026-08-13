@@ -375,7 +375,7 @@ class Transform(UnaryOperator, ABC):
                 f"duplicate transform axes in {requested}")
         if pad is not None and not isinstance(pad, PadFactor):
             raise TypeError(
-                "pad= takes a PadFactor (fr.operators.dealias."
+                "pad= takes a PadFactor (fr.spatial.operators.dealias."
                 f"degree(p)), got {pad!r}")
         self._grid: object = grid
         # planner normalization: axes are a set; the deterministic
