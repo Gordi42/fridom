@@ -64,6 +64,7 @@ from fridom.spatial.operators.flux_diff import (
 from fridom.spatial.operators.multigrid_hierarchy import (
     validate_agglomerate,
 )
+from fridom.spatial.operators.staggering import mapped_mesh
 from fridom.spatial.space_patterns import FAMILIES
 from fridom.spatial.spaces.average import CellAvg
 from fridom.spatial.spaces.nodal import NodeSet
@@ -76,6 +77,123 @@ if TYPE_CHECKING:  # pragma: no cover
     from fridom.spatial.grid import Grid
     from fridom.spatial.operators.base import Operator
     from fridom.spatial.operators.registry import DispatchKey
+
+
+# ================================================================
+#  Pressure-projection routing predicates (S4)
+# ================================================================
+def _stretched_column(grid: Grid) -> bool:
+    r"""
+    Whether ``grid`` carries a stretched (mapped) mesh factor.
+
+    Description
+    -----------
+    The second half of the mapped-solve routing predicate
+    (:meth:`Core._project`). A
+    :class:`~fridom.spatial.meshes.mapped_interval.MappedIntervalMesh`
+    factor — a stretched vertical, the usual boundary-layer refinement
+    — sets **no** ``mapping.column_corrections``: it declares no
+    analytic map, only a non-uniform measure. But it is not a flat
+    grid either: a coordinate-mapped mesh deliberately carries no
+    spectral basis (``MappedIntervalMesh.cosine()`` raises), so the
+    separable :class:`SpectralPressureSolver` has no transform to build
+    on it. Such a grid is the **degenerate mapped column** (identity
+    map, ``J == 1``, the stretch entirely in ``grid.measure``), which
+    the mapped PCG's stretched-base path (N2/N3) already serves
+    exactly — so it routes there.
+
+    Parameters
+    ----------
+    grid : Grid
+        The assembled grid the model runs on.
+
+    Returns
+    -------
+    bool
+        True iff at least one mesh factor carries a coordinate map.
+    """
+    return any(mapped_mesh(mesh) for mesh in grid.factors)
+
+
+def _no_spectral_on_stretched(route: str) -> str:
+    """
+    Build the taught error of an explicit spectral fold on a stretch.
+
+    Description
+    -----------
+    Every spectral leg — the flat separable solve and the masked /
+    mapped spectral *preconditioner* alike — needs a per-axis
+    ``transform`` row, and a
+    :class:`~fridom.spatial.meshes.mapped_interval.MappedIntervalMesh`
+    carries no spectral basis (``cosine()`` deliberately raises), so
+    the row is missing and the dispatch fails deep inside the solve
+    with a bare ``DispatchError``. The auto default already avoids
+    this (:meth:`Core._resolved_preconditioner` resolves a stretched
+    grid to ``"multigrid"``), so only an **explicit**
+    ``pressure_preconditioner="spectral"`` reaches here.
+
+    Parameters
+    ----------
+    route : str
+        The projection route the message names (``"immersed"``).
+
+    Returns
+    -------
+    str
+        The taught error message.
+    """
+    return (
+        f"nh.Core(pressure_preconditioner='spectral') on a stretched "
+        f"grid: the {route} spectral preconditioner needs a per-axis "
+        "spectral transform, which a stretched MappedIntervalMesh "
+        "factor does not supply (a coordinate-mapped mesh carries no "
+        "spectral basis). Use pressure_preconditioner='multigrid' — "
+        "the V-cycle reads the same grid.measure widths and serves a "
+        "stretched column — or drop the argument, which is the auto "
+        "default on a stretched grid")
+
+
+def _no_staggered_face(axis: str, coords: tuple[str, ...]) -> str:
+    """
+    Build the taught error of a coordinate with no velocity face.
+
+    Description
+    -----------
+    :meth:`Core.bind` derives the projection's halo from the C-grid
+    ``div`` / ``grad`` rows, which needs the *staggered* face factor of
+    each coordinate — the one the velocity trio lives on. The trio is
+    declared on the **fixed** coordinates ``"x"``, ``"y"``, ``"z"``
+    (:attr:`Core.field_declarations`), which ``vertical=`` does not
+    move: that argument only re-keys the projection legs of the
+    already-declared ``w``. So a ``coords=`` naming anything else
+    leaves that coordinate collocated in every component and the face
+    lookup finds nothing. Before this message that lookup was a bare
+    ``next()`` and the failure a naked ``StopIteration``.
+
+    Parameters
+    ----------
+    axis : str
+        The coordinate with no staggered velocity face.
+    coords : tuple[str, ...]
+        The core's declared coordinate names.
+
+    Returns
+    -------
+    str
+        The taught error message.
+    """
+    return (
+        f"nh.Core: no velocity component is staggered along "
+        f"{axis!r}, so the pressure projection has no divergence leg "
+        f"to difference there. The core declares u, v, w on the "
+        f"fixed coordinates 'x', 'y', 'z' (the fr.spatial.Staggered "
+        f"spaces of Core.field_declarations), so every name in coords= "
+        f"must be one of those; coords={coords} names {axis!r}. "
+        f"Renaming the vertical does not move that declaration — "
+        f"vertical= only re-keys the legs of the already-declared w — "
+        f"so a differently named vertical mesh is not (yet) supported: "
+        f"name the grid's vertical mesh 'z' and keep the defaults "
+        f"vertical='z', coords=('x', 'y', 'z')")
 
 
 # ================================================================
@@ -293,12 +411,12 @@ def resolve_model_family(family: str | None, grid: Grid) -> str:
     (immersed physics is finite-volume, stage I2; the nodal path
     silently ignores the mask) — the owner ruling of 2026-07-17 (FV
     wherever capable). An **explicit** ``"fv"`` is served on periodic,
-    walled, mapped terrain-following *and* immersed cut-cell grids
-    (stages F4, F5, I2); only a grid that declares **both** a mapped
-    column and an immersed domain rejects it (the mapped and masked
-    PCGs are not yet composed, plan §6). An explicit ``"nodal"`` on an
-    immersed grid is likewise a taught error (the mask is FV-only,
-    IP-D7).
+    walled, mapped terrain-following, immersed cut-cell *and* composed
+    mapped + immersed grids (stages F4, F5, I2, M2) — nothing is
+    rejected (:func:`_require_fv_capable`; the composition's taught
+    error was lifted when the composed cut-cell metric PCG landed). An
+    explicit ``"nodal"`` on an immersed grid *is* a taught error (the
+    mask is FV-only, IP-D7).
 
     Parameters
     ----------
@@ -317,7 +435,7 @@ def resolve_model_family(family: str | None, grid: Grid) -> str:
     ValueError
         If ``family`` is neither None nor a known family name.
     NotImplementedError
-        If the resolved family is ``"fv"`` on a non-capable grid.
+        If the resolved family is ``"nodal"`` on an immersed grid.
     """
     if family is None:
         family = getattr(grid, "default_family", "nodal")
@@ -385,16 +503,21 @@ class Core(fr.model.Module):
         The PCG preconditioner of the fixed-iteration pressure solve
         (B4): ``"spectral"`` (the flat separable spectral inverse),
         ``"multigrid"`` (the geometric-multigrid V-cycle) or ``"none"``.
-        ``None`` (the default) is **auto**: a mapped or immersed grid
-        resolves to ``"spectral"`` (byte-identical to the previous
+        ``None`` (the default) is **auto**: a uniform mapped or immersed
+        grid resolves to ``"spectral"`` (byte-identical to the previous
         explicit default), a composed mapped + immersed grid resolves to
         ``"multigrid"`` (MI-D3: the masked spectral fold does not
         converge in the default budget on a genuine cut chart, the
-        multigrid V-cycle does). An explicit string is honoured on every
-        route unchanged. Consumed on a mapped / immersed / composed grid;
-        the flat spectral solve is exact and ignores it. Static (a
-        treedef aux, part of the module fingerprint), like
-        ``single_precision_solve`` (default: None).
+        multigrid V-cycle does), and so does a **stretched** grid (one
+        carrying a ``MappedIntervalMesh`` factor): the separable
+        spectral inverse has no transform to build on a coordinate-
+        mapped mesh — it is rejected at construction, N1 — while the
+        V-cycle builds its vertical bands from the same ``grid.measure``
+        widths and serves the stretched column (N3). An explicit string
+        is honoured on every route unchanged. Consumed on a mapped /
+        stretched / immersed / composed grid; the flat spectral solve is
+        exact and ignores it. Static (a treedef aux, part of the module
+        fingerprint), like ``single_precision_solve`` (default: None).
     multigrid_levels : int | None, optional
         The multigrid depth when ``pressure_preconditioner="multigrid"``;
         ignored otherwise. ``None`` (the default) coarsens to the
@@ -445,9 +568,8 @@ class Core(fr.model.Module):
         an explicitly assembled core follows the grid. The
         ``nh.Model`` factory resolves the flip (every grid promotes
         ``None`` to ``"fv"`` — periodic, walled, mapped static or
-        dynamically driven, and immersed); an explicit ``"fv"`` on a
-        grid with both a mapped column and an immersed domain, or an
-        explicit ``"nodal"`` on an immersed grid, is a taught error
+        dynamically driven, immersed, and composed mapped + immersed);
+        an explicit ``"nodal"`` on an immersed grid is a taught error
         (default: None).
     """
 
@@ -581,8 +703,10 @@ class Core(fr.model.Module):
             # ``div`` differences the face-normal velocity back — the
             # two legs the transform separates.
             grad_leg[axis] = [("diff", centre)]
-            face = next(vs.factor(axis) for vs in vel
-                        if vs.factor(axis) is not centre)
+            face = next((vs.factor(axis) for vs in vel
+                         if vs.factor(axis) is not centre), None)
+            if face is None:
+                raise ValueError(_no_staggered_face(axis, self._coords))
             div_leg[axis] = [("diff", face)]
         self._extra_halo = derive_extra_halo(
             registry, self._coords, [div_leg, grad_leg])
@@ -612,10 +736,9 @@ class Core(fr.model.Module):
         The family resolves as the declarations do —
         ``self._family`` or the grid default — so the profile is on
         exactly the grids whose ``u, v, w, p`` landed on ``CellAvg``.
-        An FV family on a non-capable grid — one that declares both a
-        mapped column and an immersed domain — is a taught error here,
-        never a silent nodal fallback; walled, mapped and immersed
-        grids are served (stages F4, F5, I2).
+        Every grid is FV-capable (:func:`_require_fv_capable`, kept as
+        the capability seam), walled, mapped, immersed and composed
+        mapped + immersed alike (stages F4, F5, I2, M2).
 
         Parameters
         ----------
@@ -709,7 +832,9 @@ class Core(fr.model.Module):
                      name="projection"),
         )
 
-    def _resolved_preconditioner(self, *, composed: bool) -> str:
+    def _resolved_preconditioner(
+        self, *, composed: bool, stretched: bool = False,
+    ) -> str:
         """Resolve the ``None`` = auto PCG preconditioner per route.
 
         Description
@@ -718,15 +843,22 @@ class Core(fr.model.Module):
         unchanged on every route. ``None`` (the default) is auto: a
         composed mapped + immersed grid resolves to ``"multigrid"`` (the
         MI-D3 ratified default, the masked spectral fold not converging
-        in the default budget on a genuine cut chart), every other route
-        (mapped, immersed) to ``"spectral"`` — byte-identical to the
-        previous explicit default.
+        in the default budget on a genuine cut chart), a **stretched**
+        column likewise (N1/N3: the separable spectral inverse has no
+        transform to build on a ``MappedIntervalMesh``, and rejects the
+        column at construction; the V-cycle builds its vertical bands
+        from the same ``grid.measure`` widths and serves it), every
+        other route (uniform mapped, immersed) to ``"spectral"`` —
+        byte-identical to the previous explicit default.
 
         Parameters
         ----------
         composed : bool
             Whether the grid declares both a mapped column and an
             immersed domain (the composed route).
+        stretched : bool, optional
+            Whether the grid carries a stretched (``MappedIntervalMesh``)
+            mesh factor (default: False).
 
         Returns
         -------
@@ -735,7 +867,7 @@ class Core(fr.model.Module):
         """
         if self._pressure_preconditioner is not None:
             return self._pressure_preconditioner
-        return "multigrid" if composed else "spectral"
+        return "multigrid" if composed or stretched else "spectral"
 
     def _project(
         self, state: State, ctx: StepContext,
@@ -766,22 +898,37 @@ class Core(fr.model.Module):
         (terrain-following / boundary-fitted, stage C3) the whole
         stage routes to :meth:`_project_mapped`; on an immersed
         (cut-cell) grid it routes to :meth:`_project_immersed` (stage
-        I2); on a grid that declares **both** (mapped column *and*
-        immersed domain) it routes to :meth:`_project_composed` (the
-        composed cut-cell metric solve, stage M2); a
-        flat/unmapped/unimmersed grid takes exactly the code path below
-        (zero behavior change).
+        I2, which serves a stretched vertical itself); on a grid that
+        declares **both** (mapped column *and* immersed domain) it
+        routes to :meth:`_project_composed` (the composed cut-cell
+        metric solve, stage M2); on a grid that declares no analytic
+        map but carries a **stretched** ``MappedIntervalMesh`` factor
+        (:func:`_stretched_column`) it likewise routes to
+        :meth:`_project_mapped` — the degenerate identity column, which
+        the spectral solve below cannot serve (a coordinate-mapped mesh
+        carries no spectral basis, so its transform row is missing).
+        A flat/unmapped/unimmersed grid takes exactly the code path
+        below (zero behavior change).
         """
         grid = state["u"].grid
         mapping = getattr(grid, "mapping", None)
-        mapped_column = mapping is not None and mapping.column_corrections
+        mapped_column = bool(
+            mapping is not None and mapping.column_corrections)
         immersed = getattr(grid, "immersed", None) is not None
         if mapped_column and immersed:
             return self._project_composed(state, ctx)
         if mapped_column:
             return self._project_mapped(state, ctx)
         if immersed:
+            # the masked solve serves a stretched vertical itself
+            # (its bands read the physical widths, plan §6)
             return self._project_immersed(state, ctx)
+        if _stretched_column(grid):
+            # a bare stretched mesh factor declares no column
+            # correction, but it is a mapped column all the same (the
+            # degenerate identity map) and the spectral solve has no
+            # transform to build on it
+            return self._project_mapped(state, ctx)
         delta = ctx.params[ASPECT_RATIO]
         dsqr = delta * delta
         vel = VectorField({
@@ -859,7 +1006,8 @@ class Core(fr.model.Module):
             iterations=self._pressure_iterations,
             tolerance=self._pressure_tolerance,
             single_precision=self._single_precision_solve,
-            preconditioner=self._resolved_preconditioner(composed=False),
+            preconditioner=self._resolved_preconditioner(
+                composed=False, stretched=_stretched_column(grid)),
             multigrid_levels=self._multigrid_levels,
             multigrid_tridiagonal_method=(
                 self._multigrid_tridiagonal_method),
@@ -900,6 +1048,16 @@ class Core(fr.model.Module):
         A ``MaskState`` CONSTRAINT stage (added by the factory) keeps
         the dry velocity DOFs dead against the other tendency modules.
 
+        On a **stretched** grid (a ``MappedIntervalMesh`` factor, A1)
+        the masked operator itself is already stretch-aware (its
+        analytic diagonal and vertical bands read the physical
+        ``grid.measure`` widths, plan §6), but the wet-masked
+        *spectral* preconditioner is not: the stretched factor carries
+        no spectral basis, so the auto preconditioner resolves to the
+        V-cycle and an explicit ``"spectral"`` is a taught error
+        (:func:`_no_spectral_on_stretched`) rather than the bare
+        ``DispatchError`` it used to be.
+
         Warm start (Phase E): the PCG is seeded with the previous
         step's potential ``x0 = state["p"] * ctx.stage_dt`` (the
         stored ``p = phi / stage_dt`` rescaled back to this stage's
@@ -915,6 +1073,14 @@ class Core(fr.model.Module):
             "y": state["v"],
             self._vertical: state["w"],
         }
+        stretched = _stretched_column(grid)
+        preconditioner = self._resolved_preconditioner(
+            composed=False, stretched=stretched)
+        if stretched and preconditioner == "spectral":
+            # only an explicit pressure_preconditioner="spectral"
+            # reaches here; the auto default already picks the V-cycle
+            raise NotImplementedError(_no_spectral_on_stretched(
+                "masked (cut-cell)"))
         solver = ImmersedPressureSolver(
             grid,
             state["p"].function_space,
@@ -923,7 +1089,7 @@ class Core(fr.model.Module):
             iterations=self._pressure_iterations,
             tolerance=self._pressure_tolerance,
             single_precision=self._single_precision_solve,
-            preconditioner=self._resolved_preconditioner(composed=False),
+            preconditioner=preconditioner,
             multigrid_levels=self._multigrid_levels,
             multigrid_tridiagonal_method=(
                 self._multigrid_tridiagonal_method),

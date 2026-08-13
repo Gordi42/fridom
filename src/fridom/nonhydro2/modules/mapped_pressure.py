@@ -250,6 +250,72 @@ _PRECONDITIONERS = ("spectral", "multigrid", "none")
 _LINE_OMEGA = 0.8
 
 
+def _identity_column_base(
+    space: SpaceLike, mapping: object,
+) -> str:
+    r"""
+    Name the **identity column** of a stretched, unmapped grid (A1).
+
+    Description
+    -----------
+    A grid whose vertical is a bare
+    :class:`~fridom.spatial.meshes.mapped_interval.MappedIntervalMesh`
+    declares no analytic map, so it has no ``column_corrections`` — yet
+    it is *not* a flat grid either: the stretched factor carries no
+    spectral basis, so the separable
+    :class:`~fridom.nonhydro2.modules.pressure.SpectralPressureSolver`
+    cannot serve it. It is the **degenerate mapped column**: the
+    physical column coordinate equals the computational one (the map is
+    the identity, so ``J = dm/db == 1``) and the whole stretch lives in
+    ``grid.measure`` — which is exactly what the mapped PCG's stretched
+    base path (N2/N3) already consumes. So the solve routes here and
+    this helper names its base: the grid's unique stretched axis.
+
+    Parameters
+    ----------
+    space : SpaceLike
+        The (bare) pressure space, whose factors carry the meshes.
+    mapping : object
+        The grid's coordinate mapping, or None — reported in the
+        taught error only.
+
+    Returns
+    -------
+    str
+        The base (stretched) coordinate name.
+
+    Raises
+    ------
+    ValueError
+        If no factor of ``space`` is stretched (a flat grid: the
+        spectral solve applies).
+    NotImplementedError
+        If more than one factor is stretched (only one column is
+        served).
+    """
+    stretched = tuple(name for name in space.active_axis_names
+                      if mapped_factor(space.factor(name)))
+    if not stretched:
+        declared = ("the grid carries no coordinate mapping"
+                    if mapping is None else
+                    "the grid's coordinate mapping declares no "
+                    "single-base analytic map")
+        raise ValueError(
+            f"{declared} and no mesh factor is stretched (no mapped "
+            "column): the mapped pressure solve needs either a "
+            "Grid(..., mapping=...) with a single-base analytic map "
+            "or a MappedIntervalMesh factor; on a flat grid the "
+            "SpectralPressureSolver applies instead")
+    if len(stretched) != 1:
+        raise NotImplementedError(
+            f"the mapped pressure solve supports exactly one mapped "
+            f"column, but {list(stretched)} are all stretched "
+            "(MappedIntervalMesh) factors; stretch one axis and "
+            "declare the others through a Grid(..., mapping=...) "
+            "analytic map (coordinate-systems plan, stage C3)")
+    return stretched[0]
+
+
 def _mean_free(field: ScalarField) -> ScalarField:
     """Remove the measure-weighted mean (the constants nullspace).
 
@@ -359,7 +425,16 @@ class MappedPressureSolver:
     column from the attached ``CoordinateMapping``, resolves the
     registered ``diff``/``interpolate`` rows of the flux-form
     operator once, and derives every metric coefficient through
-    ``grid.metric`` at application (module docstring). The public
+    ``grid.metric`` at application (module docstring). A grid that
+    declares **no** analytic map but carries a stretched
+    ``MappedIntervalMesh`` factor is the degenerate **identity
+    column** (A1): the physical column coordinate equals the
+    computational one, so every metric is one
+    (:meth:`_metric`), the stretch rides ``grid.measure`` alone, and
+    the same stretched-base operator (N2/N3) serves it — that grid has
+    no spectral basis on the stretched factor, so the flat
+    :class:`~fridom.nonhydro2.modules.pressure.SpectralPressureSolver`
+    cannot. The public
     surface mirrors the projection's needs: :meth:`divergence` (the
     J-weighted physical divergence the operator measures),
     :meth:`solve` (preconditioned CG), and
@@ -370,7 +445,9 @@ class MappedPressureSolver:
     ----------
     grid : object
         The grid carrying the coordinate mapping and the dispatch
-        registry.
+        registry — or, for the degenerate identity column, a grid with
+        a single stretched ``MappedIntervalMesh`` factor and no
+        mapping at all.
     space : SpaceLike
         The (cell-centered) pressure/divergence space.
     iterations : int
@@ -506,27 +583,30 @@ class MappedPressureSolver:
         self._multigrid_coarsen_vertical = bool(multigrid_coarsen_vertical)
         self._multigrid_agglomerate = _validate_agglomerate(
             multigrid_agglomerate)
-        mapping = getattr(grid, "mapping", None)
-        if mapping is None:
-            raise ValueError(
-                "the grid carries no coordinate mapping; the mapped "
-                "pressure solve needs a Grid(..., mapping=...) with "
-                "a single-base analytic map")
-        table = mapping.column_corrections
-        if not table:
-            raise ValueError(
-                "the grid's coordinate mapping declares no "
-                "single-base analytic map (no mapped column); the "
-                "flat SpectralPressureSolver applies instead")
-        columns = set(table.values())
-        if len(columns) != 1:
-            raise NotImplementedError(
-                f"the mapped pressure solve supports exactly one "
-                f"mapped column, got {sorted(columns)} "
-                "(coordinate-systems plan, stage C3)")
-        self._mapped, self._base = next(iter(columns))
         self._grid = grid
         self._space: SpaceLike = space.bare
+        mapping = getattr(grid, "mapping", None)
+        table = ({} if mapping is None
+                 else dict(mapping.column_corrections))
+        #: the degenerate **identity column** (A1): no analytic map is
+        #: declared, but one mesh factor is stretched, so the physical
+        #: column *is* the computational one (``J == 1``) and the whole
+        #: geometry lives in ``grid.measure`` — exactly the operator
+        #: the mapped PCG already assembles for a stretched base
+        #: (:meth:`_metric`)
+        self._identity_column: bool = not table
+        if self._identity_column:
+            self._mapped = self._base = _identity_column_base(
+                self._space, mapping)
+            table = {self._base: (self._base, self._base)}
+        else:
+            columns = set(table.values())
+            if len(columns) != 1:
+                raise NotImplementedError(
+                    f"the mapped pressure solve supports exactly one "
+                    f"mapped column, got {sorted(columns)} "
+                    "(coordinate-systems plan, stage C3)")
+            self._mapped, self._base = next(iter(columns))
         # the discretization family of the (cell) pressure space: an
         # average-family (CellAvg) space is the FV C-grid (stage F5),
         # a nodal Center space the point-value C-grid. The two families
@@ -568,10 +648,13 @@ class MappedPressureSolver:
                 f"spectral transform on the mapped column's base "
                 f"coordinate {self._base!r}, which its stretched "
                 "MappedIntervalMesh does not supply (a coordinate-"
-                "mapped mesh carries no spectral basis); run "
-                "correctness solves on a stretched column with "
-                "preconditioner='none' (the plain, unpreconditioned-CG "
-                "stopgap) — see "
+                "mapped mesh carries no spectral basis); use "
+                "preconditioner='multigrid' — the V-cycle builds its "
+                "vertical bands from the same grid.measure widths and "
+                "serves a stretched column (N3), and is what the "
+                "nh.Core auto default resolves to here — or "
+                "preconditioner='none' (plain, unpreconditioned CG) "
+                "for a correctness solve; see "
                 "design/research/stretched_terrain_combined.md (N1)")
         self._coupled: tuple[str, ...] = tuple(
             a for a in axes if a != self._base and a in table)
@@ -821,6 +904,15 @@ class MappedPressureSolver:
         ScalarField
             The metric field on ``space``.
         """
+        if self._identity_column:
+            # the degenerate identity column (A1): the map is
+            # ``m = b``, so every metric the operator queries — the
+            # column Jacobian ``J = dm/db`` and its inverse ``db/dm``;
+            # the coupled slopes ``dm/dx_i`` are never queried, there
+            # being no coupled axis — is exactly one. The stretch is
+            # carried by ``grid.measure`` in the flux legs, the
+            # column bands and the N2 down-hop, never by ``J``.
+            return self._unit_field(space, cache)
         if cache is None:
             return self._grid.metric(space, name, params=self._params)
         key = (space, name)
@@ -828,6 +920,37 @@ class MappedPressureSolver:
         if field is None:
             field = self._grid.metric(
                 space, name, params=self._params)
+            cache[key] = field
+        return field
+
+    def _unit_field(self, space: SpaceLike,
+                    cache: MetricCache | None = None) -> ScalarField:
+        """Return the constant-one metric of the identity column.
+
+        Memoized in the per-solve metric cache under a single key
+        (every identity metric on a space is the same field).
+
+        Parameters
+        ----------
+        space : SpaceLike
+            The querying (staggered) space.
+        cache : MetricCache | None, optional
+            The per-solve memo; None builds without memoizing
+            (default: None).
+
+        Returns
+        -------
+        ScalarField
+            A field of ones on ``space``.
+        """
+        key = (space, "identity")
+        if cache is not None:
+            field = cache.get(key)
+            if field is not None:
+                return field
+        template = self._grid.create_field(space)
+        field = template.with_data(jnp.ones_like(template.data))
+        if cache is not None:
             cache[key] = field
         return field
 
