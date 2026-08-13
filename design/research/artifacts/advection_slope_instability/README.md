@@ -130,3 +130,59 @@ stack rather than a contained change.
 Recorded runs are kept beside the scripts as `.txt` (`spectrum.txt`,
 `stability_run.txt`, `steep_probe.txt`); `steep_probe.txt` is truncated
 after the two n=32 cases, which are the ones the conclusion rests on.
+
+## Adjudication: why the nodal path had to adopt the flux form (2026-08-14)
+
+Giving the nodal path the J-weighted flux form made its mapped tendency
+coincide with the FV one to round-off (6e-17 relative), which broke
+`test_fv_mapped_tracer_conserves_and_nodal_does_not` — a test asserting
+that terrain conservation is an FV-only property. `projection_compatibility.py`
+(output in `projection_compatibility.txt`) settles whether the two
+spellings were ever interchangeable. They were not.
+
+A tracer's flux divergence has to be the **same discrete operator the
+pressure projection drives to zero**, or a discretely non-divergent
+velocity injects a spurious source into every constant field.
+`tau(b == 1)` is exactly `-Div_adv(v)`, so it compares directly against
+`MappedPressureSolver.divergence`:
+
+| measurement | product rule (pre-fix) | flux form (post-fix) |
+|---|---|---|
+| `\|Div_adv - Div_proj\|` interior, n=16/32/64 | 1.20e-2, 3.09e-3, 7.95e-4 (`O(h^2)`) | 4.0e-15, 6.7e-15, 1.7e-14 |
+| same, sloping-lid row | 10.4, 21.5, 43.4 (`O(1/h)`, **diverging**) | 1.3e-14, 7.6e-14, 2.5e-13 |
+| `\|tau(b == 1)\|`, projected velocity, n=16/32 | **13.0, 30.8** | 1.2e-7, 3.7e-7 (the CG residual) |
+| `\|tau(b == 1)\|`, uniform `u`, interior | 1.0e-16 | 5.1e-16 |
+
+So the product-rule spelling was not a second consistent discretization
+of the same operator; it was a *different* operator from the model's own
+continuity — `O(h^2)` different in the interior and inconsistent at the
+wall — and the constant-tracer source it injected under the projection
+grew with resolution.
+
+The last row is what the change did **not** cost: free-stream
+preservation for a constant flux stays exact. The coupled-axis term of
+the flux form is `(q/J)[D_i(J) - D_b(Z_i)]`, zero only under the discrete
+metric identity, and the identity holds here because `grid.metric`
+derives a parameter field's slope through the registry `diff` rows rather
+than analytically. (Only the parameter-declared form
+`maps={"zp": lambda z, H: z * H}, params={"H": ...}` produces a mapped
+column at all — an analytic `maps={"zp": lambda x, z: ...}` yields empty
+`column_corrections` and never reaches this path.)
+
+The sloping-lid entry of the last row is deliberately *not* small: with
+`w = 0` a uniform `u` drives `Omega = -Z_x u != 0` through the rigid lid,
+and `Div_proj` reports the same 1.22, 2.53, 5.11 there. That is also why
+`test_mapped_transport_converges_at_second_order` now measures the
+interior rows: its manufactured state is that same inadmissible one, and
+before the fix its full-domain assertion passed **because** the scheme had
+no wall closure (top-row error 1.43e-2, 3.75e-3, 9.54e-4 against a
+reference that flows through the lid). The interior numbers are unchanged
+by the fix to three digits (1.3362e-2 -> 1.3426e-2, 3.6337e-3 ->
+3.6383e-3, 9.3861e-4 -> 9.3891e-4).
+
+Conclusion: the collapse onto the FV numbers is the *design* — "at 2nd
+order the FV and nodal C-grid stencils are the same numbers ... the
+switch is, numerically, a retag"
+([`fv_nonhydro_scoping.md`](../../../plans/active/fv_nonhydro_scoping.md)
+§1, extended to mapped grids in §13) — and the mapped tracer divergence
+was the one place that property failed. Recorded as §13 addendum 3.
