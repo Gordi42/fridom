@@ -504,3 +504,139 @@ def test_stretched_terrain_solve_grad_matches_fd():
     fd = float((loss(w0 + h) - loss(w0 - h)) / (2 * h))
     assert bool(jnp.isfinite(grad))
     assert abs(grad - fd) <= 1e-4 * abs(fd)
+
+
+# ================================================================
+#  A1: the degenerate identity column (a stretched mesh, no map)
+# ================================================================
+def build_identity_grid(nz=N, stretch_fn=stretch):
+    """Build the same stretched grid with **no** coordinate mapping."""
+    mx = IntervalMesh(N, (0.0, 2 * np.pi), periodic=True, name="x")
+    ms = MappedIntervalMesh(nz, (0.0, 1.0), stretch_fn, periodic=False,
+                            name="sigma")
+    grid = Grid((mx, ms))
+    grid.merge_overrides(fv_cgrid_overrides(grid.factors))
+    return grid, mx, ms
+
+
+def build_identity_solver(nz=N, **kwargs):
+    """Build a solver on the unmapped stretched grid (identity column)."""
+    grid, mx, ms = build_identity_grid(nz)
+    kwargs.setdefault("iterations", 80)
+    kwargs.setdefault("weights", {"sigma": 1.0 / DSQR})
+    kwargs.setdefault("preconditioner", "none")
+    solver = MappedPressureSolver(grid, mx.cell_avg * ms.cell_avg,
+                                  **kwargs)
+    return solver, grid, mx, ms
+
+
+def test_identity_column_is_discovered_from_the_stretched_mesh():
+    # no mapping at all, so no column_corrections: the stretched mesh
+    # factor names the base and the map is the identity (mapped == base)
+    solver, *_ = build_identity_solver()
+    assert solver._identity_column is True
+    assert solver._stretched_base is True
+    assert solver.base == "sigma"
+    assert solver.mapped == "sigma"
+    assert solver.coupled == ()
+
+
+def test_identity_column_metrics_are_one():
+    # the whole stretch lives in grid.measure, so J = dm/db == 1 and its
+    # inverse likewise -- on every staggered space the operator queries
+    solver, _grid, mx, ms = build_identity_solver()
+    for space in (mx.cell_avg * ms.cell_avg,
+                  solver._face["sigma"], solver._face["x"]):
+        j = solver._metric(space, "anything")
+        assert np.allclose(np.asarray(j.data), 1.0)
+
+
+def test_identity_column_operator_is_exactly_symmetric():
+    # the N2 measure-adjoint down-hop is what a stretched column needs;
+    # with no coupled axis the operator must still be SPD in CG's
+    # physical measure-weighted inner product
+    solver, grid, *_ = build_identity_solver()
+    a = grid.random.normal(solver._space, seed=3)
+    b = grid.random.normal(solver._space, seed=4)
+    left = dot(solver.apply(a), b)
+    right = dot(a, solver.apply(b))
+    assert abs(left - right) <= 1e-12 * max(abs(left), 1.0)
+
+
+@pytest.mark.parametrize("preconditioner", ["none", "multigrid"])
+def test_identity_column_matches_the_declared_identity_map(
+        preconditioner):
+    # the reference: the same grid with an explicit dummy map zp = sigma
+    # declared, which routes through the ordinary (metric-derived)
+    # mapped solve. The two must agree to round-off -- the identity
+    # column is a shortcut, not a different operator.
+    mx = IntervalMesh(N, (0.0, 2 * np.pi), periodic=True, name="x")
+    ms = MappedIntervalMesh(N, (0.0, 1.0), stretch, periodic=False,
+                            name="sigma")
+    mapped_grid = Grid((mx, ms), mapping=CoordinateMapping(
+        maps={"zp": lambda sigma: sigma}))
+    mapped_grid.merge_overrides(fv_cgrid_overrides(mapped_grid.factors))
+    bare_grid = Grid((mx, ms))
+    bare_grid.merge_overrides(fv_cgrid_overrides(bare_grid.factors))
+    space = cell_space(mx, ms)
+    kwargs = {"iterations": 200, "tolerance": 1e-12,
+              "weights": {"sigma": 1.0 / DSQR},
+              "preconditioner": preconditioner}
+    reference = MappedPressureSolver(mapped_grid, space, **kwargs)
+    solver = MappedPressureSolver(bare_grid, space, **kwargs)
+
+    def rhs_of(g):
+        field = g.create_field(
+            space, init=lambda x, sigma: jnp.exp(
+                -((x - 3.0) ** 2 + (sigma - 0.5) ** 2) * 3.0))
+        return field - _computational_mean(field)
+
+    want = np.asarray(reference.solve(rhs_of(mapped_grid)).data)
+    got = np.asarray(solver.solve(rhs_of(bare_grid)).data)
+    assert np.abs(want - got).max() <= 1e-12 * np.abs(want).max() + 1e-14
+
+
+def test_identity_column_needs_exactly_one_stretched_factor():
+    # a flat, unmapped grid is the spectral solve's business ...
+    mx = IntervalMesh(N, (0.0, 2 * np.pi), periodic=True, name="x")
+    mz = IntervalMesh(N, (0.0, 1.0), periodic=False, name="z")
+    flat = Grid((mx, mz))
+    with pytest.raises(ValueError,
+                       match="no mesh factor is stretched"):
+        MappedPressureSolver(flat, mx.cell_avg * mz.cell_avg,
+                             iterations=5, preconditioner="none")
+    # ... and two stretched factors are two columns, which the
+    # single-column solve does not serve
+    m2 = MappedIntervalMesh(N, (0.0, 1.0), stretch, periodic=False,
+                            name="x2")
+    ms = MappedIntervalMesh(N, (0.0, 1.0), stretch, periodic=False,
+                            name="sigma")
+    both = Grid((m2, ms))
+    with pytest.raises(NotImplementedError,
+                       match="exactly one mapped column"):
+        MappedPressureSolver(both, m2.cell_avg * ms.cell_avg,
+                             iterations=5, preconditioner="none")
+
+
+def test_identity_column_solve_grad_matches_fd():
+    # the differentiability invariant on the new route: jax.grad of a
+    # quadratic loss through a short plain-CG solve w.r.t. the column
+    # weight, finite and FD-matched (the constant-one metric must not
+    # break the guarded metric quotient of the correction)
+    solver_grid, mx, ms = build_identity_grid()
+    space = cell_space(mx, ms)
+    rhs = solver_grid.random.normal(space, seed=5)
+    rhs = rhs - _computational_mean(rhs)
+
+    def loss(w):
+        solver = MappedPressureSolver(
+            solver_grid, space, iterations=6, weights={"sigma": w},
+            preconditioner="none", tolerance=None)
+        return jnp.sum(solver.solve(rhs).data ** 2)
+
+    w0 = 1.0 / DSQR
+    grad = float(jax.grad(loss)(w0))
+    h = 1e-4
+    fd = float((loss(w0 + h) - loss(w0 - h)) / (2 * h))
+    assert bool(jnp.isfinite(grad))
+    assert abs(grad - fd) <= 1e-4 * abs(fd)

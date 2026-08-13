@@ -7,7 +7,14 @@ pressure projection, which is a CONSTRAINT stage rather than a
 the hole a model assembled without stratification would otherwise slip
 through. A re-reading stepper (``AdamBashforth``) is unaffected: the
 ramped model assembles and advances to finite values.
+
+Also the cheap (assembly-only) projection-routing guards: the auto
+preconditioner per route, the stretched-column routing predicate, and
+the taught error replacing the bare ``StopIteration`` a ``coords=``
+with no staggered velocity face used to raise. The model-level
+stretched runs live in the ``test_core_stretched`` shard.
 """
+import jax.numpy as jnp
 import numpy as np
 import pytest
 
@@ -15,6 +22,7 @@ import fridom as fr
 import fridom.nonhydro2 as nh
 from fridom.model import term_predicates as terms
 from fridom.model.time_steppers.adam_bashforth import AdamBashforth
+from fridom.nonhydro2.modules.core import _stretched_column
 from fridom.nonhydro2.params import ASPECT_RATIO
 
 N = 8
@@ -31,6 +39,29 @@ def _grid(*, periodic_y=True):
     mz = fr.spatial.meshes.IntervalMesh(N, (0.0, 2 * np.pi),
                                         periodic=True, name="z")
     return fr.spatial.Grid((mx, my, mz), device_ids=(0,))
+
+
+def _stretched_grid():
+    """Build the same grid with a stretched (mapped-mesh) vertical."""
+    mx = fr.spatial.meshes.IntervalMesh(N, (0.0, 2 * np.pi),
+                                        periodic=True, name="x")
+    my = fr.spatial.meshes.IntervalMesh(N, (0.0, 1.0),
+                                        periodic=True, name="y")
+    mz = fr.spatial.meshes.MappedIntervalMesh(
+        N, (0.0, 1.0),
+        lambda s: s + 0.15 * jnp.sin(2 * np.pi * s) / (2 * np.pi),
+        name="z")
+    return fr.spatial.Grid((mx, my, mz), device_ids=(0,))
+
+
+def _renamed_vertical_grid():
+    """Build a grid whose vertical mesh is named ``"s"``, not ``"z"``."""
+    mx = fr.spatial.meshes.IntervalMesh(N, (0.0, 2 * np.pi),
+                                        periodic=True, name="x")
+    my = fr.spatial.meshes.IntervalMesh(N, (0.0, 2 * np.pi),
+                                        periodic=True, name="y")
+    ms = fr.spatial.meshes.IntervalMesh(N, (0.0, 1.0), name="s")
+    return fr.spatial.Grid((mx, my, ms), device_ids=(0,))
 
 
 def _model(aspect_ratio, stepper, *, grid=None):
@@ -108,3 +139,52 @@ def test_ramped_aspect_ratio_advances_under_adam_bashforth():
     model.advance(4)
     for comp in ("u", "v", "w", "b"):
         assert np.all(np.isfinite(np.asarray(model.state[comp].data)))
+
+
+# ================================================================
+#  Projection routing (S4): the auto preconditioner and the
+#  stretched-column predicate
+# ================================================================
+def test_auto_preconditioner_resolves_per_route():
+    """None = auto: multigrid on a composed *or* stretched grid.
+
+    A stretched (``MappedIntervalMesh``) column carries no spectral
+    basis, so the separable spectral inverse rejects it at construction
+    (N1) — auto must not hand it one. An explicit string is honoured on
+    every route.
+    """
+    core = nh.Core()
+    assert core._resolved_preconditioner(composed=False) == "spectral"
+    assert core._resolved_preconditioner(composed=True) == "multigrid"
+    assert core._resolved_preconditioner(
+        composed=False, stretched=True) == "multigrid"
+    pinned = nh.Core(pressure_preconditioner="none")
+    assert pinned._resolved_preconditioner(
+        composed=True, stretched=True) == "none"
+
+
+def test_stretched_column_predicate_detects_a_mapped_mesh():
+    """The routing predicate keys on the mesh, not on the mapping."""
+    assert _stretched_column(_grid()) is False
+    assert _stretched_column(_stretched_grid()) is True
+
+
+def test_core_refuses_a_coordinate_with_no_staggered_face():
+    """A coords= naming a coordinate u/v/w do not stagger on.
+
+    The velocity trio is declared on ``x``, ``y``, ``z``, so a grid
+    whose vertical mesh is named ``"s"`` leaves ``"s"`` collocated in
+    every component and the projection has no divergence leg there.
+    Before the taught error this was a bare ``StopIteration`` out of
+    ``next()`` in :meth:`Core.bind`.
+    """
+    with pytest.raises(ValueError, match="no velocity component is "
+                       "staggered along 's'") as ex:
+        nh.Model(
+            grid=_renamed_vertical_grid(),
+            core=nh.Core(vertical="s", coords=("x", "y", "s")),
+            time_stepper=AdamBashforth(DT, order=3),
+            coriolis=nh.FPlaneCoriolis(f0=F0),
+            buoyancy=nh.ConstantStratification(n2=N2),
+            advection=False)
+    assert "coords=('x', 'y', 's')" in str(ex.value)
