@@ -128,3 +128,42 @@ def test_cleared_of_a_dimensional_record_stays_dimensional():
     md = FieldMetadata.create(name="u", units="m/s")
     assert md.cleared().nondimensional is False
     assert md.cleared().replace(units="1/s").units == "1/s"
+
+
+def test_merged_of_equal_records_returns_self():
+    md = FieldMetadata.create(name="u", units="m/s")
+    twin = FieldMetadata.create(name="u", units="m/s")
+    assert md.merged(twin) is md
+
+
+def test_merged_keeps_agreed_slots_and_drops_conflicts():
+    u = FieldMetadata.create(
+        name="u", long_name="Zonal velocity", units="m/s",
+        nc_attrs={"axis": "X"})
+    v = FieldMetadata.create(
+        name="v", long_name="Meridional velocity", units="m/s",
+        nc_attrs={"axis": "X"})
+    merged = u.merged(v)
+    assert merged.physical_units == "m/s"
+    assert merged.nc_attrs == (("axis", "X"),)
+    assert merged.name == "unnamed"
+    assert merged.long_name == "Unnamed"
+
+
+def test_merged_of_conflicting_units_falls_back_to_unknown():
+    u = FieldMetadata.create(name="u", units="m/s")
+    b = FieldMetadata.create(name="b", units="m/s^2")
+    assert u.merged(b) == FieldMetadata()
+
+
+def test_merged_takes_the_scaling_frame_from_the_left():
+    # nondimensional is not identity: it comes from self, exactly as
+    # in cleared(), so a mixed pair cannot invent a frame
+    nondim = FieldMetadata.create(
+        name="u", units="m/s", nondimensional=True)
+    dimensional = FieldMetadata.create(name="q", units="m/s")
+    assert nondim.merged(dimensional).nondimensional is True
+    assert dimensional.merged(nondim).nondimensional is False
+    # the agreed physical unit survives; the rendering follows self
+    assert nondim.merged(dimensional).units == "1"
+    assert dimensional.merged(nondim).units == "m/s"

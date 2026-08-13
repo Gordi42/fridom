@@ -251,7 +251,8 @@ def test_coefficient_space_linear_ops_are_elementwise(grid1d, mx):
 
 def test_neg_pos(f):
     assert jnp.array_equal((-f).data, -f.data)
-    assert (-f).metadata == FieldMetadata()
+    # unit-preserving: -u is still a velocity (see the class doc)
+    assert (-f).metadata is f.metadata
     assert +f is f
 
 
@@ -1337,21 +1338,16 @@ def test_new_quantity_is_the_counterpart_of_with_data(f):
 
 
 # ================================================================
-#  The scaling frame rides through the algebra
+#  Metadata through the algebra (identity, and the scaling frame)
 # ================================================================
 @pytest.mark.parametrize("combine", [
-    pytest.param(lambda a, b: a + b, id="add"),
-    pytest.param(lambda a, b: a - b, id="sub"),
     pytest.param(lambda a, b: a * b, id="mul"),
     pytest.param(lambda a, b: a / b, id="div"),
-    pytest.param(lambda a, _: a + 2.0, id="scalar-shift"),
-    pytest.param(lambda a, _: 2.0 * a, id="scalar-scale"),
     pytest.param(lambda a, _: a ** 2, id="power"),
     pytest.param(lambda a, _: abs(a), id="abs"),
-    pytest.param(lambda a, _: -a, id="neg"),
     pytest.param(lambda a, _: a.diff("x"), id="diff"),
 ])
-def test_value_computing_ops_keep_the_scaling_frame(f, combine):
+def test_dimension_changing_ops_clear_the_identity(f, combine):
     # the identity is dropped (u*b is neither a velocity nor a
     # buoyancy) but the value system is not: the result of
     # arithmetic on nondimensionalized values is nondimensionalized
@@ -1360,11 +1356,67 @@ def test_value_computing_ops_keep_the_scaling_frame(f, combine):
     other = nondim.with_metadata(name="q") + 1.0
     result = combine(nondim, other)
     assert result.metadata.name == "unnamed"
+    assert result.metadata.long_name == "Unnamed"
     assert result.metadata.physical_units == "unknown"
     assert result.metadata.nondimensional is True
     # so a derived quantity re-declaring here renders correctly
     # without its declaration site mentioning the scaling
     assert result.with_metadata(units="1/s").metadata.units == "1"
+
+
+@pytest.mark.parametrize("combine", [
+    pytest.param(lambda a: a + 2.0, id="scalar-shift"),
+    pytest.param(lambda a: 2.0 - a, id="scalar-rshift"),
+    pytest.param(lambda a: 2.0 * a, id="scalar-scale"),
+    pytest.param(lambda a: a / 2.0, id="scalar-divide"),
+    pytest.param(lambda a: -a, id="neg"),
+    pytest.param(lambda a: +a, id="pos"),
+])
+def test_unit_preserving_ops_keep_the_identity(f, combine):
+    # scaling and shifting by a (dimensionless) Python scalar do not
+    # change the quantity, so a derived plot needs no relabelling
+    declared = f.with_metadata(
+        name="u", long_name="Velocity", units="m/s",
+        nc_attrs={"axis": "X"}, nondimensional=True)
+    result = combine(declared)
+    assert result.metadata is declared.metadata
+
+
+def test_sum_keeps_the_slots_both_operands_agree_on(f, g):
+    u = f.with_metadata(name="u", long_name="Zonal velocity",
+                        units="m/s")
+    v = g.with_metadata(name="v", long_name="Meridional velocity",
+                        units="m/s")
+    total = u + v
+    # the unit survives the name conflict: adding two velocities
+    # yields a velocity, but it is neither u nor v
+    assert total.metadata.physical_units == "m/s"
+    assert total.metadata.name == "unnamed"
+    assert total.metadata.long_name == "Unnamed"
+
+
+def test_sum_drops_conflicting_units_rather_than_picking_a_side(f, g):
+    u = f.with_metadata(name="u", units="m/s")
+    b = g.with_metadata(name="b", units="m/s^2")
+    assert (u - b).metadata == FieldMetadata()
+
+
+def test_sum_of_one_quantity_keeps_the_whole_record(f):
+    u = f.with_metadata(name="u", long_name="Velocity", units="m/s")
+    # identical records come back identically, which keeps the
+    # componentwise re-attachment in VectorField on its cheap path
+    assert (u + u).metadata is u.metadata
+    assert (u + u.with_data(u.data * 2.0)).metadata is u.metadata
+
+
+def test_sum_across_spaces_keeps_the_agreed_record(grid, mx, my):
+    # the lift route (constant broadcast), not the storage-frame
+    # fast path — same rule
+    constant = grid.create_field(
+        mx.constant * my.constant, name="u", units="m/s")
+    nodal = grid.create_field(
+        mx.center * my.center, name="u", units="m/s")
+    assert (nodal + constant).metadata == nodal.metadata
 
 
 def test_value_computing_ops_keep_a_dimensional_frame(f, g):

@@ -642,12 +642,17 @@ def _keep_metadata(
 
     Description
     -----------
-    Bare ``ScalarField`` arithmetic returns default metadata (new
-    quantity); componentwise ops and the functional surface
+    Bare ``ScalarField`` arithmetic keeps only what it can justify
+    (see the ``ScalarField`` class doc: unit-preserving ops keep the
+    record, ``f + g`` keeps the agreed slots, dimension-changing ops
+    reset); componentwise ops and the functional surface
     (``map``/``replace``/``add``) re-attach each incumbent
-    component's metadata by key (2026-07-08 amendment). Under the
-    annotation-exempt aux rule this is no longer load-bearing for
-    the treedef — it keeps component annotation authoritative.
+    component's metadata by key unconditionally (2026-07-08
+    amendment), because a component's annotation is keyed structure
+    and must survive an op that the scalar rule cannot vouch for.
+    Under the annotation-exempt aux rule this is no longer
+    load-bearing for the treedef — it keeps component annotation
+    authoritative.
 
     Parameters
     ----------
