@@ -31,7 +31,12 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
-from fridom.io.streams import reject_walltime_trigger
+from fridom.io.streams import (
+    LEADING_COLUMNS,
+    check_columns,
+    coerce_scalar,
+    reject_walltime_trigger,
+)
 
 if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Callable, Mapping
@@ -39,7 +44,7 @@ if TYPE_CHECKING:  # pragma: no cover
     from fridom.io.triggers import Trigger
 
 # the two leading columns before the user's scalar expressions
-_LEADING = ("iteration", "time")
+_LEADING = LEADING_COLUMNS
 
 
 # ================================================================
@@ -78,16 +83,7 @@ class TimeSeries:
         trigger: Trigger,
     ) -> None:
         """Configure the columns; no file IO happens here."""
-        columns = dict(columns)
-        if not columns:
-            raise ValueError(
-                "TimeSeries needs at least one column (a named "
-                "(model_state) -> scalar callable)")
-        for name, function in columns.items():
-            if not callable(function):
-                raise TypeError(
-                    f"TimeSeries column {name!r} must be callable, "
-                    f"got {function!r}")
+        columns = check_columns(columns, owner="TimeSeries")
         self._path = Path(path)
         self._columns = columns
         self._trigger = trigger
@@ -227,27 +223,10 @@ class TimeSeries:
                 f"{existing} does not match the bound columns "
                 f"{list(self._header)} (schema mismatch on resume)")
 
-    def _scalar(self, value: Any, column: str) -> float:
-        """Coerce a column output to a Python float (scalar check).
-
-        A single-element value is a scalar: a plain number, a 0-d
-        jax/numpy scalar, or a reduced Field (framework reductions
-        leave a length-1 ConstantSpace axis, so shape ``(1,)`` counts).
-        """
-        candidate = value
-        if hasattr(value, "data") and hasattr(value, "shape"):
-            if int(np.prod(value.shape)) != 1:
-                raise ValueError(
-                    f"TimeSeries column {column!r} returned a field "
-                    f"of shape {tuple(value.shape)}, not a scalar; "
-                    "reduce it first (e.g. f.integrate() / f.mean())")
-            candidate = value.data
-        array = np.asarray(candidate)
-        if array.size != 1:
-            raise ValueError(
-                f"TimeSeries column {column!r} returned a value of "
-                f"shape {array.shape}, not a scalar")
-        return float(array.reshape(()))
+    @staticmethod
+    def _scalar(value: Any, column: str) -> float:
+        """Coerce a column output to a Python float (scalar check)."""
+        return coerce_scalar(value, column=column, owner="TimeSeries")
 
     def _require_bound(self) -> None:
         """Raise if used before bind."""
