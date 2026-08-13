@@ -12,16 +12,6 @@ import jax
 from lazypimp import setup
 
 # ================================================================
-#  JAX configuration
-# ================================================================
-# FRIDOM uses double precision by default. Users who prefer single
-# precision can disable x64 after importing fridom (see the jax
-# documentation on double precision). The compute platform (cpu/gpu/tpu)
-# is selected through JAX directly, e.g. via the JAX_PLATFORMS
-# environment variable.
-jax.config.update("jax_enable_x64", val=True)
-
-# ================================================================
 #  Disable lazy loading for type checking
 # ================================================================
 if TYPE_CHECKING:  # pragma: no cover
