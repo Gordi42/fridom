@@ -35,6 +35,7 @@ import math
 import os
 import threading
 import time
+import warnings
 from collections.abc import Mapping
 from functools import partial
 from typing import TYPE_CHECKING, Any, Final, NamedTuple, TypeVar
@@ -126,6 +127,32 @@ _DEFAULT_CHUNK: Final[int] = 256
 # so an exact-multiple target does not overshoot by a whole step
 # (04 section 6.3, amended V-S1).
 _TARGET_EPS: Final[float] = 1e-9
+
+
+def _lands_on_a_step(quotient: float) -> bool:
+    """
+    Whether a step-space target is a whole number of steps.
+
+    Description
+    -----------
+    ``quotient`` is the target expressed in steps (``runlen/|dt|``,
+    ``(end - t0)/dt``). The comparison is relative, so a long leg
+    whose quotient carries float noise in its last bits still counts
+    as exact; :data:`_TARGET_EPS` is the same tolerance the ceil snap
+    uses.
+
+    Parameters
+    ----------
+    quotient : float
+        The target in step space.
+
+    Returns
+    -------
+    bool
+        Whether the target lands on a step boundary.
+    """
+    return (abs(quotient - round(quotient))
+            <= _TARGET_EPS * max(1.0, abs(quotient)))
 
 
 def _run_target_seconds(value: object, *, name: str) -> float:
@@ -2649,6 +2676,18 @@ class Model:
         by ``steps = ceil((end - t0)/dt - eps)`` with the precondition
         ``(end - t0)*dt > 0``; ``runlen`` is an unsigned duration, the
         direction taken from the dt sign.
+
+        The reduction **warns** when the target is not a whole number
+        of steps. Rounding is unavoidable (the model only moves in
+        whole steps) — doing it *silently* is the defect: a sampling
+        loop of ``run(runlen=window)`` calls accumulates one
+        rounding per call, so the sample times drift away from the
+        model clock with nothing on screen to say so. A warning
+        rather than a ``RunTargetError`` because the ceil is a
+        defensible answer, not an impossible request: this method
+        raises only where no answer exists (an ambiguous target, a
+        zero duration, an unreachable ``end_time``) and computes
+        wherever one does. ``steps=`` is exact and never warns.
         """
         given = [steps is not None, runlen is not None,
                  end_time is not None]
@@ -2673,7 +2712,24 @@ class Model:
                 raise RunTargetError(
                     f"runlen= must be a nonzero duration; got "
                     f"{runlen!r}")
-            return max(1, math.ceil(runlen_s / abs(dt) - _TARGET_EPS))
+            quotient = runlen_s / abs(dt)
+            n_steps = max(1, math.ceil(quotient - _TARGET_EPS))
+            if not _lands_on_a_step(quotient):
+                realized = n_steps * abs(dt)
+                warnings.warn(
+                    f"run(runlen={runlen!r}) is not a whole number of "
+                    f"steps at dt={dt!r}: {runlen_s:.12g}/{abs(dt):.12g}"
+                    f" = {quotient:.12g} steps, rounded UP to "
+                    f"{n_steps}, so the leg advances {realized:.12g} "
+                    f"model seconds — {realized - runlen_s:.6g} more "
+                    "than asked. The overshoot ACCUMULATES when a "
+                    "sampling loop repeats the call, de-syncing the "
+                    "sample times from the model clock. Give a runlen "
+                    "that is an integer multiple of dt, choose "
+                    "dt = runlen/n, or pass steps= to state the count "
+                    "outright.",
+                    stacklevel=3)
+            return n_steps
         end_s = _run_target_seconds(end_time, name="end_time")
         t0 = float(self._carry.clock.time)
         delta = end_s - t0
@@ -2683,7 +2739,23 @@ class Model:
                 f"t0={t0} with dt={dt}: the precondition "
                 "(end - t0)*dt > 0 fails (flip fr.params.TIME_STEP "
                 "via update_parameters for a backward leg)")
-        return max(1, math.ceil(delta / dt - _TARGET_EPS))
+        quotient = delta / dt
+        n_steps = max(1, math.ceil(quotient - _TARGET_EPS))
+        if not _lands_on_a_step(quotient):
+            warnings.warn(
+                f"run(end_time={end_time!r}) does not land on a step "
+                f"boundary from t0={t0!r} at dt={dt!r}: "
+                f"({end_s:.12g} - {t0:.12g})/{dt:.12g} = "
+                f"{quotient:.12g} steps, rounded UP to {n_steps}, so "
+                f"the leg ends at {t0 + n_steps * dt:.12g} rather "
+                f"than {end_s:.12g}. Unlike runlen= the overshoot "
+                "does not accumulate (the target is absolute), but "
+                "the reported final time is not the one asked for. "
+                "Give an end_time on the step grid t0 + n*dt, choose "
+                "a dt that divides the interval, or pass steps= to "
+                "state the count outright.",
+                stacklevel=3)
+        return n_steps
 
     def run(
         self,
@@ -2721,10 +2793,13 @@ class Model:
         steps : int or None, optional
             Advance exactly this many steps (default: None).
         runlen : float or np.timedelta64 or None, optional
-            Advance this (unsigned) model-time duration (default:
-            None).
+            Advance this (unsigned) model-time duration, rounded UP
+            to a whole number of steps; a duration that is not an
+            integer multiple of ``dt`` warns (default: None).
         end_time : float or np.timedelta64 or None, optional
-            Advance until this absolute model time (default: None).
+            Advance until this absolute model time, rounded UP to a
+            whole number of steps; a target off the step grid
+            ``t0 + n*dt`` warns (default: None).
         outputs : tuple, optional
             Per-run output streams, added to the model's ``io=``
             (default: ()).
