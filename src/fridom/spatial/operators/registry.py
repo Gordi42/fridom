@@ -39,6 +39,7 @@ import functools
 from typing import TYPE_CHECKING, TypeAlias, final
 
 import fridom.framework as fr
+from fridom.spatial.bc import BC
 from fridom.spatial.meshes.mesh import Mesh
 from fridom.spatial.operators.base import (
     Composite,
@@ -75,6 +76,77 @@ ResolverKey: TypeAlias = "tuple[str, Mesh]"
 
 #: the reserved resolver kind of model D1.2 (grid-level only)
 _DECLARED_SPACE = "declared_space"
+
+#: the taught tail appended to a dispatch failure whose space carries a
+#: ``BC.ROBIN`` component (boundary_plan.md stage 2e)
+_ROBIN_HINT = (
+    "BC.ROBIN is structure-only: the kinds-only space key exists (a "
+    "Robin space carries fields and pointwise arithmetic), but no "
+    "operator row is registered for it on any kind and grid.sync has "
+    "no ghost fill for it, because the Robin closure u + alpha u' = g "
+    "is parameterized by dynamic data (alpha, g) that arrives with "
+    "the ('ghost_fill', space) path of boundary_plan.md stage 2e. Use "
+    "BC.DIRICHLET or BC.NEUMANN, or keep the Robin space as an "
+    "unoperated data tag until stage 2e lands.")
+
+
+def _robin_axes(space: SpaceLike) -> tuple[str, ...]:
+    """
+    Return the mesh axis names whose factor carries a Robin tag.
+
+    Description
+    -----------
+    The registry is the one funnel every operator *selection* passes
+    through, so it is where a ``BC.ROBIN`` space first fails for a
+    reason the user can act on. Without this the failure reads "no
+    operator registered for kind 'diff'", which names neither Robin
+    nor the stage that lands it.
+
+    Parameters
+    ----------
+    space : SpaceLike
+        The bare factor or product space the lookup failed on.
+
+    Returns
+    -------
+    tuple[str, ...]
+        The names carried by every Robin-tagged factor, in factor
+        order; empty when no factor is Robin-tagged.
+    """
+    factors = (space.factors if isinstance(space, TensorProductSpace)
+               else (space,))
+    names: list[str] = []
+    for factor in factors:
+        if BC.ROBIN in factor.bc.components:
+            names.extend(factor.mesh.names)
+    return tuple(names)
+
+
+def _dispatch_failure(kind: str, space: SpaceLike) -> DispatchError:
+    """
+    Build the "no entry" dispatch error, Robin-taught when it applies.
+
+    Parameters
+    ----------
+    kind : str
+        The dispatch kind that found no entry.
+    space : SpaceLike
+        The bare factor or product space the lookup failed on.
+
+    Returns
+    -------
+    DispatchError
+        The error to raise at the caller.
+    """
+    message = f"no operator registered for kind {kind!r} on {space!r}"
+    axes = _robin_axes(space)
+    if axes:
+        label = "axes" if len(axes) > 1 else "axis"
+        named = ", ".join(repr(name) for name in axes)
+        message = (
+            f"{message}; the Robin tag on {label} {named} is why. "
+            f"{_ROBIN_HINT}")
+    return DispatchError(message)
 
 
 class DispatchError(KeyError):
@@ -349,9 +421,7 @@ class OperatorRegistry:
             return self._resolve_product(kind, bare)
         op = self._lookup_factor(kind, bare)
         if op is None:
-            raise DispatchError(
-                f"no operator registered for kind {kind!r} on "
-                f"{bare!r}")
+            raise _dispatch_failure(kind, bare)
         return op
 
     def merge(
@@ -475,9 +545,7 @@ class OperatorRegistry:
             entry = layer.get(kind)
             if entry is not None:
                 return _materialize(entry)
-        raise DispatchError(
-            f"no operator registered for kind {kind!r} on "
-            f"{product!r}")
+        raise _dispatch_failure(kind, product)
 
 
 # ================================================================

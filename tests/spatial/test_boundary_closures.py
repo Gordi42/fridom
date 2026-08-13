@@ -109,6 +109,40 @@ def test_robin_field_creation_and_arithmetic_work(grid, mesh):
     assert jnp.allclose(g.data, 3.0 * f.data)
 
 
+def test_robin_operator_selection_teaches_before_any_sync(grid, mesh):
+    # the failure a user reaches FIRST: selecting any operator on a
+    # Robin space. Before this it read "no operator registered for
+    # kind 'diff'", naming neither Robin nor the stage that lands it
+    space = mesh.nodal(NodeSet.CENTER, bc=BC.ROBIN)
+    f = grid.create_field(space, init=lambda y: y)
+    with pytest.raises(DispatchError) as excinfo:
+        f.diff("y")
+    message = str(excinfo.value)
+    assert "BC.ROBIN is structure-only" in message
+    assert "ghost_fill" in message
+    assert "BC.DIRICHLET" in message
+
+
+def test_robin_flux_form_is_not_a_way_around_the_missing_fill(grid, mesh):
+    # the sync message used to advertise "Robin derivatives are
+    # supported flux-form"; no flux_diff row is registered for a
+    # Robin space either, so the message no longer says so
+    space = mesh.nodal(NodeSet.CENTER, bc=BC.ROBIN)
+    with pytest.raises(DispatchError):
+        grid.dispatch.resolve("flux_diff", space)
+    f = grid.create_field(space, init=lambda y: y)
+    with pytest.raises(NotImplementedError) as excinfo:
+        grid.sync(f)
+    assert "flux-form derivative is not a way around" in str(excinfo.value)
+
+
+def test_robin_sync_error_names_the_offending_factor(grid, mesh):
+    space = mesh.nodal(NodeSet.CENTER, bc=(BC.ROBIN, BC.NEUMANN))
+    f = grid.create_field(space, init=lambda y: y)
+    with pytest.raises(NotImplementedError, match="ghost_fill"):
+        grid.sync(f)
+
+
 # ================================================================
 #  Wall-value semantics (owner decisions, walled-Sadourny work):
 #  tags are wall-value claims kept through products and linear

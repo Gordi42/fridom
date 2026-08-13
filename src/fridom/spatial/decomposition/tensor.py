@@ -1580,10 +1580,15 @@ def _ghost_slot(
         return k + 1, 1
     if kind is BC.ROBIN:
         raise NotImplementedError(
-            "Robin ghost fills are data-parameterized (alpha, g are "
-            "dynamic) and arrive with the ('ghost_fill', space) "
-            "data path — boundary_plan.md stage 2e; Robin "
-            "derivatives are supported flux-form")
+            f"no ghost fill for the Robin side of {factor!r}: Robin "
+            "fills are data-parameterized (alpha, g are dynamic) and "
+            "arrive with the ('ghost_fill', space) data path — "
+            "boundary_plan.md stage 2e. BC.ROBIN is structure-only "
+            "today: the space key exists and carries fields and "
+            "pointwise arithmetic, but no operator row is registered "
+            "for it on any kind either — including flux_diff, so a "
+            "flux-form derivative is not a way around this. Use "
+            "BC.DIRICHLET or BC.NEUMANN.")
     raise NotImplementedError(
         "the Neumann (even) fill is grounded for node sets whose "
         "nearest DOF is boundary-offset or on the boundary; got "
