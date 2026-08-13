@@ -116,16 +116,37 @@ the physical velocity fluxes :math:`F_i = v_i\,q`. The module
 assembles it per axis from the sketch-4.4 pieces at the module level
 (the flux spaces carry wall tags the registry-seeded
 ``physical_diff`` builder cannot hop across):
-``d/dx_i|_phys F_i = d_i F_i - (Z_i/J) interp(d_b F_i)`` on the
-coupled axes and ``(1/J) d_b F_b`` along the column, every metric
+``(1/J) d_i(J F_i) - (1/J) d_b(Z_i interp(F_i))`` on the coupled
+axes and ``(1/J) d_b F_b`` along the column, every metric
 coefficient derived through ``grid.metric`` **at application** with
 the CURRENT dynamic parameter fields threaded through ``params=``
 (the ``MovingGeometry`` state; static mapped grids keep the
-declaration defaults). This is consistent (2nd order) but not the
-J-weighted telescoping conservative form — the mapped pressure
-operator keeps that exactness where it is load-bearing (SPD). On a
-FLAT grid the divergence helper is literally the pre-C4 expression
-``flux.diff(axis).retag(q)`` — zero behavior change. The biased
+declaration defaults). That is the **J-weighted flux form** the
+mapped pressure operator and the FV divergence
+(:meth:`_FluxFormAdvection._mapped_fv_divergence`) already use. It
+is identical in the continuum to the product-rule spelling
+``d_i F_i - (Z_i/J) interp(d_b F_i)`` it replaced, and to it at
+second order in the interior — but **not** at a wall. The
+wall-normal velocity of a mapped column is the contravariant column
+flux :math:`\Omega = v_m - \sum_i Z_i v_i`, not the Cartesian
+:math:`v_m`; the flux form's two column terms close on the same
+structural wall zero, so the pair imposes the zero advective wall
+flux :math:`(\Omega\,q)|_{\rm wall} = 0` exactly, for any state.
+The product-rule spelling could not — its boundary value is an
+interpolation of an interior column difference — and the residual
+``O(1/h)`` term it left in the boundary-adjacent row made advection
+on a sloping wall unconditionally unstable
+(:meth:`_FluxFormAdvection._mapped_nodal_cross`;
+``design/research/artifacts/advection_slope_instability/``). The
+price is that the boundary row drops from 2nd to 1st order (the
+interior keeps its 2nd) — the standard cost of a structurally exact
+wall closure, and the same closure the FV divergence already
+carries. On a FLAT grid the divergence helper is literally
+the pre-C4 expression ``flux.diff(axis).retag(q)`` — zero behavior
+change; so is an uncoupled axis on a mapped grid (``J`` does not
+depend on it).
+
+The biased
 schemes (``UpwindAdvection``/``WENOAdvection``) reject mapped
 geometry at bind with a taught error — **both** surfaces: a mapped
 column (``CoordinateMapping``) and a stretched mesh factor
@@ -205,7 +226,10 @@ flux through a wall face carries the wall-normal velocity as a
 factor, and that value is an exact zero by impermeability (the
 wall-normal velocity lives on the interior ``Inner`` faces with the
 Dirichlet wall tag; the wall face is a boundary condition, not a
-DOF). The wall-specific work is pure bookkeeping: along a walled
+DOF). **On a mapped column that wall-normal velocity is the
+contravariant column flux** :math:`\Omega = v_m - \sum_i Z_i v_i`,
+not the Cartesian :math:`v_m` — the mapped paragraph above, and the
+whole of A0. The wall-specific work is pure bookkeeping: along a walled
 axis the flux space adopts the wall-normal velocity's Dirichlet tag
 (a BC-sibling substitution), so the flux divergence closes with the
 exact-zero wall flux, and the divergence is retagged back onto the
@@ -496,13 +520,17 @@ def _safe_ratio(
     num: ScalarField, den: ScalarField,
 ) -> ScalarField:
     r"""
-    VJP-sealed metric ratio ``num / den`` (the slope factor Z_i / J).
+    VJP-sealed metric ratio ``num / den`` (a slope factor Z_i / J).
 
     Description
     -----------
-    The coupled-axis slope coefficient of the nodal mapped divergence
-    (:meth:`_FluxFormAdvection._flux_divergence`) divides two metric
-    fields sharing a space. On a bounded (terrain) axis the denominator
+    A metric quotient of two fields sharing a space — today the
+    surface-flux top-cell width
+    (:meth:`_FluxFormAdvection._surface_correction`); until A0 also the
+    coupled-axis slope coefficient of the nodal mapped divergence,
+    which the J-weighted flux form no longer needs (it multiplies by
+    the ``d<base>_d<mapped>`` metric instead of dividing). On a bounded
+    (terrain) axis the denominator
     ``J = d<mapped>_d<base>`` is strictly positive on every valid cell
     but zero-filled in the never-valid storage padding, where the raw
     quotient is a masked singularity: the forward ``0/0`` is discarded
@@ -2948,12 +2976,15 @@ class _FluxFormAdvection(fr.model.Module):
 
         - ``axis == b``: ``(1/J) d_b F_b`` — the derivative along
           the column's physical image;
-        - coupled ``axis``: ``d_i F_i - (Z_i/J) interp(d_b F_i)``,
-          the correction interpolated onto the main term's
-          staggering (BC-sibling hops resolved through the
-          registry, wall tags re-adopted by ``retag``);
+        - coupled ``axis``: ``(1/J) [d_i(J F_i) - d_b(Z_i I_b(F_i))]``,
+          the J-weighted flux form (A0), its cross column difference
+          built by :meth:`_mapped_nodal_cross` (BC-sibling hops
+          resolved through the registry, wall tags re-adopted by
+          ``retag``);
         - uncoupled ``axis``: the plain computational derivative
-          (the physical and computational derivatives agree).
+          (the map does not depend on this axis, so neither does
+          ``J``, and the physical and computational derivatives
+          agree).
 
         Every metric derives via ``grid.metric`` at application with
         the current ``params`` — nothing cached (rules 2.3/3.8).
@@ -3015,37 +3046,131 @@ class _FluxFormAdvection(fr.model.Module):
             return flux.diff(axis).retag(q)
         mapped, base = self._column
         grid = q.grid
-        div = flux.diff(axis)
         if axis == base:
+            div = flux.diff(axis)
             inv_j = grid.metric(
                 div.function_space, f"d{base}_d{mapped}",
                 params=params)
             return (div * inv_j).retag(q)
         if axis not in self._corrections:
-            return div.retag(q)
-        dcol = flux.diff(base)
-        space = dcol.function_space
-        slope = grid.metric(space, f"d{mapped}_d{axis}", params=params)
-        jac = grid.metric(space, f"d{mapped}_d{base}", params=params)
-        coeff = _safe_ratio(slope, jac)
-        corr = coeff * dcol
+            # uncoupled: the map does not depend on this axis, so J
+            # does not either and the J-weighted form folds back to
+            # the plain computational derivative (bitwise unchanged)
+            return flux.diff(axis).retag(q)
+        # coupled axis, J-weighted flux form (A0):
+        # (1/J) [D_i(J F_i) - D_b(Z_i I_b(F_i))]
+        jac = grid.metric(
+            flux.function_space, f"d{mapped}_d{base}", params=params)
+        div = (flux * jac).diff(axis)
+        div = div - self._mapped_nodal_cross(flux, div, axis, params)
+        inv_j = grid.metric(
+            div.function_space, f"d{base}_d{mapped}", params=params)
+        return (div * inv_j).retag(q)
+
+    def _mapped_nodal_cross(
+        self,
+        flux: ScalarField,
+        div: ScalarField,
+        axis: str,
+        params: dict | None,
+    ) -> ScalarField:
+        r"""
+        Cross column flux difference ``D_b(Z_i I_b(F_i))``, nodal.
+
+        Description
+        -----------
+        The nodal twin of :meth:`_mapped_fv_cross` (A0): hop the
+        ``axis``-flux ``F_i`` along the column onto the cell corners,
+        contract with the corner slope ``Z_i = dm/dx_i``, hop along
+        ``axis`` onto the divergence's staggering, and take the
+        **column difference** of that cross flux.
+
+        Taking the difference of ``Z_i I_b(F_i)`` — rather than the
+        algebraically equivalent product-rule term
+        ``(Z_i/J) I_b(D_b F_i)`` — is what makes the boundary row
+        right on a terrain-following column. The wall-normal velocity
+        of a mapped column is the CONTRAVARIANT column flux
+        ``Omega = v_m - sum_i Z_i v_i``, not the Cartesian ``v_m``:
+        at a sloping wall ``v_m = sum_i Z_i v_i != 0``. The
+        ``axis == base`` branch closes its own flux with the
+        wall-normal velocity's Dirichlet zero (``v_m|_wall := 0``) and
+        this term closes the cross flux with the SAME structural zero
+        (``Z_i I_b(F_i)|_wall := 0``), so the two boundary terms cancel
+        and the column flux the pair actually imposes at the wall is
+        ``(Omega q)|_wall = 0`` — impermeability, exactly.  The
+        product-rule spelling cannot cancel: its boundary value is an
+        interpolation of an interior column difference, so it leaves
+        the wall flux ``Z_i F_i|_wall`` unbalanced, an ``O(1/h)``
+        (inconsistent) term in the boundary-adjacent row whose
+        momentum feedback grows like ``slope * U / (J dz)`` — the
+        unconditional sloping-wall instability. Both spellings agree
+        to second order in the interior and on a periodic column.
+
+        Parameters
+        ----------
+        flux : ScalarField
+            The ``axis``-face flux ``F_i``.
+        div : ScalarField
+            The main term ``D_i(J F_i)`` (the target staggering).
+        axis : str
+            The coupled axis.
+        params : dict | None
+            The dynamic mapping-parameter fields.
+
+        Returns
+        -------
+        ScalarField
+            The cross column flux difference, on ``div``'s space.
+        """
+        mapped, base = self._column
+        grid = flux.grid
         registry = grid.dispatch
-        for name in (base, axis):
-            src = corr.function_space.bare.factor(name)
-            dst = div.function_space.bare.factor(name)
-            if src is dst or _bc_siblings(src, dst):
-                continue
-            # family-aware staggering hop (stage F5): the FV velocity
-            # is cell-averaged transversely (Right(x) (x) CellAvg(y) (x)
-            # CellAvg(z)), so the column correction lands on a nodal
-            # face (Inner(z)) that must reduce back onto the *average*
-            # cell CellAvg(z) — the "average" reconstruction, not the
-            # nodal "interpolate" (-> Center). A nodal-Center target
-            # keeps "interpolate" (bitwise unchanged).
-            kind = ("average" if isinstance(dst, AverageSpace)
-                    else "interpolate")
-            corr = registry.resolve(kind, src)[name](corr)
-        return (div - corr.retag(div)).retag(q)
+        # up/down hop along the column onto the cell corners (the
+        # same spelling as _mapped_fv_cross: the reconstruction of a
+        # factor toggles it onto the opposite node set)
+        corner = registry.resolve(
+            "interpolate", flux.function_space.bare.factor(base),
+        )[base](flux)
+        slope = grid.metric(
+            corner.function_space, f"d{mapped}_d{axis}", params=params)
+        cross = corner * slope
+        # hop along `axis` onto the main term's staggering
+        cross = self._stagger(
+            cross, axis, div.function_space.bare.factor(axis))
+        # claim the zero wall cross flux before the column difference:
+        # the reconstruction lands the cross flux on the interior
+        # column faces with no BC of its own, and the wall face is the
+        # structural zero of impermeability (docstring above), which
+        # is exactly the wall-normal velocity's Dirichlet tag the
+        # `axis == base` flux carries. On a periodic column the corner
+        # is a wrapping `Right` face and the retag never fires.
+        column = cross.function_space.bare.factor(base)
+        if (isinstance(column, NodalSpace)
+                and column.node_set is NodeSet.INNER
+                and column.bc.is_free):
+            cross = cross.retag(cross.function_space.replace(
+                **{base: column.mesh.nodal(
+                    NodeSet.INNER, bc=BC.DIRICHLET)}))
+        return cross.diff(base).retag(div)
+
+    @staticmethod
+    def _stagger(
+        field: ScalarField, name: str, dst: object,
+    ) -> ScalarField:
+        """Hop ``field`` along ``name`` onto the ``dst`` factor."""
+        src = field.function_space.bare.factor(name)
+        if src is dst or _bc_siblings(src, dst):
+            return field
+        # family-aware staggering hop (stage F5): the FV velocity is
+        # cell-averaged transversely (Right(x) (x) CellAvg(y) (x)
+        # CellAvg(z)), so a correction landing on a nodal face
+        # (Inner(z)) must reduce back onto the *average* cell
+        # CellAvg(z) — the "average" reconstruction, not the nodal
+        # "interpolate" (-> Center). A nodal-Center target keeps
+        # "interpolate".
+        kind = ("average" if isinstance(dst, AverageSpace)
+                else "interpolate")
+        return field.grid.dispatch.resolve(kind, src)[name](field)
 
     def _mapped_fv_divergence(
         self,

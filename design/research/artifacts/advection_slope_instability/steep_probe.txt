@@ -1,0 +1,17 @@
+n=32 dt=0.02 amp=0.4  (400 steps to t=8.0)
+  t=  1.00  |u|max = 6.652759e-01
+  t=  2.00  |u|max = 6.774907e-01
+  t=  3.00  |u|max = 7.149410e-01
+  t=  4.00  |u|max = 8.026617e-01
+  t=  5.00  |u|max = 9.175429e-01
+  t=  6.00  |u|max = 9.418498e-01
+  t=  7.00  |u|max = 4.082632e+00
+  t=  7.00  PanicError: the model panicked: non-finite values in the state (non-finite values detected a
+n=32 dt=0.005 amp=0.4  (1600 steps to t=8.0)
+  t=  1.00  |u|max = 6.435761e-01
+  t=  2.00  |u|max = 6.397331e-01
+  t=  3.00  |u|max = 6.356789e-01
+  t=  4.00  |u|max = 6.308354e-01
+  t=  5.00  |u|max = 6.312697e-01
+  t=  6.00  |u|max = 6.350180e-01
+  t=  7.00  |u|max = 6.320673e-01
