@@ -431,8 +431,10 @@ def step_chunk(                                                # 2.4
     cache; implementation rule + compilation-count regression test).
     ``lax.scan`` of the composed step; AOT ``lower().compile()``
     replaces the first-step compile-timing hack and reports peak
-    memory. Compiled lengths: {C, 1} (remainders via the lazily
-    compiled ``chunk(1)``)."""
+    memory. Compiled lengths: {C} u {2**k} — greedy C-chunks then a
+    BINARY remainder (descending powers of two), so a sub-C advance
+    costs popcount(steps) dispatches instead of one per step while
+    the compiled-length set stays bounded by log2(C) + 2."""
     ...
 ```
 

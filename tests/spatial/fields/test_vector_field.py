@@ -290,6 +290,29 @@ def test_scalar_arithmetic(vec):
     assert jnp.allclose((vec / 2.0)["u"].data, vec["u"].data / 2.0)
 
 
+def test_numpy_array_operand_raises_instead_of_degrading(vec):
+    # __array_ufunc__ = None: numpy defers instead of silently
+    # returning an object ndarray of per-element containers
+    arr = np.ones((8, 4))
+    for op in (
+        lambda: vec + arr, lambda: arr + vec,
+        lambda: vec - arr, lambda: arr - vec,
+        lambda: vec * arr, lambda: arr * vec,
+    ):
+        with pytest.raises(TypeError):
+            op()
+    with pytest.raises(TypeError, match="does not support ufuncs"):
+        np.sqrt(vec)
+
+
+def test_numpy_scalars_still_act_as_scalar_operands(vec):
+    for s in (np.float64(2.5), np.array(2.5)):
+        assert jnp.allclose((vec + s)["u"].data, vec["u"].data + 2.5)
+        assert jnp.allclose((s + vec)["u"].data, vec["u"].data + 2.5)
+        assert jnp.allclose((vec * s)["u"].data, 2.5 * vec["u"].data)
+        assert jnp.allclose((s * vec)["u"].data, 2.5 * vec["u"].data)
+
+
 def test_field_broadcast_product(vec, grid, mx, my):
     # one ScalarField broadcast against every component; each pair
     # follows the join, so the coefficient must live on constant

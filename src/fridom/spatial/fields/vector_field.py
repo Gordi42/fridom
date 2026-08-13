@@ -124,6 +124,13 @@ class VectorField:
             "vector fields have no truth value; compare component "
             "arrays explicitly via vec[name].data")
 
+    #: Opt OUT of numpy's ufunc protocol, for the same reason as
+    #: ``ScalarField.__array_ufunc__``: numpy would otherwise treat a
+    #: container as an opaque object scalar and silently return an
+    #: object ndarray from ``vec + ndarray``. ``None`` makes numpy
+    #: defer so Python raises ``TypeError`` at the mistake.
+    __array_ufunc__ = None
+
     # ================================================================
     #  Component access
     # ================================================================

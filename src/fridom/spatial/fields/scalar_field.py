@@ -146,6 +146,20 @@ class ScalarField:
             "fields have no truth value; compare arrays explicitly "
             "via f.data")
 
+    #: Opt OUT of numpy's ufunc protocol. Without it numpy treats a
+    #: field as an opaque object scalar, so ``f + ndarray`` broadcasts
+    #: elementwise and silently returns an **object ndarray** of
+    #: per-element fields instead of raising — the type loss then
+    #: surfaces far away (e.g. ``VectorField.replace`` reading
+    #: ``.metadata`` off an ndarray). ``None`` makes numpy return
+    #: NotImplemented, so Python raises ``TypeError`` at the mistake,
+    #: matching the ``jax.Array`` operand's behaviour. Array-shaped
+    #: operands must enter as fields; 0-d/scalar operands are
+    #: unaffected (they never reach numpy's dispatch: ``__add__`` and
+    #: friends accept them, and the reflected form falls back to
+    #: ``__radd__``).
+    __array_ufunc__ = None
+
     # ================================================================
     #  Properties
     # ================================================================

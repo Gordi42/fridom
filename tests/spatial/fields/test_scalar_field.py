@@ -314,6 +314,43 @@ def test_1d_array_is_not_a_scalar(f):
 
 
 # ================================================================
+#  numpy interop: __array_ufunc__ = None (no silent object arrays)
+# ================================================================
+def test_numpy_array_operand_raises_instead_of_degrading(f):
+    # without __array_ufunc__ = None numpy treats the field as an
+    # opaque object scalar and returns an OBJECT ndarray, so the type
+    # loss only surfaces much later (e.g. VectorField.replace reading
+    # .metadata off an ndarray)
+    arr = np.ones((8, 4))
+    for op in (
+        lambda: f + arr, lambda: arr + f,
+        lambda: f - arr, lambda: arr - f,
+        lambda: f * arr, lambda: arr * f,
+        lambda: f / arr, lambda: arr / f,
+    ):
+        with pytest.raises(TypeError):
+            op()
+
+
+def test_numpy_ufunc_on_a_field_raises(f):
+    with pytest.raises(TypeError, match="does not support ufuncs"):
+        np.sqrt(f)
+
+
+def test_numpy_scalars_still_act_as_scalar_operands(f):
+    # __array_ufunc__ = None must not break the 0-d/scalar operands:
+    # they never reach numpy's ufunc dispatch (__add__ accepts them,
+    # and the reflected form falls back to __radd__)
+    for s in (np.float64(2.5), np.array(2.5), np.int64(2)):
+        assert isinstance(f + s, ScalarField)
+        assert isinstance(s + f, ScalarField)
+        assert isinstance(f * s, ScalarField)
+        assert isinstance(s * f, ScalarField)
+        assert jnp.array_equal((f + s).data, f.data + float(s))
+        assert jnp.array_equal((s * f).data, float(s) * f.data)
+
+
+# ================================================================
 #  Products (dispatch seam and iteration-1 fallback)
 # ================================================================
 def test_mul_same_space_elementwise_fallback(f, g):
