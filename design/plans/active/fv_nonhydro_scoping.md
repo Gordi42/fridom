@@ -914,3 +914,60 @@ class as the hazards in
 roadmap follow-up, not part of this closure. [Update 2026-07-18:
 closed by `ee350bda` as the guarded `_divide_by_jacobian`; see
 [`differentiability_plan.md`](differentiability_plan.md).]
+
+### §13 addendum 3 — A0 retires the conservative/consistent split (2026-08-14)
+
+§13 item 2 recorded the J-weighted conservative mapped tracer form as
+"the genuinely new FV property on terrain", the nodal consistent form
+giving O(1) drift, and used exactly that to justify keeping the mapped
+auto-default nodal (item 3 — a decision the same-day addendum already
+retired). **That split is gone: the nodal mapped divergence was not a
+second discretization, it was a defect.**
+
+Defect A0
+([`../../research/example_authoring_defects.md`](../../research/example_authoring_defects.md))
+— advection unconditionally unstable at a sloping wall — root-caused to
+the product-rule spelling `D_i F_i - (Z_i/J) I_b(D_b F_i)` of the nodal
+coupled-axis term. Fixed in `fe123647` by giving the nodal path the same
+J-weighted flux form `(1/J)[D_i(J F_i) - D_b(Z_i I_b(F_i))]`, so both
+column terms close on the same structural wall zero and the pair imposes
+`(Omega q)|_wall = 0` for the contravariant column flux
+`Omega = v_m - sum_i Z_i v_i`.
+
+What that costs the ledger, and what it buys:
+
+- **§1's "the family switch is numerically a retag" now holds on mapped
+  grids too** — measured 6e-17 relative between the FV and nodal mapped
+  tracer tendencies, matching the bit-identical mapped *pressure*
+  operator §13 already reported. The mapped tracer divergence was the one
+  place the retag property failed.
+- **Terrain conservation `int(J q dx)` is shared**, not FV-only. The
+  assertion that pinned the opposite
+  (`test_fv_mapped_tracer_conserves_and_nodal_does_not`) is retired in
+  `44a38e03`; it is now
+  `test_mapped_tracer_conservation_is_shared_by_both_families`.
+- **The reason it had to change is compatibility, not conservation.**
+  Advection must use the divergence the projection drives to zero.
+  Measured against `MappedPressureSolver.divergence` on a smooth flow,
+  the product-rule form was a different operator: interior gap 1.20e-2,
+  3.09e-3, 7.95e-4 (`O(h^2)`) and wall-row gap 10.4, 21.5, 43.4
+  (`O(1/h)`, diverging) at n = 16, 32, 64. A projected velocity therefore
+  injected a spurious constant-tracer source of 13.0 (n=16) growing to
+  30.8 (n=32). Post-fix the two operators agree to 3e-15 and a constant
+  tracer is preserved at the CG residual.
+- **Nothing was traded away.** Free-stream preservation for a constant
+  flux stays exact (5e-16 interior) — `grid.metric` derives a parameter
+  field's slope through the registry `diff` rows, so the discrete metric
+  identity `D_i(J) = D_b(Z_i)` holds for the parameter-declared terrain
+  maps (the only declaration form that produces `column_corrections`).
+  The interior transport error is unchanged to three digits.
+
+**What still separates the families on terrain** is typing and
+composition, not arithmetic: the conserved quantity *is* the DOF on
+`CellAvg` (exact `integrate`, `representation="cell_mean"`), the immersed
+cross-flux open-fraction gate (`_mapped_fv_cross`, MI-D5) only composes
+with a cell-average control volume, and `family="nodal"` on any immersed
+grid is a taught error. The genuine numerical divergence between the
+families is still deferred to order > 2
+([`high_order_mapped_plan.md`](high_order_mapped_plan.md)), where both
+currently refuse mapped meshes.
