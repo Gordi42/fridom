@@ -45,6 +45,24 @@ if TYPE_CHECKING:  # pragma: no cover
 # Python scalars entering componentwise arithmetic
 _SCALAR_TYPES = int | float | complex
 
+#: bare names users reach for that name a *private storage slot*
+#: (``_fields``, ``_names``) already public under a clearer spelling.
+#: No alias is added for either: the container's storage is public
+#: three ways over, and the bare word would not say which one it
+#: means (see :meth:`VectorField.__getattr__`).
+_ATTRIBUTE_HINTS: dict[str, str] = {
+    "fields": (
+        "the components are already public three ways — .components "
+        "(a read-only name -> ScalarField mapping), .component_names "
+        "(the names in declaration order), and iteration "
+        "(tuple(vec)) yields the fields themselves. No .fields alias "
+        "exists because the bare word does not say which of the "
+        "three it means"),
+    "names": (
+        "did you mean .component_names? (the names in declaration "
+        "order; .components gives the name -> ScalarField mapping)"),
+}
+
 
 @partial(jaxify, dynamic=("_fields",))
 class VectorField:
@@ -149,6 +167,49 @@ class VectorField:
     def grid(self) -> Grid:
         """The common grid of all components."""
         return self._fields[0].grid
+
+    def __getattr__(self, name: str) -> object:
+        """
+        Raise an ``AttributeError`` that names the right spelling.
+
+        Description
+        -----------
+        ``model.state.fields`` is a natural reach — the storage slot
+        really is ``_fields`` — but the container is deliberately
+        not given a ``fields`` alias: the tuple is already public as
+        iteration, the mapping as :attr:`components` and the keys as
+        :attr:`component_names`, and a bare ``fields`` would not say
+        which of the three it returns. So the miss is taught rather
+        than aliased away.
+
+        Reached only after normal lookup has failed, and it touches
+        no instance state — so it can never recurse on the
+        ``object.__new__`` instance that ``tree_unflatten`` fills in,
+        and dunder/private probes (copy, pickle, jax, numpy) get the
+        bare miss.
+
+        Parameters
+        ----------
+        name : str
+            The attribute that was not found.
+
+        Returns
+        -------
+        object
+            Never returns; always raises.
+
+        Raises
+        ------
+        AttributeError
+            Always — with the remedy appended for a known reach.
+        """
+        plain = (f"{type(self).__name__!r} object has no attribute "
+                 f"{name!r}")
+        hint = None if name.startswith("_") else _ATTRIBUTE_HINTS.get(
+            name)
+        if hint is None:
+            raise AttributeError(plain)
+        raise AttributeError(f"{plain}; {hint}")
 
     def __getitem__(self, key: str | int) -> ScalarField:
         """

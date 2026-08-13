@@ -430,3 +430,53 @@ def test_xr_is_the_export_entry_point(vec):
     # tests/spatial/test_export.py)
     ds = vec.xr
     assert sorted(ds.data_vars) == ["u", "v"]
+
+
+# ================================================================
+#  Taught attribute misses (.fields is not aliased, it is taught)
+# ================================================================
+def test_fields_names_the_three_public_spellings(vec):
+    # the natural reach: the storage slot really is _fields
+    with pytest.raises(AttributeError) as excinfo:
+        vec.fields  # noqa: B018 — the miss IS the assertion
+    message = str(excinfo.value)
+    assert "'VectorField' object has no attribute 'fields'" in message
+    assert ".components" in message
+    assert ".component_names" in message
+    assert "tuple(vec)" in message
+    # and all three really do work
+    assert dict(vec.components) == {"u": vec["u"], "v": vec["v"]}
+    assert vec.component_names == ("u", "v")
+    assert tuple(vec) == (vec["u"], vec["v"])
+
+
+def test_names_points_at_component_names(vec):
+    with pytest.raises(AttributeError, match="component_names"):
+        vec.names  # noqa: B018 — the miss IS the assertion
+
+
+def test_an_unrelated_miss_stays_a_bare_attribute_error(vec):
+    with pytest.raises(AttributeError) as excinfo:
+        vec.w  # noqa: B018 — the miss IS the assertion
+    assert str(excinfo.value) == (
+        "'VectorField' object has no attribute 'w'")
+
+
+def test_private_probes_get_the_bare_miss(vec):
+    # copy/pickle/jax probe dunders; a hinted message there is noise
+    with pytest.raises(AttributeError) as excinfo:
+        vec.__deepcopy__  # noqa: B018 — the miss IS the assertion
+    assert "did you mean" not in str(excinfo.value)
+    assert not hasattr(vec, "_fields_")
+    # and the private slot itself is still readable (the storage seam)
+    assert vec._fields == (vec["u"], vec["v"])
+
+
+def test_the_taught_miss_survives_a_pytree_round_trip(vec):
+    # tree_unflatten builds via object.__new__; __getattr__ touches no
+    # instance state, so it must not recurse on the half-built object
+    leaves, treedef = jax.tree_util.tree_flatten(vec)
+    rebuilt = jax.tree_util.tree_unflatten(treedef, leaves)
+    assert rebuilt.component_names == ("u", "v")
+    with pytest.raises(AttributeError, match=r"\.components"):
+        rebuilt.fields  # noqa: B018 — the miss IS the assertion
