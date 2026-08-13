@@ -7,10 +7,10 @@ The shallow-water core owns the package-specific dotted parameter
 names — ``shallowwater.gravity`` / ``shallowwater.depth``
 (dimensional) and ``shallowwater.froude`` (nondimensional) — built
 with the framework's :class:`ParamName` class so they interoperate
-with ``fr.params.*`` in exactly the same way (the string spelling and
+with ``fr.model.params.*`` in exactly the same way (the string spelling and
 the constant hit one mapping key).
 The framework-owned names (``coriolis.f0`` / ``coriolis.beta`` /
-``scaling.nonlinearity`` / ``stepper.dt``) live in ``fr.params`` and are
+``scaling.nonlinearity`` / ``stepper.dt``) live in ``fr.model.params`` and are
 re-used verbatim (module-library sharing, D2.1).
 """
 from __future__ import annotations
@@ -53,7 +53,7 @@ FROUDE: Final[ParamName] = ParamName(
          "sw.Core(froude_number=...)")
 
 # ``scaling.nonlinearity`` is framework-canonical but owned (provided) by
-# sw.DynamicalCore; re-exported so recipes can spell sw.params.ROSSBY.
+# sw.Core; re-exported so recipes can spell sw.params.ROSSBY.
 ROSSBY: Final[ParamName] = SCALING_NONLINEARITY
 
 __all__ = [

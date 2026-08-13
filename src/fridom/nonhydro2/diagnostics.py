@@ -116,7 +116,7 @@ def epot(
     Description
     -----------
     The linearized (quadratic) potential energy consistent with the
-    energy metric weight ``1/N^2_eff`` on ``b`` (``fr.EnergyMetric``);
+    energy metric weight ``1/N^2_eff`` on ``b`` (``fr.model.EnergyMetric``);
     the effective ``N^2`` is assembled from the variant's primitives
     (:func:`_n2_eff`). The buoyancy is interpolated onto the pressure
     cell.
@@ -144,7 +144,7 @@ def etot(
             + \tfrac12 \frac{b^2}{N^2_\mathrm{eff}},
 
     i.e. the quadratic energy of the metric ``M`` that the eigenmode
-    and projection machinery norms with (``fr.EnergyMetric``), which
+    and projection machinery norms with (``fr.model.EnergyMetric``), which
     the linear model (``advection=False``) conserves. Both parts are
     sampled at the cell centre, so the integral is a centre-sampled
     proxy of the ``M``-norm rather than that norm to machine

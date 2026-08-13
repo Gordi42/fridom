@@ -4,7 +4,7 @@ Nonhydrostatic surface forcing: ``WindStress`` and ``SurfaceBuoyancyFlux``.
 Description
 -----------
 The model-package wrappers that own the oceanographic sign conventions
-(BF-D4), built on the generic ``fr.modules.BoundaryFlux`` machinery. The
+(BF-D4), built on the generic ``fr.model.modules.BoundaryFlux`` machinery. The
 generic module keeps the axis-direction flux convention (a positive flux
 transports the quantity in ``+coord``); these wrappers give users the
 physical signs — a positive wind stress accelerates the surface flow in
@@ -113,7 +113,7 @@ class WindStress(Module):
     ``TimeDependent``-capable), so ``model.update_parameters`` sweeps it
     without re-assembly and instances at opposite walls coexist. For a
     right/top wall the ``u`` term equals
-    ``fr.modules.BoundaryFlux("u", coord, side, flux=-tau_x)``.
+    ``fr.model.modules.BoundaryFlux("u", coord, side, flux=-tau_x)``.
 
     Parameters
     ----------
@@ -278,7 +278,7 @@ class SurfaceBuoyancyFlux(BoundaryFlux):
 
     Description
     -----------
-    A thin subclass of ``fr.modules.BoundaryFlux`` on the buoyancy
+    A thin subclass of ``fr.model.modules.BoundaryFlux`` on the buoyancy
     field: a positive ``q`` adds buoyancy to the wall-adjacent water (a
     surface *gain* — heating the top), the oceanographic convention
     (BF-D4). Internally the generic flux is ``sign(side) * q`` (``-q`` at

@@ -4,7 +4,7 @@ Nonhydrostatic eigenmode projections (``nh.transforms``, wave 7 C).
 Description
 -----------
 The Tier-1 vortical / wave / kelvin / divergence projections as
-composable ``fr.StateTransform``s, with **dual eigenmode backends**
+composable ``fr.model.StateTransform``s, with **dual eigenmode backends**
 routed on the eigenmodes object type:
 
 - the analytic operator-sourced ``nh.eigenmodes.Eigenmodes`` of the

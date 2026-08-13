@@ -2,7 +2,7 @@
 
 Description
 -----------
-The concrete ``fr.Module`` subclasses of the nonhydrostatic model:
+The concrete ``fr.model.Module`` subclasses of the nonhydrostatic model:
 the dynamical core (declarations + pressure projection), the Coriolis
 family, the buoyancy family (constant/meridional stratification and
 the bare buoyancy tracer), and centered advection. Volumetric forcing
@@ -45,7 +45,7 @@ all_modules_by_origin: dict[str, list[str]] = {}
 
 # The Coriolis family, the flux-form advection family (rehomed under
 # HY-D5), and the generic relaxation are the shared framework module
-# library (fr.modules), re-exported here so nh.modules.FPlaneCoriolis
+# library (fr.model.modules), re-exported here so nh.modules.FPlaneCoriolis
 # / nh.modules.CenteredAdvection / nh.modules.Relaxation keep working
 # after the consolidation.
 all_imports_by_origin = {

@@ -15,7 +15,7 @@ functionals — the user picks:
 
 - ``ekin`` / ``epot`` — the **linearized** (quadratic) energy
   densities of the energy metric ``M = diag(1, 1, 1/c^2)`` on
-  ``(u, v, p)`` (``fr.EnergyMetric``; a single source of truth for
+  ``(u, v, p)`` (``fr.model.EnergyMetric``; a single source of truth for
   the metric weights), sampled at the cell centre. ``M`` is the norm
   of the eigenmode / projection machinery, and the **linear** model
   (``advection=False``) conserves it exactly — but exactly means the
@@ -309,7 +309,7 @@ def pot_vort(
     .. note::
 
         The Rossby factor on :math:`\zeta` is the scaling delta from
-        the old-stack ``sw.State.pot_vort`` (which spelled the
+        the old-stack ``fridom.shallowwater.State.pot_vort`` (which spelled the
         unscaled :math:`(\zeta + f)/h`): the two agree at
         :math:`\mathrm{Ro} = 1`, but only the scaled form here is the
         model's material invariant (the old form drifts at
