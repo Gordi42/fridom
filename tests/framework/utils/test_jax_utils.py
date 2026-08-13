@@ -165,8 +165,8 @@ def test_object_eq_with_reference_cycle():
         pass
 
     # the recursion through the attributes only happens for classes
-    # from the fridom package
-    Dummy.__module__ = "fridom.test_dummy"
+    # of the root package
+    Dummy.__module__ = f"{jax_utils._ROOT_PACKAGE}.test_dummy"
 
     a, b = Dummy(), Dummy()
     a.ref = a
@@ -177,6 +177,35 @@ def test_object_eq_with_reference_cycle():
 def test_values_equal_fridom_objects_without_custom_eq():
     assert _values_equal(TimingComponent("a"), TimingComponent("a"))
     assert not _values_equal(TimingComponent("a"), TimingComponent("b"))
+
+
+def test_root_package_is_derived_from_the_module_name():
+    # the structural comparison of objects without a custom __eq__ is
+    # gated on the root package; deriving it from the module name keeps
+    # the gate correct if the package is ever renamed
+    assert jax_utils.__name__.partition(".")[0] == jax_utils._ROOT_PACKAGE
+    # and the derived name is the one the served classes live under
+    assert (TimingComponent.__module__.partition(".")[0]
+            == jax_utils._ROOT_PACKAGE)
+
+
+def test_values_equal_follows_the_root_package_constant(monkeypatch):
+    # a class of a hypothetical renamed root package
+    class Renamed:
+        def __init__(self, value):
+            self.value = value
+
+    Renamed.__module__ = "oceanmodel.utils.dummy"
+
+    first, second = Renamed(1), Renamed(1)
+    # outside the root package: compared by identity
+    assert not _values_equal(first, second)
+
+    # renaming the root package moves the very same class into the
+    # tree, and the structural comparison must follow along
+    monkeypatch.setattr(jax_utils, "_ROOT_PACKAGE", "oceanmodel")
+    assert _values_equal(first, second)
+    assert not _values_equal(Renamed(1), Renamed(2))
 
 
 def test_values_equal_with_raising_eq():
