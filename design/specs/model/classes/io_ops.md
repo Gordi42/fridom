@@ -25,7 +25,7 @@ internals the Session absorbs),
 
 Classes owned: the Trigger family + the plan-time lowering function,
 the `OutputStream` protocol, `fr.io.Writer`, `fr.io.TimeSeries`,
-`fr.io.Snapshots` + the snapshot store + `SnapshotManifest`,
+`fr.io.Series`, `fr.io.Snapshots` + the snapshot store + `SnapshotManifest`,
 `fr.io.resubmit`/`fr.slurm`, **`fr.ops.Session`**, the normative ops
 protocols (`WalltimeGuard`, `ProgressReporter`), and the reserved
 `PendingAdvance`. `AdvanceResult`/`RunResult`/`PanicError` and the
@@ -44,6 +44,7 @@ framework2/
         streams.py      # OutputStream protocol, binding helpers, IO errors
         writer.py       # Writer (zarr-append decomposed-slice sink, 2.6)
         timeseries.py   # TimeSeries (CSV sink, 2.6)
+        series.py       # Series (in-memory scalar sink, 2.6)
         snapshots.py    # Snapshots config, SnapshotManifest, store functions
         slurm.py        # fr.slurm helpers; resubmit
     ops/
@@ -248,8 +249,8 @@ The one interface D4 owns; 2.6 builds behind it (d4_3 §6).
 | Design refs | 04 §6.4 (protocol, binding split, IOCollisionError), 06 §8.4, d4_3 §6 |
 
 ```python
-"""The output-stream protocol: Writer, TimeSeries, future capture
-streams all implement it."""
+"""The output-stream protocol: Writer, TimeSeries, Series, future
+capture streams all implement it."""
 from __future__ import annotations
 
 from typing import Protocol, runtime_checkable
@@ -308,7 +309,8 @@ Semantics, invariants, error behavior:
   flushed CSV rows survive by construction).
 - Walltime-bearing triggers are rejected at `bind` on data streams
   (hinted error pointing at `Snapshots`).
-- **Implementers**: `Writer`, `TimeSeries` (below); designed-for 2.6:
+- **Implementers**: `Writer`, `TimeSeries`, `Series` (below);
+  designed-for 2.6:
   capture streams (in-trace evaluation of the same output callables
   under a traced trigger into scan outputs, flushed by the same
   sink) and post-assembly writer attach — both reachable with **no
@@ -502,6 +504,70 @@ Notes:
   tail keyed on the iteration column; the protocol pins that the
   sink *must* answer the call — the concrete strategy is a parked
   2.6 residual (see Open questions).
+
+---
+
+### `fr.io.Series`
+
+The same scalar rows, kept in memory instead of a file.
+
+| Aspect | Value |
+|--------|-------|
+| Kind | concrete, implements `OutputStream` |
+| Pytree | host object, not a pytree |
+| Task | 2.6 |
+| Design refs | 04 §6.4, d2_3 §5 (time series are a different *sink*, not a different contract), D2.3 |
+
+```python
+class Series:
+    """Trigger-driven scalar time series kept in memory."""
+
+    def __init__(                                              # 2.6
+        self,
+        columns: Mapping[str, Callable],
+        *,
+        trigger: Trigger,
+    ) -> None:
+        """Configure named scalar expressions; nothing evaluated."""
+        ...
+
+    # trigger / bind / write / truncate_after / close: the
+    # OutputStream protocol, same binding-split rules as TimeSeries.
+
+    # reading it back
+    columns: tuple[str, ...]
+    iteration: np.ndarray
+    time: np.ndarray
+    def to_dict(self) -> dict[str, np.ndarray]: ...
+    def __getitem__(self, name: str) -> np.ndarray: ...
+```
+
+Notes:
+
+- **Same columns, different sink.** `Series` and `TimeSeries` share
+  the column contract verbatim (`streams.check_columns`,
+  `streams.coerce_scalar`, `streams.LEADING_COLUMNS`), so a set of
+  columns moves between them unchanged. This is d2_3 R4's answer to
+  "make the diagnostics live" — the sink varies, the
+  `(model_state) -> Field | scalar` contract does not, and no
+  diagnostic-provider **module** is introduced.
+- **Store-less.** It exposes no `path`, so `Session._stream_path`
+  dedupes it by identity (the documented store-less branch). Two
+  `Series` on one run are independent; the same object twice
+  collapses to one.
+- **The rows are the output.** They are kept past `close()` — the
+  series is read *after* the run. This is not the time-integral
+  state CS-11 sends to the carry: a `Series` never feeds the model,
+  never restarts one, and holds no running sums; it holds its own
+  output exactly as the CSV file holds its rows. A firing whose
+  iteration repeats the last recorded one **replaces** that row, so
+  a sequence of `run()` calls (each of which re-fires its start
+  boundary) still yields a fork-free axis.
+- **Bounded runs only.** Retention is O(firings x columns) forever,
+  so a long production run wants `TimeSeries` (flushed per firing,
+  tail-able, survives an abort). The `Series` case is interactive,
+  notebook, and gallery work, where the series is wanted as data and
+  a file is friction.
 
 ---
 

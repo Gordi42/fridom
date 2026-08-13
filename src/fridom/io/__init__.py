@@ -6,8 +6,9 @@ Description
 Owning class spec: ``design/specs/model/classes/io_ops.md``.
 Wave 4 C adds the trigger factories (``fr.io.every`` / ``fr.io.at``),
 ``lower_trigger``, the stream protocol + IO errors, ``Snapshots`` +
-the snapshot store, and ``resubmit``; Wave 5 C adds ``Writer`` and
-``TimeSeries``.
+the snapshot store, and ``resubmit``; Wave 5 C adds ``Writer``,
+``TimeSeries`` (the CSV scalar sink) and ``Series`` (its in-memory
+twin).
 """
 from typing import TYPE_CHECKING
 
@@ -15,6 +16,7 @@ from lazypimp import setup
 
 if TYPE_CHECKING:  # pragma: no cover
     from . import slurm, snapshots, streams, triggers
+    from .series import Series
     from .slurm import resubmit
     from .snapshots import (
         LeafEntry,
@@ -54,6 +56,7 @@ all_imports_by_origin = {
     f"{base}.slurm": ["resubmit"],
     f"{base}.writer": ["Writer"],
     f"{base}.timeseries": ["TimeSeries"],
+    f"{base}.series": ["Series"],
 }
 
 setup(__name__, all_modules_by_origin, all_imports_by_origin)

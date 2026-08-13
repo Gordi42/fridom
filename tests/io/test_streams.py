@@ -1,11 +1,16 @@
-"""Tests for fridom.io.streams (protocol + errors)."""
+"""Tests for fridom.io.streams (protocol + errors + column helpers)."""
+import jax.numpy as jnp
+import numpy as np
 import pytest
 
 from fridom.io.snapshots import Snapshots
 from fridom.io.streams import (
+    LEADING_COLUMNS,
     IOCollisionError,
     OutputStream,
     SnapshotMismatchError,
+    check_columns,
+    coerce_scalar,
     dedupe_streams,
     reject_snapshots_config,
     reject_walltime_trigger,
@@ -147,3 +152,60 @@ def test_plain_streams_pass_the_snapshots_check():
 def test_error_types_are_exceptions():
     assert issubclass(IOCollisionError, Exception)
     assert issubclass(SnapshotMismatchError, Exception)
+
+
+# ================================================================
+#  The scalar-column helpers (shared by TimeSeries / Series)
+# ================================================================
+def test_leading_columns_are_the_two_coordinates():
+    assert LEADING_COLUMNS == ("iteration", "time")
+
+
+def test_check_columns_copies_and_preserves_order():
+    source = {"b": lambda _ms: 1.0, "a": lambda _ms: 2.0}
+    copied = check_columns(source, owner="Sink")
+    assert list(copied) == ["b", "a"]
+    assert copied is not source
+
+
+def test_check_columns_rejects_empty():
+    with pytest.raises(ValueError, match="Sink needs at least one"):
+        check_columns({}, owner="Sink")
+
+
+def test_check_columns_rejects_non_callable():
+    with pytest.raises(TypeError, match="Sink column 'a'"):
+        check_columns({"a": 3.0}, owner="Sink")
+
+
+@pytest.mark.parametrize(
+    "value",
+    [1.5, np.float64(1.5), np.asarray(1.5), jnp.asarray(1.5),
+     np.asarray([1.5])],
+    ids=["python", "np-scalar", "np-0d", "jax-0d", "np-len1"])
+def test_coerce_scalar_accepts_single_elements(value):
+    assert coerce_scalar(value, column="a", owner="Sink") == 1.5
+
+
+def test_coerce_scalar_rejects_a_non_scalar_array():
+    with pytest.raises(ValueError, match=r"Sink column 'a'.*not a scalar"):
+        coerce_scalar(np.zeros(3), column="a", owner="Sink")
+
+
+class FakeField:
+
+    """A duck-typed field: ``data`` plus ``shape``."""
+
+    def __init__(self, data):
+        self.data = np.asarray(data)
+        self.shape = self.data.shape
+
+
+def test_coerce_scalar_unwraps_a_reduced_field():
+    assert coerce_scalar(FakeField([2.5]), column="a",
+                         owner="Sink") == 2.5
+
+
+def test_coerce_scalar_rejects_a_full_field_with_a_hint():
+    with pytest.raises(ValueError, match="reduce it first"):
+        coerce_scalar(FakeField([1.0, 2.0]), column="a", owner="Sink")
