@@ -35,6 +35,16 @@ if TYPE_CHECKING:  # pragma: no cover
     )
 
 
+#: the node-set factory names (the xgcm vocabulary). Each is
+#: **singular by design**: it returns one function space, not a
+#: collection of coordinates — hence no ``.centers`` alias, and a
+#: taught error instead (:meth:`Mesh.__getattr__`). Listed here only
+#: to decide which misses earn the extra explanation; the plural /
+#: singular hint itself needs no table.
+_NODE_SET_FACTORIES: frozenset[str] = frozenset(
+    {"center", "left", "right", "outer", "inner", "constant"})
+
+
 class Mesh(ABC):
 
     """
@@ -230,3 +240,67 @@ class Mesh(ABC):
     def __repr__(self) -> str:
         """Render a generic mesh repr; concrete meshes override."""
         return f"{type(self).__name__}({self._label})"
+
+    # ================================================================
+    #  Taught attribute misses
+    # ================================================================
+    def __getattr__(self, name: str) -> object:
+        """
+        Raise an ``AttributeError`` that names the right spelling.
+
+        Description
+        -----------
+        Only ever reached on a genuine miss (normal lookup has
+        already failed and raised), so it costs nothing on the hot
+        path and never shadows a real attribute. It touches no
+        instance state, so it cannot recurse on a half-built mesh.
+
+        No plural alias is added, because the node-set factories are
+        **singular by design**: ``mesh.center`` returns one
+        ``Center`` *function space* — the xgcm position vocabulary
+        (center, left, right, outer, inner) names a position, not a
+        collection — so ``grid.factor("x").centers`` is the wrong
+        word rather than a missing alias, and a ``.centers`` alias
+        would actively mislead by suggesting the array of centre
+        coordinates, which is a different object entirely
+        (``grid.evaluation_nodes(space)`` / ``field.nodes(name)``).
+
+        The rule is mechanical and table-free in both directions: a
+        miss whose singular (or plural) *does* exist on the class is
+        reported with that spelling, and the node-set family gets
+        the extra paragraph on top.
+
+        Parameters
+        ----------
+        name : str
+            The attribute that was not found.
+
+        Returns
+        -------
+        object
+            Never returns; always raises.
+
+        Raises
+        ------
+        AttributeError
+            Always — naming the right spelling when one exists.
+        """
+        cls = type(self)
+        plain = f"{cls.__name__!r} object has no attribute {name!r}"
+        if name.startswith("_"):
+            # dunder and private probes (copy, pickle, jax) must see
+            # the bare miss, never a hint
+            raise AttributeError(plain)
+        # (a bare "s" degenerates to "", which no class carries)
+        meant = name[:-1] if name.endswith("s") else f"{name}s"
+        if not hasattr(cls, meant):
+            raise AttributeError(plain)
+        message = f"{plain}; did you mean {meant!r}?"
+        if meant in _NODE_SET_FACTORIES:
+            message += (
+                f" The node-set factories are singular: {meant!r} is "
+                "one function space (the xgcm position vocabulary — "
+                "center, left, right, outer, inner), not a collection "
+                "of coordinates. For the coordinate values use "
+                "grid.evaluation_nodes(space) or field.nodes(name).")
+        raise AttributeError(message)

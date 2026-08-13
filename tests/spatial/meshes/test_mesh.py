@@ -130,3 +130,75 @@ def test_base_mesh_is_never_flat():
     # base answer is False, and StructuredMesh1D overrides it
     assert TwoNameMesh(("lon", "lat")).is_flat is False
     assert IntervalMesh(8, (0, 1), name="x").boundary.is_flat is False
+
+
+# ================================================================
+#  Taught attribute misses (.centers is the wrong word, not a
+#  missing alias)
+# ================================================================
+def test_plural_node_set_names_the_singular_and_says_why():
+    mesh = IntervalMesh(8, (0, 1), name="x")
+    with pytest.raises(AttributeError) as excinfo:
+        mesh.centers  # noqa: B018 — the miss IS the assertion
+    message = str(excinfo.value)
+    assert "'IntervalMesh' object has no attribute 'centers'" in message
+    assert "did you mean 'center'?" in message
+    # and the reason a .centers alias is refused rather than added
+    assert "one function space" in message
+    assert "grid.evaluation_nodes(space)" in message
+    # the singular really is a space object, not coordinate values
+    assert mesh.center is mesh.center
+
+
+@pytest.mark.parametrize(("plural", "singular"), [
+    pytest.param("lefts", "left", id="left"),
+    pytest.param("rights", "right", id="right"),
+    pytest.param("outers", "outer", id="outer"),
+    pytest.param("inners", "inner", id="inner"),
+    pytest.param("constants", "constant", id="constant"),
+])
+def test_the_whole_node_set_family_is_covered(plural, singular):
+    mesh = IntervalMesh(8, (0, 1), periodic=False, name="x")
+    with pytest.raises(AttributeError, match=f"did you mean '{singular}'"):
+        getattr(mesh, plural)
+
+
+def test_a_plural_outside_the_node_sets_hints_without_the_paragraph():
+    with pytest.raises(AttributeError) as excinfo:
+        TwoNameMesh(("lon", "lat")).dims  # noqa: B018 — the miss IS the assertion
+    message = str(excinfo.value)
+    assert "did you mean 'dim'?" in message
+    assert "node-set factories" not in message
+
+
+def test_a_singular_miss_hints_at_the_plural():
+    # the mirror image: IntervalMesh takes name= at construction, so
+    # mesh.name is the natural (wrong) reach for mesh.names
+    with pytest.raises(AttributeError, match="did you mean 'names'"):
+        IntervalMesh(8, (0, 1), name="x").name  # noqa: B018 — the miss IS the assertion
+
+
+def test_an_unrelated_miss_stays_a_bare_attribute_error():
+    mesh = IntervalMesh(8, (0, 1), name="x")
+    with pytest.raises(AttributeError) as excinfo:
+        mesh.bogus  # noqa: B018 — the miss IS the assertion
+    assert str(excinfo.value) == (
+        "'IntervalMesh' object has no attribute 'bogus'")
+
+
+def test_private_and_dunder_probes_get_the_bare_miss():
+    # copy/pickle/jax probe dunders by getattr; a hinted message
+    # there would be noise, and hasattr must stay cheap and False
+    mesh = IntervalMesh(8, (0, 1), name="x")
+    with pytest.raises(AttributeError) as excinfo:
+        mesh.__deepcopy__  # noqa: B018 — the miss IS the assertion
+    assert "did you mean" not in str(excinfo.value)
+    assert not hasattr(mesh, "_no_such_slot")
+
+
+def test_the_getattr_default_idiom_still_works():
+    # src probes meshes with getattr(mesh, "periodic", True); the
+    # taught miss must not turn that into a raise
+    mesh = TwoNameMesh(("lon", "lat"))
+    assert getattr(mesh, "periodic", True) is True
+    assert getattr(mesh, "dims", None) is None
