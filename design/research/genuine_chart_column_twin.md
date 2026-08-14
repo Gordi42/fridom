@@ -2,7 +2,7 @@
 
 **Date:** 2026-07-19 · **Status:** closed, record only (no test shipped)
 **Follow-up of:** the M5 seam verdict in
-[`../plans/active/mapped_immersed_composition_plan.md`](../plans/active/mapped_immersed_composition_plan.md)
+[`../plans/done/mapped_immersed_composition_plan.md`](../plans/done/mapped_immersed_composition_plan.md)
 **Probe:**
 [`artifacts/genuine_chart_twin/probe_twin.py`](artifacts/genuine_chart_twin/probe_twin.py)
 

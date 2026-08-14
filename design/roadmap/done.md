@@ -1186,7 +1186,7 @@ Implementation record:
   partial-bottom correction asymmetry (PB-D3), moved to a
   face-aligned staircase (4.4e-16; genuine-cut control 6.6e-3) + a
   companion test pinning the asymmetry via `_pb_active`. Records:
-  [`../plans/active/mapped_immersed_composition_plan.md`](../plans/active/mapped_immersed_composition_plan.md)
+  [`../plans/done/mapped_immersed_composition_plan.md`](../plans/done/mapped_immersed_composition_plan.md)
   §6 addendum.
 - **Partial-bottom-cell hydrostatic pressure gradient** (2026-07-19,
   merge `0ddec821`; commits `e9e302f7` PB-D1, `0f09f070` PB-D2) —
@@ -1206,7 +1206,7 @@ Implementation record:
   no step-path divide); forced-4 x- and z-shard ≤ 5.6e-17. Terrain
   charts = the PB-D3 deferral (stub in [`open.md`](open.md)). Plan +
   record:
-  [`../plans/active/partial_bottom_phyd_plan.md`](../plans/active/partial_bottom_phyd_plan.md).
+  [`../plans/done/partial_bottom_phyd_plan.md`](../plans/done/partial_bottom_phyd_plan.md).
 - **Fraction-weighted Sadourny momentum + masked closures**
   (2026-07-19, merges `75382bbe` stage A, `bd035bc2` stage B) — the
   fourth immersed residual closed. Stage A: the blanket closure
@@ -1260,7 +1260,7 @@ Implementation record:
   2026-07-19 — see the follow-ups-closed entry above). Follow-ups in
   [`open.md`](open.md). Plan +
   decisions + per-stage records:
-  [`../plans/active/mapped_immersed_composition_plan.md`](../plans/active/mapped_immersed_composition_plan.md).
+  [`../plans/done/mapped_immersed_composition_plan.md`](../plans/done/mapped_immersed_composition_plan.md).
 - **Biased/upwind/WENO advection on immersed grids** (2026-07-18,
   merge `02663933`) — the first immersed residual closed: the
   IP-D8 taught error replaced by the **mask-keyed graded ladder**
@@ -1277,7 +1277,7 @@ Implementation record:
   unimmersed bitwise on both families; θ-mass ≤ 1e-12 on genuine
   partials; autodiff FD-matched; forced-4 green. Plan + decisions +
   corrections:
-  [`../plans/active/immersed_graded_advection_plan.md`](../plans/active/immersed_graded_advection_plan.md).
+  [`../plans/done/immersed_graded_advection_plan.md`](../plans/done/immersed_graded_advection_plan.md).
 - **Variable boundary forcing — wind stress, surface buoyancy flux**
   (2026-07-17, merge `24ee6fd0`) — prescribed wall-face fluxes as
   tendency contributions in the wall-adjacent cell
@@ -2724,7 +2724,15 @@ default keeps the old construction value-identical. sw2 `Eigenmodes`
 gained the public `kit` property (tier parity with nh2). P3 (channel
 tier) deferred; P4 (the example switch) rides the docs cycle.
 
-## Generalized source module — separable volumetric forcing (shipped 2026-07-24)
+## Generalized source module — separable volumetric forcing (shipped 2026-07-24; P4 example re-spells 2026-08-11)
+
+**P4 (the example re-spells) shipped 2026-08-11.** The three examples
+the plan named — `internal_wave_maker.py`, `multiple_wave_makers.py`
+and `wave_package.py` — were ported off the deleted
+`nh.GaussianWaveMaker`/`nh.PolarizedWaveMaker` and the renamed
+`gaussian_envelope`; re-verified 2026-08-14 (no call site remains).
+Only the `Model.propagator` / materialized-AUX autodiff remainder
+stays open, in [`open.md`](open.md) §4b.
 
 Owner feature from the wave-maker generalization brainstorm: the two
 v1-ported makers were special cases of one machine, `δz += Q(x)·g(t)`.
@@ -3022,3 +3030,97 @@ Not lifted, and not attempted: immersed and terrain/mapped Smagorinsky
 is a small lift (`state["n2"].to(anchor)`, a zero-reach broadcast onto
 the shared meridional nodes) but needs its own validation and an owner
 call, so it stays a taught refusal.
+
+## Gallery-defect sweep — the `example_authoring_defects.md` list (2026-08-14)
+
+Worked the defect list surfaced by the 2026-08-13 gallery expansion
+([`../research/example_authoring_defects.md`](../research/example_authoring_defects.md)),
+`src/` and `design/` scope only. Reader-facing items (§D, the
+`FRIDOM_EXAMPLES_FAST` example scripts) and §E (CDFViewer, a separate
+repo with its own session) were deliberately out of scope. Residuals
+in [`open.md`](open.md) §2f.
+
+- **A0 — mapped advection unstable at a sloping wall (the file's worst
+  failure).** Root-caused and fixed. The wall-normal velocity of a
+  terrain-following column is the contravariant flux `Ω = w − Z_x u`,
+  not the Cartesian `w`; `_flux_divergence` spelled the coupled-axis
+  term as a product rule whose boundary value is an interpolation of an
+  *interior* difference, so it could not cancel the `axis == base`
+  term's structural wall zero, leaving `Z_i F_i|wall` unbalanced —
+  an O(1/h) term in the boundary row. The nodal path now uses the
+  J-weighted flux form the FV divergence and mapped pressure operator
+  already use. Repro and measurements preserved at
+  [`../research/artifacts/advection_slope_instability/`](../research/artifacts/advection_slope_instability/).
+  Two consequences worth keeping: pre-fix, advection's divergence
+  disagreed with `MappedPressureSolver.divergence` by O(1/h) at the
+  wall and spuriously sourced a constant tracer at magnitude 13.0
+  under a projected velocity; and the pre-existing convergence test
+  was unwittingly pinning the *absence* of the wall closure (a scheme
+  with no closure reproduces a reference solution that flows through
+  the wall). FV and nodal now agree to round-off on mapped grids,
+  which the design records establish as correct — at 2nd order the
+  family switch is "numerically, a retag". **The immersed half was
+  not attempted** — see `open.md` §2f.
+- **A1 — stretched vertical mesh unusable with `nh.Model`.** The
+  projection routing keyed on `mapping.column_corrections`, which a
+  stretched *mesh factor* never sets, so the grid fell through to the
+  spectral solver. Predicate fixed (no taught-error fallback needed);
+  `MappedPressureSolver` gained a degenerate identity-column path.
+  Immersed + stretched was broken the same way and is fixed too.
+- **A2 — uncaught `StopIteration` on the chart vertical spelling**, now
+  a taught error. The `next()` site is an ordinary method, so the bare
+  `StopIteration` escaped intact rather than truncating iteration.
+- **A3 — refuted, not a defect.** The `pressure_tolerance` early exit
+  exists, fires, and is structural: `krylov.py` runs a `lax.scan` of
+  static length whose body is `lax.cond(converged, identity,
+  real_step)` — the static trip count is what keeps `jax.grad` exact
+  while the work is branch-skipped. Instrumented immersed runs achieve
+  k = 13–25 of a 30 budget at relative residuals 3e-9…6e-9, and the
+  optimized HLO carries one `conditional` under a set tolerance and
+  none under `None`. "State identical at 12 vs 30 iterations" is the
+  signature of a working break. Shipped instead: `nh.Core(
+  pressure_report=True)` (off by default, bitwise-identical when off)
+  so an exhausted budget — a silently divergent velocity — is visible,
+  plus construction-time validation of the two knobs.
+- **A3b — `background=` silently a no-op on immersed grids**, the
+  file's worst *quiet* failure (`u' ≡ 0` is an exact fixed point,
+  confirmed to the bit). Now a taught refusal, matching sw2's
+  `SadournyAdvection` word for word.
+- **A4 — `advance()` dispatched every remainder step singly.**
+  `_chunk_plan` now spends the remainder in a binary tail; compiled
+  lengths stay in the bounded set `{C} ∪ {2**k : 2**k < C}` no matter
+  how many distinct `steps` values a caller passes. Bit-identical
+  results. Magnitude of the win deliberately not quoted — see §2f.
+- **A5 — `ScalarField + ndarray` silently degraded to `ndarray`.**
+  `__array_ufunc__ = None` on `ScalarField`/`VectorField`.
+- **B — latent hazards.** `SmagorinskyLilly` now rejects terrain: the
+  closure derives ν from the grid and a chart factor never enters
+  `diff`/`measure`, so the same physical grid respelled σ∈[0,1]/[0,2]/
+  [0,4] moved `max|du/dt|` by a factor of 28. Robin dispatch teaches
+  instead of missing bare, and a *false* claim that Robin derivatives
+  work flux-form was removed. `TimeAverage` widened to real models (no
+  bug — linear SW PV survives to 3.7e-15), `Writer(chunks=)` covered,
+  spherical `run()` covered for sw2. Corrections to the survey: `hy`
+  already refuses charts with a taught, tested error; only nh2 was
+  genuinely broken, now refused at `bind`.
+- **C — import-surface drift.** ~300 dead spellings repaired (the
+  survey's table listed ~40), including error *messages* that named
+  non-existent spellings. Three references named things that exist
+  nowhere. Mesh classes, `MissingComponentError`, `BalanceExpansion`
+  and the spectrum vocabulary lifted to their advertised homes.
+  Pinned by `tests/test_import_surface.py`, which resolves every
+  dotted `fr.`/`nh.`/`sw.` token per file.
+- **F — API surprises.** Field arithmetic now propagates metadata it
+  can justify (and refuses to invent units); `run()` warns on a
+  non-integer step target; `TimeSeries` gained `mode=`; `Source`'s two
+  law branches documented; wind-stress sign shared with hydrostatic by
+  rehoming `surface_forcing` to `fr.model.modules` (HY-D5 precedent)
+  rather than porting a second convention. `Propagator._evaluate` —
+  not `OptimalBalance._evaluate` as the survey guessed — was rebuilding
+  the prognostic subset as a bare `VectorField`; `TimeAverage` had the
+  identical one-liner. Both now preserve the model's `State`.
+  `mesh.centers` / `state.fields` deliberately stayed taught errors
+  rather than aliases (`.center` is singular by design; `_fields` is
+  already public three ways). The assembly coverage lint gained an
+  explicit `allow_unadvanced=` waiver, so a non-rotating 2-D linear
+  slice no longer needs the zero-Coriolis hack.

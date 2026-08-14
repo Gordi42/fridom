@@ -220,6 +220,109 @@ topology.
   (the wrap fix lifted it; elision makes the flat axis the *cheap* one).
   Docs-review scope — owner-reviewed privately, per AGENTS.md.
 
+## 2f. Gallery-defect sweep residuals (2026-08-14)
+
+What the defect sweep left open. The sweep itself is recorded in
+[`done.md`](done.md); the source list is the frozen
+[`../research/example_authoring_defects.md`](../research/example_authoring_defects.md),
+several of whose conclusions the sweep revised.
+
+**Blocking a capability:**
+
+- **A0's immersed half — advection still unstable at a cut boundary.**
+  The mapped half is fixed; the immersed half was not attempted. The
+  lead is an unguarded small-cell problem: projecting a uniform
+  `u = 1` on an immersed grid gives `|u|max = 5.70` in cut cells
+  against 1.64 mapped (the physical continuity speed-up). The remedy
+  is a cut-cell FV redesign, not a local patch. Probe preserved at
+  [`../research/artifacts/advection_slope_instability/immersed_probe.py`](../research/artifacts/advection_slope_instability/immersed_probe.py).
+  Consequence: any example with nonlinear flow over immersed
+  topography is still blocked.
+- **`background=` does not compose with `family="fv"`.** The sample
+  resolves on the nodal C-grid space, so `_bind_background` raises
+  (`'background_u' resolves on Right(x) ⊗ Center(y) ⊗ Center(z) but
+  'u' lives on Right(x) ⊗ CellAvg(y) ⊗ CellAvg(z)`). Found
+  incidentally; not in the source list.
+- **Immersed `background=` carve-out not implemented.** The blanket
+  refusal shipped, but a background that vanishes on and inside the
+  body keeps the homogeneous condition honest and needs no new
+  physics — checkable as `background_sample == 0` wherever
+  `immersed.fraction(space) < 1`. The general case needs the
+  inhomogeneous body condition wired into `ImmersedPressureSolver`.
+
+**Test-infrastructure defect (affects the coverage gate):**
+
+- **`pytest --cov` core-dumps in this repo.** Reproducible on clean
+  `dev`, even on a 0.5 s non-jax test file; the abort is in
+  `jaxlib/xla_client.py` importing its C extension under coverage's
+  tracer (coverage 7.15.0, pytest-cov 7.1.0, jax 0.10.2, py3.12).
+  Ruled out: `conftest.py` (aborts under `--noconftest`), the jax
+  cache eviction, the persistent compile cache, the pyproject
+  coverage config, and all three measurement cores (`sysmon` /
+  `ctrace` / `pytrace`). `--cov` works when fridom is imported
+  *outside* the test tree. **Consequence: `fail_under = 95` and the
+  Codecov gates are CI-only right now** — no local run can verify
+  patch coverage, and every agent in the sweep had to argue coverage
+  by inspection.
+
+**Red on `dev`, unclaimed:**
+
+- **`tests/model/modules/test_tracer.py::test_declaration_defaults_match_the_wrapped_template`**
+  fails: `units` is `"unknown"`, the test expects `"n/a"`. Diagnosed
+  during the sweep — `"n/a"` is a *retired* sentinel
+  (`metadata.py` records it as udunits-unparseable), so the test is
+  pinned to the old spelling and wants `"unknown"`. Predates the
+  sweep; traced to `7a1be9f0`.
+
+**Owner decisions:**
+
+- **`fr.utils.*` from the root.** `AGENTS.md` sanctions
+  `@fr.utils.jaxify`, but under `import fridom as fr` the truthful
+  path today is `fridom.framework.utils.jaxify` — the *old* stack.
+  Eight docstrings were spelled longhand rather than add a root
+  `fr.utils` alias, because that alias is a cutover commitment
+  (aliasing the doomed package from the root). A two-line alias would
+  make `AGENTS.md` literally true and let all eight revert.
+- **`TimeAverage(period=None)` on nondimensional models.** The
+  documented default reads `coriolis.f0`, which only the *dimensional*
+  rotation spelling publishes; `FPlaneCoriolis(rossby_number=…)`
+  publishes `coriolis.rossby` and the default raises. Taught, and
+  pinned by a test — but "the inertial period in seconds" is
+  genuinely ill-posed on a nondimensional model, so whether it should
+  be derivable from `rossby` + the scaling is a call.
+
+**Small, mechanical:**
+
+- **`Writer` resume docstring may be false.** It claims "on snapshot
+  resume the run machinery flips a bound writer to `"a"`", but
+  `Session._resume` only calls `truncate_after` — no mode flip exists
+  in `src/`. Either the docstring is stale or resume with a default
+  `w-` Writer is broken.
+- **`Propagator(runlen=)` rounding parity.** `run()` now warns on a
+  non-integer step target; `Propagator` has the identical rounding and
+  declares it only in its docstring.
+- **`src/fridom/ops/session.py:81-82`** still describes `_chunk_plan`'s
+  retired `{C, 1}` granularity.
+- **`ruff check examples/`** still fails on pre-existing old-stack
+  scripts, so a new example author cannot lint the tree as a whole
+  and must lint by path. Reported independently by four authors.
+
+**Deliberately not measured:**
+
+- **A4's magnitude is still unresolved.** The binary-tail fix is
+  correct and bit-identical, and the dispatch-count reduction is real
+  (195 vs 5403 across 54 segment lengths), but the survey's 4.6x and
+  the counter-probe's 1.28x were both taken under contention, and the
+  sweep declined to add a third contended number. Needs a quiet
+  machine, owner-triggered.
+- **A3's 2.1x throughput observation is unexplained.** The early exit
+  demonstrably works (see [`done.md`](done.md)), so the reported
+  speedup is not what the survey inferred. Two candidates: contention,
+  or the survey's 256×128 disc being hard enough that the budget was
+  genuinely *exhausted* at 30 — in which case dropping to 12 bought
+  divergence, not speed. `pressure_report=True` now diagnoses this in
+  one line.
+
 ## 3. Perf-guard checkpoint (owner-run)
 
 After **all** physics changes above land, before the Oceananigans
@@ -236,18 +339,13 @@ rows (needs a 4-GPU allocation; new runs report the honest
 writing pass — it may surface regressions docs content must not bake
 in. Suite lives out-of-tree in `benchmarks/comparison` (by design).
 
-## 4b. Generalized source module — P4 remainder (P1–P3 shipped 2026-07-24, entry in [`done.md`](done.md))
+## 4b. Generalized source module — autodiff remainder (P1–P4 shipped, entries in [`done.md`](done.md))
 
 What remains of
 [`../plans/active/source_module_plan.md`](../plans/active/source_module_plan.md):
-**P4, the example re-spells** — `internal_wave_maker.py` and
-`multiple_wave_makers.py` still call the deleted
-`nh.GaussianWaveMaker`/`nh.PolarizedWaveMaker`, and `wave_package.py`
-(plus any other example using it) the renamed `gaussian_envelope` —
-all ride the docs cycle in §5 under the private owner-review
-workflow. Candidate follow-up parked in the plan: `Model.propagator`
-blanket-refuses `wrt=` parameters of modules that own materialized
-AUX fields, so `source.*` gradients need the `_chunk_body` surface.
+`Model.propagator` blanket-refuses `wrt=` parameters of modules that
+own materialized AUX fields, so `source.*` gradients need the
+`_chunk_body` surface.
 
 ## 5. Docs & examples rebuild
 
