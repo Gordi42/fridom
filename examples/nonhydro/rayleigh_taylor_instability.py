@@ -2,114 +2,148 @@ r"""
 Rayleigh-Taylor Instability
 ===========================
 
-A 2D setup with a denser fluid on top of a lighter fluid.
-
-.. video:: videos/rayleigh_taylor_instability.mp4
-
+Dense fluid resting on light fluid, leads to overturning and mixing.
 """
-import fridom.nonhydro as nh
-import matplotlib.pyplot as plt
-import numpy as np
 
-# ----------------------------------------------------------------
-#  Experiment settings
-# ----------------------------------------------------------------
-# General settings
-make_video  = True
-fps         = 30
-make_netcdf = True
-run_length  = 10.0
-exp_name    = "rayleigh_taylor_instability"
-thumbnail   = f"figures/{exp_name}.png"
+# %%
+# Experiment Settings
+# -------------------
+# Two layers of uniform density sit one on the other, the dense one on
+# top. Any dimple in the interface grows, because displacing dense
+# fluid downward releases potential energy, so the interface folds into
+# the mushrooms that give the instability its picture. A buoyancy jump
+# of one across a layer one metre deep gives a free-fall speed of one
+# metre per second and a time scale of one second.
+#
+# There is no rotation and no background stratification. The buoyancy
+# is the whole of the physics, and the model carries it as a
+# prognostic field that the advection scheme transports.
+import subprocess
 
-# Physical parameters
-f0 = 0            # No rotation
-N2 = 0            # No stratification
-Lx = 2            # 2 m in x
-Lz = 1            # 1 m in z
+import jax.numpy as jnp
 
-# Numerical parameters
-resolution_factor = 10           # 2^10 = 1024 grid points
-Nx = 2**(resolution_factor + 1)  # Number of grid points in x
-Nz = 2**resolution_factor        # Number of grid points in z
+# sphinx_gallery_thumbnail_number = 2
+import fridom as fr
+import fridom.nonhydro2 as nh
 
-# ----------------------------------------------------------------
-#  Create a plotting module for the animation and thumbnail
-# ----------------------------------------------------------------
-class Plotter(nh.modules.animation.ModelPlotter):
-    def create_figure():
-        return plt.figure(figsize=(8, 3.5), dpi=256, tight_layout=True)
+box_length = 2.0          # metres across
+box_depth = 1.0           # metres deep
+buoyancy_jump = 1.0       # m/s^2 between the two layers
+dimple = 0.002            # interface displacement, as a fraction of depth
 
-    def prepare_arguments(mz: nh.ModelState) -> dict:
-        skip = 30
-        return {"z": mz.z.xrs[::skip,0,::skip],
-                "b": mz.z.b.xrs[:,0,:],
-                "t": mz.clock.time}
+nz = 192
+nx = 2 * nz               # square cells on a box twice as wide as deep
+ny = 1                    # the flow is two-dimensional, in x and z
+runlen = 6.0
+frames = 240
 
-    def update_figure(fig, z, b, t) -> None:
-        import cmocean
-        colors = cmocean.cm.ice(np.linspace(0.4, 1, 256))
-        cmap = plt.cm.colors.ListedColormap(colors)
+# %%
+# Grid and Model
+# --------------
+# The box is periodic across and walled top and bottom.
+# :class:`~fridom.nonhydro2.modules.buoyancy_tracer.BuoyancyTracer` is
+# the buoyancy for a problem like this one. It registers ``b`` and
+# contributes the buoyancy force, and nothing else, which is what a
+# two-layer setup wants: the restoring term of a background
+# stratification is absent from the assembly rather than present and
+# multiplied by zero.
+#
+# The overturning cascades buoyancy to the grid scale and something has
+# to absorb it. Instead of a closure we let the advection scheme do it.
+# Fifth-order WENO reconstruction weights its candidate stencils by
+# smoothness, so it leaves the smooth interior of each layer alone and
+# damps the oscillations a centered scheme would build at the
+# interface. That is the only dissipation in this run, and on the
+# finite-volume family its flux form conserves total buoyancy to
+# machine precision.
+grid = fr.spatial.cartesian.Grid(
+    shape=(nx, ny, nz),
+    extent=(box_length, box_depth, box_depth),
+    periodic=(True, True, False))
 
-        ax = fig.add_subplot(111)
-        b.plot(cmap=cmap, vmax=1, vmin=0)
-        key = z.plot.quiver("x", "z", "u", "w", scale=100, add_guide=False)
-        label_velo = 1
-        ax.quiverkey(key, X=0.9, Y=1.05, U=label_velo,
-                    label=f'{label_velo} [m/s]', labelpos='E')
-        ax.set_aspect('equal')
-        ax.set_title(f't={t:.1f}s', fontsize=18)
+dz = grid.factor("z").dx
+# the fastest flow is the free fall of the dense fluid, about one
+# metre per second for a unit buoyancy jump across a unit depth
+dt = 0.15 * dz / (buoyancy_jump * box_depth) ** 0.5
 
-# ----------------------------------------------------------------
-#  Main routine
-# ----------------------------------------------------------------
-@nh.utils.skip_on_doc_build
-def main():
-    # ----------------------------------------------------------------
-    #  Create the grid and model settings
-    # ----------------------------------------------------------------
-    grid = nh.grid.cartesian.Grid(shape=(Nx, 1, Nz), domain_size=(Lx, 1, Lz), 
-                                periodic_bounds=(True, True, False))
-    mset = nh.ModelSettings(grid=grid, f0=f0, stratification_n2=N2)
-    mset.time_stepper.dt = 0.2 / Nz
+model = nh.Model(
+    grid=grid,
+    buoyancy=nh.BuoyancyTracer(),
+    advection=nh.WENOAdvection(order=5),
+    time_stepper=fr.model.time_steppers.AdamBashforth(dt, order=3))
 
-    # ----------------------------------------------------------------
-    #  Add custom modules to the model settings
-    # ----------------------------------------------------------------
-    mset.tendencies.add_module(nh.modules.closures.SmagorinskyLilly())
+# %%
+# Initial Condition
+# -----------------
+# The interface sits halfway up, dimpled by four long waves so the
+# instability has something definite to grow from. A perfectly flat
+# interface is an equilibrium, unstable but exact, and would sit there
+# until rounding error broke it. The four modes make the run
+# reproducible instead.
+#
+# The interface is smeared over a few cells rather than left as a step.
+interface_thickness = 4.0 * dz
 
-    # add a video writer
-    if make_video:
-        mset.diagnostics.add_module(nh.modules.animation.VideoWriter(
-            Plotter, model_time_per_second=1.0, filename=exp_name, fps=fps))
 
-    # create a NetCDF writer to save the output
-    if make_netcdf:
-        mset.diagnostics.add_module(nh.modules.NetCDFWriter(
-            write_trigger = nh.ClockTrigger(time_interval=0.2),
-            filename=exp_name))
+def interface(x):
+    """Return the height of the interface above the bottom."""
+    displacement = sum(
+        jnp.cos(2 * jnp.pi * wavenumber * x / box_length + phase)
+        for wavenumber, phase in ((3, 0.0), (5, 1.7), (8, 3.9), (13, 0.6)))
+    return 0.5 * box_depth + dimple * box_depth * displacement
 
-    # create a thumbnail saver
-    mset.diagnostics.add_module(nh.modules.FigureSaver(
-        filename=thumbnail, model_time=4, plotter=Plotter))
 
-    mset.setup()
-    # ----------------------------------------------------------------
-    #  Create the initial condition
-    # ----------------------------------------------------------------
-    z = nh.State(mset)
-    # add some white noise to the initial condition so that the
-    # instabilities are triggered
-    z.b.arr += (z.b.get_mesh()[2] < 0.5)
-    z.u.arr += nh.utils.random_array(z.u.arr.shape) * 1e-6
+def two_layers(x, y, z):  # y is named but the flow is two-dimensional
+    """Return the buoyancy, high below the interface and low above."""
+    return 0.5 * buoyancy_jump * (
+        1.0 - jnp.tanh((z - interface(x)) / interface_thickness))
 
-    # ----------------------------------------------------------------
-    #  Run the model
-    # ----------------------------------------------------------------
-    model = nh.Model(mset)
-    model.z = z
-    model.run(runlen=run_length)
-    return model
 
-if __name__ == "__main__":
-    model = main()
+model.set_fields(b=two_layers)
+
+plot = model.state.b.xr.isel(y=0, drop=True).plot(
+    x="x", size=2.6, aspect=2.0, cmap="Blues_r", vmin=0.0, vmax=1.0)
+plot.axes.set_aspect("equal")
+
+# %%
+# Dark is the dense fluid resting on top and light is the buoyant
+# fluid underneath.
+#
+# Running and Writing Output
+# --------------------------
+# We write the buoyancy once per frame to a zarr store.
+writer = fr.io.Writer(
+    "rayleigh_taylor.zarr",
+    fields=["b"],
+    trigger=fr.io.every(time_units=runlen / frames),
+    mode="w")
+
+model.run(runlen=runlen, outputs=(writer,))
+
+plot = model.state.b.xr.isel(y=0, drop=True).plot(
+    x="x", size=2.6, aspect=2.0, cmap="Blues_r", vmin=0.0, vmax=1.0)
+plot.axes.set_aspect("equal")
+
+# %%
+# By the end the two layers have traded places and what is left is a
+# mixed region rather than an interface.
+#
+# Rendering the Animation
+# -----------------------
+# `CDFViewer <https://gordi42.github.io/CDFViewer.jl/>`_ records the
+# buoyancy animation from the store.
+_ = subprocess.run(
+    "cdfviewer rayleigh_taylor.zarr -v b -x x -y z --dims=y=0"
+    " -p heatmap -a time"
+    " --kwargs='animlabel=\"t = {rawvalue} s\", animlabelnumfmt=\"%.1f\","
+    " colormap=:ice, colorrange=(0, 1),"
+    " title=\"Rayleigh-Taylor instability\"'"
+    " --record -s 'filename=\"rayleigh_taylor.mp4\", framerate=24'",
+    shell=True, check=True)
+
+# %%
+# The interface first folds into mushrooms of a single size, set by the
+# modes it was given. Those roll up, collide with their neighbours, and
+# lose their symmetry, and from there the flow coarsens: small
+# structures merge into larger ones and the mixed layer grows from the
+# middle outward.
