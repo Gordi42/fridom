@@ -135,6 +135,18 @@ class RecordingReporter:
         self.ended = results
 
 
+class LegRecordingReporter(RecordingReporter):
+
+    """Also implements the OPTIONAL additive on_leg_start hook."""
+
+    def __init__(self):
+        super().__init__()
+        self.legs = []
+
+    def on_leg_start(self, *, plan):
+        self.legs.append(dict(plan))
+
+
 # ================================================================
 #  Constructor keying and rejections
 # ================================================================
@@ -285,6 +297,42 @@ def test_progress_receives_one_chunkstats_per_chunk():
     assert [c.steps_done for c in reporter.chunks] == [2, 2, 2]
     assert [c.iteration for c in reporter.chunks] == [2, 4, 6]
     assert reporter.ended is not None  # on_run_end fired at exit
+
+
+def test_chunkstats_carry_the_leg_step_counts():
+    reporter = RecordingReporter()
+    with Session(make_model(chunk_size=2), progress=reporter) as s:
+        s.advance(model=6)
+    assert [c.leg_steps_done for c in reporter.chunks] == [2, 4, 6]
+    assert [c.leg_steps_total for c in reporter.chunks] == [6, 6, 6]
+
+
+def test_on_leg_start_fires_with_the_resolved_plan():
+    reporter = LegRecordingReporter()
+    with Session(make_model(chunk_size=2), progress=reporter) as s:
+        s.advance(model=6)
+        s.advance(model=4)
+    # one firing per advance() leg, with the name-keyed step counts
+    assert reporter.legs == [{"model": 6}, {"model": 4}]
+    assert [c.leg_steps_total for c in reporter.chunks] == \
+        [6, 6, 6, 4, 4]
+
+
+def test_on_leg_start_fires_by_model_object_key():
+    model = make_model(chunk_size=2)
+    reporter = LegRecordingReporter()
+    with Session(model, progress=reporter) as s:
+        s.advance({model: 4})
+    assert reporter.legs == [{"model": 4}]
+
+
+def test_reporter_without_on_leg_start_still_runs():
+    # the leg hook is duck-checked, never required
+    reporter = RecordingReporter()
+    assert not hasattr(reporter, "on_leg_start")
+    with Session(make_model(chunk_size=2), progress=reporter) as s:
+        s.advance(model=4)
+    assert [c.steps_done for c in reporter.chunks] == [2, 2]
 
 
 def test_advance_returns_per_model_advance_results():

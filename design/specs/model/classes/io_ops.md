@@ -1121,6 +1121,23 @@ Notes:
   rejected (archive, d4_2 §4). The three hook names are the
   normative commitment; the payload dataclass is provisional and
   grows compatibly.
+- **Grown compatibly (2026-08-14, `fr.ops.ProgressBar`).**
+  `ChunkStats` gained two **defaulted** fields, `leg_steps_done`
+  and `leg_steps_total` (both `int | None = None`): the cumulative
+  steps within the current `advance()` leg and the step count that
+  leg was asked for. Defaulted, so every existing all-keyword
+  construction still builds. In addition, `Session.advance()`
+  fires one **optional, additive** hook once the plan is resolved,
+  `on_leg_start(*, plan: Mapping[str, int])`, mapping model name to
+  that leg's requested step count. It is **duck-checked**
+  (`getattr(reporter, "on_leg_start", None)`) and deliberately NOT
+  a member of the `runtime_checkable` `ProgressReporter` Protocol —
+  a three-hook object must keep passing `isinstance`. The three
+  original names remain the commitment; reporters MAY ignore the
+  leg hook entirely. It exists because `on_run_start` always fires
+  with `n_steps=None` (planning happens after `__enter__` so a
+  snapshot resume can re-plan), so the leg length is knowable only
+  inside `advance()`.
 
 ---
 
