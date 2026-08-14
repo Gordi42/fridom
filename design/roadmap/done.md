@@ -3124,3 +3124,61 @@ in [`open.md`](open.md) §2f.
   already public three ways). The assembly coverage lint gained an
   explicit `allow_unadvanced=` waiver, so a non-rotating 2-D linear
   slice no longer needs the zero-Coriolis hack.
+
+## Opt-in progress bar for the new stack — `fr.ops.ProgressBar` (2026-08-14)
+
+The new stack's `progress=True` renders nothing: `_LoggingProgress`
+logs at INFO/DEBUG while the `fridom` logger is pinned to NOTICE=25.
+Shipped a real bar as an **opt-in object**,
+`model.run(..., progress=fr.ops.ProgressBar())`; `progress=True` and
+`_LoggingProgress` are untouched (the default flip is a separate
+item, [`open.md`](open.md) §2g).
+
+- **`src/fridom/ops/progress.py`** — a host-side reporter (not a
+  `Module`, unlike the old `fr.modules.ProgressBar`). Modes:
+  `auto | notebook | tty | log | off`, resolved **at
+  `on_run_start`**, not at construction — the environment has to be
+  read at run time. `auto` picks `notebook` on
+  `ipykernel.zmqshell`, else `tty` when stderr is a terminal
+  (detached streams fall through to `log`). Not
+  `fr.utils.stdout_is_file()`: it calls `sys.stdout.fileno()` before
+  its IPython check and misreports. Rank>0 resolves to `off` —
+  the guard the old bar left as an open `TODO`.
+- **`log` mode is tqdm-free**: one plain line per chunk at level 25,
+  no glyphs, no carriage returns, for batch/SLURM logs. Level 25
+  renders only because `fridom.framework.logger` configured the
+  `fridom` logger — a dependency that dies at cutover — so the bar
+  checks `isEnabledFor(25)` at run start and prints to stdout when
+  the record would be dropped.
+- **`notebook` mode** falls back **deliberately** to a text bar on
+  **stdout** when ipywidgets is missing (`tqdm.notebook.IProgress is
+  None`): tqdm's default stderr renders as a red error block in
+  Jupyter. `ipywidgets` added to the dependencies so a fresh
+  `uv sync` gets the widget, not the fallback.
+- **Compile-time skew.** The first chunk of a leg includes the jit
+  compile, so its rate is meaningless (measured 83 steps/s against
+  27000 steady). Its postfix says so, and the bar's timing basis is
+  rebased right after it (`start_t`/`initial`), so
+  `[elapsed<remaining]` is a steady-state estimate — verified: the
+  compile frame claimed 27 s remaining, the rebased bar predicted
+  3 s and landed on 3 s.
+- **Plumbing.** `run()` reduces every target to a step count, so
+  there is ONE step axis and the old "for loop"/"while loop" mode
+  split is not ported; `total` is the real step count, not the old
+  `total=100` percentage hack. The leg length is knowable only
+  inside `Session.advance()` (`on_run_start` always fires with
+  `n_steps=None` so a snapshot resume can re-plan), so `ChunkStats`
+  grew two **defaulted** fields, `leg_steps_done`/`leg_steps_total`,
+  and `advance()` fires an **optional, duck-checked**
+  `on_leg_start(plan=...)`. That hook is deliberately NOT a member
+  of the `runtime_checkable` `ProgressReporter` Protocol — a
+  three-hook object must keep passing `isinstance`. Both recorded
+  as normative notes in
+  [`../specs/model/classes/io_ops.md`](../specs/model/classes/io_ops.md).
+- **One bar per `advance()` leg.** A second `on_leg_start` closes
+  the open bar and opens a fresh one; a chunk arriving with no bar
+  open (a reporter driven without the leg hook) creates one lazily,
+  countless when the total is unknown.
+- Calendar/date formatting is out of scope: `Clock.start_date`
+  exists but `Model` hardcodes `Clock()` with no way to set one
+  ([`open.md`](open.md) §2g). Model time is humanized seconds.

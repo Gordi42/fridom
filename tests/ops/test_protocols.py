@@ -35,6 +35,27 @@ def test_chunkstats_is_frozen_plain_data():
         stats.iteration = 0
 
 
+def test_chunkstats_leg_fields_default_to_none():
+    # the payload grows compatibly: every existing all-keyword
+    # construction still builds
+    stats = ChunkStats(name="ocn", iteration=8, time=0.8,
+                       steps_done=8, wall_seconds=0.08,
+                       steps_per_second=100.0)
+    assert stats.leg_steps_done is None
+    assert stats.leg_steps_total is None
+
+
+def test_chunkstats_carries_the_leg_step_counts():
+    stats = ChunkStats(name="ocn", iteration=8, time=0.8,
+                       steps_done=8, wall_seconds=0.08,
+                       steps_per_second=100.0,
+                       leg_steps_done=8, leg_steps_total=32)
+    assert stats.leg_steps_done == 8
+    assert stats.leg_steps_total == 32
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        stats.leg_steps_total = 0
+
+
 def test_chunkstats_allows_unnamed_models():
     stats = ChunkStats(name=None, iteration=1, time=0.1,
                        steps_done=1, wall_seconds=0.01,
@@ -70,10 +91,26 @@ class MissingChunkHook:
         pass
 
 
+class LegHookReporter(FullReporter):
+
+    """Also implements the OPTIONAL additive leg hook."""
+
+    def on_leg_start(self, *, plan):
+        pass
+
+
 def test_reporter_protocol_isinstance():
     assert isinstance(FullReporter(), ProgressReporter)
     assert not isinstance(MissingChunkHook(), ProgressReporter)
     assert not isinstance(object(), ProgressReporter)
+
+
+def test_the_optional_leg_hook_is_not_a_protocol_member():
+    # on_leg_start is additive and duck-checked by the driver: a
+    # three-hook object must keep passing, and a four-hook one too
+    assert not hasattr(ProgressReporter, "on_leg_start")
+    assert isinstance(FullReporter(), ProgressReporter)
+    assert isinstance(LegHookReporter(), ProgressReporter)
 
 
 # ================================================================

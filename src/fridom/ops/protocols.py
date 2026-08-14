@@ -202,6 +202,13 @@ class ChunkStats:
         The chunk's wall time.
     steps_per_second : float
         The chunk's step rate.
+    leg_steps_done : int or None, optional
+        Steps advanced so far within THIS ``advance()`` leg
+        (cumulative, including this chunk). ``None`` when the
+        producer does not track legs (default: None).
+    leg_steps_total : int or None, optional
+        The step count this ``advance()`` leg was asked for.
+        ``None`` when unknown (default: None).
     """
 
     name: str | None
@@ -210,6 +217,8 @@ class ChunkStats:
     steps_done: int
     wall_seconds: float
     steps_per_second: float
+    leg_steps_done: int | None = None
+    leg_steps_total: int | None = None
 
 
 @runtime_checkable
@@ -224,6 +233,19 @@ class ProgressReporter(Protocol):
     cadence, zero extra host syncs, rank-0-only rendering in the
     default implementation (2.6). In-trace ``io_callback`` progress
     ticks are rejected (archive, d4_2 section 4).
+
+    The three hook names below are the normative commitment.
+    Reporters MAY additionally implement one OPTIONAL, additive
+    hook, which is duck-checked (``getattr``) by the driver and
+    deliberately NOT part of this ``runtime_checkable`` Protocol —
+    a three-hook object stays a valid ``ProgressReporter``:
+
+    ``on_leg_start(*, plan: Mapping[str, int]) -> None``
+        Fired by ``Session.advance()`` once the per-model step plan
+        is resolved, before the first chunk of the leg. ``plan``
+        maps model name to the step count that leg was asked for —
+        the only place the leg length is known, since
+        ``on_run_start`` always receives ``n_steps=None``.
     """
 
     def on_run_start(
