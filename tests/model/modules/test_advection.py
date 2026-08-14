@@ -155,6 +155,44 @@ def test_face_codomain_rejects_other_node_sets():
         op.codomain(mx.face_avg)
 
 
+# ================================================================
+#  Embedding charts are refused at bind (metric blindness)
+# ================================================================
+@pytest.mark.parametrize(
+    "cls", [CenteredAdvection, UpwindAdvection, WENOAdvection])
+def test_embedding_chart_is_a_taught_error(cls):
+    # The flux form is written in computational coordinates: the face
+    # reconstructions are uniform-offset rows and the divergence is a
+    # bare diff / flux_diff. grid.chart_coords is never read, so on a
+    # chart it would transport the stored (not contravariant)
+    # components with no sqrt(g) weight -- silently. Measured before
+    # the guard landed: on this sheared chart the CenteredAdvection
+    # tendency of u, v and w was BITWISE the flat-grid tendency.
+    grid = Grid((
+        IntervalMesh(8, (0.0, L), name="x"),
+        IntervalMesh(8, (0.0, L), name="y"),
+        IntervalMesh(8, (0.0, L), name="z"),
+    ), mapping=fr.spatial.CoordinateMapping(
+        chart={"X": lambda x, y: (x + 0.4 * y, y, 0.0 * x)}))
+    assert grid.chart_coords == ("x", "y")
+    # the guard itself, independent of every other module
+    with pytest.raises(NotImplementedError, match="metric-blind"):
+        cls()._reject_chart(grid)
+    # and through a real assembly. The advection module goes FIRST in
+    # the module tuple on purpose: modules bind in tuple order, and the
+    # model cores carry chart refusals of their own, so binding
+    # advection first is what keeps this exercising THIS guard.
+    with pytest.raises(NotImplementedError, match="metric-blind"):
+        FrModel(grid=grid, modules=(cls(), Core()),
+                time_stepper=AdamBashforth(DT, order=3))
+
+
+def test_chart_guard_is_a_noop_on_a_chartless_grid():
+    # the narrow half: a plain grid reports no chart and binds
+    assert make_grid(8).chart_coords is None
+    assert CenteredAdvection()._reject_chart(make_grid(8)) is None
+
+
 # the left-biased Center -> Right window is [-order//2, +order//2],
 # symmetric of reach order//2 (m0 = biased_offset = order//2): halo 1
 # for order 3, 2 for order 5 -- the true per-direction reach, tighter

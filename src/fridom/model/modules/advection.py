@@ -270,6 +270,16 @@ failure is silent wrong physics rather than a crash.**
   and the body is transparent to the background flow. Advect the
   total velocity with an inflow forcing instead. Mirrors the
   shallow-water ``SadournyAdvection`` refusal (IP-D8).
+- **An embedding chart** (:meth:`_FluxFormAdvection._reject_chart`).
+  The whole family is written in computational coordinates: the
+  face reconstructions are uniform-offset rows and the divergence
+  is a bare ``diff`` / ``flux_diff``. The only metric it multiplies
+  is the ``maps=`` column Jacobian; ``grid.chart_coords`` is never
+  read, so on a chart it transports the stored (rather than
+  contravariant) components with no :math:`\sqrt g` weight — the
+  tendency on a sheared chart is *bitwise* the flat-grid tendency.
+  Metric-aware flux-form advection is future work; the guard is
+  defense in depth below the model factories' own chart refusals.
 """
 from __future__ import annotations
 
@@ -2557,10 +2567,11 @@ class _FluxFormAdvection(fr.model.Module):
             On a walled grid (any bounded mesh factor) when the
             scheme opts out through `_supports_walled`: the natural
             downstream failure (an operator dispatch mismatch deep in
-            the flux chain) would be cryptic. On an immersed grid with
-            a prescribed ``background=``
-            (`_reject_immersed_background`): a silent wrong-physics
-            composition.
+            the flux chain) would be cryptic. On a grid carrying an
+            embedding chart (`_reject_chart`), and on an immersed
+            grid with a prescribed ``background=``
+            (`_reject_immersed_background`) — both silent
+            wrong-physics compositions.
         ValueError
             If a background sample does not resolve on its velocity
             component's own space (a component outside the nh
@@ -2599,6 +2610,7 @@ class _FluxFormAdvection(fr.model.Module):
         if immersed is not None:
             self._halo_axes = tuple(table.grid.names)
         self._reject_immersed_background(immersed)
+        self._reject_chart(table.grid)
         self._bind_mapping(table.grid)
         self._advected = table.select(fr.model.roles.ADVECTED)
         selector = table.velocity()
@@ -2664,6 +2676,68 @@ class _FluxFormAdvection(fr.model.Module):
             "background= and drive the flow with an inflow forcing "
             "(fr.model.modules.Relaxation fringe / Source) — or drop "
             "the immersed domain.")
+
+    def _reject_chart(self, grid: object) -> None:
+        r"""
+        Refuse a grid carrying an embedding chart (metric blindness).
+
+        Description
+        -----------
+        The flux-form family is written in **computational**
+        coordinates throughout: the face reconstructions are
+        uniform-offset rows, the advecting-velocity faces are plain
+        interpolations of the stored components, and the divergence is
+        ``flux.diff(axis)`` / the FV ``flux_diff`` — a bare
+        computational difference. The only metric the module ever
+        multiplies is the ``maps=`` **column** Jacobian
+        (:meth:`_flux_divergence`, gated on ``self._column``), derived
+        from ``grid.metric``; ``grid.chart_coords`` is never read.
+
+        On an embedding chart that is wrong twice over. The honest
+        transport is :math:`-(1/\sqrt g)\,\partial_i(\sqrt g\,v^i q)`
+        of the **contravariant** components — the sw2 chart path
+        (``shallowwater2.chart.to_contravariant`` + the ``sqrt_g``
+        weighting) is the worked precedent — and this module supplies
+        neither the raise-index nor the :math:`\sqrt g` weight. The
+        failure is total and silent: on a sheared chart
+        (``X(x, y) = (x + 0.4 y, y, 0)``) the tendency of every
+        component is **bitwise identical** to the flat-grid tendency,
+        i.e. the chart is ignored in full.
+
+        Until A0's mapped work is generalized to charts this was
+        "safe" only because the 3-D model factories happened to refuse
+        charts upstream (defect section B of
+        ``design/research/example_authoring_defects.md``); the guard
+        here is the defense in depth, so a hand-assembled
+        ``fr.model.Model`` cannot reach the metric-blind path either.
+
+        Parameters
+        ----------
+        grid : object
+            The bind grid.
+
+        Raises
+        ------
+        NotImplementedError
+            If the grid's mapping carries a coupled embedding chart.
+        """
+        chart = getattr(grid, "chart_coords", None)
+        if chart is None:
+            return
+        raise NotImplementedError(
+            f"{type(self).__name__} does not support grids carrying "
+            f"an embedding chart (chart coordinates: {tuple(chart)}): "
+            "the flux form is metric-blind — its face reconstructions "
+            "and its divergence are computational-coordinate rows, so "
+            "it would transport the stored (not contravariant) "
+            "components and drop the sqrt(g) volume weight entirely "
+            "(measured: the tendency on a sheared chart is BITWISE the "
+            "flat-grid tendency — the chart is ignored in full). "
+            "Metric-aware flux-form advection is future work (the "
+            "shallow-water SadournyAdvection chart path is the "
+            "precedent); until it lands, run a linear model "
+            "(advection=False) on the chart, or advect on an unmapped "
+            "(flat) grid.")
 
     def _resolve_surface_flux(self, table: object) -> bool:
         """Resolve the tri-state ``surface_flux`` on this grid.
