@@ -31,10 +31,11 @@ from fridom.model.time_dependent import TimeDependent
 from fridom.model.transforms.base import StateTransform
 from fridom.model.transforms.info import TransformCost, TransformInfo
 from fridom.model.transforms.signature import StateSignature
-from fridom.spatial.fields.vector_field import VectorField
 
 if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Callable
+
+    from fridom.spatial.fields.vector_field import VectorField
 
 
 class TimeAverage(StateTransform):
@@ -173,8 +174,11 @@ class TimeAverage(StateTransform):
     #  Application (the nested averaging passes)
     # ================================================================
     def _prognostic_of(self, state: object) -> VectorField:
-        """Extract the PROGNOSTIC subset of a state as a VectorField."""
-        return VectorField(
+        """Extract the PROGNOSTIC subset, keeping the state's type."""
+        # ``type(state)`` and not a bare ``VectorField``: the model
+        # package's vocabulary subclass (``nh.State``) must survive
+        # the restriction, exactly as in ``Propagator._evaluate``.
+        return type(state)(
             {name: state[name] for name in self._prognostic})
 
     def _average(

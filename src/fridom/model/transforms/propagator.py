@@ -32,10 +32,11 @@ from fridom.model import params
 from fridom.model.transforms.base import StateTransform
 from fridom.model.transforms.info import TransformCost, TransformInfo
 from fridom.model.transforms.signature import StateSignature
-from fridom.spatial.fields.vector_field import VectorField
 
 if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Callable, Mapping
+
+    from fridom.spatial.fields.vector_field import VectorField
 
 # the sign-agnostic runlen -> steps snap tolerance (matches
 # Model._plan_run_steps: steps = ceil(k - eps))
@@ -166,7 +167,17 @@ class Propagator(StateTransform):
         model.set_state(state)
         model.advance(self._steps)
         full = model.state
-        result = VectorField(
+        # Rebuild through the model's OWN state type, not a bare
+        # VectorField: a model package supplies a vocabulary subclass
+        # (``nh.State``, ``sw.State``) through ``Module.state_type``,
+        # and a Propagator output is a state of the same model — so
+        # ``p(z).w`` and ``p(z).rel_vort_z`` must keep working. Every
+        # other transform preserves the input type the same way
+        # (``type(state)(...)`` in the projections / BalanceExpansion,
+        # ``type(self)`` in the field arithmetic), so dropping it here
+        # was what made the whole downstream algebra — OptimalBalance
+        # included — hand back a bare VectorField.
+        result = type(full)(
             {name: full[name] for name in self._prognostic})
         info = TransformInfo(
             model_steps=self._steps,
