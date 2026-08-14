@@ -293,7 +293,7 @@ def test_identity_chart_mask_matches_flat_immersed():
     # flat immersed path applies a well-balanced partial-bottom pressure
     # correction (delta > 0), while the terrain-chart path defers it
     # (the recorded PB-D3 deferral,
-    # design/plans/active/partial_bottom_phyd_plan.md). On a staircase
+    # design/plans/done/partial_bottom_phyd_plan.md). On a staircase
     # delta == 0 (to floating point), so the correction's magnitude is at
     # roundoff (~1e-17) and the strong equivalence holds to machine
     # precision. (test_partial_bottom_asymmetry_is_real exercises the
@@ -326,7 +326,7 @@ def test_partial_bottom_asymmetry_is_real():
     # (non-face-aligned) bottom cut is intentional, not a bug: the flat
     # immersed path activates the well-balanced partial-bottom p_hyd
     # correction (delta > 0), the terrain-chart path defers it (PB-D3,
-    # design/plans/active/partial_bottom_phyd_plan.md). The clean witness
+    # design/plans/done/partial_bottom_phyd_plan.md). The clean witness
     # is Core._pb_active, resolved once at bind from the
     # wet-centroid offsets.
     def flat_immersed():

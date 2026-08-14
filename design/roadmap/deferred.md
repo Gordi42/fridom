@@ -132,7 +132,7 @@ moment under the column map, consistent with the cumint measure).
 Trigger: a terrain-chart + partial-bottom consumer needing the
 correction; status quo is the honest uncorrected O(dz)-at-cuts
 behavior behind a taught error.*
-[`../plans/active/partial_bottom_phyd_plan.md`](../plans/active/partial_bottom_phyd_plan.md)
+[`../plans/done/partial_bottom_phyd_plan.md`](../plans/done/partial_bottom_phyd_plan.md)
 
 ## sw2 mapped+immersed
 
@@ -143,7 +143,7 @@ fraction quadrature (MI-D1 serves column corrections only, not
 proof with the combined α·sqrt_g corner weight. Trigger: a concrete
 curvilinear-with-islands use case.* Taught errors at both bind sites
 (`SadournyAdvection`, `DynamicalCore`) keep it honest meanwhile.
-[`../plans/active/mapped_immersed_composition_plan.md`](../plans/active/mapped_immersed_composition_plan.md)
+[`../plans/done/mapped_immersed_composition_plan.md`](../plans/done/mapped_immersed_composition_plan.md)
 
 ## Mapped-solve residual levers — measured, not taken
 

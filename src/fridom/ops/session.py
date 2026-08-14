@@ -78,8 +78,9 @@ if TYPE_CHECKING:  # pragma: no cover
 _log = logging.getLogger(__name__)
 
 # the default host-sync granularity (04 §6.3: max_chunk auto ~256).
-# When None the model's own chunk_size is used (its {C, 1} granularity
-# — so a Session subdivision never forces sub-chunk length-1 tails).
+# When None the model's own chunk_size is used (its {C} u {2**k}
+# granularity — so a Session subdivision never forces sub-chunk
+# length-1 tails; the remainder rides the binary tail instead).
 _DEFAULT_MAX_CHUNK: int | None = None
 
 # the sign-agnostic run-target snap tolerance (04 §6.3: ceil(k - eps)).
