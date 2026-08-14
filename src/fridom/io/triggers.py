@@ -371,7 +371,7 @@ def every(
 
 
 def at(
-    times: Sequence[float | np.timedelta64],
+    times: float | np.timedelta64 | Sequence[float | np.timedelta64],
     *,
     after: float | np.timedelta64 | None = None,
     until: float | np.timedelta64 | None = None,
@@ -387,8 +387,9 @@ def at(
 
     Parameters
     ----------
-    times : sequence of float or np.timedelta64
-        The model times, in seconds or as timedeltas.
+    times : float or np.timedelta64 or sequence of them
+        The model times, in seconds or as timedeltas. A bare time is
+        one time — ``at(runlen)`` needs no one-element list.
     after, until : float or np.timedelta64, optional
         Window: keep only firings inside ``[after, until]`` (model
         time, run direction).
@@ -398,10 +399,12 @@ def at(
     Trigger
         The frozen trigger node (wrapped in a window if bounded).
     """
+    # the scalar-or-sequence rule, widened: a bare time is one time
+    # (``at(runlen)``), and unlike the list/tuple-only parameters this
+    # one keeps taking any iterable, because an ndarray of output
+    # times (``at(np.arange(0, 100, 10))``) is a normal spelling here
     if isinstance(times, (int, float, np.timedelta64)):
-        raise TypeError(
-            f"fr.io.at() takes a sequence of model times; got the "
-            f"scalar {times!r} — spell it fr.io.at([{times!r}])")
+        times = (times,)
     fired = tuple(_model_seconds(t, name="times") for t in times)
     if not fired:
         raise ValueError("fr.io.at() needs at least one model time")

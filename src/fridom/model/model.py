@@ -44,6 +44,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
+from fridom._sequences import as_tuple
 from fridom.framework.utils import dtype_real, jaxify
 from fridom.io.snapshots import (
     FORMAT_VERSION,
@@ -91,6 +92,7 @@ if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Callable, Iterator, Sequence
     from pathlib import Path
 
+    from fridom.io.streams import OutputStream
     from fridom.model.assembly import (
         AssemblyArtifacts,
         AssemblyRecord,
@@ -101,6 +103,7 @@ if TYPE_CHECKING:  # pragma: no cover
         FieldRecord,
         FieldTable,
     )
+    from fridom.model.module import Module
     from fridom.model.parameters import ParameterDeclaration
     from fridom.model.report import AssemblyReport
     from fridom.model.time_steppers.base import (
@@ -1400,14 +1403,17 @@ class Model:
     ----------
     grid : Grid
         The assembly root (frozen after step 7).
-    modules : tuple
-        The module tuple (``fr.Module`` instances).
+    modules : Module | Sequence[Module]
+        The modules (``fr.Module`` instances). A list or a tuple is
+        the module collection; anything else is a single module, so
+        ``modules=core`` needs no one-element tuple.
     time_stepper : TimeStepper
         REQUIRED, no default — no physics-free dt exists.
-    io : tuple, optional
+    io : OutputStream | Sequence[OutputStream], optional
         Standing output config; bound at run start, never at
-        assembly (wave 5). Rejects ``Snapshots`` (run-config only)
-        (default: ()).
+        assembly (wave 5). A list or a tuple is the stream
+        collection, anything else a single stream (``io=writer``).
+        Rejects ``Snapshots`` (run-config only) (default: ()).
     state_type : type | None, optional
         The State vocabulary class; ``None`` reads the
         module-supplied one, falling back to ``VectorField``
@@ -1437,7 +1443,7 @@ class Model:
         ``fr.scaling.Dimensional()`` / None inject no row. ``None``
         — no scaling policy — is legal only when no assembled
         module participates in a scaling variant (default: None).
-    allow_unadvanced : Sequence[str], optional
+    allow_unadvanced : str | Sequence[str], optional
         PROGNOSTIC field names that are **deliberately** advanced by
         no term — the explicit waiver of the D1.4 coverage lint
         (``TendencyComposer._coverage_lint``). The lint exists to
@@ -1449,26 +1455,30 @@ class Model:
         no term at all, and ``allow_unadvanced=("u", "v")`` is what
         makes it assemblable. Every name must be a PROGNOSTIC field of
         this assembly (an unknown name is an assembly error, so a typo
-        cannot silently widen the waiver). Host-side only: no
-        schedule, no term and no number changes (default: ()).
+        cannot silently widen the waiver). A bare string is one name,
+        never its letters (``allow_unadvanced="w"``). Host-side only:
+        no schedule, no term and no number changes (default: ()).
     """
 
     def __init__(
         self,
         *,
         grid: Grid,
-        modules: tuple,
+        modules: Module | Sequence[Module],
         time_stepper: TimeStepper,
-        io: tuple = (),
+        io: OutputStream | Sequence[OutputStream] = (),
         state_type: type | None = None,
         name: str | None = None,
         chunk_size: int = _DEFAULT_CHUNK,
         async_chunk_compile: bool = False,
         term_filter: Callable | None = None,
         scaling: object | None = None,
-        allow_unadvanced: Sequence[str] = (),
+        allow_unadvanced: str | Sequence[str] = (),
     ) -> None:
         """Assemble (steps 1-7, 9) and allocate the carry (step 8)."""
+        modules = as_tuple(modules)
+        io = as_tuple(io)
+        allow_unadvanced = as_tuple(allow_unadvanced)
         if isinstance(chunk_size, bool) or not isinstance(
                 chunk_size, int) or chunk_size < 1:
             raise ValueError(
@@ -1483,7 +1493,6 @@ class Model:
                     "io= rejects Snapshots — snapshots are "
                     "run-config only (one resume path, never two); "
                     "pass them to run(snapshots=...)")
-        modules = tuple(modules)
         self._scaling = scaling
         self._artifacts: AssemblyArtifacts = assemble(
             grid=grid, modules=modules, time_stepper=time_stepper,
@@ -2260,7 +2269,7 @@ class Model:
     def propagator(
         self,
         *,
-        wrt: Sequence[str] = (),
+        wrt: str | Sequence[str] = (),
         steps: int,
         remat: bool | None = None,
     ) -> Callable[..., ModelState]:
@@ -2281,7 +2290,8 @@ class Model:
         pair rides the returned carry; the returned state is
         ``result.state``.
 
-        ``theta`` is a tuple aligned with ``wrt``: each value is
+        ``theta`` is aligned with ``wrt`` — a tuple, or a bare value
+        when ``wrt`` names a single target: each value is
         spliced by identity into its target leaf (a module parameter, a
         stepper leaf such as ``stepper.dt``, or a PROGNOSTIC initial
         field), so ``jax.grad(lambda th: loss(run(th)))(theta0)`` is
@@ -2303,11 +2313,14 @@ class Model:
 
         Parameters
         ----------
-        wrt : Sequence[str], optional
+        wrt : str | Sequence[str], optional
             Differentiation targets, in ``theta`` order: dotted bound
             parameter names (``"mixing.kappa"``, ``fr.params.TIME_STEP``)
-            or PROGNOSTIC field names (``"b"``). Empty ``wrt`` builds a
-            pure forward run taking ``theta=()`` (default: ()).
+            or PROGNOSTIC field names (``"b"``). A bare string is one
+            target, never its letters, and ``theta`` follows it: a
+            one-target propagator takes ``run(theta=value)``. Empty
+            ``wrt`` builds a pure forward run taking ``theta=()``
+            (default: ()).
         steps : int
             The number of steps to advance (a positive int).
         remat : bool | None, optional
@@ -2345,7 +2358,7 @@ class Model:
                 "propagator() needs a PROGNOSTIC state to advance; this "
                 "composition declares none (stage-only schedules land "
                 "with wave 5)")
-        wrt = tuple(wrt)
+        wrt = as_tuple(wrt)
         targets = self._resolve_wrt_targets(wrt)
         record = self._artifacts.record
         base_carry = _copy_leaves(self._carry)
@@ -2354,11 +2367,14 @@ class Model:
         remat_on = bool(remat)
 
         def run(
-            theta: Sequence[object] = (),
+            theta: object | Sequence[object] = (),
             state: VectorField | None = None,
         ) -> ModelState:
             """Advance ``steps`` steps as a pure function of ``theta``."""
-            theta = tuple(theta)
+            # the scalar-or-sequence rule, which a single wrt target
+            # needs to stay differentiable: a bare jax array is ONE
+            # value spliced whole, never its elements
+            theta = as_tuple(theta)
             if len(theta) != len(wrt):
                 raise ValueError(
                     f"propagator expected {len(wrt)} theta value(s) for "
@@ -2778,7 +2794,7 @@ class Model:
         *,
         runlen: float | np.timedelta64 | None = None,
         end_time: float | np.timedelta64 | None = None,
-        outputs: tuple = (),
+        outputs: OutputStream | Sequence[OutputStream] = (),
         snapshots: Any = None,
         max_chunk: int | None = None,
         progress: bool | Any = True,
@@ -2815,9 +2831,11 @@ class Model:
             Advance until this absolute model time, rounded UP to a
             whole number of steps; a target off the step grid
             ``t0 + n*dt`` warns (default: None).
-        outputs : tuple, optional
-            Per-run output streams, added to the model's ``io=``
-            (default: ()).
+        outputs : OutputStream | Sequence[OutputStream], optional
+            Per-run output streams, added to the model's ``io=``. A
+            list or a tuple is the stream collection, anything else a
+            single stream — ``outputs=writer`` is the one-stream
+            spelling (default: ()).
         snapshots : Snapshots or None, optional
             The restart-snapshot run config (default: None).
         max_chunk : int or None, optional
@@ -2850,7 +2868,7 @@ class Model:
                 "run(profile=%r) is accepted but not wired in wave 5",
                 profile)
         session = Session(
-            self, outputs=tuple(self._io) + tuple(outputs),
+            self, outputs=tuple(self._io) + as_tuple(outputs),
             snapshots=snapshots, progress=progress,
             max_chunk=max_chunk, jit=jit, debug_nan=debug_nan)
         key = self._name if self._name is not None else "model"
@@ -3117,7 +3135,7 @@ class Model:
         *,
         term_filter: Callable | None = None,
         updates: Mapping[str, object] | None = None,
-        extra_modules: tuple = (),
+        extra_modules: Module | Sequence[Module] = (),
         name: str | None = None,
     ) -> Model:
         """
@@ -3151,9 +3169,11 @@ class Model:
         updates : Mapping[str, object] | None, optional
             Assembly-time parameter value (or spec) changes, resolved
             through the parent's binding table (default: None).
-        extra_modules : tuple, optional
+        extra_modules : Module | Sequence[Module], optional
             Field-free modules appended (as fresh clones) after the
-            parent's modules (default: ``()``).
+            parent's modules. A list or a tuple is the module
+            collection, anything else a single module (default:
+            ``()``).
         name : str | None, optional
             The variant's report/log name (default: ``"{parent}/
             variant"``).
@@ -3189,7 +3209,7 @@ class Model:
         # extras append AFTER the updates loop (parent binding slots
         # index the parent tuple) and BEFORE the filter-name check
         # (named() filters may reference extra-module terms)
-        for extra in tuple(extra_modules):
+        for extra in as_tuple(extra_modules):
             if tuple(getattr(extra, "field_declarations", ())):
                 raise AssemblyError(
                     f"variant extra module {type(extra).__name__} "

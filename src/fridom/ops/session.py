@@ -38,6 +38,7 @@ from typing import TYPE_CHECKING, Any
 import jax
 import numpy as np
 
+from fridom._sequences import as_tuple
 from fridom.io.snapshots import (
     Snapshots,
     find_latest,
@@ -203,12 +204,14 @@ class Session:
     ----------
     models : Model or sequence of Model
         The model(s) to drive; keyed by ``model.name`` (a lone
-        unnamed model gets the key ``"model"``). Duplicate or
-        missing names in a multi-model session raise.
-    outputs : sequence of OutputStream, optional
+        unnamed model gets the key ``"model"``). A list or a tuple
+        is the model collection, anything else a single model.
+        Duplicate or missing names in a multi-model session raise.
+    outputs : OutputStream or sequence of OutputStream, optional
         Standing + per-run output streams; bound at ``__enter__``.
-        Rejects a ``Snapshots`` instance (run-config only)
-        (default: ()).
+        A list or a tuple is the stream collection, anything else a
+        single stream (``outputs=writer``). Rejects a ``Snapshots``
+        instance (run-config only) (default: ()).
     snapshots : Snapshots or None, optional
         The restart-snapshot run config (the only home for a
         ``Snapshots``); its walltime component feeds the
@@ -234,7 +237,7 @@ class Session:
         self,
         models: Model | Sequence[Model],
         *,
-        outputs: Sequence[OutputStream] = (),
+        outputs: OutputStream | Sequence[OutputStream] = (),
         snapshots: Snapshots | None = None,
         progress: bool | Any = True,
         max_chunk: int | None = _DEFAULT_MAX_CHUNK,
@@ -247,9 +250,10 @@ class Session:
             raise TypeError(
                 "snapshots= must be an fr.io.Snapshots config; got "
                 f"{snapshots!r}")
+        outputs = as_tuple(outputs)
         for stream in outputs:
             reject_snapshots_config(stream, slot="outputs")
-        self._outputs = tuple(outputs)
+        self._outputs = outputs
         self._snapshots = snapshots
         if max_chunk is not None and (
                 isinstance(max_chunk, bool)
@@ -296,10 +300,7 @@ class Session:
         models: Model | Sequence[Model],
     ) -> dict[str, Model]:
         """Key the model(s) by ``model.name`` (hinted collisions)."""
-        if isinstance(models, (list, tuple)):
-            items = tuple(models)
-        else:
-            items = (models,)
+        items = as_tuple(models)
         if not items:
             raise ValueError("a Session needs at least one model")
         keyed: dict[str, Model] = {}

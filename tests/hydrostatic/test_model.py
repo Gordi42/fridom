@@ -35,6 +35,22 @@ def make_model(grid=None, *, dt=1e-3, **kwargs):
 
 
 # ================================================================
+#  modules_extra: the scalar-or-sequence rule
+# ================================================================
+@pytest.mark.parametrize("wrap", [
+    pytest.param(lambda m: m, id="bare"),
+    pytest.param(lambda m: [m], id="list"),
+    pytest.param(lambda m: (m,), id="tuple"),
+])
+def test_modules_extra_takes_a_bare_module_a_list_or_a_tuple(wrap):
+    # one extra module needs no one-element tuple around it
+    model = make_model(
+        modules_extra=wrap(fr.model.closures.HarmonicFriction(nu=1e-4)))
+    assert any(isinstance(m, fr.model.closures.HarmonicFriction)
+               for m in model._carry.modules)
+
+
+# ================================================================
 #  D4: the preset is a thin factory (identical carry treedef)
 # ================================================================
 def test_preset_equals_explicit_assembly_treedef():

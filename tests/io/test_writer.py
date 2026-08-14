@@ -309,6 +309,45 @@ def test_unknown_field_raises(tmp_path, model):
         writer.bind(model)
 
 
+# ================================================================
+#  fields=: the scalar-or-sequence rule
+# ================================================================
+@pytest.mark.parametrize("selection", [
+    pytest.param("p", id="bare"),
+    pytest.param(["p"], id="list"),
+    pytest.param(("p",), id="tuple"),
+])
+def test_fields_takes_a_bare_name_a_list_or_a_tuple(
+        tmp_path, model, state, selection):
+    path = tmp_path / "out.zarr"
+    writer = Writer(path, fields=selection, trigger=every(steps=1))
+    writer.bind(model)
+    writer.write(firing(state, 0))
+    writer.close()
+    ds = xr.open_zarr(path, consolidated=False)
+    assert set(ds.data_vars) == {"p"}
+
+
+def test_a_multi_letter_bare_name_is_one_field_not_its_letters(
+        tmp_path, grid):
+    # tuple("temp") is ("t", "e", "m", "p"): the silent mis-parse the
+    # rule exists to kill. It surfaced only at bind, and only for a
+    # name longer than one letter — fields="p" worked by accident
+    temp = grid.create_field(init=lambda x, y: x * y, name="temp",
+                             units="K")
+    state = VectorField({"temp": temp})
+    model = FakeModel(state, clock_at(0),
+                      table=FakeTable(prognostic=("temp",)),
+                      digest="deadbeef")
+    path = tmp_path / "out.zarr"
+    writer = Writer(path, fields="temp", trigger=every(steps=1))
+    writer.bind(model)
+    writer.write(firing(state, 0))
+    writer.close()
+    ds = xr.open_zarr(path, consolidated=False)
+    assert set(ds.data_vars) == {"temp"}
+
+
 def test_default_without_table_raises(tmp_path, state):
     path = tmp_path / "out.zarr"
     bare = FakeModel(state, clock_at(0))  # no field_table
