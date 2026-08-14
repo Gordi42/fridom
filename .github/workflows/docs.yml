@@ -32,7 +32,7 @@ concurrency:
   cancel-in-progress: ${{ github.ref != 'refs/heads/dev' }}
 
 env:
-  CDFVIEWER_VERSION: v2026.7.0
+  CDFVIEWER_VERSION: v2026.8.1
 
 jobs:
   build:
