@@ -2754,10 +2754,9 @@ class Model:
                     f"{n_steps}, so the leg advances {realized:.12g} "
                     f"model seconds — {realized - runlen_s:.6g} more "
                     "than asked. The overshoot ACCUMULATES when a "
-                    "sampling loop repeats the call, de-syncing the "
-                    "sample times from the model clock. Give a runlen "
-                    "that is an integer multiple of dt, choose "
-                    "dt = runlen/n, or pass steps= to state the count "
+                    "sampling loop repeats the call. Fit the step to "
+                    "the window with dt = fr.model.fit_dt(runlen, "
+                    "max_dt), or pass steps= to state the count "
                     "outright.",
                     stacklevel=3)
             return n_steps
@@ -2782,9 +2781,10 @@ class Model:
                 f"than {end_s:.12g}. Unlike runlen= the overshoot "
                 "does not accumulate (the target is absolute), but "
                 "the reported final time is not the one asked for. "
-                "Give an end_time on the step grid t0 + n*dt, choose "
-                "a dt that divides the interval, or pass steps= to "
-                "state the count outright.",
+                "Fit the step to the interval with dt = "
+                "fr.model.fit_dt(end_time - t0, max_dt), pick an "
+                "end_time on the step grid t0 + n*dt, or pass steps= "
+                "to state the count outright.",
                 stacklevel=3)
         return n_steps
 
@@ -2826,7 +2826,9 @@ class Model:
         runlen : float or np.timedelta64 or None, optional
             Advance this (unsigned) model-time duration, rounded UP
             to a whole number of steps; a duration that is not an
-            integer multiple of ``dt`` warns (default: None).
+            integer multiple of ``dt`` warns —
+            :func:`~fridom.model.fit_dt.fit_dt` picks a dt that
+            divides the window (default: None).
         end_time : float or np.timedelta64 or None, optional
             Advance until this absolute model time, rounded UP to a
             whole number of steps; a target off the step grid
