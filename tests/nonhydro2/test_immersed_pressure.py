@@ -860,3 +860,21 @@ def test_report_prints_the_achieved_count_and_leaves_the_solve_alone(
     p_quiet = quiet.solve(rhs)
     assert np.array_equal(np.asarray(p_loud.data),
                           np.asarray(p_quiet.data))
+
+
+def test_report_exposes_an_exhausted_budget(capfd):
+    """The half that matters: ``k`` == budget with ``|r|/|b|`` > tol.
+
+    A budget too small for the geometry leaves the projection with a
+    measurably divergent velocity, and nothing else says so — the run
+    is clean, the fields are finite, the pressure looks plausible. The
+    report turns that into one visible line.
+    """
+    _grid, _space, solver = _box_solver(n=12, iterations=3, report=True)
+    vel = _random_velocity(solver, seed=2)
+    solver.solve(solver.divergence(vel))
+    jax.effects_barrier()
+    line = capfd.readouterr().out.strip()
+    assert "k=3/3" in line
+    relative = float(line.split("|r|/|b|=")[1].split()[0])
+    assert relative > 1e-8
