@@ -257,6 +257,19 @@ to begin with. With a background flow, ``bind`` additionally
 validates that the wall-normal background component vanishes on its
 walls (the sampled field is structurally impermeable, so the check
 runs on the user's input — the shallow-water background precedent).
+
+**Two compositions are refused at bind, both because the natural
+failure is silent wrong physics rather than a crash.**
+
+- ``background=`` **on an immersed grid**
+  (:meth:`_FluxFormAdvection._reject_immersed_background`). The
+  Doppler split needs the *inhomogeneous* body condition
+  :math:`u'\cdot n = -U\cdot n`; the immersed projection enforces
+  :math:`u'\cdot n = 0` and ``MaskState`` zeroes :math:`u'` in dry
+  cells, so :math:`u' \equiv 0` is an exact fixed point of the step
+  and the body is transparent to the background flow. Advect the
+  total velocity with an inflow forcing instead. Mirrors the
+  shallow-water ``SadournyAdvection`` refusal (IP-D8).
 """
 from __future__ import annotations
 
@@ -2544,7 +2557,10 @@ class _FluxFormAdvection(fr.model.Module):
             On a walled grid (any bounded mesh factor) when the
             scheme opts out through `_supports_walled`: the natural
             downstream failure (an operator dispatch mismatch deep in
-            the flux chain) would be cryptic.
+            the flux chain) would be cryptic. On an immersed grid with
+            a prescribed ``background=``
+            (`_reject_immersed_background`): a silent wrong-physics
+            composition.
         ValueError
             If a background sample does not resolve on its velocity
             component's own space (a component outside the nh
@@ -2582,6 +2598,7 @@ class _FluxFormAdvection(fr.model.Module):
         self._immersed = immersed
         if immersed is not None:
             self._halo_axes = tuple(table.grid.names)
+        self._reject_immersed_background(immersed)
         self._bind_mapping(table.grid)
         self._advected = table.select(fr.model.roles.ADVECTED)
         selector = table.velocity()
@@ -2590,6 +2607,63 @@ class _FluxFormAdvection(fr.model.Module):
             (axis, name) for name, axis in selector.labels)
         self._bind_background(table)
         self._surface_flux_on = self._resolve_surface_flux(table)
+
+    def _reject_immersed_background(self, immersed: object) -> None:
+        r"""
+        Refuse ``background=`` on an immersed (cut-cell) grid.
+
+        Description
+        -----------
+        The Doppler split (module docstring) is exact for a constant
+        :math:`U` only *through the equations*; the boundary condition
+        it needs at an embedded body is **inhomogeneous**,
+        :math:`u'\cdot n = -U\cdot n`, so the perturbation has to blow
+        the background back out of the body. Nothing in the immersed
+        stack supplies that: ``ImmersedPressureSolver`` projects onto
+        the *homogeneous* :math:`u'\cdot n = 0` and the shared
+        ``MaskState`` zeroes :math:`u'` in dry cells, which together
+        make :math:`u' \equiv 0` an **exact fixed point** of the whole
+        step. The assembly is clean, the run is clean, and the body is
+        perfectly transparent to the background flow — the silent
+        wrong-physics failure this guard exists to convert into a
+        diagnosis (defect A3b of
+        ``design/research/example_authoring_defects.md``; measured with
+        a disc at 256x128, seeded with 1e-3 noise: ``max|u'|`` still
+        1.1e-3 after 350 steps, no wake at all).
+
+        The refusal is unconditional on an immersed grid, mirroring the
+        shallow-water sibling (``SadournyAdvection.bind``, IP-D8) so the
+        two model families spell the same limitation the same way. A
+        background that vanishes on and inside the body would in fact
+        keep the homogeneous condition honest, but nothing checks that
+        today and the useful case (a uniform inflow past an obstacle) is
+        precisely the one that cannot work.
+
+        Parameters
+        ----------
+        immersed : object
+            The grid's ``ImmersedDomain``, or None on a plain grid.
+
+        Raises
+        ------
+        NotImplementedError
+            If a background flow is prescribed on an immersed grid.
+        """
+        if immersed is None or not self._background:
+            return
+        raise NotImplementedError(
+            f"{type(self).__name__}(background=...) is not supported "
+            "on immersed (cut-cell) grids: the background split needs "
+            "the INHOMOGENEOUS body condition u'.n = -U.n, but the "
+            "immersed projection enforces u'.n = 0 and MaskState "
+            "zeroes u' in dry cells — so u' = 0 is an exact fixed "
+            "point and the body is transparent to the background "
+            "(silent wrong physics, defect A3b; masked background "
+            "transport is designed-for, immersed-partial-cells plan "
+            "IP-D8). Advect the TOTAL velocity instead — drop "
+            "background= and drive the flow with an inflow forcing "
+            "(fr.model.modules.Relaxation fringe / Source) — or drop "
+            "the immersed domain.")
 
     def _resolve_surface_flux(self, table: object) -> bool:
         """Resolve the tri-state ``surface_flux`` on this grid.
