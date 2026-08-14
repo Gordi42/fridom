@@ -45,10 +45,10 @@ the term reads it from ``ctx.params`` (never the clock).
 The wall-weight builder, the flux-profile declaration, and the bind-time
 validation are module-level helpers (``build_wall_weight``,
 ``flux_declaration``, ``reject_chart_grid`` / ``check_walled_coord`` /
-``check_tangential_flux`` / ``check_forced_field``) so the model-package
-wrappers that own the physical sign conventions
-(``nonhydro2.WindStress`` / ``SurfaceBuoyancyFlux``, BF-D4) reuse them
-rather than duplicating.
+``check_tangential_flux`` / ``check_forced_field``) so the wrappers that
+own the physical sign conventions (``fr.model.modules.WindStress`` /
+``SurfaceBuoyancyFlux``, BF-D4 — re-exported as ``nh.WindStress`` and
+``hy.WindStress``) reuse them rather than duplicating.
 """
 from __future__ import annotations
 
@@ -289,6 +289,33 @@ class BoundaryFlux(Module):
     ``model.update_parameters`` sweeps it (a float, an ``fr.Ramp``, or
     any ``TimeDependent`` curve) without re-assembly.
 
+    The sign, and when not to use this module
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    ``flux`` is a **transport in the** ``+coord`` **direction**, not a
+    gain. At a right/top wall that transport leaves the domain, so a
+    positive flux *drains* the wall-adjacent cell and the ``sign`` above
+    is :math:`-1`. Written out for the two ocean-surface cases at
+    ``coord="z"``, ``side="right"``:
+
+    .. code-block:: python
+
+        # an eastward wind stress tau_x, kinematic (tau/rho_0)
+        BoundaryFlux("u", "z", "right", flux=-tau_x)
+        # surface heating: a buoyancy GAIN q at the top
+        BoundaryFlux("b", "z", "right", flux=-q)
+
+    Both negations flip at a left/bottom wall, which is what makes them
+    easy to get wrong. **If you are writing one of them, reach for the
+    wrapper instead**:
+    :class:`~fridom.model.modules.WindStress` (``tau_x``/``tau_y``
+    positive accelerates ``+x``/``+y``) and
+    :class:`~fridom.model.modules.SurfaceBuoyancyFlux` (``q`` positive
+    is a gain at the wall) take the oceanographic sign on **either**
+    wall and own the conversion, so no caller carries a negation.
+    ``BoundaryFlux`` itself is the right tool for a flux that is
+    genuinely a directed transport, or for a field the wrappers do not
+    cover.
+
     Parameters
     ----------
     field : str
@@ -299,9 +326,11 @@ class BoundaryFlux(Module):
     side : str
         The wall, ``"left"`` or ``"right"``.
     flux : float | Callable, optional
-        The flux pattern :math:`F`: a number (constant), or a callable
-        of the tangential coordinate names (naming ``coord`` is a
-        taught error — the flux lives on the wall face) (default: 1.0).
+        The flux pattern :math:`F`, a transport in ``+coord`` (so a
+        positive value drains a right/top wall — see "The sign" above):
+        a number (constant), or a callable of the tangential coordinate
+        names (naming ``coord`` is a taught error — the flux lives on
+        the wall face) (default: 1.0).
     scale : float | fr.Ramp, optional
         The time scale :math:`s(t)` shared by the wall (a float or any
         ``TimeDependent`` curve for a spun-up forcing) (default: 1.0).

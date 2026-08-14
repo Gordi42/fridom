@@ -1,16 +1,26 @@
 r"""
-Nonhydrostatic surface forcing: ``WindStress`` and ``SurfaceBuoyancyFlux``.
+Ocean surface forcing: ``WindStress`` and ``SurfaceBuoyancyFlux``.
 
 Description
 -----------
-The model-package wrappers that own the oceanographic sign conventions
-(BF-D4), built on the generic ``fr.model.modules.BoundaryFlux`` machinery. The
+The wrappers that own the oceanographic sign conventions (BF-D4), built
+on the generic ``fr.model.modules.BoundaryFlux`` machinery. The
 generic module keeps the axis-direction flux convention (a positive flux
 transports the quantity in ``+coord``); these wrappers give users the
 physical signs — a positive wind stress accelerates the surface flow in
 its own direction, a positive buoyancy flux adds buoyancy to the
 wall-adjacent water — and reuse the shared wall-weight builder, flux
 profiles, and bind-time validation rather than duplicating them.
+
+BF-D4 called these "model-package wrappers" and put them in
+``nonhydro2`` because it was the only consumer at the time. They name
+no nonhydrostatic symbol: they force ``u``/``v``/``b`` through the
+generic machinery, so the hydrostatic model needed the identical thing.
+They therefore live in the shared library, re-exported as
+``nh.WindStress`` and ``hy.WindStress`` — the same rehoming the
+Coriolis and flux-form advection families already took (HY-D5), and the
+only way both packages share **one** sign convention rather than two
+that can drift.
 
 - ``WindStress(tau_x, tau_y, coord, side, scale)`` is **one** module with
   terms on ``u`` and ``v``: a positive ``tau_x`` accelerates the surface
@@ -70,7 +80,7 @@ if TYPE_CHECKING:  # pragma: no cover
     from fridom.spatial.fields.scalar_field import ScalarField
 
 _VELOCITY_HINT = ("the velocities are declared by the dynamical core "
-                  "(nh.Core declares u, v, w)")
+                  "(nh.Core / hy.Core declare u and v)")
 
 
 def _signed_flux(factor: float, flux: float | Callable) -> float | Callable:
@@ -161,7 +171,7 @@ class WindStress(Module):
         self._tauy_name: str = f"windstress_{tag}_tauy"
         self._scale_name: ParamName = ParamName(
             f"wind_stress.{tag}.scale", units="n/a",
-            hint="provided by the nh.WindStress instance at the "
+            hint="provided by the WindStress instance at the "
                  f"{coord} {side} wall")
 
     # ================================================================
@@ -329,5 +339,5 @@ class SurfaceBuoyancyFlux(BoundaryFlux):
         """Publish the scale under the wrapper's own class name (BF-D4)."""
         return ParamName(
             f"surface_buoyancy_flux.{coord}_{side}.scale", units="n/a",
-            hint="provided by the nh.SurfaceBuoyancyFlux instance at "
+            hint="provided by the SurfaceBuoyancyFlux instance at "
                  f"the {coord} {side} wall")

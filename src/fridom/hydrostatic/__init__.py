@@ -13,9 +13,9 @@ The public surface mirrors the sibling packages:
 ``hy.Model`` (a preset factory), ``hy.State`` (the vocabulary class),
 and the concrete modules (``hy.Core``,
 ``hy.ConstantStratification``, ``hy.ExplicitFreeSurface``,
-``hy.FPlaneCoriolis``, ...). ``hy.eigenmodes`` / ``hy.transforms``
-are the numeric eigenbasis and its vortical / wave / barotropic /
-baroclinic projections (HY-D7, stage H4).
+``hy.FPlaneCoriolis``, ``hy.WindStress``, ...). ``hy.eigenmodes`` /
+``hy.transforms`` are the numeric eigenbasis and its vortical / wave /
+barotropic / baroclinic projections (HY-D7, stage H4).
 """
 from typing import TYPE_CHECKING
 
@@ -27,6 +27,8 @@ if TYPE_CHECKING:  # pragma: no cover
         BetaPlaneCoriolis,
         FPlaneCoriolis,
         RotationCoriolis,
+        SurfaceBuoyancyFlux,
+        WindStress,
     )
 
     from . import (
@@ -74,10 +76,12 @@ all_imports_by_origin = {
     f"{base}.modules.free_surface": [
         "ExplicitFreeSurface", "ImplicitFreeSurface",
         "SplitExplicitFreeSurface"],
-    # the Coriolis family and the implicit vertical mixing closure are
-    # shared framework module libraries, re-exported here
+    # the Coriolis family, the ocean surface-forcing wrappers, and the
+    # implicit vertical mixing closure are shared framework module
+    # libraries, re-exported here
     "fridom.model.modules": [
-        "FPlaneCoriolis", "BetaPlaneCoriolis", "RotationCoriolis"],
+        "FPlaneCoriolis", "BetaPlaneCoriolis", "RotationCoriolis",
+        "WindStress", "SurfaceBuoyancyFlux"],
     "fridom.model.closures": ["VerticalMixing"],
 }
 

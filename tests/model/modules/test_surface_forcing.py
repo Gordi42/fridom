@@ -1,13 +1,21 @@
-"""nonhydro2 surface forcing: WindStress and SurfaceBuoyancyFlux.
+"""Ocean surface forcing: WindStress and SurfaceBuoyancyFlux.
 
 These wrappers own the oceanographic sign conventions (BF-D4) on top of
 the generic BoundaryFlux. The sign conventions are pinned AGAINST the
 raw BoundaryFlux spelling (the wrappers must reduce to it exactly), and
 the taught errors are shown to be inherited from the shared validation.
+
+The wrappers live in the shared module library and are re-exported by
+both model packages, so the bulk of the file drives them through the
+``nh.`` spelling (which also pins that re-export) and the block at the
+bottom repeats the two sign conventions through ``hy.`` — one shared
+wrapper, one convention, verified on both models.
 """
 import numpy as np
 import pytest
 
+import fridom as fr
+import fridom.hydrostatic as hy
 import fridom.nonhydro2 as nh
 from fridom.model.modules.boundary_flux import BoundaryFlux
 from fridom.model.time_steppers.adam_bashforth import AdamBashforth
@@ -236,3 +244,56 @@ def test_surface_buoyancy_flux_on_a_periodic_coord_is_rejected():
 def test_windstress_stress_callable_naming_the_normal_is_rejected():
     with pytest.raises(ValueError, match="names the normal coordinate"):
         make_model(nh.WindStress(tau_x=lambda z: z))
+
+
+# ================================================================
+#  The same wrappers on the hydrostatic model (one shared convention)
+# ================================================================
+def make_hy_model(*modules):
+    """Linear hy model; f0 = n2 = 0 isolates the surface forcing."""
+    return hy.Model(
+        grid=make_grid(),
+        core=hy.Core(gravity=10.0),
+        time_stepper=AdamBashforth(2e-3, order=3),
+        coriolis=hy.FPlaneCoriolis(f0=0.0),
+        buoyancy=hy.ConstantStratification(n2=0.0),
+        free_surface=hy.ExplicitFreeSurface(),
+        advection=False,
+        modules_extra=modules)
+
+
+def hy_advanced(*modules, steps=6, field="b"):
+    """Advance a hydrostatic model and return the field data."""
+    model = make_hy_model(*modules)
+    model.advance(steps)
+    return np.asarray(model.state[field].data)
+
+
+def test_hy_windstress_equals_raw_boundary_flux_minus_tau():
+    tau = 0.4
+    got = hy_advanced(hy.WindStress(tau_x=tau), field="u")
+    raw = hy_advanced(BoundaryFlux("u", "z", "right", flux=-tau),
+                      field="u")
+    np.testing.assert_array_equal(got, raw)
+
+
+def test_hy_positive_tau_x_accelerates_the_surface_in_plus_x():
+    u = hy_advanced(hy.WindStress(tau_x=0.5), steps=5, field="u")
+    assert u[0, 0, -1] > 0
+    np.testing.assert_allclose(u[:, :, :-1], 0.0, atol=1e-12)
+
+
+@pytest.mark.parametrize(("side", "idx"), [("right", -1), ("left", 0)])
+def test_hy_positive_q_is_a_buoyancy_gain_at_the_wall(side, idx):
+    q, steps = 0.6, 8
+    b = hy_advanced(hy.SurfaceBuoyancyFlux(q, side=side), steps=steps)
+    np.testing.assert_allclose(b[:, :, idx], q * steps * 2e-3 / DZ,
+                               rtol=1e-11, atol=1e-13)
+
+
+def test_hy_and_nh_wrappers_are_the_same_class():
+    # the whole point of the rehoming: one implementation, so the two
+    # packages cannot drift into two subtly different conventions
+    assert hy.WindStress is nh.WindStress
+    assert hy.SurfaceBuoyancyFlux is nh.SurfaceBuoyancyFlux
+    assert hy.WindStress is fr.model.modules.WindStress
