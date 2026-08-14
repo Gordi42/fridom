@@ -349,26 +349,22 @@ own materialized AUX fields, so `source.*` gradients need the
 
 ## 5. Docs & examples rebuild
 
-**Blocked on a CDFViewer release** (owner notes, 2026-08-13). Four
-review items on the animated examples need viewer features that do not
-exist yet, and the owner reports a release is coming. They are recorded
-here rather than as TODO comments in the example files, because those
-render inside the code block on the published gallery page.
+**CDFViewer items, cleared 2026-08-14.** The four review items that
+were blocked on a viewer release are done. CDFViewer 2026.8.1 brought
+`--over` / `--over-plot` overlays and `cbarlabel`, the docs CI pin
+moved to match, and `dancing_eddies` and `tracers_and_eddies` now carry
+velocity overlays and labelled colorbars. Both viewer bugs are fixed
+there too (expression-valued keywords evaluate, and `colorrange`
+survives the size keywords), so the keyword-ordering workaround is
+retired from the style guide.
 
-- Draw streamlines or velocity arrows over a heatmap. Wanted on
-  `dancing_eddies` (vorticity) and on both `tracers_and_eddies`
-  experiments (velocity over the dye).
-- Label the heatmap colorbar.
-- Cut the whitespace around the animation frame (the colorbar sits away
-  from the heatmap). The owner's note says to wait for the two above
-  first, since they change the layout.
-
-Two viewer bugs found while porting, also for the owner's list:
-`colorscale=Makie.Symlog10(...)` is passed through as a string rather
-than evaluated, and `colorrange` is silently discarded in some kwarg
-orderings (the trigger sits among `titlesize` / `xlabelsize` /
-`ylabelsize`; the examples work around it by putting the animlabel
-kwargs first).
+**What remains of that group**, and it is a viewer-side question rather
+than a docs one: the animation frame still carries fixed chrome of 165
+by 120 pixels plus a residual gap of about 20 pixels between the plot
+and the colorbar. Sizing the figure to the data takes the frame from
+47% to 66% plot area, which is as far as the examples can reach.
+Closing the rest needs a layout change in the viewer, since `colgap`,
+`figure_padding`, `colorbargap` and `colorbarwidth` are all rejected.
 
 The bulk: **11+ example ports** and the **entire prose page tree**
 (`docs/source/` still holds the old-stack pages); retires the
