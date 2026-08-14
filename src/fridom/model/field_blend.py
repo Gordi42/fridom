@@ -53,6 +53,7 @@ import jax
 from fridom.model.declarations import FieldDeclaration, Lifecycle
 from fridom.model.stages import Stage, StageKind
 from fridom.model.time_dependent import TimeDependent, resolve_at
+from fridom.spatial.fields.metadata import UNKNOWN_UNITS
 
 if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Callable
@@ -192,7 +193,7 @@ class FieldBlend:
         *,
         space: SpacePattern | SpaceRule,
         long_name: str = "Unnamed",
-        units: str = "n/a",
+        units: str = UNKNOWN_UNITS,
     ) -> tuple[FieldDeclaration, ...]:
         """
         Return the AUXILIARY ingredient declarations (owner-method).
@@ -212,7 +213,7 @@ class FieldBlend:
             Descriptive nc-style name for the ingredient fields
             (default: "Unnamed").
         units : str, optional
-            Physical units annotation (default: "n/a").
+            Physical units annotation (default: "unknown").
 
         Returns
         -------

@@ -47,6 +47,7 @@ from fridom.model.scheduled_field import sample_law
 from fridom.model.stages import Stage, StageKind
 from fridom.model.terms import TendencyTerm, Treatment
 from fridom.spatial.decomposition.halo import HaloSpec
+from fridom.spatial.fields.metadata import UNKNOWN_UNITS
 from fridom.spatial.operators.reconstruct import LinearReconstruction
 from fridom.spatial.space_patterns import Profile
 from fridom.spatial.spaces.average import AverageSpace
@@ -204,14 +205,14 @@ class MovingGeometry(Module):
                 lifecycle=Lifecycle.AUXILIARY,
                 default=_value_default(name),
                 long_name=f"Mapping parameter {name}",
-                units="n/a", time_dependent=True))
+                units=UNKNOWN_UNITS, time_dependent=True))
             declarations.append(FieldDeclaration(
                 f"{name}_dot", space=Profile(*coords),
                 lifecycle=Lifecycle.AUXILIARY,
                 default=_dot_default(name),
                 long_name=f"Mapping parameter {name} time "
                           "derivative",
-                units="n/a", time_dependent=True))
+                units=UNKNOWN_UNITS, time_dependent=True))
         return tuple(declarations)
 
     # ================================================================

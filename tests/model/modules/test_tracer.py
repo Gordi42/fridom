@@ -128,7 +128,7 @@ def test_declaration_defaults_match_the_wrapped_template():
     (wrapped,) = Tracer("dye").field_declarations
     template = fr.model.FieldDeclaration.tracer("dye")
     assert wrapped.long_name == template.long_name == "Unnamed"
-    assert wrapped.units == template.units == "n/a"
+    assert wrapped.units == template.units == "unknown"
     assert wrapped.default is template.default is None
 
 
