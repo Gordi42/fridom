@@ -11,6 +11,7 @@ import jax.numpy as jnp
 import pytest
 
 import fridom as fr
+import fridom.hydrostatic as hy
 from fridom.hydrostatic.modules.terrain import (
     discover_column,
     jacobian_name,
@@ -92,6 +93,27 @@ def test_discover_column_rejects_an_embedding_chart():
             chart={"X": lambda u, v: (u, v, 0.0 * u)}, orthogonal=True))
     with pytest.raises(NotImplementedError, match="embedding chart"):
         discover_column(grid, "u")
+
+
+def test_hy_model_on_a_sphere_refuses_at_assembly():
+    # the seam above reached through the PUBLIC surface: hy re-exports
+    # RotationCoriolis (a chart-coupled module), so a reader can
+    # reasonably try hy on a lat-lon sphere. It must fail at assembly
+    # with the taught refusal, not somewhere in the run.
+    lat = 1.4
+    grid = fr.spatial.Grid(
+        (IM(16, (0.0, 2 * jnp.pi), periodic=True, name="lon"),
+         IM(8, (-lat, lat), periodic=False, name="lat"),
+         IM(6, (-1.0, 0.0), periodic=False, name="z")),
+        mapping=fr.spatial.charts.lonlat_sphere(1.0))
+    with pytest.raises(NotImplementedError,
+                       match="curvilinear / spherical"):
+        hy.Model(
+            grid=grid, core=hy.Core(gravity=1.0),
+            free_surface=hy.ExplicitFreeSurface(),
+            buoyancy=hy.ConstantStratification(n2=1.0),
+            time_stepper=fr.model.time_steppers.AdamBashforth(
+                1e-3, order=3))
 
 
 # ================================================================

@@ -3,8 +3,10 @@ from fractions import Fraction
 
 import pytest
 
+from fridom.spatial.bc import BC
 from fridom.spatial.decomposition.layout import Layout
 from fridom.spatial.errors import SpaceMismatchError
+from fridom.spatial.meshes.interval import IntervalMesh
 from fridom.spatial.operators.base import (
     Dispatched,
     OperatorRequirements,
@@ -14,7 +16,10 @@ from fridom.spatial.operators.registry import (
     DispatchError,
     LazyEntry,
     OperatorRegistry,
+    _dispatch_failure,
+    _robin_axes,
 )
+from fridom.spatial.spaces.nodal import NodeSet
 
 
 @pytest.fixture
@@ -377,3 +382,66 @@ def test_exact_key_beats_adoption(mx, a, b):
     reg = OperatorRegistry({("multiply", mx.center): a,
                             ("multiply", fine.center): b})
     assert reg.resolve("multiply", fine.center) is b
+
+
+# ================================================================
+#  BC.ROBIN: structure-only, taught at the point of selection
+# ================================================================
+@pytest.fixture
+def bx():
+    # Robin needs a boundary to constrain
+    return IntervalMesh(8, (0.0, 1.0), periodic=False, name="x")
+
+
+@pytest.fixture
+def by():
+    return IntervalMesh(4, (0.0, 2.0), periodic=False, name="y")
+
+
+def test_robin_factor_miss_teaches_why(bx):
+    # the failure a user actually reaches first: BC.ROBIN mints a
+    # space fine, so the *selection* of any operator on it is the
+    # earliest honest place to say it is structure-only
+    space = bx.nodal(NodeSet.CENTER, bc=BC.ROBIN)
+    with pytest.raises(DispatchError) as excinfo:
+        OperatorRegistry({}).resolve("diff", space)
+    message = str(excinfo.value)
+    assert "BC.ROBIN is structure-only" in message
+    assert "ghost_fill" in message
+    assert "BC.DIRICHLET" in message
+    assert "axis 'x'" in message
+
+
+def test_robin_product_miss_names_every_robin_axis(bx, by):
+    space = (bx.nodal(NodeSet.CENTER, bc=BC.ROBIN)
+             * by.nodal(NodeSet.CENTER, bc=BC.ROBIN))
+    with pytest.raises(DispatchError) as excinfo:
+        OperatorRegistry({}).resolve("interpolate", space)
+    message = str(excinfo.value)
+    assert "axes 'x', 'y'" in message
+    assert "BC.ROBIN is structure-only" in message
+
+
+def test_only_the_robin_factor_is_blamed_on_a_mixed_product(bx, by):
+    # a Dirichlet partner must not be named as the cause
+    space = (bx.nodal(NodeSet.CENTER, bc=BC.ROBIN)
+             * by.nodal(NodeSet.CENTER, bc=BC.DIRICHLET))
+    assert _robin_axes(space.bare) == ("x",)
+    assert "axis 'x' is why" in str(_dispatch_failure("diff", space.bare))
+
+
+def test_plain_miss_keeps_the_bare_message(bx):
+    # the hint is Robin-only: an ordinary miss stays terse
+    space = bx.nodal(NodeSet.CENTER, bc=BC.DIRICHLET)
+    with pytest.raises(DispatchError) as excinfo:
+        OperatorRegistry({}).resolve("diff", space)
+    message = str(excinfo.value)
+    assert "no operator registered for kind 'diff'" in message
+    assert "ROBIN" not in message
+
+
+def test_plain_product_miss_keeps_the_bare_message(bx, by):
+    space = bx.center * by.center
+    with pytest.raises(DispatchError) as excinfo:
+        OperatorRegistry({}).resolve("diff", space)
+    assert "ROBIN" not in str(excinfo.value)

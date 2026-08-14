@@ -36,6 +36,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
+import xarray as xr
 
 import fridom as fr
 import fridom.shallowwater2 as sw
@@ -326,3 +327,65 @@ def test_spherical_tendency_is_device_count_invariant():
     for name in ("u", "v", "p"):
         np.testing.assert_allclose(many[name], one[name],
                                    rtol=0.0, atol=1e-13)
+
+
+# ================================================================
+#  End to end: run() on the sphere
+#
+#  Everything above drives advance(); run() is the surface users
+#  actually call, and it adds the schedule/IO loop, the clock target
+#  and the RunResult on top. Nothing drove it on a chart grid before.
+# ================================================================
+def seeded_sphere_model(nlon=16, nlat=8):
+    """Build a small sphere model with a smooth cap-respecting state."""
+    model = sphere_model(nlon, nlat)
+    model.set_fields(
+        p=lambda lon, lat: 0.5 + swirl(lon, lat),
+        u=lambda lon, lat: 0.05 * jnp.sin(lat) ** 2 + 0.0 * lon)
+    return model
+
+
+def test_spherical_run_drives_the_full_output_loop(tmp_path):
+    # the whole chain on a chart grid: run target -> schedule -> the
+    # zarr sink, whose export path has to carry the lon/lat (and
+    # staggered lon_right / lat_inner) dims of the chart
+    model = seeded_sphere_model()
+    path = tmp_path / "sphere.zarr"
+    writer = fr.io.Writer(path, fields=["u", "v", "p"],
+                          trigger=fr.io.triggers.every(steps=2))
+    result = model.run(steps=6, outputs=(writer,), progress=False)
+    assert result.status is fr.model.results.RunStatus.COMPLETED
+    assert result.steps_done == 6
+    assert result.final_it == 6
+    ds = xr.open_zarr(path, consolidated=False)
+    # writes at it 0, 2, 4, 6
+    assert ds.sizes["time"] == 4
+    assert {"lon", "lat", "lon_right", "lat_inner"} <= set(ds.sizes)
+    np.testing.assert_array_equal(ds["iteration"].values,
+                                  np.array([0, 2, 4, 6]))
+    for name in ("u", "v", "p"):
+        assert np.isfinite(ds[name].values).all()
+
+
+def test_spherical_run_reproduces_advance():
+    # run() is sugar over advance(): the same steps, the same state
+    # (the chunked jit boundary shifts the last ulp on v only)
+    driven = seeded_sphere_model()
+    driven.run(steps=6, progress=False)
+    stepped = seeded_sphere_model()
+    stepped.advance(6)
+    for name in ("u", "v", "p"):
+        np.testing.assert_allclose(
+            np.asarray(driven.state[name].data),
+            np.asarray(stepped.state[name].data),
+            rtol=0.0, atol=1e-15)
+
+
+def test_spherical_run_conserves_mass():
+    # the invariant of the advance() test above, but reached through
+    # the public run() driver
+    model = seeded_sphere_model(32, 16)
+    mass0 = float(model.state["p"].integrate().data.ravel()[0])
+    model.run(steps=50, progress=False)
+    mass1 = float(model.state["p"].integrate().data.ravel()[0])
+    assert abs(mass1 - mass0) / abs(mass0) < 1e-13

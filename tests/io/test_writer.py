@@ -1212,3 +1212,95 @@ def test_a_charts_declared_coordinate_unit_wins_over_the_row(
         assert attrs["units"] == "rad"          # what is stored
         assert attrs["dimensional_units"] == "m"  # factor * value
         assert attrs["dimensional_factor"] == radius
+
+
+# ================================================================
+#  Explicit chunks= (the kwarg had no coverage of its own)
+#
+#  Every case below pins device_ids=(0,) so the write-aligned default
+#  is the full spatial extent and the contrast with a user chunk is
+#  unambiguous on any device count.
+# ================================================================
+def _chunk_keys(array_path: Path) -> set[str]:
+    """Return the zarr v2 chunk keys written under an array dir."""
+    return {p.name for p in array_path.iterdir()
+            if not p.name.startswith(".")}
+
+
+def _written_store(tmp_path, name, *, chunks, steps=4, fields=("u",)):
+    """Write ``steps`` frames of the staggered model with ``chunks=``."""
+    model, state = _staggered_model((0,))
+    path = tmp_path / f"{name}.zarr"
+    writer = Writer(path, fields=list(fields), trigger=every(steps=1),
+                    chunks=chunks)
+    writer.bind(model)
+    for it in range(steps):
+        writer.write(firing(state, it))
+    writer.close()
+    return path, state
+
+
+def test_explicit_chunks_beat_the_write_aligned_default(tmp_path):
+    path, _ = _written_store(tmp_path, "explicit",
+                             chunks={"time": 2, "x_right": 5})
+    zarray = json.loads((path / "u" / ".zarray").read_text())
+    # time 2 and x_right 5 are the user's; y keeps the default hint (6)
+    assert zarray["chunks"] == [2, 5, 6]
+
+
+def test_chunking_splits_the_store_on_disk(tmp_path):
+    # the point of the kwarg: the written output is really cut up, not
+    # just the metadata
+    chunked, _ = _written_store(tmp_path, "chunked",
+                                chunks={"time": 2, "x_right": 5})
+    default, _ = _written_store(tmp_path, "default", chunks=None)
+    # 4 steps / time-chunk 2 = 2 x  15 / 5 = 3 x  6 / 6 = 1  ->  6 keys
+    assert len(_chunk_keys(chunked / "u")) == 6
+    # default: 4 time chunks of 1, one spatial chunk  ->  4 keys
+    assert len(_chunk_keys(default / "u")) == 4
+
+
+def test_chunked_store_round_trips_bitwise(tmp_path):
+    # cutting the store up must not perturb a single value
+    path, state = _written_store(tmp_path, "roundtrip",
+                                 chunks={"time": 3, "x_right": 4,
+                                         "y": 4})
+    ds = xr.open_zarr(path, consolidated=False)
+    reference = np.asarray(state["u"].data)
+    assert ds["u"].shape == (4, 15, 6)
+    for k in range(4):
+        np.testing.assert_array_equal(ds["u"].values[k], reference)
+    np.testing.assert_array_equal(
+        ds["iteration"].values, np.arange(4))
+
+
+def test_time_chunk_reaches_the_coordinate_arrays(tmp_path):
+    # the time chunk is shared by the data variables and the time /
+    # iteration coordinate arrays
+    path, _ = _written_store(tmp_path, "coords", chunks={"time": 2})
+    for coord in ("time", "iteration"):
+        zarray = json.loads((path / coord / ".zarray").read_text())
+        assert zarray["chunks"] == [2]
+    assert len(_chunk_keys(path / "time")) == 2
+
+
+def test_chunks_are_keyed_by_the_exported_dim_name(tmp_path):
+    # the staggered u exports 'x_right', the centered p exports 'x':
+    # a chunk on 'x' must reach p and leave u alone
+    path, _ = _written_store(tmp_path, "perdim", chunks={"x": 5},
+                             fields=("u", "p"))
+    u_chunks = json.loads((path / "u" / ".zarray").read_text())["chunks"]
+    p_chunks = json.loads((path / "p" / ".zarray").read_text())["chunks"]
+    assert u_chunks == [1, 15, 6]
+    assert p_chunks == [1, 5, 6]
+
+
+def test_non_positive_chunk_clamps_to_one(tmp_path):
+    # zarr rejects a zero chunk; the writer clamps rather than letting
+    # tensorstore raise something opaque
+    path, _ = _written_store(tmp_path, "clamped",
+                             chunks={"time": 0, "x_right": 0})
+    zarray = json.loads((path / "u" / ".zarray").read_text())
+    assert zarray["chunks"] == [1, 1, 6]
+    assert json.loads(
+        (path / "time" / ".zarray").read_text())["chunks"] == [1]
