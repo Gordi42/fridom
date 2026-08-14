@@ -86,6 +86,7 @@ import jax.numpy as jnp
 
 from fridom.framework.utils import dtype_real
 from fridom.model.halo_demand import require_solver_halo
+from fridom.nonhydro2.modules.mapped_pressure import report_convergence
 from fridom.nonhydro2.modules.pressure import (
     _dirichlet_mid,
     build_flat_spectral_solve,
@@ -206,6 +207,14 @@ class ImmersedPressureSolver:
         The default ``1e-8`` makes ``iterations`` the maximum budget;
         ``None`` is the opt-out that runs the fixed ``iterations``
         count (default: 1e-8).
+    report : bool, optional
+        Emit a host-side convergence report — the achieved PCG
+        iteration count against the budget and the relative residual —
+        once per :meth:`solve`, through ``jax.debug.print``
+        (:func:`~fridom.nonhydro2.modules.mapped_pressure.report_convergence`).
+        The evidence a caller needs to size ``iterations``; off by
+        default, and with it off the compiled solve is byte-identical
+        (default: False).
     single_precision : bool, optional
         Run the spectral *preconditioner* in single precision while the
         CG iterates, the operator and the inner products stay
@@ -270,6 +279,7 @@ class ImmersedPressureSolver:
         dsqr: jax.Array | float,
         iterations: int,
         tolerance: float | None = 1e-8,
+        report: bool = False,
         single_precision: bool = False,
         preconditioner: str = "spectral",
         multigrid_levels: int | None = None,
@@ -310,6 +320,7 @@ class ImmersedPressureSolver:
         self._dsqr = dsqr
         self._iterations = iterations
         self._tolerance = tolerance
+        self._report = bool(report)
         self._single_precision = bool(single_precision)
         self._immersed = immersed
         self._axes: tuple[str, ...] = self._space.active_axis_names
@@ -394,6 +405,11 @@ class ImmersedPressureSolver:
     def tolerance(self) -> float | None:
         """The optional PCG convergence break (None = fixed count)."""
         return self._tolerance
+
+    @property
+    def report(self) -> bool:
+        """Whether :meth:`solve` prints a host-side convergence report."""
+        return self._report
 
     @property
     def projection(self) -> Callable[[ScalarField], ScalarField]:
@@ -762,7 +778,15 @@ class ImmersedPressureSolver:
         ScalarField
             The wet-mean-free pressure on the same space.
         """
-        return self.krylov()(rhs, x0)
+        krylov = self.krylov()
+        if not self._report:
+            return krylov(rhs, x0)
+        # the ``report=`` seam: the solve itself is unchanged
+        # (``__call__`` *is* ``solve(...)[0]``); only the info the
+        # recurrence already computes is printed
+        pressure, info = krylov.solve(rhs, x0)
+        report_convergence(type(self).__name__, krylov, info, rhs)
+        return pressure
 
     def solve_info(
         self, rhs: ScalarField, x0: ScalarField | None = None,

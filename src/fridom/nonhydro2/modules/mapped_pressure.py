@@ -187,6 +187,7 @@ from __future__ import annotations
 from functools import partial
 from typing import TYPE_CHECKING
 
+import jax
 import jax.numpy as jnp
 
 from fridom.model.halo_demand import require_solver_halo
@@ -206,6 +207,7 @@ from fridom.spatial.operators.composed import (
 )
 from fridom.spatial.operators.krylov import (
     ConjugateGradient,
+    _computational_integral,
     _computational_mean,
 )
 from fridom.spatial.operators.multigrid import (
@@ -231,8 +233,6 @@ from fridom.spatial.spaces.average import AverageSpace
 if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Callable, Mapping
 
-    import jax
-
     from fridom.spatial.fields.scalar_field import ScalarField
     from fridom.spatial.operators.base import Operator
     from fridom.spatial.spaces.tensor_product import SpaceLike
@@ -248,6 +248,74 @@ _PRECONDITIONERS = ("spectral", "multigrid", "none")
 #: the vertical-line smoother damping of the multigrid V-cycle (B0
 #: spike optimum; omega = 1 diverges)
 _LINE_OMEGA = 0.8
+
+
+# ================================================================
+#  The host-side convergence report (the ``report=`` seam)
+# ================================================================
+def report_convergence(
+    label: str,
+    cg: ConjugateGradient,
+    info: Mapping[str, object],
+    rhs: ScalarField,
+) -> None:
+    r"""
+    Print one PCG solve's achieved iteration count and residual.
+
+    Description
+    -----------
+    The ``report=`` seam shared by every fixed-iteration pressure
+    solver (mapped, composed and immersed): a ``jax.debug.print`` of
+
+    .. code-block:: text
+
+        <label> PCG: k=13/30  |r|/|b|=1.53e-09  (tolerance 1e-08)
+
+    fired on the host once per solve, at run time. It answers the one
+    question the ``pressure_iterations`` / ``pressure_tolerance`` pair
+    cannot answer from the outside: **how much of the budget the solve
+    actually spent**. Under the default tolerance the convergence
+    break stops the recurrence early and the remaining scanned steps
+    are branch-skipped no-ops, so ``k`` well below the budget means the
+    budget is generous, while ``k`` equal to the budget with a relative
+    residual above the tolerance means the solve ran out of budget and
+    the projection left the velocity measurably divergent — otherwise a
+    completely silent outcome.
+
+    The report is a *side effect only*: it produces no value, so it
+    adds no data path and cannot perturb the solve or its gradients.
+
+    ``|b|`` is the raw right-hand-side norm in the CG's own
+    computational measure, not the nullspace-projected one the break
+    compares against; the two differ only by the (compatible) nullspace
+    component the projection removes, which is at round-off on a
+    well-formed divergence, so the printed ratio is directly comparable
+    to ``tolerance``.
+
+    Parameters
+    ----------
+    label : str
+        The route name to print (the solver's class name).
+    cg : ConjugateGradient
+        The configured solver (read for its budget and tolerance).
+    info : Mapping[str, object]
+        The ``info`` mapping of
+        :meth:`ConjugateGradient.solve`.
+    rhs : ScalarField
+        The right-hand side the solve was given.
+    """
+    norm_b = jnp.sqrt(jnp.sum(_computational_integral(rhs * rhs).data))
+    # double-``where``: a zero right-hand side converges immediately,
+    # and must print 0 rather than a NaN
+    zero = norm_b == 0.0
+    relative = jnp.where(
+        zero, 0.0, info["residual_norm"] / jnp.where(zero, 1.0, norm_b))
+    setting = ("no tolerance, fixed count" if cg.tolerance is None
+               else f"tolerance {cg.tolerance:g}")
+    jax.debug.print(
+        f"{label} PCG: k={{k}}/{cg.iterations}  |r|/|b|={{rel:.3e}}  "
+        f"({setting})",
+        k=info["iterations"], rel=relative)
 
 
 def _identity_column_base(
@@ -460,6 +528,13 @@ class MappedPressureSolver:
         The default ``1e-8`` makes ``iterations`` the maximum budget;
         ``None`` is the opt-out that runs the fixed ``iterations``
         count (default: 1e-8).
+    report : bool, optional
+        Emit a host-side convergence report — the achieved PCG
+        iteration count against the budget and the relative residual —
+        once per :meth:`solve`, through ``jax.debug.print``
+        (:func:`report_convergence`). The evidence a caller needs to
+        size ``iterations``; off by default, and with it off the
+        compiled solve is byte-identical (default: False).
     weights : Mapping[str, jax.Array | float] | None, optional
         Per-coordinate physical-axis weights; the mapped column's
         base name keys the weight of its *physical* direction
@@ -562,6 +637,7 @@ class MappedPressureSolver:
         *,
         iterations: int,
         tolerance: float | None = 1e-8,
+        report: bool = False,
         weights: Mapping[str, jax.Array | float] | None = None,
         params: Mapping[str, ScalarField] | None = None,
         single_precision: bool = False,
@@ -623,6 +699,7 @@ class MappedPressureSolver:
             for factor in self._space.factors)
         self._iterations = iterations
         self._tolerance = tolerance
+        self._report = bool(report)
         self._params = params
         self._single_precision = bool(single_precision)
         axes = self._space.active_axis_names
@@ -849,6 +926,11 @@ class MappedPressureSolver:
     def tolerance(self) -> float | None:
         """The optional PCG convergence break (None = fixed count)."""
         return self._tolerance
+
+    @property
+    def report(self) -> bool:
+        """Whether :meth:`solve` prints a host-side convergence report."""
+        return self._report
 
     @property
     def _coarsen_vertical(self) -> bool:
@@ -1812,7 +1894,16 @@ class MappedPressureSolver:
         ScalarField
             The mean-free pressure on the same space.
         """
-        return self.krylov(cache)(rhs, x0)
+        krylov = self.krylov(cache)
+        if not self._report:
+            return krylov(rhs, x0)
+        # the ``report=`` seam: the solve itself is unchanged
+        # (``__call__`` *is* ``solve(...)[0]``); only the info the
+        # recurrence already computes is printed. Subclasses (the
+        # composed solver) inherit this verbatim.
+        pressure, info = krylov.solve(rhs, x0)
+        report_convergence(type(self).__name__, krylov, info, rhs)
+        return pressure
 
     def project(
         self, vel: Mapping[str, ScalarField],

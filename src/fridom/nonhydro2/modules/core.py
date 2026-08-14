@@ -196,6 +196,149 @@ def _no_staggered_face(axis: str, coords: tuple[str, ...]) -> str:
         f"vertical='z', coords=('x', 'y', 'z')")
 
 
+def _no_chart_grid(chart: tuple[str, ...]) -> str:
+    r"""
+    Build the taught refusal of a chart-coupled grid.
+
+    Description
+    -----------
+    The nonhydrostatic model is **Cartesian-only**. Every stage the
+    core owns is metric-blind: the pressure projection differences the
+    C-grid ``div`` / ``grad`` legs with no :math:`\sqrt{g}` volume and
+    no :math:`g_{ij}` raising, and the flux-form advection it composes
+    with transports along the coordinate directions. On a grid carrying
+    an embedding chart (:attr:`fridom.spatial.Grid.chart_coords`) those
+    expressions are not merely less accurate, they are the wrong
+    equations — so the refusal is a taught error rather than a silent
+    run.
+
+    The refusal is raised **before** the coordinate loop of
+    :meth:`Core.bind`, which is what a chart grid used to die in: the
+    default ``coords=("x", "y", "z")`` raised a bare ``KeyError`` out
+    of the pressure space's ``factor("x")`` lookup, and a
+    ``coords=("lon", "lat", "z")`` reached :func:`_no_staggered_face`,
+    whose advice (rename the vertical mesh to ``"z"``) is wrong here —
+    the vertical *is* named ``"z"``; it is the horizontal pair that is
+    charted. The two messages therefore compose: chart-ness is decided
+    first, and :func:`_no_staggered_face` keeps the flat-grid
+    vertical-naming case it was written for.
+
+    Parameters
+    ----------
+    chart : tuple[str, ...]
+        The grid's chart-coupled base coordinates.
+
+    Returns
+    -------
+    str
+        The taught error message.
+    """
+    return (
+        f"nh.Core: this grid carries an embedding chart on {chart}, "
+        f"which the nonhydrostatic model does not support. The core "
+        f"declares u, v, w on the fixed Cartesian coordinates 'x', "
+        f"'y', 'z', and every stage it owns is metric-blind — the "
+        f"pressure projection differences the C-grid legs with no "
+        f"sqrt(g) volume and no g_ij raising, and flux-form advection "
+        f"transports along the coordinate directions — so a chart run "
+        f"would be wrong physics, not merely a less accurate one. "
+        f"Supported instead: a Cartesian grid, optionally carrying a "
+        f"fr.spatial.CoordinateMapping(maps=...) terrain-following or "
+        f"stretched column (a per-coordinate map is not a chart, and "
+        f"leaves chart_coords None). For a model ON a chart use the "
+        f"shallow-water package — sw.Model on "
+        f"fr.spatial.spherical.Grid — which carries the metric-aware "
+        f"chart forms (fr.model.modules.RotationCoriolis included)")
+
+
+# ================================================================
+#  Pressure-solver knob validation (construction-time, CS-D2)
+# ================================================================
+def validate_pressure_iterations(iterations: int) -> int:
+    """
+    Validate the fixed-iteration PCG budget at construction.
+
+    Description
+    -----------
+    :class:`~fridom.spatial.operators.krylov.ConjugateGradient`
+    validates the same budget, but it is built at *stage* time, inside
+    the jit trace — so a bad value surfaced as a
+    ``TermEvaluationError`` wrapping the real message, and on a flat
+    (spectral) grid, which iterates nothing, never surfaced at all.
+    Checking on the core makes it a construction error on every route.
+
+    Parameters
+    ----------
+    iterations : int
+        The requested ``pressure_iterations``.
+
+    Returns
+    -------
+    int
+        The validated budget.
+
+    Raises
+    ------
+    TypeError
+        If ``iterations`` is not an int.
+    ValueError
+        If ``iterations`` is below 1.
+    """
+    if isinstance(iterations, bool) or not isinstance(iterations, int):
+        raise TypeError(
+            "nh.Core pressure_iterations must be an int (the "
+            f"fixed-iteration PCG budget), got {iterations!r}")
+    if iterations < 1:
+        raise ValueError(
+            "nh.Core pressure_iterations must be >= 1 (the "
+            f"fixed-iteration PCG budget), got {iterations}")
+    return iterations
+
+
+def validate_pressure_tolerance(
+    tolerance: float | None,
+) -> float | None:
+    """
+    Validate the PCG convergence break at construction.
+
+    Description
+    -----------
+    The construction-time twin of :func:`validate_pressure_iterations`
+    for the ``tolerance`` seam (same reason: the solver's own check
+    runs inside the trace, or never on a flat grid).
+
+    Parameters
+    ----------
+    tolerance : float | None
+        The requested ``pressure_tolerance``.
+
+    Returns
+    -------
+    float | None
+        The validated tolerance (None = the fixed-count opt-out).
+
+    Raises
+    ------
+    TypeError
+        If ``tolerance`` is neither a real number nor None.
+    ValueError
+        If ``tolerance`` is not positive.
+    """
+    if tolerance is None:
+        return None
+    if isinstance(tolerance, bool) or not isinstance(
+            tolerance, int | float):
+        raise TypeError(
+            "nh.Core pressure_tolerance must be a float, or None to "
+            "run the fixed pressure_iterations count, got "
+            f"{tolerance!r}")
+    if tolerance <= 0:
+        raise ValueError(
+            "nh.Core pressure_tolerance must be > 0 (or None to run "
+            f"the fixed pressure_iterations count), got {tolerance}")
+    return float(tolerance)
+
+
 # ================================================================
 #  The FV C-grid family choice (FV-D3 / stage F3)
 # ================================================================
@@ -486,11 +629,15 @@ class Core(fr.model.Module):
         carries the reduced round-off of the affected pipeline, an
         opt-in accuracy trade (default: False).
     pressure_iterations : int, optional
-        The fixed PCG iteration budget of the fixed-iteration pressure
+        The PCG iteration budget of the fixed-iteration pressure
         solve (CS-D2); consumed on a grid whose coordinate mapping
         declares a mapped column *and* on an immersed (cut-cell) grid
-        — both run the fixed-iteration PCG. The flat spectral solve is
-        exact and iterates nothing (default: 30).
+        — both run the fixed-iteration PCG. Under the default
+        ``pressure_tolerance`` this is the **maximum** budget, not the
+        work actually done: the convergence break stops the recurrence
+        earlier and the remaining scanned steps are branch-skipped
+        no-ops. The flat spectral solve is exact and iterates nothing
+        (default: 30).
     pressure_tolerance : float | None, optional
         The PCG convergence break forwarded to the mapped and
         immersed pressure solvers (the measure-weighted true relative
@@ -499,6 +646,30 @@ class Core(fr.model.Module):
         ``pressure_iterations`` the maximum budget and sits well above
         the residual floor (~1e-14); ``None`` is the opt-out that runs
         the fixed count (default: 1e-8).
+
+        The break is **real and it fires**: the scan keeps its static
+        length, but every step past convergence is skipped through a
+        ``lax.cond`` that survives XLA optimization as a genuine
+        branch. Measured achieved counts on immersed routes are 12-25
+        against the default budget of 30, so the *typical* solve is
+        well inside the budget and raising ``pressure_iterations``
+        alone does not refine the answer — it only raises the ceiling.
+        Turn on ``pressure_report`` to see the achieved count instead
+        of guessing it.
+    pressure_report : bool, optional
+        Emit a host-side convergence report — the achieved PCG
+        iteration count, the budget, and the relative residual — once
+        per pressure solve, through ``jax.debug.print``. This is the
+        evidence for sizing ``pressure_iterations``: a report reading
+        ``k=13/30`` says the budget is generous, and one reading
+        ``k=30/30`` with a relative residual above ``pressure_tolerance``
+        says the projection ran out of budget and left the velocity
+        measurably divergent (which is otherwise entirely silent). Off
+        by default, and with it off the compiled step is byte-identical
+        — the flag is static (a treedef aux). Consumed on the mapped /
+        stretched / immersed / composed routes; the flat spectral solve
+        is exact and iterates nothing, so it reports nothing
+        (default: False).
     pressure_preconditioner : str | None, optional
         The PCG preconditioner of the fixed-iteration pressure solve
         (B4): ``"spectral"`` (the flat separable spectral inverse),
@@ -585,6 +756,7 @@ class Core(fr.model.Module):
         single_precision_solve: bool = False,
         pressure_iterations: int = 30,
         pressure_tolerance: float | None = 1e-8,
+        pressure_report: bool = False,
         pressure_preconditioner: str | None = None,
         multigrid_levels: int | None = None,
         multigrid_tridiagonal_method: str = "auto",
@@ -597,11 +769,13 @@ class Core(fr.model.Module):
         Raises
         ------
         ValueError
-            On an unknown ``family``.
+            On an unknown ``family``, a ``pressure_iterations`` below
+            1, or a non-positive ``pressure_tolerance``.
         TypeError
             On ``aspect_ratio=0`` (the projection's vertical weight
             divides by its square, so an exact zero poisons the run
-            far from here).
+            far from here), or a non-int ``pressure_iterations`` /
+            non-real ``pressure_tolerance``.
         """
         if family is not None and family not in FAMILIES:
             raise ValueError(
@@ -618,8 +792,11 @@ class Core(fr.model.Module):
         self._vertical = vertical
         self._coords = coords
         self._single_precision_solve = bool(single_precision_solve)
-        self._pressure_iterations = pressure_iterations
-        self._pressure_tolerance = pressure_tolerance
+        self._pressure_iterations = validate_pressure_iterations(
+            pressure_iterations)
+        self._pressure_tolerance = validate_pressure_tolerance(
+            pressure_tolerance)
+        self._pressure_report = bool(pressure_report)
         self._pressure_preconditioner = pressure_preconditioner
         self._multigrid_levels = multigrid_levels
         self._multigrid_tridiagonal_method = validate_tridiagonal_method(
@@ -689,8 +866,32 @@ class Core(fr.model.Module):
         in both the declaration and the discrete eigenvalue (one source
         of truth). Runs once at bind (the merged registry is visible);
         the value is read at assembly steps 5 / 7.
+
+        Bind is also where the model's **geometry refusals** land: it
+        is the first hook that sees the assembled grid together with
+        the resolved field spaces. A chart-coupled grid is refused
+        outright (:func:`_no_chart_grid`) *before* the coordinate loop
+        below, which is what a chart grid used to die in — a bare
+        ``KeyError`` out of ``p.factor("x")`` on the default
+        ``coords=("x", "y", "z")``, and the wrong advice from
+        :func:`_no_staggered_face` (rename the vertical) on
+        ``coords=("lon", "lat", "z")``. Deciding chart-ness first
+        leaves :func:`_no_staggered_face` the flat-grid
+        vertical-naming case it was written for.
+
+        Raises
+        ------
+        NotImplementedError
+            If the grid carries an embedding chart — the
+            nonhydrostatic model is Cartesian-only.
+        ValueError
+            If a name in ``coords`` carries no staggered velocity face
+            (:func:`_no_staggered_face`).
         """
         grid = table.grid  # type: ignore[attr-defined]
+        chart = getattr(grid, "chart_coords", None)
+        if chart is not None:
+            raise NotImplementedError(_no_chart_grid(chart))
         registry = grid.dispatch
         p = table["p"].space  # type: ignore[index]
         vel = tuple(table[name].space  # type: ignore[index]
@@ -1005,6 +1206,7 @@ class Core(fr.model.Module):
             weights={self._vertical: 1.0 / dsqr},
             iterations=self._pressure_iterations,
             tolerance=self._pressure_tolerance,
+            report=self._pressure_report,
             single_precision=self._single_precision_solve,
             preconditioner=self._resolved_preconditioner(
                 composed=False, stretched=_stretched_column(grid)),
@@ -1088,6 +1290,7 @@ class Core(fr.model.Module):
             dsqr=dsqr,
             iterations=self._pressure_iterations,
             tolerance=self._pressure_tolerance,
+            report=self._pressure_report,
             single_precision=self._single_precision_solve,
             preconditioner=preconditioner,
             multigrid_levels=self._multigrid_levels,
@@ -1145,6 +1348,7 @@ class Core(fr.model.Module):
             weights={self._vertical: 1.0 / dsqr},
             iterations=self._pressure_iterations,
             tolerance=self._pressure_tolerance,
+            report=self._pressure_report,
             single_precision=self._single_precision_solve,
             preconditioner=self._resolved_preconditioner(composed=True),
             multigrid_levels=self._multigrid_levels,
