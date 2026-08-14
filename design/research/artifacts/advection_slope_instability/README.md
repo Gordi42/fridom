@@ -186,3 +186,22 @@ switch is, numerically, a retag"
 ([`fv_nonhydro_scoping.md`](../../../plans/active/fv_nonhydro_scoping.md)
 §1, extended to mapped grids in §13) — and the mapped tracer divergence
 was the one place that property failed. Recorded as §13 addendum 3.
+
+### A0 was never an FV-vs-nodal property
+
+The `nh.Model` default on terrain is FV, and its buoyancy takes
+`_mapped_fv_divergence` — but its **velocity** is cell-averaged only
+transversely (`Right(x) (x) CellAvg(y) (x) CellAvg(z)`), so momentum
+rides the same nodal `_flux_divergence` branch on both families. Uniform
+`u = 0.4` over the 20% bump, 60 steps at n = 16 (`|u|max`; the physical
+answer is the continuity speed-up 0.508):
+
+| | before the fix | after |
+|---|---|---|
+| `family="fv"` | 1.207 | 0.50795 |
+| `family="nodal"` | 13.99 | 0.50795 |
+
+Both families were growing; both now sit on the steady solution, and on
+the same digits. So the collapse of the nodal mapped tendency onto the FV
+one is not the fix trading one family away for the other — it is one
+shared defect being repaired once.
