@@ -321,6 +321,26 @@ Rules from the rayleigh-taylor review (owner review, 2026-08-14):
   the default log level. A keyword in an example tells the reader it
   matters, so pass only what changes behaviour the reader can see.
 
+Rules from the rayleigh-taylor API review (owner review, 2026-08-14):
+
+- **Fit the time step to the run window.** An example that ends with
+  `run(runlen=...)` sets its step with
+  `fr.model.fit_dt(runlen, max_dt, parts=frames)`, never by hand. The
+  helper returns the largest `dt <= max_dt` that divides the window, so
+  the rounding warning cannot fire, and `parts=frames` makes each frame
+  a whole number of steps as well, so the samples are exactly uniform
+  instead of jittering up to one step. It costs a few percent more
+  steps (measured 0 to 6.7% across the gallery), which is the right
+  trade. Where the window is known only after the model exists (a
+  period read off an eigenmode), build with a provisional step and
+  retune the bound one:
+  `model.update_parameters({fr.model.params.TIME_STEP: fitted})`.
+  Runs targeted with `steps=` are exact already and need none of this.
+- **A bare element wherever a collection keyword is taken.**
+  `outputs=writer`, `modules_extra=front`, `fields="b"`. The
+  one-element tuple was ceremony, and its trailing comma is the kind of
+  thing a reader copies wrong. A list or a tuple still means many.
+
 ## 8. Figures (plots)
 
 - Every figure is produced at build time by the executing page, styled
