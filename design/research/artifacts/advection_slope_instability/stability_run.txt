@@ -1,0 +1,27 @@
+mapped WALLED n=32 dt=0.02
+  step    0  |u|max = 4.000000e-01  iz = 0
+  step  150  |u|max = 5.242942e-01  iz = 31
+  step  300  |u|max = 5.085775e-01  iz = 31
+  step  450  |u|max = 5.060460e-01  iz = 29
+  step  600  |u|max = 5.057583e-01  iz = 29
+mapped WALLED n=64 dt=0.01
+  step    0  |u|max = 4.000000e-01  iz = 0
+  step  150  |u|max = 5.256806e-01  iz = 63
+  step  300  |u|max = 5.227022e-01  iz = 63
+  step  450  |u|max = 5.110135e-01  iz = 63
+  step  600  |u|max = 5.078955e-01  iz = 60
+mapped PERIODIC column n=32 dt=0.02
+  step    0  |u|max = 4.000000e-01  iz = 0
+  step  150  |u|max = 5.004893e-01  iz = 1
+  step  300  |u|max = 4.953671e-01  iz = 0
+  step  450  |u|max = 4.977616e-01  iz = 1
+  step  600  |u|max = 5.032700e-01  iz = 1
+flat n=32 dt=0.02
+  step    0  |u|max = 4.000000e-01  iz = 0
+  step  300  |u|max = 4.000000e-01  iz = 0
+  step  600  |u|max = 4.000000e-01  iz = 0
+mapped WALLED n=32 amp=0.4 dt=0.02
+  step    0  |u|max = 4.000000e-01  iz = 0
+  step  150  |u|max = 7.149410e-01  iz = 31
+  step  300  |u|max = 9.418498e-01  iz = 31
+   PanicError the model panicked: non-finite values in the state (non-finite values detected at iteration 362). The carry is

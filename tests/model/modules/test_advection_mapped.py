@@ -163,10 +163,32 @@ def test_mapped_transport_converges_at_second_order():
     # uniform physical flow over the sloped column: b = cos(x) zp
     # depends on the PHYSICAL height, so the honest transport is
     # -U db/dx|_zp = U sin(x) zp; the computational derivative
-    # alone would be off at O(1). Measured errors 1.43e-2, 3.75e-3,
-    # 9.54e-4 at n = 16, 32, 64 — orders 1.93, 1.98.
+    # alone would be off at O(1). Measured interior errors 1.34e-2,
+    # 3.64e-3, 9.39e-4 at n = 16, 32, 64 — orders 1.88, 1.95.
+    #
+    # The order is measured over the INTERIOR rows because this
+    # manufactured state is not admissible AT the sloping lid: with
+    # w = 0 its contravariant column flux Omega = w - Z_x u equals
+    # -Z_x U != 0 there, i.e. the "exact" solution transports b
+    # straight through the rigid lid. The wall closure structurally
+    # imposes the zero advective wall flux (Omega q)|_wall = 0 (A0,
+    # `_mapped_nodal_cross`), so the top row measures that closure,
+    # not the manufactured interior solution. The admissible
+    # (Omega == 0) counterpart is
+    # test_mapped_column_flux_closes_on_the_contravariant_flux.
+    #
+    # This restriction is not a weakening: before A0 the assertion ran
+    # over the FULL domain and passed, top row included (measured
+    # 1.43e-2, 3.75e-3, 9.54e-4 — 2nd order), which is exactly the
+    # symptom. A scheme with no wall closure reproduces a reference
+    # solution that flows through the wall, so the old full-domain
+    # assertion was pinning the ABSENCE of the closure. The interior
+    # numbers are unchanged by A0 to three digits (pre-fix 1.3362e-2,
+    # 3.6337e-3, 9.3861e-4), so the interior rows carry the same
+    # evidence they always did; the wall row is covered by the two
+    # tests below.
     U = 0.4
-    errors = []
+    errors, tops = [], []
     for n in (16, 32, 64):
         model = make_mapped_model(n, CenteredAdvection())
         hor = centers(n)
@@ -177,11 +199,175 @@ def test_mapped_transport_converges_at_second_order():
         model.set_fields(u=U + 0 * x, b=np.cos(x) * zp)
         tau = advection_tendency(model, CenteredAdvection)
         exact = U * np.sin(x) * zp
-        errors.append(
-            np.abs(np.asarray(tau["b"].data) - exact).max())
+        err = np.abs(np.asarray(tau["b"].data) - exact)
+        errors.append(err[:, :, 1:-1].max())
+        tops.append(err[:, :, -1].max())
     orders = np.log2(np.asarray(errors[:-1])
                      / np.asarray(errors[1:]))
     assert np.all(orders > 1.8)
+    # the error constant, not only the order (a regression that keeps
+    # 2nd order but inflates the constant would slip past `orders`)
+    assert errors[0] < 2e-2
+    # and the excluded top row really is the wall closure refusing the
+    # inadmissible reference: its "error" GROWS like the missing wall
+    # flux Omega q / (J dz), i.e. like 1/h (measured 1.16, 2.50, 5.09)
+    assert tops[2] > tops[1] > tops[0] > 1.0
+
+
+# ================================================================
+#  The sloping-wall column flux closure (A0)
+# ================================================================
+def omega_free_flow(n, ny=4):
+    r"""Analytic (u, w, b) with a vanishing contravariant column flux.
+
+    The stream function ``psi = f(z)``, ``f(z) = sin(pi z)``, has
+    ``f(0) = f(1) = 0``, so both walls of ``zp = z H(x)`` are exact
+    streamlines: ``u = f'(z)/H``, ``w = f'(z) z H'/H`` is physically
+    divergence-free AND its contravariant column flux
+    ``Omega = w - (dzp/dx) u`` vanishes IDENTICALLY. Advecting
+    ``b = zp`` then has the closed form tendency ``-w``.
+    """
+    dx = L / n
+    xc = (np.arange(n) + 0.5) * dx
+    xr = (np.arange(n) + 1.0) * dx
+    zc = (np.arange(n) + 0.5) / n
+    zi = np.arange(1, n) / n                  # Inner(z): interior faces
+    ones = np.ones((1, ny, 1))
+
+    def h(x):
+        return 1.0 + 0.2 * np.sin(x)
+
+    def hp(x):
+        return 0.2 * np.cos(x)
+
+    x, z = np.meshgrid(xr, zc, indexing="ij")
+    u = (np.pi * np.cos(np.pi * z) / h(x))[:, None, :] * ones
+    x, z = np.meshgrid(xc, zi, indexing="ij")
+    w = (np.pi * np.cos(np.pi * z) * z * hp(x) / h(x))[:, None, :] * ones
+    x, z = np.meshgrid(xc, zc, indexing="ij")
+    b = (z * h(x))[:, None, :] * ones
+    exact = -(np.pi * np.cos(np.pi * z) * z
+              * hp(x) / h(x))[:, None, :] * ones
+    return u, w, b, exact
+
+
+def test_mapped_column_flux_closes_on_the_contravariant_flux():
+    # A0's mechanism, isolated. The wall-normal velocity of a
+    # terrain-following column is the CONTRAVARIANT flux
+    # Omega = w - Z_x u, not the Cartesian w: at a sloping wall
+    # w = Z_x u != 0. The pre-A0 product-rule column correction
+    # -(Z_x/J) I(d_z F_x) could not cancel the `axis == base` term's
+    # structural wall zero, so it left the wall flux Z_x u q
+    # unbalanced — an O(1/h) term in the boundary-adjacent row
+    # (measured top-row errors 10.3, 20.4, 41.0 at n = 16, 32, 64,
+    # i.e. DIVERGING, against a 2nd-order interior). The J-weighted
+    # flux form D_b(Z_i I_b(F_i)) closes on Omega instead: the top
+    # row now converges (0.283, 0.149, 0.0758).
+    tops, interiors = [], []
+    for n in (16, 32):
+        model = make_mapped_model(n, CenteredAdvection())
+        u, w, b, exact = omega_free_flow(n)
+        model.set_fields(u=u, v=0.0 * b, w=w, b=b)
+        tau = advection_tendency(model, CenteredAdvection)
+        err = np.abs(np.asarray(tau["b"].data) - exact).max(axis=(0, 1))
+        tops.append(err[-1])
+        interiors.append(err[1:-1].max())
+    # the sloping (top) wall row converges instead of diverging
+    # (measured ratio 0.53; before the fix it was 1.98)
+    assert tops[1] < 0.7 * tops[0]
+    assert tops[0] < 1.0
+    # ... and the interior keeps its 2nd order
+    assert interiors[1] < 0.35 * interiors[0]
+
+
+def test_mapped_advection_preserves_a_constant_tracer():
+    # WHY the mapped nodal divergence is the J-weighted flux form and
+    # not the (equally 2nd-order) product-rule spelling it replaced:
+    # advection must use the SAME discrete divergence the projection
+    # drives to zero, or a discretely non-divergent velocity injects a
+    # spurious source into every constant field. tau(b == 1) is
+    # -Div_adv(v), so on a projected velocity it must vanish at the CG
+    # residual. The flux form is exactly MappedPressureSolver's own
+    # divergence, so it does (measured 1.2e-7 at n = 16, 3.7e-7 at
+    # n = 32 — the projection tolerance, and it FALLS when the solve is
+    # tightened). The product-rule spelling was a different operator:
+    # O(h^2) apart in the interior and O(1/h) apart in the wall row,
+    # measured 13.0 (n = 16) and 30.8 (n = 32) here, i.e. growing.
+    for n, bound in ((16, 1e-4), (32, 1e-4)):
+        model = make_mapped_model(n, CenteredAdvection())
+        set_random_state(model, seed=5)
+        model.advance(steps=1)          # projects u, v, w
+        model.set_fields(b=1.0)
+        tau = advection_tendency(model, CenteredAdvection)
+        scale = float(np.abs(np.asarray(model.state["u"].data)).max())
+        assert np.abs(np.asarray(tau["b"].data)).max() < bound * scale
+
+
+def test_mapped_advection_preserves_a_uniform_free_stream():
+    # the discrete metric identity (free-stream preservation) the flux
+    # form needs and gets: for a CONSTANT flux the coupled-axis term is
+    # (q/J)[D_i(J) - D_b(Z_i)], which vanishes only if the two discrete
+    # metrics are compatible. They are, because grid.metric derives a
+    # parameter field's slope with the registry `diff` rows rather than
+    # analytically — so a uniform u over the bump leaves a constant
+    # tracer untouched to machine zero in the interior, exactly as the
+    # product-rule spelling did (nothing was traded away for the wall
+    # closure). The wall row is deliberately NOT machine zero: with
+    # w = 0 the state drives Omega = -Z_x u != 0 through the lid, and
+    # the tendency there is the divergence the projection would remove.
+    for n in (16, 32):
+        model = make_mapped_model(n, CenteredAdvection())
+        model.set_fields(u=0.4, v=0.0, w=0.0, b=1.0)
+        tau = advection_tendency(model, CenteredAdvection)
+        rows = np.abs(np.asarray(tau["b"].data)).max(axis=(0, 1))
+        assert rows[1:-1].max() < 1e-13
+        assert rows[0] < 1e-13
+
+
+def test_mapped_advection_holds_a_steady_flow_over_the_bump():
+    # A0 regression, the suite gap it named: nothing integrated a
+    # mapped grid forward in time with advection and a moving flow.
+    # A uniform u = 0.4 over the 20% bump relaxes to the steady
+    # potential flow (continuity speed-up 0.4 / 0.8 = 0.5 at the
+    # crest). Before the contravariant wall closure the boundary row
+    # grew without bound at every dt, resolution and slope tried
+    # (measured here: |u|max 0.61 by step 20, 1.18 by step 40, 14.0
+    # by step 60, all at iz = 15, the sloping lid; at n = 32,
+    # dt = 0.02 it was 2.9e3 by step 25 and non-finite by step 31).
+    model = make_mapped_model(16, CenteredAdvection())
+    model.set_fields(u=0.4)
+    model.advance(steps=60)
+    u = np.abs(np.asarray(model.state["u"].data))
+    assert np.isfinite(u).all()
+    assert u.max() < 0.6
+
+
+def test_mapped_run_grad_matches_fd():
+    # the differentiability policy on the changed step-path code: the
+    # cross column flux difference rides jax.grad through a short
+    # mapped run (Model.propagator, the public surface) and matches a
+    # central finite difference to rtol 1e-4
+    model = make_mapped_model(8, CenteredAdvection())
+    model.set_fields(u=0.4)
+    run = model.propagator(wrt=("u",), steps=3)
+    u0 = model._carry.state["u"].storage
+
+    def loss(field):
+        out = run((field,))
+        return sum(jnp.sum(f.data ** 2) for f in out.state)
+
+    grad = np.asarray(jax.grad(loss)(u0))
+    assert np.all(np.isfinite(grad))
+    assert np.abs(grad).max() > 0.0
+
+    direction = jnp.asarray(
+        np.random.default_rng(11).standard_normal(u0.shape),
+        dtype=u0.dtype)
+    directional = float(jnp.vdot(jnp.asarray(grad), direction))
+    eps = 1e-4
+    fd = (float(loss(u0 + eps * direction))
+          - float(loss(u0 - eps * direction))) / (2.0 * eps)
+    assert directional == pytest.approx(fd, rel=1e-4)
 
 
 @pytest.mark.parametrize("cls", [UpwindAdvection, WENOAdvection])

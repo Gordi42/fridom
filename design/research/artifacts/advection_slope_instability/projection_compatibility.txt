@@ -1,0 +1,29 @@
+=== after the fix (fe123647 + 44a38e03) ===
+1. |Div_adv - Div_proj| row-wise, smooth Omega-free flow
+   n= 16  bottom 1.3531e-15  interior 4.0072e-15  top 1.3350e-14
+   n= 32  bottom 1.9691e-15  interior 6.6579e-15  top 7.6078e-14
+   n= 64  bottom 6.4393e-15  interior 1.7191e-14  top 2.5463e-13
+
+2. |tau(b == 1)| on a PROJECTED velocity (spurious source)
+   n= 16  1.2307e-07
+   n= 32  3.6537e-07
+
+3. |tau(b == 1)| for a uniform u = 0.4 (metric identity)
+   n= 16  interior 5.1209e-16  top 1.2731e+00
+   n= 32  interior 6.7945e-16  top 2.5841e+00
+   n= 64  interior 1.4022e-15  top 5.2119e+00
+
+=== before the fix (the product-rule spelling, 5212ca58) ===
+1. |Div_adv - Div_proj| row-wise, smooth Omega-free flow
+   n= 16  bottom 2.3895e-02  interior 1.2024e-02  top 1.0378e+01
+   n= 32  bottom 6.4098e-03  interior 3.0910e-03  top 2.1517e+01
+   n= 64  bottom 1.6311e-03  interior 7.9475e-04  top 4.3442e+01
+
+2. |tau(b == 1)| on a PROJECTED velocity (spurious source)
+   n= 16  1.3043e+01
+   n= 32  3.0774e+01
+
+3. |tau(b == 1)| for a uniform u = 0.4 (metric identity)
+   n= 16  interior 1.0095e-16  top 1.0095e-16
+   n= 32  interior 2.0190e-16  top 2.0190e-16
+   n= 64  interior 4.0381e-16  top 4.0381e-16
