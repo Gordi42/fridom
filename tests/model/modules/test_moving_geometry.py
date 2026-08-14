@@ -13,7 +13,7 @@ import pytest
 
 import fridom as fr
 import fridom.nonhydro2 as nh
-from fridom.model.declarations import Lifecycle
+from fridom.model.declarations import FieldDeclaration, Lifecycle
 from fridom.model.model import Model as FrModel
 from fridom.model.model import _chunk_body
 from fridom.model.module import Module
@@ -27,6 +27,7 @@ from fridom.spatial.coordinate_mapping import CoordinateMapping
 from fridom.spatial.grid import Grid
 from fridom.spatial.meshes.interval import IntervalMesh
 from fridom.spatial.operators.reconstruct import LinearReconstruction
+from fridom.spatial.space_patterns import Profile
 from fridom.spatial.spaces.nodal import NodeSet
 
 N = 8
@@ -101,6 +102,15 @@ def test_declarations_pair_value_and_dot_fields():
     decls = moving().field_declarations
     assert tuple(d.name for d in decls) == ("H", "H_dot")
     assert all(d.lifecycle is Lifecycle.AUXILIARY for d in decls)
+
+
+def test_declaration_units_match_the_template_sentinel():
+    # a mapping parameter carries no declared unit: the sentinel is
+    # the FieldDeclaration one ("unknown"), never the old "n/a"
+    template = FieldDeclaration(
+        "H", space=Profile("x"), lifecycle=Lifecycle.AUXILIARY)
+    for decl in moving().field_declarations:
+        assert decl.units == template.units == "unknown"
 
 
 # ================================================================

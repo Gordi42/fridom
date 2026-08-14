@@ -141,6 +141,17 @@ def test_field_declarations_carry_the_ingredient_profiles():
         assert decls[name].default_form == "owner_method"
 
 
+def test_declaration_defaults_match_the_wrapped_template():
+    # the annotation defaults are the FieldDeclaration ones, spelled
+    # once: an undeclared unit is the "unknown" sentinel, never "n/a"
+    decls = _TOY_BLEND.field_declarations(space=Profile("x"))
+    template = FieldDeclaration(
+        "g_const", space=Profile("x"), lifecycle=Lifecycle.AUXILIARY)
+    for decl in decls:
+        assert decl.long_name == template.long_name == "Unnamed"
+        assert decl.units == template.units == "unknown"
+
+
 def test_a_constant_weight_ingredient_needs_no_leaf():
     # the two-endpoint form {p_ref, p_target - p_ref} x {1, lambda}:
     # a constant (float) weight rides with no module attribute

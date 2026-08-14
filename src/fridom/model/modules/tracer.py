@@ -34,6 +34,7 @@ from typing import TYPE_CHECKING
 
 from fridom.model.declarations import FieldDeclaration
 from fridom.model.module import Module
+from fridom.spatial.fields.metadata import UNKNOWN_UNITS
 from fridom.spatial.space_patterns import Collocated
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -88,7 +89,7 @@ class Tracer(Module):
     long_name : str, optional
         Descriptive nc-style name (default: "Unnamed").
     units : str, optional
-        Physical units annotation (default: "n/a").
+        Physical units annotation (default: "unknown").
     nc_attrs : Mapping[str, str] | None, optional
         Extra netCDF attributes (default: None).
 
@@ -107,7 +108,7 @@ class Tracer(Module):
         family: str | None = None,
         default: float | Callable | None = None,
         long_name: str = "Unnamed",
-        units: str = "n/a",
+        units: str = UNKNOWN_UNITS,
         nc_attrs: Mapping[str, str] | None = None,
     ) -> None:
         """Store the tracer's declaration arguments (validated)."""
