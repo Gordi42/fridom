@@ -88,7 +88,12 @@ from fridom.spatial.space_patterns import (
 )
 
 if TYPE_CHECKING:  # pragma: no cover
-    from collections.abc import Callable, Iterable, Iterator
+    from collections.abc import (
+        Callable,
+        Iterable,
+        Iterator,
+        Sequence,
+    )
 
     import jax
 
@@ -1949,6 +1954,7 @@ def assemble(
     name: str | None = None,
     term_filter: Callable | None = None,
     scaling: object | None = None,
+    allow_unadvanced: Sequence[str] = (),
 ) -> AssemblyArtifacts:
     """
     Run the nine-step assembly pipeline (model.md section 6.2).
@@ -2001,6 +2007,11 @@ def assemble(
         designated mechanism module's nonlinearity leaf otherwise);
         ``Dimensional`` / None inject no row. Validated against the
         modules' declared scaling variants (default: None).
+    allow_unadvanced : Sequence[str], optional
+        PROGNOSTIC field names the caller declares are deliberately
+        advanced by no term — the explicit D1.4 coverage-lint waiver
+        (``TendencyComposer``). Host-side only: no schedule, term or
+        number changes (default: ()).
 
     Returns
     -------
@@ -2087,7 +2098,8 @@ def assemble(
     composer = TendencyComposer(
         field_table=table, modules=modules, terms=terms,
         stages=stages, time_stepper=time_stepper,
-        binding_table=binding_table, term_filter=term_filter)
+        binding_table=binding_table, term_filter=term_filter,
+        allow_unadvanced=allow_unadvanced)
     schedule = composer.schedule
 
     # -- step 6a: pre-validation collapse ------------------------
@@ -2149,7 +2161,8 @@ def assemble(
         schedule=schedule, overrides=overrides,
         frozen_before=frozen_before, resharding=resharding,
         fingerprint=fingerprint, terms=terms,
-        term_filter=term_filter, name=name)
+        term_filter=term_filter, name=name,
+        allow_unadvanced=allow_unadvanced)
     return AssemblyArtifacts(
         field_table=table, binding_table=binding_table,
         remat_table=remat_table, composer=composer,
@@ -2616,6 +2629,7 @@ def _build_report(
     fingerprint: Fingerprint,
     terms: tuple[tuple[int, TendencyTerm], ...],
     term_filter: Callable | None,
+    allow_unadvanced: Sequence[str],
     name: str | None,
 ) -> AssemblyReport:
     """Compose the eight report sections (model.md section 3)."""
@@ -2627,7 +2641,8 @@ def _build_report(
         "dispatch": _dispatch_section(overrides, frozen_before),
         "schedule": schedule.describe(),
         "halo": _halo_section(grid, resharding),
-        "lint": _lint_section(table, terms, term_filter),
+        "lint": _lint_section(table, terms, term_filter,
+                              allow_unadvanced),
         "run_start": RUN_START_PLACEHOLDER,
     })
 
@@ -2729,6 +2744,7 @@ def _lint_section(
     table: FieldTable,
     terms: tuple[tuple[int, TendencyTerm], ...],
     term_filter: Callable | None,
+    allow_unadvanced: Sequence[str] = (),
 ) -> str:
     """Lint: aggregated warnings (untransported ADVECTED, filter)."""
     lines = []
@@ -2745,6 +2761,10 @@ def _lint_section(
         lines.append(
             "variant term filter active: the coverage lint is "
             "downgraded to a warning")
+    if allow_unadvanced:
+        lines.append(
+            "coverage lint waived (allow_unadvanced): "
+            + ", ".join(sorted(allow_unadvanced)))
     if not lines:
         lines.append("none")
     return "\n".join(lines)

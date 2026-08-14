@@ -1437,6 +1437,20 @@ class Model:
         ``fr.scaling.Dimensional()`` / None inject no row. ``None``
         — no scaling policy — is legal only when no assembled
         module participates in a scaling variant (default: None).
+    allow_unadvanced : Sequence[str], optional
+        PROGNOSTIC field names that are **deliberately** advanced by
+        no term — the explicit waiver of the D1.4 coverage lint
+        (``TendencyComposer._coverage_lint``). The lint exists to
+        catch a field frozen by an assembly mistake and cannot tell
+        that case from a field frozen on purpose, so the deliberate
+        one is declared here rather than faked with a zero-valued
+        module: a non-rotating linear nonhydrostatic slice
+        (``advection=False``, no Coriolis) leaves ``u``/``v`` carrying
+        no term at all, and ``allow_unadvanced=("u", "v")`` is what
+        makes it assemblable. Every name must be a PROGNOSTIC field of
+        this assembly (an unknown name is an assembly error, so a typo
+        cannot silently widen the waiver). Host-side only: no
+        schedule, no term and no number changes (default: ()).
     """
 
     def __init__(
@@ -1452,6 +1466,7 @@ class Model:
         async_chunk_compile: bool = False,
         term_filter: Callable | None = None,
         scaling: object | None = None,
+        allow_unadvanced: Sequence[str] = (),
     ) -> None:
         """Assemble (steps 1-7, 9) and allocate the carry (step 8)."""
         if isinstance(chunk_size, bool) or not isinstance(
@@ -1473,7 +1488,7 @@ class Model:
         self._artifacts: AssemblyArtifacts = assemble(
             grid=grid, modules=modules, time_stepper=time_stepper,
             state_type=state_type, name=name, term_filter=term_filter,
-            scaling=scaling)
+            scaling=scaling, allow_unadvanced=allow_unadvanced)
         self._grid = grid
         self._stepper = time_stepper
         self._name = name

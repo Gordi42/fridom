@@ -132,7 +132,7 @@ def field_table(grid, cc):
 
 def make_composer(field_table, *, modules=None, terms=None,
                   stages=(), time_stepper=None, binding_table=None,
-                  term_filter=None):
+                  term_filter=None, allow_unadvanced=()):
     if modules is None:
         modules = (Core(), Forcing())
     if terms is None:
@@ -143,7 +143,8 @@ def make_composer(field_table, *, modules=None, terms=None,
     return TendencyComposer(
         field_table=field_table, modules=modules, terms=terms,
         stages=stages, time_stepper=time_stepper,
-        binding_table=binding_table, term_filter=term_filter)
+        binding_table=binding_table, term_filter=term_filter,
+        allow_unadvanced=allow_unadvanced)
 
 
 def make_ctx():
@@ -710,6 +711,55 @@ def test_coverage_lint_uncovered_prognostic(field_table):
     composer = make_composer(field_table, terms=terms)
     with pytest.raises(AssemblyError, match="coverage lint"):
         composer.dry_run()
+
+
+def test_coverage_lint_message_names_cause_and_remedy(field_table):
+    # the lint refuses for the right reason but used to name neither
+    # the likely cause nor a way out, so the only documented escape was
+    # a zero-valued Coriolis module (which declares the terms with a
+    # zero leaf and therefore HIDES the reported condition)
+    terms = ((0, TendencyTerm(name="du", fn=Core.du)),)
+    composer = make_composer(field_table, terms=terms)
+    with pytest.raises(AssemblyError) as excinfo:
+        composer.dry_run()
+    message = str(excinfo.value)
+    assert "('b',)" in message
+    assert "Usually a missing module" in message
+    assert "allow_unadvanced=('b',)" in message
+
+
+def test_coverage_lint_waived_by_allow_unadvanced(field_table):
+    # a PROGNOSTIC field the caller DECLARES inert is not an assembly
+    # mistake: the lint cannot tell the two apart, so the deliberate
+    # case is declared rather than guessed
+    terms = ((0, TendencyTerm(name="du", fn=Core.du)),)
+    composer = make_composer(field_table, terms=terms,
+                             allow_unadvanced=("b",))
+    composer.dry_run()
+
+
+def test_allow_unadvanced_is_partial(field_table):
+    # waiving one field leaves the lint armed on every other
+    composer = make_composer(field_table, terms=(),
+                             allow_unadvanced=("b",))
+    with pytest.raises(AssemblyError, match=r"fields \('u',\)"):
+        composer.dry_run()
+
+
+@pytest.mark.parametrize("waived", [("nope",), ("b", "nope"),
+                                    ("aux_a",), ("diag_a",)])
+def test_allow_unadvanced_rejects_non_prognostic_names(
+        field_table, waived):
+    # a typo (or an AUXILIARY/DIAGNOSTIC name) must not silently widen
+    # the waiver -- it would leave the lint armed on the field the
+    # caller meant to waive while reading as if it were disarmed
+    with pytest.raises(AssemblyError, match="allow_unadvanced"):
+        make_composer(field_table, allow_unadvanced=waived)
+
+
+def test_allow_unadvanced_on_a_covered_field_is_silent(field_table):
+    # a redundant waiver is harmless: the assembly is unchanged
+    make_composer(field_table, allow_unadvanced=("u", "b")).dry_run()
 
 
 def test_coverage_lint_satisfied_by_advance_claim(field_table):
