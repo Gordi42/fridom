@@ -277,6 +277,50 @@ Rules from the wave-package review (owner review, 2026-07-24):
   goes in a `.. note::` callout after the code block, not into the
   running prose.
 
+Rules from the rayleigh-taylor review (owner review, 2026-08-14):
+
+- **The origin test.** Every sentence and every comment in an example
+  has to be something a reader who never saw the review would need,
+  either to follow the physics or to use the API. Prose that answers
+  "why did you do it this way and not the other way" fails the test
+  even when the answer is correct and interesting. The 2026-07-22 rule
+  above says the same thing and did not hold, because the failure has a
+  specific moment: while applying review feedback the writer's audience
+  silently becomes the reviewer, and the fix documents the change that
+  was just made instead of the model the reader is running. Three
+  categories always come out.
+  1. Defences of a choice against an alternative the example never
+     shows ("the colorbar takes its width out of the figure, so the box
+     aspect is set on the axes rather than through the figure aspect").
+  2. Records of a tool bug or a workaround ("these come first because a
+     colorrange placed ahead of them is silently discarded"). Those
+     belong in §8, where they can also be retired when the tool is
+     fixed. The two examples carrying that particular comment kept it
+     for three weeks after CDFViewer 2026.8.1 made it false.
+  3. Reassurances aimed at the reviewer ("small enough to be invisible
+     in the opening frame"), which answer a question the reader never
+     asked.
+
+  What stays is what the reader can check against the page in front of
+  them: a statement of what a figure shows ("Dark is the dense fluid
+  resting on top"), a warning they will hit if they copy the code and
+  change one thing, and a contrast that is the declared subject of the
+  example.
+- **Applying a review marker deletes or rewrites prose. It does not add
+  prose.** If a fix leaves the file longer, the marker must have asked
+  for an explanation. Otherwise the added sentences are residue. This
+  one is checkable in the diff, which is why the `docs-review` skill
+  carries it as a step rather than as a review criterion.
+- **Route the finding, do not just delete it.** A workaround worth
+  remembering goes in §8, a physics or API insight goes in the guide
+  pages, and the rest goes in `design/`. The example is never the place
+  of record for how the example came to be.
+- **Never pass a keyword that restates the default.**
+  `model.run(..., progress=False)` read as if it were silencing output,
+  when the default reporter logs at debug level and prints nothing at
+  the default log level. A keyword in an example tells the reader it
+  matters, so pass only what changes behaviour the reader can see.
+
 ## 8. Figures (plots)
 
 - Every figure is produced at build time by the executing page, styled
