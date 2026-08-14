@@ -41,6 +41,11 @@ _NOTICE: Final[int] = 25
 _BAR_FORMAT: Final[str] = (
     "{percentage:3.2f}%|{bar}| [{elapsed}<{remaining}]{postfix}")
 
+# without a total there is no percentage and no bar to fill: tqdm would
+# render a frozen "0.00%|          |" that reads as a stall, so a
+# countless bar counts steps instead
+_COUNTLESS_FORMAT: Final[str] = "{n_fmt} it [{elapsed}, {rate_fmt}]{postfix}"
+
 # the first chunk of a leg pays the jit compilation; its rate is not
 # the model's rate and is marked as such
 _COMPILE_MARK: Final[str] = "  (first chunk: incl. compile)"
@@ -258,12 +263,17 @@ class ProgressBar:
         if self._resolved != "log":
             self._bar = self._make_bar(total)
 
+    @staticmethod
+    def _bar_format(total: int | None) -> str:
+        """Pick the format; a countless bar drops the percentage."""
+        return _BAR_FORMAT if total is not None else _COUNTLESS_FORMAT
+
     def _make_bar(self, total: int | None) -> Any:
         """Build the tqdm bar for the resolved rendering mode."""
         if self._resolved == "notebook":
             return self._make_notebook_bar(total)
-        return tqdm(total=total, bar_format=_BAR_FORMAT, unit="it",
-                    file=sys.stderr)
+        return tqdm(total=total, bar_format=self._bar_format(total),
+                    unit="it", file=sys.stderr)
 
     def _make_notebook_bar(self, total: int | None) -> Any:
         """Build the widget bar, or a DELIBERATE text bar on stdout."""
@@ -272,13 +282,14 @@ class ProgressBar:
         if tqdm_nb.IProgress is not None:
             try:
                 return tqdm_nb.tqdm(
-                    total=total, bar_format=_BAR_FORMAT, unit="it")
+                    total=total, bar_format=self._bar_format(total),
+                    unit="it")
             except ImportError:
                 _log.debug("ipywidgets unusable; text bar on stdout")
         # the widget is unavailable: a text bar on STDOUT, not tqdm's
         # default stderr — Jupyter renders stderr as a red error block
-        return tqdm(total=total, bar_format=_BAR_FORMAT, unit="it",
-                    file=sys.stdout)
+        return tqdm(total=total, bar_format=self._bar_format(total),
+                    unit="it", file=sys.stdout)
 
     def _close_bar(self) -> None:
         """Close the open bar, if any; idempotent."""

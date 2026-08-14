@@ -213,6 +213,19 @@ def test_empty_plan_gives_a_countless_bar(streams):
     bar.on_run_end({})
 
 
+def test_countless_bar_counts_steps_instead_of_percent(streams):
+    # a percentage with no total is frozen at 0.00% and reads as a
+    # stall, so the countless format counts steps instead
+    _out, err = streams()
+    bar = started(ProgressBar(mode="tty"))
+    bar.on_leg_start(plan={})
+    bar.on_chunk(make_stats(it=5, t=2.5, steps=5, done=5, total=None))
+    text = err.getvalue()
+    assert "0.00%" not in text
+    assert "5 it" in text
+    bar.on_run_end({})
+
+
 def test_postfix_matches_the_old_bar_format(streams):
     _out, err = streams()
     bar = started(ProgressBar(mode="tty"))
