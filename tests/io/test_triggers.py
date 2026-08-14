@@ -111,11 +111,22 @@ def test_at_accepts_timedelta64():
     assert trig.times == (90.0, 3.0)
 
 
-def test_at_rejects_empty_and_scalar():
+def test_at_rejects_empty():
     with pytest.raises(ValueError, match="at least one"):
         at([])
-    with pytest.raises(TypeError, match="sequence"):
-        at(1.0)
+
+
+@pytest.mark.parametrize("value", [
+    pytest.param(1.0, id="float"),
+    pytest.param(1, id="int"),
+    pytest.param(np.timedelta64(1, "s"), id="timedelta64"),
+])
+def test_at_takes_a_bare_time_as_one_time(value):
+    assert at(value).times == (1.0,)
+
+
+def test_at_still_takes_an_ndarray_of_times():
+    assert at(np.arange(3.0)).times == (0.0, 1.0, 2.0)
 
 
 # ================================================================

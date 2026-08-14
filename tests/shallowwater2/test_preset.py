@@ -34,6 +34,23 @@ def test_preset_equals_explicit_assembly_treedef():
             == jax.tree_util.tree_structure(explicit._carry))
 
 
+@pytest.mark.parametrize("wrap", [
+    pytest.param(lambda m: m, id="bare"),
+    pytest.param(lambda m: [m], id="list"),
+    pytest.param(lambda m: (m,), id="tuple"),
+])
+def test_modules_extra_takes_a_bare_module_a_list_or_a_tuple(wrap):
+    # the scalar-or-sequence rule: one extra module needs no
+    # one-element tuple around it
+    model = sw.Model(
+        grid=make_grid(),
+        core=sw.Core(gravity=1.0, depth=1.0),
+        time_stepper=fr.model.time_steppers.AdamBashforth(5e-3, order=3),
+        modules_extra=wrap(fr.model.closures.HarmonicFriction(nu=1e-4)))
+    assert any(isinstance(m, fr.model.closures.HarmonicFriction)
+               for m in model._carry.modules)
+
+
 def test_preset_is_a_plain_model_not_a_subclass():
     model = sw.Model(grid=make_grid(),
                      core=sw.Core(gravity=1.0, depth=1.0),

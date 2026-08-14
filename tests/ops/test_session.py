@@ -165,6 +165,36 @@ def test_outputs_rejects_a_snapshots_config():
         Session(make_model(), outputs=(cfg,), progress=False)
 
 
+def test_outputs_rejects_a_bare_snapshots_config():
+    cfg = snap.Snapshots("snaps", trigger=triggers.every(steps=2))
+    with pytest.raises(IOCollisionError, match="run-config only"):
+        Session(make_model(), outputs=cfg, progress=False)
+
+
+# ================================================================
+#  The scalar-or-sequence rule (list/tuple is many, else one)
+# ================================================================
+def test_outputs_takes_a_bare_stream():
+    stream = FakeStream(triggers.every(steps=1))
+    s = Session(make_model(), outputs=stream, progress=False)
+    assert s._outputs == (stream,)
+
+
+def test_outputs_takes_a_list_of_streams():
+    a = FakeStream(triggers.every(steps=1))
+    b = FakeStream(triggers.every(steps=2))
+    s = Session(make_model(), outputs=[a, b], progress=False)
+    assert s._outputs == (a, b)
+
+
+def test_models_takes_a_list_as_well_as_a_tuple():
+    listed = Session([make_model(name="a"), make_model(name="b")],
+                     progress=False)
+    tupled = Session((make_model(name="a"), make_model(name="b")),
+                     progress=False)
+    assert set(listed.models) == set(tupled.models) == {"a", "b"}
+
+
 def test_max_chunk_must_be_positive_int_or_none():
     with pytest.raises(ValueError, match="max_chunk"):
         Session(make_model(), max_chunk=0, progress=False)

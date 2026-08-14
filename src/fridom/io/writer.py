@@ -56,6 +56,7 @@ from typing import TYPE_CHECKING, Any, NamedTuple
 import jax
 import numpy as np
 
+from fridom._sequences import as_tuple
 from fridom.io.streams import reject_walltime_trigger
 from fridom.spatial.fields.metadata import DIMENSIONLESS_UNITS
 
@@ -265,10 +266,13 @@ class Writer:
     ----------
     path : str | Path
         The zarr store path (the stream owns it exclusively).
-    fields : Sequence[str] | None, optional
-        Field names to write. ``None`` selects the lifecycle default:
-        every PROGNOSTIC and DIAGNOSTIC field; AUXILIARY is opt-in by
-        name (default: None).
+    fields : str | Sequence[str] | None, optional
+        Field names to write. A list or a tuple is the name
+        collection; anything else is a single name, so
+        ``fields="b"`` is one field and ``fields="temp"`` is one
+        field too, never its four letters. ``None`` selects the
+        lifecycle default: every PROGNOSTIC and DIAGNOSTIC field;
+        AUXILIARY is opt-in by name (default: None).
     derived : Mapping[str, Callable] | None, optional
         Named derived outputs, each a pure ``(model_state) -> Field``
         callable evaluated at output cadence (default: None).
@@ -325,7 +329,7 @@ class Writer:
         self,
         path: str | Path,
         *,
-        fields: Sequence[str] | None = None,
+        fields: str | Sequence[str] | None = None,
         derived: Mapping[str, Callable] | None = None,
         trigger: Trigger,
         mode: str = "w-",
@@ -340,7 +344,7 @@ class Writer:
             raise ValueError(
                 f"mode must be one of {_MODES}, got {mode!r}")
         self._path = Path(path)
-        self._fields = None if fields is None else tuple(fields)
+        self._fields = None if fields is None else as_tuple(fields)
         self._derived = dict(derived) if derived else {}
         self._trigger = trigger
         self.mode = mode

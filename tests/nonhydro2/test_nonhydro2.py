@@ -113,6 +113,24 @@ def test_preset_equals_explicit_assembly_treedef():
             == jax.tree_util.tree_structure(explicit._carry))
 
 
+@pytest.mark.parametrize("wrap", [
+    pytest.param(lambda m: m, id="bare"),
+    pytest.param(lambda m: [m], id="list"),
+    pytest.param(lambda m: (m,), id="tuple"),
+])
+def test_modules_extra_takes_a_bare_module_a_list_or_a_tuple(wrap):
+    # the scalar-or-sequence rule: one extra module needs no
+    # one-element tuple around it
+    model = nh.Model(
+        grid=make_grid(),
+        core=nh.Core(),
+        time_stepper=AdamBashforth(DT, order=3),
+        coriolis=fplane(),
+        buoyancy=nh.ConstantStratification(n2=1.0),
+        modules_extra=wrap(fr.model.modules.Tracer("dye")))
+    assert "dye" in model.state
+
+
 def test_preset_is_a_plain_fr_model():
     model = nh.Model(
         grid=make_grid(),

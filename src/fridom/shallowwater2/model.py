@@ -25,6 +25,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import fridom as fr
+from fridom._sequences import as_tuple
 from fridom.shallowwater2.modules.coriolis import (
     carries_linear_rotation,
     check_rotation_modules,
@@ -70,7 +71,7 @@ def Model(  # noqa: N802 — constructor-like factory (D1.3)
     scaling: object | None = None,
     coriolis: fr.model.Module | None = None,
     advection: bool = True,
-    modules_extra: Sequence[fr.model.Module] = (),
+    modules_extra: fr.model.Module | Sequence[fr.model.Module] = (),
     name: str | None = None,
     **kwargs: object,
 ) -> _Model:
@@ -160,9 +161,11 @@ def Model(  # noqa: N802 — constructor-like factory (D1.3)
         Include the Sadourny nonlinear advection; the module is
         scaling-neutral and adopts the assembly's variant at bind
         (default: True).
-    modules_extra : Sequence[fr.model.Module], optional
+    modules_extra : fr.model.Module | Sequence[fr.model.Module], optional
         Additional modules (tracers, closures) appended after the
-        core physics (default: ()).
+        core physics. A list or a tuple is the module collection,
+        anything else a single module, so one extra module is
+        ``modules_extra=friction`` (default: ()).
     name : str | None, optional
         Model name (default: None).
     **kwargs : object
@@ -209,7 +212,7 @@ def Model(  # noqa: N802 — constructor-like factory (D1.3)
     if advection:
         modules += (SadournyAdvection(
             coords=getattr(core, "coords", ("x", "y"))),)
-    modules += tuple(modules_extra)
+    modules += as_tuple(modules_extra)
     # immersed (cut-cell) grid: one shared CONSTRAINT-stage MaskState
     # keeps every prognostic's dry DOFs dead against the modules that
     # do not consult the mask (Coriolis) — the fraction-weighted core

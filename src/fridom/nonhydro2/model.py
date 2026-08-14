@@ -25,6 +25,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import fridom as fr
+from fridom._sequences import as_tuple
 from fridom.model.modules.advection import CenteredAdvection
 from fridom.nonhydro2.modules.core import Core, resolve_model_family
 
@@ -95,7 +96,7 @@ def Model(  # noqa: N802 — a factory that mirrors fr.model.Model's surface
     coriolis: fr.model.Module | None = None,
     buoyancy: fr.model.Module | None = None,
     advection: fr.model.Module | bool = True,
-    modules_extra: Sequence[fr.model.Module] = (),
+    modules_extra: fr.model.Module | Sequence[fr.model.Module] = (),
     name: str | None = None,
     **kwargs: object,
 ) -> _Model:
@@ -160,8 +161,10 @@ def Model(  # noqa: N802 — a factory that mirrors fr.model.Model's surface
         model), and a module instance is used as given. The module
         is scaling-neutral and adopts the assembly's variant at bind
         (default: True).
-    modules_extra : Sequence[fr.model.Module], optional
-        Additional modules (tracers, closures) (default: ()).
+    modules_extra : fr.model.Module | Sequence[fr.model.Module], optional
+        Additional modules (tracers, closures). A list or a tuple is
+        the module collection, anything else a single module, so one
+        extra module is ``modules_extra=wave_maker`` (default: ()).
     name : str | None, optional
         Model name (default: None).
     **kwargs : object
@@ -205,7 +208,7 @@ def Model(  # noqa: N802 — a factory that mirrors fr.model.Model's surface
         modules.append(buoyancy)
     if advection is not False:
         modules.append(advection)
-    modules.extend(modules_extra)
+    modules.extend(as_tuple(modules_extra))
     # immersed (cut-cell) grid: one shared CONSTRAINT-stage MaskState
     # keeps every prognostic's dry DOFs dead against the modules that
     # do not consult the mask (Coriolis, wave makers, pressure-gradient

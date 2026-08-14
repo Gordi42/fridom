@@ -47,6 +47,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import fridom as fr
+from fridom._sequences import as_tuple
 from fridom.model.modules.advection import CenteredAdvection
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -97,7 +98,7 @@ def Model(  # noqa: N802 — a factory that mirrors fr.model.Model's surface
     coriolis: fr.model.Module | None = None,
     advection: fr.model.Module | bool = True,
     surface_advective_flux: bool | None = None,
-    modules_extra: Sequence[fr.model.Module] = (),
+    modules_extra: fr.model.Module | Sequence[fr.model.Module] = (),
     name: str | None = None,
     **kwargs: object,
 ) -> _Model:
@@ -173,8 +174,10 @@ def Model(  # noqa: N802 — a factory that mirrors fr.model.Model's surface
         default-constructed advection; a user-passed module carries its
         own ``surface_flux`` (whose ``None`` auto-resolves to the same
         closure on the hydrostatic ``Outer``-``w`` grid) (default: None).
-    modules_extra : Sequence[fr.model.Module], optional
-        Additional modules (default: ()).
+    modules_extra : fr.model.Module | Sequence[fr.model.Module], optional
+        Additional modules. A list or a tuple is the module
+        collection, anything else a single module, so one extra
+        module is ``modules_extra=tracer`` (default: ()).
     name : str | None, optional
         Model name (default: None).
     **kwargs : object
@@ -216,7 +219,7 @@ def Model(  # noqa: N802 — a factory that mirrors fr.model.Model's surface
     modules.append(free_surface)
     if advection is not False:
         modules.append(advection)
-    modules.extend(modules_extra)
+    modules.extend(as_tuple(modules_extra))
     # immersed (cut-cell) grid: one shared CONSTRAINT-stage MaskState
     # keeps every 3D prognostic's dry DOFs dead against the modules that
     # do not consult the mask (Coriolis, the p_hyd pressure gradient,
