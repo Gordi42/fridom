@@ -215,7 +215,8 @@ class Session:
         ``WalltimeGuard`` (default: None).
     progress : bool or ProgressReporter, optional
         ``True`` installs the default logging reporter; ``False``
-        disables progress; a reporter object is used as-is
+        disables progress; a reporter object is used as-is — pass
+        ``fr.ops.ProgressBar()`` for the rendered bar
         (default: True).
     max_chunk : int or None, optional
         Host-sync granularity: the largest sub-advance between
@@ -515,7 +516,9 @@ class Session:
         Description
         -----------
         Dispatch-then-sync is built in (each model's chunks dispatch
-        before its panic read). Each model's quantum is subdivided at
+        before its panic read). Once the plan is resolved the
+        reporter's OPTIONAL ``on_leg_start(plan=...)`` hook fires (if
+        it has one). Each model's quantum is subdivided at
         its planned trigger boundaries; at each boundary the normative
         sequence runs: sync -> panic check -> writer flush (binding
         order) -> snapshot write+rotate -> progress ``on_chunk`` ->
@@ -540,6 +543,15 @@ class Session:
         """
         self._require_active("advance")
         requests = self._resolve_plan(plan, steps_by_name)
+        # the OPTIONAL, additive leg hook (duck-checked; deliberately
+        # not part of the runtime_checkable ProgressReporter): the leg
+        # length is known here and nowhere else, since on_run_start
+        # always fires with n_steps=None (planning happens after
+        # __enter__ so a snapshot resume can re-plan)
+        if self._reporter is not None:
+            hook = getattr(self._reporter, "on_leg_start", None)
+            if hook is not None:
+                hook(plan=dict(requests))
         results: dict[str, AdvanceResult] = {}
         for name, steps in requests.items():
             results[name] = self._advance_one(name, steps)
@@ -596,7 +608,8 @@ class Session:
         if cursor == 0:
             self._fire_boundary(
                 name, model, 0, firings, snap_firings,
-                chunk_steps=0, wall_seconds=0.0, is_chunk=False)
+                chunk_steps=0, wall_seconds=0.0, is_chunk=False,
+                leg_steps_done=0, leg_steps_total=steps)
         try:
             for boundary in boundaries:
                 if self._interrupted:
@@ -614,7 +627,8 @@ class Session:
                 stop = self._fire_boundary(
                     name, model, boundary, firings, snap_firings,
                     chunk_steps=result.steps_done,
-                    wall_seconds=result.wall_seconds, is_chunk=True)
+                    wall_seconds=result.wall_seconds, is_chunk=True,
+                    leg_steps_done=total_steps, leg_steps_total=steps)
                 if stop or self._interrupted:
                     if self._interrupted:
                         book.status = RunStatus.INTERRUPTED
@@ -707,6 +721,8 @@ class Session:
         chunk_steps: int,
         wall_seconds: float,
         is_chunk: bool,
+        leg_steps_done: int,
+        leg_steps_total: int,
     ) -> bool:
         """Run the boundary sequence; return whether to stop.
 
@@ -735,7 +751,9 @@ class Session:
                     time=float(clock.time),
                     steps_done=int(chunk_steps),
                     wall_seconds=float(wall_seconds),
-                    steps_per_second=float(rate)))
+                    steps_per_second=float(rate),
+                    leg_steps_done=int(leg_steps_done),
+                    leg_steps_total=int(leg_steps_total)))
             if self._guard is not None:
                 self._guard.on_chunk(wall_seconds)
                 if self._guard.should_stop():

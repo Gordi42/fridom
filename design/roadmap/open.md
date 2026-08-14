@@ -323,6 +323,25 @@ several of whose conclusions the sweep revised.
   divergence, not speed. `pressure_report=True` now diagnoses this in
   one line.
 
+## 2g. Progress-bar follow-ups (2026-08-14)
+
+The opt-in bar shipped (entry in [`done.md`](done.md)); two
+deliberate follow-ups were left out of it.
+
+- **Flip `progress=True` to the bar.** Today `True` still builds the
+  logging placeholder `_LoggingProgress`, which renders nothing.
+  The flip renames it `fr.ops.LogProgress` (kept for callers that
+  want log records rather than a bar) and points `True` at
+  `fr.ops.ProgressBar()`. Blast radius: ~10 new-stack test sites,
+  mostly `tests/hydrostatic/`, would start rendering and need
+  `progress=False`; the examples already pass `progress=False`.
+- **A `start_date` path on `Model`.** `Clock.start_date` exists but
+  `Model` hardcodes `Clock()` (`model.py`) with no way to set one,
+  so calendar-formatted model time in the bar's postfix (the old
+  bar's `datetime_formatting` branch) has nothing to read. Needs a
+  `start_date=` on `Model` (or a settable clock) before the postfix
+  can offer dates instead of humanized seconds.
+
 ## 3. Perf-guard checkpoint (owner-run)
 
 After **all** physics changes above land, before the Oceananigans
