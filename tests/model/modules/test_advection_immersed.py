@@ -111,3 +111,50 @@ def test_immersed_helpers_are_noops_off_an_immersed_grid():
     assert module._immersed_flux(sentinel, None) is sentinel
     assert module._immersed_scale(sentinel, None) is sentinel
     assert module._immersed_scale(None, sentinel) is None
+    # the immersed-background guard is a no-op off an immersed grid and
+    # off a background, in both orders
+    assert module._reject_immersed_background(None) is None
+    assert CenteredAdvection(
+        background={"u": 1.0})._reject_immersed_background(None) is None
+
+
+# ================================================================
+#  background= on an immersed grid is a taught error (defect A3b)
+# ================================================================
+@pytest.mark.parametrize(
+    "cls", [CenteredAdvection, UpwindAdvection, WENOAdvection])
+def test_background_on_an_immersed_grid_is_a_taught_error(cls):
+    # the Doppler split needs the inhomogeneous body condition
+    # u'.n = -U.n, but the immersed projection enforces u'.n = 0 and
+    # MaskState zeroes u' in dry cells -- so u' = 0 is an exact fixed
+    # point of the step and the body is perfectly transparent to the
+    # background flow. That failure is SILENT (a clean run, a flat
+    # field), so bind refuses rather than letting it happen. Measured
+    # before the guard landed: a disc on a 16^3 grid with
+    # background={"u": 1.0} and a zero perturbation start held
+    # max|u'| = max|v'| = max|w'| = 0.0 exactly after 20 steps.
+    grid = _immersed_grid()
+    with pytest.raises(NotImplementedError, match="exact fixed point"):
+        FrModel(grid=grid,
+                modules=_fv_modules(cls(background={"u": 1.0})),
+                time_stepper=AdamBashforth(DT, order=3))
+
+
+def test_background_binds_on_an_unimmersed_grid():
+    # the guard is narrow: the same background on a plain (unimmersed)
+    # grid still assembles. Nodal Core -- the background samples resolve
+    # on the nh C-grid staggering, so background= and family="fv" do not
+    # compose today (an unrelated limitation of _bind_background)
+    grid = Grid(tuple(
+        IntervalMesh(10, (0.0, TWO_PI), periodic=True, name=nm)
+        for nm in ("x", "y", "z")))
+    advection = CenteredAdvection(background={"u": 1.0})
+    model = FrModel(
+        grid=grid,
+        modules=(Core(), ConstantStratification(n2=0.0),
+                 FPlaneCoriolis(f0=1.0), advection),
+        time_stepper=AdamBashforth(DT, order=3))
+    (bound,) = [
+        m for m in model.modules if isinstance(m, CenteredAdvection)]
+    assert bound._immersed is None
+    assert bound._background == {"u": 1.0}

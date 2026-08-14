@@ -115,6 +115,14 @@ class TendencyComposer:
         are never filtered; the coverage lint downgrades to a
         warning under any filter; an empty filter result is a build
         error (default: None).
+    allow_unadvanced : Sequence[str], optional
+        PROGNOSTIC field names the caller declares are *deliberately*
+        advanced by no term — the explicit waiver of the D1.4 coverage
+        lint (see :meth:`_coverage_lint`). Every name must be a
+        PROGNOSTIC field of this assembly; an unknown name is an
+        assembly error, so a typo in the waiver cannot silently widen
+        it. Waiving a field that some term does advance is harmless
+        and stays silent (default: ()).
 
     Raises
     ------
@@ -135,6 +143,7 @@ class TendencyComposer:
         time_stepper: Any,
         binding_table: Any,
         term_filter: Callable | None = None,
+        allow_unadvanced: Sequence[str] = (),
     ) -> None:
         """Collect, order, and statically check; see class doc."""
         self._modules = tuple(modules)
@@ -145,6 +154,7 @@ class TendencyComposer:
         self._prognostic = tuple(
             r.name for r in self._records
             if r.lifecycle is Lifecycle.PROGNOSTIC)
+        self._allow_unadvanced = self._check_waiver(allow_unadvanced)
         own_aux = _owned(self._records, Lifecycle.AUXILIARY)
         own_diag = _owned(self._records, Lifecycle.DIAGNOSTIC)
 
@@ -667,6 +677,43 @@ class TendencyComposer:
             sums = apply_add(entry, sums, result)
         return TendencySums(explicit=sums)
 
+    def _check_waiver(
+        self, allow_unadvanced: Sequence[str],
+    ) -> frozenset[str]:
+        """Validate the ``allow_unadvanced=`` coverage-lint waiver.
+
+        Description
+        -----------
+        The waiver is only meaningful for PROGNOSTIC fields of *this*
+        assembly, so an unknown name is refused rather than ignored: a
+        typo would otherwise leave the lint armed on the field the
+        caller meant to waive while reading as if it were disarmed.
+        Duplicates are collapsed.
+
+        Parameters
+        ----------
+        allow_unadvanced : Sequence[str]
+            The caller's declared-inert PROGNOSTIC field names.
+
+        Returns
+        -------
+        frozenset[str]
+            The validated waiver set (empty when not used).
+
+        Raises
+        ------
+        AssemblyError
+            If a name is not a PROGNOSTIC field of this assembly.
+        """
+        waived = frozenset(allow_unadvanced)
+        unknown = tuple(sorted(waived - set(self._prognostic)))
+        if unknown:
+            raise AssemblyError(
+                f"allow_unadvanced names {unknown}, which are not "
+                f"PROGNOSTIC fields of this assembly; the PROGNOSTIC "
+                f"fields are {self._prognostic}")
+        return waived
+
     def _coverage_lint(
         self, writes: dict[ScheduleEntry, frozenset[str]],
     ) -> None:
@@ -682,6 +729,19 @@ class TendencyComposer:
         pressure projection replaces the velocities without
         advancing them, and silencing the lint for those would hide
         a genuinely term-free prognostic.
+
+        The lint exists to catch a field frozen by an **assembly
+        mistake**, which it cannot tell apart from one frozen on
+        purpose — so a deliberately inert field is declared, not
+        guessed: ``allow_unadvanced=`` drops the named PROGNOSTIC
+        fields from the check. That is the supported spelling for
+        e.g. a non-rotating linear nonhydrostatic slice, whose
+        horizontal velocities carry no term at all (only the pressure
+        constraint rewrites them); before the waiver existed the only
+        way through was a zero-valued Coriolis module, which declares
+        the terms with a zero leaf and therefore *hides* the very
+        condition the lint reports. The waiver is host-side only: it
+        changes no schedule, no term, and no number.
         """
         advanced: set[str] = set()
         for entry, observed in writes.items():
@@ -691,13 +751,22 @@ class TendencyComposer:
                                 StageKind.CONSTRAINT):
                 advanced |= set(entry.advances or ())
         uncovered = tuple(name for name in self._prognostic
-                          if name not in advanced)
+                          if name not in advanced
+                          and name not in self._allow_unadvanced)
         if not uncovered:
             return
         message = (
             f"PROGNOSTIC fields {uncovered} are advanced by no "
             "term and claimed by no ADVANCE/CONSTRAINT stage "
-            "(coverage lint, D1.4)")
+            "(coverage lint, D1.4). Usually a missing module: "
+            "install the term that should advance them — an "
+            "advection scheme, a closure targeting them, a Coriolis "
+            "or buoyancy module. If they are deliberately inert (a "
+            "non-rotating linear slice leaves the horizontal "
+            "velocities term-free), say so explicitly with "
+            f"Model(..., allow_unadvanced={uncovered}) rather than "
+            "declaring a zero-valued Coriolis module to fake the "
+            "coverage")
         if self._term_filter is not None:
             # info downgrade under a variant filter (08 10.4)
             warnings.warn(message, stacklevel=3)

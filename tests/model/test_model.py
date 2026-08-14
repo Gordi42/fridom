@@ -19,6 +19,7 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
+import fridom.nonhydro2 as nh
 from fridom.framework.utils import dtype_real, jaxify
 from fridom.io.snapshots import Snapshots, read_manifest
 from fridom.io.streams import (
@@ -139,6 +140,15 @@ class Provider(Module):
 
     parameter_declarations = (
         ParameterDeclaration("toy.value", attr="value", units="1"),)
+
+
+@jaxify
+class Inert(Module):
+
+    """One PROGNOSTIC field and no term at all (coverage-lint bait)."""
+
+    field_declarations = (
+        FieldDeclaration("frozen", space=Collocated()),)
 
 
 @jaxify
@@ -906,3 +916,78 @@ def test_modelstate_replace_swaps_named_slots(model):
     assert int(swapped.clock.it) == 0
     with pytest.raises(TypeError, match="unknown carry slots"):
         carry.replace(nope=1)
+
+
+# ================================================================
+#  allow_unadvanced — the explicit coverage-lint waiver
+# ================================================================
+def test_unadvanced_prognostic_is_refused_with_a_taught_message():
+    with pytest.raises(AssemblyError) as excinfo:
+        make_model(modules=(Core(), Background(), Inert()))
+    message = str(excinfo.value)
+    assert "('frozen',)" in message
+    assert "Usually a missing module" in message
+    assert "allow_unadvanced=('frozen',)" in message
+
+
+def test_allow_unadvanced_assembles_and_leaves_the_field_inert():
+    model = make_model(modules=(Core(), Background(), Inert()),
+                       allow_unadvanced=("frozen",))
+    # the waiver is visible in the assembly report, never silent
+    lint = model.report.section("lint")
+    assert "allow_unadvanced" in lint
+    assert "frozen" in lint
+    model.set_fields(b=ic(), frozen=ic(shift=1.0))
+    before = np.asarray(model.state["frozen"].data)
+    model.advance(3)
+    # declared inert and genuinely inert: no term touches it
+    assert np.array_equal(np.asarray(model.state["frozen"].data),
+                          before)
+    # the rest of the model still evolves
+    assert not np.array_equal(np.asarray(model.state["b"].data), ic())
+
+
+def test_allow_unadvanced_rejects_an_unknown_name():
+    with pytest.raises(AssemblyError, match="allow_unadvanced"):
+        make_model(modules=(Core(), Background(), Inert()),
+                   allow_unadvanced=("frozen", "typo"))
+
+
+def test_non_rotating_linear_slice_is_assemblable():
+    # the reader-facing deliverable: a non-rotating LINEAR
+    # nonhydrostatic slice (advection=False, coriolis=None) leaves u and
+    # v carrying no term at all, so the D1.4 coverage lint used to make
+    # a legitimate configuration unassemblable -- the only way through
+    # was nh.FPlaneCoriolis(f0=0.0), which declares the terms with a
+    # zero leaf and so HIDES the condition the lint reports.
+    def build(**kwargs):
+        grid = Grid((
+            IntervalMesh(8, (0.0, 2 * np.pi), name="x"),
+            IntervalMesh(1, (0.0, 2 * np.pi), name="y"),
+            IntervalMesh(8, (0.0, 2 * np.pi), name="z")))
+        model = nh.Model(
+            grid=grid, core=nh.Core(), advection=False,
+            buoyancy=nh.ConstantStratification(n2=1.0),
+            time_stepper=AdamBashforth(0.01, order=3), **kwargs)
+        x = np.linspace(0.0, 2 * np.pi, 8, endpoint=False)
+        model.set_fields(b=np.sin(x)[:, None, None] * np.ones((8, 1, 8)))
+        model.advance(10)
+        return {k: np.asarray(model.state[k].data)
+                for k in ("u", "v", "w", "b")}
+
+    with pytest.raises(AssemblyError, match=r"fields \('u', 'v'\)"):
+        build()
+    waived = build(allow_unadvanced=("u", "v"))
+    # u is not frozen at all -- the pressure constraint drives it from
+    # the buoyancy-forced w, which is exactly why refusing outright was
+    # the wrong default. v IS inert in an x-z slice (no y pressure
+    # gradient), the deliberate case the waiver declares.
+    assert np.max(np.abs(waived["u"])) > 0.0
+    assert np.max(np.abs(waived["v"])) == 0.0
+    # and the waiver is the honest replacement for the zero-Coriolis
+    # workaround: the same model, up to the reassociation a zero term
+    # costs (measured max|diff| after 10 steps: 1.5e-33)
+    zero_f = build(coriolis=nh.FPlaneCoriolis(f0=0.0))
+    for name, values in waived.items():
+        assert np.allclose(values, zero_f[name],
+                           rtol=0.0, atol=1e-25)
