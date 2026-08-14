@@ -844,3 +844,55 @@ def test_grad_through_a_line_sweep_is_finite():
     grad = jax.grad(loss)(2.0)
     assert bool(jnp.isfinite(grad))
     assert float(grad) != 0.0
+
+
+# ================================================================
+#  The ``report=`` seam (A3): observable PCG convergence
+# ================================================================
+def test_report_prints_the_achieved_count_and_leaves_the_solve_alone(
+        capfd):
+    """``report=True`` is a side effect only.
+
+    It prints the achieved iteration count against the budget and the
+    relative residual — the evidence a caller needs to size
+    ``iterations`` — and returns the byte-identical pressure the silent
+    solver returns.
+    """
+    loud, grid, mx, ms = build_solver(report=True)
+    # the same grid, so the two solvers share the interned spaces
+    quiet = MappedPressureSolver(
+        grid, mx.center * ms.center, iterations=20,
+        weights={"sigma": 1.0 / DSQR})
+    vel = random_velocity(grid, mx, ms)
+    rhs = loud.divergence(vel)
+    p_loud = loud.solve(rhs)
+    jax.effects_barrier()
+    line = capfd.readouterr().out.strip()
+    assert line.startswith("MappedPressureSolver PCG: k=")
+    assert "/20" in line
+    assert "tolerance 1e-08" in line
+    p_quiet = quiet.solve(quiet.divergence(vel))
+    assert np.array_equal(np.asarray(p_loud.data),
+                          np.asarray(p_quiet.data))
+
+
+def test_report_names_the_fixed_count_opt_out(capfd):
+    """With ``tolerance=None`` the report says so and prints k = budget."""
+    solver, grid, mx, ms = build_solver(
+        iterations=6, tolerance=None, report=True)
+    solver.solve(solver.divergence(random_velocity(grid, mx, ms)))
+    jax.effects_barrier()
+    line = capfd.readouterr().out.strip()
+    assert "k=6/6" in line
+    assert "no tolerance, fixed count" in line
+
+
+def test_report_prints_zero_relative_residual_for_a_zero_rhs(capfd):
+    """A zero right-hand side must print 0, not a NaN (the guard)."""
+    solver, grid, mx, ms = build_solver(report=True)
+    vel = random_velocity(grid, mx, ms)
+    rhs = solver.divergence(vel)
+    solver.solve(rhs.with_data(rhs.data * 0.0))
+    jax.effects_barrier()
+    line = capfd.readouterr().out.strip()
+    assert "|r|/|b|=0.000e+00" in line

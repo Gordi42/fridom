@@ -14,6 +14,7 @@ the taught error replacing the bare ``StopIteration`` a ``coords=``
 with no staggered velocity face used to raise. The model-level
 stretched runs live in the ``test_core_stretched`` shard.
 """
+import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
@@ -188,3 +189,176 @@ def test_core_refuses_a_coordinate_with_no_staggered_face():
             buoyancy=nh.ConstantStratification(n2=N2),
             advection=False)
     assert "coords=('x', 'y', 's')" in str(ex.value)
+
+
+# ================================================================
+#  Geometry refusal: nonhydro is Cartesian-only (no chart grids)
+# ================================================================
+def _chart_grid():
+    """Build a lat-lon sphere chart grid with a Cartesian vertical."""
+    mlon = fr.spatial.meshes.IntervalMesh(N, (0.0, 2 * np.pi),
+                                          periodic=True, name="lon")
+    mlat = fr.spatial.meshes.IntervalMesh(N, (-0.6, 0.6), name="lat")
+    mz = fr.spatial.meshes.IntervalMesh(N // 2, (0.0, 1.0), name="z")
+    return fr.spatial.Grid(
+        (mlon, mlat, mz),
+        mapping=fr.spatial.charts.lonlat_sphere(radius=6.4e6),
+        device_ids=(0,))
+
+
+def _chart_model(coords):
+    return nh.Model(
+        grid=_chart_grid(),
+        core=nh.Core(coords=coords),
+        time_stepper=AdamBashforth(DT, order=3),
+        buoyancy=nh.ConstantStratification(n2=N2),
+        advection=False)
+
+
+@pytest.mark.parametrize(
+    "coords",
+    [pytest.param(("x", "y", "z"), id="default-coords"),
+     pytest.param(("lon", "lat", "z"), id="chart-coords")],
+)
+def test_core_refuses_a_chart_grid(coords):
+    """Both chart spellings land on ONE taught refusal.
+
+    Before the fence the default ``coords=`` raised a bare ``KeyError``
+    out of the pressure space's ``factor("x")`` lookup, and naming the
+    chart coordinates reached ``_no_staggered_face``, whose advice
+    (rename the vertical mesh to ``"z"``) is wrong here — the vertical
+    already *is* ``"z"``; the charted pair is horizontal.
+    """
+    with pytest.raises(NotImplementedError,
+                       match="carries an embedding chart") as ex:
+        _chart_model(coords)
+    message = str(ex.value)
+    assert "('lon', 'lat')" in message
+    # the refusal teaches what IS supported, and where a chart model
+    # lives instead
+    assert "fr.spatial.CoordinateMapping(maps=...)" in message
+    assert "sw.Model" in message
+    # and it does not fall through to the vertical-naming message
+    assert "no velocity component is staggered" not in message
+
+
+def test_chart_refusal_does_not_catch_a_plain_mapped_column():
+    """A per-coordinate map is not a chart: the model still binds.
+
+    ``chart_coords`` is None on a mapping that declares only
+    ``maps=`` (a terrain-following / stretched column couples no
+    coordinates), so the fence must not reach it.
+    """
+    grid = _stretched_grid()
+    assert grid.chart_coords is None
+    model = _model(1.0, AdamBashforth(DT, order=3), grid=grid)
+    assert model.state["p"] is not None
+
+
+# ================================================================
+#  A3: the pressure-solver knobs are validated on the core, and the
+#  convergence report makes the achieved PCG count observable
+# ================================================================
+def test_core_validates_the_pressure_solver_knobs():
+    """A bad budget / tolerance is a construction error.
+
+    ``ConjugateGradient`` validates the same pair, but it is built at
+    stage time inside the jit trace — so a bad value used to surface
+    as a ``TermEvaluationError`` wrapping the real message, and on a
+    flat (spectral) grid, which iterates nothing, never surfaced at
+    all.
+    """
+    with pytest.raises(TypeError, match="pressure_iterations must be"):
+        nh.Core(pressure_iterations=12.0)
+    with pytest.raises(ValueError, match="pressure_iterations must be"):
+        nh.Core(pressure_iterations=0)
+    with pytest.raises(TypeError, match="pressure_tolerance must be"):
+        nh.Core(pressure_tolerance="1e-8")
+    with pytest.raises(ValueError, match="pressure_tolerance must be"):
+        nh.Core(pressure_tolerance=0.0)
+    # the accepted pair, including the fixed-count opt-out
+    assert nh.Core(pressure_iterations=12)._pressure_iterations == 12
+    assert nh.Core(pressure_tolerance=None)._pressure_tolerance is None
+    assert nh.Core()._pressure_report is False
+
+
+def _immersed_model(*, report, iterations=12):
+    """Build a tiny immersed (PCG-routed) model with a random state."""
+    meshes = tuple(
+        fr.spatial.meshes.IntervalMesh(
+            N, (0.0, 2 * np.pi), periodic=True, name=nm)
+        for nm in ("x", "y", "z"))
+    sphere = lambda x, y, z: (  # noqa: E731
+        (x - np.pi) ** 2 + (y - np.pi) ** 2
+        + (z - np.pi) ** 2 < 1.4 ** 2).astype(float)
+    grid = fr.spatial.Grid(
+        meshes, immersed=fr.spatial.ImmersedDomain(sphere),
+        device_ids=(0,))
+    model = nh.Model(
+        grid=grid,
+        core=nh.Core(pressure_iterations=iterations,
+                     pressure_report=report),
+        time_stepper=AdamBashforth(1e-2, order=3),
+        coriolis=nh.FPlaneCoriolis(f0=F0),
+        buoyancy=nh.ConstantStratification(n2=N2),
+        advection=False)
+    rng = np.random.default_rng(0)
+    model.set_fields(**{
+        name: 0.2 * rng.standard_normal(model.state[name].data.shape)
+        for name in ("u", "v", "w", "b")})
+    return model
+
+
+def test_pressure_report_prints_the_achieved_iteration_count(capfd):
+    """The A3 evidence seam: ``k`` against the budget, per solve.
+
+    The default ``pressure_tolerance`` break fires well inside the
+    budget on an immersed route, which is exactly what a user sizing
+    ``pressure_iterations`` needs to see — and what nothing exposed
+    before. Reporting is a side effect only: the reported run is
+    **bitwise** the silent one.
+    """
+    loud = _immersed_model(report=True)
+    loud.advance(2)
+    jax.effects_barrier()
+    out = capfd.readouterr().out
+    lines = [ln for ln in out.splitlines() if "PCG" in ln]
+    assert len(lines) == 2, out
+    for line in lines:
+        assert "ImmersedPressureSolver PCG: k=" in line
+        assert "/12" in line
+        assert "|r|/|b|=" in line
+        assert "tolerance 1e-08" in line
+        # the break fires: the achieved count is inside the budget
+        achieved = int(line.split("k=")[1].split("/")[0])
+        assert 1 <= achieved < 12
+
+    quiet = _immersed_model(report=False)
+    quiet.advance(2)
+    jax.effects_barrier()
+    assert "PCG" not in capfd.readouterr().out
+    for name in ("u", "v", "w", "b"):
+        assert np.array_equal(np.asarray(loud.state[name].data),
+                              np.asarray(quiet.state[name].data))
+
+
+def test_pressure_report_keeps_the_run_differentiable():
+    """The differentiability policy on the changed step path.
+
+    ``jax.debug.print`` produces no value, so it adds no data path;
+    ``jax.grad`` of a quadratic loss through a reporting run must still
+    match a central finite difference.
+    """
+    model = _immersed_model(report=True)
+    run = model.propagator(wrt=(str(ASPECT_RATIO),), steps=2)
+
+    def loss(theta):
+        state = run(theta).state
+        return sum(jnp.sum(state[name].data ** 2)
+                   for name in ("u", "v", "w"))
+
+    grad = jax.grad(loss)((1.0,))[0]
+    eps = 1e-5
+    fd = (loss((1.0 + eps,)) - loss((1.0 - eps,))) / (2 * eps)
+    assert np.isfinite(float(grad))
+    assert float(grad) == pytest.approx(float(fd), rel=1e-4)

@@ -84,7 +84,7 @@ def _cell_space(grid):
 
 def build_composed(n=12, init=depth, ind=cut, order=4, min_fraction=0.0,
                    preconditioner="spectral", iterations=2,
-                   tolerance=1e-8, periodic_x=True):
+                   tolerance=1e-8, periodic_x=True, report=False):
     """Build a terrain chart + immersed cut composed solver."""
     mx = IntervalMesh(n, (0.0, TWO_PI), periodic=periodic_x, name="x")
     ms = IntervalMesh(n, (0.0, 1.0), periodic=False, name="sigma")
@@ -97,7 +97,8 @@ def build_composed(n=12, init=depth, ind=cut, order=4, min_fraction=0.0,
     space = _cell_space(grid)
     solver = ComposedPressureSolver(
         grid, space, iterations=iterations, tolerance=tolerance,
-        weights={"sigma": 1.0 / DSQR}, preconditioner=preconditioner)
+        weights={"sigma": 1.0 / DSQR}, preconditioner=preconditioner,
+        report=report)
     return grid, space, solver
 
 
@@ -597,3 +598,24 @@ def test_grad_through_a_composed_solve_is_finite_and_fd_matches():
     eps = 1e-4
     fd = (loss(2.0 + eps) - loss(2.0 - eps)) / (2 * eps)
     assert abs(float(g) - float(fd)) <= 1e-4 * abs(float(fd))
+
+
+# ================================================================
+#  The ``report=`` seam (A3): inherited through the base solver
+# ================================================================
+def test_composed_solver_inherits_the_convergence_report(capfd):
+    """``report=`` reaches the composed solver through ``**kwargs``.
+
+    ``ComposedPressureSolver`` forwards its extra kwargs to
+    ``MappedPressureSolver.__init__`` and inherits ``solve`` verbatim,
+    so the host-side convergence report needs no composed-side wiring —
+    but that inheritance is exactly the kind of thing that breaks
+    silently, so it is pinned here.
+    """
+    grid, _space, solver = build_composed(iterations=8, report=True)
+    assert solver.report is True
+    solver.solve(solver.divergence(random_velocity(grid, solver)))
+    jax.effects_barrier()
+    line = capfd.readouterr().out.strip()
+    assert line.startswith("ComposedPressureSolver PCG: k=")
+    assert "/8" in line

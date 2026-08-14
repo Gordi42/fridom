@@ -131,9 +131,14 @@ def Model(  # noqa: N802 — a factory that mirrors fr.model.Model's surface
         no rotation term and no rotation provide. Rotation is
         opt-in: pass ``nh.FPlaneCoriolis(f0=...)`` (dimensional) /
         ``FPlaneCoriolis(rossby_number=...)`` (nondimensional) /
-        ``nh.BetaPlaneCoriolis(...)`` on a flat grid, or
-        ``fr.model.modules.RotationCoriolis(omega=(0.0, 0.0, Omega),
-        coords=...)`` on a chart-coupled grid (default: None).
+        ``nh.BetaPlaneCoriolis(...)``. Those are the whole menu here:
+        the nonhydrostatic model is **Cartesian-only** — its pressure
+        projection and flux-form advection are metric-blind, so
+        ``nh.Core`` refuses a chart-coupled grid at bind — which
+        leaves the chart rotation
+        ``fr.model.modules.RotationCoriolis`` with no grid to act on
+        in this package. Use ``fridom.shallowwater2`` for a model on
+        a chart (default: None).
 
         Note that a non-rotating **linear** nonhydrostatic model
         (``advection=False``) with no buoyancy module leaves

@@ -45,7 +45,8 @@ def _cell_space(grid):
     return grid._laid_out(space)
 
 
-def _box_solver(n=12, iterations=30, dsqr=0.7, tolerance=1e-8):
+def _box_solver(n=12, iterations=30, dsqr=0.7, tolerance=1e-8,
+                report=False):
     """Build a face-aligned {0, 1} immersed box in a periodic grid."""
     meshes = tuple(
         IntervalMesh(n, (0.0, TWO_PI), periodic=True, name=nm)
@@ -57,7 +58,7 @@ def _box_solver(n=12, iterations=30, dsqr=0.7, tolerance=1e-8):
     space = _cell_space(grid)
     solver = ImmersedPressureSolver(
         grid, space, vertical="z", dsqr=dsqr, iterations=iterations,
-        tolerance=tolerance)
+        tolerance=tolerance, report=report)
     return grid, space, solver
 
 
@@ -827,3 +828,53 @@ def test_multigrid_agglomerate_matches_off_and_single_device():
     scale = max(np.max(np.abs(p_ref)), 1e-30)
     assert np.max(np.abs(p_off - p_ref)) / scale < 1e-8
     assert np.max(np.abs(p_on - p_ref)) / scale < 1e-8
+
+
+# ================================================================
+#  The ``report=`` seam (A3): observable PCG convergence
+# ================================================================
+def test_report_prints_the_achieved_count_and_leaves_the_solve_alone(
+        capfd):
+    """``report=True`` is a side effect only.
+
+    The masked route is where A3 was measured: the default tolerance
+    break fires well inside the budget, which the report makes visible
+    instead of leaving a caller to infer it from run time. The reported
+    pressure is byte-identical to the silent one.
+    """
+    grid, space, loud = _box_solver(n=12, iterations=30, report=True)
+    quiet = ImmersedPressureSolver(
+        grid, space, vertical="z", dsqr=0.7, iterations=30)
+    assert loud.report is True
+    assert quiet.report is False
+    vel = _random_velocity(loud, seed=2)
+    rhs = loud.divergence(vel)
+    p_loud = loud.solve(rhs)
+    jax.effects_barrier()
+    line = capfd.readouterr().out.strip()
+    assert line.startswith("ImmersedPressureSolver PCG: k=")
+    assert "/30" in line
+    assert "tolerance 1e-08" in line
+    # the break fires: the achieved count is strictly inside the budget
+    assert 1 <= int(line.split("k=")[1].split("/")[0]) < 30
+    p_quiet = quiet.solve(rhs)
+    assert np.array_equal(np.asarray(p_loud.data),
+                          np.asarray(p_quiet.data))
+
+
+def test_report_exposes_an_exhausted_budget(capfd):
+    """The half that matters: ``k`` == budget with ``|r|/|b|`` > tol.
+
+    A budget too small for the geometry leaves the projection with a
+    measurably divergent velocity, and nothing else says so — the run
+    is clean, the fields are finite, the pressure looks plausible. The
+    report turns that into one visible line.
+    """
+    _grid, _space, solver = _box_solver(n=12, iterations=3, report=True)
+    vel = _random_velocity(solver, seed=2)
+    solver.solve(solver.divergence(vel))
+    jax.effects_barrier()
+    line = capfd.readouterr().out.strip()
+    assert "k=3/3" in line
+    relative = float(line.split("|r|/|b|=")[1].split()[0])
+    assert relative > 1e-8
