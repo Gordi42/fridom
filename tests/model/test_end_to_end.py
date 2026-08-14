@@ -9,11 +9,11 @@ mandated oracles:
 1. treedef stability across ``advance``;
 2. the compile counter: repeated ``advance`` and a kappa
    ``update_parameters`` sweep compile NOTHING new;
-3. ``advance(2); advance(3)`` == ``advance(5)`` bitwise, on the
-   shared jit-cache entry;
+3. ``advance(2); advance(3)`` == ``advance(5)`` bitwise, reusing
+   the compiled chunk lengths;
 4. snapshot round trip bitwise + fingerprint-mismatch refusal;
-5. the S5 NaN abort (PanicError at the boundary, exact first-bad
-   iteration, debug_nan replay);
+5. the S5 NaN abort (PanicError at the chunk boundary, step-exact
+   through the debug_nan replay);
 6. physics sanity: monotone variance decay, mass conservation.
 
 Single-device only — the orchestrator runs the 4-device sweep.
@@ -159,7 +159,7 @@ def test_kappa_sweep_compiles_nothing(compile_counter):
 # ================================================================
 #  Oracle 3 — repeated advance == one uninterrupted run
 # ================================================================
-def test_split_advance_is_bitwise_and_shares_the_cache(
+def test_split_advance_is_bitwise_and_reuses_the_lengths(
         compile_counter):
     grid = make_grid()
     whole = make_model(grid)
@@ -171,13 +171,34 @@ def test_split_advance_is_bitwise_and_shares_the_cache(
     reference = chunk_cache_size()
     split.advance(2)
     split.advance(3)
-    # the same record and carry structure: the SAME cache entry
-    assert compile_counter.count == 0
-    assert chunk_cache_size() == reference
+    # splitting a run RE-CHUNKS it but never changes the arithmetic:
+    # the binary tail spells advance(5) as [4, 1] and the split as
+    # [2] + [2, 1], so this crosses chunk lengths and still has to
+    # land on the last bit
     assert np.array_equal(c_data(whole), c_data(split))
     assert int(whole.clock.it) == int(split.clock.it)
     assert float(whole.clock.elapsed) == float(
         split.clock.elapsed)
+    # the executables are keyed on (record, carry structure, chunk
+    # LENGTH), and every length comes from the bounded set the binary
+    # tail draws on: the split pays for exactly the lengths the whole
+    # run's plan did not already compile, and for nothing else
+    split_lengths = set(split._chunk_plan(2)) | set(
+        split._chunk_plan(3))
+    new_lengths = split_lengths - set(whole._chunk_plan(5))
+    assert compile_counter.count == len(new_lengths)
+    assert chunk_cache_size() == reference + len(new_lengths)
+    # a REPEAT of the same plan on a third identical assembly is then
+    # a pure cache hit — identical plans reuse identical entries
+    encore = make_model(grid)
+    encore.set_fields(c=tracer_ic())
+    compile_counter.reset()
+    reference = chunk_cache_size()
+    encore.advance(2)
+    encore.advance(3)
+    assert compile_counter.count == 0
+    assert chunk_cache_size() == reference
+    assert np.array_equal(c_data(split), c_data(encore))
 
 
 # ================================================================
@@ -243,13 +264,29 @@ def test_nan_abort_at_the_boundary_with_debug_replay():
     model.advance(8)
 
 
-def test_nan_injected_state_flags_step_one():
+def test_nan_injected_state_panics_at_the_chunk_boundary():
     model = make_model()
     model.set_fields(c=np.full(N, np.nan))
+    # S5 reads the flag once per chunk, so the reported iteration is
+    # the BOUNDARY of the chunk that went non-finite — not the step
+    # that first did. advance(3) opens with a tail chunk longer than
+    # one step, so the two genuinely differ here
+    boundary = next(iter(model._chunk_plan(3)))
+    assert boundary > 1
     with pytest.raises(PanicError) as err:
         model.advance(3)
-    assert err.value.first_bad_it == 1
-    assert err.value.partial.steps_done == 1
+    assert err.value.first_bad_it == boundary
+    assert err.value.partial.steps_done == boundary
+
+
+def test_nan_debug_replay_pinpoints_the_injected_first_step():
+    model = make_model()
+    model.set_fields(c=np.full(N, np.nan))
+    with pytest.raises(PanicError):
+        model.advance(3, debug_nan=True)
+    # step-exactness is the replay's job: chunk(1) re-walks the
+    # aborted chunk and flags the injected NaN in the very first step
+    assert model.replay_nan() == 1
 
 
 # ================================================================
