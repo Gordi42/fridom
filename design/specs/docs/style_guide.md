@@ -320,17 +320,35 @@ Rules from the wave-package review (owner review, 2026-07-24):
 
 ### CDFViewer animations
 
-- **Every `--kwargs` value is a literal.** An expression value such as
-  `colormap=Reverse(:dense)` or `colorscale=Makie.Symlog10(1e-7)`
-  reaches the viewer as a string on the pinned builds, and the failure
-  is not confined to that one keyword: the whole block reverts to
-  defaults (colormap, colorrange, title and animation label alike)
-  while the process still exits 0. Use a plain symbol and pick a
-  colormap that already runs the direction you want.
-- **The animation-label keywords come first**, before `colormap`,
-  `colorrange` and `title`, and the size keywords (`titlesize`,
-  `xlabelsize`, `ylabelsize`) are not used at all. Some orderings make
-  the viewer silently discard `colorrange` and autoscale instead.
+Written against **CDFViewer 2026.8.1**, which the docs CI pins. Two
+hazards of the 2026.7 line are fixed there and no longer constrain the
+examples: an expression-valued keyword no longer arrives as a string,
+and `colorrange` is no longer discarded when the size keywords are
+present. Keyword order is now free.
+
+- **Label the colorbar with `cbarlabel="auto"`.** It reads the field's
+  own `long_name`, so the caption cannot drift from the model, and a
+  literal string is a second place to keep the name correct. Plain
+  `label=` reaches Makie's colorbar too but has no automatic mode.
+- **Size the figure to the data.** The viewer's fixed chrome is 165 by
+  120 pixels, so a square domain wants `figsize=(W, W - 45)`. Leaving
+  the default 800 by 600 on a square field letterboxes it, measured at
+  47% of the frame against 66% when sized, with the colorbar stranded
+  110 pixels from the plot instead of 20. Nothing else reaches that
+  gap, since `colgap`, `figure_padding`, `colorbargap` and
+  `colorbarwidth` are all rejected.
+- **Overlay a vector field with `--over u,v --over-plot quiver`** (or
+  `streamplot`, `contour`, `contourf`, `heatmap`). The store must
+  carry the components, so the writer needs them in `derived=`. Draw
+  them in a flat colour with `over.color=:black`, since by default
+  they are coloured by speed and fight the field underneath. `arrows=`
+  takes a target count per axis and is resolution independent; the
+  default `(24, 16)` is anisotropic and wrong on a square domain.
+  `minspeed=` hides slow arrows, which helps only where there is a
+  genuinely quiescent region to clear.
+- **An overlay changes the title** to a composite such as
+  `Buoyancy / |(u, v)|`, so set `title=` explicitly whenever one is
+  present.
 
 ## 9. Hand-drawn diagrams (SVG)
 
