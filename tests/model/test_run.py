@@ -185,7 +185,7 @@ def test_runlen_warning_names_the_realized_duration_and_the_fix():
     assert "rounded UP to 5" in message           # the step count
     assert "2.5" in message                       # realized duration
     assert "ACCUMULATES" in message               # why it matters
-    assert "integer multiple of dt" in message    # the fix
+    assert "fit_dt" in message                    # the fix
 
 
 def test_runlen_shorter_than_a_step_warns_and_still_steps_once():
