@@ -21,6 +21,17 @@ abort.
 (the 2.6 residual, decided here): a tail rewrite keyed on the
 ``iteration`` column — every row whose iteration is ``<= iteration``
 is kept, the rest dropped. Implements the ``OutputStream`` protocol.
+
+``mode`` takes ``Writer``'s ``{"w", "w-", "a"}`` vocabulary and decides
+what an *existing* CSV at the path means. The default stays ``"a"``
+(append to a matching header) rather than ``Writer``'s ``"w-"``,
+because that is the resume path: a run restarted from a snapshot binds
+onto the previous segment's CSV and then calls ``truncate_after``, so
+failing on an existing file would break restart out of the box. The
+cost of that default is that a *re-run* silently continues the old
+axis instead of replacing it — pass ``mode="w"`` for the re-runnable
+script/example case, which is what an in-memory `fr.io.Series` gives
+for free.
 """
 # Wave 5 C: TimeSeries (CSV sink)
 from __future__ import annotations
@@ -45,6 +56,10 @@ if TYPE_CHECKING:  # pragma: no cover
 
 # the two leading columns before the user's scalar expressions
 _LEADING = LEADING_COLUMNS
+
+# the create/append vocabulary, shared verbatim with ``Writer``; the
+# default differs ("a" here, "w-" there) — see the module docstring
+_MODES = ("w", "w-", "a")
 
 
 # ================================================================
@@ -73,6 +88,13 @@ class TimeSeries:
     trigger : Trigger
         The firing trigger (walltime-bearing triggers are rejected at
         bind).
+    mode : {"w", "w-", "a"}, optional
+        What an existing CSV at ``path`` means, in ``Writer``'s
+        vocabulary. ``"a"`` continues it when the header matches (the
+        resume path, and the reason this default is not ``Writer``'s
+        ``"w-"``); ``"w"`` replaces it with a fresh header — the
+        re-runnable script/example case, where appending would fork
+        the time axis; ``"w-"`` refuses to touch it (default: "a").
     """
 
     def __init__(
@@ -81,12 +103,18 @@ class TimeSeries:
         *,
         columns: Mapping[str, Callable],
         trigger: Trigger,
+        mode: str = "a",
     ) -> None:
         """Configure the columns; no file IO happens here."""
         columns = check_columns(columns, owner="TimeSeries")
+        if mode not in _MODES:
+            raise ValueError(
+                f"TimeSeries mode must be one of {_MODES}, got "
+                f"{mode!r}")
         self._path = Path(path)
         self._columns = columns
         self._trigger = trigger
+        self.mode = mode
         self._names = tuple(columns)
         self._header = (*_LEADING, *self._names)
         self._bound = False
@@ -112,15 +140,24 @@ class TimeSeries:
         -----------
         Called at RUN START. Dry-evaluates every column on the
         model's carry (checking scalar-ness with a hinted error).
-        Opens the store: an existing CSV with a matching header is
-        continued (append — the resume/tail-able path); otherwise a
-        fresh file with the header row is created.
+        Then opens the store per :attr:`mode` — ``"a"`` continues an
+        existing CSV whose header matches (the resume/tail-able path),
+        ``"w"`` replaces it, ``"w-"`` refuses it; a missing file is
+        created with the header row in every mode.
 
         Parameters
         ----------
         model : fr.model.Model
             The bound model (duck-typed: ``carry`` — the model_state
             the columns evaluate on).
+
+        Raises
+        ------
+        FileExistsError
+            If :attr:`mode` is ``"w-"`` and the CSV already exists.
+        ValueError
+            If :attr:`mode` is ``"a"`` and the existing CSV's header
+            does not match the bound columns.
         """
         if self._bound:
             raise RuntimeError(
@@ -130,13 +167,23 @@ class TimeSeries:
         model_state = self._model_state(model)
         for name, function in self._columns.items():
             self._scalar(function(model_state), name)
-        if self._path.exists():
-            self._verify_header()
-        else:
-            self._path.parent.mkdir(parents=True, exist_ok=True)
-            with self._path.open("w", newline="") as handle:
-                csv.writer(handle).writerow(self._header)
+        self._open_store()
         self._bound = True
+
+    def _open_store(self) -> None:
+        """Create, replace or continue the CSV per :attr:`mode`."""
+        exists = self._path.exists()
+        if exists and self.mode == "w-":
+            raise FileExistsError(
+                f"TimeSeries({self._path}) is mode='w-' and the CSV "
+                "already exists; failing loudly (use mode='w' to "
+                "replace it, or mode='a' to continue it on resume)")
+        if exists and self.mode == "a":
+            self._verify_header()
+            return
+        self._path.parent.mkdir(parents=True, exist_ok=True)
+        with self._path.open("w", newline="") as handle:
+            csv.writer(handle).writerow(self._header)
 
     def write(self, model_state: Any) -> None:
         """

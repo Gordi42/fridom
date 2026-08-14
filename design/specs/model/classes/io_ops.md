@@ -482,6 +482,7 @@ class TimeSeries:
         *,
         columns: Mapping[str, Callable],
         trigger: Trigger,
+        mode: str = "a",
     ) -> None:
         """Configure named scalar expressions; no file IO here."""
         ...
@@ -504,6 +505,15 @@ Notes:
   tail keyed on the iteration column; the protocol pins that the
   sink *must* answer the call — the concrete strategy is a parked
   2.6 residual (see Open questions).
+- **`mode` is `Writer`'s `{"w", "w-", "a"}` vocabulary with a
+  different default.** `"a"` (the default) continues an existing CSV
+  whose header matches, `"w"` replaces it, `"w-"` refuses it. The
+  default is `"a"` and not `Writer`'s `"w-"` because appending *is*
+  the resume path here: a snapshot restart binds onto the previous
+  segment's CSV and then calls `truncate_after`, so a fail-on-exists
+  default would break restart out of the box. The price is that a
+  plain re-run continues the old axis instead of replacing it, which
+  is what `mode="w"` is for (and what `Series` sidesteps entirely).
 
 ---
 
