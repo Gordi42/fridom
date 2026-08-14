@@ -64,6 +64,7 @@ if TYPE_CHECKING:  # pragma: no cover
     from .eigen import NumericEigenmodes, numeric_eigenpairs
     from .eigen_channel import ChannelEigenbasis, channel_eigenpairs
     from .energy import EnergyMetric
+    from .fit_dt import fit_dt
     from .halo_demand import derive_extra_halo, row_reach
     from .model import Model
     from .module import Module
@@ -159,6 +160,7 @@ all_imports_by_origin = {
         "ChannelEigenbasis", "channel_eigenpairs"],
     f"{base}._eigenbasis": ["eigenbasis"],
     f"{base}.energy": ["EnergyMetric"],
+    f"{base}.fit_dt": ["fit_dt"],
     f"{base}.halo_demand": ["derive_extra_halo", "row_reach"],
     f"{base}.term_predicates": [
         "linearize", "require_linear_operator",
