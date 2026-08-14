@@ -13,11 +13,18 @@ The model-agnostic volumetric forcing of the source-module plan
 to the tendencies of one or more prognostic variables, with a
 state-valued spatial pattern :math:`Q` (a coordinate-named callable
 or an already-built field, per variable) and a scalar time law
-:math:`g`. The blessed law is :class:`~fridom.model.Harmonic`,
-publishing the three sweepable dynamic-leaf parameters
-``source.<label>.{amplitude, frequency, phase}``; any other
-:class:`~fridom.model.TimeDependent` is accepted as the escape hatch
-(its parameters stay anonymous dynamic leaves).
+:math:`g`. That formula is the :class:`~fridom.model.Harmonic` law's:
+it is the one law the module reads structurally, and it publishes
+:math:`A`, :math:`f` and :math:`\varphi` as the sweepable dynamic-leaf
+parameters ``source.<label>.{amplitude, frequency, phase}``. Any other
+:class:`~fridom.model.TimeDependent` is accepted as the escape hatch,
+and then the term is exactly
+
+.. math::
+    S(\boldsymbol{x}, t) = g(t)\, Q(\boldsymbol{x})
+
+— **no amplitude factor of its own**. See the class docstring's
+"The two law branches" for what that implies for scaling a forcing.
 
 Each pattern component materializes onto the forced variable's own
 negotiated space — a ``LikeField(variable)`` AUXILIARY field, sampled
@@ -125,24 +132,59 @@ class Source(Module):
 
     Description
     -----------
-    Contributes :math:`S(\boldsymbol{x}, t) = A\,\mathrm{Re}[Q\,
-    e^{-i(2\pi f t + \varphi)}]` to the tendency of every variable the
-    ``pattern`` names: the spatial pattern :math:`Q` freezes into
-    AUXILIARY fields on the forced variables' own spaces, and the
-    scalar law :math:`g` rides the traced clock. Real pattern values
-    give :math:`A\cos(2\pi f t + \varphi)\,Q`; complex values give the
-    quadrature pair :math:`A[\cos\theta\,\mathrm{Re}\,Q +
-    \sin\theta\,\mathrm{Im}\,Q]`.
+    Contributes a separable ``Q(x) g(t)`` term to the tendency of every
+    variable the ``pattern`` names: the spatial pattern :math:`Q`
+    freezes into AUXILIARY fields on the forced variables' own spaces
+    at assembly, and the scalar law :math:`g` rides the traced clock.
 
-    With the blessed :class:`~fridom.model.Harmonic` law the amplitude,
-    frequency and phase publish as the dynamic-leaf parameters
+    The two law branches
+    ~~~~~~~~~~~~~~~~~~~~
+    **What the term evaluates to depends on which law is passed**, and
+    the two branches do not have the same free parameters.
+
+    ``law=fr.model.Harmonic(amplitude=A, frequency=f, phase=phi)`` is
+    the blessed law: the module reads :math:`A`, :math:`f` and
+    :math:`\varphi` structurally and evaluates
+
+    .. math::
+        S = A\,\mathrm{Re}\!\left[Q\,e^{-i\theta}\right],
+        \qquad \theta = 2\pi f t + \varphi
+
+    — that is :math:`A\cos\theta\,Q` for a real pattern and the
+    quadrature pair :math:`A[\cos\theta\,\mathrm{Re}\,Q +
+    \sin\theta\,\mathrm{Im}\,Q]` for a complex one. All three publish
+    as the dynamic-leaf parameters
     ``source.<label>.{amplitude, frequency, phase}``, so
-    ``model.update_parameters`` sweeps them without re-assembly; with
-    any other :class:`~fridom.model.TimeDependent` law nothing is
-    published (its leaves stay anonymous — sweeping them never
-    recompiles, but they are not addressable through
-    ``update_parameters``), and a complex pattern is refused (the
-    quadrature needs :math:`f` and :math:`\varphi` structurally).
+    ``model.update_parameters`` sweeps them without re-assembly.
+
+    **Any other** :class:`~fridom.model.TimeDependent` is the escape
+    hatch, and there the term is exactly
+
+    .. math::
+        S = g(t)\, Q(\boldsymbol{x})
+
+    with **no amplitude, frequency or phase of the module's own** —
+    the module never inspects a generic law, it only calls it. Three
+    consequences worth stating outright:
+
+    - **The forcing's magnitude has to live in** :math:`Q` **or in**
+      :math:`g`, because the module contributes no factor between
+      them. Scaling by hand is the whole contract: either fold it into
+      the pattern (``{"u": lambda x: tau / (rho * h) * shape(x)}``) or
+      let the law carry it (``fr.model.TimeFunction(lambda t, a:
+      a * jnp.tanh(t / T), params=(a0,))``).
+    - **Which of the two you pick decides whether it is sweepable.**
+      A pattern is sampled once at bind and frozen into an AUXILIARY
+      field, so a magnitude folded into :math:`Q` only changes on
+      re-assembly. A ``TimeFunction``'s ``params`` are dynamic leaves,
+      so a magnitude carried there is swept without recompiling (and
+      ``jax.grad`` flows through it) — it is just not addressable by
+      name through ``update_parameters``, since a generic law
+      publishes nothing.
+    - **A complex pattern is refused** on this branch: the quadrature
+      expansion needs :math:`f` and :math:`\varphi` structurally, and
+      a generic law exposes neither. Pass a :class:`Harmonic`, or a
+      real pattern.
 
     Parameters
     ----------
@@ -160,9 +202,12 @@ class Source(Module):
         directly (it is such a mapping).
     law : Harmonic | TimeDependent
         The scalar time law: a :class:`~fridom.model.Harmonic` (the
-        blessed, parameter-publishing law) or any other
+        blessed, parameter-publishing law, evaluated as :math:`A\,
+        \mathrm{Re}[Q e^{-i\theta}]`) or any other
         :class:`~fridom.model.TimeDependent` (the escape hatch, e.g. a
-        :class:`~fridom.model.TimeFunction` chirp).
+        :class:`~fridom.model.TimeFunction` chirp, evaluated as the
+        bare product :math:`g(t)\,Q`). The two branches differ in more
+        than parameter publishing — see "The two law branches" above.
     """
 
     def __init__(
@@ -419,7 +464,11 @@ class Source(Module):
         )
 
     def _force(self, state, ctx) -> dict:  # noqa: ANN001
-        r"""``dz/dt += A Re[Q e^{-i(2 pi f t + phi)}]`` off the clock."""
+        r"""Add the branch's product off the traced clock.
+
+        ``dz/dt += A Re[Q e^{-i(2 pi f t + phi)}]`` under a Harmonic
+        law; ``dz/dt += g(t) Q`` (no amplitude) under any other.
+        """
         # ctx.clock is the Clock in-run, a bare stage-time scalar in
         # dry-run/tendency contexts (the schedule.context idiom)
         time = getattr(ctx.clock, "time", ctx.clock)

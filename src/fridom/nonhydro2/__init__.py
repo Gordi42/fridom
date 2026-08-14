@@ -62,7 +62,6 @@ if TYPE_CHECKING:  # pragma: no cover
         ConstantStratification,
         MeridionalStratification,
     )
-    from .modules.surface_forcing import SurfaceBuoyancyFlux, WindStress
     from .modules.thermal_wind import ThermalWindBackground
     from .state import State
 
@@ -92,12 +91,11 @@ all_imports_by_origin = {
     # framework module library (advection rehomed under HY-D5)
     "fridom.model.modules": [
         "FPlaneCoriolis", "BetaPlaneCoriolis", "RotationCoriolis",
-        "CenteredAdvection", "UpwindAdvection", "WENOAdvection"],
+        "CenteredAdvection", "UpwindAdvection", "WENOAdvection",
+        "WindStress", "SurfaceBuoyancyFlux"],
     f"{base}.modules.stratification": [
         "ConstantStratification", "MeridionalStratification"],
     f"{base}.modules.smagorinsky_lilly": ["SmagorinskyLilly"],
-    f"{base}.modules.surface_forcing": [
-        "WindStress", "SurfaceBuoyancyFlux"],
     f"{base}.modules.thermal_wind": ["ThermalWindBackground"],
 }
 

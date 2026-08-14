@@ -147,6 +147,59 @@ def test_resume_reopen_appends(tmp_path, model, scalar_field):
     assert iters == [0, 1, 2]
 
 
+# ================================================================
+#  mode=: Writer's create/append vocabulary on the CSV
+# ================================================================
+def _rows_of(path, model, scalar_field, its, **kwargs):
+    """Bind a TimeSeries on ``path``, write ``its``, return iterations."""
+    ts = TimeSeries(path, columns={"e": lambda ms: ms.state["e"]},
+                    trigger=every(steps=1), **kwargs)
+    ts.bind(model)
+    for it in its:
+        ts.write(FakeCarry({"e": scalar_field}, clock_at(it)))
+    ts.close()
+    return [int(r[0]) for r in read_rows(path)[1:]]
+
+
+def test_mode_w_replaces_an_existing_csv(tmp_path, model, scalar_field):
+    # the re-run case: a second run must NOT fork the time axis onto
+    # the first run's rows (F5 — the reason two example pages had to
+    # unlink the file by hand)
+    path = tmp_path / "s.csv"
+    _rows_of(path, model, scalar_field, (0, 1, 2, 3))
+    assert _rows_of(path, model, scalar_field, (0, 1), mode="w") == [0, 1]
+
+
+def test_mode_a_is_the_default_and_appends(tmp_path, model, scalar_field):
+    path = tmp_path / "s.csv"
+    ts = TimeSeries(path, columns={"e": lambda _ms: 1.0},
+                    trigger=every(steps=1))
+    assert ts.mode == "a"
+    _rows_of(path, model, scalar_field, (0, 1))
+    assert _rows_of(path, model, scalar_field, (2, 3)) == [0, 1, 2, 3]
+
+
+def test_mode_w_minus_refuses_an_existing_csv(tmp_path, model,
+                                              scalar_field):
+    path = tmp_path / "s.csv"
+    _rows_of(path, model, scalar_field, (0,))
+    with pytest.raises(FileExistsError, match="mode='w-'"):
+        _rows_of(path, model, scalar_field, (0,), mode="w-")
+
+
+@pytest.mark.parametrize("mode", ["w", "w-", "a"])
+def test_every_mode_creates_a_missing_csv(tmp_path, model, scalar_field,
+                                          mode):
+    path = tmp_path / mode / "s.csv"
+    assert _rows_of(path, model, scalar_field, (0, 1), mode=mode) == [0, 1]
+
+
+def test_unknown_mode_is_rejected(tmp_path):
+    with pytest.raises(ValueError, match="mode must be one of"):
+        TimeSeries(tmp_path / "s.csv", columns={"a": lambda _ms: 1.0},
+                   trigger=every(steps=1), mode="append")
+
+
 def test_resume_header_mismatch_raises(tmp_path, model):
     path = tmp_path / "series.csv"
     TimeSeries(path, columns={"a": lambda _ms: 1.0},

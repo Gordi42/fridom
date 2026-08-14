@@ -259,7 +259,7 @@ def random_vortical(
     seed: int = 12345,
     at_time: float = 0.0,
 ) -> State:
-    """
+    r"""
     Random vortical state (the ``RandomVorticalSpectra`` port).
 
     Description
@@ -267,13 +267,53 @@ def random_vortical(
     :func:`random_state` on the ``"vortical"`` family with the
     horizontal :func:`geostrophic_energy_spectrum` default.
 
+    The default spectrum is **horizontal**
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    :func:`geostrophic_energy_spectrum` is the Masur & Oliver [2020]
+    density :math:`S(k_h)`, ported verbatim, and it takes
+    :math:`k_h = \sqrt{k_x^2 + k_y^2}` only. **It puts no decay on**
+    :math:`k_z`: every vertical mode of a horizontal shell gets the
+    same energy, so the vertical structure is white and the field is
+    rough at the grid scale in ``z`` (successive levels are nearly
+    uncorrelated — that is the spectrum doing what it says, not a
+    defect). It is the right default for reproducing the reference,
+    and the wrong one if you wanted a vertically smooth eddy field.
+
+    ``spectral_energy_density`` is the knob. It is called with one
+    wavenumber array per grid axis, in grid order, so adding a
+    vertical roll-off is a one-liner::
+
+        def decaying(kx, ky, kz, kz0=1.0):
+            return (nh.geostrophic_energy_spectrum(kx, ky)
+                    / (1.0 + (kz / kz0) ** 2) ** 2)
+
+        z = nh.random_vortical(model, spectral_energy_density=decaying)
+
+    Two further consequences worth knowing before you budget a run:
+
+    - **The normalization pins the velocity, not the vorticity.** The
+      result is scaled to :math:`\max|u_h| = 1`, so the peak relative
+      vorticity comes out at roughly the typical wavenumber of the
+      spectrum in your units — several times the peak velocity on a
+      :math:`2\pi` box, more on a small one. Set the amplitude from
+      the quantity you actually care about.
+    - **The synthesis touches the whole lattice.** Every mode of the
+      family is built and back-transformed for every component (the
+      loop is fully vectorized, but the work is the full spectral
+      lattice, and on a small grid tracing and compiling that graph
+      dominates it). It is not a cheap call, and it does not get
+      cheap by shrinking the grid. A page that just wants *an* eddy
+      is far better served by :func:`coherent_eddy` or
+      :func:`eddy_dipole`.
+
     Parameters
     ----------
     source : Model | Eigenmodes | ChannelEigenmodes
         The assembled model or an eigenmodes object.
     spectral_energy_density : Callable[..., jax.Array] | None, optional
-        The prescribed spectrum (default: None, the horizontal
-        geostrophic spectrum).
+        ``S(*k)`` over the grid-axis wavenumbers, in grid order;
+        None selects the horizontal geostrophic spectrum, which has
+        no vertical decay (default: None).
     seed : int, optional
         The PRNG seed (default: 12345).
     at_time : float, optional

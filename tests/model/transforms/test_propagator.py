@@ -10,11 +10,19 @@ import jax.numpy as jnp
 import pytest
 
 from fridom.model import params
+from fridom.model.model import Model
+from fridom.model.time_steppers.runge_kutta import (
+    ExplicitRungeKutta,
+    tableaus,
+)
 from fridom.model.transforms.errors import TraceError
 from fridom.model.transforms.norms import relative_l2
 from fridom.model.transforms.propagator import Propagator
+from fridom.spatial.fields.vector_field import VectorField
+from fridom.spatial.grid import Grid
+from fridom.spatial.meshes.interval import IntervalMesh
 
-from .conftest import RossbyProvider
+from .conftest import Coriolis, F0Provider, RossbyProvider, set_wave_ic
 
 
 # ================================================================
@@ -145,3 +153,33 @@ def test_trace_guard_raises_on_a_tracer(toy_model, toy_state):
     prop = Propagator(toy_model, steps=2)
     with pytest.raises(TraceError, match="Tier-2"):
         jax.jit(prop)(toy_state)
+
+
+# ================================================================
+#  The model's State vocabulary survives the propagation
+# ================================================================
+class VocabState(VectorField):
+
+    """A model-package-style vocabulary subclass (nh.State's shape)."""
+
+    @property
+    def zonal(self):
+        """A curated accessor a bare VectorField does not have."""
+        return self["u"]
+
+
+def test_propagator_output_keeps_the_models_state_type():
+    # a model package supplies a State vocabulary subclass through
+    # Module.state_type / Model(state_type=); the Propagator output is
+    # a state of the SAME model, so the subclass has to survive it.
+    model = Model(
+        grid=Grid((IntervalMesh(8, (0.0, 1.0), periodic=True,
+                                name="x"),), device_ids=(0,)),
+        modules=(Coriolis(), F0Provider()),
+        time_stepper=ExplicitRungeKutta(2e-3, tableau=tableaus.RK4),
+        state_type=VocabState, name="vocab")
+    state = set_wave_ic(model)
+    assert isinstance(state, VocabState)
+    out = Propagator(model, steps=3)(state)
+    assert isinstance(out, VocabState)
+    assert out.zonal is out["u"]

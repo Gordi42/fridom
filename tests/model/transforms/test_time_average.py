@@ -342,6 +342,16 @@ def test_nh_time_average_keeps_the_balanced_buoyancy(nh_projected):
     assert _peak(once, "b") > _peak(before, "b") / 4
 
 
+def test_nh_time_average_keeps_the_state_vocabulary(nh_projected):
+    # the output is a state of the same model, so nh.State's curated
+    # accessors and diagnostics must survive the averaging (a bare
+    # VectorField raises AttributeError on both)
+    _, once, _ = nh_projected
+    assert isinstance(once, nh.State)
+    assert once.w is once["w"]
+    assert np.isfinite(np.asarray(once.rel_vort_z.data)).all()
+
+
 # ================================================================
 #  period=None on a nondimensional model
 # ================================================================

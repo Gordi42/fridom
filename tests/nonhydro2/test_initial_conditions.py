@@ -186,6 +186,36 @@ def test_custom_spectrum_reweights_the_state(periodic):
     assert not _same(default, steep)
 
 
+def _z_roughness(state):
+    """RMS z-difference of u over its RMS (1 => level-to-level white)."""
+    u = np.asarray(state["u"].data)
+    return float(np.sqrt((np.diff(u, axis=2) ** 2).mean())
+                 / np.sqrt((u ** 2).mean()))
+
+
+def test_default_spectrum_has_no_vertical_decay(periodic):
+    # the documented property of the Masur & Oliver default: S depends
+    # on k_h only, so shifting energy in k_z leaves it untouched and
+    # the vertical structure comes out white. A page wanting a
+    # vertically smooth field has to pass its own spectrum.
+    _, em = periodic
+    default = nh.random_vortical(em, seed=5)
+    ignoring_kz = nh.random_vortical(
+        em, seed=5,
+        spectral_energy_density=lambda kx, ky, _kz:
+        nh.geostrophic_energy_spectrum(kx, ky))
+    assert _same(default, ignoring_kz)
+
+    def decaying(kx, ky, kz, kz0=1.0):
+        return (nh.geostrophic_energy_spectrum(kx, ky)
+                / (1.0 + (kz / kz0) ** 2) ** 2)
+
+    smooth = nh.random_vortical(
+        em, seed=5, spectral_energy_density=decaying)
+    # the docstring's recipe must actually smooth the column
+    assert _z_roughness(smooth) < 0.7 * _z_roughness(default)
+
+
 # ================================================================
 #  Taught errors
 # ================================================================

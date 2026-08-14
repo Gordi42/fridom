@@ -271,6 +271,38 @@ def test_optimal_balance_is_endo(model):
     assert ob.domain == ob.codomain
 
 
+class VocabState(fr.spatial.VectorField):
+
+    """A model-package-style State vocabulary (nh.State's shape)."""
+
+    @property
+    def zonal(self):
+        """A curated accessor a bare VectorField does not have."""
+        return self["u"]
+
+
+def test_balanced_state_keeps_the_models_state_vocabulary():
+    # the balanced output is a state of the SAME model, so the model
+    # package's State subclass (nh.State -> .w, .rel_vort_z) must
+    # survive the whole ramp cycle; a bare VectorField raises
+    # AttributeError on every curated accessor
+    plain = nonlinear_model()
+    vocab = FrModel(
+        grid=plain.grid,
+        modules=(Coriolis(), NonlinearU(), F0Provider()),
+        time_stepper=ExplicitRungeKutta(2e-3, tableau=tableaus.RK4),
+        state_type=VocabState)
+    state = set_wave_ic(vocab)
+    assert isinstance(state, VocabState)
+    ob = OptimalBalance(vocab, _base(vocab), ramp_period=RAMP,
+                        max_it=2)
+    balanced = ob(state)
+    assert isinstance(balanced, VocabState)
+    assert balanced.zonal is balanced["u"]
+    # the legs on their own too (the root of the drop was Propagator)
+    assert isinstance(ob.forward(state), VocabState)
+
+
 def test_forward_is_a_propagator(model):
     ob = OptimalBalance(model, _base(model), ramp_period=RAMP)
     assert isinstance(ob.forward, Propagator)

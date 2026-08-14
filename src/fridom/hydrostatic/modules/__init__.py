@@ -19,6 +19,8 @@ if TYPE_CHECKING:  # pragma: no cover
         BetaPlaneCoriolis,
         FPlaneCoriolis,
         RotationCoriolis,
+        SurfaceBuoyancyFlux,
+        WindStress,
     )
 
     from .barotropic_pressure import BarotropicPressureSolver
@@ -35,13 +37,15 @@ base = "fridom.hydrostatic.modules"
 
 all_modules_by_origin: dict[str, list[str]] = {}
 
-# The Coriolis family (fr.model.modules) and the implicit vertical
-# mixing closure (fr.model.closures) are shared framework module
-# libraries, re-exported here so hy.modules.FPlaneCoriolis /
+# The Coriolis family and the ocean surface-forcing wrappers
+# (fr.model.modules) and the implicit vertical mixing closure
+# (fr.model.closures) are shared framework module libraries, re-exported
+# here so hy.modules.FPlaneCoriolis / hy.modules.WindStress /
 # hy.modules.VerticalMixing keep working.
 all_imports_by_origin = {
     "fridom.model.modules": [
-        "FPlaneCoriolis", "BetaPlaneCoriolis", "RotationCoriolis"],
+        "FPlaneCoriolis", "BetaPlaneCoriolis", "RotationCoriolis",
+        "WindStress", "SurfaceBuoyancyFlux"],
     "fridom.model.closures": ["VerticalMixing"],
     f"{base}.barotropic_pressure": ["BarotropicPressureSolver"],
     f"{base}.core": ["Core"],

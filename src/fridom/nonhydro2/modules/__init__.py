@@ -21,8 +21,10 @@ if TYPE_CHECKING:  # pragma: no cover
         FPlaneCoriolis,
         Relaxation,
         RotationCoriolis,
+        SurfaceBuoyancyFlux,
         UpwindAdvection,
         WENOAdvection,
+        WindStress,
     )
 
     from .buoyancy_tracer import BuoyancyTracer
@@ -36,7 +38,6 @@ if TYPE_CHECKING:  # pragma: no cover
         ConstantStratification,
         MeridionalStratification,
     )
-    from .surface_forcing import SurfaceBuoyancyFlux, WindStress
     from .thermal_wind import ThermalWindBackground
 
 base = "fridom.nonhydro2.modules"
@@ -44,15 +45,17 @@ base = "fridom.nonhydro2.modules"
 all_modules_by_origin: dict[str, list[str]] = {}
 
 # The Coriolis family, the flux-form advection family (rehomed under
-# HY-D5), and the generic relaxation are the shared framework module
-# library (fr.model.modules), re-exported here so nh.modules.FPlaneCoriolis
-# / nh.modules.CenteredAdvection / nh.modules.Relaxation keep working
-# after the consolidation.
+# HY-D5), the generic relaxation, and the ocean surface-forcing wrappers
+# are the shared framework module library (fr.model.modules), re-exported
+# here so nh.modules.FPlaneCoriolis / nh.modules.CenteredAdvection /
+# nh.modules.Relaxation / nh.modules.WindStress keep working after the
+# consolidation.
 all_imports_by_origin = {
     "fridom.model.modules": [
         "FPlaneCoriolis", "BetaPlaneCoriolis",
         "RotationCoriolis", "Relaxation",
-        "CenteredAdvection", "UpwindAdvection", "WENOAdvection"],
+        "CenteredAdvection", "UpwindAdvection", "WENOAdvection",
+        "WindStress", "SurfaceBuoyancyFlux"],
     f"{base}.buoyancy_tracer": ["BuoyancyTracer"],
     f"{base}.core": ["Core"],
     f"{base}.stratification": [
@@ -62,7 +65,6 @@ all_imports_by_origin = {
     f"{base}.immersed_pressure": ["ImmersedPressureSolver"],
     f"{base}.composed_pressure": ["ComposedPressureSolver"],
     f"{base}.smagorinsky_lilly": ["SmagorinskyLilly"],
-    f"{base}.surface_forcing": ["WindStress", "SurfaceBuoyancyFlux"],
     f"{base}.thermal_wind": ["ThermalWindBackground"],
 }
 
