@@ -53,6 +53,18 @@ dev = [
   "imageio[ffmpeg]",
   "ipykernel",
 ]
+docs = [
+  "myst-parser==3.0.1",
+  "tomli",
+  "sphinx-book-theme",
+  "sphinx-copybutton",
+  "sphinx-design",
+  "sphinx-gallery>=0.17",
+  "sphinxcontrib-youtube",
+  "sphinxcontrib-video",
+  "sphinx-codeautolink",
+  "matplotlib",
+]
 
 [project.urls]
 Repository = "https://github.com/Gordi42/FRIDOM"

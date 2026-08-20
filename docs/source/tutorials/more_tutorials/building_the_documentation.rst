@@ -6,18 +6,13 @@ The documentation for FRIDOM is automatically built and deployed to ReadTheDocs 
 Setting Up a Build Environment
 ------------------------------
 
-To set up a dedicated environment for building the documentation, execute the following commands:
+The documentation toolchain is declared in the ``docs`` extra of
+``pyproject.toml``. To provision the uv-managed environment with it, run the
+following command from the root directory of the FRIDOM repository:
 
 .. code-block:: bash
 
-    conda create -y --name fridom-docs python=3.11
-    conda activate fridom-docs
-    python3 -m pip install --upgrade --no-cache-dir setuptools sphinx readthedocs-sphinx-ext
-    python3 -m pip install --exists-action=w --no-cache-dir -r docs/requirements.txt
-
-.. note::
-
-    The above commands must be executed from the root directory of the FRIDOM repository.
+    uv sync --extra dev --extra docs
 
 Building the Documentation
 --------------------------
@@ -27,11 +22,7 @@ Once you are in the root directory of the FRIDOM repository, you can build the d
 .. code-block:: bash
 
     cd docs
-    make html
-
-.. note::
-
-    If you are using a conda environment, ensure you activate it before running the command above.
+    uv run make html
 
 The built documentation will be located in the ``docs/build/html`` directory. To view it, open the ``index.html`` file in your web browser.
 
@@ -42,6 +33,6 @@ Generating the API documentation and gallery can be time-consuming. To accelerat
 
 .. code-block:: bash
 
-    make html QUICKBUILD=true
+    uv run make html QUICKBUILD=true
 
 This will skip the generation of the API documentation and gallery, building only the remaining sections of the documentation.

@@ -22,6 +22,8 @@ on:
       - "docs/**"
       - "examples/**"
       - ".github/workflows/docs.yml"
+      # the docs toolchain is declared in the [docs] extra
+      - "pyproject.toml"
   schedule:
     # Weekly full build, Monday 05:23 UTC
     - cron: "23 5 * * 1"
@@ -56,9 +58,7 @@ jobs:
           python-version: "3.11"
 
       - name: Install dependencies
-        run: |
-          uv sync --extra dev
-          uv pip install -r docs/requirements.txt
+        run: uv sync --extra dev --extra docs
 
       - name: Install ffmpeg and headless OpenGL
         run: |
