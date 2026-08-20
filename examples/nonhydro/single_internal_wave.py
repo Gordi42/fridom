@@ -55,8 +55,12 @@ model = nh.Model(
 # branch with two zonal wavelengths, no meridional structure, and one
 # vertical wavelength, and set it as the initial condition.
 eigenmodes = nh.eigenbasis(model)
-omega, wave = eigenmodes.mode("wave+", indices={"x": 2, "y": 0, "z": 1})
+omega, wave = eigenmodes.mode("wave+", mode_number={"x": 2, "y": 0, "z": 1})
 period = 2.0 * np.pi / abs(omega)
+# the period is known only once the mode is, so the step is retuned
+# here to divide it, and each of the frames with it
+model.update_parameters(
+    {fr.model.params.TIME_STEP: fr.model.fit_dt(period, dt, parts=frames)})
 model.set_state(wave)
 
 # plot the initial buoyancy in the front plane
@@ -68,9 +72,9 @@ _ = model.state.b.xr.isel(y=0).plot(x="x", size=2.4, aspect=3)
 # We write the buoyancy once per frame over one wave period and
 # record a top view and a front view of the store.
 writer = fr.io.Writer(
-    "single_internal_wave.zarr", fields=["b"],
+    "single_internal_wave.zarr", fields="b",
     trigger=fr.io.every(seconds=period / frames), mode="w")
-model.run(runlen=period, outputs=(writer,), progress=False)
+model.run(runlen=period, outputs=writer)
 
 views = {
     "top": ("-x x -y y --dims=z=0", "y"),
@@ -82,6 +86,7 @@ for view, (axes, yax) in views.items():
         f" -a time --kwargs='colormap=:balance, figsize=(1000, 450),"
         f" titlesize=28, xlabelsize=24, ylabelsize=24,"
         f' xlabel="x [m]", ylabel="{yax} [m]",'
+        f' animunit="minutes", animlabelnumfmt="%.0f",'
         f" title=\"Single internal wave, {view} view\"'"
         f" --record -s 'filename=\"single_internal_wave_{view}.mp4\","
         f" framerate=24'",
