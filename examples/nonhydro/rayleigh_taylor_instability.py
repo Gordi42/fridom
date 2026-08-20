@@ -31,7 +31,7 @@ box_depth = 1.0           # metres deep
 buoyancy_jump = 1.0       # m/s^2 between the two layers
 dimple = 0.002            # interface displacement, as a fraction of depth
 
-nz = 192
+nz = 128
 nx = 2 * nz               # square cells on a box twice as wide as deep
 ny = 1                    # the flow is two-dimensional, in x and z
 runlen = 6.0
@@ -64,7 +64,10 @@ grid = fr.spatial.cartesian.Grid(
 dz = grid.factor("z").dx
 # the fastest flow is the free fall of the dense fluid, about one
 # metre per second for a unit buoyancy jump across a unit depth
-dt = 0.15 * dz / (buoyancy_jump * box_depth) ** 0.5
+free_fall = (buoyancy_jump * box_depth) ** 0.5
+# a quarter of a cell per step at that speed, fitted so that the run
+# and each of its frames are whole numbers of steps
+dt = fr.model.fit_dt(runlen, 0.25 * dz / free_fall, parts=frames)
 
 model = nh.Model(
     grid=grid,
@@ -114,11 +117,11 @@ plot.axes.set_aspect("equal")
 # We write the buoyancy once per frame to a zarr store.
 writer = fr.io.Writer(
     "rayleigh_taylor.zarr",
-    fields=["b"],
+    fields="b",
     trigger=fr.io.every(time_units=runlen / frames),
     mode="w")
 
-model.run(runlen=runlen, outputs=(writer,))
+model.run(runlen=runlen, outputs=writer)
 
 plot = model.state.b.xr.isel(y=0, drop=True).plot(
     x="x", size=2.6, aspect=2.0, cmap="Blues_r", vmin=0.0, vmax=1.0)
