@@ -67,32 +67,13 @@ JAX_PLATFORMS=cuda srun -n 4 --gpu-bind=none .venv/bin/python your_script.py
   A path that passes forced-4 can still be multi-process-broken; verify
   multi-host behaviour under a real `srun -n N` launch.
 
-- **Multi-process launch recipe (DKRZ A100 nodes).** Use
-  `--gpu-bind=none`, **not** `--gpus-per-task=1`: the latter makes each
-  task's cgroup expose one GPU as local index 0, while jax's SLURM
-  auto-detection binds local index = `SLURM_LOCALID`, so ranks 1..N-1 get
-  "no supported devices found for platform CUDA" and the coordinator
-  hangs. With `--gpu-bind=none` all tasks see all GPUs and
-  `jax.distributed.initialize()` (called before importing fridom, which
-  touches the backend) assigns one GPU per local rank. Guard a run under
-  `timeout` — a rank that dies leaves the others blocked at the
-  coordination barrier until the heartbeat times out. Caveat
-  (2026-07-17, jax 0.10.2): bare `initialize()` SLURM auto-detect can
-  segfault binding the coordinator to `[::]` (IPv6). If it does,
-  initialize explicitly — still before importing fridom:
-  `coordinator_address="localhost:<free port>"`,
-  `num_processes=int(os.environ["SLURM_NTASKS"])`,
-  `process_id=int(os.environ["SLURM_PROCID"])`,
-  `local_device_ids=[int(os.environ["SLURM_LOCALID"])]`.
-  fridom disables its default persistent compile cache
-  (`src/fridom/_compile_cache.py`) under a real multi-process launch:
-  XLA:GPU shard autotuning turns compilation into a cross-rank
-  rendezvous, and a persistent cache whose per-rank state diverges lets
-  some ranks skip a compile others perform cold, deadlocking the whole
-  run in the `Model` build (observed 2026-07-18, Levante A100, jax
-  0.10.2). Enabling a cache explicitly via `FRIDOM_JAX_CACHE_DIR` under
-  multi-process therefore requires
-  `XLA_FLAGS=--xla_gpu_shard_autotuning=false`.
+- **Multi-process launch recipe:** before any real `srun -n N` launch
+  (or when debugging multi-process hangs/segfaults), follow the
+  `multiprocess-launch` skill
+  (`.claude/skills/multiprocess-launch/SKILL.md`) — it records the
+  `--gpu-bind=none` requirement, the explicit
+  `jax.distributed.initialize()` fallback, and the compile-cache
+  deadlock caveat.
 
 - For full-suite runs use pytest-xdist with `--dist loadfile`: tests in the
   same file share jit-compilation caches, so grouping by file minimizes
@@ -380,8 +361,6 @@ def fft(self, axes: tuple[int] | None = None) -> fr.FieldBase:
   # ================================================================
   ```
 
-- Double quotes for strings. Max line length **79/80** characters.
-- No semicolon statement-joining. No trailing whitespace.
 - Task markers: `# TODO(Silvano): ...`, `# FIXME(Silvano): ...`.
 
 ### Linting
@@ -444,27 +423,15 @@ def fft(self, axes: tuple[int] | None = None) -> fr.FieldBase:
   request, 2026-07-11). Any change to reader-facing documentation
   content — `docs/` pages and `examples/` scripts — is reviewed by
   Silvano **before** it reaches `dev`, and the review stays off
-  GitHub (the repo is public; review discussion is not). Mechanics:
-  the agent works on a local `docs/<topic>` branch (**never pushed**
-  until approved), builds a local preview (`make html` /
-  `sphinx-autobuild`), and hands off for review by **projecting the
-  branch onto the main checkout as unstaged changes**:
-  `git restore --source=docs/<topic> -- docs/ examples/` with the
-  checkout on `dev` (owner preference 2026-07-11: he reviews
-  working-tree diffs in lazygit). Feedback arrives in that projected
-  working tree: direct edits and discarded hunks (authoritative), or
-  anchored markers at the exact spot: `.. REVIEW: ...` in rst,
-  `# REVIEW: ...` in Python examples, `<!-- REVIEW: ... -->` in
-  Markdown. Agents sweep markers (`grep -rn "REVIEW:" docs examples`),
-  apply each, delete it, fold generalizable corrections into the docs
-  style guide (`design/specs/docs/style_guide.md`, later
-  `docs/STYLE.md`), and reconcile the reviewed working tree back onto
-  the branch (his tree state wins over the branch). **Merge gate:**
-  zero open markers AND Silvano's explicit approval in chat; only
-  then merge onto `dev`, push, and clean the projection out of the
-  working tree. Design records under `design/` and docs build
-  *infrastructure* (`conf.py`, CI, templates) follow the normal
-  workflow above.
+  GitHub (the repo is public; review discussion is not). Work on a
+  local `docs/<topic>` branch that is **never pushed** until approved.
+  **Merge gate:** zero open `REVIEW:` markers AND Silvano's explicit
+  approval in chat. The hand-off/projection mechanics, the
+  review-marker formats, and the reconciliation steps live in the
+  `docs-review` skill (`.claude/skills/docs-review/SKILL.md`) —
+  follow it for every docs review cycle. Design records under
+  `design/` and docs build *infrastructure* (`conf.py`, CI,
+  templates) follow the normal workflow above.
 - Commit messages: `<scope>: <short lowercase summary>` where scope is
   the affected package or area (`spatial: ...`, `model: ...`,
   `nonhydro2: ...`, `tests: ...`, `design: ...`), matching the existing
