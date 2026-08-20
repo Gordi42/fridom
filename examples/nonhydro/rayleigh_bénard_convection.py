@@ -2,119 +2,149 @@ r"""
 Rayleigh-Bénard Convection
 ==========================
 
-A 2D setup with heating from below and cooling from above.
-
-Note that the model parameter are not tuned to be realistic, but to show
-the basic features of 2D-Rayleigh-Bénard convection.
-
-.. video:: videos/rayleigh_bénard_convection.mp4
-
+Heat a box from below, cool it from above.
 """
-import fridom.nonhydro as nh
-import matplotlib.pyplot as plt
 
-# ----------------------------------------------------------------
-#  Experiment settings
-# ----------------------------------------------------------------
-# General settings
-make_video  = True
-fps         = 30
-make_netcdf = False
-run_length  = 10.0
-exp_name    = "rayleigh_bénard_convection"
-thumbnail   = f"figures/{exp_name}.png"
+# %%
+# Experiment Settings
+# -------------------
+# A layer of fluid held warm at the bottom and cool at the top cannot
+# stay still. Conduction alone would give a straight buoyancy profile
+# with the dense fluid on top, and that arrangement is unstable, so the
+# layer breaks into plumes that carry warm fluid up and cool fluid
+# down.
+import subprocess
 
-# Physical parameters
-f0 = 0            # No rotation
-N2 = 0            # No stratification
-Lx = 2            # 2 m in x
-Lz = 1            # 1 m in z
+import jax.numpy as jnp
 
-# Numerical parameters
-resolution_factor = 10           # 2^10 = 1024 grid points
-Nx = 2**(resolution_factor + 1)  # Number of grid points in x
-Nz = 2**resolution_factor        # Number of grid points in z
+# sphinx_gallery_thumbnail_number = 1
+import fridom as fr
+import fridom.nonhydro2 as nh
 
-# ----------------------------------------------------------------
-#  Create a plotting module for the animation and thumbnail
-# ----------------------------------------------------------------
-class Plotter(nh.modules.animation.ModelPlotter):
-    def create_figure():
-        return plt.figure(figsize=(8, 3.5), dpi=256, tight_layout=True)
+box_length = 2.0          # metres across
+box_depth = 1.0           # metres deep
+contrast = 1.0            # m/s^2 held at each plate, warm below, cool above
+plate_depth = 0.02        # metres, the layer the plates act on
+plate_time = 0.5          # seconds, how fast a plate imposes its value
 
-    def prepare_arguments(mz: nh.ModelState) -> dict:
-        skip = 30
-        return {"z": mz.z.xrs[::skip,0,::skip],
-                "b": mz.z.b.xrs[:,0,:],
-                "t": mz.clock.time}
+nz = 128
+nx = 2 * nz               # square cells on a box twice as wide as deep
+ny = 1                    # the flow is two-dimensional, in x and z
+runlen = 12.0
+frames = 480
 
-    def update_figure(fig, z, b, t) -> None:
-        ax = fig.add_subplot(111)
-        b.plot(vmax=0.75)
-        key = z.plot.quiver("x", "z", "u", "w", scale=50, add_guide=False)
-        label_velo = 1
-        ax.quiverkey(key, X=0.9, Y=1.05, U=label_velo,
-                    label=f'{label_velo} [m/s]', labelpos='E')
-        ax.set_aspect('equal')
-        ax.set_title(f't={t:.1f}s', fontsize=18)
+# %%
+# Grid and Model
+# --------------
+# The box is periodic across and walled top and bottom.
+# :class:`~fridom.nonhydro2.modules.buoyancy_tracer.BuoyancyTracer`
+# registers the buoyancy and contributes its force.
+#
+# Fifth-order WENO reconstruction is the only dissipation. That is
+# worth being plain about: with no explicit viscosity or diffusivity
+# there is no Rayleigh number to quote, since the smallest scales are
+# set by the grid rather than by a physical parameter.
+grid = fr.spatial.cartesian.Grid(
+    shape=(nx, ny, nz),
+    extent=(box_length, box_depth, box_depth),
+    periodic=(True, True, False))
 
-# ----------------------------------------------------------------
-#  Main routine
-# ----------------------------------------------------------------
-@nh.utils.skip_on_doc_build
-def main():
-    # ----------------------------------------------------------------
-    #  Create the grid and model settings
-    # ----------------------------------------------------------------
-    grid = nh.grid.cartesian.Grid(shape=(Nx, 1, Nz), domain_size=(Lx, 1, Lz), 
-                                periodic_bounds=(True, True, False))
-    mset = nh.ModelSettings(grid=grid, f0=f0, stratification_n2=N2)
-    mset.time_stepper.dt = 0.2 / Nz
+dz = grid.factor("z").dx
+# the fastest flow is the free fall of a plume across the layer, about
+# one metre per second for this contrast and depth
+free_fall = (2 * contrast * box_depth) ** 0.5
+# a quarter of a cell per step at that speed, fitted so that the run
+# and each of its frames are whole numbers of steps
+dt = fr.model.fit_dt(runlen, 0.25 * dz / free_fall, parts=frames)
 
-    # ----------------------------------------------------------------
-    #  Add custom modules to the model settings
-    # ----------------------------------------------------------------
-    relax_top = nh.modules.forcings.Relaxation(
-        tau=0.5, field_name="b", target=-1, 
-        domain_function=lambda mesh: mesh[2] > Lz - 0.02)
-    relax_bot = nh.modules.forcings.Relaxation(
-        tau=0.5, field_name="b", target=1,
-        domain_function=lambda mesh: mesh[2] < 0.02)
+# %%
+# The Plates
+# ----------
+# The two plates are a relaxation term rather than a boundary
+# condition. Inside a thin layer next to each wall the buoyancy is
+# nudged toward the value that plate holds, on a timescale short
+# compared with the overturning but long compared with the time step.
+# Everywhere else the mask is zero and the term does nothing.
 
-    mset.tendencies.add_module(relax_top)
-    mset.tendencies.add_module(relax_bot)
-    mset.tendencies.add_module(nh.modules.closures.SmagorinskyLilly())
 
-    # add a video writer
-    if make_video:
-        mset.diagnostics.add_module(nh.modules.animation.VideoWriter(
-            Plotter, model_time_per_second=0.5, filename=exp_name, fps=fps))
+def plate_value(z):
+    """Return the buoyancy each plate holds, warm below and cool above."""
+    return jnp.where(z < 0.5 * box_depth, contrast, -contrast)
 
-    # create a NetCDF writer to save the output
-    if make_netcdf:
-        mset.diagnostics.add_module(nh.modules.NetCDFWriter(
-            write_trigger = nh.ClockTrigger(time_interval=0.2),
-            filename=exp_name))
 
-    # create a thumbnail saver
-    mset.diagnostics.add_module(nh.modules.FigureSaver(
-        filename=thumbnail, model_time=4, plotter=Plotter))
+def plate_mask(z):
+    """Return one inside either plate layer and zero between them."""
+    return jnp.where(
+        (z < plate_depth) | (z > box_depth - plate_depth), 1.0, 0.0)
 
-    mset.setup()
-    # ----------------------------------------------------------------
-    #  Create the initial condition
-    # ----------------------------------------------------------------
-    z = nh.State(mset)
-    # add some white noise to the initial condition so that the
-    # instabilities are triggered
-    z.u.arr += nh.utils.random_array(z.u.arr.shape) * 1e-4
 
-    # ----------------------------------------------------------------
-    #  Run the model
-    # ----------------------------------------------------------------
-    model = nh.Model(mset)
-    model.z = z
-    model.run(runlen=run_length)
+model = nh.Model(
+    grid=grid,
+    buoyancy=nh.BuoyancyTracer(),
+    advection=nh.WENOAdvection(order=5),
+    modules_extra=fr.model.modules.Relaxation(
+        "b", rate=1.0 / plate_time,
+        target=plate_value, mask=plate_mask),
+    time_stepper=fr.model.time_steppers.AdamBashforth(dt, order=3))
 
-if __name__ == "__main__":
-    main()
+# %%
+# Initial Condition
+# -----------------
+# The fluid starts at rest and at uniform buoyancy, so the plates have
+# to build the unstable profile themselves. A layer that is exactly
+# uniform in the horizontal would stay that way, since nothing would
+# pick out where the first plume should rise, so we seed it with four
+# long waves of a thousandth of the plate contrast. The four modes
+# make the run reproducible.
+
+
+def seed(x, y, z):  # y is named but the flow is two-dimensional
+    """Return a faint horizontal ripple, strongest at mid depth."""
+    ripple = sum(
+        jnp.cos(2 * jnp.pi * wavenumber * x / box_length + phase)
+        for wavenumber, phase in ((3, 0.0), (5, 1.7), (8, 3.9), (13, 0.6)))
+    return 1e-3 * contrast * ripple * jnp.exp(
+        -((z - 0.5 * box_depth) / (0.25 * box_depth)) ** 2)
+
+
+model.set_fields(b=seed)
+
+# %%
+# Running and Writing Output
+# --------------------------
+# We write the buoyancy once per frame to a zarr store.
+writer = fr.io.Writer(
+    "rayleigh_benard.zarr",
+    fields="b",
+    trigger=fr.io.every(time_units=runlen / frames),
+    mode="w")
+
+model.run(runlen=runlen, outputs=writer)
+
+plot = model.state.b.xr.isel(y=0, drop=True).plot(
+    x="x", size=2.6, aspect=2.0, cmap="RdBu_r", vmin=-1.0, vmax=1.0)
+plot.axes.set_aspect("equal")
+
+# %%
+# Red is warm fluid and blue is cool. By the end the plumes reach right
+# across the layer and the interior is well mixed, with the sharp
+# gradients confined to thin skins against the two plates.
+#
+# Rendering the Animation
+# -----------------------
+# `CDFViewer <https://gordi42.github.io/CDFViewer.jl/>`_ records the
+# buoyancy animation from the store.
+_ = subprocess.run(
+    "cdfviewer rayleigh_benard.zarr -v b -x x -y z --dims=y=0"
+    " -p heatmap -a time"
+    " --kwargs='animlabel=\"t = {rawvalue} s\", animlabelnumfmt=\"%.1f\","
+    " colormap=:balance, colorrange=(-1, 1),"
+    " title=\"Rayleigh-Benard convection\"'"
+    " --record -s 'filename=\"rayleigh_benard.mp4\", framerate=24'",
+    shell=True, check=True)
+
+# %%
+# The plates build their thin unstable layers first, and for a while
+# nothing else happens. Those layers then let go in a burst of small
+# plumes along both walls, which merge as they cross the interior into
+# the few large overturning cells that carry most of the transport.
