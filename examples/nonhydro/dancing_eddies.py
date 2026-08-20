@@ -2,164 +2,151 @@ r"""
 Dancing Eddies
 ==============
 
-A barotropic setup with four eddies that interact with each other and the walls.
-
-In this setup we initialize two barotropic eddy-dipoles in a setup with
-periodic boundaries in the y-direction and non-periodic boundaries in the x-direction.
-The dipole on the western side move eastward while the dipole on the western side
-move westward. When the two dipoles collide, they form two new eddy-dipoles. One,
-that moves northward and one that moves southward. Due to the periodic boundaries
-in the y direction, the two dipoles will collide again. After the second collision,
-the new formed western dipole will move westward while the new formed eastern dipole
-will move eastward. Since the boundaries in the x-direction are non-periodic, the
-dipoles will eventually hit the walls. The norther eddy of the dipole will move
-northward along the wall, while the southern eddy will move southward along the wall.
-Finally, the northward and southward moving eddies will collide and form a new dipole.
-This dipole moves into the domain and the whole process starts again.
-
-
-Physical parameters
--------------------
-We use the following scaled parameters:
-
-+-------------+--------------------+------------------------------------------+
-| Parameter   | Value              | Description                              |
-+=============+====================+==========================================+
-| :math:`Ro`  | :math:`0.5`        | Rossby Number                            |
-+-------------+--------------------+------------------------------------------+
-| :math:`f`   | :math:`1`          | Coriolis parameter                       |
-+-------------+--------------------+------------------------------------------+
-| :math:`N^2` | :math:`1`          | Vertical background buoyancy gradient    |
-+-------------+--------------------+------------------------------------------+
-| :math:`L_x` | 1                  | Domain size in x and y                   |
-+-------------+--------------------+------------------------------------------+
-
-Numerical parameters
---------------------
-We use a cartesian grid with 512x512x1 grid points and a third order Adams-Bashforth
-time stepping sheme with a time step size of :math:`\Delta t = 0.01`. 
-Furthermore, we use a biharmonic friction closure with a viscosity
-of :math:`A_h = 0.01 \cdot U_{\text{eddy}} \cdot Ro \cdot \Delta x^3`, where
-:math:`U_{\text{eddy}}` is the maximum velocity of the eddies.
-
-Animation
----------
-.. video:: videos/dancing_eddies.mp4
-    :loop:
-
+Two eddy dipoles collide, swap partners and work the walls, over and
+over.
 """
-import jax.numpy as jnp
-import fridom.nonhydro as nh
-import os
-import matplotlib.pyplot as plt
-from matplotlib.colors import LinearSegmentedColormap
-plt.style.use(['dark_background'])
-PI = jnp.pi
 
-# ----------------------------------------------------------------
-#  Experiment settings
-# ----------------------------------------------------------------
-# General settings
-make_video  = True
-fps         = 30
-exp_name    = "dancing_eddies"
-thumbnail   = f"figures/{exp_name}.png"
+# %%
+# Experiment Settings
+# -------------------
+# A pair of counter-rotating eddies moves. Each one is carried by the
+# flow of the other, so the pair travels along the line between them,
+# while a single eddy would only sit and spin. This example puts two
+# such dipoles in a box, aimed at each other. We work in
+# nondimensional advective units scaled on the eddy instead of the
+# box, so one core has unit radius and unit peak vorticity, which
+# puts the fastest flow in the box near half a unit. The flow stays
+# two-dimensional and non-divergent, so a Coriolis force would be a
+# pure gradient and the pressure would absorb it. The model therefore
+# leaves out the Coriolis and buoyancy modules. The box is periodic in
+# y and walled in x, and that combination is what makes the sequence
+# come back around.
+import subprocess
 
-# Physical parameters
-rossby_number = 0.5
-f0 = 1.0          # Coriolis parameter
-N0 = 1.0          # Brunt-Väisälä frequency
-Lx = 1.0          # non-dimensional domain size in x and y
-L_eddy = Lx / 2 / 6       # eddy radius
-U_eddy = f0 * L_eddy / 2  # eddy velocity
+# sphinx_gallery_thumbnail_number = 1
+import fridom as fr
+import fridom.nonhydro2 as nh
 
-# Numerical parameters
-periodic = (False, True, True)   # periodic in y and z, non-periodic in x
-resolution_factor = 9            # 2^9 = 512 grid points
-Nx = 2**(resolution_factor + 1)  # Number of grid points in x and y
+eddy_radius = 1.0         # Gaussian radius of one eddy core
+eddy_vorticity = 1.0      # peak relative vorticity of one core
+domain_size = 12.0 * eddy_radius   # square box, walls in x
 
+nx = ny = 192
+nz = 1                    # the flow is barotropic, so one layer is enough
+runlen = 117.4            # one full cycle, so the animation loops
+frames = 120
 
-# ----------------------------------------------------------------
-#  Create a plotting module for the animation and thumbnail
-# ----------------------------------------------------------------
-class Plotter(nh.modules.animation.ModelPlotter):
-    def create_figure():
-        return plt.figure(figsize=(6, 4.5), dpi=256, tight_layout=True)
+# %%
+# Grid and Model
+# --------------
+# Nothing varies with depth here, so a single cell in z carries the
+# whole flow. The collisions cascade vorticity to the grid scale and
+# something has to absorb it. Instead of a closure we let the
+# advection scheme do it. Fifth-order WENO reconstruction weights its
+# candidate stencils by smoothness, so it leaves the smooth eddy cores
+# alone and damps the oscillations a centered scheme would build where
+# two dipoles meet. That is the only dissipation in this run.
+grid = fr.spatial.cartesian.Grid(
+    shape=(nx, ny, nz),
+    extent=(domain_size, domain_size, domain_size),
+    periodic=(False, True, True))
 
-    def prepare_arguments(mz: nh.ModelState) -> dict:
-        return {"z": mz.z.xrs[::10,::10,0],
-                "zeta": mz.z.rel_vort_z.xrs[:,:,0],
-                "t": mz.clock.time}
+dx = grid.factor("x").dx
+# the fastest flow in the box is the jet between the two cores of a
+# dipole, which runs at about 0.6 of the peak vorticity times the
+# core radius
+dt = fr.model.fit_dt(
+    runlen, 0.3 * dx / (0.6 * eddy_vorticity * eddy_radius), parts=frames)
 
-    def update_figure(fig, z, zeta, t) -> None:
-        ax = fig.add_subplot(111)
-        colors = ['#ff8b87', "#a10000", 'black', "#0050a1", '#80bfff']
-        custom_cmap = LinearSegmentedColormap.from_list('RedBlackBlue', colors)
+model = nh.Model(
+    grid=grid,
+    scaling=fr.scaling.Advective(),
+    advection=nh.WENOAdvection(order=5),
+    time_stepper=fr.model.time_steppers.AdamBashforth(dt, order=3))
 
-        zeta.plot(ax=ax, cmap=custom_cmap, vmax=0.8, vmin=-0.8)
-        z.plot.quiver("x", "y", "u", "v", scale=2, add_guide=False, 
-                      color="#333232", width=0.001, headwidth=5)
-        ax.set_aspect('equal')
-        ax.set_title(f't={int(t)}s', fontsize=18)
+# %%
+# Initial Condition
+# -----------------
+# :func:`~fridom.nonhydro2.initial_conditions.eddy_dipole` builds a
+# dipole from where it starts, how strong its cores are and which way
+# it should point. Position and width are given as fractions of the
+# box, so the radius is divided by the box size. The angle is a
+# compass bearing, so 90 sends the western pair east and 270 sends
+# the eastern pair west. Each dipole is a pair of Gaussian
+# vorticity blobs whose streamfunction the factory recovers by
+# inverting the Laplacian, which on a walled axis is exact, and the
+# velocities are the discrete curl of that streamfunction. Adding the
+# two states superposes them, and that is exact rather than
+# approximate because the whole construction is linear in the
+# streamfunction.
+dipoles = (
+    nh.eddy_dipole(model, pos_x=0.25, pos_y=0.3, angle=90.0,
+                   width=eddy_radius / domain_size,
+                   amplitude=eddy_vorticity)
+    + nh.eddy_dipole(model, pos_x=0.75, pos_y=0.3, angle=270.0,
+                     width=eddy_radius / domain_size,
+                     amplitude=eddy_vorticity))
+model.set_state(dipoles)
 
+# the vorticity lives on the cell corner, so it is moved to the cell
+# center the pressure already sits on before plotting
+center = model.state["p"].function_space
+plot = model.state.rel_vort_z.to(center).xr.isel(z=0, drop=True).plot(
+    x="x", size=3.4, aspect=1.3)
+_ = plot.axes.set_aspect("equal")
 
-@nh.utils.skip_on_doc_build
-def main():
-    # ----------------------------------------------------------------
-    #  Create the grid and model settings
-    # ----------------------------------------------------------------
-    grid = nh.grid.cartesian.Grid(
-        domain_size=(Lx, Lx, Lx), shape=(Nx, Nx, 1), periodic_bounds=periodic)
+# %%
+# Red and blue mark the two rotation senses. Each dipole is one red
+# eddy beside one blue one, and the pair moves along the line between
+# them, so the two dipoles head toward each other. Their travel speed
+# is an outcome of the mutual induction rather than a setting, and it
+# scales as the peak vorticity times the core radius.
+#
+# Running and Writing Output
+# --------------------------
+# The run covers one full turn of the sequence, so it ends on the
+# arrangement it started from and the animation loops. Every frame
+# writes the vertical vorticity and the two horizontal velocities to a
+# zarr store. The animation draws its arrows from the velocities. All
+# three are moved to the cell center the pressure occupies, so one set
+# of coordinates carries them.
+writer = fr.io.Writer(
+    "dancing_eddies.zarr",
+    fields=["u", "v"],
+    derived={"rel_vort_z": lambda ms: ms.state.rel_vort_z},
+    space=center,
+    trigger=fr.io.every(time_units=runlen / frames),
+    mode="w")
 
-    mset = nh.ModelSettings(
-        grid=grid, f0=f0, stratification_n2=N0**2, rossby_number=rossby_number)
-    mset.time_stepper.dt = 0.01
-    mset.setup()  # This will calculate the grid spacings
+model.run(runlen=runlen, outputs=writer)
 
-    # ----------------------------------------------------------------
-    #  Add custom modules to the model settings
-    # ----------------------------------------------------------------
-    # add a turbulent closure
-    mset.tendencies.add_module(nh.modules.closures.BiharmonicFriction(
-        ah = 0.01 * U_eddy * rossby_number * grid.dx[0]**3, av = 0))
+# %%
+# Rendering the Animation
+# -----------------------
+# `CDFViewer <https://gordi42.github.io/CDFViewer.jl/>`_ records the
+# animation from the store. The velocities go over the vorticity as a
+# second layer of arrows.
 
-    # add a video writer
-    if make_video:
-        mset.diagnostics.add_module(nh.modules.animation.VideoWriter(
-                    Plotter,
-                    model_time_per_second=15/rossby_number,
-                    filename=exp_name, fps=30))
+_ = subprocess.run(
+    "cdfviewer dancing_eddies.zarr -v rel_vort_z -x x -y y --dims=z=0"
+    " -p heatmap -a time"
+    " --over u,v --over-plot quiver"
+    " --kwargs='animlabel=\"t = {rawvalue}\", animlabelnumfmt=\"%.0f\","
+    " colormap=:balance, colorrange=(-1.4, 1.4),"
+    " color=:black, arrows=(24, 24),"
+    " figsize=(800, 750),"
+    " cbarlabel=\"auto\", title=\"Dancing eddies\"'"
+    " --record -s 'filename=\"dancing_eddies.mp4\", framerate=24'",
+    shell=True, check=True)
 
-    mset.setup()
-
-    # ----------------------------------------------------------------
-    #  Create the initial condition
-    # ----------------------------------------------------------------
-    def create_dipole(pos_x, pos_y):
-        z_eddy = nh.initial_conditions.CoherentEddy(
-            mset=mset, pos_x=pos_x, pos_y=pos_y-L_eddy/Lx, 
-            width=L_eddy, gauss_field="vorticity")
-        z_eddy -= nh.initial_conditions.CoherentEddy(
-            mset=mset, pos_x=pos_x, pos_y=pos_y+L_eddy/Lx, 
-            width=L_eddy, gauss_field="vorticity")
-        return z_eddy
-
-    z_ini = create_dipole(0.75, 0.3)
-    z_ini -= create_dipole(0.25, 0.3)
-    z_ini *= U_eddy / ((z_ini.u**2 + z_ini.v**2)**0.5).max()
-
-    # ----------------------------------------------------------------
-    #  Create and run the model
-    # ----------------------------------------------------------------
-    model = nh.Model(mset)
-    model.z = z_ini
-    model.run(runlen=286)
-
-    # plot the final state (thumbnail)
-    os.makedirs("figures", exist_ok=True)
-    fig = Plotter(model.model_state)
-    fig.savefig(thumbnail, dpi=200)
-
-
-if __name__ == "__main__":
-    main()
+# %%
+# The two dipoles meet in the middle and each eddy leaves with the
+# partner it did not arrive with, so the new pairs travel north and
+# south instead of east and west. The box is periodic in y, so those
+# pairs meet again and swap back, and the pairs that come out of that
+# second exchange head for the walls. A dipole cannot cross a wall, so
+# it splits, one eddy running along the wall in each direction, until
+# each meets its opposite number and pairs up again in the arrangement
+# the run started from. That return is close rather than exact, since a
+# pair of Gaussian dipoles is not a periodic solution, and the cores
+# land about a tenth of a radius from their starting points.
