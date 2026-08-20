@@ -2,181 +2,226 @@ r"""
 Tracers and Eddies
 ==================
 
-Adding passive tracers to the model.
-
-Experiment 1
-------------
-A passive tracer forms a spiral pattern when advected by an eddy.
-
-.. video:: videos/tracer_and_eddies_spiral.mp4
-
-Experiment 2
-------------
-An eddy-dipole collides with a tracer band.
-
-.. video:: videos/tracer_and_eddies_dipole.mp4
-
+A dye band wound into a spiral by one eddy, then punched through by a
+dipole.
 """
+
+# %%
+# Experiment Settings
+# -------------------
+# A passive tracer is carried by the flow and does nothing back to it,
+# so it is a way of seeing what the velocity field does rather than a
+# part of the dynamics. Both experiments here start from a straight
+# band of dye and let an eddy work on it. We use nondimensional
+# advective units scaled on the eddy, so one core has unit radius and
+# unit peak vorticity. The flow stays two-dimensional and
+# non-divergent, so a Coriolis force would be a pure gradient and the
+# pressure would absorb it. The model therefore leaves out the
+# Coriolis and buoyancy modules, and the dye is the only thing riding
+# along with the velocities.
+import subprocess
+
 import jax.numpy as jnp
-import fridom.nonhydro as nh
-import os
-import matplotlib.pyplot as plt
 
-# ----------------------------------------------------------------
-#  Experiment settings
-# ----------------------------------------------------------------
-# General settings
-make_video  = True
-make_netcdf = False
-fps         = 30
-exp_name    = "tracer_and_eddies"
-thumbnail   = f"figures/{exp_name}.png"
+# sphinx_gallery_thumbnail_number = 2
+import fridom as fr
+import fridom.nonhydro2 as nh
 
-# Physical parameters
-f0 = 1.0          # Coriolis parameter
-N0 = 1.0          # Brunt-Väisälä frequency
-Lx = 1.0          # non-dimensional domain size in x and y
+eddy_radius = 1.0         # Gaussian radius of one eddy core
+eddy_vorticity = 1.0      # peak relative vorticity of one core
+band_width = 0.4          # Gaussian half width of the dye band
 
-# Numerical parameters
-periodic = (True, True, True)    # periodic in y and z, non-periodic in x
-resolution_factor = 10           # 2^10 = 1024 grid points
-Nx = 2**(resolution_factor)      # Number of grid points in x and y
+nx = ny = 128
+nz = 1                    # the flow is barotropic, so one layer is enough
+frames = 120
 
-
-# ----------------------------------------------------------------
-#  Create a plotting module for the animation and thumbnail
-# ----------------------------------------------------------------
-def create_plotter(skip):
-    class Plotter(nh.modules.animation.ModelPlotter):
-        def create_figure():
-            return plt.figure(figsize=(6, 4.5), dpi=256, tight_layout=True)
-
-        def prepare_arguments(mz: nh.ModelState) -> dict:
-            return {"z": mz.z.xrs[::skip,::skip,0],
-                    "tracer": mz.z['dye'].xrs[:,:,0],
-                    "t": mz.clock.time}
-
-        def update_figure(fig, z, tracer, t) -> None:
-            ax = fig.add_subplot(111)
-            tracer.plot(ax=ax, cmap="Blues", vmax=1.0, vmin=0, extend='max')
-            key = z.plot.quiver("x", "y", "u", "v", scale=30, add_guide=False, 
-                                color="black", width=0.003, headwidth=3)
-            label_velo = 2
-            ax.quiverkey(key, X=0.9, Y=1.05, U=label_velo,
-                        label=f'{label_velo} [m/s]', labelpos='E')
-            ax.set_aspect('equal')
-            ax.set_title(f't={t:.3f}s', fontsize=18)
-    return Plotter
-
-# ----------------------------------------------------------------
-#  Create the grid and model settings
-# ----------------------------------------------------------------
-def create_modelsettings(exp_name, quiver_skip):
-    grid = nh.grid.cartesian.Grid(
-        domain_size=(Lx, Lx, Lx), shape=(Nx, Nx, 1), periodic_bounds=periodic)
-
-    mset = nh.ModelSettings(grid=grid, f0=f0, stratification_n2=N0**2)
-    mset.time_stepper.dt = 0.4 * 1/Nx
-
-    # add the passive tracer to the state vector
-    mdata = nh.FieldMetadata(name="dye", long_name="Dye concentration")
-    mdata.flags["ENABLE_MIXING"] = True
-    mset.custom_state_fields.append(mdata)
-
-    # ----------------------------------------------------------------
-    #  Add custom modules to the model settings
-    # ----------------------------------------------------------------
-    # add a video writer
-    if make_video:
-        mset.diagnostics.add_module(nh.modules.animation.VideoWriter(
-                    create_plotter(quiver_skip),
-                    model_time_per_second=0.5,
-                    filename=exp_name, fps=30))
-
-    # create a NetCDF writer to save the output
-    if make_netcdf:
-        mset.diagnostics.add_module(nh.modules.NetCDFWriter(
-            get_variables=lambda mz: [mz.z["dye"], mz.z.cfl],
-            write_trigger = nh.ClockTrigger(time_interval=0.1),
-            filename=exp_name))
-
-    # add mixing for the tracer
-    # mset.tendencies.add_module(nh.modules.closures.HarmonicMixing(
-    #     kh=0.1*(Lx/Nx)**3, kv=0))
-
-    mset.setup()
-    return mset
-
-# ================================================================
-#  Experiment 1: Spiral pattern
-# ================================================================
-@nh.utils.skip_on_doc_build
-def experiment_1():
-    mset = create_modelsettings(exp_name + "_spiral", quiver_skip=40)
-
-    # ----------------------------------------------------------------
-    #  Create the initial condition
-    # ----------------------------------------------------------------
-    z_ini = nh.initial_conditions.CoherentEddy(
-        mset=mset, pos_x=0.5, pos_y=0.5, 
-        width=0.2, gauss_field="vorticity")
-    z_ini *= 1 / ((z_ini.u**2 + z_ini.v**2)**0.5).max()
-
-    # add the passive tracer
-    X, Y, Z = z_ini["dye"].get_mesh()
-    band_width = 0.05
-    # z_ini['dye'] += ( (Y < 0.5 + band_width/2) & (Y > 0.5 - band_width/2) ) * 1.0
-    z_ini['dye'] += jnp.exp(-((Y-0.5)/band_width)**2)
-
-    # ----------------------------------------------------------------
-    #  Create and run the model
-    # ----------------------------------------------------------------
-    model = nh.Model(mset)
-    model.z = z_ini
-    model.run(runlen=1.5)
-
-    # plot the final state (thumbnail)
-    os.makedirs("figures", exist_ok=True)
-    fig = create_plotter(40)(model.model_state)
-    fig.savefig(thumbnail, dpi=200)
+# %%
+# Model
+# -----
+# Both experiments want the same model apart from the box size, so we
+# build them from one function. Fifth-order WENO reconstruction is the
+# only dissipation, and it carries the dye as well as the momentum.
+# The tracer is one line: :class:`~fridom.model.modules.Tracer`
+# declares a prognostic field with the tracer and advected roles, so
+# the assembled advection scheme transports it with no further wiring.
+# Each model needs its own tracer instance, since a module binds to
+# exactly one model.
+#
+# The two experiments share one plotting function as well. It draws
+# the dye with contours of relative vorticity over it, so the eddies
+# that move the dye appear in the same frame. Negative contour levels
+# come out dashed, which tells the two senses of rotation apart.
+#
+# A third helper lists what each run writes to disk. The animations
+# colour the dye, and one of them draws arrows from the two horizontal
+# velocities, so all three fields go into the store on the cell centre
+# the dye already sits on.
 
 
-# ================================================================
-#  Experiment 2: Eddy-dipole
-# ================================================================
-@nh.utils.skip_on_doc_build
-def experiment_2():
-    mset = create_modelsettings(exp_name + "_dipole", quiver_skip=20)
-
-    # ----------------------------------------------------------------
-    #  Create the initial condition
-    # ----------------------------------------------------------------
-    L_eddy = 0.05
-    def create_dipole(pos_x, pos_y):
-        z_eddy = nh.initial_conditions.CoherentEddy(
-            mset=mset, pos_x=pos_x-L_eddy/Lx, pos_y=pos_y, 
-            width=L_eddy, gauss_field="vorticity")
-        z_eddy -= nh.initial_conditions.CoherentEddy(
-            mset=mset, pos_x=pos_x+L_eddy/Lx, pos_y=pos_y, 
-            width=L_eddy, gauss_field="vorticity")
-        z_eddy *= 1 / ((z_eddy.u**2 + z_eddy.v**2)**0.5).max()
-        return z_eddy
-
-    z_ini = create_dipole(0.5, 0.3)
-
-    # add the passive tracer
-    X, Y, Z = z_ini["dye"].get_mesh()
-    band_width = 0.05
-    z_ini['dye'] += jnp.exp(-((Y-0.75)/band_width)**2)
-
-    # ----------------------------------------------------------------
-    #  Create and run the model
-    # ----------------------------------------------------------------
-    model = nh.Model(mset)
-    model.z = z_ini
-    model.run(runlen=5)
+def build(domain_size, runlen):
+    """Return a model on a periodic box, timed for a run of runlen."""
+    grid = fr.spatial.cartesian.Grid(
+        shape=(nx, ny, nz),
+        extent=(domain_size, domain_size, domain_size),
+        periodic=(True, True, True))
+    dx = grid.factor("x").dx
+    # the fastest flow is the swirl in a core, about 0.6 of the peak
+    # vorticity times the core radius. The step is fitted so that the
+    # run and each of its frames are whole numbers of steps
+    dt = fr.model.fit_dt(
+        runlen, 0.3 * dx / (0.6 * eddy_vorticity * eddy_radius),
+        parts=frames)
+    return nh.Model(
+        grid=grid,
+        scaling=fr.scaling.Advective(),
+        advection=nh.WENOAdvection(order=5),
+        modules_extra=fr.model.modules.Tracer(
+            "dye", long_name="Dye concentration", units="1"),
+        time_stepper=fr.model.time_steppers.AdamBashforth(dt, order=3))
 
 
-if __name__ == "__main__":
-    experiment_1()
-    experiment_2()
+def dye_band(centre):
+    """Return a Gaussian dye band centred on a height in the box."""
+    def band(x, y, z):  # x and z are named but the band varies only in y
+        return jnp.exp(-((y - centre) / band_width) ** 2)
+    return band
+
+
+# three rings per core, as fractions of the peak vorticity
+vorticity_levels = [fraction * eddy_vorticity
+                    for fraction in (-0.8, -0.5, -0.2, 0.2, 0.5, 0.8)]
+
+
+def plot_dye(model, space):
+    """Plot the dye of a model with the vorticity drawn over it."""
+    dye = model.state["dye"].to(space).xr.isel(z=0, drop=True)
+    vorticity = model.state.rel_vort_z.to(space).xr.isel(z=0, drop=True)
+    # the dye range is pinned to the one the animations use. WENO
+    # leaves a little undershoot below zero, and xarray answers signed
+    # data with a range symmetric about zero
+    plot = dye.plot(x="x", size=3.4, aspect=1.2, cmap="Blues",
+                    vmin=0, vmax=1)
+    vorticity.plot.contour(
+        x="x", ax=plot.axes, levels=vorticity_levels, colors="crimson",
+        linewidths=0.8, add_colorbar=False)
+    plot.axes.set_aspect("equal")
+
+
+# %%
+# The Spiral
+# ----------
+# One eddy sits at the middle of a box five radii across, with the dye
+# band laid straight through it. The eddy turns faster at its centre
+# than at its edge, so the band is wound rather than merely rotated,
+# and every turn of the spiral is a thinner filament than the one
+# before it.
+spiral_box = 5.0 * eddy_radius
+spiral_runlen = 30.0
+
+spiral = build(spiral_box, spiral_runlen)
+spiral.set_state(nh.coherent_eddy(
+    spiral, pos_x=0.5, pos_y=0.5,
+    width=eddy_radius / spiral_box, amplitude=eddy_vorticity))
+spiral.set_fields(dye=dye_band(0.5 * spiral_box))
+
+# the dye sits on the cell center the pressure already occupies
+center = spiral.state["p"].function_space
+plot_dye(spiral, center)
+
+# %%
+# We write the dye and the two velocities, all on the cell centers,
+# once per frame to a zarr store and run.
+writer = fr.io.Writer(
+    "tracers_spiral.zarr",
+    fields=["dye", "u", "v"],
+    space=center,
+    trigger=fr.io.every(time_units=spiral_runlen / frames),
+    mode="w")
+
+spiral.run(runlen=spiral_runlen, outputs=writer)
+
+plot_dye(spiral, center)
+
+# %%
+# The band has been drawn into a spiral of several turns. The
+# filaments thin as they wind, and once one is as narrow as a grid
+# cell the advection scheme can no longer hold it, which is why the
+# outer turns fade rather than continuing indefinitely.
+#
+# Rendering the Animation
+# -----------------------
+# `CDFViewer <https://gordi42.github.io/CDFViewer.jl/>`_ records the
+# animation from the store. ``cbarlabel="auto"`` labels the bar from
+# the tracer's own metadata, the ``long_name`` given to
+# :class:`~fridom.model.modules.Tracer` above. ``figsize`` gives the
+# window the shape of the box, so the heatmap fills the frame and the
+# colorbar sits next to it instead of away from it.
+#
+# There are no arrows over this one. The filaments are the subject,
+# and they are narrower than the arrows that would cross them. The
+# flow those arrows would report is the rotation the spiral already
+# draws.
+
+_ = subprocess.run(
+    "cdfviewer tracers_spiral.zarr -v dye -x x -y y --dims=z=0"
+    " -p heatmap -a time"
+    " --kwargs='animlabel=\"t = {rawvalue}\", animlabelnumfmt=\"%.0f\","
+    " colormap=:dense, colorrange=(0, 1), figsize=(800, 756),"
+    " cbarlabel=\"auto\", title=\"A tracer wound by one eddy\"'"
+    " --record -s 'filename=\"tracers_spiral.mp4\", framerate=24'",
+    shell=True, check=True)
+
+# %%
+# The Collision
+# -------------
+# The second experiment gives the dye something to be hit by. A dipole
+# starts low in a box ten radii across and travels north into a band
+# laid across its path. A dipole carries a parcel of fluid with it, so
+# rather than sliding past the band it pushes a bulge ahead of itself,
+# closes that bulge into a bubble, and drags the bubble along while the
+# rest of the band is pulled out into two trailing filaments.
+collision_box = 10.0 * eddy_radius
+collision_runlen = 55.0
+
+collision = build(collision_box, collision_runlen)
+collision.set_state(nh.eddy_dipole(
+    collision, pos_x=0.5, pos_y=0.15, angle=0.0,
+    width=eddy_radius / collision_box, amplitude=eddy_vorticity))
+collision.set_fields(dye=dye_band(0.55 * collision_box))
+
+center = collision.state["p"].function_space
+writer = fr.io.Writer(
+    "tracers_collision.zarr",
+    fields=["dye", "u", "v"],
+    space=center,
+    trigger=fr.io.every(time_units=collision_runlen / frames),
+    mode="w")
+
+collision.run(runlen=collision_runlen, outputs=writer)
+
+plot_dye(collision, center)
+
+# %%
+# The rings are the two cores of the dipole. The bubble and its two
+# trailing filaments are what a dipole leaves behind after crossing a
+# tracer front.
+#
+# Here the flow is worth drawing, because the parcel the dipole
+# carries is not something the dye reports on its own. ``--over u,v``
+# adds the velocity as a second layer and ``--over-plot quiver`` draws
+# it as arrows. ``minspeed`` drops every arrow slower than 0.15, which
+# is about a quarter of the swirl speed in a core. That empties the
+# quiet far field and leaves the carried parcel and the flow that
+# returns around it. ``arrows`` sets how many are drawn across each
+# axis. The arrows fall inside the bubble, where there is no dye, so
+# the band that bounds it stays readable.
+
+_ = subprocess.run(
+    "cdfviewer tracers_collision.zarr -v dye -x x -y y --dims=z=0"
+    " -p heatmap -a time --over u,v --over-plot quiver"
+    " --kwargs='animlabel=\"t = {rawvalue}\", animlabelnumfmt=\"%.0f\","
+    " colormap=:dense, colorrange=(0, 1), figsize=(800, 756),"
+    " over.color=:black, arrows=(22, 22), minspeed=0.15,"
+    " cbarlabel=\"auto\", title=\"A dipole crossing a tracer band\"'"
+    " --record -s 'filename=\"tracers_collision.mp4\", framerate=24'",
+    shell=True, check=True)
