@@ -302,6 +302,32 @@ def test_derived_output(tmp_path, model, state):
         ds["p2"].values[0], 2.0 * np.asarray(state["p"].data))
 
 
+def test_space_colocates_every_output(tmp_path, model, state):
+    # the space= hook: every output -- selected fields and derived alike
+    # -- is converted onto the target before the bind-time layout and
+    # each write, so the staggered u lands on the center dims next to p
+    # (the example-facing replacement for a ``.to(center)`` per lambda)
+    center = state["p"].function_space
+    path = tmp_path / "out.zarr"
+    writer = Writer(
+        path, fields=["u", "p"],
+        derived={"u2": lambda ms: ms.state["u"] * 2.0},
+        space=center, trigger=every(steps=1))
+    writer.bind(model)
+    writer.write(firing(state, 0))
+    writer.close()
+    ds = xr.open_zarr(path, consolidated=False)
+    assert ds["u"].dims == ("time", "x", "y")
+    assert ds["u2"].dims == ("time", "x", "y")
+    assert ds["p"].dims == ("time", "x", "y")
+    assert "x_right" not in ds.coords
+    u_center = np.asarray(state["u"].to(center).data)
+    np.testing.assert_array_equal(ds["u"].values[0], u_center)
+    np.testing.assert_array_equal(ds["u2"].values[0], 2.0 * u_center)
+    np.testing.assert_array_equal(
+        ds["p"].values[0], np.asarray(state["p"].data))
+
+
 def test_unknown_field_raises(tmp_path, model):
     path = tmp_path / "out.zarr"
     writer = Writer(path, fields=["nope"], trigger=every(steps=1))

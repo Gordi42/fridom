@@ -67,6 +67,7 @@ if TYPE_CHECKING:  # pragma: no cover
     from fridom.model.units import UnitFactor
     from fridom.spatial.export import ExportLayout
     from fridom.spatial.fields.scalar_field import ScalarField
+    from fridom.spatial.spaces.tensor_product import SpaceLike
 
 # nanoseconds per second (the CF reference-date conversion)
 _NS_PER_S = 1_000_000_000
@@ -276,6 +277,18 @@ class Writer:
     derived : Mapping[str, Callable] | None, optional
         Named derived outputs, each a pure ``(model_state) -> Field``
         callable evaluated at output cadence (default: None).
+    space : ScalarField | SpaceLike | None, optional
+        Convert every output onto this function space before it is
+        laid out and written -- selected ``fields`` and ``derived``
+        alike -- through ``ScalarField.to``. A full product space
+        co-locates the whole store (the common case: everything on
+        the cell centers, so a viewer sees one unstaggered grid), a
+        single factor space converts that axis and keeps the rest,
+        and an output already on target passes through untouched.
+        ``None`` writes each output on its native (staggered)
+        position. One writer-wide target by design: mixed positions
+        stay a ``.to(...)`` inside a ``derived`` callable, which
+        composes with this hook (default: None).
     trigger : Trigger
         The firing trigger (walltime-bearing triggers are rejected at
         bind — data streams need a deterministic output grid).
@@ -331,6 +344,7 @@ class Writer:
         *,
         fields: str | Sequence[str] | None = None,
         derived: Mapping[str, Callable] | None = None,
+        space: ScalarField | SpaceLike | None = None,
         trigger: Trigger,
         mode: str = "w-",
         chunks: Mapping[str, int] | None = None,
@@ -346,6 +360,7 @@ class Writer:
         self._path = Path(path)
         self._fields = None if fields is None else as_tuple(fields)
         self._derived = dict(derived) if derived else {}
+        self._space = space
         self._trigger = trigger
         self.mode = mode
         self._chunks = dict(chunks) if chunks else {}
@@ -709,6 +724,9 @@ class Writer:
                     "selected field name; give the derived output a "
                     "distinct key")
             outputs.append((name, function))
+        if self._space is not None:
+            outputs = [(name, _onto(evaluate, self._space))
+                       for name, evaluate in outputs]
         if not outputs:
             raise ValueError(
                 f"Writer({self._path}) resolved no outputs; pass "
@@ -1124,6 +1142,22 @@ def _state_getter(name: str) -> Callable:
     def evaluate(model_state: Any) -> ScalarField:
         return model_state.state[name]
     return evaluate
+
+
+def _onto(evaluate: Callable, space: ScalarField | SpaceLike) -> Callable:
+    """
+    Compose an evaluator with ``.to(space)`` (the ``space=`` hook).
+
+    Description
+    -----------
+    Wraps at resolve time, so the bind-time dry evaluation lays the
+    store out on the target space and every write lands on the same
+    layout; a field already on target passes through ``.to`` as
+    itself. Errors surface at bind with ``.to``'s own message.
+    """
+    def evaluate_onto(model_state: Any) -> ScalarField:
+        return evaluate(model_state).to(space)
+    return evaluate_onto
 
 
 def _field_table(model: Any) -> Any:
