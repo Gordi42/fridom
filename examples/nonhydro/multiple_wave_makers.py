@@ -41,6 +41,7 @@ FORCING_AMPLITUDE = 3.1e-7          # m/s^2
 
 nx, ny, nz = 512, 1, 320
 frames = 288
+runlen = 6.0 * 3600.0               # six hours, before either beam walls
 
 # %%
 # Grid and Model
@@ -58,7 +59,10 @@ grid = fr.spatial.cartesian.Grid(
     extent=(LX, LY, LZ),
     periodic=(True, True, True))
 
-dt = 0.1 / STRATIFICATION_N2 ** 0.5        # omega dt <= 0.1
+# omega dt <= 0.1, fitted so that the run and each of its frames
+# are whole numbers of steps
+dt = fr.model.fit_dt(
+    runlen, 0.1 / STRATIFICATION_N2 ** 0.5, parts=frames)
 
 base = nh.Model(
     grid=grid,
@@ -126,12 +130,10 @@ model = nh.Model(
 # and meet, and short enough that neither one reaches a wall, so no
 # beam wraps around and re-enters from the far side. We write the
 # buoyancy once per frame and render the slice.
-runlen = 6.0 * 3600.0
-
 writer = fr.io.Writer(
-    "multiple_wave_makers.zarr", fields=["b"],
+    "multiple_wave_makers.zarr", fields="b",
     trigger=fr.io.every(seconds=runlen / frames), mode="w")
-model.run(runlen=runlen, outputs=(writer,), progress=False)
+model.run(runlen=runlen, outputs=writer)
 
 # plot the final buoyancy in the slice plane. The colorbar takes its
 # width out of the figure, so the figure aspect runs wider than the
