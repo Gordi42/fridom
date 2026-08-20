@@ -33,6 +33,7 @@ FORCING_AMPLITUDE = 1e-5            # m/s^2
 
 nx, ny, nz = 512, 1, 128
 frames = 180
+runlen = 6.0 * 3600.0               # six hours, eight forcing periods
 
 # %%
 # Grid and Model
@@ -55,7 +56,10 @@ grid = fr.spatial.cartesian.Grid(
     extent=(LX, LY, LZ),
     periodic=(True, True, False))
 
-dt = 0.1 / STRATIFICATION_N2 ** 0.5        # omega dt <= 0.1
+# omega dt <= 0.1, fitted so that the run and each of its frames
+# are whole numbers of steps
+dt = fr.model.fit_dt(
+    runlen, 0.1 / STRATIFICATION_N2 ** 0.5, parts=frames)
 
 wave_maker = fr.model.modules.Source(
     "wave_maker",
@@ -69,7 +73,7 @@ model = nh.Model(
     coriolis=nh.FPlaneCoriolis(f0=CORIOLIS_F0),
     buoyancy=nh.ConstantStratification(n2=STRATIFICATION_N2),
     advection=False,
-    modules_extra=(wave_maker,),
+    modules_extra=wave_maker,
     time_stepper=fr.model.time_steppers.AdamBashforth(dt, order=3))
 
 # %%
@@ -94,13 +98,11 @@ model = nh.Model(
 # and the wave energy once per frame. The energy is the model's
 # bound ``etot`` diagnostic, the kinetic energy plus the available
 # potential energy :math:`b^2 / (2 N^2)`.
-runlen = 6.0 * 3600.0
-
 writer = fr.io.Writer(
-    "internal_wave_maker.zarr", fields=["b"],
+    "internal_wave_maker.zarr", fields="b",
     derived={"e": lambda ms: model.diagnostics.etot(ms.state)},
     trigger=fr.io.every(seconds=runlen / frames), mode="w")
-model.run(runlen=runlen, outputs=(writer,), progress=False)
+model.run(runlen=runlen, outputs=writer)
 
 # plot the final buoyancy in the slice plane
 _ = model.state.b.xr.isel(y=0).plot(x="x", size=1.6, aspect=4)
@@ -111,6 +113,7 @@ _ = subprocess.run(
     " -p heatmap -a time"
     " --kwargs='colormap=:balance, colorrange=(-7e-6, 7e-6),"
     " figsize=(1000, 400),"
+    ' animunit="hours", animlabelnumfmt="%.1f",'
     " titlesize=28, xlabelsize=24, ylabelsize=24,"
     " title=\"Internal wave beams\"'"
     " --record -s 'filename=\"internal_wave_maker.mp4\", framerate=24'",
@@ -124,6 +127,7 @@ _ = subprocess.run(
     " -p heatmap -a time"
     " --kwargs='colormap=:thermal, colorrange=(0.0, 3.0e-7),"
     " figsize=(1000, 400),"
+    ' animunit="hours", animlabelnumfmt="%.1f",'
     " titlesize=28, xlabelsize=24, ylabelsize=24,"
     " title=\"Wave energy\"'"
     " --record -s 'filename=\"internal_wave_maker_energy.mp4\","
@@ -173,7 +177,7 @@ chirp_model = nh.Model(
     coriolis=nh.FPlaneCoriolis(f0=CORIOLIS_F0),
     buoyancy=nh.ConstantStratification(n2=STRATIFICATION_N2),
     advection=False,
-    modules_extra=(chirp_maker,),
+    modules_extra=chirp_maker,
     time_stepper=fr.model.time_steppers.AdamBashforth(dt, order=3))
 
 
@@ -181,13 +185,14 @@ chirp_writer = fr.io.Writer(
     "internal_wave_maker_chirp.zarr", fields=[],
     derived={"e": lambda ms: chirp_model.diagnostics.etot(ms.state)},
     trigger=fr.io.every(seconds=runlen / frames), mode="w")
-chirp_model.run(runlen=runlen, outputs=(chirp_writer,), progress=False)
+chirp_model.run(runlen=runlen, outputs=chirp_writer)
 
 _ = subprocess.run(
     "cdfviewer internal_wave_maker_chirp.zarr -v e -x x -y z"
     " --dims=y=0 -p heatmap -a time"
     " --kwargs='colormap=:thermal, colorrange=(0.0, 3.0e-7),"
     " figsize=(1000, 400),"
+    ' animunit="hours", animlabelnumfmt="%.1f",'
     " titlesize=28, xlabelsize=24, ylabelsize=24,"
     " title=\"Wave energy, chirped forcing\"'"
     " --record -s 'filename=\"internal_wave_maker_chirp.mp4\","
