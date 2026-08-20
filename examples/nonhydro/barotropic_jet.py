@@ -58,7 +58,9 @@ grid = fr.spatial.cartesian.Grid(
     periodic=(True, True, True))
 
 dx = grid.factor("x").dx
-dt = 0.2 * dx             # advective Courant number 0.2
+# advective Courant number 0.2, fitted so that the run and each of its
+# frames are whole numbers of steps
+dt = fr.model.fit_dt(runlen, 0.2 * dx, parts=frames)
 
 model = nh.Model(
     grid=grid,
@@ -107,11 +109,12 @@ center = model.state.b.function_space
 writer = fr.io.Writer(
     "barotropic_jet.zarr",
     fields=[],
-    derived={"rel_vort_z": lambda ms: ms.state.rel_vort_z.to(center)},
+    derived={"rel_vort_z": lambda ms: ms.state.rel_vort_z},
+    space=center,
     trigger=fr.io.every(time_units=runlen / frames),
     mode="w")
 
-model.run(runlen=runlen, outputs=(writer,), progress=False)
+model.run(runlen=runlen, outputs=writer)
 
 # %%
 # Each flank of the jet has rolled up into two vortices, so the
@@ -128,10 +131,10 @@ _ = model.state.rel_vort_z.to(center).xr.isel(z=0, drop=True).plot(
 command = (
     "cdfviewer barotropic_jet.zarr"
     " -v rel_vort_z -x x -y y --dims=z=0 -p heatmap -a time"
-    " --kwargs='colormap=:balance, colorrange=(-1.1, 1.1),"
-    ' title="Barotropic jet",'
     # the time axis is nondimensional, so the label drops its unit
-    ' animlabel="t = {rawvalue}", animlabelnumfmt="%.1f"'
+    " --kwargs='animlabel=\"t = {rawvalue}\", animlabelnumfmt=\"%.1f\","
+    " colormap=:balance, colorrange=(-1.1, 1.1),"
+    ' title="Barotropic jet"'
     "' --record -s 'filename=\"barotropic_jet.mp4\", framerate=24'"
 )
 _ = subprocess.run(command, shell=True, check=True)
