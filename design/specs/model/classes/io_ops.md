@@ -358,6 +358,7 @@ class Writer:
         *,
         fields: Sequence[str] | None = None,
         derived: Mapping[str, Callable] | None = None,
+        space: ScalarField | SpaceLike | None = None,
         trigger: Trigger,
         mode: Literal["w", "w-", "a"] = "w-",
         chunks: Mapping[str, int] | None = None,
@@ -406,6 +407,18 @@ Semantics, invariants, error behavior:
   the diagnostic's `with_metadata` annotation (the 02_rules
   diagnostics-metadata rule); evaluation happens only at output
   cadence.
+- **`space=` co-location (owner decision, 2026-08-20)**: an optional
+  target function space applied to *every* output — selected
+  `fields=` and `derived=` alike — through `ScalarField.to` before
+  the bind-time layout and each write, so the store comes out on one
+  position (the common case: `space=center` for viewer-friendly
+  unstaggered output, replacing a `.to(center)` lambda per field). A
+  full product space co-locates everything; a single factor converts
+  that axis only; an output already on target passes through. The
+  default `None` keeps the native staggered xgcm layout. One
+  writer-wide target by design: mixed positions stay a `.to(...)`
+  inside a `derived=` callable, which composes (`.to` is the identity
+  on an already-converted field).
 - **Layout contract** (summary — the full label/gather rules are the
   grid cluster's export section,
   [`../../grid/classes/grid.md`](../../grid/classes/grid.md) §4, which this
