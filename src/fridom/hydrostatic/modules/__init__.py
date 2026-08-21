@@ -24,6 +24,7 @@ if TYPE_CHECKING:  # pragma: no cover
     )
 
     from .barotropic_pressure import BarotropicPressureSolver
+    from .buoyancy_tracer import BuoyancyTracer
     from .core import Core
     from .free_surface import (
         ExplicitFreeSurface,
@@ -49,6 +50,7 @@ all_imports_by_origin = {
     "fridom.model.closures": ["VerticalMixing"],
     f"{base}.barotropic_pressure": ["BarotropicPressureSolver"],
     f"{base}.core": ["Core"],
+    f"{base}.buoyancy_tracer": ["BuoyancyTracer"],
     f"{base}.stratification": ["ConstantStratification"],
     f"{base}.free_surface": [
         "ExplicitFreeSurface", "ImplicitFreeSurface",
