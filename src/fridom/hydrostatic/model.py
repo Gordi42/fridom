@@ -9,9 +9,9 @@ assembly and explicit assembly produce identical carry treedefs (the
 D4 preset test).
 
 The physics lives on the **core** (``hy.Core``, gravity-first: the
-physical constant centralizes there), the required physics modules
-(``buoyancy=`` and ``free_surface=`` have **no defaults** —
-owner-ratified, no surprising default physics) and the **scaling**
+physical constant centralizes there), the physics modules (``core=``
+and ``free_surface=`` are required, ``buoyancy=`` optional — no
+surprising default physics), and the **scaling**
 policy (``fr.scaling``): ``scaling=`` names the reference time frame
 (default: ``fr.scaling.Dimensional()`` — a dimensional assembly needs
 no scaling argument at all). The retired preset kwargs (``csqr=``,
@@ -124,13 +124,17 @@ def Model(  # noqa: N802 — a factory that mirrors fr.model.Model's surface
     time_stepper : TimeStepper
         The time stepper (e.g.
         ``fr.model.time_steppers.AdamBashforth(dt, order=3)``).
-    buoyancy : fr.model.Module
-        The buoyancy formulation — REQUIRED, no default physics:
-        pass ``hy.ConstantStratification(n2=...)`` (dimensional) /
-        ``ConstantStratification(froude_number=...)``
-        (nondimensional). The ``None`` sentinel default exists only
-        so an omitted module and the renamed ``stratification=``
-        spelling raise the taught TypeError.
+    buoyancy : fr.model.Module | None, optional
+        The buoyancy formulation. ``None`` — the default — installs
+        **no buoyancy module**: the model carries no ``b`` field and
+        the core diagnoses ``p_hyd = 0``, a **constant-density**
+        (barotropic) flow driven by the surface pressure alone. Pass
+        ``hy.ConstantStratification(n2=...)`` (dimensional) /
+        ``ConstantStratification(froude_number=...)`` (nondimensional)
+        for a stratified run, or ``hy.BuoyancyTracer()`` for a
+        buoyancy tracer with no background stratification. The renamed
+        ``stratification=`` spelling raises the taught TypeError
+        (default: None).
     scaling : object | None, optional
         The ``fr.scaling`` policy naming the reference time frame;
         ``None`` defaults to ``fr.scaling.Dimensional()`` — a
@@ -191,19 +195,19 @@ def Model(  # noqa: N802 — a factory that mirrors fr.model.Model's surface
     Raises
     ------
     TypeError
-        On the retired kwargs ``csqr=`` / ``rossby_number=`` /
-        ``dt=`` and the renamed ``stratification=`` (now
+        On a missing ``core=`` / ``free_surface=`` (the two required
+        modules), the retired kwargs ``csqr=`` / ``rossby_number=`` /
+        ``dt=``, and the renamed ``stratification=`` (now
         ``buoyancy=``) (taught messages naming the new spelling).
     """
     for retired, message in _RETIRED_KWARGS.items():
         if retired in kwargs:
             raise TypeError(f"hy.Model {message}")
-    if core is None or buoyancy is None or free_surface is None:
+    if core is None or free_surface is None:
         raise TypeError(
             "hy.Model has no default physics (owner-ratified): "
-            "core=, buoyancy= and free_surface= are REQUIRED "
-            "modules — pass core=hy.Core(gravity=...), "
-            "buoyancy=hy.ConstantStratification(n2=...) and "
+            "core= and free_surface= are REQUIRED modules — pass "
+            "core=hy.Core(gravity=...) and "
             "free_surface=hy.ExplicitFreeSurface() (or the implicit "
             "/ split-explicit variants); None is not a module")
     if scaling is None:
@@ -215,7 +219,11 @@ def Model(  # noqa: N802 — a factory that mirrors fr.model.Model's surface
     # rotation is opt-in: coriolis=None installs no module at all
     if coriolis is not None:
         modules.append(coriolis)
-    modules.append(buoyancy)
+    # buoyancy is opt-in too: buoyancy=None installs no module, so the
+    # model carries no b field and the core diagnoses p_hyd = 0 (a
+    # constant-density, barotropic flow)
+    if buoyancy is not None:
+        modules.append(buoyancy)
     modules.append(free_surface)
     if advection is not False:
         modules.append(advection)

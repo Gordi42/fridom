@@ -36,6 +36,13 @@ term reads — the S1' placement of ``03_time_stepping.md`` §5.2):
     w(z)      = -\int_{-H}^{z} (\partial_x u + \partial_y v)\, dz', \\
     p_{hyd}(z) = -\int_{z}^{0} b \, dz'.
 
+The ``b`` field is **optional**: a buoyancy module
+(``hy.ConstantStratification`` / ``hy.BuoyancyTracer``) declares it and
+the ``p_hyd`` DIAGNOSE integrates it. With no buoyancy module the core
+carries no ``b``, diagnoses ``p_hyd = 0``, and the baroclinic gradient
+``-grad p_hyd`` vanishes — a **constant-density**, barotropic flow
+driven by the surface pressure alone.
+
 ``w`` is built with the **face** form of ``CumulativeIntegral``
 (``direction="up"``, seeded ``w = 0`` at the flat bottom), landing on
 the both-boundary vertical face set ``Outer`` — the
@@ -249,6 +256,11 @@ class Core(fr.model.Module):
         # cuts. False off it (unimmersed, terrain-chart, all-wet /
         # staircase / lateral-only), so the plain diff runs byte-identical.
         self._pb_active: bool = False
+        # whether a buoyancy module declared ``b`` (captured at bind).
+        # With no buoyancy (constant density) the hydrostatic pressure is
+        # identically zero and the DIAGNOSE skips the integral — the flow
+        # is barotropic, driven by the surface pressure alone.
+        self._has_buoyancy: bool = True
 
     def bind(self, table: object) -> None:
         """Capture the immersed / terrain descriptors and coord names.
@@ -269,6 +281,7 @@ class Core(fr.model.Module):
         grid = table.grid
         self._immersed = getattr(grid, "immersed", None)
         self._coords = tuple(grid.names)
+        self._has_buoyancy = "b" in table.names
         self._vertical_extent = vertical_extent(grid, self._vertical)
         self._column = discover_column(grid, self._vertical)
         require_chart_immersed_order(grid, self._column)
@@ -289,7 +302,8 @@ class Core(fr.model.Module):
         offset field is concrete (memoized geometry), so the presence
         test is a host-side bool resolved once at bind.
         """
-        if self._immersed is None or self._column is not None:
+        if (self._immersed is None or self._column is not None
+                or not self._has_buoyancy):
             return False
         delta = self._immersed.centroid_offset(
             table["b"].space, self._vertical)  # type: ignore[index]
@@ -432,12 +446,12 @@ class Core(fr.model.Module):
                 long_name="Hydrostatic pressure", units="m^2/s^2"),
         )
 
-    field_references = (
-        fr.model.FieldReference(
-            "b", hint="the hydrostatic pressure integrates buoyancy; "
-                      "add a buoyancy module "
-                      "(hy.ConstantStratification)"),
-    )
+    #: no hard reference on ``b``: the buoyancy field is **optional**.
+    #: a buoyancy module (hy.ConstantStratification / hy.BuoyancyTracer)
+    #: declares it and the DIAGNOSE integrates it into the hydrostatic
+    #: pressure; with no buoyancy module the model is constant-density
+    #: (p_hyd == 0, a barotropic flow), so ``b`` is not required.
+    field_references = ()
 
     # ================================================================
     #  Parameters -- gravity centralizes on the core (dimensional)
@@ -677,6 +691,14 @@ class Core(fr.model.Module):
         gradient refinement (Pacanowski & Gnanadesikan) is designed-for
         (immersed-partial-cells plan §7), not built here.
         """
+        if not self._has_buoyancy:
+            # constant density: no ``b`` field, so the hydrostatic
+            # pressure is identically zero and the baroclinic gradient
+            # ``-grad p_hyd`` vanishes (a barotropic flow driven by the
+            # surface pressure alone). The ``* 0.0`` keeps the p_hyd
+            # space and stays a plain traced op (no field materialization,
+            # so the halo trace follows it).
+            return {"p_hyd": state["p_hyd"] * 0.0}
         jacobian = (None if self._column is None
                     else (self._column[0],))
         p_hyd = -CumulativeIntegral(
