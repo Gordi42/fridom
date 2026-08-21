@@ -91,15 +91,16 @@ def test_preset_teaches_the_retired_kwargs(kwarg, match):
 
 
 def test_preset_requires_the_physics_modules():
+    # core= and free_surface= are REQUIRED; buoyancy= is optional (a
+    # constant-density model, tested in test_core.py)
     with pytest.raises(TypeError, match="REQUIRED"):
         hy.Model(grid=make_grid(), core=hy.Core(gravity=1.0),
                  buoyancy=hy.ConstantStratification(n2=1.0),
                  free_surface=None,
                  time_stepper=AdamBashforth(DT, order=3))
-    # buoyancy= carries a None default only so the renamed kwarg can
-    # be taught; omitting it is the same taught REQUIRED error
     with pytest.raises(TypeError, match="REQUIRED"):
-        hy.Model(grid=make_grid(), core=hy.Core(gravity=1.0),
+        hy.Model(grid=make_grid(), core=None,
+                 buoyancy=hy.ConstantStratification(n2=1.0),
                  free_surface=hy.ExplicitFreeSurface(),
                  time_stepper=AdamBashforth(DT, order=3))
 

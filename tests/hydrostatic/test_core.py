@@ -215,3 +215,81 @@ def test_geostrophic_null_eigenvector_is_steady():
 def test_core_rejects_a_bad_horizontal(horizontal):
     with pytest.raises(TypeError, match="horizontal"):
         hy.Core(horizontal=horizontal)
+
+
+# ================================================================
+#  Constant density: buoyancy=None (no b, p_hyd == 0, barotropic)
+# ================================================================
+def make_barotropic_model(grid=None, *, gravity=3.0, f0=1.3, dt=1e-3,
+                          advection=False):
+    """Return a constant-density model (buoyancy=None, no b field)."""
+    if grid is None:
+        grid = make_grid()
+    return hy.Model(
+        grid=grid,
+        core=hy.Core(gravity=gravity),
+        time_stepper=AdamBashforth(dt, order=3),
+        coriolis=hy.FPlaneCoriolis(f0=f0),
+        buoyancy=None,
+        free_surface=hy.ExplicitFreeSurface(),
+        advection=advection)
+
+
+def test_buoyancy_none_carries_no_buoyancy_field():
+    # constant density: no buoyancy module, so the model declares no b
+    model = make_barotropic_model()
+    names = [field.name for field in model.state]
+    assert "b" not in names
+    assert "p_hyd" in names
+
+
+def test_buoyancy_none_diagnoses_zero_hydrostatic_pressure():
+    # with no b the hydrostatic pressure is identically zero, so a
+    # surface bump drives a barotropic flow with p_hyd == 0 throughout
+    model = make_barotropic_model()
+    model.set_fields(
+        ps=lambda x, y: 0.5 * jnp.exp(
+            -((x - 0.5) ** 2 + (y - 0.5) ** 2) / 0.03))
+    model.advance(15)
+    p_hyd = np.asarray(model.state["p_hyd"].data)
+    assert float(np.abs(p_hyd).max()) == 0.0
+    # the barotropic flow is alive and finite (surface-pressure driven)
+    u = np.asarray(model.state["u"].data)
+    assert np.isfinite(u).all()
+    assert float(np.abs(u).max()) > 0.0
+
+
+def test_buoyancy_none_composes_with_advection():
+    # advection=True with no buoyancy has no b to advect and stands
+    # (u, v are advected; the coverage lint is satisfied)
+    model = make_barotropic_model(advection=True)
+    assert "b" not in [field.name for field in model.state]
+
+
+def test_buoyancy_none_run_is_differentiable():
+    # the constant-density step path is reverse-mode differentiable:
+    # d loss / d(gravity) through a short run matches a central FD (the
+    # gravity drives the barotropic dynamics through the free surface)
+    import jax  # noqa: PLC0415 — local to the one autodiff test
+
+    gravity = 2.0
+
+    def build():
+        model = make_barotropic_model(gravity=gravity, dt=5e-3)
+        model.set_fields(
+            ps=lambda x, y: 0.5 * jnp.exp(
+                -((x - 0.5) ** 2 + (y - 0.5) ** 2) / 0.03))
+        return model
+
+    run = build().propagator(wrt=("hydrostatic.gravity",), steps=8)
+
+    def loss(g):
+        final = run((g,))
+        return sum(jnp.sum(field.data ** 2) for field in final.state)
+
+    g0 = jnp.asarray(gravity)
+    grad = float(jax.grad(loss)(g0))
+    eps = 1e-4 * float(g0)
+    fd = (float(loss(g0 + eps)) - float(loss(g0 - eps))) / (2.0 * eps)
+    assert np.isfinite(grad)
+    assert grad == pytest.approx(fd, rel=1e-4)
