@@ -3182,3 +3182,35 @@ item, [`open.md`](open.md) §2g).
 - Calendar/date formatting is out of scope: `Clock.start_date`
   exists but `Model` hardcodes `Clock()` with no way to set one
   ([`open.md`](open.md) §2g). Model time is humanized seconds.
+
+## `hy.energy.hydrostatic_energy_weights` — the depth-integrated `ps` weight made explicit (2026-08-21)
+
+The wave's "vestigial helper" owner call (open.md §1) resolved by the
+docstring-fix option (owner 2026-08-21), after the geostrophic-
+adjustment example tripped over it: a hand-built
+`EnergyMetric({"ps": 1/c²})` at H = 100 m is not conserved by the
+explicit free surface, while `{"ps": 1/g}` is (KE + PE/g constant to
+1e-4 over 250 AB3 steps). Diagnosis: not a metric bug.
+`EnergyMetric.inner` reduces the `ConstantSpace` z factor of a
+`Profile` field as the identity (its own docstring says so;
+`from_model` already derives `ps: 1/g = H/c²`; the eigenmode docs and
+`ExplicitFreeSurface` agree; the `test_free_surface.py` energy gate
+uses `1/c²` only after lifting `ps` onto the 3D volume). The helper
+alone documented the opposite ("ps broadcasts to the 3D volume before
+the quadrature") and named its parameter `inv_csqr` — invisible to its
+tests because they run at depth 1 — and it is the only spelling for an
+unstratified model, since `from_model` refuses `n2 = 0`.
+
+Shipped (`chore/hydrostatic-energy-weights`): the parameter is
+`ps_weight`, documented as the depth-integrated `H/c²` (`1/g`
+dimensional) with the identity-reduction reason, and `from_model` is
+named as the default spelling. `tests/hydrostatic/test_energy.py`
+gains the Profile-path regression the 3D-broadcast gate cannot catch:
+at depth 2 the linear operator is M-skew to 1e-12 under
+`hydrostatic_energy_weights(1/n2, 1/g)` and under `from_model`, and
+visibly not (> 1e-3) under `1/c²`. `EnergyMetric` / `integrate` are
+untouched — the Constant-axis identity is relied on by terrain
+(`H(x, y)` as a field weight), the eigenbasis and every Profile
+integral. Left open (owner's call, tracked in open.md §1):
+`from_model` on `n2 = 0` — omit `b` from the metric rather than refuse;
+`hy.diagnostics.epot` carries the same `1/N²`.

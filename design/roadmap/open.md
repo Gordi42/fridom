@@ -41,10 +41,12 @@ Oceananigans re-run.
     plain g (verified site-by-site, no lone c² exists); depths enter
     only as the volume-exact local H_a and the flat-only physical
     extent in analytics/reporting.
-  - **`hy.energy.hydrostatic_energy_weights` is vestigial**
-    (superseded docstring, flat-only test consumers, wrong on any
-    non-unit depth): delete + repoint its two tests (recommended),
-    or fix the docstring. Public `hy.energy` export.
+  - `hy.energy.hydrostatic_energy_weights` — **resolved 2026-08-21**
+    (owner chose the docstring-fix option: `ps_weight` signature +
+    depth ≠ 1 regression; entry in [`done.md`](done.md)). Still
+    open from it: `EnergyMetric.from_model` on an unstratified model
+    (`n2 = 0`) refuses instead of dropping `b` from the metric;
+    `hy.diagnostics.epot` divides by the same `N²`.
   - **`ThermalWindBackground` naming** — keep the shipped name
     (recommended) or rename to the roadmap's old candidate
     `ThermalWindShear` (public export, wide-ish rename).
