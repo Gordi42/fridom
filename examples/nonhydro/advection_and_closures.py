@@ -239,16 +239,15 @@ _ = axes[0].legend(fontsize=8, ncol=2)
 #
 # The Fields
 # ----------
-_ = plt.figure(figsize=(12, 6))
-for index, (name, (_series, field)) in enumerate(results.items()):
-    axis = plt.subplot(2, 4, index + 1)
+figure, axes = plt.subplots(2, 4, figsize=(12, 6), constrained_layout=True)
+for axis, (name, (_series, field)) in zip(axes.ravel(), results.items(),
+                                          strict=True):
     slab = np.asarray(field.data)[:, 0, :]
     axis.imshow(slab.T, origin="lower", cmap="RdBu_r",
                 vmin=-3e-4, vmax=3e-4, extent=(0, box_size, 0, box_size))
     axis.set_title(name, fontsize=10)
     axis.set_xticks([])
     axis.set_yticks([])
-plt.tight_layout()
 
 # %%
 # The fields say what the integrals cannot. Centered advection is
