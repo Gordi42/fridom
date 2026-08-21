@@ -26,6 +26,7 @@ LX, LY, LZ = 2000.0, 1.0, 1000.0    # box extents, m
 
 nx, ny, nz = 256, 1, 128
 frames = 240
+runlen = 8.0 * 3600.0                # eight hours of model time
 
 # %%
 # Grid and Model
@@ -37,7 +38,10 @@ grid = fr.spatial.cartesian.Grid(
     extent=(LX, LY, LZ),
     periodic=(True, True, False))
 
-dt = 0.1 / STRATIFICATION_N2 ** 0.5        # omega dt <= 0.1
+# omega dt <= 0.1, fitted so that the run and each of its frames
+# are whole numbers of steps
+dt = fr.model.fit_dt(
+    runlen, 0.1 / STRATIFICATION_N2 ** 0.5, parts=frames)
 
 model = nh.Model(
     grid=grid,
@@ -94,12 +98,10 @@ _ = model.state.b.xr.isel(y=0).plot(x="x", size=3.2, aspect=2)
 # roughly four hours. Eight hours shows the descent, the
 # reflection, and the climb back toward mid depth. We write the
 # buoyancy once per frame and render the slice.
-runlen = 8.0 * 3600.0
-
 writer = fr.io.Writer(
-    "wave_package.zarr", fields=["b"],
+    "wave_package.zarr", fields="b",
     trigger=fr.io.every(seconds=runlen / frames), mode="w")
-model.run(runlen=runlen, outputs=(writer,), progress=False)
+model.run(runlen=runlen, outputs=writer)
 
 _ = subprocess.run(
     "cdfviewer wave_package.zarr -v b -x x -y z --dims=y=0"
