@@ -2,233 +2,248 @@ r"""
 Symmetric Instability
 =====================
 
-An eady-like vertical shear flow that is unstable to symmetric instabilities.
-Model parameters are taken from Stamper and Taylor (2016) [1]_.
+A front in thermal wind balance overturns along its own isopycnals.
 
-Model equations
----------------
-We consider the nonhydrostatic boussinesq equations and assume that all fields
-are constant in the y-direction (:math:`\partial_y \phi = 0`). The model equations 
-are:
-
-.. math::
-    D_t u = f v - \partial_x p
-    \quad , \quad
-    D_t v = - f u
-    \quad , \quad
-    D_t w = b - \partial_z p
-    \quad , \quad
-    D_t b = 0
-
-where :math:`D_t = \partial_t + u \partial_x + w \partial_z` is the material derivative.
-We define a background state :math:`(U,V,W,B,P)` that is in thermal wind balance:
-
-.. math::
-    U = 0
-    \quad , \quad
-    V(z) = \frac{M^2}{f} z
-    \quad , \quad
-    W = 0
-    
-    B(x,z) = N^2 z + M^2 x
-    \quad , \quad
-    P(x,z) = \frac{N^2}{2} z^2 + M^2 x z
-
-where :math:`M^2` is the horizontal shear and :math:`N^2` is the vertical shear.
-Inserting :math:`u = U + u'`, etc. into the model equations and dropping the primes yield:
-
-.. math::
-    D_t u = f v - \partial_x p
-    \quad , \quad
-    D_t w = b - \partial_z p
-
-    D_t v = - f u - \frac{M^2}{f} w
-    \quad , \quad
-    D_t b = - M^2 u - N^2 w
-
-The background vertical stratification is already implemented in the nonhydrostatic model,
-but we need to add the tendency terms due to the horizontal background shear. In the
-code below, this is done with the `BackgroundAdvection` class.
-
-Physical parameters
--------------------
-We use the following parameters:
-
-+-------------+--------------------+------------------------------------------+
-| Parameter   | Value              | Description                              |
-+=============+====================+==========================================+
-| :math:`f`   | :math:`10^{-4}`    | Coriolis parameter                       |
-+-------------+--------------------+------------------------------------------+
-| :math:`M^2` | :math:`-10^{-7}`   | Horizontal background buoyancy gradient  |
-+-------------+--------------------+------------------------------------------+
-| :math:`N^2` | :math:`Ri~M^4/f^2` | Vertical background buoyancy gradient    |
-+-------------+--------------------+------------------------------------------+
-| :math:`L_x` | 500 m              | Domain size in x                         |
-+-------------+--------------------+------------------------------------------+
-| :math:`L_z` | 200 m              | Domain size in z                         |
-+-------------+--------------------+------------------------------------------+
-
-with the Richardson number :math:`Ri = [0.25, 0.5, 0.75]`.
-
-Numerical parameters
---------------------
-We use a triple periodic domain with 1024x1x512 grid points and a RKF45 time stepping
-scheme with an adaptive time step size.
-
-Animations
-----------
-
-Richardson number :math:`Ri = 0.25`
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-.. video:: videos/symmetric_instability_ri_0.25.mp4
-
-Richardson number :math:`Ri = 0.5`
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-.. video:: videos/symmetric_instability_ri_0.50.mp4
-
-Richardson number :math:`Ri = 0.75`
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-.. video:: videos/symmetric_instability_ri_0.75.mp4
-
-
-References
-----------
-.. [1] Stamper, M. A., & Taylor, J. R. (2016). The transition from symmetric to
-    baroclinic instability in the Eady model.
-
+Parameters follow Stamper and Taylor (2016), *The transition from
+symmetric to baroclinic instability in the Eady model*; the linear
+theory of the problem goes back to Stone (1966), *On non-geostrophic
+baroclinic stability*.
 """
-import fridom.nonhydro as nh
-import os
+
+# %%
+# Experiment Settings
+# -------------------
+# A front is a horizontal buoyancy gradient, and rotation holds it up
+# with a vertical shear through thermal wind. That balance is exact but
+# not always stable. When the Richardson number
+# :math:`\mathrm{Ri} = N^2 f_0^2 / (M^2)^2` drops below one, the flow
+# can release energy by overturning in slanted cells that follow the
+# tilted isopycnals rather than crossing them, which is why the
+# instability is called symmetric.
+#
+# The background state is
+#
+# .. math::
+#     V(z) = \frac{M^2}{f_0} z
+#     \quad , \quad
+#     B(x, z) = N^2 z + M^2 x
+#
+# with :math:`f_0 \partial_z V = \partial_x B = M^2`, which is thermal
+# wind. Every field is taken independent of the along-front direction,
+# so the problem is two-dimensional in the cross-front plane. The front
+# sits at :math:`\mathrm{Ri} = 0.25`, well inside the unstable range.
+import subprocess
+
+import jax.numpy as jnp
 import numpy as np
-import matplotlib.pyplot as plt
-from matplotlib.colors import SymLogNorm
-import matplotlib.lines as mlines
 
-# ----------------------------------------------------------------
-#  Experiment settings
-# ----------------------------------------------------------------
-# General settings
-make_video  = True
-fps         = 30
-make_netcdf = False
-exp_name    = "symmetric_instability"
-thumbnail   = f"figures/{exp_name}.png"
+# sphinx_gallery_thumbnail_number = 2
+import fridom as fr
+import fridom.nonhydro2 as nh
 
-# Physical parameters
-f0 = 1e-4         # Coriolis parameter
-M2 = -1e-7        # Horizontal background density gradient
-Lx = 500          # 500 m in x
-Lz = 200          # 200 m in z
+coriolis = 1e-4           # f0 [1/s]
+front_gradient = -1e-7    # M^2 = dB/dx [1/s^2]
+richardson_number = 0.25  # Ri = N^2 f0^2 / M^4
+box_length = 500.0        # metres across the front
+box_depth = 200.0         # metres
 
-# Numerical parameters
-resolution_factor = 8            # 2^9 = 512 grid points
-Nx = 2**(resolution_factor + 1)  # Number of grid points in x
-Nz = 2**resolution_factor        # Number of grid points in z
+seed_wavenumber = 4       # cells across the box
+seed_amplitude = 5e-6     # m/s^2 of buoyancy anomaly to start from
+
+runlen = 8.0 * 3600.0     # seconds
+
+nz = 128
+nx = 2 * nz
+ny = 1                    # the flow is two-dimensional, in x and z
+frames = 288
+
+# %%
+# Linear Theory
+# -------------
+# :class:`~fridom.nonhydro2.modules.thermal_wind.ThermalWindBackground`
+# supplies the two terms the background adds to the perturbation
+# equations, the tilting of the mean shear by :math:`w` and the
+# advection of the mean buoyancy by :math:`u`. It reads the Coriolis
+# parameter from the model, so thermal wind holds by construction
+# rather than by the caller getting the arithmetic right. There is no
+# background advection term, because the mean flow points along the
+# front and nothing varies in that direction.
+#
+# Those two terms are all it takes to get the growth rate in closed
+# form. The derivation is not needed to run the example, and only its
+# result is used later, to tilt the seed. Linearized about the
+# background, with nothing varying along the front, the equations of
+# motion are
+#
+# .. math::
+#     \partial_t u - f_0 v = -\partial_x p
+#     \quad , \quad
+#     \partial_t w = -\partial_z p + b
+#     \quad , \quad
+#     \partial_x u + \partial_z w = 0 ,
+#
+# .. math::
+#     \partial_t v = -f_0 u - \frac{M^2}{f_0} w
+#     \quad , \quad
+#     \partial_t b = -M^2 u - N^2 w ,
+#
+# where the terms in :math:`M^2` are the two the background supplies.
+# Continuity lets a streamfunction carry the cross-front flow,
+# :math:`u = \partial_z \psi` and :math:`w = -\partial_x \psi`, and the
+# pressure drops out of the difference between the :math:`z` derivative
+# of the :math:`u` equation and the :math:`x` derivative of the
+# :math:`w` equation, since both contain
+# :math:`\partial_x \partial_z p`:
+#
+# .. math::
+#     \partial_t \nabla^2 \psi = f_0 \partial_z v - \partial_x b .
+#
+# Now take a disturbance growing as :math:`e^{\sigma t}` with
+# :math:`\psi \propto \sin(k x + m z)`, so that :math:`u`, :math:`w`,
+# :math:`v` and :math:`b` all vary as :math:`\cos(k x + m z)`. The
+# three equations turn into three relations between the amplitudes,
+#
+# .. math::
+#     \sigma v = \left(\frac{M^2}{f_0} k - f_0 m\right) \psi
+#     \quad , \quad
+#     \sigma b = \left(N^2 k - M^2 m\right) \psi
+#     \quad , \quad
+#     \sigma (k^2 + m^2) \psi = f_0 m v - k b ,
+#
+# and substituting the first two into the third gives the dispersion
+# relation
+#
+# .. math::
+#     \sigma^2 (k^2 + m^2) = -N^2 k^2 + 2 M^2 k m - f_0^2 m^2 .
+#
+# After some algebra, the fastest growth rate is
+#
+# .. math::
+#     \sigma_\text{max}^2 = \frac{\sqrt{(N^2 - f_0^2)^2 + 4 (M^2)^2}
+#                           - (N^2 + f_0^2)}{2} .
+#
+# It is positive exactly when :math:`(M^2)^2 > N^2 f_0^2`, which is
+# :math:`\mathrm{Ri} < 1`. It is maximum for
+#
+# .. math::
+#     \frac{m}{k} = \frac{M^2}{\sigma_\text{max}^2 + f_0^2} .
+#
+# Here :math:`M^2` is negative, so :math:`m` and :math:`k` have
+# opposite signs and the wave leans the same way as the isopycnals.
+#
+front = nh.ThermalWindBackground(m2=front_gradient)
+stratification = front.stratification_n2(
+    coriolis, richardson_number=richardson_number)
+
+discriminant = np.sqrt(
+    (stratification - coriolis**2) ** 2 + 4 * front_gradient**2)
+rate = np.sqrt(0.5 * (discriminant - (stratification + coriolis**2)))
+
+# %%
+# Grid and Model
+# --------------
+# The box is periodic across the front and walled at the top and the
+# bottom. Fifth-order WENO advection carries the overturning, and a
+# ten-second step resolves it.
+grid = fr.spatial.cartesian.Grid(
+    shape=(nx, ny, nz),
+    extent=(box_length, box_depth, box_depth),
+    periodic=(True, True, False))
+
+# fitted so that the run and each of its frames are whole numbers of
+# steps
+dt = fr.model.fit_dt(runlen, 10.0, parts=frames)
+
+model = nh.Model(
+    grid=grid,
+    core=nh.Core(aspect_ratio=1.0),
+    coriolis=nh.FPlaneCoriolis(f0=coriolis),
+    buoyancy=nh.ConstantStratification(n2=stratification),
+    advection=nh.WENOAdvection(order=5),
+    modules_extra=front,
+    time_stepper=fr.model.time_steppers.AdamBashforth(dt, order=3))
+
+# %%
+# Seeding a Single Mode
+# ---------------------
+# The fastest wave cannot be the seed as it stands, because it does
+# not vanish at the top and the bottom of the box, where :math:`w`
+# must. We fade it out with the gravest standing envelope,
+# :math:`\sin(\pi z / L_z)`, and place four wavelengths across the
+# box. The result differs slightly from the fastest mode the box
+# itself admits, which grows about one percent slower than
+# :math:`\sigma_\text{max}` and has a tilt to match, but a seed only
+# needs a good projection onto the growing mode.
+#
+# The seed is a buoyancy anomaly, because buoyancy is what the
+# animation shows. It carries the buoyancy of the mode but not its
+# velocities, and the flow spends the first hours building those
+# before the growth sets in.
+wavenumber = 2 * np.pi * seed_wavenumber / box_length
+tilt = wavenumber * front_gradient / (rate**2 + coriolis**2)
 
 
-# ----------------------------------------------------------------
-#  Create a plotting module for the animation and thumbnail
-# ----------------------------------------------------------------
-class Plotter(nh.modules.animation.ModelPlotter):
-    def create_figure():
-        return plt.figure(figsize=(12, 7), dpi=128)
-
-    def prepare_arguments(mz: nh.ModelState) -> dict:
-        return {"b": mz.z.b.xrs[:,0,:],
-                "z": mz.z.xrs[::10,0,::10],
-                "N2": mz.mset.stratification_n2,
-                "t": mz.clock.time}
-
-    def update_figure(fig, b, z, N2, t) -> None:
-        ax = fig.add_subplot(111)
-        # plot the buoyancy field in log scale
-        b.plot(ax=ax, norm=SymLogNorm(
-            linthresh=1e-7, linscale=1, vmax=1e-4, vmin=-1e-4),
-            cmap="RdBu_r", extend="both")
-        # add a quiver plot to show the velocity field
-        Q = z.plot.quiver('x', 'z', 'u', 'w', 
-                          scale=1.6, ax=fig.gca(), width=0.0015, add_guide=False)
-        arrow = ax.quiverkey(Q, 0.83, 1.03, 0.02, label='Velocity: 2.0 cm/s', 
-                             labelpos='E', coordinates='axes')
-        # add contours for the background density
-        X, Z = np.meshgrid(z.x, z.z)
-        contours = ax.contour(X, Z, N2*Z+M2*X, colors='black', linestyles="solid")
-        line = mlines.Line2D([], [], color='black', label='Background Density')
-        ax.legend(handles=[line], loc='upper right')
-        time = nh.utils.humanize_number(int(t), "seconds")
-        plt.title(f"Time: {time}", fontsize=20)
+def seed(x, y, z):  # y is named but the flow is two-dimensional
+    """Return the tilted mode, faded out at the two walls."""
+    return (seed_amplitude * jnp.cos(wavenumber * x + tilt * z)
+            * jnp.sin(jnp.pi * z / box_depth))
 
 
-@nh.utils.skip_on_doc_build
-def perform_experiment(richardson_number, run_length, make_thumbnail=False):
-    # ----------------------------------------------------------------
-    #  Create the grid and model settings
-    # ----------------------------------------------------------------
-    N2 = richardson_number * M2**2 / f0**2
-    grid = nh.grid.cartesian.Grid(shape=(Nx, 1, Nz), domain_size=(Lx, 1, Lz), 
-                                periodic_bounds=(True, True, False))
-    time_stepper = nh.time_steppers.AdamBashforth(order=2, dt=3)
-    mset = nh.ModelSettings(grid=grid, f0=f0, stratification_n2=N2, dsqr=1, time_stepper=time_stepper)
+model.set_fields(b=seed)
 
-    # ----------------------------------------------------------------
-    #  Create a tendency module that includes the background state
-    # ----------------------------------------------------------------
-    @nh.utils.jaxify
-    class BackgroundAdvection(nh.modules.Module):
-        name = "Background Advection"
-        @nh.modules.module_method
-        def update(self, mz: nh.ModelState) -> nh.ModelState:
-            interp = self.interp_module.interpolate
 
-            z = mz.z
+def plot_slice(field):
+    """Draw the x-z slice with the background isopycnals over it."""
+    slice_2d = field.xr.isel(y=0, drop=True)
+    plot = slice_2d.plot(x="x", size=2.4, aspect=3.1, cmap="RdBu_r")
+    plot.axes.set_aspect("equal")
+    background = (stratification * slice_2d.z
+                  + front_gradient * slice_2d.x)
+    background.plot.contour(
+        x="x", ax=plot.axes, colors="black", linewidths=0.7,
+        linestyles="solid", add_colorbar=False)
 
-            mz.dz.v -= interp(z.w, z.v.position) * M2 / f0
-            mz.dz.b -= interp(z.u, z.b.position) * M2
-            return mz
 
-    # ----------------------------------------------------------------
-    #  Add custom modules to the model settings
-    # ----------------------------------------------------------------
-    # add the background state advection and turbulence closure
-    mset.tendencies.add_module(BackgroundAdvection())
-    mset.tendencies.add_module(nh.modules.closures.SmagorinskyLilly())
+plot_slice(model.state.b)
 
-    # add a video writer
-    if make_video:
-        mset.diagnostics.add_module(nh.modules.animation.VideoWriter(
-            Plotter, 
-            model_time_per_second=np.timedelta64(4, 'h'),
-            filename=f"{exp_name}_ri_{richardson_number:.2f}.mp4", fps=fps))
+# %%
+# The seed leans along the black lines, the background isopycnals, and
+# the envelope fades it out at the two walls.
+#
+# Running and Writing Output
+# --------------------------
+# The seed is large enough to show on the colour scale of the
+# animation from the first frame, and eight hours carry it through the
+# roll-up to the breakdown. Every frame writes the buoyancy to a zarr
+# store.
+writer = fr.io.Writer(
+    "symmetric_instability.zarr",
+    fields="b",
+    trigger=fr.io.every(time_units=runlen / frames),
+    mode="w")
 
-    # create a NetCDF writer to save the output
-    if make_netcdf:
-        mset.diagnostics.add_module(nh.modules.NetCDFWriter(
-            get_variables = lambda mz: [*mz.z.field_list, mz.z.ekin],
-            write_trigger = nh.ClockTrigger(time_interval=np.timedelta64(20, "m")),
-            filename=f"{exp_name}_ri_{richardson_number:.2f}".replace(".", "_")))
+model.run(runlen=runlen, outputs=writer)
 
-    mset.setup()
+# %%
+# The bands lean along the isopycnals and steepen for about four
+# hours, then roll up into a regular row of cells that repeats across
+# the box. Within an hour the rolls tangle and break into finer
+# filaments. The run ends with the buoyancy anomaly positive along the
+# top of the box and negative along the bottom, with filaments in
+# between.
+plot_slice(model.state.b)
 
-    # ----------------------------------------------------------------
-    #  Create the initial condition
-    # ----------------------------------------------------------------
-    z = nh.State(mset)
-    z.v.arr += grid.create_random_array(seed=12345) * 1e-6
-
-    # ----------------------------------------------------------------
-    #  Run the model
-    # ----------------------------------------------------------------
-    model = nh.Model(mset)
-    model.z = z
-    model.run(runlen=run_length)
-
-    # plot the final state (thumbnail)
-    if make_thumbnail:
-        os.makedirs("figures", exist_ok=True)
-        fig = Plotter(model.model_state)
-        fig.savefig(thumbnail, dpi=200)
-
-if __name__ == "__main__":
-    perform_experiment(0.25, run_length=np.timedelta64(2, "D"))
-    perform_experiment(0.50, run_length=np.timedelta64(3, "D"), make_thumbnail=True)
-    perform_experiment(0.75, run_length=np.timedelta64(4, "D"))
+# %%
+# Rendering the Animation
+# -----------------------
+# `CDFViewer <https://gordi42.github.io/CDFViewer.jl/>`_ records the
+# buoyancy animation from the store.
+command = (
+    "cdfviewer symmetric_instability.zarr"
+    " -v b -x x -y z --dims=y=0 -p heatmap -a time"
+    " --kwargs='animlabel=\"{duration}\", colormap=:balance,"
+    ' animlabelnumfmt="%.0f",'
+    " colorrange=(-8e-5, 8e-5)'"
+    " --record -s 'filename=\"symmetric_instability.mp4\", framerate=24'"
+)
+_ = subprocess.run(command, shell=True, check=True)
