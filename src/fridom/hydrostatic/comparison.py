@@ -56,8 +56,7 @@ Bit-level agreement is only expected in this shared limit; away from it
 (higher-order advection, split-explicit surface, nonlinear EOS) the
 models compare through convergence and physical diagnostics, not bytes
 (HY-D6). The physics-validation suite that exercises this preset lives
-in ``tests/hydrostatic/test_comparison.py``; a runnable baseline is
-``examples/hydrostatic/comparison_baseline.py``.
+in ``tests/hydrostatic/test_comparison.py``.
 """
 from __future__ import annotations
 
