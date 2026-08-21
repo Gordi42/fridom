@@ -3251,3 +3251,34 @@ truly buoyancy-free hydrostatic assembly (`p_hyd == 0`, no `b` field)
 is a core change (the core must stop referencing `b`); `BuoyancyTracer`
 covers the constant-density-with-advection case meanwhile (b exists,
 inert without forcing). Not implemented — awaiting owner decision.
+
+## Hydrostatic `buoyancy=None` — the constant-density model (2026-08-21)
+
+Resolves the "left open" note of the eta/BuoyancyTracer entry above
+(owner: make `buoyancy=None` work). `hy.Model` now installs no buoyancy
+module when `buoyancy=None` (the default): the model carries no `b`
+field and `hy.Core` diagnoses `p_hyd = 0`, so the baroclinic pressure
+gradient vanishes — a **constant-density, barotropic** flow driven by
+the surface pressure alone. This brings hydrostatic in line with
+nonhydro, where buoyancy was already opt-in; the asymmetry was that
+`hy.Core` referenced `b` for its `p_hyd = -int b dz` diagnosis.
+
+Mechanics (merge `7b5a3a9c`):
+- `hy.Core` drops its hard `b` field reference (b is optional), captures
+  `self._has_buoyancy = "b" in table.names` at bind, and short-circuits
+  `_diagnose_p_hyd` to `state["p_hyd"] * 0.0` when b is absent — a
+  tracer-safe zero (`.with_data` / `jnp.zeros_like` fail the HaloTracer
+  at halo-negotiation). `_derive_pb_active` also guards on it.
+- `hy.Model` requires only `core=` / `free_surface=`; `buoyancy=None` is
+  the default. `test_model_scaling.py`'s required-modules test updated.
+- With-buoyancy paths are byte-identical (test_core all shards,
+  immersed / terrain / partial-bottom, the free-surface energy gate and
+  test_energy all green). The constant-density step path is reverse-mode
+  differentiable: `grad` wrt `hydrostatic.gravity` (which drives the
+  barotropic dynamics through the free surface) matches a central FD to
+  rel 4e-11 (`test_core.py::test_buoyancy_none_run_is_differentiable`).
+
+The geostrophic-adjustment example now spells the barotropic run
+`buoyancy=None` (was `ConstantStratification(n2=0.0)`; byte-identical
+dynamics since `n2=0` already gave `p_hyd=0`), reading its writer's
+centre space off `p_hyd` rather than the retired `b`.
