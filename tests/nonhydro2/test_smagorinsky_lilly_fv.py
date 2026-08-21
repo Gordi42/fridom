@@ -208,15 +208,16 @@ def test_every_bounded_strain_factor_is_grounded_on_fv():
 #  Cs=0 walled FV stress reduces to the walled FV background friction
 # ================================================================
 def test_cs_zero_walled_fv_tangential_stress_is_harmonic_friction():
-    # tau = nu Sigma (no factor 2) makes the wall-parallel shear damp at
-    # HALF the harmonic rate -> bit-for-bit HarmonicFriction(nu_bg/2),
-    # on the FV family this time (the FV walled friction chain).
+    # tau = 2 nu Sigma with Sigma_xz = du/dz / 2 makes the wall-parallel
+    # shear damp at the harmonic rate -> bit-for-bit
+    # HarmonicFriction(nu_bg), on the FV family this time (the FV
+    # walled friction chain).
     nu_bg = 3e-3
     smag = smag_model(make_grid({"x": True, "y": True, "z": False}),
                       smagorinsky_constant=0.0,
                       background_viscosity=nu_bg)
     fric = friction_model(make_grid({"x": True, "y": True, "z": False}),
-                          nu=0.5 * nu_bg, slip="free")
+                          nu=nu_bg, slip="free")
     for m in (1, 2, 3):
         smag.set_fields(u=cos_z(m))
         fric.set_fields(u=cos_z(m))
@@ -232,7 +233,7 @@ def test_cs_zero_no_slip_walled_fv_stress_is_harmonic_friction():
                       smagorinsky_constant=0.0,
                       background_viscosity=nu_bg, slip="no")
     fric = friction_model(make_grid({"x": True, "y": True, "z": False}),
-                          nu=0.5 * nu_bg, slip="no")
+                          nu=nu_bg, slip="no")
     for m in (1, 2, 3, N):
         smag.set_fields(u=sin_z(m))
         fric.set_fields(u=sin_z(m))
@@ -296,9 +297,10 @@ def test_no_slip_uniform_flow_drags_only_the_wall_cells_on_fv():
                        background_viscosity=nu_bg, slip="no")
     model.set_fields(u=lambda x, y, z: np.ones_like(x + y + z))
     tend = data(model.tendency(model.state)["u"])
+    drag = -2.0 * nu_bg / DZ**2   # tau = 2 nu Sigma
     np.testing.assert_allclose(tend[:, :, 1:-1], 0.0, atol=1e-13)
-    np.testing.assert_allclose(tend[:, :, 0], -nu_bg / DZ**2, rtol=1e-12)
-    np.testing.assert_allclose(tend[:, :, -1], -nu_bg / DZ**2, rtol=1e-12)
+    np.testing.assert_allclose(tend[:, :, 0], drag, rtol=1e-12)
+    np.testing.assert_allclose(tend[:, :, -1], drag, rtol=1e-12)
 
 
 # ================================================================

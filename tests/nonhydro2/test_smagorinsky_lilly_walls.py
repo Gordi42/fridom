@@ -80,13 +80,13 @@ def sin_z(m):
 def test_cs_zero_walled_tangential_stress_is_harmonic_friction():
     # a wall-parallel velocity varying only in the wall-normal z: the
     # Cs=0 stress is the pure strain-tensor divergence of the shear,
-    # which (tau = nu Sigma, no factor 2) is HALF the harmonic rate ->
-    # bit-for-bit HarmonicFriction(nu_bg/2, slip="free").
+    # which (tau = 2 nu Sigma, Sigma_xz = du/dz / 2) is exactly the
+    # harmonic rate -> bit-for-bit HarmonicFriction(nu_bg, slip="free").
     nu_bg = 3e-3
     grid = make_grid({"x": True, "y": True, "z": False})
     smag = smag_model(grid, smagorinsky_constant=0.0,
                       background_viscosity=nu_bg)
-    fric = friction_model(grid, nu=0.5 * nu_bg, slip="free")
+    fric = friction_model(grid, nu=nu_bg, slip="free")
     for m in (1, 2, 3):
         smag.set_fields(u=cos_z(m))
         fric.set_fields(u=cos_z(m))
@@ -98,13 +98,14 @@ def test_cs_zero_walled_tangential_stress_is_harmonic_friction():
 
 def test_cs_zero_wall_normal_stress_is_harmonic_friction():
     # the wall-normal velocity (Inner[Dirichlet] along z) closes on its
-    # own tag: the diagonal Sigma_zz carries no 1/2, so the Cs=0 stress
-    # is the FULL harmonic rate -> bit-for-bit HarmonicFriction(nu_bg).
+    # own tag: the diagonal Sigma_zz carries no 1/2, so under tau = 2 nu
+    # Sigma the Cs=0 stress is TWICE the harmonic rate -> bit-for-bit
+    # HarmonicFriction(2 nu_bg).
     nu_bg = 3e-3
     grid = make_grid({"x": True, "y": True, "z": False})
     smag = smag_model(grid, smagorinsky_constant=0.0,
                       background_viscosity=nu_bg)
-    fric = friction_model(grid, nu=nu_bg, slip="free")
+    fric = friction_model(grid, nu=2.0 * nu_bg, slip="free")
     for m in (1, 2, 3):
         smag.set_fields(w=sin_z(m))
         fric.set_fields(w=sin_z(m))
@@ -247,14 +248,14 @@ def test_free_slip_walled_grad_is_finite_and_matches_fd():
 #  No-slip (W2): the wall drag and the consistent |Sigma|^2 injection
 # ================================================================
 def test_cs_zero_no_slip_stress_is_harmonic_friction():
-    # Cs=0 no-slip: the free-slip half-rate interior PLUS the wall drag
-    # -nu_bg u_1/Delta n^2 -> bit-for-bit HarmonicFriction(nu_bg/2,
+    # Cs=0 no-slip: the free-slip harmonic-rate interior PLUS the wall
+    # drag -2 nu_bg u_1/Delta n^2 -> bit-for-bit HarmonicFriction(nu_bg,
     # slip="no") (the wall-row correction reuses _wall_correction).
     nu_bg = 3e-3
     grid = make_grid({"x": True, "y": True, "z": False})
     smag = smag_model(grid, smagorinsky_constant=0.0,
                       background_viscosity=nu_bg, slip="no")
-    fric = friction_model(grid, nu=0.5 * nu_bg, slip="no")
+    fric = friction_model(grid, nu=nu_bg, slip="no")
     for m in (1, 2, 3, N):
         smag.set_fields(u=sin_z(m))
         fric.set_fields(u=sin_z(m))
@@ -288,17 +289,19 @@ def test_no_slip_matches_doubled_periodic_odd_mirror():
 
 def test_no_slip_uniform_flow_drags_only_the_wall_cells():
     # a uniform wall-parallel flow: no-slip drags exactly the two
-    # wall-adjacent cells at -nu_bg / Delta n^2 (Cs=0, so nu_t = nu_bg),
-    # the interior is stress-free (matches the diffusion pattern).
+    # wall-adjacent cells at -2 nu_bg / Delta n^2 (Cs=0, so nu_t =
+    # nu_bg, and tau = 2 nu Sigma), the interior is stress-free
+    # (matches the diffusion pattern).
     nu_bg = 1e-2
     grid = make_grid({"x": True, "y": True, "z": False})
     model = smag_model(grid, smagorinsky_constant=0.0,
                        background_viscosity=nu_bg, slip="no")
     model.set_fields(u=lambda x, y, z: np.ones_like(x + y + z))
     tend = data(model.tendency(model.state)["u"])
+    drag = -2.0 * nu_bg / DZ**2
     np.testing.assert_allclose(tend[:, :, 1:-1], 0.0, atol=1e-13)
-    np.testing.assert_allclose(tend[:, :, 0], -nu_bg / DZ**2, rtol=1e-12)
-    np.testing.assert_allclose(tend[:, :, -1], -nu_bg / DZ**2, rtol=1e-12)
+    np.testing.assert_allclose(tend[:, :, 0], drag, rtol=1e-12)
+    np.testing.assert_allclose(tend[:, :, -1], drag, rtol=1e-12)
 
 
 def test_wall_normal_component_is_slip_independent():

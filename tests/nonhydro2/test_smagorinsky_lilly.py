@@ -93,9 +93,9 @@ def test_cs_zero_stress_is_background_friction_at_discrete_rate():
     _, _, z = coords()
     model.set_fields(u=np.sin(z))
     td = model.tendency(model.state)
-    # tau_13 = nu * 0.5 * du/dz (the old tau = nu Sigma convention,
-    # no factor 2): the shear mode damps at HALF the harmonic rate
-    want = -0.5 * nu_bg * LAM1 * data(model.state["u"])
+    # tau_13 = 2 nu * 0.5 * du/dz = nu du/dz (the standard tau = 2 nu
+    # Sigma convention): the shear mode damps at the harmonic rate
+    want = -nu_bg * LAM1 * data(model.state["u"])
     np.testing.assert_allclose(data(td["u"]), want, atol=1e-15)
 
 
