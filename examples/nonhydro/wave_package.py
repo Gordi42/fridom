@@ -110,6 +110,7 @@ _ = subprocess.run(
     " figsize=(1000, 500),"
     " titlesize=28, xlabelsize=24, ylabelsize=24,"
     ' xlabel="x [m]", ylabel="z [m]",'
+    ' animunit="hours", animlabelnumfmt="%.1f",'
     " title=\"Reflecting internal-wave packet\"'"
     " --record -s 'filename=\"wave_package.mp4\", framerate=24'",
     shell=True, check=True)
