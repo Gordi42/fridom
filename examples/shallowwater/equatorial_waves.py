@@ -27,7 +27,6 @@ The equator traps Kelvin, gravity, and Rossby waves.
 # -------------------
 # An equatorial beta plane on a 6000 km by 3000 km basin. The phase
 # speed is the one of the second baroclinic mode of a 4000 m ocean.
-import os
 import subprocess
 
 import numpy as np
@@ -46,9 +45,8 @@ CSQR = STRATIFICATION_N2 * (DEPTH / (2 * np.pi)) ** 2
 # the layer depth that carries this phase speed under gravity
 EQUIVALENT_DEPTH = CSQR / GRAVITY            # about one metre
 
-fast = "FRIDOM_EXAMPLES_FAST" in os.environ
-nx = ny = 64 if fast else 128
-frames = 30 if fast else 60
+nx = ny = 128                                # grid cells per side
+frames = 60                                  # animation frames per period
 
 # %%
 # Grid and Model
@@ -99,25 +97,32 @@ dict(eigenmodes.families)
 def simulate(family, m, title):
     """Integrate one labeled mode for a period and record it."""
     # a fresh model with the mode as its initial condition
-    omega, state = eigenmodes.mode(family, indices={"x": 2, "y": m})
+    omega, state = eigenmodes.mode(family, mode_number={"x": 2, "y": m})
     model.reset()
     model.set_state(state)
     period = 2.0 * np.pi / abs(omega)
+    # every mode has its own period, so the step is retuned to divide
+    # it, and each of the frames with it
+    model.update_parameters(
+        {fr.model.params.TIME_STEP: fr.model.fit_dt(
+            period, dt, parts=frames)})
 
     # write the pressure once per frame over that period
     tag = family.replace("+", "_east").replace("-", "_west")
     name = f"equatorial_{tag}_{m}"
     writer = fr.io.Writer(
-        f"{name}.zarr", fields=["p"],
+        f"{name}.zarr", fields="p",
         trigger=fr.io.every(seconds=period / frames), mode="w")
-    model.run(runlen=period, outputs=(writer,), progress=False)
+    model.run(runlen=period, outputs=writer)
 
     # record the animation
     _ = subprocess.run(
         f"cdfviewer {name}.zarr -v p -x x -y y -p heatmap -a time"
         f" --kwargs='colormap=:balance, figsize=(1000, 500),"
         f" titlesize=28, xlabelsize=24, ylabelsize=24,"
-        f' xlabel="x [m]", ylabel="y [m]",'
+        f' xunit="km", yunit="km",'
+        f' animlabel="t = {{rawvalue}} days", animunit="days",'
+        f' animlabelnumfmt="%.1f", animlabelsize=24,'
         f" title=\"{title}\"'"
         f" --record -s 'filename=\"{name}.mp4\", framerate=24'",
         shell=True, check=True)
@@ -126,7 +131,7 @@ def simulate(family, m, title):
 # The first Rossby mode beyond the mixed Rossby-gravity wave shows the
 # equatorial trapping, a double row of pressure cells straddling the
 # equator that has decayed well before the walls.
-_, rossby_mode = eigenmodes.mode("vortical", indices={"x": 2, "y": 1})
+_, rossby_mode = eigenmodes.mode("vortical", mode_number={"x": 2, "y": 1})
 _ = rossby_mode.p.xr.plot(x="x", size=3.2, aspect=2)
 
 # %%
