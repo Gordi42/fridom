@@ -303,10 +303,17 @@ a Veros-style superbee limiter in the shared advection family;
 H2 (+H2b), H3, H4, H5 (+H5b), H6; entries below in stage order. What
 remains open (tracked in the roadmap 3.1 entry): the cross-model
 *execution* legs of §6 (the out-of-tree `benchmarks/comparison`
-harness is not on this machine; pyOM3 source access pending owner),
-and the owner review of `examples/hydrostatic/comparison_baseline.py`
-(local branch `docs/hydrostatic-example`, never merged, per the
-AGENTS.md docs workflow). The §7 designed-fors are untouched **except
+harness is not on this machine; pyOM3 source access pending owner).
+The `examples/hydrostatic/comparison_baseline.py` page was **retired
+2026-08-21** (owner decision: a gallery page that only exercised the
+protocol preset taught nothing about assembling the model). The
+gallery's hydrostatic entry is now
+`examples/hydrostatic/geostrophic_adjustment.py` — the same Rossby
+adjustment problem, assembled explicitly with `hy.Model(...)` on a long
+1-D channel with the explicit free surface (the fronts radiate for
+real instead of being damped by the implicit step), in the docs review
+flow. The preset itself stays as the protocol pin for the pending
+Veros/pyOM3 legs. The §7 designed-fors are untouched **except
 terrain, now built** (see below).
 
 ### Terrain-following (sigma-coordinate) core (branch `feat/hydrostatic-terrain`)
@@ -666,6 +673,8 @@ axis via `epsilon=0`). Physics-validation suite
 `tests/hydrostatic/test_comparison.py`; a runnable baseline
 `examples/hydrostatic/comparison_baseline.py` (the geostrophic-
 adjustment problem; owner-reviewed on `docs/hydrostatic-example`).
+[The example was retired 2026-08-21 — see the §8 opening note; the
+physics suite is unchanged.]
 
 **Geostrophic (Rossby) adjustment (validated).** A released single-mode
 `ps` step, `n2=0` (barotropic subsystem, `epsilon=1`): the implicit
