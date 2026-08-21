@@ -41,7 +41,8 @@ This file only says how the pages are built and shipped.
 - **Divergence guard:** `only_warn_on_example_error = False` — a raising
   example fails the build.
 - **Budget rule:** an example stays under ~90 s locally to survive the
-  CI slowdown factor; `FRIDOM_EXAMPLES_FAST` selects a smoke-sized run.
+  CI slowdown factor. The `FRIDOM_EXAMPLES_FAST` switch is retired
+  (owner ruling 2026-08-12): every example runs at one size.
 - **No hold on the swap:** examples/docs are written against the current
   names (`fridom.nonhydro2` etc.); the Wave-C rename is a mechanical
   find/replace over `examples/` and `docs/`.
