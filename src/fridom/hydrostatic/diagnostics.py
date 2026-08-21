@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from fridom.hydrostatic.params import GRAVITY
 from fridom.model.params import (
     SCALING_NONLINEARITY,
     STRATIFICATION_FROUDE,
@@ -82,7 +83,30 @@ def epot(
         name="epot", long_name="Potential energy", units="m^2/s^2")
 
 
+def eta(
+    state: VectorField, params: Mapping[str, object],
+) -> ScalarField:
+    r"""Free-surface elevation ``eta = p_s / g`` (dimensional).
+
+    Description
+    -----------
+    The surface displacement in metres, from the surface pressure the
+    model carries as ``p_s = g\,eta``. It reads the dimensional
+    ``hydrostatic.gravity`` provide, so it is defined on the
+    **dimensional** variant only (the nondimensional core carries no
+    gravity — read ``ps`` directly there). ``ps`` is broadcast from
+    the ``Profile("x", "y")`` space, so the returned field is
+    constant along ``z``.
+    """
+    gravity = params[GRAVITY]
+    ps = state["ps"]
+    return ps.new_quantity(
+        ps.data / gravity,
+        name="eta", long_name="Surface elevation", units="m")
+
+
 DIAGNOSTICS = {
     "ekin": ekin,
     "epot": epot,
+    "eta": eta,
 }

@@ -46,6 +46,7 @@ if TYPE_CHECKING:  # pragma: no cover
     from .eigenmodes import eigenbasis
     from .initial_conditions import jet, single_wave
     from .model import Model
+    from .modules.buoyancy_tracer import BuoyancyTracer
     from .modules.core import Core
     from .modules.free_surface import (
         ExplicitFreeSurface,
@@ -71,6 +72,7 @@ all_imports_by_origin = {
     f"{base}.model": ["Model"],
     f"{base}.state": ["State"],
     f"{base}.modules.core": ["Core"],
+    f"{base}.modules.buoyancy_tracer": ["BuoyancyTracer"],
     f"{base}.modules.stratification": ["ConstantStratification"],
     f"{base}.modules.thermal_wind": ["ThermalWindBackground"],
     f"{base}.modules.free_surface": [

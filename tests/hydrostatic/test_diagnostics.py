@@ -1,4 +1,4 @@
-"""Parameterful hydrostatic diagnostics: ekin and epot."""
+"""Parameterful hydrostatic diagnostics: ekin, epot and eta."""
 import numpy as np
 
 import fridom as fr
@@ -16,11 +16,11 @@ def make_grid(nx=8, nz=4):
         IM(nz, (0.0, 1.0), periodic=False, name="z")))
 
 
-def make_model(n2=2.0):
+def make_model(n2=2.0, gravity=1.0):
     """Return a minimal linear hydrostatic model (advection=False)."""
     return hy.Model(
         grid=make_grid(),
-        core=hy.Core(gravity=1.0),
+        core=hy.Core(gravity=gravity),
         time_stepper=AdamBashforth(1e-3, order=3),
         coriolis=hy.FPlaneCoriolis(f0=1.0),
         buoyancy=hy.ConstantStratification(n2=n2),
@@ -72,3 +72,28 @@ def test_epot_can_evaluate_on_a_passed_state():
     epot = model.diagnostics.epot(state)
     assert np.allclose(np.asarray(epot.data),
                        0.5 * np.asarray(b.data)**2 / n2)
+
+
+def test_eta_is_surface_pressure_over_gravity():
+    gravity = 2.5
+    model = make_model(gravity=gravity)
+    rng = np.random.default_rng(4)
+    model.set_fields(ps=rng.standard_normal(model.state["ps"].shape))
+    eta = model.diagnostics.eta()
+    ps = np.asarray(model.state["ps"].data)
+    assert np.allclose(np.asarray(eta.data), ps / gravity)
+    assert eta.name == "eta"
+    assert eta.xr.attrs["units"] == "m"
+
+
+def test_eta_can_evaluate_on_a_passed_state():
+    gravity = 3.0
+    model = make_model(gravity=gravity)
+    rng = np.random.default_rng(5)
+    ps = model.grid.create_field(
+        model.state["ps"].function_space,
+        data=rng.standard_normal(model.state["ps"].shape))
+    state = model.state.replace(ps=ps)
+    eta = model.diagnostics.eta(state)
+    assert np.allclose(np.asarray(eta.data),
+                       np.asarray(ps.data) / gravity)
