@@ -3214,3 +3214,40 @@ untouched — the Constant-axis identity is relied on by terrain
 integral. Left open (owner's call, tracked in open.md §1):
 `from_model` on `n2 = 0` — omit `b` from the metric rather than refuse;
 `hy.diagnostics.epot` carries the same `1/N²`.
+
+## Hydrostatic `eta` diagnostic + bare `BuoyancyTracer` (2026-08-21)
+
+Two additions to `fridom.hydrostatic`, from geostrophic-adjustment
+example review (owner questions):
+
+- **`hy.diagnostics.eta`** — the free-surface elevation `eta = ps/g`
+  (dimensional surface displacement in metres), alongside `ekin`/`epot`
+  in the `DIAGNOSTICS` map. Reads the `hydrostatic.gravity` provide, so
+  it is defined on the dimensional variant (the nondimensional core
+  carries no gravity — read `ps` directly there). The example now uses
+  `model.diagnostics.eta()` in place of an inline `ps/g` helper.
+- **`hy.BuoyancyTracer`** — the bare buoyancy tracer (declares `b`, no
+  restoring term, no `stratification` provide): the `N^2=0`
+  constant-density case where `b` is carried by advection and reaches
+  the flow only through the hydrostatic pressure the core diagnoses
+  from it. NOT a re-export of `nh.BuoyancyTracer`, which forces the
+  prognostic `w` with `b/delta^2` (aspect ratio) — the hydrostatic
+  model has no vertical momentum equation, so its tracer adds no term.
+  Re-exported as `hy.BuoyancyTracer` / `hy.modules.BuoyancyTracer`. A
+  linear assembly (`advection=False`) leaves `b` unadvanced and is
+  rejected by the coverage lint; `ConstantStratification(n2=0.0)` is
+  the linear-barotropic spelling (the `-N^2 w` term present but zero).
+
+Merge `99ba8cc4`; `tests/hydrostatic/test_diagnostics.py` (eta) +
+`test_buoyancy_tracer.py` (68 passed with the model smoke); ruff clean.
+Local `--cov` aborts (the known suite issue) — both new files are fully
+exercised by the passing tests; CI gates coverage.
+
+**Left open (owner call, surfaced by the review's Q3):** hydrostatic
+hard-requires a buoyancy module because `hy.Core` references `b` for
+its `p_hyd = -int b dz` diagnosis, whereas `nh.Model` makes buoyancy
+opt-in (`buoyancy=None` → no `b`, constant density). Supporting a
+truly buoyancy-free hydrostatic assembly (`p_hyd == 0`, no `b` field)
+is a core change (the core must stop referencing `b`); `BuoyancyTracer`
+covers the constant-density-with-advection case meanwhile (b exists,
+inert without forcing). Not implemented — awaiting owner decision.
