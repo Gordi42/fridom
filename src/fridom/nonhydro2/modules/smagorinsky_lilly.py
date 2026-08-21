@@ -13,8 +13,8 @@ strain-rate norm:
     \partial_t u_i = \partial_j \tau_{ij}, \qquad
     \partial_t \phi = \nabla \cdot (\kappa_t \nabla \phi),
 
-with :math:`\tau_{ij} = \nu_t \Sigma_{ij}` (the old module's
-convention, no factor 2),
+with :math:`\tau_{ij} = 2 \nu_t \Sigma_{ij}` (the standard
+convention, factor 2 included),
 :math:`\Sigma_{ij} = \tfrac12(\partial_j u_i + \partial_i u_j)`,
 
 .. math::
@@ -22,8 +22,11 @@ convention, no factor 2),
     \kappa_t = \nu_s / \mathrm{Pr} + \kappa_{\mathrm{bg}}, \qquad
     \nu_s = (C_s \, \Delta)^2 \, |\Sigma| \, \Gamma(\mathrm{Ri}),
 
-where :math:`\Delta` is the filter width (cell volume to the power
-:math:`1/n`) and the stratification damping is
+where :math:`|\Sigma| = \sqrt{2 \Sigma_{ij} \Sigma_{ij}}` is the
+strain-rate norm (for a plane shear :math:`u(z)` it is
+:math:`|\partial_z u|`, so :math:`\mathrm{Ri}` below is the usual
+gradient Richardson number), :math:`\Delta` is the filter width (cell
+volume to the power :math:`1/n`) and the stratification damping is
 :math:`\Gamma = \sqrt{1 - \min(\beta \mathrm{Ri}, 1)}` with
 :math:`\mathrm{Ri} = N^2 / |\Sigma|^2` and
 :math:`N^2 = \max(\partial_z b + N^2_{\mathrm{bg}}, 0)`. The port
@@ -712,7 +715,9 @@ class SmagorinskyLilly(ClosureBase):
 
         Uses the folded damping identity
         :math:`|\Sigma|\,\Gamma = \sqrt{\max(|\Sigma|^2 -
-        \beta \max(N^2, 0),\, 0)}` — pure field arithmetic, exactly
+        \beta \max(N^2, 0),\, 0)}` with
+        :math:`|\Sigma|^2 = 2\,\Sigma_{ij}\Sigma_{ij}` — pure field
+        arithmetic, exactly
         the old :math:`\Gamma(\mathrm{Ri})` including its
         zero-strain (``NaN -> 0``) limit.
 
@@ -734,6 +739,8 @@ class SmagorinskyLilly(ClosureBase):
                 s = self._strain(state, i, j)
                 sigma2 = sigma2 + 2.0 * (s * s).to(anchor)
         sigma2 = self._no_slip_sigma2(state, sigma2, anchor)
+        # the strain-rate norm: |Sigma|^2 = 2 Sigma_ij Sigma_ij
+        norm2 = 2.0 * sigma2
         bz = state["b"].diff(self._vertical)
         if self._vertical in self._walled:
             # the tracer no-flux wall: the buoyancy gradient is zero at
@@ -743,7 +750,7 @@ class SmagorinskyLilly(ClosureBase):
         n2 = bz.to(anchor)
         if self._has_background_n2:
             n2 = n2 + ctx.params[STRATIFICATION_N2]
-        damped = _positive_part(sigma2 - beta * _positive_part(n2))
+        damped = _positive_part(norm2 - beta * _positive_part(n2))
         width = self._filter_width_field(anchor)
         return (cs * width) ** 2 * _guarded_sqrt(damped)
 
@@ -782,9 +789,11 @@ class SmagorinskyLilly(ClosureBase):
         For each velocity :math:`u_t` no-slipping on a walled tangential
         axis :math:`a`, the free-slip retag zeroed the wall-face shear
         :math:`\Sigma_{a,t}^{\mathrm{wall}} = u_{t,1}/\Delta n`; the
-        eddy-viscosity norm at the wall-adjacent centre picks it back up
-        as :math:`(u_{t,1}/\Delta n)^2` (the off-diagonal factor 2 times
-        the wall-cell interpolation weight 1/2 cancel), interpolated to
+        contraction :math:`\Sigma_{ij}\Sigma_{ij}` at the wall-adjacent
+        centre picks it back up as :math:`(u_{t,1}/\Delta n)^2` (the
+        off-diagonal factor 2 times the wall-cell interpolation weight
+        1/2 cancel; the norm's own factor 2 is applied by the caller
+        afterwards), interpolated to
         the centre across :math:`u_t`'s own staggered axis. This is the
         eddy-viscosity twin of the ``_wall_correction`` stress drag; the
         two share the folded static :math:`1/\Delta n^2` weight, so the
@@ -808,9 +817,10 @@ class SmagorinskyLilly(ClosureBase):
     def _stress(
         self, state: object, ctx: StepContext,
     ) -> dict[str, ScalarField]:
-        r"""``du_i/dt += d_j(nu_t Sigma_ij)`` on each velocity face."""
+        r"""``du_i/dt += d_j(2 nu_t Sigma_ij)`` on each velocity face."""
         nu_t = (self._eddy_viscosity(state, ctx)
                 + ctx.params[SMAG_BACKGROUND_NU])
+        two_nu_t = 2.0 * nu_t
         n = len(self._vel_axes)
         out: dict[str, ScalarField] = {}
         for i, (qi, ax_i) in enumerate(self._vel_axes):
@@ -823,22 +833,23 @@ class SmagorinskyLilly(ClosureBase):
                 # closing diff telescopes with the structural zero; the
                 # wall-normal diagonal (i == j) lands on the BC-free
                 # Inner face and retags back onto the component's own tag
-                divergence = (s * nu_t.to(s)).diff(ax_j)
+                divergence = (s * two_nu_t.to(s)).diff(ax_j)
                 if i == j and ax_i in self._walled:
                     divergence = divergence.retag(state[qi])
                 res = (divergence if res is None
                        else res + divergence)
-            # no-slip wall drag on the wall-adjacent cells: -nu_t u_i /
-            # Delta n^2, the factor-of-2 ghost against the zero wall
-            # value (MITgcm side drag). nu_t.to(u_i) reads the eddy
-            # viscosity at the wall cell (even under the wall reflection,
-            # so it equals the wall-face value); k = nu_t/2 undoes
-            # _wall_correction's factor 2, matching tau = nu Sigma
+            # no-slip wall drag on the wall-adjacent cells: -2 nu_t u_i
+            # / Delta n^2, the factor-of-2 ghost against the zero wall
+            # value (MITgcm side drag) under tau = 2 nu Sigma, which is
+            # exactly _wall_correction's -2 k q / Delta n^2 with k =
+            # nu_t. nu_t.to(u_i) reads the eddy viscosity at the wall
+            # cell (even under the wall reflection, so it equals the
+            # wall-face value)
             qi_field = state[qi]
             if hasattr(qi_field.grid, "create_field"):
                 for axis in self._no_slip_axes.get(qi, ()):
                     res = res + _wall_correction(
-                        qi_field, 0.5 * nu_t.to(qi_field), axis)
+                        qi_field, nu_t.to(qi_field), axis)
             out[qi] = res
         return out
 

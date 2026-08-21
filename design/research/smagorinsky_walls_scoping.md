@@ -260,6 +260,12 @@ tests/docstrings:
    `Cs=0` gate holds against `HarmonicFriction(ν_bg/2)` for shear
    components (full rate on the wall-normal diagonal) — the §(v)
    wording omitted the ½ the convention forces.
+   **Superseded 2026-08-21:** the module now uses the standard
+   `τ = 2νΣ` with `|Σ| = √(2 Σ_ij Σ_ij)` (owner decision, so the
+   published `C_s` means what the literature's does); the `Cs=0`
+   gates hold against `HarmonicFriction(ν_bg)` for shear components
+   and `HarmonicFriction(2ν_bg)` on the wall-normal diagonal, and the
+   no-slip drag is `-2ν_bg u_1/Δn²`.
 2. **N² buoyancy-gradient retag**: `b.diff(z).to(anchor)` cannot
    ground at a walled vertical; it takes the same `Inner[Dirichlet]`
    retag (∂b/∂z = 0 at a no-flux wall).
