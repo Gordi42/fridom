@@ -77,6 +77,7 @@ FD_EPS = 1e-7
 # 4 cells), so the loss is a quadratic polynomial in the initial field
 # and the central difference is exact at a comfortable step
 WALL_FD_EPS = 1e-4
+WENO_WALL_FD_EPS = 1e-8
 
 
 def make_model(nz, order=5):
@@ -211,25 +212,45 @@ def test_grad_through_a_flat_run_matches_fd_directionally():
 # ================================================================
 #  The walled thin axis
 # ================================================================
-def walled_model(nz, *, wall="z"):
-    """Return a tiny model with one bounded axis of ``nz`` cells."""
+WALLED_SCHEMES = [
+    pytest.param(False, id="linear"),
+    pytest.param(5, id="weno5"),
+]
+
+
+def walled_model(nz, *, wall="z", order=False):
+    """Return a tiny model with one bounded axis of ``nz`` cells.
+
+    ``order`` selects WENO advection of that order; ``False`` is the
+    linear model.
+    """
     grid = Grid(tuple(
         IntervalMesh(nz if name == wall else N,
                      (0.0, 1.0) if name == wall else (0.0, TWO_PI),
                      periodic=(name != wall), name=name)
         for name in ("x", "y", "z")), device_ids=(0,))
+    advection = (False if order is False
+                 else nh.modules.WENOAdvection(order=order))
     return nh.Model(
         grid=grid, time_stepper=AdamBashforth(DT, order=3),
         coriolis=nh.FPlaneCoriolis(f0=1.0),
-        buoyancy=nh.ConstantStratification(n2=1.0), advection=False)
+        buoyancy=nh.ConstantStratification(n2=1.0),
+        advection=advection)
 
 
-def seeded_walled(nz, *, wall="z"):
-    """Return a walled model with a z-independent sheared IC."""
-    model = walled_model(nz, wall=wall)
+def seeded_walled(nz, *, wall="z", order=False):
+    """Return a walled model with a z-independent sheared IC.
+
+    The shear carries a small uniform offset so no face velocity is
+    exactly zero on the grid: the upwind select ``v + |v|`` has a kink
+    there, where reverse mode takes one side and a central difference
+    averages both, and the gradient check below would then disagree
+    by the jump rather than by an AD defect.
+    """
+    model = walled_model(nz, wall=wall, order=order)
     ax = (np.arange(N) + 0.5) * (TWO_PI / N)
     x, y = np.meshgrid(ax, ax, indexing="ij")
-    u2d, v2d = 0.2 * np.sin(y), 0.2 * np.cos(x)
+    u2d, v2d = 0.2 * np.sin(y) + 0.03, 0.2 * np.cos(x) + 0.03
     model.set_fields(u=np.repeat(u2d[:, :, None], nz, axis=2),
                      v=np.repeat(v2d[:, :, None], nz, axis=2))
     return model
@@ -270,19 +291,23 @@ def test_walled_nz2_steps():
         assert bool(np.all(np.isfinite(arr))), name
 
 
+@pytest.mark.parametrize("order", WALLED_SCHEMES)
 @pytest.mark.parametrize("wall", ["z", "y"])
-def test_a_walled_one_cell_axis_steps_with_an_empty_normal_velocity(wall):
+def test_a_walled_one_cell_axis_steps_with_an_empty_normal_velocity(
+        wall, order):
     """A walled 1-cell axis runs, with no wall-normal velocity at all.
 
     Owner's semantics call (2026-08-12): make it run rather than refuse
     at assembly. One cell between two no-normal-flow walls leaves no
     interior face, so the wall-normal velocity is a genuinely empty
     array -- and stepping it must not reach into the halo fill for a DOF
-    that does not exist.
+    that does not exist. Under WENO too (2026-08-22): a one-cell walled
+    axis has no face for the biased ladder to build, so the scheme
+    declares no halo along it and the wide window is never formed.
     """
     normal = {"z": "w", "y": "v"}[wall]
     axis = ("x", "y", "z").index(wall)
-    model = walled_model(1, wall=wall)
+    model = walled_model(1, wall=wall, order=order)
     assert model.state[normal].function_space.shape[axis] == 0
     assert model.state[normal].data.size == 0
     model.advance(2)
@@ -292,16 +317,40 @@ def test_a_walled_one_cell_axis_steps_with_an_empty_normal_velocity(wall):
     assert np.asarray(model.state[normal].data).size == 0
 
 
+@pytest.mark.parametrize("order", [3, 5])
+def test_a_walled_one_cell_axis_keeps_the_narrow_halo_under_weno(order):
+    """The honest demand: WENO costs a one-cell walled axis no halo.
+
+    Every kernel the scheme applies along a one-cell walled axis
+    patches every face from true DOFs (``graded.fully_patched``), so
+    none declares a reach there; the negotiated ``z`` halo is the one
+    the rest of the model needs (the pressure solve's 1), not
+    ``order // 2 + 1``, and the storage carries three z layers instead
+    of five or seven. The periodic axes keep the scheme's full width.
+    """
+    model = walled_model(1, order=order)
+    halo = model.grid.decomposition.halo
+    assert halo["x"] == order // 2 + 1
+    assert halo["z"] == 1
+    assert model.state["u"]._data.shape[2] == 3
+    model.advance(2)
+    assert bool(np.all(np.isfinite(np.asarray(model.state["u"].data))))
+
+
+@pytest.mark.parametrize("order", WALLED_SCHEMES)
 @pytest.mark.parametrize("nz", [1, 2])
-def test_grad_through_a_walled_thin_run_matches_fd_directionally(nz):
+def test_grad_through_a_walled_thin_run_matches_fd_directionally(
+        nz, order):
     """Reverse mode stays exact through the walled thin-axis fill.
 
     ``nz = 1`` is the case the fill used to refuse; ``nz = 2`` pins that
     the zero-slot rewrite did not perturb the working neighbour. The
     empty ``w`` factor is where a zero-size reduction would poison the
-    VJP if the fill leaked a division or a reshape into it.
+    VJP if the fill leaked a division or a reshape into it. Under WENO
+    the short-axis ladder (every face patched from its nearer wall) is
+    on the step path too (AGENTS.md, "Differentiability policy").
     """
-    model = seeded_walled(nz)
+    model = seeded_walled(nz, order=order)
     run = model.propagator(wrt=("u",), steps=STEPS)
     u0 = model._carry.state["u"].storage
 
@@ -312,9 +361,14 @@ def test_grad_through_a_walled_thin_run_matches_fd_directionally(nz):
     assert bool(np.all(np.isfinite(grad)))
     assert np.max(np.abs(grad)) > 0.0
 
+    # WENO's nonlinear weights make the loss only piecewise smooth, so
+    # the central difference needs a fine step (a coarse one is
+    # dominated by truncation, not by AD): measured 1e-6 relative at
+    # 1e-8 against 2e-3 at 1e-6
+    eps = WALL_FD_EPS if order is False else WENO_WALL_FD_EPS
     rng = np.random.default_rng(0)
     direction = jnp.asarray(rng.standard_normal(u0.shape), dtype=u0.dtype)
     directional = float(jnp.vdot(jnp.asarray(grad), direction))
-    fd = (float(loss(u0 + WALL_FD_EPS * direction))
-          - float(loss(u0 - WALL_FD_EPS * direction))) / (2.0 * WALL_FD_EPS)
+    fd = (float(loss(u0 + eps * direction))
+          - float(loss(u0 - eps * direction))) / (2.0 * eps)
     assert directional == pytest.approx(fd, rel=1e-4)

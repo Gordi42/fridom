@@ -61,6 +61,7 @@ from fridom.spatial.operators.spectral import (
     trig_partner,
 )
 from fridom.spatial.operators.staggering import (
+    _run_kernel,
     first_node_offset,
     flat_repeat_and_run,
     footprint_reach,
@@ -277,6 +278,8 @@ def apply_fv_staggered(
     metadata: FieldMetadata | None,
     align: int | None = None,
     co_operands: tuple[Array, ...] = (),
+    *,
+    patched: bool = False,
 ) -> FieldLike:
     """
     Run an aligned ``size``-point kernel along ``axis`` (FV family).
@@ -325,6 +328,14 @@ def apply_fv_staggered(
         one-slot array with the rebuilt window's length
         (``design/research/thin_axis_halo_investigation.md`` §6).
         Kernels reading only the operand pass nothing (default: ()).
+    patched : bool, optional
+        The caller rebuilds **every** true output slot along ``axis``
+        afterwards (a graded ladder on a walled axis short enough that
+        no face keeps the interior pass, ``graded.fully_patched``): the
+        halo guard is skipped (the honest demand along the axis is
+        zero) and a window wider than the storage skips the kernel for
+        a zero-filled result — see ``staggering.apply_staggered``
+        (default: False).
 
     Returns
     -------
@@ -377,7 +388,7 @@ def apply_fv_staggered(
     # stagger slots at block edges.
     reach_below = max(0, m0)
     reach_above = max(0, size - 1 - m0)
-    if reach_below > width or reach_above > width:
+    if not patched and (reach_below > width or reach_above > width):
         raise ValueError(
             f"the negotiated halo width {width} along {axis!r} is "
             f"too small for the {size}-point stencil of "
@@ -394,16 +405,8 @@ def apply_fv_staggered(
         storage, co_operands, k0 = flat_repeat_and_run(
             kernel, storage, co_operands, axis, axis_index,
             size=size, m0=m0, width=width, s_out=s_out)
-    full = kernel(storage, axis_index, *co_operands)
-    length = full.shape[axis_index]
-    lo = max(0, k0)
-    hi = min(s_out, k0 + length)
-    index: list[slice] = [slice(None)] * full.ndim
-    index[axis_index] = slice(lo - k0, hi - k0)
-    piece = full[tuple(index)]
-    pads = [(0, 0)] * full.ndim
-    pads[axis_index] = (lo, s_out - hi)
-    data = jnp.pad(piece, pads)
+    data = _run_kernel(kernel, storage, axis_index, co_operands,
+                       size=size, k0=k0, s_out=s_out, patched=patched)
     # halo-validity claim (task 1.8, stage B): the kernel computed
     # every output ghost slot its window reaches, so on a *periodic*
     # axis the result keeps the operand's valid layers minus the

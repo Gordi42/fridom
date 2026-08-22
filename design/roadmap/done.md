@@ -3282,3 +3282,61 @@ The geostrophic-adjustment example now spells the barotropic run
 `buoyancy=None` (was `ConstantStratification(n2=0.0)`; byte-identical
 dynamics since `n2=0` already gave `p_hyd=0`), reading its writer's
 centre space off `p_hyd` rather than the retired `b`.
+
+## Honest halo on short walled axes — WENO on the one-cell column (2026-08-22)
+
+`fix/thin-walled-axis-advection`. A walled one-cell axis (the 2-D
+barotropic `hy.Model` on `shape=(nx, ny, 1)`) refused the biased
+family outright (`UpwindAdvection`/`WENOAdvection` "needs at least
+order + 1 cells on every walled axis"), and the first fix on the table
+— fold the bounded halo fill past the far wall so the wide window
+*can* be filled — would have left the column paying 5 / 7 z storage
+layers for a window that is never built. The owner's diagnosis: the
+declared `order // 2 + 1` reach along such an axis is a lie. A graded
+kernel reads **no ghost slot** on a walled axis whose every face is a
+ladder face (rule R1), so its honest demand there is zero.
+
+Shipped on that principle, three pieces:
+
+- **`graded.fully_patched(n_cells, rows, shift)`** — the shared
+  predicate ("no face keeps the interior pass"), consulted by the
+  `requirements` of every graded kernel (`_BiasedFaceReconstruction`,
+  `_SelectedFaceReconstruction`, `_CenteredFaceInterpolation`,
+  `_FVBiasedReconstruction`, `Fallback`) and by
+  `UpwindAdvection.bind`'s explicit per-axis demand
+  (`_thin_axis_demand`). The shared tails take `patched=True` from
+  those callers: the geometric halo guard is skipped and a window wider
+  than the storage skips the kernel for a zero-filled result the
+  ladder then overwrites (`staggering._run_kernel`).
+- **`apply_graded_walls` on a short axis** — the two walls' reduced
+  faces used to be patched independently and the right wall's patch
+  overwrote the left's with a window reaching the exterior (NaN-poison
+  probe: order-5 left bias at `n = 3`, face 1). Every face is now
+  patched from its nearer wall (ties left), `_wall_cells` synthesizes
+  **both** wall cells a window touches, and an axis with no output face
+  is a no-op. Keyed on the static global face count, so correct under
+  `shard_map` (an axis short enough to overlap is never sharded).
+  `min_cells` and `_check_walled_extent` are gone; `min_cells`'s
+  `order + 1` is exactly the first primal axis that keeps an interior
+  face (pinned by a test).
+- **Measured.** The geostrophic-adjustment column (192 x 64 x 1, WENO-3
+  and WENO-5, 72 h) reproduces the same scheme on six identical layers
+  to 5.6e-16; the negotiated `z` halo is the pressure/flux-divergence
+  width 1 (three storage layers, as the centered scheme) instead of
+  `order // 2 + 1` (five / seven); on five walled cells at order 5 the
+  honest `z` width is 2 (only the dual-frame velocity interpolation
+  keeps a face). Tests: the short-axis NaN-poison gate over `n` 1..6,
+  the requirements-honesty sweep, assembly on 1/2/5 cells, the
+  hydrostatic one-cell-column replication, the nonhydro2 walled
+  one-cell runs under WENO with the policy `jax.grad`-vs-FD check (the
+  seeded IC now carries a uniform offset: an exact zero face velocity
+  sits on the kink of the upwind select, where a central difference
+  averages the two one-sided derivatives).
+
+Not done, deliberately: the two-wall fill fold (unreachable through
+the advection family now; the record's "do not generalize the bounded
+fill" stands) and bounded flat-axis elision (the one-cell column's
+remaining 3-vs-1 layers come from the flux divergence reading the two
+structural-zero wall slots, a separate and much smaller lever).
+[`../research/weno_thin_walled_axis.md`](../research/weno_thin_walled_axis.md),
+[`../research/thin_axis_halo_investigation.md`](../research/thin_axis_halo_investigation.md) §13.

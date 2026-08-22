@@ -76,6 +76,7 @@ from fridom.spatial.operators.graded import (
     Rung,
     apply_graded_walls,
     biased_offset,
+    fully_patched,
 )
 from fridom.spatial.operators.interned import interned
 from fridom.spatial.operators.reconstruct import (
@@ -455,7 +456,36 @@ class Fallback(SeparableOperator):
             The per-factor requirements record.
         """
         halo = self._interior.requirements(domain).halo
+        if self._patched(domain):
+            return OperatorRequirements(halo=0)
         return OperatorRequirements(halo=halo)
+
+    def _patched(self, domain: FunctionSpace) -> bool:
+        """
+        Whether every face of ``domain``'s axis is a ladder face.
+
+        Description
+        -----------
+        `graded.fully_patched` on the primal cell frame (``shift = 0``:
+        the ``CellAvg`` DOFs are the lattice cells) with this closure's
+        ``K = len(boundary)``. On a walled axis that short the interior
+        pass is discarded everywhere, so the operator reads no ghost
+        slot along it and declares no halo there.
+
+        Parameters
+        ----------
+        domain : FunctionSpace
+            The bare 1D factor the operator is applied on.
+
+        Returns
+        -------
+        bool
+            True iff no output face keeps the interior pass.
+        """
+        mesh = domain.mesh
+        if getattr(mesh, "periodic", False):
+            return False
+        return fully_patched(mesh.n_cells, len(self._boundary), 0)
 
     # ------------------------------------------------------------
     #  Kernel application (interior pass + wall-slot assembly)
@@ -505,8 +535,9 @@ class Fallback(SeparableOperator):
             return weno_reconstruct(arr, axis_index, order=order,
                                     bias=bias)
 
-        interior = apply_fv_staggered(self, f, axis, order, kernel,
-                                      metadata=f.metadata, align=m0)
+        interior = apply_fv_staggered(
+            self, f, axis, order, kernel, metadata=f.metadata, align=m0,
+            patched=self._patched(factor))
         if getattr(mesh, "periodic", False):
             return interior
 

@@ -224,10 +224,14 @@ near-wall faces drop to their rung's, so the global rate on a walled
 axis is the near-wall rung's rate — which is why the bottom rung is
 the user's choice: ``wall="upwind1"`` (default) is monotone and
 globally 1st order, ``wall="centered2"`` is globally 2nd order but
-undissipative on the wall-adjacent face (`UpwindAdvection`). Each
-walled axis needs at least ``order + 1`` cells (taught error at bind).
-The uniform-mesh refusal is untouched — mapped/stretched factors are
-still rejected at bind.
+undissipative on the wall-adjacent face (`UpwindAdvection`). A walled
+axis may be arbitrarily short: every face is patched from its nearer
+wall, and on an axis so short that no face keeps the interior pass
+the kernels read no ghost slot at all and declare no halo there
+(``graded.fully_patched`` — the honest demand of a one-cell walled
+axis is zero, so a 2-D model on a walled one-cell column pays no
+vertical halo for a wide scheme). The uniform-mesh refusal is
+untouched — mapped/stretched factors are still rejected at bind.
 
 **Walled grids (centered scheme)**: ``CenteredAdvection`` supports
 bounded mesh factors (channel walls, rigid lids, and their
@@ -316,10 +320,12 @@ from fridom.spatial.operators.graded import (
     apply_graded_mask,
     apply_graded_walls,
     biased_offset,
+    biased_rows,
     biased_specs,
     centered_ladder,
     centered_offset,
-    min_cells,
+    centered_rows,
+    fully_patched,
     spec_offset,
 )
 from fridom.spatial.operators.interned import interned
@@ -813,6 +819,45 @@ def _face_codomain(
         left=domain, operation="reconstruct")
 
 
+def _graded_patched(
+    boundary: str, domain: FunctionSpace, rows: int, shift: int,
+) -> bool:
+    """
+    Whether a graded kernel patches every face of ``domain``'s axis.
+
+    Description
+    -----------
+    `graded.fully_patched` for the module's kernels: only the
+    ``boundary="graded"`` variant on a bounded factor can be fully
+    patched, and then the kernel reads no ghost slot along the axis —
+    its honest ``requirements`` reach there is zero, and the shared
+    stencil tails take ``patched=True`` (they skip the halo guard and,
+    when the window does not fit the storage, the kernel itself).
+
+    Parameters
+    ----------
+    boundary : str
+        The kernel's boundary variant (``"none"`` / ``"graded"``).
+    domain : FunctionSpace
+        The bare 1D factor the kernel is applied on.
+    rows : int
+        The ladder's reduced faces per side (``K``).
+    shift : int
+        The cell-frame shift (0 or 1).
+
+    Returns
+    -------
+    bool
+        True iff no output face keeps the interior pass.
+    """
+    if boundary != "graded":
+        return False
+    mesh = getattr(domain, "mesh", None)
+    if mesh is None or getattr(mesh, "periodic", True):
+        return False
+    return fully_patched(mesh.n_cells, rows, shift)
+
+
 def _wall_shift(domain: FunctionSpace) -> int:
     """
     Cell-frame shift of a nodal C-grid factor (``graded`` vocabulary).
@@ -946,6 +991,13 @@ class _CenteredFaceInterpolation(SeparableOperator):
         OperatorRequirements
             The per-factor requirements record.
         """
+        try:
+            shift = _wall_shift(domain)
+        except SpaceMismatchError:
+            shift = 0
+        if _graded_patched(self._boundary, domain,
+                           centered_rows(self._size, shift), shift):
+            return OperatorRequirements(halo=0)
         return OperatorRequirements(
             reach=fv_reach_or(self, domain, self._size,
                               self._size // 2))
@@ -987,8 +1039,10 @@ class _CenteredFaceInterpolation(SeparableOperator):
             return _immersed_graded_face(
                 self, f, axis, shift, size, centered_offset(size) + shift,
                 kernel, rungs, sel, immersed)
-        interior = apply_fv_staggered(self, f, axis, size, kernel,
-                                      metadata=f.metadata)
+        interior = apply_fv_staggered(
+            self, f, axis, size, kernel, metadata=f.metadata,
+            patched=_graded_patched(self._boundary, domain,
+                                    centered_rows(size, shift), shift))
         if self._boundary == "none" or domain.mesh.periodic:
             return interior
         rungs = tuple(
@@ -1546,9 +1600,12 @@ class _BiasedFaceReconstruction(SeparableOperator):
         """
         fallback = self._order // 2 + 1
         try:
-            m0 = (biased_offset(self._order, self._bias)
-                  + _wall_shift(domain))
+            shift = _wall_shift(domain)
+            m0 = biased_offset(self._order, self._bias) + shift
             self.codomain(domain)  # SpaceMismatchError on a Fourier row
+            if _graded_patched(self._boundary, domain,
+                               biased_rows(self._order, shift), shift):
+                return OperatorRequirements(halo=0)
             reach = footprint_reach(self._order, m0)
         except SpaceMismatchError:
             reach = (fallback, fallback)
@@ -1600,8 +1657,10 @@ class _BiasedFaceReconstruction(SeparableOperator):
             return _immersed_graded_face(
                 self, f, axis, shift, order, m0, kernel, rungs, sel,
                 immersed)
-        interior = apply_fv_staggered(self, f, axis, order, kernel,
-                                      metadata=f.metadata, align=m0)
+        interior = apply_fv_staggered(
+            self, f, axis, order, kernel, metadata=f.metadata, align=m0,
+            patched=_graded_patched(self._boundary, domain,
+                                    biased_rows(order, shift), shift))
         if self._boundary == "none" or domain.mesh.periodic:
             return interior
         rungs = tuple(
@@ -1786,6 +1845,9 @@ class _SelectedFaceReconstruction(Operator):
                      else _wall_shift(domain))
             m0 = biased_offset(self._order, "left") + shift
             self.codomain(domain)  # SpaceMismatchError on a Fourier row
+            if _graded_patched(self._boundary, domain,
+                               biased_rows(self._order, shift), shift):
+                return OperatorRequirements(halo=0)
             reach = footprint_reach(self._order + 1, m0)
         except SpaceMismatchError:
             reach = (fallback, fallback)
@@ -1891,7 +1953,9 @@ class _SelectedFaceReconstruction(Operator):
         interior = apply_fv_staggered(
             left_op, q, axis, u_size, kernel,
             metadata=q.metadata, align=m0,
-            co_operands=(positive._data,))  # noqa: SLF001 — storage seam
+            co_operands=(positive._data,),  # noqa: SLF001 — storage seam
+            patched=_graded_patched(self._boundary, domain,
+                                    biased_rows(order, shift), shift))
         interior = _finalize(q, interior, codomain)
         if self._boundary == "none" or domain.mesh.periodic:
             return _to_flux_space(interior, flux_space)
@@ -2111,6 +2175,9 @@ class _FVBiasedReconstruction(SeparableOperator):
         try:
             m0 = biased_offset(self._order, self._bias)
             self.codomain(domain)  # SpaceMismatchError on a Fourier row
+            if _graded_patched(self._boundary, domain,
+                               biased_rows(self._order, 0), 0):
+                return OperatorRequirements(halo=0)
             reach = footprint_reach(self._order, m0)
         except SpaceMismatchError:
             reach = (fallback, fallback)
@@ -2156,9 +2223,11 @@ class _FVBiasedReconstruction(SeparableOperator):
             return _immersed_graded_face(
                 self, f, axis, 0, order, m0, kernel, rungs, sel,
                 immersed)
-        interior = apply_fv_staggered(self, f, axis, order, kernel,
-                                      metadata=f.metadata, align=m0)
         domain = f.function_space.bare.factor(axis)
+        interior = apply_fv_staggered(
+            self, f, axis, order, kernel, metadata=f.metadata, align=m0,
+            patched=_graded_patched(self._boundary, domain,
+                                    biased_rows(order, 0), 0))
         if self._boundary == "none" or domain.mesh.periodic:
             return interior
         rungs = tuple(
@@ -4165,8 +4234,9 @@ class UpwindAdvection(_FluxFormAdvection):
     near-wall faces per side legitimately drop to the reduced rungs, so
     the *global* rate on a walled axis is the near-wall rung's — the
     accuracy price of a BC-free bounded closure (R1,
-    ``boundary_plan.md``). Each walled axis needs at least
-    ``order + 1`` cells.
+    ``boundary_plan.md``). A walled axis may be arbitrarily short —
+    down to one cell, where the primal reconstruction has no face to
+    build and the kernels declare no halo along it.
 
     **The wall-adjacent rung** (``wall=``, walled grids only) is the
     one genuine choice the closure leaves, and it is the classic
@@ -4353,10 +4423,8 @@ class UpwindAdvection(_FluxFormAdvection):
         -----------
         On a grid carrying any bounded mesh factor the plain kernels
         are swapped for their ``boundary="graded"`` variants (the
-        near-wall closure), after checking that every walled axis is
-        wide enough to carry the ladder (``order + 1`` cells: the
-        widest rung's window must fit the lattice and the two sides'
-        reduced faces must not collide).
+        near-wall closure). A walled axis may be arbitrarily short:
+        every face is patched from its nearer wall.
 
         The landed assembly then validates every term over real
         zero-valued fields (step 6) *before* the final negotiation
@@ -4365,63 +4433,79 @@ class UpwindAdvection(_FluxFormAdvection):
         ``order > 3`` need more, so the widened per-axis demand is
         negotiated here at bind (step 4, host-side, pre-freeze; the
         final negotiation then re-derives at least this width from
-        the halo trace). On a frozen grid whose recorded halo is
-        narrower this raises the framework's taught
-        ``GridFrozenError`` ("assemble the most demanding model
-        first").
+        the halo trace). The demand is **honest** per axis
+        (`_thin_axis_demand`): on a walled axis so short that every
+        kernel this module applies along it patches every face, no
+        kernel reads a ghost slot there and nothing is demanded — a
+        2-D model on a walled one-cell column keeps the narrow vertical
+        halo of the centered scheme whatever the order. On a frozen
+        grid whose recorded halo is narrower this raises the
+        framework's taught ``GridFrozenError`` ("assemble the most
+        demanding model first").
 
         Parameters
         ----------
         table : FieldTable
             The resolved field table (base contract).
-
-        Raises
-        ------
-        NotImplementedError
-            If a walled axis carries fewer than ``order + 1`` cells.
         """
         super().bind(table)
         grid = table.grid
-        if self._walled:
-            self._check_walled_extent(grid)
         if self._walled or self._immersed is not None:
             # the graded signature also carries the mask-keyed closure
-            # on an immersed grid (GA-D4); ``_check_walled_extent`` does
-            # not apply on the mask path (any alpha>0 face has two wet
-            # neighbours, so the bottom rung is always legal)
+            # on an immersed grid (GA-D4)
             self._install_kernels("graded")
-        need = self._order // 2 + 1
         current = dict(grid.decomposition.halo.widths)
         axes = tuple(axis for axis, _ in self._axis_velocity)
-        if all(current.get(axis, 0) >= need for axis in axes):
+        need = {axis: self._thin_axis_demand(grid, axis)
+                for axis in axes}
+        if all(current.get(axis, 0) >= width
+               for axis, width in need.items()):
             return
         demand = grid.decomposition.halo.merge_max(
-            HaloSpec(dict.fromkeys(axes, need)))
+            HaloSpec({axis: width for axis, width in need.items()
+                      if width}))
         grid.negotiate(halo=demand)
 
-    def _check_walled_extent(self, grid: object) -> None:
-        """Reject walled axes too short to carry the graded ladder.
-
-        Raises
-        ------
-        NotImplementedError
-            If a walled axis carries fewer than ``min_cells(order)``
-            cells — the ladder's widest rung would then not fit, or
-            the two walls' reduced faces would collide, and the
-            downstream failure would be a cryptic index error.
+    def _thin_axis_demand(self, grid: object, axis: str) -> int:
         """
-        need = min_cells(self._order)
-        short = tuple(
-            (name, mesh.n_cells)
-            for mesh in grid.factors for name in mesh.names
-            if name in self._walled and mesh.n_cells < need)
-        if short:
-            raise NotImplementedError(
-                f"{type(self).__name__}(order={self._order}) needs at "
-                f"least {need} cells on every walled axis (the graded "
-                "near-wall ladder must fit between the two walls), "
-                f"got {short}. Use a coarser order, more cells, or "
-                "CenteredAdvection")
+        Honest bind-time halo demand of this module along ``axis``.
+
+        Description
+        -----------
+        ``order // 2 + 1`` (the biased pair's symmetric halo) unless
+        the axis is walled and so short that **every** kernel the
+        module can apply along it — the biased reconstruction on the
+        primal and dual cell frames and the order-coupled velocity
+        interpolation on both — is fully patched
+        (`graded.fully_patched`); those kernels then declare no reach
+        along the axis and the demand is zero. A one-cell walled axis
+        qualifies at every order.
+
+        Parameters
+        ----------
+        grid : object
+            The bound grid.
+        axis : str
+            The advecting axis.
+
+        Returns
+        -------
+        int
+            The per-axis width to demand.
+        """
+        order = self._order
+        need = order // 2 + 1
+        if axis not in self._walled:
+            return need
+        n_cells = next(
+            mesh.n_cells for mesh in grid.factors
+            if axis in mesh.names)
+        patched = all(
+            fully_patched(n_cells, rows, shift)
+            for shift in (0, 1)
+            for rows in (biased_rows(order, shift),
+                         centered_rows(order - 1, shift)))
+        return 0 if patched else need
 
     # ------------------------------------------------------------
     #  Properties

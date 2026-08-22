@@ -13,6 +13,7 @@ from fridom.model.modules.advection import (
     WENOAdvection,
     _BiasedFaceReconstruction,
     _CenteredFaceInterpolation,
+    _SelectedFaceReconstruction,
 )
 from fridom.model.time_steppers.adam_bashforth import (
     AdamBashforth,
@@ -28,7 +29,11 @@ from fridom.spatial.fields.vector_field import VectorField
 from fridom.spatial.grid import Grid
 from fridom.spatial.meshes.interval import IntervalMesh
 from fridom.spatial.operators.composed import Divergence
-from fridom.spatial.operators.graded import biased_rows
+from fridom.spatial.operators.graded import (
+    biased_rows,
+    centered_rows,
+    fully_patched,
+)
 from fridom.spatial.operators.movement import Sync
 from fridom.spatial.spaces.nodal import NodeSet
 
@@ -112,19 +117,37 @@ def test_walled_grid_installs_the_graded_kernels(cls, order):
         assert op.boundary == "none"
 
 
+@pytest.mark.parametrize("n_cells", [1, 2, 5])
 @pytest.mark.parametrize("cls", [UpwindAdvection, WENOAdvection])
-def test_walled_axis_too_short_for_the_ladder_is_taught(cls):
-    # the graded ladder needs order + 1 cells between the two walls
+def test_short_walled_axes_assemble_with_an_honest_halo(cls, n_cells):
+    # a walled axis shorter than the ladder used to be refused (the two
+    # walls' reduced faces would collide). Now every face is patched
+    # from its nearer wall, and an axis so short that NO face keeps
+    # the wide interior pass costs no halo at all: the kernels read no
+    # ghost slot along it, so the one-cell column keeps the narrow
+    # vertical halo of the centered scheme whatever the order
     grid = Grid((
         IntervalMesh(8, (0.0, L), name="x"),
         IntervalMesh(8, (0.0, L), name="y"),
-        IntervalMesh(5, (0.0, 1.0), periodic=False, name="z"),
+        IntervalMesh(n_cells, (0.0, 1.0), periodic=False, name="z"),
     ))
-    with pytest.raises(NotImplementedError,
-                       match=r"at least 6 cells on every walled axis"):
-        FrModel(grid=grid,
-                modules=(Core(), cls(5)),
-                time_stepper=AdamBashforth(DT, order=3))
+    model = FrModel(grid=grid,
+                    modules=(Core(), cls(5)),
+                    time_stepper=AdamBashforth(DT, order=3))
+    assert grid.decomposition.halo["x"] == 3
+    if n_cells <= 3:  # every z kernel of order 5 is fully patched
+        assert grid.decomposition.halo["z"] <= 1
+        assert model.state["u"]._data.shape[2] <= n_cells + 2
+    else:
+        # five cells: the biased reconstructions are still fully
+        # patched along z (four primal faces against K = 2 per wall),
+        # only the size-4 velocity interpolation of the dual frame
+        # keeps a face -- its reach of 2 is the honest width, not the
+        # biased pair's 3
+        assert grid.decomposition.halo["z"] == 2
+    model.advance(2)
+    for name in ("u", "v", "w", "p"):
+        assert bool(jnp.all(jnp.isfinite(model.state[name].data))), name
 
 
 # ================================================================
@@ -983,3 +1006,96 @@ def test_walled_background_wall_normal_must_vanish():
     make_walled_model(
         ("z",), CenteredAdvection(
             background={"w": lambda z: np.sin(np.pi * z)}))
+
+
+# ================================================================
+#  Short walled axes: every face is a ladder face
+# ================================================================
+@pytest.mark.parametrize("wall", ["upwind1", "centered2"])
+@pytest.mark.parametrize("node_set", [NodeSet.CENTER, NodeSet.INNER])
+@pytest.mark.parametrize("bias", ["left", "right"])
+@pytest.mark.parametrize("order", [3, 5])
+@pytest.mark.parametrize("n", [1, 2, 3, 4, 5, 6])
+def test_short_walled_axes_read_no_exterior_value(n, order, bias,
+                                                  node_set, wall):
+    # the poison gate of test_graded_rows_read_no_exterior_value over
+    # every axis shorter than the old ``order + 1`` minimum (and one
+    # longer). On a short axis the two walls' reduced faces overlap;
+    # each face is patched from its nearer wall with the rung that fits
+    # between both, and a window touching the far wall synthesizes it
+    # -- the order-5 left bias at n = 3 was the NaN before
+    mesh = IntervalMesh(n, (0.0, 1.0), periodic=False, name="y")
+    grid = Grid((mesh,), device_ids=(0,))
+    width = order // 2 + 1
+    grid.negotiate(halo=HaloSpec({"y": width}))
+    src = (mesh.center if node_set is NodeSet.CENTER
+           else mesh.nodal(NodeSet.INNER, bc=BC.DIRICHLET))
+    f = grid.create_field(src, init=_smooth)
+    storage = f._data
+    poisoned = storage.at[:width].set(jnp.nan)
+    poisoned = poisoned.at[storage.shape[0] - width:].set(jnp.nan)
+    f._data = poisoned
+    f._halo_valid = HaloSpec({"y": width})
+
+    op = _BiasedFaceReconstruction(order, bias, "linear", "graded",
+                                   wall)
+    result = op["y"](f)
+    expected = (mesh.inner if node_set is NodeSet.CENTER
+                else mesh.center)
+    assert result.function_space.bare is expected
+    assert result.data.shape[0] == expected.shape[0]
+    assert bool(jnp.all(jnp.isfinite(result.data)))
+
+
+@pytest.mark.parametrize("n", [1, 2, 3])
+@pytest.mark.parametrize("order", [3, 5])
+def test_a_fully_patched_axis_needs_no_halo_at_all(n, order):
+    # the honest demand: with the halo negotiated to ZERO along the
+    # short axis (narrower than the window), the graded kernel still
+    # reconstructs every face -- from true DOFs alone -- and the shared
+    # tail skips a window that does not fit the storage instead of
+    # raising its halo guard
+    mesh = IntervalMesh(n, (0.0, 1.0), periodic=False, name="y")
+    grid = Grid((mesh,), device_ids=(0,))
+    grid.negotiate(halo=HaloSpec({"y": 0}))
+    f = grid.create_field(mesh.center, init=_smooth)
+    assert f._data.shape[0] == n  # no ghost slot stored
+    op = _BiasedFaceReconstruction(order, "left", "linear", "graded")
+    assert op.requirements(mesh.center).reach == (0, 0)
+    result = op["y"](f)
+    assert result.data.shape[0] == n - 1
+    assert bool(jnp.all(jnp.isfinite(result.data)))
+    # and the value is the ladder's: the wall-adjacent upwind cell
+    if n == 2:
+        assert float(result.data[0]) == pytest.approx(float(f.data[0]))
+
+
+@pytest.mark.parametrize("shift_space", ["center", "inner"])
+@pytest.mark.parametrize("order", [3, 5])
+def test_graded_requirements_are_honest_on_short_axes(order, shift_space):
+    # the reach a graded kernel declares along a walled axis is zero
+    # exactly while every face is a ladder face (graded.fully_patched),
+    # and the periodic footprint beyond that. The union kernel and the
+    # velocity interpolation follow the same rule
+    shift = 0 if shift_space == "center" else 1
+    for n in range(1, order + 4):
+        mesh = IntervalMesh(n, (0.0, 1.0), periodic=False, name="y")
+        space = (mesh.center if shift == 0
+                 else mesh.nodal(NodeSet.INNER, bc=BC.DIRICHLET))
+        patched = fully_patched(n, biased_rows(order, shift), shift)
+        for bias in ("left", "right"):
+            op = _BiasedFaceReconstruction(order, bias, "linear",
+                                           "graded")
+            reach = op.requirements(space).reach
+            assert (reach == (0, 0)) is patched, (n, bias)
+            plain = _BiasedFaceReconstruction(order, bias, "linear",
+                                              "none")
+            # the periodic-only kernel never makes the claim
+            assert plain.requirements(space).reach != (0, 0)
+        interp = _CenteredFaceInterpolation(order - 1, "graded")
+        patched_interp = fully_patched(
+            n, centered_rows(order - 1, shift), shift)
+        assert (interp.requirements(space).reach == (0, 0)) is (
+            patched_interp), n
+        union = _SelectedFaceReconstruction(order, "graded")
+        assert (union.requirements(space).reach == (0, 0)) is patched, n

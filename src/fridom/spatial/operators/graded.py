@@ -392,52 +392,97 @@ def spec_offset(
     return biased_offset(spec.width, bias)
 
 
-def min_cells(interior_size: int) -> int:
+def n_interior_faces(n_cells: int, shift: int) -> int:
     """
-    Smallest cell count a graded ladder of this width is legal on.
+    Output faces of a graded ladder on a walled axis of ``n_cells``.
 
     Description
     -----------
-    The binding constraints are that the widest rung's window fits the
-    lattice (``n_cells >= interior_size + 1``) and that the two sides'
-    reduced faces do not collide (``n_faces >= 2 * K``); both reduce to
-    ``n_cells >= interior_size + 1``, i.e. ``interior_size`` mesh cells
-    on the ``shift = 0`` staggering and ``interior_size`` on the
-    ``shift = 1`` one alike. Reported in **mesh cells** (the ``Center``
-    DOF count of the axis), which is what a model can check at bind.
+    The ladder's output DOF count in the cell frame: ``n_cells - 1``
+    interior faces on the primal staggering (``shift = 0``) and
+    ``n_cells`` on the dual one (``shift = 1``, where the outputs are
+    the cell centers between the ``n_cells + 1`` lattice faces).
 
     Parameters
     ----------
-    interior_size : int
-        The interior kernel's window width (its order, for a biased
-        odd-order kernel).
+    n_cells : int
+        The mesh cell count of the walled axis.
+    shift : int
+        The cell-frame shift (0 or 1; module docstring).
 
     Returns
     -------
     int
-        The smallest legal mesh-cell count along the walled axis.
+        The number of output faces.
     """
-    return interior_size + 1
+    return n_cells - 1 + shift
+
+
+def fully_patched(n_cells: int, rows: int, shift: int) -> bool:
+    """
+    Whether every output face of a walled axis is a reduced face.
+
+    Description
+    -----------
+    A graded operator keeps its wide interior pass only on the faces
+    farther than ``rows`` (its ``K``) from **both** walls; the rest is
+    rebuilt by the ladder from true DOFs alone. When the axis has at
+    most ``2 * rows`` output faces no face keeps the interior pass, so
+    the operator reads **no ghost slot at all** along that axis — its
+    honest ghost demand there is zero, and the storage need not carry
+    the halo its interior window would otherwise ask for. This is the
+    predicate the graded kernels' ``requirements`` and the advection
+    modules' bind-time demand consult; ``apply_graded_walls`` needs no
+    such gate (every face is assigned to its nearer wall whatever the
+    count), and the shared stencil tails skip their halo guard and, when
+    the window does not even fit the storage, the kernel itself for a
+    fully patched axis (``patched=True``).
+
+    A one-cell walled axis is the limiting case: zero output faces on
+    the primal staggering (nothing to reconstruct), one on the dual
+    (the wall-adjacent rung reading synthesized wall values only).
+
+    Parameters
+    ----------
+    n_cells : int
+        The mesh cell count of the walled axis.
+    rows : int
+        The ladder's reduced faces per side (`biased_rows` /
+        `centered_rows`).
+    shift : int
+        The cell-frame shift (0 or 1).
+
+    Returns
+    -------
+    bool
+        True iff no output face keeps the interior pass.
+    """
+    return n_interior_faces(n_cells, shift) <= 2 * rows
 
 
 # ================================================================
 #  Wall-window assembly and the decomposition seam
 # ================================================================
 def _wall_cells(
-    rung: Rung, side: int, distance: int, shift: int,
+    rung: Rung, side: int, distance: int, shift: int, n_faces: int,
 ) -> tuple[int, int]:
     """
     Synthesized wall cells at the head/tail of a rung window.
 
     Description
     -----------
-    Static (the ladder's index arithmetic): on the left wall the rung at
-    distance ``d`` starts at cell ``d - 1 - offset``, which is the wall
-    cell exactly when that is 0; on the right wall it ends at cell
-    ``t_out + (size - 1 - offset - d)``, which is the wall cell
-    (``t_out``) exactly when that bracket is 0. Only a ``shift = 1``
-    operand *has* wall cells; on a BC-free (``shift = 0``) operand both
-    counts are zero and the window is a plain true-DOF slice.
+    Static (the ladder's index arithmetic). In the lattice frame the
+    wall cells are cell ``0`` and cell ``n_faces`` (the last lattice
+    index: ``n_cells - 1 + shift``). The rung at distance ``d`` from
+    the left wall starts at cell ``d - 1 - offset`` and ends
+    ``size - 1`` cells later; mirrored for the right wall. Each end is
+    a synthesized wall cell exactly when it lands on cell ``0`` /
+    ``n_faces`` — **both** ends are checked, because on a short axis a
+    face is patched from its nearer wall with a window that may still
+    touch the far wall (the equidistant face of a dual-direction ladder
+    under the right bias). Only a ``shift = 1`` operand *has* wall
+    cells; on a BC-free (``shift = 0``) operand both counts are zero and
+    the window is a plain true-DOF slice.
 
     Parameters
     ----------
@@ -446,9 +491,12 @@ def _wall_cells(
     side : int
         0 for the left wall, 1 for the right.
     distance : int
-        The face's distance ``d`` from the wall (1 = wall-adjacent).
+        The face's distance ``d`` from that wall (1 = wall-adjacent).
     shift : int
         The cell-frame shift (0 or 1).
+    n_faces : int
+        The output face count of the axis (`n_interior_faces`), i.e.
+        the last lattice cell index.
 
     Returns
     -------
@@ -457,9 +505,11 @@ def _wall_cells(
     """
     if side == 0:
         start = distance - 1 - rung.offset
-        return (shift if start == 0 else 0), 0
-    end = rung.size - 1 - rung.offset - distance
-    return 0, (shift if end == 0 else 0)
+    else:
+        start = n_faces - distance - rung.offset
+    end = start + rung.size - 1
+    return ((shift if start == 0 else 0),
+            (shift if end == n_faces else 0))
 
 
 def _rung_value(
@@ -584,6 +634,21 @@ def apply_graded_walls(
     true DOFs is read, so the result is finite even when every ghost slot
     holds a NaN.
 
+    On a **short** axis (fewer than ``2K`` output faces) the two walls'
+    reduced faces overlap. Every face is then patched from its
+    **nearer** wall (ties go to the left wall), with that wall's rung at
+    the face's distance: its window fits between the two walls for
+    either bias (`biased_offset`: a left-biased rung of order
+    ``2d - 1`` at face ``d`` spans cells ``0 .. 2d - 2``, a right-biased
+    one ``1 .. 2d - 1 <= n_faces``), and a window touching the far wall
+    cell synthesizes it like the near one (`_wall_cells`). No face is
+    written twice, so the result is independent of the patch order, and
+    on an axis with no output face at all (the primal staggering of a
+    one-cell axis) nothing runs. Keyed on the static global face count
+    (`n_interior_faces` of the mesh), so it is correct under
+    ``shard_map`` too — an axis short enough to overlap is never sharded
+    (negotiation keeps every shard at least ``width + 1`` cells wide).
+
     Parameters
     ----------
     f : FieldLike
@@ -609,6 +674,9 @@ def apply_graded_walls(
         return interior
     space = f.function_space.bare
     axis_index = space.names.index(axis)
+    n_faces = n_interior_faces(space.factor(axis).mesh.n_cells, shift)
+    if n_faces == 0:
+        return interior
 
     def patch(
         in_block: Array,
@@ -619,11 +687,16 @@ def apply_graded_walls(
         width_out: int,
         t_out: int | Array,
     ) -> Array:
-        """Overwrite one wall's ``K`` reduced faces of a block."""
-        for d in range(1, k + 1):
+        """Overwrite one wall's reduced faces of a block."""
+        for d in range(1, min(k, n_faces) + 1):
+            # a face nearer to the other wall is that wall's to patch
+            # (an equidistant face is the left wall's)
+            other = n_faces - d + 1
+            if other < d or (side == 1 and other == d):
+                continue
             rung = rungs[k - d]
             face = d if side == 0 else t_out - d + 1
-            walls = _wall_cells(rung, side, d, shift)
+            walls = _wall_cells(rung, side, d, shift, n_faces)
             value = _rung_value(in_block, axis_index, width_in, face,
                                 rung, shift, walls)
             slot = width_out + (face - 1)  # output DOF k = face - 1

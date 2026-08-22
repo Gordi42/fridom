@@ -32,6 +32,7 @@ from fridom.nonhydro2.modules.stratification import (
     ConstantStratification,
 )
 from fridom.spatial.coordinate_mapping import CoordinateMapping
+from fridom.spatial.decomposition.halo import HaloSpec
 from fridom.spatial.errors import SpaceMismatchError
 from fridom.spatial.fields.vector_field import VectorField
 from fridom.spatial.grid import Grid
@@ -533,3 +534,32 @@ def test_fv_velocity_self_advection_walled_matches_nodal(factory, cls):
         tf = np.asarray(advection_tendency(fv, cls)[c].data)
         tn = np.asarray(advection_tendency(nodal, cls)[c].data)
         np.testing.assert_allclose(tf, tn, rtol=0, atol=1e-12)
+
+
+# ================================================================
+#  Short walled axes: the honest halo of the FV biased family
+# ================================================================
+@pytest.mark.parametrize("order", [3, 5])
+@pytest.mark.parametrize("n", [1, 2, 3, 4, 5, 6, 7])
+def test_fv_reconstruction_declares_no_halo_on_a_fully_patched_axis(
+        n, order):
+    # the FV twin of the nodal honesty sweep (test_advection_walls): on
+    # the primal cell frame with K = order // 2 reduced faces per wall,
+    # an axis of at most 2K interior faces patches every face and the
+    # kernel declares no reach along it; the periodic-only kernel
+    # never makes the claim
+    mesh = IntervalMesh(n, (0.0, 1.0), periodic=False, name="b")
+    patched = (n - 1) <= 2 * (order // 2)
+    for bias in ("left", "right"):
+        op = _FVBiasedReconstruction(order, bias, "weno",
+                                     boundary="graded")
+        assert (op.requirements(mesh.cell_avg).reach == (0, 0)) is patched
+    if patched:
+        grid = Grid((mesh,), device_ids=(0,))
+        grid.negotiate(halo=HaloSpec({"b": 0}))
+        f = grid.create_field(mesh.cell_avg,
+                              init=lambda b: 1.0 + b + 0.3 * b ** 2)
+        out = _FVBiasedReconstruction(order, "left", "weno",
+                                      boundary="graded")["b"](f)
+        assert out.data.shape[0] == n - 1
+        assert bool(jnp.all(jnp.isfinite(out.data)))
