@@ -118,10 +118,6 @@ _ = subprocess.run(
     " title=\"Internal wave beams\"'"
     " --record -s 'filename=\"internal_wave_maker.mp4\", framerate=24'",
     shell=True, check=True)
-
-# %%
-# The energy travels along the same four beams and shows the ray
-# pattern even more cleanly than the buoyancy.
 _ = subprocess.run(
     "cdfviewer internal_wave_maker.zarr -v e -x x -y z --dims=y=0"
     " -p heatmap -a time"
@@ -133,13 +129,16 @@ _ = subprocess.run(
     " --record -s 'filename=\"internal_wave_maker_energy.mp4\","
     " framerate=24'",
     shell=True, check=True)
+# sphinx_gallery_video_columns = 1
 
 # %%
 # The four beams grow out of the source and keep their inclination
 # as they cross the box. Where a beam meets the top or the bottom
 # wall it reflects at the same angle to the horizontal, because the
 # angle is set by the forcing frequency alone. The crossing beams
-# interfere into the steady ray pattern of the closing frames.
+# interfere into the steady ray pattern of the closing frames. The
+# energy travels along the same four beams and shows the ray pattern
+# even more cleanly than the buoyancy.
 
 # %%
 # Chirped Forcing
