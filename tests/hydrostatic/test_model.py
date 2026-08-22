@@ -64,7 +64,8 @@ def test_preset_equals_explicit_assembly_treedef():
         time_stepper=stepper,
         coriolis=hy.FPlaneCoriolis(f0=1.3),
         buoyancy=hy.ConstantStratification(n2=2.0),
-        free_surface=hy.ExplicitFreeSurface())
+        free_surface=hy.ExplicitFreeSurface(),
+        advection=True)
     explicit = fr.model.Model(
         grid=grid,
         modules=(
@@ -72,8 +73,8 @@ def test_preset_equals_explicit_assembly_treedef():
             hy.FPlaneCoriolis(f0=1.3),
             hy.ConstantStratification(n2=2.0),
             hy.ExplicitFreeSurface(),
-            # the factory default is advection=True -> CenteredAdvection,
-            # appended after the free surface (H2b)
+            # advection=True is CenteredAdvection, appended after the
+            # free surface (H2b)
             fr.model.modules.CenteredAdvection()),
         time_stepper=AdamBashforth(1e-3, order=3))
     assert (jax.tree_util.tree_structure(preset._carry)

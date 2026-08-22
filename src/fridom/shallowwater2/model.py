@@ -70,7 +70,7 @@ def Model(  # noqa: N802 — constructor-like factory (D1.3)
     time_stepper: TimeStepper,
     scaling: object | None = None,
     coriolis: fr.model.Module | None = None,
-    advection: bool = True,
+    advection: bool = False,
     modules_extra: fr.model.Module | Sequence[fr.model.Module] = (),
     name: str | None = None,
     **kwargs: object,
@@ -94,6 +94,7 @@ def Model(  # noqa: N802 — constructor-like factory (D1.3)
             grid=grid,
             core=sw.Core(gravity=g, depth=H,
                          coords=("lon", "lat")),
+            advection=True,
             coriolis=sw.modules.RotationCoriolis(
                 omega=(0.0, 0.0, omega), coords=("lon", "lat"),
                 metric_weight="csqr"),
@@ -158,9 +159,10 @@ def Model(  # noqa: N802 — constructor-like factory (D1.3)
         which is cheaper but leaves ``L`` without any rotation (no
         eigenmodes, projections, balance).
     advection : bool, optional
-        Include the Sadourny nonlinear advection; the module is
-        scaling-neutral and adopts the assembly's variant at bind
-        (default: True).
+        Include the Sadourny nonlinear advection. ``False`` (the
+        default) leaves the model linear: the scheme is never
+        installed unasked. The module is scaling-neutral and adopts
+        the assembly's variant at bind (default: False).
     modules_extra : fr.model.Module | Sequence[fr.model.Module], optional
         Additional modules (tracers, closures) appended after the
         core physics. A list or a tuple is the module collection,

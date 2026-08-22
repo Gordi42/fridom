@@ -95,7 +95,7 @@ def Model(  # noqa: N802 — a factory that mirrors fr.model.Model's surface
     scaling: object | None = None,
     coriolis: fr.model.Module | None = None,
     buoyancy: fr.model.Module | None = None,
-    advection: fr.model.Module | bool = True,
+    advection: fr.model.Module | bool = False,
     modules_extra: fr.model.Module | Sequence[fr.model.Module] = (),
     name: str | None = None,
     **kwargs: object,
@@ -156,11 +156,14 @@ def Model(  # noqa: N802 — a factory that mirrors fr.model.Model's surface
         background stratification, or ``nh.BuoyancyTracer()`` for a
         bare buoyancy tracer without one (default: None).
     advection : fr.model.Module | bool, optional
-        The advection module: ``True`` uses the default
-        ``CenteredAdvection()``, ``False`` omits advection (a linear
-        model), and a module instance is used as given. The module
-        is scaling-neutral and adopts the assembly's variant at bind
-        (default: True).
+        The advection module. ``False`` (the default) omits
+        advection, a linear model: a scheme is never installed
+        unasked. A module instance (``nh.CenteredAdvection()`` /
+        ``nh.UpwindAdvection(order=...)`` / ``nh.WENOAdvection(...)``)
+        is used as given, and ``True`` is the shorthand for a
+        default-constructed ``CenteredAdvection()``. The module is
+        scaling-neutral and adopts the assembly's variant at bind
+        (default: False).
     modules_extra : fr.model.Module | Sequence[fr.model.Module], optional
         Additional modules (tracers, closures). A list or a tuple is
         the module collection, anything else a single module, so one

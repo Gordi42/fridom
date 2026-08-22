@@ -16,8 +16,9 @@ TRACER-targeting closures mix it.
 
 Several tracers are several modules::
 
-    model = nh.Model(..., modules_extra=(fr.model.modules.Tracer("dye"),
-                                         fr.model.modules.Tracer("age")))
+    model = nh.Model(..., advection=nh.CenteredAdvection(),
+                     modules_extra=(fr.model.modules.Tracer("dye"),
+                                    fr.model.modules.Tracer("age")))
 
 The module owns no term, so an assembly that advances the tracer by
 nothing at all — ``advection=False`` with no closure targeting it —
@@ -59,13 +60,14 @@ class Tracer(Module):
 
     .. code-block:: python
 
-        model = nh.Model(grid=grid, ...,
+        model = nh.Model(grid=grid, ..., advection=nh.CenteredAdvection(),
             modules_extra=(fr.model.modules.Tracer("dye", units="1"),))
         model.set_fields(dye=...)
 
     The tracer is advanced by advection alone: an assembly in which
-    no term advances it (``advection=False`` and no closure
-    targeting TRACER) is rejected by the D1.4 coverage lint.
+    no term advances it (the preset default ``advection=False`` and
+    no closure targeting TRACER) is rejected by the D1.4 coverage
+    lint, so a tracer model names its advection scheme.
 
     Parameters
     ----------

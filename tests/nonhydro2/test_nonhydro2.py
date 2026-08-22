@@ -100,7 +100,8 @@ def test_preset_equals_explicit_assembly_treedef():
         core=nh.Core(),
         time_stepper=AdamBashforth(DT, order=3),
         coriolis=fplane(),
-        buoyancy=nh.ConstantStratification(n2=1.0))
+        buoyancy=nh.ConstantStratification(n2=1.0),
+        advection=True)
     explicit = FrModel(
         grid=grid,
         modules=(
@@ -127,6 +128,7 @@ def test_modules_extra_takes_a_bare_module_a_list_or_a_tuple(wrap):
         time_stepper=AdamBashforth(DT, order=3),
         coriolis=fplane(),
         buoyancy=nh.ConstantStratification(n2=1.0),
+        advection=True,
         modules_extra=wrap(fr.model.modules.Tracer("dye")))
     assert "dye" in model.state
 
@@ -854,14 +856,16 @@ def test_betaplane_advances_with_a_profile_f_of_y():
 def test_omitting_coriolis_runs_without_rotation():
     # coriolis=None (the argument omitted) is the DEFAULT and means no
     # rotation at all: no Coriolis module, hence no f_coriolis field
-    # and no coriolis.f0 provide (advection stays on: with neither
-    # rotation nor advection nothing would advance u/v and the D1.4
-    # coverage lint would fire, correctly — see the test below)
+    # and no coriolis.f0 provide (advection=True keeps a term on u/v:
+    # with neither rotation nor advection nothing would advance them
+    # and the D1.4 coverage lint would fire, correctly — see the test
+    # below)
     model = nh.Model(
         grid=make_grid(),
         core=nh.Core(),
         time_stepper=AdamBashforth(DT, order=3),
-        buoyancy=nh.ConstantStratification(n2=1.0))
+        buoyancy=nh.ConstantStratification(n2=1.0),
+        advection=True)
     assert "f_coriolis" not in model.state
     assert CORIOLIS_F0 not in model.parameters
     assert not any(
@@ -1086,18 +1090,19 @@ def test_walled_diagnostics_smoke():
 
 
 def test_walled_default_model_assembles_with_advection():
-    # the default preset (advection=True: CenteredAdvection, which
-    # is walled-capable through the structural-zero wall fluxes)
+    # the preset's advection=True (CenteredAdvection, which is
+    # walled-capable through the structural-zero wall fluxes)
     # assembles and steps on the rigid-lid grid; the biased schemes
     # keep their taught rejection (test_advection.py)
     grid, _ = make_walled_grid()
-    # the default advection module
+    # the shorthand advection module
     model = nh.Model(
         grid=grid,
         core=nh.Core(),
         time_stepper=AdamBashforth(DT, order=3),
         coriolis=fplane(),
-        buoyancy=nh.ConstantStratification(n2=1.0))
+        buoyancy=nh.ConstantStratification(n2=1.0),
+        advection=True)
     _, y, z = walled_coords()
     model.set_fields(u=0.05 * np.sin(y),
                      b=0.05 * np.cos(np.pi * z / LZ))
@@ -1179,13 +1184,14 @@ def test_meridional_constant_profile_tendency_matches_constant():
 # ================================================================
 def test_constant_stratification_fv_family_puts_b_on_cellavg():
     # family="fv" declares b on the average family (CellAvg^3); the
-    # default advection (CenteredAdvection) transports it in flux form
+    # centered advection transports it in flux form
     model = nh.Model(
         grid=make_grid(),
         core=nh.Core(),
         time_stepper=AdamBashforth(DT, order=3),
         coriolis=fplane(),
-        buoyancy=ConstantStratification(n2=1.0, family="fv"))
+        buoyancy=ConstantStratification(n2=1.0, family="fv"),
+        advection=True)
     factors = model.state["b"].function_space.bare.factors
     assert all(isinstance(f, CellAvg) for f in factors)
 

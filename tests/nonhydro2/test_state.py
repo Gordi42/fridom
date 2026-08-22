@@ -58,6 +58,7 @@ def test_chart_w_equals_hand_built_contravariant_flux():
     grid = _mapped_grid()
     st = _set_random(
         nh.Model(
+            advection=True,
             grid=grid,
             core=nh.Core(),
             time_stepper=AdamBashforth(1e-3, order=3),
@@ -82,6 +83,7 @@ def test_chart_w_equals_hand_built_contravariant_flux():
 def test_chart_is_identity_on_a_flat_grid():
     st = _set_random(
         nh.Model(
+            advection=True,
             grid=_flat_grid(),
             core=nh.Core(),
             time_stepper=AdamBashforth(1e-3, order=3),
@@ -94,6 +96,7 @@ def test_chart_is_identity_on_a_flat_grid():
 def test_chart_velocities_and_read_only():
     st = _set_random(
         nh.Model(
+            advection=True,
             grid=_flat_grid(),
             core=nh.Core(),
             time_stepper=AdamBashforth(1e-3, order=3),
@@ -121,6 +124,7 @@ def _walled_grid(n=12, *, walled_y=False):
 
 def _walled_model(grid, family=None):
     return nh.Model(
+        advection=True,
         grid=grid,
         core=nh.Core() if family is None else nh.Core(family=family),
         buoyancy=nh.ConstantStratification(n2=1.0),

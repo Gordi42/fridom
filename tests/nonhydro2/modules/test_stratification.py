@@ -52,6 +52,7 @@ def test_ramped_n2_assembles_and_advances_under_adam_bashforth():
         fr.spatial.meshes.IntervalMesh(6, (0.0, 1.0), periodic=False,
                                        name="z")))
     model = nh.Model(
+        advection=True,
         grid=grid,
         core=nh.Core(aspect_ratio=1.0),
         time_stepper=AdamBashforth(1e-3, order=1),

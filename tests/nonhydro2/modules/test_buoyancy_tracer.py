@@ -39,6 +39,7 @@ def make_grid():
 def make_model(buoyancy):
     """Assemble an advecting 8^3 model with the given buoyancy module."""
     return nh.Model(
+        advection=True,
         grid=make_grid(),
         coriolis=nh.FPlaneCoriolis(f0=1.0),
         buoyancy=buoyancy,

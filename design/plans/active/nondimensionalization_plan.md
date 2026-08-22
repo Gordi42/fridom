@@ -142,7 +142,7 @@ instead. Conserving subclasses forward the dual kwargs and provide
 ### A6. Preset, consumers, guards
 
 `sw.Model(*, grid, core, time_stepper, scaling=None, coriolis=None,
-advection=True, modules_extra=(), name=None, **kwargs)` — scaling
+advection=False, modules_extra=(), name=None, **kwargs)` — scaling
 defaults to `Dimensional()`; taught TypeErrors for the retired
 `csqr=`/`rossby_number=`/`coords=`; the advection adopts coords from
 the core and the variant at bind; variable-depth
@@ -243,10 +243,10 @@ On the §A architecture (`refactor/nh-hy-scaling`, after Branch 1):
   n2-vs-froude fork.
 - **B5 presets**: `nh.Model(*, grid, core, time_stepper,
   scaling=None→Dimensional(), coriolis=None, stratification=None
-  (opt-in: None = NO stratification), advection=True,
+  (opt-in: None = NO stratification), advection=False,
   modules_extra=(), name=None)`; `hy.Model(..., core,
   stratification, free_surface REQUIRED (None refused taught),
-  scaling=None→Dimensional(), coriolis=None, advection=True,
+  scaling=None→Dimensional(), coriolis=None, advection=False,
   surface_advective_flux=...)`. Retired kwargs (`dsqr=`,
   `rossby_number=`, `csqr=`, `dt=`, the moved solver kwargs) raise
   taught TypeErrors; `comparison_model` re-targeted gravity-first

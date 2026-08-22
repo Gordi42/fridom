@@ -524,9 +524,11 @@ homogeneous-Dirichlet `Inner` on the restriction axis (the zero-wall-
 flux claim its divergence closes on, the wall-normal-velocity
 substitution's `Outer` twin), and the biased `_velocity_face` uses the
 exact `.to` restriction rather than the order-coupled interpolation on
-that axis. `hy.Model` default is now `CenteredAdvection()`;
-`advection=False` keeps the linear model; `UpwindAdvection` /
-`WENOAdvection` accepted. **Closure & conservation.** Dropping `w(0)`
+that axis. `hy.Model(advection=True)` installs `CenteredAdvection()`
+(the factory default was that scheme from H2b until 2026-08-22, when
+the owner made no advection the default on every preset,
+`design/decisions/no_default_advection.md`); `advection=False` is the
+linear model; `UpwindAdvection` / `WENOAdvection` accepted. **Closure & conservation.** Dropping `w(0)`
 is the fixed-domain linear-free-surface treatment — **zero advective
 flux through the boundary faces**: tracer mass conserved to roundoff
 (measured `~1e-14`, all three schemes). The advection is energy-
