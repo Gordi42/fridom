@@ -20,6 +20,9 @@ records through the python package (`python/src/cdfviewer/_run.py::record`,
 which builds a CLI line in `_command.py` and formats values with
 `_format.py::format_value`), so every fix has to work from the command
 line with `--kwargs`, without a window and without per-plot hand tuning.
+(On the command line the base plot type `-p` has to be given before an
+`--over` layer, or the overlay is refused with "Select a plot type
+before overlaying a second field"; the python wrapper passes it.)
 The call that exposed the defects is
 
 ```python
@@ -58,7 +61,7 @@ ds.to_netcdf("section.nc")
 ```
 
 ```bash
-cdfviewer section.nc -v b -x y -y z --over v,w --over-plot quiver \
+cdfviewer section.nc -v b -x y -y z -p heatmap --over v,w --over-plot quiver \
   --kwargs='color=:black, arrows=(60, 20), aspect=3.0, figsize=(1200, 430), xunit="km"' \
   --savefig -s 'filename="section.png"'
 ```
@@ -151,7 +154,7 @@ the quiver table.
 ## 3. An explicit `levels` vector on a contour overlay fails to render
 
 ```bash
-cdfviewer section.nc -v b -x y -y z --over b --over-plot contour \
+cdfviewer section.nc -v b -x y -y z -p heatmap --over b --over-plot contour \
   --kwargs='over.levels=[-0.015, -0.014, -0.013, -0.012, -0.011, -0.01, -0.009, -0.008, -0.007, -0.006, -0.005, -0.004, -0.003, -0.002, -0.001], over.color=:white' \
   --record -s 'filename="section.mp4", framerate=16'
 ```
