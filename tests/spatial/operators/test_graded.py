@@ -29,7 +29,8 @@ from fridom.spatial.operators.graded import (
     centered_ladder,
     centered_offset,
     centered_rows,
-    min_cells,
+    fully_patched,
+    n_interior_faces,
     spec_offset,
 )
 
@@ -249,8 +250,8 @@ def test_the_centered2_bottom_rung_reaches_the_wall_cell_alike(shift):
     spec = biased_specs(3, shift, "centered2")[-1]
     rung = Rung(spec.width, spec_offset(spec, "left"),
                 lambda a, _x: a)
-    assert _wall_cells(rung, 0, 1, shift) == (shift, 0)
-    assert _wall_cells(rung, 1, 1, shift) == (0, shift)
+    assert _wall_cells(rung, 0, 1, shift, 8) == (shift, 0)
+    assert _wall_cells(rung, 1, 1, shift, 8) == (0, shift)
 
 
 # ================================================================
@@ -263,19 +264,38 @@ def test_wall_cells_are_synthesized_exactly_where_the_window_reaches(
         order, shift, bias):
     ladder = biased_ladder(order, shift)
     k = len(ladder)
+    n_faces = 2 * k + 2  # wide enough that the two walls never meet
     for d in range(1, k + 1):
         p = ladder[k - d]
         rung = Rung(p, biased_offset(p, bias), lambda a, _x: a)
-        lead, trail = _wall_cells(rung, 0, d, shift)
+        lead, trail = _wall_cells(rung, 0, d, shift, n_faces)
         assert trail == 0
         # cell 0 is a wall cell only on the shift=1 frame
         assert lead == (shift if d - 1 - rung.offset == 0 else 0)
-        lead, trail = _wall_cells(rung, 1, d, shift)
+        lead, trail = _wall_cells(rung, 1, d, shift, n_faces)
         assert lead == 0
         assert trail == (shift
                          if p - 1 - rung.offset - d == 0 else 0)
         # a rung NEVER reaches past the wall cell
         assert p - 1 - rung.offset - d <= 0
+
+
+def test_wall_cells_synthesize_the_far_wall_on_a_short_axis():
+    # the dual frame (shift = 1) of a walled 3-cell axis: three output
+    # faces, and face 2 is equidistant from both walls. The left wall
+    # patches it (ties go left) with the order-3 rung, whose
+    # right-biased window ``1 .. 3`` ends ON the right wall cell
+    # (cell n_faces = 3) -- that far wall must be synthesized too, or
+    # the rung would read the Dirichlet ghost slot
+    n_faces = n_interior_faces(3, 1)
+    assert n_faces == 3
+    right = Rung(3, biased_offset(3, "right"), lambda a, _x: a)
+    assert _wall_cells(right, 0, 2, 1, n_faces) == (0, 1)
+    left = Rung(3, biased_offset(3, "left"), lambda a, _x: a)
+    assert _wall_cells(left, 0, 2, 1, n_faces) == (1, 0)
+    # the same face seen from the right wall (distance 2) mirrors
+    assert _wall_cells(left, 1, 2, 1, n_faces) == (1, 0)
+    assert _wall_cells(right, 1, 2, 1, n_faces) == (0, 1)
 
 
 def test_bc_free_operand_synthesizes_no_wall_cells():
@@ -289,22 +309,50 @@ def test_bc_free_operand_synthesizes_no_wall_cells():
                 p = ladder[k - d]
                 rung = Rung(p, biased_offset(p, bias),
                             lambda a, _x: a)
-                assert _wall_cells(rung, 0, d, 0) == (0, 0)
-                assert _wall_cells(rung, 1, d, 0) == (0, 0)
+                assert _wall_cells(rung, 0, d, 0, 2 * k) == (0, 0)
+                assert _wall_cells(rung, 1, d, 0, 2 * k) == (0, 0)
 
 
 # ================================================================
-#  Minimum extent, and the empty-ladder short circuit
+#  Short axes: face counts, the fully-patched predicate, the
+#  empty-ladder short circuit
 # ================================================================
+@pytest.mark.parametrize("shift", SHIFTS)
+def test_interior_face_count_per_frame(shift):
+    # primal: the n - 1 faces between n cells; dual: the n centers
+    # between the n + 1 lattice faces
+    for n_cells in range(1, 6):
+        assert n_interior_faces(n_cells, shift) == n_cells - 1 + shift
+    assert n_interior_faces(1, 0) == 0
+
+
 @pytest.mark.parametrize("order", ORDERS)
-def test_min_cells_admits_the_widest_rung_and_separates_the_walls(
-        order):
-    need = min_cells(order)
-    assert need == order + 1
-    for shift in SHIFTS:
-        n_cells = need + shift            # Center count -> lattice
-        assert order <= n_cells           # the widest window fits
-        assert 2 * biased_rows(order, shift) <= n_cells - 1
+@pytest.mark.parametrize("shift", SHIFTS)
+def test_fully_patched_exactly_until_a_face_keeps_the_interior_pass(
+        order, shift):
+    k = biased_rows(order, shift)
+    for n_cells in range(1, 12):
+        faces = n_interior_faces(n_cells, shift)
+        assert fully_patched(n_cells, k, shift) is (faces <= 2 * k)
+    # the old ``order + 1`` minimum is exactly the first primal axis
+    # that keeps an interior face (and so genuinely needs its halo)
+    if shift == 0:
+        assert fully_patched(order, k, 0)
+        assert not fully_patched(order + 1, k, 0)
+    # a one-cell walled axis is fully patched at every order and on
+    # both frames: nothing to reconstruct on the primal one, a single
+    # wall-adjacent rung on the dual one
+    assert fully_patched(1, k, shift)
+
+
+@pytest.mark.parametrize("size", SIZES)
+@pytest.mark.parametrize("shift", SHIFTS)
+def test_fully_patched_holds_for_the_centered_ladder_too(size, shift):
+    k = centered_rows(size, shift)
+    assert fully_patched(1, k, shift)
+    for n_cells in range(1, 10):
+        assert fully_patched(n_cells, k, shift) is (
+            n_interior_faces(n_cells, shift) <= 2 * k)
 
 
 def test_empty_ladder_returns_the_interior_pass_untouched():

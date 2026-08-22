@@ -811,3 +811,43 @@ only: state the `width <= n_cells` law in `_axis_map`'s docstring, and
 name `mesh.n_cells` in the `rank > n` message (reachable via a
 `FiniteDifference(order>=4)` registry override, which has no taught
 pre-flight).
+
+## 13. The walled short axis: an honest demand, not a wider fill (2026-08-22)
+
+`fix/thin-walled-axis-advection`. The biased family refused a walled
+axis shorter than `order + 1` cells (§12.9's `_check_walled_extent`),
+so the 2-D barotropic hydrostatic column (`shape=(nx, ny, 1)`) could
+not run WENO. Two mechanisms were behind it
+([`weno_thin_walled_axis.md`](weno_thin_walled_axis.md)): the two
+walls' ladders were patched independently and collided on a short
+axis (a genuine exterior read at order 5, `n = 3`), and the bounded
+fill's `width <= n_cells` law (§12.9) refused the wide halo the scheme
+*declared* along the axis.
+
+The second mechanism is the one this record matters for, and the
+resolution is not the fold §5 declined. The declared reach was the
+lie: a graded kernel reads no ghost slot on a walled axis whose every
+face is a ladder face (R1), so its honest demand there is **zero** —
+`graded.fully_patched` — and with that declared, the fill is never
+asked for more than the flux divergence's width 1, which the vacant
+slot rule admits at 0 DOFs. So:
+
+- **§5 and §12.4 stand unchanged for elision.** `is_flat` remains
+  `periodic and n_cells == 1`; nothing keys a flat rule on a bounded
+  axis. The one-cell walled column keeps three storage layers (the two
+  wall slots of the `Inner` flux space), not one — that 3-vs-1 is now
+  the whole remaining cost of a wide scheme there, and it is the flux
+  divergence's, not the reconstruction's.
+- **"Do not generalize the bounded fill" stands.** The two-wall fold
+  was prototyped once more (it reproduces a six-layer WENO run to
+  5.6e-16 when the guard is bypassed) and then not shipped: with honest
+  requirements no path of the advection family reaches `rank > n`.
+- **§12.9's guard is gone, its law is not.** `_check_walled_extent`
+  and `graded.min_cells` are deleted; the fill's `width <= n_cells`
+  refusal is unchanged and still reachable only through a non-graded
+  wide registry override. `min_cells`'s `order + 1` survives as the
+  first primal axis that keeps an interior face (`test_graded.py`).
+- **The collision is fixed by assignment, not by a guard:** every face
+  is patched from its nearer wall with that wall's rung at the face's
+  distance (ties left), which fits between the walls for either bias,
+  and `_wall_cells` synthesizes both wall cells a window touches.

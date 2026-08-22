@@ -992,6 +992,73 @@ def flat_repeat_and_run(
             flat_window(size, m0, width, s_out))
 
 
+def _run_kernel(
+    kernel: Callable[..., Array],
+    storage: Array,
+    axis_index: int,
+    co_operands: tuple[Array, ...],
+    *,
+    size: int,
+    k0: int,
+    s_out: int,
+    patched: bool,
+) -> Array:
+    """
+    Run the kernel and slice-and-pad its output onto the codomain.
+
+    Description
+    -----------
+    The shared tail of `apply_staggered` and
+    ``reconstruct.apply_fv_staggered``: kernel entry ``t`` lands on
+    output storage slot ``t + k0``; slots the window cannot reach are
+    zero-filled (the post-application sync repairs ghost slots, the
+    graded ladder rebuilds patched faces). With ``patched`` set and a
+    window wider than the storage itself — a walled axis so short that
+    every face is a ladder face — the kernel is not run at all: its
+    output would have no length, and every true slot is overwritten
+    afterwards anyway.
+
+    Parameters
+    ----------
+    kernel : Callable[..., Array]
+        The operator's array kernel.
+    storage : Array
+        The operand storage (rebuilt on a flat axis).
+    axis_index : int
+        The stencil axis.
+    co_operands : tuple[Array, ...]
+        Extra storage arrays handed to the kernel positionally.
+    size : int
+        The stencil size.
+    k0 : int
+        The kernel alignment in the storage frame.
+    s_out : int
+        The codomain's storage extent along the axis.
+    patched : bool
+        Whether every true output slot is rebuilt by the caller.
+
+    Returns
+    -------
+    Array
+        The codomain storage along ``axis_index`` (other axes as the
+        kernel returns them).
+    """
+    if patched and storage.shape[axis_index] < size:
+        shape = list(storage.shape)
+        shape[axis_index] = s_out
+        return jnp.zeros(tuple(shape), storage.dtype)
+    full = kernel(storage, axis_index, *co_operands)
+    length = full.shape[axis_index]
+    lo = max(0, k0)
+    hi = min(s_out, k0 + length)
+    index: list[slice] = [slice(None)] * full.ndim
+    index[axis_index] = slice(lo - k0, hi - k0)
+    piece = full[tuple(index)]
+    pads = [(0, 0)] * full.ndim
+    pads[axis_index] = (lo, s_out - hi)
+    return jnp.pad(piece, pads)
+
+
 def apply_staggered(
     op: Operator,
     f: FieldLike,
@@ -1000,6 +1067,8 @@ def apply_staggered(
     kernel: Callable[..., Array],
     metadata: FieldMetadata | None,
     co_operands: tuple[Array, ...] = (),
+    *,
+    patched: bool = False,
 ) -> FieldLike:
     """
     Run an aligned ``size``-point kernel along ``axis``.
@@ -1038,6 +1107,16 @@ def apply_staggered(
         one-slot array with the rebuilt window's length
         (``design/research/thin_axis_halo_investigation.md`` §6).
         Kernels reading only the operand pass nothing (default: ()).
+    patched : bool, optional
+        The caller rebuilds **every** true output slot along ``axis``
+        afterwards (a graded ladder on a walled axis short enough that
+        no face keeps the interior pass, ``graded.fully_patched``), so
+        the kernel's output is discarded wherever it lands: the halo
+        guard below is skipped — the operator's honest demand along
+        the axis is zero and the negotiated width may be narrower than
+        the window — and when the window does not even fit the storage
+        the kernel is not run at all and the result is zero-filled
+        (default: False).
 
     Returns
     -------
@@ -1076,7 +1155,7 @@ def apply_staggered(
     # cover it (frame-independent: equivalent to the storage-bounds
     # check on one shard, and the per-block condition on many)
     reach_right = (n_out - domain_factor.shape[0]) + size - 1 - m0
-    if m0 > width or reach_right > width:
+    if not patched and (m0 > width or reach_right > width):
         raise ValueError(
             f"the negotiated halo width {width} along {axis!r} is "
             f"too small for the {size}-point stencil of "
@@ -1093,16 +1172,8 @@ def apply_staggered(
         storage, co_operands, k0 = flat_repeat_and_run(
             kernel, storage, co_operands, axis, axis_index,
             size=size, m0=m0, width=width, s_out=s_out)
-    full = kernel(storage, axis_index, *co_operands)
-    length = full.shape[axis_index]
-    lo = max(0, k0)
-    hi = min(s_out, k0 + length)
-    index: list[slice] = [slice(None)] * full.ndim
-    index[axis_index] = slice(lo - k0, hi - k0)
-    piece = full[tuple(index)]
-    pads = [(0, 0)] * full.ndim
-    pads[axis_index] = (lo, s_out - hi)
-    data = jnp.pad(piece, pads)
+    data = _run_kernel(kernel, storage, axis_index, co_operands,
+                       size=size, k0=k0, s_out=s_out, patched=patched)
     # halo-validity claim (task 1.8, stage B): the kernel computed
     # every output ghost slot its window reaches, so on a *periodic*
     # axis the result keeps the operand's valid layers minus the

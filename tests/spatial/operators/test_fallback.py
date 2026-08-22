@@ -317,3 +317,31 @@ def test_metadata_is_kept(my):
     grid.negotiate(halo=HaloSpec({"y": 3}))
     f = grid.create_field(my.cell_avg, name="q", units="kg")
     assert graded_reconstruction(5)["y"](f).name == "q"
+
+
+# ================================================================
+#  Short walled axes: the honest halo of a fully patched ladder
+# ================================================================
+@pytest.mark.parametrize("n", [1, 2, 3, 4, 5, 6, 7])
+def test_fallback_declares_no_halo_where_every_face_is_a_ladder_face(n):
+    # K = 2 reduced faces per wall (orders 3 and 1 below the order-5
+    # interior): with at most 2K = 4 interior faces (n <= 5 cells) no
+    # face keeps the interior pass, the operator reads no ghost slot
+    # along the axis, and its declared halo there is zero
+    ladder = graded_ladder(5, "left")
+    op = Fallback(ladder[0], ladder[1:])
+    mesh = IntervalMesh(n, (0.0, 1.0), periodic=False, name="y")
+    expected = 0 if n - 1 <= 4 else ladder[0].requirements(
+        mesh.cell_avg).halo
+    assert op.requirements(mesh.cell_avg).halo == expected
+    # and it reconstructs every face from true DOFs alone: negotiate a
+    # ZERO halo along the axis (narrower than every window) and apply
+    if expected == 0:
+        grid = Grid((mesh,), device_ids=(0,))
+        grid.negotiate(halo=HaloSpec({"y": 0}))
+        f = grid.create_field(mesh.cell_avg,
+                              init=lambda y: 1.0 + y + 0.3 * y ** 2)
+        out = op["y"](f)
+        assert out.function_space.bare is mesh.inner
+        assert out.data.shape[0] == n - 1
+        assert bool(jnp.all(jnp.isfinite(out.data)))

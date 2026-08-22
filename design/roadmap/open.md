@@ -214,9 +214,15 @@ topology.
   devices pass (462 tests), and a size-1 axis is never sharded at any
   device count, so the flat path only ever takes the single-shard
   branch — low risk, unverified under a true multi-host launch.
-- **The merely-thin axis is still uncovered:** `n = 2` pays 3x/5x and no
-  flat rule reaches it. Extending the widening to a modular tiled gather
-  for `n < halo` looks worth costing given the measured size of the win.
+- **The merely-thin *periodic* axis is still uncovered:** `n = 2` pays
+  3x/5x and no flat rule reaches it. Extending the widening to a
+  modular tiled gather for `n < halo` looks worth costing given the
+  measured size of the win. (A short *walled* axis no longer pays for
+  the biased family at all — its kernels declare no halo where every
+  face is a ladder face; `done.md`, 2026-08-22. What a walled one-cell
+  column still pays is the flux divergence's width-1 read of the two
+  structural-zero wall slots: three layers against the linear model's
+  one.)
 - **`examples/nonhydro/dancing_eddies.py`** prose still says a thin
   vertical rules out the wide reconstruction stencils. Now doubly stale
   (the wrap fix lifted it; elision makes the flat axis the *cheap* one).

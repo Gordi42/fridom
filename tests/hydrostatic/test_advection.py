@@ -359,3 +359,51 @@ def test_surface_flux_grad_through_a_short_run_matches_fd():
     fd = (float(loss(b_leaf + eps * direction))
           - float(loss(b_leaf - eps * direction))) / (2.0 * eps)
     assert directional == pytest.approx(fd, rel=1e-4)
+
+
+# ================================================================
+#  The one-cell column (2-D barotropic model) under a wide scheme
+# ================================================================
+def _barotropic(nz, scheme, *, nx=16, ny=8):
+    """Constant-density channel, walled in y and z, ``nz`` layers."""
+    grid = fr.spatial.Grid((
+        IM(nx, (0.0, 1.0), periodic=True, name="x"),
+        IM(ny, (0.0, 0.5), periodic=False, name="y"),
+        IM(nz, (0.0, 0.1), periodic=False, name="z")))
+    model = hy.Model(
+        grid=grid,
+        core=hy.Core(gravity=1.0),
+        free_surface=hy.ExplicitFreeSurface(),
+        coriolis=hy.FPlaneCoriolis(f0=1.0),
+        buoyancy=None,
+        advection=scheme,
+        time_stepper=AdamBashforth(2e-3, order=3))
+    model.set_fields(ps=lambda x, y: 0.05 * jnp.exp(
+        -((x - 0.5) ** 2 + (y - 0.25) ** 2) / 0.02))
+    return model
+
+
+@pytest.mark.parametrize("order", [3, 5])
+def test_weno_on_a_one_cell_column_matches_the_replicated_column(order):
+    """A walled one-cell column runs WENO and IS the deep column.
+
+    The case that motivated the honest halo: a 2-D barotropic model
+    (``buoyancy=None``, ``shape=(nx, ny, 1)``) under
+    ``WENOAdvection``. The vertical leg has no interior face, so the
+    scheme declares no halo along ``z`` -- the column keeps the
+    centered scheme's three storage layers, not ``1 + 2 * (order // 2
+    + 1)`` -- and the run reproduces the same model on four identical
+    layers to roundoff (the horizontal WENO is layer-wise the same,
+    the vertical leg exact on a uniform column).
+    """
+    thin = _barotropic(1, WENOAdvection(order=order))
+    assert thin.grid.decomposition.halo["z"] == 1
+    assert thin.state["u"]._data.shape[2] == 3
+    deep = _barotropic(4, WENOAdvection(order=order))
+    thin.advance(5)
+    deep.advance(5)
+    eta_thin = np.asarray(thin.diagnostics.eta().data)
+    eta_deep = np.asarray(deep.diagnostics.eta().data)
+    assert np.all(np.isfinite(eta_thin))
+    assert np.max(np.abs(eta_thin - eta_deep)) < 1e-12
+    assert np.max(np.abs(eta_thin)) > 1e-3  # not vacuous
