@@ -145,14 +145,14 @@ def test_fv_reconstruction_rejects_nodal_and_complex():
         op.codomain(mx.cell_avg.as_complex())
 
 
-def test_fv_reconstruction_rejects_a_stretched_factor():
-    # the operator-level uniform-mesh refusal (the biased FV rows are
-    # uniform-offset weights): a stretched (mapped) mesh raises
+def test_fv_reconstruction_accepts_a_stretched_factor():
+    # route (ii): the FV rows are built from the factor's own primal
+    # cell widths, so a stretched (mapped) mesh resolves the same
+    # CellAvg -> Right signature a uniform one does
     mesh = MappedIntervalMesh(8, (0.0, 1.0), _wavy,
                               periodic=True, name="z")
-    with pytest.raises(SpaceMismatchError, match="uniform-mesh only"):
-        _FVBiasedReconstruction(3, "left", "weno").codomain(
-            mesh.cell_avg)
+    assert _FVBiasedReconstruction(3, "left", "weno").codomain(
+        mesh.cell_avg) is mesh.right
 
 
 def test_fv_reconstruction_constructor_validation():

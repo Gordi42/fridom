@@ -147,16 +147,23 @@ change; so is an uncoupled axis on a mapped grid (``J`` does not
 depend on it).
 
 The biased
-schemes (``UpwindAdvection``/``WENOAdvection``) reject mapped
-geometry at bind with a taught error — **both** surfaces: a mapped
-column (``CoordinateMapping``) and a stretched mesh factor
-(``MappedIntervalMesh``, whose ``column_corrections`` are empty).
-Their order-wide windows are uniform-offset (computational-
-coordinate) rows: divided by a two-point measure they stay
-consistent but drop to 2nd order (measured: upwind-5 and weno-5 both
-5 -> 2 on a wavy-stretched mesh), so they refuse rather than
-silently under-deliver — a mapped-aware high-order reconstruction is
-future work.
+schemes (``UpwindAdvection``/``WENOAdvection``) accept a **stretched
+mesh factor** (``MappedIntervalMesh``, whose ``column_corrections``
+are empty): their candidate rows, ideal weights and smoothness
+indicators are built from the factor's own cell widths
+(``spatial.operators.weno.cell_widths`` feeding the window
+generator — Shu 1998 eq. 2.20 in the primitive-function Lagrange
+form, route (ii) of the high-order mapped plan), so a stretched axis
+keeps the reconstruction's design order while the divergence goes on
+dividing by the physical two-point measure: conservation and
+constancy are exactly what they were. A uniform factor takes the
+static float tables and is bitwise unchanged. What the biased schemes
+still reject at bind is a **mapped column** (a ``CoordinateMapping``
+with a non-empty ``column_corrections`` — terrain-following or
+boundary-fitted geometry), whose windows would additionally need the
+column's cross-slope metrics; and, on an **immersed** grid only, a
+stretched factor, because the mask-keyed ladder carries no width
+co-operand.
 
 **Finite-volume (average-family) tracers (FV-D2 option A)**: an
 ``ADVECTED`` component declared ``family="fv"`` resolves to the
@@ -198,7 +205,7 @@ stays FV-specific on terrain is the *typing* — the conserved
 quantity IS the DOF, ``integrate`` on ``CellAvg`` is exact rather
 than midpoint — and the immersed composition, where the cross flux
 additionally carries the open-fraction gate and the nodal family is
-refused outright. The biased schemes reject mapped geometry entirely
+refused outright. The biased schemes reject a mapped column
 (above). The FV pressure C-grid is stage F3 (the projection here
 never touches a tracer).
 
@@ -230,8 +237,10 @@ wall, and on an axis so short that no face keeps the interior pass
 the kernels read no ghost slot at all and declare no halo there
 (``graded.fully_patched`` — the honest demand of a one-cell walled
 axis is zero, so a 2-D model on a walled one-cell column pays no
-vertical halo for a wide scheme). The uniform-mesh refusal is
-untouched — mapped/stretched factors are still rejected at bind.
+vertical halo for a wide scheme). A **stretched** bounded factor is
+carried through the same ladder: every rung reads the wall-side cell
+widths through the graded tail's ``co_storages`` seam, the two wall
+dual cells (the half cells) included.
 
 **Walled grids (centered scheme)**: ``CenteredAdvection`` supports
 bounded mesh factors (channel walls, rigid lids, and their
@@ -276,8 +285,9 @@ failure is silent wrong physics rather than a crash.**
   shallow-water ``SadournyAdvection`` refusal (IP-D8).
 - **An embedding chart** (:meth:`_FluxFormAdvection._reject_chart`).
   The whole family is written in computational coordinates: the
-  face reconstructions are uniform-offset rows and the divergence
-  is a bare ``diff`` / ``flux_diff``. The only metric it multiplies
+  face reconstructions are lattice rows (width-aware along a
+  stretched factor, never chart-aware) and the divergence is a bare
+  ``diff`` / ``flux_diff``. The only metric it multiplies
   is the ``maps=`` column Jacobian; ``grid.chart_coords`` is never
   read, so on a chart it transports the stored (rather than
   contravariant) components with no :math:`\sqrt g` weight — the
@@ -337,9 +347,7 @@ from fridom.spatial.operators.reconstruct import (
 from fridom.spatial.operators.select import Where
 from fridom.spatial.operators.staggering import (
     footprint_reach,
-    mapped_factor,
     mapped_mesh,
-    mapped_order_hint,
 )
 from fridom.spatial.operators.weno import (
     _shu_row,  # the exact-rational coefficient seam
@@ -739,7 +747,7 @@ def _face_codomain(
     Description
     -----------
     ``Center -> Right`` and ``Right -> Center`` on periodic real nodal
-    factors of a **uniform** mesh — the two C-grid flux positions of
+    factors, uniform or stretched — the two C-grid flux positions of
     the flux-form advection modules — and, for ``boundary="graded"``,
     their bounded twins ``Center -> Inner`` and ``Inner -> Center``.
     The bounded pair is exactly the ``graded`` cell frame: a
@@ -752,8 +760,8 @@ def _face_codomain(
     other bounded ``Inner`` tag raises rather than inventing a wall
     value.
 
-    Everything else (average spaces, stretched axes, complex scalars,
-    and — under ``boundary="none"`` — any bounded axis) raises.
+    Everything else (average spaces, complex scalars, and — under
+    ``boundary="none"`` — any bounded axis) raises.
 
     Parameters
     ----------
@@ -774,15 +782,6 @@ def _face_codomain(
         raise SpaceMismatchError(
             f"{label} covers real nodal C-grid factors only, got "
             f"{domain!r}", left=domain, operation="reconstruct")
-    if mapped_factor(domain):
-        raise SpaceMismatchError(
-            f"{label} is uniform-mesh only (the biased advection "
-            "modules reject stretched meshes at bind) — "
-            + mapped_order_hint(
-                "the biased face reconstruction rows and their "
-                "order-coupled velocity interpolation")
-            + f", got {domain!r}",
-            left=domain, operation="reconstruct")
     mesh = domain.mesh
     if mesh.periodic:
         if domain.node_set is NodeSet.CENTER:
@@ -2012,8 +2011,9 @@ class _FVBiasedReconstruction(SeparableOperator):
     pass untouched (bitwise the ``boundary="none"`` kernel). Held
     directly by the advection modules as a left/right pair (the sign
     selection is the module's ``Where`` select); never registered
-    under a dispatch kind. Uniform-mesh only (the biased advection
-    modules reject stretched meshes at bind).
+    under a dispatch kind. A stretched (``MappedIntervalMesh``)
+    factor is supported: the rows are then built from the factor's
+    primal cell widths (see `_BiasedFaceReconstruction`).
 
     Parameters
     ----------
@@ -2104,10 +2104,10 @@ class _FVBiasedReconstruction(SeparableOperator):
 
         Description
         -----------
-        ``CellAvg -> Right`` on a periodic uniform mesh; the bounded
-        ``CellAvg -> Inner`` variant is grounded only under
-        ``boundary="graded"`` (the near-wall closure). Average spaces,
-        stretched axes, and complex scalars raise.
+        ``CellAvg -> Right`` on a periodic mesh, uniform or
+        stretched; the bounded ``CellAvg -> Inner`` variant is
+        grounded only under ``boundary="graded"`` (the near-wall
+        closure). Nodal spaces and complex scalars raise.
 
         Parameters
         ----------
@@ -2124,15 +2124,6 @@ class _FVBiasedReconstruction(SeparableOperator):
             raise SpaceMismatchError(
                 f"{type(self).__name__} reconstructs a real CellAvg "
                 f"tracer onto its faces, got {domain!r}",
-                left=domain, operation="reconstruct")
-        if mapped_factor(domain):
-            raise SpaceMismatchError(
-                f"{type(self).__name__} is uniform-mesh only (the "
-                "biased advection modules reject stretched meshes at "
-                "bind) — "
-                + mapped_order_hint(
-                    "the biased FV reconstruction rows")
-                + f", got {domain!r}",
                 left=domain, operation="reconstruct")
         mesh = domain.mesh
         if mesh.periodic:
@@ -2515,14 +2506,26 @@ class _FluxFormAdvection(fr.model.Module):
     #: through their graded near-wall closure, installed at bind)
     _supports_walled: ClassVar[bool] = True
 
-    #: whether the scheme is grounded on mapped geometry at all —
-    #: both surfaces: a stretched mesh factor (MappedIntervalMesh)
-    #: and a mapping-declared mapped column. The centered scheme is
-    #: (order-2 stencils over the measure fields / the physical flux
-    #: divergence); the biased subclasses opt out — their
-    #: uniform-offset windows need a mapped-aware reconstruction,
-    #: future work
-    _supports_mapped: ClassVar[bool] = True
+    #: whether the scheme is grounded on a mapping-declared **mapped
+    #: column** (terrain-following / boundary-fitted geometry). The
+    #: centered scheme is (the J-weighted physical flux divergence,
+    #: stage C4); the biased subclasses opt out — their face windows
+    #: would additionally need the column's cross-slope metrics,
+    #: future work. This is one half of the retired ``_supports_mapped``
+    #: flag; its other half — a plain **stretched** mesh factor — is
+    #: no longer a capability question at all (every scheme is
+    #: grounded on one) and survives only as the immersed combination
+    #: below
+    _supports_mapped_column: ClassVar[bool] = True
+
+    #: whether the scheme's **immersed** (cut-cell) closure is grounded
+    #: on a stretched mesh factor. The centered scheme is (its
+    #: two-point faces divide by the measure fields whatever the mask
+    #: says); the biased subclasses are not — their mask-keyed ladder
+    #: (`graded.apply_graded_mask`) runs every rung through a
+    #: width-free kernel call, so a stretched factor there would
+    #: silently fall back to the uniform rows
+    _supports_stretched_immersed: ClassVar[bool] = True
 
     #: whether the scheme is grounded on immersed (cut-cell) grids
     #: (IP-D4): the centered flux form weights every face flux by the
@@ -2849,30 +2852,34 @@ class _FluxFormAdvection(fr.model.Module):
         Raises
         ------
         NotImplementedError
-            On a grid carrying a **stretched** mesh factor
-            (``MappedIntervalMesh``: a per-axis ``coordinate_map``)
-            or a mapping-declared **mapped column** when the scheme
-            opts out through `_supports_mapped` (the biased
-            subclasses — their order-wide uniform-offset windows need
-            a mapped-aware reconstruction, future work), or when the
-            mapping declares more than one column (mirroring the
-            stage-C3 pressure solver support).
+            On a mapping-declared **mapped column** when the scheme
+            opts out through `_supports_mapped_column` (the biased
+            subclasses — their face windows would additionally need
+            the column's cross-slope metrics, future work), on a
+            **stretched** factor of an **immersed** grid when the
+            scheme opts out through `_supports_stretched_immersed`
+            (`_require_supported_stretching`), or when the mapping
+            declares more than one column (mirroring the stage-C3
+            pressure solver support).
         """
-        self._require_uniform_factors(grid)
+        self._require_supported_stretching(grid)
         mapping = getattr(grid, "mapping", None)
         corrections = (mapping.column_corrections
                        if mapping is not None else {})
         if not corrections:
             return
-        if not self._supports_mapped:
+        if not self._supports_mapped_column:
             raise NotImplementedError(
                 f"{type(self).__name__} does not support mapped "
                 "grids (the coordinate mapping declares a mapped "
-                "column): the biased face reconstructions are "
-                "computational-coordinate rows and would silently "
-                "misrepresent physical transport — future work. "
-                "Use CenteredAdvection (mapped-capable, stage C4) "
-                "or a linear model (advection=False in nh.Model)")
+                "column): the biased face reconstructions follow the "
+                "lattice of their own factor and carry none of the "
+                "column's cross-slope metrics, so they would "
+                "silently misrepresent physical transport — future "
+                "work (a stretched factor without a mapped column IS "
+                "supported). Use CenteredAdvection (mapped-capable, "
+                "stage C4) or a linear model (advection=False in "
+                "nh.Model)")
         columns = set(corrections.values())
         if len(columns) != 1:
             raise NotImplementedError(
@@ -2883,30 +2890,37 @@ class _FluxFormAdvection(fr.model.Module):
         self._corrections = dict(corrections)
         self._halo_axes = tuple(grid.names)
 
-    def _require_uniform_factors(self, grid: object) -> None:
-        """Reject stretched mesh factors when the scheme opts out.
+    def _require_supported_stretching(self, grid: object) -> None:
+        """Reject a stretched factor on an immersed grid (biased).
 
         Description
         -----------
-        The second (and, for a plain stretched grid, the *only*)
-        mapped surface of a grid: a ``MappedIntervalMesh`` factor
-        carries its own ``coordinate_map`` and needs **no**
-        ``CoordinateMapping`` column, so ``column_corrections`` is
-        empty and the mapped-column guard below never fires. The
-        centered scheme is grounded here (its two-point stencils
-        divide by the codomain measure field, order 2); the biased
-        subclasses are not — their uniform-offset windows would bind
-        happily and silently lose their design order, the exact
-        silent-wrongness ``FiniteDifference`` refuses to commit at
-        order > 2.
+        The stretched-factor half of the retired two-surface mapped
+        guard. A ``MappedIntervalMesh`` factor carries its own
+        ``coordinate_map`` and needs **no** ``CoordinateMapping``
+        column, so ``column_corrections`` is empty and the
+        mapped-column guard never sees it. Every scheme is now
+        grounded on such a factor — the centered one through its
+        two-point measure divisions, the biased ones through the
+        width-aware reconstruction rows (module docstring) — so on a
+        plain (unimmersed) grid this guard never fires.
+
+        What it does still refuse is the **combination** stretched +
+        immersed for the biased schemes: their cut-cell closure is the
+        mask-keyed graded ladder, whose rungs run through a width-free
+        kernel call, so a stretched factor there would silently
+        reconstruct with the uniform rows — the very silent-wrongness
+        the retired stretched-mesh refusal existed to prevent.
 
         Raises
         ------
         NotImplementedError
-            On a stretched mesh factor when `_supports_mapped` is
-            False.
+            On a stretched mesh factor of an immersed grid when
+            `_supports_stretched_immersed` is False.
         """
-        if self._supports_mapped:
+        if self._supports_stretched_immersed:
+            return
+        if getattr(grid, "immersed", None) is None:
             return
         stretched = tuple(
             name for mesh in getattr(grid, "factors", ())
@@ -2914,13 +2928,16 @@ class _FluxFormAdvection(fr.model.Module):
         if not stretched:
             return
         raise NotImplementedError(
-            f"{type(self).__name__} does not support stretched "
-            f"(mapped) meshes (mapped coordinates: {stretched}): "
-            + mapped_order_hint(
-                "its biased face reconstructions and their "
-                "order-coupled velocity interpolation")
-            + ". Use CenteredAdvection (order 2, mapped-capable) or "
-            "a uniform mesh (IntervalMesh)")
+            f"{type(self).__name__} does not support a stretched "
+            f"(mapped) mesh on an immersed (cut-cell) grid (mapped "
+            f"coordinates: {stretched}): the biased face "
+            "reconstructions are width-aware on a plain stretched "
+            "grid, but their immersed closure is the mask-keyed "
+            "graded ladder, which carries no cell-width co-operand "
+            "and would silently reconstruct with the uniform rows. "
+            "Use CenteredAdvection (order 2, immersed- and "
+            "mapped-capable), an unimmersed stretched grid, or a "
+            "uniform mesh (IntervalMesh)")
 
     #: on a mapped grid the flux divergence multiplies grid.metric
     #: coefficients the halo tracer cannot follow (V-N2): declare
@@ -4267,9 +4284,13 @@ class UpwindAdvection(_FluxFormAdvection):
     keep ``upwind1`` when fronts, steps, or under-resolved boundary
     layers may reach the wall.
 
-    Mapped grids stay rejected at bind: the biased rows are
-    uniform-offset (computational-coordinate) rows and lose their
-    design order on a stretched mesh. Use `CenteredAdvection`
+    A **stretched** mesh factor (``MappedIntervalMesh``) is supported:
+    the rows, ideal weights and smoothness indicators are built from
+    the factor's cell widths, so the design order survives the
+    stretching (module docstring). A **mapped column** (a
+    ``CoordinateMapping`` declaring terrain-following or
+    boundary-fitted geometry) stays rejected at bind, and so does a
+    stretched factor on an immersed grid. Use `CenteredAdvection`
     (mapped-capable, order 2) there.
 
     Parameters
@@ -4304,10 +4325,13 @@ class UpwindAdvection(_FluxFormAdvection):
     #: through their graded near-wall closure, installed at bind
     _supports_walled: ClassVar[bool] = True
 
-    #: the biased reconstructions are computational-coordinate rows;
-    #: mapped columns need a mapped-aware variant — future work
-    #: (taught rejection at bind)
-    _supports_mapped: ClassVar[bool] = False
+    #: a mapped column (terrain-following / boundary-fitted geometry)
+    #: needs cross-slope-aware face windows — future work (taught
+    #: rejection at bind). A plain stretched factor IS supported (the
+    #: width-aware rows of the module docstring); only its immersed
+    #: combination is not
+    _supports_mapped_column: ClassVar[bool] = False
+    _supports_stretched_immersed: ClassVar[bool] = False
 
     #: the wide biased windows reach across dry cells, but the graded-mask
     #: near-wall closure keys the ladder on the wet region (GA-D1..D6):
@@ -4531,8 +4555,10 @@ class UpwindAdvection(_FluxFormAdvection):
         disabled (the concrete pre-mask / selectors the trace cannot
         follow), so the demand is declared here (GA-D3) — wider than the
         base's order-2 centered fraction stencil for ``order = 5``. Off an
-        immersed grid the biased schemes reject a mapped column at bind, so
-        there is no extra halo (the flat path stays fully halo-traced).
+        immersed grid the biased schemes reject a mapped column at bind,
+        and a stretched factor needs none (the cell widths ride the
+        operand's own negotiated window), so there is no extra halo —
+        the flat path stays fully halo-traced.
         """
         if self._immersed is None:
             return None

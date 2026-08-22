@@ -39,8 +39,12 @@ The factory default is ``CenteredAdvection()`` (the common-
 denominator scheme); ``advection=False`` recovers the linear model
 (what the dispersion, geostrophic-balance and energy-conservation
 gates validate), and ``UpwindAdvection`` / ``WENOAdvection`` are
-accepted on the uniform unmapped grids the hydrostatic preset targets
-(the biased schemes self-reject stretched / mapped geometry at bind).
+accepted on the flat grids the hydrostatic preset targets, a
+**stretched** vertical column included — their reconstruction rows are
+built from the factor's own cell widths, so the design order survives
+the stretching. Only a terrain-following **mapped column** (a
+``CoordinateMapping``) is still self-rejected by the biased schemes at
+bind.
 """
 from __future__ import annotations
 
