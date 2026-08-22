@@ -551,7 +551,7 @@ A stencil row is grounded on a mapped mesh iff it does not combine
   the order. The scheme keeps its formal weights and silently loses
   its design order.
 
-So: **wide row + spacing divisor ⇒ refuse on a mapped mesh.** The
+So: **wide row + spacing divisor ⇒ refuse on a mapped mesh.** (A wide *reconstruction* row has no divisor; since 2026-08-23 those rows are grounded by geometry-derived weights instead — see below.) The
 shared "why" clause of every such refusal is
 `staggering.mapped_order_hint` (`operators/staggering.py:504`); the
 routing/refusal predicate is `mapped_factor` / `mapped_mesh`
@@ -564,12 +564,42 @@ upwind-5 and weno-5 both 5.0 -> 2.0; upwind-3 3.0 -> ~2.6.
 
 | Row | Guard | Site |
 |---|---|---|
-| `FiniteDifference(order > 2)` | `NotImplementedError` | `operators/finite_difference.py:322` |
-| `FiniteDifference(boundary="one_sided")`, any order | `NotImplementedError` | `operators/finite_difference.py:330` |
-| `WenoReconstruction` (all orders/biases) | `SpaceMismatchError` | `weno.require_uniform_mesh`, `operators/weno.py:238` |
-| `Fallback` (the graded WENO ladder) | `SpaceMismatchError` | `operators/fallback.py:407` — every rung of order >= 3 is a Shu row |
-| nonhydro2 `_BiasedFaceReconstruction` | `SpaceMismatchError` | `nonhydro2/modules/advection.py:499` |
-| nonhydro2 `UpwindAdvection` / `WENOAdvection` | `NotImplementedError` at `bind` | `_supports_mapped = False`, `nonhydro2/modules/advection.py:1564`, checked in `_require_uniform_factors` (`:974`) |
+| `FiniteDifference(order > 2)` | `NotImplementedError` | `operators/finite_difference.py` (`_MEASURE_ORDER = 2`) |
+| `FiniteDifference(boundary="one_sided")`, any order | `NotImplementedError` | `operators/finite_difference.py` |
+| biased advection on a mapped **column** (a `CoordinateMapping` with `column_corrections`) | `NotImplementedError` at `bind` | `_supports_mapped_column = False` on `UpwindAdvection`/`WENOAdvection`, `model/modules/advection.py` |
+| biased advection on a stretched factor of an **immersed** grid | `NotImplementedError` at `bind`, `_face_widths` | `_supports_stretched_immersed = False`, `model/modules/advection.py` |
+
+### Grounded since 2026-08-23 — geometry-derived tables (route ii)
+
+The biased **reconstruction** rows no longer fall under the rule: a
+reconstruction has no spacing divisor, and its weights are now derived
+from the factor's own cell widths instead of assumed uniform
+(`design/research/nonuniform_weno_survey.md`; roadmap `done.md`,
+2026-08-23). `weno.cell_widths(f, axis)` materializes the lattice-cell
+widths in the operand's storage frame (primal cells for
+`CellAvg`/`Center`, the dual face cells for `Right` periodic /
+`Inner` bounded — wall half cells in the wall ghost slots — sealed
+and synced; `None` on a uniform factor), the kernels window it with
+the data, and `weno.nonuniform_tables` builds per-face Shu-2.20
+candidate rows, ideal weights and Shu-general smoothness forms
+(sum-of-squares rows) from the width windows — trace-time constants
+on a device-local axis. Rows grounded this way: `WenoReconstruction`
+(`CellAvg -> Right`, periodic), the graded `Fallback` (bounded, every
+rung width-aware through `apply_graded_walls(co_storages=...)`),
+the module-private `_BiasedFaceReconstruction` /
+`_FVBiasedReconstruction` and both selected-input kernels of
+`UpwindAdvection` / `WENOAdvection` (linear rows through
+`weno.linear_row_windows`, the order-coupled velocity interpolation
+through `weno.centered_row_windows`). The uniform path is the static
+float tables, bitwise unchanged. `weno.require_uniform_mesh` is gone.
+
+Order caveat (pinned in `tests/model/modules/test_advection_stretched.py`):
+the FV family reaches design order on a stretched axis (upwind-3 /
+upwind-5 / weno-5: 3.0 / 5.0 / 5.0 at constant velocity); the nodal
+C-grid family stays 2nd order there whatever rows it uses — its
+point-value flux difference is high-order only through the
+uniform-lattice Shu–Osher identity — and keeps the ENO property.
+Constancy is exact (~1.6e-16 relative) because the rows sum to one.
 
 The `FiniteDifference` order > 2 refusal is the archetype; the biased
 rows are its siblings, not a new rule. The advection-module guard is

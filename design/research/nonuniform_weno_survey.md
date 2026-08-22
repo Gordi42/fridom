@@ -543,3 +543,50 @@ same shape with the face mesh velocity.
   order under a varying velocity on any mesh; what (ii) restores is
   the ENO/dispersion behaviour and honest order for the pieces that
   have it.
+
+## 9. Landing note (2026-08-23)
+
+Shipped on `dev` in two branches (merges `9a1edb38` core, `9b95bc8f`
+advection), AI-implemented from a shared contract and owner-reviewed
+records. Facts that refine the sections above:
+
+- **Mechanism as built**: the widths are a storage-frame co-operand
+  (`weno.cell_widths`, the `grid.measure` of the operand's own node
+  set — primal cells, or the dual face cells with the wall half cells
+  written into the wall ghost slots through a new
+  `patch_physical_ends(co_arrays=...)` seam), windowed exactly like
+  the data; `weno.nonuniform_tables` derives the tables in pure `jnp`
+  on the windows and runs under `jax.ensure_compile_time_eval` on a
+  device-local axis, so the ~1050-equation generator folds to
+  constants (mapped periodic WENO-5: 184 optimized HLO ops vs 934
+  staged, 116 uniform). The one-pass upwind kernel builds both bias
+  table sets from the 1-D width windows and `where`-selects the ~21
+  entries — not the width taps, which would stage the generator on
+  full 3-D arrays. The smoothness indicators ship as `r-1`
+  sum-of-squares rows (the form is rank `r-1`; a Cholesky would hit a
+  zero pivot).
+- **Correction to §4/§6 — only the FV family gains order.** Measured
+  at constant velocity on the wavy periodic axis (n = 24/48/96): FV
+  upwind-3 / upwind-5 / weno-5 → 3.0 / 5.0 / 5.0; nodal upwind-5 →
+  **2.0**. The nodal family's DOFs are point values and its two-point
+  flux difference over `Δx_i` is high-order only through the uniform-
+  lattice Shu–Osher identity, so no choice of face rows restores its
+  order on a stretched axis — only route (i)'s divisor would, at the
+  constancy cost of §5. The width-aware rows carry a ~3x larger
+  O(h²) constant than the static rows on that map (3.3e-4 vs 1.1e-4
+  at n = 128); the owner call is recorded in the plan.
+- **Constancy** on three stretched grids: 1.1e-14 / 1.8e-14 / 2.1e-14
+  absolute against divergence scales 35 / 42 / 262 (~1.6e-16
+  relative) — §5's argument holds in the shipped code.
+- **Validated**: two oracles (the spike's numpy polynomials, 1e-11 on
+  the beta forms; JAX-Fluids' closed forms, 1e-14 on coefficients over
+  500 random windows — compared, not copied), uniform-lattice limits
+  to 1e-15, scale invariance, polynomial exactness, one-pass vs
+  both-then-select to reversed-summation ulps, ENO on a step, walled
+  columns down to one cell, `Model.propagator` autodiff vs FD,
+  forced-4 device-count invariance for the primal and the bounded dual
+  frames. `ruff` clean; patch coverage left to CI.
+- **Left out**: stretched + immersed (taught refusal), biased schemes on
+  a mapped column (taught refusal kept), `FiniteDifference(order > 2)`
+  (route (i) remains), perf of the table selects (owner-triggered
+  guard).

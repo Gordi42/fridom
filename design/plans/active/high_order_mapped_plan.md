@@ -5,46 +5,49 @@ date: 2026-07-13
 
 # High-order stencils on mapped grids
 
-> **Sized 2026-07-13. The SPIKE ran 2026-07-16 and is answered — the
-> divisor is the same-row discrete Jacobian (§3); the FULL LIFT is
-> deferred (medium, 1-2 weeks) — held back on payoff, not
-> difficulty.** The corrected payoff is
-> ENO/dispersion quality on stretched meshes plus honest order for
-> standalone `WenoReconstruction` and `FiniteDifference` order > 2 — *not*
-> asymptotic order for the advection modules, whose C-grid tendency is 2nd
-> order on any mesh once the advecting velocity varies.
+> **Status 2026-08-23 — the reconstruction half is SHIPPED, by route
+> (ii).** The survey
+> [`../../research/nonuniform_weno_survey.md`](../../research/nonuniform_weno_survey.md)
+> (Oceananigans, JAX-Fluids, a coefficient spike, and the 3-D constancy
+> argument of its §5) overturned the §2 recommendation for the biased
+> *reconstruction* rows: `WenoReconstruction`, the graded `Fallback`,
+> and the `UpwindAdvection` / `WENOAdvection` face kernels (nodal and
+> FV families, both biases, graded walls) now derive per-face tables
+> from the factor's cell widths and accept a stretched
+> `MappedIntervalMesh`; the static uniform path is bitwise untouched
+> (entry in [`../../roadmap/done.md`](../../roadmap/done.md)). Route (i)
+> — the same-row discrete Jacobian divisor, spike answered in §3 —
+> stands for the **collocated** rows only.
 >
-> De-risking argument found while sizing: the refusals key on
-> `MappedIntervalMesh`, a per-axis monotone self-map, so the Jacobian is
-> **diagonal and separable** — no cross-derivative metric terms, which is
-> where multi-D curvilinear free-stream preservation actually bites. The
-> identity reduces to the 1D case the spike tests, so option (ii) is a
-> follow-up if a shock case shows ENO damage, not a fallback if the spike
-> fails.
+> **What remains open here:**
+>
+> 1. `FiniteDifference(order > 2)` and `boundary="one_sided"` on a
+>    mapped factor — the route-(i) lift (`_MEASURE_ORDER = 2`), the
+>    spike's DA divisor; a collocated derivative has no projection to
+>    agree with, so the constancy objection of the survey does not
+>    apply to it.
+> 2. Owner call — the **nodal** C-grid family on a stretched axis is
+>    2nd order by construction whatever rows it uses (its point-value
+>    flux difference is high-order only through the uniform-lattice
+>    Shu–Osher identity; measured upwind-5 nodal 2.0 vs FV 5.0). As
+>    shipped it uses the width-aware FV rows (one code path with the FV
+>    family); the static rows measured a ~3x smaller O(h²) constant on
+>    the wavy map (1.1e-4 vs 3.3e-4 at n = 128). Switching is one line
+>    in `advection._face_widths`; pinned in
+>    `tests/model/modules/test_advection_stretched.py`.
+> 3. Stretched factor on an **immersed** grid: taught refusal
+>    (`_supports_stretched_immersed`; the mask-keyed ladder has no
+>    co-window seam yet). Biased schemes on a mapped **column**
+>    (terrain following): taught refusal kept (`_supports_mapped_column`);
+>    the survey's §7 argues it composes in base coordinates.
+> 4. Perf (owner-triggered guard): the one-pass WENO kernel on a
+>    stretched axis carries ~21 small `where` selects of the two bias
+>    table sets (the generator itself folds to trace-time constants on
+>    a device-local axis; on a sharded mapped axis it stays staged,
+>    ~5x the kernel size, correct).
 
-> **Survey 2026-08-22 — pending owner call.** [`../../research/nonuniform_weno_survey.md`](../../research/nonuniform_weno_survey.md) reads Oceananigans and JAX-Fluids (both take route (ii)) and adds a 3-D argument the sizing below did not weigh: the route-(i) divisor `W_z` differs from the measure `Δz` the pressure projection divides by, so a constant tracer acquires `Δw·(1/W_z − 1/Δz)` (8.7e-4 relative at n = 32 on the coastal-upwelling column) — the constancy trade the advection module docstring declines for the Shu–Osher form. The survey recommends route (ii) for the reconstruction refusals (§6 there is the work list) and route (i) for the `FiniteDifference` refusals only; the route recorded below is unchanged until Silvano decides.
-
-Spike done, full lift not started. The obstacle, the options, and the
-route for lifting the mapped-mesh refusals recorded in
-[`../../specs/grid/classes/operators_stencils.md`](../../specs/grid/classes/operators_stencils.md)
-("Amendment (2026-07-12, stages C0–C4): mapped-mesh grounding"). Opened
-by the coordinate-systems work
-([`../done/coordinate_systems_plan.md`](../done/coordinate_systems_plan.md) §8).
-
-The refusals still standing in the tree today:
-
-- `weno.require_uniform_mesh` (`spatial/operators/weno.py`) — the biased
-  reconstructions (`WenoReconstruction`, the `Fallback` rungs of order
-  >= 3);
-- the mapped guard in `nonhydro2/modules/advection.py` (both
-  `UpwindAdvection` and `WENOAdvection`, mapped mesh *and* mapped
-  column);
-- `FiniteDifference`: order > 2 on a mapped factor
-  (`_MEASURE_ORDER = 2`), and `boundary="one_sided"` on a mapped factor.
-
-All four raise a taught error pointing at
-`staggering.mapped_order_hint`. Nothing here has landed and nothing has
-become obsolete; one prerequisite (§4) has been paid.
+History below is kept as written; §2's recommendation is superseded
+for the reconstruction rows.
 
 ## 1. The obstacle
 
@@ -81,7 +84,7 @@ which is why order 2 is the exact boundary of what C0 landed.
 | (ii) | **Genuinely nonuniform WENO**: position-dependent Shu rows (per-cell weights from the actual node positions) plus rescaled Jiang–Shu smoothness indicators. | Low — new tables, new per-cell coefficient fields. | **High, and quiet**: a wrong beta scaling degrades shock capturing while smooth-order convergence tests still pass. The failure mode is invisible to the gates we would naturally write. |
 | (iii) | **Chain rule**: differentiate in computational space, multiply by an analytic/derived metric factor. | — | For a *derivative* this is (i) with a different divisor. For a *reconstruction* (`derivative=0`, the biased face values) there is no metric factor to multiply by, so it collapses into (i) anyway. Not a distinct route. |
 
-**Recommendation: (i).** It is the smallest change that makes the
+**Recommendation: (i)** *(superseded 2026-08-23 for the reconstruction rows — status block above; stands for the `FiniteDifference` rows)*. It is the smallest change that makes the
 existing kernels honest, it fixes the FD deferrals as a side effect,
 and it is the route the curvilinear-FD literature takes. (ii) stays
 available if a real shock problem on a strongly stretched mesh shows

@@ -3354,3 +3354,37 @@ keeps measuring the nonlinear step), the `Tracer` and spherical
 `sw.Model` docstring examples, and the tests that relied on the
 default. Trigger: a stretched-mesh example that had to drop its WENO
 keyword silently ran centered advection instead.
+
+## Non-uniform WENO on stretched meshes (2026-08-23)
+
+Route (ii) of the high-order mapped plan, decided from
+[`../research/nonuniform_weno_survey.md`](../research/nonuniform_weno_survey.md)
+(Oceananigans had it 2021–2025 and removed it; JAX-Fluids has the full
+set; the spike showed the candidate coefficients are the indispensable
+ingredient and the 3-D constancy argument ruled out the plan's route
+(i) for the reconstructions). The biased reconstructions derive
+per-face tables from the factor's cell widths inside the kernel
+(`weno.cell_widths` co-operand, `weno.nonuniform_tables`; Shu-2.20
+candidate rows, closed-form ideal weights, Shu-general smoothness
+forms as sum-of-squares rows; trace-time constants on a device-local
+axis) and accept a stretched `MappedIntervalMesh`: `WenoReconstruction`,
+the graded `Fallback` (every wall rung width-aware, wall half cells
+for the dual frame through a new `patch_physical_ends(co_arrays=)`
+seam), and the `UpwindAdvection` / `WENOAdvection` face kernels in
+both families, both biases, the one-pass selected kernel (both bias
+table sets `where`-selected), the order-coupled velocity
+interpolation and the graded walls. The uniform path is the static
+tables, bitwise unchanged; `weno.require_uniform_mesh` is gone; the
+bind guard split into `_supports_mapped_column` (terrain columns,
+biased schemes still refuse) and `_supports_stretched_immersed`
+(refuse). Measured: FV family upwind-3 / upwind-5 / weno-5 at 3.0 /
+5.0 / 5.0 on a stretched axis at constant velocity; the nodal family
+stays 2nd order by construction (point-value flux difference; pinned
+with the reason); constancy ~1.6e-16 relative on 5:1 and 37:1 tanh
+columns; forced-4 invariance for the primal and bounded-dual frames.
+Tests: `tests/spatial/operators/test_weno_nonuniform.py` (64),
+`tests/model/modules/test_advection_stretched.py` (49), the three
+refusal tests flipped. Remainder (plan kept active):
+`FiniteDifference(order > 2)` via route (i), the nodal-row owner call,
+stretched + immersed, biased schemes on a mapped column, perf of the
+table selects.
