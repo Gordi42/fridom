@@ -45,7 +45,7 @@ def rot_model(*, free_surface=None):
         buoyancy=hy.ConstantStratification(froude_number=FR_INT),
         free_surface=free_surface
         or hy.ExplicitFreeSurface(froude_number=FR_EXT),
-        advection=False, surface_advective_flux=False,
+        advection=None,
         time_stepper=fr.model.time_steppers.AdamBashforth(DT, order=3))
 
 
@@ -56,7 +56,7 @@ def dim_model():
         coriolis=hy.FPlaneCoriolis(f0=F0),
         buoyancy=hy.ConstantStratification(n2=N2),
         free_surface=hy.ExplicitFreeSurface(),
-        advection=False, surface_advective_flux=False,
+        advection=None,
         time_stepper=fr.model.time_steppers.AdamBashforth(DT, order=3))
 
 

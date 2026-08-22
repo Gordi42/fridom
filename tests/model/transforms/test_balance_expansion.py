@@ -63,7 +63,7 @@ def make_sw_model(*, ro=0.1, periodic_y=True, coriolis=None, n=N):
         grid=fr.spatial.Grid((mx, my), device_ids=(0,)),
         core=sw.Core(froude_number=ro, depth=1.0),
         scaling=fr.scaling.GravityWave(),
-        coriolis=coriolis, advection=True,
+        coriolis=coriolis, advection=sw.SadournyAdvection(),
         time_stepper=AdamBashforth(5e-3, order=3))
 
 
@@ -259,7 +259,7 @@ def test_nyquist_steady_strata_are_slow():
 #  4. nonhydro periodic smoke
 # ================================================================
 def test_nh_periodic_orders_run_and_residual_decreases():
-    model = make_nh_model(advection=True)
+    model = make_nh_model(advection=nh.CenteredAdvection())
     z = nh_state(model)
     residuals = []
     for order in (0, 1, 2):
@@ -320,7 +320,7 @@ def test_nh_channel_orders_run_and_residual_decreases():
     # the walled-y nonhydro channel with the REAL CenteredAdvection
     # (walled-capable: structural-zero wall fluxes) — the payoff of
     # the walled advection support
-    model = make_nh_model(walled="y", advection=True)
+    model = make_nh_model(walled="y", advection=nh.CenteredAdvection())
     z = nh_state(model, seed=5)
     residuals = []
     for order in (0, 1):
@@ -367,7 +367,7 @@ def test_lint_skips_a_selection_with_zero_nonlinear_tendency():
         core=sw.Core(froude_number=0.1, depth=1.0),
         scaling=fr.scaling.GravityWave(),
         coriolis=sw.modules.FPlaneCoriolis(rossby_number=0.1),
-        advection=True,
+        advection=sw.SadournyAdvection(),
         modules_extra=(ZeroQuadratic(),),
         time_stepper=AdamBashforth(5e-3, order=3))
     with warnings.catch_warnings():

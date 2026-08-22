@@ -102,7 +102,7 @@ def _model(grid, fs, *, csqr=3.0, n2=1.0, f0=0.5, dt=0.02):
         coriolis=hy.FPlaneCoriolis(f0=f0),
         buoyancy=hy.ConstantStratification(n2=n2),
         free_surface=fs,
-        advection=False)
+        advection=None)
 
 
 def _ctx(csqr, dt):
@@ -416,7 +416,7 @@ def test_split_explicit_composes_on_terrain_immersed():
         time_stepper=AdamBashforth(0.01, order=2),
         buoyancy=hy.ConstantStratification(n2=1.0),
         free_surface=hy.SplitExplicitFreeSurface(substeps=8),
-        advection=False)
+        advection=None)
     fs = m.module(hy.SplitExplicitFreeSurface)
     assert fs._column is not None
     assert fs._immersed is not None
@@ -448,7 +448,7 @@ def test_grad_through_terrain_immersed_run_matches_fd():
         free_surface=hy.ImplicitFreeSurface(
             epsilon=1.0,
             pressure_iterations=20),
-        advection=False)
+        advection=None)
     rng = np.random.default_rng(11)
     m.set_fields(**{k: 0.1 * rng.standard_normal(m.state[k].data.shape)
                     for k in ("u", "v", "ps")})
@@ -562,7 +562,7 @@ def test_grad_through_terrain_immersed_multigrid_run_matches_fd():
             epsilon=1.0,
             pressure_iterations=20,
             pressure_preconditioner="multigrid"),
-        advection=False)
+        advection=None)
     rng = np.random.default_rng(11)
     m.set_fields(**{k: 0.1 * rng.standard_normal(m.state[k].data.shape)
                     for k in ("u", "v", "ps")})

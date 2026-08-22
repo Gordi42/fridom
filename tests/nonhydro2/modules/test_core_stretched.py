@@ -61,7 +61,7 @@ def stretched_model(*, seed=0, **core_kwargs):
         time_stepper=AdamBashforth(DT, order=3),
         coriolis=nh.FPlaneCoriolis(f0=1.0),
         buoyancy=nh.ConstantStratification(n2=1.0),
-        advection=False)
+        advection=None)
     rng = np.random.default_rng(seed)
     model.set_fields(**{
         k: 0.2 * rng.standard_normal(model.state[k].data.shape)
@@ -178,7 +178,7 @@ def immersed_stretched_model(*, seed=0, **core_kwargs):
         time_stepper=AdamBashforth(DT, order=3),
         coriolis=nh.FPlaneCoriolis(f0=1.0),
         buoyancy=nh.ConstantStratification(n2=1.0),
-        advection=False)
+        advection=None)
     rng = np.random.default_rng(seed)
     model.set_fields(**{
         k: 0.2 * rng.standard_normal(model.state[k].data.shape)

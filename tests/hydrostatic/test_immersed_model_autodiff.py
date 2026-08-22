@@ -24,6 +24,7 @@ import pytest
 
 import fridom.hydrostatic as hy
 from fridom.model.model import _chunk_body
+from fridom.model.modules.advection import CenteredAdvection
 from fridom.model.time_steppers.adam_bashforth import AdamBashforth
 from fridom.spatial.grid import Grid
 from fridom.spatial.immersed_domain import ImmersedDomain
@@ -61,7 +62,7 @@ def immersed_model(*, dt=0.002):
         coriolis=hy.FPlaneCoriolis(f0=0.5),
         buoyancy=hy.ConstantStratification(n2=0.0),
         free_surface=hy.ImplicitFreeSurface(pressure_iterations=20),
-        advection=True)
+        advection=CenteredAdvection())
     rng = np.random.default_rng(11)
     model.set_fields(**{
         k: 0.1 * rng.standard_normal(model.state[k].data.shape)

@@ -313,7 +313,7 @@ def test_project_state_equals_project_tendency(sign):
         time_stepper=AdamBashforth(dt, order=1),
         coriolis=nh.FPlaneCoriolis(f0=1.0),
         buoyancy=nh.ConstantStratification(n2=1.0),
-        advection=False)
+        advection=None)
     ax = (np.arange(N) + 0.5) * (2 * np.pi / N)
     x, y, z = np.meshgrid(ax, ax, ax, indexing="ij")
     # exactly divergence-free IC: u varies only along y, v only

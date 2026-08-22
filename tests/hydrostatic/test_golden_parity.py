@@ -70,9 +70,8 @@ def build(config):
             coriolis=hy.FPlaneCoriolis(f0=0.5),
             buoyancy=hy.ConstantStratification(n2=4.0),
             free_surface=hy.ExplicitFreeSurface(),
-            advection=True,
-            surface_advective_flux=(False if config == "dim_nosf"
-                                    else None),
+            advection=fr.model.modules.CenteredAdvection(
+                surface_flux=(False if config == "dim_nosf" else None)),
             time_stepper=stepper)
     if config == "ext":
         return hy.Model(
@@ -82,14 +81,15 @@ def build(config):
             buoyancy=hy.ConstantStratification(
                 froude_number=0.125),
             free_surface=hy.ExplicitFreeSurface(froude_number=0.25),
-            advection=True, time_stepper=stepper)
+            advection=fr.model.modules.CenteredAdvection(),
+            time_stepper=stepper)
     return hy.Model(
         grid=make_grid(), core=hy.Core(),
         scaling=fr.scaling.Rotational(),
         coriolis=hy.FPlaneCoriolis(rossby_number=0.25),
         buoyancy=hy.ConstantStratification(froude_number=0.125),
         free_surface=hy.ExplicitFreeSurface(froude_number=0.5),
-        advection=True, time_stepper=stepper)
+        advection=fr.model.modules.CenteredAdvection(), time_stepper=stepper)
 
 
 def ulp_distance(a, b):

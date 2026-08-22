@@ -30,7 +30,6 @@ from fridom.shallowwater2.modules.coriolis import (
     carries_linear_rotation,
     check_rotation_modules,
 )
-from fridom.shallowwater2.modules.sadourny import SadournyAdvection
 
 if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Sequence
@@ -58,8 +57,8 @@ _RETIRED_KWARGS = {
     "coords": (
         "coords= is retired on the preset: the coordinate names "
         "live on the core — pass core=sw.Core(..., "
-        "coords=('lon', 'lat')); the advection module adopts them "
-        "from the core"),
+        "coords=('lon', 'lat')); the advection module adopts the "
+        "grid's coordinate names at bind"),
 }
 
 
@@ -70,7 +69,7 @@ def Model(  # noqa: N802 — constructor-like factory (D1.3)
     time_stepper: TimeStepper,
     scaling: object | None = None,
     coriolis: fr.model.Module | None = None,
-    advection: bool = False,
+    advection: fr.model.Module | None = None,
     modules_extra: fr.model.Module | Sequence[fr.model.Module] = (),
     name: str | None = None,
     **kwargs: object,
@@ -94,7 +93,7 @@ def Model(  # noqa: N802 — constructor-like factory (D1.3)
             grid=grid,
             core=sw.Core(gravity=g, depth=H,
                          coords=("lon", "lat")),
-            advection=True,
+            advection=fr.shallowwater2.SadournyAdvection(),
             coriolis=sw.modules.RotationCoriolis(
                 omega=(0.0, 0.0, omega), coords=("lon", "lat"),
                 metric_weight="csqr"),
@@ -158,11 +157,12 @@ def Model(  # noqa: N802 — constructor-like factory (D1.3)
         (``coriolis=sw.modules.NonlinearFPlaneCoriolis(...)``),
         which is cheaper but leaves ``L`` without any rotation (no
         eigenmodes, projections, balance).
-    advection : bool, optional
-        Include the Sadourny nonlinear advection. ``False`` (the
-        default) leaves the model linear: the scheme is never
-        installed unasked. The module is scaling-neutral and adopts
-        the assembly's variant at bind (default: False).
+    advection : fr.model.Module | None, optional
+        The advection module. ``None`` (the default) leaves the
+        model linear: the scheme is never installed unasked, and a
+        boolean is refused with a taught error. Pass
+        ``sw.SadournyAdvection()``; it adopts the coordinate names
+        from the grid at bind and is scaling-neutral (default: None).
     modules_extra : fr.model.Module | Sequence[fr.model.Module], optional
         Additional modules (tracers, closures) appended after the
         core physics. A list or a tuple is the module collection,
@@ -211,9 +211,16 @@ def Model(  # noqa: N802 — constructor-like factory (D1.3)
                 "does work against the c^2-weighted energy metric "
                 "and the model no longer conserves energy exactly)")
         modules += (coriolis,)
-    if advection:
-        modules += (SadournyAdvection(
-            coords=getattr(core, "coords", ("x", "y"))),)
+    if isinstance(advection, bool):
+        spelled = ("advection=None (no advection, the default)"
+                   if not advection else
+                   "advection=sw.SadournyAdvection()")
+        raise TypeError(
+            "sw.Model advection= takes a module or None, not "
+            f"{advection!r}: the preset installs no scheme unasked and "
+            f"a boolean cannot say which one is meant — pass {spelled}")
+    if advection is not None:
+        modules += (advection,)
     modules += as_tuple(modules_extra)
     # immersed (cut-cell) grid: one shared CONSTRAINT-stage MaskState
     # keeps every prognostic's dry DOFs dead against the modules that

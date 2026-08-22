@@ -225,7 +225,7 @@ class ChunkStats:
 class ProgressReporter(Protocol):
 
     """
-    The progress protocol; ``progress=False | Reporter()``.
+    The progress protocol; ``progress=None | Reporter()``.
 
     Description
     -----------

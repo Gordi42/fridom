@@ -74,7 +74,7 @@ def _model(grid, *, free_surface=None, coriolis=None, dt=2e-3,
         coriolis=coriolis,
         buoyancy=hy.ConstantStratification(n2=N2),
         free_surface=free_surface or hy.ExplicitFreeSurface(),
-        advection=False)
+        advection=None)
 
 
 def _bound_fs(model):
@@ -173,7 +173,7 @@ def test_explicit_free_surface_runs_finite_and_bounded():
         b=0.1 * rng.standard_normal(model.state["b"].shape),
         ps=0.1 * rng.standard_normal(model.state["ps"].shape))
     ps0 = float(jnp.abs(model.state["ps"].data).max())
-    model.run(40, progress=False)
+    model.run(40)
     assert bool(jnp.isfinite(model.state["ps"].data).all())
     # bounded (a barotropic gravity wave oscillates, does not blow up)
     assert float(jnp.abs(model.state["ps"].data).max()) < 10.0 * ps0 + 1.0
@@ -275,7 +275,7 @@ def test_terrain_rest_state_is_preserved():
     dX = model.tendency(model.state)
     for name in ("ps", "u", "v"):
         assert float(jnp.abs(dX[name].data).max()) < 1e-14
-    model.run(20, progress=False)
+    model.run(20)
     assert not model.panicked
     for name in ("ps", "u", "v"):
         assert float(jnp.abs(model.state[name].data).max()) < 1e-13
@@ -299,7 +299,7 @@ def test_explicit_barotropic_volume_is_conserved():
 
     v0 = volume()
     scale = float(jnp.abs(model.state["ps"].integrate().data).max()) + 1.0
-    model.run(30, progress=False)
+    model.run(30)
     assert not model.panicked
     assert abs(volume() - v0) <= 1e-11 * scale
 
@@ -320,8 +320,8 @@ def test_explicit_and_implicit_terrain_track_at_small_dt():
           for k in ("u", "v", "ps")}
     exp.set_fields(**ic)
     imp.set_fields(**ic)
-    exp.run(8, progress=False)
-    imp.run(8, progress=False)
+    exp.run(8)
+    imp.run(8)
     pe = np.asarray(exp.state["ps"].data)
     pi = np.asarray(imp.state["ps"].data)
     rel = np.abs(pe - pi).max() / (np.abs(pe).max() + 1e-30)
@@ -340,7 +340,7 @@ def test_grad_through_terrain_explicit_run_matches_fd():
         coriolis=hy.FPlaneCoriolis(f0=0.5),
         buoyancy=hy.ConstantStratification(n2=0.0),
         free_surface=hy.ExplicitFreeSurface(),
-        advection=False)
+        advection=None)
     rng = np.random.default_rng(11)
     m.set_fields(**{k: 0.1 * rng.standard_normal(m.state[k].data.shape)
                     for k in ("u", "v", "ps")})

@@ -68,7 +68,7 @@ def make_model(*modules, mapped=True):
         time_stepper=AdamBashforth(DT, order=3),
         coriolis=nh.FPlaneCoriolis(f0=0.0),
         buoyancy=nh.ConstantStratification(n2=0.0),
-        advection=False,
+        advection=None,
         modules_extra=modules)
 
 
@@ -173,7 +173,7 @@ def test_time_only_schedule_lives_on_a_one_dof_profile():
         time_stepper=AdamBashforth(DT, order=3),
         coriolis=nh.FPlaneCoriolis(f0=0.0),
         buoyancy=nh.ConstantStratification(n2=0.0),
-        advection=False,
+        advection=None,
         modules_extra=(MovingGeometry(
             {"H": lambda t: H0 + RATE * t}),))
     assert model.state["H"].data.size == 1
@@ -250,7 +250,7 @@ def test_ale_rejects_multiple_mapped_columns():
             time_stepper=AdamBashforth(DT, order=3),
             coriolis=nh.FPlaneCoriolis(f0=0.0),
             buoyancy=nh.ConstantStratification(n2=0.0),
-            advection=False,
+            advection=None,
             modules_extra=(
                 MovingGeometry({"H": lambda t: H0 + 0.0 * t}),
                 MeshVelocityCorrection()))
@@ -344,7 +344,7 @@ def make_fv_model(*modules, mapped=True, n=N):
         time_stepper=AdamBashforth(DT, order=3),
         coriolis=nh.FPlaneCoriolis(f0=0.0),
         buoyancy=nh.ConstantStratification(n2=0.0),
-        advection=False,
+        advection=None,
         modules_extra=modules)
 
 

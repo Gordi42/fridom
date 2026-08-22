@@ -63,7 +63,7 @@ def _flat_grid(n):
         IM(n, (-1.0, 0.0), periodic=False, name="z")))
 
 
-def _model(grid, *, coriolis=None, advection=False, dt=1e-3,
+def _model(grid, *, coriolis=None, advection=None, dt=1e-3,
            free_surface=None):
     return hy.Model(
         grid=grid,
@@ -72,7 +72,8 @@ def _model(grid, *, coriolis=None, advection=False, dt=1e-3,
         coriolis=coriolis,
         buoyancy=hy.ConstantStratification(n2=N2),
         free_surface=free_surface or hy.ExplicitFreeSurface(),
-        advection=advection)
+        advection=(advection() if isinstance(advection, type)
+                   else advection))
 
 
 def _orders(errs):
@@ -250,7 +251,7 @@ def test_rest_state_stays_near_rest_over_a_short_run():
         u=np.zeros(model.state["u"].shape),
         v=np.zeros(model.state["v"].shape),
         b=np.asarray(-2.0 * zp), ps=np.zeros(model.state["ps"].shape))
-    model.run(10, progress=False)
+    model.run(10)
     # the spurious current stays at the truncation-order floor (small),
     # not growing to O(1)
     assert float(jnp.abs(model.state["u"].data).max()) < 1e-2
@@ -403,7 +404,7 @@ def test_baroclinic_energy_conversion_collapses_under_physical_metric():
 def test_terrain_model_assembles_and_runs():
     grid = _terrain_grid(8)
     model = _model(grid, coriolis=hy.FPlaneCoriolis(f0=F0),
-                   advection=True)
+                   advection=fr.model.modules.CenteredAdvection())
     rng = np.random.default_rng(0)
     model.set_fields(
         u=0.1 * rng.standard_normal(model.state["u"].shape),
@@ -413,7 +414,7 @@ def test_terrain_model_assembles_and_runs():
     dX = model.tendency(model.state)
     assert all(bool(jnp.isfinite(dX[k].data).all())
                for k in ("u", "v", "b", "ps"))
-    model.run(3, progress=False)
+    model.run(3)
     assert bool(jnp.isfinite(model.state["u"].data).all())
 
 
@@ -433,7 +434,7 @@ def test_terrain_advection_preserves_a_constant_tracer():
         time_stepper=AdamBashforth(1e-3, order=3),
         buoyancy=hy.ConstantStratification(n2=0.0),
         free_surface=hy.ExplicitFreeSurface(),
-        advection=True)
+        advection=fr.model.modules.CenteredAdvection())
     u = _smooth(grid, model.state["u"].function_space,
                 lambda **c: jnp.sin(2 * jnp.pi * c["x"])
                 * jnp.cos(2 * jnp.pi * c["y"]))
@@ -512,14 +513,15 @@ def test_terrain_immersed_collocation_mask_is_a_taught_error():
 # ================================================================
 #  Differentiability policy: grad through a short terrain run
 # ================================================================
-@pytest.mark.parametrize("advection", [False, True],
+@pytest.mark.parametrize("advection",
+                         [None, fr.model.modules.CenteredAdvection],
                          ids=["linear", "advective"])
 def test_grad_wrt_initial_buoyancy_is_finite_and_matches_fd(advection):
     # the terrain step path crosses the guarded terrain singularities:
     # the slope coefficient Z/J of the baroclinic pressure gradient
     # (core) and the reciprocal physical depth 1/H of the free-surface
     # depth mean, both sealed on the never-valid padding by the double-
-    # `where`. With advection=True the differentiated data additionally
+    # `where`. With centered advection the differentiated data additionally
     # crosses the shared nodal mapped divergence's Z/J slope factor,
     # sealed by advection._safe_ratio -- unguarded it is forward-finite
     # but reverse-NaN-poisons the whole gradient here.

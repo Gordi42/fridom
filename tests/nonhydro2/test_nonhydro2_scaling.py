@@ -35,7 +35,7 @@ def dim_model(**kwargs):
         grid=make_grid(), core=nh.Core(aspect_ratio=0.5),
         coriolis=nh.FPlaneCoriolis(f0=1.0),
         buoyancy=nh.ConstantStratification(n2=4.0),
-        advection=True,
+        advection=nh.CenteredAdvection(),
         time_stepper=AdamBashforth(DT, order=3), **kwargs)
 
 
@@ -46,7 +46,7 @@ def rot_model(*, ro=0.25, **kwargs):
         scaling=fr.scaling.Rotational(),
         coriolis=nh.FPlaneCoriolis(rossby_number=ro),
         buoyancy=nh.ConstantStratification(froude_number=ro / 2),
-        advection=True,
+        advection=nh.CenteredAdvection(),
         time_stepper=AdamBashforth(DT, order=3), **kwargs)
 
 
@@ -74,7 +74,8 @@ def random_fields(model, amp=0.05, seed=7):
                   id="family")])
 def test_preset_teaches_the_retired_kwargs(kwarg, match):
     with pytest.raises(TypeError, match=match):
-        nh.Model(advection=True, grid=make_grid(), core=nh.Core(),
+        nh.Model(advection=nh.CenteredAdvection(), grid=make_grid(),
+                 core=nh.Core(),
                  time_stepper=AdamBashforth(DT, order=3), **kwarg)
 
 
@@ -115,7 +116,7 @@ def test_meridional_stratification_is_pinned_dimensional():
     with pytest.raises(fr.model.errors.AssemblyError,
                        match="MIXED scaling variants"):
         nh.Model(
-            advection=True,
+            advection=nh.CenteredAdvection(),
             grid=make_grid(), core=nh.Core(),
             scaling=fr.scaling.Rotational(),
             coriolis=nh.FPlaneCoriolis(rossby_number=0.25),
@@ -126,7 +127,7 @@ def test_meridional_stratification_is_pinned_dimensional():
 def test_buoyancy_is_opt_in_on_the_preset():
     # buoyancy=None installs NO buoyancy module at all
     model = nh.Model(
-        advection=True,
+        advection=nh.CenteredAdvection(),
         grid=make_grid(), core=nh.Core(),
         coriolis=nh.FPlaneCoriolis(f0=1.0),
         time_stepper=AdamBashforth(DT, order=3))
@@ -138,7 +139,7 @@ def test_core_defaults_to_a_plain_core():
     # core=None (the default) is a plain nh.Core(): the assembly
     # carries the aspect-ratio provide at its default value 1
     model = nh.Model(
-        advection=True,
+        advection=nh.CenteredAdvection(),
         grid=make_grid(),
         coriolis=nh.FPlaneCoriolis(f0=1.0),
         time_stepper=AdamBashforth(DT, order=3))
@@ -153,7 +154,7 @@ def test_internal_wave_frame_self_normalizes():
         grid=make_grid(), core=nh.Core(aspect_ratio=0.5),
         scaling=fr.scaling.InternalWave(),
         buoyancy=nh.ConstantStratification(froude_number=0.25),
-        advection=True,
+        advection=nh.CenteredAdvection(),
         time_stepper=AdamBashforth(DT, order=3))
     eps = model.parameters[fr.model.params.SCALING_NONLINEARITY]
     froude = model.parameters[

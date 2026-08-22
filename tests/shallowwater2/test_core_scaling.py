@@ -25,8 +25,10 @@ STEPS = 6
 NAMES = ("u", "v", "p")
 
 
+# the class as the default: each model gets a fresh instance (a module
+# binds to one model only)
 def dim_model(grid=None, *, gravity=1.0, depth=1.0, f0=0.5,
-              advection=True, dt=DT):
+              advection=sw.SadournyAdvection, dt=DT):
     """Return a DIMENSIONAL model (no scaling argument at all)."""
     if grid is None:
         grid = make_grid()
@@ -34,7 +36,8 @@ def dim_model(grid=None, *, gravity=1.0, depth=1.0, f0=0.5,
         grid=grid,
         core=sw.Core(gravity=gravity, depth=depth),
         coriolis=sw.modules.FPlaneCoriolis(f0=f0),
-        advection=advection,
+        advection=(advection() if isinstance(advection, type)
+                   else advection),
         time_stepper=fr.model.time_steppers.AdamBashforth(
             dt, order=3))
 
@@ -178,13 +181,13 @@ def test_eigenmodes_agree_across_the_variants():
     # effective numbers, so the analytic spectra agree bitwise
     grid = make_grid()
     dim = dim_model(grid, gravity=2.0, depth=0.5, f0=1.5,
-                    advection=False)
+                    advection=None)
     nondim = sw.Model(
         grid=grid, core=sw.Core(froude_number=0.4),
         scaling=fr.scaling.GravityWave(),
         coriolis=sw.modules.FPlaneCoriolis(
             rossby_number=0.4 / 1.5),
-        advection=False,
+        advection=None,
         time_stepper=fr.model.time_steppers.AdamBashforth(DT))
     em_dim = sw.eigenmodes.from_model(dim)
     em_nondim = sw.eigenmodes.from_model(nondim)
@@ -198,12 +201,12 @@ def test_eigenmodes_agree_across_the_variants():
 def test_energy_metric_effective_weights_across_the_variants():
     grid = make_grid()
     dim = dim_model(grid, gravity=2.0, depth=2.0, f0=1.0,
-                    advection=False)
+                    advection=None)
     nondim = sw.Model(
         grid=grid, core=sw.Core(froude_number=0.5, depth=4.0),
         scaling=fr.scaling.GravityWave(),
         coriolis=sw.modules.FPlaneCoriolis(rossby_number=0.5),
-        advection=False,
+        advection=None,
         time_stepper=fr.model.time_steppers.AdamBashforth(DT))
     m_dim = fr.model.EnergyMetric.from_model(dim)
     m_nondim = fr.model.EnergyMetric.from_model(nondim)
@@ -218,7 +221,7 @@ def test_variable_depth_still_refuses_the_analytic_eigenmodes():
                      depth=lambda y: 1.0 + 0.5 * y),
         coriolis=sw.modules.FPlaneCoriolis(
             f0=1.0, metric_weight="csqr"),
-        advection=False,
+        advection=None,
         time_stepper=fr.model.time_steppers.AdamBashforth(DT))
     with pytest.raises(ValueError,
                        match="constant squared phase speed"):

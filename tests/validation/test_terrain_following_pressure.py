@@ -115,9 +115,9 @@ def test_mapped_flat_identity_reproduces_the_unmapped_run():
     # programs whose last bits legitimately differ. Measured
     # deviation after 200 steps: <= 6e-15 relative; asserted at
     # 1e-12 as the comfortable to-rounding bound.
-    flat = make_flat_model(dt=DT, dsqr=DSQR, advection=False)
+    flat = make_flat_model(dt=DT, dsqr=DSQR, advection=None)
     mapped = make_mapped_flat_model(dt=DT, dsqr=DSQR,
-                                    advection=False)
+                                    advection=None)
     hor = (np.arange(N) + 0.5) * (TWO_PI / N)
     ver = (np.arange(N) + 0.5) / N  # z_phys = ver * H0 on both
     x, y, z = np.meshgrid(hor, hor, ver, indexing="ij")
@@ -286,7 +286,7 @@ def test_boundary_fitted_channel_assembles_and_projects():
     # exactly constant (the flux form telescopes), and the flow
     # accelerates through the narrows as 1 / Y_N
     # fixed-iteration mode: pinned for determinism
-    model = make_channel_model(dt=DT, dsqr=0.5, advection=False,
+    model = make_channel_model(dt=DT, dsqr=0.5, advection=None,
                                pressure_tolerance=None)
     hor = (np.arange(N) + 0.5) * (TWO_PI / N)
     ver = (np.arange(N) + 0.5) / N
@@ -410,7 +410,7 @@ def test_boundary_fitted_matches_the_immersed_staircase():
 # ================================================================
 def test_mapped_second_advance_compiles_nothing(compile_counter):
     model = make_mapped_flat_model(dt=DT, dsqr=DSQR,
-                                   advection=False)
+                                   advection=None)
     ver = (np.arange(N) + 0.5) / N
     _, _, z = np.meshgrid(ver, ver, ver, indexing="ij")
     model.set_fields(b=0.01 * np.cos(np.pi * z))

@@ -29,7 +29,7 @@ K = {"x": 3, "y": 0}
 @pytest.fixture(scope="module")
 def periodic():
     grid = make_grid()
-    model = make_model(grid, csqr=CSQR, f0=F0, advection=False)
+    model = make_model(grid, csqr=CSQR, f0=F0, advection=None)
     return grid, sw.eigenmodes.from_model(model)
 
 
@@ -76,7 +76,7 @@ def test_quadrature_drives_a_harmonic_source(periodic):
                                quadrature=True)
     src = Source("packet", pattern=q,
                  law=fr.model.Harmonic(amp, omega / (2.0 * np.pi)))
-    model = make_model(grid, csqr=CSQR, f0=F0, advection=False,
+    model = make_model(grid, csqr=CSQR, f0=F0, advection=None,
                        modules_extra=(src,))
     for t in (0.11, 0.23):
         tend = model.tendency(model.state, t=t, constraints=False)
@@ -90,7 +90,7 @@ def test_quadrature_drives_a_harmonic_source(periodic):
 
 def test_quadrature_teaches_on_a_channel():
     grid = make_grid(periodic_y=False)
-    model = make_model(grid, csqr=CSQR, f0=F0, advection=False)
+    model = make_model(grid, csqr=CSQR, f0=F0, advection=None)
     channel = sw.eigenbasis(model)
     with pytest.raises(ValueError, match="walled channel"):
         sw.wave_package(channel, {"x": 2, "y": 1}, envelope=_env(),

@@ -61,6 +61,7 @@ if TYPE_CHECKING:  # pragma: no cover
     )
     from .model import Model
     from .modules.core import Core
+    from .modules.sadourny import SadournyAdvection
     from .state import State
 
 # ================================================================
@@ -85,6 +86,7 @@ all_imports_by_origin = {
         "flat_spectrum"],
     f"{base}.model": ["Model"],
     f"{base}.modules.core": ["Core"],
+    f"{base}.modules.sadourny": ["SadournyAdvection"],
     f"{base}.state": ["State"],
 }
 

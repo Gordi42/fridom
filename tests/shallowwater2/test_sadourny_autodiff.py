@@ -39,7 +39,7 @@ def advecting_model(nu=0.02, *, csqr=1.0, rossby=0.2):
         core=sw.Core(froude_number=rossby, depth=csqr),
         scaling=fr.scaling.GravityWave(),
         coriolis=sw.modules.FPlaneCoriolis(rossby_number=rossby),
-        advection=True,
+        advection=sw.SadournyAdvection(),
         time_stepper=fr.model.time_steppers.AdamBashforth(5e-3, order=3),
         modules_extra=(fr.model.closures.HarmonicFriction(nu=nu),))
     model.set_fields(p=gaussian_bump(amp=0.05))
@@ -181,7 +181,7 @@ def immersed_advecting_model():
         core=sw.Core(froude_number=0.3, depth=0.8),
         scaling=fr.scaling.GravityWave(),
         coriolis=sw.modules.FPlaneCoriolis(rossby_number=0.3),
-        advection=True,
+        advection=sw.SadournyAdvection(),
         time_stepper=fr.model.time_steppers.AdamBashforth(0.01, order=3))
     rng = np.random.default_rng(0)
     mask = np.asarray(
@@ -238,7 +238,7 @@ def sphere_advecting_model(*, csqr=0.7, rossby=0.4):
         core=sw.Core(froude_number=rossby, depth=csqr,
                      coords=("lon", "lat")),
         scaling=fr.scaling.GravityWave(),
-        coriolis=None, advection=True,
+        coriolis=None, advection=sw.SadournyAdvection(),
         time_stepper=fr.model.time_steppers.AdamBashforth(2e-3, order=3))
     rng = np.random.default_rng(3)
     model.set_fields(

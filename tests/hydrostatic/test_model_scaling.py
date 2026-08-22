@@ -31,24 +31,30 @@ def make_grid(nz=4):
         device_ids=(0,))
 
 
-def dim_model(*, free_surface=None, advection=True):
+def _legacy_closure():
+    """Centered advection with the legacy fixed-domain surface closure."""
+    return fr.model.modules.CenteredAdvection(surface_flux=False)
+
+
+def dim_model(*, free_surface=None, nonlinear=True):
     """Build the dimensional twin (today: csqr=1, ro=1, f0=0.5, n2=4).
 
-    ``surface_advective_flux=False`` (the legacy closure) keeps the
-    dim-vs-nondim parity gates bitwise: the H7 closure row is the one
-    accepted <=1-ulp folded-statics seam (see test_golden_parity).
+    ``CenteredAdvection(surface_flux=False)`` (the legacy closure)
+    keeps the dim-vs-nondim parity gates bitwise: the H7 closure row
+    is the one accepted <=1-ulp folded-statics seam (see
+    test_golden_parity).
     """
     return hy.Model(
         grid=make_grid(), core=hy.Core(gravity=1.0),
         coriolis=hy.FPlaneCoriolis(f0=0.5),
         buoyancy=hy.ConstantStratification(n2=4.0),
         free_surface=free_surface or hy.ExplicitFreeSurface(),
-        advection=advection, surface_advective_flux=False,
+        advection=_legacy_closure() if nonlinear else None,
         time_stepper=AdamBashforth(DT, order=3))
 
 
 def ext_model(*, ro=1.0, free_surface_cls=hy.ExplicitFreeSurface,
-              advection=True, **fs_kwargs):
+              nonlinear=True, **fs_kwargs):
     """ExternalWave-frame parity twin of :func:`dim_model`.
 
     eps = Fr_ext = ro; Coriolis Ro = ro/f0 = 2*ro (eps/Ro = 0.5);
@@ -60,7 +66,7 @@ def ext_model(*, ro=1.0, free_surface_cls=hy.ExplicitFreeSurface,
         coriolis=hy.FPlaneCoriolis(rossby_number=2.0 * ro),
         buoyancy=hy.ConstantStratification(froude_number=ro / 2),
         free_surface=free_surface_cls(froude_number=ro, **fs_kwargs),
-        advection=advection, surface_advective_flux=False,
+        advection=_legacy_closure() if nonlinear else None,
         time_stepper=AdamBashforth(DT, order=3))
 
 
@@ -201,14 +207,16 @@ def test_nondim_surface_closure_tracks_the_dim_twin():
         coriolis=hy.FPlaneCoriolis(f0=0.5),
         buoyancy=hy.ConstantStratification(n2=4.0),
         free_surface=hy.ExplicitFreeSurface(),
-        advection=True, time_stepper=stepper)
+        advection=fr.model.modules.CenteredAdvection(),
+        time_stepper=stepper)
     ext = hy.Model(
         grid=make_grid(), core=hy.Core(),
         scaling=fr.scaling.ExternalWave(),
         coriolis=hy.FPlaneCoriolis(rossby_number=2.0),
         buoyancy=hy.ConstantStratification(froude_number=0.5),
         free_surface=hy.ExplicitFreeSurface(froude_number=1.0),
-        advection=True, time_stepper=AdamBashforth(DT, order=3))
+        advection=fr.model.modules.CenteredAdvection(),
+        time_stepper=AdamBashforth(DT, order=3))
     fields = random_fields(dim)
     dim.set_fields(**fields)
     ext.set_fields(**fields)
@@ -242,8 +250,8 @@ def test_nondim_diagnostics_re_key_on_the_effective_n2():
 
 def test_nondim_eigenbasis_matches_the_dim_twin():
     # the numeric probe engine sees identical operators at parity
-    dim = hy.eigenbasis(dim_model(advection=False))
-    ext = hy.eigenbasis(ext_model(ro=1.0, advection=False))
+    dim = hy.eigenbasis(dim_model(nonlinear=False))
+    ext = hy.eigenbasis(ext_model(ro=1.0, nonlinear=False))
     np.testing.assert_allclose(
         np.sort(np.abs(np.asarray(dim.basis.omega).ravel())),
         np.sort(np.abs(np.asarray(ext.basis.omega).ravel())),

@@ -60,13 +60,13 @@ def build(config):
             grid=make_grid(), core=nh.Core(aspect_ratio=0.5),
             coriolis=nh.FPlaneCoriolis(f0=0.5),
             buoyancy=nh.ConstantStratification(n2=4.0),
-            advection=True, time_stepper=stepper)
+            advection=nh.CenteredAdvection(), time_stepper=stepper)
     return nh.Model(
         grid=make_grid(), core=nh.Core(aspect_ratio=0.5),
         scaling=fr.scaling.Rotational(),
         coriolis=nh.FPlaneCoriolis(rossby_number=0.25),
         buoyancy=nh.ConstantStratification(froude_number=0.125),
-        advection=True, time_stepper=stepper)
+        advection=nh.CenteredAdvection(), time_stepper=stepper)
 
 
 def ulp_distance(a, b):

@@ -39,7 +39,7 @@ def _make_model(*, periodic_z, family=None):
         time_stepper=AdamBashforth(0.02, order=3),
         coriolis=FPlaneCoriolis(f0=1.0),
         buoyancy=nh.ConstantStratification(n2=1.0),
-        advection=False)
+        advection=None)
     model.set_fields(u=np.ones(model.state["u"].data.shape))
     return model
 
@@ -61,7 +61,7 @@ def _make_prime_model(*, device_ids=None):
         time_stepper=AdamBashforth(0.02, order=3),
         coriolis=FPlaneCoriolis(f0=1.0),
         buoyancy=nh.ConstantStratification(n2=1.0),
-        advection=False)
+        advection=None)
 
 
 @pytest.fixture
@@ -151,7 +151,7 @@ def test_walled_x_fv_projection_dodges_the_wall_and_distributes(
         time_stepper=AdamBashforth(0.02, order=3),
         coriolis=FPlaneCoriolis(f0=1.0),
         buoyancy=nh.ConstantStratification(n2=1.0),
-        advection=False)
+        advection=None)
     default = grid.decomposition.default_layout
     assert default.is_local("x")       # the walled axis is dodged
     assert not default.is_local("y")   # a periodic axis is sharded
@@ -180,7 +180,7 @@ def test_walled_x_fv_step_is_device_count_invariant():
             time_stepper=AdamBashforth(0.02, order=3),
             coriolis=FPlaneCoriolis(f0=1.0),
             buoyancy=nh.ConstantStratification(n2=1.0),
-            advection=False)
+            advection=None)
 
     one = build((0,))
     rng = np.random.default_rng(0)
@@ -220,7 +220,7 @@ def test_walled_x_projection_dodges_the_wall_and_distributes(
         time_stepper=AdamBashforth(0.02, order=3),
         coriolis=FPlaneCoriolis(f0=1.0),
         buoyancy=nh.ConstantStratification(n2=1.0),
-        advection=False)
+        advection=None)
     default = grid.decomposition.default_layout
     assert default.is_local("x")       # the walled axis is dodged
     assert not default.is_local("y")   # a periodic axis is sharded
@@ -253,7 +253,7 @@ def test_walled_x_step_is_device_count_invariant():
             time_stepper=AdamBashforth(0.02, order=3),
             coriolis=FPlaneCoriolis(f0=1.0),
             buoyancy=nh.ConstantStratification(n2=1.0),
-            advection=False)
+            advection=None)
 
     one = build((0,))
     rng = np.random.default_rng(0)
@@ -334,7 +334,7 @@ def _make_mapped_fv_model(*, device_ids=None):
         time_stepper=AdamBashforth(0.02, order=3),
         coriolis=FPlaneCoriolis(f0=1.0),
         buoyancy=nh.ConstantStratification(n2=1.0),
-        advection=True)
+        advection=nh.CenteredAdvection())
 
 
 def test_mapped_fv_step_is_device_count_invariant():
@@ -383,7 +383,7 @@ def _make_immersed_model(*, device_ids=None):
         time_stepper=AdamBashforth(0.02, order=3),
         coriolis=FPlaneCoriolis(f0=1.0),
         buoyancy=nh.ConstantStratification(n2=1.0),
-        advection=True)
+        advection=nh.CenteredAdvection())
 
 
 def test_immersed_step_is_device_count_invariant():
@@ -438,7 +438,7 @@ def _make_partial_immersed_model(*, device_ids=None):
         time_stepper=AdamBashforth(0.02, order=3),
         coriolis=FPlaneCoriolis(f0=1.0),
         buoyancy=nh.ConstantStratification(n2=1.0),
-        advection=True)
+        advection=nh.CenteredAdvection())
 
 
 @pytest.mark.multi_device

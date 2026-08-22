@@ -53,7 +53,7 @@ def sphere_grid(nlon=16, nlat=8, radius=1.0):
 def sphere_model(*, ro=RO, omega=1.5):
     """Assemble the spherical shallow-water preset."""
     return sw.Model(
-        advection=True,
+        advection=sw.SadournyAdvection(),
         grid=sphere_grid(),
         core=sw.Core(froude_number=ro, depth=CSQR,
                      coords=("lon", "lat")),
@@ -69,7 +69,7 @@ def flat_model(*, periodic_y=True, ro=RO):
     """Assemble a flat Cartesian model (walled y when asked)."""
     grid = make_grid(periodic_y=periodic_y)
     return make_model(grid, csqr=CSQR, rossby_number=ro, f0=1.0,
-                      advection=True)
+                      advection=sw.SadournyAdvection())
 
 
 def set_random(model, seed=11):
@@ -276,7 +276,7 @@ def test_the_linear_model_conserves_the_m_norm_exactly():
     # that norm (docstring); the norm itself is conserved to machine
     # precision.
     model = make_model(make_grid(), csqr=CSQR, rossby_number=RO,
-                       f0=1.0, advection=False)
+                       f0=1.0, advection=None)
     set_random(model)
     z = model.state
     dz = model.tendency(z)
@@ -365,7 +365,7 @@ def test_pot_vort_extrema_are_materially_conserved():
     # to advective-scheme tolerance (the OLD-stack (zeta+f)/h would
     # drift at O(Ro-1) ~ 1e-2 over the same run — see the module note)
     model = make_model(make_grid(32), csqr=1.0, rossby_number=RO,
-                       f0=1.0, advection=True, dt=1.5e-3)
+                       f0=1.0, advection=sw.SadournyAdvection(), dt=1.5e-3)
     model.set_fields(p=gaussian_bump(amp=0.5, sigma=0.12))
     model.advance(100)                          # spin up real vorticity
     q0 = np.asarray(model.diagnostics.pot_vort().data)

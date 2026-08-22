@@ -56,7 +56,7 @@ def make_model(*makers, grid=None, periodic_z=True):
         time_stepper=AdamBashforth(DT, order=3),
         coriolis=nh.FPlaneCoriolis(f0=F0),
         buoyancy=nh.ConstantStratification(n2=N2),
-        advection=False,
+        advection=None,
         modules_extra=makers)
 
 
@@ -87,7 +87,7 @@ def drift():
     grid = fr.spatial.Grid((mx, my, mz), device_ids=(0,))
     return nh.eigenmodes.from_model(nh.Model(
         grid=grid, coriolis=nh.FPlaneCoriolis(f0=1e-4),
-        buoyancy=nh.ConstantStratification(n2=2.5e-5), advection=False,
+        buoyancy=nh.ConstantStratification(n2=2.5e-5), advection=None,
         time_stepper=AdamBashforth(60.0, order=3)))
 
 
@@ -178,7 +178,7 @@ def test_quadrature_teaches_on_a_channel():
         grid=grid, core=nh.Core(aspect_ratio=DSQR ** 0.5),
         time_stepper=AdamBashforth(DT, order=3),
         coriolis=nh.FPlaneCoriolis(f0=F0),
-        buoyancy=nh.ConstantStratification(n2=N2), advection=False))
+        buoyancy=nh.ConstantStratification(n2=N2), advection=None))
     with pytest.raises(ValueError, match="walled channel"):
         nh.wave_package(
             channel, {"x": 2, "y": 0, "z": 1},

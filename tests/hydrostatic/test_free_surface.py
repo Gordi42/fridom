@@ -34,7 +34,7 @@ def make_model(grid, *, n2, csqr, f0, dt=1e-3):
         coriolis=hy.FPlaneCoriolis(f0=f0),
         buoyancy=hy.ConstantStratification(n2=n2),
         free_surface=hy.ExplicitFreeSurface(),
-        advection=False)
+        advection=None)
 
 
 def k_disc_sq(n_mode, n_cells, length=1.0):

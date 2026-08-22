@@ -2662,7 +2662,7 @@ class _FluxFormAdvection(fr.model.Module):
                 f"{type(self).__name__} does not support walled "
                 f"grids (bounded coordinates: {walled}). Use "
                 "CenteredAdvection (walled-capable) or a linear "
-                "model (advection=False in nh.Model)")
+                "model (advection=None in nh.Model)")
         self._walled = walled
         immersed = getattr(table.grid, "immersed", None)
         if immersed is not None and not self._supports_immersed:
@@ -2673,7 +2673,7 @@ class _FluxFormAdvection(fr.model.Module):
                 "on the wet region is designed-for (immersed-partial-"
                 "cells plan, IP-D8). Use CenteredAdvection (the "
                 "supported immersed family — its min-rule faces read "
-                "two wet cells) or a linear model (advection=False in "
+                "two wet cells) or a linear model (advection=None in "
                 "nh.Model)")
         self._immersed = immersed
         if immersed is not None:
@@ -2805,7 +2805,7 @@ class _FluxFormAdvection(fr.model.Module):
             "Metric-aware flux-form advection is future work (the "
             "shallow-water SadournyAdvection chart path is the "
             "precedent); until it lands, run a linear model "
-            "(advection=False) on the chart, or advect on an unmapped "
+            "(advection=None) on the chart, or advect on an unmapped "
             "(flat) grid.")
 
     def _resolve_surface_flux(self, table: object) -> bool:
@@ -2872,7 +2872,7 @@ class _FluxFormAdvection(fr.model.Module):
                 "computational-coordinate rows and would silently "
                 "misrepresent physical transport — future work. "
                 "Use CenteredAdvection (mapped-capable, stage C4) "
-                "or a linear model (advection=False in nh.Model)")
+                "or a linear model (advection=None in nh.Model)")
         columns = set(corrections.values())
         if len(columns) != 1:
             raise NotImplementedError(

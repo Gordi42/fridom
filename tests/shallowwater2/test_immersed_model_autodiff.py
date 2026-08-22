@@ -55,7 +55,7 @@ def immersed_model(*, dt=0.01):
         core=sw.Core(froude_number=0.3, depth=0.8),
         scaling=fr.scaling.GravityWave(),
         coriolis=sw.modules.FPlaneCoriolis(rossby_number=0.3),
-        advection=True,
+        advection=sw.SadournyAdvection(),
         time_stepper=fr.model.time_steppers.AdamBashforth(dt, order=3))
     rng = np.random.default_rng(2)
     mask = np.asarray(

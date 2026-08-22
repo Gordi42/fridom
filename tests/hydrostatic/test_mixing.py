@@ -57,7 +57,7 @@ def test_mixing_with_implicit_free_surface_under_cnab2():
         coriolis=hy.FPlaneCoriolis(f0=0.5),
         buoyancy=hy.ConstantStratification(n2=1.0),
         free_surface=hy.ImplicitFreeSurface(),
-        advection=False,
+        advection=None,
         modules_extra=(VerticalMixing(kv=0.03, kb=0.05),))
     randomize(model, ("u", "v", "b", "ps"))
 
@@ -66,7 +66,7 @@ def test_mixing_with_implicit_free_surface_under_cnab2():
     treedef0 = jax.tree_util.tree_structure(
         model._stepper.init(model.state))
 
-    model.run(steps=5, progress=False)
+    model.run(steps=5)
 
     treedef1 = jax.tree_util.tree_structure(
         model._stepper.init(model.state))
@@ -93,7 +93,7 @@ def test_mixing_targets_are_the_velocities_and_buoyancy():
         coriolis=hy.FPlaneCoriolis(f0=0.5),
         buoyancy=hy.ConstantStratification(n2=1.0),
         free_surface=hy.ExplicitFreeSurface(),
-        advection=False,
+        advection=None,
         modules_extra=(VerticalMixing(kv=0.03, kb=0.05),))
     merged = model._artifacts.schedule.implicit_merged
     assert len(merged) == 1
@@ -114,10 +114,10 @@ def test_explicit_mixing_run_stays_finite_under_adam_bashforth():
         coriolis=hy.FPlaneCoriolis(f0=0.5),
         buoyancy=hy.ConstantStratification(n2=1.0),
         free_surface=hy.ExplicitFreeSurface(),
-        advection=False,
+        advection=None,
         modules_extra=(VerticalMixing(
             kv=0.03, kb=0.05, treatment=fr.model.EXPLICIT),))
     randomize(model, ("u", "v", "b"), seed=2)
-    model.run(steps=50, progress=False)
+    model.run(steps=50)
     for name in ("u", "v", "b"):
         assert np.all(np.isfinite(np.asarray(model.state[name].data)))

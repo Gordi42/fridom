@@ -35,7 +35,9 @@ def make_grid(nx=8, nz=8, depth=1.0):
         IM(nz, (0.0, depth), periodic=False, name="z")))
 
 
-def make_model(grid=None, *, advection=True, dt=1e-3):
+# the class as the default: each model gets a fresh instance (a module
+# binds to one model only)
+def make_model(grid=None, *, advection=CenteredAdvection, dt=1e-3):
     """Build a hydrostatic model with the given advection option."""
     if grid is None:
         grid = make_grid()
@@ -45,7 +47,8 @@ def make_model(grid=None, *, advection=True, dt=1e-3):
         time_stepper=AdamBashforth(dt, order=3),
         buoyancy=hy.ConstantStratification(n2=1.0),
         free_surface=hy.ExplicitFreeSurface(),
-        advection=advection)
+        advection=(advection() if isinstance(advection, type)
+                   else advection))
 
 
 def _set(model, grid, **inits):
@@ -73,7 +76,7 @@ def test_default_installs_centered_advection():
 
 
 def test_advection_false_is_the_linear_model():
-    model = make_model(advection=False)
+    model = make_model(advection=None)
     modules = [type(m).__name__ for m in model.modules]
     assert not any("Advection" in name for name in modules)
 
@@ -90,7 +93,7 @@ def test_biased_and_centered_instances_are_accepted(scheme):
 #  Assemble-and-run smoke (all three schemes)
 # ================================================================
 @pytest.mark.parametrize("scheme", [
-    True, UpwindAdvection(order=3), WENOAdvection(order=5)])
+    CenteredAdvection, UpwindAdvection(order=3), WENOAdvection(order=5)])
 def test_assemble_and_run(scheme):
     grid = make_grid()
     model = make_model(grid, advection=scheme)
@@ -239,8 +242,8 @@ def test_advection_preserves_the_semidiscrete_energy_skew():
     # vertical leg active. This is the sense in which the H2 quadratic
     # energy is conserved to time-discretization accuracy.
     metric = EnergyMetric(hy.energy.hydrostatic_energy_weights(1.0, 1.0))
-    linear = _full_skew(metric, advection=False)
-    advected = _full_skew(metric, advection=True)
+    linear = _full_skew(metric, advection=None)
+    advected = _full_skew(metric, advection=CenteredAdvection())
     assert abs(linear) <= 1e-13
     # advection leaves the (machine-zero) skew unchanged: w != 0 here,
     # so the vertical leg is genuinely exercised
@@ -286,7 +289,8 @@ def test_surface_flux_auto_default_is_constant_preserving():
     # w(0) != 0 and the surface source is genuinely present to cancel.
     grid = make_grid(nx=16, nz=8)
     const_b = {"b": lambda x, y, z: 2.5 + 0.0 * (x + y + z)}
-    default = make_model(grid)  # advection=True -> auto surface flux ON
+    # the default CenteredAdvection() -> auto surface flux ON
+    default = make_model(grid)
     resolved = next(m for m in default.modules
                     if isinstance(m, CenteredAdvection))
     assert resolved._surface_flux_on is True

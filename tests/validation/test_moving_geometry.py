@@ -55,7 +55,7 @@ def depth(x):
 # ================================================================
 #  Gate 1: frozen motion == static C3, bitwise, with/without ALE
 # ================================================================
-def make_terrain_model(*modules, n=N, init=depth, advection=True,
+def make_terrain_model(*modules, n=N, init=depth, nonlinear=True,
                        device_ids=None, family="nodal"):
     """Terrain-following model ``zp = z * H(x)`` (z in [0, 1]).
 
@@ -83,7 +83,8 @@ def make_terrain_model(*modules, n=N, init=depth, advection=True,
                     time_stepper=AdamBashforth(DT, order=3),
                     coriolis=nh.FPlaneCoriolis(f0=1.0),
                     buoyancy=nh.ConstantStratification(n2=1.0),
-                    advection=advection, modules_extra=modules)
+                    advection=nh.CenteredAdvection() if nonlinear else None,
+                    modules_extra=modules)
 
 
 def terrain_fields(n=N):
@@ -179,7 +180,7 @@ def make_ale_model(n, *modules, family="nodal"):
         core=nh.Core(family=family,
                      pressure_iterations=ITERATIONS),
         time_stepper=AdamBashforth(DT, order=3),
-        advection=False,
+        advection=None,
         coriolis=nh.FPlaneCoriolis(f0=0.0),
         buoyancy=nh.ConstantStratification(n2=0.0),
         modules_extra=(
@@ -273,7 +274,7 @@ def make_channel_model(*modules, n=N, family="nodal", dt=DT,
         IntervalMesh(n, (0.0, 1.0), periodic=False, name="z"),
     ), mapping=mapping)
     return nh.Model(
-        advection=True,
+        advection=nh.CenteredAdvection(),
         grid=grid,
         core=nh.Core(aspect_ratio=DSQR ** 0.5, family=family,
                      pressure_iterations=ITERATIONS,
@@ -401,7 +402,7 @@ def make_oscillating_model(device_ids=None, family="nodal"):
     return make_terrain_model(
         MovingGeometry({"H": oscillating_depth}),
         MeshVelocityCorrection(),
-        advection=False, device_ids=device_ids, family=family)
+        nonlinear=False, device_ids=device_ids, family=family)
 
 
 def test_oscillating_terrain_compiles_once_and_stays_solenoidal(

@@ -16,7 +16,7 @@ CSQR = 0.7
 def make_walled_model(**kwargs):
     """Return a linear channel model: x periodic, y walled."""
     kwargs.setdefault("csqr", CSQR)
-    return make_model(make_grid(periodic_y=False), advection=False,
+    return make_model(make_grid(periodic_y=False), advection=None,
                       **kwargs)
 
 

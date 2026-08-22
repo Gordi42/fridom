@@ -73,7 +73,7 @@ def _model(aspect_ratio, stepper, *, grid=None):
         time_stepper=stepper,
         coriolis=nh.FPlaneCoriolis(f0=F0),
         buoyancy=nh.ConstantStratification(n2=N2),
-        advection=False)
+        advection=None)
 
 
 def test_core_reports_a_ramped_aspect_ratio():
@@ -115,7 +115,7 @@ def test_etdrk4_refuses_a_ramped_aspect_ratio():
             time_stepper=fr.model.time_steppers.ETDRK4(DT, basis),
             coriolis=nh.FPlaneCoriolis(f0=F0),
             buoyancy=nh.ConstantStratification(n2=N2),
-            advection=False,
+            advection=None,
             term_filter=~terms.linear)
     # the taught error points at the AB fallback and the design record
     assert "AdamBashforth" in str(ex.value)
@@ -187,7 +187,7 @@ def test_core_refuses_a_coordinate_with_no_staggered_face():
             time_stepper=AdamBashforth(DT, order=3),
             coriolis=nh.FPlaneCoriolis(f0=F0),
             buoyancy=nh.ConstantStratification(n2=N2),
-            advection=False)
+            advection=None)
     assert "coords=('x', 'y', 's')" in str(ex.value)
 
 
@@ -212,7 +212,7 @@ def _chart_model(coords):
         core=nh.Core(coords=coords),
         time_stepper=AdamBashforth(DT, order=3),
         buoyancy=nh.ConstantStratification(n2=N2),
-        advection=False)
+        advection=None)
 
 
 @pytest.mark.parametrize(
@@ -301,7 +301,7 @@ def _immersed_model(*, report, iterations=12):
         time_stepper=AdamBashforth(1e-2, order=3),
         coriolis=nh.FPlaneCoriolis(f0=F0),
         buoyancy=nh.ConstantStratification(n2=N2),
-        advection=False)
+        advection=None)
     rng = np.random.default_rng(0)
     model.set_fields(**{
         name: 0.2 * rng.standard_normal(model.state[name].data.shape)

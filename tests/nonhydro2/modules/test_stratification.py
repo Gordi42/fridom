@@ -52,7 +52,7 @@ def test_ramped_n2_assembles_and_advances_under_adam_bashforth():
         fr.spatial.meshes.IntervalMesh(6, (0.0, 1.0), periodic=False,
                                        name="z")))
     model = nh.Model(
-        advection=True,
+        advection=nh.CenteredAdvection(),
         grid=grid,
         core=nh.Core(aspect_ratio=1.0),
         time_stepper=AdamBashforth(1e-3, order=1),
@@ -95,7 +95,7 @@ def _law_model(grid, law, *, order=1, dt=0.02):
         time_stepper=AdamBashforth(dt, order=order),
         coriolis=nh.FPlaneCoriolis(f0=1.0),
         buoyancy=MeridionalStratification(n2=law),
-        advection=False)
+        advection=None)
 
 
 def test_meridional_static_carries_no_marker_stage_or_halo():
@@ -159,7 +159,7 @@ def test_meridional_law_etdrk4_refuses_while_adam_bashforth_runs():
         coriolis=nh.FPlaneCoriolis(f0=1.0),
         buoyancy=MeridionalStratification(
             n2=lambda y: 1.0 + 2.0 * y * y),
-        advection=False)
+        advection=None)
     basis = nh.eigenbasis(static)
     law = _affine_n2_law()
     with pytest.raises(
@@ -170,7 +170,7 @@ def test_meridional_law_etdrk4_refuses_while_adam_bashforth_runs():
             time_stepper=fr.model.time_steppers.ETDRK4(5e-3, basis),
             coriolis=nh.FPlaneCoriolis(f0=1.0),
             buoyancy=MeridionalStratification(n2=law),
-            advection=False,
+            advection=None,
             term_filter=~terms.linear)
     # AdamBashforth runs the same law-n2 model to a finite state
     model = _law_model(grid, law, order=3, dt=5e-3)

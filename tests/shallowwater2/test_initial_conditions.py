@@ -49,7 +49,7 @@ def _one_device_grid(*, periodic_x=True, periodic_y=True):
 def periodic():
     """One linear periodic model + analytic eigenmodes (shared)."""
     model = make_model(_one_device_grid(), csqr=CSQR, f0=1.5,
-                       advection=False)
+                       advection=None)
     return model, sw.eigenmodes.from_model(model)
 
 
@@ -57,7 +57,7 @@ def periodic():
 def channel():
     """One walled channel model + labeled eigenbasis (shared)."""
     model = make_model(_one_device_grid(periodic_y=False), csqr=CSQR,
-                       f0=1.5, advection=False)
+                       f0=1.5, advection=None)
     return model, sw.eigenbasis(model)
 
 
@@ -248,10 +248,10 @@ def test_channel_random_state_on_a_sharded_grid_is_device_invariant(
     if forced_devices is not None:
         assert jax.device_count() == forced_devices
     model = make_model(make_grid(periodic_y=False), csqr=CSQR,
-                       f0=1.5, advection=False)
+                       f0=1.5, advection=None)
     sharded = sw.random_vortical(sw.eigenbasis(model), seed=4)
     reference = make_model(_one_device_grid(periodic_y=False),
-                           csqr=CSQR, f0=1.5, advection=False)
+                           csqr=CSQR, f0=1.5, advection=None)
     expected = sw.random_vortical(sw.eigenbasis(reference), seed=4)
     for c in COMPONENTS:
         assert np.allclose(np.asarray(sharded[c].data),
@@ -266,7 +266,7 @@ def test_channel_random_state_on_a_sharded_grid_is_device_invariant(
 def wave_setup():
     """One linear periodic model with a wave-resolving time step."""
     model = make_model(_one_device_grid(), csqr=CSQR, f0=1.5,
-                       advection=False, dt=1e-3)
+                       advection=None, dt=1e-3)
     return model, sw.eigenmodes.from_model(model)
 
 
@@ -404,7 +404,7 @@ def eddy_models(periodic, channel):
         "walled y": channel[0],
         "walled xy": make_model(
             _one_device_grid(periodic_x=False, periodic_y=False),
-            csqr=CSQR, f0=1.5, advection=False),
+            csqr=CSQR, f0=1.5, advection=None),
     }
 
 
@@ -522,7 +522,7 @@ def test_eddy_reads_the_dimensional_rotation():
             grid=_one_device_grid(),
             core=sw.Core(gravity=1.0, depth=CSQR),
             coriolis=sw.modules.FPlaneCoriolis(f0=f0),
-            advection=False,
+            advection=None,
             time_stepper=fr.model.time_steppers.AdamBashforth(
                 5e-3, order=3))
 
@@ -574,7 +574,7 @@ def test_eddy_taught_errors(periodic, channel):
     with pytest.raises(ValueError, match="constant Coriolis"):
         sw.coherent_eddy(make_model(
             _one_device_grid(), csqr=CSQR, coriolis=False,
-            advection=False))
+            advection=None))
     with pytest.raises(ValueError, match="walled channel"):
         sw.jet(eb)
 
@@ -588,7 +588,7 @@ def test_random_state_is_deterministic_on_one_device():
     # test debt now the sharded path is a Tier-1 taught error, asserted
     # below). device_ids=(0,) keeps this valid at any device count.
     model = make_model(_one_device_grid(), csqr=CSQR, f0=1.5,
-                       advection=False)
+                       advection=None)
     em = sw.eigenmodes.from_model(model)
     assert _same(sw.random_vortical(em, seed=21),
                  sw.random_vortical(em, seed=21))
@@ -605,7 +605,7 @@ def _sharded_pair(device_ids):
                                          periodic=True, name="y")
         model = make_model(
             fr.spatial.Grid((mx, my), device_ids=ids),
-            csqr=CSQR, f0=1.5, advection=False)
+            csqr=CSQR, f0=1.5, advection=None)
         return sw.eigenmodes.from_model(model)
     return build(device_ids), build((0,))
 

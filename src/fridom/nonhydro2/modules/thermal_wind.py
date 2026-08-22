@@ -85,7 +85,7 @@ The terms are declared ``linear=True`` (they carry no Rossby factor:
 the mean-flow interactions are O(1), consistent with Coriolis and the
 stratification restoring), so they are visible to
 ``fr.model.linearize`` and to the linear-operator consumers, and a
-``advection=False`` model is the exact linear stability problem.
+``advection=None`` model is the exact linear stability problem.
 """
 from __future__ import annotations
 

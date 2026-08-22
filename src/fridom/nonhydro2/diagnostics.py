@@ -164,7 +164,7 @@ def etot(
 
     i.e. the quadratic energy of the metric ``M`` that the eigenmode
     and projection machinery norms with (``fr.model.EnergyMetric``), which
-    the linear model (``advection=False``) conserves. Both parts are
+    the linear model (``advection=None``) conserves. Both parts are
     sampled at the cell centre, so the integral is a centre-sampled
     proxy of the ``M``-norm rather than that norm to machine
     precision. Integrate it and read the scalar with

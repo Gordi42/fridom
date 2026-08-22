@@ -115,7 +115,7 @@ class FakeStream:
 # ================================================================
 def test_run_steps_returns_a_completed_runresult():
     model = make_model(gain=2.0)
-    result = model.run(steps=4, progress=False)
+    result = model.run(steps=4)
     assert isinstance(result, RunResult)
     assert result.status is RunStatus.COMPLETED
     assert result.steps_done == 4
@@ -126,7 +126,7 @@ def test_run_steps_returns_a_completed_runresult():
 
 
 def test_run_result_reports_positive_throughput():
-    result = make_model().run(steps=4, progress=False)
+    result = make_model().run(steps=4)
     assert result.run_seconds >= 0.0
     assert result.compile_seconds >= 0.0
     assert result.steps_per_second >= 0.0
@@ -134,8 +134,8 @@ def test_run_result_reports_positive_throughput():
 
 def test_repeated_run_continues_from_the_carry():
     model = make_model()
-    model.run(steps=2, progress=False)
-    result = model.run(steps=2, progress=False)
+    model.run(steps=2)
+    result = model.run(steps=2)
     assert result.final_it == 4
     assert float(model.state["u"].data[0]) == pytest.approx(4 * DT)
 
@@ -146,22 +146,22 @@ def test_repeated_run_continues_from_the_carry():
 def test_run_needs_exactly_one_target():
     model = make_model()
     with pytest.raises(RunTargetError, match="exactly one"):
-        model.run(progress=False)
+        model.run()
     with pytest.raises(RunTargetError, match="exactly one"):
-        model.run(steps=4, runlen=2.0, progress=False)
+        model.run(steps=4, runlen=2.0)
 
 
 def test_runlen_reduces_to_steps_by_overshoot():
     model = make_model()
     # runlen 2.1 s at dt 0.5 -> ceil(4.2) = 5 steps (overshoot)
     with pytest.warns(UserWarning, match="whole number of steps"):
-        result = model.run(runlen=2.1, progress=False)
+        result = model.run(runlen=2.1)
     assert result.steps_done == 5
 
 
 def test_end_time_reduces_against_the_absolute_target():
     model = make_model()
-    result = model.run(end_time=2.0, progress=False)  # 2.0 / 0.5 = 4
+    result = model.run(end_time=2.0)  # 2.0 / 0.5 = 4
     assert result.steps_done == 4
     assert result.final_time == pytest.approx(2.0)
 
@@ -172,14 +172,14 @@ def test_end_time_reduces_against_the_absolute_target():
 def test_runlen_on_the_step_grid_is_silent():
     # 2.0 / 0.5 = 4 exactly; the suite runs with filterwarnings=error,
     # so a spurious warning here fails the test outright
-    result = make_model().run(runlen=2.0, progress=False)
+    result = make_model().run(runlen=2.0)
     assert result.steps_done == 4
 
 
 def test_runlen_warning_names_the_realized_duration_and_the_fix():
     model = make_model()
     with pytest.warns(UserWarning, match="not a whole number") as caught:
-        model.run(runlen=2.1, progress=False)
+        model.run(runlen=2.1)
     message = str(caught[0].message)
     assert "run(runlen=2.1)" in message
     assert "rounded UP to 5" in message           # the step count
@@ -193,20 +193,20 @@ def test_runlen_shorter_than_a_step_warns_and_still_steps_once():
     # of a step becomes a whole one
     model = make_model()
     with pytest.warns(UserWarning, match="whole number of steps"):
-        result = model.run(runlen=0.05, progress=False)
+        result = model.run(runlen=0.05)
     assert result.steps_done == 1
 
 
 def test_runlen_is_silent_for_a_timedelta_multiple_of_dt():
     result = make_model().run(
-        runlen=np.timedelta64(2, "s"), progress=False)
+        runlen=np.timedelta64(2, "s"))
     assert result.steps_done == 4
 
 
 def test_end_time_off_the_step_grid_warns():
     model = make_model()
     with pytest.warns(UserWarning, match="step boundary") as caught:
-        result = model.run(end_time=2.1, progress=False)
+        result = model.run(end_time=2.1)
     assert result.steps_done == 5
     assert result.final_time == pytest.approx(2.5)
     message = str(caught[0].message)
@@ -216,9 +216,9 @@ def test_end_time_off_the_step_grid_warns():
 
 def test_end_time_warning_accounts_for_a_nonzero_t0():
     model = make_model()
-    model.run(steps=1, progress=False)            # t0 = 0.5
+    model.run(steps=1)            # t0 = 0.5
     with pytest.warns(UserWarning, match="step boundary"):
-        result = model.run(end_time=2.1, progress=False)
+        result = model.run(end_time=2.1)
     assert result.steps_done == 4                 # ceil(1.6/0.5) = 4
 
 
@@ -227,33 +227,33 @@ def test_a_backward_end_time_off_the_grid_warns_too():
     model = make_model()
     model.update_parameters({"stepper.dt": -DT})
     with pytest.warns(UserWarning, match="step boundary"):
-        result = model.run(end_time=-2.1, progress=False)
+        result = model.run(end_time=-2.1)
     assert result.steps_done == 5
 
 
 def test_steps_never_warns_about_rounding():
     # steps= is exact by construction; the check must not reach it
-    result = make_model().run(steps=3, progress=False)
+    result = make_model().run(steps=3)
     assert result.steps_done == 3
 
 
 def test_end_time_wrong_direction_raises():
     model = make_model()  # dt > 0
     with pytest.raises(RunTargetError, match="precondition"):
-        model.run(end_time=-1.0, progress=False)
+        model.run(end_time=-1.0)
 
 
 def test_backward_leg_runs_when_dt_is_flipped():
     model = make_model()
     model.update_parameters({"stepper.dt": -DT})
-    result = model.run(end_time=-2.0, progress=False)
+    result = model.run(end_time=-2.0)
     assert result.steps_done == 4
     assert result.final_time == pytest.approx(-2.0)
 
 
 def test_run_steps_rejects_a_negative_count():
     with pytest.raises(RunTargetError, match="non-negative"):
-        make_model().run(steps=-1, progress=False)
+        make_model().run(steps=-1)
 
 
 # ================================================================
@@ -262,7 +262,7 @@ def test_run_steps_rejects_a_negative_count():
 def test_raise_on_nan_false_returns_nan_abort():
     model = make_model(chunk_size=4)
     poison(model)
-    result = model.run(steps=8, progress=False)  # default raise_on_nan
+    result = model.run(steps=8)  # default raise_on_nan
     assert result.status is RunStatus.NAN_ABORT
     assert result.steps_done == 4                # the aborted chunk
 
@@ -271,7 +271,7 @@ def test_raise_on_nan_true_reraises():
     model = make_model(chunk_size=4)
     poison(model)
     with pytest.raises(PanicError) as err:
-        model.run(steps=8, progress=False, raise_on_nan=True)
+        model.run(steps=8, raise_on_nan=True)
     assert err.value.first_bad_it == 4   # the detecting boundary
 
 
@@ -280,7 +280,7 @@ def test_raise_on_nan_true_reraises():
 # ================================================================
 def test_run_binds_and_fires_outputs():
     stream = FakeStream(triggers.every(steps=2))
-    make_model().run(steps=6, outputs=(stream,), progress=False)
+    make_model().run(steps=6, outputs=(stream,))
     assert stream.writes == [0, 2, 4, 6]
     assert stream.closed
 
@@ -292,8 +292,8 @@ def test_run_equals_a_handwritten_session_loop_bitwise():
     grid = make_grid()
     via_run = make_model(grid=grid, chunk_size=4)
     via_loop = make_model(grid=grid, chunk_size=4)
-    via_run.run(steps=11, progress=False)
-    with Session(via_loop, progress=False) as s:
+    via_run.run(steps=11)
+    with Session(via_loop) as s:
         s.advance({via_loop: 11})
     assert np.array_equal(
         np.asarray(via_run.state["u"].data),
@@ -304,7 +304,7 @@ def test_run_equals_a_handwritten_session_loop_bitwise():
 def test_second_run_path_adds_zero_compiles(compile_counter):
     grid = make_grid()
     warm = make_model(grid=grid, chunk_size=4)
-    warm.run(steps=11, progress=False)           # warm every length
+    warm.run(steps=11)           # warm every length
     # re-assembly may trace (dry_run validates under one compile-free
     # jax.eval_shape trace; budget pinned in test_composer.py) but must
     # never compile more than that
@@ -312,14 +312,14 @@ def test_second_run_path_adds_zero_compiles(compile_counter):
     other = make_model(grid=grid, chunk_size=4)  # identical re-assembly
     assert compile_counter.count <= 2
     compile_counter.reset()
-    other.run(steps=11, progress=False)
+    other.run(steps=11)
     assert compile_counter.count == 0
 
 
 def test_adding_a_stream_never_recompiles_physics(compile_counter):
     grid = make_grid()
     warm = make_model(grid=grid, chunk_size=4)
-    warm.run(steps=8, progress=False)            # boundaries [4, 8]
+    warm.run(steps=8)            # boundaries [4, 8]
     reference = chunk_cache_size()
     # a stream firing only at step 0 (every(steps=100) > n_steps) keeps
     # the chunk boundaries [4, 8] identical -> no new chunk program.
@@ -328,7 +328,7 @@ def test_adding_a_stream_never_recompiles_physics(compile_counter):
     stream = FakeStream(triggers.every(steps=100))
     other = make_model(grid=grid, chunk_size=4)
     compile_counter.reset()
-    other.run(steps=8, outputs=(stream,), progress=False)
+    other.run(steps=8, outputs=(stream,))
     assert stream.writes == [0]                  # step-0 initial output
     assert chunk_cache_size() == reference
     assert compile_counter.count == 0

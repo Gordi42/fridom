@@ -19,7 +19,9 @@ def make_grid(nx=8, nz=4):
         IM(nz, (0.0, 1.0), periodic=False, name="z")))
 
 
-def make_model(*, advection=True):
+# the class as the default: each model gets a fresh instance (a module
+# binds to one model only)
+def make_model(*, advection=fr.model.modules.CenteredAdvection):
     """Return a hydrostatic model whose buoyancy is a bare tracer."""
     return hy.Model(
         grid=make_grid(),
@@ -28,7 +30,8 @@ def make_model(*, advection=True):
         coriolis=hy.FPlaneCoriolis(f0=1.0),
         buoyancy=hy.BuoyancyTracer(),
         free_surface=hy.ExplicitFreeSurface(),
-        advection=advection)
+        advection=(advection() if isinstance(advection, type)
+                   else advection))
 
 
 def test_declares_the_buoyancy_tracer():
@@ -62,7 +65,7 @@ def test_linear_assembly_is_rejected():
     # all (the restoring is absent, not zero), so the coverage lint
     # rejects it — unlike ConstantStratification(n2=0.0)
     with pytest.raises(AssemblyError, match="coverage lint"):
-        make_model(advection=False)
+        make_model(advection=None)
 
 
 def test_constant_stratification_zero_is_accepted_where_the_tracer_is_not():
@@ -75,5 +78,5 @@ def test_constant_stratification_zero_is_accepted_where_the_tracer_is_not():
         coriolis=hy.FPlaneCoriolis(f0=1.0),
         buoyancy=hy.ConstantStratification(n2=0.0),
         free_surface=hy.ExplicitFreeSurface(),
-        advection=False)
+        advection=None)
     assert "b" in model.state

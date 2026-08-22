@@ -30,7 +30,7 @@ def make_model(grid=None, *, dt=1e-3, **kwargs):
         time_stepper=AdamBashforth(dt, order=3),
         buoyancy=hy.ConstantStratification(n2=1.0),
         free_surface=hy.ExplicitFreeSurface(),
-        advection=False,
+        advection=None,
         **kwargs)
 
 
@@ -65,7 +65,7 @@ def test_preset_equals_explicit_assembly_treedef():
         coriolis=hy.FPlaneCoriolis(f0=1.3),
         buoyancy=hy.ConstantStratification(n2=2.0),
         free_surface=hy.ExplicitFreeSurface(),
-        advection=True)
+        advection=fr.model.modules.CenteredAdvection())
     explicit = fr.model.Model(
         grid=grid,
         modules=(
@@ -73,7 +73,7 @@ def test_preset_equals_explicit_assembly_treedef():
             hy.FPlaneCoriolis(f0=1.3),
             hy.ConstantStratification(n2=2.0),
             hy.ExplicitFreeSurface(),
-            # advection=True is CenteredAdvection, appended after the
+            # the named CenteredAdvection, appended after the
             # free surface (H2b)
             fr.model.modules.CenteredAdvection()),
         time_stepper=AdamBashforth(1e-3, order=3))
@@ -139,12 +139,11 @@ def test_a_named_coriolis_is_installed():
 
 
 # ================================================================
-#  Advection is installed (stage H2b); False keeps the linear model
+#  Advection is installed (stage H2b); None keeps the linear model
 # ================================================================
 @pytest.mark.parametrize(
     "advection",
     [
-        pytest.param(True, id="bool-true"),
         pytest.param(fr.model.modules.CenteredAdvection(), id="centered"),
         pytest.param(fr.model.modules.UpwindAdvection(order=3),
                      id="upwind"),
@@ -162,14 +161,14 @@ def test_advection_is_installed(advection):
                for m in model._carry.modules)
 
 
-def test_advection_false_installs_no_advection_module():
+def test_advection_none_installs_no_advection_module():
     model = hy.Model(
         grid=make_grid(),
         core=hy.Core(gravity=1.0),
         time_stepper=AdamBashforth(1.0, order=3),
         buoyancy=hy.ConstantStratification(n2=1.0),
         free_surface=hy.ExplicitFreeSurface(),
-        advection=False)
+        advection=None)
     assert not any("Advection" in type(m).__name__
                    for m in model._carry.modules)
 
@@ -236,3 +235,31 @@ def test_repeated_advance_compiles_nothing(compile_counter):
     model.advance(5)
     assert compile_counter.count == 0
     assert chunk_cache_size() == reference
+
+
+# ================================================================
+#  advection= takes a module or None (object-or-None keywords)
+# ================================================================
+@pytest.mark.parametrize("value", [True, False])
+def test_advection_refuses_a_boolean(value):
+    with pytest.raises(TypeError, match="takes a module or None"):
+        hy.Model(
+            grid=make_grid(),
+            core=hy.Core(gravity=3.0),
+            time_stepper=AdamBashforth(1e-3, order=3),
+            buoyancy=hy.ConstantStratification(n2=2.0),
+            free_surface=hy.ExplicitFreeSurface(),
+            advection=value)
+
+
+def test_surface_advective_flux_is_retired():
+    # the closure lives on the module the caller passes
+    with pytest.raises(TypeError, match="surface_flux=") as excinfo:
+        hy.Model(
+            grid=make_grid(),
+            core=hy.Core(gravity=3.0),
+            time_stepper=AdamBashforth(1e-3, order=3),
+            buoyancy=hy.ConstantStratification(n2=2.0),
+            free_surface=hy.ExplicitFreeSurface(),
+            surface_advective_flux=False)
+    assert "surface_advective_flux= is retired" in str(excinfo.value)

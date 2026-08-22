@@ -78,7 +78,7 @@ def test_column_equivalence_flat_bottom(make_fs):
         coriolis=hy.FPlaneCoriolis(f0=0.8),
         buoyancy=hy.ConstantStratification(n2=2.0),
         free_surface=make_fs(),
-        advection=False)
+        advection=None)
     mu = hy.Model(
         grid=_short_grid(),
         core=hy.Core(gravity=g),
@@ -86,7 +86,7 @@ def test_column_equivalence_flat_bottom(make_fs):
         coriolis=hy.FPlaneCoriolis(f0=0.8),
         buoyancy=hy.ConstantStratification(n2=2.0),
         free_surface=make_fs(),
-        advection=False)
+        advection=None)
 
     rng = np.random.default_rng(0)
     icu = {k: 0.2 * rng.standard_normal(mu.state[k].data.shape)
@@ -144,7 +144,7 @@ def test_dry_dof_hygiene_over_a_run(free_surface):
         coriolis=hy.FPlaneCoriolis(f0=0.6),
         buoyancy=hy.ConstantStratification(n2=1.0),
         free_surface=free_surface,
-        advection=True)
+        advection=fr.model.modules.CenteredAdvection())
     rng = np.random.default_rng(3)
     model.set_fields(**{
         k: 0.2 * rng.standard_normal(model.state[k].data.shape)
@@ -219,7 +219,7 @@ def test_immersed_model_installs_maskstate():
         time_stepper=AdamBashforth(0.01, order=3),
         buoyancy=hy.ConstantStratification(n2=1.0),
         free_surface=hy.ExplicitFreeSurface(),
-        advection=False)
+        advection=None)
     assert any(type(m).__name__ == "MaskState" for m in model.modules)
 
 
@@ -230,7 +230,7 @@ def test_unimmersed_model_has_no_maskstate():
         time_stepper=AdamBashforth(0.01, order=3),
         buoyancy=hy.ConstantStratification(n2=1.0),
         free_surface=hy.ExplicitFreeSurface(),
-        advection=False)
+        advection=None)
     assert not any(
         type(m).__name__ == "MaskState" for m in model.modules)
 
@@ -242,7 +242,7 @@ def test_eigenmodes_reject_immersed():
         time_stepper=AdamBashforth(0.01, order=3),
         buoyancy=hy.ConstantStratification(n2=1.0),
         free_surface=hy.ExplicitFreeSurface(),
-        advection=False)
+        advection=None)
     with pytest.raises(NotImplementedError, match="immersed"):
         hy.eigenmodes.from_model(model)
     with pytest.raises(NotImplementedError, match="immersed"):
@@ -256,7 +256,7 @@ def test_transforms_reject_immersed():
         time_stepper=AdamBashforth(0.01, order=3),
         buoyancy=hy.ConstantStratification(n2=1.0),
         free_surface=hy.ExplicitFreeSurface(),
-        advection=False)
+        advection=None)
     with pytest.raises(NotImplementedError, match="immersed"):
         hy.transforms.VorticalProjection.from_model(model)
 

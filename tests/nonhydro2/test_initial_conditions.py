@@ -32,7 +32,7 @@ COMPONENTS = ("u", "v", "w", "b")
 
 
 def make_model(*, periodic_x=True, periodic_y=True, periodic_z=True,
-               family=None, n=N, y_extent=(0.0, 1.0), advection=False,
+               family=None, n=N, y_extent=(0.0, 1.0), advection=None,
                buoyancy=True, beta=None, nondimensional=False):
     """Build a small linear nonhydro model (walls as requested)."""
     mx = fr.spatial.meshes.IntervalMesh(n, (0.0, 2 * np.pi),
@@ -73,7 +73,9 @@ def make_model(*, periodic_x=True, periodic_y=True, periodic_z=True,
         coriolis=coriolis,
         buoyancy=(nh.ConstantStratification(n2=N2) if buoyancy
                   else None),
-        advection=advection or not buoyancy)
+        # without a buoyancy nothing but advection advances u, v
+        advection=(advection if advection is not None
+                   else nh.CenteredAdvection() if not buoyancy else None))
 
 
 @pytest.fixture(scope="module")
@@ -379,7 +381,7 @@ def drift_model():
         grid=grid,
         coriolis=nh.FPlaneCoriolis(f0=1e-4),
         buoyancy=nh.ConstantStratification(n2=2.5e-5),
-        advection=False,
+        advection=None,
         time_stepper=AdamBashforth(60.0, order=3))
 
 
@@ -402,7 +404,7 @@ def test_wave_package_traveling_drifts_the_requested_way(
     drift_model.reset()
     drift_model.set_state(packet)
     start = _b_centroid(drift_model)
-    drift_model.run(runlen=2400.0, progress=False)
+    drift_model.run(runlen=2400.0)
     moved = _b_centroid(drift_model) - start
     # the continuum group drift is cg_z * t = 281 m (measured
     # 271-277 m at this resolution); the sign is the request
@@ -451,7 +453,7 @@ def test_wave_package_traveling_needs_a_represented_neighbor():
         grid=grid,
         coriolis=nh.FPlaneCoriolis(f0=1e-4),
         buoyancy=nh.ConstantStratification(n2=2.5e-5),
-        advection=False,
+        advection=None,
         time_stepper=AdamBashforth(60.0, order=3))
     with pytest.raises(ValueError, match="cannot resolve"):
         nh.wave_package(
@@ -692,7 +694,7 @@ def test_eddy_stays_steady_under_the_linear_model(periodic):
     z0 = nh.coherent_eddy(model, width=0.15,
                           vertical_structure=_structure)
     model.set_state(z0)
-    model.run(steps=10, progress=False)
+    model.run(steps=10)
     scale = max(float(np.abs(np.asarray(z0[c].data)).max())
                 for c in ("u", "v", "b"))
     drift = max(
@@ -879,11 +881,11 @@ def test_eddy_reads_the_nondimensional_rotation():
 @pytest.mark.parametrize("periodic_x", [True, False],
                          ids=["periodic", "walled-x"])
 def test_eddy_survives_a_nonlinear_run(periodic_x):
-    model = make_model(advection=True, periodic_x=periodic_x)
+    model = make_model(advection=nh.CenteredAdvection(), periodic_x=periodic_x)
     z = nh.coherent_eddy(model, width=0.15, amplitude=0.1,
                          vertical_structure=_structure)
     model.set_state(z)
-    model.run(steps=10, progress=False)
+    model.run(steps=10)
     for name in COMPONENTS:
         assert np.isfinite(np.asarray(model.state[name].data)).all()
     assert (float(np.abs(np.asarray(model.state["u"].data)).max())
@@ -1033,13 +1035,13 @@ _RATIO = {"vorticity": 3.0, "streamfunction": 1.4}
 @pytest.fixture(scope="module")
 def dipole_model():
     """Return a resolved square unit box (no time stepping)."""
-    return _unit_box(128, advection=False)
+    return _unit_box(128, advection=None)
 
 
 @pytest.fixture(scope="module")
 def dipole_run_model():
     """Return a coarser square unit box that time-steps."""
-    return _unit_box(64, advection=True)
+    return _unit_box(64, advection=nh.CenteredAdvection())
 
 
 def _unit_box(n, *, advection):
@@ -1304,7 +1306,7 @@ def test_dipole_travels_toward_its_heading(dipole_run_model, angle):
     z = nh.eddy_dipole(model, angle=angle, width=0.06, speed=0.3)
     model.set_state(z)
     before = _dipole_centre(model, model.state)
-    model.run(steps=60, progress=False)
+    model.run(steps=60)
     after = _dipole_centre(model, model.state)
     step = (after[0] - before[0], after[1] - before[1])
     want = (np.sin(np.deg2rad(angle)), np.cos(np.deg2rad(angle)))
@@ -1371,7 +1373,7 @@ def _periodic_model_at(device_ids, n=16):
         time_stepper=AdamBashforth(DT, order=3),
         coriolis=nh.FPlaneCoriolis(f0=F0),
         buoyancy=nh.ConstantStratification(n2=N2),
-        advection=False)
+        advection=None)
 
 
 @pytest.mark.multi_device

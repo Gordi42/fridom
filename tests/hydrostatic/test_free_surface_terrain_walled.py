@@ -59,7 +59,7 @@ def _grid(periodic, nx=8, ny=8, nz=4):
         mapping=_mapping())
 
 
-def _model(grid, *, free_surface=None, advection=False, f0=0.5,
+def _model(grid, *, free_surface=None, advection=None, f0=0.5,
            dt=2e-3, n2=N2, coriolis=True):
     return hy.Model(
         grid=grid,
@@ -68,7 +68,8 @@ def _model(grid, *, free_surface=None, advection=False, f0=0.5,
         coriolis=hy.FPlaneCoriolis(f0=f0) if coriolis else None,
         buoyancy=hy.ConstantStratification(n2=n2),
         free_surface=free_surface or hy.ExplicitFreeSurface(),
-        advection=advection)
+        advection=(advection() if isinstance(advection, type)
+                   else advection))
 
 
 def _random_ic(model, scale=0.1, seed=0):
@@ -88,7 +89,8 @@ def _nodes(grid, space, name):
 @pytest.mark.parametrize("wall", list(WALLS), ids=list(WALLS))
 @pytest.mark.parametrize(
     "advection",
-    [pytest.param(False, id="linear"), pytest.param(True, id="advected")],
+    [pytest.param(None, id="linear"),
+     pytest.param(fr.model.modules.CenteredAdvection, id="advected")],
 )
 @pytest.mark.parametrize(
     "free_surface",
@@ -120,7 +122,7 @@ def test_split_explicit_runs_finite_on_terrain_walls(wall):
         coriolis=hy.FPlaneCoriolis(f0=0.5),
         buoyancy=hy.ConstantStratification(n2=N2),
         free_surface=hy.SplitExplicitFreeSurface(substeps=16),
-        advection=False)
+        advection=None)
     rng = np.random.default_rng(0)
     model.set_fields(**{
         k: 0.1 * rng.standard_normal(model.state[k].shape)
@@ -140,7 +142,7 @@ def _split_model(grid, dt):
         coriolis=None,
         buoyancy=hy.ConstantStratification(n2=0.0),
         free_surface=hy.SplitExplicitFreeSurface(substeps=16),
-        advection=False)
+        advection=None)
 
 
 def test_split_terrain_channel_matches_the_mirror_image_run():
@@ -216,7 +218,7 @@ def test_split_terrain_ps_volume_conserved_on_walls(wall):
         coriolis=hy.FPlaneCoriolis(f0=0.5),
         buoyancy=hy.ConstantStratification(n2=N2),
         free_surface=hy.SplitExplicitFreeSurface(substeps=16),
-        advection=False)
+        advection=None)
     _random_ic(model, seed=3)
 
     def volume():
@@ -294,7 +296,7 @@ def test_rest_state_stays_near_rest_over_a_short_run():
         v=np.zeros(model.state["v"].shape),
         b=np.asarray(-N2 * zp),
         ps=np.zeros(model.state["ps"].shape))
-    model.run(10, progress=False)
+    model.run(10)
     assert not model.panicked
     assert float(jnp.abs(model.state["u"].data).max()) < 1e-2
     assert float(jnp.abs(model.state["v"].data).max()) < 1e-2
@@ -328,7 +330,7 @@ def _mirror_model(grid, dt):
         coriolis=None,
         buoyancy=hy.ConstantStratification(n2=N2),
         free_surface=hy.ExplicitFreeSurface(),
-        advection=False)
+        advection=None)
 
 
 def test_channel_matches_the_mirror_image_run():

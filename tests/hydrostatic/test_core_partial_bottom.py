@@ -16,6 +16,7 @@ import pytest
 
 import fridom.hydrostatic as hy
 from fridom.model.context import StepContext
+from fridom.model.modules.advection import CenteredAdvection
 from fridom.model.time_steppers.adam_bashforth import AdamBashforth
 from fridom.spatial.grid import Grid
 from fridom.spatial.immersed_domain import ImmersedDomain
@@ -96,7 +97,7 @@ def test_setup_has_genuine_partial_bottom_cells():
         time_stepper=AdamBashforth(0.01, order=3),
         buoyancy=hy.ConstantStratification(n2=1.0),
         free_surface=hy.ExplicitFreeSurface(),
-        advection=False)
+        advection=None)
     imm = model.grid.immersed
     bs = model.state["b"].function_space
     theta = np.asarray(imm.fraction(bs).data)
@@ -118,7 +119,7 @@ def test_g3_rest_state_is_machine_zero_flat(nx, nz, order):
         time_stepper=AdamBashforth(0.01, order=3),
         buoyancy=hy.ConstantStratification(n2=1.0),
         free_surface=hy.ExplicitFreeSurface(),
-        advection=False)
+        advection=None)
     cor, unc = _rest_pgf(model, lambda z: 2.5 * z)
     assert unc > 1e-3               # the uncorrected error is real
     assert cor < 1e-12              # the correction cancels it exactly
@@ -136,7 +137,7 @@ def test_g3_rest_state_is_machine_zero_stretched():
         time_stepper=AdamBashforth(0.01, order=3),
         buoyancy=hy.ConstantStratification(n2=1.0),
         free_surface=hy.ExplicitFreeSurface(),
-        advection=False)
+        advection=None)
     cor, unc = _rest_pgf(model, lambda z: 2.5 * z)
     assert unc > 1e-3
     assert cor < 1e-12
@@ -158,7 +159,7 @@ def test_g4_smooth_profile_is_second_order_and_below_uncorrected():
             time_stepper=AdamBashforth(0.01, order=3),
             buoyancy=hy.ConstantStratification(n2=1.0),
             free_surface=hy.ExplicitFreeSurface(),
-            advection=False)
+            advection=None)
         cor, unc = _rest_pgf(model, strat)
         dz.append(1.0 / nz)
         cors.append(cor)
@@ -183,7 +184,7 @@ def test_g1_all_wet_correction_is_a_byte_noop():
         time_stepper=AdamBashforth(0.02, order=3),
         buoyancy=hy.ConstantStratification(n2=1.0),
         free_surface=hy.ExplicitFreeSurface(),
-        advection=False)
+        advection=None)
     core = model.module(hy.Core)
     assert core._pb_active is False        # no bottom cut -> skipped
     rng = np.random.default_rng(7)
@@ -223,7 +224,7 @@ def test_g2_staircase_is_a_byte_noop():
         time_stepper=AdamBashforth(0.01, order=3),
         buoyancy=hy.ConstantStratification(n2=1.0),
         free_surface=hy.ExplicitFreeSurface(),
-        advection=False)
+        advection=None)
     core = model.module(hy.Core)
     rng = np.random.default_rng(1)
     bdat = 0.3 * rng.standard_normal(model.state["b"].data.shape)
@@ -260,7 +261,7 @@ def test_g5_grad_wrt_initial_buoyancy_matches_fd():
         time_stepper=AdamBashforth(2e-3, order=3),
         buoyancy=hy.ConstantStratification(n2=1.0),
         free_surface=hy.ExplicitFreeSurface(),
-        advection=False)
+        advection=None)
     rng = np.random.default_rng(11)
     model.set_fields(**{
         k: 0.1 * rng.standard_normal(model.state[k].data.shape)
@@ -298,7 +299,7 @@ def _advance_state(nx, ny, nz, device_ids):
         time_stepper=AdamBashforth(2e-3, order=3),
         buoyancy=hy.ConstantStratification(n2=1.0),
         free_surface=hy.ExplicitFreeSurface(),
-        advection=True)
+        advection=CenteredAdvection())
     rng = np.random.default_rng(4)
     model.set_fields(**{
         k: 0.1 * rng.standard_normal(model.state[k].data.shape)

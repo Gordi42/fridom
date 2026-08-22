@@ -83,7 +83,7 @@ def make_channel(f0=F0, beta=None):
         time_stepper=AdamBashforth(5e-3, order=3),
         coriolis=coriolis,
         buoyancy=nh.ConstantStratification(n2=N2),
-        advection=False)
+        advection=None)
 
 
 @pytest.fixture(scope="module")
@@ -672,7 +672,7 @@ def test_odd_nz_channel_labels_and_completeness():
         time_stepper=AdamBashforth(5e-3, order=3),
         coriolis=nh.FPlaneCoriolis(f0=F0),
         buoyancy=nh.ConstantStratification(n2=N2),
-        advection=False)
+        advection=None)
     em = ChannelEigenmodes(model)
     labels = np.asarray(em.labels)
     assert em.omega.shape == (N, nz // 2 + 1, D)
@@ -851,7 +851,7 @@ def make_varying_channel(n2=n2_profile):
         time_stepper=AdamBashforth(5e-3, order=3),
         coriolis=nh.FPlaneCoriolis(f0=F0),
         buoyancy=nh.MeridionalStratification(n2=n2),
-        advection=False)
+        advection=None)
 
 
 @pytest.fixture(scope="module")
@@ -996,7 +996,7 @@ def test_varying_n2_analytic_paths_are_taught_errors():
             time_stepper=AdamBashforth( 5e-3, order=3),
             coriolis=nh.FPlaneCoriolis(f0=F0),
             buoyancy=nh.MeridionalStratification( n2=n2_profile),
-            advection=False)
+            advection=None)
 
     for periodic_z in (True, False):
         with pytest.raises(ValueError, match=r"nh\.eigenbasis"):

@@ -65,7 +65,10 @@ def stepper():
     return fr.model.time_steppers.AdamBashforth(2e-3, order=3)
 
 
-def flat_model(route, *, periodic_y=True, csqr=CSQR, advection=True):
+# the class as the default: each model gets a fresh instance (a module
+# binds to one model only)
+def flat_model(route, *, periodic_y=True, csqr=CSQR,
+               advection=sw.SadournyAdvection):
     """Assemble a flat model on the given Coriolis route.
 
     ``route`` is ``"linear"`` (today's behaviour), ``"A"`` (linear +
@@ -83,7 +86,9 @@ def flat_model(route, *, periodic_y=True, csqr=CSQR, advection=True):
         grid=flat_grid(periodic_y=periodic_y),
         core=sw.Core(froude_number=RO, depth=csqr),
         scaling=fr.scaling.GravityWave(),
-        coriolis=coriolis, advection=advection,
+        coriolis=coriolis,
+        advection=(advection() if isinstance(advection, type)
+                   else advection),
         modules_extra=extra, time_stepper=stepper())
 
 
@@ -552,7 +557,7 @@ def _conserving_beta_channel(beta, f0=F0):
         grid=flat_grid(periodic_y=False),
         core=sw.Core(gravity=1.0, depth=CSQR),
         coriolis=sw.modules.NonlinearBetaPlaneCoriolis(f0=f0, beta=beta),
-        advection=True,
+        advection=sw.SadournyAdvection(),
         time_stepper=fr.model.time_steppers.AdamBashforth(RAMP_DT))
 
 
@@ -621,7 +626,7 @@ def test_correction_supports_a_ramped_beta_linear_module():
         core=sw.Core(gravity=1.0, depth=CSQR),
         coriolis=sw.modules.BetaPlaneCoriolis(f0=F0, beta=ramp),
         modules_extra=(sw.modules.CoriolisEnergyCorrection(),),
-        advection=True, time_stepper=stepper())
+        advection=sw.SadournyAdvection(), time_stepper=stepper())
     set_random(model_a)
     # the invariant closes to machine zero at every stage time
     for t in (0.0, 0.02, 0.05):
@@ -656,7 +661,7 @@ def test_conserving_ramped_beta_is_device_count_invariant(forced_devices):
             grid=fr.spatial.Grid((mx, my), device_ids=device_ids),
             core=sw.Core(gravity=1.0, depth=CSQR),
             coriolis=sw.modules.NonlinearBetaPlaneCoriolis(f0=F0, beta=ramp),
-            advection=True,
+            advection=sw.SadournyAdvection(),
             time_stepper=fr.model.time_steppers.AdamBashforth(RAMP_DT))
 
     rng = np.random.default_rng(4)
@@ -732,7 +737,7 @@ def adiabatic_channel():
         grid=fr.spatial.Grid((mx, my), device_ids=(0,)),
         core=sw.Core(gravity=1.0, depth=_AD_CSQR),
         coriolis=sw.modules.BetaPlaneCoriolis(f0=_AD_F0, beta=_AD_BETA),
-        advection=False,
+        advection=None,
         time_stepper=fr.model.time_steppers.AdamBashforth(_AD_DT, order=3))
     reference = target.variant(updates={"coriolis.beta": 0.0})
     eb_ref = sw.eigenbasis(reference)

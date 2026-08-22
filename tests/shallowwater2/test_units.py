@@ -42,7 +42,7 @@ def nondim_model(*, scaling=None, depth=1.0, coriolis=None,
         core=sw.Core(froude_number=FR, depth=depth, coords=coords),
         scaling=scaling,
         coriolis=coriolis,
-        advection=False,
+        advection=None,
         time_stepper=fr.model.time_steppers.AdamBashforth(DT, order=2))
 
 
@@ -50,7 +50,7 @@ def dim_model(*, gravity=G_REF, depth=100.0):
     return sw.Model(
         grid=make_grid(),
         core=sw.Core(gravity=gravity, depth=depth),
-        advection=False,
+        advection=None,
         time_stepper=fr.model.time_steppers.AdamBashforth(DT, order=2))
 
 
@@ -130,7 +130,7 @@ def test_dimensional_variable_depth_marks_the_constants():
     model = sw.Model(
         grid=make_grid(),
         core=sw.Core(gravity=G_REF, depth=lambda y: 100.0 + 0.0 * y),
-        advection=False,
+        advection=None,
         time_stepper=fr.model.time_steppers.AdamBashforth(DT, order=2))
     # no constant shallowwater.depth provide -> the rows are marked
     entry = model.units.factors["D"]
@@ -286,7 +286,7 @@ def test_spherical_coordinates_are_radians_not_metres(tmp_path):
         grid=grid,
         core=sw.Core(gravity=G_REF, depth=100.0,
                      coords=("lon", "lat")),
-        advection=False,
+        advection=None,
         time_stepper=fr.model.time_steppers.AdamBashforth(
             DT, order=2))
     path = tmp_path / "sphere.zarr"

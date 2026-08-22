@@ -18,7 +18,7 @@ def make_grid(nx=8, nz=4):
 
 
 def make_model(n2=2.0, gravity=1.0):
-    """Return a minimal linear hydrostatic model (advection=False)."""
+    """Return a minimal linear hydrostatic model (advection=None)."""
     return hy.Model(
         grid=make_grid(),
         core=hy.Core(gravity=gravity),
@@ -26,7 +26,7 @@ def make_model(n2=2.0, gravity=1.0):
         coriolis=hy.FPlaneCoriolis(f0=1.0),
         buoyancy=hy.ConstantStratification(n2=n2),
         free_surface=hy.ExplicitFreeSurface(),
-        advection=False)
+        advection=None)
 
 
 def test_ekin_is_half_the_horizontal_speed_squared():
@@ -140,7 +140,7 @@ def test_b_total_is_contributed_by_the_stratification_module():
         time_stepper=AdamBashforth(1e-3, order=3),
         coriolis=hy.FPlaneCoriolis(f0=1.0),
         free_surface=hy.ExplicitFreeSurface(),
-        advection=False)
+        advection=None)
     with pytest.raises(AttributeError,
                        match="no diagnostic named 'b_total'"):
         _ = model.diagnostics.b_total
@@ -160,7 +160,7 @@ def test_b_total_nondimensional_background_is_n2_z_in_physical_units():
         coriolis=hy.FPlaneCoriolis(rossby_number=rossby),
         buoyancy=hy.ConstantStratification(froude_number=froude),
         free_surface=hy.ExplicitFreeSurface(froude_number=0.25),
-        advection=False, surface_advective_flux=False,
+        advection=None,
         time_stepper=AdamBashforth(1e-3, order=3))
     total = model.diagnostics.b_total()
     z = np.asarray(model.state["b"].nodes("z").data)

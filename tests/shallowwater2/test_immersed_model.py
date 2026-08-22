@@ -26,14 +26,17 @@ def _mesh(n, a, b, *, periodic, name):
     return IntervalMesh(n, (a, b), periodic=periodic, name=name)
 
 
+# the class as the default: each model gets a fresh instance (a module
+# binds to one model only)
 def _model(grid, *, csqr=0.8, rossby=0.3, f0=1.0, dt=0.01, order=3,
-           advection=True, **kwargs):
+           advection=sw.SadournyAdvection, **kwargs):
     return sw.Model(
         grid=grid,
         core=sw.Core(froude_number=rossby, depth=csqr),
         scaling=fr.scaling.GravityWave(),
         coriolis=sw.modules.FPlaneCoriolis(rossby_number=rossby / f0),
-        advection=advection,
+        advection=(advection() if isinstance(advection, type)
+                   else advection),
         time_stepper=fr.model.time_steppers.AdamBashforth(dt, order=order),
         **kwargs)
 
@@ -52,7 +55,7 @@ def test_immersed_factory_installs_maskstate():
     grid = Grid((_mesh(8, 0.0, 8.0, periodic=True, name="x"),
                  _mesh(8, 0.0, 8.0, periodic=True, name="y")),
                 immersed=ImmersedDomain(lambda x, y: x * 0.0 + 1.0))  # noqa: ARG005
-    model = _model(grid, advection=True)
+    model = _model(grid, advection=sw.SadournyAdvection())
     names = [type(m).__name__ for m in model.modules]
     assert "MaskState" in names
     # MaskState is appended last (runs after the physics)
@@ -69,7 +72,7 @@ def test_unimmersed_factory_has_no_maskstate():
 # ================================================================
 #  Gate a: theta-weighted mass conserved to machine zero (nonlinear)
 # ================================================================
-@pytest.mark.parametrize("advection", [False, True])
+@pytest.mark.parametrize("advection", [None, sw.SadournyAdvection])
 def test_masked_mass_is_conserved_to_machine_zero(advection):
     # dry outside 2 < x < 10, 2 < y < 10 on a 12x12 periodic grid
     box = lambda x, y: (  # noqa: E731
@@ -95,7 +98,7 @@ def test_masked_mass_is_conserved_to_machine_zero(advection):
 # ================================================================
 #  Gate f: dry DOFs stay exactly zero over a multi-step run
 # ================================================================
-@pytest.mark.parametrize("advection", [False, True])
+@pytest.mark.parametrize("advection", [None, sw.SadournyAdvection])
 def test_dry_dofs_stay_exactly_zero(advection):
     box = lambda x, y: (  # noqa: E731
         (x > 2) & (x < 10) & (y > 2) & (y < 10)).astype(float)
@@ -120,7 +123,7 @@ def test_dry_dofs_stay_exactly_zero(advection):
 # ================================================================
 #  Gate c: all-wet immersed reproduces the unimmersed run
 # ================================================================
-@pytest.mark.parametrize("advection", [False, True])
+@pytest.mark.parametrize("advection", [None, sw.SadournyAdvection])
 def test_all_wet_immersed_matches_unimmersed(advection):
     def meshes():
         return (_mesh(10, 0.0, TWO_PI, periodic=True, name="x"),
@@ -146,7 +149,7 @@ def test_all_wet_immersed_matches_unimmersed(advection):
 # ================================================================
 #  Gate d: staircase channel vs the walled shallow-water model
 # ================================================================
-@pytest.mark.parametrize("advection", [False, True])
+@pytest.mark.parametrize("advection", [None, sw.SadournyAdvection])
 def test_staircase_channel_matches_the_walled_model(advection):
     # walled channel: x periodic (12), y walled 6 cells on [3, 9].
     # immersed: x periodic (12), y periodic (12) on [0, 12] with the
@@ -246,7 +249,7 @@ def test_genuine_partial_cells_conserve_mass():
     grid = Grid((_mesh(12, 0.0, 6.0, periodic=False, name="x"),
                  _mesh(12, 0.0, 6.0, periodic=True, name="y")),
                 immersed=ImmersedDomain(slope, order=2, min_fraction=0.0))
-    model = _model(grid, advection=True)
+    model = _model(grid, advection=sw.SadournyAdvection())
     theta = np.asarray(grid.immersed.fraction(
         model.state["p"].function_space).data)
     # genuine partials exist (strictly between 0 and 1)
@@ -285,14 +288,14 @@ def test_background_on_immersed_is_a_taught_error():
             grid=grid,
             core=sw.Core(gravity=1.0, depth=1.0),
             coriolis=sw.modules.FPlaneCoriolis(f0=1.0),
-            advection=False,
+            advection=None,
             modules_extra=(sw.modules.SadournyAdvection(
-                background={"u": 0.0}),),
+                background={"u": 0.0}, coords=("x", "y")),),
             time_stepper=fr.model.time_steppers.AdamBashforth(0.01))
 
 
 def test_eigenmodes_from_model_rejects_immersed():
-    model = _allwet_model(advection=False)
+    model = _allwet_model(advection=None)
     with pytest.raises(NotImplementedError, match="immersed"):
         sw.eigenmodes.from_model(model)
 
@@ -301,6 +304,6 @@ def test_eigenbasis_rejects_immersed():
     grid = Grid((_mesh(8, 0.0, 8.0, periodic=True, name="x"),
                  _mesh(8, 0.0, 8.0, periodic=False, name="y")),
                 immersed=ImmersedDomain(lambda x, y: x * 0.0 + 1.0))  # noqa: ARG005
-    model = _model(grid, advection=False)
+    model = _model(grid, advection=None)
     with pytest.raises(NotImplementedError, match="immersed"):
         sw.eigenmodes.eigenbasis(model)

@@ -53,7 +53,8 @@ def _build(family, walled, advection):
         time_stepper=AdamBashforth(DT, order=3),
         coriolis=nh.FPlaneCoriolis(f0=1.5),
         buoyancy=nh.ConstantStratification(n2=3.0),
-        advection=advection)
+        advection=(advection() if isinstance(advection, type)
+                   else advection))
 
 
 def _seed_pair(fv, nodal, seed=7):
@@ -66,15 +67,15 @@ def _seed_pair(fv, nodal, seed=7):
 
 
 WALLED = ["z", "y"]
-ADVECTION = [pytest.param(False, id="linear"),
-             pytest.param(True, id="nonlinear")]
+ADVECTION = [pytest.param(None, id="linear"),
+             pytest.param(nh.CenteredAdvection, id="nonlinear")]
 
 
 # ================================================================
 #  The FV model is finite-volume on a walled grid (FV-D2 option A)
 # ================================================================
 def test_walled_fv_state_is_finite_volume():
-    model = _build("fv", "z", advection=True)
+    model = _build("fv", "z", advection=nh.CenteredAdvection())
     # scalars on CellAvg^3
     for c in ("p", "b"):
         assert all(isinstance(f, CellAvg)
@@ -146,7 +147,7 @@ def test_walled_fv_stratified_assembles_and_runs(walled):
     # the F2-found blocker is closed: w.to(b) from Inner(DIRICHLET)
     # onto CellAvg resolves through the ("average", Inner) row, so the
     # mixed stratified model assembles and steps divergence-clean
-    model = _build("fv", walled, advection=True)
+    model = _build("fv", walled, advection=nh.CenteredAdvection())
     rng = np.random.default_rng(3)
     model.set_fields(**{c: rng.standard_normal(model.state[c].data.shape)
                         for c in ("u", "v", "w", "b")})
@@ -163,7 +164,7 @@ def test_walled_fv_stratified_assembles_and_runs(walled):
 def test_walled_fv_conserves_total_buoyancy(walled):
     # FV flux form with an exact-zero wall flux: the advective b
     # tendency sums to machine zero over the uniform cells
-    model = _build("fv", walled, advection=True)
+    model = _build("fv", walled, advection=nh.CenteredAdvection())
     rng = np.random.default_rng(12)
     model.set_fields(**{c: rng.standard_normal(model.state[c].data.shape)
                         for c in ("u", "v", "w", "b")})

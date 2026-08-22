@@ -20,7 +20,7 @@ buoyancy through ``p_hyd`` on the core. This module therefore only
 declares ``b``.
 
 ``b`` is advanced by advection alone: a **linear** assembly
-(``advection=False``) leaves ``b`` advanced by no term at all and is
+(``advection=None``) leaves ``b`` advanced by no term at all and is
 rejected by the coverage lint (use ``ConstantStratification(n2=0.0)``
 for a linear barotropic run, where the ``-N^2 w`` restoring is present
 but numerically zero). The module is scaling-neutral (it carries no

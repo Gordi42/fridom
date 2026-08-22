@@ -13,7 +13,7 @@ The claims under test:
   shifts by :math:`Ut`, matching the centered-2 discrete phase speed)
   and a TRACER-targeting closure mixes it (analytic Fourier decay).
 - several tracers coexist; a duplicate name is a ``FieldCollisionError``
-  and a tracer no term advances (``advection=False``, no closure) is
+  and a tracer no term advances (``advection=None``, no closure) is
   the documented D1.4 coverage ``AssemblyError``.
 
 Differentiability policy (AGENTS.md): ``Tracer`` is declarations-only
@@ -215,7 +215,7 @@ def test_a_tracer_targeting_closure_mixes_it():
     k = 2 * np.pi / LENGTH
     model.set_fields(dye=np.sin(k * x))
     steps = 50
-    model.run(steps=steps, progress=False)
+    model.run(steps=steps)
 
     dx = LENGTH / N
     eigenvalue = (2 - 2 * np.cos(k * dx)) / dx**2  # discrete laplacian
@@ -231,12 +231,12 @@ def test_a_tracer_is_advected_by_a_uniform_velocity():
         IntervalMesh(NT, (0.0, L2PI), name="z"),
     ))
     model = nh.Model(
-        advection=True,
+        advection=nh.CenteredAdvection(),
         grid=grid, core=nh.Core(),
         time_stepper=AdamBashforth(DT_ADV, order=3),
         modules_extra=(Tracer("dye", units="1"),))
     model.set_fields(u=uniform_u, dye=sine_x)
-    model.run(steps=STEPS, progress=False)
+    model.run(steps=STEPS)
 
     # the uniform flow is an exact steady solution: nothing else moves
     assert np.max(np.abs(np.asarray(model.state["u"].data) - U)) == 0.0

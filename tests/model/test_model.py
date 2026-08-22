@@ -955,7 +955,7 @@ def test_allow_unadvanced_rejects_an_unknown_name():
 
 def test_non_rotating_linear_slice_is_assemblable():
     # the reader-facing deliverable: a non-rotating LINEAR
-    # nonhydrostatic slice (advection=False, coriolis=None) leaves u and
+    # nonhydrostatic slice (advection=None, coriolis=None) leaves u and
     # v carrying no term at all, so the D1.4 coverage lint used to make
     # a legitimate configuration unassemblable -- the only way through
     # was nh.FPlaneCoriolis(f0=0.0), which declares the terms with a
@@ -966,7 +966,7 @@ def test_non_rotating_linear_slice_is_assemblable():
             IntervalMesh(1, (0.0, 2 * np.pi), name="y"),
             IntervalMesh(8, (0.0, 2 * np.pi), name="z")))
         model = nh.Model(
-            grid=grid, core=nh.Core(), advection=False,
+            grid=grid, core=nh.Core(), advection=None,
             buoyancy=nh.ConstantStratification(n2=1.0),
             time_stepper=AdamBashforth(0.01, order=3), **kwargs)
         x = np.linspace(0.0, 2 * np.pi, 8, endpoint=False)

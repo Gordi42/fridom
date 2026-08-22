@@ -60,7 +60,7 @@ def _channel():
         scaling=fr.scaling.GravityWave(),
         core=sw.Core(froude_number=0.2, depth=CSQR),
         coriolis=sw.modules.FPlaneCoriolis(rossby_number=0.2 / F0),
-        advection=True,
+        advection=sw.SadournyAdvection(),
         time_stepper=fr.model.time_steppers.AdamBashforth(DT, order=3))
 
 

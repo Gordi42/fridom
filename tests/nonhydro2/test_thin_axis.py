@@ -229,7 +229,7 @@ def walled_model(nz, *, wall="z", order=False):
                      (0.0, 1.0) if name == wall else (0.0, TWO_PI),
                      periodic=(name != wall), name=name)
         for name in ("x", "y", "z")), device_ids=(0,))
-    advection = (False if order is False
+    advection = (None if order is False
                  else nh.modules.WENOAdvection(order=order))
     return nh.Model(
         grid=grid, time_stepper=AdamBashforth(DT, order=3),

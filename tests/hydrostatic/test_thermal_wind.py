@@ -51,6 +51,9 @@ def make_grid(nx, ny, nz, lx=1.0, depth=1.0):
         IM(nz, (0.0, depth), periodic=False, name="z")))
 
 
+# the helper's own flag: True is centered advection carrying the
+# thermal-wind Doppler background, None (or False) no advection, and a
+# module is passed through
 def eady_model(*, nx=32, ny=4, nz=12, lx=1.0, depth=1.0, csqr=30.0,
                f0=1.0, n2=1.0, shear=0.5, dt=0.02, epsilon=0.0,
                free_surface=None, advection=True):
@@ -59,12 +62,14 @@ def eady_model(*, nx=32, ny=4, nz=12, lx=1.0, depth=1.0, csqr=30.0,
     Returns ``(model, tw)``: the thermal-wind module rides
     ``modules_extra``; its matching background velocity feeds the shared
     advection's Doppler ``background=`` (unless ``advection`` is a plain
-    module or False).
+    module or None).
     """
     tw = hy.ThermalWindBackground(shear=shear, reference_height=depth / 2)
     if advection is True:
         advection = fr.model.modules.CenteredAdvection(
             background={"u": tw.background_velocity()})
+    elif advection is False:
+        advection = None
     if free_surface is None:
         free_surface = hy.ImplicitFreeSurface(epsilon=epsilon)
     model = hy.Model(
@@ -171,7 +176,7 @@ def test_requires_a_constant_coriolis_parameter():
             coriolis=None,
             buoyancy=hy.ConstantStratification(n2=1.0),
             free_surface=hy.ExplicitFreeSurface(),
-            advection=False,
+            advection=None,
             modules_extra=(hy.ThermalWindBackground(shear=0.5),))
 
 
@@ -243,7 +248,7 @@ def test_the_conversion_term_is_visible_to_the_linear_operator():
     # nonzero (the term H5 pinned as absent is now present)
     f0, shear = 1.0, 0.5
     model, _ = eady_model(nx=8, ny=8, nz=6, lx=1.0, f0=f0, shear=shear,
-                          advection=False)
+                          advection=None)
     tw = model.module(hy.ThermalWindBackground)
     model2 = eady_model(nx=8, ny=8, nz=6, lx=1.0, f0=f0, shear=shear,
                         advection=fr.model.modules.CenteredAdvection(
@@ -324,7 +329,7 @@ def test_shear_zero_recovers_machine_exact_energy_conservation():
     # (a linear model, mirroring the H2 energy gate exactly)
     f0, n2, csqr = 1.3, 1.0, 3.0
     model, _ = eady_model(nx=8, ny=8, nz=6, lx=3.3, depth=2.0, csqr=csqr,
-                          f0=f0, n2=n2, shear=0.0, advection=False,
+                          f0=f0, n2=n2, shear=0.0, advection=None,
                           free_surface=hy.ExplicitFreeSurface())
     rng = np.random.default_rng(4)
     model.set_fields(u=rng.standard_normal(model.state["u"].shape),

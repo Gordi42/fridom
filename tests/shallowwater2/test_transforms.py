@@ -217,7 +217,7 @@ def test_projection_is_tier_one_and_costless():
 @pytest.fixture(scope="module")
 def channel():
     """One walled channel model + labeled eigenbasis (shared)."""
-    model = make_model(_pinned_grid(periodic_y=False), advection=False)
+    model = make_model(_pinned_grid(periodic_y=False), advection=None)
     return model, sw.eigenbasis(model)
 
 
@@ -404,7 +404,7 @@ def test_projection_rest_zero_completes_a_passive_tracer():
     # a state extended by a prognostic passive tracer: the vortical
     # projection (rest="zero") returns the tracer as a zero field on
     # its own space, and the residual carries it fully (§10.7.2)
-    model = make_model(_pinned_grid(), advection=False,
+    model = make_model(_pinned_grid(), advection=None,
                        modules_extra=(_PassiveTracer(),))
     _state(model, seed=11)
     rng = np.random.default_rng(12)
@@ -435,7 +435,7 @@ def _sharded_channel_model(device_ids=None):
     my = fr.spatial.meshes.IntervalMesh(N, (0.0, 1.0),
                                      periodic=False, name="y")
     return make_model(fr.spatial.Grid((mx, my), device_ids=device_ids),
-                      advection=False)
+                      advection=None)
 
 
 @pytest.mark.multi_device

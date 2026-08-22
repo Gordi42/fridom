@@ -23,7 +23,7 @@ def make_grid(nx=8, nz=6, depth=2.0):
 
 
 def make_model(grid=None, *, n2=2.0, csqr=3.0, f0=1.3, dt=1e-3):
-    """Return a minimal linear hydrostatic model (advection=False)."""
+    """Return a minimal linear hydrostatic model (advection=None)."""
     if grid is None:
         grid = make_grid()
     return hy.Model(
@@ -33,7 +33,7 @@ def make_model(grid=None, *, n2=2.0, csqr=3.0, f0=1.3, dt=1e-3):
         coriolis=hy.FPlaneCoriolis(f0=f0),
         buoyancy=hy.ConstantStratification(n2=n2),
         free_surface=hy.ExplicitFreeSurface(),
-        advection=False)
+        advection=None)
 
 
 # ================================================================
@@ -221,7 +221,7 @@ def test_core_rejects_a_bad_horizontal(horizontal):
 #  Constant density: buoyancy=None (no b, p_hyd == 0, barotropic)
 # ================================================================
 def make_barotropic_model(grid=None, *, gravity=3.0, f0=1.3, dt=1e-3,
-                          advection=False):
+                          advection=None):
     """Return a constant-density model (buoyancy=None, no b field)."""
     if grid is None:
         grid = make_grid()
@@ -260,9 +260,10 @@ def test_buoyancy_none_diagnoses_zero_hydrostatic_pressure():
 
 
 def test_buoyancy_none_composes_with_advection():
-    # advection=True with no buoyancy has no b to advect and stands
+    # centered advection with no buoyancy has no b to advect and stands
     # (u, v are advected; the coverage lint is satisfied)
-    model = make_barotropic_model(advection=True)
+    model = make_barotropic_model(
+        advection=fr.model.modules.CenteredAdvection())
     assert "b" not in [field.name for field in model.state]
 
 

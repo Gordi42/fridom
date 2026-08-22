@@ -307,7 +307,7 @@ def test_divergence_vanishes_on_a_physical_streamfunction_flow_fv():
 # ================================================================
 #  The Core mapped FV projection branch (gates 1, 8)
 # ================================================================
-def make_mapped_fv_model(n=8, init=depth, dt=0.02, advection=False,
+def make_mapped_fv_model(n=8, init=depth, dt=0.02, advection=None,
                          dsqr=1.0, **core_kwargs):
     mx = IntervalMesh(n, (0.0, 2 * np.pi), periodic=True, name="x")
     my = IntervalMesh(n, (0.0, 2 * np.pi), periodic=True, name="y")
@@ -358,7 +358,7 @@ def test_core_projects_on_a_mapped_fv_grid():
 
 def test_mapped_fv_model_steps_nonlinear():
     # gate 1: the nonlinear FV mapped model (centered advection) steps
-    model = make_mapped_fv_model(dsqr=DSQR, advection=True)
+    model = make_mapped_fv_model(dsqr=DSQR, advection=nh.CenteredAdvection())
     _seed(model)
     model.advance(3)
     assert not model.panicked
@@ -370,7 +370,7 @@ def test_mapped_fv_model_conserves_physical_buoyancy():
     # gate 6: the FV mapped model conserves the physical (volume-
     # weighted) buoyancy content to machine zero over the advective
     # tendency -- the FV headline property on genuine terrain
-    model = make_mapped_fv_model(dsqr=DSQR, advection=True)
+    model = make_mapped_fv_model(dsqr=DSQR, advection=nh.CenteredAdvection())
     rng = np.random.default_rng(12)
     model.set_fields(**{c: rng.standard_normal(model.state[c].data.shape)
                         for c in ("u", "v", "w", "b")})
@@ -412,7 +412,7 @@ def test_mapped_fv_linear_matches_nodal_over_12_steps():
             time_stepper=AdamBashforth(0.02, order=3),
             coriolis=nh.FPlaneCoriolis(f0=1.0),
             buoyancy=nh.ConstantStratification(n2=1.0),
-            advection=False)
+            advection=None)
 
     fv = build("fv")
     nodal = build("nodal")
@@ -431,7 +431,7 @@ def test_mapped_fv_linear_matches_nodal_over_12_steps():
 
 
 def test_mapped_fv_model_treedef_stable():
-    model = make_mapped_fv_model(dsqr=DSQR, advection=True)
+    model = make_mapped_fv_model(dsqr=DSQR, advection=nh.CenteredAdvection())
     import jax  # noqa: PLC0415
     _seed(model)
     before = jax.tree_util.tree_structure(model._carry)
