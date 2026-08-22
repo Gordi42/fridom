@@ -946,3 +946,30 @@ def test_cell_widths_refuses_a_dual_frame_of_the_wrong_topology():
     f = grid.create_field(mesh.right)
     with pytest.raises(SpaceMismatchError, match="dual face cells"):
         cell_widths(f, "z")
+
+
+# ================================================================
+#  The tables are trace-time constants on a device-local axis
+# ================================================================
+# a staged generator adds ~1000 jaxpr equations that XLA does not
+# reliably fold away; folded, the mapped kernel is the uniform one
+# plus its constant tables
+_FOLDED_SLACK = 40
+
+
+@pytest.mark.single_device
+@pytest.mark.parametrize("order", [3, 5])
+def test_mapped_tables_fold_into_trace_time_constants(order):
+    def kernel(mesh):
+        grid = Grid((mesh,))
+        grid.negotiate(halo=HaloSpec({"z": order // 2 + 1}))
+        op = WenoReconstruction(order, bias="left")["z"]
+        return lambda data: op(
+            grid.create_field(mesh.cell_avg, data=data)).data
+
+    values = np.zeros(16)
+    mapped = len(jax.make_jaxpr(kernel(periodic_mesh(16)))(
+        values).jaxpr.eqns)
+    uniform = len(jax.make_jaxpr(kernel(
+        IntervalMesh(16, (0.0, 1.0), name="z")))(values).jaxpr.eqns)
+    assert mapped <= uniform + _FOLDED_SLACK, (mapped, uniform)

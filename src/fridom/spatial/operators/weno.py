@@ -799,9 +799,17 @@ def nonuniform_tables(
     and quotients well conditioned on a strongly stretched column.
 
     Pure ``jnp`` elementwise arithmetic over static Python loops — no
-    ``jnp.linalg``, no gather, no data-dependent branch — so the
-    tables constant-fold for today's static geometry and would trace
-    for a moving one.
+    ``jnp.linalg``, no gather, no data-dependent branch — so the same
+    generator serves a static and a moving geometry. The body runs
+    under :func:`jax.ensure_compile_time_eval`, which is what makes
+    the *static* case free: concrete cell widths (the memoized
+    ``grid.measure`` vectors of :func:`cell_widths`) are evaluated at
+    trace time and enter the jaxpr as plain constants, so the kernel
+    stays the ~60-operation expression the static tables give; XLA's
+    own constant folding does **not** reliably collapse the ~1000
+    staged table operations if they are left in the trace. Widths that
+    are *tracers* (a per-tap upwind select, a moving chart) stage
+    normally inside the same context.
 
     Parameters
     ----------
@@ -822,23 +830,26 @@ def nonuniform_tables(
             f"the width window family must hold {order} windows (one "
             f"per stencil cell), got {len(width_windows)}")
     r = (order + 1) // 2
-    sealed = _seal_widths(width_windows)
-    reference = sealed[r - 1]  # the upwind cell: the scaling length
-    scaled = tuple(w / reference for w in sealed)
+    with jax.ensure_compile_time_eval():
+        sealed = _seal_widths(width_windows)
+        # the upwind cell is the scaling length
+        reference = sealed[r - 1]
+        scaled = tuple(w / reference for w in sealed)
 
-    coeffs = []
-    beta_rows = []
-    for m in range(r):
-        local = scaled[m:m + r]
-        nodes = _local_nodes(local)
-        coeffs.append(_width_row(local, 0, nodes[r - m]))
-        beta_rows.append(
-            _smoothness_rows(local, nodes[r - 1 - m], nodes[r - m]))
-    full = _width_row(scaled, 0, _local_nodes(scaled)[r])
-    d_first = full[0] / coeffs[0][0]
-    d_last = full[order - 1] / coeffs[r - 1][r - 1]
-    optimal = ((d_first, 1.0 - d_first) if r == _R_WENO3
-               else (d_first, 1.0 - d_first - d_last, d_last))
+        coeffs = []
+        beta_rows = []
+        for m in range(r):
+            local = scaled[m:m + r]
+            nodes = _local_nodes(local)
+            coeffs.append(_width_row(local, 0, nodes[r - m]))
+            beta_rows.append(
+                _smoothness_rows(local, nodes[r - 1 - m],
+                                 nodes[r - m]))
+        full = _width_row(scaled, 0, _local_nodes(scaled)[r])
+        d_first = full[0] / coeffs[0][0]
+        d_last = full[order - 1] / coeffs[r - 1][r - 1]
+        optimal = ((d_first, 1.0 - d_first) if r == _R_WENO3
+                   else (d_first, 1.0 - d_first - d_last, d_last))
     return WenoTables(
         size=order,
         offsets=tuple(range(r)),
@@ -1022,10 +1033,11 @@ def linear_row_windows(
     if bias == "right":
         windows = tuple(reversed(windows))
         width_windows = tuple(reversed(width_windows))
-    scaled = _rescaled(width_windows, order // 2)
-    return _apply_row(
-        windows, _width_row(scaled, 0, _local_nodes(scaled)[
-            (order + 1) // 2]))
+    with jax.ensure_compile_time_eval():
+        scaled = _rescaled(width_windows, order // 2)
+        row = _width_row(scaled, 0,
+                         _local_nodes(scaled)[(order + 1) // 2])
+    return _apply_row(windows, row)
 
 
 def centered_row_windows(
@@ -1065,9 +1077,10 @@ def centered_row_windows(
         raise ValueError(
             f"the width window family must hold {size} windows (one "
             f"per stencil cell), got {len(width_windows)}")
-    scaled = _rescaled(width_windows, size // 2 - 1)
-    return _apply_row(
-        windows, _width_row(scaled, 0, _local_nodes(scaled)[size // 2]))
+    with jax.ensure_compile_time_eval():
+        scaled = _rescaled(width_windows, size // 2 - 1)
+        row = _width_row(scaled, 0, _local_nodes(scaled)[size // 2])
+    return _apply_row(windows, row)
 
 
 def _rescaled(
@@ -1166,6 +1179,44 @@ def cell_widths(f: FieldLike, axis: str) -> Array | None:
     if not mapped_factor(factor):
         return None
     dual_wall = _classify_frame(factor, axis)
+    layout = space.layout
+    # Static mesh geometry: on a device-LOCAL axis, evaluate it at
+    # trace time (`jax.ensure_compile_time_eval`) so the derived tables
+    # enter the jaxpr as plain constants. Left staged they are ~1000
+    # operations that XLA does not reliably fold, and the mapped
+    # reconstruction kernel grows ~5x over the uniform one. On a
+    # SHARDED axis the fill and the wall write are ``shard_map``
+    # regions, whose collectives have no axis environment at trace
+    # time, so the geometry is built the ordinary (staged) way there.
+    if layout is None or layout.is_local(axis):
+        with jax.ensure_compile_time_eval():
+            return _materialize_widths(f, space, axis, dual_wall)
+    return _materialize_widths(f, space, axis, dual_wall)
+
+
+def _materialize_widths(
+    f: FieldLike, space: FunctionSpace, axis: str, dual_wall: bool,
+) -> Array:
+    """
+    Build the sealed storage-frame width array of one factor.
+
+    Parameters
+    ----------
+    f : FieldLike
+        The operand field.
+    space : FunctionSpace
+        The operand's (laid-out) function space.
+    axis : str
+        The resolved coordinate axis.
+    dual_wall : bool
+        Whether the two wall dual cells must be written into the
+        frame's ghost slots (`_classify_frame`).
+
+    Returns
+    -------
+    Array
+        The storage-frame cell widths, strictly positive everywhere.
+    """
     grid = f.grid
     widths = grid.sync(grid.measure(space, name=axis))
     data = widths._data  # noqa: SLF001 — documented storage seam
@@ -1368,9 +1419,13 @@ def weno_reconstruct(
         windows = _window_views(arr, axis, tables.size)
         return _weno_combine(windows, tables)
     _validate(order, bias)
+    # slice the geometry inside the trace-time context too: a window
+    # taken outside it stages, and a staged window makes the whole
+    # generator stage with it (see :func:`nonuniform_tables`)
+    with jax.ensure_compile_time_eval():
+        width_windows = _window_views(widths, axis, order)
     return weno_combine(
-        _window_views(arr, axis, order), order, bias,
-        _window_views(widths, axis, order))
+        _window_views(arr, axis, order), order, bias, width_windows)
 
 
 def weno_weights(
