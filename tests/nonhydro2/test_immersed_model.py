@@ -27,6 +27,11 @@ from fridom.spatial.spaces.average import AverageSpace
 TWO_PI = 2.0 * np.pi
 
 
+def _fresh(advection):
+    """One instance per model: a module binds to one model only."""
+    return None if advection is None else advection()
+
+
 def _periodic(n=12, length=TWO_PI):
     return tuple(
         IntervalMesh(n, (0.0, length), periodic=True, name=nm)
@@ -53,7 +58,7 @@ def _warm_start_box_model():
         time_stepper=AdamBashforth(0.01, order=3),
         coriolis=FPlaneCoriolis(f0=1.0),
         buoyancy=nh.ConstantStratification(n2=1.0),
-        advection=False)
+        advection=None)
     rng = np.random.default_rng(0)
     model.set_fields(**{
         k: 0.2 * rng.standard_normal(model.state[k].data.shape)
@@ -112,7 +117,7 @@ def test_immersed_model_installs_maskstate_and_is_fv():
         time_stepper=AdamBashforth(0.02, order=3),
         coriolis=FPlaneCoriolis(f0=1.0),
         buoyancy=nh.ConstantStratification(n2=1.0),
-        advection=False)
+        advection=None)
     assert _is_fv(model)
     assert any(type(m).__name__ == "MaskState" for m in model.modules)
 
@@ -176,7 +181,7 @@ def test_biased_advection_on_immersed_binds_and_steps(advection):
 # ================================================================
 #  Gate g: dry-DOF hygiene over a multi-step run
 # ================================================================
-@pytest.mark.parametrize("advection", [False, True])
+@pytest.mark.parametrize("advection", [None, nh.CenteredAdvection])
 def test_dry_dofs_stay_exactly_zero(advection):
     n = 12
     box = lambda x, y, z: (  # noqa: E731
@@ -190,7 +195,7 @@ def test_dry_dofs_stay_exactly_zero(advection):
         time_stepper=AdamBashforth(0.01, order=3),
         coriolis=FPlaneCoriolis(f0=1.0),
         buoyancy=nh.ConstantStratification(n2=1.0),
-        advection=advection)
+        advection=_fresh(advection))
     rng = np.random.default_rng(0)
     model.set_fields(**{
         k: 0.2 * rng.standard_normal(model.state[k].data.shape)
@@ -222,7 +227,7 @@ def test_theta_weighted_buoyancy_is_conserved_to_machine_zero():
         time_stepper=AdamBashforth(0.01, order=3),
         coriolis=FPlaneCoriolis(f0=1.0),
         buoyancy=nh.ConstantStratification(n2=0.0),
-        advection=True)
+        advection=nh.CenteredAdvection())
     rng = np.random.default_rng(3)
     model.set_fields(
         b=rng.standard_normal(model.state["b"].data.shape),
@@ -244,7 +249,7 @@ def test_theta_weighted_buoyancy_is_conserved_to_machine_zero():
 # ================================================================
 #  Gate d: all-wet immersed reproduces the unimmersed run
 # ================================================================
-@pytest.mark.parametrize("advection", [False, True])
+@pytest.mark.parametrize("advection", [None, nh.CenteredAdvection])
 def test_all_wet_immersed_matches_unimmersed(advection):
     n = 10
     meshes = lambda: (  # noqa: E731
@@ -258,14 +263,14 @@ def test_all_wet_immersed_matches_unimmersed(advection):
         time_stepper=AdamBashforth(0.02, order=3),
         coriolis=FPlaneCoriolis(f0=1.0),
         buoyancy=nh.ConstantStratification(n2=1.0),
-        advection=advection)
+        advection=_fresh(advection))
     un = nh.Model(
         grid=Grid(meshes()),
         core=nh.Core(),
         time_stepper=AdamBashforth(0.02, order=3),
         coriolis=FPlaneCoriolis(f0=1.0),
         buoyancy=nh.ConstantStratification(n2=1.0),
-        advection=advection)
+        advection=_fresh(advection))
     rng = np.random.default_rng(7)
     ic = {k: 0.3 * rng.standard_normal(im.state[k].data.shape)
           for k in ("u", "v", "w", "b")}
@@ -282,7 +287,7 @@ def test_all_wet_immersed_matches_unimmersed(advection):
 # ================================================================
 #  Gate c: staircase equivalence (immersed box vs walled FV model)
 # ================================================================
-@pytest.mark.parametrize("advection", [False, True])
+@pytest.mark.parametrize("advection", [None, nh.CenteredAdvection])
 def test_face_aligned_box_matches_the_walled_fv_model(advection):
     # a face-aligned {0, 1} box (cells 3..9) in a 12^3 periodic grid
     # of unit spacing vs the walled FV model on the 6^3 wet box: the
@@ -307,7 +312,7 @@ def test_face_aligned_box_matches_the_walled_fv_model(advection):
         time_stepper=AdamBashforth(0.02, order=3),
         coriolis=FPlaneCoriolis(f0=1.0),
         buoyancy=nh.ConstantStratification(n2=0.0),
-        advection=advection)
+        advection=_fresh(advection))
     wal = nh.Model(
         grid=Grid(
             tuple(
@@ -322,7 +327,7 @@ def test_face_aligned_box_matches_the_walled_fv_model(advection):
         time_stepper=AdamBashforth(0.02, order=3),
         coriolis=FPlaneCoriolis(f0=1.0),
         buoyancy=nh.ConstantStratification(n2=0.0),
-        advection=advection)
+        advection=_fresh(advection))
     rng = np.random.default_rng(11)
     shapes = {k: wal.state[k].data.shape for k in ("u", "v", "w")}
     ic = {k: 0.1 * rng.standard_normal(shapes[k])
@@ -375,7 +380,7 @@ def test_multigrid_preconditioner_model_runs_end_to_end():
         time_stepper=AdamBashforth(0.01, order=3),
         coriolis=FPlaneCoriolis(f0=1.0),
         buoyancy=nh.ConstantStratification(n2=1.0),
-        advection=False)
+        advection=None)
     rng = np.random.default_rng(0)
     model.set_fields(**{
         k: 0.2 * rng.standard_normal(model.state[k].data.shape)

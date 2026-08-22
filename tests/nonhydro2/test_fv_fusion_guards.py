@@ -70,7 +70,7 @@ _RATCHET_CASES = {
 #  Model construction (mirrors benchmarks/model/bench_step.py at 16^3)
 # ================================================================
 def _make_model(*, mapped=False, periodic_x=True, periodic_z=False,
-                advection=False, family=None):
+                advection=None, family=None):
     """Linear/advective f-plane nonhydro model, FV or nodal sibling."""
     mx = fr.spatial.meshes.IntervalMesh(N, (0.0, TWO_PI),
                                         periodic=periodic_x, name="x")
@@ -91,7 +91,8 @@ def _make_model(*, mapped=False, periodic_x=True, periodic_z=False,
         time_stepper=AdamBashforth(dt, order=3),
         coriolis=nh.FPlaneCoriolis(f0=1.0),
         buoyancy=nh.ConstantStratification(n2=1.0),
-        advection=advection,
+        advection=(advection() if isinstance(advection, type)
+                   else advection),
         chunk_size=1)
 
 
@@ -120,8 +121,8 @@ def _counter_mismatch(fv: collections.Counter,
 #  E1 -- uniform-parity: periodic FV == nodal, opcode for opcode
 # ================================================================
 @pytest.mark.parametrize("advection", [
-    pytest.param(False, id="linear"),
-    pytest.param(True, id="advective"),
+    pytest.param(None, id="linear"),
+    pytest.param(nh.CenteredAdvection, id="advective"),
 ])
 def test_periodic_fv_matches_nodal_opcounts(advection):
     # the periodic (uniform-row) case: FV and nodal are the same

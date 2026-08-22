@@ -538,7 +538,7 @@ def test_composed_model_default_preconditioner_reaches_machine_zero():
         time_stepper=AdamBashforth(0.01, order=3),
         coriolis=nh.FPlaneCoriolis(f0=1.0),
         buoyancy=nh.ConstantStratification(n2=1.0),
-        advection=False)
+        advection=None)
     core = next(m for m in model._carry.modules
                 if type(m).__name__ == "Core")
     assert core._pressure_preconditioner is None

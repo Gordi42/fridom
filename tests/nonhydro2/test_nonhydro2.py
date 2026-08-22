@@ -101,7 +101,7 @@ def test_preset_equals_explicit_assembly_treedef():
         time_stepper=AdamBashforth(DT, order=3),
         coriolis=fplane(),
         buoyancy=nh.ConstantStratification(n2=1.0),
-        advection=True)
+        advection=nh.CenteredAdvection())
     explicit = FrModel(
         grid=grid,
         modules=(
@@ -128,7 +128,7 @@ def test_modules_extra_takes_a_bare_module_a_list_or_a_tuple(wrap):
         time_stepper=AdamBashforth(DT, order=3),
         coriolis=fplane(),
         buoyancy=nh.ConstantStratification(n2=1.0),
-        advection=True,
+        advection=nh.CenteredAdvection(),
         modules_extra=wrap(fr.model.modules.Tracer("dye")))
     assert "dye" in model.state
 
@@ -154,7 +154,7 @@ def test_linear_run_is_treedef_stable():
         time_stepper=AdamBashforth(DT, order=3),
         coriolis=fplane(),
         buoyancy=nh.ConstantStratification(n2=1.0),
-        advection=False)
+        advection=None)
     _, _, z = grid_coords()
     model.set_fields(b=0.01 * np.cos(z))
     before = jax.tree_util.tree_structure(model._carry)
@@ -170,7 +170,7 @@ def test_second_advance_compiles_nothing(compile_counter):
         time_stepper=AdamBashforth(DT, order=3),
         coriolis=fplane(),
         buoyancy=nh.ConstantStratification(n2=1.0),
-        advection=False)
+        advection=None)
     _, _, z = grid_coords()
     model.set_fields(b=0.01 * np.cos(z))
     model.advance(4)
@@ -203,7 +203,7 @@ def test_projection_drives_divergence_to_machine_zero():
         time_stepper=AdamBashforth(DT, order=3),
         coriolis=fplane(),
         buoyancy=nh.ConstantStratification(n2=1.0),
-        advection=False)
+        advection=None)
     x, y, z = grid_coords()
     # a non-divergence-free velocity IC
     model.set_fields(u=np.sin(x) * np.cos(y), v=0.3 * np.cos(x),
@@ -258,7 +258,7 @@ def test_pressure_preconditioner_plumbs_through_the_preset():
         time_stepper=AdamBashforth(1.0, order=3),
         coriolis=fplane(),
         buoyancy=nh.ConstantStratification(n2=1.0),
-        advection=False)
+        advection=None)
     dc = next(m for m in model._carry.modules
               if type(m).__name__ == "Core")
     assert dc._pressure_preconditioner == "multigrid"
@@ -270,7 +270,7 @@ def test_pressure_preconditioner_plumbs_through_the_preset():
         time_stepper=AdamBashforth(1.0, order=3),
         coriolis=fplane(),
         buoyancy=nh.ConstantStratification(n2=1.0),
-        advection=False)
+        advection=None)
     dc_default = next(m for m in default._carry.modules
                       if type(m).__name__ == "Core")
     assert dc_default._multigrid_levels is None
@@ -314,7 +314,7 @@ def test_multigrid_coarsen_vertical_plumbs_through_the_preset():
         time_stepper=AdamBashforth(1.0, order=3),
         coriolis=fplane(),
         buoyancy=nh.ConstantStratification(n2=1.0),
-        advection=False)
+        advection=None)
     dc = next(m for m in model._carry.modules
               if type(m).__name__ == "Core")
     assert dc._multigrid_coarsen_vertical is False
@@ -325,7 +325,7 @@ def test_multigrid_coarsen_vertical_plumbs_through_the_preset():
         time_stepper=AdamBashforth(1.0, order=3),
         coriolis=fplane(),
         buoyancy=nh.ConstantStratification(n2=1.0),
-        advection=False)
+        advection=None)
     dc_default = next(m for m in default._carry.modules
                       if type(m).__name__ == "Core")
     assert dc_default._multigrid_coarsen_vertical is True
@@ -350,7 +350,7 @@ def test_multigrid_tridiagonal_method_plumbs_through_the_preset():
         time_stepper=AdamBashforth(1.0, order=3),
         coriolis=fplane(),
         buoyancy=nh.ConstantStratification(n2=1.0),
-        advection=False)
+        advection=None)
     dc = next(m for m in model._carry.modules
               if type(m).__name__ == "Core")
     assert dc._multigrid_tridiagonal_method == "scan"
@@ -369,7 +369,7 @@ def test_second_advance_with_both_options_compiles_nothing(
             single_precision_history=True),
         coriolis=fplane(),
         buoyancy=nh.ConstantStratification(n2=1.0),
-        advection=False)
+        advection=None)
     _, _, z = grid_coords()
     model.set_fields(b=0.01 * np.cos(z))
     model.advance(4)
@@ -387,7 +387,7 @@ def test_single_precision_solve_model_still_projects():
         time_stepper=AdamBashforth(DT, order=3),
         coriolis=fplane(),
         buoyancy=nh.ConstantStratification(n2=1.0),
-        advection=False)
+        advection=None)
     x, y, z = grid_coords()
     model.set_fields(u=np.sin(x) * np.cos(y), v=0.3 * np.cos(x),
                      w=0.2 * np.sin(z))
@@ -405,7 +405,7 @@ def test_energy_stays_bounded():
         time_stepper=AdamBashforth(DT, order=3),
         coriolis=fplane(),
         buoyancy=nh.ConstantStratification(n2=1.0),
-        advection=False)
+        advection=None)
     _, y, z = grid_coords()
     model.set_fields(u=0.05 * np.sin(y), b=0.05 * np.cos(z))
     energies = []
@@ -521,7 +521,7 @@ def test_eigenmodes_from_model_rejects_an_immersed_grid():
         time_stepper=AdamBashforth(0.02, order=3),
         coriolis=FPlaneCoriolis(f0=1.0),
         buoyancy=nh.ConstantStratification(n2=1.0),
-        advection=False)
+        advection=None)
     with pytest.raises(NotImplementedError, match="immersed"):
         nh.eigenmodes.from_model(model)
 
@@ -812,7 +812,7 @@ def test_fplane_provides_coriolis_f0_betaplane_does_not():
         time_stepper=AdamBashforth(DT, order=3),
         coriolis=fplane(),
         buoyancy=nh.ConstantStratification(n2=1.0),
-        advection=False)
+        advection=None)
     assert CORIOLIS_F0 in fp.parameters
     # from_model succeeds on the f-plane
     nh.eigenmodes.from_model(fp)
@@ -823,7 +823,7 @@ def test_fplane_provides_coriolis_f0_betaplane_does_not():
         time_stepper=AdamBashforth(DT, order=3),
         coriolis=BetaPlaneCoriolis(f0=1.0, beta=0.5),
         buoyancy=nh.ConstantStratification(n2=1.0),
-        advection=False)
+        advection=None)
     assert CORIOLIS_F0 not in bp.parameters
     with pytest.raises(ValueError, match="constant"):
         nh.eigenmodes.from_model(bp)
@@ -841,7 +841,7 @@ def test_betaplane_advances_with_a_profile_f_of_y():
         time_stepper=AdamBashforth(DT, order=3),
         coriolis=cor,
         buoyancy=nh.ConstantStratification(n2=1.0),
-        advection=False)
+        advection=None)
     # the auxiliary Coriolis field genuinely varies in y
     fc = np.asarray(model.state["f_coriolis"].data)
     assert fc.std() > 0.0
@@ -856,7 +856,8 @@ def test_betaplane_advances_with_a_profile_f_of_y():
 def test_omitting_coriolis_runs_without_rotation():
     # coriolis=None (the argument omitted) is the DEFAULT and means no
     # rotation at all: no Coriolis module, hence no f_coriolis field
-    # and no coriolis.f0 provide (advection=True keeps a term on u/v:
+    # and no coriolis.f0 provide (the centered advection keeps a term on
+    # u/v:
     # with neither rotation nor advection nothing would advance them
     # and the D1.4 coverage lint would fire, correctly — see the test
     # below)
@@ -865,7 +866,7 @@ def test_omitting_coriolis_runs_without_rotation():
         core=nh.Core(),
         time_stepper=AdamBashforth(DT, order=3),
         buoyancy=nh.ConstantStratification(n2=1.0),
-        advection=True)
+        advection=nh.CenteredAdvection())
     assert "f_coriolis" not in model.state
     assert CORIOLIS_F0 not in model.parameters
     assert not any(
@@ -888,7 +889,7 @@ def test_a_linear_model_without_rotation_trips_the_coverage_lint():
             core=nh.Core(),
             time_stepper=AdamBashforth(DT, order=3),
             buoyancy=nh.ConstantStratification(n2=1.0),
-            advection=False)
+            advection=None)
 
 
 def test_coriolis_is_the_shared_framework_module():
@@ -1011,7 +1012,7 @@ def make_walled_model(**kwargs):
         time_stepper=AdamBashforth(DT, order=3),
         coriolis=fplane(),
         buoyancy=nh.ConstantStratification(n2=1.0),
-        advection=False,
+        advection=None,
         **kwargs)
 
 
@@ -1027,7 +1028,7 @@ def test_walled_grid_derives_the_wall_spaces():
         time_stepper=AdamBashforth(DT, order=3),
         coriolis=fplane(),
         buoyancy=nh.ConstantStratification(n2=1.0),
-        advection=False)
+        advection=None)
     # w: Dirichlet on its own bounded component axis (impermeability)
     w_z = model.state["w"].function_space.bare.factor("z")
     assert w_z is mz.nodal(NodeSet.INNER, bc=BC.DIRICHLET)
@@ -1090,7 +1091,7 @@ def test_walled_diagnostics_smoke():
 
 
 def test_walled_default_model_assembles_with_advection():
-    # the preset's advection=True (CenteredAdvection, which is
+    # the preset with nh.CenteredAdvection() (which is
     # walled-capable through the structural-zero wall fluxes)
     # assembles and steps on the rigid-lid grid; the biased schemes
     # keep their taught rejection (test_advection.py)
@@ -1102,7 +1103,7 @@ def test_walled_default_model_assembles_with_advection():
         time_stepper=AdamBashforth(DT, order=3),
         coriolis=fplane(),
         buoyancy=nh.ConstantStratification(n2=1.0),
-        advection=True)
+        advection=nh.CenteredAdvection())
     _, y, z = walled_coords()
     model.set_fields(u=0.05 * np.sin(y),
                      b=0.05 * np.cos(np.pi * z / LZ))
@@ -1139,7 +1140,7 @@ def test_meridional_stratification_declares_the_profile():
         coriolis=fplane(),
         buoyancy=MeridionalStratification(
             n2=lambda y: 1.0 + 2.0 * y * y),
-        advection=False)
+        advection=None)
     assert STRATIFICATION_N2 not in model.parameters
     n2 = model.state["n2"]
     centres = (np.arange(N) + 0.5) / N
@@ -1157,14 +1158,14 @@ def test_meridional_constant_profile_tendency_matches_constant():
         time_stepper=AdamBashforth(DT, order=3),
         coriolis=fplane(),
         buoyancy=MeridionalStratification( n2=lambda y: n0 + 0.0 * y),
-        advection=False)
+        advection=None)
     constant = nh.Model(
         grid=make_walled_y_grid(),
         core=nh.Core(),
         time_stepper=AdamBashforth(DT, order=3),
         coriolis=fplane(),
         buoyancy=ConstantStratification(n2=n0),
-        advection=False)
+        advection=None)
     rng = np.random.default_rng(7)
     fields = {c: rng.standard_normal(
         np.asarray(constant.state[c].data).shape)
@@ -1191,7 +1192,7 @@ def test_constant_stratification_fv_family_puts_b_on_cellavg():
         time_stepper=AdamBashforth(DT, order=3),
         coriolis=fplane(),
         buoyancy=ConstantStratification(n2=1.0, family="fv"),
-        advection=True)
+        advection=nh.CenteredAdvection())
     factors = model.state["b"].function_space.bare.factors
     assert all(isinstance(f, CellAvg) for f in factors)
 
@@ -1242,7 +1243,7 @@ def test_meridional_stratification_fv_family_puts_b_on_cellavg():
         buoyancy=MeridionalStratification(
             n2=lambda y: 1.0 + y * y,
             family="fv"),
-        advection=False)
+        advection=None)
     factors = model.state["b"].function_space.bare.factors
     assert all(isinstance(f, CellAvg) for f in factors)
     n2_factors = model.state["n2"].function_space.bare.factors
@@ -1261,7 +1262,7 @@ def function_setup():
         time_stepper=AdamBashforth(DT, order=3),
         coriolis=FPlaneCoriolis(f0=1.5),
         buoyancy=ConstantStratification(n2=3.0),
-        advection=False)
+        advection=None)
     return model, nh.eigenmodes.from_model(model)
 
 
@@ -1392,7 +1393,7 @@ def _make_terrain_model(init, *modules):
         time_stepper=AdamBashforth(DT, order=3),
         coriolis=fplane(),
         buoyancy=nh.ConstantStratification(n2=1.0),
-        advection=False,
+        advection=None,
         modules_extra=modules)
 
 
@@ -1450,7 +1451,7 @@ def test_core_derives_width_one_triperiodic():
         time_stepper=AdamBashforth(DT, order=3),
         coriolis=fplane(),
         buoyancy=nh.ConstantStratification(n2=1.0),
-        advection=False)
+        advection=None)
     core = model.module(Core)
     assert dict(core.extra_halo.widths) == {"x": 1, "y": 1, "z": 1}
     halo = model.grid.decomposition.halo
@@ -1465,7 +1466,7 @@ def test_core_derives_width_one_walled():
         time_stepper=AdamBashforth(DT, order=3),
         coriolis=fplane(),
         buoyancy=nh.ConstantStratification(n2=1.0),
-        advection=False)
+        advection=None)
     core = model.module(Core)
     # the bounded axis derives 1 too (the div leg carries the reach the
     # bounded gradient shrinks away)
@@ -1484,7 +1485,7 @@ def test_derived_width_matches_forced_width_two_bitwise():
         rng = np.random.default_rng(0)
         model.set_fields(**{c: 0.05 * rng.standard_normal(model.state[c].shape)
                             for c in ("u", "v", "w", "b")})
-        model.run(steps=10, progress=False)
+        model.run(steps=10)
         return {c: np.asarray(model.state[c].data)
                 for c in ("u", "v", "w", "b")}
 
@@ -1512,7 +1513,7 @@ def test_eigenbasis_dispatches_the_fully_periodic_grid():
         time_stepper=AdamBashforth(DT, order=3),
         coriolis=fplane(),
         buoyancy=nh.ConstantStratification(n2=1.0),
-        advection=False)
+        advection=None)
     em = nh.eigenbasis(model)
     assert isinstance(em, nh.eigenmodes.Eigenmodes)
     assert isinstance(nh.eigenmodes.from_model(model),
@@ -1526,7 +1527,7 @@ def test_mode_uniform_family_surface():
         time_stepper=AdamBashforth(DT, order=3),
         coriolis=fplane(),
         buoyancy=nh.ConstantStratification(n2=1.0),
-        advection=False)
+        advection=None)
     em = nh.eigenbasis(model)
     assert dict(em.families) == {"vortical": 0, "wave+": 1,
                                  "wave-": -1}
@@ -1542,3 +1543,29 @@ def test_mode_uniform_family_surface():
         em.mode(1, idx)
     with pytest.raises(ValueError, match="no horizontal walls"):
         em.mode("kelvin+", idx)
+
+
+# ================================================================
+#  advection= takes a module or None (object-or-None keywords)
+# ================================================================
+@pytest.mark.parametrize("value", [True, False])
+def test_advection_refuses_a_boolean(value):
+    with pytest.raises(TypeError, match="takes a module or None"):
+        nh.Model(
+            grid=make_grid(),
+            core=nh.Core(),
+            time_stepper=AdamBashforth(DT, order=3),
+            coriolis=fplane(),
+            buoyancy=nh.ConstantStratification(n2=1.0),
+            advection=value)
+
+
+def test_advection_none_installs_no_scheme():
+    model = nh.Model(
+        grid=make_grid(),
+        core=nh.Core(),
+        time_stepper=AdamBashforth(DT, order=3),
+        coriolis=fplane(),
+        buoyancy=nh.ConstantStratification(n2=1.0))
+    assert not any(
+        type(m).__name__.endswith("Advection") for m in model.modules)

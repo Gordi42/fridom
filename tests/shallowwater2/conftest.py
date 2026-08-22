@@ -18,9 +18,11 @@ def make_grid(n=N, *, periodic_x=True, periodic_y=True):
     return fr.spatial.Grid((mx, my))
 
 
+# the class as the default: each model gets a fresh instance (a module
+# binds to one model only)
 def make_model(grid=None, *, csqr=1.0, rossby_number=0.2, f0=1.0,
-               dt=DT, order=3, advection=True, coriolis=True,
-               **kwargs):
+               dt=DT, order=3, advection=sw.SadournyAdvection,
+               coriolis=True, **kwargs):
     """Build a shallow-water model on the scaling surface.
 
     The (csqr, rossby_number, f0) knobs keep the historical test
@@ -41,7 +43,8 @@ def make_model(grid=None, *, csqr=1.0, rossby_number=0.2, f0=1.0,
         core=sw.Core(froude_number=rossby_number, depth=csqr),
         scaling=fr.scaling.GravityWave(),
         coriolis=coriolis,
-        advection=advection,
+        advection=(advection() if isinstance(advection, type)
+                   else advection),
         time_stepper=fr.model.time_steppers.AdamBashforth(dt, order=order),
         **kwargs)
 

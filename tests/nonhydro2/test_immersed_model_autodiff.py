@@ -63,7 +63,7 @@ def immersed_model(*, dt=0.01, pressure_iterations=12,
         time_stepper=AdamBashforth(dt, order=3),
         coriolis=nh.FPlaneCoriolis(f0=1.0),
         buoyancy=nh.ConstantStratification(n2=1.0),
-        advection=True)
+        advection=nh.CenteredAdvection())
     rng = np.random.default_rng(0)
     model.set_fields(**{
         k: 0.2 * rng.standard_normal(model.state[k].data.shape)
@@ -213,7 +213,7 @@ def multigrid_model(*, dt=0.01, levels=3):
         time_stepper=AdamBashforth(dt, order=3),
         coriolis=nh.FPlaneCoriolis(f0=1.0),
         buoyancy=nh.ConstantStratification(n2=1.0),
-        advection=True)
+        advection=nh.CenteredAdvection())
     rng = np.random.default_rng(0)
     model.set_fields(**{
         k: 0.2 * rng.standard_normal(model.state[k].data.shape)
@@ -276,7 +276,7 @@ def immersed_mg_model(*, agglomerate, dt=0.01, pressure_iterations=8):
         time_stepper=AdamBashforth(dt, order=3),
         coriolis=nh.FPlaneCoriolis(f0=1.0),
         buoyancy=nh.ConstantStratification(n2=1.0),
-        advection=True)
+        advection=nh.CenteredAdvection())
     rng = np.random.default_rng(0)
     model.set_fields(**{
         k: 0.2 * rng.standard_normal(model.state[k].data.shape)

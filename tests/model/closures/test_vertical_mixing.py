@@ -56,7 +56,7 @@ def mix_model(*, dt, stepper, mixing, csqr=10.0, f0=0.0, grid=None):  # noqa: AR
         coriolis=hy.FPlaneCoriolis(f0=f0),
         buoyancy=hy.ConstantStratification(n2=1.0),
         free_surface=hy.ExplicitFreeSurface(),
-        advection=False,
+        advection=None,
         modules_extra=(mixing,))
 
 
@@ -275,7 +275,7 @@ def test_uniform_column_model_still_assembles_and_steps():
         dt=0.02, mixing=VerticalMixing(kv=0.03, kb=0.05),
         stepper=fr.model.time_steppers.CNAB2(0.02))
     model.set_fields(b=broadcast_b(b0_column()))
-    model.run(steps=3, progress=False)
+    model.run(steps=3)
     assert np.all(np.isfinite(np.asarray(model.state["b"].data)))
 
 
@@ -309,7 +309,7 @@ def test_column_decay_matches_the_discrete_exact_solution(scheme):
         dt=dt, mixing=VerticalMixing(kb=kb),
         stepper=fr.model.time_steppers.IMEXMultistep(dt, scheme=scheme))
     model.set_fields(b=broadcast_b(col))
-    model.run(steps=steps, progress=False)
+    model.run(steps=steps)
     got = np.asarray(model.state["b"].data)[0, 0, :]
     exact = evecs @ (np.exp(evals * dt * steps) * (evecs.T @ col))
     assert np.max(np.abs(got - exact)) < 2e-4
@@ -327,7 +327,7 @@ def test_stiff_kappa_column_stays_bounded_and_decays():
         dt=dt, mixing=VerticalMixing(kb=kb),
         stepper=fr.model.time_steppers.CNAB2(dt))
     model.set_fields(b=broadcast_b(col))
-    model.run(steps=60, progress=False)
+    model.run(steps=60)
     data = np.asarray(model.state["b"].data)
     bmax = np.max(np.abs(data))
     assert np.all(np.isfinite(data))
@@ -358,7 +358,7 @@ def test_explicit_treatment_decays_under_adam_bashforth():
         dt=dt, mixing=VerticalMixing(kb=kb, treatment=fr.model.EXPLICIT),
         stepper=AdamBashforth(dt, order=3))
     model.set_fields(b=broadcast_b(col))
-    model.run(steps=200, progress=False)
+    model.run(steps=200)
     data = np.asarray(model.state["b"].data)
     assert np.all(np.isfinite(data))
     assert np.max(np.abs(data)) < np.max(np.abs(col))
@@ -426,7 +426,7 @@ def test_no_slip_damps_a_constant_velocity_toward_zero():
         mixing=VerticalMixing(kv=kv, bottom="no-slip", top="no-slip"),
         stepper=fr.model.time_steppers.CNAB2(dt))
     model.set_fields(u=const)
-    model.run(steps=100, progress=False)
+    model.run(steps=100)
     u = np.asarray(model.state["u"].data)
     assert np.all(np.isfinite(u))
     assert np.max(np.abs(u)) < 0.5   # decayed well below the initial 1
@@ -441,7 +441,7 @@ def test_free_slip_preserves_a_constant_velocity():
         dt=dt, mixing=VerticalMixing(kv=kv),
         stepper=fr.model.time_steppers.CNAB2(dt))
     model.set_fields(u=const)
-    model.run(steps=100, progress=False)
+    model.run(steps=100)
     u = np.asarray(model.state["u"].data)
     assert np.max(np.abs(u - 1.0)) < 1e-2
 
@@ -456,7 +456,7 @@ def test_no_slip_stays_stable_in_the_stiff_regime():
         mixing=VerticalMixing(kv=kv, bottom="no-slip", top="no-slip"),
         stepper=fr.model.time_steppers.CNAB2(dt))
     model.set_fields(u=prof)
-    model.run(steps=60, progress=False)
+    model.run(steps=60)
     u = np.asarray(model.state["u"].data)
     assert np.all(np.isfinite(u))
     assert np.max(np.abs(u)) < np.max(np.abs(prof))
@@ -540,7 +540,7 @@ def test_stretched_model_conserves_the_width_weighted_buoyancy():
     space = model.state["b"].function_space
     mcell = np.asarray(grid.measure(space, "z").data)
     before = np.sum(mcell * np.asarray(model.state["b"].data))
-    model.run(steps=5, progress=False)
+    model.run(steps=5)
     after = np.asarray(model.state["b"].data)
     assert np.all(np.isfinite(after))
     assert np.sum(mcell * after) == pytest.approx(before, rel=1e-10)
@@ -554,7 +554,7 @@ def test_terrain_model_binds_and_steps_finite():
     ax = (np.arange(NZ) + 0.5) / NZ
     model.set_fields(b=np.broadcast_to(
         np.cos(np.pi * ax)[None, :], (NX, NZ)).copy())
-    model.run(steps=4, progress=False)
+    model.run(steps=4)
     assert np.all(np.isfinite(np.asarray(model.state["b"].data)))
 
 

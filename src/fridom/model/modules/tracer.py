@@ -21,7 +21,7 @@ Several tracers are several modules::
                                     fr.model.modules.Tracer("age")))
 
 The module owns no term, so an assembly that advances the tracer by
-nothing at all — ``advection=False`` with no closure targeting it —
+nothing at all — ``advection=None`` with no closure targeting it —
 is rejected by the D1.4 coverage lint (``AssemblyError``: "PROGNOSTIC
 fields (...) are advanced by no term"). That is the intended
 diagnosis, not a limitation of this module: a passive tracer in a
@@ -65,7 +65,7 @@ class Tracer(Module):
         model.set_fields(dye=...)
 
     The tracer is advanced by advection alone: an assembly in which
-    no term advances it (the preset default ``advection=False`` and
+    no term advances it (the preset default ``advection=None`` and
     no closure targeting TRACER) is rejected by the D1.4 coverage
     lint, so a tracer model names its advection scheme.
 

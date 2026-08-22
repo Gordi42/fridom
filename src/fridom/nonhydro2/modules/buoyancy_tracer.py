@@ -24,7 +24,7 @@ same "absent, not multiplied by zero" discipline as the restoring
 term).
 
 ``b`` is advanced by advection alone: a **linear** assembly
-(``advection=False``) leaves ``b`` advanced by no term at all and is
+(``advection=None``) leaves ``b`` advanced by no term at all and is
 rejected by the D1.4 coverage lint. Like the stratification family,
 ``b`` is declared BC-free on every grid (topology-driven walls, C8).
 """

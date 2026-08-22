@@ -99,7 +99,7 @@ def test_masked_continuity_residual_is_machine_zero(
         time_stepper=AdamBashforth(0.01, order=3),
         buoyancy=hy.ConstantStratification(n2=1.0),
         free_surface=hy.ExplicitFreeSurface(),
-        advection=False)
+        advection=None)
     rng = np.random.default_rng(0)
     shape = model.state["u"].data.shape
     residual, w_closed = _masked_residual(
@@ -170,7 +170,7 @@ def test_masked_w_faces_matches_raw_data_surgery_bitwise(
         time_stepper=AdamBashforth(0.01, order=3),
         buoyancy=hy.ConstantStratification(n2=1.0),
         free_surface=hy.ExplicitFreeSurface(),
-        advection=False)
+        advection=None)
     imm = model.grid.immersed
     core = model.module(hy.Core)
     old = np.asarray(_old_masked_w_faces(core, imm, model.state).data)
@@ -189,7 +189,7 @@ def test_partial_surface_cell_is_a_true_partial():
         time_stepper=AdamBashforth(0.01, order=3),
         buoyancy=hy.ConstantStratification(n2=1.0),
         free_surface=hy.ExplicitFreeSurface(),
-        advection=False)
+        advection=None)
     core = model.module(hy.Core)
     az = np.asarray(core._masked_w_faces(
         model.grid.immersed, model.state).data)
@@ -206,7 +206,7 @@ def test_surface_face_is_a_genuine_dof_not_dry():
         time_stepper=AdamBashforth(0.01, order=3),
         buoyancy=hy.ConstantStratification(n2=1.0),
         free_surface=hy.ExplicitFreeSurface(),
-        advection=False)
+        advection=None)
     imm = model.grid.immersed
     core = model.module(hy.Core)
     az = np.asarray(core._masked_w_faces(
@@ -227,14 +227,14 @@ def test_all_wet_matches_unimmersed_bytewise():
         time_stepper=AdamBashforth(0.02, order=3),
         buoyancy=hy.ConstantStratification(n2=1.0),
         free_surface=hy.ExplicitFreeSurface(),
-        advection=False)
+        advection=None)
     un = hy.Model(
         grid=plain_grid(),
         core=hy.Core(gravity=1.0),
         time_stepper=AdamBashforth(0.02, order=3),
         buoyancy=hy.ConstantStratification(n2=1.0),
         free_surface=hy.ExplicitFreeSurface(),
-        advection=False)
+        advection=None)
     rng = np.random.default_rng(7)
     ic = {k: 0.3 * rng.standard_normal(im.state[k].data.shape)
           for k in ("u", "v", "b")}
@@ -257,14 +257,14 @@ def test_core_extra_halo_only_when_immersed():
         time_stepper=AdamBashforth(0.01, order=3),
         buoyancy=hy.ConstantStratification(n2=1.0),
         free_surface=hy.ExplicitFreeSurface(),
-        advection=False)
+        advection=None)
     plain = hy.Model(
         grid=plain_grid(),
         core=hy.Core(gravity=1.0),
         time_stepper=AdamBashforth(0.01, order=3),
         buoyancy=hy.ConstantStratification(n2=1.0),
         free_surface=hy.ExplicitFreeSurface(),
-        advection=False)
+        advection=None)
     imm_halo = imm_model.module(hy.Core).extra_halo
     assert isinstance(imm_halo, HaloSpec)
     # DERIVED from the masked stencils (not a literal 2): reach 1 on

@@ -211,7 +211,7 @@ def make_sw_model(*, periodic_y=True, f0=SW_F0):
         grid=fr.spatial.Grid(meshes, device_ids=(0,)),
         core=sw.Core(gravity=1.0, depth=1.0),
         coriolis=sw.modules.FPlaneCoriolis(f0=f0),
-        advection=True,
+        advection=sw.SadournyAdvection(),
         time_stepper=AdamBashforth(SW_DT, order=3))
 
 
@@ -296,7 +296,7 @@ def nh_projected():
             NH_N, (0.0, 2 * np.pi), periodic=True, name=name)
         for name in ("x", "y", "z"))
     model = nh.Model(
-        advection=True,
+        advection=nh.CenteredAdvection(),
         core=nh.Core(),
         grid=fr.spatial.Grid(meshes, device_ids=(0,)),
         coriolis=nh.FPlaneCoriolis(f0=NH_F0),
@@ -369,7 +369,7 @@ def test_period_none_rejects_a_nondimensional_rotation():
         core=sw.Core(froude_number=0.1, depth=1.0),
         scaling=fr.scaling.GravityWave(),
         coriolis=sw.modules.FPlaneCoriolis(rossby_number=0.1),
-        advection=True,
+        advection=sw.SadournyAdvection(),
         time_stepper=AdamBashforth(SW_DT, order=3))
     assert "coriolis.rossby" in dict(model.parameters)
     with pytest.raises(ValueError, match=r"no 'coriolis\.f0'"):

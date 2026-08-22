@@ -111,7 +111,10 @@ class _RampedN(fr.model.Module):
                 "p": p * 0.0}
 
 
-def _model(grid, stepper, rossby=0.2, *, filtered, advection=True):
+# the class as the default: each model gets a fresh instance (a module
+# binds to one model only)
+def _model(grid, stepper, rossby=0.2, *, filtered,
+           advection=sw.SadournyAdvection):
     """Assemble a shallow-water channel; filtered drops linear terms.
 
     Today-parity nondimensional spelling: GravityWave scaling, the
@@ -125,7 +128,8 @@ def _model(grid, stepper, rossby=0.2, *, filtered, advection=True):
         core=sw.Core(froude_number=rossby, depth=1.0),
         scaling=fr.scaling.GravityWave(),
         coriolis=sw.modules.FPlaneCoriolis(rossby_number=0.2),
-        advection=advection,
+        advection=(advection() if isinstance(advection, type)
+                   else advection),
         modules_extra=(() if advection else (_ZeroN(),)),
         time_stepper=stepper, **extra)
 
@@ -135,7 +139,7 @@ def _ramped_n_model(grid, stepper, amp):
     return sw.Model(
         grid=grid, core=sw.Core(gravity=1.0, depth=1.0),
         coriolis=sw.modules.FPlaneCoriolis(f0=1.0),
-        advection=False, modules_extra=(_RampedN(amp),),
+        advection=None, modules_extra=(_RampedN(amp),),
         time_stepper=stepper, term_filter=~terms.linear)
 
 
@@ -259,9 +263,9 @@ def test_linear_answer_is_independent_of_dt(grid, basis, state0):
     results = []
     for steps in (1, 8, 64):
         dt = 64 * AB3_DT / steps
-        # advection=False drops the (only) nonlinear term: exp(L dt)
+        # advection=None drops the (only) nonlinear term: exp(L dt)
         model = _model(grid, ETDRK4(dt, basis), filtered=True,
-                       advection=False)
+                       advection=None)
         results.append(_run(model, state0, steps))
     for other in results[1:]:
         assert _rel_error(other, results[0]) < 1e-11
@@ -271,9 +275,9 @@ def test_propagator_obeys_the_group_law(grid, basis, state0):
     """exp(L dt) applied twice == exp(L 2dt) -- to machine precision."""
     dt = 8 * AB3_DT
     coarse = _run(_model(grid, ETDRK4(2 * dt, basis), filtered=True,
-                         advection=False), state0, 4)
+                         advection=None), state0, 4)
     fine = _run(_model(grid, ETDRK4(dt, basis), filtered=True,
-                       advection=False), state0, 8)
+                       advection=None), state0, 8)
     assert _rel_error(fine, coarse) < 1e-11
 
 
@@ -285,7 +289,7 @@ def test_propagator_does_not_damp(grid, basis, state0):
     """
     dt = 30 * AB3_DT
     model = _model(grid, ETDRK4(dt, basis), filtered=True,
-                   advection=False)
+                   advection=None)
     start = _norm(_run(model, state0, 0))
     for steps in (1, 10, 100):
         assert _norm(_run(model, state0, steps)) / start == \
@@ -385,7 +389,8 @@ def test_time_dependent_f0_in_the_linear_operator_is_refused(grid, basis):
                        match=r"coriolis\.f0 \(FPlaneCoriolis\)") as ex:
         sw.Model(grid=grid, core=sw.Core(gravity=1.0, depth=1.0),
                  coriolis=sw.modules.FPlaneCoriolis(f0=ramp),
-                 advection=True, time_stepper=ETDRK4(AB3_DT, basis),
+                 advection=sw.SadournyAdvection(),
+                 time_stepper=ETDRK4(AB3_DT, basis),
                  term_filter=~terms.linear)
     # the taught error points at the AB fallback and the design record
     assert "AdamBashforth" in str(ex.value)

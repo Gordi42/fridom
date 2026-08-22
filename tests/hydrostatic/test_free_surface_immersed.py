@@ -71,7 +71,7 @@ def build(grid, free_surface, *, csqr=4.0, n2=0.0, f0=0.0, dt=0.01):
         coriolis=hy.FPlaneCoriolis(f0=f0),
         buoyancy=hy.ConstantStratification(n2=n2),
         free_surface=free_surface,
-        advection=False)
+        advection=None)
 
 
 # ================================================================
@@ -356,7 +356,7 @@ def test_split_all_wet_matches_unimmersed():
         coriolis=hy.FPlaneCoriolis(f0=0.5),
         buoyancy=hy.ConstantStratification(n2=1.0),
         free_surface=hy.SplitExplicitFreeSurface(substeps=8),
-        advection=False)
+        advection=None)
     un = hy.Model(
         grid=mk(None),
         core=hy.Core(gravity=4.0),
@@ -364,7 +364,7 @@ def test_split_all_wet_matches_unimmersed():
         coriolis=hy.FPlaneCoriolis(f0=0.5),
         buoyancy=hy.ConstantStratification(n2=1.0),
         free_surface=hy.SplitExplicitFreeSurface(substeps=8),
-        advection=False)
+        advection=None)
     rng = np.random.default_rng(4)
     ic = {k: 0.3 * rng.standard_normal(im.state[k].data.shape)
           for k in ("u", "v", "b", "ps", "U", "V")}
@@ -427,7 +427,7 @@ def test_split_ic_hook_derives_U_transport_depth_consistent():
         coriolis=hy.FPlaneCoriolis(f0=0.0),
         buoyancy=hy.ConstantStratification(n2=1.0),
         free_surface=hy.SplitExplicitFreeSurface(substeps=8),
-        advection=False)
+        advection=None)
     ushape = model.state["u"].data.shape
     plane = np.random.default_rng(0).standard_normal((*ushape[:2], 1))
     model.set_fields(u=np.broadcast_to(plane, ushape).copy())

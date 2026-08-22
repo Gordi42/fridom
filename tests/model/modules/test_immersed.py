@@ -189,7 +189,7 @@ def test_maskstate_skips_constant_space_prognostics():
         time_stepper=AdamBashforth(0.01, order=3),
         buoyancy=hy.ConstantStratification(n2=1.0),
         free_surface=hy.ExplicitFreeSurface(),
-        advection=False)
+        advection=None)
     # ps is a PROGNOSTIC ConstantSpace(z) field the MaskState sees
     assert "ps" in set(model._artifacts.field_table.prognostic)
     rng = np.random.default_rng(0)

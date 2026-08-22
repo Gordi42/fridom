@@ -37,7 +37,7 @@ def _flat_model(**kwargs):
     return sw.Model(grid=grid,
                     core=sw.Core(gravity=1.0, depth=0.7,
                                  coords=("x", "y")),
-                    coriolis=None, advection=False, **kwargs)
+                    coriolis=None, advection=None, **kwargs)
 
 
 # ================================================================
@@ -140,7 +140,7 @@ def test_non_orthogonal_chart_derives_width_one():
     model = sw.Model(grid=grid,
                      core=sw.Core(gravity=1.0, depth=0.7,
                                   coords=("x", "y")),
-                     coriolis=None, advection=False,
+                     coriolis=None, advection=None,
                      time_stepper=_stepper())
     # the cross-interp is genuinely present (a non-diagonal metric)
     assert not grid.mapping.orthogonal
@@ -159,7 +159,7 @@ def test_immersed_core_derives_width_one():
     model = sw.Model(grid=grid,
                      core=sw.Core(gravity=1.0, depth=0.7,
                                   coords=("x", "y")),
-                     coriolis=None, advection=False,
+                     coriolis=None, advection=None,
                      time_stepper=_stepper())
     core = model.module(sw.Core)
     assert core.extra_halo is not None
@@ -171,7 +171,7 @@ def test_immersed_core_derives_width_one():
 # ================================================================
 def test_linear_chart_plus_immersed_is_a_taught_error():
     # a grid carrying BOTH a chart and an immersed domain must be
-    # refused at bind even for a *linear* model (advection=False, so no
+    # refused at bind even for a *linear* model (advection=None, so no
     # SadournyAdvection guard runs): the chart gravity/continuity path
     # is unmasked, so it would silently ignore the immersed mask and let
     # the geopotential flux cross the wet-region boundary. sw2
@@ -187,7 +187,7 @@ def test_linear_chart_plus_immersed_is_a_taught_error():
         sw.Model(grid=grid,
                  core=sw.Core(gravity=1.0, depth=0.7,
                               coords=("x", "y")),
-                 coriolis=None, advection=False,
+                 coriolis=None, advection=None,
                  time_stepper=_stepper())
 
 
@@ -203,7 +203,7 @@ def test_non_orthogonal_chart_parity_with_forced_width_two():
         return sw.Model(grid=grid,
                         core=sw.Core(gravity=1.0, depth=0.7,
                                      coords=("x", "y")),
-                        coriolis=None, advection=False,
+                        coriolis=None, advection=None,
                         time_stepper=_stepper())
 
     def run():
@@ -211,7 +211,7 @@ def test_non_orthogonal_chart_parity_with_forced_width_two():
         rng = np.random.default_rng(0)
         m.set_fields(**{c: 0.05 * rng.standard_normal(m.state[c].shape)
                         for c in ("u", "v", "p")})
-        m.run(steps=8, progress=False)
+        m.run(steps=8)
         return {c: np.asarray(m.state[c].data) for c in ("u", "v", "p")}
 
     derived = run()
@@ -254,7 +254,7 @@ def _csqr_law_model(law, *, order=3, grid=None, dt=5e-3):
     return sw.Model(
         grid=_walled_grid() if grid is None else grid,
         core=sw.Core(gravity=1.0, depth=law, coords=("x", "y")),
-        coriolis=None, advection=False,
+        coriolis=None, advection=None,
         time_stepper=_stepper(dt, order))
 
 
@@ -318,7 +318,7 @@ def test_csqr_law_tendency_matches_static_profile_at_stage_time(t):
         core=sw.Core(gravity=1.0,
                      depth=lambda y: c0 + s * t + 0.1 * y,
                      coords=("x", "y")),
-        coriolis=None, advection=False,
+        coriolis=None, advection=None,
         time_stepper=_stepper(order=1))
     static.set_fields(**fields)
     z_static = sw.State({c: static.state[c] for c in ("u", "v", "p")})
@@ -340,7 +340,7 @@ def test_csqr_law_etdrk4_refuses():
     static = sw.Model(
         grid=grid,
         core=sw.Core(gravity=1.0, depth=1.0, coords=("x", "y")),
-        coriolis=None, advection=True,
+        coriolis=None, advection=sw.SadournyAdvection(),
         time_stepper=_stepper())
     basis = sw.eigenbasis(static)
     with pytest.raises(
@@ -350,7 +350,7 @@ def test_csqr_law_etdrk4_refuses():
             grid=grid,
             core=sw.Core(gravity=1.0, depth=_affine_csqr_law(),
                          coords=("x", "y")),
-            coriolis=None, advection=True,
+            coriolis=None, advection=sw.SadournyAdvection(),
             time_stepper=fr.model.time_steppers.ETDRK4(5e-3, basis),
             term_filter=~terms.linear)
 

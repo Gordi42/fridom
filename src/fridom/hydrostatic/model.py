@@ -35,19 +35,20 @@ equation, not by advection). The surface velocity ``w(0)`` therefore
 never enters an advective flux, so a transported tracer's mass is
 conserved to roundoff.
 
-The factory installs **no advection unless asked** (owner ruling
-2026-08-22, ``design/decisions/no_default_advection.md``): the default
-``advection=False`` is the linear model (what the dispersion,
-geostrophic-balance and energy-conservation gates validate);
-``advection=True`` is the shorthand for ``CenteredAdvection()`` (the
-common-denominator scheme), and ``UpwindAdvection`` /
-``WENOAdvection`` are accepted on the flat grids the hydrostatic
-preset targets, a **stretched** vertical column included — their
-reconstruction rows are built from the factor's own cell widths there
-(route (ii); an average-family tracer then keeps the design order, a
-nodal one drops to 2nd, see ``fr.model.modules.advection``). Only a
-terrain-following **mapped column** (a ``CoordinateMapping``) is still
-self-rejected by the biased schemes at bind.
+The factory installs **no advection unless asked** (owner rulings
+2026-08-22, ``design/decisions/no_default_advection.md`` and
+``object_or_none_keywords.md``): the default ``advection=None`` is the
+linear model (what the dispersion, geostrophic-balance and
+energy-conservation gates validate), a boolean is refused, and the
+scheme is named as a module — ``CenteredAdvection()`` (the
+common-denominator scheme) or ``UpwindAdvection`` / ``WENOAdvection``,
+accepted on the flat grids the hydrostatic preset targets, a
+**stretched** vertical column included — their reconstruction rows are
+built from the factor's own cell widths there (route (ii); an
+average-family tracer then keeps the design order, a nodal one drops to
+2nd, see ``fr.model.modules.advection``). Only a terrain-following
+**mapped column** (a ``CoordinateMapping``) is still self-rejected by
+the biased schemes at bind.
 """
 from __future__ import annotations
 
@@ -55,7 +56,6 @@ from typing import TYPE_CHECKING
 
 import fridom as fr
 from fridom._sequences import as_tuple
-from fridom.model.modules.advection import CenteredAdvection
 
 if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Sequence
@@ -66,6 +66,12 @@ if TYPE_CHECKING:  # pragma: no cover
 
 #: retired preset kwargs -> the taught replacement spelling
 _RETIRED_KWARGS = {
+    "surface_advective_flux": (
+        "surface_advective_flux= is retired: it configured the "
+        "advection module the preset used to install unasked. Name "
+        "the scheme and its closure yourself — "
+        "advection=fr.model.modules.CenteredAdvection("
+        "surface_flux=...)"),
     "csqr": (
         "csqr= is retired: gravity is the physical constant and it "
         "centralizes on the core — pass core=hy.Core(gravity=...) "
@@ -94,6 +100,19 @@ _RETIRED_KWARGS = {
 }
 
 
+def _refuse_boolean_advection(advection: object, preset: str) -> None:
+    """Raise the taught TypeError on ``advection=True`` / ``False``."""
+    if isinstance(advection, bool):
+        spelled = ("advection=None (no advection, the default)"
+                   if not advection else
+                   "the module that names the scheme, e.g. "
+                   "advection=fr.model.modules.CenteredAdvection()")
+        raise TypeError(
+            f"{preset}.Model advection= takes a module or None, not "
+            f"{advection!r}: the preset installs no scheme unasked and "
+            f"a boolean cannot say which one is meant — pass {spelled}")
+
+
 def Model(  # noqa: N802 — a factory that mirrors fr.model.Model's surface
     *,
     grid: Grid,
@@ -103,8 +122,7 @@ def Model(  # noqa: N802 — a factory that mirrors fr.model.Model's surface
     buoyancy: fr.model.Module | None = None,
     scaling: object | None = None,
     coriolis: fr.model.Module | None = None,
-    advection: fr.model.Module | bool = False,
-    surface_advective_flux: bool | None = None,
+    advection: fr.model.Module | None = None,
     modules_extra: fr.model.Module | Sequence[fr.model.Module] = (),
     name: str | None = None,
     **kwargs: object,
@@ -159,34 +177,19 @@ def Model(  # noqa: N802 — a factory that mirrors fr.model.Model's surface
         (dimensional) / ``FPlaneCoriolis(rossby_number=...)``
         (nondimensional) / ``hy.BetaPlaneCoriolis(...)``
         (default: None).
-    advection : fr.model.Module | bool, optional
-        Nonlinear advection of ``u``/``v``/``b``. ``False`` (the
+    advection : fr.model.Module | None, optional
+        Nonlinear advection of ``u``/``v``/``b``. ``None`` (the
         default) omits advection, the linear hydrostatic model: a
-        scheme is never installed unasked. A module instance
-        (``UpwindAdvection`` / ``WENOAdvection`` / a configured
-        ``CenteredAdvection``) is installed as given, and ``True``
-        is the shorthand for a default-constructed
-        ``CenteredAdvection()``. The module is scaling-neutral and
-        adopts the assembly's variant at bind. The vertical leg
-        consumes the diagnosed ``w`` on the ``Outer`` faces through
-        the seeded ``Outer -> Inner`` restriction (module docstring);
-        the boundary-face flux is a structural zero (default: False).
-    surface_advective_flux : bool | None, optional
-        Tri-state control of the constancy-preserving **surface
-        closure** on the advection module that ``advection=True``
-        installs. The default ``None``
-        is the closure: advect **through** the top/bottom boundary faces
-        with the one-sided (top-cell) face value (the Oceananigans-
-        equivalent linear-free-surface treatment), so ``A(q=const)`` is
-        machine-zero in every cell and tracer content is exchanged with
-        the moving surface. ``False`` restores the legacy fixed-domain
-        closure — it drops the surface velocity ``w(0)`` and so conserves
-        tracer content to roundoff, at the price of the surface-cell
-        constancy violation ``A(q=const) ~ q*w(0)/dz`` (the source that
-        makes the implicit free surface unstable). Only shapes the
-        ``advection=True`` module; a user-passed module carries its
-        own ``surface_flux`` (whose ``None`` auto-resolves to the same
-        closure on the hydrostatic ``Outer``-``w`` grid) (default: None).
+        scheme is never installed unasked, and a boolean is refused
+        with a taught error. Pass the module that names the scheme,
+        ``fr.model.modules.CenteredAdvection()`` (``surface_flux=``
+        configures its constancy-preserving surface closure),
+        ``UpwindAdvection(order=...)`` or ``WENOAdvection(...)``. The
+        module is scaling-neutral and adopts the assembly's variant
+        at bind. The vertical leg consumes the diagnosed ``w`` on the
+        ``Outer`` faces through the seeded ``Outer -> Inner``
+        restriction (module docstring); the boundary-face flux is a
+        structural zero (default: None).
     modules_extra : fr.model.Module | Sequence[fr.model.Module], optional
         Additional modules. A list or a tuple is the module
         collection, anything else a single module, so one extra
@@ -221,8 +224,7 @@ def Model(  # noqa: N802 — a factory that mirrors fr.model.Model's surface
             "/ split-explicit variants); None is not a module")
     if scaling is None:
         scaling = fr.scaling.Dimensional()
-    if advection is True:
-        advection = CenteredAdvection(surface_flux=surface_advective_flux)
+    _refuse_boolean_advection(advection, "hy")
 
     modules: list[fr.model.Module] = [core]
     # rotation is opt-in: coriolis=None installs no module at all
@@ -234,7 +236,7 @@ def Model(  # noqa: N802 — a factory that mirrors fr.model.Model's surface
     if buoyancy is not None:
         modules.append(buoyancy)
     modules.append(free_surface)
-    if advection is not False:
+    if advection is not None:
         modules.append(advection)
     modules.extend(as_tuple(modules_extra))
     # immersed (cut-cell) grid: one shared CONSTRAINT-stage MaskState

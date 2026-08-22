@@ -80,7 +80,7 @@ def build(geom, pset, corr):
             coriolis=sw.modules.RotationCoriolis(
                 omega=(0.0, 0.0, F0), coords=("lon", "lat"),
                 metric_weight="csqr"),
-            advection=True,
+            advection=sw.SadournyAdvection(),
             modules_extra=((sw.modules.CoriolisEnergyCorrection(
                 coords=("lon", "lat")),) if corr else ()),
             time_stepper=stepper)
@@ -92,7 +92,7 @@ def build(geom, pset, corr):
         core=sw.Core(froude_number=ro, depth=csqr),
         scaling=fr.scaling.GravityWave(),
         coriolis=sw.modules.FPlaneCoriolis(rossby_number=ro / F0),
-        advection=True,
+        advection=sw.SadournyAdvection(),
         modules_extra=((sw.modules.CoriolisEnergyCorrection(),)
                        if corr else ()),
         time_stepper=stepper)

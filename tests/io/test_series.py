@@ -287,13 +287,13 @@ def mean_u(model_state):
 def test_run_with_series_matches_the_chunked_loop():
     series = Series({"u": mean_u}, trigger=every(steps=4))
     model = make_model()
-    model.run(steps=12, outputs=(series,), progress=False)
+    model.run(steps=12, outputs=(series,))
 
     # the loop the Series replaces
     manual_model = make_model()
     manual = [float(np.asarray(mean_u(manual_model.carry).data).reshape(()))]
     for _ in range(3):
-        manual_model.run(steps=4, progress=False)
+        manual_model.run(steps=4)
         manual.append(float(np.asarray(mean_u(manual_model.carry).data).reshape(())))
 
     np.testing.assert_array_equal(series["iteration"], [0, 4, 8, 12])
@@ -307,7 +307,7 @@ def test_run_with_series_matches_the_chunked_loop():
 def test_two_streams_on_one_run_stay_independent():
     fast = Series({"u": mean_u}, trigger=every(steps=2))
     slow = Series({"u": mean_u}, trigger=every(steps=6))
-    make_model().run(steps=12, outputs=(fast, slow), progress=False)
+    make_model().run(steps=12, outputs=(fast, slow))
     np.testing.assert_array_equal(fast["iteration"],
                                   [0, 2, 4, 6, 8, 10, 12])
     np.testing.assert_array_equal(slow["iteration"], [0, 6, 12])

@@ -57,7 +57,7 @@ def make_walled_model(grid=None, *, coriolis=None):
     return sw.Model(
         grid=grid if grid is not None else make_grid(),
         core=sw.Core(gravity=1.0, depth=CSQR),
-        coriolis=coriolis, advection=False,
+        coriolis=coriolis, advection=None,
         time_stepper=AdamBashforth(5e-3, order=3))
 
 
@@ -299,7 +299,7 @@ def make_nh_channel(f0=F0_NH, device_ids=None):
         time_stepper=AdamBashforth(5e-3, order=3),
         coriolis=nh.FPlaneCoriolis(f0=f0),
         buoyancy=nh.ConstantStratification(n2=N2_NH),
-        advection=False)
+        advection=None)
 
 
 @pytest.fixture(scope="module")
@@ -519,7 +519,7 @@ def make_varying_sw(coriolis=None):
         coriolis = weighted_fplane()
     return sw.Model(
         grid=make_grid(), core=sw.Core(gravity=1.0, depth=csqr_profile),
-        coriolis=coriolis, advection=False,
+        coriolis=coriolis, advection=None,
         time_stepper=AdamBashforth(5e-3, order=3))
 
 
@@ -587,7 +587,7 @@ def test_varying_constant_profile_reproduces_the_constant_path(
     const_var = sw.Model(
         grid=make_grid(),
         core=sw.Core(gravity=1.0, depth=lambda y: CSQR + 0.0 * y),
-        advection=False,
+        advection=None,
         coriolis=weighted_fplane(),
         time_stepper=AdamBashforth(5e-3, order=3))
     cv = channel_eigenpairs(const_var)
@@ -649,7 +649,7 @@ def test_varying_metric_must_be_positive():
     model = sw.Model(
         grid=make_grid(),
         core=sw.Core(gravity=1.0, depth=lambda y: y - 0.5),
-        advection=False, coriolis=weighted_fplane(),
+        advection=None, coriolis=weighted_fplane(),
         time_stepper=AdamBashforth(5e-3, order=3))
     with pytest.raises(ValueError, match="positive definite"):
         channel_eigenpairs(model)
@@ -670,7 +670,7 @@ def nh_varying_channel():
         time_stepper=AdamBashforth(5e-3, order=3),
         coriolis=nh.FPlaneCoriolis(f0=F0_NH),
         buoyancy=nh.MeridionalStratification(n2=n2_profile),
-        advection=False)
+        advection=None)
 
 
 @pytest.fixture(scope="module")
@@ -725,7 +725,7 @@ def test_nh_varying_constant_profile_reproduces_the_constant_path(
         coriolis=nh.FPlaneCoriolis(f0=F0_NH),
         buoyancy=nh.MeridionalStratification(
             n2=lambda y: N2_NH + 0.0 * y),
-        advection=False)
+        advection=None)
     cv = channel_eigenpairs(model)
     assert np.abs(np.asarray(cv.omega)
                   - np.asarray(nh_basis.omega)).max() < 1e-12
@@ -791,7 +791,7 @@ def test_bounded_measure_constant_factor():
         coriolis=hy.FPlaneCoriolis(f0=0.0),
         buoyancy=hy.ConstantStratification(n2=1.0),
         free_surface=hy.ExplicitFreeSurface(),
-        advection=False)
+        advection=None)
     basis = channel_eigenpairs(model)
     metric = np.asarray(basis.metric)
     ps_entry = metric[basis.slices["ps"]]
@@ -814,7 +814,7 @@ def _hydro_channel(grid, csqr=10.0, n2=1.0):
         coriolis=hy.FPlaneCoriolis(f0=0.3),
         buoyancy=hy.ConstantStratification(n2=n2),
         free_surface=hy.ExplicitFreeSurface(),
-        advection=False)
+        advection=None)
 
 
 def _cmap_stretch_grid(nz=8):

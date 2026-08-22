@@ -26,7 +26,6 @@ from typing import TYPE_CHECKING
 
 import fridom as fr
 from fridom._sequences import as_tuple
-from fridom.model.modules.advection import CenteredAdvection
 from fridom.nonhydro2.modules.core import Core, resolve_model_family
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -73,6 +72,19 @@ _CORE_KWARGS = (
 )
 
 
+def _refuse_boolean_advection(advection: object) -> None:
+    """Raise the taught TypeError on ``advection=True`` / ``False``."""
+    if isinstance(advection, bool):
+        spelled = ("advection=None (no advection, the default)"
+                   if not advection else
+                   "the module that names the scheme, e.g. "
+                   "advection=nh.CenteredAdvection()")
+        raise TypeError(
+            "nh.Model advection= takes a module or None, not "
+            f"{advection!r}: the preset installs no scheme unasked and "
+            f"a boolean cannot say which one is meant — pass {spelled}")
+
+
 def _refuse_retired_kwargs(kwargs: dict) -> None:
     """Raise the taught TypeError on a retired/renamed preset kwarg."""
     for retired, message in _RETIRED_KWARGS.items():
@@ -95,7 +107,7 @@ def Model(  # noqa: N802 — a factory that mirrors fr.model.Model's surface
     scaling: object | None = None,
     coriolis: fr.model.Module | None = None,
     buoyancy: fr.model.Module | None = None,
-    advection: fr.model.Module | bool = False,
+    advection: fr.model.Module | None = None,
     modules_extra: fr.model.Module | Sequence[fr.model.Module] = (),
     name: str | None = None,
     **kwargs: object,
@@ -142,7 +154,7 @@ def Model(  # noqa: N802 — a factory that mirrors fr.model.Model's surface
         a chart (default: None).
 
         Note that a non-rotating **linear** nonhydrostatic model
-        (``advection=False``) with no buoyancy module leaves
+        (``advection=None``) with no buoyancy module leaves
         ``u``/``v`` advanced by no term at all and is rejected by
         the D1.4 coverage lint.
     buoyancy : fr.model.Module | None, optional
@@ -155,15 +167,14 @@ def Model(  # noqa: N802 — a factory that mirrors fr.model.Model's surface
         (nondimensional) / ``nh.MeridionalStratification(...)`` for a
         background stratification, or ``nh.BuoyancyTracer()`` for a
         bare buoyancy tracer without one (default: None).
-    advection : fr.model.Module | bool, optional
-        The advection module. ``False`` (the default) omits
+    advection : fr.model.Module | None, optional
+        The advection module. ``None`` (the default) omits
         advection, a linear model: a scheme is never installed
-        unasked. A module instance (``nh.CenteredAdvection()`` /
-        ``nh.UpwindAdvection(order=...)`` / ``nh.WENOAdvection(...)``)
-        is used as given, and ``True`` is the shorthand for a
-        default-constructed ``CenteredAdvection()``. The module is
-        scaling-neutral and adopts the assembly's variant at bind
-        (default: False).
+        unasked, and a boolean is refused with a taught error. Pass
+        the module that names the scheme, ``nh.CenteredAdvection()``
+        / ``nh.UpwindAdvection(order=...)`` /
+        ``nh.WENOAdvection(...)``. The module is scaling-neutral and
+        adopts the assembly's variant at bind (default: None).
     modules_extra : fr.model.Module | Sequence[fr.model.Module], optional
         Additional modules (tracers, closures). A list or a tuple is
         the module collection, anything else a single module, so one
@@ -199,8 +210,7 @@ def Model(  # noqa: N802 — a factory that mirrors fr.model.Model's surface
     resolved = resolve_model_family(
         getattr(core, "family", None), grid)
     grid.set_default_family(resolved)
-    if advection is True:
-        advection = CenteredAdvection()
+    _refuse_boolean_advection(advection)
 
     modules: list[fr.model.Module] = [core]
     # rotation is opt-in: coriolis=None installs no module at all
@@ -209,7 +219,7 @@ def Model(  # noqa: N802 — a factory that mirrors fr.model.Model's surface
     # buoyancy is opt-in too (no surprising default physics)
     if buoyancy is not None:
         modules.append(buoyancy)
-    if advection is not False:
+    if advection is not None:
         modules.append(advection)
     modules.extend(as_tuple(modules_extra))
     # immersed (cut-cell) grid: one shared CONSTRAINT-stage MaskState

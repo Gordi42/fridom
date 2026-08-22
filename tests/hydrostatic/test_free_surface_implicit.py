@@ -63,7 +63,7 @@ def make_model(grid, free_surface, *, n2=0.0, csqr=4.0, f0=0.0,
         coriolis=hy.FPlaneCoriolis(f0=f0),
         buoyancy=hy.ConstantStratification(n2=n2),
         free_surface=free_surface,
-        advection=False)
+        advection=None)
 
 
 def k_disc_sq(n_mode, n_cells, length=1.0):
@@ -534,7 +534,7 @@ def test_cnab2_vertical_diffusion_then_surface_constraint():
         coriolis=hy.FPlaneCoriolis(f0=0.5),
         buoyancy=hy.ConstantStratification(n2=1.0),
         free_surface=hy.ImplicitFreeSurface(epsilon=1.0),
-        advection=False,
+        advection=None,
         modules_extra=(_VertMix(),))
     rng = np.random.default_rng(3)
     model.set_fields(
@@ -583,7 +583,7 @@ def walled_model(grid, *, epsilon=1.0, csqr=1.0, f0=0.5, n2=0.0, dt=1e-3,
         free_surface=hy.ImplicitFreeSurface(
             epsilon=epsilon,
             pressure_iterations=pressure_iterations),
-        advection=False)
+        advection=None)
 
 
 @pytest.mark.parametrize("wall", list(WALLS), ids=list(WALLS))

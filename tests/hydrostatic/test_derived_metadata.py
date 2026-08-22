@@ -64,7 +64,7 @@ def make_model(*, nondimensional):
             coriolis=hy.FPlaneCoriolis(rossby_number=0.25),
             buoyancy=hy.ConstantStratification(froude_number=0.125),
             free_surface=hy.ExplicitFreeSurface(froude_number=0.25),
-            advection=False, surface_advective_flux=False,
+            advection=None,
             time_stepper=stepper)
     return hy.Model(
         grid=make_grid(100.0),
@@ -72,7 +72,7 @@ def make_model(*, nondimensional):
         coriolis=hy.FPlaneCoriolis(f0=1.0e-4),
         buoyancy=hy.ConstantStratification(n2=4.0e-4),
         free_surface=hy.ExplicitFreeSurface(),
-        advection=False, time_stepper=stepper)
+        advection=None, time_stepper=stepper)
 
 
 @pytest.fixture(scope="module")

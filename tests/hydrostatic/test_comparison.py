@@ -494,7 +494,7 @@ def test_internal_wave_packet_moves_at_the_discrete_group_velocity():
         coriolis=hy.FPlaneCoriolis(f0=f0),
         buoyancy=hy.ConstantStratification(n2=n2),
         free_surface=hy.ImplicitFreeSurface(epsilon=0.0),
-        advection=False)
+        advection=None)
     ev, vecs, cols = _baroclinic_spectrum(lin, kx0, lx)
     i_pos = int(np.argmax(ev.imag))
     omega = ev[i_pos].imag

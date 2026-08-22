@@ -41,7 +41,7 @@ def rot_model():
         scaling=fr.scaling.Rotational(L=L_REF, U=U_REF),
         coriolis=nh.FPlaneCoriolis(rossby_number=RO),
         buoyancy=nh.ConstantStratification(froude_number=FR_INT),
-        advection=False,
+        advection=None,
         time_stepper=fr.model.time_steppers.AdamBashforth(DT, order=2))
 
 
@@ -52,7 +52,7 @@ def dim_model(*, buoyancy=None):
         coriolis=nh.FPlaneCoriolis(f0=F0),
         buoyancy=buoyancy
         or nh.ConstantStratification(n2=N2),
-        advection=False,
+        advection=None,
         time_stepper=fr.model.time_steppers.AdamBashforth(DT, order=2))
 
 

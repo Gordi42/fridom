@@ -26,7 +26,7 @@ def make_model(grid, *, n2=2.0, gravity=1.5, f0=1.3):
         coriolis=hy.FPlaneCoriolis(f0=f0),
         buoyancy=hy.ConstantStratification(n2=n2),
         free_surface=hy.ExplicitFreeSurface(),
-        advection=False)
+        advection=None)
 
 
 def random_state(model, seed=3):

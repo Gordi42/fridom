@@ -107,7 +107,7 @@ def make_model(args: argparse.Namespace, *, periodic_y: bool = True):
         core=sw.Core(froude_number=1.0, depth=1.0),
         scaling=fr.scaling.GravityWave(),
         coriolis=sw.modules.FPlaneCoriolis(rossby_number=1.0),
-        advection=True,
+        advection=sw.SadournyAdvection(),
         time_stepper=fr.model.time_steppers.AdamBashforth(
             args.dt, order=3))
 

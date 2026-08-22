@@ -195,7 +195,7 @@ def make_nh_channel(device_ids=None):
         time_stepper=AdamBashforth(5e-3, order=3),
         coriolis=nh.FPlaneCoriolis(f0=1.5),
         buoyancy=nh.ConstantStratification(n2=3.0),
-        advection=False)
+        advection=None)
 
 
 @pytest.fixture(scope="module")

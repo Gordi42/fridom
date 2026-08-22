@@ -64,7 +64,7 @@ def model(grid, *, eps=1.0, csqr=3.0, dt=0.05, iterations=30,
             pressure_tolerance=tolerance,
             pressure_preconditioner=preconditioner,
             multigrid_levels=multigrid_levels),
-        advection=False)
+        advection=None)
 
 
 def ctx_of(csqr, dt):
@@ -189,7 +189,7 @@ def test_grad_through_terrain_implicit_run_matches_fd():
         free_surface=hy.ImplicitFreeSurface(
             epsilon=1.0,
             pressure_iterations=20),
-        advection=False)
+        advection=None)
     rng = np.random.default_rng(11)
     m.set_fields(**{k: 0.1 * rng.standard_normal(m.state[k].data.shape)
                     for k in ("u", "v", "ps")})

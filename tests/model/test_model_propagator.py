@@ -128,7 +128,8 @@ def sw_model(grid, stepper, *, filtered):
     extra = {"term_filter": ~terms.linear} if filtered else {}
     return sw.Model(
         grid=grid, core=sw.Core(gravity=1.0, depth=1.0),
-        coriolis=sw.modules.FPlaneCoriolis(f0=1.0), advection=True,
+        coriolis=sw.modules.FPlaneCoriolis(f0=1.0),
+        advection=sw.SadournyAdvection(),
         time_stepper=stepper, **extra)
 
 

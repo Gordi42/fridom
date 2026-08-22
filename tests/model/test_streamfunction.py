@@ -47,7 +47,7 @@ def make_model(periodic, family="fv", n=16, nz=None):
         time_stepper=AdamBashforth(1e-3, order=3),
         coriolis=nh.FPlaneCoriolis(f0=1.0),
         buoyancy=nh.ConstantStratification(n2=1.0),
-        advection=False)
+        advection=None)
 
 
 def corner_space(model):

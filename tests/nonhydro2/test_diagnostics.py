@@ -143,7 +143,7 @@ def test_b_total_is_bound_by_the_stratification_module():
         grid=grid, core=nh.Core(aspect_ratio=0.5),
         coriolis=nh.FPlaneCoriolis(f0=1.0),
         buoyancy=nh.ConstantStratification(n2=4.0),
-        advection=False,
+        advection=None,
         time_stepper=AdamBashforth(1e-3, order=2))
     total = model.diagnostics.b_total()
     z = np.asarray(model.state["b"].nodes("z").data)
@@ -163,7 +163,7 @@ def test_b_total_nondimensional_background_is_n2_z_in_physical_units():
         scaling=fr.scaling.Rotational(L=length, U=speed),
         coriolis=nh.FPlaneCoriolis(rossby_number=rossby),
         buoyancy=nh.ConstantStratification(froude_number=froude),
-        advection=False,
+        advection=None,
         time_stepper=AdamBashforth(1e-3, order=2))
     total = model.diagnostics.b_total()
     z = np.asarray(model.state["b"].nodes("z").data)

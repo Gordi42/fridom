@@ -151,36 +151,35 @@ class LegRecordingReporter(RecordingReporter):
 #  Constructor keying and rejections
 # ================================================================
 def test_lone_unnamed_model_gets_the_default_key():
-    s = Session(make_model(), progress=False)
+    s = Session(make_model())
     assert set(s.models) == {"model"}
 
 
 def test_named_models_are_keyed_by_name():
-    s = Session(make_model(name="ocn"), progress=False)
+    s = Session(make_model(name="ocn"))
     assert set(s.models) == {"ocn"}
 
 
 def test_multi_model_needs_names():
     with pytest.raises(ValueError, match="name="):
-        Session([make_model(), make_model()], progress=False)
+        Session([make_model(), make_model()])
 
 
 def test_duplicate_model_names_raise():
     with pytest.raises(ValueError, match="share the name"):
-        Session([make_model(name="m"), make_model(name="m")],
-                progress=False)
+        Session([make_model(name="m"), make_model(name="m")])
 
 
 def test_outputs_rejects_a_snapshots_config():
     cfg = snap.Snapshots("snaps", trigger=triggers.every(steps=2))
     with pytest.raises(IOCollisionError, match="run-config only"):
-        Session(make_model(), outputs=(cfg,), progress=False)
+        Session(make_model(), outputs=(cfg,))
 
 
 def test_outputs_rejects_a_bare_snapshots_config():
     cfg = snap.Snapshots("snaps", trigger=triggers.every(steps=2))
     with pytest.raises(IOCollisionError, match="run-config only"):
-        Session(make_model(), outputs=cfg, progress=False)
+        Session(make_model(), outputs=cfg)
 
 
 # ================================================================
@@ -188,58 +187,56 @@ def test_outputs_rejects_a_bare_snapshots_config():
 # ================================================================
 def test_outputs_takes_a_bare_stream():
     stream = FakeStream(triggers.every(steps=1))
-    s = Session(make_model(), outputs=stream, progress=False)
+    s = Session(make_model(), outputs=stream)
     assert s._outputs == (stream,)
 
 
 def test_outputs_takes_a_list_of_streams():
     a = FakeStream(triggers.every(steps=1))
     b = FakeStream(triggers.every(steps=2))
-    s = Session(make_model(), outputs=[a, b], progress=False)
+    s = Session(make_model(), outputs=[a, b])
     assert s._outputs == (a, b)
 
 
 def test_models_takes_a_list_as_well_as_a_tuple():
-    listed = Session([make_model(name="a"), make_model(name="b")],
-                     progress=False)
-    tupled = Session((make_model(name="a"), make_model(name="b")),
-                     progress=False)
+    listed = Session([make_model(name="a"), make_model(name="b")])
+    tupled = Session((make_model(name="a"), make_model(name="b")))
     assert set(listed.models) == set(tupled.models) == {"a", "b"}
 
 
 def test_max_chunk_must_be_positive_int_or_none():
     with pytest.raises(ValueError, match="max_chunk"):
-        Session(make_model(), max_chunk=0, progress=False)
+        Session(make_model(), max_chunk=0)
 
 
 def test_jit_false_is_not_wired():
     with pytest.raises(NotImplementedError, match="eager"):
-        Session(make_model(), jit=False, progress=False)
+        Session(make_model(), jit=False)
 
 
 # ================================================================
 #  Reentrancy / single-use guards
 # ================================================================
 def test_advance_outside_with_raises():
-    s = Session(make_model(), progress=False)
+    s = Session(make_model())
     with pytest.raises(RuntimeError, match="only valid inside"):
         s.advance(model=1)
 
 
 def test_active_outside_with_raises():
-    s = Session(make_model(), progress=False)
+    s = Session(make_model())
     with pytest.raises(RuntimeError, match="only valid inside"):
         _ = s.active
 
 
 def test_result_outside_with_raises():
-    s = Session(make_model(), progress=False)
+    s = Session(make_model())
     with pytest.raises(RuntimeError, match="only valid inside"):
         _ = s.result
 
 
 def test_session_is_single_use():
-    s = Session(make_model(), progress=False)
+    s = Session(make_model())
     with s:
         pass
     with pytest.raises(RuntimeError, match="single-use"):
@@ -248,17 +245,17 @@ def test_session_is_single_use():
 
 def test_entering_over_a_bound_model_raises():
     model = make_model()
-    with Session(model, progress=False), \
+    with Session(model), \
             pytest.raises(RuntimeError, match="already bound"):
-        Session(model, progress=False).__enter__()
+        Session(model).__enter__()
 
 
 def test_exit_releases_the_model_binding():
     model = make_model()
-    with Session(model, progress=False):
+    with Session(model):
         pass
     # a second session over the same model now enters fine
-    with Session(model, progress=False) as s:
+    with Session(model) as s:
         assert s.active
 
 
@@ -267,7 +264,7 @@ def test_exit_releases_the_model_binding():
 # ================================================================
 def test_enter_binds_every_output():
     stream = FakeStream(triggers.every(steps=2))
-    with Session(make_model(), outputs=(stream,), progress=False):
+    with Session(make_model(), outputs=(stream,)):
         assert stream.bound
 
 
@@ -275,20 +272,19 @@ def test_distinct_streams_on_one_path_collide():
     a = FakeStream(triggers.every(steps=2), path="out.zarr")
     b = FakeStream(triggers.every(steps=2), path="out.zarr")
     with pytest.raises(IOCollisionError, match="distinct"):
-        Session(make_model(), outputs=(a, b), progress=False).__enter__()
+        Session(make_model(), outputs=(a, b)).__enter__()
 
 
 def test_same_stream_listed_twice_dedupes():
     a = FakeStream(triggers.every(steps=2), path="out.zarr")
-    with Session(make_model(), outputs=(a, a), progress=False) as s:
+    with Session(make_model(), outputs=(a, a)) as s:
         assert s.active
 
 
 def test_walltime_trigger_rejected_on_a_data_stream():
     stream = FakeStream(triggers.every(walltime="1h"))
     with pytest.raises(ValueError, match="walltime"):
-        Session(make_model(), outputs=(stream,),
-                progress=False).__enter__()
+        Session(make_model(), outputs=(stream,)).__enter__()
 
 
 # ================================================================
@@ -296,7 +292,7 @@ def test_walltime_trigger_rejected_on_a_data_stream():
 # ================================================================
 def test_streams_fire_at_their_lowered_steps():
     stream = FakeStream(triggers.every(steps=2))
-    with Session(make_model(), outputs=(stream,), progress=False) as s:
+    with Session(make_model(), outputs=(stream,)) as s:
         s.advance(model=6)
     assert stream.writes == [0, 2, 4, 6]  # every(steps=2) incl. step 0
 
@@ -305,7 +301,7 @@ def test_streams_fire_in_binding_order():
     log = []
     a = FakeStream(triggers.every(steps=2), log=log, label="a")
     b = FakeStream(triggers.every(steps=2), log=log, label="b")
-    with Session(make_model(), outputs=(a, b), progress=False) as s:
+    with Session(make_model(), outputs=(a, b)) as s:
         s.advance(model=2)
     # step 0 then step 2, each time a before b
     assert log == ["a", "b", "a", "b"]
@@ -313,7 +309,7 @@ def test_streams_fire_in_binding_order():
 
 def test_at_trigger_fires_on_realized_steps():
     stream = FakeStream(triggers.at([1.0, 2.0]))  # times 1.0, 2.0 s
-    with Session(make_model(), outputs=(stream,), progress=False) as s:
+    with Session(make_model(), outputs=(stream,)) as s:
         s.advance(model=6)
     # dt=0.5: t=1.0 -> it 2, t=2.0 -> it 4
     assert stream.writes == [2, 4]
@@ -366,7 +362,7 @@ def test_reporter_without_on_leg_start_still_runs():
 
 
 def test_advance_returns_per_model_advance_results():
-    with Session(make_model(), progress=False) as s:
+    with Session(make_model()) as s:
         out = s.advance(model=4)
     assert set(out) == {"model"}
     assert out["model"].steps_done == 4
@@ -374,7 +370,7 @@ def test_advance_returns_per_model_advance_results():
 
 def test_advance_by_model_object_key():
     model = make_model()
-    with Session(model, progress=False) as s:
+    with Session(model) as s:
         out = s.advance({model: 3})
     assert out["model"].steps_done == 3
 
@@ -383,7 +379,7 @@ def test_advance_by_model_object_key():
 #  active predicate
 # ================================================================
 def test_active_true_until_target_is_the_callers_business():
-    with Session(make_model(), progress=False) as s:
+    with Session(make_model()) as s:
         assert s.active
         s.advance(model=4)
         assert s.active  # active does not track target exhaustion
@@ -393,7 +389,7 @@ def test_active_flips_after_a_panic():
     model = make_model(chunk_size=4)
     poison(model)
     with pytest.raises(PanicError), \
-            Session(model, progress=False) as s:
+            Session(model) as s:
         s.advance(model=4)
     assert model.panicked
 
@@ -403,7 +399,7 @@ def test_active_flips_after_a_panic():
 # ================================================================
 def test_exit_closes_every_stream_on_normal_completion():
     stream = FakeStream(triggers.every(steps=2))
-    with Session(make_model(), outputs=(stream,), progress=False) as s:
+    with Session(make_model(), outputs=(stream,)) as s:
         s.advance(model=4)
     assert stream.closed
 
@@ -412,7 +408,7 @@ def test_exit_never_suppresses_an_in_flight_exception():
     class BoomError(RuntimeError):
         pass
 
-    with pytest.raises(BoomError), Session(make_model(), progress=False):
+    with pytest.raises(BoomError), Session(make_model()):
         raise BoomError
 
 
@@ -425,8 +421,7 @@ def test_panic_flushes_streams_but_writes_no_snapshot(tmp_path):
     model = make_model(chunk_size=4)
     poison(model)
     with pytest.raises(PanicError), \
-            Session(model, outputs=(stream,), snapshots=cfg,
-                    progress=False) as s:
+            Session(model, outputs=(stream,), snapshots=cfg) as s:
         s.advance(model=8)
     assert stream.closed                       # flushed on the panic path
     # NO automatic crash snapshot: the panic-boundary firing never runs
@@ -442,8 +437,7 @@ def test_panic_flushes_streams_but_writes_no_snapshot(tmp_path):
 def test_snapshot_fires_and_rotates(tmp_path):
     cfg = snap.Snapshots(tmp_path / "snaps",
                          trigger=triggers.every(steps=2), keep=2)
-    with Session(make_model(chunk_size=2), snapshots=cfg,
-                 progress=False) as s:
+    with Session(make_model(chunk_size=2), snapshots=cfg) as s:
         s.advance(model=6)
     committed = sorted(p.name for p in (tmp_path / "snaps").glob("it*"))
     assert len(committed) == 2                 # keep=2 rotated the rest
@@ -528,8 +522,7 @@ def test_on_walltime_not_fired_on_normal_completion(tmp_path):
     cfg = snap.Snapshots(tmp_path / "snaps",
                          trigger=triggers.every(steps=2),
                          on_walltime=lambda: fired.append(True))
-    with Session(make_model(chunk_size=2), snapshots=cfg,
-                 progress=False) as s:
+    with Session(make_model(chunk_size=2), snapshots=cfg) as s:
         s.advance(model=4)
     assert fired == []
 
@@ -541,7 +534,7 @@ def test_resume_loads_the_newest_snapshot_and_truncates(tmp_path):
     cfg = snap.Snapshots(tmp_path / "snaps",
                          trigger=triggers.every(steps=2))
     first = make_model(chunk_size=2)
-    with Session(first, snapshots=cfg, progress=False) as s:
+    with Session(first, snapshots=cfg) as s:
         s.advance(model=6)
     assert int(first.clock.it) == 6
     # a fresh model resumes to it=6
@@ -550,7 +543,24 @@ def test_resume_loads_the_newest_snapshot_and_truncates(tmp_path):
     resume_cfg = snap.Snapshots(tmp_path / "snaps",
                                 trigger=triggers.every(steps=2),
                                 resume=True)
-    with Session(second, outputs=(stream,), snapshots=resume_cfg,
-                 progress=False) as s:
+    with Session(second, outputs=(stream,), snapshots=resume_cfg) as s:
         assert int(second.clock.it) == 6       # resumed before advancing
     assert stream.truncated == 6               # writers aligned on resume
+
+
+# ================================================================
+#  progress= takes a reporter or None (object-or-None keywords)
+# ================================================================
+@pytest.mark.parametrize("value", [True, False])
+def test_run_refuses_a_boolean_progress(value):
+    model = make_model()
+    with pytest.raises(TypeError, match="takes a ProgressReporter or None"):
+        model.run(steps=1, progress=value)
+
+
+def test_run_is_silent_by_default(capsys):
+    model = make_model()
+    model.run(steps=2)
+    out, err = capsys.readouterr()
+    assert out == ""
+    assert err == ""

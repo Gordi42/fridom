@@ -35,8 +35,10 @@ def sphere_grid(nlon=2 * N, nlat=N, radius=1.0):
         (nlon, nlat), radius=radius, lat_extent=(-LAT_MAX, LAT_MAX))
 
 
-def sphere_model(grid=None, *, advection=True, omega=OMEGA,
-                 csqr=CSQR, ro=RO):
+# the class as the default: each model gets a fresh instance (a module
+# binds to one model only)
+def sphere_model(grid=None, *, advection=sw.SadournyAdvection,
+                 omega=OMEGA, csqr=CSQR, ro=RO):
     """Assemble the spherical shallow-water model (the preset)."""
     if grid is None:
         grid = sphere_grid()
@@ -48,7 +50,8 @@ def sphere_model(grid=None, *, advection=True, omega=OMEGA,
         coriolis=sw.modules.RotationCoriolis(
             omega=(0.0, 0.0, omega), coords=("lon", "lat"),
             metric_weight="csqr"),
-        advection=advection,
+        advection=(advection() if isinstance(advection, type)
+                   else advection),
         time_stepper=fr.model.time_steppers.AdamBashforth(
             1e-3, order=3))
 
@@ -93,7 +96,7 @@ def test_chart_model_keeps_the_exempt_halo():
     # raise_index), so no cross-interp, and even a non-orthogonal chart
     # derives 1 (the cross-interp telescopes two-sided;
     # pressure_solver_halo.md).
-    model = sphere_model(advection=False)
+    model = sphere_model(advection=None)
     core = model.module(sw.Core)
     assert core.extra_halo is not None  # exemption kept
     halo = model.grid.decomposition.halo
@@ -115,7 +118,7 @@ def test_polar_cap_wall_has_no_normal_dof():
 #  composed kinds)
 # ================================================================
 def test_gravity_term_matches_the_hand_built_metric_form():
-    model = sphere_model(advection=False)
+    model = sphere_model(advection=None)
     set_random(model, seed=5)
     z = model.state
     dz = model.tendency(z, filter=GRAVITY)
@@ -414,7 +417,7 @@ def test_core_coords_must_match_the_chart():
             scaling=fr.scaling.GravityWave(),
             coriolis=sw.modules.RotationCoriolis(
                 omega=(0.0, 0.0, OMEGA), coords=("lon", "lat")),
-            advection=False,
+            advection=None,
             time_stepper=fr.model.time_steppers.AdamBashforth(
                 1e-3, order=3))
 
@@ -428,7 +431,8 @@ def test_advection_coords_must_match_the_chart():
             modules=(
                 sw.Core(froude_number=1.0, depth=CSQR,
                         coords=("lon", "lat")),
-                sw.modules.SadournyAdvection()),
+                # explicit names that the chart does not carry
+                sw.modules.SadournyAdvection(coords=("x", "y"))),
             time_stepper=fr.model.time_steppers.AdamBashforth(
                 1e-3, order=3),
             scaling=fr.scaling.GravityWave())
@@ -458,3 +462,13 @@ def test_core_coords_property_round_trips():
     assert adv.coords == ("lon", "lat")
     assert adv.extra_halo["lon"] == 2
     assert adv.extra_halo["lat"] == 2
+
+
+# ================================================================
+#  coords= adopted from the chart at bind
+# ================================================================
+def test_sadourny_adopts_the_chart_coords_at_bind():
+    # sphere_model passes sw.SadournyAdvection() without coords=; the
+    # module reads (lon, lat) off the grid's chart in factor order
+    model = sphere_model()
+    assert model.module(sw.SadournyAdvection).coords == ("lon", "lat")

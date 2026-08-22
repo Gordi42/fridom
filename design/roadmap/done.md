@@ -3388,3 +3388,18 @@ refusal tests flipped. Remainder (plan kept active):
 `FiniteDifference(order > 2)` via route (i), the nodal-row owner call,
 stretched + immersed, biased schemes on a mapped column, perf of the
 table selects.
+
+## Object-or-None keywords: `advection=` and `progress=` (2026-08-22)
+
+Owner ruling the same evening as the no-default-advection entry above
+(`design/decisions/object_or_none_keywords.md`): a keyword that can
+take an object takes the object or `None`, never a boolean.
+`hy.Model`/`nh.Model`/`sw.Model` take `advection: Module | None = None`
+and refuse a bool with a taught error; `surface_advective_flux=` is
+retired on `hy.Model` (the closure lives on the module the caller
+passes); `sw.SadournyAdvection` is a root export whose `coords=None`
+adopts the grid's names at bind; `run(progress=None)` is silent, a
+reporter object renders, and the `_LoggingProgress` placeholder is
+gone. Repository swept (`advection=False` → `None`, `advection=True` →
+the module, `progress=False` deleted); the spec rule sits next to the
+preset factory rule in `01_concepts.md`.

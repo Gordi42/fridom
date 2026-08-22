@@ -62,13 +62,13 @@ def make_model(*, nondimensional):
             scaling=fr.scaling.Rotational(L=2.0e3, U=0.5),
             coriolis=nh.modules.FPlaneCoriolis(rossby_number=0.25),
             buoyancy=nh.ConstantStratification(froude_number=0.125),
-            advection=False, time_stepper=stepper)
+            advection=None, time_stepper=stepper)
     return nh.Model(
         grid=make_grid(),
         core=nh.Core(aspect_ratio=0.5),
         coriolis=nh.modules.FPlaneCoriolis(f0=1.0e-4),
         buoyancy=nh.ConstantStratification(n2=4.0e-4),
-        advection=False, time_stepper=stepper)
+        advection=None, time_stepper=stepper)
 
 
 @pytest.fixture(scope="module")

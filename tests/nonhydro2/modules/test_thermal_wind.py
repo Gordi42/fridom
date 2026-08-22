@@ -75,7 +75,7 @@ def make_grid(nx, ny, nz, lx=1.0, ly=1.3, lz=0.7, periodic_z=True):
 
 def front_model(*, nx=8, ny=8, nz=8, lx=1.0, ly=1.3, lz=0.7, f0=1.3,
                 n2=2.0, m2=-0.7, dt=1e-3, aspect_ratio=1.0,
-                advection=False, coriolis=True, buoyancy=True,
+                advection=None, coriolis=True, buoyancy=True,
                 periodic_z=True):
     """Build a nonhydrostatic model with a thermal-wind front.
 
@@ -338,7 +338,7 @@ def test_the_terms_serve_the_walled_thin_channel():
     f0, m2, n2 = 1e-4, -1e-7, 2.5e-7
     model, _ = front_model(nx=16, ny=1, nz=16, lx=552.0, ly=1.0,
                            lz=200.0, f0=f0, n2=n2, m2=m2, dt=3.0,
-                           periodic_z=False, advection=True)
+                           periodic_z=False, advection=nh.CenteredAdvection())
     rng = np.random.default_rng(5)
     model.set_fields(**{
         c: 1e-4 * rng.standard_normal(model.state[c].shape)
@@ -418,7 +418,7 @@ def test_random_perturbation_grows_only_below_unit_richardson(ri,
     r"""A small random state grows for ``Ri < 1`` and not for ``Ri > 1``.
 
     The qualitative gate, on the same domain for both cases: the linear
-    model (``advection=False``) from a tiny random perturbation. Below
+    model (``advection=None``) from a tiny random perturbation. Below
     ``Ri = 1`` the balanced state has PV of the wrong sign and the
     perturbation energy grows exponentially at the fastest-growing
     slantwise rate; above it every mode is oscillatory and the energy

@@ -33,7 +33,7 @@ def test_nonlinear_thickness_run_is_device_count_invariant(
             core=sw.Core(froude_number=0.25),
             scaling=fr.scaling.GravityWave(),
             coriolis=sw.modules.FPlaneCoriolis(rossby_number=0.5),
-            advection=True,
+            advection=sw.SadournyAdvection(),
             time_stepper=fr.model.time_steppers.AdamBashforth(
                 DT, order=3))
 

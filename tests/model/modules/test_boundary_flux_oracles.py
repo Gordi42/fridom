@@ -47,7 +47,7 @@ def make_model(*modules, stepper=None):
         time_stepper=stepper,
         coriolis=nh.FPlaneCoriolis(f0=0.0),
         buoyancy=nh.ConstantStratification(n2=0.0),
-        advection=False,
+        advection=None,
         modules_extra=modules)
 
 

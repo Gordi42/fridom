@@ -46,7 +46,7 @@ def advecting_model(nu=1e-2):
         time_stepper=AdamBashforth(DT, order=3),
         coriolis=nh.FPlaneCoriolis(f0=1.0),
         buoyancy=nh.ConstantStratification(n2=1.0),
-        advection=True,
+        advection=nh.CenteredAdvection(),
         modules_extra=(fr.model.closures.HarmonicFriction(nu=nu),))
     ax = (np.arange(N) + 0.5) * (TWO_PI / N)
     x, _y, z = np.meshgrid(ax, ax, ax, indexing="ij")

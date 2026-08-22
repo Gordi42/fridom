@@ -120,7 +120,7 @@ def stream():
 ])
 def test_modules_takes_a_bare_module_a_list_or_a_tuple(wrap):
     model = make_model(modules=wrap(GainForcing(2.0)))
-    model.run(steps=2, progress=False)
+    model.run(steps=2)
     assert float(model.state["u"].data[0]) == pytest.approx(2 * DT * 2.0)
 
 
@@ -172,14 +172,14 @@ def test_an_unwaived_frozen_field_still_trips_the_coverage_lint():
 # ================================================================
 def test_run_outputs_takes_a_bare_stream():
     one = stream()
-    make_model().run(steps=3, outputs=one, progress=False)
+    make_model().run(steps=3, outputs=one)
     assert one.writes == [0, 1, 2, 3]
 
 
 def test_run_outputs_takes_a_list_and_adds_to_the_standing_io():
     standing, extra = stream(), stream()
     model = make_model(io=standing)
-    model.run(steps=2, outputs=[extra], progress=False)
+    model.run(steps=2, outputs=[extra])
     assert standing.writes == extra.writes == [0, 1, 2]
 
 

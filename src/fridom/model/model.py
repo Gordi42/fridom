@@ -1451,7 +1451,7 @@ class Model:
         that case from a field frozen on purpose, so the deliberate
         one is declared here rather than faked with a zero-valued
         module: a non-rotating linear nonhydrostatic slice
-        (``advection=False``, no Coriolis) leaves ``u``/``v`` carrying
+        (``advection=None``, no Coriolis) leaves ``u``/``v`` carrying
         no term at all, and ``allow_unadvanced=("u", "v")`` is what
         makes it assemblable. Every name must be a PROGNOSTIC field of
         this assembly (an unknown name is an assembly error, so a typo
@@ -2797,7 +2797,7 @@ class Model:
         outputs: OutputStream | Sequence[OutputStream] = (),
         snapshots: Any = None,
         max_chunk: int | None = None,
-        progress: bool | Any = True,
+        progress: Any | None = None,
         jit: bool = True,
         profile: str | None = None,
         debug_nan: bool = False,
@@ -2842,8 +2842,10 @@ class Model:
             The restart-snapshot run config (default: None).
         max_chunk : int or None, optional
             Host-sync granularity override (default: None).
-        progress : bool or ProgressReporter, optional
-            Progress rendering (default: True).
+        progress : ProgressReporter or None, optional
+            Progress rendering: ``None`` reports nothing,
+            ``fr.ops.ProgressBar()`` renders the bar; a boolean is
+            refused (default: None).
         jit : bool, optional
             Reserved chunk-dispatch policy; ``jit=False`` is not wired
             in wave 5 (default: True).

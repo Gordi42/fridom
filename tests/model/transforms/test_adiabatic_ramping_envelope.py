@@ -308,7 +308,7 @@ def test_etdrk4_with_an_enveloped_nonlinearity_runs():
             grid=grid, scaling=fr.scaling.GravityWave(),
             core=sw.Core(froude_number=0.2, depth=1.0),
             coriolis=sw.modules.FPlaneCoriolis(rossby_number=0.2),
-            advection=True, time_stepper=stepper, **extra)
+            advection=sw.SadournyAdvection(), time_stepper=stepper, **extra)
 
     basis = sw.eigenbasis(channel(AdamBashforth(1e-3, order=3)))
     target = channel(ETDRK4(2e-3, basis),

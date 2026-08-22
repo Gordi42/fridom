@@ -7,7 +7,7 @@ Dirichlet tag on the inner y faces, everything else stays BC-free),
 the walled-y spectral pressure solve (the projection drives the
 discrete divergence to machine zero with no boundary seams), the
 projected-tendency matvec, and time stepping. A nonlinear run
-(``advection=True``: the centered scheme's structural-zero wall
+(``nh.CenteredAdvection()``: the centered scheme's structural-zero wall
 fluxes) and a walled-x twin guarding the axis-generic gradient retag
 in the projection stage ride on top.
 """
@@ -40,7 +40,7 @@ def make_model(*, walled="y"):
         time_stepper=AdamBashforth(5e-3, order=3),
         coriolis=nh.FPlaneCoriolis(f0=F0),
         buoyancy=nh.ConstantStratification(n2=N2),
-        advection=False)
+        advection=None)
 
 
 @pytest.fixture(scope="module")
@@ -147,7 +147,7 @@ def test_nonlinear_advance_stays_finite_and_divergence_free(walled):
         time_stepper=AdamBashforth(5e-3, order=3),
         coriolis=nh.FPlaneCoriolis(f0=F0),
         buoyancy=nh.ConstantStratification(n2=N2),
-        advection=True)
+        advection=nh.CenteredAdvection())
     _random_state(model, seed=6)
     model.advance(3)
     assert not model.panicked

@@ -11,7 +11,7 @@ weights. ``_sealed_metric_divide`` keeps the forward run bitwise
 identical on valid cells while making ``jax.grad`` finite and matched
 to a central finite difference (rtol 1e-4). The nonlinear Sadourny
 scheme carries its own guarded metric divides, so this isolation runs
-``advection=False``. Recipe: ``tests/model/test_model_autodiff.py``.
+``advection=None``. Recipe: ``tests/model/test_model_autodiff.py``.
 """
 import jax
 import jax.numpy as jnp
@@ -35,11 +35,11 @@ def sphere_grid(nlon=2 * N, nlat=N, radius=1.0):
         (nlon, nlat), radius=radius, lat_extent=(-LAT_MAX, LAT_MAX))
 
 
-def sphere_model(*, coriolis, csqr=0.7, ro=0.4, advection=False):
+def sphere_model(*, coriolis, csqr=0.7, ro=0.4, advection=None):
     """Assemble a tiny spherical shallow-water model.
 
-    ``advection=False`` (the default) isolates the linear core's metric
-    divergence (the ``MetricScaled`` reciprocal). ``advection=True``
+    ``advection=None`` (the default) isolates the linear core's metric
+    divergence (the ``MetricScaled`` reciprocal). ``sw.SadournyAdvection()``
     additionally exercises the nonlinear Sadourny scheme, whose chart
     path divides the kinetic energy by the centre metric ``sqrt_g``
     (``sqg_p``, an exact zero in the walled polar/halo padding); that
@@ -139,7 +139,7 @@ def test_sphere_run_stays_finite():
 def test_sphere_advection_ic_grad_is_finite_and_matches_fd():
     """Grad through the Sadourny chart run w.r.t. the IC: finite, FD.
 
-    ``advection=True`` routes through ``SadournyAdvection._advect_chart``,
+    ``sw.SadournyAdvection()`` routes through ``_advect_chart``,
     which divides the chart kinetic energy by the centre metric
     ``sqg_p``. That weight is an exact zero in the walled sphere's
     never-valid polar/halo padding, so the bare quotient's reverse VJP
@@ -148,7 +148,7 @@ def test_sphere_advection_ic_grad_is_finite_and_matches_fd():
     the forward run bitwise identical on valid cells while making
     ``jax.grad`` finite and matched to a central finite difference.
     """
-    model = sphere_model(coriolis=None, advection=True)
+    model = sphere_model(coriolis=None, advection=sw.SadournyAdvection())
     set_random(model)
     loss, p_leaf = ic_loss(model, n_steps=6)
 

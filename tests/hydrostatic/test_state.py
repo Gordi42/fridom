@@ -20,7 +20,7 @@ def make_grid(nx=8, nz=4):
 
 
 def make_model():
-    """Return a minimal linear hydrostatic model (advection=False)."""
+    """Return a minimal linear hydrostatic model (advection=None)."""
     return hy.Model(
         grid=make_grid(),
         core=hy.Core(gravity=1.0),
@@ -28,7 +28,7 @@ def make_model():
         coriolis=hy.FPlaneCoriolis(f0=1.0),
         buoyancy=hy.ConstantStratification(n2=1.0),
         free_surface=hy.ExplicitFreeSurface(),
-        advection=False)
+        advection=None)
 
 
 # ================================================================

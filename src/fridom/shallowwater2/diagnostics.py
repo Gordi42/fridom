@@ -18,7 +18,7 @@ functionals — the user picks:
   ``(u, v, p)`` (``fr.model.EnergyMetric``; a single source of truth for
   the metric weights), sampled at the cell centre. ``M`` is the norm
   of the eigenmode / projection machinery, and the **linear** model
-  (``advection=False``) conserves it exactly — but exactly means the
+  (``advection=None``) conserves it exactly — but exactly means the
   ``M``-norm itself, the quadratics summed on the fields' *own*
   staggered spaces; these densities square the centre-*interpolated*
   velocities, so their integral is a centre-sampled proxy of that

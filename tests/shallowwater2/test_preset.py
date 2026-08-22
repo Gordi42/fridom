@@ -22,7 +22,7 @@ def test_preset_equals_explicit_assembly_treedef():
         core=sw.Core(froude_number=0.2, depth=1.0),
         scaling=fr.scaling.GravityWave(),
         coriolis=sw.modules.FPlaneCoriolis(rossby_number=0.2),
-        advection=True,
+        advection=sw.SadournyAdvection(),
         time_stepper=stepper)
     explicit = fr.model.Model(
         grid=grid,
@@ -136,7 +136,7 @@ def make_varying(coriolis=None):
     return sw.Model(
         grid=make_grid(periodic_y=False),
         core=sw.Core(gravity=1.0, depth=csqr_profile),
-        coriolis=coriolis, advection=False,
+        coriolis=coriolis, advection=None,
         time_stepper=fr.model.time_steppers.AdamBashforth(5e-3, order=3))
 
 
@@ -229,7 +229,7 @@ def test_flat_linear_model_negotiates_the_traced_halo():
         grid=make_grid(),
         core=sw.Core(gravity=1.0, depth=1.0),
         coriolis=sw.modules.FPlaneCoriolis(f0=1.0),
-        advection=False,
+        advection=None,
         time_stepper=fr.model.time_steppers.AdamBashforth(5e-3, order=3))
     halo = model.grid.decomposition.halo
     assert halo["x"] == 1
@@ -243,8 +243,25 @@ def test_sadourny_model_keeps_its_declared_halo():
         grid=make_grid(),
         core=sw.Core(gravity=1.0, depth=1.0),
         coriolis=sw.modules.FPlaneCoriolis(f0=1.0),
-        advection=True,
+        advection=sw.SadournyAdvection(),
         time_stepper=fr.model.time_steppers.AdamBashforth(5e-3, order=3))
     halo = model.grid.decomposition.halo
     assert halo["x"] == 2
     assert halo["y"] == 2
+
+
+# ================================================================
+#  advection= takes a module or None (object-or-None keywords)
+# ================================================================
+@pytest.mark.parametrize("value", [True, False])
+def test_advection_refuses_a_boolean(value):
+    with pytest.raises(TypeError, match="takes a module or None"):
+        sw.Model(
+            grid=make_grid(),
+            core=sw.Core(gravity=1.0, depth=1.0),
+            time_stepper=fr.model.time_steppers.AdamBashforth(5e-3, order=3),
+            advection=value)
+
+
+def test_sadourny_advection_is_exported_at_the_root():
+    assert sw.SadournyAdvection is sw.modules.SadournyAdvection

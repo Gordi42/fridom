@@ -72,7 +72,7 @@ def _model(grid, *, free_surface=None, substeps=16, csqr=CSQR, f0=0.5,
         coriolis=hy.FPlaneCoriolis(f0=f0) if f0 else None,
         buoyancy=hy.ConstantStratification(n2=n2),
         free_surface=free_surface or SEFS(substeps=substeps),
-        advection=False)
+        advection=None)
 
 
 def _random_ic(model, *, seed=0, scale=1.0):
@@ -207,7 +207,7 @@ def _rest_run(grid, free_surface, *, steps=10, dt=2e-3):
         v=np.zeros(model.state["v"].shape),
         b=np.asarray(-N2 * zp),
         ps=np.zeros(model.state["ps"].shape))
-    model.run(steps, progress=False)
+    model.run(steps)
     return model
 
 

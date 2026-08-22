@@ -108,7 +108,7 @@ def linear_channel():
     projections and the ramped legs carry the same grid identity (the
     signatures compose).
     """
-    target = _channel_model(DT, advection=False)
+    target = _channel_model(DT, advection=None)
     reference = target.variant(updates={"coriolis.beta": 0.0})
     return {
         "target": target,
@@ -241,7 +241,7 @@ def ob_info():
     (transform-free) model panics within 30 steps — so it cannot
     gate OB.
     """
-    model = _channel_model(DT, advection=True)
+    model = _channel_model(DT, advection=sw.SadournyAdvection())
     reference = model.variant(updates={"coriolis.beta": 0.0})
     p_ref = sw.transforms.VorticalProjection(sw.eigenbasis(reference))
     p_adiab = AdiabaticProjection(_up_leg(model, 0.3), p_ref)
@@ -268,7 +268,7 @@ def test_ob_backward_leg_retraces_the_envelope_one_to_zero():
     # reversed envelope — rho = 1 at leg start (clock 0), rho = 0 at
     # leg end (clock -ramp_period) — under a flipped dt. Host-side
     # parameter assertions only, no integration.
-    model = _channel_model(DT, advection=True)
+    model = _channel_model(DT, advection=sw.SadournyAdvection())
     ob = fr.model.OptimalBalance(
         model, base_projection=Identity(), ramp_period=0.3, max_it=1)
     fwd_rho = ob.forward.model.parameters["ramping.envelope"]
@@ -289,7 +289,7 @@ def dt_halving():
     tau = 1.0
     errs = {}
     for dt in (DT, DT / 2):
-        model = _channel_model(dt, advection=False)
+        model = _channel_model(dt, advection=None)
         reference = model.variant(updates={"coriolis.beta": 0.0})
         p_ref = sw.transforms.VorticalProjection(sw.eigenbasis(reference))
         p_tgt = sw.transforms.VorticalProjection(sw.eigenbasis(model))
@@ -381,7 +381,7 @@ def test_rejects_a_model_with_a_linear_operator_gap():
     route_b = sw.Model(
         grid=grid, core=sw.Core(gravity=1.0, depth=CSQR),
         coriolis=sw.modules.NonlinearBetaPlaneCoriolis(f0=F0, beta=BETA),
-        advection=False,
+        advection=None,
         time_stepper=AdamBashforth(DT, order=3))
     leg = AdiabaticRamping(route_b, ramps={}, ramp_period=1.0)
     with pytest.raises(LinearOperatorGapError, match="AdiabaticProjection"):

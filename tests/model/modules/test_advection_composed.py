@@ -62,7 +62,7 @@ def composed_model(grid, **kw):
         time_stepper=AdamBashforth(DT, order=3),
         coriolis=nh.FPlaneCoriolis(f0=1.0),
         buoyancy=nh.ConstantStratification(n2=0.0),
-        advection=True,
+        advection=nh.CenteredAdvection(),
         **kw)
 
 
@@ -142,7 +142,7 @@ def test_all_wet_chart_advection_matches_the_pure_mapped_run():
         time_stepper=AdamBashforth(DT, order=3),
         coriolis=nh.FPlaneCoriolis(f0=1.0),
         buoyancy=nh.ConstantStratification(n2=0.0),
-        advection=True)
+        advection=nh.CenteredAdvection())
     rng = np.random.default_rng(3)
     fields = {c: rng.standard_normal(model_c.state[c].data.shape)
               for c in ("u", "v", "w", "b")}

@@ -68,7 +68,7 @@ def mapped_model(*, dt=0.02, family="nodal", pressure_iterations=12,
         time_stepper=AdamBashforth(dt, order=3),
         coriolis=nh.FPlaneCoriolis(f0=1.0),
         buoyancy=nh.ConstantStratification(n2=1.0),
-        advection=False)
+        advection=None)
     rng = np.random.default_rng(0)
     model.set_fields(**{
         k: 0.2 * rng.standard_normal(model.state[k].data.shape)
@@ -174,7 +174,7 @@ def stretched_multigrid_model(*, dt=0.02, pressure_iterations=12):
         time_stepper=AdamBashforth(dt, order=3),
         coriolis=nh.FPlaneCoriolis(f0=1.0),
         buoyancy=nh.ConstantStratification(n2=1.0),
-        advection=False)
+        advection=None)
     rng = np.random.default_rng(0)
     model.set_fields(**{
         k: 0.2 * rng.standard_normal(model.state[k].data.shape)

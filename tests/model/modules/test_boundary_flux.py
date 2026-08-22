@@ -44,7 +44,7 @@ def make_model(*modules, grid=None):
         time_stepper=AdamBashforth(1e-3, order=3),
         coriolis=nh.FPlaneCoriolis(f0=0.0),
         buoyancy=nh.ConstantStratification(n2=0.0),
-        advection=False,
+        advection=None,
         modules_extra=modules)
 
 

@@ -701,7 +701,13 @@ amendment. The summary:
 
 - **Constructor**: `fr.Model(grid, modules, time_stepper (required,
   no default), io=(), state_type=None, name=None)`; presets are
-  thin factories tested by treedef identity. **`__init__` is
+  thin factories tested by treedef identity. **Object-or-None
+  keywords** (owner ruling 2026-08-22,
+  `decisions/object_or_none_keywords.md`): a keyword that can take an
+  object takes the object or `None` (`coriolis=`, `buoyancy=`,
+  `advection=`, `run(progress=)`); a boolean is for a flag with no
+  object behind it. `None` installs nothing; the object names what is
+  installed. No preset installs physics unasked. **`__init__` is
   assembly** — a nine-step, pure, deterministic pipeline (fields →
   parameters → **dispatch merge** → bind → terms/schedule → dry run
   → negotiate/freeze → allocate-born-sharded → report), with the

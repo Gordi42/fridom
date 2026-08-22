@@ -63,7 +63,7 @@ def sphere_model(nlon=32, nlat=16, *, csqr=GH0,
     reproduces it verbatim (the core carries the chart coords).
     """
     return sw.Model(
-        advection=True,
+        advection=sw.SadournyAdvection(),
         grid=sphere_grid(nlon, nlat, device_ids=device_ids),
         core=sw.Core(gravity=1.0, depth=csqr,
                      coords=("lon", "lat")),
@@ -127,7 +127,7 @@ def test_identity_chart_run_is_bitwise_flat():
         # every live ratio is an exact 1.0 multiply, so the
         # chart-vs-flat bitwise claim is untouched
         return sw.Model(
-            advection=True,
+            advection=sw.SadournyAdvection(),
             grid=grid, core=sw.Core(froude_number=0.4, depth=0.7),
             scaling=fr.scaling.GravityWave(),
             coriolis=coriolis,
@@ -355,7 +355,7 @@ def test_spherical_run_drives_the_full_output_loop(tmp_path):
     path = tmp_path / "sphere.zarr"
     writer = fr.io.Writer(path, fields=["u", "v", "p"],
                           trigger=fr.io.triggers.every(steps=2))
-    result = model.run(steps=6, outputs=(writer,), progress=False)
+    result = model.run(steps=6, outputs=(writer,))
     assert result.status is fr.model.results.RunStatus.COMPLETED
     assert result.steps_done == 6
     assert result.final_it == 6
@@ -373,7 +373,7 @@ def test_spherical_run_reproduces_advance():
     # run() is sugar over advance(): the same steps, the same state
     # (the chunked jit boundary shifts the last ulp on v only)
     driven = seeded_sphere_model()
-    driven.run(steps=6, progress=False)
+    driven.run(steps=6)
     stepped = seeded_sphere_model()
     stepped.advance(6)
     for name in ("u", "v", "p"):
@@ -388,6 +388,6 @@ def test_spherical_run_conserves_mass():
     # the public run() driver
     model = seeded_sphere_model(32, 16)
     mass0 = float(model.state["p"].integrate().data.ravel()[0])
-    model.run(steps=50, progress=False)
+    model.run(steps=50)
     mass1 = float(model.state["p"].integrate().data.ravel()[0])
     assert abs(mass1 - mass0) / abs(mass0) < 1e-13

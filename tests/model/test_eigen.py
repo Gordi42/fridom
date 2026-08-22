@@ -52,7 +52,8 @@ def sw_model(n=16, *, f0=1.0, csqr=1.0, device_ids=None):
     return sw.Model(
         grid=Grid((mx, my), device_ids=device_ids),
         core=sw.Core(gravity=1.0, depth=csqr),
-        coriolis=sw.modules.FPlaneCoriolis(f0=f0), advection=True,
+        coriolis=sw.modules.FPlaneCoriolis(f0=f0),
+        advection=sw.SadournyAdvection(),
         time_stepper=AdamBashforth(5e-3, order=3))
 
 
@@ -218,7 +219,7 @@ def test_rejects_a_walled_grid():
         time_stepper=AdamBashforth(5e-3, order=3),
         coriolis=FPlaneCoriolis(f0=1.0),
         buoyancy=nh.ConstantStratification(n2=1.0),
-        advection=False)
+        advection=None)
     with pytest.raises(
             ValueError,
             match=r"bounded axes \('z',\).*channel_eigenpairs"):
@@ -246,7 +247,7 @@ def test_rejects_a_varying_csqr_model():
         grid=Grid((mx, my)),
         core=sw.Core(gravity=1.0,
                      depth=lambda y: 1.0 + 0.5 * np.sin(2 * np.pi * y)),
-        advection=False,
+        advection=None,
         coriolis=FPlaneCoriolis(f0=1.0, metric_weight="csqr"),
         time_stepper=AdamBashforth(5e-3, order=3))
     with pytest.raises(ValueError, match=r"csqr.*channel"):
@@ -263,7 +264,7 @@ def test_rejects_a_varying_stratification_model():
         time_stepper=AdamBashforth(5e-3, order=3),
         coriolis=FPlaneCoriolis(f0=1.0),
         buoyancy=nh.MeridionalStratification( n2=lambda y: 1.0 + y * y),
-        advection=False)
+        advection=None)
     with pytest.raises(ValueError, match=r"n2.*channel"):
         numeric_eigenpairs(model)
 

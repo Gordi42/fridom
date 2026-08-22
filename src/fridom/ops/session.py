@@ -75,6 +75,7 @@ if TYPE_CHECKING:  # pragma: no cover
 
     from fridom.io.streams import OutputStream
     from fridom.model.model import Model
+    from fridom.ops.protocols import ProgressReporter
 
 _log = logging.getLogger(__name__)
 
@@ -146,43 +147,6 @@ class _Book:
         self.wall_seconds = 0.0
 
 
-class _LoggingProgress:
-
-    """The minimal default progress reporter (rank-0, logs).
-
-    Description
-    -----------
-    The full tqdm/StringIO renderer is a 2.6 item; iteration 1 ships
-    a rank-0-guarded logging reporter so ``progress=True`` has a
-    concrete default. Custom reporters implement the same three
-    normative hook names.
-    """
-
-    def __init__(self) -> None:
-        """Guard rendering to process rank 0."""
-        self._rank0 = jax.process_index() == 0
-
-    def on_run_start(self, *, models: Any, n_steps: int | None) -> None:
-        """Log the run start (rank 0 only)."""
-        if self._rank0:
-            _log.info("run start: %d model(s), n_steps=%s",
-                      len(models), n_steps)
-
-    def on_chunk(self, stats: ChunkStats) -> None:
-        """Log one chunk-boundary observation (rank 0 only)."""
-        if self._rank0:
-            _log.debug(
-                "chunk: model=%s it=%d t=%.6g steps=%d rate=%.1f/s",
-                stats.name, stats.iteration, stats.time,
-                stats.steps_done, stats.steps_per_second)
-
-    def on_run_end(self, results: Any) -> None:
-        """Log the run end (rank 0 only)."""
-        if self._rank0:
-            _log.info("run end: %s",
-                      {k: v.status.value for k, v in results.items()})
-
-
 # ================================================================
 #  Session
 # ================================================================
@@ -216,11 +180,11 @@ class Session:
         The restart-snapshot run config (the only home for a
         ``Snapshots``); its walltime component feeds the
         ``WalltimeGuard`` (default: None).
-    progress : bool or ProgressReporter, optional
-        ``True`` installs the default logging reporter; ``False``
-        disables progress; a reporter object is used as-is — pass
-        ``fr.ops.ProgressBar()`` for the rendered bar
-        (default: True).
+    progress : ProgressReporter or None, optional
+        The progress reporter. ``None`` (the default) reports
+        nothing; a reporter object is used as-is — pass
+        ``fr.ops.ProgressBar()`` for the rendered bar. A boolean is
+        refused with a taught error (default: None).
     max_chunk : int or None, optional
         Host-sync granularity: the largest sub-advance between
         boundaries. ``None`` uses each model's ``chunk_size``
@@ -239,7 +203,7 @@ class Session:
         *,
         outputs: OutputStream | Sequence[OutputStream] = (),
         snapshots: Snapshots | None = None,
-        progress: bool | Any = True,
+        progress: ProgressReporter | None = None,
         max_chunk: int | None = _DEFAULT_MAX_CHUNK,
         jit: bool = True,
         debug_nan: bool = False,
@@ -271,12 +235,13 @@ class Session:
                 "per-term timing table")
         self._jit = jit
         self._debug_nan = bool(debug_nan)
-        if progress is True:
-            self._reporter: Any = _LoggingProgress()
-        elif progress is False:
-            self._reporter = None
-        else:
-            self._reporter = progress
+        if isinstance(progress, bool):
+            raise TypeError(
+                "progress= takes a ProgressReporter or None, not "
+                f"{progress!r}: pass progress=None (silent, the "
+                "default) or a reporter such as "
+                "progress=fr.ops.ProgressBar()")
+        self._reporter: Any = progress
         # lifecycle flags
         self._entered = False
         self._exited = False

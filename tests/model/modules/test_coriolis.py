@@ -63,7 +63,7 @@ def make_channel(csqr, coriolis):
     return sw.Model(
         grid=fr.spatial.Grid((mx, my), device_ids=(0,)),
         core=sw.Core(gravity=1.0, depth=csqr),
-        coriolis=coriolis, advection=False,
+        coriolis=coriolis, advection=None,
         time_stepper=AdamBashforth(5e-3, order=3))
 
 
@@ -219,7 +219,7 @@ def make_chart_model(grid, coriolis=None, *, coords, csqr=0.7):
     """Build a linear shallow-water model on a chart grid."""
     return sw.Model(
         grid=grid, core=sw.Core(gravity=1.0, depth=csqr, coords=coords),
-        coriolis=coriolis, advection=False,
+        coriolis=coriolis, advection=None,
         time_stepper=AdamBashforth(
             1e-3, order=3))
 
@@ -565,7 +565,7 @@ def _r1_channel(grid, f0, order=3):
     """Return a linear sw channel with the given (float or Ramp) f0."""
     return sw.Model(
         grid=grid, core=sw.Core(gravity=1.0, depth=1.0),
-        coriolis=FPlaneCoriolis(f0=f0), advection=False,
+        coriolis=FPlaneCoriolis(f0=f0), advection=None,
         time_stepper=AdamBashforth(
             RAMP_DT, order=order))
 
@@ -711,7 +711,7 @@ def _beta_channel(grid, f0=F0, beta=0.0, order=3):
     """Return a linear sw channel with the given (float/Ramp) f0/beta."""
     return sw.Model(
         grid=grid, core=sw.Core(gravity=1.0, depth=1.0),
-        coriolis=BetaPlaneCoriolis(f0=f0, beta=beta), advection=False,
+        coriolis=BetaPlaneCoriolis(f0=f0, beta=beta), advection=None,
         time_stepper=AdamBashforth(
             RAMP_DT, order=order))
 
@@ -920,7 +920,8 @@ def test_beta_plane_etdrk4_refuses_a_ramped_beta():
     grid = _r1_grid()
     static = sw.Model(
         grid=grid, core=sw.Core(gravity=1.0, depth=1.0),
-        coriolis=BetaPlaneCoriolis(f0=1.0, beta=2.0), advection=True,
+        coriolis=BetaPlaneCoriolis(f0=1.0, beta=2.0),
+        advection=sw.SadournyAdvection(),
         time_stepper=AdamBashforth(RAMP_DT))
     basis = sw.eigenbasis(static)
     ramp = fr.model.Ramp(0.0, 2.0, period=1.0)
@@ -930,7 +931,7 @@ def test_beta_plane_etdrk4_refuses_a_ramped_beta():
         sw.Model(
             grid=grid, core=sw.Core(gravity=1.0, depth=1.0),
             coriolis=BetaPlaneCoriolis(f0=1.0, beta=ramp),
-            advection=True,
+            advection=sw.SadournyAdvection(),
             time_stepper=fr.model.time_steppers.ETDRK4(RAMP_DT, basis),
             term_filter=~terms.linear)
 
@@ -988,7 +989,7 @@ def _law_channel(grid, law, order=1):
     """Return a linear sw channel with a law-valued Coriolis f(y,t)."""
     return sw.Model(
         grid=grid, core=sw.Core(gravity=1.0, depth=1.0),
-        coriolis=BetaPlaneCoriolis(f0=1.0, f=law), advection=False,
+        coriolis=BetaPlaneCoriolis(f0=1.0, f=law), advection=None,
         time_stepper=AdamBashforth(
             RAMP_DT, order=order))
 
@@ -1083,7 +1084,8 @@ def test_beta_plane_law_etdrk4_refuses():
     grid = _r1_grid()
     static = sw.Model(
         grid=grid, core=sw.Core(gravity=1.0, depth=1.0),
-        coriolis=BetaPlaneCoriolis(f0=1.0, beta=2.0), advection=True,
+        coriolis=BetaPlaneCoriolis(f0=1.0, beta=2.0),
+        advection=sw.SadournyAdvection(),
         time_stepper=AdamBashforth(RAMP_DT))
     basis = sw.eigenbasis(static)
     law = fr.model.ProfileFunction(
@@ -1093,7 +1095,8 @@ def test_beta_plane_law_etdrk4_refuses():
             match=r"f_coriolis"):
         sw.Model(
             grid=grid, core=sw.Core(gravity=1.0, depth=1.0),
-            coriolis=BetaPlaneCoriolis(f0=1.0, f=law), advection=True,
+            coriolis=BetaPlaneCoriolis(f0=1.0, f=law),
+            advection=sw.SadournyAdvection(),
             time_stepper=fr.model.time_steppers.ETDRK4(RAMP_DT, basis),
             term_filter=~terms.linear)
 
@@ -1257,7 +1260,7 @@ def _immersed_weighted_model():
     model = sw.Model(
         grid=grid, core=sw.Core(gravity=1.0, depth=0.8),
         coriolis=FPlaneCoriolis(f0=1.0, metric_weight="csqr"),
-        advection=False,
+        advection=None,
         time_stepper=AdamBashforth(0.01, order=3))
     rng = np.random.default_rng(0)
     mask = np.asarray(
@@ -1363,13 +1366,13 @@ def test_nondim_fplane_scales_the_dim_body():
     grid = _flat_grid()
     dim = sw.Model(
         grid=grid, core=sw.Core(gravity=1.0, depth=0.7),
-        coriolis=FPlaneCoriolis(f0=2.0), advection=False,
+        coriolis=FPlaneCoriolis(f0=2.0), advection=None,
         time_stepper=AdamBashforth(
             RAMP_DT, order=3))
     nondim = sw.Model(
         grid=grid, core=sw.Core(froude_number=0.4, depth=0.7),
         scaling=fr.scaling.GravityWave(),
-        coriolis=FPlaneCoriolis(rossby_number=0.2), advection=False,
+        coriolis=FPlaneCoriolis(rossby_number=0.2), advection=None,
         time_stepper=AdamBashforth(
             RAMP_DT, order=3))
     rng = np.random.default_rng(21)
@@ -1398,7 +1401,7 @@ def test_nondim_betaplane_f_shape():
         scaling=fr.scaling.GravityWave(),
         coriolis=BetaPlaneCoriolis(rossby_number=0.2,
                                    metric_ratio=0.5),
-        advection=False,
+        advection=None,
         time_stepper=AdamBashforth(
             RAMP_DT, order=3))
     f = model.state["f_coriolis"]

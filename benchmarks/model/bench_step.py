@@ -206,7 +206,7 @@ def nh_flat_advective(n):
     """Advective step on the triply periodic flat grid.
 
     The production configuration, and the one every other nonhydro case
-    here is blind to: they all run ``advection=False``. That gap let a
+    here is blind to: they all run ``advection=None``. That gap let a
     4% advective regression pass a green suite (2026-07-14, the
     in-place halo write), because the advective step's cost structure is
     genuinely different -- its stencil consumers can absorb a ghost fill
@@ -214,7 +214,8 @@ def nh_flat_advective(n):
     change that moves a fusion boundary must be priced HERE, not only on
     the linear cases.
     """
-    model = _nh_model(n, mapped=False, periodic_z=True, advection=True)
+    model = _nh_model(n, mapped=False, periodic_z=True,
+                      advection=nh.CenteredAdvection())
     return _stepping_case(model, float(n) ** 3)
 
 
@@ -242,8 +243,8 @@ def nh_flat_advective_nodal(n):
     ``nh_flat_advective``), so FV-vs-FD parity must be priced here
     too, not only on the linear case.
     """
-    model = _nh_model(n, mapped=False, periodic_z=True, advection=True,
-                      family="nodal")
+    model = _nh_model(n, mapped=False, periodic_z=True,
+                      advection=nh.CenteredAdvection(), family="nodal")
     return _stepping_case(model, float(n) ** 3)
 
 
@@ -410,7 +411,7 @@ def sw_flat(n):
     model = sw.Model(grid=fr.spatial.Grid((mx, my)),
                      core=sw.Core(froude_number=1.0, depth=0.01),
                      scaling=fr.scaling.GravityWave(),
-                     advection=True,
+                     advection=sw.SadournyAdvection(),
                      coriolis=sw.modules.FPlaneCoriolis(
                          rossby_number=1.0),
                      chunk_size=STEPS,
@@ -444,7 +445,7 @@ def sw_sphere(n):
                      core=sw.Core(froude_number=1.0, depth=0.01,
                                   coords=("lon", "lat")),
                      scaling=fr.scaling.GravityWave(),
-                     advection=True,
+                     advection=sw.SadournyAdvection(),
                      coriolis=sw.modules.RotationCoriolis(
                          omega=(0.0, 0.0, 1.0), coords=("lon", "lat"),
                          metric_weight="csqr"),

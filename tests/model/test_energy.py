@@ -137,7 +137,7 @@ def test_from_model_nonhydro_weights():
         time_stepper=AdamBashforth(DT, order=3),
         coriolis=FPlaneCoriolis(f0=1.0),
         buoyancy=nh.ConstantStratification(n2=1.0),
-        advection=False)
+        advection=None)
     metric = EnergyMetric.from_model(model)
     assert metric.component_names == ("u", "v", "w", "b")
     # dsqr default 1.0, n2 default 1.0 -> all-unit weights
@@ -179,7 +179,7 @@ def test_from_model_rejects_beta_plane():
         time_stepper=AdamBashforth(DT, order=3),
         coriolis=BetaPlaneCoriolis(f0=1.0, beta=0.5),
         buoyancy=nh.ConstantStratification(n2=1.0),
-        advection=False)
+        advection=None)
     with pytest.raises(ValueError, match="coriolis"):
         EnergyMetric.from_model(bp)
 
@@ -286,7 +286,7 @@ def test_physical_identity_nonhydro():
         time_stepper=AdamBashforth(DT, order=3),
         coriolis=FPlaneCoriolis(f0=1.0),
         buoyancy=nh.ConstantStratification(n2=1.0),
-        advection=False)
+        advection=None)
     metric = EnergyMetric.from_model(model)
     z = collocated_nh_state(model.grid)
     params = model.parameters
@@ -392,7 +392,7 @@ def varying_sw_model(csqr_fn, grid=None):
     """Build a walled channel with a varying csqr(y) profile."""
     return sw.Model(
         grid=_walled_sw_grid() if grid is None else grid,
-        core=sw.Core(gravity=1.0, depth=csqr_fn), advection=False,
+        core=sw.Core(gravity=1.0, depth=csqr_fn), advection=None,
         coriolis=FPlaneCoriolis(f0=1.0, metric_weight="csqr"),
         time_stepper=AdamBashforth(5e-3, order=3))
 
@@ -410,7 +410,7 @@ def varying_nh_model(n2_fn):
         time_stepper=AdamBashforth(DT, order=3),
         coriolis=FPlaneCoriolis(f0=1.0),
         buoyancy=nh.MeridionalStratification(n2=n2_fn),
-        advection=False)
+        advection=None)
 
 
 def csqr_tanh(y):
@@ -567,7 +567,7 @@ def test_from_model_hydrostatic_weights():
         coriolis=hy.FPlaneCoriolis(f0=1.0),
         buoyancy=hy.ConstantStratification(n2=4.0),
         free_surface=hy.ExplicitFreeSurface(),
-        advection=False)
+        advection=None)
     metric = EnergyMetric.from_model(model)
     assert metric.component_names == ("u", "v", "b", "ps")
     assert dict(metric.weights) == {
@@ -628,7 +628,7 @@ def _hydro_model(grid, *, csqr=3.0, n2=2.0):
         coriolis=None,
         buoyancy=hy.ConstantStratification(n2=n2),
         free_surface=hy.ExplicitFreeSurface(),
-        advection=False)
+        advection=None)
 
 
 def _terrain_hydro_grid(nx=8, nz=6, a=0.2):
@@ -746,7 +746,7 @@ def tracking_sw_model(grid=None, *, order=3, dt=5e-3):
     return sw.Model(
         grid=_walled_sw_grid() if grid is None else grid,
         core=sw.Core(gravity=1.0, depth=_affine_csqr_law()),
-        advection=False, coriolis=None,
+        advection=None, coriolis=None,
         time_stepper=AdamBashforth(dt, order=order))
 
 
@@ -865,7 +865,7 @@ def tracking_nh_model(*, order=3, dt=5e-3):
         time_stepper=AdamBashforth(dt, order=order),
         coriolis=FPlaneCoriolis(f0=1.0),
         buoyancy=nh.MeridionalStratification(n2=_affine_n2_law()),
-        advection=False)
+        advection=None)
 
 
 def test_state_sourced_nonhydro_reciprocal_tracks_stage_time():

@@ -35,9 +35,10 @@ def walled_model(*, periodic_x=True, f0=0.0, ro=0.4, dt=2e-3):
     grid = make_grid(periodic_x=periodic_x, periodic_y=False)
     if f0 == 0.0:
         return make_model(grid, csqr=CSQR, rossby_number=ro,
-                          coriolis=False, advection=True, dt=dt)
+                          coriolis=False, dt=dt,
+                          advection=sw.SadournyAdvection())
     return make_model(grid, csqr=CSQR, rossby_number=ro, f0=f0,
-                      advection=True, dt=dt)
+                      advection=sw.SadournyAdvection(), dt=dt)
 
 
 def set_random(model, seed=11, amp=1.0):
@@ -114,8 +115,9 @@ def test_depth_and_froude_scalars_are_published_for_host_reads():
 
 def test_advection_changes_the_solution_vs_linear():
     grid = make_grid()
-    nonlin = make_model(grid, rossby_number=0.5, advection=True)
-    linear = make_model(grid, rossby_number=0.5, advection=False)
+    nonlin = make_model(grid, rossby_number=0.5,
+                        advection=sw.SadournyAdvection())
+    linear = make_model(grid, rossby_number=0.5, advection=None)
     nonlin.set_fields(p=gaussian_bump(amp=0.2),
                       u=lambda x, y: 0.2 * np.sin(2 * np.pi * y) + 0.0 * x)
     linear.set_fields(p=gaussian_bump(amp=0.2),
@@ -217,7 +219,7 @@ def test_walled_interior_tendency_matches_periodic_stencils():
     p = 0.3 * rng.standard_normal((N, N))
 
     periodic = make_model(make_grid(), csqr=CSQR, rossby_number=0.4,
-                          f0=1.0, advection=True)
+                          f0=1.0, advection=sw.SadournyAdvection())
     walled = walled_model(f0=1.0)
     periodic.set_fields(u=u, v=v, p=p)
     walled.set_fields(u=u, v=v[:, :-1], p=p)
@@ -278,7 +280,7 @@ def varying_walled_model(*, f0=0.0, ro=0.4):
             froude_number=ro,
             depth=lambda y: 1.0 + 0.5 * np.sin(np.pi * y)),
         scaling=fr.scaling.GravityWave(),
-        coriolis=coriolis, advection=True,
+        coriolis=coriolis, advection=sw.SadournyAdvection(),
         time_stepper=fr.model.time_steppers.AdamBashforth(2e-3, order=3))
 
 
@@ -316,9 +318,10 @@ def background_model(background, *, grid=None, ro=0.4, f0=1.0,
         core=sw.Core(froude_number=ro, depth=CSQR),
         scaling=fr.scaling.GravityWave(),
         coriolis=sw.modules.FPlaneCoriolis(rossby_number=ro / f0),
-        advection=False,
+        advection=None,
         modules_extra=(
-            sw.modules.SadournyAdvection(background=background),),
+            sw.modules.SadournyAdvection(background=background,
+                                         coords=("x", "y")),),
         time_stepper=fr.model.time_steppers.AdamBashforth(dt, order=3))
 
 
@@ -382,7 +385,8 @@ def test_background_constant_component_fills():
 
 def test_background_property_round_trips():
     assert sw.modules.SadournyAdvection().background is None
-    module = sw.modules.SadournyAdvection(background={"u": 0.37})
+    module = sw.modules.SadournyAdvection(background={"u": 0.37},
+                                          coords=("x", "y"))
     assert module.background == {"u": 0.37, "v": 0.0}
 
 
@@ -440,7 +444,7 @@ def test_background_none_is_bitwise_identical():
     # SadournyAdvection(background=None) == the preset default
     grid = make_grid()
     preset = make_model(grid, csqr=CSQR, rossby_number=0.4,
-                        advection=True, dt=2e-3)
+                        advection=sw.SadournyAdvection(), dt=2e-3)
     explicit = background_model(None, grid=grid)
     rng = np.random.default_rng(4)
     u = rng.standard_normal((N, N))
@@ -518,7 +522,7 @@ def test_background_doppler_shifts_the_eigenvalues():
     u0 = 0.37
     with_bg = background_model({"u": u0})
     without = make_model(make_grid(), csqr=CSQR, rossby_number=0.4,
-                         advection=True, dt=2e-3)
+                         advection=sw.SadournyAdvection(), dt=2e-3)
     omega_bg = np.asarray(fr.model.numeric_eigenpairs(with_bg).omega)
     omega_0 = np.asarray(fr.model.numeric_eigenpairs(without).omega)
     dx = 1.0 / N
@@ -711,3 +715,22 @@ def test_background_rejects_unknown_coordinate():
     bad = {"u": lambda z: 0.0 * z}
     with pytest.raises(ValueError, match="coordinate"):
         background_model(bad)
+
+
+# ================================================================
+#  coords= adopted from the grid at bind (object-or-None keywords)
+# ================================================================
+def test_coords_are_none_until_bind_then_the_grid_names():
+    module = sw.SadournyAdvection()
+    assert module.coords is None
+    model = make_model(make_grid(), advection=module)
+    assert model.module(sw.SadournyAdvection).coords == ("x", "y")
+
+
+def test_background_needs_explicit_coords():
+    # the background fields are declared before the grid is known
+    with pytest.raises(TypeError, match="background= needs coords="):
+        sw.SadournyAdvection(background={"u": 1.0})
+    module = sw.SadournyAdvection(background={"u": 1.0},
+                                  coords=("x", "y"))
+    assert module.coords == ("x", "y")

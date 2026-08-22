@@ -69,12 +69,12 @@ def make_model(*, nondimensional):
             core=sw.Core(froude_number=0.2, depth=1.0),
             scaling=fr.scaling.GravityWave(L=2.0e3, U=0.5, g=10.0),
             coriolis=sw.modules.FPlaneCoriolis(rossby_number=0.4),
-            advection=False, time_stepper=stepper)
+            advection=None, time_stepper=stepper)
     return sw.Model(
         grid=make_grid(),
         core=sw.Core(gravity=10.0, depth=100.0),
         coriolis=sw.modules.FPlaneCoriolis(f0=1.0e-4),
-        advection=False, time_stepper=stepper)
+        advection=None, time_stepper=stepper)
 
 
 @pytest.fixture(scope="module")

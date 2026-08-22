@@ -162,7 +162,9 @@ contravariant intermediates. The conserved functional is
 \sqrt{g}\,p^2` in physical components (equivalently
 :math:`\sum \tfrac12 \sqrt{g}\,\bar h\,g_{ii}(u^i)^2 + \dots` on the
 contravariant intermediates, since :math:`g_{ii}(u^i)^2 = U_i^2`).
-Coordinate names come from ``coords=``. The vector-invariant form
+Coordinate names come from ``coords=``, or are adopted from the
+grid at bind when it is omitted (a prescribed ``background=`` needs
+them up front). The vector-invariant form
 generalizes with the mass fluxes :math:`F^i = \sqrt{g}\,h\,u^i`:
 
 .. math::
@@ -501,24 +503,32 @@ class SadournyAdvection(fr.model.Module):
     @property
     def extra_halo(self) -> HaloSpec:
         """Two halo cells per coordinate (the corner chain)."""
+        # bind precedes the halo trace, so this guard never fires
+        if self._coords is None:  # pragma: no cover
+            raise RuntimeError(
+                "SadournyAdvection adopts its coordinate names from the "
+                "grid at bind; extra_halo was read before bind")
         return HaloSpec(dict.fromkeys(self._coords, 2))
 
     def __init__(
         self,
         background: Mapping[str, float | Callable] | None = None,
         *,
-        coords: tuple[str, str] = ("x", "y"),
+        coords: tuple[str, str] | None = None,
     ) -> None:
         """Normalize and locally validate the background slot."""
-        coords = tuple(coords)
-        if (len(coords) != 2  # noqa: PLR2004 — zonal + meridional
-                or not all(isinstance(c, str) for c in coords)
-                or coords[0] == coords[1]):
-            raise TypeError(
-                "coords names the (zonal, meridional) coordinates: "
-                f"two distinct strings, got {coords!r}")
-        self._coords: tuple[str, str] = coords
-        self._bg_axes = {"u": coords[0], "v": coords[1]}
+        if coords is not None:
+            coords = tuple(coords)
+            if (len(coords) != 2  # noqa: PLR2004 — zonal + meridional
+                    or not all(isinstance(c, str) for c in coords)
+                    or coords[0] == coords[1]):
+                raise TypeError(
+                    "coords names the (zonal, meridional) coordinates: "
+                    f"two distinct strings, got {coords!r}")
+        # None until bind adopts the grid's names (in factor order)
+        self._coords: tuple[str, str] | None = coords
+        self._bg_axes: dict[str, str] | None = (
+            None if coords is None else {"u": coords[0], "v": coords[1]})
         # the bind-adopted scaling variant (scaling-neutral module):
         # nondimensional assemblies scale each advective output by
         # one outer epsilon; dimensional traces carry no scaling op
@@ -546,6 +556,11 @@ class SadournyAdvection(fr.model.Module):
                     f"coordinate callable, got {value!r}")
         self._background = {
             name: items.get(name, 0.0) for name in _BG_COMPONENTS}
+        if coords is None:
+            raise TypeError(
+                "background= needs coords=(zonal, meridional): the "
+                "background fields are declared before the grid is "
+                "known, so the names cannot be adopted at bind")
 
     # ================================================================
     #  Properties
@@ -557,8 +572,8 @@ class SadournyAdvection(fr.model.Module):
                 else dict(self._background))
 
     @property
-    def coords(self) -> tuple[str, str]:
-        """The (zonal, meridional) coordinate names."""
+    def coords(self) -> tuple[str, str] | None:
+        """The (zonal, meridional) names; None until bind adopts them."""
         return self._coords
 
     # ================================================================
@@ -694,6 +709,20 @@ class SadournyAdvection(fr.model.Module):
                 "mapped+immersed composition plan; until it lands, "
                 "drop the immersed domain or run on an unmapped (flat) "
                 "grid.")
+        if self._coords is None:
+            # adopt the grid's (zonal, meridional) names in factor
+            # order: the chart's on a chart grid, the mesh names on a
+            # flat one
+            adopted = (tuple(name for name in grid.names
+                             if name in set(chart))
+                       if chart is not None else tuple(grid.names))
+            if len(adopted) != 2:  # noqa: PLR2004 — zonal + meridional
+                raise ValueError(
+                    "SadournyAdvection could not adopt the coordinate "
+                    f"names from the grid ({grid.names!r}): pass "
+                    "coords=(zonal, meridional)")
+            self._coords = adopted
+            self._bg_axes = {"u": adopted[0], "v": adopted[1]}
         if chart is not None:
             expected = tuple(
                 name for name in grid.names if name in set(chart))

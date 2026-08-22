@@ -354,7 +354,7 @@ def test_vortical_projection_is_real_safe_on_the_even_grid():
 @pytest.fixture(scope="module")
 def mode_setup():
     """One linear periodic model + eigenmodes for the mode tests."""
-    model = make_model(csqr=2.0, f0=1.5, advection=False,
+    model = make_model(csqr=2.0, f0=1.5, advection=None,
                        grid=_pinned_grid())
     return model, sw.eigenmodes.from_model(model)
 
@@ -529,7 +529,7 @@ def _walled_model(*, periodic_x=True, coriolis=None):
     return sw.Model(
         grid=fr.spatial.Grid((mx, my)),
         core=sw.Core(gravity=1.0, depth=1.0),
-        coriolis=coriolis, advection=False,
+        coriolis=coriolis, advection=None,
         time_stepper=fr.model.time_steppers.AdamBashforth(5e-3, order=3))
 
 

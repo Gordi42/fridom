@@ -85,7 +85,7 @@ def walled(request):
         time_stepper=AdamBashforth(DT, order=3),
         coriolis=FPlaneCoriolis(f0=F0),
         buoyancy=ConstantStratification(n2=N2),
-        advection=False)
+        advection=None)
     em = nh.eigenmodes.from_model(model)
     return grid, model, em
 
@@ -778,7 +778,7 @@ def _walled_from_model(family):
         time_stepper=AdamBashforth(DT, order=3),
         coriolis=FPlaneCoriolis(f0=F0),
         buoyancy=ConstantStratification(n2=N2),
-        advection=False)
+        advection=None)
     return model, nh.eigenmodes.from_model(model)
 
 
@@ -912,7 +912,7 @@ def _walled_model(device_ids, *, family="nodal", n=N):
         time_stepper=AdamBashforth(DT, order=3),
         coriolis=FPlaneCoriolis(f0=F0),
         buoyancy=ConstantStratification(n2=N2),
-        advection=False)
+        advection=None)
 
 
 @pytest.mark.multi_device

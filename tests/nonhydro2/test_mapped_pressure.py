@@ -652,7 +652,7 @@ def make_mapped_model(n=8, init=depth, dt=0.02, family="nodal",
         time_stepper=AdamBashforth(dt, order=3),
         coriolis=nh.FPlaneCoriolis(f0=1.0),
         buoyancy=nh.ConstantStratification(n2=1.0),
-        advection=False)
+        advection=None)
 
 
 def test_core_projects_on_a_mapped_grid():

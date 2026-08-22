@@ -6,9 +6,8 @@ Description
 A host-side ``ProgressReporter`` that renders the old
 ``fr.modules.ProgressBar`` format from the new stack's chunk-boundary
 observation stream — zero extra device syncs, rank-0 only. Opt in
-with ``model.run(..., progress=fr.ops.ProgressBar())``; ``progress=
-True`` keeps the logging placeholder until that default is flipped
-separately. Owning class spec:
+with ``model.run(..., progress=fr.ops.ProgressBar())``; the default
+``progress=None`` reports nothing and a boolean is refused. Owning class spec:
 ``design/specs/model/classes/io_ops.md`` (the ``ProgressReporter``
 section).
 """

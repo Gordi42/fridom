@@ -42,7 +42,7 @@ def _grid(periodic, nx=8, ny=8, nz=4):
         IM(nz, (0.0, 1.0), periodic=False, name="z")))
 
 
-def _model(grid, *, advection=False, f0=0.5, csqr=1.0, n2=0.0, dt=1e-3):
+def _model(grid, *, advection=None, f0=0.5, csqr=1.0, n2=0.0, dt=1e-3):
     """Return a linear explicit-free-surface hydrostatic model."""
     return hy.Model(
         grid=grid,
@@ -51,7 +51,8 @@ def _model(grid, *, advection=False, f0=0.5, csqr=1.0, n2=0.0, dt=1e-3):
         coriolis=hy.FPlaneCoriolis(f0=f0),
         buoyancy=hy.ConstantStratification(n2=n2),
         free_surface=hy.ExplicitFreeSurface(),
-        advection=advection)
+        advection=(advection() if isinstance(advection, type)
+                   else advection))
 
 
 def _random_ic(model, scale=0.1, seed=0):
@@ -68,7 +69,8 @@ def _random_ic(model, scale=0.1, seed=0):
 @pytest.mark.parametrize("wall", list(WALLS), ids=list(WALLS))
 @pytest.mark.parametrize(
     "advection",
-    [pytest.param(False, id="linear"), pytest.param(True, id="advected")],
+    [pytest.param(None, id="linear"),
+     pytest.param(fr.model.modules.CenteredAdvection, id="advected")],
 )
 def test_explicit_assembles_and_runs_finite_on_walls(wall, advection):
     model = _model(_grid(WALLS[wall]), advection=advection)
@@ -85,7 +87,8 @@ def test_explicit_assembles_and_runs_finite_on_walls(wall, advection):
 # ================================================================
 @pytest.mark.parametrize(
     "advection",
-    [pytest.param(False, id="linear"), pytest.param(True, id="advected")],
+    [pytest.param(None, id="linear"),
+     pytest.param(fr.model.modules.CenteredAdvection, id="advected")],
 )
 def test_ps_volume_conserved_to_machine_precision(advection):
     # d/dt int(ps) = -csqr int(div U) = 0 on no-flux walls, so the
@@ -203,7 +206,7 @@ def test_immersed_mask_on_walls_assembles_and_runs_finite():
         coriolis=hy.FPlaneCoriolis(f0=0.5),
         buoyancy=hy.ConstantStratification(n2=1.0),
         free_surface=hy.ExplicitFreeSurface(),
-        advection=False)
+        advection=None)
     _random_ic(model)
     model.advance(10)
     assert not model.panicked

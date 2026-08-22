@@ -48,10 +48,12 @@ model:
     import fridom.shallowwater2 as sw
     from fridom.model import term_predicates as terms
 
-    full = sw.Model(grid=grid, csqr=1.0, coriolis=..., advection=True,
+    full = sw.Model(grid=grid, csqr=1.0, coriolis=...,
+                    advection=sw.SadournyAdvection(),
                     time_stepper=fr.model.time_steppers.AdamBashforth(dt))
     basis = sw.eigenbasis(full)          # the linear operator L
-    model = sw.Model(grid=grid, csqr=1.0, coriolis=..., advection=True,
+    model = sw.Model(grid=grid, csqr=1.0, coriolis=...,
+                     advection=sw.SadournyAdvection(),
                      time_stepper=fr.model.time_steppers.ETDRK4(dt, basis),
                      term_filter=~terms.linear)   # N only
 
