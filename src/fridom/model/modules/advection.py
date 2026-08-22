@@ -368,12 +368,14 @@ from fridom.spatial.operators.staggering import (
     mapped_mesh,
 )
 from fridom.spatial.operators.weno import (
+    WenoTables,
     _shu_row,  # the exact-rational coefficient seam
+    _weno_combine,  # the shared nonlinear-weight reduction
     _window_views,  # the union-window slicer of the selected kernel
     cell_widths,
     centered_row_windows,
     linear_row_windows,
-    weno_combine,
+    nonuniform_tables,
     weno_reconstruct,
     weno_tables,
 )
@@ -799,6 +801,66 @@ def _width_storages(
         The ``apply_graded_walls`` ``co_storages`` entry.
     """
     return () if widths is None else ((widths, 0),)
+
+
+def _select_tables(
+    pos: Array, left: WenoTables, right: WenoTables,
+) -> WenoTables:
+    r"""
+    Sign-select the entries of two width-derived table sets.
+
+    Description
+    -----------
+    The width half of the selected-input kernel's upwind choice. The
+    naive spelling — tap-select the width windows and generate once —
+    makes the widths traced, which stages the whole table generator on
+    full-size arrays; generating BOTH bias table sets from the 1-D
+    width windows instead keeps the generator constant-foldable
+    (``jax.ensure_compile_time_eval`` on a device-local axis) and
+    leaves only ~21 small ``where`` selects in the trace. The two are
+    identical to the bit: every table entry is an elementwise function
+    of the widths, so ``tables(where(pos, w_l, w_r))`` and
+    ``where(pos, tables(w_l), tables(w_r))`` agree exactly.
+
+    ``size``, ``offsets`` and ``beta_scale`` are static and shared:
+    the "right" set is the LEFT generator run on the reversed width
+    window (the mirror identity), so its candidate layout is the left
+    one's.
+
+    Parameters
+    ----------
+    pos : Array
+        The sign carrier on the output faces (nonzero where the face
+        velocity is positive).
+    left : WenoTables
+        Tables of the left-biased width window.
+    right : WenoTables
+        Tables of the reversed (right-biased) width window.
+
+    Returns
+    -------
+    WenoTables
+        The per-face selected tables.
+    """
+    def pick(a: Array, b: Array) -> Array:
+        return jnp.where(pos, a, b)
+
+    return WenoTables(
+        size=left.size,
+        offsets=left.offsets,
+        coeffs=tuple(
+            tuple(pick(a, b) for a, b in zip(cl, cr, strict=True))
+            for cl, cr in zip(left.coeffs, right.coeffs, strict=True)),
+        optimal=tuple(
+            pick(a, b) for a, b
+            in zip(left.optimal, right.optimal, strict=True)),
+        beta_rows=tuple(
+            tuple(
+                tuple(pick(a, b) for a, b in zip(rl, rr, strict=True))
+                for rl, rr in zip(cl, cr, strict=True))
+            for cl, cr in zip(left.beta_rows, right.beta_rows,
+                              strict=True)),
+        beta_scale=left.beta_scale)
 
 
 def _face_widths(f: FieldLike, axis: str) -> Array | None:
@@ -1906,14 +1968,17 @@ class _SelectedFaceReconstruction(Operator):
     is the cheapest correct one). On a periodic axis no ladder runs —
     the fast path is bitwise the interior tap-select.
 
-    On a **stretched** factor the same predicate selects the width
-    windows (`_face_widths`): tap ``i`` takes ``where(v_face > 0,
-    W[i], W[order - i])`` beside its data tap, so the left non-uniform
-    kernel on the selected pair IS the right-biased non-uniform
-    reconstruction wherever the flux is negative — the mirror identity
-    of §1 (reverse the data windows AND the width windows, run the
-    left kernel), which is what makes the one-pass spelling survive a
-    non-uniform lattice at all. The wall ladders take the widths as a
+    On a **stretched** factor the upwind choice reaches the geometry
+    too (`_face_widths`): the reconstruction rows of the two biases
+    are different numbers there, so the kernel generates BOTH width
+    table sets from the 1-D width windows — the left generator on the
+    reversed window IS the right-biased set, the mirror identity that
+    makes the one-pass spelling survive a non-uniform lattice — and
+    selects their ENTRIES on the same sign (`_select_tables`). Doing
+    it the other way round (tap-select the widths, generate once)
+    would be identical to the bit but would make the widths traced and
+    stage the whole generator on full-size arrays instead of folding
+    it to constants. The wall ladders take the widths as a
     ``co_storages`` entry under both biases.
 
     Purity: static structure only (order / boundary / wall; the
@@ -2140,17 +2205,23 @@ class _SelectedFaceReconstruction(Operator):
             taps = tuple(
                 jnp.where(pos, wins[i], wins[order - i])
                 for i in range(order))
-            width_taps = None
-            if width_data is not None:
-                # the widths ride the operand frame, so the SAME
-                # windows and the SAME predicate select them: the
-                # left kernel on the selected pair is the right-biased
-                # non-uniform reconstruction by the mirror identity
-                w_wins = _window_views(width_data, axis_index, u_size)
-                width_taps = tuple(
-                    jnp.where(pos, w_wins[i], w_wins[order - i])
-                    for i in range(order))
-            return weno_combine(taps, order, "left", width_taps)
+            if width_data is None:
+                return _weno_combine(taps, weno_tables(order, "left"))
+            # the widths ride the operand frame, so the SAME windows
+            # cover them. Build BOTH bias table sets from those 1-D
+            # windows (the left generator on the reversed window IS
+            # the right-biased set, by the mirror identity) and select
+            # the TABLE ENTRIES on the sign: selecting the width taps
+            # instead would make the widths traced and stage the whole
+            # generator on full-size arrays (`_select_tables`)
+            w_wins = _window_views(width_data, axis_index, u_size)
+            tables = _select_tables(
+                pos,
+                nonuniform_tables(w_wins[:order], order),
+                nonuniform_tables(
+                    tuple(w_wins[order - i] for i in range(order)),
+                    order))
+            return _weno_combine(taps, tables)
 
         codomain = resolve_codomain(left_op, q.function_space)
         q = _ensure_valid(

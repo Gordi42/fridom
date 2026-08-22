@@ -720,7 +720,53 @@ def test_propagator_grad_through_a_stretched_weno_run_matches_fd():
 
 
 # ================================================================
-#  8. The residual refusal: stretched + immersed
+#  8. Sharding: the bounded DUAL ladder over several devices
+# ================================================================
+SHARD_N = 16
+
+
+def _dual_graded_on_a_sharded_column(device_ids):
+    """Reconstruct ``Inner -> Center`` on a stretched walled column."""
+    mesh = stretched_mesh(SHARD_N, periodic=False)
+    grid = Grid((mesh,), device_ids=device_ids)
+    grid.negotiate(halo=HaloSpec({"z": 3}))
+    faces = face_positions(SHARD_N, periodic=False)
+    centers = tanh_np((np.arange(SHARD_N) + 0.5) / SHARD_N)
+    coeffs = wall_free_quadratic(faces[0], centers[0],
+                                 centers[-1], faces[-1])
+    edges = np.concatenate([[faces[0]], centers, [faces[-1]]])
+    values = cell_averages(coeffs, edges)[1:-1]
+    field = grid.create_field(
+        mesh.nodal(NodeSet.INNER, bc=BC.DIRICHLET),
+        data=jnp.asarray(values))
+    op = _BiasedFaceReconstruction(5, "left", "weno", "graded")
+    return grid, op["z"](field)
+
+
+@pytest.mark.multi_device
+def test_dual_graded_stretched_column_is_device_count_invariant(
+        forced_devices):
+    # The dual (``shift = 1``) ladder is the sharding-sensitive one:
+    # its wall rungs read the two wall half cells out of the width
+    # CO-STORAGE, which ``patch_physical_ends`` co-shards into the
+    # block frame. A width array merely closed over would stay global
+    # while the rung indices are block-local, so every shard but the
+    # first would read the wrong geometry.
+    if forced_devices is not None:
+        assert jax.device_count() == forced_devices
+    grid_many, many = _dual_graded_on_a_sharded_column(None)
+    _, one = _dual_graded_on_a_sharded_column((0,))
+    if forced_devices and forced_devices > 1:
+        assert not grid_many.decomposition.default_layout.is_local("z")
+    assert bool(np.isfinite(np.asarray(many.data)).all())
+    gathered = np.asarray(grid_many.decomposition.gather(
+        many._data, many.function_space))
+    np.testing.assert_allclose(gathered, np.asarray(one.data),
+                               rtol=0.0, atol=1e-12)
+
+
+# ================================================================
+#  9. The residual refusal: stretched + immersed
 # ================================================================
 @pytest.mark.parametrize("cls", [UpwindAdvection, WENOAdvection])
 def test_stretched_immersed_is_a_taught_error(cls):
