@@ -89,9 +89,12 @@ class VideoScraper:
         src_dir = os.path.dirname(block_vars["src_file"])
         target_dir = os.path.dirname(block_vars["target_file"])
         names = []
-        for name in sorted(os.listdir(src_dir)):
-            if not name.endswith(VIDEO_EXTENSIONS):
-                continue
+        # in the order the block recorded them, not alphabetically
+        videos = [name for name in os.listdir(src_dir)
+                  if name.endswith(VIDEO_EXTENSIONS)]
+        videos.sort(key=lambda name: os.path.getmtime(
+            os.path.join(src_dir, name)))
+        for name in videos:
             video_dir = os.path.join(target_dir, "videos")
             os.makedirs(video_dir, exist_ok=True)
             shutil.move(os.path.join(src_dir, name),
