@@ -351,8 +351,11 @@ from fridom.spatial.operators.staggering import (
 )
 from fridom.spatial.operators.weno import (
     _shu_row,  # the exact-rational coefficient seam
-    _weno_combine,  # the shared nonlinear-weight reduction
     _window_views,  # the union-window slicer of the selected kernel
+    cell_widths,
+    centered_row_windows,
+    linear_row_windows,
+    weno_combine,
     weno_reconstruct,
     weno_tables,
 )
@@ -736,6 +739,115 @@ def _centered_row(size: int) -> tuple[float, ...]:
 # ================================================================
 #  The face-value operators (module-private)
 # ================================================================
+def _width_operands(widths: Array | None) -> tuple[Array, ...]:
+    """
+    Width co-operand tuple of an interior pass (empty if uniform).
+
+    Parameters
+    ----------
+    widths : Array | None
+        The width co-operand (`_face_widths`).
+
+    Returns
+    -------
+    tuple[Array, ...]
+        The ``apply_fv_staggered`` ``co_operands`` entry.
+    """
+    return () if widths is None else (widths,)
+
+
+def _width_storages(
+    widths: Array | None,
+) -> tuple[tuple[Array, int], ...]:
+    """
+    Width co-storage tuple of a graded ladder (empty if uniform).
+
+    Description
+    -----------
+    ``graded.apply_graded_walls`` slices every co-storage with the
+    operand's own rung window plus a frame offset, and without the
+    ladder's zero synthesis (a rung must read the wall half cell, not
+    a zero). ``weno.cell_widths`` already delivers the widths in the
+    operand's frame — wall ghost slots included — so the offset is 0.
+
+    Parameters
+    ----------
+    widths : Array | None
+        The width co-operand (`_face_widths`).
+
+    Returns
+    -------
+    tuple[tuple[Array, int], ...]
+        The ``apply_graded_walls`` ``co_storages`` entry.
+    """
+    return () if widths is None else ((widths, 0),)
+
+
+def _face_widths(f: FieldLike, axis: str) -> Array | None:
+    r"""
+    Lattice cell widths of ``f``'s ``axis`` factor (None if uniform).
+
+    Description
+    -----------
+    The module's single entry to ``weno.cell_widths`` — the route-(ii)
+    co-operand of every biased row. The widths come back in the
+    operand's OWN storage frame (same length along ``axis``, size-1 on
+    every other axis, halo-extended and synced like ``f._data``), so
+    the kernels window them with the very offsets they window the data
+    with:
+
+    - a primal operand (``Center`` / ``CellAvg``) carries the primal
+      cell widths;
+    - a dual one (``Right`` periodic, ``Inner`` bounded) the widths of
+      the dual cells around the faces, with the two **wall half
+      cells** in the ``Inner`` wall ghost slots — which is exactly
+      where the graded ladder synthesizes the Dirichlet wall values,
+      so a rung window and its width window stay aligned through the
+      wall.
+
+    ``None`` on a factor that is not stretched: the kernels then take
+    the static float tables and are bitwise the pre-route-(ii)
+    arithmetic.
+
+    On an **immersed** grid a stretched factor raises instead. The
+    cut-cell closure is the mask-keyed ladder
+    (`_immersed_graded_face`), whose rungs run through a width-free
+    kernel call, so it would silently reconstruct a stretched factor
+    with the uniform rows. The bind-time twin of this refusal is
+    :meth:`_FluxFormAdvection._require_supported_stretching`; this one
+    catches a direct operator application.
+
+    Parameters
+    ----------
+    f : FieldLike
+        The operand field.
+    axis : str
+        The resolved coordinate axis.
+
+    Returns
+    -------
+    Array | None
+        The width co-operand, or None on a uniform factor.
+
+    Raises
+    ------
+    NotImplementedError
+        On a stretched factor of an immersed (cut-cell) grid.
+    """
+    widths = cell_widths(f, axis)
+    if widths is None:
+        return None
+    if getattr(f.grid, "immersed", None) is not None:
+        raise NotImplementedError(
+            f"the biased face kernels do not support the stretched "
+            f"(mapped) axis {axis!r} on an immersed (cut-cell) grid: "
+            "their cut-cell closure is the mask-keyed graded ladder, "
+            "which carries no cell-width co-operand and would "
+            "silently reconstruct with the uniform rows. Use the "
+            "centered order-2 rows there, an unimmersed stretched "
+            "grid, or a uniform mesh (IntervalMesh)")
+    return widths
+
 def _face_codomain(
     domain: FunctionSpace,
     label: str,
@@ -1012,6 +1124,13 @@ class _CenteredFaceInterpolation(SeparableOperator):
         then overwritten by the graded ladder, which reads interior
         DOFs and the exact-zero Dirichlet wall values only.
 
+        On a **stretched** factor the row is built from the actual
+        cell widths (`_face_widths`), declared as a ``co_operands``
+        entry so the interior pass windows it with the data (and the
+        flat-axis tail rebuilds it), and handed to the ladder as a
+        ``co_storages`` entry so every wall rung reads its own wall-
+        side widths, the wall half cells included.
+
         Parameters
         ----------
         f : FieldLike
@@ -1025,12 +1144,10 @@ class _CenteredFaceInterpolation(SeparableOperator):
             The interpolated field (metadata kept: same quantity).
         """
         size = self._size
-        row = _centered_row(size)
         domain = f.function_space.bare.factor(axis)
         shift = _wall_shift(domain)
-
-        def kernel(arr: Array, axis_index: int) -> Array:
-            return _weighted_windows(arr, axis_index, row)
+        kernel = _centered_kernel(size)
+        widths = _face_widths(f, axis)
 
         immersed = getattr(f.grid, "immersed", None)
         if immersed is not None:
@@ -1040,6 +1157,7 @@ class _CenteredFaceInterpolation(SeparableOperator):
                 kernel, rungs, sel, immersed)
         interior = apply_fv_staggered(
             self, f, axis, size, kernel, metadata=f.metadata,
+            co_operands=_width_operands(widths),
             patched=_graded_patched(self._boundary, domain,
                                     centered_rows(size, shift), shift))
         if self._boundary == "none" or domain.mesh.periodic:
@@ -1048,12 +1166,22 @@ class _CenteredFaceInterpolation(SeparableOperator):
             Rung(width, centered_offset(width),
                  _centered_kernel(width))
             for width in centered_ladder(size, shift))
-        return apply_graded_walls(f, axis, interior, rungs, shift)
+        return apply_graded_walls(f, axis, interior, rungs, shift,
+                                  co_storages=_width_storages(widths))
 
 
-def _centered_kernel(size: int) -> Callable[[Array, int], Array]:
+def _centered_kernel(size: int) -> Callable[..., Array]:
     """
-    Array kernel of one centered graded rung (a fused static row).
+    Array kernel of one centered rung (static row, or width-aware).
+
+    Description
+    -----------
+    Takes the optional width co-window of the route-(ii) plumbing:
+    with ``widths=None`` (a uniform factor) it is the fused static
+    `_centered_row`, bitwise the pre-route-(ii) arithmetic; with a
+    width window it is the even-size Shu row of the actual cell
+    widths (`weno.centered_row_windows`), the co-window sliced with
+    the very offsets the data window uses.
 
     Parameters
     ----------
@@ -1062,13 +1190,20 @@ def _centered_kernel(size: int) -> Callable[[Array, int], Array]:
 
     Returns
     -------
-    Callable[[Array, int], Array]
-        The ``(window, axis_index) -> face_value`` kernel.
+    Callable[..., Array]
+        The ``(window, axis_index, widths=None) -> face_value``
+        kernel.
     """
     row = _centered_row(size)
 
-    def kernel(arr: Array, axis_index: int) -> Array:
-        return _weighted_windows(arr, axis_index, row)
+    def kernel(
+        arr: Array, axis_index: int, widths: Array | None = None,
+    ) -> Array:
+        if widths is None:
+            return _weighted_windows(arr, axis_index, row)
+        return centered_row_windows(
+            _window_views(arr, axis_index, size), size,
+            width_windows=_window_views(widths, axis_index, size))
 
     return kernel
 
@@ -1077,7 +1212,7 @@ def _biased_kernel(
     order: int,
     bias: Literal["left", "right"],
     weighting: Literal["linear", "weno"],
-) -> Callable[[Array, int], Array]:
+) -> Callable[..., Array]:
     """
     Array kernel of one biased rung (or of the interior pass).
 
@@ -1086,7 +1221,16 @@ def _biased_kernel(
     Order 1 is the single upwind cell (the unit-coefficient Shu row),
     so its kernel is the identity on the size-1 window — and it is the
     same row under either weighting, which is why the wall-adjacent
-    rung of a WENO ladder is an ordinary 1st-order upwind value.
+    rung of a WENO ladder is an ordinary 1st-order upwind value; a
+    width co-window cannot change a unit row, so order 1 ignores it.
+
+    The wider rows take the optional width co-window of the route-(ii)
+    plumbing: ``None`` (a uniform factor) keeps the static tables and
+    is bitwise the pre-route-(ii) arithmetic, a width window routes
+    through the width-aware generator (`weno.weno_reconstruct` with
+    ``widths=`` for the nonlinear weighting, `weno.linear_row_windows`
+    for the full optimal-weight row), whose right bias is the left
+    kernel on the reversed data AND width windows.
 
     Parameters
     ----------
@@ -1099,20 +1243,29 @@ def _biased_kernel(
 
     Returns
     -------
-    Callable[[Array, int], Array]
-        The ``(window, axis_index) -> face_value`` kernel.
+    Callable[..., Array]
+        The ``(window, axis_index, widths=None) -> face_value``
+        kernel.
     """
     if order == 1:
-        return lambda arr, _axis: arr
+        return lambda arr, _axis, _widths=None: arr
     if weighting == "weno":
-        def kernel(arr: Array, axis_index: int) -> Array:
+        def kernel(
+            arr: Array, axis_index: int, widths: Array | None = None,
+        ) -> Array:
             return weno_reconstruct(arr, axis_index, order=order,
-                                    bias=bias)
+                                    bias=bias, widths=widths)
         return kernel
     row = _linear_row(order, bias)
 
-    def linear(arr: Array, axis_index: int) -> Array:
-        return _weighted_windows(arr, axis_index, row)
+    def linear(
+        arr: Array, axis_index: int, widths: Array | None = None,
+    ) -> Array:
+        if widths is None:
+            return _weighted_windows(arr, axis_index, row)
+        return linear_row_windows(
+            _window_views(arr, axis_index, order), order, bias,
+            width_windows=_window_views(widths, axis_index, order))
 
     return linear
 
@@ -1121,7 +1274,7 @@ def _rung_kernel(
     spec: RungSpec,
     bias: Literal["left", "right"],
     weighting: Literal["linear", "weno"],
-) -> Callable[[Array, int], Array]:
+) -> Callable[..., Array]:
     """
     Array kernel of one graded rung spec (the ``wall=`` seam).
 
@@ -1145,8 +1298,9 @@ def _rung_kernel(
 
     Returns
     -------
-    Callable[[Array, int], Array]
-        The ``(window, axis_index) -> face_value`` kernel.
+    Callable[..., Array]
+        The ``(window, axis_index, widths=None) -> face_value``
+        kernel.
     """
     if spec.family == "centered":
         return _centered_kernel(spec.width)
@@ -1362,7 +1516,7 @@ def _immersed_graded_face(
     shift: int,
     size: int,
     m0: int,
-    kernel: Callable[[Array, int], Array],
+    kernel: Callable[..., Array],
     rungs: tuple[Rung, ...],
     sel_specs: tuple[tuple[int, int], ...],
     immersed: object,
@@ -1393,8 +1547,9 @@ def _immersed_graded_face(
         The interior stencil size (order for biased, size for centered).
     m0 : int
         The interior window alignment.
-    kernel : Callable[[Array, int], Array]
-        The interior array kernel.
+    kernel : Callable[..., Array]
+        The interior array kernel (called width-free: the mask ladder
+        is uniform-mesh only, `_face_widths`).
     rungs : tuple[Rung, ...]
         The reduced value rungs (widest first, bottom last).
     sel_specs : tuple[tuple[int, int], ...]
@@ -1630,6 +1785,15 @@ class _BiasedFaceReconstruction(SeparableOperator):
         ladder (interior DOFs and the exact-zero Dirichlet wall values
         only).
 
+        On a **stretched** factor the rows, ideal weights and
+        smoothness indicators are built from the factor's own cell
+        widths (`_face_widths`) — a ``co_operands`` entry for the
+        interior pass and a ``co_storages`` entry for the ladder, both
+        windowed with the data. On the dual direction those are the
+        dual cells around the faces, the two wall half cells sitting
+        in the very ghost slots where the ladder synthesizes the
+        Dirichlet zeros.
+
         Parameters
         ----------
         f : FieldLike
@@ -1649,6 +1813,7 @@ class _BiasedFaceReconstruction(SeparableOperator):
         shift = _wall_shift(domain)
         m0 = biased_offset(order, bias) + shift
         kernel = _biased_kernel(order, bias, weighting)
+        widths = _face_widths(f, axis)
         immersed = getattr(f.grid, "immersed", None)
         if immersed is not None:
             rungs, sel = _biased_mask_ladder(
@@ -1658,6 +1823,7 @@ class _BiasedFaceReconstruction(SeparableOperator):
                 immersed)
         interior = apply_fv_staggered(
             self, f, axis, order, kernel, metadata=f.metadata, align=m0,
+            co_operands=_width_operands(widths),
             patched=_graded_patched(self._boundary, domain,
                                     biased_rows(order, shift), shift))
         if self._boundary == "none" or domain.mesh.periodic:
@@ -1666,7 +1832,8 @@ class _BiasedFaceReconstruction(SeparableOperator):
             Rung(spec.width, spec_offset(spec, bias),
                  _rung_kernel(spec, bias, weighting))
             for spec in biased_specs(order, shift, self._wall))
-        return apply_graded_walls(f, axis, interior, rungs, shift)
+        return apply_graded_walls(f, axis, interior, rungs, shift,
+                                  co_storages=_width_storages(widths))
 
 
 @final
@@ -1720,6 +1887,16 @@ class _SelectedFaceReconstruction(Operator):
     reconstruction pass is saved there and the byte-identical spelling
     is the cheapest correct one). On a periodic axis no ladder runs —
     the fast path is bitwise the interior tap-select.
+
+    On a **stretched** factor the same predicate selects the width
+    windows (`_face_widths`): tap ``i`` takes ``where(v_face > 0,
+    W[i], W[order - i])`` beside its data tap, so the left non-uniform
+    kernel on the selected pair IS the right-biased non-uniform
+    reconstruction wherever the flux is negative — the mirror identity
+    of §1 (reverse the data windows AND the width windows, run the
+    left kernel), which is what makes the one-pass spelling survive a
+    non-uniform lattice at all. The wall ladders take the widths as a
+    ``co_storages`` entry under both biases.
 
     Purity: static structure only (order / boundary / wall; the
     weighting is implicitly ``"weno"``), no Python-side state, and the
@@ -1922,7 +2099,7 @@ class _SelectedFaceReconstruction(Operator):
         # the FV frame is always primal (CellAvg has no nodal node_set)
         shift = 0 if self._family == "fv" else _wall_shift(domain)
         m0 = biased_offset(order, "left") + shift
-        tables = weno_tables(order, "left")
+        widths = _face_widths(q, axis)
 
         # the sign carrier is a second STORAGE array the kernel reads,
         # sliced by the window length of the operand it is handed --- so
@@ -1935,6 +2112,7 @@ class _SelectedFaceReconstruction(Operator):
         # audits the closure and refuses if this is ever un-declared
         def kernel(
             storage: Array, axis_index: int, pos_data: Array,
+            width_data: Array | None = None,
         ) -> Array:
             wins = _window_views(storage, axis_index, u_size)
             length = wins[0].shape[axis_index]
@@ -1944,7 +2122,17 @@ class _SelectedFaceReconstruction(Operator):
             taps = tuple(
                 jnp.where(pos, wins[i], wins[order - i])
                 for i in range(order))
-            return _weno_combine(taps, tables)
+            width_taps = None
+            if width_data is not None:
+                # the widths ride the operand frame, so the SAME
+                # windows and the SAME predicate select them: the
+                # left kernel on the selected pair is the right-biased
+                # non-uniform reconstruction by the mirror identity
+                w_wins = _window_views(width_data, axis_index, u_size)
+                width_taps = tuple(
+                    jnp.where(pos, w_wins[i], w_wins[order - i])
+                    for i in range(order))
+            return weno_combine(taps, order, "left", width_taps)
 
         codomain = resolve_codomain(left_op, q.function_space)
         q = _ensure_valid(
@@ -1952,18 +2140,21 @@ class _SelectedFaceReconstruction(Operator):
         interior = apply_fv_staggered(
             left_op, q, axis, u_size, kernel,
             metadata=q.metadata, align=m0,
-            co_operands=(positive._data,),  # noqa: SLF001 — storage seam
+            co_operands=(
+                positive._data,  # noqa: SLF001 — storage seam
+                *_width_operands(widths)),
             patched=_graded_patched(self._boundary, domain,
                                     biased_rows(order, shift), shift))
         interior = _finalize(q, interior, codomain)
         if self._boundary == "none" or domain.mesh.periodic:
             return _to_flux_space(interior, flux_space)
+        co_storages = _width_storages(widths)
         left_walls = apply_graded_walls(
             q, axis, interior, self._rungs(order, shift, "left"),
-            shift)
+            shift, co_storages=co_storages)
         right_walls = apply_graded_walls(
             q, axis, interior, self._rungs(order, shift, "right"),
-            shift)
+            shift, co_storages=co_storages)
         return Where()(positive,
                        _to_flux_space(left_walls, flux_space),
                        _to_flux_space(right_walls, flux_space))
@@ -2188,7 +2379,9 @@ class _FVBiasedReconstruction(SeparableOperator):
         cell ``order // 2`` (left bias) / ``order // 2 - 1`` (right
         bias). On a bounded axis the graded variant overwrites the
         ``K`` wall faces per side from the ladder, which reads
-        interior DOFs only (``CellAvg`` is BC-free).
+        interior DOFs only (``CellAvg`` is BC-free). On a **stretched**
+        factor the interior pass and every rung take the primal cell
+        widths as their width co-operand (`_face_widths`).
 
         Parameters
         ----------
@@ -2207,6 +2400,7 @@ class _FVBiasedReconstruction(SeparableOperator):
         weighting = self._weighting
         m0 = biased_offset(order, bias)  # primal frame, shift 0
         kernel = _biased_kernel(order, bias, weighting)
+        widths = _face_widths(f, axis)
         immersed = getattr(f.grid, "immersed", None)
         if immersed is not None:
             rungs, sel = _biased_mask_ladder(
@@ -2217,6 +2411,7 @@ class _FVBiasedReconstruction(SeparableOperator):
         domain = f.function_space.bare.factor(axis)
         interior = apply_fv_staggered(
             self, f, axis, order, kernel, metadata=f.metadata, align=m0,
+            co_operands=_width_operands(widths),
             patched=_graded_patched(self._boundary, domain,
                                     biased_rows(order, 0), 0))
         if self._boundary == "none" or domain.mesh.periodic:
@@ -2225,7 +2420,8 @@ class _FVBiasedReconstruction(SeparableOperator):
             Rung(spec.width, spec_offset(spec, bias),
                  _rung_kernel(spec, bias, weighting))
             for spec in biased_specs(order, 0, self._wall))
-        return apply_graded_walls(f, axis, interior, rungs, 0)
+        return apply_graded_walls(f, axis, interior, rungs, 0,
+                                  co_storages=_width_storages(widths))
 
 
 def _is_average_space(space: object) -> bool:
