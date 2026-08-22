@@ -2783,9 +2783,10 @@ class _FluxFormAdvection(fr.model.Module):
     vertical ``Outer`` faces, under *any* construction path) and off —
     bitwise unchanged — for nodal-velocity models (nonhydro2 /
     shallowwater2, every velocity on ``Inner``). The factory knobs
-    ``hy.Model(surface_advective_flux=...)`` /
-    ``hy.comparison_model(surface_advective_flux=...)`` forward the
-    tri-state. The correction covers only the plain ``advection`` term,
+    ``hy.comparison_model(surface_advective_flux=...)`` forwards the
+    tri-state; on ``hy.Model`` the caller configures the module it
+    passes, ``advection=CenteredAdvection(surface_flux=...)``. The
+    correction covers only the plain ``advection`` term,
     not the ``background_advection`` split.
     """
 
