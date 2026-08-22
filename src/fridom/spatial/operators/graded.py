@@ -134,6 +134,13 @@ class Rung(NamedTuple):
     ``kernel`` collapses that window — whose ``axis`` length is exactly
     ``size`` — to the single face value (``axis`` length 1).
 
+    A kernel that needs **geometry** (the non-uniform reconstruction
+    rows of a stretched factor read the lattice-cell widths) takes it
+    as trailing ``co_windows``: one window per ``co_storages`` entry of
+    :func:`apply_graded_walls`, sliced with the very same window as the
+    operand but **without** the wall-value synthesis, since the wall
+    slots of a width array carry the real (half-cell) widths.
+
     Parameters
     ----------
     size : int
@@ -141,13 +148,14 @@ class Rung(NamedTuple):
     offset : int
         The window's start cell relative to the face: the first cell is
         ``F - 1 - offset``.
-    kernel : Callable[[Array, int], Array]
-        The array kernel ``(window, axis_index) -> face_value``.
+    kernel : Callable[..., Array]
+        The array kernel ``(window, axis_index, *co_windows) ->
+        face_value``.
     """
 
     size: int
     offset: int
-    kernel: Callable[[Array, int], Array]
+    kernel: Callable[..., Array]
 
 
 # ================================================================
@@ -520,6 +528,7 @@ def _rung_value(
     rung: Rung,
     shift: int,
     walls: tuple[int, int],
+    co_storages: Sequence[tuple[Array, int]] = (),
 ) -> Array:
     """
     Evaluate one rung at a local ``face`` (interior DOFs + wall zeros).
@@ -533,6 +542,14 @@ def _rung_value(
     bitwise the plain slice. The ``walls`` counts prepend/append exact
     zeros (the homogeneous Dirichlet wall values); no ghost slot is ever
     read. The result keeps a size-1 ``axis_index``.
+
+    A ``co_storages`` entry (geometry the kernel reads alongside the
+    operand — the lattice-cell widths of a stretched factor) is sliced
+    with the **same** window and **no** synthesis: its wall slots hold
+    real data (the clipped half cells), which the rung must read rather
+    than replace by zeros. The slice therefore spans the full
+    ``rung.size``, starting at the operand's un-synthesized window start
+    plus the entry's frame offset.
 
     Parameters
     ----------
@@ -550,6 +567,9 @@ def _rung_value(
         The cell-frame shift (0 or 1).
     walls : tuple[int, int]
         The (leading, trailing) synthesized wall-cell counts.
+    co_storages : Sequence[tuple[Array, int]], optional
+        Extra storage arrays with their frame offset relative to the
+        operand's frame (default: ()).
 
     Returns
     -------
@@ -558,6 +578,7 @@ def _rung_value(
     """
     lead, trail = walls
     true_cells = rung.size - lead - trail
+    start = width + (face - 1 - rung.offset) - shift
     pieces: list[Array] = []
     zero = None
     if lead or trail:
@@ -566,14 +587,17 @@ def _rung_value(
     if lead:
         pieces.append(zero)
     if true_cells:
-        start = width + (face - 1 - rung.offset + lead) - shift
         pieces.append(jax.lax.dynamic_slice_in_dim(
-            storage, start, true_cells, axis_index))
+            storage, start + lead, true_cells, axis_index))
     if trail:
         pieces.append(zero)
     window = (pieces[0] if len(pieces) == 1
               else jnp.concatenate(pieces, axis=axis_index))
-    return rung.kernel(window, axis_index)
+    co_windows = tuple(
+        jax.lax.dynamic_slice_in_dim(
+            co, start + offset, rung.size, axis_index)
+        for co, offset in co_storages)
+    return rung.kernel(window, axis_index, *co_windows)
 
 
 def _set_slot(
@@ -615,6 +639,7 @@ def apply_graded_walls(
     interior: FieldLike,
     rungs: Sequence[Rung],
     shift: int,
+    co_storages: Sequence[tuple[Array, int]] = (),
 ) -> FieldLike:
     """
     Overwrite the ``K`` wall faces per side of an interior pass.
@@ -662,6 +687,13 @@ def apply_graded_walls(
         (``K = len(rungs)``); an empty ladder returns ``interior``.
     shift : int
         The cell-frame shift (0 or 1; module docstring).
+    co_storages : Sequence[tuple[Array, int]], optional
+        Geometry the rung kernels read alongside the operand, each with
+        its storage-frame offset relative to the operand's frame (e.g.
+        ``((widths, 0),)`` for a width array in the operand's own
+        frame). Sliced with the operand's window and handed to
+        ``Rung.kernel`` as trailing arguments; **not** wall-synthesized
+        (`_rung_value`) (default: ()).
 
     Returns
     -------
@@ -678,6 +710,8 @@ def apply_graded_walls(
     if n_faces == 0:
         return interior
 
+    offsets = tuple(offset for _co, offset in co_storages)
+
     def patch(
         in_block: Array,
         out_block: Array,
@@ -686,8 +720,10 @@ def apply_graded_walls(
         t_in: int | Array,  # noqa: ARG001 — windows anchor on the face
         width_out: int,
         t_out: int | Array,
+        *co_blocks: Array,
     ) -> Array:
         """Overwrite one wall's reduced faces of a block."""
+        co_blocked = tuple(zip(co_blocks, offsets, strict=True))
         for d in range(1, min(k, n_faces) + 1):
             # a face nearer to the other wall is that wall's to patch
             # (an equidistant face is the left wall's)
@@ -698,7 +734,7 @@ def apply_graded_walls(
             face = d if side == 0 else t_out - d + 1
             walls = _wall_cells(rung, side, d, shift, n_faces)
             value = _rung_value(in_block, axis_index, width_in, face,
-                                rung, shift, walls)
+                                rung, shift, walls, co_blocked)
             slot = width_out + (face - 1)  # output DOF k = face - 1
             out_block = _set_slot(out_block, axis_index, slot, value)
         return out_block
@@ -707,7 +743,8 @@ def apply_graded_walls(
         interior._data,  # noqa: SLF001 — plumbing seam
         f._data,  # noqa: SLF001 — documented storage seam
         interior.function_space.bare, space, axis, patch,
-        layout=f.function_space.layout)
+        layout=f.function_space.layout,
+        co_arrays=tuple(co for co, _offset in co_storages))
 
     return type(f)(f.grid, interior.function_space, data, f.metadata,
                    halo_valid=interior.halo_valid)

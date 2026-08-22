@@ -152,29 +152,29 @@ def test_codomain_rejects_bounded_axes(my):
 
 
 # ================================================================
-#  Stretched (mapped) meshes: the uniform-Shu-row refusal
+#  Stretched (mapped) meshes: accepted, width-derived rows
 # ================================================================
 @pytest.mark.parametrize("order", [3, 5])
 @pytest.mark.parametrize("bias", ["left", "right"])
-def test_codomain_rejects_mapped_meshes(mz, order, bias):
-    # the uniform Shu rows are the WRONG FV reconstruction weights on
-    # a stretched CellAvg: refuse rather than silently drop to 2nd
-    # order (the FiniteDifference order > 2 precedent)
-    with pytest.raises(
-            SpaceMismatchError,
-            match=r"uniform-mesh only.*uniform-offset.*"
-                  r"silently drop to 2nd order.*LinearReconstruction"):
-        WenoReconstruction(order, bias=bias).codomain(mz.cell_avg)
+def test_codomain_accepts_mapped_meshes(mz, order, bias):
+    # route (ii): the rows are derived from the cell widths inside
+    # the kernel, so a stretched CellAvg resolves like a uniform one
+    # (the numerics live in test_weno_nonuniform.py)
+    op = WenoReconstruction(order, bias=bias)
+    assert op.codomain(mz.cell_avg) is mz.right
 
 
-def test_apply_rejects_mapped_meshes(mz):
-    # the refusal fires through the application path too (the
-    # codomain is resolved on every apply)
+def test_apply_accepts_mapped_meshes(mz):
+    # the application path resolves and runs (finite, and exact on a
+    # constant: every candidate row sums to one)
     grid = Grid((mz,))
     grid.negotiate(halo=HaloSpec({"z": 3}))
-    f = grid.create_field(mz.cell_avg)
-    with pytest.raises(SpaceMismatchError, match="uniform-mesh only"):
-        WenoReconstruction(5, bias="left")["z"](f)
+    f = grid.create_field(mz.cell_avg, data=jnp.full(mz.n_cells, 2.5))
+    out = WenoReconstruction(5, bias="left")["z"](f)
+    assert out.function_space.bare is mz.right
+    values = np.asarray(grid.decomposition.unpad(
+        out._data, out.function_space))
+    assert np.allclose(values, 2.5, rtol=0.0, atol=1e-14)
 
 
 # ================================================================
