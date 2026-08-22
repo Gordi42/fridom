@@ -147,16 +147,41 @@ change; so is an uncoupled axis on a mapped grid (``J`` does not
 depend on it).
 
 The biased
-schemes (``UpwindAdvection``/``WENOAdvection``) reject mapped
-geometry at bind with a taught error — **both** surfaces: a mapped
-column (``CoordinateMapping``) and a stretched mesh factor
-(``MappedIntervalMesh``, whose ``column_corrections`` are empty).
-Their order-wide windows are uniform-offset (computational-
-coordinate) rows: divided by a two-point measure they stay
-consistent but drop to 2nd order (measured: upwind-5 and weno-5 both
-5 -> 2 on a wavy-stretched mesh), so they refuse rather than
-silently under-deliver — a mapped-aware high-order reconstruction is
-future work.
+schemes (``UpwindAdvection``/``WENOAdvection``) accept a **stretched
+mesh factor** (``MappedIntervalMesh``, whose ``column_corrections``
+are empty): their candidate rows, ideal weights and smoothness
+indicators are built from the factor's own cell widths
+(``spatial.operators.weno.cell_widths`` feeding the window
+generator — Shu 1998 eq. 2.20 in the primitive-function Lagrange
+form, route (ii) of the high-order mapped plan), so a stretched axis
+keeps the reconstruction's design order while the divergence goes on
+dividing by the physical two-point measure: conservation and
+constancy are exactly what they were. A uniform factor takes the
+static float tables and is bitwise unchanged.
+
+What the *composite* tendency does with that differs by family, and
+only the FV one gains order: at constant velocity on a stretched
+periodic axis the **average** (``CellAvg``) family measures its design
+order (5.0 at order 5, where the uniform-offset rows measured 2.0),
+while the **nodal** C-grid family stays 2nd order. That is not the
+face value's doing: the nodal DOFs are point values, and a two-point
+flux difference over the physical cell width is a high-order
+derivative only on a uniform lattice (the Shu-Osher FD identity, which
+is what makes the nodal family 5th order there in the first place).
+Restoring the design order for the nodal family needs route (i)'s
+same-row Jacobian divisor, which costs exact 3-D constancy — the trade
+this module declines everywhere else too (see the survey record
+``design/research/nonuniform_weno_survey.md``, sections 4-5). What the
+nodal family does get from route (ii) is the honest non-uniform
+reconstruction: candidate rows, ideal weights and smoothness
+indicators of the actual geometry, hence the ENO/dispersion behaviour
+the biased schemes are FOR. What the biased schemes
+still reject at bind is a **mapped column** (a ``CoordinateMapping``
+with a non-empty ``column_corrections`` — terrain-following or
+boundary-fitted geometry), whose windows would additionally need the
+column's cross-slope metrics; and, on an **immersed** grid only, a
+stretched factor, because the mask-keyed ladder carries no width
+co-operand.
 
 **Finite-volume (average-family) tracers (FV-D2 option A)**: an
 ``ADVECTED`` component declared ``family="fv"`` resolves to the
@@ -198,7 +223,7 @@ stays FV-specific on terrain is the *typing* — the conserved
 quantity IS the DOF, ``integrate`` on ``CellAvg`` is exact rather
 than midpoint — and the immersed composition, where the cross flux
 additionally carries the open-fraction gate and the nodal family is
-refused outright. The biased schemes reject mapped geometry entirely
+refused outright. The biased schemes reject a mapped column
 (above). The FV pressure C-grid is stage F3 (the projection here
 never touches a tracer).
 
@@ -230,8 +255,10 @@ wall, and on an axis so short that no face keeps the interior pass
 the kernels read no ghost slot at all and declare no halo there
 (``graded.fully_patched`` — the honest demand of a one-cell walled
 axis is zero, so a 2-D model on a walled one-cell column pays no
-vertical halo for a wide scheme). The uniform-mesh refusal is
-untouched — mapped/stretched factors are still rejected at bind.
+vertical halo for a wide scheme). A **stretched** bounded factor is
+carried through the same ladder: every rung reads the wall-side cell
+widths through the graded tail's ``co_storages`` seam, the two wall
+dual cells (the half cells) included.
 
 **Walled grids (centered scheme)**: ``CenteredAdvection`` supports
 bounded mesh factors (channel walls, rigid lids, and their
@@ -276,8 +303,9 @@ failure is silent wrong physics rather than a crash.**
   shallow-water ``SadournyAdvection`` refusal (IP-D8).
 - **An embedding chart** (:meth:`_FluxFormAdvection._reject_chart`).
   The whole family is written in computational coordinates: the
-  face reconstructions are uniform-offset rows and the divergence
-  is a bare ``diff`` / ``flux_diff``. The only metric it multiplies
+  face reconstructions are lattice rows (width-aware along a
+  stretched factor, never chart-aware) and the divergence is a bare
+  ``diff`` / ``flux_diff``. The only metric it multiplies
   is the ``maps=`` column Jacobian; ``grid.chart_coords`` is never
   read, so on a chart it transports the stored (rather than
   contravariant) components with no :math:`\sqrt g` weight — the
@@ -337,14 +365,17 @@ from fridom.spatial.operators.reconstruct import (
 from fridom.spatial.operators.select import Where
 from fridom.spatial.operators.staggering import (
     footprint_reach,
-    mapped_factor,
     mapped_mesh,
-    mapped_order_hint,
 )
 from fridom.spatial.operators.weno import (
+    WenoTables,
     _shu_row,  # the exact-rational coefficient seam
     _weno_combine,  # the shared nonlinear-weight reduction
     _window_views,  # the union-window slicer of the selected kernel
+    cell_widths,
+    centered_row_windows,
+    linear_row_windows,
+    nonuniform_tables,
     weno_reconstruct,
     weno_tables,
 )
@@ -728,6 +759,175 @@ def _centered_row(size: int) -> tuple[float, ...]:
 # ================================================================
 #  The face-value operators (module-private)
 # ================================================================
+def _width_operands(widths: Array | None) -> tuple[Array, ...]:
+    """
+    Width co-operand tuple of an interior pass (empty if uniform).
+
+    Parameters
+    ----------
+    widths : Array | None
+        The width co-operand (`_face_widths`).
+
+    Returns
+    -------
+    tuple[Array, ...]
+        The ``apply_fv_staggered`` ``co_operands`` entry.
+    """
+    return () if widths is None else (widths,)
+
+
+def _width_storages(
+    widths: Array | None,
+) -> tuple[tuple[Array, int], ...]:
+    """
+    Width co-storage tuple of a graded ladder (empty if uniform).
+
+    Description
+    -----------
+    ``graded.apply_graded_walls`` slices every co-storage with the
+    operand's own rung window plus a frame offset, and without the
+    ladder's zero synthesis (a rung must read the wall half cell, not
+    a zero). ``weno.cell_widths`` already delivers the widths in the
+    operand's frame — wall ghost slots included — so the offset is 0.
+
+    Parameters
+    ----------
+    widths : Array | None
+        The width co-operand (`_face_widths`).
+
+    Returns
+    -------
+    tuple[tuple[Array, int], ...]
+        The ``apply_graded_walls`` ``co_storages`` entry.
+    """
+    return () if widths is None else ((widths, 0),)
+
+
+def _select_tables(
+    pos: Array, left: WenoTables, right: WenoTables,
+) -> WenoTables:
+    r"""
+    Sign-select the entries of two width-derived table sets.
+
+    Description
+    -----------
+    The width half of the selected-input kernel's upwind choice. The
+    naive spelling — tap-select the width windows and generate once —
+    makes the widths traced, which stages the whole table generator on
+    full-size arrays; generating BOTH bias table sets from the 1-D
+    width windows instead keeps the generator constant-foldable
+    (``jax.ensure_compile_time_eval`` on a device-local axis) and
+    leaves only ~21 small ``where`` selects in the trace. The two are
+    identical to the bit: every table entry is an elementwise function
+    of the widths, so ``tables(where(pos, w_l, w_r))`` and
+    ``where(pos, tables(w_l), tables(w_r))`` agree exactly.
+
+    ``size``, ``offsets`` and ``beta_scale`` are static and shared:
+    the "right" set is the LEFT generator run on the reversed width
+    window (the mirror identity), so its candidate layout is the left
+    one's.
+
+    Parameters
+    ----------
+    pos : Array
+        The sign carrier on the output faces (nonzero where the face
+        velocity is positive).
+    left : WenoTables
+        Tables of the left-biased width window.
+    right : WenoTables
+        Tables of the reversed (right-biased) width window.
+
+    Returns
+    -------
+    WenoTables
+        The per-face selected tables.
+    """
+    def pick(a: Array, b: Array) -> Array:
+        return jnp.where(pos, a, b)
+
+    return WenoTables(
+        size=left.size,
+        offsets=left.offsets,
+        coeffs=tuple(
+            tuple(pick(a, b) for a, b in zip(cl, cr, strict=True))
+            for cl, cr in zip(left.coeffs, right.coeffs, strict=True)),
+        optimal=tuple(
+            pick(a, b) for a, b
+            in zip(left.optimal, right.optimal, strict=True)),
+        beta_rows=tuple(
+            tuple(
+                tuple(pick(a, b) for a, b in zip(rl, rr, strict=True))
+                for rl, rr in zip(cl, cr, strict=True))
+            for cl, cr in zip(left.beta_rows, right.beta_rows,
+                              strict=True)),
+        beta_scale=left.beta_scale)
+
+
+def _face_widths(f: FieldLike, axis: str) -> Array | None:
+    r"""
+    Lattice cell widths of ``f``'s ``axis`` factor (None if uniform).
+
+    Description
+    -----------
+    The module's single entry to ``weno.cell_widths`` — the route-(ii)
+    co-operand of every biased row. The widths come back in the
+    operand's OWN storage frame (same length along ``axis``, size-1 on
+    every other axis, halo-extended and synced like ``f._data``), so
+    the kernels window them with the very offsets they window the data
+    with:
+
+    - a primal operand (``Center`` / ``CellAvg``) carries the primal
+      cell widths;
+    - a dual one (``Right`` periodic, ``Inner`` bounded) the widths of
+      the dual cells around the faces, with the two **wall half
+      cells** in the ``Inner`` wall ghost slots — which is exactly
+      where the graded ladder synthesizes the Dirichlet wall values,
+      so a rung window and its width window stay aligned through the
+      wall.
+
+    ``None`` on a factor that is not stretched: the kernels then take
+    the static float tables and are bitwise the pre-route-(ii)
+    arithmetic.
+
+    On an **immersed** grid a stretched factor raises instead. The
+    cut-cell closure is the mask-keyed ladder
+    (`_immersed_graded_face`), whose rungs run through a width-free
+    kernel call, so it would silently reconstruct a stretched factor
+    with the uniform rows. The bind-time twin of this refusal is
+    :meth:`_FluxFormAdvection._require_supported_stretching`; this one
+    catches a direct operator application.
+
+    Parameters
+    ----------
+    f : FieldLike
+        The operand field.
+    axis : str
+        The resolved coordinate axis.
+
+    Returns
+    -------
+    Array | None
+        The width co-operand, or None on a uniform factor.
+
+    Raises
+    ------
+    NotImplementedError
+        On a stretched factor of an immersed (cut-cell) grid.
+    """
+    widths = cell_widths(f, axis)
+    if widths is None:
+        return None
+    if getattr(f.grid, "immersed", None) is not None:
+        raise NotImplementedError(
+            f"the biased face kernels do not support the stretched "
+            f"(mapped) axis {axis!r} on an immersed (cut-cell) grid: "
+            "their cut-cell closure is the mask-keyed graded ladder, "
+            "which carries no cell-width co-operand and would "
+            "silently reconstruct with the uniform rows. Use the "
+            "centered order-2 rows there, an unimmersed stretched "
+            "grid, or a uniform mesh (IntervalMesh)")
+    return widths
+
 def _face_codomain(
     domain: FunctionSpace,
     label: str,
@@ -739,7 +939,7 @@ def _face_codomain(
     Description
     -----------
     ``Center -> Right`` and ``Right -> Center`` on periodic real nodal
-    factors of a **uniform** mesh — the two C-grid flux positions of
+    factors, uniform or stretched — the two C-grid flux positions of
     the flux-form advection modules — and, for ``boundary="graded"``,
     their bounded twins ``Center -> Inner`` and ``Inner -> Center``.
     The bounded pair is exactly the ``graded`` cell frame: a
@@ -752,8 +952,8 @@ def _face_codomain(
     other bounded ``Inner`` tag raises rather than inventing a wall
     value.
 
-    Everything else (average spaces, stretched axes, complex scalars,
-    and — under ``boundary="none"`` — any bounded axis) raises.
+    Everything else (average spaces, complex scalars, and — under
+    ``boundary="none"`` — any bounded axis) raises.
 
     Parameters
     ----------
@@ -774,15 +974,6 @@ def _face_codomain(
         raise SpaceMismatchError(
             f"{label} covers real nodal C-grid factors only, got "
             f"{domain!r}", left=domain, operation="reconstruct")
-    if mapped_factor(domain):
-        raise SpaceMismatchError(
-            f"{label} is uniform-mesh only (the biased advection "
-            "modules reject stretched meshes at bind) — "
-            + mapped_order_hint(
-                "the biased face reconstruction rows and their "
-                "order-coupled velocity interpolation")
-            + f", got {domain!r}",
-            left=domain, operation="reconstruct")
     mesh = domain.mesh
     if mesh.periodic:
         if domain.node_set is NodeSet.CENTER:
@@ -1013,6 +1204,13 @@ class _CenteredFaceInterpolation(SeparableOperator):
         then overwritten by the graded ladder, which reads interior
         DOFs and the exact-zero Dirichlet wall values only.
 
+        On a **stretched** factor the row is built from the actual
+        cell widths (`_face_widths`), declared as a ``co_operands``
+        entry so the interior pass windows it with the data (and the
+        flat-axis tail rebuilds it), and handed to the ladder as a
+        ``co_storages`` entry so every wall rung reads its own wall-
+        side widths, the wall half cells included.
+
         Parameters
         ----------
         f : FieldLike
@@ -1026,12 +1224,10 @@ class _CenteredFaceInterpolation(SeparableOperator):
             The interpolated field (metadata kept: same quantity).
         """
         size = self._size
-        row = _centered_row(size)
         domain = f.function_space.bare.factor(axis)
         shift = _wall_shift(domain)
-
-        def kernel(arr: Array, axis_index: int) -> Array:
-            return _weighted_windows(arr, axis_index, row)
+        kernel = _centered_kernel(size)
+        widths = _face_widths(f, axis)
 
         immersed = getattr(f.grid, "immersed", None)
         if immersed is not None:
@@ -1041,6 +1237,7 @@ class _CenteredFaceInterpolation(SeparableOperator):
                 kernel, rungs, sel, immersed)
         interior = apply_fv_staggered(
             self, f, axis, size, kernel, metadata=f.metadata,
+            co_operands=_width_operands(widths),
             patched=_graded_patched(self._boundary, domain,
                                     centered_rows(size, shift), shift))
         if self._boundary == "none" or domain.mesh.periodic:
@@ -1049,12 +1246,22 @@ class _CenteredFaceInterpolation(SeparableOperator):
             Rung(width, centered_offset(width),
                  _centered_kernel(width))
             for width in centered_ladder(size, shift))
-        return apply_graded_walls(f, axis, interior, rungs, shift)
+        return apply_graded_walls(f, axis, interior, rungs, shift,
+                                  co_storages=_width_storages(widths))
 
 
-def _centered_kernel(size: int) -> Callable[[Array, int], Array]:
+def _centered_kernel(size: int) -> Callable[..., Array]:
     """
-    Array kernel of one centered graded rung (a fused static row).
+    Array kernel of one centered rung (static row, or width-aware).
+
+    Description
+    -----------
+    Takes the optional width co-window of the route-(ii) plumbing:
+    with ``widths=None`` (a uniform factor) it is the fused static
+    `_centered_row`, bitwise the pre-route-(ii) arithmetic; with a
+    width window it is the even-size Shu row of the actual cell
+    widths (`weno.centered_row_windows`), the co-window sliced with
+    the very offsets the data window uses.
 
     Parameters
     ----------
@@ -1063,13 +1270,20 @@ def _centered_kernel(size: int) -> Callable[[Array, int], Array]:
 
     Returns
     -------
-    Callable[[Array, int], Array]
-        The ``(window, axis_index) -> face_value`` kernel.
+    Callable[..., Array]
+        The ``(window, axis_index, widths=None) -> face_value``
+        kernel.
     """
     row = _centered_row(size)
 
-    def kernel(arr: Array, axis_index: int) -> Array:
-        return _weighted_windows(arr, axis_index, row)
+    def kernel(
+        arr: Array, axis_index: int, widths: Array | None = None,
+    ) -> Array:
+        if widths is None:
+            return _weighted_windows(arr, axis_index, row)
+        return centered_row_windows(
+            _window_views(arr, axis_index, size), size,
+            width_windows=_window_views(widths, axis_index, size))
 
     return kernel
 
@@ -1078,7 +1292,7 @@ def _biased_kernel(
     order: int,
     bias: Literal["left", "right"],
     weighting: Literal["linear", "weno"],
-) -> Callable[[Array, int], Array]:
+) -> Callable[..., Array]:
     """
     Array kernel of one biased rung (or of the interior pass).
 
@@ -1087,7 +1301,16 @@ def _biased_kernel(
     Order 1 is the single upwind cell (the unit-coefficient Shu row),
     so its kernel is the identity on the size-1 window — and it is the
     same row under either weighting, which is why the wall-adjacent
-    rung of a WENO ladder is an ordinary 1st-order upwind value.
+    rung of a WENO ladder is an ordinary 1st-order upwind value; a
+    width co-window cannot change a unit row, so order 1 ignores it.
+
+    The wider rows take the optional width co-window of the route-(ii)
+    plumbing: ``None`` (a uniform factor) keeps the static tables and
+    is bitwise the pre-route-(ii) arithmetic, a width window routes
+    through the width-aware generator (`weno.weno_reconstruct` with
+    ``widths=`` for the nonlinear weighting, `weno.linear_row_windows`
+    for the full optimal-weight row), whose right bias is the left
+    kernel on the reversed data AND width windows.
 
     Parameters
     ----------
@@ -1100,20 +1323,29 @@ def _biased_kernel(
 
     Returns
     -------
-    Callable[[Array, int], Array]
-        The ``(window, axis_index) -> face_value`` kernel.
+    Callable[..., Array]
+        The ``(window, axis_index, widths=None) -> face_value``
+        kernel.
     """
     if order == 1:
-        return lambda arr, _axis: arr
+        return lambda arr, _axis, _widths=None: arr
     if weighting == "weno":
-        def kernel(arr: Array, axis_index: int) -> Array:
+        def kernel(
+            arr: Array, axis_index: int, widths: Array | None = None,
+        ) -> Array:
             return weno_reconstruct(arr, axis_index, order=order,
-                                    bias=bias)
+                                    bias=bias, widths=widths)
         return kernel
     row = _linear_row(order, bias)
 
-    def linear(arr: Array, axis_index: int) -> Array:
-        return _weighted_windows(arr, axis_index, row)
+    def linear(
+        arr: Array, axis_index: int, widths: Array | None = None,
+    ) -> Array:
+        if widths is None:
+            return _weighted_windows(arr, axis_index, row)
+        return linear_row_windows(
+            _window_views(arr, axis_index, order), order, bias,
+            width_windows=_window_views(widths, axis_index, order))
 
     return linear
 
@@ -1122,7 +1354,7 @@ def _rung_kernel(
     spec: RungSpec,
     bias: Literal["left", "right"],
     weighting: Literal["linear", "weno"],
-) -> Callable[[Array, int], Array]:
+) -> Callable[..., Array]:
     """
     Array kernel of one graded rung spec (the ``wall=`` seam).
 
@@ -1146,8 +1378,9 @@ def _rung_kernel(
 
     Returns
     -------
-    Callable[[Array, int], Array]
-        The ``(window, axis_index) -> face_value`` kernel.
+    Callable[..., Array]
+        The ``(window, axis_index, widths=None) -> face_value``
+        kernel.
     """
     if spec.family == "centered":
         return _centered_kernel(spec.width)
@@ -1363,7 +1596,7 @@ def _immersed_graded_face(
     shift: int,
     size: int,
     m0: int,
-    kernel: Callable[[Array, int], Array],
+    kernel: Callable[..., Array],
     rungs: tuple[Rung, ...],
     sel_specs: tuple[tuple[int, int], ...],
     immersed: object,
@@ -1394,8 +1627,9 @@ def _immersed_graded_face(
         The interior stencil size (order for biased, size for centered).
     m0 : int
         The interior window alignment.
-    kernel : Callable[[Array, int], Array]
-        The interior array kernel.
+    kernel : Callable[..., Array]
+        The interior array kernel (called width-free: the mask ladder
+        is uniform-mesh only, `_face_widths`).
     rungs : tuple[Rung, ...]
         The reduced value rungs (widest first, bottom last).
     sel_specs : tuple[tuple[int, int], ...]
@@ -1631,6 +1865,15 @@ class _BiasedFaceReconstruction(SeparableOperator):
         ladder (interior DOFs and the exact-zero Dirichlet wall values
         only).
 
+        On a **stretched** factor the rows, ideal weights and
+        smoothness indicators are built from the factor's own cell
+        widths (`_face_widths`) — a ``co_operands`` entry for the
+        interior pass and a ``co_storages`` entry for the ladder, both
+        windowed with the data. On the dual direction those are the
+        dual cells around the faces, the two wall half cells sitting
+        in the very ghost slots where the ladder synthesizes the
+        Dirichlet zeros.
+
         Parameters
         ----------
         f : FieldLike
@@ -1650,6 +1893,7 @@ class _BiasedFaceReconstruction(SeparableOperator):
         shift = _wall_shift(domain)
         m0 = biased_offset(order, bias) + shift
         kernel = _biased_kernel(order, bias, weighting)
+        widths = _face_widths(f, axis)
         immersed = getattr(f.grid, "immersed", None)
         if immersed is not None:
             rungs, sel = _biased_mask_ladder(
@@ -1659,6 +1903,7 @@ class _BiasedFaceReconstruction(SeparableOperator):
                 immersed)
         interior = apply_fv_staggered(
             self, f, axis, order, kernel, metadata=f.metadata, align=m0,
+            co_operands=_width_operands(widths),
             patched=_graded_patched(self._boundary, domain,
                                     biased_rows(order, shift), shift))
         if self._boundary == "none" or domain.mesh.periodic:
@@ -1667,7 +1912,8 @@ class _BiasedFaceReconstruction(SeparableOperator):
             Rung(spec.width, spec_offset(spec, bias),
                  _rung_kernel(spec, bias, weighting))
             for spec in biased_specs(order, shift, self._wall))
-        return apply_graded_walls(f, axis, interior, rungs, shift)
+        return apply_graded_walls(f, axis, interior, rungs, shift,
+                                  co_storages=_width_storages(widths))
 
 
 @final
@@ -1721,6 +1967,19 @@ class _SelectedFaceReconstruction(Operator):
     reconstruction pass is saved there and the byte-identical spelling
     is the cheapest correct one). On a periodic axis no ladder runs —
     the fast path is bitwise the interior tap-select.
+
+    On a **stretched** factor the upwind choice reaches the geometry
+    too (`_face_widths`): the reconstruction rows of the two biases
+    are different numbers there, so the kernel generates BOTH width
+    table sets from the 1-D width windows — the left generator on the
+    reversed window IS the right-biased set, the mirror identity that
+    makes the one-pass spelling survive a non-uniform lattice — and
+    selects their ENTRIES on the same sign (`_select_tables`). Doing
+    it the other way round (tap-select the widths, generate once)
+    would be identical to the bit but would make the widths traced and
+    stage the whole generator on full-size arrays instead of folding
+    it to constants. The wall ladders take the widths as a
+    ``co_storages`` entry under both biases.
 
     Purity: static structure only (order / boundary / wall; the
     weighting is implicitly ``"weno"``), no Python-side state, and the
@@ -1923,7 +2182,6 @@ class _SelectedFaceReconstruction(Operator):
         # the FV frame is always primal (CellAvg has no nodal node_set)
         shift = 0 if self._family == "fv" else _wall_shift(domain)
         m0 = biased_offset(order, "left") + shift
-        tables = weno_tables(order, "left")
 
         # the sign carrier is a second STORAGE array the kernel reads,
         # sliced by the window length of the operand it is handed --- so
@@ -1936,6 +2194,7 @@ class _SelectedFaceReconstruction(Operator):
         # audits the closure and refuses if this is ever un-declared
         def kernel(
             storage: Array, axis_index: int, pos_data: Array,
+            width_data: Array | None = None,
         ) -> Array:
             wins = _window_views(storage, axis_index, u_size)
             length = wins[0].shape[axis_index]
@@ -1945,26 +2204,49 @@ class _SelectedFaceReconstruction(Operator):
             taps = tuple(
                 jnp.where(pos, wins[i], wins[order - i])
                 for i in range(order))
+            if width_data is None:
+                return _weno_combine(taps, weno_tables(order, "left"))
+            # the widths ride the operand frame, so the SAME windows
+            # cover them. Build BOTH bias table sets from those 1-D
+            # windows (the left generator on the reversed window IS
+            # the right-biased set, by the mirror identity) and select
+            # the TABLE ENTRIES on the sign: selecting the width taps
+            # instead would make the widths traced and stage the whole
+            # generator on full-size arrays (`_select_tables`)
+            w_wins = _window_views(width_data, axis_index, u_size)
+            tables = _select_tables(
+                pos,
+                nonuniform_tables(w_wins[:order], order),
+                nonuniform_tables(
+                    tuple(w_wins[order - i] for i in range(order)),
+                    order))
             return _weno_combine(taps, tables)
 
+        # after the codomain resolve, so an unsupported signature
+        # raises the taught `_face_codomain` message rather than
+        # ``cell_widths``' frame refusal
         codomain = resolve_codomain(left_op, q.function_space)
+        widths = _face_widths(q, axis)
         q = _ensure_valid(
             q, _required_halo(left_op, q.function_space))
         interior = apply_fv_staggered(
             left_op, q, axis, u_size, kernel,
             metadata=q.metadata, align=m0,
-            co_operands=(positive._data,),  # noqa: SLF001 — storage seam
+            co_operands=(
+                positive._data,  # noqa: SLF001 — storage seam
+                *_width_operands(widths)),
             patched=_graded_patched(self._boundary, domain,
                                     biased_rows(order, shift), shift))
         interior = _finalize(q, interior, codomain)
         if self._boundary == "none" or domain.mesh.periodic:
             return _to_flux_space(interior, flux_space)
+        co_storages = _width_storages(widths)
         left_walls = apply_graded_walls(
             q, axis, interior, self._rungs(order, shift, "left"),
-            shift)
+            shift, co_storages=co_storages)
         right_walls = apply_graded_walls(
             q, axis, interior, self._rungs(order, shift, "right"),
-            shift)
+            shift, co_storages=co_storages)
         return Where()(positive,
                        _to_flux_space(left_walls, flux_space),
                        _to_flux_space(right_walls, flux_space))
@@ -2012,8 +2294,9 @@ class _FVBiasedReconstruction(SeparableOperator):
     pass untouched (bitwise the ``boundary="none"`` kernel). Held
     directly by the advection modules as a left/right pair (the sign
     selection is the module's ``Where`` select); never registered
-    under a dispatch kind. Uniform-mesh only (the biased advection
-    modules reject stretched meshes at bind).
+    under a dispatch kind. A stretched (``MappedIntervalMesh``)
+    factor is supported: the rows are then built from the factor's
+    primal cell widths (see `_BiasedFaceReconstruction`).
 
     Parameters
     ----------
@@ -2104,10 +2387,10 @@ class _FVBiasedReconstruction(SeparableOperator):
 
         Description
         -----------
-        ``CellAvg -> Right`` on a periodic uniform mesh; the bounded
-        ``CellAvg -> Inner`` variant is grounded only under
-        ``boundary="graded"`` (the near-wall closure). Average spaces,
-        stretched axes, and complex scalars raise.
+        ``CellAvg -> Right`` on a periodic mesh, uniform or
+        stretched; the bounded ``CellAvg -> Inner`` variant is
+        grounded only under ``boundary="graded"`` (the near-wall
+        closure). Nodal spaces and complex scalars raise.
 
         Parameters
         ----------
@@ -2124,15 +2407,6 @@ class _FVBiasedReconstruction(SeparableOperator):
             raise SpaceMismatchError(
                 f"{type(self).__name__} reconstructs a real CellAvg "
                 f"tracer onto its faces, got {domain!r}",
-                left=domain, operation="reconstruct")
-        if mapped_factor(domain):
-            raise SpaceMismatchError(
-                f"{type(self).__name__} is uniform-mesh only (the "
-                "biased advection modules reject stretched meshes at "
-                "bind) — "
-                + mapped_order_hint(
-                    "the biased FV reconstruction rows")
-                + f", got {domain!r}",
                 left=domain, operation="reconstruct")
         mesh = domain.mesh
         if mesh.periodic:
@@ -2197,7 +2471,9 @@ class _FVBiasedReconstruction(SeparableOperator):
         cell ``order // 2`` (left bias) / ``order // 2 - 1`` (right
         bias). On a bounded axis the graded variant overwrites the
         ``K`` wall faces per side from the ladder, which reads
-        interior DOFs only (``CellAvg`` is BC-free).
+        interior DOFs only (``CellAvg`` is BC-free). On a **stretched**
+        factor the interior pass and every rung take the primal cell
+        widths as their width co-operand (`_face_widths`).
 
         Parameters
         ----------
@@ -2216,6 +2492,7 @@ class _FVBiasedReconstruction(SeparableOperator):
         weighting = self._weighting
         m0 = biased_offset(order, bias)  # primal frame, shift 0
         kernel = _biased_kernel(order, bias, weighting)
+        widths = _face_widths(f, axis)
         immersed = getattr(f.grid, "immersed", None)
         if immersed is not None:
             rungs, sel = _biased_mask_ladder(
@@ -2226,6 +2503,7 @@ class _FVBiasedReconstruction(SeparableOperator):
         domain = f.function_space.bare.factor(axis)
         interior = apply_fv_staggered(
             self, f, axis, order, kernel, metadata=f.metadata, align=m0,
+            co_operands=_width_operands(widths),
             patched=_graded_patched(self._boundary, domain,
                                     biased_rows(order, 0), 0))
         if self._boundary == "none" or domain.mesh.periodic:
@@ -2234,7 +2512,8 @@ class _FVBiasedReconstruction(SeparableOperator):
             Rung(spec.width, spec_offset(spec, bias),
                  _rung_kernel(spec, bias, weighting))
             for spec in biased_specs(order, 0, self._wall))
-        return apply_graded_walls(f, axis, interior, rungs, 0)
+        return apply_graded_walls(f, axis, interior, rungs, 0,
+                                  co_storages=_width_storages(widths))
 
 
 def _is_average_space(space: object) -> bool:
@@ -2515,14 +2794,26 @@ class _FluxFormAdvection(fr.model.Module):
     #: through their graded near-wall closure, installed at bind)
     _supports_walled: ClassVar[bool] = True
 
-    #: whether the scheme is grounded on mapped geometry at all —
-    #: both surfaces: a stretched mesh factor (MappedIntervalMesh)
-    #: and a mapping-declared mapped column. The centered scheme is
-    #: (order-2 stencils over the measure fields / the physical flux
-    #: divergence); the biased subclasses opt out — their
-    #: uniform-offset windows need a mapped-aware reconstruction,
-    #: future work
-    _supports_mapped: ClassVar[bool] = True
+    #: whether the scheme is grounded on a mapping-declared **mapped
+    #: column** (terrain-following / boundary-fitted geometry). The
+    #: centered scheme is (the J-weighted physical flux divergence,
+    #: stage C4); the biased subclasses opt out — their face windows
+    #: would additionally need the column's cross-slope metrics,
+    #: future work. This is one half of the retired ``_supports_mapped``
+    #: flag; its other half — a plain **stretched** mesh factor — is
+    #: no longer a capability question at all (every scheme is
+    #: grounded on one) and survives only as the immersed combination
+    #: below
+    _supports_mapped_column: ClassVar[bool] = True
+
+    #: whether the scheme's **immersed** (cut-cell) closure is grounded
+    #: on a stretched mesh factor. The centered scheme is (its
+    #: two-point faces divide by the measure fields whatever the mask
+    #: says); the biased subclasses are not — their mask-keyed ladder
+    #: (`graded.apply_graded_mask`) runs every rung through a
+    #: width-free kernel call, so a stretched factor there would
+    #: silently fall back to the uniform rows
+    _supports_stretched_immersed: ClassVar[bool] = True
 
     #: whether the scheme is grounded on immersed (cut-cell) grids
     #: (IP-D4): the centered flux form weights every face flux by the
@@ -2849,30 +3140,34 @@ class _FluxFormAdvection(fr.model.Module):
         Raises
         ------
         NotImplementedError
-            On a grid carrying a **stretched** mesh factor
-            (``MappedIntervalMesh``: a per-axis ``coordinate_map``)
-            or a mapping-declared **mapped column** when the scheme
-            opts out through `_supports_mapped` (the biased
-            subclasses — their order-wide uniform-offset windows need
-            a mapped-aware reconstruction, future work), or when the
-            mapping declares more than one column (mirroring the
-            stage-C3 pressure solver support).
+            On a mapping-declared **mapped column** when the scheme
+            opts out through `_supports_mapped_column` (the biased
+            subclasses — their face windows would additionally need
+            the column's cross-slope metrics, future work), on a
+            **stretched** factor of an **immersed** grid when the
+            scheme opts out through `_supports_stretched_immersed`
+            (`_require_supported_stretching`), or when the mapping
+            declares more than one column (mirroring the stage-C3
+            pressure solver support).
         """
-        self._require_uniform_factors(grid)
+        self._require_supported_stretching(grid)
         mapping = getattr(grid, "mapping", None)
         corrections = (mapping.column_corrections
                        if mapping is not None else {})
         if not corrections:
             return
-        if not self._supports_mapped:
+        if not self._supports_mapped_column:
             raise NotImplementedError(
                 f"{type(self).__name__} does not support mapped "
                 "grids (the coordinate mapping declares a mapped "
-                "column): the biased face reconstructions are "
-                "computational-coordinate rows and would silently "
-                "misrepresent physical transport — future work. "
-                "Use CenteredAdvection (mapped-capable, stage C4) "
-                "or a linear model (advection=False in nh.Model)")
+                "column): the biased face reconstructions follow the "
+                "lattice of their own factor and carry none of the "
+                "column's cross-slope metrics, so they would "
+                "silently misrepresent physical transport — future "
+                "work (a stretched factor without a mapped column IS "
+                "supported). Use CenteredAdvection (mapped-capable, "
+                "stage C4) or a linear model (advection=False in "
+                "nh.Model)")
         columns = set(corrections.values())
         if len(columns) != 1:
             raise NotImplementedError(
@@ -2883,30 +3178,37 @@ class _FluxFormAdvection(fr.model.Module):
         self._corrections = dict(corrections)
         self._halo_axes = tuple(grid.names)
 
-    def _require_uniform_factors(self, grid: object) -> None:
-        """Reject stretched mesh factors when the scheme opts out.
+    def _require_supported_stretching(self, grid: object) -> None:
+        """Reject a stretched factor on an immersed grid (biased).
 
         Description
         -----------
-        The second (and, for a plain stretched grid, the *only*)
-        mapped surface of a grid: a ``MappedIntervalMesh`` factor
-        carries its own ``coordinate_map`` and needs **no**
-        ``CoordinateMapping`` column, so ``column_corrections`` is
-        empty and the mapped-column guard below never fires. The
-        centered scheme is grounded here (its two-point stencils
-        divide by the codomain measure field, order 2); the biased
-        subclasses are not — their uniform-offset windows would bind
-        happily and silently lose their design order, the exact
-        silent-wrongness ``FiniteDifference`` refuses to commit at
-        order > 2.
+        The stretched-factor half of the retired two-surface mapped
+        guard. A ``MappedIntervalMesh`` factor carries its own
+        ``coordinate_map`` and needs **no** ``CoordinateMapping``
+        column, so ``column_corrections`` is empty and the
+        mapped-column guard never sees it. Every scheme is now
+        grounded on such a factor — the centered one through its
+        two-point measure divisions, the biased ones through the
+        width-aware reconstruction rows (module docstring) — so on a
+        plain (unimmersed) grid this guard never fires.
+
+        What it does still refuse is the **combination** stretched +
+        immersed for the biased schemes: their cut-cell closure is the
+        mask-keyed graded ladder, whose rungs run through a width-free
+        kernel call, so a stretched factor there would silently
+        reconstruct with the uniform rows — the very silent-wrongness
+        the retired stretched-mesh refusal existed to prevent.
 
         Raises
         ------
         NotImplementedError
-            On a stretched mesh factor when `_supports_mapped` is
-            False.
+            On a stretched mesh factor of an immersed grid when
+            `_supports_stretched_immersed` is False.
         """
-        if self._supports_mapped:
+        if self._supports_stretched_immersed:
+            return
+        if getattr(grid, "immersed", None) is None:
             return
         stretched = tuple(
             name for mesh in getattr(grid, "factors", ())
@@ -2914,13 +3216,16 @@ class _FluxFormAdvection(fr.model.Module):
         if not stretched:
             return
         raise NotImplementedError(
-            f"{type(self).__name__} does not support stretched "
-            f"(mapped) meshes (mapped coordinates: {stretched}): "
-            + mapped_order_hint(
-                "its biased face reconstructions and their "
-                "order-coupled velocity interpolation")
-            + ". Use CenteredAdvection (order 2, mapped-capable) or "
-            "a uniform mesh (IntervalMesh)")
+            f"{type(self).__name__} does not support a stretched "
+            f"(mapped) mesh on an immersed (cut-cell) grid (mapped "
+            f"coordinates: {stretched}): the biased face "
+            "reconstructions are width-aware on a plain stretched "
+            "grid, but their immersed closure is the mask-keyed "
+            "graded ladder, which carries no cell-width co-operand "
+            "and would silently reconstruct with the uniform rows. "
+            "Use CenteredAdvection (order 2, immersed- and "
+            "mapped-capable), an unimmersed stretched grid, or a "
+            "uniform mesh (IntervalMesh)")
 
     #: on a mapped grid the flux divergence multiplies grid.metric
     #: coefficients the halo tracer cannot follow (V-N2): declare
@@ -4267,9 +4572,16 @@ class UpwindAdvection(_FluxFormAdvection):
     keep ``upwind1`` when fronts, steps, or under-resolved boundary
     layers may reach the wall.
 
-    Mapped grids stay rejected at bind: the biased rows are
-    uniform-offset (computational-coordinate) rows and lose their
-    design order on a stretched mesh. Use `CenteredAdvection`
+    A **stretched** mesh factor (``MappedIntervalMesh``) is supported:
+    the rows, ideal weights and smoothness indicators are built from
+    the factor's cell widths, so the reconstruction keeps its design
+    order there — and so does the composite tendency for an
+    average-family (``CellAvg``) tracer, while the nodal C-grid family
+    stays 2nd order on a stretched axis (module docstring).
+    A **mapped column** (a
+    ``CoordinateMapping`` declaring terrain-following or
+    boundary-fitted geometry) stays rejected at bind, and so does a
+    stretched factor on an immersed grid. Use `CenteredAdvection`
     (mapped-capable, order 2) there.
 
     Parameters
@@ -4304,10 +4616,13 @@ class UpwindAdvection(_FluxFormAdvection):
     #: through their graded near-wall closure, installed at bind
     _supports_walled: ClassVar[bool] = True
 
-    #: the biased reconstructions are computational-coordinate rows;
-    #: mapped columns need a mapped-aware variant — future work
-    #: (taught rejection at bind)
-    _supports_mapped: ClassVar[bool] = False
+    #: a mapped column (terrain-following / boundary-fitted geometry)
+    #: needs cross-slope-aware face windows — future work (taught
+    #: rejection at bind). A plain stretched factor IS supported (the
+    #: width-aware rows of the module docstring); only its immersed
+    #: combination is not
+    _supports_mapped_column: ClassVar[bool] = False
+    _supports_stretched_immersed: ClassVar[bool] = False
 
     #: the wide biased windows reach across dry cells, but the graded-mask
     #: near-wall closure keys the ladder on the wet region (GA-D1..D6):
@@ -4531,8 +4846,10 @@ class UpwindAdvection(_FluxFormAdvection):
         disabled (the concrete pre-mask / selectors the trace cannot
         follow), so the demand is declared here (GA-D3) — wider than the
         base's order-2 centered fraction stencil for ``order = 5``. Off an
-        immersed grid the biased schemes reject a mapped column at bind, so
-        there is no extra halo (the flat path stays fully halo-traced).
+        immersed grid the biased schemes reject a mapped column at bind,
+        and a stretched factor needs none (the cell widths ride the
+        operand's own negotiated window), so there is no extra halo —
+        the flat path stays fully halo-traced.
         """
         if self._immersed is None:
             return None

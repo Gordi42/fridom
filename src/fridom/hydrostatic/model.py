@@ -41,9 +41,13 @@ The factory installs **no advection unless asked** (owner ruling
 geostrophic-balance and energy-conservation gates validate);
 ``advection=True`` is the shorthand for ``CenteredAdvection()`` (the
 common-denominator scheme), and ``UpwindAdvection`` /
-``WENOAdvection`` are accepted on the uniform unmapped grids the
-hydrostatic preset targets (the biased schemes self-reject stretched /
-mapped geometry at bind).
+``WENOAdvection`` are accepted on the flat grids the hydrostatic
+preset targets, a **stretched** vertical column included — their
+reconstruction rows are built from the factor's own cell widths there
+(route (ii); an average-family tracer then keeps the design order, a
+nodal one drops to 2nd, see ``fr.model.modules.advection``). Only a
+terrain-following **mapped column** (a ``CoordinateMapping``) is still
+self-rejected by the biased schemes at bind.
 """
 from __future__ import annotations
 
