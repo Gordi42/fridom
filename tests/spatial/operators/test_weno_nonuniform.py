@@ -446,6 +446,8 @@ def design_order_errors(order, sizes, *, derived):
     return np.array(errors)
 
 
+# raw-kernel comparison over the single-block storage frame
+@pytest.mark.single_device
 def test_weno5_keeps_design_order_on_a_stretched_axis():
     sizes = (16, 32, 64)
     derived = design_order_errors(5, sizes, derived=True)
@@ -459,6 +461,8 @@ def test_weno5_keeps_design_order_on_a_stretched_axis():
     assert derived[-1] < 0.1 * static[-1]
 
 
+# raw-kernel comparison over the single-block storage frame
+@pytest.mark.single_device
 def test_weno3_keeps_design_order_on_a_stretched_axis():
     sizes = (32, 64, 128)
     derived = design_order_errors(3, sizes, derived=True)
@@ -498,6 +502,8 @@ def test_operator_matches_the_wrapped_kernel_on_a_mapped_axis(bias):
                                rtol=1e-13, atol=1e-14)
 
 
+# bitwise parity: a sharded reduction reassociates
+@pytest.mark.single_device
 def test_uniform_factor_takes_the_static_path_bitwise():
     n = 16
     order = 5
@@ -626,6 +632,8 @@ def test_graded_interior_convergence_on_a_stretched_column():
 # ================================================================
 #  6. The width co-operand and its frames
 # ================================================================
+# asserts the single-block storage layout [ghosts | true | ghosts]
+@pytest.mark.single_device
 def test_cell_widths_primal_frame_is_the_cell_width_vector():
     n = 16
     mesh = periodic_mesh(n)
@@ -651,6 +659,8 @@ def test_cell_widths_primal_frame_is_the_cell_width_vector():
         expected, rtol=0.0, atol=1e-15)
 
 
+# asserts the single-block storage layout [ghosts | true | ghosts]
+@pytest.mark.single_device
 def test_cell_widths_dual_frame_periodic_right():
     n = 16
     mesh = periodic_mesh(n)
@@ -670,6 +680,8 @@ def test_cell_widths_dual_frame_periodic_right():
                                rtol=0.0, atol=1e-15)
 
 
+# asserts the single-block storage layout [ghosts | true | ghosts]
+@pytest.mark.single_device
 def test_cell_widths_dual_frame_bounded_inner_carries_half_cells():
     n = 16
     mesh = bounded_mesh(n)
@@ -893,18 +905,44 @@ def test_bounded_dual_wall_cells_survive_sharding(forced_devices):
     # physical-end seam, so they must land on the boundary shards
     if forced_devices is not None:
         assert jax.device_count() == forced_devices
-    values = []
+    n, width = 16, 3
+    centers = centers_of(tanh_map, n)
     for device_ids in (None, (0,)):
-        mesh = bounded_mesh(16)
+        mesh = bounded_mesh(n)
         grid = Grid((mesh,), device_ids=device_ids)
         grid.negotiate(halo=HaloSpec({"z": 3}))
         f = grid.create_field(mesh.inner)
-        values.append(np.asarray(cell_widths(f, "z")).ravel())
-    width = 3
-    centers = centers_of(tanh_map, 16)
-    for widths in values:
-        # the wall half cells sit one slot outside the true DOFs of
-        # the FIRST and LAST block
+        widths = np.asarray(cell_widths(f, "z")).ravel()
+        # the wall faces are ghost slots of the FIRST and LAST block:
+        # block 0 starts at storage 0, the last one at (shards-1)*block
+        local = grid.decomposition.default_layout.is_local("z")
+        shards = 1 if local else jax.device_count()
+        block = widths.shape[0] // shards
+        cells = -(-n // shards)
+        t_last = (n - 1) - (shards - 1) * cells
         assert widths[width - 1] == pytest.approx(centers[0], abs=1e-15)
-        assert widths[-width] == pytest.approx(1.0 - centers[-1],
-                                               abs=1e-15)
+        right = (shards - 1) * block + width + t_last
+        assert widths[right] == pytest.approx(1.0 - centers[-1],
+                                              abs=1e-15)
+        # and the interior dual cells are the true DOFs of every block
+        gathered = np.asarray(grid.decomposition.gather(
+            jnp.asarray(cell_widths(f, "z")),
+            f.function_space)).ravel()
+        np.testing.assert_allclose(gathered, np.diff(centers),
+                                   rtol=0.0, atol=1e-15)
+
+
+def test_cell_widths_refuses_a_dual_frame_of_the_wrong_topology():
+    # ``Right`` is the dual reconstruction frame of a PERIODIC axis
+    # and ``Inner`` of a BOUNDED one. A bounded ``Right`` holds faces
+    # 1..n with the last ON the wall, so its lattice cells are not the
+    # C-grid dual frame and the wall half cells would land in the
+    # wrong slots: refuse rather than guess. (The mirrored pairing --
+    # a periodic ``Inner`` -- cannot be built at all: a periodic mesh
+    # has no interior-face space.)
+    mesh = bounded_mesh(8)
+    grid = Grid((mesh,))
+    grid.negotiate(halo=HaloSpec({"z": 3}))
+    f = grid.create_field(mesh.right)
+    with pytest.raises(SpaceMismatchError, match="dual face cells"):
+        cell_widths(f, "z")

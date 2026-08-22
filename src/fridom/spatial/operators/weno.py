@@ -1100,8 +1100,11 @@ def _rescaled(
 _PRIMAL_NODE_SETS = (NodeSet.CENTER,)
 
 #: node sets whose lattice cells are the DUAL cells around the mesh
-#: faces (the wall-normal direction of the C-grid pair)
-_DUAL_NODE_SETS = (NodeSet.RIGHT, NodeSet.INNER)
+#: faces (the wall-normal direction of the C-grid pair), paired with
+#: the axis topology each is the reconstruction frame of: ``Right``
+#: holds faces 1..n of a periodic axis, ``Inner`` the interior faces
+#: 1..n-1 of a bounded one (its two wall faces are ghost slots)
+_DUAL_NODE_SETS = {NodeSet.RIGHT: False, NodeSet.INNER: True}
 
 
 def cell_widths(f: FieldLike, axis: str) -> Array | None:
@@ -1194,13 +1197,18 @@ def _classify_frame(factor: FunctionSpace, axis: str) -> bool:
     SpaceMismatchError
         On a node set outside the reconstruction families.
     """
+    bounded = not getattr(factor.mesh, "periodic", False)
     if isinstance(factor, CellAvg):
         return False
     if isinstance(factor, NodalSpace):
         if factor.node_set in _PRIMAL_NODE_SETS:
             return False
-        if factor.node_set in _DUAL_NODE_SETS:
-            return not getattr(factor.mesh, "periodic", False)
+        # a dual node set is the reconstruction frame of exactly one
+        # topology; the other pairing (bounded ``Right``, periodic
+        # ``Inner``) is not a C-grid frame and would put the wall
+        # cells in the wrong slots, so it refuses rather than guesses
+        if _DUAL_NODE_SETS.get(factor.node_set) is bounded:
+            return bounded
     raise SpaceMismatchError(
         f"no stretched-mesh cell widths for {factor!r} along "
         f"{axis!r}: the biased reconstructions read primal cells "
