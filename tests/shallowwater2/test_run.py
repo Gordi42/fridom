@@ -28,6 +28,7 @@ def test_betaplane_advances_with_a_profile_f_of_y():
         rossby_number=0.2, metric_ratio=0.5)
     assert cor.extra_halo is None
     model = sw.Model(
+        advection=True,
         grid=make_grid(),
         core=sw.Core(froude_number=0.2, depth=1.0),
         scaling=fr.scaling.GravityWave(),

@@ -273,6 +273,7 @@ def make_channel_model(*modules, n=N, family="nodal", dt=DT,
         IntervalMesh(n, (0.0, 1.0), periodic=False, name="z"),
     ), mapping=mapping)
     return nh.Model(
+        advection=True,
         grid=grid,
         core=nh.Core(aspect_ratio=DSQR ** 0.5, family=family,
                      pressure_iterations=ITERATIONS,

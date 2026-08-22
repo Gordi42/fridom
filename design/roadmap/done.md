@@ -3340,3 +3340,17 @@ remaining 3-vs-1 layers come from the flux divergence reading the two
 structural-zero wall slots, a separate and much smaller lever).
 [`../research/weno_thin_walled_axis.md`](../research/weno_thin_walled_axis.md),
 [`../research/thin_axis_halo_investigation.md`](../research/thin_axis_halo_investigation.md) §13.
+
+## No advection by default in the presets (2026-08-22)
+
+Owner ruling during the coastal-upwelling review
+(`design/decisions/no_default_advection.md`): `hy.Model`, `nh.Model`
+and `sw.Model` default to `advection=False`. A module instance is
+installed as given and `True` stays the shorthand for the package's
+default-constructed scheme, so every caller that meant the nonlinear
+model now names it: the gallery (`barotropic_instability`, the coastal
+upwelling page in review), `benchmarks/model/bench_step.py` (the guard
+keeps measuring the nonlinear step), the `Tracer` and spherical
+`sw.Model` docstring examples, and the tests that relied on the
+default. Trigger: a stretched-mesh example that had to drop its WENO
+keyword silently ran centered advection instead.

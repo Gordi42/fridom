@@ -296,6 +296,7 @@ def nh_projected():
             NH_N, (0.0, 2 * np.pi), periodic=True, name=name)
         for name in ("x", "y", "z"))
     model = nh.Model(
+        advection=True,
         core=nh.Core(),
         grid=fr.spatial.Grid(meshes, device_ids=(0,)),
         coriolis=nh.FPlaneCoriolis(f0=NH_F0),

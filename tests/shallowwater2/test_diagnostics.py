@@ -53,6 +53,7 @@ def sphere_grid(nlon=16, nlat=8, radius=1.0):
 def sphere_model(*, ro=RO, omega=1.5):
     """Assemble the spherical shallow-water preset."""
     return sw.Model(
+        advection=True,
         grid=sphere_grid(),
         core=sw.Core(froude_number=ro, depth=CSQR,
                      coords=("lon", "lat")),
