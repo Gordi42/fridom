@@ -30,14 +30,19 @@ This file only says how the pages are built and shipped.
 - **Stills:** `field.xr.plot(...)` in the example; the stock
   sphinx-gallery matplotlib scraper picks the figures up, styled by
   `docs/source/fridom_docs.mplstyle` via the gallery reset hook.
-- **Animations:** the example writes zarr via the writer, then runs a
-  **visible** `cdfviewer <store> ... --record` line
-  (`subprocess.run(..., shell=True, check=True)`); `video_scraper.py`
-  embeds the mp4. The command documents the real workflow. Videos are
-  rebuilt each full build and never committed.
-- **CDFViewer in CI:** the prebuilt Linux release binary
-  (`v2026.7.0`, `cdfviewer-linux-x86_64.tar.zst`), run under xvfb +
-  Mesa software GL. Install + smoke test ~35 s.
+- **Animations:** the example writes zarr via the writer, then records
+  it through the viewer's python package with a **visible**
+  `cv.record(<store>, ..., filename=..., framerate=...)` call
+  (`import cdfviewer as cv`; it replaced the
+  `subprocess.run("cdfviewer ... --record", shell=True)` line on
+  2026-08-22, when CDFViewer 2026.8.3 shipped the package);
+  `video_scraper.py` embeds the mp4. The call documents the real
+  workflow. Videos are rebuilt each full build and never committed.
+- **CDFViewer in CI:** `cdfviewer` is a project dependency and
+  `python -m cdfviewer install` fetches the prebuilt Linux bundle of
+  the package's own version (`cdfviewer-linux-x86_64.tar.zst`, checked
+  against the release's SHA-256), run under xvfb + Mesa software GL.
+  The viewer pin is the package version in `uv.lock`.
 - **Divergence guard:** `only_warn_on_example_error = False` — a raising
   example fails the build.
 - **Budget rule:** an example stays under ~90 s locally to survive the

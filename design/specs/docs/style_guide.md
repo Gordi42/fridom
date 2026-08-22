@@ -384,11 +384,35 @@ Rules from the rayleigh-taylor API review (owner review, 2026-08-14):
 
 ### CDFViewer animations
 
-Written against **CDFViewer 2026.8.1**, which the docs CI pins. Two
-hazards of the 2026.7 line are fixed there and no longer constrain the
-examples: an expression-valued keyword no longer arrives as a string,
-and `colorrange` is no longer discarded when the size keywords are
-present. Keyword order is now free.
+Written against **CDFViewer 2026.8.3**, whose `cdfviewer` python
+package is a project dependency (the docs CI fetches the viewer bundle
+of the package version in `uv.lock`). An example records through the
+package, never through a shell line:
+
+```python
+import cdfviewer as cv
+
+_ = cv.record(
+    "store.zarr", var="b", x="x", y="z", dims={"y": 0},
+    plot_type="heatmap", ani_dim="time",
+    kwargs={"colormap": "balance", "colorrange": (-1, 1),
+            "title": "Buoyancy"},
+    filename="store.mp4", framerate=24)
+```
+
+The parameters are named after the CLI options (`var` for `-v`,
+`ani_dim` for `-a`, `dims` for `--dims`, `kwargs` for `--kwargs`,
+`filename`/`framerate` for `-s`), so the viewer manual's command lines
+translate a word at a time. Python values are written in the viewer's
+keyword syntax by the package: a colormap or colour is the plain string
+`"balance"`, tuples stay tuples, `cv.sym("fitzoom")` is for the few
+keywords that insist on a symbol, and `cv.raw(...)` passes Julia source
+through. Keep `_ =` in front of the call, as in front of the matplotlib
+stills: it returns the path of the video, and a bare call would print it
+into the rendered page. Two hazards of the 2026.7 line are fixed since
+2026.8.1 and no longer constrain the examples: an expression-valued
+keyword no longer arrives as a string, and `colorrange` is no longer
+discarded when the size keywords are present. Keyword order is free.
 
 - **Label the colorbar with `cbarlabel="auto"`.** It reads the field's
   own `long_name`, so the caption cannot drift from the model, and a
@@ -401,10 +425,11 @@ present. Keyword order is now free.
   110 pixels from the plot instead of 20. Nothing else reaches that
   gap, since `colgap`, `figure_padding`, `colorbargap` and
   `colorbarwidth` are all rejected.
-- **Overlay a vector field with `--over u,v --over-plot quiver`** (or
-  `streamplot`, `contour`, `contourf`, `heatmap`). The store must
-  carry the components, so the writer needs them in `derived=`. Draw
-  them in a flat colour with `over.color=:black`, since by default
+- **Overlay a vector field with `over=["u,v"], over_plot=["quiver"]`**
+  (or `"streamplot"`, `"contour"`, `"contourf"`, `"heatmap"`). The
+  store must carry the components, so the writer needs them in
+  `derived=`. Draw them in a flat colour with the `kwargs` entry
+  `"over.color": "black"`, since by default
   they are coloured by speed and fight the field underneath. `arrows=`
   takes a target count per axis and is resolution independent; the
   default `(24, 16)` is anisotropic and wrong on a square domain.

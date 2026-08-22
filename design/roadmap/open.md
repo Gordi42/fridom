@@ -417,10 +417,19 @@ content is owner-reviewed privately before it reaches `dev`
 (AGENTS.md).
 [`../plans/active/docs_examples_plan.md`](../plans/active/docs_examples_plan.md)
 
+**Examples on the cdfviewer python package** (2026-08-22): CDFViewer
+2026.8.3 ships `cdfviewer` on PyPI, now a project dependency (landed on
+dev with the CI switch to `python -m cdfviewer install`). The 15 gallery
+examples call `cv.record(...)` instead of the
+`subprocess.run("cdfviewer ... --record", shell=True)` line; that
+conversion, with the retirement of the `S602`/`S607` ruff ignores for
+`examples/**`, sits on the local `docs/cdfviewer-package` branch and
+awaits owner review. Move this entry to `done.md` at the merge.
+
 **CDFViewer upstream wishlist** (owner 2026-07-23): improvements to
-the `cdfviewer --record` animations that need CDFViewer.jl features —
+the recorded animations that need CDFViewer.jl features —
 the owner implements upstream; revisit the example scripts'
-`cdfviewer` invocations when they ship. Collected so far:
+`cv.record` calls when they ship. Collected so far:
 model-time label displayed as the animation plays (in progress
 upstream); colorbar height auto-matched to the plot height (a manual
 `figsize=` tuned to the domain aspect works around it); axis labels
@@ -430,10 +439,10 @@ units (2000 km rather than 2.0x10^6). Title and label sizes turned
 out to be plain kwargs (`titlesize=`, `xlabelsize=`) — applied in
 the equatorial-waves example 2026-07-23, no upstream work needed.
 Related and separately owned: the writer names the zarr record
-dimension `iteration`, so `cdfviewer -a time` warns
+dimension `iteration`, so `ani_dim="time"` warns
 ("Animation dimension 'time' not found") and falls back to the
 iteration axis. The animation is still correctly time-ordered, and
-swapping the flag to `-a iteration` was rejected — the fix belongs on
+swapping it to `ani_dim="iteration"` was rejected — the fix belongs on
 the time-dimension side.
 
 ## 6. Hydrostatic external comparison legs (3.1 remainder)
