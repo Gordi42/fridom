@@ -157,7 +157,25 @@ form, route (ii) of the high-order mapped plan), so a stretched axis
 keeps the reconstruction's design order while the divergence goes on
 dividing by the physical two-point measure: conservation and
 constancy are exactly what they were. A uniform factor takes the
-static float tables and is bitwise unchanged. What the biased schemes
+static float tables and is bitwise unchanged.
+
+What the *composite* tendency does with that differs by family, and
+only the FV one gains order: at constant velocity on a stretched
+periodic axis the **average** (``CellAvg``) family measures its design
+order (5.0 at order 5, where the uniform-offset rows measured 2.0),
+while the **nodal** C-grid family stays 2nd order. That is not the
+face value's doing: the nodal DOFs are point values, and a two-point
+flux difference over the physical cell width is a high-order
+derivative only on a uniform lattice (the Shu-Osher FD identity, which
+is what makes the nodal family 5th order there in the first place).
+Restoring the design order for the nodal family needs route (i)'s
+same-row Jacobian divisor, which costs exact 3-D constancy — the trade
+this module declines everywhere else too (see the survey record
+``design/research/nonuniform_weno_survey.md``, sections 4-5). What the
+nodal family does get from route (ii) is the honest non-uniform
+reconstruction: candidate rows, ideal weights and smoothness
+indicators of the actual geometry, hence the ENO/dispersion behaviour
+the biased schemes are FOR. What the biased schemes
 still reject at bind is a **mapped column** (a ``CoordinateMapping``
 with a non-empty ``column_corrections`` — terrain-following or
 boundary-fitted geometry), whose windows would additionally need the
@@ -4482,8 +4500,11 @@ class UpwindAdvection(_FluxFormAdvection):
 
     A **stretched** mesh factor (``MappedIntervalMesh``) is supported:
     the rows, ideal weights and smoothness indicators are built from
-    the factor's cell widths, so the design order survives the
-    stretching (module docstring). A **mapped column** (a
+    the factor's cell widths, so the reconstruction keeps its design
+    order there — and so does the composite tendency for an
+    average-family (``CellAvg``) tracer, while the nodal C-grid family
+    stays 2nd order on a stretched axis (module docstring).
+    A **mapped column** (a
     ``CoordinateMapping`` declaring terrain-following or
     boundary-fitted geometry) stays rejected at bind, and so does a
     stretched factor on an immersed grid. Use `CenteredAdvection`

@@ -659,6 +659,38 @@ def test_stretched_grid_tendency_uses_the_widths(factory, monkeypatch):
     assert np.abs(with_widths - without).max() > 1e-6
 
 
+@pytest.mark.parametrize("n_cells", [1, 3])
+def test_short_walled_stretched_column_stays_exact(n_cells):
+    # a walled axis short enough that EVERY face is a ladder face
+    # (graded.fully_patched: the interior pass is skipped and the
+    # module demands no halo of its own). The width co-storages are
+    # then the only geometry the rungs see, and their slice start
+    # ``halo + (face - 1 - offset) - shift`` must stay inside the
+    # storage -- it does for halo >= 1, which the two-point stencils
+    # always negotiate.
+    scheme = WENOAdvection(5)
+    model = Model(
+        grid=Grid((
+            IntervalMesh(NT, (0.0, 1.0), name="x"),
+            IntervalMesh(NT, (0.0, 1.0), name="y"),
+            stretched_mesh(n_cells, periodic=False))),
+        modules=(Core(), scheme),
+        time_stepper=AdamBashforth(DT, order=3))
+    random_state(model, 4)
+    tau = advection_tendency(model, WENOAdvection)
+    for name in ("u", "v", "w", "b"):
+        assert bool(np.isfinite(np.asarray(tau[name].data)).all())
+    # and a constant tracer under an impermeable, discretely
+    # divergence-free flow still gives an exactly zero tendency
+    shapes = {c: model.state[c].data.shape for c in ("u", "v", "w", "b")}
+    model.set_fields(u=0.7 * np.ones(shapes["u"]),
+                     v=-0.3 * np.ones(shapes["v"]),
+                     w=np.zeros(shapes["w"]),
+                     b=np.ones(shapes["b"]))
+    tau = advection_tendency(model, WENOAdvection)
+    assert float(np.abs(np.asarray(tau["b"].data)).max()) < 1e-13
+
+
 # ================================================================
 #  7. Differentiability (AGENTS.md policy)
 # ================================================================
