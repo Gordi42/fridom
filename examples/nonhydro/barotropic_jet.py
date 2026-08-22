@@ -15,8 +15,7 @@ A single zonal jet in a triply periodic box rolls up into vortices.
 # rotation and the Froude number :math:`\mathrm{Fr} = U / (N H)`
 # against the stratification. Together they fix the deformation radius
 # :math:`L_d = (\mathrm{Ro} / \mathrm{Fr})\,H`, here two jet widths.
-import subprocess
-
+import cdfviewer as cv
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
 
@@ -128,13 +127,11 @@ _ = model.state.rel_vort_z.to(center).xr.isel(z=0, drop=True).plot(
 # -----------------------
 # `CDFViewer <https://gordi42.github.io/CDFViewer.jl/>`_ records the
 # vorticity animation from the store.
-command = (
-    "cdfviewer barotropic_jet.zarr"
-    " -v rel_vort_z -x x -y y --dims=z=0 -p heatmap -a time"
+_ = cv.record(
+    "barotropic_jet.zarr", var="rel_vort_z", x="x", y="y", dims={"z": 0},
+    plot_type="heatmap", ani_dim="time",
     # the time axis is nondimensional, so the label drops its unit
-    " --kwargs='animlabel=\"t = {rawvalue}\", animlabelnumfmt=\"%.1f\","
-    " colormap=:balance, colorrange=(-1.1, 1.1),"
-    ' title="Barotropic jet"'
-    "' --record -s 'filename=\"barotropic_jet.mp4\", framerate=24'"
-)
-_ = subprocess.run(command, shell=True, check=True)
+    kwargs={"animlabel": "t = {rawvalue}", "animlabelnumfmt": "%.1f",
+            "colormap": "balance", "colorrange": (-1.1, 1.1),
+            "title": "Barotropic jet"},
+    filename="barotropic_jet.mp4", framerate=24)

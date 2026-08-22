@@ -18,8 +18,7 @@ Dense fluid resting on light fluid, leads to overturning and mixing.
 # There is no rotation and no background stratification. The buoyancy
 # is the whole of the physics, and the model carries it as a
 # prognostic field that the advection scheme transports.
-import subprocess
-
+import cdfviewer as cv
 import jax.numpy as jnp
 
 # sphinx_gallery_thumbnail_number = 2
@@ -135,14 +134,13 @@ plot.axes.set_aspect("equal")
 # -----------------------
 # `CDFViewer <https://gordi42.github.io/CDFViewer.jl/>`_ records the
 # buoyancy animation from the store.
-_ = subprocess.run(
-    "cdfviewer rayleigh_taylor.zarr -v b -x x -y z --dims=y=0"
-    " -p heatmap -a time"
-    " --kwargs='animlabel=\"t = {rawvalue} s\", animlabelnumfmt=\"%.1f\","
-    " colormap=:ice, colorrange=(0, 1),"
-    " title=\"Rayleigh-Taylor instability\"'"
-    " --record -s 'filename=\"rayleigh_taylor.mp4\", framerate=24'",
-    shell=True, check=True)
+_ = cv.record(
+    "rayleigh_taylor.zarr", var="b", x="x", y="z", dims={"y": 0},
+    plot_type="heatmap", ani_dim="time",
+    kwargs={"animlabel": "t = {rawvalue} s", "animlabelnumfmt": "%.1f",
+            "colormap": "ice", "colorrange": (0, 1),
+            "title": "Rayleigh-Taylor instability"},
+    filename="rayleigh_taylor.mp4", framerate=24)
 
 # %%
 # The interface first folds into mushrooms of a single size, set by the

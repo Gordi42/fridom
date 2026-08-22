@@ -25,10 +25,9 @@ into a mushroom, filaments and waves.
 #
 # The box is periodic in :math:`x`, walled at the top and the bottom,
 # and one cell thick in :math:`y`, so the flow is two-dimensional. With
-# 256 cells a side a bubble radius spans 25 cells, and a one-second
-# step moves the fluid a quarter of a cell at the rise speed.
-import subprocess
-
+# 256 cells a side a bubble radius spans 25 cells, and the time step
+# moves the fluid a quarter of a cell at the rise speed.
+import cdfviewer as cv
 import jax.numpy as jnp
 
 # sphinx_gallery_thumbnail_number = 2
@@ -41,9 +40,8 @@ bubble_buoyancy = 1e-3    # b_0 [m/s^2] at the centre of the bubble
 bubble_radius = 10.0      # R [m]
 
 n = 256                   # cells along x and z
-dt = 1.0                  # seconds, a quarter of a cell per step
-steps = 3600              # one hour
-frame_stride = 15         # steps between animation frames
+runlen = 3600.0           # seconds, one hour
+frames = 240              # number of frames to write
 
 # %%
 # Grid and Model
@@ -61,15 +59,16 @@ grid = fr.spatial.cartesian.Grid(
     extent=(box_size, dx, box_size),   # one cubic cell thick in y
     periodic=(True, True, False))
 
+rise_speed = (bubble_buoyancy * bubble_radius) ** 0.5
+# a quarter of a cell per step at the rise speed, fitted so that the
+# run and each of its frames are whole numbers of steps
+dt = fr.model.fit_dt(runlen, 0.25 * dx / rise_speed, parts=frames)
+
 model = nh.Model(
     grid=grid,
     buoyancy=nh.ConstantStratification(n2=stratification),
     advection=nh.WENOAdvection(order=5),
-    time_stepper=fr.model.time_steppers.AdamBashforth(dt, order=3),
-    # one compiled chunk per frame. With the default chunk of 256 steps
-    # the fifteen steps between two frames would be dispatched one at a
-    # time, each with its own host synchronization
-    chunk_size=frame_stride)
+    time_stepper=fr.model.time_steppers.AdamBashforth(dt, order=3))
 
 # %%
 # Initial Condition
@@ -98,24 +97,22 @@ _ = plot.axes.set_aspect("equal")
 # model time, 240 frames for the hour.
 writer = fr.io.Writer(
     "bubble_test.zarr", fields="b",
-    trigger=fr.io.every(steps=frame_stride), mode="w")
-model.run(steps=steps, outputs=writer)
+    trigger=fr.io.every(seconds=runlen / frames), mode="w")
+model.run(runlen=runlen, outputs=writer)
 
 # %%
 # Rendering the Animation
 # -----------------------
 # `CDFViewer <https://gordi42.github.io/CDFViewer.jl/>`_ records the
 # animation from the store.
-_ = subprocess.run(
-    "cdfviewer bubble_test.zarr -v b -x x -y z --dims=y=0"
-    " -p heatmap -a time"
-    " --kwargs='animlabel=\"{duration}\", colormap=:balance,"
-    " colorrange=(-4e-4, 4e-4),"
-    ' xlabel="x [m]", ylabel="z [m]",'
-    " title=\"Bubble test\"'"
-    " --record -s 'filename=\"bubble_test.mp4\","
-    " framerate=24'",
-    shell=True, check=True)
+_ = cv.record(
+    "bubble_test.zarr", var="b", x="x", y="z", dims={"y": 0},
+    plot_type="heatmap", ani_dim="time",
+    kwargs={"animlabel": "{duration}", "colormap": "balance",
+            "colorrange": (-4e-4, 4e-4),
+            "xlabel": "x [m]", "ylabel": "z [m]",
+            "title": "Bubble test"},
+    filename="bubble_test.mp4", framerate=24)
 
 # %%
 # The bubble rolls its own shear into a mushroom within a quarter of

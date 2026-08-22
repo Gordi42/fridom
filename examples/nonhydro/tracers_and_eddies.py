@@ -19,8 +19,7 @@ dipole.
 # pressure would absorb it. The model therefore leaves out the
 # Coriolis and buoyancy modules, and the dye is the only thing riding
 # along with the velocities.
-import subprocess
-
+import cdfviewer as cv
 import jax.numpy as jnp
 
 # sphinx_gallery_thumbnail_number = 2
@@ -162,14 +161,13 @@ plot_dye(spiral, center)
 # flow those arrows would report is the rotation the spiral already
 # draws.
 
-_ = subprocess.run(
-    "cdfviewer tracers_spiral.zarr -v dye -x x -y y --dims=z=0"
-    " -p heatmap -a time"
-    " --kwargs='animlabel=\"t = {rawvalue}\", animlabelnumfmt=\"%.0f\","
-    " colormap=:dense, colorrange=(0, 1), figsize=(800, 756),"
-    " cbarlabel=\"auto\", title=\"A tracer wound by one eddy\"'"
-    " --record -s 'filename=\"tracers_spiral.mp4\", framerate=24'",
-    shell=True, check=True)
+_ = cv.record(
+    "tracers_spiral.zarr", var="dye", x="x", y="y", dims={"z": 0},
+    plot_type="heatmap", ani_dim="time",
+    kwargs={"animlabel": "t = {rawvalue}", "animlabelnumfmt": "%.0f",
+            "colormap": "dense", "colorrange": (0, 1), "figsize": (800, 756),
+            "cbarlabel": "auto", "title": "A tracer wound by one eddy"},
+    filename="tracers_spiral.mp4", framerate=24)
 
 # %%
 # The Collision
@@ -216,12 +214,12 @@ plot_dye(collision, center)
 # axis. The arrows fall inside the bubble, where there is no dye, so
 # the band that bounds it stays readable.
 
-_ = subprocess.run(
-    "cdfviewer tracers_collision.zarr -v dye -x x -y y --dims=z=0"
-    " -p heatmap -a time --over u,v --over-plot quiver"
-    " --kwargs='animlabel=\"t = {rawvalue}\", animlabelnumfmt=\"%.0f\","
-    " colormap=:dense, colorrange=(0, 1), figsize=(800, 756),"
-    " over.color=:black, arrows=(22, 22), minspeed=0.15,"
-    " cbarlabel=\"auto\", title=\"A dipole crossing a tracer band\"'"
-    " --record -s 'filename=\"tracers_collision.mp4\", framerate=24'",
-    shell=True, check=True)
+_ = cv.record(
+    "tracers_collision.zarr", var="dye", x="x", y="y", dims={"z": 0},
+    plot_type="heatmap", ani_dim="time",
+    over=["u,v"], over_plot=["quiver"],
+    kwargs={"animlabel": "t = {rawvalue}", "animlabelnumfmt": "%.0f",
+            "colormap": "dense", "colorrange": (0, 1), "figsize": (800, 756),
+            "over.color": "black", "arrows": (22, 22), "minspeed": 0.15,
+            "cbarlabel": "auto", "title": "A dipole crossing a tracer band"},
+    filename="tracers_collision.mp4", framerate=24)

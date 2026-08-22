@@ -15,8 +15,7 @@ all of them.
 # Every member of the ensemble starts from the same jet plus white
 # noise in the meridional velocity, each member drawn from its own
 # seed.
-import subprocess
-
+import cdfviewer as cv
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
 import xarray as xr
@@ -159,26 +158,17 @@ _ = profile.sel(time=[0, 12, 24, 36, 48]).plot.line(y="y", hue="time")
 # `CDFViewer <https://gordi42.github.io/CDFViewer.jl/>`_ records the
 # vorticity of the two members and of the ensemble mean from their
 # stores, all on the colour scale of the stills.
-
-
-def record(name, title):
-    """Record the vorticity animation of the store ``name``."""
-    command = (
-        f"cdfviewer jet_ensemble_{name}.zarr -v rel_vort_z -x x -y y"
-        " -p heatmap -a time"
-        # the time axis is nondimensional, so the label drops its unit
-        " --kwargs='animlabel=\"t = {rawvalue}\", animlabelnumfmt=\"%.1f\","
-        ' colormap=:balance, colorrange=(-1.5, 1.5), cbarlabel="auto",'
-        f' figsize=(1100, 430), title="{title}"'
-        f"' --record -s 'filename=\"jet_ensemble_{name}.mp4\", framerate=12'"
-    )
-    subprocess.run(command, shell=True, check=True)
-
-
 for name, title in [("seed_0", "Member, seed 0"),
                     ("seed_1", "Member, seed 1"),
                     ("mean", "Ensemble mean")]:
-    record(name, title)
+    _ = cv.record(
+        f"jet_ensemble_{name}.zarr", var="rel_vort_z", x="x", y="y",
+        plot_type="heatmap", ani_dim="time",
+        # the time axis is nondimensional, so the label drops its unit
+        kwargs={"animlabel": "t = {rawvalue}", "animlabelnumfmt": "%.1f",
+                "colormap": "balance", "colorrange": (-1.5, 1.5),
+                "cbarlabel": "auto", "figsize": (1100, 430), "title": title},
+        filename=f"jet_ensemble_{name}.mp4", framerate=12)
 # sphinx_gallery_video_columns = 1
 
 # %%

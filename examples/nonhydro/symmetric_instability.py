@@ -32,8 +32,7 @@ baroclinic stability*.
 # wind. Every field is taken independent of the along-front direction,
 # so the problem is two-dimensional in the cross-front plane. The front
 # sits at :math:`\mathrm{Ri} = 0.25`, well inside the unstable range.
-import subprocess
-
+import cdfviewer as cv
 import jax.numpy as jnp
 import numpy as np
 
@@ -238,12 +237,10 @@ plot_slice(model.state.b)
 # -----------------------
 # `CDFViewer <https://gordi42.github.io/CDFViewer.jl/>`_ records the
 # buoyancy animation from the store.
-command = (
-    "cdfviewer symmetric_instability.zarr"
-    " -v b -x x -y z --dims=y=0 -p heatmap -a time"
-    " --kwargs='animlabel=\"{duration}\", colormap=:balance,"
-    ' animlabelnumfmt="%.0f",'
-    " colorrange=(-8e-5, 8e-5)'"
-    " --record -s 'filename=\"symmetric_instability.mp4\", framerate=24'"
-)
-_ = subprocess.run(command, shell=True, check=True)
+_ = cv.record(
+    "symmetric_instability.zarr", var="b", x="x", y="z", dims={"y": 0},
+    plot_type="heatmap", ani_dim="time",
+    kwargs={"animlabel": "{duration}", "colormap": "balance",
+            "animlabelnumfmt": "%.0f",
+            "colorrange": (-8e-5, 8e-5)},
+    filename="symmetric_instability.mp4", framerate=24)

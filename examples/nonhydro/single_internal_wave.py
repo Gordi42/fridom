@@ -11,8 +11,7 @@ One polarized internal-wave mode crosses a rotating stratified box.
 # A triply periodic box with mid-latitude rotation and a constant
 # stratification. The two frequencies bracket the internal-wave
 # band, :math:`f < \omega < N`.
-import subprocess
-
+import cdfviewer as cv
 import numpy as np
 
 # sphinx_gallery_thumbnail_number = 1
@@ -77,20 +76,19 @@ writer = fr.io.Writer(
 model.run(runlen=period, outputs=writer)
 
 views = {
-    "top": ("-x x -y y --dims=z=0", "y"),
-    "front": ("-x x -y z --dims=y=0", "z"),
+    "top": ("y", {"z": 0}),
+    "front": ("z", {"y": 0}),
 }
-for view, (axes, yax) in views.items():
-    _ = subprocess.run(
-        f"cdfviewer single_internal_wave.zarr -v b {axes} -p heatmap"
-        f" -a time --kwargs='colormap=:balance, figsize=(1000, 450),"
-        f" titlesize=28, xlabelsize=24, ylabelsize=24,"
-        f' xlabel="x [m]", ylabel="{yax} [m]",'
-        f' animunit="minutes", animlabelnumfmt="%.0f",'
-        f" title=\"Single internal wave, {view} view\"'"
-        f" --record -s 'filename=\"single_internal_wave_{view}.mp4\","
-        f" framerate=24'",
-        shell=True, check=True)
+for view, (yax, dims) in views.items():
+    _ = cv.record(
+        "single_internal_wave.zarr", var="b", x="x", y=yax, dims=dims,
+        plot_type="heatmap", ani_dim="time",
+        kwargs={"colormap": "balance", "figsize": (1000, 450),
+                "titlesize": 28, "xlabelsize": 24, "ylabelsize": 24,
+                "xlabel": "x [m]", "ylabel": f"{yax} [m]",
+                "animunit": "minutes", "animlabelnumfmt": "%.0f",
+                "title": f"Single internal wave, {view} view"},
+        filename=f"single_internal_wave_{view}.mp4", framerate=24)
 
 # %%
 # The crests translate through the box and return to their initial

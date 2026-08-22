@@ -16,8 +16,7 @@ different angles.
 # direction sets the wave frequency, and both frequencies lie
 # between :math:`f` and :math:`N`, the band in which internal
 # gravity waves exist, so each source radiates.
-import subprocess
-
+import cdfviewer as cv
 import jax.numpy as jnp
 
 # sphinx_gallery_thumbnail_number = 1
@@ -143,16 +142,15 @@ plot = model.state.b.xr.isel(y=0).plot(x="x", size=3.6, aspect=1.6)
 _ = plot.axes.set_aspect("equal")
 
 # %%
-_ = subprocess.run(
-    "cdfviewer multiple_wave_makers.zarr -v b -x x -y z --dims=y=0"
-    " -p heatmap -a time"
-    " --kwargs='colormap=:balance, colorrange=(-2e-5, 2e-5),"
-    " figsize=(900, 600),"
-    " titlesize=28, xlabelsize=24, ylabelsize=24,"
-    ' animlabel="{duration}",'
-    " title=\"Wave beams at two angles\"'"
-    " --record -s 'filename=\"multiple_wave_makers.mp4\", framerate=24'",
-    shell=True, check=True)
+_ = cv.record(
+    "multiple_wave_makers.zarr", var="b", x="x", y="z", dims={"y": 0},
+    plot_type="heatmap", ani_dim="time",
+    kwargs={"colormap": "balance", "colorrange": (-2e-5, 2e-5),
+            "figsize": (900, 600),
+            "titlesize": 28, "xlabelsize": 24, "ylabelsize": 24,
+            "animlabel": "{duration}",
+            "title": "Wave beams at two angles"},
+    filename="multiple_wave_makers.mp4", framerate=24)
 
 # %%
 # Each beam grows out of its source and keeps the angle its carrier

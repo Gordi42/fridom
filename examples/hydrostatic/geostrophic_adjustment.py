@@ -21,8 +21,7 @@ and its waves run along the walls.
 # :math:`c = \sqrt{gH}`, about 20 m/s here, and the deformation radius
 # :math:`L_d = c/f`, about 200 km. The bump is one and a half deformation radii
 # in radius.
-import subprocess
-
+import cdfviewer as cv
 import jax.numpy as jnp
 import numpy as np
 
@@ -115,18 +114,17 @@ model.run(runlen=runlen, outputs=writer)
 # `CDFViewer <https://gordi42.github.io/CDFViewer.jl/>`_ records the
 # animation from the store, the velocities as black arrows over the
 # elevation.
-_ = subprocess.run(
-    "cdfviewer geostrophic_adjustment.zarr -v eta -x x -y y --dims=z=0"
-    " -p heatmap -a time"
-    " --over u,v --over-plot quiver"
-    " --kwargs='animlabel=\"t = {rawvalue} h\", animunit=\"hours\","
-    ' animlabelnumfmt="%.1f",'
-    " colormap=:balance, colorrange=(-0.6, 0.6),"
-    " color=:black, arrows=(75, 25),"
-    ' figsize=(1200, 460), xunit="km", yunit="km",'
-    " title=\"Geostrophic adjustment\"'"
-    " --record -s 'filename=\"geostrophic_adjustment.mp4\", framerate=24'",
-    shell=True, check=True)
+_ = cv.record(
+    "geostrophic_adjustment.zarr", var="eta", x="x", y="y", dims={"z": 0},
+    plot_type="heatmap", ani_dim="time",
+    over=["u,v"], over_plot=["quiver"],
+    kwargs={"animlabel": "t = {rawvalue} h", "animunit": "hours",
+            "animlabelnumfmt": "%.1f",
+            "colormap": "balance", "colorrange": (-0.6, 0.6),
+            "color": "black", "arrows": (75, 25),
+            "figsize": (1200, 460), "xunit": "km", "yunit": "km",
+            "title": "Geostrophic adjustment"},
+    filename="geostrophic_adjustment.mp4", framerate=24)
 
 # %%
 # The bump collapses within a few hours but does not go flat. What stays is
@@ -149,18 +147,18 @@ _ = subprocess.run(
 # The same surface in three dimensions, the camera drifting slowly
 # along the channel: the bump drops to half its height and keeps it,
 # and the waves that carry off the rest are a far gentler undulation.
-_ = subprocess.run(
-    "cdfviewer geostrophic_adjustment.zarr -v eta -x x -y y --dims=z=0"
-    " -p surface -a time"
-    " --kwargs='animlabel=\"t = {rawvalue} h\", animunit=\"hours\","
-    ' animlabelnumfmt="%.1f",'
-    " colormap=:balance, colorrange=(-0.6, 0.6),"
-    " limits=(0, 6000e3, 0, 2000e3, -0.3, 1.1), aspect=(3, 1, 0.6),"
-    " azimuth=4.05, elevation=0.45, perspectiveness=0.4, rotate=2.4,"
-    " viewmode=:fitzoom, protrusions=(50, 0, 30, 0),"
-    " ylabeloffset=60, zlabeloffset=60,"
-    ' figsize=(1200, 470), xunit="km", yunit="km", zlabel="η [m]",'
-    " title=\"Geostrophic adjustment\"'"
-    " --record -s 'filename=\"geostrophic_adjustment_surface.mp4\","
-    " framerate=24'",
-    shell=True, check=True)
+_ = cv.record(
+    "geostrophic_adjustment.zarr", var="eta", x="x", y="y", dims={"z": 0},
+    plot_type="surface", ani_dim="time",
+    kwargs={"animlabel": "t = {rawvalue} h", "animunit": "hours",
+            "animlabelnumfmt": "%.1f",
+            "colormap": "balance", "colorrange": (-0.6, 0.6),
+            "limits": (0, 6000e3, 0, 2000e3, -0.3, 1.1),
+            "aspect": (3, 1, 0.6),
+            "azimuth": 4.05, "elevation": 0.45, "perspectiveness": 0.4,
+            "rotate": 2.4, "viewmode": cv.sym("fitzoom"),
+            "protrusions": (50, 0, 30, 0),
+            "ylabeloffset": 60, "zlabeloffset": 60,
+            "figsize": (1200, 470), "xunit": "km", "yunit": "km",
+            "zlabel": "η [m]", "title": "Geostrophic adjustment"},
+    filename="geostrophic_adjustment_surface.mp4", framerate=24)

@@ -27,8 +27,7 @@ The equator traps Kelvin, gravity, and Rossby waves.
 # -------------------
 # An equatorial beta plane on a 6000 km by 3000 km basin. The phase
 # speed is the one of the second baroclinic mode of a 4000 m ocean.
-import subprocess
-
+import cdfviewer as cv
 import numpy as np
 
 # sphinx_gallery_thumbnail_number = 1
@@ -116,16 +115,16 @@ def simulate(family, m, title):
     model.run(runlen=period, outputs=writer)
 
     # record the animation
-    _ = subprocess.run(
-        f"cdfviewer {name}.zarr -v p -x x -y y -p heatmap -a time"
-        f" --kwargs='colormap=:balance, figsize=(1000, 500),"
-        f" titlesize=28, xlabelsize=24, ylabelsize=24,"
-        f' xunit="km", yunit="km",'
-        f' animlabel="t = {{rawvalue}} days", animunit="days",'
-        f' animlabelnumfmt="%.1f", animlabelsize=24,'
-        f" title=\"{title}\"'"
-        f" --record -s 'filename=\"{name}.mp4\", framerate=24'",
-        shell=True, check=True)
+    _ = cv.record(
+        f"{name}.zarr", var="p", x="x", y="y",
+        plot_type="heatmap", ani_dim="time",
+        kwargs={"colormap": "balance", "figsize": (1000, 500),
+                "titlesize": 28, "xlabelsize": 24, "ylabelsize": 24,
+                "xunit": "km", "yunit": "km",
+                "animlabel": "t = {rawvalue} days", "animunit": "days",
+                "animlabelnumfmt": "%.1f", "animlabelsize": 24,
+                "title": title},
+        filename=f"{name}.mp4", framerate=24)
 
 # %%
 # The first Rossby mode beyond the mixed Rossby-gravity wave shows the

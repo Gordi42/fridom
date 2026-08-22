@@ -12,8 +12,7 @@ reflects off the bottom.
 # An x-z slice, one cell thick in y, with mid-latitude rotation and
 # a constant stratification. Rigid walls close the box at the top
 # and the bottom. The horizontal directions stay periodic.
-import subprocess
-
+import cdfviewer as cv
 import jax.numpy as jnp
 
 # sphinx_gallery_thumbnail_number = 1
@@ -103,17 +102,16 @@ writer = fr.io.Writer(
     trigger=fr.io.every(seconds=runlen / frames), mode="w")
 model.run(runlen=runlen, outputs=writer)
 
-_ = subprocess.run(
-    "cdfviewer wave_package.zarr -v b -x x -y z --dims=y=0"
-    " -p heatmap -a time"
-    " --kwargs='colormap=:balance, colorrange=(-1, 1),"
-    " figsize=(1000, 500),"
-    " titlesize=28, xlabelsize=24, ylabelsize=24,"
-    ' xlabel="x [m]", ylabel="z [m]",'
-    ' animunit="hours", animlabelnumfmt="%.1f",'
-    " title=\"Reflecting internal-wave packet\"'"
-    " --record -s 'filename=\"wave_package.mp4\", framerate=24'",
-    shell=True, check=True)
+_ = cv.record(
+    "wave_package.zarr", var="b", x="x", y="z", dims={"y": 0},
+    plot_type="heatmap", ani_dim="time",
+    kwargs={"colormap": "balance", "colorrange": (-1, 1),
+            "figsize": (1000, 500),
+            "titlesize": 28, "xlabelsize": 24, "ylabelsize": 24,
+            "xlabel": "x [m]", "ylabel": "z [m]",
+            "animunit": "hours", "animlabelnumfmt": "%.1f",
+            "title": "Reflecting internal-wave packet"},
+    filename="wave_package.mp4", framerate=24)
 
 # %%
 # The packet glides down along the tilted phase lines of the

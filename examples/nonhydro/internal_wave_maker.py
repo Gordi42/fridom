@@ -15,8 +15,7 @@ four beams.
 # forcing frequency lies between :math:`f` and :math:`N`, the band
 # in which internal gravity waves exist, so the response radiates
 # away from the source.
-import subprocess
-
+import cdfviewer as cv
 import jax.numpy as jnp
 
 # sphinx_gallery_thumbnail_number = 1
@@ -108,27 +107,24 @@ model.run(runlen=runlen, outputs=writer)
 _ = model.state.b.xr.isel(y=0).plot(x="x", size=1.6, aspect=4)
 
 # %%
-_ = subprocess.run(
-    "cdfviewer internal_wave_maker.zarr -v b -x x -y z --dims=y=0"
-    " -p heatmap -a time"
-    " --kwargs='colormap=:balance, colorrange=(-7e-6, 7e-6),"
-    " figsize=(1000, 400),"
-    ' animunit="hours", animlabelnumfmt="%.1f",'
-    " titlesize=28, xlabelsize=24, ylabelsize=24,"
-    " title=\"Internal wave beams\"'"
-    " --record -s 'filename=\"internal_wave_maker.mp4\", framerate=24'",
-    shell=True, check=True)
-_ = subprocess.run(
-    "cdfviewer internal_wave_maker.zarr -v e -x x -y z --dims=y=0"
-    " -p heatmap -a time"
-    " --kwargs='colormap=:thermal, colorrange=(0.0, 3.0e-7),"
-    " figsize=(1000, 400),"
-    ' animunit="hours", animlabelnumfmt="%.1f",'
-    " titlesize=28, xlabelsize=24, ylabelsize=24,"
-    " title=\"Wave energy\"'"
-    " --record -s 'filename=\"internal_wave_maker_energy.mp4\","
-    " framerate=24'",
-    shell=True, check=True)
+_ = cv.record(
+    "internal_wave_maker.zarr", var="b", x="x", y="z", dims={"y": 0},
+    plot_type="heatmap", ani_dim="time",
+    kwargs={"colormap": "balance", "colorrange": (-7e-6, 7e-6),
+            "figsize": (1000, 400),
+            "animunit": "hours", "animlabelnumfmt": "%.1f",
+            "titlesize": 28, "xlabelsize": 24, "ylabelsize": 24,
+            "title": "Internal wave beams"},
+    filename="internal_wave_maker.mp4", framerate=24)
+_ = cv.record(
+    "internal_wave_maker.zarr", var="e", x="x", y="z", dims={"y": 0},
+    plot_type="heatmap", ani_dim="time",
+    kwargs={"colormap": "thermal", "colorrange": (0.0, 3.0e-7),
+            "figsize": (1000, 400),
+            "animunit": "hours", "animlabelnumfmt": "%.1f",
+            "titlesize": 28, "xlabelsize": 24, "ylabelsize": 24,
+            "title": "Wave energy"},
+    filename="internal_wave_maker_energy.mp4", framerate=24)
 # sphinx_gallery_video_columns = 1
 
 # %%
@@ -186,17 +182,15 @@ chirp_writer = fr.io.Writer(
     trigger=fr.io.every(seconds=runlen / frames), mode="w")
 chirp_model.run(runlen=runlen, outputs=chirp_writer)
 
-_ = subprocess.run(
-    "cdfviewer internal_wave_maker_chirp.zarr -v e -x x -y z"
-    " --dims=y=0 -p heatmap -a time"
-    " --kwargs='colormap=:thermal, colorrange=(0.0, 3.0e-7),"
-    " figsize=(1000, 400),"
-    ' animunit="hours", animlabelnumfmt="%.1f",'
-    " titlesize=28, xlabelsize=24, ylabelsize=24,"
-    " title=\"Wave energy, chirped forcing\"'"
-    " --record -s 'filename=\"internal_wave_maker_chirp.mp4\","
-    " framerate=24'",
-    shell=True, check=True)
+_ = cv.record(
+    "internal_wave_maker_chirp.zarr", var="e", x="x", y="z",
+    dims={"y": 0}, plot_type="heatmap", ani_dim="time",
+    kwargs={"colormap": "thermal", "colorrange": (0.0, 3.0e-7),
+            "figsize": (1000, 400),
+            "animunit": "hours", "animlabelnumfmt": "%.1f",
+            "titlesize": 28, "xlabelsize": 24, "ylabelsize": 24,
+            "title": "Wave energy, chirped forcing"},
+    filename="internal_wave_maker_chirp.mp4", framerate=24)
 
 # %%
 # Waves keep the frequency they were born with, so beams radiated

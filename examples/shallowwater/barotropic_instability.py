@@ -15,8 +15,7 @@ A narrow zonal jet rolls up into a street of vortices.
 # rotation and the Froude number :math:`\mathrm{Fr} = U / c` against
 # the gravity waves. Together they fix the deformation radius
 # :math:`L_d = (\mathrm{Ro} / \mathrm{Fr})\,L`, here two jet widths.
-import subprocess
-
+import cdfviewer as cv
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
 
@@ -115,12 +114,10 @@ _ = model.state.rel_vort.xr.plot(x="x")
 # -----------------------
 # `CDFViewer <https://gordi42.github.io/CDFViewer.jl/>`_ records the
 # vorticity animation from the store.
-command = (
-    "cdfviewer barotropic_instability.zarr"
-    " -v rel_vort -x x -y y -p heatmap -a time"
-    " --kwargs='animlabel=\"t = {rawvalue}\", animlabelnumfmt=\"%.1f\","
-    " colormap=:balance, colorrange=(-1.2, 1.2),"
-    " title=\"Barotropic instability\"'"
-    " --record -s 'filename=\"barotropic_instability.mp4\", framerate=24'"
-)
-_ = subprocess.run(command, shell=True, check=True)
+_ = cv.record(
+    "barotropic_instability.zarr", var="rel_vort", x="x", y="y",
+    plot_type="heatmap", ani_dim="time",
+    kwargs={"animlabel": "t = {rawvalue}", "animlabelnumfmt": "%.1f",
+            "colormap": "balance", "colorrange": (-1.2, 1.2),
+            "title": "Barotropic instability"},
+    filename="barotropic_instability.mp4", framerate=24)

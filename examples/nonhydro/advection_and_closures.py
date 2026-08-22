@@ -38,11 +38,14 @@ bubble_buoyancy = 1e-3    # b_0 [m/s^2] at the centre of the bubble
 bubble_radius = 10.0      # R [m]
 
 n = 128                   # cells along x and z
-dt = 2.0                  # seconds, a quarter of a cell per step
-steps = 1800              # one hour
-sample_stride = 30        # steps between diagnostic samples, a minute
+runlen = 3600.0           # seconds, one hour
+samples = 60              # diagnostic samples, one a model minute
 
 dx = box_size / n
+bubble_speed = (bubble_buoyancy * bubble_radius) ** 0.5   # free-rise speed
+# a quarter of a cell per step at the rise speed, fitted so that the
+# run and each of its sample intervals are whole numbers of steps
+dt = fr.model.fit_dt(runlen, 0.25 * dx / bubble_speed, parts=samples)
 
 
 def make_grid():
@@ -80,7 +83,6 @@ def bubble(x, y, z):
 # those four runs span the full 2x2 of order against smoothness
 # weighting. ``CenteredAdvection`` takes no order at all, being fixed
 # at second.
-bubble_speed = (bubble_buoyancy * bubble_radius) ** 0.5   # free-rise speed
 nyquist = np.pi / dx
 
 kappa = 0.01 * bubble_speed / nyquist        # harmonic
@@ -163,8 +165,7 @@ diagnostics = {
 # -----------------
 # Each configuration runs the same hour and is sampled once a model
 # minute by an ``fr.io.Series``, which evaluates its columns on the
-# host at chunk boundaries the run has to synchronize on anyway.
-# Nothing goes to disk, since these are scalars.
+# host. Nothing goes to disk, since these are scalars.
 
 
 def run(build):
@@ -175,12 +176,11 @@ def run(build):
         buoyancy=nh.ConstantStratification(n2=stratification),
         advection=advection,
         modules_extra=extra,
-        time_stepper=fr.model.time_steppers.AdamBashforth(dt, order=3),
-        chunk_size=sample_stride)
+        time_stepper=fr.model.time_steppers.AdamBashforth(dt, order=3))
     model.set_fields(b=bubble)
     series = fr.io.Series(diagnostics,
-                          trigger=fr.io.every(steps=sample_stride))
-    model.run(steps=steps, outputs=series)
+                          trigger=fr.io.every(seconds=runlen / samples))
+    model.run(runlen=runlen, outputs=series)
     return series, model.state["b"]
 
 

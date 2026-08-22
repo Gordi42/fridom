@@ -13,8 +13,7 @@ Heat a box from below, cool it from above.
 # with the dense fluid on top, and that arrangement is unstable, so the
 # layer breaks into plumes that carry warm fluid up and cool fluid
 # down.
-import subprocess
-
+import cdfviewer as cv
 import jax.numpy as jnp
 
 # sphinx_gallery_thumbnail_number = 1
@@ -134,14 +133,13 @@ plot.axes.set_aspect("equal")
 # -----------------------
 # `CDFViewer <https://gordi42.github.io/CDFViewer.jl/>`_ records the
 # buoyancy animation from the store.
-_ = subprocess.run(
-    "cdfviewer rayleigh_benard.zarr -v b -x x -y z --dims=y=0"
-    " -p heatmap -a time"
-    " --kwargs='animlabel=\"t = {rawvalue} s\", animlabelnumfmt=\"%.1f\","
-    " colormap=:balance, colorrange=(-1, 1),"
-    " title=\"Rayleigh-Benard convection\"'"
-    " --record -s 'filename=\"rayleigh_benard.mp4\", framerate=24'",
-    shell=True, check=True)
+_ = cv.record(
+    "rayleigh_benard.zarr", var="b", x="x", y="z", dims={"y": 0},
+    plot_type="heatmap", ani_dim="time",
+    kwargs={"animlabel": "t = {rawvalue} s", "animlabelnumfmt": "%.1f",
+            "colormap": "balance", "colorrange": (-1, 1),
+            "title": "Rayleigh-Benard convection"},
+    filename="rayleigh_benard.mp4", framerate=24)
 
 # %%
 # The plates build their thin unstable layers first, and for a while

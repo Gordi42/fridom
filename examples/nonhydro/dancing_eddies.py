@@ -21,7 +21,7 @@ over.
 # leaves out the Coriolis and buoyancy modules. The box is periodic in
 # y and walled in x, and that combination is what makes the sequence
 # come back around.
-import subprocess
+import cdfviewer as cv
 
 # sphinx_gallery_thumbnail_number = 1
 import fridom as fr
@@ -127,17 +127,16 @@ model.run(runlen=runlen, outputs=writer)
 # animation from the store. The velocities go over the vorticity as a
 # second layer of arrows.
 
-_ = subprocess.run(
-    "cdfviewer dancing_eddies.zarr -v rel_vort_z -x x -y y --dims=z=0"
-    " -p heatmap -a time"
-    " --over u,v --over-plot quiver"
-    " --kwargs='animlabel=\"t = {rawvalue}\", animlabelnumfmt=\"%.0f\","
-    " colormap=:balance, colorrange=(-1.4, 1.4),"
-    " color=:black, arrows=(24, 24),"
-    " figsize=(800, 750),"
-    " cbarlabel=\"auto\", title=\"Dancing eddies\"'"
-    " --record -s 'filename=\"dancing_eddies.mp4\", framerate=24'",
-    shell=True, check=True)
+_ = cv.record(
+    "dancing_eddies.zarr", var="rel_vort_z", x="x", y="y", dims={"z": 0},
+    plot_type="heatmap", ani_dim="time",
+    over=["u,v"], over_plot=["quiver"],
+    kwargs={"animlabel": "t = {rawvalue}", "animlabelnumfmt": "%.0f",
+            "colormap": "balance", "colorrange": (-1.4, 1.4),
+            "color": "black", "arrows": (24, 24),
+            "figsize": (800, 750),
+            "cbarlabel": "auto", "title": "Dancing eddies"},
+    filename="dancing_eddies.mp4", framerate=24)
 
 # %%
 # The two dipoles meet in the middle and each eddy leaves with the
