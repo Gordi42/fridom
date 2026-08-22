@@ -35,6 +35,7 @@ dependencies = [
   "coloredlogs",
   "regex",
   "pillow",
+  "cdfviewer",
 ]
 license = {file = "LICENSE"}
 

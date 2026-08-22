@@ -91,6 +91,15 @@ wheels = [
 ]
 
 [[package]]
+name = "cdfviewer"
+version = "2026.8.3"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/ec/7b/7d9b4741a5a71c51b3adf4d87b2078da2bd89cc34be2af36afcc76cd75d2/cdfviewer-2026.8.3.tar.gz", hash = "sha256:496098c778887a0709e0b23bb6a1327cec718d78281c518cba4133b379a1d13a", size = 54279, upload-time = "2026-08-22T15:47:58.393Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/8f/0e/b4b33ebf0a33c64df70938f75b24257db47b895523183cff31713e82976b/cdfviewer-2026.8.3-py3-none-any.whl", hash = "sha256:c406a5ad54d6b4f2b9a49ee7c687c989db67688cdc4b15fb94bc71882650a6b5", size = 33856, upload-time = "2026-08-22T15:47:57.069Z" },
+]
+
+[[package]]
 name = "certifi"
 version = "2026.6.17"
 source = { registry = "https://pypi.org/simple" }
@@ -736,6 +745,7 @@ name = "fridom"
 version = "0.0.5"
 source = { editable = "." }
 dependencies = [
+    { name = "cdfviewer" },
     { name = "coloredlogs" },
     { name = "dill" },
     { name = "ipython" },
@@ -787,6 +797,7 @@ docs = [
 
 [package.metadata]
 requires-dist = [
+    { name = "cdfviewer" },
     { name = "coloredlogs" },
     { name = "coverage", marker = "extra == 'dev'" },
     { name = "dill" },
