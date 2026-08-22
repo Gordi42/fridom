@@ -438,6 +438,19 @@ discarded when the size keywords are present. Keyword order is free.
 - **An overlay changes the title** to a composite such as
   `Buoyancy / |(u, v)|`, so set `title=` explicitly whenever one is
   present.
+- **A second overlay is `over2`** (`over=["v,w", "b_total"],
+  over_plot=["quiver", "contour"]`), its keywords prefixed the same
+  way (`"over2.levels": 15, "over2.color": "white"`). Give a contour
+  overlay a level *count*; an explicit level vector fails the render
+  in CDFViewer 2026.8.3 (recorded in
+  `design/research/artifacts/cdfviewer_quiver_anisotropy_prompt.md`).
+- **Quiver arrows vanish on an anisotropic section** (CDFViewer
+  2026.8.3). The viewer sizes arrows with one data-unit length taken
+  from the smaller sample spacing, so on a `y`-`z` slice spanning
+  kilometres by metres the arrows draw as dots, and no keyword reaches
+  that length (`over.lengthscale` is accepted and ignored). Author the
+  overlay as intended and leave it; the fix is the viewer's (hand-off
+  note above). Retire this bullet when it lands.
 - **Several videos from one code block** render side by side in a
   grid of up to three columns. Set `# sphinx_gallery_video_columns = N`
   in the block to change that, `1` stacking them at full width (the

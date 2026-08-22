@@ -52,6 +52,17 @@ the way the `1/cos(latitude)` correction already does for maps. The
 `color=:black` has to survive it (the same interaction noted in the
 geostrophic adjustment hand-off).
 
+Two things tried from the consumer side, for the record. Passing
+`over.lengthscale=1.5e4` through `--kwargs` records without an error
+and changes nothing, so whatever the kwargs path sets is overwritten by
+the `@lift($field.lengthscale)` on the next field update (or never
+reaches the arrows); a user override that survives frame updates would
+be a reasonable escape hatch. And `over2.levels=[-0.015, -0.014, ...]`
+(an explicit level vector on a `contour` overlay) fails the render
+with `Failed to update renderobject` / `Failed to resolve
+gl_renderobject` from GLMakie's line primitive, while `over2.levels=15`
+works; that is a separate small defect.
+
 A regression to add: a 2-D field on a grid with `x` in 0..4.5e4 and
 `y` in -150..0, `u = 0.1`, `v = 0`, `quiver` with `arrows=(60, 20)`,
 and an assertion that the drawn arrow length in pixels is a sizeable
