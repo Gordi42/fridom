@@ -945,3 +945,60 @@ def test_shard_writes_and_chunk_hint_reject_foreign_layout():
         decomp.shard_writes(storage, space, foreign)
     with pytest.raises(ValueError, match="vocabulary"):
         decomp.chunk_hint(space, foreign)
+
+
+# ================================================================
+#  patch_physical_ends: the co-array seam
+# ================================================================
+def test_patch_physical_ends_passes_co_arrays_to_the_callback():
+    # the geometry seam of the non-uniform (stretched-mesh) graded
+    # rungs: extra input-frame storage arrays reach the callback as
+    # trailing block arguments, so a rung's window indices address
+    # BLOCK-LOCAL data (a closed-over array would stay global under
+    # ``shard_map``). Single device here; the sharded gate lives in
+    # tests/spatial/operators/test_weno_nonuniform.py.
+    mesh, decomp = _sharded(8, width=1)
+    inner, cell_avg = mesh.inner, mesh.cell_avg
+    out_arr = decomp.zeros(inner)
+    in_arr = decomp.pad(jnp.arange(1.0, 9.0), cell_avg)
+    widths = decomp.pad(jnp.arange(10.0, 90.0, 10.0), cell_avg)
+    seen = []
+
+    def patch(in_block, out_block, side, width_in, _t_in,
+              width_out, t_out, *co_blocks):
+        seen.append((side, len(co_blocks)))
+        assert co_blocks[0].shape == in_block.shape
+        value = jax.lax.dynamic_slice_in_dim(
+            co_blocks[0], width_in, 1, 0)
+        slot = width_out if side == 0 else width_out + t_out - 1
+        return jax.lax.dynamic_update_slice_in_dim(
+            out_block, value, slot, 0)
+
+    patched = decomp.patch_physical_ends(
+        out_arr, in_arr, inner, cell_avg, "x", patch,
+        co_arrays=(widths,))
+    assert seen == [(0, 1), (1, 1)]
+    true = np.asarray(decomp.unpad(patched, inner))
+    assert true[0] == 10.0        # the co-array's first true slot
+    assert true[-1] == 10.0
+
+
+def test_patch_physical_ends_without_co_arrays_is_unchanged():
+    mesh, decomp = _sharded(8, width=1)
+    inner, cell_avg = mesh.inner, mesh.cell_avg
+    out_arr = decomp.zeros(inner)
+    in_arr = decomp.pad(jnp.arange(1.0, 9.0), cell_avg)
+
+    def patch(in_block, out_block, side, width_in, _t_in,
+              width_out, t_out, *co_blocks):
+        assert co_blocks == ()
+        value = jax.lax.dynamic_slice_in_dim(in_block, width_in, 1, 0)
+        slot = width_out if side == 0 else width_out + t_out - 1
+        return jax.lax.dynamic_update_slice_in_dim(
+            out_block, value, slot, 0)
+
+    patched = decomp.patch_physical_ends(
+        out_arr, in_arr, inner, cell_avg, "x", patch)
+    true = np.asarray(decomp.unpad(patched, inner))
+    assert true[0] == 1.0
+    assert true[-1] == 1.0

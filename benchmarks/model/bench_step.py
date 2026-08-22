@@ -410,6 +410,7 @@ def sw_flat(n):
     model = sw.Model(grid=fr.spatial.Grid((mx, my)),
                      core=sw.Core(froude_number=1.0, depth=0.01),
                      scaling=fr.scaling.GravityWave(),
+                     advection=True,
                      coriolis=sw.modules.FPlaneCoriolis(
                          rossby_number=1.0),
                      chunk_size=STEPS,
@@ -443,6 +444,7 @@ def sw_sphere(n):
                      core=sw.Core(froude_number=1.0, depth=0.01,
                                   coords=("lon", "lat")),
                      scaling=fr.scaling.GravityWave(),
+                     advection=True,
                      coriolis=sw.modules.RotationCoriolis(
                          omega=(0.0, 0.0, 1.0), coords=("lon", "lat"),
                          metric_weight="csqr"),

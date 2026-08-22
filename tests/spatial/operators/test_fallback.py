@@ -168,27 +168,29 @@ def test_codomain_rejects_complex(my):
 
 
 # ================================================================
-#  Stretched (mapped) meshes: the graded ladder is uniform-only
+#  Stretched (mapped) meshes: the graded ladder accepts them
 # ================================================================
 @pytest.mark.parametrize("order", [3, 5])
-def test_codomain_rejects_mapped_meshes(mz, order):
-    # the graded ladder retires the PERIODIC-only restriction, not
-    # the UNIFORM-mesh one: every rung of order >= 3 is a uniform-
-    # offset Shu row and would silently drop to 2nd order
+def test_codomain_accepts_mapped_meshes(mz, order):
+    # the graded ladder retires the PERIODIC-only restriction, and
+    # the width-derived rows (weno.nonuniform_tables) retire the
+    # UNIFORM-mesh one: interior kernel and wall rungs alike
     op = graded_reconstruction(order, "left")
-    with pytest.raises(
-            SpaceMismatchError,
-            match=r"graded Fallback.*uniform-mesh only.*"
-                  r"silently drop to 2nd order"):
-        op.codomain(mz.cell_avg)
+    assert op.codomain(mz.cell_avg) is mz.inner
 
 
-def test_apply_rejects_mapped_meshes(mz):
+def test_apply_accepts_mapped_meshes(mz):
     grid = Grid((mz,))
     grid.negotiate(halo=HaloSpec({"z": 3}))
-    f = grid.create_field(mz.cell_avg)
-    with pytest.raises(SpaceMismatchError, match="uniform-mesh only"):
-        graded_reconstruction(5, "left")["z"](f)
+    f = grid.create_field(mz.cell_avg,
+                          data=jnp.full(mz.n_cells, -0.75))
+    out = graded_reconstruction(5, "left")["z"](f)
+    assert out.function_space.bare is mz.inner
+    values = np.asarray(grid.decomposition.unpad(
+        out._data, out.function_space))
+    # exact on a constant at every face, interior rows and wall
+    # rungs alike (partition of unity on any geometry)
+    assert np.allclose(values, -0.75, rtol=0.0, atol=1e-14)
 
 
 def test_upwind_one_is_grounded_on_a_mapped_mesh():

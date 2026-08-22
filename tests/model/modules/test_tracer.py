@@ -231,6 +231,7 @@ def test_a_tracer_is_advected_by_a_uniform_velocity():
         IntervalMesh(NT, (0.0, L2PI), name="z"),
     ))
     model = nh.Model(
+        advection=True,
         grid=grid, core=nh.Core(),
         time_stepper=AdamBashforth(DT_ADV, order=3),
         modules_extra=(Tracer("dye", units="1"),))

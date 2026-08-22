@@ -35,17 +35,19 @@ equation, not by advection). The surface velocity ``w(0)`` therefore
 never enters an advective flux, so a transported tracer's mass is
 conserved to roundoff.
 
-The factory default is ``CenteredAdvection()`` (the common-
-denominator scheme); ``advection=False`` recovers the linear model
-(what the dispersion, geostrophic-balance and energy-conservation
-gates validate), and ``UpwindAdvection`` / ``WENOAdvection`` are
-accepted on the flat grids the hydrostatic preset targets, a
-**stretched** vertical column included — their reconstruction rows are
-built from the factor's own cell widths there (route (ii); an
-average-family tracer then keeps the design order, a nodal one drops
-to 2nd, see ``fr.model.modules.advection``). Only a terrain-following
-**mapped column** (a ``CoordinateMapping``) is still self-rejected by
-the biased schemes at bind.
+The factory installs **no advection unless asked** (owner ruling
+2026-08-22, ``design/decisions/no_default_advection.md``): the default
+``advection=False`` is the linear model (what the dispersion,
+geostrophic-balance and energy-conservation gates validate);
+``advection=True`` is the shorthand for ``CenteredAdvection()`` (the
+common-denominator scheme), and ``UpwindAdvection`` /
+``WENOAdvection`` are accepted on the flat grids the hydrostatic
+preset targets, a **stretched** vertical column included — their
+reconstruction rows are built from the factor's own cell widths there
+(route (ii); an average-family tracer then keeps the design order, a
+nodal one drops to 2nd, see ``fr.model.modules.advection``). Only a
+terrain-following **mapped column** (a ``CoordinateMapping``) is still
+self-rejected by the biased schemes at bind.
 """
 from __future__ import annotations
 
@@ -101,7 +103,7 @@ def Model(  # noqa: N802 — a factory that mirrors fr.model.Model's surface
     buoyancy: fr.model.Module | None = None,
     scaling: object | None = None,
     coriolis: fr.model.Module | None = None,
-    advection: fr.model.Module | bool = True,
+    advection: fr.model.Module | bool = False,
     surface_advective_flux: bool | None = None,
     modules_extra: fr.model.Module | Sequence[fr.model.Module] = (),
     name: str | None = None,
@@ -158,19 +160,21 @@ def Model(  # noqa: N802 — a factory that mirrors fr.model.Model's surface
         (nondimensional) / ``hy.BetaPlaneCoriolis(...)``
         (default: None).
     advection : fr.model.Module | bool, optional
-        Nonlinear advection of ``u``/``v``/``b``. ``True`` (the
-        default) installs ``CenteredAdvection()``; ``False`` omits
-        advection (the linear hydrostatic model); a module instance
+        Nonlinear advection of ``u``/``v``/``b``. ``False`` (the
+        default) omits advection, the linear hydrostatic model: a
+        scheme is never installed unasked. A module instance
         (``UpwindAdvection`` / ``WENOAdvection`` / a configured
-        ``CenteredAdvection``) is installed as given. The module is
-        scaling-neutral and adopts the assembly's variant at bind.
-        The vertical leg consumes the diagnosed ``w`` on the
-        ``Outer`` faces through the seeded ``Outer -> Inner``
-        restriction (module docstring); the boundary-face flux is a
-        structural zero (default: True).
+        ``CenteredAdvection``) is installed as given, and ``True``
+        is the shorthand for a default-constructed
+        ``CenteredAdvection()``. The module is scaling-neutral and
+        adopts the assembly's variant at bind. The vertical leg
+        consumes the diagnosed ``w`` on the ``Outer`` faces through
+        the seeded ``Outer -> Inner`` restriction (module docstring);
+        the boundary-face flux is a structural zero (default: False).
     surface_advective_flux : bool | None, optional
         Tri-state control of the constancy-preserving **surface
-        closure** on the default advection module. The default ``None``
+        closure** on the advection module that ``advection=True``
+        installs. The default ``None``
         is the closure: advect **through** the top/bottom boundary faces
         with the one-sided (top-cell) face value (the Oceananigans-
         equivalent linear-free-surface treatment), so ``A(q=const)`` is
@@ -180,7 +184,7 @@ def Model(  # noqa: N802 — a factory that mirrors fr.model.Model's surface
         tracer content to roundoff, at the price of the surface-cell
         constancy violation ``A(q=const) ~ q*w(0)/dz`` (the source that
         makes the implicit free surface unstable). Only shapes the
-        default-constructed advection; a user-passed module carries its
+        ``advection=True`` module; a user-passed module carries its
         own ``surface_flux`` (whose ``None`` auto-resolves to the same
         closure on the hydrostatic ``Outer``-``w`` grid) (default: None).
     modules_extra : fr.model.Module | Sequence[fr.model.Module], optional

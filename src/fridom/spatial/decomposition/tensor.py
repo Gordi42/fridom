@@ -55,7 +55,7 @@ from fridom.spatial.spaces.coefficient import CoefficientSpace
 from fridom.spatial.spaces.nodal import NodalSpace, NodeSet
 
 if TYPE_CHECKING:  # pragma: no cover
-    from collections.abc import Callable, Mapping
+    from collections.abc import Callable, Mapping, Sequence
 
     from fridom.spatial.decomposition.decomposition import (
         SpaceLike,
@@ -1055,6 +1055,7 @@ class TensorDecomposition(Decomposition):
         patch: Callable[..., jax.Array],
         *,
         layout: Layout | None = None,
+        co_arrays: Sequence[jax.Array] = (),
     ) -> jax.Array:
         """
         Overwrite the physical-wall ends of a reconstructed axis.
@@ -1065,11 +1066,12 @@ class TensorDecomposition(Decomposition):
         static branch: the callback runs directly on both walls of the
         single block with ``t = n`` (bitwise-identical to the
         undistributed operator). ``shards >= 2`` runs one
-        ``jax.shard_map`` co-sharding ``in_arr`` and ``out_arr`` on the
-        axis's device-mesh axis; ``s = jax.lax.axis_index`` locates the
-        shard, the last shard absorbs the staggered true-count deficit
-        (the ``_exchange_block`` idiom), both wall patches are computed
-        on every shard, and each is masked onto its boundary shard.
+        ``jax.shard_map`` co-sharding ``in_arr``, ``out_arr`` and every
+        ``co_arrays`` entry on the axis's device-mesh axis; ``s =
+        jax.lax.axis_index`` locates the shard, the last shard absorbs
+        the staggered true-count deficit (the ``_exchange_block``
+        idiom), both wall patches are computed on every shard, and each
+        is masked onto its boundary shard.
         """
         layout = self._resolve_layout(out_space, layout)
         out_axis = out_space.names.index(axis)
@@ -1078,12 +1080,13 @@ class TensorDecomposition(Decomposition):
             out_space, layout)[out_axis]
         _, n_in, factor, _, width_in, _, _ = self._geometry(
             in_space, layout)[in_axis]
+        co_arrays = tuple(co_arrays)
 
         if shards == 1:
             out_arr = patch(in_arr, out_arr, 0, width_in, n_in,
-                            width_out, n_out)
+                            width_out, n_out, *co_arrays)
             return patch(in_arr, out_arr, 1, width_in, n_in,
-                         width_out, n_out)
+                         width_out, n_out, *co_arrays)
 
         axis_name = dict(layout.device_axes)[axis]
         cells = self._cells_per_shard(factor, shards)
@@ -1105,25 +1108,35 @@ class TensorDecomposition(Decomposition):
         out_spec[out_axis] = axis_name
         in_pspec = jax.sharding.PartitionSpec(*in_spec)
         out_pspec = jax.sharding.PartitionSpec(*out_spec)
+        # a co-array lives in the INPUT frame (same storage length
+        # along the axis, broadcast elsewhere), so it blocks like
+        # ``in_arr``; declaring it here rather than letting the
+        # callback close over it is what keeps the block-local window
+        # indices addressing block-local data
+        co_pspecs = tuple(
+            jax.sharding.PartitionSpec(*(
+                axis_name if ax == in_axis else None
+                for ax in range(co.ndim)))
+            for co in co_arrays)
 
-        def body(in_block: jax.Array,
-                 out_block: jax.Array) -> jax.Array:
+        def body(in_block: jax.Array, out_block: jax.Array,
+                 *co_blocks: jax.Array) -> jax.Array:
             s = jax.lax.axis_index(axis_name)
             t_in = jnp.where(s == shards - 1,
                              n_in - (shards - 1) * cells, cells)
             t_out = jnp.where(s == shards - 1,
                               n_out - (shards - 1) * cells, cells)
             left = patch(in_block, out_block, 0, width_in, t_in,
-                         width_out, t_out)
+                         width_out, t_out, *co_blocks)
             right = patch(in_block, out_block, 1, width_in, t_in,
-                          width_out, t_out)
+                          width_out, t_out, *co_blocks)
             out_block = jnp.where(s == 0, left, out_block)
             return jnp.where(s == shards - 1, right, out_block)
 
         return jax.shard_map(
             body, mesh=self._device_mesh,
-            in_specs=(in_pspec, out_pspec), out_specs=out_pspec)(
-                in_arr, out_arr)
+            in_specs=(in_pspec, out_pspec, *co_pspecs),
+            out_specs=out_pspec)(in_arr, out_arr, *co_arrays)
 
     def layout_for(
         self,

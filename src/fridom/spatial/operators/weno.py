@@ -33,14 +33,40 @@ coefficients baked into the jaxpr, one fused arithmetic expression
 over slice views of the halo-extended storage, no ``roll``/gather,
 no data-dependent Python branching (the smoothness weighting is
 smooth arithmetic, not a ``where``).
+
+Stretched (mapped) factors
+--------------------------
+On a ``MappedIntervalMesh`` the uniform Shu rows are the wrong FV
+weights (the scheme drops to 2nd order), so the biased rows take the
+route-(ii) treatment of ``design/research/nonuniform_weno_survey.md``:
+the tables are **derived from the cell widths** — Shu 1998 eq. 2.20
+candidate rows, exact per-face ideal weights, and Shu's general
+smoothness forms — by :func:`nonuniform_tables`, a pure ``jnp``
+elementwise generator over the width windows. The widths enter the
+kernel as a storage-frame co-operand windowed exactly like the data
+(:func:`cell_widths`), so nothing is memoized per face and the
+generator traces under a moving geometry; for the static geometry of
+today it constant-folds. A uniform factor passes ``widths=None`` and
+takes the static table path, **bitwise** unchanged.
+
+The right bias on a stretched factor is still the mirror image, but
+the mirror moves from the *table* to the *geometry*: reverse the data
+window **and** the width window and run the left-biased generator
+(``weno_combine``). The static uniform path keeps the pre-mirrored
+tables, so its arithmetic is untouched.
 """
 # Wave 4: WenoReconstruction (the upwind pair; the sign selection
 #    lives in operators.select)
 from __future__ import annotations
 
+import math
 from fractions import Fraction
 from functools import cache
+from itertools import combinations
 from typing import TYPE_CHECKING, ClassVar, Literal, NamedTuple, final
+
+import jax
+import jax.numpy as jnp
 
 from fridom.spatial.errors import SpaceMismatchError
 from fridom.spatial.operators.base import (
@@ -54,10 +80,10 @@ from fridom.spatial.operators.reconstruct import (
 )
 from fridom.spatial.operators.staggering import (
     mapped_factor,
-    mapped_order_hint,
 )
 from fridom.spatial.scalars import Scalars
 from fridom.spatial.spaces.average import CellAvg
+from fridom.spatial.spaces.nodal import NodalSpace, NodeSet
 
 if TYPE_CHECKING:  # pragma: no cover
     from jax import Array
@@ -168,13 +194,18 @@ def _shu_row(cells: int, face: int) -> tuple[Fraction, ...]:
 class WenoTables(NamedTuple):
 
     """
-    Static coefficient tables of one biased WENO kernel.
+    Coefficient tables of one biased WENO kernel.
 
     Description
     -----------
-    Plain nested tuples of Python floats — hashable static structure
-    baked into the jaxpr as constants (never traced). Candidate ``m``
-    reads the ``r`` consecutive slice windows starting at
+    On a **uniform** factor (:func:`weno_tables`) these are plain
+    nested tuples of Python floats — hashable static structure baked
+    into the jaxpr as constants (never traced). On a **stretched**
+    factor (:func:`nonuniform_tables`) the same record holds width-
+    derived ``Array`` entries of the window shape instead; ``size``
+    and ``offsets`` stay static in both cases, and the kernel body
+    (:func:`_weno_combine`) is one expression serving both. Candidate
+    ``m`` reads the ``r`` consecutive slice windows starting at
     ``offsets[m]`` within the ``size``-window family.
 
     Parameters
@@ -183,21 +214,24 @@ class WenoTables(NamedTuple):
         The full window size (= the formal order, 2r - 1).
     offsets : tuple[int, ...]
         Per-candidate first window index within the full window.
-    coeffs : tuple[tuple[float, ...], ...]
+    coeffs : tuple[tuple[float | Array, ...], ...]
         Per-candidate reconstruction coefficients (r each).
-    optimal : tuple[float, ...]
+    optimal : tuple[float | Array, ...]
         The optimal (linear) weights d_m.
-    beta_rows : tuple[tuple[tuple[float, ...], ...], ...]
-        Per-candidate smoothness-indicator difference rows.
+    beta_rows : tuple[tuple[tuple[float | Array, ...], ...], ...]
+        Per-candidate smoothness-indicator rows: ``beta_m =
+        sum_d beta_scale[d] * (beta_rows[m][d] . cells_m)**2``.
     beta_scale : tuple[float, ...]
-        The per-difference scale factors of the quadratic form.
+        The per-row scale factors of the quadratic form (all ``1.0``
+        for the non-uniform tables, whose rows carry their own
+        scaling).
     """
 
     size: int
     offsets: tuple[int, ...]
-    coeffs: tuple[tuple[float, ...], ...]
-    optimal: tuple[float, ...]
-    beta_rows: tuple[tuple[tuple[float, ...], ...], ...]
+    coeffs: tuple[tuple[float | Array, ...], ...]
+    optimal: tuple[float | Array, ...]
+    beta_rows: tuple[tuple[tuple[float | Array, ...], ...], ...]
     beta_scale: tuple[float, ...]
 
 
@@ -233,46 +267,6 @@ def _validate(order: int, bias: str) -> None:
     if bias not in ("left", "right"):
         raise ValueError(
             f"bias must be 'left' or 'right', got {bias!r}")
-
-
-def require_uniform_mesh(domain: FunctionSpace, label: str) -> None:
-    """
-    Reject a stretched (mapped) factor at the reconstruction row.
-
-    Description
-    -----------
-    The mapped guard of the biased reconstructions (the sibling of
-    ``FiniteDifference``'s order > 2 refusal): the Shu rows are the
-    uniform-mesh FV reconstruction weights, so on a
-    ``MappedIntervalMesh`` (or any mesh exposing a
-    ``coordinate_map``) they are outright the wrong weights and the
-    scheme silently drops to 2nd order. Refuse the signature instead
-    — the centered order-2 rows (``LinearReconstruction``, the
-    default ``reconstruct`` entry) *are* grounded on mapped meshes
-    and stay available.
-
-    Parameters
-    ----------
-    domain : FunctionSpace
-        The bare 1D factor space.
-    label : str
-        The refusing operator, named in the message.
-
-    Raises
-    ------
-    SpaceMismatchError
-        If the factor's mesh carries a coordinate map.
-    """
-    if mapped_factor(domain):
-        raise SpaceMismatchError(
-            f"no reconstruct signature on {domain!r}: {label} is "
-            "uniform-mesh only — "
-            + mapped_order_hint("the biased Shu reconstruction rows")
-            + ". Use the centered order-2 reconstruction "
-            "(LinearReconstruction, the default 'reconstruct' row, "
-            "which divides by the codomain measure field) or a "
-            "uniform mesh (IntervalMesh)",
-            left=domain, operation="reconstruct")
 
 
 @cache
@@ -379,17 +373,25 @@ def _window_views(
 
 
 def _weighted_sum(
-    views: tuple[Array, ...], weights: tuple[float, ...],
+    views: tuple[Array, ...], weights: tuple[float | Array, ...],
 ) -> Array:
     """
-    Static-weight linear combination of slice views.
+    Weighted linear combination of slice views.
+
+    Description
+    -----------
+    The exact-zero / exact-one shortcuts apply to **Python floats**
+    only (the static tables): a width-derived array weight is always
+    multiplied in, since ``weight == 0.0`` on an array is an array,
+    not a branchable truth value. The static path is therefore
+    bitwise what it was.
 
     Parameters
     ----------
     views : tuple[Array, ...]
         The stencil windows (equal shapes).
-    weights : tuple[float, ...]
-        The static weights; exact zeros are skipped.
+    weights : tuple[float | Array, ...]
+        The weights; exact float zeros are skipped.
 
     Returns
     -------
@@ -398,9 +400,12 @@ def _weighted_sum(
     """
     total = None
     for weight, view in zip(weights, views, strict=True):
-        if weight == 0.0:
-            continue
-        term = view if weight == 1.0 else weight * view
+        if isinstance(weight, float):
+            if weight == 0.0:
+                continue
+            term = view if weight == 1.0 else weight * view
+        else:
+            term = weight * view
         total = term if total is None else total + term
     return total
 
@@ -442,6 +447,8 @@ def _alpha_candidates(
             square = _weighted_sum(cells, diff) ** 2
             term = square if scale == 1.0 else scale * square
             beta = term if beta is None else beta + term
+        # a sum of squares: never negative in floating point, so the
+        # nonlinear weight needs no ``abs`` guard on either path
         alphas.append(tables.optimal[m] / (beta + WENO_EPS) ** 2)
     return tuple(alphas), tuple(candidates)
 
@@ -485,11 +492,888 @@ def _weno_combine(
     return combined / total
 
 
+# ================================================================
+#  Non-uniform tables (stretched factors, route (ii))
+# ================================================================
+#: sqrt(13/12): the scale of the top-derivative smoothness row of the
+#: ``r = 3`` family, folded into the row so every ``beta_scale`` of a
+#: non-uniform table is exactly 1.0 (see :func:`_smoothness_rows`)
+_BETA_TOP_SCALE = math.sqrt(13.0 / 12.0)
+
+#: candidate stencil sizes r of the two grounded families
+#: (formal order = 2r - 1): r = 2 for WENO-3, r = 3 for WENO-5
+_R_WENO3 = 2
+_R_WENO5 = 3
+
+
+def _seal_widths(
+    widths: tuple[Array, ...],
+) -> tuple[Array, ...]:
+    r"""
+    Replace non-positive cell widths by unity (the generator seal).
+
+    Description
+    -----------
+    A bounded axis's storage padding carries **exact-zero** measures
+    (never-valid ghost slots), and a window that reaches one would
+    divide by zero inside the generator: the forward value is
+    discarded (the graded ladder overwrites those faces) but the
+    ``inf``/``NaN`` would still reach the reverse pass through the
+    ``0 * inf`` VJP and poison ``jax.grad``. Sealing to ``1.0`` makes
+    the tables of such a window the *uniform* ones — finite, harmless,
+    and bitwise transparent on every valid cell (AGENTS.md
+    differentiability policy). The ``jnp.where`` also seals the
+    reverse pass w.r.t. the widths themselves.
+
+    Parameters
+    ----------
+    widths : tuple[Array, ...]
+        The per-window cell widths.
+
+    Returns
+    -------
+    tuple[Array, ...]
+        The sealed widths, strictly positive everywhere.
+    """
+    return tuple(jnp.where(w > 0.0, w, 1.0) for w in widths)
+
+
+def _local_nodes(
+    widths: tuple[Array, ...],
+) -> tuple[float | Array, ...]:
+    r"""
+    Cumulative face positions of a window, ``x_0 = 0``.
+
+    Description
+    -----------
+    Local (window-relative) coordinates: :math:`x_0 = 0`, :math:`x_k
+    = \sum_{j<k} w_j`. Every factor of the generator is then a *sum*
+    of widths — no differences of large absolute coordinates, which
+    is where the naive spelling lost four digits on a 100 m column
+    (``nonuniform_weno_survey.md`` section 4).
+
+    Parameters
+    ----------
+    widths : tuple[Array, ...]
+        The ``k`` cell widths of the window.
+
+    Returns
+    -------
+    tuple[float | Array, ...]
+        The ``k + 1`` local face positions.
+    """
+    nodes: list[float | Array] = [0.0]
+    for width in widths:
+        nodes.append(nodes[-1] + width)
+    return tuple(nodes)
+
+
+def _product_derivative(
+    nodes: tuple[float | Array, ...], x: float | Array, order: int,
+) -> float | Array:
+    r"""
+    Differentiate :math:`\prod_j (x - x_j)` ``order`` times.
+
+    Description
+    -----------
+    :math:`\frac{d^s}{dx^s} \prod_{j} (x - x_j) = s! \sum_{|S| = s}
+    \prod_{j \notin S} (x - x_j)`, the subsets ``S`` enumerated by a
+    **static** Python loop (``len(nodes) <= 5`` here), so the result
+    is one fused elementwise expression over the width arrays. Past
+    the polynomial's degree the enumeration is empty and the result
+    is the exact ``0.0`` it should be.
+
+    Parameters
+    ----------
+    nodes : tuple[float | Array, ...]
+        The product's roots.
+    x : float | Array
+        The evaluation point.
+    order : int
+        The derivative order ``s``.
+
+    Returns
+    -------
+    float | Array
+        The derivative value.
+    """
+    count = len(nodes)
+    total: float | Array = 0.0
+    for dropped in combinations(range(count), order):
+        term: float | Array = 1.0
+        for j in range(count):
+            if j in dropped:
+                continue
+            term = term * (x - nodes[j])
+        total = total + term
+    return math.factorial(order) * total
+
+
+def _lagrange_derivatives(
+    nodes: tuple[float | Array, ...], x: float | Array, order: int,
+) -> tuple[float | Array, ...]:
+    r"""
+    Differentiate the Lagrange basis ``order`` times at ``x``.
+
+    Description
+    -----------
+    :math:`L_k^{(s)}(x) = \left[\frac{d^s}{dx^s} \prod_{l \neq k}
+    (x - x_l)\right] / \prod_{l \neq k} (x_k - x_l)`. Both factors are
+    products of node *differences*, i.e. sums of cell widths, so on
+    sealed (strictly positive) widths no denominator vanishes.
+
+    Parameters
+    ----------
+    nodes : tuple[float | Array, ...]
+        The interpolation nodes (the window's local faces).
+    x : float | Array
+        The evaluation point.
+    order : int
+        The derivative order ``s``.
+
+    Returns
+    -------
+    tuple[float | Array, ...]
+        One value per basis function.
+    """
+    out: list[float | Array] = []
+    for k in range(len(nodes)):
+        others = tuple(
+            nodes[j] for j in range(len(nodes)) if j != k)
+        denom: float | Array = 1.0
+        for other in others:
+            denom = denom * (nodes[k] - other)
+        out.append(_product_derivative(others, x, order) / denom)
+    return tuple(out)
+
+
+def _width_row(
+    widths: tuple[Array, ...], deriv: int, x: float | Array,
+) -> tuple[float | Array, ...]:
+    r"""
+    Shu 1998 eq. 2.20 row: :math:`p^{(d)}(x) = \sum_j c_j \bar f_j`.
+
+    Description
+    -----------
+    The primitive-function Lagrange form. With :math:`P` the degree-``k``
+    interpolant of the primitive values :math:`V_m = \sum_{j<m} w_j
+    \bar f_j` at the window's faces, the reconstruction is
+    :math:`p = P'`, hence
+
+    .. math::
+        c_j = w_j \sum_{m=j+1}^{k} L_m^{(d+1)}(x),
+
+    linear in the cell averages with coefficients depending on the
+    widths alone. ``deriv = 0`` gives the reconstruction row itself
+    (the candidate row at the target face, or the full ``2r-1``-cell
+    row); ``deriv >= 1`` gives the derivative rows the smoothness
+    indicators are built from.
+
+    Parameters
+    ----------
+    widths : tuple[Array, ...]
+        The window's cell widths (sealed, cell-scaled).
+    deriv : int
+        The derivative order ``d`` of the reconstructed polynomial.
+    x : float | Array
+        The evaluation point in the window's local coordinates.
+
+    Returns
+    -------
+    tuple[float | Array, ...]
+        One coefficient per cell of the window.
+    """
+    nodes = _local_nodes(widths)
+    basis = _lagrange_derivatives(nodes, x, deriv + 1)
+    row: list[float | Array] = []
+    tail: float | Array = 0.0
+    for j in range(len(widths) - 1, -1, -1):
+        tail = tail + basis[j + 1]
+        row.append(widths[j] * tail)
+    return tuple(reversed(row))
+
+
+def _smoothness_rows(
+    widths: tuple[Array, ...], lo: float | Array, hi: float | Array,
+) -> tuple[tuple[float | Array, ...], ...]:
+    r"""
+    Square-root factorization of one candidate's smoothness form.
+
+    Description
+    -----------
+    Shu's general indicator over the **upwind** cell :math:`[lo, hi]`
+    of width :math:`w` (which is also the scaling length :math:`D`):
+
+    .. math::
+        \beta = \sum_{l=1}^{r-1} D^{2l-1}
+                \int_{lo}^{hi} \bigl(p^{(l)}(x)\bigr)^2 dx .
+
+    Expanding each integrand about the cell **midpoint** kills the
+    cross terms (:math:`\int (x - x_c)\,dx = 0` over the cell), which
+    turns the whole form into a plain sum of squares of linear
+    functionals of the data — one row each:
+
+    - ``r = 2`` (:math:`p` linear, :math:`p'` constant):
+      :math:`\beta = D w (p')^2 = (D\,p')^2` since :math:`w = D`;
+    - ``r = 3`` (:math:`p` quadratic): the :math:`l = 1` term is
+      :math:`D\,[w\,p'(x_c)^2 + w^3 (p'')^2 / 12]` and the
+      :math:`l = 2` term :math:`D^3 w (p'')^2`, so with :math:`w = D`
+      :math:`\beta = (D\,p'(x_c))^2 + \tfrac{13}{12} (D^2 p'')^2` —
+      the familiar Jiang-Shu 13/12 and 1/4 coefficients, here as the
+      **exact** non-uniform generalization.
+
+    The generator works in cell-scaled coordinates (:math:`D = 1`), so
+    the rows are the bare derivative rows with the top one carrying
+    ``sqrt(13/12)``. Writing ``beta`` as a sum of squares — rather
+    than as a quadratic form ``v^T B v`` — is what keeps it
+    non-negative in floating point, so the nonlinear weight needs no
+    ``abs`` guard; it is also the *exact-rank* factorization
+    (``B`` is rank ``r - 1``: a plain Cholesky would hit a zero pivot
+    on the last row).
+
+    Parameters
+    ----------
+    widths : tuple[Array, ...]
+        The candidate's ``r`` cell widths (sealed, cell-scaled).
+    lo : float | Array
+        The upwind cell's left face, in local coordinates.
+    hi : float | Array
+        The upwind cell's right face, in local coordinates.
+
+    Returns
+    -------
+    tuple[tuple[float | Array, ...], ...]
+        The ``r - 1`` rows whose squares sum to ``beta``.
+
+    Raises
+    ------
+    NotImplementedError
+        For stencil sizes beyond the grounded ``r = 2, 3`` families.
+    """
+    mid = 0.5 * (lo + hi)
+    first = _width_row(widths, 1, mid)
+    if len(widths) == _R_WENO3:
+        return (first,)
+    if len(widths) == _R_WENO5:
+        top = _width_row(widths, 2, mid)
+        return (first, tuple(_BETA_TOP_SCALE * c for c in top))
+    raise NotImplementedError(  # pragma: no cover — orders are validated
+        "the non-uniform smoothness factorization is grounded for "
+        f"r = 2, 3 (orders {_SUPPORTED_ORDERS}), got r = "
+        f"{len(widths)}")
+
+
+def nonuniform_tables(
+    width_windows: tuple[Array, ...], order: int,
+) -> WenoTables:
+    r"""
+    Derive the **left-biased** WENO tables from the cell widths.
+
+    Description
+    -----------
+    Route (ii) of ``design/plans/active/high_order_mapped_plan.md``
+    (see ``design/research/nonuniform_weno_survey.md``): the
+    genuinely non-uniform Shu-1998 tables of one output face,
+    computed inside the kernel from the ``2r-1`` cell widths of that
+    face's window.
+
+    - **Candidate rows** ``coeffs[m]``: :func:`_width_row` on cells
+      ``m .. m + r - 1`` evaluated at the shared output face
+      (candidate-local face ``r - m``).
+    - **Ideal weights** ``optimal``: from the exact embedding
+      :math:`F_i = \sum_m d_m c^{(m)}_{i-m}` of the candidates in the
+      full ``2r-1``-cell row ``F``, whose end coefficients each
+      involve one candidate only: :math:`d_0 = F_0 / c^{(0)}_0`,
+      :math:`d_{r-1} = F_{2r-2} / c^{(r-1)}_{r-1}`, and the middle
+      weight by partition of unity (so the weights sum to one to the
+      last bit, and a constant is reconstructed exactly). They are
+      ratios of products of lengths, hence positive on any monotone
+      geometry; the kernel never clips, a test asserts positivity.
+    - **Smoothness rows** ``beta_rows[m]``: :func:`_smoothness_rows`
+      over the upwind cell (window cell ``r - 1``).
+
+    Everything runs in **cell-scaled local coordinates** (widths
+    divided by the upwind cell width, faces measured from the
+    window's left edge): the tables are homogeneous of degree zero in
+    the widths, so this is exact, and it is what keeps the products
+    and quotients well conditioned on a strongly stretched column.
+
+    Pure ``jnp`` elementwise arithmetic over static Python loops — no
+    ``jnp.linalg``, no gather, no data-dependent branch — so the same
+    generator serves a static and a moving geometry. The body runs
+    under :func:`jax.ensure_compile_time_eval`, which is what makes
+    the *static* case free: concrete cell widths (the memoized
+    ``grid.measure`` vectors of :func:`cell_widths`) are evaluated at
+    trace time and enter the jaxpr as plain constants, so the kernel
+    stays the ~60-operation expression the static tables give; XLA's
+    own constant folding does **not** reliably collapse the ~1000
+    staged table operations if they are left in the trace. Widths that
+    are *tracers* (a per-tap upwind select, a moving chart) stage
+    normally inside the same context.
+
+    Parameters
+    ----------
+    width_windows : tuple[Array, ...]
+        The ``order`` cell-width windows of the output faces, in the
+        same window family as the data (`_window_views`).
+    order : int
+        The odd formal order (3 or 5).
+
+    Returns
+    -------
+    WenoTables
+        The array-valued left-biased tables (``beta_scale`` all 1.0).
+    """
+    _validate(order, "left")
+    if len(width_windows) != order:
+        raise ValueError(
+            f"the width window family must hold {order} windows (one "
+            f"per stencil cell), got {len(width_windows)}")
+    r = (order + 1) // 2
+    with jax.ensure_compile_time_eval():
+        sealed = _seal_widths(width_windows)
+        # the upwind cell is the scaling length
+        reference = sealed[r - 1]
+        scaled = tuple(w / reference for w in sealed)
+
+        coeffs = []
+        beta_rows = []
+        for m in range(r):
+            local = scaled[m:m + r]
+            nodes = _local_nodes(local)
+            coeffs.append(_width_row(local, 0, nodes[r - m]))
+            beta_rows.append(
+                _smoothness_rows(local, nodes[r - 1 - m],
+                                 nodes[r - m]))
+        full = _width_row(scaled, 0, _local_nodes(scaled)[r])
+        d_first = full[0] / coeffs[0][0]
+        d_last = full[order - 1] / coeffs[r - 1][r - 1]
+        optimal = ((d_first, 1.0 - d_first) if r == _R_WENO3
+                   else (d_first, 1.0 - d_first - d_last, d_last))
+    return WenoTables(
+        size=order,
+        offsets=tuple(range(r)),
+        coeffs=tuple(coeffs),
+        optimal=optimal,
+        beta_rows=tuple(beta_rows),
+        beta_scale=(1.0,) * (r - 1),
+    )
+
+
+def _apply_row(
+    windows: tuple[Array, ...], row: tuple[float | Array, ...],
+) -> Array:
+    """
+    Fused weighted sum of a window family under a full row.
+
+    Description
+    -----------
+    The linear (non-WENO) sibling of :func:`_weighted_sum`: every tap
+    is multiplied in, in window order and with the weight on the left,
+    so a static row reproduces the advection module's historical
+    ``_weighted_windows`` arithmetic **bitwise**.
+
+    Parameters
+    ----------
+    windows : tuple[Array, ...]
+        The window family (equal shapes).
+    row : tuple[float | Array, ...]
+        One coefficient per window.
+
+    Returns
+    -------
+    Array
+        The fused weighted sum.
+    """
+    total = None
+    for weight, view in zip(row, windows, strict=True):
+        term = weight * view
+        total = term if total is None else total + term
+    return total
+
+
+@cache
+def _static_linear_row(
+    order: int, bias: Literal["left", "right"],
+) -> tuple[float, ...]:
+    """
+    Full biased reconstruction row of one linear upwind kernel.
+
+    Description
+    -----------
+    The optimal-weight combination of the WENO candidate stencils —
+    exactly the full ``order``-cell Shu row at the biased face (the
+    linear-weight consistency identity), i.e. the old stack's
+    ``upwind_interpolation.py`` coefficients.
+
+    Parameters
+    ----------
+    order : int
+        The odd formal order (3 or 5).
+    bias : Literal["left", "right"]
+        The upwind bias side.
+
+    Returns
+    -------
+    tuple[float, ...]
+        The ``order`` static reconstruction coefficients.
+    """
+    tables = weno_tables(order, bias)
+    row = [0.0] * order
+    for m, offset in enumerate(tables.offsets):
+        for i, coeff in enumerate(tables.coeffs[m]):
+            row[offset + i] += tables.optimal[m] * coeff
+    return tuple(row)
+
+
+@cache
+def _static_centered_row(size: int) -> tuple[float, ...]:
+    """
+    Symmetric even-size interpolation row at the middle interface.
+
+    Parameters
+    ----------
+    size : int
+        The even stencil size (2 or 4 for orders 3 and 5).
+
+    Returns
+    -------
+    tuple[float, ...]
+        The ``size`` static interpolation coefficients.
+    """
+    return tuple(float(c) for c in _shu_row(size, size // 2))
+
+
+def weno_combine(
+    windows: tuple[Array, ...],
+    order: int,
+    bias: Literal["left", "right"] = "left",
+    width_windows: tuple[Array, ...] | None = None,
+) -> Array:
+    """
+    Nonlinear-weight a window family, uniform or stretched.
+
+    Description
+    -----------
+    The public form of the shared reduction tail: the array entry
+    point (:func:`weno_reconstruct`) and the selected-input advection
+    kernel (which builds its taps by a per-tap upwind ``where``) run
+    the *same* machinery. ``width_windows=None`` takes the static
+    table path — bitwise today's arithmetic; otherwise the tables
+    come from :func:`nonuniform_tables`, and the **right** bias is
+    served by reversing both families and running the left-biased
+    generator (the mirror identity, which on a stretched factor lives
+    in the geometry rather than in the table).
+
+    Parameters
+    ----------
+    windows : tuple[Array, ...]
+        The ``order``-window family of the data.
+    order : int
+        The odd formal order (3 or 5).
+    bias : Literal["left", "right"], optional
+        The upwind bias side (default: "left").
+    width_windows : tuple[Array, ...] | None, optional
+        The matching cell-width windows of a stretched factor; None
+        selects the static uniform tables (default: None).
+
+    Returns
+    -------
+    Array
+        The reconstructed face values.
+    """
+    if width_windows is None:
+        return _weno_combine(windows, weno_tables(order, bias))
+    _validate(order, bias)
+    if bias == "right":
+        windows = tuple(reversed(windows))
+        width_windows = tuple(reversed(width_windows))
+    return _weno_combine(
+        windows, nonuniform_tables(width_windows, order))
+
+
+def linear_row_windows(
+    windows: tuple[Array, ...],
+    order: int,
+    bias: Literal["left", "right"] = "left",
+    width_windows: tuple[Array, ...] | None = None,
+) -> Array:
+    """
+    Apply the full biased (linear upwind) row to a window family.
+
+    Description
+    -----------
+    The linear-weighting sibling of :func:`weno_combine`: the full
+    ``order``-cell Shu row at the biased face. On a uniform factor
+    that is the optimal-weight combination of the WENO candidates
+    (:func:`_static_linear_row`); on a stretched one it is the
+    ``2r-1``-cell row of :func:`_width_row`, the right bias again
+    served by reversing both window families.
+
+    Parameters
+    ----------
+    windows : tuple[Array, ...]
+        The ``order``-window family of the data.
+    order : int
+        The odd formal order (3 or 5).
+    bias : Literal["left", "right"], optional
+        The upwind bias side (default: "left").
+    width_windows : tuple[Array, ...] | None, optional
+        The matching cell-width windows of a stretched factor; None
+        selects the static uniform row (default: None).
+
+    Returns
+    -------
+    Array
+        The reconstructed face values.
+    """
+    if width_windows is None:
+        return _apply_row(windows, _static_linear_row(order, bias))
+    _validate(order, bias)
+    if bias == "right":
+        windows = tuple(reversed(windows))
+        width_windows = tuple(reversed(width_windows))
+    with jax.ensure_compile_time_eval():
+        scaled = _rescaled(width_windows, order // 2)
+        row = _width_row(scaled, 0,
+                         _local_nodes(scaled)[(order + 1) // 2])
+    return _apply_row(windows, row)
+
+
+def centered_row_windows(
+    windows: tuple[Array, ...],
+    size: int,
+    width_windows: tuple[Array, ...] | None = None,
+) -> Array:
+    """
+    Apply the symmetric even-size row to a window family.
+
+    Description
+    -----------
+    The order-coupled velocity interpolation of the biased advection
+    modules (sizes 2 and 4): the Shu row on ``size`` cells at the
+    middle face ``size // 2``. Uniform: the static ``_shu_row``.
+    Stretched: the same row from the cell widths — for ``size = 2``
+    the familiar ``(w_1 v_0 + w_0 v_1) / (w_0 + w_1)``.
+
+    Parameters
+    ----------
+    windows : tuple[Array, ...]
+        The ``size``-window family of the data.
+    size : int
+        The even stencil size.
+    width_windows : tuple[Array, ...] | None, optional
+        The matching cell-width windows of a stretched factor; None
+        selects the static uniform row (default: None).
+
+    Returns
+    -------
+    Array
+        The interpolated face values.
+    """
+    if width_windows is None:
+        return _apply_row(windows, _static_centered_row(size))
+    if len(width_windows) != size:
+        raise ValueError(
+            f"the width window family must hold {size} windows (one "
+            f"per stencil cell), got {len(width_windows)}")
+    with jax.ensure_compile_time_eval():
+        scaled = _rescaled(width_windows, size // 2 - 1)
+        row = _width_row(scaled, 0, _local_nodes(scaled)[size // 2])
+    return _apply_row(windows, row)
+
+
+def _rescaled(
+    width_windows: tuple[Array, ...], reference: int,
+) -> tuple[Array, ...]:
+    """
+    Seal a width window family and scale it by one of its cells.
+
+    Parameters
+    ----------
+    width_windows : tuple[Array, ...]
+        The cell-width windows.
+    reference : int
+        The index of the cell whose width becomes the unit length.
+
+    Returns
+    -------
+    tuple[Array, ...]
+        The sealed, cell-scaled widths.
+    """
+    sealed = _seal_widths(width_windows)
+    return tuple(w / sealed[reference] for w in sealed)
+
+
+# ================================================================
+#  The width co-operand (storage frame of the operand)
+# ================================================================
+#: node sets whose lattice cells are the primal mesh cells (the
+#: reconstruction reads cell averages / centered point values)
+_PRIMAL_NODE_SETS = (NodeSet.CENTER,)
+
+#: node sets whose lattice cells are the DUAL cells around the mesh
+#: faces (the wall-normal direction of the C-grid pair), paired with
+#: the axis topology each is the reconstruction frame of: ``Right``
+#: holds faces 1..n of a periodic axis, ``Inner`` the interior faces
+#: 1..n-1 of a bounded one (its two wall faces are ghost slots)
+_DUAL_NODE_SETS = {NodeSet.RIGHT: False, NodeSet.INNER: True}
+
+
+def cell_widths(f: FieldLike, axis: str) -> Array | None:
+    r"""
+    Materialize the lattice-cell widths of ``f``'s factor.
+
+    Description
+    -----------
+    The geometry co-operand of the non-uniform biased rows: a storage
+    array in **``f._data``'s frame** (same length along ``axis``,
+    size-1 on every other axis, halo-extended and sharded exactly like
+    the data), so a caller windows it with the very same offsets it
+    windows the data with. ``None`` on a uniform factor — the callers
+    then take the static-table path, bitwise unchanged.
+
+    Which measure is the lattice cell depends on the operand's node
+    set, exactly as in the reconstruction's own geometry:
+
+    - **primal** factors (``CellAvg``, ``Center``): the primal cell
+      widths, i.e. ``grid.measure`` on the field's own space;
+    - **dual** factors (``Right`` on a periodic axis, ``Inner`` on a
+      bounded one): the dual cells around the faces. ``Right`` holds
+      faces ``1 .. n`` and its measure is already the frame; ``Inner``
+      holds faces ``1 .. n-1`` as true DOFs and the two **wall** faces
+      ``0`` and ``n`` as ghost slots, whose lattice cells are the
+      clipped half cells ``x_c[0] - x_min`` and ``x_max - x_c[n-1]``
+      (the graded ladder synthesizes the wall *values* as zeros but
+      must read their real *widths*), so those two ghost slots are
+      filled here through the decomposition's physical-end seam.
+
+    The result is synced (a periodic axis's ghost slots hold the wrap
+    fill, which is the measure's exact periodic extension) and sealed
+    to be strictly positive, so no window can carry a zero width into
+    the generator.
+
+    Parameters
+    ----------
+    f : FieldLike
+        The operand field.
+    axis : str
+        The resolved coordinate axis.
+
+    Returns
+    -------
+    Array | None
+        The storage-frame cell widths, or None on a uniform factor.
+
+    Raises
+    ------
+    SpaceMismatchError
+        If the operand's node set is not one of the reconstruction
+        families (primal cells or the dual face cells).
+    ValueError
+        If a bounded dual frame has no ghost slot to carry the wall
+        half cells (a halo-0 axis).
+    """
+    space = f.function_space
+    factor = space.bare.factor(axis)
+    if not mapped_factor(factor):
+        return None
+    dual_wall = _classify_frame(factor, axis)
+    layout = space.layout
+    # Static mesh geometry: on a device-LOCAL axis, evaluate it at
+    # trace time (`jax.ensure_compile_time_eval`) so the derived tables
+    # enter the jaxpr as plain constants. Left staged they are ~1000
+    # operations that XLA does not reliably fold, and the mapped
+    # reconstruction kernel grows ~5x over the uniform one. On a
+    # SHARDED axis the fill and the wall write are ``shard_map``
+    # regions, whose collectives have no axis environment at trace
+    # time, so the geometry is built the ordinary (staged) way there.
+    if layout is None or layout.is_local(axis):
+        with jax.ensure_compile_time_eval():
+            return _materialize_widths(f, space, axis, dual_wall)
+    return _materialize_widths(f, space, axis, dual_wall)
+
+
+def _materialize_widths(
+    f: FieldLike, space: FunctionSpace, axis: str, dual_wall: bool,
+) -> Array:
+    """
+    Build the sealed storage-frame width array of one factor.
+
+    Parameters
+    ----------
+    f : FieldLike
+        The operand field.
+    space : FunctionSpace
+        The operand's (laid-out) function space.
+    axis : str
+        The resolved coordinate axis.
+    dual_wall : bool
+        Whether the two wall dual cells must be written into the
+        frame's ghost slots (`_classify_frame`).
+
+    Returns
+    -------
+    Array
+        The storage-frame cell widths, strictly positive everywhere.
+    """
+    grid = f.grid
+    widths = grid.sync(grid.measure(space, name=axis))
+    data = widths._data  # noqa: SLF001 — documented storage seam
+    if dual_wall:
+        data = _fill_wall_cells(f, widths, axis, data)
+    return jnp.where(data > 0.0, data, 1.0)
+
+
+def _classify_frame(factor: FunctionSpace, axis: str) -> bool:
+    """
+    Validate the operand's node set; flag the bounded dual frame.
+
+    Parameters
+    ----------
+    factor : FunctionSpace
+        The bare 1D factor space of the operand.
+    axis : str
+        The coordinate axis (error attribution).
+
+    Returns
+    -------
+    bool
+        True iff the lattice cells are the dual face cells of a
+        **bounded** axis (the ``Inner`` frame, whose two wall cells
+        live in ghost slots).
+
+    Raises
+    ------
+    SpaceMismatchError
+        On a node set outside the reconstruction families.
+    """
+    bounded = not getattr(factor.mesh, "periodic", False)
+    if isinstance(factor, CellAvg):
+        return False
+    if isinstance(factor, NodalSpace):
+        if factor.node_set in _PRIMAL_NODE_SETS:
+            return False
+        # a dual node set is the reconstruction frame of exactly one
+        # topology; the other pairing (bounded ``Right``, periodic
+        # ``Inner``) is not a C-grid frame and would put the wall
+        # cells in the wrong slots, so it refuses rather than guesses
+        if _DUAL_NODE_SETS.get(factor.node_set) is bounded:
+            return bounded
+    raise SpaceMismatchError(
+        f"no stretched-mesh cell widths for {factor!r} along "
+        f"{axis!r}: the biased reconstructions read primal cells "
+        "(CellAvg, Center) or the dual face cells (Right on a "
+        "periodic axis, Inner on a bounded one)",
+        left=factor, operation="reconstruct")
+
+
+def _wall_half_cells(mesh: object) -> tuple[float, float]:
+    """
+    Evaluate the clipped dual cells of the two wall faces.
+
+    Description
+    -----------
+    ``x_c[0] - x_min`` and ``x_max - x_c[n-1]``: the halves of the
+    first and last primal cell that the wall faces own — the same
+    boundary-member weights ``grid.measure`` puts on an ``Outer``
+    space, evaluated here directly off the coordinate map (the
+    ``reconstruct._wall_face_weights`` precedent: a host evaluation of
+    the map at static computational positions).
+
+    Parameters
+    ----------
+    mesh : object
+        The bounded mapped 1D mesh.
+
+    Returns
+    -------
+    tuple[float, float]
+        The (left, right) wall dual-cell widths.
+    """
+    coord = mesh.coordinate_map
+    n = mesh.n_cells
+    x_min, x_max = mesh.extent
+    first = float(coord(jnp.asarray(0.5 / n)))
+    last = float(coord(jnp.asarray((n - 0.5) / n)))
+    return (first - x_min, x_max - last)
+
+
+def _fill_wall_cells(
+    f: FieldLike, widths: FieldLike, axis: str, data: Array,
+) -> Array:
+    """
+    Write the wall half cells into the two ``Inner`` ghost slots.
+
+    Description
+    -----------
+    In the ``Inner`` frame the lattice cell of face ``F`` sits at
+    storage slot ``width + F - 1``, so the wall faces ``0`` and ``n``
+    land one slot outside the true DOFs on each side. The write goes
+    through ``Decomposition.patch_physical_ends``, so it lands on the
+    boundary shards' blocks and is correct whether the axis is
+    undistributed or sharded.
+
+    Parameters
+    ----------
+    f : FieldLike
+        The operand field (supplies the grid and the layout).
+    widths : FieldLike
+        The synced measure field on the operand's frame.
+    axis : str
+        The resolved coordinate axis.
+    data : Array
+        The measure field's storage array.
+
+    Returns
+    -------
+    Array
+        ``data`` with the two wall ghost slots holding the half cells.
+
+    Raises
+    ------
+    ValueError
+        If the axis carries no ghost slot to write into.
+    """
+    space = widths.function_space
+    axis_index = space.names.index(axis)
+    decomposition = f.grid.decomposition
+    if decomposition.halo[axis] < 1:
+        raise ValueError(
+            f"the bounded dual reconstruction along {axis!r} needs a "
+            "halo of at least one slot to carry the wall dual-cell "
+            "widths (the wall faces are ghost slots of the Inner "
+            f"frame), but the negotiated halo is "
+            f"{decomposition.halo[axis]}")
+    halves = _wall_half_cells(f.function_space.bare.factor(axis).mesh)
+
+    def patch(
+        in_block: Array,  # noqa: ARG001 — the write is value-only
+        out_block: Array,
+        side: int,
+        width_in: int,  # noqa: ARG001 — same frame as the output
+        t_in: int | Array,  # noqa: ARG001 — same frame as the output
+        width_out: int,
+        t_out: int | Array,
+    ) -> Array:
+        """Write one wall's half cell into its ghost slot."""
+        template = jax.lax.dynamic_slice_in_dim(
+            out_block, 0, 1, axis_index)
+        value = jnp.full_like(template, halves[side])
+        slot = width_out - 1 if side == 0 else width_out + t_out
+        return jax.lax.dynamic_update_slice_in_dim(
+            out_block, value, slot, axis_index)
+
+    return decomposition.patch_physical_ends(
+        data, data, space, space, axis, patch, layout=space.layout)
+
+
 def weno_reconstruct(
     arr: Array,
     axis: int,
     order: int = 5,
     bias: Literal["left", "right"] = "left",
+    widths: Array | None = None,
 ) -> Array:
     """
     Biased WENO reconstruction along an axis (fused kernel).
@@ -517,6 +1401,12 @@ def weno_reconstruct(
         The odd formal order, 3 or 5 in iteration 1 (default: 5).
     bias : Literal["left", "right"], optional
         The upwind bias side (default: "left").
+    widths : Array | None, optional
+        The lattice-cell widths of a stretched factor, in ``arr``'s
+        storage frame (:func:`cell_widths`): windowed exactly like
+        ``arr`` and turned into per-face tables by
+        :func:`nonuniform_tables`. None takes the static uniform
+        tables (default: None).
 
     Returns
     -------
@@ -524,9 +1414,18 @@ def weno_reconstruct(
         The reconstructed face values; ``axis`` shrinks by
         ``order - 1``.
     """
-    tables = weno_tables(order, bias)
-    windows = _window_views(arr, axis, tables.size)
-    return _weno_combine(windows, tables)
+    if widths is None:
+        tables = weno_tables(order, bias)
+        windows = _window_views(arr, axis, tables.size)
+        return _weno_combine(windows, tables)
+    _validate(order, bias)
+    # slice the geometry inside the trace-time context too: a window
+    # taken outside it stages, and a staged window makes the whole
+    # generator stage with it (see :func:`nonuniform_tables`)
+    with jax.ensure_compile_time_eval():
+        width_windows = _window_views(widths, axis, order)
+    return weno_combine(
+        _window_views(arr, axis, order), order, bias, width_windows)
 
 
 def weno_weights(
@@ -591,12 +1490,13 @@ class WenoReconstruction(SeparableOperator):
     Iteration 1 is periodic-only (parity with the old stack's
     ``weno_interpolation.py``); the bare kernel's bounded-axis
     boundary biasing is designed-for, so a bounded registration is a
-    space error, never a silent fallback. Uniform-mesh only for the
-    same reason: on a stretched (mapped) factor the Shu rows are the
-    wrong FV weights and the scheme would silently drop to 2nd order,
-    so the signature raises (:func:`require_uniform_mesh`). Nonlinear,
-    hence no ``eigenvalues`` (the raising base is correct and
-    automatic).
+    space error, never a silent fallback. A stretched (mapped)
+    factor is accepted: the rows are then derived from the cell
+    widths inside the kernel (:func:`nonuniform_tables`, fed by
+    :func:`cell_widths`), so the design order survives the
+    stretching; a uniform factor keeps the static tables bitwise.
+    Nonlinear, hence no ``eigenvalues`` (the raising base is correct
+    and automatic).
 
     The ``boundary`` knob (decision R2 parity) is a constructor
     variant, not per-application state: ``boundary="none"`` (default)
@@ -761,8 +1661,8 @@ class WenoReconstruction(SeparableOperator):
         the same face space — the bias is a stencil property, not a
         signature property). The bounded ``CellAvg -> Outer`` biased
         variant is designed-for and raises. Stretched (mapped)
-        factors raise too: the Shu rows are uniform-mesh weights
-        (:func:`require_uniform_mesh`).
+        factors resolve like uniform ones; the kernel derives its
+        rows from the cell widths (:func:`cell_widths`).
 
         Parameters
         ----------
@@ -779,7 +1679,6 @@ class WenoReconstruction(SeparableOperator):
                 "WenoReconstruction reconstructs primal cell "
                 f"averages onto faces (CellAvg -> Right), got "
                 f"{domain!r}", left=domain, operation="reconstruct")
-        require_uniform_mesh(domain, "WenoReconstruction")
         if domain.scalars is Scalars.COMPLEX:
             raise SpaceMismatchError(
                 "the WENO smoothness indicators are real quadratic "
@@ -855,11 +1754,15 @@ class WenoReconstruction(SeparableOperator):
             The reconstructed field (metadata kept: same quantity).
         """
         size = self._order
-        m0 = size // 2 if self._bias == "left" else size // 2 - 1
+        bias = self._bias
+        m0 = size // 2 if bias == "left" else size // 2 - 1
+        widths = cell_widths(f, axis)
 
-        def kernel(arr: Array, axis_index: int) -> Array:
-            return weno_reconstruct(arr, axis_index, order=size,
-                                    bias=self._bias)
+        def kernel(arr: Array, axis_index: int, *co: Array) -> Array:
+            return weno_reconstruct(
+                arr, axis_index, order=size, bias=bias,
+                widths=co[0] if co else None)
 
-        return apply_fv_staggered(self, f, axis, size, kernel,
-                                  metadata=f.metadata, align=m0)
+        return apply_fv_staggered(
+            self, f, axis, size, kernel, metadata=f.metadata, align=m0,
+            co_operands=() if widths is None else (widths,))

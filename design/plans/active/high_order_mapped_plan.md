@@ -22,6 +22,8 @@ date: 2026-07-13
 > follow-up if a shock case shows ENO damage, not a fallback if the spike
 > fails.
 
+> **Survey 2026-08-22 — pending owner call.** [`../../research/nonuniform_weno_survey.md`](../../research/nonuniform_weno_survey.md) reads Oceananigans and JAX-Fluids (both take route (ii)) and adds a 3-D argument the sizing below did not weigh: the route-(i) divisor `W_z` differs from the measure `Δz` the pressure projection divides by, so a constant tracer acquires `Δw·(1/W_z − 1/Δz)` (8.7e-4 relative at n = 32 on the coastal-upwelling column) — the constancy trade the advection module docstring declines for the Shu–Osher form. The survey recommends route (ii) for the reconstruction refusals (§6 there is the work list) and route (i) for the `FiniteDifference` refusals only; the route recorded below is unchanged until Silvano decides.
+
 Spike done, full lift not started. The obstacle, the options, and the
 route for lifting the mapped-mesh refusals recorded in
 [`../../specs/grid/classes/operators_stencils.md`](../../specs/grid/classes/operators_stencils.md)

@@ -22,6 +22,7 @@ def test_preset_equals_explicit_assembly_treedef():
         core=sw.Core(froude_number=0.2, depth=1.0),
         scaling=fr.scaling.GravityWave(),
         coriolis=sw.modules.FPlaneCoriolis(rossby_number=0.2),
+        advection=True,
         time_stepper=stepper)
     explicit = fr.model.Model(
         grid=grid,

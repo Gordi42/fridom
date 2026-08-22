@@ -616,13 +616,16 @@ def mapped_factor(factor: FunctionSpace) -> bool:
     the measure-field division of
     :func:`divide_by_codomain_measure`.
 
-    It is also the **refusal** predicate of every uniform-offset
-    stencil wider than two points (``FiniteDifference`` order > 2,
-    the biased WENO/upwind reconstructions): those rows are the
-    uniform-mesh weights, and the two-point measure field can only
-    ground a 2nd-order division — a wide row divided by it is
-    consistent but silently 2nd order, so the operators raise
-    instead (see :func:`mapped_order_hint`).
+    It is also the **refusal** predicate of the uniform-offset
+    *derivative* stencils wider than two points
+    (``FiniteDifference`` order > 2 and its one-sided closure):
+    those rows are the uniform-mesh weights, and the two-point
+    measure field can only ground a 2nd-order division — a wide row
+    divided by it is consistent but silently 2nd order, so the
+    operators raise instead (see :func:`mapped_order_hint`). The
+    biased *reconstructions* no longer refuse: they derive their
+    rows from the cell widths instead
+    (``operators.weno.nonuniform_tables``).
 
     Parameters
     ----------
@@ -644,12 +647,11 @@ def mapped_order_hint(what: str) -> str:
     Description
     -----------
     The one sentence every mapped guard of a uniform-offset stencil
-    repeats (``FiniteDifference``'s order > 2 guard, the biased
-    reconstructions, the biased advection modules): the stencil is a
-    *computational-coordinate* row, so a mapped mesh needs the
-    computational-space chain rule with an order-matched discrete
-    Jacobian; the two-point measure field the grid materializes caps
-    the achievable order at 2.
+    repeats (``FiniteDifference``'s order > 2 guard and its one-sided
+    closure): the stencil is a *computational-coordinate* row, so a
+    mapped mesh needs the computational-space chain rule with an
+    order-matched discrete Jacobian; the two-point measure field the
+    grid materializes caps the achievable order at 2.
 
     Parameters
     ----------

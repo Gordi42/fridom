@@ -63,6 +63,7 @@ def sphere_model(nlon=32, nlat=16, *, csqr=GH0,
     reproduces it verbatim (the core carries the chart coords).
     """
     return sw.Model(
+        advection=True,
         grid=sphere_grid(nlon, nlat, device_ids=device_ids),
         core=sw.Core(gravity=1.0, depth=csqr,
                      coords=("lon", "lat")),
@@ -126,6 +127,7 @@ def test_identity_chart_run_is_bitwise_flat():
         # every live ratio is an exact 1.0 multiply, so the
         # chart-vs-flat bitwise claim is untouched
         return sw.Model(
+            advection=True,
             grid=grid, core=sw.Core(froude_number=0.4, depth=0.7),
             scaling=fr.scaling.GravityWave(),
             coriolis=coriolis,

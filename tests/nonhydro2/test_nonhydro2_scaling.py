@@ -74,7 +74,7 @@ def random_fields(model, amp=0.05, seed=7):
                   id="family")])
 def test_preset_teaches_the_retired_kwargs(kwarg, match):
     with pytest.raises(TypeError, match=match):
-        nh.Model(grid=make_grid(), core=nh.Core(),
+        nh.Model(advection=True, grid=make_grid(), core=nh.Core(),
                  time_stepper=AdamBashforth(DT, order=3), **kwarg)
 
 
@@ -115,6 +115,7 @@ def test_meridional_stratification_is_pinned_dimensional():
     with pytest.raises(fr.model.errors.AssemblyError,
                        match="MIXED scaling variants"):
         nh.Model(
+            advection=True,
             grid=make_grid(), core=nh.Core(),
             scaling=fr.scaling.Rotational(),
             coriolis=nh.FPlaneCoriolis(rossby_number=0.25),
@@ -125,6 +126,7 @@ def test_meridional_stratification_is_pinned_dimensional():
 def test_buoyancy_is_opt_in_on_the_preset():
     # buoyancy=None installs NO buoyancy module at all
     model = nh.Model(
+        advection=True,
         grid=make_grid(), core=nh.Core(),
         coriolis=nh.FPlaneCoriolis(f0=1.0),
         time_stepper=AdamBashforth(DT, order=3))
@@ -136,6 +138,7 @@ def test_core_defaults_to_a_plain_core():
     # core=None (the default) is a plain nh.Core(): the assembly
     # carries the aspect-ratio provide at its default value 1
     model = nh.Model(
+        advection=True,
         grid=make_grid(),
         coriolis=nh.FPlaneCoriolis(f0=1.0),
         time_stepper=AdamBashforth(DT, order=3))
