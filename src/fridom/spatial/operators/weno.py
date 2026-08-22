@@ -1294,8 +1294,18 @@ def _wall_half_cells(mesh: object) -> tuple[float, float]:
     coord = mesh.coordinate_map
     n = mesh.n_cells
     x_min, x_max = mesh.extent
-    first = float(coord(jnp.asarray(0.5 / n)))
-    last = float(coord(jnp.asarray((n - 0.5) / n)))
+    # the map is evaluated at STATIC computational positions, so this
+    # is host geometry — but on a sharded axis :func:`cell_widths`
+    # builds the frame the staged way (its fill and wall write are
+    # ``shard_map`` regions), and inside that trace every ``jnp`` op
+    # stages, tracer-free inputs or not. Take the two scalars in a
+    # trace-time context of their own: there is nothing sharded and
+    # no collective here, and without it the bounded DUAL frame
+    # (``Inner -> Center``) raises ``ConcretizationTypeError`` on
+    # every distributed stretched column.
+    with jax.ensure_compile_time_eval():
+        first = float(coord(jnp.asarray(0.5 / n)))
+        last = float(coord(jnp.asarray((n - 0.5) / n)))
     return (first - x_min, x_max - last)
 
 

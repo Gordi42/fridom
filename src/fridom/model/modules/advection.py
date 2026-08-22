@@ -2182,7 +2182,6 @@ class _SelectedFaceReconstruction(Operator):
         # the FV frame is always primal (CellAvg has no nodal node_set)
         shift = 0 if self._family == "fv" else _wall_shift(domain)
         m0 = biased_offset(order, "left") + shift
-        widths = _face_widths(q, axis)
 
         # the sign carrier is a second STORAGE array the kernel reads,
         # sliced by the window length of the operand it is handed --- so
@@ -2223,7 +2222,11 @@ class _SelectedFaceReconstruction(Operator):
                     order))
             return _weno_combine(taps, tables)
 
+        # after the codomain resolve, so an unsupported signature
+        # raises the taught `_face_codomain` message rather than
+        # ``cell_widths``' frame refusal
         codomain = resolve_codomain(left_op, q.function_space)
+        widths = _face_widths(q, axis)
         q = _ensure_valid(
             q, _required_halo(left_op, q.function_space))
         interior = apply_fv_staggered(
