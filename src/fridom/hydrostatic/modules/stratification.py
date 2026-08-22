@@ -47,8 +47,10 @@ from functools import partial
 
 import fridom as fr
 from fridom.framework.utils import jaxify
+from fridom.hydrostatic.diagnostics import STRATIFICATION_DIAGNOSTICS
 from fridom.hydrostatic.units import (
     stratification_factor,
+    total_buoyancy_factor,
     vertical_extent,
 )
 
@@ -57,6 +59,14 @@ from fridom.hydrostatic.units import (
 class ConstantStratification(fr.model.Module):
 
     r"""Registers ``b``; the linear restoring term (dual variants).
+
+    Description
+    -----------
+    The prognostic ``b`` is the departure from the background
+    :math:`N^2 z` this module carries. The sum of the two is the
+    bound diagnostic ``model.diagnostics.b_total``
+    (:func:`fridom.hydrostatic.diagnostics.b_total`), contributed here
+    because only this module knows the background.
 
     Parameters
     ----------
@@ -78,6 +88,9 @@ class ConstantStratification(fr.model.Module):
     #: fr.scaling traits: this family owns the internal-wave mechanism
     scaling_mechanism = "internal_wave"
     nonlinearity_attr = "froude_number"
+
+    #: model.diagnostics: the total buoyancy ``b + N^2 z``
+    diagnostics = STRATIFICATION_DIAGNOSTICS
 
     def __init__(
         self,
@@ -150,8 +163,9 @@ class ConstantStratification(fr.model.Module):
 
     @property
     def unit_factors(self) -> dict[str, fr.model.UnitFactor]:
-        """The derived ``N_dim`` row (``model.units``, §D)."""
-        return {"N_dim": stratification_factor(self._vertical_extent)}
+        """The ``N_dim`` and ``b_total`` rows (``model.units``, §D)."""
+        return {"N_dim": stratification_factor(self._vertical_extent),
+                "b_total": total_buoyancy_factor(self._vertical_extent)}
 
     @property
     def scaling_variant(self) -> str:

@@ -245,6 +245,38 @@ def buoyancy_factor(height: float) -> UnitFactor:
                       fn=_buoyancy)
 
 
+def total_buoyancy_factor(height: float) -> UnitFactor:
+    """
+    Return the derived ``b_total`` row ``U^2/(eps*H)``.
+
+    Description
+    -----------
+    The total buoyancy ``b + N^2 z`` (``hy.diagnostics.b_total``)
+    converts like the anomaly ``b`` itself: under the nondimensional
+    variant its background ``(eps/Fr^2) z`` carries the same
+    amplitude, so one factor turns the sum into metres per second
+    squared.
+
+    Parameters
+    ----------
+    height : float
+        The bind-captured vertical extent ``H``.
+
+    Returns
+    -------
+    UnitFactor
+        The ``b_total`` derived row.
+    """
+    def _total_buoyancy(values: Mapping[str, float]) -> float:
+        """Return the buoyancy amplitude ``U^2/(eps*H)``."""
+        return values["U"] ** 2 / (values["eps"] * height)
+
+    return UnitFactor(target_unit="m/s^2", expr="U^2/(eps*H)",
+                      kind="derived", scales=("U",),
+                      params={"eps": SCALING_NONLINEARITY},
+                      fn=_total_buoyancy)
+
+
 def stratification_factor(height: float) -> UnitFactor:
     """
     Return the derived-constant row ``N_dim = U/(Fr_int*H)``.

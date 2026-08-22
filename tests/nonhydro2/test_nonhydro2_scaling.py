@@ -189,7 +189,7 @@ def test_diagnostics_re_key_on_the_effective_numbers():
     fields = random_fields(dim)
     dim.set_fields(**fields)
     rot.set_fields(**fields)
-    for name in ("ekin", "epot", "linear_pot_vort"):
+    for name in ("ekin", "epot", "linear_pot_vort", "b_total"):
         a = np.asarray(getattr(dim.diagnostics, name)().data)
         b = np.asarray(getattr(rot.diagnostics, name)().data)
         np.testing.assert_allclose(a, b, rtol=0, atol=0)

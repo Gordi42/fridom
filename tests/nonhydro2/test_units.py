@@ -248,13 +248,16 @@ def test_derived_rows_resolve_to_the_declared_amplitudes():
     # definition multiplies through by eps
     assert units.factor("linear_pot_vort") == pytest.approx(
         U_REF / (RO * L_REF))
+    # the total buoyancy converts like b itself
+    assert units.factor("b_total") == pytest.approx(
+        U_REF ** 2 / (RO * DELTA * L_REF))
 
 
 def test_derived_rows_are_identity_on_a_dimensional_model():
     units = dim_model().units
     rows = dict(units.factors)
     for name in ("rel_vort_z", "ekin", "epot", "etot",
-                 "linear_pot_vort"):
+                 "linear_pot_vort", "b_total"):
         assert units.factor(name) == 1.0, name
         assert rows[name].kind == "derived"
 
@@ -263,6 +266,7 @@ def test_derived_row_units_match_the_declared_annotations():
     rows = dict(dim_model().units.factors)
     assert rows["rel_vort_z"].target_unit == "1/s"
     assert rows["linear_pot_vort"].target_unit == "1/s"
+    assert rows["b_total"].target_unit == "m/s^2"
     for name in ("ekin", "epot", "etot"):
         assert rows[name].target_unit == "m^2/s^2", name
 

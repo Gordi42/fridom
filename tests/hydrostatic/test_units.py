@@ -205,11 +205,16 @@ def test_derived_rows_resolve_to_the_declared_amplitudes():
         assert units.factor(name) == pytest.approx(U_REF / L_REF), name
     for name in ("ekin", "epot"):
         assert units.factor(name) == pytest.approx(U_REF ** 2), name
+    # the total buoyancy converts like b itself
+    assert units.factor("b_total") == pytest.approx(
+        U_REF ** 2 / (RO * HEIGHT))
 
 
 def test_derived_rows_are_identity_on_a_dimensional_model():
     units = dim_model().units
     rows = dict(units.factors)
-    for name in ("rel_vort_z", "hor_divergence", "ekin", "epot"):
+    for name in ("rel_vort_z", "hor_divergence", "ekin", "epot",
+                 "b_total"):
         assert units.factor(name) == 1.0, name
         assert rows[name].kind == "derived"
+    assert rows["b_total"].target_unit == "m/s^2"
