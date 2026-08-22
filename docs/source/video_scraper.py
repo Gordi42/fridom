@@ -6,15 +6,21 @@ After every code block this scraper moves each new video from the
 example's directory into the generated gallery page's ``videos/``
 folder and returns the rst that embeds it with ``sphinxcontrib-video``.
 A block that produced several videos gets them side by side in a
-``sphinx-design`` grid (up to three per row) instead of stacked
-full-width. The old-stack ``copy_media_files`` scraper (pre-rendered
-LFS media) coexists with this one until the last old example is
-ported.
+``sphinx-design`` grid (up to three per row) unless the example sets
+``# sphinx_gallery_video_columns = N`` (see ``video_columns``), with
+``1`` stacking them full-width. The old-stack ``copy_media_files``
+scraper (pre-rendered LFS media) coexists with this one until the last
+old example is ported.
 """
 import os
 import shutil
 
+from sphinx_gallery.py_source_parser import extract_file_config
+
 VIDEO_EXTENSIONS = (".mp4", ".webm", ".gif")
+
+#: videos a block lays side by side unless the example says otherwise
+DEFAULT_COLUMNS = 3
 
 VIDEO_RST = """
 .. video:: videos/{name}
@@ -91,9 +97,33 @@ class VideoScraper:
             shutil.move(os.path.join(src_dir, name),
                         os.path.join(video_dir, name))
             names.append(name)
-        if len(names) <= 1:
+        columns = min(video_columns(block, block_vars), len(names))
+        if columns <= 1:
             return "".join(VIDEO_RST.format(name=name) for name in names)
-        columns = min(3, len(names))
         items = "".join(GRID_ITEM_RST.format(name=name) for name in names)
         return (f"\n.. grid:: 1 {min(2, columns)} {columns} {columns}"
                 f"\n   :gutter: 2\n{items}")
+
+
+def video_columns(block, block_vars):
+    """Return the video columns an example asks for (default 3).
+
+    The in-file config comment ``# sphinx_gallery_video_columns = N``
+    sets the most videos a block lays side by side, so ``1`` stacks
+    them at full width. The code block's own comment wins over one
+    placed anywhere else in the example, and sphinx-gallery strips the
+    comment from the rendered code like its own config comments.
+    """
+    content = getattr(block, "content", None)
+    if content is None:
+        content = block[1]
+    block_conf = extract_file_config(content)
+    columns = block_conf.get(
+        "video_columns",
+        block_vars.get("file_conf", {}).get("video_columns", DEFAULT_COLUMNS))
+    if isinstance(columns, bool) or not isinstance(columns, int) \
+            or columns < 1:
+        msg = ("sphinx_gallery_video_columns must be a positive integer, "
+               f"got {columns!r}")
+        raise ValueError(msg)
+    return columns

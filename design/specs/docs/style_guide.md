@@ -413,6 +413,13 @@ present. Keyword order is now free.
 - **An overlay changes the title** to a composite such as
   `Buoyancy / |(u, v)|`, so set `title=` explicitly whenever one is
   present.
+- **Several videos from one code block** render side by side in a
+  grid of up to three columns. Set `# sphinx_gallery_video_columns = N`
+  in the block to change that, `1` stacking them at full width (the
+  right choice for wide domains). The comment follows a code line
+  like every config comment and is stripped from the page; one placed
+  elsewhere in the file applies to every block without its own. Do
+  not split videos over cells only to stack them.
 
 ## 9. Hand-drawn diagrams (SVG)
 
