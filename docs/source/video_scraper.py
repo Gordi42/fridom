@@ -1,7 +1,7 @@
 """sphinx-gallery scraper for videos rendered by executing examples.
 
-An example that records an animation (e.g. through the visible
-``cdfviewer ... --record`` line) leaves a video file next to itself.
+An example that records an animation (through ``cdfviewer.record``,
+the viewer's python package) leaves a video file next to itself.
 After every code block this scraper moves each new video from the
 example's directory into the generated gallery page's ``videos/``
 folder and returns the rst that embeds it with ``sphinxcontrib-video``.
@@ -58,7 +58,7 @@ def purge_stray_outputs(gallery_conf, fname, when):
     old-stack examples keep committed pre-rendered media in
     ``videos/`` subdirectories. It must not run per code block
     either: an example writes its zarr store in one block and renders
-    it with cdfviewer in a later one.
+    it with ``cdfviewer.record`` in a later one.
     """
     roots = gallery_conf["examples_dirs"]
     if not isinstance(roots, list):

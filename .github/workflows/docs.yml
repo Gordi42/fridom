@@ -8,9 +8,12 @@
 # PRs — owner review of docs content happens locally, off CI
 # (design/plans/active/docs_examples_plan.md).
 #
-# CDFViewer (renders example animations from zarr stores) is installed
-# from its prebuilt Linux release bundle: no Julia setup, just OpenGL
-# via xvfb + Mesa and glibc >= 2.35 (bundle is built on ubuntu-22.04).
+# CDFViewer (renders example animations from zarr stores) comes with
+# the cdfviewer python package, a project dependency: `python -m
+# cdfviewer install` fetches the prebuilt Linux bundle of the package's
+# own version, so the viewer pin lives in uv.lock. No Julia setup, just
+# OpenGL via xvfb + Mesa and glibc >= 2.35 (bundle is built on
+# ubuntu-22.04).
 
 name: Docs
 
@@ -32,9 +35,6 @@ on:
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/dev' }}
-
-env:
-  CDFVIEWER_VERSION: v2026.8.1
 
 jobs:
   build:
@@ -65,15 +65,12 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y ffmpeg xvfb mesa-utils libgl1 zstd
 
+      # the package unpacks the bundle with `tar --zstd`, hence zstd above
       - name: Install CDFViewer (prebuilt Linux bundle)
-        run: |
-          curl -fL -o /tmp/cdfviewer.tar.zst \
-            "https://github.com/Gordi42/CDFViewer.jl/releases/download/${CDFVIEWER_VERSION}/cdfviewer-linux-x86_64.tar.zst"
-          tar --zstd -xf /tmp/cdfviewer.tar.zst -C "$HOME"
-          echo "$HOME/cdfviewer/bin" >> "$GITHUB_PATH"
+        run: uv run python -m cdfviewer install
 
       - name: Smoke-test CDFViewer
-        run: xvfb-run -s "-screen 0 1024x768x24" cdfviewer --help
+        run: xvfb-run -s "-screen 0 1024x768x24" uv run cdfviewer --help
 
       # sphinx-gallery's per-example .md5 skip only hashes the example
       # script, so the key must also include uv.lock: a dependency bump

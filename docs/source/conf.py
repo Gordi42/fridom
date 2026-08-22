@@ -92,7 +92,7 @@ sphinx_gallery_conf = {
     'filename_pattern': '/',
     # stills via the stock matplotlib scraper; pre-rendered LFS media via
     # copy_media_files (old-stack examples, retired with the last port);
-    # build-time rendered videos (cdfviewer --record) via VideoScraper
+    # build-time rendered videos (cdfviewer.record) via VideoScraper
     'image_scrapers': ("matplotlib", copy_media_files, VideoScraper()),
     'reset_modules': ("matplotlib", apply_docs_mplstyle,
                       purge_stray_outputs),
