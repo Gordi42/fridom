@@ -72,8 +72,12 @@ from typing import TYPE_CHECKING
 import fridom as fr
 from fridom.framework.utils import jaxify
 from fridom.model.scheduled_field import ProfileFunction, profile_coords
+from fridom.nonhydro2.diagnostics import STRATIFICATION_DIAGNOSTICS
 from fridom.nonhydro2.params import ASPECT_RATIO
-from fridom.nonhydro2.units import STRATIFICATION_FACTORS
+from fridom.nonhydro2.units import (
+    CONSTANT_STRATIFICATION_FACTORS,
+    STRATIFICATION_FACTORS,
+)
 from fridom.spatial.decomposition.halo import HaloSpec
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -84,6 +88,14 @@ if TYPE_CHECKING:  # pragma: no cover
 class ConstantStratification(fr.model.Module):
 
     r"""Registers ``b``; both linear coupling terms (dual variants).
+
+    Description
+    -----------
+    The prognostic ``b`` is the departure from the background
+    :math:`N^2 z` this module carries. The sum of the two is the
+    bound diagnostic ``model.diagnostics.b_total``
+    (:func:`fridom.nonhydro2.diagnostics.b_total`), contributed here
+    because only this module knows the background.
 
     Parameters
     ----------
@@ -115,8 +127,12 @@ class ConstantStratification(fr.model.Module):
     scaling_mechanism = "internal_wave"
     nonlinearity_attr = "froude_number"
 
-    #: model.units row: the derived N_dim = U/(Fr_int*delta*L)
-    unit_factors = STRATIFICATION_FACTORS
+    #: model.units rows: the derived N_dim = U/(Fr_int*delta*L) and
+    #: the total buoyancy's, which converts like b
+    unit_factors = CONSTANT_STRATIFICATION_FACTORS
+
+    #: model.diagnostics: the total buoyancy ``b + N^2 z``
+    diagnostics = STRATIFICATION_DIAGNOSTICS
 
     def __init__(
         self,

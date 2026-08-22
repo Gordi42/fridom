@@ -20,6 +20,7 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
+import fridom as fr
 import fridom.nonhydro2 as nh
 from fridom.model.params import (
     CORIOLIS_F0,
@@ -27,7 +28,10 @@ from fridom.model.params import (
     STRATIFICATION_N2,
 )
 from fridom.model.time_steppers.adam_bashforth import AdamBashforth
-from fridom.nonhydro2.diagnostics import DIAGNOSTICS
+from fridom.nonhydro2.diagnostics import (
+    DIAGNOSTICS,
+    STRATIFICATION_DIAGNOSTICS,
+)
 from fridom.nonhydro2.params import ASPECT_RATIO
 from fridom.spatial.errors import SpaceMismatchError
 from fridom.spatial.fields.vector_field import VectorField
@@ -110,6 +114,64 @@ def _fv_state(*, cgrid_diff=False):
             overrides[("diff", mesh.right)] = FluxDifference()
         grid.merge_overrides(overrides)
     return grid, _state(grid, _fv_spaces(*grid.factors))
+
+
+# ================================================================
+#  b_total: the anomaly plus the ConstantStratification background
+# ================================================================
+def test_b_total_runs_on_fv_and_matches_nodal():
+    diag = STRATIFICATION_DIAGNOSTICS["b_total"]
+    _, nodal = _nodal_state()
+    _, fv = _fv_state()
+    out_nodal = diag(nodal, PARAMS)
+    out_fv = diag(fv, PARAMS)
+    # lands on the buoyancy space of each family
+    assert out_nodal.function_space is nodal["b"].function_space
+    assert out_fv.function_space is fv["b"].function_space
+    z = np.asarray(nodal["b"].nodes("z").data)
+    expected = np.asarray(nodal["b"].data) + PARAMS[STRATIFICATION_N2] * z
+    assert np.allclose(np.asarray(out_nodal.data), expected)
+    assert np.allclose(np.asarray(out_fv.data),
+                       np.asarray(out_nodal.data))
+    assert out_nodal.name == "b_total"
+    assert out_nodal.xr.attrs["units"] == "m/s^2"
+
+
+def test_b_total_is_bound_by_the_stratification_module():
+    grid = Grid(_meshes())
+    model = nh.Model(
+        grid=grid, core=nh.Core(aspect_ratio=0.5),
+        coriolis=nh.FPlaneCoriolis(f0=1.0),
+        buoyancy=nh.ConstantStratification(n2=4.0),
+        advection=False,
+        time_stepper=AdamBashforth(1e-3, order=2))
+    total = model.diagnostics.b_total()
+    z = np.asarray(model.state["b"].nodes("z").data)
+    assert np.allclose(np.asarray(total.data), 4.0 * z)
+    assert model.units.factor("b_total") == 1.0
+
+
+def test_b_total_nondimensional_background_is_n2_z_in_physical_units():
+    # Rotational frame: at rest b_total = (eps/Fr^2) z (the advection
+    # carries eps, so the background gradient is N^2_eff / eps), and
+    # the b_total unit row U^2/(eps delta L) turns it into N^2 z with
+    # the Froude definition N = U/(Fr H), H = delta L and z = H z
+    length, speed, delta = 2.0e3, 0.5, 0.5
+    rossby, froude = 0.25, 0.125
+    model = nh.Model(
+        grid=Grid(_meshes()), core=nh.Core(aspect_ratio=delta),
+        scaling=fr.scaling.Rotational(L=length, U=speed),
+        coriolis=nh.FPlaneCoriolis(rossby_number=rossby),
+        buoyancy=nh.ConstantStratification(froude_number=froude),
+        advection=False,
+        time_stepper=AdamBashforth(1e-3, order=2))
+    total = model.diagnostics.b_total()
+    z = np.asarray(model.state["b"].nodes("z").data)
+    assert np.allclose(np.asarray(total.data), rossby / froude**2 * z)
+    height = delta * length
+    n_freq = speed / (froude * height)
+    physical = model.units.factor("b_total") * np.asarray(total.data)
+    assert np.allclose(physical, n_freq**2 * height * z)
 
 
 # ================================================================

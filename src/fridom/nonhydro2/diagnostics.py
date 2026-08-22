@@ -9,7 +9,9 @@ and returns a ``ScalarField``. Parameter-free diagnostics
 (``rel_vort_z``) live on ``nh.State`` instead.
 
 The ``DIAGNOSTICS`` mapping is contributed by ``nh.Core``
-(the diagnostics-namespace channel).
+(the diagnostics-namespace channel); ``STRATIFICATION_DIAGNOSTICS``
+by ``nh.ConstantStratification``, the module that carries the
+background the total buoyancy adds back.
 """
 from __future__ import annotations
 
@@ -108,6 +110,23 @@ def _n2_eff(params: Mapping[str, object]) -> object:
     return params[STRATIFICATION_N2]
 
 
+def _background_n2(params: Mapping[str, object]) -> object:
+    r"""Return the vertical gradient of the background buoyancy.
+
+    Dimensional: the ``stratification.n2`` provide, the background
+    being :math:`N^2 z`. Nondimensional: :math:`\varepsilon/\mathrm{Fr}^2`,
+    the effective :math:`N^2_\mathrm{eff} = (\varepsilon/\mathrm{Fr})^2`
+    of the restoring term divided by the nonlinearity
+    :math:`\varepsilon` that the advection of the nondimensional
+    equations carries, so that anomaly plus background is advected as
+    one field (the ``b`` unit row then converts it to :math:`N^2 z`).
+    """
+    if STRATIFICATION_FROUDE in params:
+        froude = params[STRATIFICATION_FROUDE]
+        return params[SCALING_NONLINEARITY] / (froude * froude)
+    return params[STRATIFICATION_N2]
+
+
 def epot(
     state: VectorField, params: Mapping[str, object],
 ) -> ScalarField:
@@ -200,9 +219,38 @@ def linear_pot_vort(
         long_name="Linear potential vorticity", units="1/s")
 
 
+def b_total(
+    state: VectorField, params: Mapping[str, object],
+) -> ScalarField:
+    r"""Total buoyancy ``b + N^2 z`` at the buoyancy nodes.
+
+    Description
+    -----------
+    The prognostic ``b`` of a ``ConstantStratification`` model is the
+    departure from the background :math:`N^2 z` that the module
+    carries, so the isopycnals of the water column belong to the sum
+    of the two. This adds the background back, its gradient assembled
+    from the variant's primitives (:func:`_background_n2`) and the
+    vertical coordinate read off the field's own nodes, on whichever
+    family ``b`` is declared. It is contributed by
+    ``ConstantStratification`` rather than the core, since only that
+    module carries a background.
+    """
+    b = state["b"]
+    total = b + b.nodes("z") * _background_n2(params)
+    return b.new_quantity(
+        total.data,
+        name="b_total", long_name="Total buoyancy", units="m/s^2")
+
+
 DIAGNOSTICS = {
     "ekin": ekin,
     "epot": epot,
     "etot": etot,
     "linear_pot_vort": linear_pot_vort,
+}
+
+#: contributed by ``nh.ConstantStratification`` (the background owner)
+STRATIFICATION_DIAGNOSTICS = {
+    "b_total": b_total,
 }

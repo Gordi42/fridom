@@ -1,5 +1,6 @@
-"""Parameterful hydrostatic diagnostics: ekin, epot and eta."""
+"""Parameterful hydrostatic diagnostics: ekin, epot, eta and b_total."""
 import numpy as np
+import pytest
 
 import fridom as fr
 import fridom.hydrostatic as hy
@@ -97,3 +98,73 @@ def test_eta_can_evaluate_on_a_passed_state():
     eta = model.diagnostics.eta(state)
     assert np.allclose(np.asarray(eta.data),
                        np.asarray(ps.data) / gravity)
+
+
+# ================================================================
+#  b_total: the anomaly plus the ConstantStratification background
+# ================================================================
+def test_b_total_adds_the_background_stratification():
+    n2 = 3.0
+    model = make_model(n2=n2)
+    rng = np.random.default_rng(6)
+    model.set_fields(b=rng.standard_normal(model.state["b"].shape))
+    total = model.diagnostics.b_total()
+    b = model.state["b"]
+    z = np.asarray(b.nodes("z").data)
+    assert np.allclose(np.asarray(total.data),
+                       np.asarray(b.data) + n2 * z)
+    assert total.function_space is b.function_space
+    assert total.name == "b_total"
+    assert total.xr.attrs["units"] == "m/s^2"
+
+
+def test_b_total_can_evaluate_on_a_passed_state():
+    n2 = 2.0
+    model = make_model(n2=n2)
+    rng = np.random.default_rng(7)
+    b = model.grid.create_field(
+        model.state["b"].function_space,
+        data=rng.standard_normal(model.state["b"].shape))
+    state = model.state.replace(b=b)
+    total = model.diagnostics.b_total(state)
+    z = np.asarray(b.nodes("z").data)
+    assert np.allclose(np.asarray(total.data),
+                       np.asarray(b.data) + n2 * z)
+
+
+def test_b_total_is_contributed_by_the_stratification_module():
+    # without a ConstantStratification there is no background to add
+    model = hy.Model(
+        grid=make_grid(),
+        core=hy.Core(gravity=1.0),
+        time_stepper=AdamBashforth(1e-3, order=3),
+        coriolis=hy.FPlaneCoriolis(f0=1.0),
+        free_surface=hy.ExplicitFreeSurface(),
+        advection=False)
+    with pytest.raises(AttributeError,
+                       match="no diagnostic named 'b_total'"):
+        _ = model.diagnostics.b_total
+
+
+def test_b_total_nondimensional_background_is_n2_z_in_physical_units():
+    # Rotational frame: at rest b_total = (eps/Fr^2) z (the advection
+    # carries eps, so the background gradient is N^2_eff / eps), and
+    # the b_total unit row U^2/(eps H) turns it into N^2 z with the
+    # Froude definition N = U/(Fr H) and z = H z
+    length, speed, rossby, froude = 2.0e3, 0.5, 0.25, 0.125
+    height = 1.0  # the vertical extent of make_grid
+    model = hy.Model(
+        grid=make_grid(),
+        core=hy.Core(),
+        scaling=fr.scaling.Rotational(L=length, U=speed),
+        coriolis=hy.FPlaneCoriolis(rossby_number=rossby),
+        buoyancy=hy.ConstantStratification(froude_number=froude),
+        free_surface=hy.ExplicitFreeSurface(froude_number=0.25),
+        advection=False, surface_advective_flux=False,
+        time_stepper=AdamBashforth(1e-3, order=3))
+    total = model.diagnostics.b_total()
+    z = np.asarray(model.state["b"].nodes("z").data)
+    assert np.allclose(np.asarray(total.data), rossby / froude**2 * z)
+    n_freq = speed / (froude * height)
+    physical = model.units.factor("b_total") * np.asarray(total.data)
+    assert np.allclose(physical, n_freq**2 * height * z)

@@ -167,6 +167,19 @@ STRATIFICATION_FACTORS: dict[str, UnitFactor] = {
 }
 
 
+#: the constant-stratification family's rows: ``N_dim`` plus the
+#: derived ``b_total`` (``nh.diagnostics.b_total``), which converts
+#: like the anomaly ``b`` itself
+CONSTANT_STRATIFICATION_FACTORS: dict[str, UnitFactor] = {
+    **STRATIFICATION_FACTORS,
+    "b_total": UnitFactor(
+        target_unit="m/s^2", expr="U^2/(eps*delta*L)", kind="derived",
+        scales=("L", "U"),
+        params={"eps": SCALING_NONLINEARITY, "delta": ASPECT_RATIO},
+        fn=_buoyancy),
+}
+
+
 def coordinate_factors(
     coords: tuple[str, ...], vertical: str,
 ) -> dict[str, UnitFactor]:
