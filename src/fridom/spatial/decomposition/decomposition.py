@@ -30,7 +30,7 @@ from fridom.spatial.decomposition.layout import Layout
 from fridom.spatial.decomposition.traits import HaloStrategy
 
 if TYPE_CHECKING:  # pragma: no cover
-    from collections.abc import Callable, Mapping
+    from collections.abc import Callable, Mapping, Sequence
 
     import numpy as np
 
@@ -380,6 +380,7 @@ class Decomposition(ABC):
         patch: Callable[..., jax.Array],
         *,
         layout: Layout | None = None,
+        co_arrays: Sequence[jax.Array] = (),
     ) -> jax.Array:
         """
         Overwrite the two physical-wall ends of a reconstructed axis.
@@ -399,7 +400,7 @@ class Decomposition(ABC):
         The callback
 
             ``patch(in_block, out_block, side, width_in, t_in,
-                    width_out, t_out) -> out_block``
+                    width_out, t_out, *co_blocks) -> out_block``
 
         receives one ``[width | true | trail]`` block of each array,
         ``side`` (0 = left wall, 1 = right wall), the leading ghost
@@ -411,6 +412,15 @@ class Decomposition(ABC):
         wall-side interior cells and returns the whole block. It is
         evaluated for **both** walls on every shard (static shapes) and
         masked onto the two boundary shards.
+
+        ``co_arrays`` are extra storage arrays in the **input** frame
+        that the callback reads alongside ``in_block`` (the geometry a
+        non-uniform stencil needs: its lattice-cell widths). They are
+        co-sharded and handed to the callback as trailing block
+        arguments; a callback that merely *closed over* them would keep
+        the un-blocked global arrays inside the ``shard_map`` body and
+        index them with block-local offsets — a silent wrong answer on
+        every shard but the first.
 
         Parameters
         ----------
@@ -429,6 +439,9 @@ class Decomposition(ABC):
         layout : Layout | None, optional
             A negotiated layout; None resolves as in ``sharding``
             (default: None).
+        co_arrays : Sequence[jax.Array], optional
+            Extra input-frame storage arrays handed to the callback as
+            trailing block arguments (default: ()).
 
         Returns
         -------

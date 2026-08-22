@@ -84,7 +84,7 @@ from fridom.spatial.operators.reconstruct import (
 )
 from fridom.spatial.operators.weno import (
     WenoReconstruction,
-    require_uniform_mesh,
+    cell_widths,
     weno_reconstruct,
 )
 from fridom.spatial.scalars import Scalars
@@ -124,13 +124,12 @@ class UpwindOne(SeparableOperator):
     rungs are the same object, the identity-hash invariant the graded
     ``Fallback`` keys on.
 
-    Deliberately **not** guarded against stretched (mapped) factors,
-    unlike its wider ladder siblings: the one-cell row carries no
-    offsets at all (its single coefficient is unity on any mesh), so
-    it is exact on constants and 1st-order accurate on a mapped mesh
-    just as on a uniform one -- its design order survives the
-    stretching. Only the wider uniform-offset rows lose order, and
-    those refuse through ``weno.require_uniform_mesh``.
+    Needs no geometry on a stretched (mapped) factor, unlike its
+    wider ladder siblings: the one-cell row carries no offsets at all
+    (its single coefficient is unity on any mesh), so it is exact on
+    constants and 1st-order accurate on a mapped mesh just as on a
+    uniform one -- its design order survives the stretching. The
+    wider rows take their cell widths from ``weno.cell_widths``.
 
     Parameters
     ----------
@@ -394,12 +393,12 @@ class Fallback(SeparableOperator):
         signature by construction (validated in ``_setup``: same kind,
         same bias, odd reconstruction orders).
 
-        The graded ladder retires WENO's *periodic*-only restriction,
-        not its *uniform*-mesh one: every rung of order >= 3 is a
-        uniform-offset Shu row (the interior kernel and the reduced
-        wall rungs alike), so a stretched (mapped) factor raises here
-        exactly as it does on the bare interior kernel
-        (``weno.require_uniform_mesh``).
+        The graded ladder retires WENO's *periodic*-only
+        restriction; the *uniform*-mesh one is retired by the width-
+        derived rows (``weno.nonuniform_tables``), which the interior
+        kernel and every reduced wall rung take alike -- the wall
+        rungs reading the clipped half cells of the dual frame through
+        the ladder's ``co_storages`` seam.
 
         Parameters
         ----------
@@ -416,9 +415,6 @@ class Fallback(SeparableOperator):
                 "Fallback reconstructs primal cell averages onto "
                 f"faces (CellAvg -> face), got {domain!r}",
                 left=domain, operation="reconstruct")
-        require_uniform_mesh(
-            domain, "the graded Fallback (its interior and reduced "
-                    "rungs are WENO/Shu rows)")
         if domain.scalars is Scalars.COMPLEX:
             raise SpaceMismatchError(
                 "the WENO smoothness indicators are real quadratic "
@@ -531,19 +527,25 @@ class Fallback(SeparableOperator):
         bias = self._interior.bias
         m0 = biased_offset(order, bias)
 
-        def kernel(arr: Array, axis_index: int) -> Array:
-            return weno_reconstruct(arr, axis_index, order=order,
-                                    bias=bias)
+        widths = cell_widths(f, axis)
+
+        def kernel(arr: Array, axis_index: int, *co: Array) -> Array:
+            return weno_reconstruct(
+                arr, axis_index, order=order, bias=bias,
+                widths=co[0] if co else None)
 
         interior = apply_fv_staggered(
             self, f, axis, order, kernel, metadata=f.metadata, align=m0,
+            co_operands=() if widths is None else (widths,),
             patched=self._patched(factor))
         if getattr(mesh, "periodic", False):
             return interior
 
         rungs = tuple(
             _weno_rung(rung.order, bias) for rung in self._boundary)
-        return apply_graded_walls(f, axis, interior, rungs, shift=0)
+        return apply_graded_walls(
+            f, axis, interior, rungs, shift=0,
+            co_storages=() if widths is None else ((widths, 0),))
 
 
 def _weno_rung(
@@ -557,7 +559,9 @@ def _weno_rung(
     Order 1 is the single upwind cell (``_shu_row(1, .)`` = unit
     coefficient), so its kernel is the identity on the size-1 window;
     order ``p >= 3`` runs ``weno_reconstruct`` on the length-``p``
-    window, which yields exactly the single face value.
+    window, which yields exactly the single face value. A stretched
+    factor hands the rung its ``p`` cell widths as the (single)
+    co-window, so the wall rows are the width-derived ones too.
 
     Parameters
     ----------
@@ -573,10 +577,11 @@ def _weno_rung(
     """
     offset = biased_offset(order, bias)
     if order == 1:
-        return Rung(1, offset, lambda arr, _axis: arr)
+        return Rung(1, offset, lambda arr, _axis, *_co: arr)
 
-    def kernel(arr: Array, axis_index: int) -> Array:
-        return weno_reconstruct(arr, axis_index, order=order,
-                                bias=bias)
+    def kernel(arr: Array, axis_index: int, *co: Array) -> Array:
+        return weno_reconstruct(
+            arr, axis_index, order=order, bias=bias,
+            widths=co[0] if co else None)
 
     return Rung(order, offset, kernel)
