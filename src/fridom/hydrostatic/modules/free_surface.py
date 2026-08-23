@@ -117,6 +117,7 @@ from fridom.hydrostatic.units import (
     phase_speed_factor,
 )
 from fridom.model.errors import AssemblyError
+from fridom.model.modules.moving_geometry import mapping_params
 from fridom.model.terms import Treatment
 from fridom.spatial.bc import BC
 from fridom.spatial.decomposition.halo import HaloSpec
@@ -127,7 +128,7 @@ from fridom.spatial.operators.krylov import ConjugateGradient
 from fridom.spatial.operators.spectral_solve import SpectralSolve
 
 if TYPE_CHECKING:  # pragma: no cover
-    from collections.abc import Callable
+    from collections.abc import Callable, Mapping
 
     from fridom.model.context import StepContext
     from fridom.spatial.fields.scalar_field import ScalarField
@@ -408,6 +409,41 @@ class _FreeSurfaceBase(fr.model.Module):
         return ctx.params[GRAVITY] * self._depth
 
     # ================================================================
+    #  Dynamic geometry (stage C4)
+    # ================================================================
+    def _geometry_params(
+        self, state: object,
+    ) -> Mapping[str, ScalarField] | None:
+        """Return the CURRENT mapping-parameter fields, or None.
+
+        Description
+        -----------
+        The stage-C4 discovery convention
+        (:func:`~fridom.model.modules.moving_geometry.mapping_params`):
+        dynamic geometry parameters are state fields named exactly
+        after the mapping parameters. Every column-Jacobian read of the
+        barotropic family threads the result through ``grid.metric(...,
+        params=)``, so the transport divergence, the face depths and
+        the depth means see a moving column (a ``MovingGeometry``
+        ``H(t)``, a z* free surface's ``eta``). Off a terrain column —
+        and on a terrain column whose parameters do not ride the state
+        — this is ``None``, the exact (byte-identical) static path.
+
+        Parameters
+        ----------
+        state : object
+            The current model state.
+
+        Returns
+        -------
+        Mapping[str, ScalarField] | None
+            The current parameter fields by name, or None.
+        """
+        if self._column is None:
+            return None
+        return mapping_params(state, state["u"].grid)
+
+    # ================================================================
     #  The depth-mean divergence (the C-grid barotropic divergence)
     # ================================================================
     def _depth_mean_div(self, state: object) -> ScalarField:
@@ -542,16 +578,22 @@ class _FreeSurfaceBase(fr.model.Module):
         """
         zonal, meridional = self._horizontal
         u, v = state["u"], state["v"]
+        params = self._geometry_params(state)
         jname = jacobian_name(self._column)
-        ju = u * u.grid.metric(u.function_space.bare, jname)
-        jv = v * v.grid.metric(v.function_space.bare, jname)
+        ju = u * u.grid.metric(u.function_space.bare, jname,
+                               params=params)
+        jv = v * v.grid.metric(v.function_space.bare, jname,
+                               params=params)
         if self._immersed is not None:
             ju = self._immersed.fraction(u.function_space) * ju
             jv = self._immersed.fraction(v.function_space) * jv
         div_h = ju.diff(zonal) + jv.diff(meridional)
         return Integral()[self._vertical](div_h), div_h
 
-    def _physical_depth(self, cell_ref: ScalarField) -> ScalarField:
+    def _physical_depth(
+        self, cell_ref: ScalarField,
+        params: Mapping[str, ScalarField] | None = None,
+    ) -> ScalarField:
         r"""Return the physical column depth ``H_a`` on the ``Profile`` face.
 
         Description
@@ -577,6 +619,10 @@ class _FreeSurfaceBase(fr.model.Module):
         cell_ref : ScalarField
             A field whose space resolves the vertical factor (a
             non-constant z), fixing the horizontal staggering.
+        params : Mapping[str, ScalarField] | None, optional
+            The CURRENT mapping-parameter fields (stage C4,
+            :meth:`_geometry_params`); None reads the static
+            declaration defaults (default: None).
 
         Returns
         -------
@@ -584,7 +630,8 @@ class _FreeSurfaceBase(fr.model.Module):
             The physical column depth on the ``Profile`` face.
         """
         jname = jacobian_name(self._column)
-        jac = cell_ref.grid.metric(cell_ref.function_space.bare, jname)
+        jac = cell_ref.grid.metric(cell_ref.function_space.bare, jname,
+                                   params=params)
         if self._immersed is not None:
             jac = self._immersed.fraction(cell_ref.function_space) * jac
         return Integral()[self._vertical](jac)
@@ -592,7 +639,10 @@ class _FreeSurfaceBase(fr.model.Module):
     # ================================================================
     #  Immersed barotropic reductions (IP-D9; no-ops off a cut cell)
     # ================================================================
-    def _transport_depth(self, field: ScalarField) -> ScalarField:
+    def _transport_depth(
+        self, field: ScalarField,
+        params: Mapping[str, ScalarField] | None = None,
+    ) -> ScalarField:
         r"""Return the wet transport depth ``H_a`` on a velocity face.
 
         Description
@@ -613,12 +663,14 @@ class _FreeSurfaceBase(fr.model.Module):
         implicit solver's :meth:`BarotropicPressureSolver._face_depth`).
         With ``\alpha == 1`` (all wet) it collapses to the pure terrain
         physical depth ``\int J\,\mathrm{d}z``; with ``J == 1`` to the
-        flat immersed transport depth.
+        flat immersed transport depth. ``params`` carries the CURRENT
+        mapping parameters into the Jacobian read (stage C4).
         """
         alpha = self._immersed.fraction(field.function_space)
         if self._column is not None:
             jname = jacobian_name(self._column)
-            jac = field.grid.metric(field.function_space.bare, jname)
+            jac = field.grid.metric(field.function_space.bare, jname,
+                                    params=params)
             return Integral()[self._vertical](alpha * jac)
         return Integral()[self._vertical](alpha)
 
@@ -630,7 +682,10 @@ class _FreeSurfaceBase(fr.model.Module):
         return depth.with_data(jnp.where(wet, 1.0 / jnp.where(wet, d, 1.0),
                                          0.0))
 
-    def _wet_depth_mean(self, field: ScalarField) -> ScalarField:
+    def _wet_depth_mean(
+        self, field: ScalarField,
+        params: Mapping[str, ScalarField] | None = None,
+    ) -> ScalarField:
         r"""Return the wet-depth mean (barotropic velocity) of a face.
 
         Description
@@ -648,18 +703,35 @@ class _FreeSurfaceBase(fr.model.Module):
         (\int\alpha\,J\,\mathrm{d}z)`` — the ``J``-weighted wet-depth mean
         (:meth:`_transport_depth` supplies the ``\int\alpha J\,dz``
         divisor). With ``J == 1`` it collapses to the flat immersed form.
+
+        **Dynamic geometry** (stage C4): the unimmersed terrain path
+        normally rides the *seeded* ``field.mean(z)`` verb, whose
+        Jacobian-weighted reduction rows read the mapping's STATIC
+        parameter defaults. With ``params`` given (a moving column) the
+        same physical mean ``\int J q\,dz / \int J\,dz`` is built
+        explicitly through the ``with_params`` reduction seam instead,
+        so it contracts against the CURRENT volume element. Without
+        ``params`` the seeded verb is kept verbatim — the flat and
+        static-terrain paths stay byte-identical.
         """
         if self._immersed is None:
-            return field.mean(self._vertical)
+            if self._column is None or params is None:
+                return field.mean(self._vertical)
+            integral = Integral(
+                jacobian=(self._column[0],)
+            ).with_params(params)[self._vertical]
+            ones = field.with_data(jnp.ones_like(field.data))
+            return integral(field) * self._guarded_inverse(
+                integral(ones))
         alpha = self._immersed.fraction(field.function_space)
         integrand = alpha * field
         if self._column is not None:
             jname = jacobian_name(self._column)
             integrand = integrand * field.grid.metric(
-                field.function_space.bare, jname)
+                field.function_space.bare, jname, params=params)
         transport = Integral()[self._vertical](integrand)
         return transport * self._guarded_inverse(
-            self._transport_depth(field))
+            self._transport_depth(field, params))
 
     def _face_wet_mask(self, field: ScalarField) -> ScalarField:
         r"""Return the boolean open-face mask ``alpha > 0`` of a velocity face.
@@ -1120,7 +1192,8 @@ class ImplicitFreeSurface(_FreeSurfaceBase):
             # warm start from the previous ps (CG projects the guess, so
             # a non-mean-free x0 is safe under the eps=0 mean gauge)
             ps_new = self._solve_terrain(
-                rhs, x0=state["ps"], gravity=gravity, dt=dt)
+                rhs, x0=state["ps"], gravity=gravity, dt=dt,
+                params=self._geometry_params(state))
         else:
             if self._nondim:
                 # nondim mean form: eps * ps - dt' * (eps/Fr)^2 * div(ubar)
@@ -1365,6 +1438,7 @@ class ImplicitFreeSurface(_FreeSurfaceBase):
     def _solve_terrain(
         self, rhs: ScalarField, x0: ScalarField | None = None,
         *, gravity: object, dt: object,
+        params: Mapping[str, ScalarField] | None = None,
     ) -> ScalarField:
         r"""Invert the volume-exact terrain barotropic Helmholtz (H3).
 
@@ -1398,6 +1472,11 @@ class ImplicitFreeSurface(_FreeSurfaceBase):
             coefficient ``g H_a``).
         dt : object
             The stage increment ``dt' = ctx.stage_dt``.
+        params : Mapping[str, ScalarField] | None, optional
+            The CURRENT mapping-parameter fields (stage C4,
+            :meth:`_geometry_params`) the solver's face depths derive
+            from; None reads the static declaration defaults
+            (default: None).
 
         Returns
         -------
@@ -1410,7 +1489,8 @@ class ImplicitFreeSurface(_FreeSurfaceBase):
             iterations=self._pressure_iterations,
             tolerance=self._pressure_tolerance,
             preconditioner=self._pressure_preconditioner,
-            multigrid_levels=self._multigrid_levels)
+            multigrid_levels=self._multigrid_levels,
+            params=params)
         return solver.solve(rhs, x0, gravity=gravity, dt=dt)
 
 
@@ -1893,13 +1973,15 @@ class SplitExplicitFreeSurface(_FreeSurfaceBase):
         is the wet-depth mean ``(1/H_col)\int\alpha q\,dz`` (IP-D9), so
         the increment forcing stays transport-depth consistent.
         """
+        params = self._geometry_params(state)
         return {
-            "ubar_prev": self._wet_depth_mean(state["u"]),
-            "vbar_prev": self._wet_depth_mean(state["v"]),
+            "ubar_prev": self._wet_depth_mean(state["u"], params),
+            "vbar_prev": self._wet_depth_mean(state["v"], params),
         }
 
     def _subcycle_faces(
         self, state: object,
+        params: Mapping[str, ScalarField] | None = None,
     ) -> tuple[object, object, object, object, object, object]:
         r"""Return the substage-start velocity and per-face depth metrics.
 
@@ -1922,6 +2004,10 @@ class SplitExplicitFreeSurface(_FreeSurfaceBase):
         ----------
         state : object
             The current state (reads ``U``, ``V``, ``u``, ``v``).
+        params : Mapping[str, ScalarField] | None, optional
+            The CURRENT mapping-parameter fields (stage C4,
+            :meth:`_geometry_params`); None reads the static
+            declaration defaults (default: None).
 
         Returns
         -------
@@ -1930,11 +2016,13 @@ class SplitExplicitFreeSurface(_FreeSurfaceBase):
         """
         immersed = self._immersed is not None
         if self._column is not None:
-            depth_u = self._physical_depth(state["u"]).retag(state["U"])
-            depth_v = self._physical_depth(state["v"]).retag(state["V"])
+            depth_u = self._physical_depth(
+                state["u"], params).retag(state["U"])
+            depth_v = self._physical_depth(
+                state["v"], params).retag(state["V"])
         elif immersed:
-            depth_u = self._transport_depth(state["u"])
-            depth_v = self._transport_depth(state["v"])
+            depth_u = self._transport_depth(state["u"], params)
+            depth_v = self._transport_depth(state["v"], params)
         else:
             inv_h = self._inv_depth
             return (state["U"] * inv_h, state["V"] * inv_h,
@@ -1980,7 +2068,8 @@ class SplitExplicitFreeSurface(_FreeSurfaceBase):
         nondim = self._nondim
         inv_depth = self._inv_depth
         zonal, meridional = self._horizontal
-        g_u, g_v = self._slow_forcing(state, ctx, dt)
+        params = self._geometry_params(state)
+        g_u, g_v = self._slow_forcing(state, ctx, dt, params)
         ps0 = state["ps"]
         # a variable-depth grid (terrain OR immersed) steps the barotropic
         # VELOCITY ub = U/H_a and commits U = H_a ubar with the per-face
@@ -1992,7 +2081,7 @@ class SplitExplicitFreeSurface(_FreeSurfaceBase):
         # scalar flat-column coefficient fast path, byte-identical.
         variable = self._column is not None or self._immersed is not None
         (ubar0, vbar0, depth_u, depth_v,
-         fmask_u, fmask_v) = self._subcycle_faces(state)
+         fmask_u, fmask_v) = self._subcycle_faces(state, params)
         dtau = 2.0 * dt / self._substeps
         weights = jnp.asarray(self._weights, dtype=dtype_real())
 
@@ -2039,6 +2128,7 @@ class SplitExplicitFreeSurface(_FreeSurfaceBase):
 
     def _slow_forcing(
         self, state: object, ctx: StepContext, dt: object,
+        params: Mapping[str, ScalarField] | None = None,
     ) -> tuple[object, object]:
         r"""Return the depth-mean slow forcing ``(G_u, G_v)`` on the faces.
 
@@ -2050,9 +2140,9 @@ class SplitExplicitFreeSurface(_FreeSurfaceBase):
         scheme populated the forward apply) and takes their depth mean.
         """
         if self._forcing == "increment":
-            g_u = (self._wet_depth_mean(state["u"])
+            g_u = (self._wet_depth_mean(state["u"], params)
                    - state["ubar_prev"]) / dt
-            g_v = (self._wet_depth_mean(state["v"])
+            g_v = (self._wet_depth_mean(state["v"], params)
                    - state["vbar_prev"]) / dt
             return g_u, g_v
         sums = ctx.tendency_sums
@@ -2065,7 +2155,8 @@ class SplitExplicitFreeSurface(_FreeSurfaceBase):
         if implicit is not None:
             du = du + implicit["u"]
             dv = dv + implicit["v"]
-        return self._wet_depth_mean(du), self._wet_depth_mean(dv)
+        return (self._wet_depth_mean(du, params),
+                self._wet_depth_mean(dv, params))
 
     def _correct_depth_mean(
         self, state: object, ctx: StepContext,  # noqa: ARG002
@@ -2083,6 +2174,7 @@ class SplitExplicitFreeSurface(_FreeSurfaceBase):
         the flat fast path only.
         """
         u, v = state["u"], state["v"]
+        params = self._geometry_params(state)
         if self._column is not None:
             # terrain: the target barotropic velocity is U/H_a with the
             # VARIABLE per-column physical depth H_a (guarded on a padding /
@@ -2094,12 +2186,12 @@ class SplitExplicitFreeSurface(_FreeSurfaceBase):
             # the open faces (a closed face carries no correction; a land
             # column stays 0: H_a == 0 -> U/H_a == 0).
             inv_u = self._guarded_inverse(
-                self._physical_depth(u).retag(state["U"]))
+                self._physical_depth(u, params).retag(state["U"]))
             inv_v = self._guarded_inverse(
-                self._physical_depth(v).retag(state["V"]))
-            du = (self._wet_depth_mean(u)
+                self._physical_depth(v, params).retag(state["V"]))
+            du = (self._wet_depth_mean(u, params)
                   - state["U"] * inv_u).to(u).retag(u)
-            dv = (self._wet_depth_mean(v)
+            dv = (self._wet_depth_mean(v, params)
                   - state["V"] * inv_v).to(v).retag(v)
             if self._immersed is not None:
                 du = du * self._face_wet_mask(u)
@@ -2161,16 +2253,18 @@ class SplitExplicitFreeSurface(_FreeSurfaceBase):
             neither velocity was set without its transport).
         """
         updates: dict[str, ScalarField] = {}
+        params = self._geometry_params(state)
         if "u" in provided and "U" not in provided:
             updates["U"] = self._barotropic_transport(
-                state["u"], state["U"])
+                state["u"], state["U"], params)
         if "v" in provided and "V" not in provided:
             updates["V"] = self._barotropic_transport(
-                state["v"], state["V"])
+                state["v"], state["V"], params)
         return updates
 
     def _barotropic_transport(
         self, vel: ScalarField, transport: ScalarField,
+        params: Mapping[str, ScalarField] | None = None,
     ) -> ScalarField:
         r"""Return the depth-mean transport of ``vel`` on its face.
 
@@ -2194,11 +2288,11 @@ class SplitExplicitFreeSurface(_FreeSurfaceBase):
             # physical depth H_a = int J dz (int alpha J dz on a cut cell;
             # the transport the subcycle commits); mean is the J-weighted
             # (wet) physical depth mean.
-            mean = self._wet_depth_mean(vel)
-            depth = self._physical_depth(vel).retag(mean)
+            mean = self._wet_depth_mean(vel, params)
+            depth = self._physical_depth(vel, params).retag(mean)
             return (mean * depth).retag(transport)
         if self._immersed is None:
             return (vel.mean(self._vertical) / self._inv_depth).retag(
                 transport)
-        return (self._wet_depth_mean(vel)
-                * self._transport_depth(vel)).retag(transport)
+        return (self._wet_depth_mean(vel, params)
+                * self._transport_depth(vel, params)).retag(transport)
