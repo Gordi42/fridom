@@ -1202,8 +1202,8 @@ class Grid:
                       f"{mapping.mapped_names}"
                       if mapping is not None and mapping.mapped_names
                       else "")
-            raise ValueError(
-                f"unknown coordinate {name!r}; the space resolves "
+            raise KeyError(
+                f"no factor along {name!r}; the space resolves "
                 f"{space.names}{mapped}")
         name = _pick_factor_name(space, name)
         if params is not None:

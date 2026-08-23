@@ -7,6 +7,7 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
+from fridom.spatial.charts import lonlat_sphere
 from fridom.spatial.coordinate_mapping import CoordinateMapping
 from fridom.spatial.grid import Grid
 from fridom.spatial.meshes.interval import IntervalMesh
@@ -66,7 +67,7 @@ def test_field_evaluation_nodes_threads_params(grid, mx, ms, two):
 
 
 def test_unknown_name_names_the_coordinates_and_the_maps(grid, mx, ms):
-    with pytest.raises(ValueError, match=r"unknown coordinate 'w'.*"
+    with pytest.raises(KeyError, match=r"no factor along 'w'.*"
                        r"resolves \('x', 'sigma'\) and the mapping maps "
                        r"\('z',\)"):
         grid.evaluation_nodes(mx.center * ms.center, "w")
@@ -74,8 +75,17 @@ def test_unknown_name_names_the_coordinates_and_the_maps(grid, mx, ms):
 
 def test_unknown_name_without_a_mapping(mx, ms):
     flat = Grid((mx, ms))
-    with pytest.raises(ValueError, match="unknown coordinate 'z'") as info:
+    with pytest.raises(KeyError, match="no factor along 'z'") as info:
         flat.evaluation_nodes(mx.center * ms.center, "z")
+    assert "mapping maps" not in str(info.value)
+
+
+def test_unknown_name_on_a_chart_names_no_maps():
+    lon = IntervalMesh(N, (0.0, 2.0 * np.pi), name="lon")
+    lat = IntervalMesh(N, (-1.0, 1.0), periodic=False, name="lat")
+    sphere = Grid((lon, lat), mapping=lonlat_sphere())
+    with pytest.raises(KeyError, match="no factor along 'zp'") as info:
+        sphere.evaluation_nodes(lon.center * lat.center, "zp")
     assert "mapping maps" not in str(info.value)
 
 
