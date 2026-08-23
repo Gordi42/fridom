@@ -440,17 +440,30 @@ discarded when the size keywords are present. Keyword order is free.
   present.
 - **A second overlay is `over2`** (`over=["v,w", "b_total"],
   over_plot=["quiver", "contour"]`), its keywords prefixed the same
-  way (`"over2.levels": 15, "over2.color": "white"`). Give a contour
-  overlay a level *count*; an explicit level vector fails the render
-  in CDFViewer 2026.8.3 (recorded in
-  `design/research/artifacts/cdfviewer_quiver_anisotropy_prompt.md`).
-- **Quiver arrows vanish on an anisotropic section** (CDFViewer
-  2026.8.3). The viewer sizes arrows with one data-unit length taken
-  from the smaller sample spacing, so on a `y`-`z` slice spanning
-  kilometres by metres the arrows draw as dots, and no keyword reaches
-  that length (`over.lengthscale` is accepted and ignored). Author the
-  overlay as intended and leave it; the fix is the viewer's (hand-off
-  note above). Retire this bullet when it lands.
+  way (`"over2.levels": levels.tolist(), "over2.color": "white"`). A
+  contour overlay takes a level count or an explicit list (the list
+  needs CDFViewer 2026.8.4 or later); pass the list the stills use so
+  the animation draws the same isopycnals.
+- **Quiver arrows are sized and oriented on screen** (CDFViewer
+  2026.8.4 or later). The reference speed of a frame spans nine
+  tenths of the pixel gap between neighbouring arrows, and every
+  arrow points where its vector points. For an animation prefer a
+  fixed `"over.lengthscale"` (pixels per unit speed, read the speeds
+  off the store), so the arrows grow with the forcing instead of
+  being refitted to every frame; `"over.minspeed"` (data units)
+  blanks a quiescent interior that would otherwise draw as dots. The
+  arrow shape passes through to Makie (`"over.shaftwidth": 2,
+  "over.tipwidth": 8, "over.tiplength": 8` reads well at 1200 px
+  wide). The sample stride is an index stride, so on a stretched mesh
+  the arrows crowd where the cells are fine.
+- **On a section the vertical velocity is orders of magnitude below
+  the horizontal one**, so true-direction arrows come out flat
+  everywhere and the overturning cell does not show. Record the
+  vertical component scaled by the ratio of the physical aspect to
+  the drawn one (`derived={"w_drawn": lambda ms: ms.state["w"] * (LY
+  / LZ / ASPECT)}` with `"aspect": ASPECT` in the kwargs), which draws
+  the arrows tangent to the streamlines as the figure shows them, and
+  say so in one sentence of the prose (`coastal_upwelling.py`).
 - **Several videos from one code block** render side by side in a
   grid of up to three columns. Set `# sphinx_gallery_video_columns = N`
   in the block to change that, `1` stacking them at full width (the

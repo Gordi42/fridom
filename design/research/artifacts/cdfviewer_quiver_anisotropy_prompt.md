@@ -1,6 +1,7 @@
 ---
 status: complete
 date: 2026-08-22
+resolved: CDFViewer v2026.8.4 (2026-08-23) sizes quiver arrows in screen space, makes lengthscale a layer setting and accepts an explicit contour level list
 ---
 
 # Agent brief: CDFViewer quiver scaling on anisotropic sections, plus two smaller defects
