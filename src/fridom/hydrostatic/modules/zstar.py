@@ -473,8 +473,9 @@ class ZStarGeometry(fr.model.Module):
         ------
         ValueError
             If the grid carries no ``CoordinateMapping``, the mapping
-            declares no such parameter, or the parameter is not
-            declared on exactly the horizontal coordinates.
+            declares no such parameter, the parameter is not declared
+            on exactly the horizontal coordinates, or ``ps`` is not
+            PROGNOSTIC (the rigid lid has no free surface).
         NotImplementedError
             If the grid carries an immersed (cut-cell) domain, or the
             vertical axis is not the base of a single-base analytic
@@ -495,7 +496,7 @@ class ZStarGeometry(fr.model.Module):
                 f"{self._eta!r}, which the grid's mapping does not "
                 f"declare (it declares {tuple(declared)}); build the "
                 "grid with Grid(..., mapping=hy.zstar_mapping(depth))"
-                f" — or pass ZStarGeometry(eta=...) naming the "
+                " — or pass ZStarGeometry(eta=...) naming the "
                 "mapping's own parameter")
         coords = declared[self._eta]
         if set(coords) != set(self._horizontal):
@@ -517,6 +518,19 @@ class ZStarGeometry(fr.model.Module):
                 "conservation law rather than merely losing accuracy. "
                 "Assemble on a z* grid without an immersed mask, or "
                 "use the static terrain (sigma) column")
+        if table["ps"].lifecycle is not fr.model.Lifecycle.PROGNOSTIC:
+            raise ValueError(
+                "the z* coordinate is the free surface's own vertical "
+                "coordinate, but this model's 'ps' is "
+                f"{table['ps'].lifecycle.name}: the rigid lid "
+                "(hy.ImplicitFreeSurface(epsilon=0)) carries no "
+                "surface elevation at all — its 'ps' is the Lagrange "
+                "multiplier enforcing a non-divergent depth mean, not "
+                "g*eta, so eta = ps/g would be meaningless. Assemble "
+                "with a genuine free surface (epsilon > 0, or "
+                "hy.ExplicitFreeSurface / hy.SplitExplicitFreeSurface)"
+                ", or drop ZStarGeometry and run the static terrain "
+                "(sigma) column")
         self._column = discover_column(grid, self._vertical)
         self._coords = tuple(grid.names)
 

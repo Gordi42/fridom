@@ -325,6 +325,15 @@ def test_bind_requires_eta_on_exactly_the_horizontal():
         model(grid, extra=(hy.ZStarGeometry(),))
 
 
+def test_bind_refuses_the_rigid_lid():
+    # epsilon = 0 makes ps the rigid-lid Lagrange multiplier, not
+    # g*eta: there is no free surface for z* to follow
+    with pytest.raises(ValueError, match="rigid lid"):
+        model(zstar_grid(),
+              free_surface=hy.ImplicitFreeSurface(epsilon=0.0),
+              extra=(hy.ZStarGeometry(),))
+
+
 def test_bind_refuses_an_immersed_grid():
     grid = fr.spatial.Grid(
         meshes(), mapping=hy.zstar_mapping(depth),
@@ -474,12 +483,6 @@ NB, AMP = 8, 0.2
 def stratified():
     """Return the linear background stratification module."""
     return hy.ConstantStratification(n2=N2)
-
-
-def bump(x, y=None):
-    """Return a smooth depth-uniform surface pattern."""
-    del y
-    return jnp.sin(2 * jnp.pi * x)
 
 
 def horizontal_sum(field):
