@@ -221,6 +221,20 @@ implicit `|ε Δps + Δt g T*(u^{n+1})| < 1e-13·scale`, both exact
 algebraic identities testable without a run; the autodiff regression
 for every new stage (`1/h^{n+1}` needs the `η > −H` validity note).
 
+## 2b. Measured correction (FV family landed, 2026-08-23)
+
+The FV hydrostatic core measured the §2 hazard: under z\* on FV the
+surface-cell constancy residual is **exactly `0.0`** (the advection's
+H7 surface closure `−q·A(1)` is constancy-preserving by construction
+and the ALE bracket vanishes for uniform `f`), so the Inner/Outer
+mismatch is **not** an O(1) constancy break. The two closures
+disagree only in the *reconstructed* surface value, a conservation
+residual `(b_face(0) − b_cell(0))·η̇` of O(Δz): the FV `∫J b` drift
+is 6.5e-6 against 3.9e-6 nodal. P1 stands as the prerequisite for
+the FV budget gates, downgraded from "correctness" to "consistency".
+With `surface_flux=False` the predicted `η̇ b/(JΔz)` signature does
+appear (2.4e-3 vs 5.6e-4 with the closure on).
+
 ## 3. Reconciliation
 
 The lenses agree on the architecture (the phase axis) and on where

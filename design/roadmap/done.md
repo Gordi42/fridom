@@ -3441,3 +3441,28 @@ pairings carry the documented O(Δt) GCL residual (owner call). Tests:
 (15), `with_params` sections in the integral tests, the ALE skip rule
 in `test_moving_geometry.py`. Also fixed: the stale
 `test_core_pressure_gradient_no_longer_reads_ps` assertion.
+
+## The finite-volume family for the hydrostatic model (2026-08-23)
+
+`hy.Core(family=None | "nodal" | "fv")` — opt-in, no auto flip
+(`None` follows `grid.default_family`; every pre-existing assembly
+is bitwise unchanged). Under FV: `b`, `p_hyd` on `CellAvg³`, `u`/`v`
+transversely cell-averaged (`Right(x) ⊗ CellAvg(y) ⊗ CellAvg(z)`,
+option A of the FV scoping), `w` on `CellAvg ⊗ CellAvg ⊗ Outer(z)`,
+`ps`/`eta` on `CellAvg ⊗ CellAvg ⊗ Constant`, `U`/`V` on the face
+profiles. Almost nothing needed a family branch: the core merges the
+`("diff", CellAvg) -> FaceDifference` / `("diff", face) ->
+FluxDifference` (+ `Outer` on the column) profile and every step-path
+spelling is then the exact Gauss/face row. Measured: FV/nodal
+**bitwise** on `{flat, walled, stretched, terrain, z*} × {explicit,
+implicit, split}` with centered advection; the only non-bitwise case
+is z* with `MeshVelocityCorrection` (the flux ALE route — the point of
+the family). `∫J b` under z* still drifts at truncation (6.5e-6 FV vs
+3.9e-6 nodal): the FV advection and the ALE term disagree on the
+reconstructed surface value (P1 of the flow-following plan §4b);
+constancy is exactly `0.0`. Gap recorded: the slope-corrected pressure
+gradient's column hop uses the nodal sibling because `spatial/` has no
+one-sided `Inner -> CellAvg` reconstruction row. Tests:
+`tests/hydrostatic/test_core_fv.py` (28), `test_free_surface_fv.py`
+(23), FV cases in `test_zstar.py` and `test_core_terrain_moving.py`;
+forced-4, autodiff, compile-once.

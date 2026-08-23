@@ -252,7 +252,13 @@ space-GCL is already exact. Exactness needs (b) plus a formulation
 change. The program, in dependency order:
 
 - **P1 — the FV wall closure under a material surface** (prerequisite
-  for any FV z\* budget gate; O(1) today). Ruling (b) of
+  for any FV z\* budget gate). *Measured severity (FV family landed
+  2026-08-23): constancy is exactly `0.0` on FV under z\* — the H7
+  surface closure's `−q·A(1)` annihilates constants and the ALE
+  bracket vanishes for uniform `f` — so the closure mismatch is a
+  conservation error of O(Δz), `(b_face(0) − b_cell(0))·η̇`, not the
+  O(1) constancy break the planning record feared; the FV `∫J b`
+  drift (6.5e-6) is currently slightly worse than nodal (3.9e-6).* Ruling (b) of
   `design/decisions/physical_state_components.md` keeps the stored
   `w` physical and re-derives fluxes on demand (`state.chart`), so
   the REL spelling is: on a column whose geometry moves, the mapped
@@ -301,10 +307,15 @@ change. The program, in dependency order:
    face-declared parameters (needs face-space parameter alignment).
 3. A `hy.Model(vertical_coordinate=...)` convenience kwarg.
 4. Stage I scheduling after Stage Z lands.
-5. The hydrostatic FV family (`family="fv"` in `hy.Core`): the
-   prerequisite for exact tracer-content conservation under z*
-   (the flux-form ALE route) — and for the Stage I budget gates on
-   the hydrostatic model.
+5. ~~The hydrostatic FV family~~ — **shipped 2026-08-23**
+   (`hy.Core(family="fv")`, opt-in, no auto flip; FV/nodal bitwise
+   on every geometry with the centered scheme; entry in
+   [`../../roadmap/done.md`](../../roadmap/done.md)). Its one
+   framework gap: the slope-corrected pressure gradient's column hop
+   rides the nodal sibling because no one-sided `Inner -> CellAvg`
+   reconstruction row exists in `spatial/` (the seeded `average`
+   row zero-pads the walls, O(1/Δz) at the boundary cells) — a
+   G4-type row to add.
 6. ~~`tests/validation/test_moving_geometry.py`: four gates fail~~ —
    **resolved 2026-08-23.** Root cause `0d7da4ae` (2026-08-13,
    unpushed): `advance(N)` spends its remainder in a binary tail of
