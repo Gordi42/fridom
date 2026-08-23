@@ -40,6 +40,15 @@ taught ``ValueError`` naming the coupled coordinates and the fix
 ``f.mean()`` verbs order the reduction so the base axis goes first and
 never trip it (``scalar_field._bases_first``); only a hand-built
 reduction that collapses a parameter axis in a separate call can.
+
+Dynamic geometry (stage C4): :func:`jacobian_factor` carries the
+``params=`` overload of ``grid.metric`` — the caller-supplied
+mapping-parameter fields (module-owned state, e.g. a
+``MovingGeometry`` ``H(t)`` field or a z* free surface's ``eta``)
+the weight derives from instead of the mapping's static declaration
+defaults. ``Integral`` / ``CumulativeIntegral`` bind them through
+``with_params`` (the ``MappedDerivative.with_params`` precedent);
+``params=None`` is the exact static path.
 """
 from __future__ import annotations
 
@@ -48,8 +57,11 @@ from typing import TYPE_CHECKING
 from fridom.spatial.spaces.coefficient import CoefficientSpace
 
 if TYPE_CHECKING:  # pragma: no cover
+    from collections.abc import Mapping
+
     from jax import Array
 
+    from fridom.spatial.fields.scalar_field import ScalarField
     from fridom.spatial.operators.base import FieldLike
     from fridom.spatial.spaces.function_space import FunctionSpace
 
@@ -94,6 +106,7 @@ def resolves(space: FunctionSpace | object,
 
 def jacobian_factor(
     f: FieldLike, axis: str, jacobian: tuple[str, ...] | None,
+    *, params: Mapping[str, ScalarField] | None = None,
 ) -> Array | None:
     r"""
     Return the Jacobian weight for ``axis``'s increment, or None.
@@ -128,6 +141,11 @@ def jacobian_factor(
     jacobian : tuple[str, ...] | None
         The declared chart-coordinate family, or None for the plain
         computational measure (returns None without validation).
+    params : Mapping[str, ScalarField] | None, optional
+        Dynamic mapping-parameter fields threaded into the
+        ``grid.metric`` derivation (the ``params=`` overload, stage
+        C4); None derives the metric from the mapping's static
+        declaration defaults — the exact static path (default: None).
 
     Returns
     -------
@@ -163,7 +181,8 @@ def jacobian_factor(
     if (axis in chart_coords and axis in jacobian
             and resolves(bare, tuple(
                 n for n in jacobian if n in chart_coords))):
-        return grid.metric(bare, "sqrt_g").data
+        return grid.metric(bare, "sqrt_g",
+                           params=params).data
     # (b) analytic maps= column whose base is this axis: the signed
     #     column Jacobian d<mapped>_d<axis> (the single-column sqrt_g
     #     restriction, positive on a monotone map)
@@ -181,7 +200,8 @@ def jacobian_factor(
         if not resolves(bare, coupled):
             raise ValueError(
                 _collapsed_axis_message(mapped, axis, coupled))
-        return grid.metric(bare, f"d{mapped}_d{axis}").data
+        return grid.metric(bare, f"d{mapped}_d{axis}",
+                           params=params).data
     return None
 
 
