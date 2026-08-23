@@ -256,12 +256,20 @@ numerics in this plan.
    prerequisite for exact tracer-content conservation under z*
    (the flux-form ALE route) — and for the Stage I budget gates on
    the hydrostatic model.
-6. `tests/validation/test_moving_geometry.py`: four gates fail on
-   the owner's machine (the two frozen-motion bitwise and the two
-   compile-once ones). Bisected 2026-08-23: they fail identically at
-   `1a82bea9`, before every merge of that day (WENO, z*), so this is
-   either a local jax/XLA drift in bitwise behaviour or a regression
-   older than 2026-08-22; needs a look (CI state unknown, dev pushes
-   are batched).
+6. ~~`tests/validation/test_moving_geometry.py`: four gates fail~~ —
+   **resolved 2026-08-23.** Root cause `0d7da4ae` (2026-08-13,
+   unpushed): `advance(N)` spends its remainder in a binary tail of
+   chunk lengths instead of single steps, so `advance(20)` became a
+   16-step scan + a 4-step scan and `advance(10)` an 8 + 2 plan. The
+   static and the frozen-motion models are bitwise identical when
+   stepped one step per dispatch (measured) but their 16-step scan
+   bodies fuse differently (the moving carry holds the `H`/`H_dot`
+   leaves): worst 4.2e-17 on `p`, 5.2e-18 on the velocities — XLA
+   reassociation, not physics; and the compile-once gate's
+   `advance(2)` warm-up no longer covered the chunk(8) executable
+   `advance(10)` needs (a shape compile, not a geometry recompile).
+   The gates now pin bitwise per step, round-off (1e-15) chunked, and
+   warm up with the measured length (merge of
+   `fix/validation-gates-binary-tail`).
 7. Stage I's I1 (the wall closure of parameter tangents along a
    bounded base coordinate): design review before the change.
