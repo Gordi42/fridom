@@ -51,6 +51,7 @@ from fridom.spatial.fields.metadata import UNKNOWN_UNITS
 from fridom.spatial.operators.reconstruct import LinearReconstruction
 from fridom.spatial.space_patterns import Profile
 from fridom.spatial.spaces.average import AverageSpace
+from fridom.spatial.spaces.constant import ConstantSpace
 from fridom.spatial.spaces.nodal import NodeSet
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -475,8 +476,15 @@ class MeshVelocityCorrection(Module):
     Parameters
     ----------
     fields : tuple[str, ...] | None, optional
-        The prognostic fields to correct; None corrects every
-        PROGNOSTIC field (default: None).
+        The prognostic fields to correct. ``None`` corrects every
+        PROGNOSTIC field **except** those a mesh-velocity correction
+        is not defined for — a field constant along the mapped column
+        (the 2-D barotropic ``ps`` / ``U`` / ``V`` of a free-surface
+        model: no column derivative to transport) and a field named
+        after a mapping parameter (a PROGNOSTIC geometry parameter is
+        moved by its own tendency). Naming either **explicitly** is a
+        taught error rather than a silent skip
+        (:meth:`_resolve_fields`) (default: None).
     """
 
     def __init__(self, fields: tuple[str, ...] | None = None,
@@ -523,8 +531,10 @@ class MeshVelocityCorrection(Module):
         ValueError
             If the grid has no mapped column (no single-base
             analytic map), no ``<p>_dot`` field rides the state (no
-            MovingGeometry in the module list), or a configured
-            field is not PROGNOSTIC.
+            MovingGeometry / ZStarGeometry in the module list), or a
+            configured field is not PROGNOSTIC, is a mapping
+            parameter, or is column-constant
+            (:meth:`_resolve_fields`).
         NotImplementedError
             If the mapping declares more than one mapped column
             (stage C4 mirrors the stage-C3 solver support).
@@ -557,23 +567,7 @@ class MeshVelocityCorrection(Module):
                 "geometry, which fr.model.modules.MovingGeometry "
                 "owns — add it to the module list (a static mapped "
                 "grid needs no ALE terms)")
-        if self._fields is None:
-            self._fields = tuple(
-                record.name for record in table
-                if record.lifecycle is Lifecycle.PROGNOSTIC)
-        else:
-            for name in self._fields:
-                if name not in table_names:
-                    raise ValueError(
-                        f"MeshVelocityCorrection corrects {name!r}, "
-                        "which no module declares")
-                if (table[name].lifecycle
-                        is not Lifecycle.PROGNOSTIC):
-                    raise ValueError(
-                        f"MeshVelocityCorrection corrects {name!r}, "
-                        f"which is {table[name].lifecycle.name}: "
-                        "only PROGNOSTIC fields are advanced from "
-                        "tendencies")
+        self._resolve_fields(table, mapping, table_names)
         # family-aware routing (ALE-on-FV, scoping study §13 addendum):
         # a field whose column (base) factor is an average (CellAvg)
         # takes the conservative flux form; a nodal / point-valued
@@ -589,6 +583,95 @@ class MeshVelocityCorrection(Module):
         self._flux_fields = tuple(flux)
         self._advective_fields = tuple(advective)
         self._coords = tuple(grid.names)
+
+    def _resolve_fields(
+        self,
+        table,  # noqa: ANN001
+        mapping,  # noqa: ANN001
+        table_names: set[str],
+    ) -> None:
+        """Resolve (or validate) the corrected field set.
+
+        Description
+        -----------
+        ``fields=None`` corrects every PROGNOSTIC field **except** the
+        two kinds a mesh-velocity correction is not defined for:
+
+        - a field with **no column factor** — constant along the
+          mapped column's base coordinate: the 2-D barotropic
+          prognostics of a free-surface model (``ps``, and the
+          split-explicit transports ``U``, ``V``). There is no
+          ``partial f/partial b`` to transport past the moving nodes
+          (and the column metrics have no representation on a
+          column-constant space), so the correction is structurally
+          absent, not merely small. Their evolution equations are
+          already the depth-integrated ones.
+        - a field named after a **mapping parameter** — a geometry
+          parameter that is itself PROGNOSTIC (the target-following
+          interface heights of stage I). The stepper advances it from
+          its own tendency; adding the mesh velocity would transport
+          the geometry past itself.
+
+        An **explicitly** configured field of either kind stays a
+        taught error: the selection is the caller's claim that the
+        correction applies, so a silent skip would hide a mistake.
+
+        Parameters
+        ----------
+        table : object
+            The bind table (resolved field records).
+        mapping : object
+            The grid's ``CoordinateMapping``.
+        table_names : set[str]
+            The declared field names.
+
+        Raises
+        ------
+        ValueError
+            If a configured field is undeclared, not PROGNOSTIC, a
+            mapping parameter, or column-constant.
+        """
+        params = frozenset(mapping.param_names)
+        if self._fields is None:
+            self._fields = tuple(
+                record.name for record in table
+                if record.lifecycle is Lifecycle.PROGNOSTIC
+                and record.name not in params
+                and not self._columnless(record.space))
+            return
+        for name in self._fields:
+            if name not in table_names:
+                raise ValueError(
+                    f"MeshVelocityCorrection corrects {name!r}, "
+                    "which no module declares")
+            if table[name].lifecycle is not Lifecycle.PROGNOSTIC:
+                raise ValueError(
+                    f"MeshVelocityCorrection corrects {name!r}, "
+                    f"which is {table[name].lifecycle.name}: "
+                    "only PROGNOSTIC fields are advanced from "
+                    "tendencies")
+            if name in params:
+                raise ValueError(
+                    f"MeshVelocityCorrection corrects {name!r}, "
+                    "which names a mapping parameter: a geometry "
+                    "parameter is moved by its own tendency, not "
+                    "transported past the mesh it defines (drop it "
+                    "from fields=, or leave fields=None — the "
+                    "default skips it)")
+            if self._columnless(table[name].space):
+                raise ValueError(
+                    f"MeshVelocityCorrection corrects {name!r}, "
+                    f"which is constant along the mapped column "
+                    f"{self._base!r}: a column-constant (2-D "
+                    "barotropic) field has no column derivative to "
+                    "transport past the moving nodes, so the "
+                    "correction is structurally absent (drop it from "
+                    "fields=, or leave fields=None — the default "
+                    "skips it)")
+
+    def _columnless(self, space) -> bool:  # noqa: ANN001
+        """Whether ``space`` is constant along the mapped column base."""
+        return isinstance(space.bare.factor(self._base), ConstantSpace)
 
     # ================================================================
     #  The correction term
