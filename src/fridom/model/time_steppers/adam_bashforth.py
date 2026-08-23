@@ -201,6 +201,10 @@ class AdamBashforth(TimeStepper):
     #: (S3') subcycle with the per-treatment sums attached (03 5.4).
     supports_split_advance: ClassVar[bool] = True
 
+    #: multistep driver: it loops the substage chain over the phase
+    #: groups inside one advance (``fr.model.Phases``; base.py).
+    supports_phases: ClassVar[bool] = True
+
     def __init__(
         self,
         dt: float | np.timedelta64,
@@ -349,6 +353,20 @@ class AdamBashforth(TimeStepper):
         ``add_prognostic`` method was struck (07_open_threads
         §9.1 item 3), its semantics being exactly this ``add``.
 
+        PHASED (``len(stages.schedule.phases) > 1``): the same chain
+        runs once per group, every phase's ctx at the **pre-tick**
+        time (so the warm-up row keeps weighting tendencies at
+        ``t^n``), the increment applied to that phase's PROGNOSTIC
+        keys only, and the S3'/S4 groups filtered to the phase. The
+        clock is ticked ONCE after the last phase, and ONE
+        full-width level enters the ring: each key taken from the
+        phase that owns it, so the next step's history row for ``b``
+        is the tracer phase's post-solve tendency. One saturating
+        warm-up counter, one ring, exactly as unphased. With a
+        single group the loop is not entered at all — the body below
+        is the literal pre-phase-axis sequence, which is what keeps
+        every existing model bitwise.
+
         Parameters
         ----------
         stepper_state : ABState
@@ -365,6 +383,9 @@ class AdamBashforth(TimeStepper):
         tuple[ABState, VectorField, Clock]
             The advanced carry entries.
         """
+        if stages.schedule.phased:
+            return self._phased_step(stepper_state, state, stages,
+                                     clock)
         # P0 + S1/S1' + S2 at the pre-tick time
         ctx = stages.context(clock, dt=self.dt, stage_dt=self.dt)
         state = stages.prepare(state, ctx)
@@ -397,6 +418,84 @@ class AdamBashforth(TimeStepper):
         # already-carried entries are float32 (cast a no-op). The AB
         # combine above already ran in dtype_real() by promotion.
         carry = levels[:-1]
+        if self._single_precision_history:
+            carry = tuple(_to_float32(level) for level in carry)
+        return ABState(carry, warmup), state, clock
+
+    def _phased_step(
+        self,
+        stepper_state: ABState,
+        state: VectorField,
+        stages: BoundSchedule,
+        clock: Clock,
+    ) -> tuple[ABState, VectorField, Clock]:
+        """
+        Advance one AB step over the phase groups (the staggered order).
+
+        Description
+        -----------
+        The loop :meth:`step` documents: per phase a pre-tick ctx,
+        S1/S1' filtered to the phase, S2 over the phase's terms
+        (``per_phase`` terms masked to its keys), the SAME warm-up
+        row and the SAME carried ring, ``state.add`` of the phase's
+        PROGNOSTIC keys, then S3'/S4 filtered to the phase. After the
+        last phase: one clock tick, one saturating counter bump, and
+        one merged full-width ring level.
+
+        Parameters
+        ----------
+        stepper_state : ABState
+            The carry entry.
+        state : VectorField
+            The full assembled state vector.
+        stages : BoundSchedule
+            The per-step stage-group view.
+        clock : Clock
+            The pre-step (and, throughout the loop, the ctx) clock.
+
+        Returns
+        -------
+        tuple[ABState, VectorField, Clock]
+            The advanced carry entries.
+        """
+        from fridom.spatial.fields.vector_field import (  # noqa: PLC0415 — deferred: avoid a field-core import cycle at module load
+            VectorField,
+        )
+        schedule = stages.schedule
+        names = schedule.prognostic
+        table = jnp.asarray(self._table, dtype=dtype_real())
+        weights = table[stepper_state.warmup] * self.dt
+        has_advance = bool(schedule.kind_entries(StageKind.ADVANCE))
+        merged: dict[str, ScalarField] = {}
+        for index, group in enumerate(schedule.phases):
+            # every phase reads the PRE-TICK clock (the convention)
+            ctx = stages.context(clock, dt=self.dt, stage_dt=self.dt,
+                                 phase=index)
+            state = stages.prepare(state, ctx, phase=index)
+            sums = stages.tendency(state, ctx, phase=index)
+            levels = (sums.explicit, *stepper_state.history)
+            increment = _weighted(levels[0], weights[0])
+            for j in range(1, self._order):
+                increment = increment + _weighted(levels[j],
+                                                  weights[j])
+            owned = tuple(name for name in names if name in group)
+            state = state.add(                                # S3
+                **{name: increment[name] for name in owned})
+            post = stages.context(clock, dt=self.dt,
+                                  stage_dt=self.dt, sums=sums,
+                                  phase=index)
+            if has_advance:
+                state = stages.advance_stages(  # S3'
+                    state, post, phase=index)
+            state = stages.constrain(state, post, phase=index)  # S4
+            for name in owned:
+                merged[name] = sums.explicit[name]
+        clock = clock.tick(self.dt)
+        warmup = jnp.minimum(stepper_state.warmup + 1,
+                             self._order - 1)
+        # ONE full-width newest level: each key from its own phase
+        newest = VectorField({name: merged[name] for name in names})
+        carry = (newest, *stepper_state.history)[:-1]
         if self._single_precision_history:
             carry = tuple(_to_float32(level) for level in carry)
         return ABState(carry, warmup), state, clock

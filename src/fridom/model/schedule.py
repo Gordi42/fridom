@@ -26,6 +26,16 @@ partition consumers, the merged ``implicit`` operators, and
 ``advance_stages`` land at wave 5 (2.5); the schedule already
 carries their static data (per-term treatments, implicit-operator
 groups, ADVANCE entries).
+
+THE PHASE AXIS (``fr.model.Phases``, ``phases.py``). ``Schedule``
+additionally carries the resolved PROGNOSTIC partition
+(:attr:`Schedule.phases`) and, per entry, the phase membership the
+composer resolved from the dry-run write sets. Every stage-group
+method takes ``phase=``: ``None`` — the unphased request — runs the
+literal pre-axis sequence, an index runs only the entries active in
+that phase and masks a ``per_phase`` term's contribution to that
+phase's keys. A schedule with ONE group is the unphased schedule and
+keeps exactly the static token it had before the axis existed.
 """
 # Wave 3 C: Schedule, BoundSchedule, TendencySums (treatment
 #    partition/implicit land Wave 5 B)
@@ -45,6 +55,7 @@ from fridom.model.errors import (
     AssemblyError,
     TermEvaluationError,
 )
+from fridom.model.phases import PhaseView
 from fridom.model.stages import StageKind
 from fridom.model.terms import Treatment
 from fridom.spatial.fields.vector_field import VectorField
@@ -138,6 +149,20 @@ class ScheduleEntry:
         the ``TendencyEnvelope`` module); ``False`` for stages and
         unmatched terms. Part of :meth:`static_token`, so enveloped
         and plain assemblies never share a memoized step body.
+    phase : int | None
+        The stage's DECLARED phase pin (``Stage.phase``); ``None``
+        takes the kind's rule. Ignored on the unphased path.
+    per_phase : bool
+        The term's declared cross-group licence
+        (``TendencyTerm.per_phase``): the composer evaluates it once
+        per phase it touches and masks the result to that phase's
+        keys.
+    active_phases : tuple[int, ...] | None
+        The RESOLVED phase membership, installed by the composer
+        once the dry run has observed the write sets: the phase
+        indices this entry runs in. ``None`` means "every phase" —
+        which is also the whole unphased path, where the composer
+        installs nothing and every group filter degenerates.
     """
 
     key: str
@@ -154,6 +179,9 @@ class ScheduleEntry:
     implicit: ImplicitOperator | None = None
     linear: bool = False
     enveloped: bool = False
+    phase: int | None = None
+    per_phase: bool = False
+    active_phases: tuple[int, ...] | None = None
 
     @property
     def is_term(self) -> bool:
@@ -184,12 +212,16 @@ class ScheduleEntry:
         object (identity-hashed host objects; two identical module
         configurations must produce equal tokens).
 
+        The three phase-axis fields join the token only when they are
+        NON-DEFAULT, so an assembly that declares no phases keeps
+        exactly the token it had before the axis existed.
+
         Returns
         -------
         tuple
             The static identity token.
         """
-        return (
+        token = (
             self.key,
             self.kind.name if self.kind is not None else "TERM",
             self.slot,
@@ -202,6 +234,14 @@ class ScheduleEntry:
             self.reads,
             self.enveloped,
         )
+        phase: tuple = ()
+        if self.phase is not None:
+            phase += (("phase", self.phase),)
+        if self.per_phase:
+            phase += ("per_phase",)
+        if self.active_phases is not None:
+            phase += (("active_phases", self.active_phases),)
+        return token + phase
 
 
 # ================================================================
@@ -446,6 +486,16 @@ class Schedule:
     time_stepper : object | None, optional
         The stepper handed to ``eval_params`` (the TIME_STEP
         provider) (default: None).
+    phases : tuple[frozenset[str], ...] | None, optional
+        The resolved PROGNOSTIC partition — the phase axis
+        (``fr.model.Phases``). ``None`` (the default) means the
+        unphased schedule and resolves to the single total group;
+        a length > 1 turns the multistep steppers' step into a loop
+        over the groups (default: None).
+    implicit_phases : tuple[int | None, ...], optional
+        Per ``implicit_merged`` group, the phase index owning its
+        fields (``None`` = every phase); parallel to
+        ``implicit_merged`` (default: ()).
     """
 
     def __init__(
@@ -457,6 +507,8 @@ class Schedule:
         implicit_merged: tuple = (),
         binding_table: object | None = None,
         time_stepper: object | None = None,
+        phases: tuple[frozenset[str], ...] | None = None,
+        implicit_phases: tuple[int | None, ...] = (),
     ) -> None:
         """Sort the entries canonically and freeze the statics."""
         self._entries: tuple[ScheduleEntry, ...] = tuple(
@@ -466,6 +518,11 @@ class Schedule:
         self._implicit_merged: tuple = tuple(implicit_merged)
         self._binding_table = binding_table
         self._time_stepper = time_stepper
+        self._phases: tuple[frozenset[str], ...] = (
+            (frozenset(self._prognostic),) if phases is None
+            else tuple(phases))
+        self._implicit_phases: tuple[int | None, ...] = tuple(
+            implicit_phases) or (None,) * len(self._implicit_merged)
 
     # ================================================================
     #  Read surface
@@ -489,6 +546,36 @@ class Schedule:
     def implicit_merged(self) -> tuple:
         """Per-group ``(merged_operator, slot)`` pairs (wave-5)."""
         return self._implicit_merged
+
+    @property
+    def implicit_phases(self) -> tuple[int | None, ...]:
+        """Owning phase index per merge group (``None`` = every)."""
+        return self._implicit_phases
+
+    @property
+    def phases(self) -> tuple[frozenset[str], ...]:
+        """
+        The resolved PROGNOSTIC partition (the phase axis).
+
+        Description
+        -----------
+        One frozenset of PROGNOSTIC names per phase, in phase order.
+        Length 1 IS the unphased schedule: the steppers then run
+        their literal one-pass body and ``ctx.phase`` stays ``None``,
+        so ``phases=None`` and ``fr.model.Phases.total()`` produce
+        bitwise-identical runs.
+
+        Returns
+        -------
+        tuple[frozenset[str], ...]
+            The groups, in phase order.
+        """
+        return self._phases
+
+    @property
+    def phased(self) -> bool:
+        """Whether the schedule carries more than one phase."""
+        return len(self._phases) > 1
 
     @property
     def binding_table(self) -> object | None:
@@ -518,6 +605,94 @@ class Schedule:
         """
         return tuple(entry for entry in self._entries
                      if entry.kind is kind)
+
+    def phase_entries(
+        self, kind: StageKind | None, phase: int | None,
+    ) -> tuple[ScheduleEntry, ...]:
+        """
+        Return one kind's entries that run in a given phase.
+
+        Description
+        -----------
+        ``phase=None`` is the unphased request and returns
+        :meth:`kind_entries` unchanged — the literal pre-phase-axis
+        sequence, which is what makes an unphased run bitwise. With
+        a phase index, entries whose resolved ``active_phases``
+        exclude it are skipped; ``active_phases is None`` means
+        "every phase" (SELF_UPDATE, DIAGNOSE, unclaimed constraints
+        writing no prognostic).
+
+        Parameters
+        ----------
+        kind : StageKind | None
+            The stage kind; ``None`` selects the tendency terms.
+        phase : int | None
+            The phase index, or ``None`` for the unphased request.
+
+        Returns
+        -------
+        tuple[ScheduleEntry, ...]
+            The matching entries, in schedule order.
+        """
+        if phase is None:
+            return self.kind_entries(kind)
+        return tuple(
+            entry for entry in self._entries
+            if entry.kind is kind
+            and (entry.active_phases is None
+                 or phase in entry.active_phases))
+
+    def with_phases(
+        self,
+        entries: tuple[ScheduleEntry, ...],
+        phases: tuple[frozenset[str], ...],
+        implicit_groups: tuple,
+        implicit_merged: tuple,
+        implicit_phases: tuple[int | None, ...],
+    ) -> Schedule:
+        """
+        Return the same schedule with the phase axis installed.
+
+        Description
+        -----------
+        The composer builds the schedule at assembly step 5, but the
+        per-entry phase membership needs the DRY-RUN write sets
+        (step 6b) — so the axis is installed afterwards, as a fresh
+        equal-but-for-phases ``Schedule``. Everything else (the
+        binding table, the stepper, the implicit groups, the
+        PROGNOSTIC order) carries over unchanged.
+
+        Parameters
+        ----------
+        entries : tuple[ScheduleEntry, ...]
+            The entries with ``active_phases`` installed.
+        phases : tuple[frozenset[str], ...]
+            The resolved partition.
+        implicit_groups : tuple
+            The merge groups' constituents, parallel to
+            ``implicit_merged`` (a field-separable group straddling
+            two phases is SPLIT, so both tuples may be longer than
+            the pre-phase ones).
+        implicit_merged : tuple
+            The per-group ``(operator, slot)`` pairs after the split.
+        implicit_phases : tuple[int | None, ...]
+            Per merge group, the owning phase index.
+
+        Returns
+        -------
+        Schedule
+            The phased schedule.
+        """
+        return Schedule(
+            entries,
+            prognostic=self._prognostic,
+            implicit_groups=implicit_groups,
+            implicit_merged=implicit_merged,
+            binding_table=self._binding_table,
+            time_stepper=self._time_stepper,
+            phases=phases,
+            implicit_phases=implicit_phases,
+        )
 
     # ================================================================
     #  Binding
@@ -572,6 +747,12 @@ class Schedule:
             tuple, treatment/advances where applicable.
         """
         lines = ["Schedule (kind-ordered):"]
+        if self.phased:
+            groups = "; ".join(
+                f"{index}: {{{', '.join(sorted(group))}}}"
+                for index, group in enumerate(self._phases))
+            lines.append(
+                f"  phases ({len(self._phases)} groups): {groups}")
         for entry in self._entries:
             kind = ("TERM" if entry.is_term else entry.kind.name)
             extra = ""
@@ -579,17 +760,34 @@ class Schedule:
                 extra += f", treatment={entry.treatment.name}"
             if entry.advances:
                 extra += f", advances={entry.advances}"
+            if self.phased:
+                where = ("every" if entry.active_phases is None
+                         else ",".join(str(index) for index
+                                       in entry.active_phases))
+                extra += f", phase={where}"
+                if entry.per_phase:
+                    extra += " (per_phase)"
             lines.append(
                 f"  {kind:<11} {entry.key} (order={entry.order}, "
                 f"slot={entry.slot}, index={entry.index}{extra})")
         return "\n".join(lines)
 
     def _token(self) -> tuple:
-        """Return the structural identity token (eq/hash basis)."""
-        return (
+        """Return the structural identity token (eq/hash basis).
+
+        The phase partition joins only when it is non-trivial, so an
+        unphased schedule keeps exactly the identity (and the jit
+        cache entry) it had before the phase axis existed.
+        """
+        token = (
             tuple(entry.static_token() for entry in self._entries),
             self._prognostic,
         )
+        if self.phased:
+            token += (tuple(tuple(sorted(group))
+                            for group in self._phases),
+                      self._implicit_phases)
+        return token
 
     def __eq__(self, other: object) -> bool:
         """Structural equality over the static tokens."""
@@ -605,8 +803,10 @@ class Schedule:
         """Compact summary (entry count per kind)."""
         terms = len(self.kind_entries(None))
         stages = len(self._entries) - terms
+        phases = (f", {len(self._phases)} phases"
+                  if self.phased else "")
         return (f"Schedule({terms} terms, {stages} stages, "
-                f"prognostic={self._prognostic!r})")
+                f"prognostic={self._prognostic!r}{phases})")
 
 
 # ================================================================
@@ -654,6 +854,7 @@ class BoundSchedule:
         dt: Any,
         stage_dt: Any,
         sums: TendencySums | None = None,
+        phase: int | None = None,
     ) -> StepContext:
         """
         Build the frozen ``StepContext`` for one (sub)stage (P0).
@@ -679,6 +880,11 @@ class BoundSchedule:
         sums : TendencySums | None, optional
             Per-treatment sums for post-TENDENCY hooks
             (default: None).
+        phase : int | None, optional
+            The phase index this (sub)stage runs in; attached to the
+            context as a static ``PhaseView``. ``None`` — the
+            unphased request — leaves ``ctx.phase`` ``None``
+            (default: None).
 
         Returns
         -------
@@ -693,13 +899,34 @@ class BoundSchedule:
             params = table.eval_params(
                 self._modules, self._schedule.time_stepper, time)
         return StepContext(params=params, clock=clock, dt=dt,
-                           stage_dt=stage_dt, tendency_sums=sums)
+                           stage_dt=stage_dt, tendency_sums=sums,
+                           phase=self.phase_view(phase))
+
+    def phase_view(self, phase: int | None) -> PhaseView | None:
+        """
+        Return the static ``PhaseView`` for a phase index.
+
+        Parameters
+        ----------
+        phase : int | None
+            The phase index, or ``None`` for the unphased request.
+
+        Returns
+        -------
+        PhaseView | None
+            The view (``.index`` / ``.fields``), or ``None`` when
+            unphased.
+        """
+        if phase is None:
+            return None
+        return PhaseView(phase, self._schedule.phases[phase])
 
     # ================================================================
     #  Stage groups (kind-ordered; replace-applied)
     # ================================================================
     def prepare(
         self, state: VectorField, ctx: StepContext,
+        *, phase: int | None = None,
     ) -> VectorField:
         """
         Run S1 SELF_UPDATE then S1' DIAGNOSE stages, kind-ordered.
@@ -719,17 +946,24 @@ class BoundSchedule:
             The full assembled state vector.
         ctx : StepContext
             The substage context (built at P0).
+        phase : int | None, optional
+            Run only the stages active in this phase; ``None`` runs
+            every stage of the kind — the unphased path (default:
+            None).
 
         Returns
         -------
         VectorField
             The prepared state.
         """
-        state = self._run_stages(StageKind.SELF_UPDATE, state, ctx)
-        return self._run_stages(StageKind.DIAGNOSE, state, ctx)
+        state = self._run_stages(
+            StageKind.SELF_UPDATE, state, ctx, phase)
+        return self._run_stages(
+            StageKind.DIAGNOSE, state, ctx, phase)
 
     def tendency(
         self, state: VectorField, ctx: StepContext,
+        *, phase: int | None = None,
     ) -> TendencySums:
         """
         Accumulate the EXPLICIT term contributions (S2).
@@ -742,12 +976,24 @@ class BoundSchedule:
         PROGNOSTIC-only template. IMPLICIT terms are not evaluated
         here (their contribution enters through the wave-5 solves).
 
+        With a ``phase``, only the terms active in that phase run,
+        and a ``per_phase`` term's contribution is MASKED to the
+        phase's own keys — the other keys are discarded, never
+        zeroed, so they never enter any sum. The template stays
+        FULL-WIDTH (every PROGNOSTIC name, zero outside the phase):
+        the ADVANCE stages read ``ctx.tendency_sums`` by name, and
+        the stepper merges the per-phase sums into one full-width
+        ring level at the end of the step.
+
         Parameters
         ----------
         state : VectorField
             The full assembled state vector.
         ctx : StepContext
             The substage context.
+        phase : int | None, optional
+            Evaluate only this phase's terms; ``None`` evaluates
+            every term — the unphased path (default: None).
 
         Returns
         -------
@@ -759,16 +1005,23 @@ class BoundSchedule:
         if names:
             sums = VectorField(
                 {name: zero_like(state[name]) for name in names})
-        for entry in self._schedule.kind_entries(None):
+        group = (None if phase is None
+                 else self._schedule.phases[phase])
+        for entry in self._schedule.phase_entries(None, phase):
             if entry.treatment is not Treatment.EXPLICIT:
                 continue
             module = self._modules[entry.slot]
             result = evaluate_entry(entry, module, state, ctx)
+            if group is not None and entry.per_phase:
+                result = {name: value
+                          for name, value in result.items()
+                          if name in group}
             sums = apply_add(entry, sums, result)
         return TendencySums(explicit=sums)
 
     def constrain(
         self, state: VectorField, ctx: StepContext,
+        *, phase: int | None = None,
     ) -> VectorField:
         """
         Run the S4 CONSTRAINT stages (projection et al.).
@@ -779,13 +1032,17 @@ class BoundSchedule:
             The state produced by the preceding advance.
         ctx : StepContext
             The substage context (post-advance; carries sums).
+        phase : int | None, optional
+            Run only the constraints active in this phase; ``None``
+            runs them all — the unphased path (default: None).
 
         Returns
         -------
         VectorField
             The constrained state.
         """
-        return self._run_stages(StageKind.CONSTRAINT, state, ctx)
+        return self._run_stages(
+            StageKind.CONSTRAINT, state, ctx, phase)
 
     def diagnostics(
         self, state: VectorField, ctx: StepContext,
@@ -819,6 +1076,7 @@ class BoundSchedule:
     # ================================================================
     def advance_stages(
         self, state: VectorField, ctx: StepContext,
+        *, phase: int | None = None,
     ) -> VectorField:
         """
         Run the S3' module-owned ADVANCE stages (kind order).
@@ -839,13 +1097,17 @@ class BoundSchedule:
             The state produced by the primary advance.
         ctx : StepContext
             The post-advance context (carries sums).
+        phase : int | None, optional
+            Run only the ADVANCE stages active in this phase;
+            ``None`` runs them all — the unphased path
+            (default: None).
 
         Returns
         -------
         VectorField
             The state with the ADVANCE writes applied.
         """
-        return self._run_stages(StageKind.ADVANCE, state, ctx)
+        return self._run_stages(StageKind.ADVANCE, state, ctx, phase)
 
     @property
     def implicit(self) -> tuple[BoundImplicitOperator, ...]:
@@ -873,6 +1135,39 @@ class BoundSchedule:
             BoundImplicitOperator(operator, self._modules[slot])
             for operator, slot in self._schedule.implicit_merged)
 
+    def implicit_in(
+        self, phase: int | None,
+    ) -> tuple[BoundImplicitOperator, ...]:
+        """
+        Return the merged implicit operators owned by one phase.
+
+        Description
+        -----------
+        A merge group is solved in the phase owning its ``fields``
+        (a group whose fields straddle two groups is an assembly
+        error — coupled implicit blocks are atomic under
+        by-variable splitting, spec 5.1). ``phase=None`` is the
+        unphased request and returns :attr:`implicit` unchanged.
+
+        Parameters
+        ----------
+        phase : int | None
+            The phase index, or ``None`` when unphased.
+
+        Returns
+        -------
+        tuple[BoundImplicitOperator, ...]
+            The bound operators of that phase, group order.
+        """
+        if phase is None:
+            return self.implicit
+        return tuple(
+            BoundImplicitOperator(operator, self._modules[slot])
+            for (operator, slot), owner in zip(
+                self._schedule.implicit_merged,
+                self._schedule.implicit_phases, strict=True)
+            if owner is None or owner == phase)
+
     # ================================================================
     #  Internals
     # ================================================================
@@ -881,9 +1176,10 @@ class BoundSchedule:
         kind: StageKind,
         state: VectorField,
         ctx: StepContext,
+        phase: int | None = None,
     ) -> VectorField:
         """Run one kind's stages in schedule order (replace)."""
-        for entry in self._schedule.kind_entries(kind):
+        for entry in self._schedule.phase_entries(kind, phase):
             module = self._modules[entry.slot]
             result = evaluate_entry(entry, module, state, ctx)
             state = apply_replace(entry, state, result)

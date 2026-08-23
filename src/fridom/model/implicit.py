@@ -34,7 +34,7 @@ from fridom.spatial.operators.banded import (
 from fridom.spatial.spaces.nodal import NodeSet
 
 if TYPE_CHECKING:  # pragma: no cover
-    from collections.abc import Callable, Hashable
+    from collections.abc import Callable, Hashable, Iterable
 
     import jax
 
@@ -491,6 +491,53 @@ class VerticalDiffusion:
             kappa=_summed_kappa((self, other)),
             bc=self.bc,
         )
+
+    def restricted_to(
+        self, fields: Iterable[str],
+    ) -> VerticalDiffusion:
+        """
+        Return the same operator over a SUBSET of its fields.
+
+        Description
+        -----------
+        The field-separability seam the phase axis (``fr.model.Phases``)
+        looks for: ``apply`` and ``solve`` are a per-field loop over
+        INDEPENDENT column bands, so restricting the field tuple is
+        exact — the restricted operator produces bit-identical results
+        for the fields it keeps. Declaring this method is what lets the
+        composer SPLIT a merge group whose fields straddle two phase
+        groups (a merged vertical-mixing operator over ``u, v, b``
+        becomes a ``u, v`` solve in the momentum phase and a ``b``
+        solve in the tracer phase) instead of refusing the assembly.
+        An operator whose solve genuinely COUPLES its fields must not
+        define it.
+
+        Parameters
+        ----------
+        fields : Iterable[str]
+            The names to keep; order follows this operator's own
+            ``fields``, and unknown names are ignored.
+
+        Returns
+        -------
+        VerticalDiffusion
+            The restricted operator (same axis, bc and kappa).
+
+        Raises
+        ------
+        ValueError
+            If the restriction keeps no field.
+        """
+        keep = frozenset(fields)
+        kept = tuple(name for name in self.fields if name in keep)
+        if not kept:
+            raise ValueError(
+                f"restricting {self.fields} to {tuple(sorted(keep))} "
+                "keeps no field; an implicit operator needs at least "
+                "one")
+        return VerticalDiffusion(
+            axis=self.axis, fields=kept, kappa=self.kappa,
+            bc=self.bc)
 
 
 # ================================================================

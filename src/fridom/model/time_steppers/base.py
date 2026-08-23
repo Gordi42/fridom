@@ -34,6 +34,31 @@ base class with behavior):
   **unprojected**; the implicit side buffers nothing;
 - explicit fixed-step RK carries the unit pytree ``()`` — only
   multistep memory earns carry.
+
+THE PHASE AXIS (``fr.model.Phases``, ``model/phases.py``). When the
+schedule resolves more than one PROGNOSTIC group, a
+``supports_phases`` stepper runs the canonical substage chain ONCE
+PER GROUP inside a single step — MITgcm's staggered baroclinic
+order: momentum (and the barotropic solve) first, then the tracers,
+which therefore see the post-solve velocities (the section-5.2 read
+rule applied across phases). The invariants of that loop:
+
+- every phase's ``ctx`` carries the **pre-tick** time, so the
+  multistep weights keep applying to tendencies at ``t^n``; the
+  clock is ticked ONCE, after the last phase (this differs from the
+  unphased body, where S3'/S4 see the ticked clock — recorded as the
+  phase convention);
+- ONE warm-up counter per step, ONE ring: after the last phase a
+  single FULL-WIDTH level is pushed, each PROGNOSTIC key taken from
+  the phase that owns it;
+- ``state.add`` per phase applies that phase's keys only.
+
+``supports_phases`` is False by default: a substage-based stepper
+(RK, exponential) would repeat the loop — and its barotropic solve —
+per tableau stage, so a declared axis under one is an assembly
+error, never a silent demotion. The unphased path is untouched: with
+one resolved group the steppers execute their literal one-pass body
+and ``ctx.phase`` stays ``None``.
 """
 # Wave 4 B: TimeStepper, StepperState conventions
 from __future__ import annotations
@@ -134,6 +159,15 @@ class TimeStepper(abc.ABC):
     #: The AdamBashforth and IMEXMultistep families set it; the RK and
     #: exponential families keep the default ``False``.
     supports_split_advance: ClassVar[bool] = False
+
+    #: Whether this stepper runs the canonical substage chain once per
+    #: PROGNOSTIC group when the schedule declares a phase axis
+    #: (``fr.model.Phases``; the module docstring states the loop's
+    #: invariants). The multistep families (``AdamBashforth``,
+    #: ``IMEXMultistep``) set it; RK and the exponential family keep
+    #: the default ``False``, and assembly then REFUSES a declared
+    #: axis with a taught error rather than ignoring it.
+    supports_phases: ClassVar[bool] = False
 
     def __init__(self, dt: float | np.timedelta64) -> None:
         """Convert dt once onto the dynamic leaf; see class doc."""
@@ -256,7 +290,10 @@ class TimeStepper(abc.ABC):
         -----------
         Per substage: P0 ctx -> S1/S1' prepare -> S2 terms -> S3
         advance -> S3' ADVANCE stages -> S4 CONSTRAINT; the stepper
-        owns ``clock.tick(dt)``. S5 (NaN seam) and S6 (DIAGNOSTIC
+        owns ``clock.tick(dt)``. A ``supports_phases`` stepper runs
+        that chain once per group of ``stages.schedule.phases`` when
+        the schedule is phased (module docstring), ticking the clock
+        once after the last phase. S5 (NaN seam) and S6 (DIAGNOSTIC
         stages) are the chunk body's per-step epilogue, never the
         stepper's. ``stages`` arrives as a ``BoundSchedule`` — the
         static schedule closed over the carry's *current* module

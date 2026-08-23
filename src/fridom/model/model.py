@@ -105,6 +105,7 @@ if TYPE_CHECKING:  # pragma: no cover
     )
     from fridom.model.module import Module
     from fridom.model.parameters import ParameterDeclaration
+    from fridom.model.phases import Phases
     from fridom.model.report import AssemblyReport
     from fridom.model.time_steppers.base import (
         StepperState,
@@ -649,6 +650,7 @@ class _LiveBoundSchedule(BoundSchedule):
         dt: Any,
         stage_dt: Any,
         sums: Any = None,
+        phase: int | None = None,
     ) -> StepContext:
         """Build the P0 context with live-stepper parameter reads."""
         table = self.schedule.binding_table
@@ -659,7 +661,8 @@ class _LiveBoundSchedule(BoundSchedule):
             params = table.eval_params(
                 self._modules, self._live_stepper, stage_time)
         return StepContext(params=params, clock=clock, dt=dt,
-                           stage_dt=stage_dt, tendency_sums=sums)
+                           stage_dt=stage_dt, tendency_sums=sums,
+                           phase=self.phase_view(phase))
 
 
 # ================================================================
@@ -1458,6 +1461,20 @@ class Model:
         cannot silently widen the waiver). A bare string is one name,
         never its letters (``allow_unadvanced="w"``). Host-side only:
         no schedule, no term and no number changes (default: ()).
+    phases : Phases | None, optional
+        The phase axis (``fr.model.Phases``): the PROGNOSTIC
+        partition the multistep steppers run the substage chain over,
+        once per group, inside ONE advance —
+        ``phases=fr.model.Phases.staggered()`` is MITgcm's staggered
+        baroclinic order (momentum and the barotropic solve first,
+        then the tracers, which therefore transport with the
+        post-solve velocities). ``Phases(("u", "v", "ps"), ("b",))``
+        names the groups explicitly. ``None`` — the default — and
+        ``Phases.total()`` are the unphased schedule, bitwise
+        identical to each other. Refused under a stepper whose
+        ``supports_phases`` is False (RK, exponential); a term whose
+        write set straddles the groups needs
+        ``@fr.model.term(per_phase=True)`` (default: None).
     """
 
     def __init__(
@@ -1474,6 +1491,7 @@ class Model:
         term_filter: Callable | None = None,
         scaling: object | None = None,
         allow_unadvanced: str | Sequence[str] = (),
+        phases: Phases | None = None,
     ) -> None:
         """Assemble (steps 1-7, 9) and allocate the carry (step 8)."""
         modules = as_tuple(modules)
@@ -1494,10 +1512,12 @@ class Model:
                     "run-config only (one resume path, never two); "
                     "pass them to run(snapshots=...)")
         self._scaling = scaling
+        self._phases = phases
         self._artifacts: AssemblyArtifacts = assemble(
             grid=grid, modules=modules, time_stepper=time_stepper,
             state_type=state_type, name=name, term_filter=term_filter,
-            scaling=scaling, allow_unadvanced=allow_unadvanced)
+            scaling=scaling, allow_unadvanced=allow_unadvanced,
+            phases=phases)
         self._grid = grid
         self._stepper = time_stepper
         self._name = name
@@ -1808,6 +1828,28 @@ class Model:
     def field_table(self) -> FieldTable:
         """The resolved field table (names, spaces, lifecycles)."""
         return self._artifacts.field_table
+
+    @property
+    def phases(self) -> tuple[frozenset[str], ...]:
+        """
+        The resolved PROGNOSTIC partition (the phase axis).
+
+        Description
+        -----------
+        One frozenset per phase, in phase order — what
+        ``Model(phases=fr.model.Phases.staggered())`` resolved
+        against this assembly's field table. A one-element tuple is
+        the UNPHASED schedule (``phases=None`` and
+        ``fr.model.Phases.total()`` both land there), so
+        ``len(model.phases) > 1`` is the honest "is this model
+        staggered?" query.
+
+        Returns
+        -------
+        tuple[frozenset[str], ...]
+            The groups, in phase order.
+        """
+        return self._artifacts.schedule.phases
 
     # ================================================================
     #  State factory (host; section 6.1)
@@ -3164,6 +3206,12 @@ class Model:
         fields is refused: it would extend the FieldTable and break
         the shared parent/variant State treedef.
 
+        The parent's ``phases=`` axis carries over unchanged (it is
+        a property of the shared field table, not of the term set) —
+        so a filtered variant of a staggered model stays staggered.
+        A filter that empties one group trips the phase coverage
+        lint, downgraded to a warning under any filter.
+
         Parameters
         ----------
         term_filter : Callable | None, optional
@@ -3237,7 +3285,7 @@ class Model:
             name=variant_name, term_filter=term_filter,
             chunk_size=self._chunk_size,
             async_chunk_compile=self._async_chunk_compile,
-            scaling=self._scaling)
+            scaling=self._scaling, phases=self._phases)
 
     # ================================================================
     #  Persistence (section 6.4)

@@ -192,6 +192,13 @@ class IMEXMultistep(TimeStepper):
     #: (S3') subcycle with the per-treatment sums attached (03 5.4).
     supports_split_advance: ClassVar[bool] = True
 
+    #: multistep driver: it loops the substage chain over the phase
+    #: groups inside one advance (``fr.model.Phases``; base.py). Each
+    #: implicit merge group is solved in the phase owning its fields
+    #: — a group whose fields straddle is an assembly error (coupled
+    #: implicit blocks are atomic under by-variable splitting).
+    supports_phases: ClassVar[bool] = True
+
     def __init__(
         self,
         dt: float | np.timedelta64,
@@ -293,6 +300,18 @@ class IMEXMultistep(TimeStepper):
         directly; the tick; then S3' ADVANCE and the once-per-step S4
         CONSTRAINT (project-the-state after the solves).
 
+        PHASED (``len(stages.schedule.phases) > 1``): the same
+        algorithm runs once per PROGNOSTIC group at the **pre-tick**
+        time, with the phase's terms, the phase's implicit merge
+        groups (``BoundSchedule.implicit_in``), and the phase's
+        S3'/S4 stages; the state ``replace`` writes that phase's keys
+        only. After the last phase the clock ticks once, the warm-up
+        counter bumps once, and ONE merged full-width level enters
+        each ring (the F ring and, for SBDF, the past-state ring),
+        every key taken from the phase that owns it. With a single
+        group the loop is not entered — the body below is the literal
+        pre-phase-axis sequence.
+
         Parameters
         ----------
         stepper_state : IMEXState
@@ -309,6 +328,9 @@ class IMEXMultistep(TimeStepper):
         tuple[IMEXState, VectorField, Clock]
             The advanced carry entries.
         """
+        if stages.schedule.phased:
+            return self._phased_step(stepper_state, state, stages,
+                                     clock)
         dt = self.dt
         names = stages.schedule.prognostic
         # -- P0 + S1/S1' + S2 at the pre-tick time -------------------
@@ -368,6 +390,112 @@ class IMEXMultistep(TimeStepper):
         # structural ring shift (dataflow renaming): carry only the
         # explicit_depth-1 newest F levels — the oldest is dead
         return IMEXState(f_levels[:-1], x_history, warmup), state, clock
+
+    def _phased_step(
+        self,
+        stepper_state: IMEXState,
+        state: VectorField,
+        stages: BoundSchedule,
+        clock: Clock,
+    ) -> tuple[IMEXState, VectorField, Clock]:
+        """
+        Advance one IMEX step over the phase groups.
+
+        Description
+        -----------
+        The loop :meth:`step` documents. Every phase reads the
+        PRE-TICK clock, shares the warm-up level gather and the
+        carried rings, and takes its own explicit sums, its own
+        forward applies and its own solves; the increments land on
+        the phase's PROGNOSTIC keys only, so the tracer phase's rhs
+        reads the momentum phase's post-solve, post-constraint
+        velocities (the section-5.2 read rule across phases). The
+        merged newest levels close the step.
+
+        Parameters
+        ----------
+        stepper_state : IMEXState
+            The carry entry.
+        state : VectorField
+            The full assembled state vector.
+        stages : BoundSchedule
+            The per-step stage-group view.
+        clock : Clock
+            The pre-step (and, throughout the loop, the ctx) clock.
+
+        Returns
+        -------
+        tuple[IMEXState, VectorField, Clock]
+            The advanced carry entries.
+        """
+        dt = self.dt
+        schedule = stages.schedule
+        names = schedule.prognostic
+        real = dtype_real()
+        explicit_w = jnp.asarray(
+            self._explicit_table, dtype=real)[stepper_state.warmup]
+        state_w = jnp.asarray(
+            self._state_table, dtype=real)[stepper_state.warmup]
+        apply_w = jnp.asarray(
+            self._apply_row, dtype=real)[stepper_state.warmup]
+        gamma = jnp.asarray(
+            self._gamma_row, dtype=real)[stepper_state.warmup]
+        dt_gamma = gamma * dt
+        has_advance = bool(schedule.kind_entries(StageKind.ADVANCE))
+        merged_f: dict[str, ScalarField] = {}
+        merged_x: dict[str, ScalarField] = {}
+        for index, group in enumerate(schedule.phases):
+            ctx = stages.context(clock, dt=dt, stage_dt=dt,
+                                 phase=index)
+            state = stages.prepare(state, ctx, phase=index)
+            sums = stages.tendency(state, ctx, phase=index)
+            f_levels = (sums.explicit, *stepper_state.f_history)
+            # the phase's own pre-advance prognostic snapshot (the
+            # Gauss-Seidel read rule: an earlier phase's writes are
+            # visible, its own keys are untouched)
+            prognostic = _prognostic(state, names)
+            x_current = (prognostic, *stepper_state.x_history)
+            implicit_ops = stages.implicit_in(index)
+            applies = None
+            if self._needs_apply and implicit_ops:
+                applies = _forward_applies(
+                    implicit_ops, state, ctx, sums.explicit)
+            rhs = _scaled(x_current[0], state_w[0])
+            for j in range(1, self._state_depth):
+                rhs = rhs + _scaled(x_current[j], state_w[j])
+            for j in range(self._explicit_depth):
+                rhs = rhs + _scaled(f_levels[j], explicit_w[j] * dt)
+            if applies is not None:
+                rhs = rhs + _scaled(applies, apply_w * dt)
+            owned = tuple(name for name in names if name in group)
+            updates: dict[str, ScalarField] = {
+                name: rhs[name] for name in owned}
+            for operator in implicit_ops:
+                op_rhs = {name: rhs[name] for name in operator.fields}
+                updates.update(operator.solve(op_rhs, dt_gamma, ctx))
+            state = state.replace(**updates)                   # S3
+            post = TendencySums(explicit=sums.explicit,
+                                implicit=applies)
+            ctx = stages.context(clock, dt=dt, stage_dt=dt,
+                                 sums=post, phase=index)
+            if has_advance:
+                state = stages.advance_stages(  # S3'
+                    state, ctx, phase=index)
+            state = stages.constrain(state, ctx, phase=index)  # S4
+            for name in owned:
+                merged_f[name] = sums.explicit[name]
+                merged_x[name] = prognostic[name]
+        clock = clock.tick(dt)
+        warmup = jnp.minimum(stepper_state.warmup + 1,
+                             self._n_levels - 1)
+        newest_f = _merge_levels(merged_f, names)
+        f_history = (newest_f, *stepper_state.f_history)[:-1]
+        if self._state_depth > 1:
+            x_history = (_merge_levels(merged_x, names),
+                         *stepper_state.x_history[:-1])
+        else:
+            x_history = ()
+        return IMEXState(f_history, x_history, warmup), state, clock
 
     def time_discretization_effect(
         self,
@@ -434,6 +562,21 @@ def _prognostic(
         VectorField,
     )
     return VectorField({name: state[name] for name in names})
+
+
+def _merge_levels(
+    parts: dict[str, ScalarField], names: tuple[str, ...],
+) -> VectorField:
+    """Assemble one full-width level from the per-phase parts.
+
+    Each PROGNOSTIC key is taken from the phase that OWNS it, in the
+    declaration order the rings are shaped by — the phase axis's
+    "one merged ring level per step" invariant.
+    """
+    from fridom.spatial.fields.vector_field import (  # noqa: PLC0415 — deferred: avoid a field-core import cycle at module load
+        VectorField,
+    )
+    return VectorField({name: parts[name] for name in names})
 
 
 def _zero_vector(vector: VectorField) -> VectorField:

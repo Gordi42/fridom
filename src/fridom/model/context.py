@@ -25,18 +25,28 @@ if TYPE_CHECKING:  # pragma: no cover
     import jax
 
     from fridom.model.clock import Clock
+    from fridom.model.phases import PhaseView
     from fridom.model.terms import Treatment
 
-# the fixed field set (also the pytree leaf order); StepContext is
-# final and frozen — every attribute is set exactly once
-_CONTEXT_FIELDS: Final[tuple[str, ...]] = (
+# the DYNAMIC field set (also the pytree leaf order)
+_CONTEXT_DYNAMIC: Final[tuple[str, ...]] = (
     "params", "clock", "dt", "stage_dt", "tendency_sums")
+
+# the STATIC field set: ``phase`` rides the treedef aux, so a
+# per_phase hook branches on it at TRACE time (a traced phase index
+# would be unreadable to the schedule filter)
+_CONTEXT_STATIC: Final[tuple[str, ...]] = ("phase",)
+
+# the fixed field set; StepContext is final and frozen — every
+# attribute is set exactly once
+_CONTEXT_FIELDS: Final[tuple[str, ...]] = (
+    *_CONTEXT_DYNAMIC, *_CONTEXT_STATIC)
 
 
 # ================================================================
 #  StepContext
 # ================================================================
-@partial(jaxify, dynamic=_CONTEXT_FIELDS)
+@partial(jaxify, dynamic=_CONTEXT_DYNAMIC)
 class StepContext:
 
     """
@@ -57,6 +67,9 @@ class StepContext:
     extension seam: populated (with the State-valued per-treatment
     sums) for ADVANCE/CONSTRAINT/DIAGNOSTIC stages by the composer
     (wave 3+); ``None`` for terms, SELF_UPDATE, and DIAGNOSE.
+    ``phase`` is the one STATIC field (it rides the treedef aux, not
+    the leaves): the phase axis is a trace-time split, so a
+    ``per_phase`` hook may branch on ``ctx.phase`` freely.
 
     Attributes
     ----------
@@ -84,6 +97,15 @@ class StepContext:
         Per-treatment summed tendency contributions (State-valued)
         — populated for post-TENDENCY hooks only; ``None``
         otherwise (default: None).
+    phase : PhaseView | None
+        The phase this (sub)stage is running in — a STATIC
+        ``fr.model.PhaseView`` with ``.index`` and ``.fields`` (the
+        PROGNOSTIC names the phase advances), so a ``per_phase`` term
+        skips the other groups' work at trace time
+        (``ctx.phase.restrict(names)``). ``None`` on the UNPHASED
+        path (``phases=None``, ``Phases.total()``, and every stepper
+        that does not loop over phases) — the arm every existing hook
+        keeps taking, so its trace is unchanged (default: None).
     """
 
     params: Mapping[str, jax.Array]
@@ -91,6 +113,7 @@ class StepContext:
     dt: jax.Array
     stage_dt: jax.Array
     tendency_sums: Mapping[Treatment, Any] | None
+    phase: PhaseView | None
 
     def __init__(
         self,
@@ -99,6 +122,7 @@ class StepContext:
         dt: Any,
         stage_dt: Any,
         tendency_sums: Mapping[Treatment, Any] | None = None,
+        phase: PhaseView | None = None,
     ) -> None:
         # a mutable dict is copied for isolation from later source
         # mutation; a frozen Params mapping (the in-trace path) is
@@ -109,6 +133,7 @@ class StepContext:
         self.dt = jnp.asarray(dt)
         self.stage_dt = jnp.asarray(stage_dt)
         self.tendency_sums = tendency_sums
+        self.phase = phase
 
     def __setattr__(self, name: str, value: object) -> None:
         """Set a context field exactly once (frozen thereafter)."""
@@ -130,7 +155,9 @@ class StepContext:
         """Return a compact scalar-value repr for host-side logs."""
         sums = ("populated" if self.tendency_sums is not None
                 else "None")
+        phase = ("" if self.phase is None
+                 else f", phase={self.phase!r}")
         return (f"StepContext(params={sorted(self.params)!r}, "
                 f"clock={self.clock!r}, dt={self.dt!r}, "
                 f"stage_dt={self.stage_dt!r}, "
-                f"tendency_sums={sums})")
+                f"tendency_sums={sums}{phase})")
