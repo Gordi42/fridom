@@ -33,6 +33,7 @@ from fridom.nonhydro2.diagnostics import (
     STRATIFICATION_DIAGNOSTICS,
 )
 from fridom.nonhydro2.params import ASPECT_RATIO
+from fridom.spatial.coordinate_mapping import CoordinateMapping
 from fridom.spatial.errors import SpaceMismatchError
 from fridom.spatial.fields.vector_field import VectorField
 from fridom.spatial.grid import Grid
@@ -128,13 +129,37 @@ def test_b_total_runs_on_fv_and_matches_nodal():
     # lands on the buoyancy space of each family
     assert out_nodal.function_space is nodal["b"].function_space
     assert out_fv.function_space is fv["b"].function_space
-    z = np.asarray(nodal["b"].nodes("z").data)
+    z = np.asarray(nodal["b"].evaluation_nodes("z").data)
     expected = np.asarray(nodal["b"].data) + PARAMS[STRATIFICATION_N2] * z
     assert np.allclose(np.asarray(out_nodal.data), expected)
     assert np.allclose(np.asarray(out_fv.data),
                        np.asarray(out_nodal.data))
     assert out_nodal.name == "b_total"
     assert out_nodal.xr.attrs["units"] == "m/s^2"
+
+
+def test_b_total_uses_the_physical_height_on_a_terrain_column():
+    diag = STRATIFICATION_DIAGNOSTICS["b_total"]
+    mx, my, _ = _meshes()
+    mz = IntervalMesh(4, (-1.0, 0.0), periodic=False, name="z")
+    grid = Grid((mx, my, mz), mapping=CoordinateMapping(
+        maps={"zp": lambda z, H: z * H},
+        params={"H": lambda x, y: 1.0 + 0.2 * jnp.sin(x) * jnp.cos(y)}))
+    space = _prod(mx.center, my.center, mz.center)
+    b = grid.create_field(space, init=INITS["b"], name="b")
+    out = diag(VectorField({"b": b}), PARAMS)
+    zp = np.asarray(b.evaluation_nodes("zp").data)
+    z = np.asarray(b.evaluation_nodes("z").data)
+    assert np.allclose(np.asarray(out.data),
+                       np.asarray(b.data) + PARAMS[STRATIFICATION_N2] * zp)
+    assert not np.allclose(zp, np.broadcast_to(z, zp.shape))
+    # a parameter field riding the state is the current geometry
+    two = grid.create_field(_prod(mx.center, my.center, mz.constant),
+                            init=lambda x, y: 2.0 + 0.0 * (x + y))
+    out = diag(VectorField({"b": b, "H": two}), PARAMS)
+    assert np.allclose(
+        np.asarray(out.data),
+        np.asarray(b.data) + PARAMS[STRATIFICATION_N2] * 2.0 * z)
 
 
 def test_b_total_is_bound_by_the_stratification_module():
@@ -146,7 +171,7 @@ def test_b_total_is_bound_by_the_stratification_module():
         advection=None,
         time_stepper=AdamBashforth(1e-3, order=2))
     total = model.diagnostics.b_total()
-    z = np.asarray(model.state["b"].nodes("z").data)
+    z = np.asarray(model.state["b"].evaluation_nodes("z").data)
     assert np.allclose(np.asarray(total.data), 4.0 * z)
     assert model.units.factor("b_total") == 1.0
 
@@ -166,7 +191,7 @@ def test_b_total_nondimensional_background_is_n2_z_in_physical_units():
         advection=None,
         time_stepper=AdamBashforth(1e-3, order=2))
     total = model.diagnostics.b_total()
-    z = np.asarray(model.state["b"].nodes("z").data)
+    z = np.asarray(model.state["b"].evaluation_nodes("z").data)
     assert np.allclose(np.asarray(total.data), rossby / froude**2 * z)
     height = delta * length
     n_freq = speed / (froude * height)

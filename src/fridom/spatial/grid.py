@@ -152,6 +152,8 @@ from fridom.spatial.spaces.trace import Side, TraceSpace
 if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Callable
 
+    import xarray as xr
+
     from fridom.spatial.coordinate_mapping import (
         CoordinateMapping,
     )
@@ -159,6 +161,7 @@ if TYPE_CHECKING:  # pragma: no cover
         Decomposition,
     )
     from fridom.spatial.decomposition.layout import Layout
+    from fridom.spatial.fields.vector_field import VectorField
     from fridom.spatial.immersed_domain import ImmersedDomain
     from fridom.spatial.meshes.mesh import Mesh
     from fridom.spatial.operators.base import Operator
@@ -1150,33 +1153,63 @@ class Grid:
         self,
         space: SpaceLike,
         name: str | None = None,
+        *,
+        params: Mapping[str, ScalarField] | VectorField | None = None,
     ) -> ScalarField:
         """
-        Physical coordinates of the space's evaluation nodes.
+        Coordinates of the space's evaluation nodes, as a field.
 
         Description
         -----------
-        Returns a field tagged with the querying space, with every
-        factor not carrying ``name`` replaced by its
-        ``ConstantSpace`` — so it broadcasts exactly under the
-        strict algebra (sections 2.7, 3.3). ``name`` may be omitted
-        exactly when the space contributes one non-constant name.
+        For a grid coordinate, the per-factor node positions: a field
+        tagged with the querying space, with every factor not
+        carrying ``name`` replaced by its ``ConstantSpace`` — so it
+        broadcasts exactly under the strict algebra (sections 2.7,
+        3.3). ``name`` may be omitted exactly when the space
+        contributes one non-constant name. For a mapped physical
+        coordinate of the attached ``maps=`` mapping (``"zp"`` of
+        ``zp = z H(x, y)``), the map value at the nodes
+        (``CoordinateMapping.positions``), tagged the same way with
+        every coordinate the map involves, ``params=`` supplying the
+        current geometry (the model state, or the parameter fields by
+        name) and None the static defaults. The traced, jit-safe
+        primitive behind :meth:`nodes`.
 
         Parameters
         ----------
         space : SpaceLike
             The querying space (mandatory; no default form).
         name : str | None, optional
-            The coordinate to materialize; may be omitted when
-            unambiguous (default: None).
+            The coordinate to materialize, a grid coordinate or a
+            mapped name; may be omitted when unambiguous (default:
+            None).
+        params : Mapping[str, ScalarField] | VectorField | None, optional
+            Parameter fields of the mapping by name, or a
+            ``VectorField`` (the model state) they are picked out of;
+            accepted for a mapped name only (default: None).
 
         Returns
         -------
         ScalarField
-            The per-factor node coordinates as a field.
+            The node coordinates as a field.
         """
         space = self._laid_out(space)
+        if name is not None and name not in space.names:
+            mapping = self._mapping
+            if mapping is not None and name in mapping.mapped_names:
+                return mapping.positions(space, name, params=params)
+            mapped = (" and the mapping maps "
+                      f"{mapping.mapped_names}"
+                      if mapping is not None and mapping.mapped_names
+                      else "")
+            raise KeyError(
+                f"no factor along {name!r}; the space resolves "
+                f"{space.names}{mapped}")
         name = _pick_factor_name(space, name)
+        if params is not None:
+            raise ValueError(
+                f"params= applies to a mapped physical coordinate; "
+                f"{name!r} is a grid coordinate whose nodes are fixed")
         factor = space.factor(name)
         if isinstance(factor, ConstantSpace):
             # a value error (bad name choice), not a type error
@@ -1394,6 +1427,57 @@ class Grid:
                 "this grid has no coordinate mapping; attach one "
                 "via Grid(..., mapping=...)")
         return self._mapping.metric(space, name, params=params)
+
+    def nodes(
+        self,
+        space: SpaceLike,
+        *,
+        params: Mapping[str, ScalarField] | VectorField | None = None,
+    ) -> xr.Dataset:
+        """
+        Export the nodes of a function space as an ``xarray.Dataset``.
+
+        Description
+        -----------
+        The plotting view of the grid: one space in, one dataset out,
+        laid out like ``ScalarField.xr`` — the dims are the space's
+        coordinate names, each dimension coordinate the 1-D node
+        vector of its factor **at the factor's own position**
+        (centres for ``center``/``cell_avg``, faces for the face
+        family, the position kept in ``c_grid_axis_shift``), constant
+        factors squeezed. A ``maps=`` mapping adds one data variable
+        per mapped physical coordinate the space resolves (``zp``,
+        the map value at the nodes under ``params=``, the static
+        defaults when None); an immersed domain adds the boolean
+        ``wet`` mask on a space resolving every grid coordinate. The
+        tensor coordinates stay 1-D and xarray broadcasts them, so
+        ``grid.nodes(space).plot.scatter(x="y", y="z")`` draws the
+        nodes (over a field's ``.xr.plot()`` with ``ax=``),
+        ``.isel(x=0)`` takes a section, ``.z`` is the column of one
+        factor and ``.stack(node=...)`` the list of points. Host-side
+        and gathered once, never jitted; under a multi-process run
+        the gather is collective (call it on every rank). The traced
+        primitive is :meth:`evaluation_nodes`.
+
+        Parameters
+        ----------
+        space : SpaceLike
+            The function space whose nodes to export.
+        params : Mapping[str, ScalarField] | VectorField | None, optional
+            Parameter fields of the mapping by name, or a
+            ``VectorField`` (the model state) they are picked out of;
+            None evaluates the static defaults (default: None).
+
+        Returns
+        -------
+        xr.Dataset
+            The node coordinates, with the mapped physical
+            coordinates and the wet mask as data variables where the
+            grid carries them.
+        """
+        from fridom.spatial import export  # noqa: PLC0415 — optional xarray
+
+        return export.nodes_dataset(self, space, params=params)
 
     # ================================================================
     #  Attachments

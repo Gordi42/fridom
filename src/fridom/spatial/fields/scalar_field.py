@@ -65,6 +65,7 @@ if TYPE_CHECKING:  # pragma: no cover
     import xarray as xr
 
     from fridom.spatial.decomposition.layout import Layout
+    from fridom.spatial.fields.vector_field import VectorField
     from fridom.spatial.grid import Grid
     from fridom.spatial.scalars import Variance
     from fridom.spatial.spaces.function_space import (
@@ -1009,29 +1010,79 @@ class ScalarField:
     # ================================================================
     #  Grid accessor forwarders (a field carries its grid + space)
     # ================================================================
-    def nodes(self, name: str | None = None) -> ScalarField:
+    def evaluation_nodes(
+        self,
+        name: str | None = None,
+        *,
+        params: Mapping[str, ScalarField] | VectorField | None = None,
+    ) -> ScalarField:
         """
-        Physical coordinates of this field's evaluation nodes.
+        Coordinates of this field's evaluation nodes, as a field.
 
         Description
         -----------
         Thin forwarder to ``grid.evaluation_nodes`` with this field's
         own function space, so callers need not re-thread grid and
-        space (section 2.7). ``name`` may be omitted when the space
-        contributes one non-constant name.
+        space (section 2.7): a grid coordinate gives the per-factor
+        node positions (``name`` may be omitted when the space
+        contributes one non-constant name); a mapped physical
+        coordinate of the grid's ``maps=`` mapping (``"zp"``) gives
+        the map value at the nodes, ``params=`` the current geometry
+        (``b.evaluation_nodes("zp", params=state)``). The traced,
+        jit-safe primitive; :meth:`nodes` is the xarray view.
 
         Parameters
         ----------
         name : str | None, optional
-            The coordinate to materialize; may be omitted when
-            unambiguous (default: None).
+            The coordinate to materialize, a grid coordinate or a
+            mapped name; may be omitted when unambiguous (default:
+            None).
+        params : Mapping[str, ScalarField] | VectorField | None, optional
+            Parameter fields of the mapping by name, or a
+            ``VectorField`` (the model state) they are picked out of;
+            mapped names only (default: None).
 
         Returns
         -------
         ScalarField
-            The per-factor node coordinates as a field.
+            The node coordinates as a field tagged with this space.
         """
-        return self._grid.evaluation_nodes(self._function_space, name)
+        return self._grid.evaluation_nodes(
+            self._function_space, name, params=params)
+
+    def nodes(
+        self,
+        *,
+        params: Mapping[str, ScalarField] | VectorField | None = None,
+    ) -> xr.Dataset:
+        """
+        Export the nodes of this field's space as an ``xarray.Dataset``.
+
+        Description
+        -----------
+        ``grid.nodes`` with this field's own function space: the
+        plotting view of where the field lives, laid out like
+        :attr:`xr` (plain coordinate names, one 1-D dimension
+        coordinate per factor at its own position, the position in
+        ``c_grid_axis_shift``), plus the ``maps=`` physical
+        coordinates and the immersed ``wet`` mask as data variables
+        where the grid carries them —
+        ``b.nodes().isel(x=0).plot.scatter(x="y", y="z")``.
+        Host-side, never jitted.
+
+        Parameters
+        ----------
+        params : Mapping[str, ScalarField] | VectorField | None, optional
+            Parameter fields of the mapping by name, or a
+            ``VectorField`` (the model state) they are picked out of;
+            None evaluates the static defaults (default: None).
+
+        Returns
+        -------
+        xr.Dataset
+            The node coordinates of this field's space.
+        """
+        return self._grid.nodes(self._function_space, params=params)
 
     def measure(self, name: str | None = None) -> ScalarField:
         """

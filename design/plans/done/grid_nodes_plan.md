@@ -1,18 +1,21 @@
 ---
-status: draft
+status: done
 date: 2026-08-23
 ---
 
 # Grid nodes as xarray — plotting the mesh
 
-> **Status 2026-08-23.** Owner asked for a built-in way to look at a
+> **Shipped 2026-08-23** (branch `feat/grid-nodes`, owner-approved
+> API of §3 as revised). Owner asked for a built-in way to look at a
 > grid: "convert the node points to an xarray Dataset / DataArray and
 > use its plotting functions", with four requirements — moving
 > geometry (z*, isopycnal), several function spaces on one plot (faces
 > and centres), a single factor of a tensor mesh (only the `z` mesh of
-> a 3D grid), immersed grids. **§3 is the user-level API awaiting the
-> owner's approval; nothing is implemented.** The facts in §2 come
-> from a code survey of 2026-08-23 (file references inline).
+> a 3D grid), immersed grids. Landed as §3.1, §3.3 and §3.5 (phase 2
+> `model.nodes` with units, §3.4, not started — owner's call); the
+> `b_total` fix of §2 with it; the coastal page drops its hand-rolled
+> scatter on the docs branch. The facts in §2 are the code survey of
+> 2026-08-23 (file references inline).
 
 ## 1. Motivation
 

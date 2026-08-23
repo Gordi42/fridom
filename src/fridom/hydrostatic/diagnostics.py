@@ -124,6 +124,22 @@ def eta(
         name="eta", long_name="Surface elevation", units="m")
 
 
+def _height(state: VectorField, b: ScalarField) -> ScalarField:
+    """Return the vertical position of ``b``'s nodes.
+
+    The physical height: on a terrain or z* column (a ``maps=``
+    mapping whose single-base column sits on ``z``) the mapped
+    coordinate at the nodes under the current parameters the state
+    carries (``eta``, ``H``), otherwise the ``z`` nodes themselves.
+    """
+    mapping = b.grid.mapping
+    column = (None if mapping is None
+              else mapping.column_corrections.get("z"))
+    if column is None or column[1] != "z":
+        return b.evaluation_nodes("z")
+    return b.evaluation_nodes(column[0], params=state)
+
+
 def b_total(
     state: VectorField, params: Mapping[str, object],
 ) -> ScalarField:
@@ -136,12 +152,14 @@ def b_total(
     carries, so the isopycnals of the water column belong to the sum
     of the two. This adds the background back, its gradient assembled
     from the variant's primitives (:func:`_background_n2`) and the
-    vertical coordinate read off the field's own nodes. It is
+    physical height of the field's own nodes (:func:`_height`: the
+    mapped column position under a terrain or z* mapping, at the
+    parameters the state carries). It is
     contributed by ``ConstantStratification`` rather than the core,
     since only that module carries a background.
     """
     b = state["b"]
-    total = b + b.nodes("z") * _background_n2(params)
+    total = b + _height(state, b) * _background_n2(params)
     return b.new_quantity(
         total.data,
         name="b_total", long_name="Total buoyancy", units="m/s^2")

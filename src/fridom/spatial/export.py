@@ -44,6 +44,12 @@ Owning class doc: ``design/specs/grid/classes/grid.md``, section 4
 - **Metadata**: ``FieldMetadata`` maps to ``DataArray`` attrs
   (``long_name``, ``units``, and the ``nc_attrs`` pairs); the
   metadata ``name`` becomes the ``DataArray`` name.
+- **The nodes of a space** (``grid.nodes(space)`` / ``field.nodes()``,
+  :func:`nodes_dataset`) are the plain-name coordinate skeleton of a
+  single-field export with no data — the plotting view of the grid —
+  plus, as data variables, every ``maps=`` physical coordinate the
+  space resolves (the map value at the nodes, ``params=`` threaded)
+  and the boolean ``wet`` mask of an immersed domain.
 
 xarray is an optional (dev) dependency; it is imported lazily.
 """
@@ -64,13 +70,17 @@ from fridom.spatial.spaces.coefficient import (
 from fridom.spatial.spaces.nodal import NodalSpace
 
 if TYPE_CHECKING:  # pragma: no cover
+    from collections.abc import Mapping
+
     import xarray as xr
 
     from fridom.spatial.fields.scalar_field import ScalarField
     from fridom.spatial.fields.vector_field import VectorField
+    from fridom.spatial.grid import Grid
     from fridom.spatial.spaces.function_space import (
         FunctionSpace,
     )
+    from fridom.spatial.spaces.tensor_product import SpaceLike
 
 # comodo/xgcm axis shift per staggered position (center: no shift)
 _AXIS_SHIFT: dict[str, float] = {
@@ -115,6 +125,41 @@ def _position(factor: FunctionSpace) -> str:
         return factor.node_set.name.lower()
     raise NotImplementedError(
         f"xarray export of {factor!r} is not defined in iteration 1")
+
+
+@dataclass(frozen=True)
+class SpaceLayout:
+
+    """
+    Values-free coordinate skeleton of a function space.
+
+    Description
+    -----------
+    The field-independent half of :class:`ExportLayout`: the exported
+    dims, their 1-D coordinate node vectors and attributes, and the
+    storage-axis positions that survive the squeeze of the collapsed
+    factors. Built by :func:`space_layout`; :func:`export_layout`
+    adds the field's name, attributes, dtype and shape,
+    :func:`nodes_dataset` uses it as the dataset of the nodes.
+
+    Parameters
+    ----------
+    dims : tuple[str, ...]
+        The exported dim names, in storage-axis order.
+    coords : dict[str, np.ndarray]
+        Per-dim 1-D coordinate node vector (real).
+    coord_attrs : dict[str, dict[str, object]]
+        Per-dim coordinate attributes (e.g. ``c_grid_axis_shift``,
+        ``representation``, ``units``).
+    kept_axes : tuple[int, ...]
+        The storage-axis position of each exported dim (collapsed
+        factors omitted).
+    """
+
+    dims: tuple[str, ...]
+    coords: dict[str, np.ndarray]
+    coord_attrs: dict[str, dict[str, object]]
+    kept_axes: tuple[int, ...]
 
 
 @dataclass(frozen=True)
@@ -211,42 +256,41 @@ def _host_labels(arr: object) -> np.ndarray:
     return np.asarray(arr)
 
 
-def export_layout(
-    field: ScalarField,
+def space_layout(
+    grid: Grid,
+    space: SpaceLike,
     *,
     positions_in_names: bool = True,
-) -> ExportLayout:
+) -> SpaceLayout:
     """
-    Build the values-free export layout of a ``ScalarField``.
+    Build the values-free coordinate skeleton of a function space.
 
     Description
     -----------
     Realizes the label/coordinate/attribute rules in the module
-    docstring without touching the field data (no
-    ``decomposition.gather``, no ``xarray``). Constant factors are
+    docstring for the factors of ``space`` (no field, no
+    ``decomposition.gather``, no ``xarray``). Collapsed factors are
     squeezed; the surviving storage-axis positions are recorded on
-    ``ExportLayout.kept_axes`` so callers can drop the same positions
-    from a gathered array (see :func:`gathered_values`).
+    ``SpaceLayout.kept_axes``. The coordinate node vectors are read
+    through ``_host_labels``, a collective under a multi-process run.
 
     Parameters
     ----------
-    field : ScalarField
-        The field whose layout to describe.
+    grid : Grid
+        The grid the space's factors live on.
+    space : SpaceLike
+        The function space to describe.
     positions_in_names : bool, optional
         Suffix staggered dims xgcm-style (``x_right``); False
         exports every position under the plain axis name, keeping
-        the position in the ``c_grid_axis_shift`` attribute. Plain
-        names are only safe for a lone ``DataArray``; datasets
-        combining differently staggered variables need the suffixed
-        names (default: True).
+        the position in the ``c_grid_axis_shift`` attribute
+        (default: True).
 
     Returns
     -------
-    ExportLayout
+    SpaceLayout
         The dims/coords/attrs skeleton and the storage-axis mapping.
     """
-    grid = field.grid
-    space = field.function_space
     dims: list[str] = []
     coords: dict[str, np.ndarray] = {}
     coord_attrs: dict[str, dict[str, object]] = {}
@@ -290,20 +334,67 @@ def export_layout(
         coords[dim] = labels
         coord_attrs[dim] = attrs
         kept_axes.append(axis)
-    metadata = field.metadata
-    return ExportLayout(
-        name=metadata.name,
+    return SpaceLayout(
         dims=tuple(dims),
         coords=coords,
         coord_attrs=coord_attrs,
+        kept_axes=tuple(kept_axes),
+    )
+
+
+def export_layout(
+    field: ScalarField,
+    *,
+    positions_in_names: bool = True,
+) -> ExportLayout:
+    """
+    Build the values-free export layout of a ``ScalarField``.
+
+    Description
+    -----------
+    Realizes the label/coordinate/attribute rules in the module
+    docstring without touching the field data (no
+    ``decomposition.gather``, no ``xarray``): the
+    :func:`space_layout` of the field's space, plus the field's name,
+    attributes, dtype and global shape. Constant factors are
+    squeezed; the surviving storage-axis positions are recorded on
+    ``ExportLayout.kept_axes`` so callers can drop the same positions
+    from a gathered array (see :func:`gathered_values`).
+
+    Parameters
+    ----------
+    field : ScalarField
+        The field whose layout to describe.
+    positions_in_names : bool, optional
+        Suffix staggered dims xgcm-style (``x_right``); False
+        exports every position under the plain axis name, keeping
+        the position in the ``c_grid_axis_shift`` attribute. Plain
+        names are only safe for a lone ``DataArray``; datasets
+        combining differently staggered variables need the suffixed
+        names (default: True).
+
+    Returns
+    -------
+    ExportLayout
+        The dims/coords/attrs skeleton and the storage-axis mapping.
+    """
+    skeleton = space_layout(
+        field.grid, field.function_space,
+        positions_in_names=positions_in_names)
+    metadata = field.metadata
+    return ExportLayout(
+        name=metadata.name,
+        dims=skeleton.dims,
+        coords=skeleton.coords,
+        coord_attrs=skeleton.coord_attrs,
         attrs={
             "long_name": metadata.long_name,
             "units": metadata.units,
             **dict(metadata.nc_attrs),
         },
         dtype=np.dtype(field._data.dtype),  # noqa: SLF001 — storage seam
-        shape=tuple(len(coords[dim]) for dim in dims),
-        kept_axes=tuple(kept_axes),
+        shape=tuple(len(skeleton.coords[dim]) for dim in skeleton.dims),
+        kept_axes=skeleton.kept_axes,
     )
 
 
@@ -415,3 +506,85 @@ def vector_to_dataset(vector: VectorField) -> xr.Dataset:
     return xarray.Dataset({
         name: scalar_to_dataarray(component)
         for name, component in vector.components.items()})
+
+
+def _data_variable(
+    field: ScalarField,
+) -> tuple[tuple[str, ...], np.ndarray]:
+    """Gather one field as a plain-name xarray variable tuple."""
+    layout = export_layout(field, positions_in_names=False)
+    return (layout.dims, gathered_values(field, layout))
+
+
+def nodes_dataset(
+    grid: Grid,
+    space: SpaceLike,
+    *,
+    params: Mapping[str, ScalarField] | VectorField | None = None,
+) -> xr.Dataset:
+    """
+    Export the nodes of one function space as an ``xarray.Dataset``.
+
+    Description
+    -----------
+    The plotting view of the grid, the entry points being
+    ``grid.nodes(space)`` and ``field.nodes()``. The dataset is the
+    plain-name coordinate skeleton of a single-field export with no
+    data: the dims are the space's coordinate names, each dimension
+    coordinate the 1-D node vector of its factor **at the factor's
+    own position** (centres for ``center``/``cell_avg``, faces for
+    the face family, the position kept in ``c_grid_axis_shift``),
+    collapsed factors squeezed. Two kinds of data variable join it:
+    every ``maps=`` physical coordinate the space resolves
+    (``grid.mapping.mapped_coords`` lists what each one needs), the
+    map value at the nodes under ``params=`` — the static defaults
+    when None, the current geometry when the model state is passed —
+    and, on a space resolving every grid coordinate of an immersed
+    grid, the boolean ``wet`` mask. The tensor coordinates stay 1-D
+    (xarray broadcasts them when a plot asks for two), so
+    ``ds.plot.scatter(x="y", y="z")`` draws the nodes,
+    ``ds.isel(x=0)`` takes a section and ``ds.stack(node=ds.dims)``
+    is the list of points. Gathered once on the host; under a
+    multi-process run the gather is collective (call it on every
+    rank).
+
+    Parameters
+    ----------
+    grid : Grid
+        The grid the space's factors live on.
+    space : SpaceLike
+        The function space whose nodes to export.
+    params : Mapping[str, ScalarField] | VectorField | None, optional
+        Parameter fields of the grid's mapping by name, or a
+        ``VectorField`` (the model state) they are picked out of;
+        None evaluates the static defaults (default: None).
+
+    Returns
+    -------
+    xr.Dataset
+        The node coordinates, with the physical coordinates and the
+        wet mask as data variables where the grid carries them.
+    """
+    xarray = _import_xarray()
+    skeleton = space_layout(grid, space, positions_in_names=False)
+    coords = {
+        dim: (dim, skeleton.coords[dim], skeleton.coord_attrs[dim])
+        for dim in skeleton.dims}
+    # the coordinates the space resolves with a placed node set: a
+    # mapped coordinate needs every coordinate it depends on, the
+    # immersed mask every coordinate of the grid
+    resolved = {
+        name for factor in space.factors
+        if isinstance(factor, NodalSpace | CellAvg | FaceAvg)
+        for name in factor.names}
+    variables: dict[str, tuple[tuple[str, ...], np.ndarray]] = {}
+    mapping = grid.mapping
+    if mapping is not None:
+        for name, deps in mapping.mapped_coords.items():
+            if set(deps) <= resolved:
+                variables[name] = _data_variable(
+                    mapping.positions(space, name, params=params))
+    immersed = grid.immersed
+    if immersed is not None and resolved == set(grid.names):
+        variables["wet"] = _data_variable(immersed.mask(space))
+    return xarray.Dataset(variables, coords=coords)

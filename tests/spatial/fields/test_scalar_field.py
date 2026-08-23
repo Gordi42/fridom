@@ -3,6 +3,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
+import xarray as xr
 
 from fridom.spatial.bc import BC
 from fridom.spatial.coordinate_mapping import CoordinateMapping
@@ -703,8 +704,14 @@ def test_xr_is_the_export_entry_point(f):
 # ================================================================
 #  Grid accessor forwarders (R16a)
 # ================================================================
-def test_nodes_forwards_to_grid(f, grid):
-    field = f.nodes("x")
+def test_nodes_is_the_xarray_view_of_the_space(f, grid):
+    ds = f.nodes()
+    assert isinstance(ds, xr.Dataset)
+    xr.testing.assert_identical(ds, grid.nodes(f.function_space))
+
+
+def test_evaluation_nodes_forwards_to_grid(f, grid):
+    field = f.evaluation_nodes("x")
     ref = grid.evaluation_nodes(f.function_space, "x")
     assert field.function_space is ref.function_space
     assert jnp.array_equal(field.data, ref.data)

@@ -969,6 +969,37 @@ accessor (doc 02 surface); its semantics are:
   with real wavenumber coords from `grid.wavenumbers` (`mode_index`
   for Chebyshev), a `representation` coordinate attribute, complex
   values passed through to xarray.
+- **The nodes of a space export as a `Dataset`** (amended
+  2026-08-23, owner-approved API,
+  [`grid_nodes_plan.md`](../../../plans/done/grid_nodes_plan.md)):
+  `grid.nodes(space, params=None)` and `field.nodes(params=None)`
+  (`export.nodes_dataset`) return the plain-name coordinate skeleton
+  of a single-field export with no data — one 1-D dimension
+  coordinate per factor at the factor's own position, the position in
+  `c_grid_axis_shift`, collapsed factors squeezed — plus, as data
+  variables, every `maps=` physical coordinate the space resolves
+  (the map value at the nodes, `CoordinateMapping.positions`,
+  `params=` the current geometry) and the boolean `wet` mask of an
+  immersed domain on a space resolving every grid coordinate. One
+  space per call, no position suffixes; several spaces on one plot
+  are several calls on one `ax`. The layout is CF's dimension vs
+  auxiliary coordinates, so an unstructured factor (planned) joins
+  as an index dimension with auxiliary position variables. The
+  traced primitive is `grid.evaluation_nodes(space, name, params=)`
+  / `field.evaluation_nodes(name, params=)`, which accept a mapped
+  name; the former `field.nodes(name)` was renamed to
+  `field.evaluation_nodes(name)` to free the xarray spelling.
+
+- **Amendment (2026-08-23): the map value.**
+  `positions(space, name, params=None)` materializes a mapped
+  physical coordinate itself — the primal whose tangents the
+  `d<m>_d<b>` rows are — at the nodes of the requested space, through
+  the same parameter pipeline and `params=` overload as `metric`;
+  `mapped_names` / `mapped_coords` list the mapped coordinates and
+  what each depends on. `params=` (on `metric` too) accepts a
+  `VectorField` such as the model state, the declared parameters
+  picked out by name (the `mapping_params` convention). `b_total`
+  reads the physical height through it on a terrain or z\* column.
 
 ---
 

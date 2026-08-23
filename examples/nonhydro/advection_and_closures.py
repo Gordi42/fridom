@@ -133,12 +133,12 @@ energy_metric = fr.model.EnergyMetric(
 
 def total_buoyancy(b):
     """Return the buoyancy including the background stratification."""
-    return b + stratification * b.nodes("z")
+    return b + stratification * b.evaluation_nodes("z")
 
 
 def potential_energy(b):
     """Return the potential energy of a total buoyancy field."""
-    return -(b * b.nodes("z")).integrate()
+    return -(b * b.evaluation_nodes("z")).integrate()
 
 
 def stacked(b):
