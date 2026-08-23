@@ -104,7 +104,8 @@ class Tracer:
         return {"b": state["b"] * 0.0 + 3.0}
 
     def clamp(self, state, ctx):
-        LOG.append(("constrain_b", _phase(ctx)))
+        LOG.append(("constrain_b", _phase(ctx),
+                    getattr(ctx.clock, "time", ctx.clock)))
         return {"b": state["b"] * 1.0}
 
 
@@ -235,6 +236,20 @@ def test_phase_one_reads_the_phase_zero_advanced_velocity(
     assert read_first == 0.0
     # AB1 warm-up row: u += dt * (1.0 + 0.5) = 0.75, then x2
     assert read_last == pytest.approx(1.5)
+
+
+def test_every_phase_reads_the_pre_tick_clock(field_table):
+    # THE PHASE CONVENTION (and the one delta vs the unphased body,
+    # where S3'/S4 run at the TICKED clock): under phases the clock
+    # advances once, after the last phase, so every hook -- the S4
+    # constraint of the LAST phase included -- sees t^n and the
+    # multistep weights keep applying to tendencies at t^n
+    schedule = build(field_table, Phases(("u", "ps"), ("b",)))
+    _stepper_state, _state, clock = one_step(
+        schedule, field_table, dt=0.5)
+    seen = [entry[2] for entry in LOG if entry[0] == "constrain_b"]
+    assert [float(value) for value in seen] == [0.0]
+    assert float(clock.time) == pytest.approx(0.5)
 
 
 def test_the_clock_ticks_once_for_the_whole_step(field_table):

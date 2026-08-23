@@ -65,7 +65,7 @@ def hy_grid(device_ids=None):
 
 
 def hy_model(phases=None, *, n2=1.0, advection=True, dt=DT,
-             device_ids=None, stepper=None):
+             device_ids=None, stepper=None, free_surface=None):
     """Assemble a small hydrostatic model with an implicit surface."""
     return hy.Model(
         grid=hy_grid(device_ids),
@@ -73,7 +73,7 @@ def hy_model(phases=None, *, n2=1.0, advection=True, dt=DT,
         time_stepper=stepper or AdamBashforth(dt, order=3),
         coriolis=hy.FPlaneCoriolis(f0=0.5),
         buoyancy=hy.ConstantStratification(n2=n2),
-        free_surface=hy.ImplicitFreeSurface(),
+        free_surface=free_surface or hy.ImplicitFreeSurface(),
         advection=(fr.model.modules.CenteredAdvection()
                    if advection else None),
         phases=phases)
@@ -180,6 +180,35 @@ def test_the_staggered_partition_is_momentum_then_tracers():
     model = hy_model(STAGGERED)
     assert model.phases == (
         frozenset({"u", "v", "ps"}), frozenset({"b"}))
+
+
+def test_an_explicit_free_surface_leaves_ps_with_the_tracers():
+    # the role-derived rule reads the Velocity ROLES and the
+    # ADVANCE/CONSTRAINT CLAIMS. An explicitly advanced ps carries
+    # neither (a plain term integrates it), so it lands in the "rest"
+    # group -- name the groups explicitly when that is not what the
+    # staggered order should be.
+    model = hy_model(STAGGERED,
+                     free_surface=hy.ExplicitFreeSurface())
+    assert model.phases == (frozenset({"u", "v"}),
+                            frozenset({"ps", "b"}))
+    named = hy_model(fr.model.Phases(("u", "v", "ps"), ("b",)),
+                     free_surface=hy.ExplicitFreeSurface())
+    assert named.phases == (frozenset({"u", "v", "ps"}),
+                            frozenset({"b"}))
+
+
+def test_the_split_explicit_surface_stays_in_the_momentum_phase():
+    # the ADVANCE claim on (ps, U, V) puts all three barotropic
+    # prognostics in group 0, and the pinned barotropic_snapshot runs
+    # ONLY there -- a second snapshot in the tracer phase would
+    # buffer the already-advanced u, v and zero the V-H4 forcing
+    model = hy_model(STAGGERED,
+                     free_surface=hy.SplitExplicitFreeSurface())
+    assert model.phases == (frozenset({"u", "v", "ps", "U", "V"}),
+                            frozenset({"b"}))
+    state = run(model)
+    assert all(np.isfinite(value).all() for value in state.values())
 
 
 def test_a_staggered_run_stays_finite():
