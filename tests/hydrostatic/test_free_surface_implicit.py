@@ -189,10 +189,12 @@ def test_ps_lifecycle_depends_on_epsilon():
 #  The refactor: each variant owns BOTH sides of its coupling
 # ================================================================
 def test_core_pressure_gradient_no_longer_reads_ps():
-    # HY-D3 refactor: the core reads only the baroclinic p_hyd
+    # HY-D3 refactor: the core reads only the baroclinic p_hyd; since
+    # a12bfddf (buoyancy optional) it declares no field reference at
+    # all -- a missing ``b`` is the constant-density model, not an error
     refs = {r.name for r in hy.Core().field_references}
     assert "ps" not in refs
-    assert "b" in refs
+    assert "b" not in refs
 
 
 def test_explicit_free_surface_owns_the_momentum_term():
