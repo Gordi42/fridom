@@ -240,13 +240,62 @@ once; autodiff.
 Lagrangian + periodic-regrid variant — the only genuinely new
 numerics in this plan.
 
+## 4b. The staggered step — option (b) as a program (2026-08-23)
+
+Planned by two lenses
+([`../../research/staggered_step_planning.md`](../../research/staggered_step_planning.md));
+they converge on the architecture and the numerics lens corrects the
+premise: option (b) alone changes a constant, not an order — the
+implicit/split defect is O(Δt²) per step, the same order as the
+residual the intensive multistep formulation carries anyway; the
+space-GCL is already exact. Exactness needs (b) plus a formulation
+change. The program, in dependency order:
+
+- **P1 — the FV wall closure under a material surface** (prerequisite
+  for any FV z\* budget gate; O(1) today). Ruling (b) of
+  `design/decisions/physical_state_components.md` keeps the stored
+  `w` physical and re-derives fluxes on demand (`state.chart`), so
+  the REL spelling is: on a column whose geometry moves, the mapped
+  FV advection's vertical flux is the **relative** contravariant flux
+  `Jω − ż` (`ż = Σ_p d<m>_d<p>·<p>_dot`, the same metric read the
+  ALE module makes), derived on demand inside the mapped divergence /
+  `state.chart` — structurally zero at both walls, consistent with
+  the Inner closure — and `MeshVelocityCorrection`'s flux route
+  reduces to the pointwise `−(b/J) D_b(ż)`. The Outer closure stays
+  for moving *rigid* walls (the nonhydro2 morph: a wall moving
+  through the fluid), selected by the geometry module (a material
+  surface declares itself). Gate: uniform `b` under z\* on FV —
+  `Σ_k J (advection + ALE)_k Δz == 0.0` in every cell including the
+  surface cell.
+- **P2 — the phase axis** (`feat/schedule-phases`, in progress):
+  `fr.model.Phases`, `Stage.phase`, `TendencyTerm.per_phase`,
+  `StepContext.phase`, the composer partition and lints, the phase
+  loop in the multistep steppers, `Model(phases=...)`; unphased path
+  bitwise; RK / exponential refused.
+- **P3 — the hydrostatic half** (`feat/zstar-staggered`, after P2):
+  `ZStarGeometry`'s two phase-pinned SELF_UPDATE stages (`eta_prev`;
+  phase 1: `eta_dot = (eta − eta_prev)/dt`, MITgcm's `rStarDhCDt`),
+  the implicit `exactConserv` identity `ε Δps = −Δt g T*(u^{n+1})`
+  and the split-explicit secondary-weight identity `Δps = −Δt g ∇·Ū`
+  pinned as algebraic tests, the `u^corr = (Ū − U)/H` transport
+  correction for the tracer phase, `phases=Phases.staggered()` on
+  `hy.Model`. Residual after P3 with intensive tracers: constancy
+  exact, conservation O(Δt²)/step with a smaller constant (an
+  order-regression gate, not an exactness gate).
+- **P4 — exactness** (owner call §5.8): the extensive tracer `J b`
+  (`ale_on_fv.md` option D) with the relative flux gives both
+  properties exactly — regime (E) under the explicit free surface
+  with AB3 accuracy retained; regime (S) under implicit/split with a
+  single-level tracer phase (first-order transport, MITgcm). It
+  touches every `b`-writing module (advection, closures, forcing,
+  restoring), IO/diagnostics (`b = φ/J`) and the IC seam.
+
 ## 5. Owner calls
 
-1. z* with the implicit / split-explicit free surface: accept the
-   documented `O(Δt)` GCL residual, feed the constraint's realized
-   `Δη/Δt` into the next step's `η_dot` (lagged), or restrict z* to
-   the explicit variant in iteration 1 (the gates use the explicit
-   variant).
+1. ~~z* with the implicit / split-explicit free surface~~ — owner
+   chose option (b), 2026-08-23; it is the program of §4b (the
+   residual is O(Δt²)/step, same order as the intensive formulation's
+   own; exactness is P4).
 2. Stage I parameter placement: cell-centre heights (the machinery
    as is; `J` at centres is the wide 3-point difference) vs
    face-declared parameters (needs face-space parameter alignment).
@@ -273,3 +322,17 @@ numerics in this plan.
    `fix/validation-gates-binary-tail`).
 7. Stage I's I1 (the wall closure of parameter tangents along a
    bounded base coordinate): design review before the change.
+8. **P4 — the extensive tracer `J b`**: the only route to exact
+   moving-geometry budgets (planning record §2); a formulation change
+   across every tracer-writing module — build, or record as the
+   designed-for horizon it was in `ale_on_fv.md`?
+9. P2 conventions the planners could not settle: the phase-1 context
+   clock (`t^n`, recommended, vs `t^{n+1}`), `stage_dt` per phase,
+   the default phase of an unclaimed CONSTRAINT ("every phase it
+   writes into", recommended, vs "last phase"), and whether RK ×
+   phases (Oceananigans' per-stage barotropic solve) is worth its
+   3× solve cost.
+10. `ExplicitRungeKutta.step` discards the per-stage constrained
+    state (`runge_kutta.py:301`, no assignment; `LowStorageRK3` does
+    assign) — deliberate, or a bug that makes per-stage projection a
+    no-op on that stepper?
