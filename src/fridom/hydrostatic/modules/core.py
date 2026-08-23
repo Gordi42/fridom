@@ -75,6 +75,33 @@ The linear pressure-gradient term reads the **baroclinic** pressure
     \partial_t u = -\partial_x p_{hyd}, \qquad
     \partial_t v = -\partial_y p_{hyd}.
 
+**The discretization family (FV-D3, stage F3).** ``hy.Core(family=)``
+chooses between the nodal point-value C-grid (the default) and the
+**finite-volume** (cell-average) one: under ``family="fv"`` the cell
+scalars ``p_hyd`` / ``b`` land on ``CellAvg`` and the velocities keep
+their point value along their own axis while going cell-average
+transversely (``u`` on ``Right(x) ⊗ CellAvg(y) ⊗ CellAvg(z)``, FV-D2
+option A); the diagnosed ``w`` is the transversely averaged
+``Outer(z)`` face. The core then contributes the FV C-grid ``diff``
+profile (:func:`fv_cgrid_overrides`) through the grid-aware dispatch
+hook, which re-points ``("diff", CellAvg) -> FaceDifference`` and
+``("diff", face) -> FluxDifference`` per mesh factor — so every
+staggered difference of the package (the continuity divergence, both
+pressure gradients, the transport divergences of the free-surface
+family and ``ZStarGeometry``, the barotropic ``Div @ Diag @ Grad``
+chain) becomes the exact discrete Gauss / face-difference row without
+a single family branch in the physics. On a flat periodic box the two
+families' 2nd-order stencils are bit-identical, so an FV model is
+bitwise the nodal one there.
+
+There is **no auto flip** (:func:`resolve_model_family`): ``None``
+follows ``grid.default_family``, so every pre-existing assembly stays
+nodal. The ``hy.Model`` factory adopts the resolved family as the
+grid default, which is what makes ``b``, ``ps``, the split-explicit
+``U`` / ``V`` and a z* ``eta`` follow the core. ``family="fv"`` on an
+immersed (cut-cell) grid is a taught refusal — the hydrostatic
+cut-cell path is nodal with explicit fractions.
+
 The barotropic ``-\nabla_h p_s`` momentum coupling is **owned by the
 free-surface variant** (H3): each variant owns both sides of its
 coupling — ``ExplicitFreeSurface`` carries ``-\nabla_h p_s`` as a
@@ -115,9 +142,17 @@ from fridom.hydrostatic.units import (
 from fridom.model.halo_demand import derive_extra_halo
 from fridom.model.modules.moving_geometry import mapping_params
 from fridom.model.roles import Velocity
+from fridom.spatial.bc import BC
 from fridom.spatial.fields.scalar_field import _bc_siblings
 from fridom.spatial.operators.cumulative import CumulativeIntegral
-from fridom.spatial.spaces.average import AverageSpace
+from fridom.spatial.operators.flux_diff import (
+    FaceDifference,
+    FluxDifference,
+)
+from fridom.spatial.space_patterns import FAMILIES
+from fridom.spatial.spaces.average import AverageSpace, CellAvg
+from fridom.spatial.spaces.constant import ConstantSpace
+from fridom.spatial.spaces.nodal import NodalSpace, NodeSet
 from fridom.spatial.spaces.tensor_product import TensorProductSpace
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -127,18 +162,228 @@ if TYPE_CHECKING:  # pragma: no cover
     from fridom.spatial.decomposition.halo import HaloSpec
     from fridom.spatial.fields.scalar_field import ScalarField
     from fridom.spatial.grid import Grid
+    from fridom.spatial.operators.base import Operator
+    from fridom.spatial.operators.registry import DispatchKey
     from fridom.spatial.spaces.function_space import FunctionSpace
+
+
+# ================================================================
+#  The discretization family (FV-D3 / stage F3, hydrostatic)
+# ================================================================
+def effective_family(family: str | None, grid: Grid) -> str:
+    """Return the family a declaration resolves into on ``grid``.
+
+    Description
+    -----------
+    The pattern-resolution rule of
+    :meth:`~fridom.spatial.space_patterns.SpacePattern.resolve`,
+    lifted so the module-side spellings (the ``w`` space rule, the
+    dispatch profile) agree with the declarations exactly: an explicit
+    ``family`` wins, ``None`` defers to ``grid.default_family``.
+
+    Parameters
+    ----------
+    family : str | None
+        The requested family (None = defer to the grid).
+    grid : Grid
+        The assembled grid.
+
+    Returns
+    -------
+    str
+        ``"nodal"`` or ``"fv"``.
+    """
+    if family is not None:
+        return family
+    return getattr(grid, "default_family", "nodal")
+
+
+def _require_fv_capable(grid: Grid) -> None:
+    """Refuse the FV family on an immersed (cut-cell) grid.
+
+    Description
+    -----------
+    The hydrostatic immersed path is **nodal with explicit fractions**:
+    the masked continuity, the wet barotropic reductions and the
+    open-face gates all multiply concrete ``alpha`` fields onto nodal
+    point values (IP-D9). None of that machinery is written against the
+    average family — the min-rule face fractions live on the nodal
+    velocity faces and the cut-cell centroid geometry on ``Center``
+    cells — so an FV immersed run would silently mix a cell-average
+    state with fraction weights derived for point values. It is a
+    taught refusal, never a silent fallback; the nodal immersed path is
+    unchanged and remains the supported cut-cell spelling.
+
+    Parameters
+    ----------
+    grid : Grid
+        The assembled grid.
+
+    Raises
+    ------
+    NotImplementedError
+        If the grid carries an immersed domain.
+    """
+    if getattr(grid, "immersed", None) is None:
+        return
+    raise NotImplementedError(
+        "hy.Core(family='fv') on an immersed grid is not supported: "
+        "the hydrostatic cut-cell path is nodal with explicit "
+        "fractions (the masked continuity, the wet barotropic "
+        "reductions and the open-face gates multiply min-rule "
+        "alpha fields onto point-valued C-grid faces, IP-D9), and "
+        "none of that machinery is written against the CellAvg "
+        "family — an FV immersed run would weight cell averages with "
+        "point-value fractions. Use family='nodal' (the immersed "
+        "default) or drop the immersed domain.")
+
+
+def resolve_model_family(family: str | None, grid: Grid) -> str:
+    r"""Resolve a hydrostatic model-assembly family choice (stage F3).
+
+    Description
+    -----------
+    The hydrostatic twin of ``nonhydro2``'s
+    ``resolve_model_family``, with **no auto flip**: ``None`` follows
+    the grid's own ``default_family`` verbatim, so a plain
+    ``fr.spatial.Grid(...)`` keeps the nodal point-value C-grid and
+    every pre-existing hydrostatic assembly is bitwise unchanged (the
+    nodal-bitwise gate). The finite-volume family is reached by asking
+    for it — ``hy.Core(family="fv")`` or a grid that declares
+    ``grid.set_default_family("fv")``.
+
+    This deliberately differs from the nonhydrostatic package, which
+    promotes ``None -> "fv"`` on every grid: there the two families'
+    2nd-order stencils are bit-identical on the pressure chain, while
+    the hydrostatic column carries a cumulative integral, a barotropic
+    2-D solve and (on a cut-cell grid) an explicitly nodal masked
+    path — so the flip is opt-in until each of those has been walked
+    through on FV.
+
+    Parameters
+    ----------
+    family : str | None
+        The requested family, or None to follow the grid.
+    grid : Grid
+        The assembled grid the model runs on.
+
+    Returns
+    -------
+    str
+        The resolved concrete family (``"nodal"`` or ``"fv"``).
+
+    Raises
+    ------
+    ValueError
+        If ``family`` is neither None nor a known family name.
+    NotImplementedError
+        If the resolved family is ``"fv"`` on an immersed grid.
+    """
+    resolved = effective_family(family, grid)
+    if resolved not in FAMILIES:
+        raise ValueError(
+            f"the model family must be one of {FAMILIES} or None "
+            f"(follow the grid default), got {resolved!r}")
+    if resolved == "fv":
+        _require_fv_capable(grid)
+    return resolved
+
+
+def fv_cgrid_overrides(
+    meshes: tuple, vertical: str,
+) -> dict[DispatchKey, Operator]:
+    r"""Build the hydrostatic FV C-grid ``diff`` override profile.
+
+    Description
+    -----------
+    Re-points the vector-calculus ``("diff", factor)`` resolution so
+    that every horizontal C-grid difference staggers on the average
+    family exactly as the nodal C-grid does on the point-value family
+    (FV-D3): the cell-average pressure gradient staggers onto the face
+    (``("diff", CellAvg) -> FaceDifference``) and the face-flux
+    divergence lands back on the cell (``("diff", face) ->
+    FluxDifference``, the exact discrete Gauss row). With the profile
+    merged, the family-agnostic spellings of the whole package —
+    ``fu.diff(x) + fv.diff(y)`` in the continuity DIAGNOSE, the
+    transport divergences of the free-surface family and
+    ``ZStarGeometry``, ``-grad p_hyd`` and ``-grad ps`` — are FV-correct
+    without a single family branch, and (on a periodic flat box) carry
+    bit-identical numbers to the nodal C-grid.
+
+    The **vertical** picks up one row the nonhydrostatic profile does
+    not need: the diagnosed ``w`` lives on the both-boundary face set
+    ``Outer`` (the face-form ``CumulativeIntegral`` codomain), so
+    ``("diff", Outer)`` is re-pointed to ``FluxDifference`` as well
+    (``Outer -> CellAvg``, the exact Gauss row that makes
+    ``d_z (J omega) == -(d_x (Ju) + d_y (Jv))`` land on the buoyancy
+    cell to machine precision). Its nodal counterpart is
+    ``Outer -> Center`` through the seeded ``FiniteDifference``, which
+    is the same two-point stencil.
+
+    Re-pointing the column's ``("diff", CellAvg)`` to
+    ``FaceDifference`` also **replaces** the seeded ``FVDerivative``
+    chain (``reconstruct`` onto the interior faces, then
+    ``flux_diff`` back), whose zero-padded wall faces make the
+    co-located column derivative O(1/dz) wrong in the boundary cells.
+    The face derivative itself is wall-free (``Inner`` excludes the
+    walls); the *return* hop onto the cell is where the FV family has
+    no consistent closure, and
+    :meth:`Core._slope_gradient` takes it through the nodal
+    co-located sibling instead (see there).
+
+    On a **periodic** mesh factor the overrides key the periodic face
+    (``Right``); on a **bounded** factor the interior face (``Inner``)
+    and, for the pressure, the Neumann-tagged ``CellAvg`` origin the
+    walled barotropic solve expands on. The nodal ``("diff", ...)``
+    chains are untouched — the profile rides only an FV assembly.
+
+    Parameters
+    ----------
+    meshes : tuple
+        The grid's mesh factors (``grid.factors``).
+    vertical : str
+        The vertical coordinate name (the axis carrying ``Outer``).
+
+    Returns
+    -------
+    dict[DispatchKey, Operator]
+        The per-mesh-factor ``diff`` profile.
+    """
+    face_diff = FaceDifference()
+    flux_diff = FluxDifference()
+    overrides: dict[DispatchKey, Operator] = {}
+    for mesh in meshes:
+        try:
+            cell_avg = mesh.cell_avg
+        except (AttributeError, ValueError, NotImplementedError):
+            continue  # a mesh without the FV / cell-average family
+        overrides[("diff", cell_avg)] = face_diff
+        if getattr(mesh, "periodic", False):
+            overrides[("diff", mesh.right)] = flux_diff
+            continue
+        # bounded: the tagged pressure origin, the interior face (both
+        # BC-free and the wall-normal Dirichlet claim) and -- on the
+        # vertical -- the both-boundary w faces
+        overrides[("diff", mesh.average(CellAvg, bc=BC.NEUMANN))] = (
+            face_diff)
+        overrides[("diff", mesh.inner)] = flux_diff
+        overrides[("diff", mesh.nodal(
+            NodeSet.INNER, bc=BC.DIRICHLET))] = flux_diff
+        if vertical in mesh.names:
+            overrides[("diff", mesh.outer)] = flux_diff
+    return overrides
 
 
 def _make_w_space_rule(
     vertical: str,
+    family: str | None = None,
 ) -> Callable[[Grid], FunctionSpace]:
     """Build the ``w`` space rule: collocated horizontal, Outer vertical.
 
     Description
     -----------
     The diagnosed vertical velocity lives at the C-grid w-points: the
-    cell centres in the horizontal (co-located with ``p_hyd`` / ``b``)
+    cell scalars in the horizontal (co-located with ``p_hyd`` / ``b``)
     and the **both-boundary** face set ``Outer`` along ``vertical``
     (n + 1 faces, including the flat bottom ``w = 0`` and the free
     surface). No ``Dof`` tag resolves to ``Outer`` (``Staggered`` is
@@ -146,10 +391,21 @@ def _make_w_space_rule(
     through this ``SpaceRule`` escape hatch — the space the face-form
     ``CumulativeIntegral`` lands on, so the DIAGNOSE write is exact.
 
+    The rule is **family-aware** (FV-D2 option A): the horizontal
+    factors are ``Center`` on the nodal family and ``CellAvg`` on the
+    finite-volume one — the transversely cell-averaged twin of the
+    same face — while the vertical stays the point-valued ``Outer``
+    face on both. The face-form ``CumulativeIntegral`` carries
+    ``CellAvg -> Outer`` exactly as it carries ``Center -> Outer``, so
+    the DIAGNOSE write is exact on either family.
+
     Parameters
     ----------
     vertical : str
         The vertical coordinate name.
+    family : str | None, optional
+        The requested discretization family; ``None`` defers to the
+        grid-level default (default: None).
 
     Returns
     -------
@@ -157,12 +413,13 @@ def _make_w_space_rule(
         The pure per-grid space rule.
     """
     def rule(grid: Grid) -> FunctionSpace:
+        fv = effective_family(family, grid) == "fv"
         factors = []
         for mesh in grid.factors:
             if vertical in mesh.names:
                 factors.append(mesh.outer)
             else:
-                factors.append(mesh.center)
+                factors.append(mesh.cell_avg if fv else mesh.center)
         return TensorProductSpace.of(*factors)
 
     return rule
@@ -188,6 +445,23 @@ class Core(fr.model.Module):
     horizontal : tuple[str, str], optional
         The (zonal, meridional) coordinate names of the two velocity
         components (default: ``("x", "y")``).
+    family : str | None, optional
+        The discretization family of the core state (FV-D3, stage F3):
+        ``"fv"`` declares the finite-volume (cell-average) C-grid —
+        ``p_hyd`` on ``CellAvg(x) ⊗ CellAvg(y) ⊗ CellAvg(z)``, ``u`` /
+        ``v`` point-valued along their own axis and cell-averaged
+        transversely (``Right(x) ⊗ CellAvg(y) ⊗ CellAvg(z)``, FV-D2
+        option A), the diagnosed ``w`` on ``CellAvg(x) ⊗ CellAvg(y) ⊗
+        Outer(z)`` — and seeds the FV C-grid ``diff`` profile so every
+        staggered difference of the package staggers on the average
+        family. ``"nodal"`` is the point-value C-grid. ``None`` — the
+        default — defers to the grid-level default
+        (``grid.default_family``), which is ``"nodal"`` unless the grid
+        or the ``hy.Model`` factory says otherwise; there is **no** auto
+        flip, so every existing assembly stays bitwise nodal
+        (:func:`resolve_model_family`). ``family="fv"`` on an immersed
+        (cut-cell) grid is a taught error — the hydrostatic cut-cell
+        path is nodal with explicit fractions (default: None).
     """
 
     state_type = State
@@ -199,15 +473,22 @@ class Core(fr.model.Module):
         gravity: float | fr.model.Ramp | None = None,
         vertical: str = "z",
         horizontal: tuple[str, str] = ("x", "y"),
+        family: str | None = None,
     ) -> None:
-        """Store the gravity leaf and the geometry names.
+        """Store the gravity leaf, the geometry names and the family.
 
         Raises
         ------
         TypeError
             On malformed ``horizontal`` names, or ``gravity=0`` (the
             energy weight and analytic consumers divide by it).
+        ValueError
+            On an unknown ``family``.
         """
+        if family is not None and family not in FAMILIES:
+            raise ValueError(
+                f"hy.Core family must be one of {FAMILIES} or None "
+                f"(follow the grid default), got {family!r}")
         horizontal = tuple(horizontal)
         if (len(horizontal) != 2  # noqa: PLR2004 — zonal + meridional
                 or not all(isinstance(name, str) for name in horizontal)
@@ -227,6 +508,11 @@ class Core(fr.model.Module):
         self._nondim: bool = gravity is None
         self._vertical = vertical
         self._horizontal = horizontal
+        # the requested discretization family (None = follow the grid
+        # default). The hy.Model factory resolves it against the grid
+        # and adopts it as the grid default, so every family=None
+        # declaration of the model (b, ps, U, V, eta) follows.
+        self._family: str | None = family
         # captured at bind: the immersed descriptor (None off a cut-cell
         # grid) and the grid coordinate names. On an immersed grid the
         # DIAGNOSE stages weight the horizontal transport by concrete
@@ -258,6 +544,9 @@ class Core(fr.model.Module):
         # cuts. False off it (unimmersed, terrain-chart, all-wet /
         # staircase / lateral-only), so the plain diff runs byte-identical.
         self._pb_active: bool = False
+        # the family the declarations resolved into, captured at bind
+        # (the requested self._family resolved against the grid).
+        self._resolved_family: str = "nodal"
         # whether a buoyancy module declared ``b`` (captured at bind).
         # With no buoyancy (constant density) the hydrostatic pressure is
         # identically zero and the DIAGNOSE skips the integral — the flow
@@ -279,6 +568,14 @@ class Core(fr.model.Module):
         Jacobian-weighted chart fractions
         (:func:`~fridom.hydrostatic.modules.terrain.require_chart_immersed_order`);
         a collocation-order mask on a chart is a taught error.
+
+        Bind is also where the **family** is resolved against the grid
+        (:func:`resolve_model_family` — ``family='fv'`` on an immersed
+        grid is refused here) and where a half-FV assembly is caught:
+        the family the core declared on must be the family every other
+        3-D field of the model landed on, or the mismatch surfaces far
+        away as a ``SpaceMismatchError`` inside a tendency
+        (:meth:`_require_uniform_family`).
         """
         grid = table.grid
         self._immersed = getattr(grid, "immersed", None)
@@ -286,9 +583,69 @@ class Core(fr.model.Module):
         self._has_buoyancy = "b" in table.names
         self._vertical_extent = vertical_extent(grid, self._vertical)
         self._column = discover_column(grid, self._vertical)
+        self._resolved_family = resolve_model_family(self._family, grid)
         require_chart_immersed_order(grid, self._column)
+        self._require_uniform_family(table)
         self._extra_halo = self._derive_extra_halo(table)
         self._pb_active = self._derive_pb_active(table)
+
+    def _require_uniform_family(self, table: object) -> None:
+        """Refuse a half-FV assembly with a taught error (stage F3).
+
+        Description
+        -----------
+        The family reaches sibling modules through the **grid**
+        default: ``hy.Model`` resolves the core's ``family=`` and calls
+        ``grid.set_default_family(...)``, so every ``family=None``
+        declaration of the model (``b``, ``ps``, the split-explicit
+        ``U``/``V``, a z* ``eta``) follows uniformly. Assembling
+        ``fr.model.Model`` by hand with ``hy.Core(family="fv")`` on a
+        nodal grid skips that step and leaves the core on ``CellAvg``
+        beside a ``Center`` buoyancy — which fails deep inside a
+        tendency as a bare space mismatch. Catch it here instead.
+
+        Parameters
+        ----------
+        table : object
+            The binding table (carries the resolved field spaces).
+
+        Raises
+        ------
+        ValueError
+            If a 3-D sibling field resolved onto the other family.
+        """
+        want_fv = self._resolved_family == "fv"
+        offenders = []
+        for record in table:
+            space = getattr(record, "space", None)
+            if space is None or record.name in ("u", "v", "w", "p_hyd"):
+                continue
+            cells = [factor for factor in space.bare.factors
+                     if not isinstance(factor, ConstantSpace)]
+            if not cells:
+                continue  # a scalar / all-constant parameter field
+            # the collocated (cell) factors of the sibling: a velocity
+            # face is nodal on both families, so only cell factors say
+            # which family the field landed on
+            fv = any(isinstance(factor, AverageSpace) for factor in cells)
+            nodal_cell = any(
+                isinstance(factor, NodalSpace)
+                and factor.node_set is NodeSet.CENTER for factor in cells)
+            if ((want_fv and nodal_cell and not fv)
+                    or (not want_fv and fv)):
+                offenders.append(record.name)
+        if not offenders:
+            return
+        raise ValueError(
+            f"hy.Core(family={self._resolved_family!r}) is assembled "
+            f"beside the fields {tuple(offenders)}, which resolved onto "
+            "the other discretization family: the core's cells would "
+            "mix CellAvg with Center. The family reaches sibling "
+            "modules through the grid default, which the hy.Model "
+            "factory sets from core.family — assemble through "
+            "hy.Model(...), or call "
+            f"grid.set_default_family({self._resolved_family!r}) before "
+            "an explicit fr.model.Model assembly.")
 
     def _derive_pb_active(self, table: object) -> bool:
         r"""Whether the partial-bottom correction fires (PB-D2 / PB-D5).
@@ -425,25 +782,35 @@ class Core(fr.model.Module):
         transported field, yet it carries the vertical velocity role
         (the shared advection's velocity-trio query, ``eigenmodes``).
         ``p_hyd`` is the collocated diagnostic hydrostatic pressure.
+
+        Every space carries the core's ``family=`` (FV-D3): under
+        ``"fv"`` the collocated coordinates land on ``CellAvg`` and
+        the staggered ones stay the point-value face, so ``u`` is
+        ``Right(x) ⊗ CellAvg(y) ⊗ CellAvg(z)`` (option A), ``p_hyd``
+        is ``CellAvg`` throughout and ``w`` is the transversely
+        cell-averaged ``Outer(z)`` face. ``None`` defers to the
+        grid-level default.
         """
         zonal, meridional = self._horizontal
+        family = self._family
         return (
             fr.model.FieldDeclaration.velocity(
-                "u", zonal, space=fr.spatial.Staggered(zonal),
+                "u", zonal,
+                space=fr.spatial.Staggered(zonal, family=family),
                 long_name="Zonal velocity", units="m/s"),
             fr.model.FieldDeclaration.velocity(
                 "v", meridional,
-                space=fr.spatial.Staggered(meridional),
+                space=fr.spatial.Staggered(meridional, family=family),
                 long_name="Meridional velocity", units="m/s"),
             fr.model.FieldDeclaration(
                 "w",
                 space=fr.spatial.SpaceRule(
-                    _make_w_space_rule(self._vertical)),
+                    _make_w_space_rule(self._vertical, family)),
                 lifecycle=fr.model.Lifecycle.DIAGNOSTIC,
                 roles=(Velocity(self._vertical),),
                 long_name="Vertical velocity", units="m/s"),
             fr.model.FieldDeclaration(
-                "p_hyd", space=fr.spatial.Collocated(),
+                "p_hyd", space=fr.spatial.Collocated(family=family),
                 lifecycle=fr.model.Lifecycle.DIAGNOSTIC,
                 long_name="Hydrostatic pressure", units="m^2/s^2"),
         )
@@ -454,6 +821,59 @@ class Core(fr.model.Module):
     #: pressure; with no buoyancy module the model is constant-density
     #: (p_hyd == 0, a barotropic flow), so ``b`` is not required.
     field_references = ()
+
+    # ================================================================
+    #  The FV C-grid diff profile (grid-aware dispatch hook, F3)
+    # ================================================================
+    def grid_dispatch_overrides(
+        self, grid: Grid,
+    ) -> Mapping[DispatchKey, Operator]:
+        r"""Contribute the FV C-grid ``diff`` profile when family='fv'.
+
+        Description
+        -----------
+        The grid-aware twin of the static ``dispatch`` attribute
+        (consumed at assembly step 3, so it applies to preset *and*
+        explicit assembly): when the resolved family is ``"fv"`` it
+        merges the per-mesh-factor ``("diff", CellAvg) ->
+        FaceDifference`` / ``("diff", face) -> FluxDifference``
+        overrides (:func:`fv_cgrid_overrides`), so every staggered
+        difference of the hydrostatic package — the continuity
+        DIAGNOSE, the baroclinic and barotropic pressure gradients,
+        the transport divergences, the barotropic ``Div @ Diag @ Grad``
+        chain — staggers on the average family. Keyed on per-factor
+        spaces (which a ``SpacePattern`` cannot express), it needs the
+        grid; the static ``dispatch`` attribute cannot build it.
+
+        The family resolves as the declarations do —
+        ``self._family`` or the grid default — so the profile rides
+        exactly the grids whose ``u, v, w, p_hyd`` landed on the
+        average family.
+
+        Parameters
+        ----------
+        grid : Grid
+            The assembled grid the model runs on.
+
+        Returns
+        -------
+        Mapping[DispatchKey, Operator]
+            The FV C-grid diff overrides (empty on a nodal model).
+        """
+        if effective_family(self._family, grid) != "fv":
+            return {}
+        _require_fv_capable(grid)
+        return fv_cgrid_overrides(grid.factors, self._vertical)
+
+    @property
+    def family(self) -> str | None:
+        """The requested discretization family (None = grid default).
+
+        The ``hy.Model`` preset reads this to resolve the family
+        against the grid (:func:`resolve_model_family`) and adopt it as
+        the grid-level default before assembly.
+        """
+        return self._family
 
     # ================================================================
     #  Parameters -- gravity centralizes on the core (dimensional)
@@ -1002,10 +1422,75 @@ class Core(fr.model.Module):
             dst = div.function_space.bare.factor(name)
             if src is dst or _bc_siblings(src, dst):
                 continue
-            kind = ("average" if isinstance(dst, AverageSpace)
-                    else "interpolate")
-            corr = registry.resolve(kind, src)[name](corr)
+            corr = self._hop(corr, registry, name, src, dst)
         return (div - corr.retag(div)).retag(target)
+
+    @staticmethod
+    def _hop(
+        corr: object, registry: object, name: str,
+        src: FunctionSpace, dst: FunctionSpace,
+    ) -> object:
+        r"""Carry ``corr``'s ``name`` factor from ``src`` onto ``dst``.
+
+        Description
+        -----------
+        The two re-alignments :meth:`_slope_gradient` needs, plus the
+        one seam where the FV family has no consistent row:
+
+        - **cell -> face** (``CellAvg -> Right|Inner`` on the
+          horizontal axis under FV, ``Center -> Right`` under nodal):
+          the seeded ``("interpolate", src)`` row (G4);
+        - **face -> cell on the column**: under nodal this is the
+          one-sided ``("interpolate", Inner) -> Center`` interpolation,
+          which extrapolates the *derivative* into the boundary cells
+          and stays 2nd order there. Its FV twin
+          ``("average", Inner) -> CellAvg`` is a
+          ``LinearReconstruction`` with the ``"closed"`` wall closure:
+          it zero-pads the wall faces, leaving an O(1) error in the
+          boundary cells that never converges (and the seeded
+          ``FVDerivative`` chain an O(1/dz) one) — the sigma
+          pressure-gradient-error gate then fails outright on FV. There
+          is no one-sided ``Inner -> CellAvg`` reconstruction in the
+          spatial layer to ask for instead.
+
+          So the FV column hop is routed through the **co-located nodal
+          sibling**: the same one-sided ``Inner -> Center``
+          interpolation the nodal column takes, then the co-located
+          ``("deconvolve", Center) -> CellAvg`` crossing (the 2nd-order
+          identity of G3 — ``Center`` and ``CellAvg`` sample the same
+          cell midpoints). The FV slope correction is then **bitwise**
+          the nodal one, relabelled onto the average family, which is
+          exactly the parity the flat-box gate asserts elsewhere.
+
+        Parameters
+        ----------
+        corr : object
+            The slope correction on its current space.
+        registry : object
+            The grid's operator registry.
+        name : str
+            The coordinate being re-aligned.
+        src : FunctionSpace
+            ``corr``'s current factor along ``name``.
+        dst : FunctionSpace
+            The target factor along ``name``.
+
+        Returns
+        -------
+        object
+            ``corr`` with its ``name`` factor on ``dst``.
+        """
+        if isinstance(dst, AverageSpace) and isinstance(src, NodalSpace):
+            # the FV column's face -> cell hop, through the nodal
+            # co-located sibling (see the Description)
+            corr = registry.resolve("interpolate", src)[name](corr)
+            mid = corr.function_space.bare.factor(name)
+            if mid is not dst:
+                corr = registry.resolve("deconvolve", mid)[name](corr)
+            return corr
+        kind = ("average" if isinstance(dst, AverageSpace)
+                else "interpolate")
+        return registry.resolve(kind, src)[name](corr)
 
 
 # ================================================================

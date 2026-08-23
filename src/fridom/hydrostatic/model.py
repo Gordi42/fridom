@@ -56,6 +56,7 @@ from typing import TYPE_CHECKING
 
 import fridom as fr
 from fridom._sequences import as_tuple
+from fridom.hydrostatic.modules.core import resolve_model_family
 
 if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Sequence
@@ -139,7 +140,10 @@ def Model(  # noqa: N802 — a factory that mirrors fr.model.Model's surface
         The dynamical core, ``hy.Core``: the gravity-first physical
         constant lives here (``gravity=``, dimensional) — the
         free-surface family references it; the nondimensional core
-        takes no kwarg at all.
+        takes no kwarg at all. It also carries the discretization
+        family (``hy.Core(family="fv")``), which the factory resolves
+        against the grid and adopts as the grid-level default so every
+        other module's ``family=None`` declaration follows.
     free_surface : fr.model.Module
         The barotropic (surface-pressure) module — REQUIRED, no
         default: ``hy.ExplicitFreeSurface(...)`` /
@@ -224,6 +228,16 @@ def Model(  # noqa: N802 — a factory that mirrors fr.model.Model's surface
             "/ split-explicit variants); None is not a module")
     if scaling is None:
         scaling = fr.scaling.Dimensional()
+    # resolve the discretization family against the grid and adopt it
+    # as the grid's default (stage F3). There is no auto flip: None
+    # follows the grid, so a plain grid stays on the nodal point-value
+    # C-grid and every pre-existing assembly is bitwise unchanged. The
+    # requested family lives on the core (core.family); adopting it as
+    # the grid default is what makes every family=None field of the
+    # model -- b, ps, the split-explicit U/V, a z* eta -- follow
+    # uniformly, so an FV model has no accidental nodal field.
+    grid.set_default_family(
+        resolve_model_family(getattr(core, "family", None), grid))
     _refuse_boolean_advection(advection, "hy")
 
     modules: list[fr.model.Module] = [core]
@@ -245,11 +259,13 @@ def Model(  # noqa: N802 — a factory that mirrors fr.model.Model's surface
     # the thermal-wind terms) — the masked continuity, the fraction-
     # weighted advection and the masked barotropic solve handle the wet
     # region themselves; the 2D barotropic prognostics (ps, U, V) are
-    # masked by the free-surface module, which owns them (IP-D9). The
-    # hydrostatic model stays on the grid's default (nodal) family: the
-    # mask enters through explicit fraction arithmetic, not a family-
-    # dispatched solver, so there is no unmasked "nodal path" to reject.
-    # Appended last so its masking runs after the physics stages.
+    # masked by the free-surface module, which owns them (IP-D9). An
+    # immersed grid stays NODAL: the mask enters through explicit
+    # fraction arithmetic on point-valued C-grid faces, not through a
+    # family-dispatched solver, so family='fv' on a cut-cell grid is a
+    # taught refusal (resolve_model_family) rather than a silent
+    # mis-weighting. Appended last so its masking runs after the
+    # physics stages.
     if getattr(grid, "immersed", None) is not None:
         modules.append(fr.model.modules.MaskState())
 

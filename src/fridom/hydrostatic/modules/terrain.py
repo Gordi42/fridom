@@ -36,7 +36,9 @@ import jax.numpy as jnp
 import fridom as fr
 from fridom.model.modules.moving_geometry import mapping_params
 from fridom.spatial.operators.interp import LinearInterp
+from fridom.spatial.operators.reconstruct import LinearReconstruction
 from fridom.spatial.operators.verbs import scatter_set
+from fridom.spatial.spaces.average import AverageSpace
 from fridom.spatial.spaces.nodal import NodeSet
 from fridom.spatial.spaces.trace import Side
 
@@ -211,13 +213,15 @@ def slope_velocity_on_w(
     slopes ``Z_i = d<mapped>_d<axis>`` are read from ``grid.metric`` on
     the ``w`` face set (``Center`` horizontal, ``Outer`` vertical), and
     ``u`` / ``v`` are carried onto that set in two hops: the horizontal
-    interpolation onto the cell centres (``.to`` the collocated cell,
-    the same ``Right -> Center`` average the ``b`` cell uses) and the
-    vertical ``Center -> Outer`` lift — the one-sided ``LinearInterp``
-    variant that closes the bottom / surface faces by second-order
-    linear extrapolation (the interior order), so the term is defined on
-    the terrain face where the flux vanishes. The result rides the same
-    ``w`` face set as the flux, ready to add.
+    interpolation onto the cell scalars (``.to`` the collocated cell,
+    the same ``Right -> Center`` / ``Right -> CellAvg`` average the
+    ``b`` cell uses) and the vertical ``Center|CellAvg -> Outer``
+    lift — the one-sided ``LinearInterp`` (nodal family) /
+    ``LinearReconstruction`` (FV family) variant that closes the bottom
+    / surface faces by second-order linear extrapolation (the interior
+    order), so the term is defined on the terrain face where the flux
+    vanishes. The result rides the same ``w`` face set as the flux,
+    ready to add.
 
     This is the exact quantity :meth:`Core._diagnose_w` adds
     to the flux to store the physical ``w`` and that ``State.chart``
@@ -259,7 +263,17 @@ def slope_velocity_on_w(
     grid = w_ref.grid
     bare = w_ref.function_space.bare
     cell = fr.spatial.Collocated().resolve(grid)
-    lift = LinearInterp(target=NodeSet.OUTER, boundary="one_sided")[vertical]
+    # the column lift is family-aware (FV-D3): the nodal ``Center ->
+    # Outer`` one-sided ``LinearInterp`` on the point-value family, its
+    # ``CellAvg -> Outer`` reconstruction twin on the finite-volume one
+    # (an average conversion is the "reconstruct" kind, and the two
+    # carry the same two-point interior stencil, so the terms agree
+    # wherever the families do)
+    lift_kernel = (LinearReconstruction
+                   if isinstance(cell.factor(vertical), AverageSpace)
+                   else LinearInterp)
+    lift = lift_kernel(
+        target=NodeSet.OUTER, boundary="one_sided")[vertical]
     u_w = lift(u.to(cell))
     v_w = lift(v.to(cell))
     zx = grid.metric(bare, f"d{mapped}_d{zonal}", params=params)

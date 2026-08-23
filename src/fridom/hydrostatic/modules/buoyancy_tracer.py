@@ -49,15 +49,31 @@ class BuoyancyTracer(fr.model.Module):
     ``b`` and contributes no tendency term. The buoyancy reaches the
     flow through the hydrostatic pressure the core diagnoses from it,
     and ``b`` itself is carried by the advection scheme.
+
+    Parameters
+    ----------
+    family : str | None, optional
+        The discretization family of the tracer (FV-D1b): ``"fv"``
+        declares it on the average family (``CellAvg`` cell means —
+        the space the conservative flux-form advection and the
+        flux-form ALE mesh-velocity correction transport), ``"nodal"``
+        on the point-value cells. ``None`` — the default — defers to
+        the grid-level default, which ``hy.Model`` sets from
+        ``hy.Core(family=...)``, so the tracer follows the core
+        without being told (default: None).
     """
+
+    def __init__(self, *, family: str | None = None) -> None:
+        """Store the tracer's discretization family."""
+        self._family = family
 
     @property
     def field_declarations(
         self,
     ) -> tuple[FieldDeclaration, ...]:
-        """The buoyancy tracer ``b`` (collocated, TRACER + ADVECTED)."""
+        """The buoyancy tracer ``b`` on the requested family."""
         return (
             fr.model.FieldDeclaration.tracer(
-                "b", space=fr.spatial.Collocated(),
+                "b", space=fr.spatial.Collocated(family=self._family),
                 long_name="Buoyancy", units="m/s^2"),
         )
