@@ -2,7 +2,8 @@
 Dynamic metrics + optional ALE (stage C4, decision CS-D4).
 
 The moving-geometry gates: frozen motion reproduces the static C3
-run BITWISE (with and without the ALE module), the manufactured ALE
+run BITWISE when stepped one step per dispatch (with and without the
+ALE module; the chunked plan at round-off), the manufactured ALE
 sign test (a physically constant field under pure geometry motion
 stays put with the correction and stays frozen at the computational
 nodes without it), the sloped-to-flat northern-boundary morph (the
@@ -104,14 +105,26 @@ def _reproduces_static(got, want, name):
     The static-geometry model and the frozen-motion model compile two
     DIFFERENT HLO programs (the moving pipeline threads params= and a
     bitwise-zero ALE tendency through every metric derivation). On the
-    CPU backend the two programs lower identically, so the reproduction
-    is BITWISE — the valuable pin, kept here (and what CI enforces). On
-    GPU, XLA autotuning is free to pick different kernels for the two
-    physically equivalent programs, and the reassociated FP arithmetic
-    then differs at the last bits: measured worst 5.7e-15 relative
-    (6.1e-17 absolute), accumulating sub-linearly to that over the
-    20-step window. That is roundoff, not physics, so the GPU contract
-    is a tolerance with ~10x headroom on the measured absolute drift.
+    CPU backend the two SINGLE-STEP programs lower identically, so a
+    run advanced one step at a time (:func:`_advance_stepwise`)
+    reproduces BITWISE — the valuable pin, kept here (and what CI
+    enforces). On GPU, XLA autotuning is free to pick different kernels
+    for the two physically equivalent programs, and the reassociated FP
+    arithmetic then differs at the last bits: measured worst 5.7e-15
+    relative (6.1e-17 absolute), accumulating sub-linearly to that over
+    the 20-step window. That is roundoff, not physics, so the GPU
+    contract is a tolerance with ~10x headroom on the measured absolute
+    drift.
+
+    A CHUNKED run is a different matter on every backend: since
+    ``advance()`` spends its remainder in a binary tail (0d7da4ae,
+    ``advance(20)`` = one 16-step scan + a 4-step scan), the two
+    programs' scan bodies fuse differently — the moving carry holds
+    the extra ``H`` / ``H_dot`` leaves — and the last bits drift:
+    measured worst 4.2e-17 absolute on ``p``, 5.2e-18 on the
+    velocities over the 20 steps (cpu, x64). The chunked path is
+    therefore pinned at round-off by :func:`_reproduces_static_chunked`,
+    never bitwise.
     """
     got = np.asarray(got)
     want = np.asarray(want)
@@ -119,6 +132,19 @@ def _reproduces_static(got, want, name):
         assert np.array_equal(got, want), name
     else:
         assert np.allclose(got, want, rtol=0.0, atol=1e-15), name
+
+
+def _reproduces_static_chunked(got, want, name):
+    """Chunked frozen-motion == static at round-off (see above)."""
+    got = np.asarray(got)
+    want = np.asarray(want)
+    assert np.allclose(got, want, rtol=0.0, atol=1e-15), name
+
+
+def _advance_stepwise(model, steps):
+    """Advance one step per dispatch (the bitwise-comparable plan)."""
+    for _ in range(steps):
+        model.advance(1)
 
 
 def test_frozen_motion_reproduces_the_static_run_bitwise():
@@ -138,11 +164,24 @@ def test_frozen_motion_reproduces_the_static_run_bitwise():
     fields, _ = terrain_fields()
     for model in (static, without_ale, with_ale):
         model.set_fields(**fields)
-        model.advance(20)
+        _advance_stepwise(model, 20)
     for c in ("u", "v", "w", "b", "p"):
         want = static.state[c].data
         _reproduces_static(without_ale.state[c].data, want, c)
         _reproduces_static(with_ale.state[c].data, want, c)
+    # the chunked plan (one 16-step scan + a 4-step scan): the two
+    # programs' scan bodies fuse differently, so this is a round-off
+    # pin, not the bitwise one (see _reproduces_static)
+    static_c = make_terrain_model()
+    with_ale_c = make_terrain_model(
+        MovingGeometry({"H": lambda x, t: depth(x) + 0.0 * t}),
+        MeshVelocityCorrection())
+    for model in (static_c, with_ale_c):
+        model.set_fields(**fields)
+        model.advance(20)
+    for c in ("u", "v", "w", "b", "p"):
+        _reproduces_static_chunked(
+            with_ale_c.state[c].data, static_c.state[c].data, c)
 
 
 # ================================================================
@@ -410,12 +449,17 @@ def test_oscillating_terrain_compiles_once_and_stays_solenoidal(
     # the crucial jit gate: the geometry VALUES sweep every step
     # (schedules are static descriptors, values traced), so the
     # whole run compiles once — zero recompiles after the first
-    # advance — while the mapped divergence stays at solver
-    # tolerance at the CURRENT geometry
+    # advance of the SAME length (advance() spends its steps in a
+    # binary tail of chunk lengths, 0d7da4ae: advance(10) is an
+    # 8-step scan plus a 2-step scan, each compiled once; a warm-up
+    # of a different length would leave a length uncompiled and
+    # count a shape compile, not a geometry recompile) — while the
+    # mapped divergence stays at solver tolerance at the CURRENT
+    # geometry
     model = make_oscillating_model()
     fields, _ = terrain_fields()
     model.set_fields(**fields)
-    model.advance(2)
+    model.advance(10)
     compile_counter.reset()
     model.advance(10)
     assert compile_counter.count == 0
@@ -485,11 +529,22 @@ def test_fv_frozen_motion_reproduces_the_static_run_bitwise():
     fields, _ = terrain_fields()
     for model in (static, without_ale, with_ale):
         model.set_fields(**fields)
-        model.advance(20)
+        _advance_stepwise(model, 20)
     for c in ("u", "v", "w", "b", "p"):
         want = static.state[c].data
         _reproduces_static(without_ale.state[c].data, want, c)
         _reproduces_static(with_ale.state[c].data, want, c)
+    # the chunked plan at round-off (see the nodal gate)
+    static_c = make_terrain_model(family="fv")
+    with_ale_c = make_terrain_model(
+        MovingGeometry({"H": lambda x, t: depth(x) + 0.0 * t}),
+        MeshVelocityCorrection(), family="fv")
+    for model in (static_c, with_ale_c):
+        model.set_fields(**fields)
+        model.advance(20)
+    for c in ("u", "v", "w", "b", "p"):
+        _reproduces_static_chunked(
+            with_ale_c.state[c].data, static_c.state[c].data, c)
 
 
 @pytest.mark.single_device
@@ -583,11 +638,12 @@ def test_fv_oscillating_terrain_compiles_once_and_stays_solenoidal(
         compile_counter):
     # the FV jit gate: the geometry VALUES sweep every step while the
     # family-aware flux-route reconstruction / flux_diff and the mapped
-    # divergence stay at solver tolerance — the whole run compiles once.
+    # divergence stay at solver tolerance — the whole run compiles once
+    # (same-length warm-up: the binary tail, see the nodal gate).
     model = make_oscillating_model(family="fv")
     fields, _ = terrain_fields()
     model.set_fields(**fields)
-    model.advance(2)
+    model.advance(10)
     compile_counter.reset()
     model.advance(10)
     assert compile_counter.count == 0
