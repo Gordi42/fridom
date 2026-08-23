@@ -419,17 +419,27 @@ def test_self_update_matches_the_transport_divergence_on_a_slope():
                                -np.asarray(ref.data), atol=1e-13)
 
 
-def test_eta_dot_is_the_surface_pressure_tendency_over_gravity():
-    # the GCL's "same discrete operator" claim: d ps/dt = -g T* and
-    # eta = ps/g, so eta_dot must equal (d ps/dt)/g to roundoff. At
-    # ps == 0 the free surface's own static-default eta IS the
-    # current eta, so the check holds independently of the core's
-    # dynamic-parameter threading.
+@pytest.mark.parametrize("surface", [0.0, 0.4],
+                         ids=["flat-surface", "moving-surface"])
+def test_eta_dot_is_the_surface_pressure_tendency_over_gravity(surface):
+    # THE GCL GATE: the mesh-induced thickness change and the geometry
+    # parameter's own tendency must be the SAME discrete operator. The
+    # free surface evolves d ps/dt = -g T* and this module writes
+    # eta = ps/g, eta_dot = -T*, so eta_dot must equal (d ps/dt)/g to
+    # roundoff. The two are computed by different code paths -- this
+    # module's own _transport_div against the free-surface family's
+    # _terrain_transport_div -- and the SELF_UPDATE (S1) runs before
+    # the terms (S2), so the free surface's params= read picks up the
+    # very eta written here. At a genuinely moving surface (0.4) this
+    # only holds because the core threads the current eta; at 0.0 it
+    # holds either way.
     mdl = model(zstar_grid(), extra=(hy.ZStarGeometry(),))
     rng = np.random.default_rng(2)
+    hor = (np.arange(N) + 0.5) / N
+    x, _ = np.meshgrid(hor, hor, indexing="ij")
     mdl.set_fields(u=rng.standard_normal((N, N, NZ)),
                    v=rng.standard_normal((N, N, NZ)),
-                   ps=np.zeros((N, N, 1)))
+                   ps=G * surface * np.sin(2 * np.pi * x)[:, :, None])
     out = self_update(mdl)
     tendency = mdl.tendency(mdl.state, constraints=False)
     np.testing.assert_allclose(
@@ -639,7 +649,12 @@ def _content_drift(free_surface):
 
 def test_tracer_content_drift_stays_at_truncation():
     # measured worst relative drift over six steps (nodal family,
-    # advective ALE route): explicit 3.7e-06, implicit 3.7e-06. The
+    # advective ALE route): explicit 3.9e-06, implicit 3.9e-06 -- and
+    # 3.7e-06 for both BEFORE the core read the moving metrics, i.e.
+    # the drift is dominated by the non-telescoping advective column
+    # chain, not by the geometric conservation law. The assertion
+    # keeps headroom because the drift scales with dt, step count and
+    # surface amplitude. The
     # implicit variant's number is reported, not asserted -- its
     # ps^{n+1} comes from a solve, so the eta_dot the ALE term read
     # differs from the realized Delta eta / Delta t by O(dt) (the
@@ -702,55 +717,79 @@ def test_barotropic_z_star_matches_the_nonlinear_shallow_water():
     # and the flux-form 3-D advection of a depth-uniform u collapses to
     # (u . grad) u. The two codes are NOT the same scheme (Sadourny's
     # vector-invariant momentum against the hydrostatic flux form), so
-    # the agreement is truncation-level, measured against the size of
-    # the nonlinearity itself (the oracle minus its own linear twin).
+    # what remains is the truncation-level scheme residual.
     #
-    # Measured on this configuration: the LINEAR hydrostatic barotropic
-    # run and the LINEAR shallow-water run agree to 1.4e-17 (bitwise --
-    # the two linear discretizations are identical), so the whole
-    # discrepancy budget here is nonlinearity, and the nonlinearity
-    # signal is 2.3e-02 against an eta scale of 0.25.
+    # Measured on this configuration (n=16, nz=4, dt=5e-3, 10 steps,
+    # eta/H = 0.4; eta scale 2.484e-01):
+    #   signal, the oracle minus its own linear twin  2.252e-02
+    #   z_err, the z* run against the oracle          4.659e-05
+    #     the Sadourny-vs-flux-form scheme residual: 0.21% of the
+    #     signal, 1.9e-04 of the eta scale
+    #   momentum, the z* run with advection off       1.527e-03
+    #     33x z_err, so the momentum advection genuinely matters
+    #   fixed, the flat linear run against the oracle 2.252e-02
+    #     483x z_err
+    #   floor, the flat linear run against sw linear  2.776e-17
+    #     the two LINEAR discretizations are bitwise identical, so
+    #     the whole discrepancy budget here is nonlinearity
+    # Every threshold below is within 2x of its measured value.
     n, nz, dt, steps, amp = 16, 4, 5e-3, 10, 0.4
     eta0 = _barotropic_ic(n, amp)
     oracle = _sw_run(n, eta0, dt, steps)
     linear_oracle = _sw_run(n, eta0, dt, steps, nonlinear=False)
     z_run = _hydrostatic_barotropic_run(
         zstar_grid(n=n, nz=nz, bottom=1.0), eta0, dt, steps, zstar=True)
+    z_linear_momentum = _hydrostatic_barotropic_run(
+        zstar_grid(n=n, nz=nz, bottom=1.0), eta0, dt, steps,
+        zstar=True, advection=False)
     fixed = _hydrostatic_barotropic_run(
         flat_grid(n=n, nz=nz), eta0, dt, steps, zstar=False,
         advection=False)
     scale = np.abs(oracle[0]).max()
     signal = _worst(oracle, linear_oracle)
     z_err = _worst(z_run, oracle)
+    momentum = _worst(z_linear_momentum, oracle)
     fixed_err = _worst(fixed, oracle)
-    # the comparison is non-trivial: the nonlinearity is a large
-    # fraction of the signal at eta/H = 0.4
+    # the comparison is non-trivial (measured 0.091 * scale)
     assert signal > 0.05 * scale
-    # the z* run captures it; the fixed-domain linear run does not
-    assert z_err < 0.2 * signal
-    assert fixed_err > 4.0 * z_err
+    # the z* run reproduces the oracle to truncation (measured
+    # 0.00207 * signal)
+    assert z_err < 0.004 * signal
+    # ... two to three orders below the fixed-domain linear run
+    # (measured 483x) and well below the momentum term it carries
+    # (measured 33x)
+    assert fixed_err > 250.0 * z_err
+    assert momentum > 16.0 * z_err
 
 
 # ----------------------------------------------------------------
 #  Gate 8: the linear limit
 # ----------------------------------------------------------------
 def test_small_amplitude_z_star_matches_the_linear_free_surface():
-    # at eta/H = 1e-4 the geometry nonlinearity is O(eta/H): the z*
-    # run (advection off, so the only nonlinearity is the geometry)
-    # and the fixed-domain linear free surface must agree to that
-    # order -- and disagree AT it (an exactly zero difference means
-    # the moving geometry never reached the interior).
-    n, nz, dt, steps, amp = 16, 4, 5e-3, 10, 1e-4
-    eta0 = _barotropic_ic(n, amp)
-    z_eta, _ = _hydrostatic_barotropic_run(
-        zstar_grid(n=n, nz=nz, bottom=1.0), eta0, dt, steps,
-        zstar=True, advection=False)
-    l_eta, _ = _hydrostatic_barotropic_run(
-        flat_grid(n=n, nz=nz), eta0, dt, steps, zstar=False,
-        advection=False)
-    rel = np.abs(z_eta - l_eta).max() / np.abs(l_eta).max()
-    assert rel < 1e-2
-    assert rel > 1e-7
+    # with advection off the ONLY nonlinearity left is the geometry, so
+    # the z* run must approach the fixed-domain linear free surface at
+    # exactly first order in eta/H. Measured (n=16, nz=4, dt=5e-3, 10
+    # steps): rel = 0.2317 * (eta/H) with the proportionality flat to
+    # six digits over eta/H in [5e-5, 4e-4] --
+    #   5e-05 -> 1.1585e-05    1e-04 -> 2.3170e-05
+    #   2e-04 -> 4.6340e-05    4e-04 -> 9.2676e-05
+    # so the ratio between successive doublings is 2.0000. The
+    # magnitude window is 2x either side of the measured value; the
+    # ratio window is the O(eta/H) claim itself.
+    n, nz, dt, steps = 16, 4, 5e-3, 10
+    rels = []
+    for amp in (1e-4, 2e-4):
+        eta0 = _barotropic_ic(n, amp)
+        z_eta, _ = _hydrostatic_barotropic_run(
+            zstar_grid(n=n, nz=nz, bottom=1.0), eta0, dt, steps,
+            zstar=True, advection=False)
+        l_eta, _ = _hydrostatic_barotropic_run(
+            flat_grid(n=n, nz=nz), eta0, dt, steps, zstar=False,
+            advection=False)
+        rels.append(float(np.abs(z_eta - l_eta).max()
+                          / np.abs(l_eta).max()))
+    assert 1.16e-5 < rels[0] < 4.64e-5
+    assert 1.9 < rels[1] / rels[0] < 2.1
 
 
 # ----------------------------------------------------------------
