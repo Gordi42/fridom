@@ -55,6 +55,7 @@ if TYPE_CHECKING:  # pragma: no cover
     )
     from .modules.stratification import ConstantStratification
     from .modules.thermal_wind import ThermalWindBackground
+    from .modules.zstar import ZStarGeometry, zstar_mapping
     from .state import State
 
 base = "fridom.hydrostatic"
@@ -78,6 +79,7 @@ all_imports_by_origin = {
     f"{base}.modules.free_surface": [
         "ExplicitFreeSurface", "ImplicitFreeSurface",
         "SplitExplicitFreeSurface"],
+    f"{base}.modules.zstar": ["ZStarGeometry", "zstar_mapping"],
     # the Coriolis family, the ocean surface-forcing wrappers, and the
     # implicit vertical mixing closure are shared framework module
     # libraries, re-exported here
