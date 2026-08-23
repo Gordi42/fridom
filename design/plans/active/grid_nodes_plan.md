@@ -87,90 +87,103 @@ out in the container people plot from.
   (`ds.plot.scatter(x="y", y="z")`), a 2D physical coordinate on
   computational dims, and a flat point cloud with `hue="space"`.
 
-## 3. Proposed user-level API (for approval)
+## 3. Proposed user-level API (for approval, revised 2026-08-23)
 
-### 3.1 `grid.nodes(...)` — the node cloud of one or several spaces
+Owner constraints (2026-08-23, second round): the **function space is
+the only input** that decides what is plotted; **no `x_right`-style
+names**; the coordinates of a node are addressed by the plain names
+`x`, `y`, `z`; a dimension subset such as `("x", "y")` must be
+selectable; xarray's own plotting must work, including nodes drawn
+over a heatmap. The first draft's point cloud with multi-space labels
+and suffixed names is withdrawn.
+
+### 3.1 `grid.nodes(space)` — the nodes of one function space
 
 ```python
-grid.nodes(*what, params=None) -> xr.Dataset
+grid.nodes(space, *, params=None) -> xr.Dataset
 ```
 
-`what` is any number of
-
-| argument | meaning | `space` label |
-|---|---|---|
-| a `SpaceLike` | the nodes of that space | the suffixed dims, `"x_right*y*z"` |
-| a `ScalarField` | the nodes of the field's space | the field's name, `"u"` |
-| a `VectorField` (a model state) | one entry per component | the component names |
-| a coordinate name `"z"` | the centres **and** outer faces of that factor alone (1D) | `"z"` / `"z_outer"` |
-| nothing | the all-centre product space | `"x*y*z"` |
-
-The result is **one layout for every call**: a point cloud with the
-single dimension `node`, in C order of each space's index space, the
-spaces concatenated in argument order.
+One space in, one `Dataset` out, laid out **exactly like
+`ScalarField.xr`** (spec `grid.md` §xarray, single-field rule): the
+dims are the space's coordinate names, plain, and each dimension
+coordinate is the 1D node vector of that factor **at the factor's own
+position** — centres for `center`/`cell_avg`, faces for
+`right`/`outer`/`inner`/`left`/`face_avg`. The position survives only
+as the `c_grid_axis_shift` attribute, as it does on `field.xr`.
+Constant factors are squeezed, as everywhere in the export.
 
 ```
-<xarray.Dataset>
-Dimensions:   (node: 9312)
+<xarray.Dataset>                                   # grid.nodes(model.state["w"].function_space)
+Dimensions:  (x: 1, y: 96, z: 49)
 Coordinates:
-    space     (node) <U9   'u' 'u' ... 'w' 'w'        # hue label
-    i_y, i_z  (node) int64                             # index per axis
+  * x        (x) float64                            # centres
+  * y        (y) float64                            # centres
+  * z        (z) float64  c_grid_axis_shift: 0.5    # the outer faces, where w lives
 Data variables:
-    y, z      (node) float64 [units]                   # grid coordinates (nodes of the mesh placement)
-    zp        (node) float64 [units]                   # physical coordinate(s) of maps=, if any
-    wet       (node) bool                              # immersed wet mask, if any
-Attributes:
-    grid: <repr>, spaces: {label: repr}
+    zp       (x, y, z) float64                      # physical coordinate of maps=, when a mapping is attached
+    wet      (x, y, z) bool                         # immersed wet mask, when a domain is attached
 ```
 
-- **Grid coordinates**: one variable per grid coordinate of the
-  space, values from `evaluation_nodes` (so a `MappedIntervalMesh`
-  stretch and a chart's radians appear as they are). Coordinate units
-  come from `grid.coordinate_units` when declared (a chart); otherwise
-  none (the grid is scaling-agnostic; see 3.3 for the model-side
-  stamp).
-- **Physical coordinates** (`maps=`): one variable per mapped name
-  (`zp`), the map **value** at the nodes. `params=` is a mapping of
-  parameter fields or a state (`VectorField`) from which the mapping's
-  `param_names` are looked up, exactly like `mapping_params`; `None`
-  means the mapping's static defaults (the reference geometry).
-  `grid.nodes(state["b"], params=model.state)` is the z* column at
-  the current free surface. A factor-only query (`"z"`) on a mapped
-  axis carries no `zp` (the map needs the other coordinates).
-- **Immersed**: `wet` from `grid.immersed.mask(space)` for every
-  space that resolves all coordinates (a factor-only query carries no
-  mask). Dry nodes are kept; `ds.where(ds.wet, drop=True)` drops
-  them, `hue="wet"` colours them.
-- **Index variables** `i_<axis>` let a user recover the structure
-  when lines rather than dots are wanted:
-  `ds.set_index(node=("i_y", "i_z")).unstack("node")` gives 2D
-  `y`, `zp` to draw the z* layers as lines.
-- Host-side, not jittable, collective-safe: built on `ExportLayout`
-  and `_host_labels`, gathered once per space.
+- **Tensor coordinates** stay 1D (the meshgrid is never stored, spec
+  01_concepts); xarray broadcasts them when a plot asks for two of
+  them. A `MappedIntervalMesh` stretch and a chart's radians appear as
+  the node values; `units` is set when the grid declares it
+  (`grid.coordinate_units`, a chart), otherwise absent, the grid
+  being scaling-agnostic.
+- **Physical coordinates of `maps=`** are full N-D data variables
+  named by the map key (`zp`), the map **value** at the nodes.
+  `params=` is a mapping of parameter fields or a state (a
+  `VectorField`) looked up by the mapping's `param_names`, the way
+  `mapping_params` does; `None` is the mapping's static default (the
+  reference geometry). `grid.nodes(space, params=model.state)` is the
+  z* column at the current free surface.
+- **Immersed**: `wet` from `grid.immersed.mask(space)` when the space
+  resolves every coordinate (the mask is defined for nothing less);
+  dry nodes are kept and filtered with `where`.
+- Host-side, not jittable, collective-safe (built on `ExportLayout`
+  and `_host_labels`, gathered once).
 
-The four requests, as one-liners:
+### 3.2 The four requests, in xarray's own vocabulary
 
 ```python
-# the stretched column of the coastal page, centres and faces
-grid.nodes("z").plot.scatter(x="z", y="space")
+b = model.state["b"]; w = model.state["w"]
+nodes_b = grid.nodes(b.function_space)
+nodes_w = grid.nodes(w.function_space)
 
-# the C-grid staggering of a model, one colour per field
-grid.nodes(model.state).plot.scatter(x="x", y="y", hue="space", s=4)
+# nodes over a heatmap of the field, two spaces on the same axes
+ax = b.xr.isel(x=0).plot(x="y", y="z").axes
+nodes_b.isel(x=0).plot.scatter(x="y", y="z", ax=ax, color="k", s=4)
+nodes_w.isel(x=0).plot.scatter(x="y", y="z", ax=ax, color="w", marker="_")
 
-# faces and centres of the section on one plot
-grid.nodes(model.state["b"], model.state["w"]).plot.scatter(
-    x="y", y="z", hue="space")
+# only some dimensions: the tensor coordinates of (y, z), a 2D section
+nodes_b[["y", "z"]].plot.scatter(x="y", y="z")
 
-# a z* column at the current free surface, physical height on the axis
-grid.nodes(model.state["b"], params=model.state).plot.scatter(
-    x="y", y="zp")
+# only the z mesh: the 1D coordinate itself
+nodes_b.z                      # DataArray (z: 48); nodes_w.z are the 49 faces
+nodes_b.z.diff("z").plot()     # the spacing of the stretched column
 
-# an immersed domain, wet cells only
-cells = grid.nodes()
+# moving geometry: physical height at the current state
+grid.nodes(b.function_space, params=model.state).isel(x=0).plot.scatter(x="y", y="zp")
+
+# immersed: wet cells only
+cells = grid.nodes(grid.factor("x").center * grid.factor("y").center)
 cells.where(cells.wet, drop=True).plot.scatter(x="x", y="y", s=2)
+
+# the list of points, when one is wanted
+nodes_b.stack(node=("x", "y", "z"))      # (node: nx*ny*nz), or .to_dataframe() for pandas
 ```
 
-### 3.2 Physical positions at the field level (the primitive)
+All of this is checked against xarray 2026.4 (scatter broadcasts 1D
+dimension coordinates; `ax=` overlays on a `pcolormesh`; `isel` keeps
+`zp` consistent on a mapped grid; `ds[["y", "z"]]` is the dimension
+subset; `stack` gives the point list). Hence **no `dimension=`
+keyword**: `ds[["y", "z"]]` selects tensor coordinates, and `isel` is
+the right spelling when a mapped coordinate depends on the dropped
+axis (a subset cannot decide which slab). Several spaces on one plot
+are several calls on one `ax`, matplotlib's own idiom; a `hue` label
+would need names for spaces, which is what the owner does not want.
+
+### 3.3 Physical positions at the field level (the primitive)
 
 ```python
 grid.evaluation_nodes(space, name, *, params=None) -> ScalarField   # name may be a mapped name
@@ -181,64 +194,52 @@ field.nodes(name, *, params=None) -> ScalarField
 today, the mapped names of `grid.mapping` and returns the map value at
 the nodes of `space`, parameters resolved through the same `params=`
 overload `grid.metric` uses (static defaults when `None`). This is
-the traced, jit-safe primitive that 3.1 gathers from, and it is what
-`b_total` should read on a mapped column (`b + N^2 zp`). The
-`CoordinateMapping` side is one new public method
+the traced, jit-safe primitive 3.1 gathers `zp` from, and it is what
+`b_total` should read on a mapped column (`b + N^2 zp`). On the
+`CoordinateMapping` side it is one new public method
 (`positions(space, name, params=)`) next to `metric`, built on the
 existing `_jvp`/`_param_at_nodes` machinery but evaluating the primal
-with live parameters. A chart's embedding is **not** in this step
+with live parameters. A chart's embedding is not in this step
 (`lon`/`lat` are the sphere's own coordinates); ambient `x, y, z`
-would be a later `ambient=True` on 3.1.
+would be a later `ambient=True`.
 
-### 3.3 Sugar (phase 2, optional)
+### 3.4 Sugar (phase 2, optional)
 
-`model.nodes(*what)` = `grid.nodes(*what, params=model.state)` with
-the model's unit rows stamped onto the coordinate variables
-(`model.units`, the same rows the Writer stamps), so the axes of
-`plot.scatter` read `y [m]` and a nondimensional run reads `1`. The
-grid-level call stays unit-less because the grid does not know the
-scaling.
+`model.nodes(space)` = `grid.nodes(space, params=model.state)` with
+the model's unit rows stamped on the coordinates (`model.units`, the
+rows the Writer stamps), so the axes of a plot read `y [m]`.
 
 ## 4. Alternatives considered
 
-1. **Structured layout** (dims = the space's coordinates, 1D coordinate
-   variables, `zp` as a 2D/3D variable on them). Plots just as well
-   for one space, and is the natural home of `zp` as a CF auxiliary
-   coordinate. It cannot hold several spaces with a `hue` label, it
-   collides on dim names once two spaces share a position, and it has
-   no future on an unstructured mesh. It is also already available
-   per axis: `grid.evaluation_nodes(space, "z").xr` is the 1D
-   `DataArray` with dim `z`. Hence one point layout plus index
-   variables, rather than a layout that switches with the number of
-   arguments.
-2. **Method name.** `grid.nodes` keeps the codebase's meaning of
-   "nodes" (positions; `evaluation_nodes`, `field.nodes`) and differs
-   only in container. Rejected: `grid.xr` (a property cannot take
-   spaces), `grid.to_xarray` (reads as exporting the grid's data),
-   `grid.coords` ("coords" means coordinate *names* throughout the
-   spatial layer: `chart_coords`, `param_coords`).
-3. **A `wet=True` drop keyword.** xarray's `where(..., drop=True)`
-   already says it; the mask as a variable also serves `hue`.
-4. **Returning a `DataArray`.** Several coordinates plus labels need a
-   `Dataset`; `ds["zp"]` is the DataArray when one is wanted.
+1. **A flat point cloud** (`node` dimension, variables `x, y, z`, a
+   `space` label) — the first draft. Matches "a list of points", and
+   `hue="space"` draws several spaces in one call, but it needs a
+   name per space (the suffixed spellings the owner rejects or field
+   names that a bare space does not have), a `dimension=` keyword to
+   avoid duplicate points, and it cannot take `isel`; on a mapped grid
+   a dimension subset has no single answer. The structured layout
+   reaches the point list in one `stack`, so nothing is lost.
+2. **`dimension=` keyword.** `ds[["y", "z"]]` is the same thing in
+   xarray's words, and `isel` is the correct one under `maps=`.
+3. **Method name.** `grid.nodes(space)` keeps the codebase's meaning
+   of "nodes" (positions; `evaluation_nodes`, `field.nodes`) and
+   differs only in container; rejected `grid.xr` (a property cannot
+   take a space), `grid.to_xarray` (reads as exporting data),
+   `grid.coords` ("coords" means coordinate *names* in the spatial
+   layer).
+4. **pandas or an own plotting module.** Not needed: xarray draws the
+   overlays, and `to_dataframe()` is one call away.
 
 ## 5. Decision points for the owner
 
-1. Name and home: `grid.nodes(*what, params=None)` on `Grid`
-   (recommended), or a free function `fr.spatial.nodes(grid, ...)`.
-2. One point layout always (recommended), or structured for a single
-   space and points for several.
-3. Factor-only query spelled by coordinate name (`grid.nodes("z")`,
-   recommended) or by mesh (`grid.nodes(grid.factor("z"))`); and
-   whether it returns centres + outer faces (recommended) or centres
-   only.
-4. `params=` accepting a state (`VectorField`) by name lookup
-   (recommended, mirrors `mapping_params`) or only an explicit mapping.
-5. Extend `evaluation_nodes`/`field.nodes` with mapped names and
-   `params=` (recommended, and it fixes `b_total` under `maps=`), or
-   add a separate `grid.positions`.
-6. Index variable naming: `i_y` (recommended) or `y_index`.
-7. Phase 2 `model.nodes` with units: in scope now or later.
+1. `grid.nodes(space, *, params=None)` returning the structured
+   `Dataset` of 3.1 (recommended), i.e. the `ScalarField.xr` layout
+   with plain names.
+2. Extend `evaluation_nodes`/`field.nodes` with mapped names and
+   `params=` (recommended; fixes `b_total` under `maps=`) rather than
+   a separate `grid.positions`.
+3. `params=` accepting a state by name lookup (recommended).
+4. Phase 2 `model.nodes` with units: now or later.
 
 ## 6. Implementation sketch (after approval)
 
@@ -247,16 +248,16 @@ scaling.
   nodes; static defaults or live fields via the existing `params=`
   overload). `grid.evaluation_nodes` routes mapped names to it;
   `ScalarField.nodes` gains `params=`.
-- `spatial/export.py`: `nodes_dataset(grid, *what, params=None)`;
-  `Grid.nodes` forwards. Per space: `ExportLayout` for the dims and
-  the 1D coordinate vectors, `jnp.meshgrid`-free broadcast to the
-  point cloud, `_host_labels` for the gather, mask and `zp` gathered
-  through `decomposition.gather` like field values.
+- `spatial/export.py`: `nodes_dataset(grid, space, params=None)`;
+  `Grid.nodes` forwards. `ExportLayout` (plain names) gives the dims
+  and the 1D coordinate vectors through `_host_labels`; `zp` and
+  `wet` are gathered through `decomposition.gather` like field
+  values.
 - `hydrostatic/diagnostics.py`, `nonhydro2/diagnostics.py`: `b_total`
   reads the physical column on a mapped grid (own test on a terrain
   column and on z*).
 - Tests (mirrored): `tests/spatial/test_export.py` shards for the
-  node cloud (stretched mesh, staggered spaces, factor-only, chart
+  node dataset (stretched mesh, staggered spaces, lone factor, chart
   units, immersed mask, terrain `zp` with static and live params,
   forced-4 device invariance); `tests/spatial/test_coordinate_mapping*`
   for `positions`; the `b_total` gates.
@@ -266,8 +267,8 @@ scaling.
 
 ## 7. Non-goals
 
-Drawing mesh lines or cell polygons (the index variables make it
-possible by hand), a plotting module of FRIDOM's own, the chart
+Drawing mesh lines or cell polygons (the N-D `zp` variable makes
+lines possible by hand), a plotting module of FRIDOM's own, the chart
 embedding and cubed-sphere/unstructured meshes (no node path exists
 for them yet), CF auxiliary-coordinate promotion of `zp` in the io
 Writer (its `coordinates` attribute is hardcoded to `iteration`).
