@@ -43,6 +43,7 @@ from fridom.model.declarations import (
     Lifecycle,
 )
 from fridom.model.module import Module
+from fridom.model.phases import fields_in_phase
 from fridom.model.scheduled_field import sample_law
 from fridom.model.stages import Stage, StageKind
 from fridom.model.terms import TendencyTerm, Treatment
@@ -687,15 +688,24 @@ class MeshVelocityCorrection(Module):
         return HaloSpec(dict.fromkeys(self._coords, 2))
 
     def tendency_terms(self) -> tuple[TendencyTerm, ...]:
-        """One linear term correcting every configured field."""
+        """One linear term correcting every configured field.
+
+        ``per_phase=True``: the correction covers EVERY prognostic
+        that has a column factor, which straddles the momentum/tracer
+        split of ``fr.model.Phases``. Under a phase axis the term is
+        evaluated once per phase and masked to that phase's keys —
+        and :meth:`_correct` reads ``ctx.phase`` so it corrects only
+        those fields.
+        """
         return (
             TendencyTerm(
                 name="mesh_velocity", fn=self._correct,
                 treatment=Treatment.EXPLICIT,
-                advances=self._fields, linear=True),
+                advances=self._fields, linear=True,
+                per_phase=True),
         )
 
-    def _correct(self, state, ctx) -> dict:  # noqa: ANN001, ARG002
+    def _correct(self, state, ctx) -> dict:  # noqa: ANN001
         r"""``df/dt += ALE correction`` for every configured field.
 
         Dispatch per field on the routing resolved at ``bind``: the
@@ -705,15 +715,19 @@ class MeshVelocityCorrection(Module):
         (:meth:`_flux_correction`). Metrics are derived from the
         CURRENT parameter fields every call (``params=``, nothing
         cached — grid rules 2.3/3.8).
+
+        Under a phase axis both loops run over this phase's fields
+        only (``fr.model.phases.fields_in_phase``); unphased they run
+        over the literal declared tuples.
         """
         grid = state[self._fields[0]].grid
         registry = grid.dispatch
         params = mapping_params(state, grid)
         out: dict[str, object] = {}
-        for name in self._advective_fields:
+        for name in fields_in_phase(self._advective_fields, ctx):
             out[name] = self._advective_correction(
                 state, name, grid, registry, params)
-        for name in self._flux_fields:
+        for name in fields_in_phase(self._flux_fields, ctx):
             out[name] = self._flux_correction(
                 state, name, grid, registry, params)
         return out

@@ -1946,12 +1946,22 @@ class SplitExplicitFreeSurface(_FreeSurfaceBase):
 
     @property
     def stages(self) -> tuple[fr.model.Stage, ...]:
-        """SELF_UPDATE snapshot, ADVANCE subcycle, CONSTRAINT correction."""
+        """SELF_UPDATE snapshot, ADVANCE subcycle, CONSTRAINT correction.
+
+        The snapshot is pinned to ``phase=0`` (``fr.model.Phases``):
+        SELF_UPDATE otherwise re-runs in EVERY phase, and a second
+        snapshot taken in the tracer phase would buffer the
+        already-advanced ``u, v`` — the V-H4 increment forcing would
+        then read a zero increment. Phase 0 is the momentum group
+        (the ADVANCE claim on ``ps, U, V`` puts the barotropic
+        prognostics there by construction). The pin is inert on the
+        unphased path.
+        """
         return (
             fr.model.Stage(
                 kind=fr.model.StageKind.SELF_UPDATE,
                 fn="_snapshot_barotropic", name="barotropic_snapshot",
-                reads=("u", "v")),
+                reads=("u", "v"), phase=0),
             fr.model.Stage(
                 kind=fr.model.StageKind.ADVANCE,
                 fn="_barotropic_subcycle", name=self._advance_name,

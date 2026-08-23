@@ -325,6 +325,7 @@ import numpy as np
 import fridom as fr
 from fridom.framework.utils import dtype_real
 from fridom.model.modules.moving_geometry import mapping_params
+from fridom.model.phases import fields_in_phase
 from fridom.spatial.bc import BC
 from fridom.spatial.decomposition.halo import HaloSpec
 from fridom.spatial.errors import SpaceMismatchError
@@ -3323,6 +3324,15 @@ class _FluxFormAdvection(fr.model.Module):
         With one: the nonlinear ``advection`` difference term plus
         the genuinely separate ``background_advection`` term tagged
         ``linear=True`` so ``fr.model.linearize`` keeps exactly it (V-S3).
+
+        Every term is ``per_phase=True``: one hook transports the
+        WHOLE advected set (``{u, v, b}``), which straddles the
+        momentum/tracer split of ``fr.model.Phases``. Under a phase
+        axis each term is evaluated once per phase it touches and
+        masked to that phase's keys; the hooks read ``ctx.phase`` and
+        transport only that phase's components, so the staggered step
+        costs one advection pass per group, never two full ones.
+        Unphased, ``per_phase`` changes nothing.
         """
         if not self._background:
             return (
@@ -3330,19 +3340,21 @@ class _FluxFormAdvection(fr.model.Module):
                     name="advection", fn=self._advect,
                     treatment=fr.model.Treatment.EXPLICIT,
                     advances=self._advected,
-                    transports=self._advected),
+                    transports=self._advected,
+                    per_phase=True),
             )
         return (
             fr.model.TendencyTerm(
                 name="advection", fn=self._advect_perturbation,
                 treatment=fr.model.Treatment.EXPLICIT,
-                advances=self._advected, transports=self._advected),
+                advances=self._advected, transports=self._advected,
+                per_phase=True),
             fr.model.TendencyTerm(
                 name="background_advection",
                 fn=self._advect_background,
                 treatment=fr.model.Treatment.EXPLICIT,
                 advances=self._advected, transports=self._advected,
-                linear=True),
+                linear=True, per_phase=True),
         )
 
     def _flux_space(
@@ -3927,12 +3939,18 @@ class _FluxFormAdvection(fr.model.Module):
         grid, or a forced closure on a grid without the ``Outer`` seam)
         the exact full-3D form is kept (byte-identical to the pre-slice
         behavior).
+
+        Under a phase axis (``per_phase=True``) the loop runs over
+        this phase's components only (``ctx.phase.restrict``), so the
+        momentum pass never computes the tracer flux it would then
+        discard. Unphased (``ctx.phase is None``) the loop is the
+        literal declared tuple.
         """
         eps = (ctx.params[fr.model.params.SCALING_NONLINEARITY]
                if self._nondim else None)
         params = self._geometry_params(state)
         out: dict[str, ScalarField] = {}
-        for qname in self._advected:
+        for qname in fields_in_phase(self._advected, ctx):
             q = state[qname]
             tend = self._immersed_scale(
                 self._transport(state, q, params), q)
@@ -4247,12 +4265,12 @@ class _FluxFormAdvection(fr.model.Module):
         return {
             qname: (self._full_transport(state, eps, state[qname])
                     - self._linear_transport(state, state[qname]))
-            for qname in self._advected}
+            for qname in fields_in_phase(self._advected, ctx)}
 
     def _advect_background(
         self,
         state: object,
-        ctx: StepContext,  # noqa: ARG002 — fixed term signature
+        ctx: StepContext,
     ) -> dict[str, ScalarField]:
         r"""
         Linear transport by the background flow (``linear=True``).
@@ -4268,7 +4286,7 @@ class _FluxFormAdvection(fr.model.Module):
         """
         return {
             qname: self._linear_transport(state, state[qname])
-            for qname in self._advected}
+            for qname in fields_in_phase(self._advected, ctx)}
 
     def _full_transport(
         self, state: object, scale: object | None, q: ScalarField,

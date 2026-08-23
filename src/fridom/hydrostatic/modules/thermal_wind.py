@@ -250,7 +250,8 @@ class ThermalWindBackground(fr.model.Module):
     # ================================================================
     #  The mean-flow interaction term (linear)
     # ================================================================
-    @fr.model.term(advances=("u", "b"), linear=True)
+    @fr.model.term(advances=("u", "b"), linear=True,
+                   per_phase=True)
     def thermal_wind(self, state, ctx) -> dict:  # noqa: ANN001
         r"""``du/dt += -shear w``; ``db/dt += +f0 shear v``.
 
@@ -262,11 +263,21 @@ class ThermalWindBackground(fr.model.Module):
         shear and the provided constant ``f0``), so the term is exactly
         linear in the state — the sign is the thermal-wind derivation of
         the module docstring.
+
+        ``per_phase=True``: the pair straddles the momentum/tracer
+        split of ``fr.model.Phases`` (``u`` is momentum, ``b`` a
+        tracer), so under a phase axis the term is evaluated once per
+        phase and returns that phase's half — two cheap
+        interpolations rather than a duplicated flux pass. Unphased
+        the dict is returned whole, as before.
         """
         lam = ctx.params[SHEAR]
         f0 = ctx.params[CORIOLIS_F0]
         u, v, w, b = state["u"], state["v"], state["w"], state["b"]
-        return {
+        out = {
             "u": -(lam * w.to(u)),
             "b": (f0 * lam) * v.to(b),
         }
+        return {name: out[name]
+                for name in fr.model.phases.fields_in_phase(
+                    ("u", "b"), ctx)}
