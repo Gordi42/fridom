@@ -128,6 +128,7 @@ from fridom.spatial.operators.multigrid import (
 from fridom.spatial.operators.multigrid_hierarchy import coarsen_levels
 from fridom.spatial.operators.spectral_solve import SpectralSolve
 from fridom.spatial.operators.staggering import uniform_spacing
+from fridom.spatial.spaces.average import AverageSpace
 from fridom.spatial.spaces.nodal import NodalSpace
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -220,9 +221,15 @@ def _neumann_sibling(space: SpaceLike) -> SpaceLike:
     Cosine-II basis). Every bounded nodal factor is swapped for its
     ``BC.NEUMANN`` sibling (same mesh, node set and shape); periodic
     factors pass through, so on a doubly-periodic grid the sibling is
-    the space itself (the interned no-retag fast path). The barotropic
-    surface pressure is always a nodal ``Profile``, so only the nodal
-    branch is reachable (no FV cell-average factor).
+    the space itself (the interned no-retag fast path).
+
+    The swap is **family-aware** (FV-D3): a finite-volume surface
+    pressure lands on ``CellAvg``, whose Neumann-tagged origin is the
+    same DCT-II sampling grid as the nodal ``Center`` one (a walled
+    ``CellAvg`` maps to the type-II kernels exactly as ``Center``
+    does — the grid seeds both tagged average origins), so the average
+    branch swaps ``mesh.average(CellAvg, bc=NEUMANN)`` where the nodal
+    branch swaps ``mesh.nodal(node_set, bc=NEUMANN)``.
 
     Parameters
     ----------
@@ -241,6 +248,9 @@ def _neumann_sibling(space: SpaceLike) -> SpaceLike:
         if isinstance(factor, NodalSpace):
             replacements[factor.names[0]] = factor.mesh.nodal(
                 factor.node_set, bc=BC.NEUMANN)
+        elif isinstance(factor, AverageSpace):
+            replacements[factor.names[0]] = factor.mesh.average(
+                type(factor), bc=BC.NEUMANN)
     if not replacements:
         return space
     return space.replace(**replacements)

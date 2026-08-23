@@ -517,6 +517,14 @@ class _FreeSurfaceBase(fr.model.Module):
         autodiff hazard). :meth:`_depth_mean_div` divides it by the
         (geometric) vertical extent for the mean-form nondimensional
         spelling.
+
+        **Family (FV-D3).** The spelling is family-agnostic: on the
+        finite-volume family the core's ``diff`` profile re-points
+        ``u.diff(zonal)`` onto the exact ``Right|Inner -> CellAvg``
+        Gauss row (``flux_diff``), so the same expression is the FV
+        transport divergence on the ``CellAvg`` ``ps`` cell, and
+        ``Integral`` reduces the ``CellAvg`` vertical exactly (the
+        cell average IS the DOF). No branch is needed here.
         """
         zonal, meridional = self._horizontal
         u, v = state["u"], state["v"]
@@ -784,7 +792,14 @@ class ExplicitFreeSurface(_FreeSurfaceBase):
     def field_declarations(
         self,
     ) -> tuple[fr.model.FieldDeclaration, ...]:
-        """The surface pressure ``ps`` (2D, constant along z)."""
+        """The surface pressure ``ps`` (2D, constant along z).
+
+        The pattern carries no ``family=``: it follows the grid-level
+        default, which ``hy.Model`` sets from ``hy.Core(family=...)``
+        — so ``ps`` is ``Center(x) ⊗ Center(y) ⊗ Constant(z)`` on the
+        nodal family and ``CellAvg(x) ⊗ CellAvg(y) ⊗ Constant(z)`` on
+        the finite-volume one, matching the core's cells either way.
+        """
         zonal, meridional = self._horizontal
         return (
             fr.model.FieldDeclaration(
@@ -1876,6 +1891,14 @@ class SplitExplicitFreeSurface(_FreeSurfaceBase):
         own-AUX depth-mean buffers ``ubar_prev, vbar_prev`` (the V-H4
         increment reference, snapshotted every substage by the
         SELF_UPDATE stage — zero-initialized, overwritten before read).
+
+        Every pattern follows the grid-level family (FV-D3): under
+        ``family="fv"`` the collocated coordinate lands on ``CellAvg``
+        while the staggered one keeps the point-value face, so ``U``
+        is ``Right(x) ⊗ CellAvg(y) ⊗ Constant(z)`` — the space
+        ``u.mean(z)`` and ``ps.diff(zonal)`` land on there (FV-D2
+        option A, the transversely averaged C-grid face; the assembly
+        checks that equality).
         """
         zonal, meridional = self._horizontal
         return (

@@ -99,10 +99,10 @@ def flat_grid(n=N, nz=NZ):
 
 
 def model(grid, *, buoyancy=None, advection=None, extra=(), dt=DT,
-          free_surface=None, gravity=G, coriolis=None):
+          free_surface=None, gravity=G, coriolis=None, family=None):
     """Assemble a hydrostatic model on ``grid``."""
     return hy.Model(
-        grid=grid, core=hy.Core(gravity=gravity),
+        grid=grid, core=hy.Core(gravity=gravity, family=family),
         time_stepper=AdamBashforth(dt, order=3),
         buoyancy=buoyancy, coriolis=coriolis,
         free_surface=free_surface or hy.ExplicitFreeSurface(),
@@ -612,25 +612,41 @@ def test_the_column_volume_is_exactly_conserved():
 # ----------------------------------------------------------------
 #  Gate 6: the tracer content int J b dV
 # ----------------------------------------------------------------
-# NOTE (scope): the contract's machine-precision form of this gate --
-# ``int J b`` conserved to 1e-12 per step -- needs the CONSERVATIVE
-# flux route of ``MeshVelocityCorrection``, which is selected by a
-# ``CellAvg`` column factor, i.e. the finite-volume family. The
-# hydrostatic package does not run on ``family="fv"`` at all today:
-# ``Core/diagnose_w`` raises ``SpaceMismatchError: x: Center(x) vs
-# CellAvg(x)`` on a *flat, static* FV grid, so the limitation is
-# pre-existing and unrelated to z*. On the nodal family every field
-# takes the ADVECTIVE route, whose discrete column chain
-# (``physical_diff`` + ``interpolate``) does not telescope, so the
-# content drifts at the scheme's truncation order rather than at
-# roundoff. What is asserted here is therefore a bound, with the
-# measured numbers recorded below; the exact-conservation gate is
-# unblocked by FV support in the hydrostatic core.
-def _content_drift(free_surface):
+# NOTE (surface-closure mismatch, NOT a bug in the FV family). The
+# hydrostatic core now runs on ``family="fv"``, so ``b`` sits on a
+# ``CellAvg`` column and ``MeshVelocityCorrection`` takes the
+# CONSERVATIVE Reynolds-transport flux route. That route telescopes
+# over the column, leaving the boundary mesh flux
+# ``b_face(0) * eta_dot`` at the free surface. The advection closes
+# the same column the other way: its vertical flux runs through the
+# INTERIOR (``Inner``) faces, and the dropped surface face is restored
+# by the constancy-preserving correction ``-q A(1)``
+# (``model/modules/advection.py``), i.e. with the surface CELL value
+# ``b_cell(0)``, not the reconstructed face value. Under z* the free
+# surface is permeable (the diagnosed ``J omega`` at the top face
+# equals ``eta_dot``), so the two closures must use the SAME face
+# value to cancel; they differ by ``(b_face(0) - b_cell(0)) * eta_dot``
+# — an O(dz) surface source that leaves ``int J b`` drifting at
+# truncation order on BOTH families. (Constancy is unaffected: for a
+# uniform ``b`` the two face values coincide, and both closures
+# annihilate a constant exactly — see
+# ``test_uniform_buoyancy_stays_uniform_under_z_star``.)
+#
+# The consistent fix (the advective vertical flux must be the RELATIVE
+# flux ``w - z_dot`` through the interior faces, with the ALE flux
+# route reduced to the pointwise ``-(b/J) D_b(z_dot)`` term, or the
+# stored ``w`` made relative) touches ``model/modules/advection.py`` /
+# ``model/modules/moving_geometry.py`` and the stored-``w`` semantics;
+# it is out of the FV-family scope and is being decided on the
+# staggered-step branch. See
+# ``design/plans/active/flow_following_coordinates_plan.md``.
+#
+# So this gate REPORTS the FV number rather than asserting 1e-12.
+def _content_drift(free_surface, family=None):
     """Return the worst relative ``int J b`` drift over six steps."""
     grid = zstar_grid(n=NB, nz=4, bottom=1.0)
     mdl = zstar_model(grid, buoyancy=hy.BuoyancyTracer(),
-                      free_surface=free_surface,
+                      free_surface=free_surface, family=family,
                       advection=fr.model.modules.CenteredAdvection())
     hor = (np.arange(NB) + 0.5) / NB
     ver = (np.arange(4) + 0.5) / 4 - 1.0
@@ -647,22 +663,59 @@ def _content_drift(free_surface):
     return worst / abs(start)
 
 
-def test_tracer_content_drift_stays_at_truncation():
-    # measured worst relative drift over six steps (nodal family,
-    # advective ALE route): explicit 3.9e-06, implicit 3.9e-06 -- and
-    # 3.7e-06 for both BEFORE the core read the moving metrics, i.e.
-    # the drift is dominated by the non-telescoping advective column
-    # chain, not by the geometric conservation law. The assertion
-    # keeps headroom because the drift scales with dt, step count and
-    # surface amplitude. The
-    # implicit variant's number is reported, not asserted -- its
-    # ps^{n+1} comes from a solve, so the eta_dot the ALE term read
-    # differs from the realized Delta eta / Delta t by O(dt) (the
-    # documented owner call, plan 5.1).
-    explicit = _content_drift(hy.ExplicitFreeSurface())
-    implicit = _content_drift(hy.ImplicitFreeSurface())
+@pytest.mark.parametrize("family", [None, "fv"],
+                         ids=["nodal", "fv"])
+def test_tracer_content_drift_stays_at_truncation(family):
+    # measured worst relative drift over six steps (n=8, nz=4,
+    # dt=2e-3, eta/H = 0.2):
+    #   nodal (advective ALE route)      explicit 3.885e-06
+    #                                    implicit 3.881e-06
+    #   fv    (conservative flux route)  explicit 6.525e-06
+    #                                    implicit 6.519e-06
+    # Both families sit at the scheme's truncation order, for the
+    # reason recorded in the NOTE above: the surface mesh flux the FV
+    # flux route reads (``b_face(0) eta_dot``) and the surface
+    # advective flux the ``-q A(1)`` closure restores
+    # (``b_cell(0) eta_dot``) differ at O(dz). The FV number is
+    # slightly LARGER than the nodal one here — the flux route is not
+    # an improvement on this budget until that closure is made
+    # consistent. The assertion keeps headroom because the drift
+    # scales with dt, step count and surface amplitude.
+    explicit = _content_drift(hy.ExplicitFreeSurface(), family)
+    implicit = _content_drift(hy.ImplicitFreeSurface(), family)
     assert explicit < 1e-4
     assert np.isfinite(implicit)
+
+
+@pytest.mark.parametrize("family", [None, "fv"],
+                         ids=["nodal", "fv"])
+def test_uniform_buoyancy_stays_uniform_under_z_star(family):
+    # constancy (the free-stream / GCL property) IS exact on both
+    # families, the surface cell included: for a uniform ``b`` the ALE
+    # bracket vanishes identically (both flux terms share the same face
+    # mesh velocity) and the advective ``-q A(1)`` closure annihilates
+    # a constant by construction, so the two surface closures agree.
+    # Measured on FV: |db/dt| == 0.0 on EVERY level after three steps
+    # of genuine surface motion (nodal: <= 2.8e-17); the spread after
+    # six further steps is 0.0 on both. This is the pin that the
+    # closure mismatch of the NOTE above is a reconstruction
+    # difference on a NON-uniform tracer, not a constancy break.
+    grid = zstar_grid(n=NB, nz=4, bottom=1.0)
+    mdl = zstar_model(grid, buoyancy=hy.BuoyancyTracer(), family=family,
+                      advection=fr.model.modules.CenteredAdvection())
+    hor = (np.arange(NB) + 0.5) / NB
+    x, _ = np.meshgrid(hor, hor, indexing="ij")
+    mdl.set_fields(b=np.full(mdl.state["b"].data.shape, 0.5),
+                   ps=G * AMP * np.sin(2 * np.pi * x)[:, :, None])
+    mdl.advance(3)
+    # the surface genuinely moves (measured |eta_dot| ~ 4.8e-02)
+    assert float(np.abs(np.asarray(mdl.state["eta_dot"].data)).max()) > 0.01
+    tend = mdl.tendency(mdl.state, constraints=False)
+    assert float(np.abs(np.asarray(tend["b"].data)).max()) < 1e-15
+    mdl.advance(6)
+    b = np.asarray(mdl.state["b"].data)
+    assert float(b.max() - b.min()) < 1e-13
+    assert not mdl.panicked
 
 
 # ----------------------------------------------------------------
@@ -692,12 +745,13 @@ def _sw_run(n, eta0, dt, steps, *, nonlinear=True):
 
 
 def _hydrostatic_barotropic_run(grid, eta0, dt, steps, *, zstar,
-                                advection=True):
+                                advection=True, family=None):
     """Run the barotropic hydrostatic twin (z* or fixed-domain)."""
     scheme = (fr.model.modules.CenteredAdvection() if advection
               else None)
     build = zstar_model if zstar else model
-    mdl = build(grid, buoyancy=None, advection=scheme, dt=dt)
+    mdl = build(grid, buoyancy=None, advection=scheme, dt=dt,
+                family=family)
     mdl.set_fields(ps=G * eta0[:, :, None])
     mdl.advance(steps)
     assert not mdl.panicked
@@ -760,6 +814,24 @@ def test_barotropic_z_star_matches_the_nonlinear_shallow_water():
     # (measured 33x)
     assert fixed_err > 250.0 * z_err
     assert momentum > 16.0 * z_err
+
+
+def test_barotropic_z_star_oracle_holds_on_the_fv_family():
+    # the same oracle on family="fv": the barotropic z* run is the
+    # nonlinear shallow-water system there too. With b == 0 the ALE
+    # correction acts only on the (column-constant) momentum, so the
+    # FV run tracks the oracle to the same truncation-level residual
+    # as the nodal one (measured z_err 4.659e-05 on both, i.e. the FV
+    # and nodal barotropic runs agree bitwise here).
+    n, nz, dt, steps, amp = 16, 4, 5e-3, 10, 0.4
+    eta0 = _barotropic_ic(n, amp)
+    oracle = _sw_run(n, eta0, dt, steps)
+    linear_oracle = _sw_run(n, eta0, dt, steps, nonlinear=False)
+    z_run = _hydrostatic_barotropic_run(
+        zstar_grid(n=n, nz=nz, bottom=1.0), eta0, dt, steps,
+        zstar=True, family="fv")
+    signal = _worst(oracle, linear_oracle)
+    assert _worst(z_run, oracle) < 0.004 * signal
 
 
 # ----------------------------------------------------------------

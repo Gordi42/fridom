@@ -600,6 +600,15 @@ class ZStarGeometry(fr.model.Module):
         quantity). Duplicated rather than imported: the free-surface
         family owns its own copy and the two evolve independently.
 
+        **Family (FV-D3).** Family-agnostic by construction: with the
+        core's FV ``diff`` profile merged, ``ju.diff(zonal)`` resolves
+        to the exact ``Right|Inner -> CellAvg`` Gauss row, so this is
+        the finite-volume transport divergence on the ``CellAvg``
+        ``ps`` cell — the same discrete quantity the free surface's
+        :math:`\partial_t p_s = -g\,T^*` uses, which is what keeps the
+        realized :math:`\Delta J` and the ALE term's ``D_b(zp_dot)``
+        the same discrete operator on either family.
+
         Parameters
         ----------
         state : object
