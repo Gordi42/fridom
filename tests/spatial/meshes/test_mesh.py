@@ -145,7 +145,7 @@ def test_plural_node_set_names_the_singular_and_says_why():
     assert "did you mean 'center'?" in message
     # and the reason a .centers alias is refused rather than added
     assert "one function space" in message
-    assert "grid.evaluation_nodes(space)" in message
+    assert "grid.evaluation_nodes(space, name)" in message
     # the singular really is a space object, not coordinate values
     assert mesh.center is mesh.center
 

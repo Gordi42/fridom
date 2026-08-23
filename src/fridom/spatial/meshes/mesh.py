@@ -263,7 +263,9 @@ class Mesh(ABC):
         word rather than a missing alias, and a ``.centers`` alias
         would actively mislead by suggesting the array of centre
         coordinates, which is a different object entirely
-        (``grid.evaluation_nodes(space)`` / ``field.nodes(name)``).
+        (``grid.evaluation_nodes(space, name)`` /
+        ``field.evaluation_nodes(name)``, or ``grid.nodes(space)``
+        for the xarray view).
 
         The rule is mechanical and table-free in both directions: a
         miss whose singular (or plural) *does* exist on the class is
@@ -302,5 +304,7 @@ class Mesh(ABC):
                 "one function space (the xgcm position vocabulary — "
                 "center, left, right, outer, inner), not a collection "
                 "of coordinates. For the coordinate values use "
-                "grid.evaluation_nodes(space) or field.nodes(name).")
+                "grid.evaluation_nodes(space, name) or "
+                "field.evaluation_nodes(name); grid.nodes(space) is "
+                "the xarray view of every node.")
         raise AttributeError(message)

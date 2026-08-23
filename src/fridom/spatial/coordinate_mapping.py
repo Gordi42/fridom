@@ -56,12 +56,19 @@ metrics every module sees are staggered-consistent by construction
 the static defaults with caller-supplied dynamic fields (CS-D4):
 values enter as traced arrays, never as static hash keys, so
 sweeping parameter values through jit compiles once.
+
+The map **value** itself — the physical position of a space's nodes,
+``zp = M(z, params)`` — is :meth:`CoordinateMapping.positions`, the
+mapped-name overload of ``grid.evaluation_nodes`` and the source of
+the ``zp`` variable of ``grid.nodes(space)``; it goes through the
+same parameter pipeline and the same ``params=`` overload.
 """
 # Coordinate-systems plan, stage C1: CoordinateMapping + grid.metric
 from __future__ import annotations
 
 import copy
 import inspect
+from collections.abc import Mapping
 from typing import TYPE_CHECKING
 
 import jax
@@ -82,8 +89,9 @@ from fridom.spatial.spaces.tensor_product import (
 from fridom.spatial.spaces.trace import TraceSpace
 
 if TYPE_CHECKING:  # pragma: no cover
-    from collections.abc import Callable, Mapping
+    from collections.abc import Callable
 
+    from fridom.spatial.fields.vector_field import VectorField
     from fridom.spatial.grid import Grid
     from fridom.spatial.spaces.function_space import (
         FunctionSpace,
@@ -899,6 +907,33 @@ class CoordinateMapping:
         """The metric names this mapping can supply."""
         return tuple(self._recipes)
 
+    @property
+    def mapped_names(self) -> tuple[str, ...]:
+        """The physical coordinates the analytic ``maps=`` produce."""
+        return tuple(self._maps)
+
+    @property
+    def mapped_coords(self) -> dict[str, tuple[str, ...]]:
+        """
+        Coordinate dependence of each mapped physical coordinate.
+
+        Description
+        -----------
+        Mapped name -> the base coordinates its map value depends on,
+        directly or through a parameter, in declaration order — the
+        coordinates a space must resolve for :meth:`positions` to
+        evaluate it (``zp = z H(x, y)`` depends on ``("z", "x", "y")``).
+        A copy, keyed like ``param_coords``.
+        """
+        table: dict[str, tuple[str, ...]] = {}
+        for name, decl in self._maps.items():
+            deps = list(decl.coords)
+            for param in decl.params:
+                deps.extend(c for c in self._param_coords.get(param, ())
+                            if c not in deps)
+            table[name] = tuple(deps)
+        return table
+
     # ================================================================
     #  Grid binding (called by the grid at attachment)
     # ================================================================
@@ -973,7 +1008,7 @@ class CoordinateMapping:
         space: SpaceLike,
         name: str,
         *,
-        params: Mapping[str, ScalarField] | None = None,
+        params: Mapping[str, ScalarField] | VectorField | None = None,
     ) -> ScalarField:
         """
         Derive the named metric on the requested staggered space.
@@ -1000,48 +1035,174 @@ class CoordinateMapping:
             factors.
         name : str
             The metric name (one of ``metric_names``).
-        params : Mapping[str, ScalarField] | None, optional
+        params : Mapping[str, ScalarField] | VectorField | None, optional
             Caller-supplied parameter fields overriding the static
-            defaults (default: None).
+            defaults, by name (an unknown name raises); a
+            ``VectorField`` such as the model state is read the same
+            way, the mapping's parameters picked out of it by name
+            (default: None).
 
         Returns
         -------
         ScalarField
             The metric field, tagged with the querying space.
         """
-        grid = self._bound_grid()
-        laid = grid._laid_out(space)  # noqa: SLF001 — grid seam
         recipe = self._recipes.get(name)
         if recipe is None:
             raise ValueError(
                 f"unknown metric {name!r}; this mapping supplies "
                 f"{self.metric_names}")
-        explicit = dict(params or {})
-        unknown = tuple(key for key in explicit
-                        if key not in self._params)
-        if unknown:
+        grid, laid, ctx = self._query(
+            space, f"metric {name!r}", recipe.deps, params)
+        value = jnp.asarray(recipe.evaluate(ctx))
+        return self._tagged(grid, laid, recipe.deps, value, name)
+
+    def positions(
+        self,
+        space: SpaceLike,
+        name: str,
+        *,
+        params: Mapping[str, ScalarField] | VectorField | None = None,
+    ) -> ScalarField:
+        """
+        Physical position of a mapped coordinate at the space's nodes.
+
+        Description
+        -----------
+        The map **value** ``m = M(b, params)`` — the primal whose
+        tangents the ``d<m>_d<b>`` metric rows are — materialized at
+        the evaluation nodes of the requested space: base coordinates
+        from ``grid.evaluation_nodes``, parameters through the same
+        field pipeline :meth:`metric` uses (the static defaults, or
+        the ``params=`` override), so the z* column at the current
+        free surface is ``positions(space, "zp", params=state)``.
+        Tagged with the querying space, every factor the map does not
+        involve replaced by its ``ConstantSpace``, so it broadcasts
+        like ``grid.evaluation_nodes`` (whose mapped-name overload
+        this is). Recomputed per query, never cached.
+
+        Parameters
+        ----------
+        space : SpaceLike
+            The querying space; it must resolve every coordinate the
+            map involves (``mapped_coords``) through non-constant
+            nodal/average factors.
+        name : str
+            The mapped physical coordinate (one of ``mapped_names``).
+        params : Mapping[str, ScalarField] | VectorField | None, optional
+            Caller-supplied parameter fields overriding the static
+            defaults, by name (an unknown name raises); a
+            ``VectorField`` such as the model state is read the same
+            way, the mapping's parameters picked out of it by name
+            (default: None).
+
+        Returns
+        -------
+        ScalarField
+            The physical coordinate at the nodes, tagged with the
+            querying space.
+        """
+        decl = self._maps.get(name)
+        if decl is None:
             raise ValueError(
-                f"unknown parameters {unknown} in params=; this "
-                f"mapping declares {self.param_names}")
-        deps = recipe.deps
+                f"unknown mapped coordinate {name!r}; this mapping "
+                f"maps {self.mapped_names}")
+        deps = self._deps(decl)
+        grid, laid, ctx = self._query(
+            space, f"mapped coordinate {name!r}", deps, params)
+        value = jnp.asarray(decl.fn(**_arguments(decl, ctx)))
+        return self._tagged(grid, laid, deps, value, name)
+
+    # ------------------------------------------------------------
+    #  Shared query machinery of metric / positions
+    # ------------------------------------------------------------
+    def _explicit_params(
+        self,
+        params: Mapping[str, ScalarField] | VectorField | None,
+    ) -> dict[str, ScalarField]:
+        """
+        Normalize the ``params=`` argument to fields by name.
+
+        Description
+        -----------
+        A mapping is taken as written and an unknown name raises; any
+        other object is a state (``name in params`` / ``params[name]``,
+        the ``VectorField`` protocol) from which the declared
+        parameters are picked by name, the others keeping their
+        static defaults — the ``mapping_params`` discovery convention.
+
+        Parameters
+        ----------
+        params : Mapping[str, ScalarField] | VectorField | None
+            The caller's parameter source.
+
+        Returns
+        -------
+        dict[str, ScalarField]
+            The explicit parameter fields (possibly empty).
+        """
+        if params is None:
+            return {}
+        if isinstance(params, Mapping):
+            explicit = dict(params)
+            unknown = tuple(key for key in explicit
+                            if key not in self._params)
+            if unknown:
+                raise ValueError(
+                    f"unknown parameters {unknown} in params=; this "
+                    f"mapping declares {self.param_names}")
+            return explicit
+        return {name: params[name] for name in self._params
+                if name in params}
+
+    def _query(
+        self,
+        space: SpaceLike,
+        what: str,
+        deps: frozenset[str],
+        params: Mapping[str, ScalarField] | VectorField | None,
+    ) -> tuple[Grid, SpaceLike, _Derivation]:
+        """
+        Validate one query and open its derivation context.
+
+        Parameters
+        ----------
+        space : SpaceLike
+            The querying space.
+        what : str
+            The queried quantity, for the taught errors
+            (``"metric 'dz_dx'"``).
+        deps : frozenset[str]
+            The coordinates the quantity involves.
+        params : Mapping[str, ScalarField] | VectorField | None
+            The caller's parameter source (:meth:`_explicit_params`).
+
+        Returns
+        -------
+        tuple[Grid, SpaceLike, _Derivation]
+            The bound grid, the laid-out space and the context.
+        """
+        grid = self._bound_grid()
+        laid = grid._laid_out(space)  # noqa: SLF001 — grid seam
+        explicit = self._explicit_params(params)
         for coord in sorted(deps):
             try:
                 factor = laid.factor(coord)
             except KeyError:
                 raise ValueError(
-                    f"metric {name!r} involves coordinate "
+                    f"{what} involves coordinate "
                     f"{coord!r}, which the requested space does "
                     "not resolve") from None
             if isinstance(factor, ConstantSpace):
                 # a value error (bad space choice), not a type error
                 raise ValueError(  # noqa: TRY004
-                    f"metric {name!r} involves coordinate "
+                    f"{what} involves coordinate "
                     f"{coord!r}, but the requested space is "
                     "constant along it")
             if isinstance(factor, TraceSpace):
                 # a value error (bad space choice), not a type error
                 raise ValueError(  # noqa: TRY004
-                    f"metric {name!r} involves coordinate "
+                    f"{what} involves coordinate "
                     f"{coord!r}, but the requested space is a boundary "
                     "trace along it; a trace carries no per-factor "
                     "metric. The boundary-row (e.g. top-cell) metric is "
@@ -1054,8 +1215,21 @@ class CoordinateMapping:
                     f"metric fields have no coefficient-space "
                     f"representation; factor along {coord!r} is "
                     f"{factor!r}")
-        ctx = _Derivation(self, grid, laid, explicit)
-        value = jnp.asarray(recipe.evaluate(ctx))
+        return grid, laid, _Derivation(self, grid, laid, explicit)
+
+    def _tagged(
+        self,
+        grid: Grid,
+        laid: SpaceLike,
+        deps: frozenset[str],
+        value: jax.Array,
+        name: str,
+    ) -> ScalarField:
+        """Tag a materialized value with the querying space.
+
+        Every factor the quantity does not involve is replaced by its
+        ``ConstantSpace`` (the broadcast tagging of ``grid.measure``).
+        """
         factors = tuple(
             factor if any(n in deps for n in factor.names)
             else factor.mesh.constant

@@ -3498,3 +3498,27 @@ stays the full unphased tendency. Tests: `tests/model/test_phases.py`,
 `test_schedule_phases.py`, `test_composer_phases.py`,
 `test_model_phases.py`, the AB/IMEX phase shards; 638 advection /
 moving-geometry tests and 226 free-surface tests unchanged; forced-4.
+
+## Grid nodes as xarray (2026-08-23)
+
+The plotting view of the grid, owner-approved API
+([`../plans/done/grid_nodes_plan.md`](../plans/done/grid_nodes_plan.md)):
+`grid.nodes(space, params=None)` / `field.nodes(params=None)`
+(`export.nodes_dataset`) return the `ScalarField.xr` layout with no
+data — plain coordinate names, one 1-D dimension coordinate per
+factor at its own position, `c_grid_axis_shift` — plus the `maps=`
+physical coordinates the space resolves and the immersed `wet` mask
+as data variables, so `b.nodes().isel(x=0).plot.scatter(x="y",
+y="z", ax=ax)` draws the nodes over a field and `params=model.state`
+gives the z* column at the current free surface. Underneath,
+`CoordinateMapping.positions(space, name, params=)` materializes a
+map's value at a space's nodes (`mapped_names`, `mapped_coords`),
+`grid.evaluation_nodes` / `field.evaluation_nodes` accept a mapped
+name and `params=`, and `params=` on `metric` / `positions` takes a
+`VectorField` (the state) besides a mapping. `field.nodes(name)` was
+renamed to `field.evaluation_nodes(name)` (three call sites). Fix
+carried along: `b_total` (hydrostatic, nonhydro2) adds `N^2` times
+the **physical** height on a terrain or z* column, where it used the
+base `z`. Tests: `tests/spatial/test_coordinate_mapping_positions.py`,
+`test_grid_nodes.py`, `test_export_nodes.py`, the `b_total` gates on
+a sigma and a z* column in both packages, the field/mesh shards.

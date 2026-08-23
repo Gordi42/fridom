@@ -1,10 +1,12 @@
 """Parameterful hydrostatic diagnostics: ekin, epot, eta and b_total."""
+import jax.numpy as jnp
 import numpy as np
 import pytest
 
 import fridom as fr
 import fridom.hydrostatic as hy
 from fridom.model.time_steppers.adam_bashforth import AdamBashforth
+from fridom.spatial.coordinate_mapping import CoordinateMapping
 
 IM = fr.spatial.meshes.IntervalMesh
 
@@ -110,7 +112,7 @@ def test_b_total_adds_the_background_stratification():
     model.set_fields(b=rng.standard_normal(model.state["b"].shape))
     total = model.diagnostics.b_total()
     b = model.state["b"]
-    z = np.asarray(b.nodes("z").data)
+    z = np.asarray(b.evaluation_nodes("z").data)
     assert np.allclose(np.asarray(total.data),
                        np.asarray(b.data) + n2 * z)
     assert total.function_space is b.function_space
@@ -127,7 +129,7 @@ def test_b_total_can_evaluate_on_a_passed_state():
         data=rng.standard_normal(model.state["b"].shape))
     state = model.state.replace(b=b)
     total = model.diagnostics.b_total(state)
-    z = np.asarray(b.nodes("z").data)
+    z = np.asarray(b.evaluation_nodes("z").data)
     assert np.allclose(np.asarray(total.data),
                        np.asarray(b.data) + n2 * z)
 
@@ -163,8 +165,72 @@ def test_b_total_nondimensional_background_is_n2_z_in_physical_units():
         advection=None,
         time_stepper=AdamBashforth(1e-3, order=3))
     total = model.diagnostics.b_total()
-    z = np.asarray(model.state["b"].nodes("z").data)
+    z = np.asarray(model.state["b"].evaluation_nodes("z").data)
     assert np.allclose(np.asarray(total.data), rossby / froude**2 * z)
     n_freq = speed / (froude * height)
     physical = model.units.factor("b_total") * np.asarray(total.data)
     assert np.allclose(physical, n_freq**2 * height * z)
+
+
+# ================================================================
+#  b_total on a mapped column: the physical height, not the base z
+# ================================================================
+def sloped(x, y):
+    """Sloped bottom, 20% of the mean depth."""
+    return 1.0 + 0.2 * jnp.sin(2 * jnp.pi * x) * jnp.cos(2 * jnp.pi * y)
+
+
+def make_column_grid(mapping, nx=4, nz=3):
+    """Doubly-periodic horizontal, base column z in [-1, 0]."""
+    return fr.spatial.Grid((
+        IM(nx, (0.0, 1.0), periodic=True, name="x"),
+        IM(nx, (0.0, 1.0), periodic=True, name="y"),
+        IM(nz, (-1.0, 0.0), periodic=False, name="z")), mapping=mapping)
+
+
+def make_column_model(grid, n2=2.0, extra=()):
+    """Return a linear hydrostatic model with a stratification on grid."""
+    return hy.Model(
+        grid=grid,
+        core=hy.Core(gravity=1.0),
+        time_stepper=AdamBashforth(1e-3, order=3),
+        buoyancy=hy.ConstantStratification(n2=n2),
+        free_surface=hy.ExplicitFreeSurface(),
+        advection=None,
+        modules_extra=extra)
+
+
+def column_nodes(b):
+    """Broadcast-ready x, y, z node coordinates of the buoyancy."""
+    return tuple(np.asarray(b.evaluation_nodes(name).data)
+                 for name in ("x", "y", "z"))
+
+
+def test_b_total_uses_the_physical_height_on_a_terrain_column():
+    n2 = 2.0
+    grid = make_column_grid(CoordinateMapping(
+        maps={"zp": lambda z, H: z * H}, params={"H": sloped}))
+    model = make_column_model(grid, n2=n2)
+    total = model.diagnostics.b_total()      # at rest: the background
+    b = model.state["b"]
+    x, y, z = column_nodes(b)
+    zp = np.asarray(sloped(jnp.asarray(x), jnp.asarray(y))) * z
+    assert np.allclose(np.asarray(total.data), n2 * zp)
+    # the sloped column differs from the base coordinate it maps
+    assert not np.allclose(zp, np.broadcast_to(z, zp.shape))
+
+
+def test_b_total_follows_the_free_surface_on_a_zstar_column():
+    n2 = 2.0
+    grid = make_column_grid(hy.zstar_mapping(sloped))
+    model = make_column_model(grid, n2=n2, extra=(hy.ZStarGeometry(),))
+    lifted = model.state.replace(eta=model.state["eta"] + 0.1)
+    total = model.diagnostics.b_total(lifted)
+    b = lifted["b"]
+    x, y, z = column_nodes(b)
+    depth = np.asarray(sloped(jnp.asarray(x), jnp.asarray(y)))
+    # zp = eta + (H + eta) z at the buoyancy nodes, eta read off the state
+    assert np.allclose(np.asarray(total.data), n2 * (0.1 + (depth + 0.1) * z))
+    # the model's own state is the reference column, eta = 0
+    assert np.allclose(np.asarray(model.diagnostics.b_total().data),
+                       n2 * depth * z)
