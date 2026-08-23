@@ -290,8 +290,8 @@ diagnostics (HY-D6).
 
 T/S with a nonlinear EOS (buoyancy tracer first); topography /
 immersed boundaries (variable-`csqr` solve route is specified, not
-built in it-1); z* / ALE moving vertical coordinate (V-H5 names it;
-first consumer of `MovingGeometry` + free surface); the spherical
+built in it-1); ~~z* / ALE moving vertical coordinate~~ — **shipped
+2026-08-23** (`hy.ZStarGeometry`, [`flow_following_coordinates_plan.md`](flow_following_coordinates_plan.md)); the spherical
 chart (3.7 names the hydrostatic model as its likely first
 consumer); IMEX-RK x split-explicit (assembly error per spec §5.4);
 a Veros-style superbee limiter in the shared advection family;

@@ -10,9 +10,22 @@ date: 2026-08-23
 > moving-geometry design gives a short path. The survey is
 > [`../../research/flow_following_coordinates_survey.md`](../../research/flow_following_coordinates_survey.md);
 > this plan is the answer. **Stage Z (z* for the hydrostatic model)
-> is in progress on `feat/zstar-hydrostatic` + `feat/zstar-geometry`;
-> Stage I (target-following interfaces) is planned, first rung on
-> nonhydro2.**
+> SHIPPED 2026-08-23** (merges `805b467a` threading, `ad641355`
+> geometry; entry in [`../../roadmap/done.md`](../../roadmap/done.md);
+> `hy.zstar_mapping`, `hy.ZStarGeometry`, `tests/hydrostatic/test_zstar.py`,
+> `test_core_terrain_moving.py`). **Stage I (target-following
+> interfaces) is the open remainder**, first rung on nonhydro2.
+>
+> Two facts the gates established beyond §3: the hydrostatic package
+> runs the nodal family only (`Core/diagnose_w` raises on a flat FV
+> grid), so the z* tracer budget is the advective-route one —
+> `∫ J b` drifts at truncation level (3.9e-6 relative over 6 steps,
+> dominated by the non-telescoping column chain, not the GCL); the
+> 1e-12 form of gate 6 needs the hydrostatic FV family (a separate
+> project, §5.5). And the discrete GCL condition is pinned directly:
+> `eta_dot == (d ps/dt)/g` to 1e-14 at a 40 % surface displacement
+> because the free surface and the geometry module read the same
+> current η.
 
 ## 1. The fit — what the moving-geometry design already carries
 
@@ -137,10 +150,34 @@ fixed-domain linear free surface at `O(η/H)`; compile-once sweep of
 
 ## 4. Stage I — target-following interfaces (planned)
 
+**Prerequisite I1 — parameter tangents along a bounded base
+coordinate (measured 2026-08-23).** The mapping machinery accepts a
+parameter that depends on the column's own base coordinate
+(`maps={"zp": lambda z, Z: Z}`, `params={"Z": lambda x, y, z: ...}`
+builds, and declares `dzp_dz`, `dzp_dx`, `dz_dzp`, `dzp_dZ`,
+`sqrt_g`), but its parameter-tangent closure assumes a
+**wall-mirror-even** parameter (`coordinate_mapping.py`,
+`param_tangent`: the centred difference vanishes at the wall face,
+the face→centre move adopts the Dirichlet sibling). For a height
+parameter the slope at the wall is the layer thickness, not zero:
+on a uniform column `Z = 2 z` the derived `dzp_dz` at the centres is
+`[1, 2, 2, 2, 2, 2, 2, 1]` — **half the true Jacobian in the two
+wall-adjacent cells** — and a query on the `Outer` (wall) faces
+raises (`('interpolate', Center(z))` lands on `Inner`, not `Outer`).
+Stage I therefore starts with a framework change: a parameter-tangent
+closure along a bounded base coordinate that extrapolates one-sided
+at the walls (the `LinearInterp(boundary="one_sided")` /
+`CellAvg -> Outer` closures are the precedent) and reaches the Outer
+faces, gated bitwise on every existing terrain / moving-geometry
+test (parameters along horizontal coordinates keep the even
+closure). Wide blast radius (terrain, moving geometry, the mapped
+pressure solve all read these tangents) — owner-reviewed design
+before implementation.
+
 **Design.** The map is `zp = Z` with `Z(x, y, z)` a PROGNOSTIC
 parameter field (cell-centre heights on `Profile(x, y, z)`; the
 machinery derives `J = ∂Z/∂z` by its discrete parameter tangent and
-the slopes `∂Z/∂x_i` the same way), tendency
+the slopes `∂Z/∂x_i` the same way — after I1), tendency
 
     Z_dot = (Z_target(state) − Z)/τ   [+ λ · w_interface]
 
@@ -215,3 +252,16 @@ numerics in this plan.
    face-declared parameters (needs face-space parameter alignment).
 3. A `hy.Model(vertical_coordinate=...)` convenience kwarg.
 4. Stage I scheduling after Stage Z lands.
+5. The hydrostatic FV family (`family="fv"` in `hy.Core`): the
+   prerequisite for exact tracer-content conservation under z*
+   (the flux-form ALE route) — and for the Stage I budget gates on
+   the hydrostatic model.
+6. `tests/validation/test_moving_geometry.py`: four gates fail on
+   the owner's machine (the two frozen-motion bitwise and the two
+   compile-once ones). Bisected 2026-08-23: they fail identically at
+   `1a82bea9`, before every merge of that day (WENO, z*), so this is
+   either a local jax/XLA drift in bitwise behaviour or a regression
+   older than 2026-08-22; needs a look (CI state unknown, dev pushes
+   are batched).
+7. Stage I's I1 (the wall closure of parameter tangents along a
+   bounded base coordinate): design review before the change.

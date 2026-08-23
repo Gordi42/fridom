@@ -3403,3 +3403,41 @@ reporter object renders, and the `_LoggingProgress` placeholder is
 gone. Repository swept (`advection=False` → `None`, `advection=True` →
 the module, `progress=False` deleted); the spec rule sits next to the
 preset factory rule in `01_concepts.md`.
+
+## z* vertical coordinate for the hydrostatic model (2026-08-23)
+
+Stage Z of
+[`../plans/active/flow_following_coordinates_plan.md`](../plans/active/flow_following_coordinates_plan.md),
+decided from
+[`../research/flow_following_coordinates_survey.md`](../research/flow_following_coordinates_survey.md)
+(z*, MOM6's vertical Lagrangian-remap and its hybrid-coordinate
+clipping rules, the continuous-ALE implementations, and the discrete
+geometric conservation law they all obey). Built on the stage-C4
+moving-geometry design: `hy.zstar_mapping(depth)` declares
+`zp = eta + (H + eta)·z` on the base column `z ∈ [−1, 0]` (a stretched
+base mesh stretches z*); `hy.ZStarGeometry` owns `eta`, `eta_dot`
+(SELF_UPDATE: `eta = ps/g`, `eta_dot = −∫ ∇·(J u) dz` with the current
+η; rigid lid, immersed grids and the nondimensional free surface are
+taught errors); `MeshVelocityCorrection` now skips prognostics with
+no column factor (`ps`, `U`, `V`) and the mapping's own parameters;
+the hydrostatic core, free-surface family, barotropic solver and
+terrain helpers read the CURRENT mapping parameters through
+`mapping_params(state, grid)` and a new `Integral` /
+`CumulativeIntegral.with_params(params)` seam (`params=None` is the
+bitwise static path). Gates: frozen parity with the sigma column
+bitwise; constancy; `∫ (H + η) dA` exact; compile-once across an
+amplitude sweep; `Model.propagator` autodiff vs FD; forced-4
+invariance; the **nonlinear shallow-water oracle** — a barotropic z*
+run vs `sw.Model` at η/H = 0.4 agrees to 0.2 % of the nonlinearity
+signal (the linear twins are bitwise identical, so the residual is
+the Sadourny-vs-flux-form momentum difference); the linear limit
+scales as `0.2317·(η/H)`; `eta_dot == (d ps/dt)/g` to 1e-14 on a
+moving surface (the GCL condition). Caveats recorded in the plan:
+the hydrostatic package is nodal-only, so `∫ J b` drifts at
+truncation level (3.9e-6 relative over 6 steps) — exact conservation
+needs the hydrostatic FV family; the implicit / split-explicit
+pairings carry the documented O(Δt) GCL residual (owner call). Tests:
+`tests/hydrostatic/test_zstar.py` (36), `test_core_terrain_moving.py`
+(15), `with_params` sections in the integral tests, the ALE skip rule
+in `test_moving_geometry.py`. Also fixed: the stale
+`test_core_pressure_gradient_no_longer_reads_ps` assertion.
