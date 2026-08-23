@@ -3466,3 +3466,35 @@ one-sided `Inner -> CellAvg` reconstruction row. Tests:
 `tests/hydrostatic/test_core_fv.py` (28), `test_free_surface_fv.py`
 (23), FV cases in `test_zstar.py` and `test_core_terrain_moving.py`;
 forced-4, autodiff, compile-once.
+
+## The phase axis of the model schedule (2026-08-23)
+
+The framework half of MITgcm's staggered baroclinic step (option (b)
+of the flow-following plan §4b; planning record
+[`../research/staggered_step_planning.md`](../research/staggered_step_planning.md)
+§1): `fr.model.Phases` (`staggered()` — group 0 = the Velocity role ∪
+every PROGNOSTIC claimed by an ADVANCE/CONSTRAINT `advances=`, group
+1 = the rest; explicit groups; `total()` = the unphased schedule),
+`Stage.phase` (SELF_UPDATE/DIAGNOSE every phase, claimed
+ADVANCE/CONSTRAINT in the owning phase, unclaimed CONSTRAINT in every
+phase it writes into, pins), `TendencyTerm.per_phase` (the joint
+`{u, v, b}` writers — `Advection`, `MeshVelocityCorrection`,
+`ThermalWind` — evaluated per phase, foreign keys discarded),
+`StepContext.phase`, the composer partition with its lint matrix
+(straddling terms / claims / implicit merge groups, empty phases,
+per-phase coverage, a phase-aware overlap lint; separable implicit
+operators split per phase via `restricted_to`), the phase loop in
+`AdamBashforth` and `IMEXMultistep` (one pre-tick context per phase,
+one clock tick, one merged full-width ring), `supports_phases` (RK
+and exponential refuse), `Model(phases=...)`, `model.phases`,
+`_BindTable.phases` for modules whose stage set depends on the axis.
+`phases=None` and `Phases.total()` execute the literal unphased body:
+measured **bitwise** against the branch-point tree on four presets
+(hydrostatic implicit + advection, split-explicit, nonhydro2,
+nonhydro2 + moving geometry; 16 prognostic arrays, zero mismatches).
+Recorded conventions: every phase reads the pre-tick clock (S3'/S4
+included); `ctx.dt == stage_dt == dt` per phase; `model.tendency()`
+stays the full unphased tendency. Tests: `tests/model/test_phases.py`,
+`test_schedule_phases.py`, `test_composer_phases.py`,
+`test_model_phases.py`, the AB/IMEX phase shards; 638 advection /
+moving-geometry tests and 226 free-surface tests unchanged; forced-4.

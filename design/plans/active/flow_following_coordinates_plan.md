@@ -273,12 +273,14 @@ change. The program, in dependency order:
   surface declares itself). Gate: uniform `b` under z\* on FV —
   `Σ_k J (advection + ALE)_k Δz == 0.0` in every cell including the
   surface cell.
-- **P2 — the phase axis** (`feat/schedule-phases`, in progress):
+- **P2 — the phase axis** (**shipped 2026-08-23**, merge `953da059`;
+  entry in [`../../roadmap/done.md`](../../roadmap/done.md)):
   `fr.model.Phases`, `Stage.phase`, `TendencyTerm.per_phase`,
   `StepContext.phase`, the composer partition and lints, the phase
   loop in the multistep steppers, `Model(phases=...)`; unphased path
   bitwise; RK / exponential refused.
-- **P3 — the hydrostatic half** (`feat/zstar-staggered`, after P2):
+- **P3 — the hydrostatic half** (`feat/zstar-staggered`, in progress
+  together with P1):
   `ZStarGeometry`'s two phase-pinned SELF_UPDATE stages (`eta_prev`;
   phase 1: `eta_dot = (eta − eta_prev)/dt`, MITgcm's `rStarDhCDt`),
   the implicit `exactConserv` identity `ε Δps = −Δt g T*(u^{n+1})`
