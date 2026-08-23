@@ -1389,6 +1389,17 @@ class _BindTable:
     bodies branch on the adopted host-side flag, never on a traced
     value.
 
+    ``phases`` is the assembly's DECLARED phase axis
+    (``fr.model.Phases`` or None), read-only, the same seam one step
+    further: a module whose stage set DEPENDS on the axis — a
+    state-driven geometry that declares one SELF_UPDATE stage
+    unphased and a pinned pair when the step is staggered — reads it
+    here, at bind, where ``stages``/``tendency_terms`` are collected
+    (step 5). It is the DECLARATION, not the resolved partition: the
+    groups need the dry-run write sets (step 6b) and are not known
+    yet. ``phases is None`` or ``phases.rule == "total"`` is the
+    unphased schedule.
+
     Parameters
     ----------
     table : FieldTable
@@ -1401,10 +1412,13 @@ class _BindTable:
         The assembly's outer time stepper (default: None).
     scaling : object | None, optional
         The assembly's ``fr.scaling`` policy (default: None).
+    phases : object | None, optional
+        The assembly's declared ``fr.model.Phases`` axis
+        (default: None).
     """
 
-    __slots__ = ("_table", "modules", "parameters", "scaling",
-                 "time_stepper")
+    __slots__ = ("_table", "modules", "parameters", "phases",
+                 "scaling", "time_stepper")
 
     def __init__(
         self,
@@ -1413,6 +1427,7 @@ class _BindTable:
         modules: tuple = (),
         time_stepper: object | None = None,
         scaling: object | None = None,
+        phases: object | None = None,
     ) -> None:
         """Pair the frozen table with the gated parameter view."""
         self._table = table
@@ -1420,6 +1435,7 @@ class _BindTable:
         self.modules = tuple(modules)
         self.time_stepper = time_stepper
         self.scaling = scaling
+        self.phases = phases
 
     def __getattr__(self, name: str) -> object:
         """Delegate everything else to the field table."""
@@ -1693,6 +1709,10 @@ class AssemblyRecord:
                 rows.append((f"stage {entry.key}",
                              f"{entry.kind.name} "
                              f"(order={entry.order})"))
+        if self.schedule.phased:
+            rows.extend(
+                (f"phase {index}", ", ".join(sorted(group)))
+                for index, group in enumerate(self.schedule.phases))
         rows.append(("stepper statics", repr(self.stepper_statics)))
         rows.append(("state type", self.state_type.__qualname__))
         if self.term_filter_token is not None:
@@ -1955,6 +1975,7 @@ def assemble(
     term_filter: Callable | None = None,
     scaling: object | None = None,
     allow_unadvanced: Sequence[str] = (),
+    phases: object | None = None,
 ) -> AssemblyArtifacts:
     """
     Run the nine-step assembly pipeline (model.md section 6.2).
@@ -2012,6 +2033,13 @@ def assemble(
         advanced by no term — the explicit D1.4 coverage-lint waiver
         (``TendencyComposer``). Host-side only: no schedule, term or
         number changes (default: ()).
+    phases : object | None, optional
+        The declared phase axis (``fr.model.Phases``): the
+        PROGNOSTIC partition the multistep steppers loop over
+        (``Phases.staggered()`` for the MITgcm order). Resolved at
+        the end of the step-6b dry run and installed on the
+        schedule; a one-group partition is the unphased schedule
+        (default: None).
 
     Returns
     -------
@@ -2084,7 +2112,7 @@ def assemble(
     bind_table = _BindTable(table, BindParameterView({
         str(entry.name): _read_leaf(entry, modules, time_stepper)
         for entry in binding_table}), modules,
-        time_stepper=time_stepper, scaling=scaling)
+        time_stepper=time_stepper, scaling=scaling, phases=phases)
     for module in modules:
         bind = getattr(module, "bind", None)
         if callable(bind):
@@ -2099,7 +2127,7 @@ def assemble(
         field_table=table, modules=modules, terms=terms,
         stages=stages, time_stepper=time_stepper,
         binding_table=binding_table, term_filter=term_filter,
-        allow_unadvanced=allow_unadvanced)
+        allow_unadvanced=allow_unadvanced, phases=phases)
     schedule = composer.schedule
 
     # -- step 6a: pre-validation collapse ------------------------
@@ -2128,6 +2156,11 @@ def assemble(
     # through the TermEvaluationError chain, not on an empty {})
     composer.dry_run(
         params=binding_table.eval_params(modules, time_stepper, 0.0))
+    # the dry run is where the phase axis is resolved (the per-entry
+    # membership needs the observed write sets), so the schedule the
+    # record/report/step body use is the POST-dry-run one; without a
+    # declared axis it is the very same object
+    schedule = composer.schedule
 
     # -- step 7: negotiate + freeze (or the verify path) ---------
     resharding = _negotiate(grid, table, schedule, modules,
@@ -2635,7 +2668,7 @@ def _build_report(
     """Compose the eight report sections (model.md section 3)."""
     return AssemblyReport({
         "header": _header_section(grid, time_stepper, modules,
-                                  fingerprint, name),
+                                  fingerprint, name, schedule),
         "fields": _fields_section(table),
         "parameters": _parameters_section(binding_table, modules),
         "dispatch": _dispatch_section(overrides, frozen_before),
@@ -2653,19 +2686,29 @@ def _header_section(
     modules: tuple,
     fingerprint: Fingerprint,
     name: str | None,
+    schedule: Schedule | None = None,
 ) -> str:
-    """Header: name / grid / stepper / modules / digest."""
+    """Header: name / grid / stepper / [phases] / modules / digest."""
     title = "model assembly" + (f" {name!r}" if name else "")
     meshes = " * ".join(repr(mesh) for mesh in grid.factors)
     module_names = ", ".join(
         type(module).__qualname__ for module in modules) or "none"
-    return "\n".join((
+    lines = [
         title,
         f"grid: {meshes}",
         f"time stepper: {type(time_stepper).__qualname__}",
-        f"modules: {module_names}",
-        f"fingerprint: {fingerprint.digest}",
-    ))
+    ]
+    # the phase axis is a step-order fact: it belongs where a reader
+    # looks first, not only in the schedule listing
+    if schedule is not None and schedule.phased:
+        groups = " | ".join(
+            f"{index}: {', '.join(sorted(group))}"
+            for index, group in enumerate(schedule.phases))
+        lines.append(
+            f"phases: {len(schedule.phases)} groups ({groups})")
+    lines.append(f"modules: {module_names}")
+    lines.append(f"fingerprint: {fingerprint.digest}")
+    return "\n".join(lines)
 
 
 def _fields_section(table: FieldTable) -> str:

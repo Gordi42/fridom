@@ -14,6 +14,28 @@ pytrees, never in the carry, never reaching jit. The composed step
 closes over module slot indices and the unbound ``fn``; all
 attribution, validation, and accumulation-order machinery lives in
 the ``TendencyComposer`` (wave 3+) — this vocabulary only records.
+
+THE PHASE AXIS (``fr.model.Phases``, ``phases.py``). Under a
+multi-group partition the substage chain runs once per PROGNOSTIC
+group, so every term must belong to a group: a term's dry-run write
+set, restricted to PROGNOSTIC keys, has to lie inside ONE group —
+otherwise its contribution would be summed into a group it is not
+being integrated with. A term that genuinely writes across groups
+(``Advection`` writes ``{u, v, b}`` in one hook,
+``MeshVelocityCorrection`` corrects every prognostic,
+``ThermalWindBackground`` writes ``{u, b}``) declares
+``per_phase=True``: it is then EVALUATED ONCE PER PHASE it touches
+and only that phase's keys are kept — the other keys are DISCARDED,
+never zeroed, so they never enter any sum. ``ctx.phase``
+(a ``PhaseView``, ``None`` on the unphased path) lets such a term
+skip the other groups' work instead of computing and dropping it::
+
+    names = (self._advected if ctx.phase is None
+             else ctx.phase.restrict(self._advected))
+
+A straddling term WITHOUT ``per_phase=True`` is a taught assembly
+error. On the unphased path ``per_phase`` changes nothing: the term
+runs once, ``ctx.phase`` is ``None``, and the trace is unchanged.
 """
 # Wave 2 C: Treatment, TendencyTerm, term
 from __future__ import annotations
@@ -131,6 +153,13 @@ class TendencyTerm:
         (TDF-D4): resolved to the owning module's ``FieldDeclaration``
         and reported when it carries the ``time_dependent`` marker
         (a field-carried time dependence in ``L``). Default: ``()``.
+    per_phase : bool
+        Whether this term may write ACROSS the phase groups (module
+        docstring). ``False`` — the default — requires the write set
+        to lie inside one group (a straddle is an assembly error);
+        ``True`` evaluates the term once per phase it intersects and
+        keeps only that phase's keys. No effect on the unphased
+        path. Default: ``False``.
 
     Raises
     ------
@@ -153,6 +182,7 @@ class TendencyTerm:
     linear: bool = False
     linear_params: tuple[str, ...] = ()
     linear_fields: tuple[str, ...] = ()
+    per_phase: bool = False
 
     def __post_init__(self) -> None:
         """Normalize name tuples and check local record validity."""
@@ -186,6 +216,10 @@ class TendencyTerm:
             tuple(str(name) for name in self.linear_params))
         object.__setattr__(
             self, "linear_fields", tuple(self.linear_fields))
+        if not isinstance(self.per_phase, bool):
+            raise TypeError(
+                f"term {self.name!r}: per_phase must be a bool, got "
+                f"{self.per_phase!r}")
 
     def __repr__(self) -> str:
         """Return a compact record repr (assembly logs terms)."""
@@ -205,6 +239,8 @@ class TendencyTerm:
             parts.append(f"linear_params={self.linear_params!r}")
         if self.linear_fields:
             parts.append(f"linear_fields={self.linear_fields!r}")
+        if self.per_phase:
+            parts.append("per_phase=True")
         return f"TendencyTerm({', '.join(parts)})"
 
 
@@ -222,6 +258,7 @@ def term(
     linear: bool = False,
     linear_params: Iterable[str] = (),
     linear_fields: Iterable[str] = (),
+    per_phase: bool = False,
 ) -> Callable:
     """
     Stamp a module method as a ``TendencyTerm`` (``@fr.model.term``).
@@ -267,6 +304,11 @@ def term(
     linear_fields : Iterable[str]
         Field names the linear operator depends on, resolved against
         the ``time_dependent`` declaration marker (default: ()).
+    per_phase : bool
+        Allow the write set to straddle the phase groups: the term
+        is then evaluated once per phase it touches and masked to
+        that phase's keys (module docstring). No effect on the
+        unphased path (default: False).
 
     Returns
     -------
@@ -285,6 +327,7 @@ def term(
             linear=linear,
             linear_params=tuple(linear_params),
             linear_fields=tuple(linear_fields),
+            per_phase=per_phase,
         )
         setattr(func, TERM_ATTRIBUTE, declaration)
         return func

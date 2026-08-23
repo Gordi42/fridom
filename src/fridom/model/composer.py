@@ -44,6 +44,7 @@ from fridom.model.errors import (
     ImplicitCollisionError,
 )
 from fridom.model.params import RAMPING_ENVELOPE
+from fridom.model.roles import Velocity
 from fridom.model.schedule import (
     Schedule,
     ScheduleEntry,
@@ -59,6 +60,8 @@ from fridom.spatial.fields.vector_field import VectorField
 
 if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Callable, Iterable, Sequence
+
+    from fridom.model.phases import Phases
 
 # the substage stage kinds that run before the tendency terms and
 # the (post-advance) kinds that run after them, in schedule order
@@ -123,6 +126,16 @@ class TendencyComposer:
         assembly error, so a typo in the waiver cannot silently widen
         it. Waiving a field that some term does advance is harmless
         and stays silent (default: ()).
+    phases : Phases | None, optional
+        The declared phase axis (``fr.model.Phases``): the PROGNOSTIC
+        partition whose groups the multistep steppers loop over.
+        Resolved at the END of :meth:`dry_run` — the per-entry
+        membership needs the observed write sets — and installed on
+        the schedule there. A partition resolving to ONE group is the
+        unphased path and installs nothing, so ``phases=None`` and
+        ``Phases.total()`` produce identical schedules. Refused
+        outright under a stepper whose ``supports_phases`` is False
+        (default: None).
 
     Raises
     ------
@@ -144,8 +157,11 @@ class TendencyComposer:
         binding_table: Any,
         term_filter: Callable | None = None,
         allow_unadvanced: Sequence[str] = (),
+        phases: Phases | None = None,
     ) -> None:
         """Collect, order, and statically check; see class doc."""
+        _check_stepper_phases(phases, time_stepper)
+        self._phases = phases
         self._modules = tuple(modules)
         self._records = tuple(field_table)
         self._grid = field_table.grid
@@ -308,7 +324,11 @@ class TendencyComposer:
         spaces, and the read/write ordering (SELF_UPDATE writes are
         visible to DIAGNOSE readers). Afterwards the observed write
         sets feed the same-kind overlap lint and the PROGNOSTIC
-        coverage lint.
+        coverage lint — and, when a phase axis is declared, the
+        PHASE RESOLUTION: the write sets decide which group each
+        term and each unclaimed constraint belongs to, so the axis
+        can only be installed here, once the dry pass has observed
+        them (:meth:`_resolve_phases`).
 
         The whole hook pass runs under a single zero-argument
         ``jax.eval_shape`` trace: it is abstract-evaluated, with no
@@ -382,8 +402,20 @@ class TendencyComposer:
                 state = self._dry_stages(kind, state, ctx, writes)
 
         jax.eval_shape(_evaluate)
-        _overlap_lint(schedule, writes)
+        resolved = self._resolve_phases(writes)
+        membership = None if resolved is None else resolved[1]
+        _overlap_lint(schedule, writes, membership)
         self._coverage_lint(writes)
+        if resolved is not None:
+            (groups, membership, implicit_groups, implicit_merged,
+             implicit_phases) = resolved
+            self._phase_coverage_lint(writes, membership, groups)
+            self._schedule = schedule.with_phases(
+                tuple(dataclasses.replace(
+                    entry, active_phases=membership.get(entry))
+                    for entry in schedule.entries),
+                groups, implicit_groups, implicit_merged,
+                implicit_phases)
         self._time_dependent_field_lint()
 
     # ================================================================
@@ -435,7 +467,8 @@ class TendencyComposer:
                 key=key, kind=None, slot=slot, order=0, index=index,
                 fn=fn, gate=gate, treatment=term.treatment,
                 advances=term.advances, reads=(),
-                implicit=term.implicit, linear=term.linear))
+                implicit=term.implicit, linear=term.linear,
+                per_phase=term.per_phase))
         return tuple(entries)
 
     def _filter_pairs(
@@ -585,7 +618,7 @@ class TendencyComposer:
                 order=stage.order, index=index, fn=fn, gate=gate,
                 treatment=None, advances=stage.advances,
                 reads=stage.reads, writes=stage.writes,
-                implicit=None))
+                implicit=None, phase=stage.phase))
         return tuple(entries)
 
     def _stage_gate(
@@ -773,6 +806,244 @@ class TendencyComposer:
             return
         raise AssemblyError(message)
 
+    # ================================================================
+    #  Phase resolution (the phase axis; assembly step 6b)
+    # ================================================================
+    def _resolve_phases(
+        self, writes: dict[ScheduleEntry, frozenset[str]],
+    ) -> tuple | None:
+        """Resolve the declared phase axis against the dry run.
+
+        Description
+        -----------
+        Returns ``(groups, membership, implicit_groups,
+        implicit_merged, implicit_phases)``, or ``None``
+        when there is no axis to install — no declaration at all, or
+        a partition that resolves to ONE group (``Phases.total()``),
+        which IS the unphased schedule: nothing is installed, the
+        entries keep their default (phase-free) static tokens, and
+        the steppers run their literal one-pass body.
+
+        ``membership`` maps each entry to the phase indices it runs
+        in; ``None`` means "every phase" (SELF_UPDATE, DIAGNOSE, the
+        per-step DIAGNOSTIC epilogue, and constraints that write no
+        PROGNOSTIC field). The rules are the ``Stage``/
+        ``TendencyTerm`` docstrings'; the refusals are taught.
+        """
+        if self._phases is None:
+            return None
+        groups = self._phases.resolve(
+            self._prognostic,
+            velocity=self._velocity_names(),
+            claimed=self._claimed_names())
+        if len(groups) <= 1:
+            return None
+        owner = {name: index for index, group in enumerate(groups)
+                 for name in group}
+        membership = {
+            entry: self._entry_phases(entry, writes, owner, groups)
+            for entry in self._schedule.entries}
+        return groups, membership, *self._implicit_phases(owner)
+
+    def _velocity_names(self) -> tuple[str, ...]:
+        """PROGNOSTIC names carrying the ``Velocity`` role."""
+        prognostic = set(self._prognostic)
+        return tuple(
+            record.name for record in self._records
+            if record.name in prognostic
+            and any(isinstance(role, Velocity)
+                    for role in getattr(record, "roles", ())))
+
+    def _claimed_names(self) -> tuple[str, ...]:
+        """PROGNOSTIC names claimed by an ADVANCE/CONSTRAINT stage."""
+        claimed: list[str] = []
+        for entry in self._schedule.entries:
+            if entry.kind in (StageKind.ADVANCE,
+                              StageKind.CONSTRAINT):
+                claimed.extend(entry.advances or ())
+        return tuple(claimed)
+
+    def _entry_phases(
+        self,
+        entry: ScheduleEntry,
+        writes: dict[ScheduleEntry, frozenset[str]],
+        owner: dict[str, int],
+        groups: tuple[frozenset[str], ...],
+    ) -> tuple[int, ...] | None:
+        """Resolve one entry's phase membership (or None = every)."""
+        if entry.phase is not None:
+            if not 0 <= entry.phase < len(groups):
+                raise AssemblyError(
+                    f"{entry.key}: phase={entry.phase} is out of "
+                    f"range — this assembly resolves "
+                    f"{len(groups)} phase(s) "
+                    f"(valid indices 0..{len(groups) - 1})")
+            return (entry.phase,)
+        if entry.kind is StageKind.DIAGNOSTIC:
+            # S6 runs once per STEP, outside the phase loop
+            return None
+        written = self._written_prognostic(entry, writes, owner)
+        if entry.is_term:
+            return self._term_phases(entry, written)
+        if entry.kind in (StageKind.SELF_UPDATE, StageKind.DIAGNOSE):
+            # the per-substage refresh IS the point of the axis
+            return None
+        claim = tuple(entry.advances or ())
+        if claim:
+            phases = tuple(sorted({owner[name] for name in claim}))
+            if len(phases) > 1:
+                raise AssemblyError(
+                    f"{entry.key}: the stage claims advances="
+                    f"{claim}, whose names live in different phase "
+                    f"groups {phases}; a stage advances one group "
+                    "per phase. Split the claim into one stage per "
+                    "group, put the names in one group "
+                    "(fr.model.Phases((...), (...))), or pin the "
+                    "stage with Stage(..., phase=k) if it really "
+                    "advances both in one go")
+            return phases
+        return written or None
+
+    def _written_prognostic(
+        self,
+        entry: ScheduleEntry,
+        writes: dict[ScheduleEntry, frozenset[str]],
+        owner: dict[str, int],
+    ) -> tuple[int, ...]:
+        """Phase indices of the entry's observed PROGNOSTIC writes."""
+        observed = writes.get(entry, frozenset())
+        return tuple(sorted({owner[name] for name in observed
+                             if name in owner}))
+
+    @staticmethod
+    def _term_phases(
+        entry: ScheduleEntry, written: tuple[int, ...],
+    ) -> tuple[int, ...] | None:
+        """Phase membership of one term (the straddle refusal)."""
+        if not written:
+            return None
+        if (len(written) == 1 or entry.per_phase
+                or entry.treatment is Treatment.IMPLICIT):
+            # an IMPLICIT term straddles as its MERGE GROUP, which
+            # carries the precise "coupled blocks are atomic" refusal
+            return written
+        raise AssemblyError(
+            f"{entry.key}: the term writes across the phase groups "
+            f"{written}, but declares per_phase=False. A term is "
+            "summed into ONE group's increment, so a straddling "
+            "write set would land in a group it is not integrated "
+            "with. Declare @fr.model.term(per_phase=True) — the "
+            "term is then evaluated once per phase it touches and "
+            "masked to that phase's keys (read ctx.phase.fields to "
+            "skip the other groups' work) — or split it into one "
+            "term per group")
+
+    def _implicit_phases(
+        self, owner: dict[str, int],
+    ) -> tuple[tuple, tuple, tuple[int | None, ...]]:
+        """Assign each implicit merge group to its phase.
+
+        Description
+        -----------
+        A group whose ``fields`` lie in one phase is assigned to it
+        untouched. A group that STRADDLES is split into one operator
+        per phase — but only if the operator declares itself
+        FIELD-SEPARABLE by exposing ``restricted_to(fields)``
+        (``VerticalDiffusion`` does: its ``apply``/``solve`` are a
+        per-field loop over independent column bands, so restricting
+        the field tuple is exact, not an approximation). A straddling
+        group WITHOUT that seam is the taught refusal: a genuinely
+        coupled implicit block is atomic under by-variable splitting.
+
+        Returns the (possibly lengthened) ``implicit_groups``,
+        ``implicit_merged`` and the parallel owning-phase row.
+        """
+        constituents: list = []
+        merged: list = []
+        resolved: list[int | None] = []
+        for (operator, slot), group in zip(
+                self._schedule.implicit_merged,
+                self._schedule.implicit_groups, strict=True):
+            fields = tuple(getattr(operator, "fields", ()))
+            phases = tuple(sorted({owner[name] for name in fields
+                                   if name in owner}))
+            if len(phases) <= 1:
+                constituents.append(group)
+                merged.append((operator, slot))
+                resolved.append(phases[0] if phases else None)
+                continue
+            restrict = getattr(operator, "restricted_to", None)
+            if restrict is None:
+                keys = ", ".join(key for key, _s, _op in group)
+                raise AssemblyError(
+                    f"the implicit merge group ({keys}) solves "
+                    f"{fields}, whose names live in different phase "
+                    f"groups {phases}: coupled implicit blocks are "
+                    "atomic under by-variable splitting (spec 5.1) "
+                    "— one solve cannot be split across two phases. "
+                    "An operator whose solve is independent per field "
+                    "may declare restricted_to(fields) and is then "
+                    "split automatically; otherwise put the coupled "
+                    "fields in one group (fr.model.Phases((...), "
+                    "(...))), or split the operator yourself")
+            for index in phases:
+                subset = tuple(name for name in fields
+                               if owner.get(name) == index)
+                constituents.append(group)
+                merged.append((restrict(subset), slot))
+                resolved.append(index)
+        return tuple(constituents), tuple(merged), tuple(resolved)
+
+    def _phase_coverage_lint(
+        self,
+        writes: dict[ScheduleEntry, frozenset[str]],
+        membership: dict[ScheduleEntry, tuple[int, ...] | None],
+        groups: tuple[frozenset[str], ...],
+    ) -> None:
+        """Every PROGNOSTIC is advanced IN ITS OWN phase.
+
+        Description
+        -----------
+        The phase-aware half of the D1.4 coverage lint: the global
+        lint only asks whether SOME term writes a field, but under
+        the phase axis the writer must also RUN in the phase that
+        adds that field's increment — a stage pinned with ``phase=``
+        to the wrong group, or a claim pinned away from the names it
+        claims, would otherwise freeze the field silently. The
+        ``allow_unadvanced=`` waiver and the variant-filter warning
+        downgrade apply exactly as they do to the global lint.
+        """
+        for index, group in enumerate(groups):
+            advanced: set[str] = set()
+            for entry, observed in writes.items():
+                active = membership.get(entry)
+                if active is not None and index not in active:
+                    continue
+                if entry.is_term:
+                    advanced |= (observed & group if entry.per_phase
+                                 else observed)
+                elif entry.kind in (StageKind.ADVANCE,
+                                    StageKind.CONSTRAINT):
+                    advanced |= set(entry.advances or ())
+            uncovered = tuple(
+                name for name in self._prognostic
+                if name in group and name not in advanced
+                and name not in self._allow_unadvanced)
+            if not uncovered:
+                continue
+            message = (
+                f"PROGNOSTIC fields {uncovered} belong to phase "
+                f"{index} ({tuple(sorted(group))}) but nothing "
+                "advances them THERE: every term writing them, and "
+                "every stage claiming them, runs in another phase. "
+                "Check the Stage(phase=...) pins, or partition the "
+                "fields so each one shares a group with its writer "
+                "(fr.model.Phases((...), (...)))")
+            if self._term_filter is not None:
+                warnings.warn(message, stacklevel=3)
+                continue
+            raise AssemblyError(message)
+
     def _time_dependent_field_lint(self) -> None:
         """Every ``time_dependent`` AUX field has an owner SELF_UPDATE stage.
 
@@ -812,6 +1083,37 @@ class TendencyComposer:
 # ================================================================
 #  Module-level helpers
 # ================================================================
+def _check_stepper_phases(
+    phases: Phases | None, time_stepper: Any,
+) -> None:
+    """Refuse a phase axis under a stepper that cannot loop.
+
+    Description
+    -----------
+    The phase loop lives inside the MULTISTEP steppers
+    (``AdamBashforth``, ``IMEXMultistep``): they commit one
+    post-advance state per step, so running the substage chain once
+    per group is a single extra pass. A Runge-Kutta or exponential
+    stepper would have to run the loop inside EVERY tableau
+    substage — three barotropic solves per step for LowStorageRK3 —
+    which no production model does; the refusal is designed-for,
+    never a silent demotion.
+    """
+    if phases is None or time_stepper is None:
+        return
+    if getattr(time_stepper, "supports_phases", False):
+        return
+    raise AssemblyError(
+        f"phases={phases!r} under "
+        f"{type(time_stepper).__name__}, which does not support the "
+        "phase axis (supports_phases=False): the staggered step is "
+        "a loop over the variable groups inside ONE multistep "
+        "advance, and a substage-based stepper would repeat that "
+        "loop (and its barotropic solve) per tableau stage. Use a "
+        "multistep driver — fr.model.time_steppers.AdamBashforth or "
+        "IMEXMultistep (CNAB2 / SBDF2) — or drop phases=")
+
+
 def _covered_by_self_update(
     name: str, stages: list[tuple[str, ...] | None] | None,
 ) -> bool:
@@ -1123,12 +1425,23 @@ def _static_advance_overlap(
 def _overlap_lint(
     schedule: Schedule,
     writes: dict[ScheduleEntry, frozenset[str]],
+    membership: dict[ScheduleEntry, tuple[int, ...] | None] | None
+    = None,
 ) -> None:
-    """Same-kind, equal-order overlapping write(-read) sets error."""
+    """Same-kind, equal-order overlapping write(-read) sets error.
+
+    Phase-aware: two same-kind, equal-order stages that never run in
+    the same phase cannot collide, so the lint skips them (that is
+    what lets a geometry declare one pinned SELF_UPDATE stage per
+    phase, both rewriting the same AUXILIARY field).
+    """
     stage_entries = [entry for entry in schedule.entries
                      if not entry.is_term]
     for left, right in combinations(stage_entries, 2):
         if left.kind is not right.kind or left.order != right.order:
+            continue
+        if membership is not None and _disjoint_phases(
+                membership.get(left), membership.get(right)):
             continue
         shared = writes.get(left, frozenset()) & writes.get(
             right, frozenset())
@@ -1141,3 +1454,15 @@ def _overlap_lint(
                 f"{tuple(sorted(shared))} with equal order="
                 f"{left.order}; declare an explicit order= "
                 "(correctness never depends on list position)")
+
+
+def _disjoint_phases(
+    left: tuple[int, ...] | None, right: tuple[int, ...] | None,
+) -> bool:
+    """Whether two resolved memberships never share a phase.
+
+    ``None`` means "every phase", which intersects everything.
+    """
+    if left is None or right is None:
+        return False
+    return not set(left) & set(right)

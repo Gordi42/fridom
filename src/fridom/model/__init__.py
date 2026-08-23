@@ -35,6 +35,7 @@ if TYPE_CHECKING:  # pragma: no cover
         modules,
         parameters,
         params,
+        phases,
         report,
         results,
         roles,
@@ -75,6 +76,7 @@ if TYPE_CHECKING:  # pragma: no cover
         ParameterReference,
         leaf,
     )
+    from .phases import Phases, PhaseView
     from .results import (
         AdvanceResult,
         PanicError,
@@ -129,6 +131,7 @@ all_modules_by_origin = {
         "parameters", "params", "time_dependent", "scheduled_field",
         "terms", "term_predicates", "implicit", "stages", "context",
         "field_table", "assembly", "module", "composer", "schedule",
+        "phases",
         "clock", "results", "report", "errors", "eigen",
         "eigen_channel", "modules", "transforms",
         "halo_demand", "units", "shapes", "streamfunction"],
@@ -151,6 +154,7 @@ all_imports_by_origin = {
     f"{base}.terms": [
         "TendencyTerm", "term", "Treatment", "EXPLICIT", "IMPLICIT"],
     f"{base}.stages": ["Stage", "StageKind", "self_update"],
+    f"{base}.phases": ["Phases", "PhaseView"],
     f"{base}.context": ["StepContext"],
     f"{base}.module": ["Module"],
     f"{base}.model": ["Model"],

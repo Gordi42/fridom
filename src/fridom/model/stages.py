@@ -15,6 +15,32 @@ composed step closes over slot indices and unbound functions.
 Schedule position is a pure function of the declared *kind*, never
 of module list position; ordering, write-gate validation, and the
 overlapping-writes lint are assembly machinery (wave 3+).
+
+THE PHASE AXIS (``fr.model.Phases``, ``phases.py``). Under a
+multi-group partition the canonical substage chain runs once per
+PROGNOSTIC group, so a stage additionally carries a *phase*
+membership. ``Stage.phase=None`` — the default — takes the KIND's
+rule, resolved at assembly:
+
+- ``SELF_UPDATE`` / ``DIAGNOSE``: EVERY phase. Re-running them per
+  group is the point of the axis — MITgcm's ``INTEGR_CONTINUITY`` /
+  ``CALC_R_STAR`` between the barotropic solve and the tracer step
+  is exactly "re-run SELF_UPDATE + DIAGNOSE after the solve".
+- ``ADVANCE`` / ``CONSTRAINT`` with ``advances=``: the phase owning
+  those names. A claim straddling two groups is an assembly error
+  (name the phase with ``phase=`` if the straddle is deliberate).
+- ``CONSTRAINT`` without a claim: every phase whose group its
+  dry-run write set intersects (a projection, ``MaskState``, a
+  clamp — idempotent by construction); a constraint writing no
+  PROGNOSTIC field runs in every phase.
+- ``DIAGNOSTIC``: per STEP, outside the phase loop (S6 is the
+  chunk body's epilogue, unchanged).
+
+``Stage(phase=k)`` pins the stage to group ``k`` regardless of the
+kind rule (the split-explicit barotropic snapshot is ``phase=0``);
+``k`` beyond the resolved group count is an assembly error. On the
+unphased path (one resolved group) every stage runs exactly once,
+as before.
 """
 # Wave 2 C: StageKind, Stage, self_update
 from __future__ import annotations
@@ -125,15 +151,26 @@ class Stage:
         SELF_UPDATE stage of its owner, resolved through ``writes=`` when
         declared (else the lint falls back to "owner has at least one
         SELF_UPDATE stage") (default: None).
+    phase : int | None
+        The phase-axis pin (module docstring): ``None`` takes the
+        KIND's rule; an int pins the stage to that group of
+        ``Schedule.phases``, whatever the kind rule would say (the
+        split-explicit ``barotropic_snapshot`` is ``phase=0`` — the
+        substage-start depth mean must be taken before the momentum
+        phase advances ``u, v``, not re-taken in the tracer phase).
+        Ignored on the unphased path; an index beyond the resolved
+        group count is an assembly error (default: None).
 
     Raises
     ------
     TypeError
-        If `kind` is not a ``StageKind`` member or `fn` is neither
-        callable nor a method-name string.
+        If `kind` is not a ``StageKind`` member, `fn` is neither
+        callable nor a method-name string, or `phase` is neither
+        ``None`` nor an int.
     ValueError
         If `advances` is set on a kind that is neither ADVANCE nor
-        CONSTRAINT, or `reads` is set on a non-SELF_UPDATE kind.
+        CONSTRAINT, `reads` is set on a non-SELF_UPDATE kind, or
+        `phase` is negative.
     """
 
     kind: StageKind
@@ -143,6 +180,7 @@ class Stage:
     advances: tuple[str, ...] = ()
     reads: tuple[str, ...] = ()
     writes: tuple[str, ...] | None = None
+    phase: int | None = None
     # cadence: SELF_UPDATE only — RESERVED (CS-1), not built.
 
     def __post_init__(self) -> None:
@@ -167,6 +205,16 @@ class Stage:
             raise ValueError(
                 f"reads= is SELF_UPDATE-only, got it on "
                 f"{self.kind.name}")
+        if self.phase is not None:
+            if isinstance(self.phase, bool) or not isinstance(
+                    self.phase, int):
+                raise TypeError(
+                    f"phase= is a 0-based phase index or None, got "
+                    f"{self.phase!r}")
+            if self.phase < 0:
+                raise ValueError(
+                    f"phase= is a 0-based phase index, got "
+                    f"{self.phase!r}")
 
 
 # ================================================================
@@ -177,6 +225,7 @@ def self_update(
     *,
     reads: Iterable[str] = (),
     writes: Iterable[str] | None = None,
+    phase: int | None = None,
     cadence: object = _CADENCE_RESERVED,
 ) -> Callable:
     """
@@ -228,6 +277,10 @@ def self_update(
         AUXILIARY fields this update rewrites — the ``time_dependent``
         field lint (TDF-D3); ``None`` leaves it undeclared (default:
         None).
+    phase : int | None
+        The phase-axis pin (``Stage.phase``): ``None`` runs the
+        update in EVERY phase — the kind rule, and what a
+        stage-consistent geometry wants (default: None).
     cadence : object
         RESERVED (CS-1), not built — any value raises.
 
@@ -257,6 +310,7 @@ def self_update(
             name=func.__name__,
             reads=tuple(reads),
             writes=None if writes is None else tuple(writes),
+            phase=phase,
         )
         setattr(func, STAGE_ATTRIBUTE, declaration)
         return func
