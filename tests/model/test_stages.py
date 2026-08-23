@@ -3,6 +3,7 @@ import dataclasses
 
 import pytest
 
+import fridom.model.stages as stages_module
 from fridom.model.stages import (
     STAGE_ATTRIBUTE,
     Stage,
@@ -185,3 +186,62 @@ def test_docstring_carries_the_accumulation_hazard():
     assert "S6 DIAGNOSTIC-kind stage" in doc
     assert "cadence=" in doc
     assert "RESERVED" in doc
+
+
+# ================================================================
+#  The phase axis (Stage.phase)
+# ================================================================
+def test_phase_defaults_to_the_kind_rule():
+    assert Stage(kind=StageKind.CONSTRAINT, fn=lambda *_: {}).phase \
+        is None
+
+
+def test_phase_records_an_explicit_pin():
+    stage = Stage(kind=StageKind.SELF_UPDATE, fn=lambda *_: {},
+                  phase=1)
+    assert stage.phase == 1
+
+
+def test_phase_rejects_a_non_integer():
+    with pytest.raises(TypeError, match="phase="):
+        Stage(kind=StageKind.SELF_UPDATE, fn=lambda *_: {},
+              phase="first")
+
+
+def test_phase_rejects_a_bool():
+    # True would silently mean "phase 1"
+    with pytest.raises(TypeError, match="phase="):
+        Stage(kind=StageKind.SELF_UPDATE, fn=lambda *_: {},
+              phase=True)
+
+
+def test_phase_rejects_a_negative_index():
+    with pytest.raises(ValueError, match="0-based"):
+        Stage(kind=StageKind.SELF_UPDATE, fn=lambda *_: {},
+              phase=-1)
+
+
+def test_self_update_decorator_takes_a_phase_pin():
+    @self_update(reads=("eta",), phase=1)
+    def update(_self, _state, _ctx):
+        return {}
+
+    declaration = getattr(update, STAGE_ATTRIBUTE)
+    assert declaration.phase == 1
+    assert declaration.reads == ("eta",)
+
+
+def test_self_update_decorator_defaults_to_every_phase():
+    @self_update
+    def update(_self, _state, _ctx):
+        return {}
+
+    assert getattr(update, STAGE_ATTRIBUTE).phase is None
+
+
+def test_module_docstring_states_the_kind_phase_rules():
+    # DOCSTRING-NORMATIVE: the kind -> phase rule table lives here
+    doc = " ".join(stages_module.__doc__.split())
+    assert "PHASE AXIS" in doc
+    assert "EVERY phase" in doc
+    assert "outside the phase loop" in doc

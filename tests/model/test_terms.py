@@ -3,6 +3,7 @@ import dataclasses
 
 import pytest
 
+import fridom.model.terms as terms_module
 from fridom.model.terms import (
     EXPLICIT,
     IMPLICIT,
@@ -197,3 +198,44 @@ def test_decorator_rejects_bad_records_at_decoration_time():
         @term(treatment="explicit")
         def bad(_self, _state, _ctx):
             return {}
+
+
+# ================================================================
+#  The phase axis (TendencyTerm.per_phase)
+# ================================================================
+def test_per_phase_defaults_to_false():
+    assert not TendencyTerm(name="t", fn=lambda *_: {}).per_phase
+
+
+def test_per_phase_is_recorded_and_shown_in_the_repr():
+    declared = TendencyTerm(name="t", fn=lambda *_: {},
+                            per_phase=True)
+    assert declared.per_phase
+    assert "per_phase=True" in repr(declared)
+
+
+def test_plain_terms_keep_the_repr_they_had():
+    assert "per_phase" not in repr(
+        TendencyTerm(name="t", fn=lambda *_: {}))
+
+
+def test_per_phase_rejects_a_non_bool():
+    with pytest.raises(TypeError, match="per_phase must be a bool"):
+        TendencyTerm(name="t", fn=lambda *_: {}, per_phase=1)
+
+
+def test_decorator_stamps_per_phase():
+    @term(per_phase=True, advances=("u", "b"))
+    def joint(_self, _state, _ctx):
+        return {}
+
+    assert getattr(joint, TERM_ATTRIBUTE).per_phase
+
+
+def test_module_docstring_states_the_straddle_rule():
+    # DOCSTRING-NORMATIVE: the one-group rule and the per_phase
+    # escape hatch are declared here
+    doc = " ".join(terms_module.__doc__.split())
+    assert "PHASE AXIS" in doc
+    assert "DISCARDED, never zeroed" in doc
+    assert "ctx.phase" in doc

@@ -4,6 +4,7 @@ import jax.numpy as jnp
 import pytest
 
 from fridom.model.context import StepContext
+from fridom.model.phases import PhaseView
 from fridom.model.terms import Treatment
 
 
@@ -147,3 +148,49 @@ def test_dynamic_scalar_changes_share_one_trace(compile_counter):
     compile_counter.reset()
     evaluate(ctx2)  # differs only in dynamic scalar values
     assert compile_counter.count == 0
+
+
+# ================================================================
+#  The phase axis (StepContext.phase, static)
+# ================================================================
+def test_phase_defaults_to_none_the_unphased_path():
+    assert make_context().phase is None
+    assert "phase=" not in repr(make_context())
+
+
+def test_phase_carries_the_view_and_shows_in_the_repr():
+    ctx = StepContext(params={}, clock=jnp.asarray(0.0),
+                      dt=jnp.asarray(1.0), stage_dt=jnp.asarray(1.0),
+                      phase=PhaseView(1, ("b",)))
+    assert ctx.phase.index == 1
+    assert ctx.phase.fields == frozenset({"b"})
+    assert "phase=PhaseView(1" in repr(ctx)
+
+
+def test_phase_is_static_treedef_aux_not_a_leaf():
+    ctx = StepContext(params={}, clock=jnp.asarray(0.0),
+                      dt=jnp.asarray(1.0), stage_dt=jnp.asarray(1.0),
+                      phase=PhaseView(0, ("u",)))
+    leaves, treedef = jax.tree_util.tree_flatten(ctx)
+    assert all(not isinstance(leaf, PhaseView) for leaf in leaves)
+    assert jax.tree_util.tree_unflatten(treedef, leaves).phase \
+        == PhaseView(0, ("u",))
+
+
+def test_different_phases_are_different_trace_structures():
+    first = StepContext(params={}, clock=jnp.asarray(0.0),
+                        dt=jnp.asarray(1.0),
+                        stage_dt=jnp.asarray(1.0),
+                        phase=PhaseView(0, ("u",)))
+    second = StepContext(params={}, clock=jnp.asarray(0.0),
+                         dt=jnp.asarray(1.0),
+                         stage_dt=jnp.asarray(1.0),
+                         phase=PhaseView(1, ("b",)))
+    assert (jax.tree_util.tree_structure(first)
+            != jax.tree_util.tree_structure(second))
+
+
+def test_phase_is_frozen_like_every_other_field():
+    ctx = make_context()
+    with pytest.raises(AttributeError, match="frozen"):
+        ctx.phase = 1
