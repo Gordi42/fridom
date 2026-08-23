@@ -85,7 +85,7 @@ def _grid():
                                   params={"H": _depth}))
 
 
-def _model(*, rate=None, advection=True, n2=0.0):
+def _model(*, rate=None, advection=True, n2=0.0, family=None):
     """Terrain model; ``rate=None`` is the STATIC (no-geometry) run."""
     extra = ()
     if rate is not None:
@@ -93,7 +93,7 @@ def _model(*, rate=None, advection=True, n2=0.0):
                  MeshVelocityCorrection(CORRECTED))
     return hy.Model(
         grid=_grid(),
-        core=hy.Core(gravity=GRAVITY),
+        core=hy.Core(gravity=GRAVITY, family=family),
         time_stepper=AdamBashforth(DT, order=3),
         buoyancy=hy.ConstantStratification(n2=n2),
         free_surface=hy.ExplicitFreeSurface(),
@@ -400,12 +400,21 @@ def test_the_other_free_surface_variants_run_on_a_moving_column(
 # ================================================================
 #  Gate 3: constancy of a uniform tracer under motion
 # ================================================================
-def test_a_uniform_buoyancy_stays_uniform_under_motion():
+@pytest.mark.parametrize("family", [None, "fv"], ids=["nodal", "fv"])
+def test_a_uniform_buoyancy_stays_uniform_under_motion(family):
     # the free-stream / GCL property: while the column grows by 20%
     # the ALE correction and the advective tendency of a CONSTANT
-    # field are both exact zeros, so b must not develop structure
+    # field are both exact zeros, so b must not develop structure.
+    # On family="fv" the ALE correction takes the CONSERVATIVE
+    # Reynolds-transport flux route (a CellAvg column factor) rather
+    # than the advective one, and constancy is exact there too: both
+    # bracket terms share the same face mesh velocity, and the wall
+    # reconstruction reproduces constants, so the boundary cells of
+    # the moving rigid column are covered. Measured spread: exactly
+    # 0.0 on both families.
     b0 = 0.05
-    model = _seed(_model(rate=RATE, advection=True), uniform_b=b0)
+    model = _seed(_model(rate=RATE, advection=True, family=family),
+                  uniform_b=b0)
     model.advance(STEPS)
     b = np.asarray(model.state["b"].data)
     assert float(b.max() - b.min()) < 1e-13
@@ -413,6 +422,58 @@ def test_a_uniform_buoyancy_stays_uniform_under_motion():
     # the geometry genuinely moved during those steps
     assert float(np.abs(np.asarray(
         model.state["H_dot"].data)).max()) > 0.5
+
+
+def test_fv_moving_column_declares_the_conservative_ale_route():
+    # the routing pin behind the constancy gate above: under
+    # family="fv" every 3-D prognostic carries a CellAvg column
+    # factor, which is what selects MeshVelocityCorrection's flux
+    # form (moving_geometry.bind); on the nodal family they are all
+    # point values and take the advective form.
+    model = _model(rate=RATE, family="fv")
+    ale = model.module(MeshVelocityCorrection)
+    assert set(ale._flux_fields) == set(CORRECTED)
+    assert ale._advective_fields == ()
+    nodal = _model(rate=RATE)
+    assert nodal.module(MeshVelocityCorrection)._flux_fields == ()
+
+
+def test_moving_column_tracer_content_is_reported_not_conserved():
+    # REPORTED, not asserted at 1e-12. On an H(t) column the mapped
+    # BOTTOM wall moves (zp = z H, z in [-1, 0]: the bed drops while
+    # the surface stays at zp = 0), so the boundary mesh flux
+    # ``-H_dot b_face(-H)`` is a genuine source of ``int J b`` — the
+    # moving-wall term MeshVelocityCorrection's own contract names.
+    # On top of that this model carries an explicit free surface, so
+    # the top face passes a real volume flux w(0). ``int J b`` is
+    # therefore NOT a discrete invariant of this configuration on
+    # either family, and no tolerance is asserted. Measured worst
+    # relative drift over six steps (random zero-mean b, whose tiny
+    # mean makes the RELATIVE number large): nodal 1.2e-01, fv
+    # 3.9e-01. The invariant that IS exact here is constancy, gated
+    # above. See design/plans/active/flow_following_coordinates_plan.md.
+    drifts = {}
+    for family in (None, "fv"):
+        model = _seed(_model(rate=RATE, advection=True, family=family))
+        start = _column_content(model.state)
+        worst = 0.0
+        for _ in range(6):
+            model.advance(1)
+            worst = max(worst, abs(_column_content(model.state) - start))
+        assert not model.panicked
+        drifts[family] = worst / abs(start)
+    assert all(np.isfinite(value) for value in drifts.values())
+
+
+def _column_content(state, name="b"):
+    """Return the discrete tracer content ``sum(J b) dV``."""
+    grid = state[name].grid
+    params = fr.model.modules.mapping_params(state, grid)
+    field = state[name]
+    jac = np.asarray(grid.metric(field.function_space, "dzp_dz",
+                                 params=params).data)
+    return float((jac * np.asarray(field.data)).sum()) / float(
+        np.prod(field.data.shape))
 
 
 # ================================================================
