@@ -147,8 +147,8 @@ Data variables:
 
 ```python
 b = model.state["b"]; w = model.state["w"]
-nodes_b = grid.nodes(b.function_space)
-nodes_w = grid.nodes(w.function_space)
+nodes_b = b.nodes()                 # == grid.nodes(b.function_space), see 3.5
+nodes_w = w.nodes()
 
 # nodes over a heatmap of the field, two spaces on the same axes
 ax = b.xr.isel(x=0).plot(x="y", y="z").axes
@@ -162,12 +162,7 @@ nodes_b[["y", "z"]].plot.scatter(x="y", y="z")
 nodes_b.z                      # DataArray (z: 48); nodes_w.z are the 49 faces
 nodes_b.z.diff("z").plot()     # the spacing of the stretched column
 
-# moving geometry: physical height at the current state
-grid.nodes(b.function_space, params=model.state).isel(x=0).plot.scatter(x="y", y="zp")
-
-# immersed: wet cells only
-cells = grid.nodes(grid.factor("x").center * grid.factor("y").center)
-cells.where(cells.wet, drop=True).plot.scatter(x="x", y="y", s=2)
+# moving geometry and immersed domains: 3.7
 
 # the list of points, when one is wanted
 nodes_b.stack(node=("x", "y", "z"))      # (node: nx*ny*nz), or .to_dataframe() for pandas
@@ -187,7 +182,7 @@ would need names for spaces, which is what the owner does not want.
 
 ```python
 grid.evaluation_nodes(space, name, *, params=None) -> ScalarField   # name may be a mapped name
-field.nodes(name, *, params=None) -> ScalarField
+field.evaluation_nodes(name, *, params=None) -> ScalarField          # today's field.nodes(name), renamed (3.5)
 ```
 
 `evaluation_nodes` accepts, besides the grid coordinates it takes
@@ -195,7 +190,8 @@ today, the mapped names of `grid.mapping` and returns the map value at
 the nodes of `space`, parameters resolved through the same `params=`
 overload `grid.metric` uses (static defaults when `None`). This is
 the traced, jit-safe primitive 3.1 gathers `zp` from, and it is what
-`b_total` should read on a mapped column (`b + N^2 zp`). On the
+`b_total` should read on a mapped column
+(`b + N^2 b.evaluation_nodes("zp", params=params)`). On the
 `CoordinateMapping` side it is one new public method
 (`positions(space, name, params=)`) next to `metric`, built on the
 existing `_jvp`/`_param_at_nodes` machinery but evaluating the primal
@@ -208,6 +204,135 @@ would be a later `ambient=True`.
 `model.nodes(space)` = `grid.nodes(space, params=model.state)` with
 the model's unit rows stamped on the coordinates (`model.units`, the
 rows the Writer stamps), so the axes of a plot read `y [m]`.
+
+### 3.5 The field spelling: `b.nodes()`
+
+Owner (2026-08-23, third round): the example should read
+`b.nodes().isel(...)`. Today `field.nodes(name)` is the traced
+per-coordinate accessor (`ScalarField`, forwards to
+`grid.evaluation_nodes`), with `name=None` allowed only on a
+single-coordinate space; **no caller uses the no-name form** (grep
+over `src`, `tests`, `examples`: none), and the named form has three
+call sites (`hydrostatic/diagnostics.py:144`,
+`nonhydro2/diagnostics.py:240`, `examples/nonhydro/advection_and_closures.py:136`).
+Proposed split, mirroring the grid pair and type-stable:
+
+```python
+field.evaluation_nodes(name, *, params=None) -> ScalarField   # traced, one coordinate (renamed from nodes(name))
+field.nodes(*, params=None) -> xr.Dataset                      # == grid.nodes(field.function_space, params=params)
+```
+
+The mesh's teaching `__getattr__` text (`meshes/mesh.py:300`) and the
+three call sites move with the rename. Alternative: keep
+`field.nodes(name)` and overload the no-name call to return the
+`Dataset` — one method, two return types, not recommended.
+
+### 3.6 Meshes whose nodes do not factor (unstructured, planned)
+
+The layout is CF's own distinction between *dimension coordinates*
+and *auxiliary coordinates*, which is what lets it carry over to an
+unstructured factor without a second design. A mesh factor
+contributes an **index dimension**; a position is a **variable over
+the dimensions it depends on**:
+
+| factor | index dim | positions |
+|---|---|---|
+| structured 1D (`IntervalMesh`, mapped, Chebyshev) | the coordinate itself | dimension coordinate `z(z)` |
+| unstructured 2D (triangles; `UnstructuredMesh`, not shipped) | the DOF set of the node set, UGRID-style (`node` for vertex values, `cell` for cell values, `edge` for edge values, names to be fixed by that mesh's plan) | auxiliary coordinates `x(cell)`, `y(cell)` |
+| `maps=` physical coordinate | none | N-D variable over the dims it depends on, `zp(cell, z)` |
+
+A prism grid (triangles times a structured column) is therefore
+`Dimensions: (cell: 4096, z: 32)`, `x(cell)`, `y(cell)`, `z(z)`,
+`zp(cell, z)`, `wet(cell, z)`; `plot.scatter(x="x", y="y")`,
+`isel(cell=...)`, `where(wet)` and `stack` all read the same as on a
+tensor grid (on the unstructured part the "list of points" the owner
+asked about *is* the storage form). UGRID connectivity
+(`face_node_connectivity`) can join later as one more variable. The
+same rule is what `field.xr` needs for unstructured fields (the
+export refuses multi-axis factors today, `export.py:255`), so the
+node dataset and the field export extend together when that mesh
+lands; nothing in 3.1 has to change.
+
+### 3.7 Worked examples: moving geometry and immersed domains
+
+**z\* (hydrostatic, shipped 2026-08-23).** The base column runs
+from `-1` to `0`; the mapping is `zp = eta + (H + eta) z` with the
+static depth `H` and the dynamic `eta` that `ZStarGeometry` rewrites
+every substage.
+
+```python
+import numpy as np
+import fridom as fr
+import fridom.hydrostatic as hy
+
+grid = fr.spatial.Grid(
+    (fr.spatial.IntervalMesh(1, (0.0, 1.0), periodic=True, name="x"),
+     fr.spatial.IntervalMesh(64, (0.0, 1.0e4), periodic=False, name="y"),
+     fr.spatial.IntervalMesh(32, (-1.0, 0.0), periodic=False, name="z")),
+    mapping=hy.zstar_mapping(100.0))                        # H = 100 m
+model = hy.Model(grid=grid, ..., modules_extra=(hy.ZStarGeometry(),))
+model.run(runlen=...)
+
+b = model.state["b"]
+ref = b.nodes()                      # reference geometry, eta = 0:  zp = H z
+now = b.nodes(params=model.state)    # the column now, eta read off the state
+now.zp                               # DataArray (x, y, z), physical height of every b node
+
+# the field on its physical column: a 2D coordinate for pcolormesh, the nodes on top
+sec = now.isel(x=0)
+ax = b.xr.isel(x=0).assign_coords(zp=sec.zp).plot(x="y", y="zp").axes
+sec.plot.scatter(x="y", y="zp", ax=ax, color="k", s=3)
+# the layers as lines
+ax.plot(np.broadcast_to(sec.y.values[:, None], sec.zp.shape), sec.zp.values,
+        color="gray", lw=0.5)
+
+# the column through time: record zp like any derived output
+writer = fr.io.Writer(
+    "zstar.zarr", fields=["b"],
+    derived={"zp": lambda ms: ms.state["b"].evaluation_nodes("zp", params=ms.state)},
+    trigger=fr.io.every(seconds=3600.0))
+# ... later, frame t on the physical column:
+ds = xr.open_zarr("zstar.zarr")
+ds.b.isel(time=t, x=0).assign_coords(zp=ds.zp.isel(time=t, x=0)).plot(x="y", y="zp")
+```
+
+**Terrain (static `maps=`).** Same calls; `params=None` is all a
+static map has, `b.nodes().zp` follows the ridge:
+
+```python
+mapping = fr.spatial.CoordinateMapping(
+    maps={"zp": lambda z, H: z * H},
+    params={"H": lambda x, y: 100.0 - 60.0 * jnp.exp(-((y - 5.0e3) / 1.0e3) ** 2)})
+grid = fr.spatial.Grid(meshes, mapping=mapping)
+```
+
+**Immersed domain (shallow water).** The wet region is the callable
+(`True`/`1` where there is water); the mask of a face space is
+combined from its two cells by the slip rule, so `u.nodes().wet`
+differs from `h.nodes().wet`.
+
+```python
+import fridom.shallowwater2 as sw
+
+def island(x, y):
+    return (x - 0.5) ** 2 + (y - 0.5) ** 2 > 0.1 ** 2      # wet outside the island
+
+grid = fr.spatial.Grid((mx, my), immersed=fr.spatial.ImmersedDomain(island))
+model = sw.Model(grid=grid, ...)
+
+cells = model.state["h"].nodes()     # wet(x, y): the cell mask
+faces = model.state["u"].nodes()     # wet(x, y) on the x faces, x at the face positions
+
+ax = model.state["h"].xr.plot().axes
+cells.where(cells.wet).plot.scatter(x="x", y="y", ax=ax, color="k", s=2)        # wet centres
+faces.where(~faces.wet).plot.scatter(x="x", y="y", ax=ax, color="r", marker="|")  # dry u faces
+cells.plot.scatter(x="x", y="y", hue="wet")                                      # both, coloured
+```
+
+`where` masks to NaN and scatter skips NaN; `drop=True` only removes
+rows and columns that are dry throughout, which is why it is not
+needed here. Checked against xarray 2026.4 (2D `zp` coordinate on
+`pcolormesh`, boolean `hue`, `where` on a 2D mask).
 
 ## 4. Alternatives considered
 
@@ -240,6 +365,11 @@ rows the Writer stamps), so the axes of a plot read `y [m]`.
    a separate `grid.positions`.
 3. `params=` accepting a state by name lookup (recommended).
 4. Phase 2 `model.nodes` with units: now or later.
+5. Rename today's `field.nodes(name)` to `field.evaluation_nodes(name)`
+   so that `field.nodes()` is the `Dataset` (recommended, 3.5), or
+   overload one name.
+6. The index-dimension names of an unstructured factor (`node` /
+   `cell` / `edge`) are fixed by that mesh's plan, not here (3.6).
 
 ## 6. Implementation sketch (after approval)
 
@@ -247,7 +377,9 @@ rows the Writer stamps), so the axes of a plot read `y [m]`.
   name, *, params=None) -> ScalarField` (primal of the map at the
   nodes; static defaults or live fields via the existing `params=`
   overload). `grid.evaluation_nodes` routes mapped names to it;
-  `ScalarField.nodes` gains `params=`.
+  `ScalarField.nodes(name)` becomes `ScalarField.evaluation_nodes(name,
+  params=)` (three call sites, the mesh teaching text) and
+  `ScalarField.nodes(params=)` returns the `Dataset`.
 - `spatial/export.py`: `nodes_dataset(grid, space, params=None)`;
   `Grid.nodes` forwards. `ExportLayout` (plain names) gives the dims
   and the 1D coordinate vectors through `_host_labels`; `zp` and
