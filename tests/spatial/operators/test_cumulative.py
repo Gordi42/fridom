@@ -624,3 +624,55 @@ def test_binding_a_constant_axis_is_the_identity():
     # the base short-circuits a ConstantSpace axis (rules 3.3)
     assert CumulativeIntegral()["x"](g) is g
     assert isinstance(g.function_space.bare.factors[0], ConstantSpace)
+
+
+# ================================================================
+#  Stage C4: with_params (the dynamic-geometry Jacobian seam)
+# ================================================================
+def test_with_params_none_is_the_identical_static_operator():
+    # the static path is not merely equivalent but the SAME interned
+    # object, so params=None cannot perturb a single bit
+    op = CumulativeIntegral(direction="down", target="center",
+                            jacobian=("zp",))
+    assert op.with_params(None) is op
+    assert op.with_params({}) is op
+    assert op.params is None
+
+
+def test_with_params_reads_the_supplied_parameter_field():
+    # the hydrostatic p_hyd path: zp = sigma * H is linear in H, so a
+    # scaled parameter field scales the running integral exactly --
+    # and the unscaled field reproduces the static declaration default
+    grid, mx, ms = _terrain_grid(16, stretched=False)
+    space = mx.center * ms.center
+    b = grid.create_field(
+        space, init=lambda x, sigma: jnp.cos(sigma) + 0.0 * x)
+    static = CumulativeIntegral(direction="down", target="center",
+                                jacobian=("zp",))["sigma"](b)
+    h = grid.create_field(mx.center, init=_depth)
+    same = CumulativeIntegral(
+        direction="down", target="center", jacobian=("zp",)
+    ).with_params({"H": h})["sigma"](b)
+    assert jnp.allclose(same.data, static.data, atol=1e-14)
+    scaled = CumulativeIntegral(
+        direction="down", target="center", jacobian=("zp",)
+    ).with_params({"H": h * 3.0})["sigma"](b)
+    assert jnp.allclose(scaled.data, 3.0 * static.data, atol=1e-13)
+
+
+def test_with_params_binds_in_either_order_and_keeps_the_singleton():
+    # bind-then-params == params-then-bind, and the params-bound copy
+    # bypasses the D6 intern table (no array in a structural key)
+    grid, mx, ms = _terrain_grid(8, stretched=False)
+    space = mx.center * ms.center
+    b = grid.create_field(
+        space, init=lambda x, sigma: jnp.cos(sigma) + 0.0 * x)
+    params = {"H": grid.create_field(mx.center, init=_depth) * 2.0}
+    op = CumulativeIntegral(direction="up", target="face",
+                            jacobian=("zp",))
+    first = op.with_params(params)["sigma"](b)
+    second = op["sigma"].with_params(params)(b)
+    assert jnp.array_equal(first.data, second.data)
+    assert op.params is None
+    assert CumulativeIntegral(direction="up", target="face",
+                              jacobian=("zp",)) is op

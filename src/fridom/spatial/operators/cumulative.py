@@ -88,6 +88,15 @@ embedding ``chart=`` or an analytic ``maps=`` grid alike
 grid is physical by default; raw ``CumulativeIntegral()`` (no
 ``jacobian=``) stays the computational escape hatch.
 
+Dynamic geometry (stage C4): :meth:`CumulativeIntegral.with_params`
+binds caller-supplied mapping-parameter fields (module-owned state —
+a ``MovingGeometry`` ``H(t)`` field, a z* free surface's ``eta``)
+into a **transient** copy whose Jacobian weight derives from the
+CURRENT values through the ``grid.metric`` ``params=`` overload, so
+the hydrostatic ``p_hyd = -\int b\,J\,dz`` reads the moved column.
+Registry-seeded rows carry no params: ``params=None`` is the exact
+static path (:meth:`Integral.with_params` is the mirror seam).
+
 Decomposition
 -------------
 A running sum needs the whole axis in one place, so the operator
@@ -100,8 +109,10 @@ shardings), accumulates locally, and reshards the result back to the
 operand's layout, so the axis carries no cross-shard prefix scan.
 """
 # Stage H1: CumulativeIntegral (hydrostatic DIAGNOSE primitive)
+# Stage C4: the with_params dynamic-geometry seam
 from __future__ import annotations
 
+import copy
 from typing import TYPE_CHECKING, ClassVar, final
 
 import jax.numpy as jnp
@@ -123,8 +134,11 @@ from fridom.spatial.spaces.constant import ConstantSpace
 from fridom.spatial.spaces.nodal import NodalSpace, NodeSet
 
 if TYPE_CHECKING:  # pragma: no cover
+    from collections.abc import Mapping
+
     from jax import Array
 
+    from fridom.spatial.fields.scalar_field import ScalarField
     from fridom.spatial.spaces.function_space import (
         FunctionSpace,
     )
@@ -156,7 +170,9 @@ class CumulativeIntegral(SeparableOperator):
     ``jacobian=`` set the increment of a chart coordinate additionally
     carries the metric Jacobian — the ``sqrt_g`` area element on an
     embedding chart, or the column Jacobian on an analytic-``maps=``
-    terrain column (mirroring ``Integral``). The axis is declared
+    terrain column (mirroring ``Integral``); on a moving geometry
+    :meth:`with_params` binds the current mapping-parameter fields
+    into that weight (stage C4). The axis is declared
     ``layout="local"``; a sharded axis is resharded onto a negotiated
     axis-local layout and back (module docstring).
 
@@ -204,6 +220,11 @@ class CumulativeIntegral(SeparableOperator):
         self._direction: str = direction
         self._target: str = target
         self._jacobian: tuple[str, ...] | None = jacobian
+        # dynamic mapping parameters are NOT constructor state: they
+        # would have to enter the D6 intern key (arrays in a
+        # WeakValueDictionary key), so they are stamped onto a
+        # transient copy by ``with_params`` instead.
+        self._params: dict[str, ScalarField] | None = None
 
     def _intern_key(self) -> tuple:
         """Structural key: direction, target, and Jacobian family (D6)."""
@@ -226,6 +247,54 @@ class CumulativeIntegral(SeparableOperator):
     def jacobian(self) -> tuple[str, ...] | None:
         """Chart coordinates carrying the sqrt_g weight, or None."""
         return self._jacobian
+
+    @property
+    def params(self) -> dict[str, ScalarField] | None:
+        """Bound dynamic mapping-parameter fields, or None (a copy)."""
+        return None if self._params is None else dict(self._params)
+
+    # ================================================================
+    #  Dynamic geometry (stage C4)
+    # ================================================================
+    def with_params(
+        self, params: Mapping[str, ScalarField] | None,
+    ) -> CumulativeIntegral:
+        r"""
+        Bind dynamic mapping-parameter fields (stage C4).
+
+        Description
+        -----------
+        The mirror of :meth:`Integral.with_params`: returns a
+        **transient** copy whose per-increment Jacobian weight
+        derives from ``params`` through the ``grid.metric``
+        ``params=`` overload, so a running integral on a moving
+        geometry accumulates the CURRENT physical increments
+        (``p_hyd = -\int b\,J\,\mathrm{d}z`` with the moved ``J``)
+        instead of the mapping's static declaration defaults. The
+        copy bypasses the D6 interning table (``copy.copy``, the
+        ``_rebind`` seam), so no array enters a registry-held
+        structural key; the axis binding is preserved, and binding
+        after ``with_params`` works too.
+
+        A falsy ``params`` returns ``self`` unchanged, so the static
+        path is not merely equivalent but the identical object.
+
+        Parameters
+        ----------
+        params : Mapping[str, ScalarField] | None
+            Mapping-parameter fields by name; None/empty returns
+            ``self`` (the static defaults).
+
+        Returns
+        -------
+        CumulativeIntegral
+            The params-bound (transient) operator.
+        """
+        if not params:
+            return self
+        clone = copy.copy(self)
+        clone.__dict__["_params"] = dict(params)
+        return clone
 
     # ================================================================
     #  Signature
@@ -385,7 +454,8 @@ class CumulativeIntegral(SeparableOperator):
         bare = space.bare
         weight = f.grid.measure(bare, name=axis)
         incr = f.data * weight.data
-        factor = jacobian_factor(f, axis, self._jacobian)
+        factor = jacobian_factor(f, axis, self._jacobian,
+                                 params=self._params)
         if factor is not None:
             incr = incr * factor
         axis_index = bare.names.index(axis)

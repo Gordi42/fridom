@@ -47,10 +47,20 @@ terrain-following column integral :math:`\int f\,dz_p`, equal to the
 single-column ``sqrt_g`` restriction. A ``jacobian=`` name that names
 neither an embedding chart coordinate nor a mapped physical
 coordinate raises a taught error instead of silently no-opping.
+
+Dynamic geometry (stage C4): :meth:`Integral.with_params` binds
+caller-supplied mapping-parameter fields (module-owned state — a
+``MovingGeometry`` ``H(t)`` field, a z* free surface's ``eta``) into
+a **transient** copy whose Jacobian weight derives from the CURRENT
+values through the ``grid.metric`` ``params=`` overload. The
+registry-seeded rows carry no params, so ``params=None`` (and every
+static caller) keeps the exact static path.
 """
 # Wave 3: Integral -- Stage C2: the sqrt_g Jacobian weight
+# Stage C4: the with_params dynamic-geometry seam
 from __future__ import annotations
 
+import copy
 from typing import TYPE_CHECKING, ClassVar, final
 
 from fridom.spatial.errors import SpaceMismatchError
@@ -70,6 +80,9 @@ from fridom.spatial.spaces.constant import ConstantSpace
 from fridom.spatial.spaces.nodal import NodalSpace
 
 if TYPE_CHECKING:  # pragma: no cover
+    from collections.abc import Mapping
+
+    from fridom.spatial.fields.scalar_field import ScalarField
     from fridom.spatial.spaces.function_space import (
         FunctionSpace,
     )
@@ -94,7 +107,9 @@ class Integral(SeparableOperator):
     reduction of a chart coordinate additionally contracts against
     the metric Jacobian derived on the operand space — the ``sqrt_g``
     area element (embedding chart) or a terrain column's
-    ``d<p>_d<b>`` (analytic ``maps=``) — module docstring.
+    ``d<p>_d<b>`` (analytic ``maps=``) — module docstring. On a
+    moving geometry :meth:`with_params` binds the current
+    mapping-parameter fields into that weight (stage C4).
 
     Parameters
     ----------
@@ -120,15 +135,68 @@ class Integral(SeparableOperator):
                     "jacobian names chart coordinates: a non-empty "
                     f"tuple of strings, got {jacobian!r}")
         self._jacobian: tuple[str, ...] | None = jacobian
+        # dynamic mapping parameters are NOT constructor state: they
+        # would have to enter the D6 intern key (arrays in a
+        # WeakValueDictionary key), so they are stamped onto a
+        # transient copy by ``with_params`` instead.
+        self._params: dict[str, ScalarField] | None = None
 
     @property
     def jacobian(self) -> tuple[str, ...] | None:
         """Chart coordinates carrying the sqrt_g weight, or None."""
         return self._jacobian
 
+    @property
+    def params(self) -> dict[str, ScalarField] | None:
+        """Bound dynamic mapping-parameter fields, or None (a copy)."""
+        return None if self._params is None else dict(self._params)
+
     def _intern_key(self) -> tuple:
         """Structural key: the Jacobian coordinate family (D6)."""
         return (self._jacobian,)
+
+    # ================================================================
+    #  Dynamic geometry (stage C4)
+    # ================================================================
+    def with_params(
+        self, params: Mapping[str, ScalarField] | None,
+    ) -> Integral:
+        """
+        Bind dynamic mapping-parameter fields (stage C4).
+
+        Description
+        -----------
+        Returns a **transient** copy whose Jacobian weight derives
+        from ``params`` through the ``grid.metric`` ``params=``
+        overload, so a reduction on a moving geometry contracts
+        against the CURRENT volume element instead of the mapping's
+        static declaration defaults. The copy bypasses the D6
+        interning table (``copy.copy``, the ``_rebind`` seam), so no
+        array ever enters a registry-held structural key; the caller
+        — typically a tendency module holding geometry state —
+        builds it at application time and applies it immediately.
+        The axis binding (if any) is preserved, and binding after
+        ``with_params`` works too.
+
+        A falsy ``params`` returns ``self`` unchanged, so the static
+        path is not merely equivalent but the identical object.
+
+        Parameters
+        ----------
+        params : Mapping[str, ScalarField] | None
+            Mapping-parameter fields by name; None/empty returns
+            ``self`` (the static defaults).
+
+        Returns
+        -------
+        Integral
+            The params-bound (transient) operator.
+        """
+        if not params:
+            return self
+        clone = copy.copy(self)
+        clone.__dict__["_params"] = dict(params)
+        return clone
 
     def codomain(self, domain: FunctionSpace) -> FunctionSpace:
         """
@@ -215,7 +283,8 @@ class Integral(SeparableOperator):
         bare = space.bare
         weight = f.grid.measure(bare, name=axis)
         data = f.data * weight.data
-        factor = jacobian_factor(f, axis, self._jacobian)
+        factor = jacobian_factor(f, axis, self._jacobian,
+                                 params=self._params)
         if factor is not None:
             data = data * factor
         axis_index = bare.names.index(axis)

@@ -555,3 +555,61 @@ def test_maps_jacobian_weighted_integral_is_differentiable():
                 - loss(x0 - eps * direction)) / (2.0 * eps))
     assert np.isfinite(ad)
     assert np.isclose(ad, fd, rtol=1e-4)
+
+
+# ================================================================
+#  Stage C4: with_params (the dynamic-geometry Jacobian seam)
+# ================================================================
+def _depth_field(grid, mx):
+    """Return the column-depth parameter H(x) on the x cells."""
+    return grid.create_field(mx.center, init=_depth)
+
+
+def test_with_params_none_is_the_identical_static_operator():
+    # the static path is not merely equivalent but the SAME interned
+    # object, so params=None cannot perturb a single bit
+    op = Integral(jacobian=("zp",))
+    assert op.with_params(None) is op
+    assert op.with_params({}) is op
+    assert op.params is None
+
+
+def test_with_params_reads_the_supplied_parameter_field():
+    # every metric of zp = sigma * H is linear in H, so a scaled
+    # parameter field scales the Jacobian-weighted integral exactly
+    grid, mx, ms = _terrain_grid(16)
+    space = mx.center * ms.center
+    u = grid.create_field(
+        space, init=lambda x, sigma: jnp.cos(sigma) + 0.0 * x)
+    op = Integral(jacobian=("zp",))["sigma"]
+    static = op(u)
+    h = _depth_field(grid, mx)
+    bound = Integral(jacobian=("zp",)).with_params({"H": h})["sigma"]
+    assert bound.params == {"H": h}
+    assert jnp.allclose(bound(u).data, static.data, atol=1e-14)
+    scaled = Integral(
+        jacobian=("zp",)).with_params({"H": h * 3.0})["sigma"]
+    assert jnp.allclose(scaled(u).data, 3.0 * static.data, atol=1e-13)
+
+
+def test_with_params_binds_in_either_order():
+    # bind-then-params and params-then-bind are the same operator
+    grid, mx, ms = _terrain_grid(8)
+    space = mx.center * ms.center
+    u = grid.create_field(
+        space, init=lambda x, sigma: jnp.cos(sigma) + 0.0 * x)
+    params = {"H": _depth_field(grid, mx) * 2.0}
+    first = Integral(jacobian=("zp",)).with_params(params)["sigma"](u)
+    second = Integral(jacobian=("zp",))["sigma"].with_params(params)(u)
+    assert jnp.array_equal(first.data, second.data)
+
+
+def test_with_params_leaves_the_interned_singleton_untouched():
+    # the params-bound copy bypasses the D6 intern table, so no array
+    # ever enters a registry-held structural key
+    grid, mx, _ms = _terrain_grid(8)
+    op = Integral(jacobian=("zp",))
+    bound = op.with_params({"H": _depth_field(grid, mx)})
+    assert bound is not op
+    assert op.params is None
+    assert Integral(jacobian=("zp",)) is op
