@@ -15,6 +15,13 @@ the free surface read to discover the column and name those rows —
 nothing here materializes an array; the metrics derive on demand
 through ``grid.metric`` at trace time.
 
+**Dynamic geometry** (stage C4): every metric read here takes the
+optional ``params=`` overload — the CURRENT mapping-parameter fields
+(:func:`~fridom.model.modules.moving_geometry.mapping_params`), so a
+moving column (a ``MovingGeometry`` ``H(t)``, a z* free surface's
+``eta``) is visible to the slope terms. ``params=None`` derives the
+static declaration defaults, the exact byte-identical static path.
+
 Off a mapped grid (a flat mesh, or a stretched-only
 ``MappedIntervalMesh`` column whose stretching already rides
 ``grid.measure``) :func:`discover_column` returns ``None`` and every
@@ -27,12 +34,15 @@ from typing import TYPE_CHECKING
 import jax.numpy as jnp
 
 import fridom as fr
+from fridom.model.modules.moving_geometry import mapping_params
 from fridom.spatial.operators.interp import LinearInterp
 from fridom.spatial.operators.verbs import scatter_set
 from fridom.spatial.spaces.nodal import NodeSet
 from fridom.spatial.spaces.trace import Side
 
 if TYPE_CHECKING:  # pragma: no cover
+    from collections.abc import Mapping
+
     from fridom.spatial.fields.scalar_field import ScalarField
     from fridom.spatial.fields.vector_field import VectorField
     from fridom.spatial.grid import Grid
@@ -188,6 +198,7 @@ def require_chart_immersed_order(
 def slope_velocity_on_w(
     u: ScalarField, v: ScalarField, w_ref: ScalarField,
     column: tuple[str, str], horizontal: tuple[str, str], vertical: str,
+    params: Mapping[str, ScalarField] | None = None,
 ) -> ScalarField:
     r"""Return the physical-w slope terms ``u Z_x + v Z_y`` on the w faces.
 
@@ -231,6 +242,12 @@ def slope_velocity_on_w(
         metrics ``d<mapped>_d<axis>``.
     vertical : str
         The vertical coordinate name (the ``Center -> Outer`` lift axis).
+    params : Mapping[str, ScalarField] | None, optional
+        The CURRENT mapping-parameter fields the slopes derive from
+        (stage C4,
+        :func:`~fridom.model.modules.moving_geometry.mapping_params`);
+        None reads the mapping's static declaration defaults — the
+        byte-identical static path (default: None).
 
     Returns
     -------
@@ -245,8 +262,8 @@ def slope_velocity_on_w(
     lift = LinearInterp(target=NodeSet.OUTER, boundary="one_sided")[vertical]
     u_w = lift(u.to(cell))
     v_w = lift(v.to(cell))
-    zx = grid.metric(bare, f"d{mapped}_d{zonal}")
-    zy = grid.metric(bare, f"d{mapped}_d{meridional}")
+    zx = grid.metric(bare, f"d{mapped}_d{zonal}", params=params)
+    zy = grid.metric(bare, f"d{mapped}_d{meridional}", params=params)
     return u_w * zx + v_w * zy
 
 
@@ -380,6 +397,12 @@ def chart_component(state: VectorField, name: str) -> ScalarField:
     ``w`` faces (:func:`masked_w_faces`): a dry face carries no flux
     (``0``), matching the masked physical ``w`` the core stored there.
 
+    On a **moving** column the slopes derive from the state's CURRENT
+    mapping parameters (stage C4), the same values
+    :meth:`~fridom.hydrostatic.modules.core.Core._diagnose_w` added, so
+    the round trip still cancels to machine precision. Off a dynamic
+    geometry ``mapping_params`` returns None — the static path.
+
     Parameters
     ----------
     state : VectorField
@@ -403,7 +426,8 @@ def chart_component(state: VectorField, name: str) -> ScalarField:
     _mapped, base = column
     horizontal = tuple(a for a in grid.names if a != base)
     slope = slope_velocity_on_w(
-        state["u"], state["v"], field, column, horizontal, base)
+        state["u"], state["v"], field, column, horizontal, base,
+        mapping_params(state, grid))
     flux = field - slope.retag(field)
     immersed = getattr(grid, "immersed", None)
     if immersed is not None:

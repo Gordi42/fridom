@@ -131,7 +131,7 @@ from fridom.spatial.operators.staggering import uniform_spacing
 from fridom.spatial.spaces.nodal import NodalSpace
 
 if TYPE_CHECKING:  # pragma: no cover
-    from collections.abc import Callable
+    from collections.abc import Callable, Mapping
 
     import jax
 
@@ -324,6 +324,17 @@ class BarotropicPressureSolver:
         assembled by :meth:`_build_vcycle`, h- and steepness-flat on
         steep terrain). Any other value raises ``ValueError``
         (default: ``"spectral"``).
+    params : Mapping[str, ScalarField] | None, optional
+        The CURRENT mapping-parameter fields (stage C4,
+        :func:`~fridom.model.modules.moving_geometry.mapping_params`)
+        the face depths ``H_a`` and the mean depth derive from — a
+        moving column (a ``MovingGeometry`` ``H(t)``, a z* free
+        surface's ``eta``) is otherwise invisible to the operator.
+        ``None`` reads the mapping's static declaration defaults, the
+        exact (byte-identical) static path. **Coarse multigrid levels
+        keep the static geometry** (the parameter fields live on the
+        fine grid's spaces); that only softens a *preconditioner*, so
+        the solve stays exact to its tolerance (default: None).
     multigrid_levels : int | None, optional
         The multigrid depth when ``preconditioner="multigrid"``. ``None``
         (the default) coarsens the horizontal axes to the four-cell floor
@@ -347,6 +358,7 @@ class BarotropicPressureSolver:
         tolerance: float | None,
         preconditioner: str = "spectral",
         multigrid_levels: int | None = None,
+        params: Mapping[str, ScalarField] | None = None,
     ) -> None:
         """Resolve the static flux legs; see the class docstring."""
         if preconditioner not in _PRECONDITIONERS:
@@ -364,6 +376,10 @@ class BarotropicPressureSolver:
         self._tolerance = tolerance
         self._preconditioner_kind = preconditioner
         self._multigrid_levels = multigrid_levels
+        # the CURRENT mapping-parameter fields (stage C4): a per-solve
+        # trace-time object, so holding fields here is the same
+        # discipline the immersed cell mask below rides
+        self._params = None if params is None else dict(params)
         self._jname = jacobian_name(column)
         self._axes: tuple[str, ...] = self._space.active_axis_names
         registry = grid.dispatch
@@ -468,7 +484,8 @@ class BarotropicPressureSolver:
         ScalarField
             ``H_a`` on the 2-D a-face.
         """
-        jac = self._grid.metric(self._face3[axis].bare, self._jname)
+        jac = self._grid.metric(self._face3[axis].bare, self._jname,
+                                params=self._params)
         if self._immersed is not None:
             jac = self._immersed.fraction(self._face3[axis]) * jac
         return Integral()[self._vertical](jac)
@@ -488,7 +505,8 @@ class BarotropicPressureSolver:
         jax.Array
             The 0-d mean physical cell depth.
         """
-        jac = self._grid.metric(self._coll.bare, self._jname)
+        jac = self._grid.metric(self._coll.bare, self._jname,
+                                params=self._params)
         h_cell = Integral()[self._vertical](jac)
         return jnp.reshape(_computational_mean(h_cell).data, ())
 
@@ -766,6 +784,16 @@ class BarotropicPressureSolver:
         ``coarse_sweeps = 8`` (the engine defaults). The finest level
         re-uses ``self``; every level derives its metrics fresh per solve
         (no cross-solve caching — the mapped precedent).
+
+        **Dynamic geometry** (stage C4): the finest level is ``self``,
+        so it carries the CURRENT mapping parameters; the coarse levels
+        re-instantiate on their own coarse grids and therefore keep the
+        mapping's **static** declaration defaults (the parameter fields
+        are defined on the fine grid's spaces and do not restrict). The
+        V-cycle is only a *preconditioner*, so a coarse-grid geometry
+        lagging the fine one costs at most CG iterations, never
+        accuracy: the operator, the diagonal of the finest level, and
+        the right-hand side all read the moved column.
 
         Parameters
         ----------

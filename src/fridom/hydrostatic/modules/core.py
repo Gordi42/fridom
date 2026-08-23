@@ -113,6 +113,7 @@ from fridom.hydrostatic.units import (
     vertical_velocity_factor,
 )
 from fridom.model.halo_demand import derive_extra_halo
+from fridom.model.modules.moving_geometry import mapping_params
 from fridom.model.roles import Velocity
 from fridom.spatial.fields.scalar_field import _bc_siblings
 from fridom.spatial.operators.cumulative import CumulativeIntegral
@@ -120,10 +121,11 @@ from fridom.spatial.spaces.average import AverageSpace
 from fridom.spatial.spaces.tensor_product import TensorProductSpace
 
 if TYPE_CHECKING:  # pragma: no cover
-    from collections.abc import Callable
+    from collections.abc import Callable, Mapping
 
     from fridom.model.context import StepContext
     from fridom.spatial.decomposition.halo import HaloSpec
+    from fridom.spatial.fields.scalar_field import ScalarField
     from fridom.spatial.grid import Grid
     from fridom.spatial.spaces.function_space import FunctionSpace
 
@@ -515,6 +517,39 @@ class Core(fr.model.Module):
                      fn="_diagnose_p_hyd", name="diagnose_p_hyd"),
         )
 
+    def _geometry_params(
+        self, state: State,
+    ) -> Mapping[str, ScalarField] | None:
+        """Return the CURRENT mapping-parameter fields, or None.
+
+        Description
+        -----------
+        The stage-C4 discovery convention
+        (:func:`~fridom.model.modules.moving_geometry.mapping_params`):
+        dynamic geometry parameters are state fields named exactly
+        after the mapping parameters. Every terrain metric read on the
+        step path threads the result through ``grid.metric(...,
+        params=)`` / the ``with_params`` reduction seam, so a moving
+        column (a ``MovingGeometry`` ``H(t)``, a z* free surface's
+        ``eta``) is visible to ``w``, ``p_hyd`` and the slope-corrected
+        pressure gradient. Off a mapped grid — and on a mapped grid
+        whose parameters do not ride the state — this is ``None``, the
+        exact static path (byte-identical to before).
+
+        Parameters
+        ----------
+        state : State
+            The current model state.
+
+        Returns
+        -------
+        Mapping[str, ScalarField] | None
+            The current parameter fields by name, or None.
+        """
+        if self._column is None:
+            return None
+        return mapping_params(state, state["u"].grid)
+
     def _diagnose_w(
         self, state: State, ctx: StepContext,  # noqa: ARG002
     ) -> dict[str, object]:
@@ -592,6 +627,7 @@ class Core(fr.model.Module):
         """
         zonal, meridional = self._horizontal
         u, v = state["u"], state["v"]
+        params = self._geometry_params(state)
         cumint = CumulativeIntegral(
             direction="up", target="face")[self._vertical]
         immersed = getattr(u.grid, "immersed", None)
@@ -604,8 +640,10 @@ class Core(fr.model.Module):
         if self._column is not None:
             jname = jacobian_name(self._column)
             grid = u.grid
-            fu = u * grid.metric(u.function_space.bare, jname)
-            fv = v * grid.metric(v.function_space.bare, jname)
+            fu = u * grid.metric(u.function_space.bare, jname,
+                                 params=params)
+            fv = v * grid.metric(v.function_space.bare, jname,
+                                 params=params)
         else:
             fu, fv = u, v
         if immersed is None:
@@ -615,7 +653,8 @@ class Core(fr.model.Module):
                 return {"w": flux}  # flat: the flux is already physical w
             # terrain: add the slope terms so the stored w is physical
             slope = slope_velocity_on_w(
-                u, v, flux, self._column, self._horizontal, self._vertical)
+                u, v, flux, self._column, self._horizontal,
+                self._vertical, params)
             return {"w": flux + slope.retag(flux)}
         alpha_x = immersed.fraction(u.function_space)
         alpha_y = immersed.fraction(v.function_space)
@@ -642,7 +681,8 @@ class Core(fr.model.Module):
         wet = az > 0.0
         flux = jnp.where(wet, transport.data / jnp.where(wet, az, 1.0), 0.0)
         slope = slope_velocity_on_w(
-            u, v, transport, self._column, self._horizontal, self._vertical)
+            u, v, transport, self._column, self._horizontal,
+            self._vertical, params)
         w = jnp.where(wet, flux + slope.retag(transport).data, 0.0)
         return {"w": transport.with_data(w)}
 
@@ -701,9 +741,10 @@ class Core(fr.model.Module):
             return {"p_hyd": state["p_hyd"] * 0.0}
         jacobian = (None if self._column is None
                     else (self._column[0],))
-        p_hyd = -CumulativeIntegral(
-            direction="down", target="center",
-            jacobian=jacobian)[self._vertical](state["b"])
+        cumint = CumulativeIntegral(
+            direction="down", target="center", jacobian=jacobian)
+        p_hyd = -cumint.with_params(
+            self._geometry_params(state))[self._vertical](state["b"])
         return {"p_hyd": p_hyd}
 
     # ================================================================
@@ -763,10 +804,12 @@ class Core(fr.model.Module):
         u, v = state["u"], state["v"]
         p_hyd = state["p_hyd"]
         if self._column is not None:
+            params = self._geometry_params(state)
             return {
-                "u": (-self._slope_gradient(p_hyd, zonal, u)).retag(u),
-                "v": (-self._slope_gradient(p_hyd, meridional, v)
-                      ).retag(v),
+                "u": (-self._slope_gradient(
+                    p_hyd, zonal, u, params)).retag(u),
+                "v": (-self._slope_gradient(
+                    p_hyd, meridional, v, params)).retag(v),
             }
         if self._pb_active:
             p_hyd = self._partial_bottom_pressure(p_hyd, state)
@@ -890,6 +933,7 @@ class Core(fr.model.Module):
 
     def _slope_gradient(
         self, p_hyd: object, axis: str, target: object,
+        params: Mapping[str, ScalarField] | None = None,
     ) -> object:
         r"""Return ``\partial_{axis} p_{hyd}|_{z_p}`` on ``target``'s face.
 
@@ -918,6 +962,11 @@ class Core(fr.model.Module):
         target : object
             The velocity component whose face the gradient lands on
             (fixes the staggering; the retag is applied by the caller).
+        params : Mapping[str, ScalarField] | None, optional
+            The CURRENT mapping-parameter fields the slope and the
+            Jacobian derive from (stage C4,
+            :meth:`_geometry_params`); None reads the static
+            declaration defaults (default: None).
 
         Returns
         -------
@@ -930,8 +979,10 @@ class Core(fr.model.Module):
         div = p_hyd.diff(axis)
         dcol = p_hyd.diff(base)
         space = dcol.function_space
-        slope = grid.metric(space.bare, f"d{mapped}_d{axis}")
-        jac = grid.metric(space.bare, f"d{mapped}_d{base}")
+        slope = grid.metric(space.bare, f"d{mapped}_d{axis}",
+                            params=params)
+        jac = grid.metric(space.bare, f"d{mapped}_d{base}",
+                          params=params)
         # slope coefficient Z_i / J. Double-`where` guard
         # (differentiability policy): J > 0 on every valid column, but
         # the never-valid column-face padding derives J == 0, where a
