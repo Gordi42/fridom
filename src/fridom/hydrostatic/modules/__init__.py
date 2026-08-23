@@ -33,6 +33,7 @@ if TYPE_CHECKING:  # pragma: no cover
     )
     from .stratification import ConstantStratification
     from .thermal_wind import ThermalWindBackground
+    from .zstar import ZStarGeometry, zstar_mapping
 
 base = "fridom.hydrostatic.modules"
 
@@ -56,6 +57,7 @@ all_imports_by_origin = {
         "ExplicitFreeSurface", "ImplicitFreeSurface",
         "SplitExplicitFreeSurface"],
     f"{base}.thermal_wind": ["ThermalWindBackground"],
+    f"{base}.zstar": ["ZStarGeometry", "zstar_mapping"],
 }
 
 setup(__name__, all_modules_by_origin, all_imports_by_origin)

@@ -540,3 +540,64 @@ def test_fv_ale_grad_through_a_run_matches_fd():
     fd = (float(loss(b_leaf + eps * direction))
           - float(loss(b_leaf - eps * direction))) / (2.0 * eps)
     assert directional == pytest.approx(fd, rel=1e-4)
+
+
+# ================================================================
+#  MeshVelocityCorrection: the default field-selection skips
+# ================================================================
+# ``fields=None`` corrects every PROGNOSTIC field EXCEPT the two kinds
+# a mesh-velocity correction is not defined for: a field with no column
+# factor (the 2-D barotropic ``ps`` / ``U`` / ``V`` of a free-surface
+# model) and a field named after a mapping parameter (the PROGNOSTIC
+# interface heights of a target-following coordinate). Naming either
+# explicitly stays a taught error. The toy core below carries one of
+# each next to an ordinary 3-D tracer.
+class _BarotropicCore(Module):
+
+    """Toy core: a 3-D tracer, a column-constant ps, a param field Z."""
+
+    field_declarations = (
+        fr.model.FieldDeclaration.tracer(
+            "b", space=fr.spatial.Collocated()),
+        fr.model.FieldDeclaration("ps", space=Profile("x", "y")),
+        fr.model.FieldDeclaration("Z", space=fr.spatial.Collocated()),
+    )
+
+    @fr.model.term(advances=("b", "ps", "Z"), linear=True)
+    def zero(self, state, _ctx):
+        """Return a trivial tendency so all three are PROGNOSTIC."""
+        return {name: 0.0 * state[name]
+                for name in ("b", "ps", "Z")}
+
+
+def make_barotropic_model(*modules):
+    """Toy model whose mapping declares a second parameter ``Z``."""
+    mapping = CoordinateMapping(
+        maps={"zp": lambda z, H, Z: z * H + Z},
+        params={"H": lambda x: schedule(x, 0.0),
+                "Z": lambda x, y, z: 0.0 * (x + y + z)})
+    mx = IntervalMesh(N, (0.0, LENGTH), periodic=True, name="x")
+    my = IntervalMesh(N, (0.0, LENGTH), periodic=True, name="y")
+    mz = IntervalMesh(N, (0.0, 1.0), periodic=False, name="z")
+    grid = Grid((mx, my, mz), mapping=mapping)
+    return FrModel(grid=grid, modules=(_BarotropicCore(), *modules),
+                   time_stepper=AdamBashforth(DT, order=3))
+
+
+def test_ale_default_skips_columnless_and_parameter_prognostics():
+    ale = MeshVelocityCorrection()
+    make_barotropic_model(moving(), ale)
+    assert ale.fields == ("b",)
+    assert ale.driven_params == ("H",)
+
+
+def test_ale_refuses_an_explicit_columnless_field():
+    with pytest.raises(ValueError, match="constant along the mapped"):
+        make_barotropic_model(moving(),
+                              MeshVelocityCorrection(("ps",)))
+
+
+def test_ale_refuses_an_explicit_mapping_parameter():
+    with pytest.raises(ValueError, match="names a mapping parameter"):
+        make_barotropic_model(moving(),
+                              MeshVelocityCorrection(("Z",)))
