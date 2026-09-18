@@ -167,23 +167,23 @@ def test_immersed_core_derives_width_one():
 
 
 # ================================================================
-#  Taught error: chart + immersed is unsupported (silent wrong physics)
+#  Taught error: a NON-ORTHOGONAL chart + immersed does not compose
 # ================================================================
 def test_linear_chart_plus_immersed_is_a_taught_error():
-    # a grid carrying BOTH a chart and an immersed domain must be
-    # refused at bind even for a *linear* model (advection=None, so no
-    # SadournyAdvection guard runs): the chart gravity/continuity path
-    # is unmasked, so it would silently ignore the immersed mask and let
-    # the geopotential flux cross the wet-region boundary. sw2
-    # mapped+immersed is a recorded follow-up of the mapped+immersed
-    # composition plan. Mirrors the SadournyAdvection.bind guard.
+    # the masked sphere (an orthogonal chart + a staircase mask)
+    # composes — tests/shallowwater2/test_core_chart_immersed.py. A
+    # NON-orthogonal chart carrying an immersed domain is still refused
+    # at bind, even for a *linear* model (advection=None, so no
+    # SadournyAdvection guard runs): the cross-metric hops of the raised
+    # pressure gradient are not reached by the mask, so the masked wave
+    # operator would lose its skew-symmetry.
     grid = Grid(
         (_mesh(8, "x"), _mesh(8, "y")),
         mapping=fr.spatial.CoordinateMapping(
             chart={"X": lambda x, y: (x + 0.4 * y, y, 0.0 * x)}),
         immersed=ImmersedDomain(lambda x, y: x * 0.0 + 1.0))  # noqa: ARG005
     with pytest.raises(NotImplementedError,
-                       match="BOTH an embedding chart"):
+                       match="declared orthogonal"):
         sw.Model(grid=grid,
                  core=sw.Core(gravity=1.0, depth=0.7,
                               coords=("x", "y")),

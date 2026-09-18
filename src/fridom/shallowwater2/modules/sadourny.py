@@ -246,13 +246,31 @@ is ever wanted. Mass is exact for any fractions. Every masked divide is
 double-``where`` sealed (SA-D4). When every neighbour is wet the scheme
 reduces to the flat scheme to <= 1 ulp (the momentum fraction ops fold
 mathematically but XLA contracts their stencil FMAs differently from
-the flat branch; the ``p`` tendency is bitwise). This is the **flat**
-immersed path (``chart_coords is None``); a grid carrying **both** a
-chart and an immersed domain is a **taught error** at bind (the chart
-advection path is unmasked — silent wrong physics), sw2 mapped+immersed
-being a recorded follow-up of the mapped+immersed composition plan. The
-prescribed ``background=`` flow is a taught error on immersed grids
-(IP-D8, checked at bind).
+the flat branch; the ``p`` tendency is bitwise). The prescribed
+``background=`` flow is a taught error on immersed grids (IP-D8,
+checked at bind).
+
+Chart + immersed grids (the masked sphere)
+------------------------------------------
+An **orthogonal** chart grid carrying an immersed **staircase** mask
+(the collocation ``ImmersedDomain``, ``order=None``: full cells, e.g. a
+land mask
+declared in ``lon``/``lat``) takes the chart path with the immersed
+weights folded in at the same sites as the flat immersed scheme, each
+weight placed on the :math:`\sqrt g`-weighted quantity it already
+multiplies in computational space (the MI-D5 spelling): the thickness
+flux and the corner mass fluxes carry :math:`\alpha_f` (so the
+vorticity-flux exchange stays antisymmetric), the relative vorticity is
+masked before the thickness divide, the corner thickness is the
+wet-count average, the kinetic energy is
+:math:`(\overline{\alpha_u\sqrt g\,g_{\lambda\lambda}(u^\lambda)^2}
++ \overline{\alpha_v\sqrt g\,g_{\varphi\varphi}(u^\varphi)^2})
+/ (2\,\theta\sqrt g)`, and the covariant momentum tendencies are masked
+on their own faces before the raise. The conserved functionals are the
+flat immersed ones with every term weighted by the pointwise
+:math:`\sqrt g`. Genuine partial cells (``order >= 2``) on a chart and
+a non-orthogonal chart are **taught errors** at bind
+(``immersed_weighting.require_chart_composable``).
 """
 from __future__ import annotations
 
@@ -270,6 +288,7 @@ from fridom.shallowwater2.chart import (
 )
 from fridom.shallowwater2.modules.immersed_weighting import (
     mask_field,
+    require_chart_composable,
     scale_divergence,
     weight_flux,
 )
@@ -448,6 +467,86 @@ def _wet_kinetic_energy(
     theta = immersed.fraction(p.function_space)
     num = 0.5 * ((alpha_u * (u * u)).to(p) + (alpha_v * (v * v)).to(p))
     return _sealed_divide(num, theta)
+
+
+def _chart_thickness_tendency(
+    u: ScalarField,
+    v: ScalarField,
+    p: ScalarField,
+    coords: tuple[str, str],
+) -> ScalarField:
+    r"""Flux-form thickness transport of the chart scheme.
+
+    Description
+    -----------
+    :math:`\partial_t p = -(1/\sqrt g)\,\partial_i(\sqrt g\,u^i p)`
+    through the seeded flux-form ``"div"`` kind on the contravariant
+    intermediates. On a chart + immersed grid (the masked sphere) the
+    open-area fraction weights the flux at the face — before the kind
+    multiplies it by :math:`\sqrt g` — and the wet fraction scales the
+    finished divergence (guarded), the core-continuity idiom: the
+    :math:`\theta\sqrt g\,V`-weighted mass is conserved to rounding.
+    """
+    grid = u.grid
+    zonal, meridional = coords
+    con = Variance.CONTRAVARIANT
+    immersed = getattr(grid, "immersed", None)
+    flux_u, flux_v = u * p.to(u), v * p.to(v)
+    if immersed is not None:
+        flux_u = weight_flux(immersed, flux_u)
+        flux_v = weight_flux(immersed, flux_v)
+    flux = VectorField({
+        zonal: flux_u.with_variance(con),
+        meridional: flux_v.with_variance(con)})
+    div = grid.dispatch.resolve(
+        "div", flux[zonal].function_space.bare)
+    dp = -(div(flux))
+    if immersed is not None:
+        dp = scale_divergence(immersed, dp)
+    return dp
+
+
+def _chart_kinetic_energy(
+    u: ScalarField,
+    v: ScalarField,
+    p: ScalarField,
+    sqrt_g: tuple[ScalarField, ScalarField],
+    coords: tuple[str, str],
+) -> ScalarField:
+    r"""Centre kinetic energy of the chart scheme (masked or not).
+
+    Description
+    -----------
+    :math:`K = (\overline{\sqrt g\,g_{\lambda\lambda}(u^\lambda)^2}
+    + \overline{\sqrt g\,g_{\varphi\varphi}(u^\varphi)^2})
+    / (2\sqrt g)` on the contravariant intermediates — the placement
+    pairing with the :math:`h`-tendency (module docstring). The
+    :math:`/\sqrt g` divide is VJP-sealed
+    (:func:`_sealed_metric_divide`): the centre metric is an exact zero
+    in the walled chart's never-valid padding. On a chart + immersed
+    grid (the masked sphere) the quadratics carry the open-area
+    fraction and the divide the wet fraction (SA-D5),
+    :math:`K = (\overline{\alpha_u\sqrt g\,g_{\lambda\lambda}
+    (u^\lambda)^2} + \dots) / (2\,\theta\sqrt g)`; a dry cell is a
+    masked ``0/0`` the same seal covers.
+    """
+    grid = u.grid
+    zonal, meridional = coords
+    sqg_u, sqg_v = sqrt_g
+    sqg_p = grid.metric(p.function_space.bare, "sqrt_g")
+    g_uu = grid.metric(u.function_space.bare, f"g_{zonal}{zonal}")
+    g_vv = grid.metric(v.function_space.bare,
+                       f"g_{meridional}{meridional}")
+    quad_u, quad_v = u * u, v * v
+    den = sqg_p
+    immersed = getattr(grid, "immersed", None)
+    if immersed is not None:
+        quad_u = weight_flux(immersed, quad_u)
+        quad_v = weight_flux(immersed, quad_v)
+        den = immersed.fraction(p.function_space) * sqg_p
+    num = 0.5 * (((sqg_u * g_uu) * quad_u).to(p)
+                 + ((sqg_v * g_vv) * quad_v).to(p))
+    return _sealed_metric_divide(num, den)
 
 
 class SadournyAdvection(fr.model.Module):
@@ -674,9 +773,10 @@ class SadournyAdvection(fr.model.Module):
         NotImplementedError
             If a background flow is prescribed on a chart grid (the
             background term's flux stencils are not generalized to
-            the metric path), or if the grid carries **both** an
-            embedding chart and an immersed domain (the chart advection
-            path is unmasked — silent wrong physics).
+            the metric path), or if the grid carries an embedding
+            chart **and** an immersed domain that do not compose (a
+            non-orthogonal chart, or genuine partial cells; only the
+            full-cell staircase on an orthogonal chart composes).
         """
         grid = table.grid
         # adopt the scaling variant (fr.scaling): the advection is
@@ -695,20 +795,9 @@ class SadournyAdvection(fr.model.Module):
                 "transport is designed-for). Run the immersed model "
                 "without a prescribed background flow.")
         chart = grid.chart_coords
-        if (chart is not None
-                and getattr(grid, "immersed", None) is not None):
-            raise NotImplementedError(
-                "SadournyAdvection does not support a grid carrying "
-                "BOTH an embedding chart and an immersed (cut-cell) "
-                "domain: the metric-aware chart advection path "
-                "(_advect_chart) is unmasked, so it would silently "
-                "ignore the immersed mask and advect across the wet-"
-                "region boundary (silent wrong physics — the fraction-"
-                "weighted _advect_immersed path is flat-only). sw2 "
-                "mapped+immersed is a recorded follow-up of the "
-                "mapped+immersed composition plan; until it lands, "
-                "drop the immersed domain or run on an unmapped (flat) "
-                "grid.")
+        # the masked sphere composes for an orthogonal chart carrying
+        # the full-cell staircase only (module docstring)
+        require_chart_composable(grid, "SadournyAdvection")
         if self._coords is None:
             # adopt the grid's (zonal, meridional) names in factor
             # order: the chart's on a chart grid, the mesh names on a
@@ -1065,14 +1154,13 @@ class SadournyAdvection(fr.model.Module):
         # intermediates) runs verbatim, exit-rescaled at the end
         u = to_contravariant(u, zonal)
         v = to_contravariant(v, meridional)
+        # the masked sphere (module docstring): the staircase immersed
+        # weights fold in at the flat immersed scheme's sites; None on
+        # an unmasked chart, whose path below is untouched
+        immersed = getattr(grid, "immersed", None)
 
         # --- thickness: dp = -(s/sqrt_g) d_i(sqrt_g u^i p) ---------
-        flux = VectorField({
-            zonal: (u * p.to(u)).with_variance(con),
-            meridional: (v * p.to(v)).with_variance(con)})
-        div = dispatch.resolve(
-            "div", flux[zonal].function_space.bare)
-        dp = -(div(flux))
+        dp = _chart_thickness_tendency(u, v, p, self._coords)
         if eps is not None:
             dp = eps * dp
 
@@ -1091,38 +1179,41 @@ class SadournyAdvection(fr.model.Module):
         curl = dispatch.resolve(
             "curl", covariant[zonal].function_space.bare)
         zeta = curl(covariant).retag(corner)
-        q = _potential_vorticity(zeta, p_full.to(zeta))
+        if immersed is None:
+            q = _potential_vorticity(zeta, p_full.to(zeta))
+        else:
+            # SA-D3/SA-D6 + SA-D2: mask the relative vorticity before
+            # the divide; wet-count corner thickness (both sealed)
+            zeta = mask_field(immersed, zeta)
+            q = _potential_vorticity(
+                zeta, _wet_corner_thickness(immersed, p_full, zeta))
 
         # --- sqrt_g-weighted corner mass fluxes F^i ----------------
         # (the same fluxes the thickness divergence carries, so the
         # vorticity-flux exchange stays antisymmetric — docstring)
         sqg_u = grid.metric(u.function_space.bare, "sqrt_g")
         sqg_v = grid.metric(v.function_space.bare, "sqrt_g")
-        fu = (sqg_u * (u * p_full.to(u))).to(zeta)
-        fv = (sqg_v * (v * p_full.to(v))).to(zeta)
+        mass_u, mass_v = u * p_full.to(u), v * p_full.to(v)
+        if immersed is not None:
+            # SA-D1: the SAME alpha the thickness divergence carries
+            mass_u = weight_flux(immersed, mass_u)
+            mass_v = weight_flux(immersed, mass_v)
+        fu = (sqg_u * mass_u).to(zeta)
+        fv = (sqg_v * mass_v).to(zeta)
 
-        # --- kinetic energy at centres -----------------------------
-        # K = (mean(sqrt_g g_ii (u^i)^2)) / (2 sqrt_g) — the
-        # placement pairing with the h-tendency (docstring)
-        sqg_p = grid.metric(p.function_space.bare, "sqrt_g")
-        g_uu = grid.metric(u.function_space.bare,
-                           f"g_{zonal}{zonal}")
-        g_vv = grid.metric(v.function_space.bare,
-                           f"g_{meridional}{meridional}")
-        # the / sqg_p divide is VJP-sealed: sqg_p is an exact zero in
-        # the walled chart's never-valid padding, so the bare quotient's
-        # reverse mode poisons the gradient with a masked 0/0 (see
-        # _sealed_metric_divide; the same cure as the PV divide above)
-        ekin_num = 0.5 * (((sqg_u * g_uu) * (u * u)).to(p)
-                          + ((sqg_v * g_vv) * (v * v)).to(p))
-        ekin = _sealed_metric_divide(ekin_num, sqg_p)
+        # --- kinetic energy at centres (docstring placement) -------
+        ekin = _chart_kinetic_energy(
+            u, v, p, (sqg_u, sqg_v), self._coords)
 
         # --- covariant momentum tendencies, raised -----------------
         cov = Variance.COVARIANT
-        tu = ((fv * q).to(u)
-              - ekin.diff(zonal).retag(u)).with_variance(cov)
-        tv = (-(fu * q).to(v)
-              - ekin.diff(meridional).retag(v)).with_variance(cov)
+        tu = (fv * q).to(u) - ekin.diff(zonal).retag(u)
+        tv = -(fu * q).to(v) - ekin.diff(meridional).retag(v)
+        if immersed is not None:
+            # no momentum tendency into a closed face
+            tu = mask_field(immersed, tu)
+            tv = mask_field(immersed, tv)
+        tu, tv = tu.with_variance(cov), tv.with_variance(cov)
         raise_index = dispatch.resolve(
             "raise_index", tu.function_space.bare)
         raised = raise_index(VectorField({

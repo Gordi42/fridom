@@ -17,6 +17,8 @@ B-G3 (staircase == walled), B-G4 (all-wet == unimmersed), B-G5 (autodiff
 shard — the SA-D4 seals), B-G6 (forced-4 device invariance). Each is
 self-contained (the shard duplicates the small builders).
 """
+from types import SimpleNamespace
+
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -374,20 +376,27 @@ def test_immersed_grad_wrt_ic_is_finite_and_matches_fd():
 
 
 # ================================================================
-#  Taught error: chart + immersed is unsupported (silent wrong physics)
+#  Taught error: partial cells on a chart do not compose
 # ================================================================
 def test_chart_plus_immersed_is_a_taught_error():
-    # a grid carrying BOTH a chart and an immersed domain must be
-    # refused at bind: the metric chart advection path (_advect_chart)
-    # is unmasked, so it would silently ignore the immersed mask and
-    # advect across the wet-region boundary. sw2 mapped+immersed is a
-    # recorded follow-up of the mapped+immersed composition plan.
+    # the masked sphere composes for the full-cell staircase only (the
+    # test_sadourny_chart_immersed shard). Genuine partial cells on a
+    # chart are refused at bind: the per-axis
+    # quadrature averages the indicator in the chart parameters, not
+    # over the physical area, so the fractions would be inconsistent
+    # with the metric. The advection guard fires on its own (the module
+    # bound without the core's guard in front of it).
     grid = fr.spatial.spherical.Grid(
         (16, 8), radius=1.0, lat_extent=(-1.0, 1.0), device_ids=(0,))
     grid = grid.with_immersed(
-        ImmersedDomain(lambda lon, lat: lon * 0.0 + 1.0))  # noqa: ARG005
+        ImmersedDomain(lambda lon, lat: lon * 0.0 + 1.0,  # noqa: ARG005
+                       order=2))
+    advection = sw.SadournyAdvection()
     with pytest.raises(NotImplementedError,
-                       match="BOTH an embedding chart"):
+                       match="full-cell staircase"):
+        advection.bind(SimpleNamespace(grid=grid, scaling=None))
+    with pytest.raises(NotImplementedError,
+                       match="full-cell staircase"):
         sw.Model(
             grid=grid,
             core=sw.Core(froude_number=0.3, depth=0.7,
