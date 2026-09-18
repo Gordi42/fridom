@@ -1,4 +1,0 @@
-Generating animations
-=====================
-
-TODO

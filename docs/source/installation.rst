@@ -1,85 +1,93 @@
 Installation
 ============
 
-Using pip
----------
+FRIDOM needs Python 3.11 or newer. It is built on
+`JAX <https://docs.jax.dev>`_, and every compute array is a
+``jax.numpy`` array.
 
-.. warning::
+Installing From Source
+----------------------
 
-   FRIDOM is in an early development stage and the latest version on PyPI might
-   not be the most recent one. It is recommended to install FRIDOM from the
-   source code repository (see below).
-
-FRIDOM can be installed using pip:
-
-.. code-block:: bash
-
-   pip install fridom
-
-FRIDOM is built on `JAX <https://docs.jax.dev>`_. The default installation
-runs on the CPU. To run FRIDOM on a GPU with CUDA support, install the
-``cuda`` extra:
-
-.. code-block:: bash
-
-   pip install fridom["cuda"]
-
-The compute device is selected through JAX directly, for example via the
-``JAX_PLATFORMS`` environment variable (see :doc:`the platform tutorial
-<tutorials/more_tutorials/backend>`).
-
-
-Building from source
---------------------
-To install FRIDOM from the source code repository, clone the repository in 
-your desired directory and install the package using pip:
+The framework described here lives on the development branch, and the
+``fridom`` release on PyPI predates the rewrite, so install from the
+repository:
 
 .. code-block:: bash
 
    git clone https://github.com/Gordi42/FRIDOM
    cd FRIDOM
-   pip install -e '.[cuda]'
+   pip install -e .            # CPU
+   pip install -e '.[cuda]'    # NVIDIA GPU (CUDA 12)
 
-This will install FRIDOM with CUDA support. For a CPU-only installation,
-drop the ``[cuda]`` extra.
+The ``-e`` flag installs FRIDOM in editable mode, so changes to the
+source code are reflected in the installed package. The ``cuda`` extra
+pulls in ``jax[cuda12]``. Without it, JAX runs on the CPU.
+
+Plotting a field with ``field.xr`` needs ``xarray`` and ``matplotlib``,
+which are not runtime dependencies of FRIDOM. Install them alongside it
+with ``pip install xarray matplotlib``.
 
 .. note::
 
-   The ``-e`` flag installs FRIDOM in editable mode, which means that changes 
-   to the source code will be reflected in the installed package.
-
-.. note::
-
-   It is recommended to install FRIDOM in a virtual environment to avoid 
-   conflicts with other packages. This can for example be done with conda 
-   by running the following code before installing FRIDOM:
+   Install FRIDOM into a virtual environment to avoid conflicts with
+   other packages. With conda, for example:
 
    .. code-block:: bash
 
       conda create -y --name fridom python=3.12
       conda activate fridom
 
+Installing With uv
+------------------
 
-Optional dependencies
----------------------
+FRIDOM is developed with `uv <https://docs.astral.sh/uv/>`_ and the
+repository carries a lock file, so ``uv sync`` reproduces the pinned
+environment in ``.venv``:
 
-- ``xarray``: To convert data to xarray datasets for easier plotting. An installation guide can be found `here <http://xarray.pydata.org/en/stable/installing.html>`_.
-- ``imageio``: To create animations. It can be installed with ``pip install "imageio[ffmpeg]"``.
-- ``mpi4py``: To run simulations in parallel using MPI. An installation guide can be found `at this link <https://mpi4py.readthedocs.io/en/stable/install.html>`_.
+.. code-block:: bash
 
+   uv sync                             # runtime dependencies only
+   uv sync --extra dev                 # adds pytest, ruff, xarray, matplotlib
+   uv sync --extra dev --extra docs    # adds the sphinx toolchain
 
-Installation on special systems
--------------------------------
+Commands then run through ``uv run``, for example
+``uv run pytest tests/``. The ``cuda`` extra works here too
+(``uv sync --extra cuda``).
 
-Levante (DKRZ)
-~~~~~~~~~~~~~~
-If you plan to run FRIDOM on levante at DKRZ with GPU acceleration, make sure to
-do the installation on a gpu node. A gpu node can be requested with the following
-command:
+Installing From PyPI
+--------------------
+
+.. warning::
+
+   The ``fridom`` release on PyPI predates the rewrite and does not
+   contain the API used in this documentation. Install from source
+   instead.
+
+.. code-block:: bash
+
+   pip install fridom
+   pip install 'fridom[cuda]'
+
+Choosing the Compute Device
+---------------------------
+
+JAX decides whether a model runs on a CPU, a GPU, or a TPU, for
+example through the ``JAX_PLATFORMS`` environment variable. FRIDOM has
+no setting of its own for this. See
+:doc:`advanced/platform_and_precision`.
+
+Installing on Levante (DKRZ)
+----------------------------
+
+Do the installation on a GPU node if you plan to run with GPU
+acceleration, so that the CUDA wheels match the node. A GPU node is
+requested with
 
 .. code-block:: bash
 
    salloc -p gpu --gpus=1 --account=projectname
 
-where ``projectname`` is the name of your project. After you have been assigned a
-gpu node, you can install FRIDOM using the above instructions.
+where ``projectname`` is the name of your project. Once the node is
+assigned, follow the source instructions above.
+
+With FRIDOM installed, continue with :doc:`getting_started`.

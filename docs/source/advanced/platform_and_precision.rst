@@ -25,7 +25,7 @@ importing fridom:
    import jax
    jax.config.update("jax_platform_name", "cpu")
 
-   import fridom.nonhydro as nh
+   import fridom as fr
 
 For more details, see the
 `JAX documentation on platforms <https://docs.jax.dev/en/latest/faq.html#controlling-data-and-computation-placement-on-devices>`_.
@@ -39,7 +39,7 @@ when it is imported. To run in single precision instead, disable the
 
 .. code-block:: python
 
-   import fridom.nonhydro as nh
+   import fridom as fr
 
    import jax
    jax.config.update("jax_enable_x64", False)
