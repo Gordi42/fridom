@@ -110,8 +110,8 @@ def sphere_model(route):
         core=sw.Core(froude_number=RO, depth=CSQR,
                      coords=("lon", "lat")),
         scaling=fr.scaling.GravityWave(),
-        coriolis=coriolis, modules_extra=extra,
-        time_stepper=stepper())
+        coriolis=coriolis, advection=sw.SadournyAdvection(),
+        modules_extra=extra, time_stepper=stepper())
 
 
 def channel_model(route):
@@ -513,6 +513,7 @@ def test_the_conserving_beta_plane_varies_with_y():
         scaling=fr.scaling.GravityWave(),
         coriolis=sw.modules.NonlinearBetaPlaneCoriolis(
             rossby_number=RO / F0, metric_ratio=0.5 / F0),
+        advection=sw.SadournyAdvection(),
         time_stepper=stepper())
     f = np.asarray(model.state["f_coriolis"].data).ravel()
     assert f.size > 1
