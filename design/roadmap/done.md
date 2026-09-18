@@ -3522,3 +3522,50 @@ the **physical** height on a terrain or z* column, where it used the
 base `z`. Tests: `tests/spatial/test_coordinate_mapping_positions.py`,
 `test_grid_nodes.py`, `test_export_nodes.py`, the `b_total` gates on
 a sigma and a z* column in both packages, the field/mesh shards.
+
+## The masked sphere — sw2 chart + immersed staircase, 2-D depth (2026-09-19)
+
+The sw2 mapped+immersed taught error (the recorded tail of the
+[mapped+immersed composition plan](../plans/done/mapped_immersed_composition_plan.md),
+MI-D6) is lifted for the combination a global ocean needs: an
+**orthogonal** chart (the lat-lon sphere) carrying a full-cell
+**staircase** mask (`ImmersedDomain(order=None)`, declared in the
+chart coordinates — a land mask in `lon`/`lat`). The chart wave term
+of `sw.Core` and `SadournyAdvection._advect_chart` fold the immersed
+weights in at the flat immersed scheme's sites, in the MI-D5
+spelling: the open-area fraction weights the contravariant flux at
+the face **before** the flux-form metric `div` multiplies it by
+`sqrt_g`, the wet fraction scales the finished divergence, the raised
+momentum tendencies are masked on their own faces; the advection
+carries SA-D1..D6 (alpha-weighted corner mass fluxes, masked
+vorticity before the divide, wet-count corner thickness,
+`alpha`-weighted kinetic energy over `theta * sqrt_g`). `sw.Core`
+also accepts a static two-parameter depth `D(zonal, meridional)`
+(real bathymetry): `csqr` lands on the full centre space and every
+consumer lifts it through `.to` as before.
+
+Stays refused, taught and tested
+(`immersed_weighting.require_chart_composable`): genuine partial
+cells (`order >= 2`) on a chart — the per-axis quadrature averages in
+the chart parameters, not over the physical area (the freestream
+trap; sw2 has no J-weighted fraction path) — and an immersed domain
+on a non-orthogonal chart (the cross-metric hops would need the
+fraction between the hop pairs, MI-D2).
+
+Measured gates (16x12 sphere, basin + island, 2-D bathymetry;
+linear / Sadourny): all-wet mask vs unmasked sphere tendency
+0.72 / 0.64 ulp (not bitwise — the identity-at-1 fraction ops
+reassociate under XLA, the B-G4 class); identity chart + mask vs flat
+immersed bitwise (tendency and 20 steps); a latitude-band staircase
+vs the genuinely **walled** sphere band 5.6e-17 / 6.9e-17 after 15
+steps (the independent certificate); `theta * sqrt_g` mass rate
+3e-17; wet energy rate 4.8e-17 (linear, with the `c^2`-weighted
+rotation) / 7.7e-19 (gravity + Sadourny); closed-basin mass drift
+over 300 steps 1.6e-16 / 0; velocities on land faces exactly zero;
+`jax.grad` through a masked run FD-matched. Side fix: `_update_csqr`
+indexed the `profile_coords` tuple by a string for a static callable
+depth under a gravity ramp. Tests:
+`tests/shallowwater2/test_core_chart_immersed.py`,
+`test_sadourny_chart_immersed.py`, the `require_chart_composable`
+cases in `test_immersed_weighting.py`; the two tests that pinned the
+old blanket refusal now pin the remaining ones.

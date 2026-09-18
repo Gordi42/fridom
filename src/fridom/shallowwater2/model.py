@@ -99,6 +99,14 @@ def Model(  # noqa: N802 — constructor-like factory (D1.3)
                 metric_weight="csqr"),
             time_stepper=...)
 
+    A land mask composes with the sphere: pass the grid an immersed
+    full-cell staircase declared in the chart coordinates
+    (``immersed=fr.spatial.ImmersedDomain(lambda lon, lat: ...)``,
+    ``order=None``) and, for real bathymetry, a two-parameter
+    ``depth=lambda lon, lat: ...`` on the core. Genuine partial cells
+    on a chart and a non-orthogonal chart stay taught errors
+    (``sw.modules.core``, "Chart + immersed grids").
+
     Prognostic velocities are the **physical** (m/s) components on
     every grid, chart grids included (``physical_state_components.md``
     ruling (c)) — so a spherical IC is set in physical m/s. The

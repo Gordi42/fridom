@@ -257,9 +257,12 @@ class Core(fr.model.Module):
         The water depth :math:`D` [m] (dimensional; REQUIRED there)
         or the depth ratio :math:`\tilde D` (nondimensional;
         default 1.0). A float publishes ``shallowwater.depth``; a
-        callable ``D(y)`` is the static variable depth; a
-        ``ProfileFunction`` ``D(y,t)`` (TDF-D7) or an ``fr.Ramp``
-        marks ``csqr`` time-dependent (default: None).
+        one-parameter callable ``D(y)`` is the static meridional
+        depth profile, a two-parameter callable ``D(zonal,
+        meridional)`` the static two-dimensional depth (called
+        positionally in ``coords`` order); a ``ProfileFunction``
+        ``D(y,t)`` (TDF-D7) or an ``fr.Ramp`` marks ``csqr``
+        time-dependent (default: None).
     froude_number : float | fr.model.Ramp | None, optional
         The Froude number :math:`\mathrm{Fr}` (nondimensional
         variant only); published as ``shallowwater.froude`` and — as
@@ -272,7 +275,8 @@ class Core(fr.model.Module):
         chart (default: ``("x", "y")``).
     meridional : str | None, optional
         The meridional coordinate name a callable ``depth`` varies
-        along; None uses ``coords[1]`` (default: None).
+        along; None uses ``coords[1]``. Not combinable with a
+        two-parameter depth (default: None).
     """
 
     #: The vocabulary class this core supplies (D1.3 commitment 4).
