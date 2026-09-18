@@ -45,7 +45,7 @@ if TYPE_CHECKING:  # pragma: no cover
     )
     from .comparison import comparison_model
     from .eigenmodes import eigenbasis
-    from .eos import EquationOfState, LinearEOS, RoquetEOS, TEOS10EOS
+    from .eos import TEOS10EOS, EquationOfState, LinearEOS, RoquetEOS
     from .initial_conditions import jet, single_wave
     from .model import Model
     from .modules.buoyancy_tracer import BuoyancyTracer

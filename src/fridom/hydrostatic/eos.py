@@ -267,8 +267,12 @@ class EquationOfState(ABC):
         depth: object = 0.0,
     ) -> object:
         r"""
-        Thermal expansion :math:`\alpha = -\rho_0^{-1}\,
-        \partial\rho/\partial\Theta` [1/K] (Boussinesq form).
+        Thermal expansion coefficient [1/K] (Boussinesq form).
+
+        Description
+        -----------
+        :math:`\alpha = -\rho_0^{-1}\,\partial\rho/\partial\Theta`, by
+        automatic differentiation of :meth:`density`.
 
         Parameters
         ----------
@@ -292,8 +296,12 @@ class EquationOfState(ABC):
         depth: object = 0.0,
     ) -> object:
         r"""
-        Haline contraction :math:`\beta = \rho_0^{-1}\,
-        \partial\rho/\partial S_A` [kg/g] (Boussinesq form).
+        Haline contraction coefficient [kg/g] (Boussinesq form).
+
+        Description
+        -----------
+        :math:`\beta = \rho_0^{-1}\,\partial\rho/\partial S_A`, by
+        automatic differentiation of :meth:`density`.
 
         Parameters
         ----------
@@ -690,13 +698,13 @@ class TEOS10EOS(EquationOfState):
 
     @staticmethod
     def reference_profile(depth: object) -> object:
-        r"""The vertical reference profile :math:`r_0(\zeta)` [kg/m^3]."""
+        r"""Return the vertical reference profile ``r0(zeta)`` [kg/m^3]."""
         zeta = depth / _TEOS10_DEPTH_UNIT
         return _horner(_TEOS10_R0, zeta) * zeta
 
     @staticmethod
     def fit(temperature: object, salinity: object, depth: object) -> object:
-        r"""The 52-term fit :math:`r'(s, \tau, \zeta)` [kg/m^3]."""
+        r"""Return the 52-term fit ``r'(s, tau, zeta)`` [kg/m^3]."""
         tau = temperature / _TEOS10_TEMPERATURE_UNIT
         root = jnp.sqrt((salinity + _TEOS10_SALINITY_SHIFT)
                         / _TEOS10_SALINITY_UNIT)

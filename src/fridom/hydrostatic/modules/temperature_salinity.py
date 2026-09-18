@@ -118,9 +118,10 @@ class TemperatureSalinity(fr.model.Module):
     (``hy.Model(buoyancy=hy.TemperatureSalinity(...))``): declares the
     tracers ``T`` [degC] and ``S`` [g/kg] and the DIAGNOSTIC buoyancy
     ``b`` [m/s^2], which a ``DIAGNOSE`` stage fills from the equation
-    of state ahead of the core's hydrostatic-pressure integral. The
-    tracers start at the EOS reference parcel (``b = 0``); set them
-    with ``model.set_fields(T=..., S=...)``.
+    of state ahead of the core's hydrostatic-pressure integral. Like
+    every prognostic field the tracers start at **zero** — fresh water
+    at the freezing point, not an ocean — so set **both** with
+    ``model.set_fields(T=..., S=...)``.
 
     The bound diagnostics (``model.diagnostics``):
 
@@ -248,23 +249,21 @@ class TemperatureSalinity(fr.model.Module):
     ) -> tuple[fr.model.FieldDeclaration, ...]:
         """``T`` / ``S`` (tracers) and the DIAGNOSTIC buoyancy ``b``.
 
-        The tracers default to the EOS reference parcel, the state of
-        zero buoyancy. ``b`` carries **no** role: it is neither
+        ``b`` carries **no** role: it is neither
         advected nor mixed (its sources are), and a ``TRACER``-
         selecting closure must not target it.
         """
         space = fr.spatial.Collocated(family=self._family)
-        t_ref, s_ref = self._eos.reference
         declarations = []
         if self._constant_temperature is None:
             declarations.append(fr.model.FieldDeclaration.tracer(
-                "T", space=space, default=t_ref,
+                "T", space=space,
                 long_name="Conservative temperature", units="degC",
                 nc_attrs={"standard_name":
                           "sea_water_conservative_temperature"}))
         if self._constant_salinity is None:
             declarations.append(fr.model.FieldDeclaration.tracer(
-                "S", space=space, default=s_ref,
+                "S", space=space,
                 long_name="Absolute salinity", units="g/kg",
                 nc_attrs={"standard_name":
                           "sea_water_absolute_salinity"}))
@@ -394,7 +393,7 @@ class TemperatureSalinity(fr.model.Module):
     def _buoyancy(
         self, state: VectorField, params: Mapping[str, object],
     ) -> tuple[ScalarField, object]:
-        """The EOS buoyancy of the state's ``T`` / ``S`` (array)."""
+        """Return the EOS buoyancy of the state's ``T`` / ``S``."""
         gravity = params[GRAVITY]
         eos = self._eos
 
