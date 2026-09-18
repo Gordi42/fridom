@@ -5,6 +5,7 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
+import fridom as fr
 from fridom.spatial.fields.vector_field import VectorField
 from fridom.spatial.grid import Grid as BaseGrid
 from fridom.spatial.scalars import Variance
@@ -114,3 +115,59 @@ def test_index_raise_assembles_across_a_sector_all_walls():
 def test_pole_touching_lat_extent_is_rejected(lat_extent):
     with pytest.raises(ValueError, match="pole"):
         Grid((8, 8), lat_extent=lat_extent)
+
+
+# ================================================================
+#  The 3-D thin-shell extrusion (spherical-models plan, S0)
+# ================================================================
+def _shell(nz=4):
+    from fridom.spatial.meshes.interval import (  # noqa: PLC0415
+        IntervalMesh,
+    )
+    return fr.spatial.spherical.Grid(
+        (16, 8), radius=2.0, lat_extent=(-1.2, 1.2),
+        vertical=IntervalMesh(nz, (-10.0, 0.0), periodic=False,
+                              name="z"))
+
+
+def test_vertical_extrusion_builds_a_thin_shell_grid():
+    grid = _shell()
+    assert grid.names == ("lon", "lat", "z")
+    assert grid.chart_coords == ("lon", "lat")
+    assert grid.mapping.column_corrections == {}
+
+
+@pytest.mark.parametrize("pattern", [
+    pytest.param(fr.spatial.Collocated(), id="cell"),
+    pytest.param(fr.spatial.Staggered("lon"), id="u-face"),
+    pytest.param(fr.spatial.Staggered("z"), id="w-face"),
+])
+@pytest.mark.parametrize("name", ["sqrt_g", "g_lonlon", "g_latlat"])
+def test_thin_shell_metric_is_independent_of_the_vertical(pattern, name):
+    grid = _shell()
+    space = pattern.resolve(grid)
+    metric = grid.metric(space.bare, name)
+    assert metric.data.shape[-1] == 1  # constant along z
+    assert float(metric.data.min()) > 0.0
+
+
+def test_vertical_extrusion_keeps_the_polar_guard():
+    from fridom.spatial.meshes.interval import (  # noqa: PLC0415
+        IntervalMesh,
+    )
+    with pytest.raises(ValueError, match="pole"):
+        fr.spatial.spherical.Grid(
+            (8, 4), lat_extent=(-np.pi / 2, 1.0),
+            vertical=IntervalMesh(2, (-1.0, 0.0), periodic=False,
+                                  name="z"))
+
+
+def test_vertical_must_be_a_single_non_chart_coordinate():
+    from fridom.spatial.meshes.interval import (  # noqa: PLC0415
+        IntervalMesh,
+    )
+    with pytest.raises(ValueError, match="vertical="):
+        fr.spatial.spherical.Grid(
+            (8, 4), lat_extent=(-1.0, 1.0),
+            vertical=IntervalMesh(2, (-1.0, 0.0), periodic=False,
+                                  name="lat"))

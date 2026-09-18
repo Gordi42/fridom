@@ -43,8 +43,13 @@ Three declaration forms (stage C1 of the coordinate-systems plan):
   ``normal_z``, :math:`\hat n = (X_1 \times X_2)/|X_1 \times X_2|`
   (the ambient rotation vector projects onto it: the chart-generic
   Coriolis parameter is :math:`f = 2\,\vec\Omega\cdot\hat n`, see
-  ``fr.modules.RotationCoriolis``). Derivation is per chart, so a
-  future multi-chart atlas stays additive.
+  ``fr.modules.RotationCoriolis``). A parameter-free chart also
+  supplies the **scale-factor derivatives** ``dh_<u>_d<v>`` =
+  :math:`\partial_v\sqrt{g_{uu}}` (second-order autodiff of the
+  chart) — the Christoffel ingredient of the flux-form momentum
+  curvature source on an orthogonal chart (spherical-models plan,
+  SP-D1; ``fr.model.modules.CenteredAdvection``). Derivation is per
+  chart, so a future multi-chart atlas stays additive.
 
 Derivatives of the map/chart with respect to their *coordinate*
 arguments are exact (``jax.jvp``); derivatives of *parameter fields*
@@ -679,6 +684,68 @@ class _ChartEntry:
         if self.kind == "sqrt_g":
             return jnp.sqrt(jnp.linalg.det(matrix))
         return jnp.linalg.inv(matrix)[..., self.i, self.j]
+
+
+
+class _ChartScaleDerivative:
+
+    r"""
+    ``dh_<u>_d<v>``: derivative of a chart scale factor.
+
+    Description
+    -----------
+    The scale factor of chart coordinate :math:`u` is
+    :math:`h_u = \sqrt{g_{uu}} = |\partial X/\partial u|`; this
+    recipe derives :math:`\partial h_u/\partial v` by a second
+    ``jax.jvp`` through the chart callable, exactly (no discrete
+    difference), at the requested space's nodes. On an **orthogonal**
+    chart these derivatives are the only Christoffel ingredient of
+    the physical-component momentum curvature source
+
+    .. math::
+        \dot U_u \mathrel{+}= \frac{U_v}{h_u h_v}\bigl(
+            U_v\,\partial_u h_v - U_u\,\partial_v h_u\bigr) ,
+
+    (the lat-lon sphere: :math:`\partial_\varphi h_\lambda =
+    -a\sin\varphi`, the :math:`u v\tan\varphi/a` terms). Registered
+    for parameter-free charts only (a moving chart would need the
+    parameter chain rule through the second derivative).
+    """
+
+    def __init__(self, decl: _Declared, i: int, j: int,
+                 deps: frozenset[str]) -> None:
+        self.decl = decl
+        self.i = i
+        self.j = j
+        self.deps = deps
+
+    def evaluate(self, ctx: _Derivation) -> jax.Array:
+        """Differentiate ``|dX/du_i|`` along ``u_j`` (nested jvp)."""
+        decl = self.decl
+        values = _arguments(decl, ctx)
+        shape = jnp.broadcast_shapes(
+            *(jnp.shape(values[name]) for name in decl.order))
+        primals = tuple(
+            jnp.broadcast_to(values[name], shape)
+            for name in decl.order)
+        along, wrt = decl.coords[self.i], decl.coords[self.j]
+
+        def unit(name: str, args: tuple) -> tuple:
+            return tuple(
+                jnp.ones_like(a) if n == name else jnp.zeros_like(a)
+                for n, a in zip(decl.order, args, strict=True))
+
+        def positional(*args: jax.Array) -> object:
+            return decl.fn(**dict(zip(decl.order, args, strict=True)))
+
+        def scale(*args: jax.Array) -> jax.Array:
+            _, tangent = jax.jvp(positional, args, unit(along, args))
+            return jnp.sqrt(sum(
+                jnp.broadcast_to(jnp.asarray(t), shape) ** 2
+                for t in tangent))
+
+        _, out = jax.jvp(scale, primals, unit(wrt, primals))
+        return out
 
 
 #: the ambient components of a surface normal, in chart-return order
@@ -1336,6 +1403,14 @@ class CoordinateMapping:
             for i, comp in enumerate(_AMBIENT):
                 self._add(f"normal_{comp}",
                           _ChartNormal(decl, i, deps))
+        if not decl.params:
+            # scale-factor derivatives (the momentum curvature source
+            # of the flux-form chart advection, SP-D1); parameter-free
+            # charts only
+            for i, u in enumerate(coords):
+                for j, v in enumerate(coords):
+                    self._add(f"dh_{u}_d{v}",
+                              _ChartScaleDerivative(decl, i, j, deps))
 
     def _corrections(self) -> dict[str, tuple[str, str]]:
         """

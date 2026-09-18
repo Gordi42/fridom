@@ -3,6 +3,7 @@ import jax
 import jax.numpy as jnp
 import pytest
 
+import fridom as fr
 from fridom.spatial.coordinate_mapping import CoordinateMapping
 from fridom.spatial.grid import Grid
 from fridom.spatial.meshes.chebyshev import ChebyshevMesh
@@ -76,7 +77,31 @@ def test_chart_declares_the_induced_metric_names():
         "inv_g_uu", "inv_g_uv", "inv_g_vu", "inv_g_vv",
         "sqrt_g",
         # a two-coordinate chart also carries the surface normal
-        "normal_x", "normal_y", "normal_z"}
+        "normal_x", "normal_y", "normal_z",
+        # a parameter-free chart carries the scale-factor derivatives
+        "dh_u_du", "dh_u_dv", "dh_v_du", "dh_v_dv"}
+
+
+def test_chart_scale_factor_derivatives_on_the_sphere():
+    # h_lon = a cos(lat), h_lat = a: the only nonzero derivative is
+    # d h_lon / d lat = -a sin(lat) (the u v tan(lat) / a curvature)
+    radius = 3.0
+    grid = fr.spatial.spherical.Grid(
+        (8, 6), radius=radius, lat_extent=(-1.2, 1.2))
+    space = fr.spatial.Collocated().resolve(grid)
+    lat = grid.evaluation_nodes(space, "lat").data
+    got = grid.metric(space, "dh_lon_dlat").data
+    assert jnp.allclose(got, -radius * jnp.sin(lat), atol=1e-13)
+    for name in ("dh_lon_dlon", "dh_lat_dlon", "dh_lat_dlat"):
+        assert jnp.allclose(grid.metric(space, name).data, 0.0,
+                            atol=1e-13)
+
+
+def test_parametrized_chart_has_no_scale_factor_derivatives():
+    mapping = CoordinateMapping(
+        chart={"X": lambda u, v, a: (a * u, v, 0.0 * u)},
+        params={"a": lambda u, v: 2.0 + 0.0 * u * v})
+    assert not any(n.startswith("dh_") for n in mapping.metric_names)
 
 
 def test_multi_base_map_supplies_jacobians_only():
