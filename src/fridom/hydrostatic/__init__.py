@@ -36,6 +36,7 @@ if TYPE_CHECKING:  # pragma: no cover
         diagnostics,
         eigenmodes,
         energy,
+        eos,
         initial_conditions,
         modules,
         params,
@@ -44,6 +45,7 @@ if TYPE_CHECKING:  # pragma: no cover
     )
     from .comparison import comparison_model
     from .eigenmodes import eigenbasis
+    from .eos import EquationOfState, LinearEOS, RoquetEOS, TEOS10EOS
     from .initial_conditions import jet, single_wave
     from .model import Model
     from .modules.buoyancy_tracer import BuoyancyTracer
@@ -54,6 +56,7 @@ if TYPE_CHECKING:  # pragma: no cover
         SplitExplicitFreeSurface,
     )
     from .modules.stratification import ConstantStratification
+    from .modules.temperature_salinity import TemperatureSalinity
     from .modules.thermal_wind import ThermalWindBackground
     from .modules.zstar import ZStarGeometry, zstar_mapping
     from .state import State
@@ -61,13 +64,15 @@ if TYPE_CHECKING:  # pragma: no cover
 base = "fridom.hydrostatic"
 
 all_modules_by_origin = {
-    base: ["modules", "diagnostics", "energy", "params",
+    base: ["modules", "diagnostics", "energy", "eos", "params",
            "initial_conditions", "comparison", "eigenmodes",
            "transforms", "units"],
 }
 
 all_imports_by_origin = {
     f"{base}.eigenmodes": ["eigenbasis"],
+    f"{base}.eos": ["EquationOfState", "LinearEOS", "RoquetEOS",
+                    "TEOS10EOS"],
     f"{base}.initial_conditions": ["single_wave", "jet"],
     f"{base}.comparison": ["comparison_model"],
     f"{base}.model": ["Model"],
@@ -75,6 +80,7 @@ all_imports_by_origin = {
     f"{base}.modules.core": ["Core"],
     f"{base}.modules.buoyancy_tracer": ["BuoyancyTracer"],
     f"{base}.modules.stratification": ["ConstantStratification"],
+    f"{base}.modules.temperature_salinity": ["TemperatureSalinity"],
     f"{base}.modules.thermal_wind": ["ThermalWindBackground"],
     f"{base}.modules.free_surface": [
         "ExplicitFreeSurface", "ImplicitFreeSurface",
