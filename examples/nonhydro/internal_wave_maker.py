@@ -71,7 +71,7 @@ model = nh.Model(
     grid=grid,
     coriolis=nh.FPlaneCoriolis(f0=CORIOLIS_F0),
     buoyancy=nh.ConstantStratification(n2=STRATIFICATION_N2),
-    advection=False,
+    advection=None,
     modules_extra=wave_maker,
     time_stepper=fr.model.time_steppers.AdamBashforth(dt, order=3))
 
@@ -171,7 +171,7 @@ chirp_model = nh.Model(
     grid=grid,
     coriolis=nh.FPlaneCoriolis(f0=CORIOLIS_F0),
     buoyancy=nh.ConstantStratification(n2=STRATIFICATION_N2),
-    advection=False,
+    advection=None,
     modules_extra=chirp_maker,
     time_stepper=fr.model.time_steppers.AdamBashforth(dt, order=3))
 

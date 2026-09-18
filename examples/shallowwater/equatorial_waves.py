@@ -68,7 +68,7 @@ model = sw.Model(
     grid=grid,
     core=sw.Core(gravity=GRAVITY, depth=EQUIVALENT_DEPTH),
     coriolis=sw.modules.BetaPlaneCoriolis.from_latitude(0.0),
-    advection=False,
+    advection=None,
     time_stepper=fr.model.time_steppers.AdamBashforth(dt, order=3))
 
 # %%

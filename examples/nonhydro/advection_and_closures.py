@@ -122,18 +122,13 @@ configurations = {
 # by mixing, never by stirring, and the available potential energy the
 # bubble started with is the scale it is reported in. The potential
 # energy is :math:`-\int b_{tot}\, z`, with the background
-# stratification added back onto the anomaly the model carries. It is
-# written in field arithmetic: ``nodes`` hands out the coordinate of a
-# field's own cells and ``integrate`` the volume integral, so the same
-# lines run unchanged on a sharded grid. Only the sort is a global
-# operation.
+# stratification added back onto the anomaly by the model's ``b_total``
+# diagnostic. It is written in field arithmetic: ``evaluation_nodes``
+# hands out the coordinate of a field's own cells and ``integrate`` the
+# volume integral, so the same lines run unchanged on a sharded grid.
+# Only the sort is a global operation.
 energy_metric = fr.model.EnergyMetric(
     {"u": 1.0, "v": 1.0, "w": 1.0, "b": 1.0 / stratification})
-
-
-def total_buoyancy(b):
-    """Return the buoyancy including the background stratification."""
-    return b + stratification * b.evaluation_nodes("z")
 
 
 def potential_energy(b):
@@ -153,13 +148,6 @@ def stacked(b):
     return b.with_data(layers.T.reshape(nx, ny, nz))
 
 
-diagnostics = {
-    "energy": lambda ms: 0.5 * energy_metric.inner(ms.state, ms.state).real,
-    "potential": lambda ms: potential_energy(total_buoyancy(ms.state["b"])),
-    "background": lambda ms: potential_energy(
-        stacked(total_buoyancy(ms.state["b"]))),
-}
-
 # %%
 # Running the Eight
 # -----------------
@@ -178,6 +166,14 @@ def run(build):
         modules_extra=extra,
         time_stepper=fr.model.time_steppers.AdamBashforth(dt, order=3))
     model.set_fields(b=bubble)
+    # the series samples the model's own total buoyancy
+    total = model.diagnostics.b_total
+    diagnostics = {
+        "energy": lambda ms: 0.5 * energy_metric.inner(
+            ms.state, ms.state).real,
+        "potential": lambda ms: potential_energy(total(ms.state)),
+        "background": lambda ms: potential_energy(stacked(total(ms.state))),
+    }
     series = fr.io.Series(diagnostics,
                           trigger=fr.io.every(seconds=runlen / samples))
     model.run(runlen=runlen, outputs=series)

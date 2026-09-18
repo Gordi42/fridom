@@ -66,7 +66,7 @@ model = hy.Model(
     free_surface=hy.ExplicitFreeSurface(),
     coriolis=hy.FPlaneCoriolis(f0=f0),
     buoyancy=None,            # constant density: a barotropic flow
-    advection=False,
+    advection=None,
     time_stepper=fr.model.time_steppers.AdamBashforth(dt, order=3))
 
 # %%

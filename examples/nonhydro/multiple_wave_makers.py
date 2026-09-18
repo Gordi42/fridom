@@ -67,7 +67,7 @@ base = nh.Model(
     grid=grid,
     coriolis=nh.FPlaneCoriolis(f0=CORIOLIS_F0),
     buoyancy=nh.ConstantStratification(n2=STRATIFICATION_N2),
-    advection=False,
+    advection=None,
     time_stepper=fr.model.time_steppers.AdamBashforth(dt, order=3))
 
 makers = []
@@ -95,7 +95,7 @@ model = nh.Model(
     grid=grid,
     coriolis=nh.FPlaneCoriolis(f0=CORIOLIS_F0),
     buoyancy=nh.ConstantStratification(n2=STRATIFICATION_N2),
-    advection=False,
+    advection=None,
     modules_extra=tuple(makers),
     time_stepper=fr.model.time_steppers.AdamBashforth(dt, order=3))
 
