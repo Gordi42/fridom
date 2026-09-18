@@ -120,14 +120,14 @@ def _depth(x):
 def _nh_model(n: int, *, mapped: bool, periodic_x: bool = True,
               periodic_z: bool = False,
               iters: int = 30,
-              advection: bool | fr.model.Module = False,
+              advection: fr.model.Module | None = None,
               family: str | None = None):
     """Nonhydrostatic f-plane model with a jet-like IC.
 
     ``advection`` switches the momentum/buoyancy advection on — pass
-    ``True`` for the centered default or an advection module instance
-    for a specific scheme. Any truthy value also switches ``dt`` to a
-    CFL-scaled value: centered advection carries no dissipation, so the
+    an advection module instance (``None``, the default, runs the
+    linear model). A module also switches ``dt`` to a CFL-scaled
+    value: centered advection carries no dissipation, so the
     linear cases' fixed ``dt = 0.02`` goes non-finite at 512^3 and the
     model panics mid-timing.
     """
@@ -145,7 +145,7 @@ def _nh_model(n: int, *, mapped: bool, periodic_x: bool = True,
     grid = fr.spatial.Grid((mx, my, mz), mapping=mapping)
     # |u| ~ 1 and dx = 2*pi/n, so 0.25 * dx keeps the advective cases
     # finite at every n; the linear cases keep their original dt.
-    dt = 0.25 * TWO_PI / n if advection else 0.02
+    dt = 0.25 * TWO_PI / n if advection is not None else 0.02
     model = nh.Model(grid=grid, advection=advection,
                      coriolis=nh.FPlaneCoriolis(f0=1.0),
                      buoyancy=nh.ConstantStratification(n2=1.0),
