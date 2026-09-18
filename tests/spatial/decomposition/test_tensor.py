@@ -950,13 +950,26 @@ def test_shard_writes_and_chunk_hint_reject_foreign_layout():
 # ================================================================
 #  patch_physical_ends: the co-array seam
 # ================================================================
+def _last_block_start(n_cells):
+    """Return the global index of the last block's first true cell.
+
+    The patch callbacks below read their block's FIRST true slot, so
+    the high physical end (which lives in the last block) sees cell 0
+    on one device and the last shard's first cell on several.
+    """
+    devices = jax.device_count()
+    return (devices - 1) * -(-n_cells // devices)
+
+
 def test_patch_physical_ends_passes_co_arrays_to_the_callback():
     # the geometry seam of the non-uniform (stretched-mesh) graded
     # rungs: extra input-frame storage arrays reach the callback as
     # trailing block arguments, so a rung's window indices address
     # BLOCK-LOCAL data (a closed-over array would stay global under
-    # ``shard_map``). Single device here; the sharded gate lives in
-    # tests/spatial/operators/test_weno_nonuniform.py.
+    # ``shard_map``). Runs on any device count: the high end reads the
+    # LAST block's first slot, which is exactly the block-local claim
+    # (the operator-level sharded gate lives in
+    # tests/spatial/operators/test_weno_nonuniform.py).
     mesh, decomp = _sharded(8, width=1)
     inner, cell_avg = mesh.inner, mesh.cell_avg
     out_arr = decomp.zeros(inner)
@@ -980,7 +993,7 @@ def test_patch_physical_ends_passes_co_arrays_to_the_callback():
     assert seen == [(0, 1), (1, 1)]
     true = np.asarray(decomp.unpad(patched, inner))
     assert true[0] == 10.0        # the co-array's first true slot
-    assert true[-1] == 10.0
+    assert true[-1] == 10.0 * (_last_block_start(8) + 1)
 
 
 def test_patch_physical_ends_without_co_arrays_is_unchanged():
@@ -1001,4 +1014,4 @@ def test_patch_physical_ends_without_co_arrays_is_unchanged():
         out_arr, in_arr, inner, cell_avg, "x", patch)
     true = np.asarray(decomp.unpad(patched, inner))
     assert true[0] == 1.0
-    assert true[-1] == 1.0
+    assert true[-1] == 1.0 + _last_block_start(8)
