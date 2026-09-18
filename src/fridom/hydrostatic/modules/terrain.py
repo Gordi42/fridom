@@ -60,7 +60,7 @@ _MIN_CHART_ORDER = 2
 
 
 def discover_column(
-    grid: Grid, vertical: str,
+    grid: Grid, vertical: str, *, chart_ok: bool = False,
 ) -> tuple[str, str] | None:
     r"""Return the ``(mapped, base)`` vertical column, or ``None``.
 
@@ -91,12 +91,17 @@ def discover_column(
     vertical : str
         The hydrostatic vertical mesh-axis name (the axis the
         ``CumulativeIntegral`` reduces).
+    chart_ok : bool, optional
+        Whether the caller carries the thin-shell chart arm
+        (``hy.Core``, ``hy.ExplicitFreeSurface``): a chart grid with no
+        ``maps=`` column then returns ``None`` instead of the refusal
+        (default: False).
 
     Returns
     -------
     tuple[str, str] | None
         The ``(mapped, base)`` column pair, or ``None`` off a mapped
-        grid.
+        grid (and on a chart-only grid under ``chart_ok``).
 
     Raises
     ------
@@ -108,14 +113,25 @@ def discover_column(
     if mapping is None:
         return None
     if mapping.chart_coords is not None:
+        if chart_ok and not mapping.column_corrections:
+            # an embedding chart with no maps= column on top: the
+            # thin-shell spherical arm (spherical-models plan S2) — no
+            # terrain column; the caller adopts the chart itself
+            # (fridom.model.chart_seams.thin_shell_chart)
+            return None
         raise NotImplementedError(
             "the hydrostatic terrain-following core supports analytic "
             "maps= column mappings (sigma coordinates, e.g. "
             "zp = z * H(x, y)); this grid carries an embedding chart= "
             f"on {mapping.chart_coords} (a curvilinear / spherical "
-            "coordinate system), which the hydrostatic model does not "
-            "model yet (hydrostatic plan §7). Assemble on a maps= "
-            "terrain grid, or a flat / stretched-only grid")
+            "coordinate system). On a chart the hydrostatic model runs "
+            "the orthogonal thin-shell arm of hy.Core + "
+            "hy.ExplicitFreeSurface only (spherical-models plan S2): "
+            "this module (the implicit / split-explicit free surface, "
+            "the z* geometry) or a chart + maps= terrain composition "
+            "is not supported on a chart yet (plan S3 / section 6). "
+            "Use hy.ExplicitFreeSurface on the chart, or a maps= "
+            "terrain / flat / stretched-only grid")
     entry = mapping.column_corrections.get(vertical)
     if entry is None or entry[1] != vertical:
         available = sorted(

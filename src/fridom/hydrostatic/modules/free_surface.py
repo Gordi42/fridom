@@ -116,6 +116,13 @@ from fridom.hydrostatic.units import (
     SURFACE_PRESSURE_FACTOR,
     phase_speed_factor,
 )
+from fridom.model.chart_seams import (
+    chart_gradient,
+    edge_scale,
+    sealed_metric_divide,
+    thin_shell_chart,
+    volume_scale,
+)
 from fridom.model.errors import AssemblyError
 from fridom.model.modules.moving_geometry import mapping_params
 from fridom.model.terms import Treatment
@@ -253,6 +260,16 @@ class _FreeSurfaceBase(fr.model.Module):
         # static aux). Discovered at bind; None keeps the flat scalar
         # 1/H path byte-identical.
         self._column: tuple[str, str] | None = None
+        # the orthogonal thin-shell chart pair (spherical-models plan
+        # S2), or None off a chart grid (byte-identical paths). Only
+        # the explicit variant carries the chart arm
+        # (``_supports_chart``); the implicit / split-explicit variants
+        # keep the taught refusal until the chart barotropic Helmholtz
+        # lands (plan S3).
+        self._chart: tuple[str, str] | None = None
+
+    #: whether the variant carries the thin-shell chart arm (S2)
+    _supports_chart = False
 
     def bind(self, table: object) -> None:
         """Freeze the reciprocal depth ``1/H`` (the depth-mean divisor).
@@ -282,7 +299,21 @@ class _FreeSurfaceBase(fr.model.Module):
         """
         grid = table.grid
         self._immersed = getattr(grid, "immersed", None)
-        self._column = discover_column(grid, self._vertical)
+        self._column = discover_column(
+            grid, self._vertical, chart_ok=self._supports_chart)
+        self._chart = thin_shell_chart(grid, type(self).__name__)
+        if (self._chart is not None
+                and tuple(self._horizontal) != tuple(self._chart)):
+            raise ValueError(
+                f"{type(self).__name__}(horizontal="
+                f"{self._horizontal!r}) does not match the grid's "
+                f"chart coordinates {self._chart!r}; pass "
+                f"horizontal={self._chart!r}")
+        if self._chart is not None and self._nondim:
+            raise NotImplementedError(
+                f"{type(self).__name__}(froude_number=...) on an "
+                "embedding chart is not supported: the thin-shell "
+                "chart arm is dimensional (hy.Core(gravity=...))")
         # a terrain + immersed grid (stage M5) composes the wet-column
         # barotropic solve: the face depth H_a becomes the wet-column
         # integral int alpha_a J dz and the transport divergence weights
@@ -531,14 +562,24 @@ class _FreeSurfaceBase(fr.model.Module):
         if self._column is not None:
             transport_div, _ = self._terrain_transport_div(state)
             return transport_div
+        if self._chart is not None:
+            # thin-shell chart: the area-weighted transports h_j U_i;
+            # the integrated divergence is closed by the cell area
+            # sqrt_g on the ps cell (sqrt_g is independent of the
+            # vertical, so the division commutes with the integral)
+            u = u * edge_scale(u, zonal, self._chart)
+            v = v * edge_scale(v, meridional, self._chart)
         if self._immersed is None:
             div_h = u.diff(zonal) + v.diff(meridional)
-            return Integral()[self._vertical](div_h)
-        alpha_x = self._immersed.fraction(u.function_space)
-        alpha_y = self._immersed.fraction(v.function_space)
-        div_h = ((alpha_x * u).diff(zonal)
-                 + (alpha_y * v).diff(meridional))
-        return Integral()[self._vertical](div_h)
+        else:
+            alpha_x = self._immersed.fraction(u.function_space)
+            alpha_y = self._immersed.fraction(v.function_space)
+            div_h = ((alpha_x * u).diff(zonal)
+                     + (alpha_y * v).diff(meridional))
+        total = Integral()[self._vertical](div_h)
+        if self._chart is not None:
+            total = sealed_metric_divide(total, volume_scale(total))
+        return total
 
     # ================================================================
     #  Terrain (sigma-coordinate) physical depth
@@ -826,9 +867,14 @@ class ExplicitFreeSurface(_FreeSurfaceBase):
         the flat gravity term stays fully halo-traced, bitwise
         unchanged.
         """
-        if self._column is None:
+        if self._column is None and self._chart is None:
             return None
         return HaloSpec(dict.fromkeys(self._horizontal, 1))
+
+    #: the explicit variant carries the thin-shell chart arm (S2): the
+    #: area-weighted transport divergence closed by the cell area and
+    #: the physical surface-pressure gradient d_i ps / h_i
+    _supports_chart = True
 
     @fr.model.term(advances=("ps",), linear=True,
                    linear_params=(GRAVITY, FROUDE,
@@ -877,8 +923,12 @@ class ExplicitFreeSurface(_FreeSurfaceBase):
         zonal, meridional = self._horizontal
         u, v = state["u"], state["v"]
         ps = state["ps"]
-        grad_u = ps.diff(zonal).to(u)
-        grad_v = ps.diff(meridional).to(v)
+        if self._chart is not None:
+            grad_u = chart_gradient(ps, zonal).to(u)
+            grad_v = chart_gradient(ps, meridional).to(v)
+        else:
+            grad_u = ps.diff(zonal).to(u)
+            grad_v = ps.diff(meridional).to(v)
         if self._immersed is not None:
             grad_u = grad_u * self._face_wet_mask(u)
             grad_v = grad_v * self._face_wet_mask(v)

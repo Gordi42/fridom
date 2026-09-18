@@ -301,17 +301,20 @@ failure is silent wrong physics rather than a crash.**
   and the body is transparent to the background flow. Advect the
   total velocity with an inflow forcing instead. Mirrors the
   shallow-water ``SadournyAdvection`` refusal (IP-D8).
-- **An embedding chart** (:meth:`_FluxFormAdvection._reject_chart`).
-  The whole family is written in computational coordinates: the
-  face reconstructions are lattice rows (width-aware along a
-  stretched factor, never chart-aware) and the divergence is a bare
-  ``diff`` / ``flux_diff``. The only metric it multiplies
-  is the ``maps=`` column Jacobian; ``grid.chart_coords`` is never
-  read, so on a chart it transports the stored (rather than
-  contravariant) components with no :math:`\sqrt g` weight — the
-  tendency on a sheared chart is *bitwise* the flat-grid tendency.
-  Metric-aware flux-form advection is future work; the guard is
-  defense in depth below the model factories' own chart refusals.
+- **An embedding chart under a biased scheme**
+  (:meth:`_FluxFormAdvection._bind_chart`). The family is written in
+  computational coordinates: the face reconstructions are lattice
+  rows (width-aware along a stretched factor, never chart-aware) and
+  the divergence is a bare ``diff`` / ``flux_diff``. Left alone on a
+  chart it would transport the stored (rather than contravariant)
+  components with no :math:`\sqrt g` weight — the tendency on a
+  sheared chart is *bitwise* the flat-grid tendency. The **centered**
+  scheme is taught the metric in the orthogonal thin-shell form
+  (spherical-models plan SP-D1: area-weighted transports at the
+  velocity's native face, one :math:`1/\sqrt g` division, and the
+  curvature source on the velocity components — see ``_bind_chart``);
+  the biased schemes, non-orthogonal charts, the finite-volume family
+  and ``background=`` stay taught refusals on a chart (SP-D5 / SP-D8).
 """
 from __future__ import annotations
 
@@ -324,6 +327,12 @@ import numpy as np
 
 import fridom as fr
 from fridom.framework.utils import dtype_real
+from fridom.model.chart_seams import (
+    edge_scale,
+    sealed_metric_divide,
+    thin_shell_chart,
+    volume_scale,
+)
 from fridom.model.modules.moving_geometry import mapping_params
 from fridom.model.phases import fields_in_phase
 from fridom.spatial.bc import BC
@@ -2808,6 +2817,13 @@ class _FluxFormAdvection(fr.model.Module):
     #: below
     _supports_mapped_column: ClassVar[bool] = True
 
+    #: whether the scheme is grounded on an **embedding chart** (the
+    #: orthogonal thin-shell metric form of spherical-models plan
+    #: SP-D1 / SP-D5): the base is not — the biased subclasses' wide
+    #: uniform-offset windows need a metric-aware reconstruction, a
+    #: fenced follow-up — and ``CenteredAdvection`` opts in
+    _supports_chart: ClassVar[bool] = False
+
     #: whether the scheme's **immersed** (cut-cell) closure is grounded
     #: on a stretched mesh factor. The centered scheme is (its
     #: two-point faces divide by the measure fields whatever the mask
@@ -2865,6 +2881,9 @@ class _FluxFormAdvection(fr.model.Module):
         self._background_by_axis: dict[str, str] = {}
         self._column: tuple[str, str] | None = None
         self._corrections: dict[str, tuple[str, str]] = {}
+        # the orthogonal thin-shell chart pair (bind), None off a chart
+        # grid — the byte-identical flat / mapped-column paths
+        self._chart: tuple[str, str] | None = None
         self._halo_axes: tuple[str, ...] = ()
         self._walled: tuple[str, ...] = ()
         self._immersed: object = None
@@ -2930,7 +2949,8 @@ class _FluxFormAdvection(fr.model.Module):
             scheme opts out through `_supports_walled`: the natural
             downstream failure (an operator dispatch mismatch deep in
             the flux chain) would be cryptic. On a grid carrying an
-            embedding chart (`_reject_chart`), and on an immersed
+            embedding chart the scheme is not grounded on (`_bind_chart`),
+            and on an immersed
             grid with a prescribed ``background=``
             (`_reject_immersed_background`) — both silent
             wrong-physics compositions.
@@ -2972,9 +2992,10 @@ class _FluxFormAdvection(fr.model.Module):
         if immersed is not None:
             self._halo_axes = tuple(table.grid.names)
         self._reject_immersed_background(immersed)
-        self._reject_chart(table.grid)
+        self._bind_chart(table.grid)
         self._bind_mapping(table.grid)
         self._advected = table.select(fr.model.roles.ADVECTED)
+        self._require_nodal_on_chart(table)
         selector = table.velocity()
         # selector.labels pairs each velocity name with its axis
         self._axis_velocity = tuple(
@@ -3039,39 +3060,55 @@ class _FluxFormAdvection(fr.model.Module):
             "(fr.model.modules.Relaxation fringe / Source) — or drop "
             "the immersed domain.")
 
-    def _reject_chart(self, grid: object) -> None:
+    def _bind_chart(self, grid: object) -> None:
         r"""
-        Refuse a grid carrying an embedding chart (metric blindness).
+        Adopt an embedding chart, or refuse it (metric blindness).
 
         Description
         -----------
         The flux-form family is written in **computational**
-        coordinates throughout: the face reconstructions are
-        uniform-offset rows, the advecting-velocity faces are plain
-        interpolations of the stored components, and the divergence is
-        ``flux.diff(axis)`` / the FV ``flux_diff`` — a bare
-        computational difference. The only metric the module ever
-        multiplies is the ``maps=`` **column** Jacobian
-        (:meth:`_flux_divergence`, gated on ``self._column``), derived
-        from ``grid.metric``; ``grid.chart_coords`` is never read.
+        coordinates: the face reconstructions are uniform-offset rows,
+        the advecting-velocity faces are plain interpolations of the
+        stored components, and the divergence is ``flux.diff(axis)`` —
+        a bare computational difference. Left alone on an embedding
+        chart that is wrong twice over — the honest transport is
+        :math:`-(1/\sqrt g)\,\partial_i(\sqrt g\,v^i q)` of the
+        **contravariant** components, and a velocity *component*
+        additionally carries the curvature (Christoffel) source — and
+        the failure is total and silent (measured on a sheared chart:
+        the tendency is **bitwise** the flat-grid tendency).
 
-        On an embedding chart that is wrong twice over. The honest
-        transport is :math:`-(1/\sqrt g)\,\partial_i(\sqrt g\,v^i q)`
-        of the **contravariant** components — the sw2 chart path
-        (``shallowwater2.chart.to_contravariant`` + the ``sqrt_g``
-        weighting) is the worked precedent — and this module supplies
-        neither the raise-index nor the :math:`\sqrt g` weight. The
-        failure is total and silent: on a sheared chart
-        (``X(x, y) = (x + 0.4 y, y, 0)``) the tendency of every
-        component is **bitwise identical** to the flat-grid tendency,
-        i.e. the chart is ignored in full.
+        A scheme that declares ``_supports_chart`` (the centered one,
+        spherical-models plan SP-D1 / SP-D5) adopts the chart in the
+        **orthogonal thin-shell** form
+        (:func:`fridom.model.chart_seams.thin_shell_chart`): with
+        physical components :math:`U_i`, scale factors :math:`h_i` and
+        :math:`\sqrt g = h_1 h_2` independent of the flat vertical,
 
-        Until A0's mapped work is generalized to charts this was
-        "safe" only because the 3-D model factories happened to refuse
-        charts upstream (defect section B of
-        ``design/research/example_authoring_defects.md``); the guard
-        here is the defense in depth, so a hand-assembled
-        ``fr.model.Model`` cannot reach the metric-blind path either.
+        .. math::
+            A(q) = \frac{1}{\sqrt g}\Bigl[
+                \partial_1\bigl(\overline{h_2 U_1}\,\bar q\bigr)
+              + \partial_2\bigl(\overline{h_1 U_2}\,\bar q\bigr)
+              + \partial_z\bigl(\overline{\sqrt g\,w}\,\bar q
+                \bigr)\Bigr] ,
+
+        i.e. every advecting velocity is turned into its **area-weighted
+        transport at its own native face** (:meth:`_advecting`) *before*
+        it is interpolated onto the flux face, and the summed divergence
+        is divided once by the cell area on ``q``'s own space
+        (:meth:`_chart_close`). Weighting before interpolating is what
+        keeps the scheme applied to a constant equal to the interpolated
+        discrete continuity on every staggered control volume (the
+        MITgcm construction), so the constancy-preserving surface
+        closure stays boundary-only. A velocity component also receives
+        the curvature source (:meth:`_curvature`); a tracer does not (a
+        scalar has no Christoffel terms). On the identity chart every
+        factor is exactly ``1.0`` and every scale-factor derivative
+        exactly ``0.0``: the chart path reduces to the flat one bitwise.
+
+        Every other scheme keeps the refusal (SP-D8): no chart path
+        ships silently metric-blind. ``background=`` on a chart is
+        refused too (the Doppler split is untested there).
 
         Parameters
         ----------
@@ -3081,25 +3118,51 @@ class _FluxFormAdvection(fr.model.Module):
         Raises
         ------
         NotImplementedError
-            If the grid's mapping carries a coupled embedding chart.
+            If the grid carries an embedding chart and the scheme is
+            not chart-capable, if the chart is not an orthogonal
+            two-coordinate thin-shell chart, or if a background flow is
+            prescribed on a chart grid.
         """
         chart = getattr(grid, "chart_coords", None)
         if chart is None:
             return
-        raise NotImplementedError(
-            f"{type(self).__name__} does not support grids carrying "
-            f"an embedding chart (chart coordinates: {tuple(chart)}): "
-            "the flux form is metric-blind — its face reconstructions "
-            "and its divergence are computational-coordinate rows, so "
-            "it would transport the stored (not contravariant) "
-            "components and drop the sqrt(g) volume weight entirely "
-            "(measured: the tendency on a sheared chart is BITWISE the "
-            "flat-grid tendency — the chart is ignored in full). "
-            "Metric-aware flux-form advection is future work (the "
-            "shallow-water SadournyAdvection chart path is the "
-            "precedent); until it lands, run a linear model "
-            "(advection=None) on the chart, or advect on an unmapped "
-            "(flat) grid.")
+        if not self._supports_chart:
+            raise NotImplementedError(
+                f"{type(self).__name__} does not support grids carrying "
+                f"an embedding chart (chart coordinates: {tuple(chart)}): "
+                "the flux form is metric-blind — its face reconstructions "
+                "and its divergence are computational-coordinate rows, so "
+                "it would transport the stored (not contravariant) "
+                "components and drop the sqrt(g) volume weight entirely "
+                "(measured: the tendency on a sheared chart is BITWISE the "
+                "flat-grid tendency — the chart is ignored in full). "
+                "Metric-aware biased (upwind / WENO) reconstruction is "
+                "future work (spherical-models plan, SP-D5); use "
+                "CenteredAdvection (chart-capable on orthogonal "
+                "thin-shell charts), run a linear model (advection=None) "
+                "on the chart, or advect on an unmapped (flat) grid.")
+        if self._background:
+            raise NotImplementedError(
+                f"{type(self).__name__}(background=...) is not supported "
+                "on a grid carrying an embedding chart: the background "
+                "split is untested against the metric-weighted "
+                "transport. Advect the total velocity (drop background=)")
+        self._chart = thin_shell_chart(grid, type(self).__name__)
+        self._halo_axes = tuple(grid.names)
+
+    def _require_nodal_on_chart(self, table: object) -> None:
+        """Refuse the finite-volume family on a chart (untested path)."""
+        if self._chart is None:
+            return
+        offenders = tuple(
+            name for name in self._advected
+            if _is_average_space(table[name].space))
+        if offenders:
+            raise NotImplementedError(
+                f"{type(self).__name__} on an embedding chart supports "
+                "the nodal (point-value) family only; the advected "
+                f"components {offenders} resolved onto the finite-volume "
+                "(cell-average) family. Use family='nodal' on the chart")
 
     def _resolve_surface_flux(self, table: object) -> bool:
         """Resolve the tri-state ``surface_flux`` on this grid.
@@ -3246,7 +3309,8 @@ class _FluxFormAdvection(fr.model.Module):
         flat, unimmersed path stays fully halo-traced (None), exactly
         as before.
         """
-        if self._column is None and self._immersed is None:
+        if (self._column is None and self._immersed is None
+                and self._chart is None):
             return None
         return HaloSpec(dict.fromkeys(self._halo_axes, 2))
 
@@ -3959,8 +4023,105 @@ class _FluxFormAdvection(fr.model.Module):
             if self._surface_flux_on:
                 tend = self._surface_correction(
                     state, q, tend, eps, params)
+            if self._chart is not None:
+                tend = self._chart_close(state, qname, tend, eps)
             out[qname] = tend
         return out
+
+    # ------------------------------------------------------------
+    #  The orthogonal thin-shell chart path (SP-D1)
+    # ------------------------------------------------------------
+    def _advecting(
+        self, state: object, vname: str, axis: str,
+    ) -> ScalarField:
+        r"""Return the advecting transport of ``axis`` at its native face.
+
+        Description
+        -----------
+        Off a chart: the stored velocity component, untouched (the
+        byte-identical flat / mapped paths). On a chart: the
+        **area-weighted transport** — :math:`h_j U_i` for a chart axis
+        (the transverse edge length,
+        :func:`~fridom.model.chart_seams.edge_scale`), :math:`\sqrt g\,w`
+        for the flat vertical — formed on the velocity's **own** space
+        so that the subsequent interpolation onto a staggered flux face
+        averages transports, never velocities (:meth:`_bind_chart`).
+        """
+        v = state[vname]
+        if self._chart is None:
+            return v
+        weight = edge_scale(v, axis, self._chart)
+        if weight is None:
+            weight = volume_scale(v)
+        return v * weight
+
+    def _chart_close(
+        self, state: object, qname: str, tend: ScalarField,
+        eps: object | None,
+    ) -> ScalarField:
+        r"""Divide by the cell area and add the curvature source.
+
+        Description
+        -----------
+        The accumulated (and surface-corrected) divergence of the
+        area-weighted transports is divided once by :math:`\sqrt g` on
+        ``q``'s own space — the VJP-sealed metric divide (the root is an
+        exact zero in the never-valid padding). A velocity component on
+        a chart axis then receives the curvature source
+        (:meth:`_curvature`), scaled like the transport in a
+        nondimensional assembly.
+        """
+        tend = sealed_metric_divide(tend, volume_scale(tend))
+        curvature = self._curvature(state, qname)
+        if curvature is None:
+            return tend
+        if eps is not None:
+            curvature = eps * curvature
+        return tend + curvature.retag(tend)
+
+    def _curvature(
+        self, state: object, qname: str,
+    ) -> ScalarField | None:
+        r"""Return the momentum curvature source of one component.
+
+        Description
+        -----------
+        A velocity **component** is not a scalar: transporting the
+        physical component :math:`U_i` of an orthogonal chart in flux
+        form leaves the Christoffel part of the covariant momentum-flux
+        divergence, the source
+
+        .. math::
+            \partial_t U_i \mathrel{+}= \frac{U_j}{h_i h_j}\bigl(
+                U_j\,\partial_i h_j - U_i\,\partial_j h_i\bigr) ,
+            \qquad j \ne i ,
+
+        on ``U_i``'s own staggered space (``U_j`` interpolated there).
+        On the lat-lon sphere this is :math:`+uv\tan\varphi/a` for ``u``
+        and :math:`-u^2\tan\varphi/a` for ``v``. The scale-factor
+        derivatives are the chart's own ``dh_<i>_d<j>`` metrics (exact
+        second-order autodiff of the chart, never hand-typed), so any
+        orthogonal chart — the torus — is served alike. ``None`` for a
+        tracer and for the vertical component (thin shell: no vertical
+        metric terms, the traditional shallow-atmosphere set).
+        """
+        by_name = {vname: axis for axis, vname in self._axis_velocity}
+        own = by_name.get(qname)
+        if own is None or own not in self._chart:
+            return None
+        other = (self._chart[1] if own == self._chart[0]
+                 else self._chart[0])
+        partner = {axis: vname for axis, vname in self._axis_velocity}
+        if other not in partner:
+            return None
+        q = state[qname]
+        grid = q.grid
+        bare = q.function_space.bare
+        u_other = state[partner[other]].to(q.function_space)
+        d_other = grid.metric(bare, f"dh_{other}_d{own}")
+        d_own = grid.metric(bare, f"dh_{own}_d{other}")
+        source = u_other * (u_other * d_other - q * d_own)
+        return sealed_metric_divide(source, volume_scale(q))
 
     def _transport(
         self, state: object, q: ScalarField, params: dict | None,
@@ -3991,7 +4152,7 @@ class _FluxFormAdvection(fr.model.Module):
         """
         res = None
         for axis, vname in self._axis_velocity:
-            v = state[vname]
+            v = self._advecting(state, vname, axis)
             flux_space = self._flux_space(q, v, axis)
             v_face = self._velocity_face(v, flux_space)
             flux = v_face * self._face_value(
@@ -4051,7 +4212,8 @@ class _FluxFormAdvection(fr.model.Module):
             if _is_surface_seam(state[vname], axis))
         if seam and self._slice_valid(q):
             for axis, vname in seam:
-                a1 = self._surface_boundary_term(q, state[vname], axis)
+                a1 = self._surface_boundary_term(
+                    q, self._advecting(state, vname, axis), axis)
                 tend = self._apply_correction(tend, q, a1, axis, scale)
             return tend
         corr = self._immersed_scale(
@@ -4105,7 +4267,7 @@ class _FluxFormAdvection(fr.model.Module):
         """
         corr = None
         for axis, vname in self._axis_velocity:
-            v = state[vname]
+            v = self._advecting(state, vname, axis)
             flux_space = self._flux_space(q, v, axis)
             v_face = self._velocity_face(v, flux_space)
             cflux = self._immersed_flux(v_face, flux_space)
@@ -4509,6 +4671,10 @@ class CenteredAdvection(_FluxFormAdvection):
         hydrostatic diagnosed ``w``), off (bitwise unchanged) otherwise
         (default: None).
     """
+
+    #: chart-capable in the orthogonal thin-shell metric form
+    #: (spherical-models plan SP-D1 / SP-D5; `_bind_chart`)
+    _supports_chart: ClassVar[bool] = True
 
 
 class UpwindAdvection(_FluxFormAdvection):

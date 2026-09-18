@@ -20,6 +20,7 @@ if TYPE_CHECKING:  # pragma: no cover
     # import all modules
     from . import (
         assembly,
+        chart_seams,
         clock,
         closures,
         composer,
@@ -134,7 +135,8 @@ all_modules_by_origin = {
         "phases",
         "clock", "results", "report", "errors", "eigen",
         "eigen_channel", "modules", "transforms",
-        "halo_demand", "units", "shapes", "streamfunction"],
+        "halo_demand", "units", "shapes", "streamfunction",
+        "chart_seams"],
 }
 
 all_imports_by_origin = {
