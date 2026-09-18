@@ -1,5 +1,5 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Docs](https://readthedocs.org/projects/fridom/badge/?version=latest)](https://fridom.readthedocs.io/en/latest/index.html)
+[![Docs](https://img.shields.io/badge/docs-github.io-blue)](https://gordi42.github.io/fridom/)
 [![codecov](https://codecov.io/github/Gordi42/fridom/graph/badge.svg?token=6LY1CFM6KU)](https://codecov.io/github/Gordi42/fridom)
 [![DOI](https://zenodo.org/badge/714260615.svg)](https://doi.org/10.5281/zenodo.14536978)
 
@@ -46,7 +46,8 @@ xarray with `field.xr`, and write output as a zarr store through TensorStore.
 ## Example
 
 The snippet below builds a rotating shallow-water model, puts a bump on the free
-surface, integrates it, and plots the relative vorticity.
+surface, integrates it for one inertial period, and plots the relative vorticity
+of the adjusted state.
 
 ```python
 import numpy as np
@@ -54,31 +55,42 @@ import numpy as np
 import fridom as fr
 import fridom.shallowwater2 as sw
 
-# A doubly-periodic square grid: one mesh per axis.
-mx = fr.spatial.meshes.IntervalMesh(128, (0.0, 1.0), periodic=True, name="x")
-my = fr.spatial.meshes.IntervalMesh(128, (0.0, 1.0), periodic=True, name="y")
-grid = fr.spatial.Grid((mx, my))
+# A doubly periodic square basin, 2000 km on a side.
+grid = fr.spatial.cartesian.Grid(
+    shape=(128, 128), extent=2000e3, periodic=True)
+
+f0 = 1e-4                    # Coriolis parameter in 1/s
+gravity = 9.81               # m/s^2
+depth = 10.0                 # m, so gravity waves travel at 9.9 m/s
+runlen = 2 * np.pi / f0      # one inertial period, about 17.5 hours
+
+# the largest step below a gravity-wave Courant number of 0.2 that
+# divides the run window
+dt = fr.model.fit_dt(
+    runlen, 0.2 * grid.factor("x").dx / np.sqrt(gravity * depth))
 
 # Assemble a shallow-water model from composable modules.
 model = sw.Model(
     grid=grid,
-    csqr=1.0,
-    rossby_number=0.2,
-    coriolis=sw.modules.FPlaneCoriolis(f0=1.0),
-    time_stepper=fr.model.time_steppers.AdamBashforth(dt=2e-3, order=3),
-)
+    core=sw.Core(gravity=gravity, depth=depth),
+    coriolis=sw.modules.FPlaneCoriolis(f0=f0),
+    advection=sw.SadournyAdvection(),
+    time_stepper=fr.model.time_steppers.AdamBashforth(dt, order=3))
 
-# Set the initial free-surface field p(x, y) from a function of the coordinates.
+# Raise the free surface by one metre over a patch in the middle of the
+# basin. The pressure of the shallow-water model is the gravitational
+# acceleration times the surface displacement.
 def bump(x, y):
-    return 0.05 * np.exp(-((x - 0.5) ** 2 + (y - 0.5) ** 2) / (2 * 0.1 ** 2))
+    radius_squared = (x - 1000e3) ** 2 + (y - 1000e3) ** 2
+    return gravity * np.exp(-radius_squared / (2 * 100e3 ** 2))
 
 model.set_fields(p=bump)
 
 # Integrate. The whole loop is compiled once into a single JAX function.
-model.run(steps=200)
+model.run(runlen=runlen)
 
 # Read the relative vorticity as an xarray DataArray and plot it.
-model.state.rel_vort.xr.plot(cmap="RdBu_r")
+model.state.rel_vort.xr.plot(x="x", cmap="RdBu_r")
 ```
 
 > The core packages `fridom.spatial` (spatial discretization) and
@@ -114,13 +126,16 @@ the example above needs `xarray` and `matplotlib`, which come with the `dev`
 extra. The current code lives on the development branch, and the `fridom`
 release on PyPI predates this rewrite, so install from source for the version
 described here. See the
-[installation guide](https://fridom.readthedocs.io/en/latest/installation.html)
+[installation guide](https://gordi42.github.io/fridom/installation.html)
 for more.
 
 ## Documentation
 
-The full documentation, tutorials, and example gallery live at
-[fridom.readthedocs.io](https://fridom.readthedocs.io/en/latest/index.html).
+The documentation and the example gallery live at
+[gordi42.github.io/fridom](https://gordi42.github.io/fridom/). The framework has
+been rewritten and the documentation is being rebuilt to match, so the gallery is
+currently the fullest account of the API. Every example in it is executed when
+the documentation is built.
 
 ## Related work
 
