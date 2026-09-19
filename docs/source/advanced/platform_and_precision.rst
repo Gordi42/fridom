@@ -1,5 +1,5 @@
-Selecting the platform and precision
-====================================
+Platform and Precision
+======================
 
 FRIDOM is built on `JAX <https://docs.jax.dev>`_, and all arrays are
 ``jax.numpy`` arrays. Which device the model runs on (CPU, GPU, or TPU)
