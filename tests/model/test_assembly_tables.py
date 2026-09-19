@@ -486,6 +486,32 @@ def test_default_forms(grid):
     assert jnp.array_equal(fields["coord"].data, expected.data)
 
 
+def test_constant_default_matches_the_data_route(grid):
+    # the born-sharded constant fill equals create_field(data=full)
+    # bit for bit (dtype coercion included); a complex fill keeps the
+    # validated data= route
+    collocated = Collocated().resolve(grid)
+    for value in (2.5, 3):
+        table = RematerializationTable((
+            RematerializationEntry("const", 0, value, collocated),))
+        field = table.materialize((Strat(),), grid)["const"]
+        expected = grid.create_field(
+            collocated, data=jnp.full(collocated.shape, value))
+        assert field.dtype == expected.dtype
+        assert field.name == "const"
+        assert jnp.array_equal(field.storage, expected.storage)
+    table = RematerializationTable((
+        RematerializationEntry("const", 0, 1.0 + 2.0j,
+                               collocated.as_complex()),))
+    field = table.materialize((Strat(),), grid)["const"]
+    assert jnp.iscomplexobj(field.data)
+    assert jnp.allclose(field.data, 1.0 + 2.0j)
+    table = RematerializationTable((
+        RematerializationEntry("const", 0, 1.0 + 2.0j, collocated),))
+    with pytest.raises(ValueError, match="cannot be demoted"):
+        table.materialize((Strat(),), grid)
+
+
 def test_bound_method_defaults_are_rejected(grid):
     owner = Strat()
     with pytest.raises(TypeError, match="bound"):

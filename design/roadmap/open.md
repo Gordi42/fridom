@@ -354,6 +354,62 @@ deliberate follow-ups were left out of it.
   `start_date=` on `Model` (or a settable clock) before the postfix
   can offer dates instead of humanized seconds.
 
+## 2h. Born-sharded construction — the remainder (2026-09-19)
+
+Field construction is born sharded (entry in [`done.md`](done.md)):
+zeros, `init=`, host `data=`, the random factory, the model re-home
+and constant assembly defaults never hold a global array on one
+device. What still materializes at **global true shape** on one
+device during setup (each is O(global grid) per device and is the
+next wall on a weak-scaling ladder; none is on the step path):
+
+- **Immersed fractions and masks** (`ImmersedDomain._cell_fraction`,
+  `fraction` / `mask` / `centroid_offset`, the quadrature and chart
+  paths): the indicator is sampled on the global cell box and the
+  staggered faces are derived by a neighbour combination
+  (`_derive`), so a shard-local build needs pieces extended by one
+  cell plus the physical-end rule. Route through
+  `decomposition.assemble` with an overlap. Under a real
+  multi-process launch the memoized arrays are additionally
+  **replicated** (`_closeable`: a concrete array spanning
+  non-addressable devices cannot be closed over by the step jit), so
+  every (space, kind) entry is a *live* O(global grid) buffer per
+  device, not only a setup transient — the fix there is to feed the
+  geometry to the step as an argument (or rebuild it under the
+  trace) instead of closing over it.
+- **Mapping fields** (`CoordinateMapping.positions` / `metric` /
+  column corrections, `coordinate_mapping.py` `store(...)` sites):
+  sampled on global node arrays. Pointwise in the chart coordinates,
+  so they are direct `assemble` pieces.
+- **Device-array `data=` / `set_fields(<jax array>)`**: a global
+  *device* array handed in by the caller is already global on its
+  device; only host (numpy) input is sliced per shard. Module
+  defaults that build `jnp.full(space.shape, ...)` /
+  `jnp.ones(space.shape)` / law samples on full 3-D spaces
+  (`coriolis.py`, `shallowwater2/modules/core.py`,
+  `stratification.py`, `sadourny.py`) sit on profile spaces today;
+  a 3-D use would want `assemble`.
+- **Transform-composed `init=` on coefficient spaces**
+  (`_transform_discretize`) and `init_coeff=`: coefficient storage
+  is device-local by the iteration-1 LOCAL preference, so the whole
+  spectrum lives on every device by design (decomposition plan, not
+  a construction defect).
+- **Eigenbasis samplers** (`model/eigenstates.py` `store(...)`
+  site): global synthesis, then pad.
+- `TensorDecomposition.local_slice` still answers the whole extent
+  (single-controller wording); `assemble` is the per-shard seam and
+  nothing consumes `local_slice` any more — retire or re-specify it.
+- **The commit transient is now the setup peak.** With construction
+  local, `Model.set_fields` holds the old carry, the re-homed state
+  and a fresh stepper ring at once before `_canonicalize` donates
+  (measured 1.85x the live carry, O(local shard)): drop the stale
+  stepper state before building the fresh one.
+- `tests/model/test_model_memory.py::test_raw_aliased_carry_would_error_without_guard`
+  segfaults inside jax under forced host devices (double donation of
+  a *sharded* buffer aborts instead of raising; pristine `dev` too).
+  The file is not in the forced-4 CI list; mark the test
+  `single_device` or guard it before adding the file there.
+
 ## 3. Perf-guard checkpoint (owner-run)
 
 After **all** physics changes above land, before the Oceananigans

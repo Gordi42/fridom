@@ -57,6 +57,8 @@ from fridom.spatial.spaces.nodal import NodalSpace, NodeSet
 if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Callable, Mapping, Sequence
 
+    from jax.typing import DTypeLike
+
     from fridom.spatial.decomposition.decomposition import (
         SpaceLike,
     )
@@ -65,6 +67,25 @@ if TYPE_CHECKING:  # pragma: no cover
     from fridom.spatial.spaces.function_space import (
         FunctionSpace,
     )
+
+
+def is_tracing() -> bool:
+    """
+    Whether array creation is currently staged out (``jit`` tracing).
+
+    Description
+    -----------
+    The born-sharded constructors (``zeros``, ``assemble``) commit
+    concrete blocks to devices, which only eager code can do; under a
+    ``jit`` trace even a constant is a tracer, and construction keeps
+    the whole-extent program the partitioner shards.
+
+    Returns
+    -------
+    bool
+        True iff a freshly created constant is a tracer.
+    """
+    return isinstance(jnp.zeros(()), jax.core.Tracer)
 
 
 class _ReblockPlan(NamedTuple):
@@ -684,11 +705,100 @@ class TensorDecomposition(Decomposition):
         self,
         space: SpaceLike,
         layout: Layout | None = None,
+        dtype: DTypeLike | None = None,
     ) -> jax.Array:
-        """Return a zero-filled, sharded, storage-shaped array."""
+        """
+        Return a zero-filled, sharded, storage-shaped array.
+
+        Description
+        -----------
+        Born sharded: one zero block of the (uniform) shard shape is
+        committed to every addressable device, so the global array is
+        never materialized on one device and a process touches only
+        the shards it addresses.
+        """
         layout = self._resolve_layout(space, layout)
-        arr = jnp.zeros(self.storage_shape(space, layout))
-        return jax.device_put(arr, self.sharding(space, layout))
+        storage = self.storage_shape(space, layout)
+        sharding = self.sharding(space, layout)
+        if is_tracing():
+            # staged out: the partitioner places the constant
+            return jax.device_put(jnp.zeros(storage, dtype), sharding)
+        block = jnp.zeros(sharding.shard_shape(storage), dtype)
+        return jax.make_array_from_callback(
+            storage, sharding, lambda _: block)
+
+    def assemble(
+        self,
+        space: SpaceLike,
+        piece: Callable[[tuple[slice, ...]], jax.Array],
+        layout: Layout | None = None,
+    ) -> jax.Array:
+        """
+        Build storage shard by shard (see ``Decomposition.assemble``).
+
+        Description
+        -----------
+        One piece per addressable device: the device's storage index
+        box names its block ``s`` on every blocked axis, the block
+        owns the true DOFs ``[bounds[s], bounds[s + 1])``
+        (``_block_bounds``, the frame ``pad`` scatters into), and the
+        piece is padded to the uniform block (leading ghost width,
+        the trailing side absorbing ghosts, stagger padding and the
+        short last shard) before it is committed to its device. The
+        blocks are joined with
+        ``jax.make_array_from_single_device_arrays``, which also is
+        the multi-process spelling: a process builds only the shards
+        it addresses. Pieces are built one at a time on the default
+        device and released once committed, so the transient is one
+        block, never the global array. An unblocked geometry is the
+        single whole-extent piece routed through ``pad``, and so is
+        every traced build (under ``jit``, or a piece that closes
+        over traced values): staged-out code has no eager transient,
+        the partitioner shards the whole-extent program, and the
+        traced program stays exactly the ``pad`` one.
+        """
+        layout = self._resolve_layout(space, layout)
+        geometry = self._geometry(space, layout)
+        whole = tuple(slice(0, n) for _, n, *_ in geometry)
+        if is_tracing() or all(
+                shards == 1 for _, _, _, shards, *_ in geometry):
+            return self.pad(jnp.asarray(piece(whole)), space, layout)
+        sharding = self.sharding(space, layout)
+        storage = tuple(total for *_, total in geometry)
+        index_map = sharding.addressable_devices_indices_map(storage)
+        blocks = []
+        for device, index in index_map.items():
+            slices = []
+            widths = []
+            for (_name, n, factor, shards, width, block, _), box in zip(
+                    geometry, index, strict=True):
+                if shards == 1:
+                    slices.append(slice(0, n))
+                    widths.append((width, block - n - width))
+                    continue
+                shard = (box.start or 0) // block
+                bounds = self._block_bounds(
+                    n, shards, self._cells_per_shard(factor, shards))
+                start, stop = bounds[shard], bounds[shard + 1]
+                slices.append(slice(start, stop))
+                widths.append(
+                    (width, block - width - (stop - start)))
+            data = jnp.asarray(piece(tuple(slices)))
+            if isinstance(data, jax.core.Tracer):
+                # the piece closes over traced values (e.g. a
+                # differentiated parameter outside jit)
+                return self.pad(
+                    jnp.asarray(piece(whole)), space, layout)
+            expected = tuple(sl.stop - sl.start for sl in slices)
+            if tuple(data.shape) != expected:
+                raise ValueError(
+                    f"assemble expects the piece of {tuple(slices)} "
+                    f"at its true shape {expected}, got "
+                    f"{tuple(data.shape)}")
+            blocks.append(
+                jax.device_put(jnp.pad(data, widths), device))
+        return jax.make_array_from_single_device_arrays(
+            storage, sharding, blocks)
 
     def pad(
         self,

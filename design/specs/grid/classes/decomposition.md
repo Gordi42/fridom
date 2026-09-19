@@ -513,8 +513,19 @@ class Decomposition(ABC):
         self,
         space: TensorProductSpace | FunctionSpace,
         layout: Layout | None = None,
+        dtype: DTypeLike | None = None,
     ) -> jax.Array:
-        """A zero-filled, sharded, storage-shaped array for `space`."""
+        """A zero-filled, storage-shaped array, born sharded."""
+        ...
+
+    @abstractmethod
+    def assemble(
+        self,
+        space: TensorProductSpace | FunctionSpace,
+        piece: Callable[[tuple[slice, ...]], jax.Array],
+        layout: Layout | None = None,
+    ) -> jax.Array:
+        """Storage built shard by shard from true-shape pieces."""
         ...
 
     @abstractmethod
@@ -626,6 +637,17 @@ Notes:
   (§3.5, §5). `local_slice` is expressed in **global true-DOF
   indices** — the anchor for the random factory's per-shard keying and
   for materializing coordinate shards.
+- **Born-sharded construction.** Host-side field construction never
+  materializes a global array on one device: `zeros` allocates block
+  by block, and `assemble(space, piece)` asks `piece(box)` for the
+  true-shape data of one **global true-DOF index box** per addressable
+  shard, pads it into the shard's block and commits it to the shard's
+  device. It equals `pad` of the global array the pieces tile (values
+  and sharding), costs one block of transient memory, and is the
+  multi-process spelling (a process builds only the shards it
+  addresses). `grid.create_field` (`init=`, host `data=`, zeros), the
+  random factory and the model's re-home route through it; `pad`
+  remains the path of arrays that already live on devices.
 - **Fill modes.** `sync`'s `fills` carries per-name ghost values for
   bounded axes: `None` means periodic wrap (periodic mesh) or the
   space's **BC-structured homogeneous fill** (bounded mesh — odd /

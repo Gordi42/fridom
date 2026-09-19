@@ -50,7 +50,8 @@ def test_decomposition_is_abstract():
 def test_abstract_surface_matches_class_doc():
     expected = {
         "halo", "default_layout", "layouts", "sharding",
-        "local_slice", "storage_shape", "zeros", "pad", "unpad",
+        "local_slice", "storage_shape", "zeros", "assemble", "pad",
+        "unpad",
         "sync", "patch_physical_ends", "layout_for", "redistribute",
         "gather", "shard_writes", "chunk_hint",
     }

@@ -532,12 +532,12 @@ def test_state_space_unknown_name_raises(model):
 # ================================================================
 def test_set_fields_accepts_array_callable_field(model):
     model.set_fields(b=ic())
-    assert np.allclose(np.asarray(model.state["b"].data), ic())
+    assert np.allclose(np.asarray(model._carry.state["b"].data), ic())
     model.set_fields(b=lambda x: 0.0 * x + 3.0)
-    assert (np.asarray(model.state["b"].data) == 3.0).all()
+    assert (np.asarray(model._carry.state["b"].data) == 3.0).all()
     donor = model.state["b"].with_data(jnp.full(N, 7.0))
     model.set_fields(b=donor)
-    assert (np.asarray(model.state["b"].data) == 7.0).all()
+    assert (np.asarray(model._carry.state["b"].data) == 7.0).all()
 
 
 def test_set_fields_rejects_unknown_and_non_prognostic(model):
@@ -570,7 +570,7 @@ def test_set_state_partial_overwrite_ignores_extras(model):
     source = other.state                  # carries all lifecycles
     model.set_fields(u=np.full(N, -1.0))
     model.set_state(source)
-    assert np.allclose(np.asarray(model.state["b"].data), ic())
+    assert np.allclose(np.asarray(model._carry.state["b"].data), ic())
     assert (np.asarray(model.state["u"].data) == 0.25).all()
     # AUX/DIAG components in the input were ignored: bg keeps the
     # incumbent default, not the donor's
@@ -582,7 +582,7 @@ def test_set_state_missing_components_left_untouched(model):
     partial_state = type(model.state)(
         {"b": model.state["b"].with_data(jnp.full(N, 9.0))})
     model.set_state(partial_state)
-    assert (np.asarray(model.state["b"].data) == 9.0).all()
+    assert (np.asarray(model._carry.state["b"].data) == 9.0).all()
     assert (np.asarray(model.state["u"].data) == 0.5).all()
 
 
@@ -727,7 +727,7 @@ def test_reset_zeroes_prog_and_diag_keeps_aux(model):
     model.advance(2)
     model.reset()
     assert (np.asarray(model.state["u"].data) == 0.0).all()
-    assert (np.asarray(model.state["b"].data) == 0.0).all()
+    assert (np.asarray(model._carry.state["b"].data) == 0.0).all()
     assert (np.asarray(model.state["acc"].data) == 0.0).all()
     # AUXILIARY is NEVER touched, consented or not
     assert (np.asarray(model.state["q"].data) == 42.0).all()
@@ -944,7 +944,7 @@ def test_allow_unadvanced_assembles_and_leaves_the_field_inert():
     assert np.array_equal(np.asarray(model.state["frozen"].data),
                           before)
     # the rest of the model still evolves
-    assert not np.array_equal(np.asarray(model.state["b"].data), ic())
+    assert not np.array_equal(np.asarray(model._carry.state["b"].data), ic())
 
 
 def test_allow_unadvanced_rejects_an_unknown_name():
@@ -991,3 +991,79 @@ def test_non_rotating_linear_slice_is_assemblable():
     for name, values in waived.items():
         assert np.allclose(values, zero_f[name],
                            rtol=0.0, atol=1e-25)
+
+
+# ================================================================
+#  Born-sharded construction — setup memory scales with the shard
+# ================================================================
+def _device_bytes():
+    """Live device bytes per device id (every buffer counted once)."""
+    seen = set()
+    per = {}
+    for arr in jax.live_arrays():
+        for shard in arr.addressable_shards:
+            pointer = shard.data.unsafe_buffer_pointer()
+            if pointer in seen:
+                continue
+            seen.add(pointer)
+            per[shard.device.id] = (
+                per.get(shard.device.id, 0) + shard.data.nbytes)
+    return per
+
+
+@pytest.mark.multi_device
+def test_constructed_state_scales_with_the_local_shard():
+    # regression (2026-09-19): every field used to be built at its
+    # GLOBAL true shape on one device before it was sharded, so the
+    # per-device setup peak grew with the whole grid (52.9 GB instead
+    # of 27.2 GB per GPU on a 32-GPU weak-scaling run; the 64-GPU case
+    # could not be initialized at all). Fields are born sharded: the
+    # IC is sampled one shard at a time, nothing of field size is ever
+    # held whole on a device, and the live state is the local shard.
+    ndev = jax.device_count()
+    nx_local = 1 << 16
+    grid = Grid((IntervalMesh(nx_local * ndev, (0.0, 1.0),
+                              periodic=True, name="x"),))
+    assert dict(grid.decomposition.default_layout.device_axes) == {
+        "x": "devices"}
+    before = _device_bytes()
+    model = make_model(grid=grid, modules=(Core(),),
+                       stepper=AdamBashforth(DT, order=3))
+    block = max(shard.data.nbytes for shard in
+                model._carry.state["b"].storage.addressable_shards)
+    whole = block * ndev
+    seen = []
+
+    def sample(x):
+        # one call per shard, on that shard's coordinate block only
+        seen.append(x.shape)
+        live = _device_bytes()
+        seen_bytes.append(max(
+            live[dev] - before.get(dev, 0) for dev in live))
+        return jnp.sin(2 * jnp.pi * x)
+
+    seen_bytes = []
+    built = max(live - before.get(dev, 0)
+                for dev, live in _device_bytes().items())
+    model.set_fields(b=sample)
+    assert seen == [(nx_local,)] * ndev
+    # while the IC is sampled no device holds more than the built
+    # carry plus the block already committed and the piece in flight;
+    # a global-shape transient (the old path) adds `whole`
+    assert max(seen_bytes) <= built + 3 * block < built + whole
+    # the committed state: every field-sized array spans all devices
+    # and is genuinely sharded, and the per-device footprint is the
+    # local share of the carry (2 fields + 2 x 2 history slots)
+    jax.block_until_ready(jax.tree_util.tree_leaves(model._carry))
+    for arr in jax.live_arrays():
+        if arr.nbytes >= block // 2 and len(arr.sharding.device_set) > 1:
+            assert not arr.sharding.is_fully_replicated
+    per = _device_bytes()
+    assert len(per) == ndev
+    footprint = max(live - before.get(dev, 0)
+                    for dev, live in per.items())
+    assert footprint <= 6 * block + block // 2
+    # and the values are the pointwise sample, shard for shard
+    x = (np.arange(nx_local * ndev) + 0.5) / (nx_local * ndev)
+    assert np.allclose(np.asarray(model._carry.state["b"].data),
+                       np.sin(2 * np.pi * x), atol=1e-12)

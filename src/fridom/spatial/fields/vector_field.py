@@ -25,7 +25,9 @@ from functools import partial
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Self
 
+import jax
 import jax.numpy as jnp
+import numpy as np
 
 from fridom.framework.utils import jaxify
 from fridom.spatial.errors import (
@@ -37,7 +39,6 @@ from fridom.spatial.fields.scalar_field import ScalarField
 if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Callable, Iterable, Iterator
 
-    import jax
     import xarray as xr
 
     from fridom.spatial.grid import Grid
@@ -680,19 +681,30 @@ def rehome_component(
                 f"space is {declared!r}")
         return incumbent.with_data(value.data)
     if callable(value):
+        # born sharded, and already in the storage frame: the
+        # true-shape round trip (unpad + re-pad) would only copy
         built = incumbent.grid.create_field(
             incumbent.function_space, init=value)
-        return incumbent.with_data(built.data)
+        return incumbent.with_storage(built.storage)
+    decomposition = incumbent.grid.decomposition
+    space = incumbent.function_space
     if isinstance(value, _SCALAR_TYPES) and not isinstance(
             value, bool):
-        return incumbent.with_data(
-            jnp.full(incumbent.shape, value))
-    array = jnp.asarray(value)
+        return incumbent.with_storage(decomposition.assemble(
+            space,
+            lambda box: jnp.full(
+                tuple(sl.stop - sl.start for sl in box), value)))
+    # host data stays on the host: each shard uploads its own slice
+    array = (value if isinstance(value, jax.Array)
+             else np.asarray(value))
     if tuple(array.shape) != tuple(incumbent.shape):
         raise ValueError(
             f"{label}: expected the true shape "
             f"{incumbent.shape}, got {tuple(array.shape)}")
-    return incumbent.with_data(array)
+    if isinstance(array, jax.Array):
+        return incumbent.with_data(array)
+    return incumbent.with_storage(decomposition.assemble(
+        space, lambda box: jnp.asarray(array[box])))
 
 
 def _keep_metadata(

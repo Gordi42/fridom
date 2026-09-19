@@ -33,6 +33,7 @@ if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Callable, Mapping, Sequence
 
     import numpy as np
+    from jax.typing import DTypeLike
 
 
 @runtime_checkable
@@ -243,9 +244,16 @@ class Decomposition(ABC):
         self,
         space: SpaceLike,
         layout: Layout | None = None,
+        dtype: DTypeLike | None = None,
     ) -> jax.Array:
         """
         Return a zero-filled, sharded, storage-shaped array.
+
+        Description
+        -----------
+        Born sharded: every device allocates only its own block, no
+        device ever holds the global array (setup memory scales with
+        the local shard).
 
         Parameters
         ----------
@@ -254,12 +262,63 @@ class Decomposition(ABC):
         layout : Layout | None, optional
             A negotiated layout; None resolves as in ``sharding``
             (default: None).
+        dtype : DTypeLike | None, optional
+            The array dtype; None is the jax default float
+            (default: None).
 
         Returns
         -------
         jax.Array
             Zeros of ``storage_shape(space, layout)``, committed to
             ``sharding(space, layout)``.
+        """
+        ...
+
+    @abstractmethod
+    def assemble(
+        self,
+        space: SpaceLike,
+        piece: Callable[[tuple[slice, ...]], jax.Array],
+        layout: Layout | None = None,
+    ) -> jax.Array:
+        """
+        Build storage shard by shard from true-shape pieces.
+
+        Description
+        -----------
+        The born-sharded companion of ``pad``: instead of a global
+        true-shape array, the caller hands a builder of true-shape
+        **pieces**. ``piece(slices)`` receives one slice per array
+        axis, in global true-DOF indices, and returns the true data
+        of exactly that index box. The decomposition asks for one
+        piece per addressable shard, pads it into the shard's storage
+        block and commits the block to the shard's device, so no
+        device ever holds more than a block (plus the piece being
+        built) and a process never touches a shard it cannot address.
+        The result equals ``pad`` of the global array the pieces tile,
+        values and sharding alike; unblocked geometries ask for the
+        single whole-extent piece.
+
+        Pieces are built independently, so ``piece`` must be a
+        function of the index box alone (a pointwise sampler, a
+        per-DOF keyed draw, a slice of host data).
+
+        Parameters
+        ----------
+        space : SpaceLike
+            The (product) space.
+        piece : Callable[[tuple[slice, ...]], jax.Array]
+            The builder of the true-shape piece of one global
+            true-DOF index box.
+        layout : Layout | None, optional
+            A negotiated layout; None resolves as in ``sharding``
+            (default: None).
+
+        Returns
+        -------
+        jax.Array
+            The storage-shaped array (pad slots zero-filled),
+            committed to ``sharding(space, layout)``.
         """
         ...
 

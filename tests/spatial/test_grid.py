@@ -1,6 +1,7 @@
 """Tests for fridom.spatial.grid."""
 import jax
 import jax.numpy as jnp
+import numpy as np
 import pytest
 
 from fridom.spatial.bc import BC
@@ -587,6 +588,101 @@ def test_data_into_fourier_space_projects_hermitian(grid1d, mx):
     assert f.data[0] == 1.0 + 0.0j
     assert f.data[-1] == 1.0 + 0.0j  # Nyquist (n = 8 even)
     assert jnp.array_equal(f.data[1:-1], data[1:-1])
+
+
+def test_host_data_matches_device_data(grid, grid1d, mx):
+    # numpy (host) data= takes the shard-by-shard upload route; it must
+    # equal the device-array route bit for bit, Hermitian spaces included
+    host = np.arange(32.0).reshape(8, 4) / 7.0
+    f_host = grid.create_field(data=host)
+    f_dev = grid.create_field(data=jnp.asarray(host))
+    assert f_host.dtype == f_dev.dtype
+    assert np.array_equal(np.asarray(f_host.storage),
+                          np.asarray(f_dev.storage))
+    ints = grid.create_field(data=np.zeros((8, 4), dtype=np.int32))
+    assert ints.dtype == f_dev.dtype
+    space = mx.fourier(origin=mx.center)
+    spectrum = np.full(space.shape, 1.0 + 1.0j)
+    s_host = grid1d.create_field(space, data=spectrum)
+    s_dev = grid1d.create_field(space, data=jnp.asarray(spectrum))
+    assert s_host.data[0] == 1.0 + 0.0j
+    assert np.array_equal(np.asarray(s_host.storage),
+                          np.asarray(s_dev.storage))
+
+
+def test_host_data_is_validated(grid):
+    with pytest.raises(ValueError, match="true shape"):
+        grid.create_field(data=np.zeros((4, 8)))
+    with pytest.raises(ValueError, match="cannot be demoted"):
+        grid.create_field(data=np.zeros((8, 4), dtype=complex))
+
+
+def test_create_field_is_device_count_invariant():
+    # born-sharded construction (zeros, init=, quadrature, host data=)
+    # equals the one-device field bit for bit on every staggering
+    def build(device_ids):
+        mx = IntervalMesh(16, (0.0, 1.0), periodic=False, name="x")
+        my = IntervalMesh(6, (0.0, 2.0), name="y")
+        return Grid((mx, my), device_ids=device_ids), mx, my
+
+    def init(x, y):
+        return jnp.sin(3.0 * x) * jnp.cos(y) + x * y
+
+    fields = []
+    for ids in (None, (0,)):
+        grid, mx, my = build(ids)
+        made = []
+        for space in (mx.center * my.center, mx.inner * my.center,
+                      mx.outer * my.right):
+            host = np.random.default_rng(1).standard_normal(space.shape)
+            made += [grid.create_field(space),
+                     grid.create_field(space, init=init),
+                     grid.create_field(space, data=host)]
+        made.append(grid.create_field(
+            mx.cell_avg * my.cell_avg, init=init, order=3))
+        made.append(grid.create_field(
+            mx.constant * my.center, init=lambda y: jnp.cos(2.0 * y)))
+        fields.append(made)
+    for many, one in zip(*fields, strict=True):
+        assert many.dtype == one.dtype
+        assert np.array_equal(np.asarray(many.data),
+                              np.asarray(one.data))
+
+
+def test_create_field_under_jit_matches_eager(grid):
+    # staged out, construction keeps the whole-extent program
+    def init(x, y):
+        return jnp.sin(x) + y
+
+    eager = grid.create_field(init=init)
+    traced = jax.jit(lambda: grid.create_field(init=init))()
+    zeros = jax.jit(grid.create_field)()
+    assert np.array_equal(np.asarray(traced.storage),
+                          np.asarray(eager.storage))
+    assert not np.asarray(zeros.storage).any()
+
+
+@pytest.mark.multi_device
+def test_init_is_sampled_on_the_local_coordinate_blocks():
+    # the callable sees one shard's coordinates per call (pointwise
+    # contract), never the global coordinate arrays
+    ndev = jax.device_count()
+    mx = IntervalMesh(8 * ndev, (0.0, 1.0), name="x")
+    my = IntervalMesh(4, (0.0, 2.0), periodic=False, name="y")
+    grid = Grid((mx, my))
+    calls = []
+
+    def init(x, y):
+        calls.append((x.shape, y.shape, float(x[0, 0])))
+        return x + y
+
+    field = grid.create_field(init=init)
+    assert [call[:2] for call in calls] == [((8, 1), (1, 4))] * ndev
+    starts = sorted(call[2] for call in calls)
+    assert np.allclose(starts, (np.arange(ndev) * 8 + 0.5) / (8 * ndev))
+    assert {shard.data.shape
+            for shard in field.storage.addressable_shards} == {
+        (field.storage.shape[0] // ndev, field.storage.shape[1])}
 
 
 # ================================================================

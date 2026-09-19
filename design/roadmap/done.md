@@ -3624,3 +3624,58 @@ Diagnostics `b_total`, `density`, `potential_density`; reductions
 Record, decisions and gate numbers:
 [`../plans/active/hydrostatic_model_plan.md`](../plans/active/hydrostatic_model_plan.md)
 §8. Branch `feat/hydrostatic-temperature-salinity`.
+
+## Born-sharded field construction (2026-09-19)
+
+Setup memory per device grew with the **global** grid: every new
+field was built at its global true shape on one device and then
+scattered (`Grid.create_field` -> `jnp.zeros(space.shape)` /
+`Grid._discretize` on global coordinate arrays -> `decomposition.pad`;
+`TensorDecomposition.zeros`; the re-home's unpad/re-pad round trip and
+`jnp.full` / `jnp.asarray(host)`; the random factory's global draw).
+On the nonhydro2 weak-scaling ladder (512^3 per GPU) the per-GPU peak
+was the init transient, 52.9 GB at 32 GPUs against 27.2 GB with a
+harness-side workaround, and the 64-GPU point could not be
+initialized at all.
+
+The fix is one seam, `Decomposition.assemble(space, piece)`: storage is
+built shard by shard from true-shape pieces of **global true-DOF index
+boxes** — one piece per addressable device, padded into the shard's
+block, committed to its device, joined with
+`jax.make_array_from_single_device_arrays` (so a process touches only
+the shards it addresses: the same code is the single-process
+multi-device and the multi-process path). `zeros(space, dtype=)` is
+born sharded too. Routed through it: `create_field` zeros / `init=`
+(collocation and per-cell quadrature) / host `data=`,
+`grid.random.normal` / `phase` (per-DOF keyed draws were already a
+function of the global index), `rehome_component` (callable, scalar
+fill, host array — `set_fields`, `VectorField.set`, `blank_state`) and
+the constant assembly defaults. `init=` is sampled **eagerly per
+shard** rather than under `jit(out_shardings=...)`: every piece runs
+the same elementwise programs op by op, so fields equal the old path
+bit for bit, untraceable user callables keep working, and nothing is
+compiled. The contract this makes explicit: `init` is a pointwise
+function of the coordinates (a callable that reduces over its
+arguments is not device-count invariant). Traced construction (under
+`jit`, or a piece closing over a differentiated value) keeps the
+whole-extent `pad` program, so the step path is untouched.
+
+Gates: 141 constructed fields (zeros, `init=`, low-rank `init=`,
+numpy / jax `data=`, random normal and phase, quadrature; divisible,
+indivisible, walled deficit and surplus staggerings, replicated
+profiles) old vs new — 0 value differences and identical
+sharding / dtype / shard shape on 1, 4 and 8 forced host devices; the
+step-chunk jaxpr is identical and the optimized HLO identical modulo
+source metadata (nonhydro2, shallowwater2, hydrostatic; 1 and 4
+devices). Regression tests: `test_multi_device.py` (assemble == pad on
+every blocked geometry, zeros never requests the global shape, traced
+fallback), `test_grid.py` (per-shard coordinate blocks, device-count
+invariance, host data), `test_model.py`
+(`test_constructed_state_scales_with_the_local_shard`: per-device live
+bytes during and after `set_fields`),
+`test_tensor_multiprocess.py` (two real `jax.distributed` processes:
+every rank builds only its own block — of a different shape on the
+staggered walled axis — and the gathered fields equal the
+single-device ones bit for bit). Remainder (immersed masks,
+mapping fields, the commit transient): [`open.md`](open.md) §2h.
+Branch `fix/sharded-field-init`.

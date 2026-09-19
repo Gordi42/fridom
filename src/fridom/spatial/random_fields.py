@@ -26,7 +26,6 @@ from fridom.spatial.fields.storage import (
     flat_hermitian_applies,
     self_conjugate_axis_indices,
     storage_dtype,
-    store,
 )
 from fridom.spatial.scalars import Scalars
 from fridom.spatial.spaces.coefficient import FourierSpace
@@ -84,22 +83,25 @@ class RandomFieldFactory:
         """
         grid = self._grid
         space = grid._laid_out(space)  # noqa: SLF001 — grid-made
-        decomposition = grid.decomposition
-        slices = decomposition.local_slice(space)
-        indices = _global_indices(space.shape, slices)
         key = jax.random.key(seed)
         dtype = storage_dtype(space)
-        if jnp.issubdtype(dtype, jnp.complexfloating):
+
+        def piece(slices: tuple[slice, ...]) -> jax.Array:
+            indices = _global_indices(space.shape, slices)
+            if not jnp.issubdtype(dtype, jnp.complexfloating):
+                return _keyed_normal(key, indices, 1)[..., 0].astype(
+                    dtype)
             draws = _keyed_normal(key, indices, 2)
             values = (draws[..., 0] + 1j * draws[..., 1]) / jnp.sqrt(
                 jnp.asarray(2.0, dtype=dtype_real()))
             mask = _self_conjugate_mask(space, slices)
             if mask is not None:
                 values = jnp.where(mask, draws[..., 0], values)
-        else:
-            values = _keyed_normal(key, indices, 1)[..., 0]
-        values = values.astype(dtype)
-        stored = store(decomposition, space, values)
+            return values.astype(dtype)
+
+        # per-DOF keyed draws are a function of the global index
+        # alone, so they are drawn shard by shard (born sharded)
+        stored = grid.decomposition.assemble(space, piece)
         return ScalarField(grid, space, stored)
 
     def phase(self, space: SpaceLike, seed: int) -> ScalarField:
@@ -144,27 +146,28 @@ class RandomFieldFactory:
         """
         grid = self._grid
         space = grid._laid_out(space)  # noqa: SLF001 — grid-made
-        decomposition = grid.decomposition
-        slices = decomposition.local_slice(space)
-        indices = _global_indices(space.shape, slices)
         key = jax.random.key(seed)
         dtype = storage_dtype(space)
-        if not jnp.issubdtype(dtype, jnp.complexfloating):
-            values = _keyed_sign(key, indices).astype(dtype)
-            stored = store(decomposition, space, values)
-            return ScalarField(grid, space, stored)
-        partners, paired = _conjugate_partners(space, slices)
-        canonical = jnp.where(paired,
-                              jnp.minimum(indices, partners), indices)
-        angles = _keyed_uniform(key, canonical)
-        values = jnp.exp(1j * angles)
-        values = jnp.where(paired & (indices > partners),
-                           jnp.conj(values), values)
-        fixed = paired & (indices == partners)
-        values = jnp.where(
-            fixed, _keyed_sign(key, canonical).astype(values.dtype),
-            values)
-        stored = store(decomposition, space, values.astype(dtype))
+
+        def piece(slices: tuple[slice, ...]) -> jax.Array:
+            indices = _global_indices(space.shape, slices)
+            if not jnp.issubdtype(dtype, jnp.complexfloating):
+                return _keyed_sign(key, indices).astype(dtype)
+            partners, paired = _conjugate_partners(space, slices)
+            canonical = jnp.where(
+                paired, jnp.minimum(indices, partners), indices)
+            angles = _keyed_uniform(key, canonical)
+            values = jnp.exp(1j * angles)
+            values = jnp.where(paired & (indices > partners),
+                               jnp.conj(values), values)
+            fixed = paired & (indices == partners)
+            values = jnp.where(
+                fixed,
+                _keyed_sign(key, canonical).astype(values.dtype),
+                values)
+            return values.astype(dtype)
+
+        stored = grid.decomposition.assemble(space, piece)
         return ScalarField(grid, space, stored)
 
 
