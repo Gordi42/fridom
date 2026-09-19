@@ -1141,7 +1141,11 @@ class SadournyAdvection(fr.model.Module):
         The physical velocities are converted to contravariant at
         entry and the tendencies rescaled to physical at exit
         (``chart.py``); every metric coefficient is derived per
-        application via ``grid.metric``.
+        application via ``grid.metric``. On a chart + immersed grid
+        (the masked sphere, module docstring) the staircase weights
+        fold in at the flat immersed scheme's sites; with no immersed
+        domain every such branch is skipped and the unmasked chart
+        path is reproduced operation for operation.
         """
         grid = u.grid
         dispatch = grid.dispatch
