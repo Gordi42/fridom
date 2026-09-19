@@ -21,6 +21,7 @@ import pytest
 import fridom as fr
 import fridom.hydrostatic as hy
 from fridom.hydrostatic.params import EOS_ALPHA
+from fridom.model.modules.moving_geometry import MeshVelocityCorrection
 from fridom.model.time_steppers.adam_bashforth import AdamBashforth
 from fridom.spatial.coordinate_mapping import CoordinateMapping
 from fridom.spatial.immersed_domain import ImmersedDomain
@@ -164,6 +165,41 @@ def test_same_depth_reference_keeps_compressibility_out_of_the_error():
     linear = _rest_tendency(16, hy.TemperatureSalinity(hy.LinearEOS()))
     full = _rest_tendency(16, hy.TemperatureSalinity(hy.TEOS10EOS()))
     assert full < 1.5 * linear
+
+
+# ================================================================
+#  The moving z* column: the depth follows the geometry of the state
+# ================================================================
+def test_zstar_column_reads_the_depth_of_the_moving_cells():
+    grid = fr.spatial.Grid(
+        (IM(8, (0.0, LENGTH), periodic=True, name="x"),
+         IM(8, (0.0, LENGTH), periodic=True, name="y"),
+         IM(6, (-1.0, 0.0), periodic=False, name="z")),
+        mapping=hy.zstar_mapping(bottom))
+    eos = hy.TEOS10EOS()
+    model = make_model(
+        hy.TemperatureSalinity(eos), grid=grid,
+        modules_extra=(hy.ZStarGeometry(), MeshVelocityCorrection()))
+    space = model.state["T"].function_space.bare
+    mapped = grid.mapping.column_corrections["z"][0]
+    rest = np.asarray(grid.evaluation_nodes(space, mapped).data)
+    model.set_fields(
+        T=4.0 + 14.0 * np.exp(rest / 300.0),
+        S=35.0 - 0.8 * np.exp(rest / 200.0),
+        ps=lambda x, y: G * 0.5 * np.sin(2 * np.pi * x / LENGTH) + 0.0 * y)
+    model.advance(5)
+    assert not model.panicked
+    assert float(jnp.abs(model.state["eta"].data).max()) > 0.1
+    # the diagnostic reads the CURRENT column position (eta included)
+    height = np.asarray(grid.evaluation_nodes(
+        space, mapped, params=model.state).data)
+    assert np.abs(height - rest).max() > 0.05
+    want = eos.buoyancy(np.asarray(model.state["T"].data),
+                        np.asarray(model.state["S"].data), -height,
+                        gravity=G)
+    np.testing.assert_allclose(
+        np.asarray(model.diagnostics.b_total().data), np.asarray(want),
+        rtol=1e-10, atol=1e-17)
 
 
 # ================================================================

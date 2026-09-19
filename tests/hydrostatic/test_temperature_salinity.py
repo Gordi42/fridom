@@ -267,8 +267,9 @@ def test_horizontal_chart_reads_the_depth_from_the_vertical_nodes():
         (IM(4, (0.0, 1.0), periodic=True, name="x"),
          IM(4, (0.0, 1.0), periodic=True, name="y"),
          IM(4, (-1.0, 0.0), periodic=False, name="z")),
-        mapping=CoordinateMapping(maps={"zp": lambda z, H: z * H},
-                                  params={"H": lambda x, y: 1.0 + 0 * x}))
+        mapping=CoordinateMapping(
+            maps={"zp": lambda z, H: z * H},
+            params={"H": lambda x, y: 1.0 + 0.0 * (x + y)}))
     assert _column(terrain, "z") == ("zp", "z")
     assert _column(terrain, "x") is None
 

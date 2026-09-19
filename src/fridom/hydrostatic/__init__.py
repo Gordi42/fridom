@@ -13,7 +13,10 @@ The public surface mirrors the sibling packages:
 ``hy.Model`` (a preset factory), ``hy.State`` (the vocabulary class),
 and the concrete modules (``hy.Core``,
 ``hy.ConstantStratification``, ``hy.ExplicitFreeSurface``,
-``hy.FPlaneCoriolis``, ``hy.WindStress``, ...). ``hy.eigenmodes`` /
+``hy.FPlaneCoriolis``, ``hy.WindStress``, ...). The buoyancy slot
+also takes ``hy.TemperatureSalinity(eos)`` — prognostic temperature and
+salinity with ``b`` diagnosed by an equation of state (``hy.eos``:
+``hy.LinearEOS``, ``hy.RoquetEOS``, ``hy.TEOS10EOS``). ``hy.eigenmodes`` /
 ``hy.transforms`` are the numeric eigenbasis and its vortical / wave /
 barotropic / baroclinic projections (HY-D7, stage H4).
 """
