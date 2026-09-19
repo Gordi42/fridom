@@ -47,8 +47,9 @@ def _reference(fields, dtau, csqr, weights):
 
 
 @pytest.mark.parametrize("substeps", [5, 16, 30])
-def test_blocked_matches_unblocked_random_fields(substeps):
-    model = _model()
+@pytest.mark.parametrize("nx", [32, 128])
+def test_blocked_matches_unblocked_random_fields(substeps, nx):
+    model = _model(nx=nx)
     fields = _fields(model)
     assert supports_blocking(*fields[:3], ("x", "y"))
     weights = _sm2005_weights(substeps, 2, 4, 0.18927)

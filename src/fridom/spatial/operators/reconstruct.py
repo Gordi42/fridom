@@ -61,7 +61,7 @@ from fridom.spatial.operators.spectral import (
     trig_partner,
 )
 from fridom.spatial.operators.staggering import (
-    _run_kernel,
+    _run_storage_kernel,
     first_node_offset,
     flat_repeat_and_run,
     footprint_reach,
@@ -405,7 +405,7 @@ def apply_fv_staggered(
         storage, co_operands, k0 = flat_repeat_and_run(
             kernel, storage, co_operands, axis, axis_index,
             size=size, m0=m0, width=width, s_out=s_out)
-    data = _run_kernel(kernel, storage, axis_index, co_operands,
+    data = _run_storage_kernel(f, kernel, storage, axis_index, co_operands,
                        size=size, k0=k0, s_out=s_out, patched=patched)
     # halo-validity claim (task 1.8, stage B): the kernel computed
     # every output ghost slot its window reaches, so on a *periodic*

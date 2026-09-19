@@ -1112,6 +1112,7 @@ class TensorDecomposition(Decomposition):
         layout: Layout | None = None,
         fills: Mapping[str, jax.Array] | None = None,
         materialize: bool = False,
+        valid: HaloSpec | None = None,
     ) -> jax.Array:
         """
         Fill halos (see ``Decomposition.sync``).
@@ -1127,6 +1128,12 @@ class TensorDecomposition(Decomposition):
         skipped structurally; an all-width-0 space is returned
         unchanged. Local fills run first so the exchanged edges carry
         valid corner ghosts.
+
+        On multiple devices, ``valid`` permits omitting axes whose
+        full halo is already valid. Filling another tensor factor
+        commutes with its halo extension, so those layers stay valid
+        when other axes are repaired. Omitting the claim retains the
+        unconditional fill. The single-device lowering is preserved.
 
         ``materialize=True`` is the caller's claim that the operand
         array is DEAD after this sync — every later reader reads the
@@ -1152,7 +1159,9 @@ class TensorDecomposition(Decomposition):
         exchanged = []
         for axis, (name, n, factor, shards, width, _,
                    _) in enumerate(self._geometry(space, layout)):
-            if not width:
+            if not width or (
+                    self.device_count > 1 and valid is not None
+                    and valid.covers(name, (width, width))):
                 continue
             if shards == 1:
                 arr = fill_axis(arr, axis, n, width, factor)

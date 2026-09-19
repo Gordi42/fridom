@@ -42,7 +42,9 @@ import jax
 import jax.numpy as jnp
 
 from fridom.spatial.bc import BC
+from fridom.spatial.decomposition.tensor import TensorDecomposition
 from fridom.spatial.errors import SpaceMismatchError
+from fridom.spatial.meshes.interval import IntervalMesh
 from fridom.spatial.operators.base import (
     FieldLike,
     Operator,
@@ -1061,6 +1063,95 @@ def _run_kernel(
     return jnp.pad(piece, pads)
 
 
+def _run_storage_kernel(
+    f: FieldLike,
+    kernel: Callable[..., Array],
+    storage: Array,
+    axis_index: int,
+    co_operands: tuple[Array, ...],
+    *,
+    size: int,
+    k0: int,
+    s_out: int,
+    patched: bool,
+) -> Array:
+    """
+    Run an aligned stencil within existing periodic halo blocks.
+
+    Description
+    -----------
+    A distributed storage array concatenates complete halo blocks.
+    Applying shape-changing windows globally makes the partitioner
+    exchange data at the boundaries of those blocks, although every
+    valid output already has its inputs in the local halo. A manual
+    shard region runs the same window and alignment on each block.
+    Only invalid outer ghost slots differ; the caller's consumed halo
+    validity excludes them, and sync repairs them before use.
+
+    This lowering applies to uniform periodic interval factors under
+    a tensor decomposition. Other factors retain the global spelling.
+    Co-operands use the same block partition on matching dimensions
+    and replicate broadcast dimensions. They must be passed explicitly
+    rather than captured by the kernel, as in the flat-axis contract.
+
+    Parameters
+    ----------
+    f : FieldLike
+        Operand field supplying the storage layout and decomposition.
+    kernel : Callable[..., Array]
+        Array stencil, with the same contract as `_run_kernel`.
+    storage : Array
+        Halo-extended input array.
+    axis_index : int
+        Stencil axis in the storage array.
+    co_operands : tuple[Array, ...]
+        Additional storage arrays or broadcast profiles.
+    size : int
+        Number of stencil points.
+    k0 : int
+        Window alignment in the storage frame.
+    s_out : int
+        Global output storage extent along the stencil axis.
+    patched : bool
+        Whether the caller replaces every true output slot.
+
+    Returns
+    -------
+    Array
+        Aligned output storage with the caller's halo-validity contract.
+    """
+    decomposition = f.grid.decomposition
+    space = f.function_space
+    layout = space.layout or decomposition.default_layout
+    axis = space.bare.names[axis_index]
+    mesh_axis = dict(layout.device_axes).get(axis)
+    factor = space.bare.factor(axis)
+    if (mesh_axis is None or decomposition.device_count == 1
+            or not isinstance(decomposition, TensorDecomposition)
+            or not isinstance(factor.mesh, IntervalMesh)
+            or not factor.mesh.periodic
+            or any(array.ndim != storage.ndim or any(
+                n not in (1, m)
+                for n, m in zip(array.shape, storage.shape, strict=True))
+                for array in co_operands)):
+        return _run_kernel(kernel, storage, axis_index, co_operands,
+                           size=size, k0=k0, s_out=s_out, patched=patched)
+    mesh = decomposition.device_mesh
+    shards = mesh.shape[mesh_axis]
+    spec = decomposition.sharding(space, layout).spec
+    specs = tuple(jax.sharding.PartitionSpec(*(
+        dim if array.shape[i] == storage.shape[i] else None
+        for i, dim in enumerate(spec))) for array in co_operands)
+
+    def local(block: Array, *others: Array) -> Array:
+        return _run_kernel(kernel, block, axis_index, others,
+                           size=size, k0=k0, s_out=s_out // shards,
+                           patched=patched)
+
+    return jax.shard_map(local, mesh=mesh, in_specs=(spec, *specs),
+                         out_specs=spec)(storage, *co_operands)
+
+
 def apply_staggered(
     op: Operator,
     f: FieldLike,
@@ -1174,7 +1265,7 @@ def apply_staggered(
         storage, co_operands, k0 = flat_repeat_and_run(
             kernel, storage, co_operands, axis, axis_index,
             size=size, m0=m0, width=width, s_out=s_out)
-    data = _run_kernel(kernel, storage, axis_index, co_operands,
+    data = _run_storage_kernel(f, kernel, storage, axis_index, co_operands,
                        size=size, k0=k0, s_out=s_out, patched=patched)
     # halo-validity claim (task 1.8, stage B): the kernel computed
     # every output ghost slot its window reaches, so on a *periodic*

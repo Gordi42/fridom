@@ -86,7 +86,7 @@ def periodic_subcycle(
         horizontal[0])
     shards = decomposition.device_count if axis_name else 1
     local_size = pressure.shape[0] // shards
-    block = max(k for k in range(1, min(8, local_size // 2, len(weights)) + 1)
+    block = max(k for k in range(1, min(15, local_size // 2, len(weights)) + 1)
                 if len(weights) % k == 0)
     width = 2 * block
     dx, dy = (uniform_spacing(pressure.function_space.bare.factor(axis))
