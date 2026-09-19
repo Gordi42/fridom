@@ -11,7 +11,9 @@ shapes. Under real multi-process a process cannot address the global
 array at all, which is invisible to the single-controller suite
 (forced host devices leave every array fully addressable): each rank
 must build exactly the shards it addresses, and the gathered result
-must equal the single-device field bit for bit.
+must equal the single-device field bit for bit. A second grid lives on
+a device *subset*, so one rank addresses no shard of it at all and
+contributes nothing but the dtype.
 
 The test skips cleanly when the environment cannot bind a coordinator
 port or spawn/coordinate the processes (so it never destabilizes CI);
@@ -25,11 +27,12 @@ from pathlib import Path
 
 import pytest
 
-NUM_PROCESSES = 2
-# a walled x extent divisible by the process count: inner (15 DOFs) is
-# the deficit leg, outer (17 DOFs) the surplus (global-fallback) leg
-NX = 16
-NY = 6
+NUM_PROCESSES = 3
+# a walled x extent divisible by the three ranks and by the two-rank
+# subset: inner (17 DOFs) is the staggered-deficit leg, outer (19 DOFs)
+# the surplus (global-fallback) leg; y divides neither, so x is sharded
+NX = 18
+NY = 7
 
 
 def _free_port():
@@ -120,7 +123,30 @@ def _run(process_id):
                 raise AssertionError(
                     f"rank {process_id}: {got.function_space!r} differs "
                     "from the single-device field")
+    _check_subset(process_id, _fields(one, spaces_one[0]))
     return "pass"
+
+
+def _check_subset(process_id, reference):
+    """Build on a two-rank device subset; the third rank owns nothing."""
+    import numpy as np  # noqa: PLC0415
+
+    subset, spaces = _build((0, 1))
+    if dict(subset.decomposition.default_layout.device_axes) != {
+            "x": "devices"}:
+        raise AssertionError("the subset grid must shard x")
+    for got, want in zip(_fields(subset, spaces[0]), reference,
+                         strict=True):
+        shards = got.data.addressable_shards
+        if len(shards) != (1 if process_id < 2 else 0):
+            raise AssertionError(
+                f"rank {process_id} addresses {len(shards)} shard(s)")
+        for shard in shards:
+            if not np.array_equal(np.asarray(shard.data),
+                                  np.asarray(want.data)[shard.index]):
+                raise AssertionError(
+                    f"rank {process_id}: subset shard differs from the "
+                    "single-device field")
 
 
 def _worker(process_id, num_processes, coordinator, queue):
