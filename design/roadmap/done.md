@@ -3549,7 +3549,11 @@ TC2 2nd order and within 2 % of `sw2`; curvature-off does not converge;
 tracer / volume conservation to rounding; rest states on sphere, torus
 and over bathymetry to rounding; autodiff FD-matched (it caught a real
 defect: the algebra's lift of a z-constant metric re-pads zeros and
-undid the sealed divide); forced-4 to rounding. Tests:
+undid the sealed divide); forced-4 to rounding. The split-explicit free
+surface runs on the chart too (an explicit 2-D subcycle, no elliptic
+operator): identity chart equal to the flat split run, TC2 at ten times
+the explicit step with the explicit run's errors, volume to rounding.
+Tests:
 `tests/validation/test_spherical_hydrostatic.py`,
 `test_spherical_hydrostatic_continents.py`,
 `tests/model/test_chart_seams.py`, the `_chart` shards of advection,

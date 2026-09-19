@@ -60,7 +60,8 @@ Pre-docs feature: **hydrostatic first, nonhydro after; sw2 is the
 metric reference.** Phases S0-S2 shipped in the narrow orthogonal
 thin-shell form (done.md, 2026-09-19); what remains: the SP-D6
 spatial-layer metric operators (the fallback composition was used),
-biased advection on charts (SP-D5), S3, S4. Campaign; runs on the owner-approved plan
+biased advection on charts (SP-D5), the implicit chart Helmholtz of
+S3 (the split-explicit half shipped), S4. Campaign; runs on the owner-approved plan
 (`../plans/active/spherical_models_plan.md`, in flight above).
 Scoping evidence:
 [`../research/spherical_models_scoping.md`](../research/spherical_models_scoping.md).

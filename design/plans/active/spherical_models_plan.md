@@ -46,9 +46,19 @@ reduced space (constant along the vertical) is divided in as
 zeros, which undid the plain sealed divide — caught by the autodiff
 gate). The one-layer `sw2` cross-check runs on two z-uniform levels (a
 one-cell vertical axis is below the two-cell storage halo). Gate
-numbers: `design/roadmap/done.md`. Open: S1-6/S2-6 were exercised under
-forced-4 host devices only (no multi-process run), biased schemes
-(SP-D5 follow-up), S3, S4.
+numbers: `design/roadmap/done.md`. The **split-explicit** free surface
+also runs on the chart (the non-elliptic half of S3): its barotropic
+subcycle is an explicit 2-D pair, so it needs no chart Helmholtz — only
+the area-weighted divergence and the physical gradient inside the
+substep (static factors folded once, outside the scan). Gate S2-7 is
+amended accordingly: only `ImplicitFreeSurface` still refuses charts.
+Open: S1-6/S2-6 were exercised under forced-4 host devices only (no
+multi-process run), biased schemes (SP-D5 follow-up), the implicit
+chart Helmholtz (the rest of S3), S4. Observed and not investigated: on
+a 2-degree global ocean with continents the split-explicit run is clean
+at `dt = 900 s` and goes locally unstable (Canadian Arctic Archipelago,
+next to the northern wall) after ~30 days at `dt = 1800 s`,
+independent of the substep count.
 
 ## 0. Context — what the scoping probe and this plan's probe established
 
