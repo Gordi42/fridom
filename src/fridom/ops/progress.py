@@ -3,9 +3,10 @@ The opt-in rendered progress bar (``fr.ops.ProgressBar``).
 
 Description
 -----------
-A host-side ``ProgressReporter`` that renders the old
-``fr.modules.ProgressBar`` format from the new stack's chunk-boundary
-observation stream — zero extra device syncs, rank-0 only. Opt in
+A host-side ``ProgressReporter`` that renders the old-stack
+``fridom.framework.modules.ProgressBar`` format from the new stack's
+chunk-boundary observation stream — zero extra device syncs, rank-0
+only. Opt in
 with ``model.run(..., progress=fr.ops.ProgressBar())``; the default
 ``progress=None`` reports nothing and a boolean is refused. Owning class spec:
 ``design/specs/model/classes/io_ops.md`` (the ``ProgressReporter``
@@ -241,8 +242,9 @@ class ProgressBar:
             return self._mode
         if "ipykernel.zmqshell" in sys.modules:
             return "notebook"
-        # NOT fr.utils.stdout_is_file(): it calls sys.stdout.fileno()
-        # before its IPython check and misreports on detached streams
+        # NOT the old stack's fridom.framework.utils.stdout_is_file():
+        # it calls sys.stdout.fileno() before its IPython check and
+        # misreports on detached streams
         try:
             is_tty = os.isatty(sys.stderr.fileno())
         except (OSError, ValueError):

@@ -37,8 +37,15 @@ DERIVED = {
     "hor_divergence": "1/s",
     "ekin": "m^2/s^2",
     "epot": "m^2/s^2",
+    "eta": "m",
 }
 KEYS = sorted(DERIVED)
+
+#: defined on the dimensional variant only: ``eta = ps / g`` reads the
+#: dimensional ``hydrostatic.gravity`` provide, which the
+#: nondimensional core does not carry (read ``ps`` directly there)
+DIMENSIONAL_ONLY = ("eta",)
+SCALED_KEYS = [key for key in KEYS if key not in DIMENSIONAL_ONLY]
 
 #: the keys served by ``hy.State`` rather than ``model.diagnostics``
 STATE_PROPERTIES = ("rel_vort_z", "hor_divergence")
@@ -130,7 +137,7 @@ def test_every_bound_diagnostic_is_gated():
 # ================================================================
 #  The scaling half: nondimensional renders "1", physical survives
 # ================================================================
-@pytest.mark.parametrize("key", KEYS, ids=KEYS)
+@pytest.mark.parametrize("key", SCALED_KEYS, ids=SCALED_KEYS)
 def test_nondimensional_model_reports_dimensionless(
         nondimensional, key):
     metadata = derived(nondimensional, key).metadata

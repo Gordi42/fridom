@@ -492,6 +492,34 @@ def test_half_fv_explicit_assembly_is_a_taught_error():
             scaling=fr.scaling.Dimensional())
 
 
+class _PinnedFVTracer(fr.model.Module):
+
+    """A passive tracer whose declaration pins the FV family itself."""
+
+    @property
+    def field_declarations(self):
+        return (fr.model.FieldDeclaration.tracer(
+            "c", space=fr.spatial.Collocated(family="fv"),
+            long_name="fv tracer", units="1"),)
+
+
+def test_a_pinned_fv_tracer_beside_the_nodal_core_is_served():
+    # the per-field ``family=`` override of SpacePattern is the mixed
+    # model (FV-D1b): only ``family=None`` declarations are held to
+    # the core's family, a pinned passive CellAvg tracer is a choice
+    model = hy.Model(
+        grid=_flat_grid(), core=hy.Core(gravity=G, family="nodal"),
+        time_stepper=AdamBashforth(DT, order=3),
+        buoyancy=hy.BuoyancyTracer(),
+        free_surface=hy.ExplicitFreeSurface(),
+        advection=fr.model.modules.CenteredAdvection(),
+        modules_extra=[_PinnedFVTracer()])
+    assert str(model.state["c"].function_space.bare.factor("z")) \
+        == "CellAvg(z)"
+    assert str(model.state["b"].function_space.bare.factor("z")) \
+        == "Center(z)"
+
+
 def test_explicit_assembly_on_an_fv_grid_is_served():
     grid = _flat_grid()
     grid.set_default_family("fv")
