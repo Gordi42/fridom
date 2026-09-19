@@ -3673,9 +3673,22 @@ fallback), `test_grid.py` (per-shard coordinate blocks, device-count
 invariance, host data), `test_model.py`
 (`test_constructed_state_scales_with_the_local_shard`: per-device live
 bytes during and after `set_fields`),
-`test_tensor_multiprocess.py` (two real `jax.distributed` processes:
+`test_tensor_multiprocess.py` (three real `jax.distributed` processes:
 every rank builds only its own block — of a different shape on the
 staggered walled axis — and the gathered fields equal the
-single-device ones bit for bit). Remainder (immersed masks,
-mapping fields, the commit transient): [`open.md`](open.md) §2h.
-Branch `fix/sharded-field-init`.
+single-device ones bit for bit). Hardware (Levante A100, one process per GPU, no harness workaround):
+the same 141 fields are bitwise equal old vs new on 1 GPU, on 4 GPUs
+in one process and on 8 GPUs in 8 processes over 2 nodes; nonhydro2,
+shallowwater2 and hydrostatic runs on 8 processes and on 1 process x 4
+GPUs match the old code's 1-GPU reference (shallow water exactly, the
+others to <= 5e-13 relative). Per-GPU peak on the weak ladder (512^3
+per GPU): 32 GPUs 52.9 -> 27.2 GB (centered) and 53.3 -> 29.2 GB
+(WENO5), shallow water 8192^2 per GPU 39.7 -> 9.7 GB; the 64-GPU point
+(32768 x 512 x 512) now builds in 2.4-4.2 s at the same 27.2 / 29.2 GB.
+The peak is flat in the GPU count — it is the step peak — and the
+step time is unchanged (236.9 -> 237.0 ms at 8 GPUs). The multi-process
+bitwise run also caught a grid that negotiates to a device *subset*
+(one device under 8 processes): ranks that address no shard must hand
+jax the dtype explicitly; fixed, with a three-rank regression.
+Remainder (immersed masks, mapping fields, the commit transient):
+[`open.md`](open.md) §2h. Branch `fix/sharded-field-init`.
