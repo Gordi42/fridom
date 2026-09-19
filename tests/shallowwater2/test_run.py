@@ -67,11 +67,17 @@ def test_repeated_advance_compiles_nothing(compile_counter):
 
 
 def test_split_advance_matches_one_run():
+    # bitwise claims hold between identically compiled paths (model
+    # spec, run()): the default plan would run advance(6) as the
+    # lengths [4, 2] but the split as [2] + [4], and XLA specializes
+    # the unrolled AB3 scan body on the trip count (one ulp). Pinning
+    # chunk_size makes both sides replay the same length-2 executable.
     grid = make_grid()
-    whole = make_model(grid)
-    split = make_model(grid)
+    whole = make_model(grid, chunk_size=2)
+    split = make_model(grid, chunk_size=2)
     whole.set_fields(p=gaussian_bump())
     split.set_fields(p=gaussian_bump())
+    assert list(whole._chunk_plan(6)) == [2, 2, 2]
     whole.advance(6)
     split.advance(2)
     split.advance(4)
