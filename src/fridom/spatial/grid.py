@@ -51,6 +51,7 @@ from fridom.spatial.fields.metadata import FieldMetadata
 from fridom.spatial.fields.scalar_field import ScalarField
 from fridom.spatial.fields.storage import (
     factor_axes,
+    flat_hermitian_applies,
     hermitian_project,
     storage_dtype,
     store,
@@ -153,6 +154,7 @@ if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Callable
 
     import xarray as xr
+    from jax.typing import DTypeLike
 
     from fridom.spatial.coordinate_mapping import (
         CoordinateMapping,
@@ -1058,6 +1060,18 @@ class Grid:
         the decomposition's default layout attached; laid-out spaces
         are honored as given.
 
+        Fields are born sharded: zeros allocate block by block,
+        ``init=`` is sampled shard by shard on the shard's own
+        coordinate blocks, and host (numpy) ``data=`` uploads each
+        shard's slice only, so setup memory scales with the local
+        shard in both parallel modes. ``init`` is therefore a
+        **pointwise** function of the coordinates: on a sharded grid
+        it sees one shard's coordinates per call, so a callable that
+        reduces over its arguments (``x.max()``) or draws from a
+        stateful host generator is not device-count invariant —
+        normalize the field afterwards and draw through
+        ``grid.random``.
+
         Parameters
         ----------
         space : SpaceLike | None, optional
@@ -1117,6 +1131,19 @@ class Grid:
             return self._transform_discretize(
                 space, init, order, metadata)
         dtype = storage_dtype(space)
+        if data is None and init_coeff is None:
+            # born sharded: zeros allocate block by block, init= is
+            # sampled shard by shard -- no device holds the global
+            # true-shape array (setup memory scales with the shard)
+            stored = (
+                self._decomposition.zeros(space, dtype=dtype)
+                if init is None
+                else self._discretize_stored(space, init, order, dtype))
+            return ScalarField(self, space, stored, metadata)
+        if data is not None and not isinstance(data, jax.Array):
+            return ScalarField(
+                self, space, self._store_host_data(space, data),
+                metadata)
         if data is not None:
             arr = jnp.asarray(data)
             if tuple(arr.shape) != tuple(space.shape):
@@ -1130,16 +1157,47 @@ class Grid:
                     "complex data cannot be demoted to the real "
                     f"storage of {space!r}")
             arr = hermitian_project(arr.astype(dtype), space)
-        elif init is not None:
-            arr = self._discretize(space, init, order).astype(dtype)
-        elif init_coeff is not None:
+        else:
             arr = hermitian_project(
                 self._assign_coeff(space, init_coeff).astype(dtype),
                 space)
-        else:
-            arr = jnp.zeros(space.shape, dtype)
         stored = store(self._decomposition, space, arr)
         return ScalarField(self, space, stored, metadata)
+
+    def _store_host_data(
+        self, space: SpaceLike, data: object,
+    ) -> jax.Array:
+        """
+        Route host (non-jax) true-shape ``data=`` into storage.
+
+        Description
+        -----------
+        Host data never becomes a global device array: each shard
+        uploads only its own slice (``decomposition.assemble``). The
+        validation, dtype coercion and Hermitian projection are the
+        ones of the device-array path; the projection is a no-op
+        unless the space carries a real-origin Fourier factor, whose
+        storage is device-local anyway, so those spaces keep the
+        whole-array route.
+        """
+        host = np.asarray(data)
+        dtype = storage_dtype(space)
+        if tuple(host.shape) != tuple(space.shape):
+            raise ValueError(
+                f"data= expects the true shape {space.shape}, "
+                f"got {tuple(host.shape)}")
+        if (np.iscomplexobj(host)
+                and not jnp.issubdtype(dtype, jnp.complexfloating)):
+            raise ValueError(
+                "complex data cannot be demoted to the real "
+                f"storage of {space!r}")
+        if flat_hermitian_applies(space):
+            return store(
+                self._decomposition, space,
+                hermitian_project(
+                    jnp.asarray(host).astype(dtype), space))
+        return self._decomposition.assemble(
+            space, lambda box: jnp.asarray(host[box]).astype(dtype))
 
     @property
     def random(self) -> RandomFieldFactory:
@@ -1637,27 +1695,102 @@ class Grid:
         space) is the plain node-set collocation of this method.
         """
         _check_init_names(space, init)
+        whole = tuple(slice(0, n) for n in space.shape)
+        return self._sample_piece(space, init, order, whole)
+
+    def _discretize_stored(
+        self,
+        space: SpaceLike,
+        init: Callable[..., jax.Array],
+        order: int | None,
+        dtype: DTypeLike,
+    ) -> jax.Array:
+        """
+        Discretize ``init`` straight into sharded storage.
+
+        Description
+        -----------
+        The born-sharded route of ``create_field(init=...)``: the
+        sampler of :meth:`_discretize` runs once per shard on that
+        shard's coordinate blocks (``decomposition.assemble``), so no
+        device ever holds the global true-shape array and a process
+        samples only the shards it addresses. ``init`` is a function
+        of the physical coordinates, sampled pointwise; every piece
+        evaluates the same elementwise program on a sub-box of the
+        coordinates, so the values equal the whole-array sample bit
+        for bit. On an unblocked geometry (one device, replicated
+        spaces) the single piece IS the whole-array sample.
+
+        Parameters
+        ----------
+        space : SpaceLike
+            The laid-out target space (no coefficient factor).
+        init : Callable[..., jax.Array]
+            Function of the physical coordinates (name-matched).
+        order : int | None
+            The quadrature point count (see :meth:`_discretize`).
+        dtype : DTypeLike
+            The storage dtype of ``space``.
+
+        Returns
+        -------
+        jax.Array
+            The storage-shaped array (ghost slots zero).
+        """
+        _check_init_names(space, init)
+        return self._decomposition.assemble(
+            space,
+            lambda box: self._sample_piece(
+                space, init, order, box).astype(dtype))
+
+    def _sample_piece(
+        self,
+        space: SpaceLike,
+        init: Callable[..., jax.Array],
+        order: int | None,
+        box: tuple[slice, ...],
+    ) -> jax.Array:
+        """
+        Sample ``init`` on one global true-DOF index box.
+
+        Parameters
+        ----------
+        space : SpaceLike
+            The laid-out target space.
+        init : Callable[..., jax.Array]
+            Function of the physical coordinates (name-matched).
+        order : int | None
+            The quadrature point count (see :meth:`_discretize`).
+        box : tuple[slice, ...]
+            One slice per array axis, in global true-DOF indices.
+
+        Returns
+        -------
+        jax.Array
+            The true-shape piece of ``box``.
+        """
         if (order is not None and order >= _QUADRATURE_MIN
                 and any(isinstance(factor, AverageSpace)
                         for factor in space.factors)):
-            return self._quadrature_discretize(space, init, order)
+            return self._quadrature_discretize(space, init, order, box)
         coords: dict[str, jax.Array] = {}
         ndim = len(space.shape)
         for factor, axis in factor_axes(space):
             if isinstance(factor, ConstantSpace):
                 continue
+            nodes = _boxed(_node_vector(factor), box[axis])
             shape = [1] * ndim
-            shape[axis] = factor.shape[0]
-            coords[factor.names[0]] = _node_vector(factor).reshape(
-                shape)
+            shape[axis] = nodes.shape[0]
+            coords[factor.names[0]] = nodes.reshape(shape)
         values = jnp.asarray(init(**coords))
-        return jnp.broadcast_to(values, space.shape)
+        return jnp.broadcast_to(values, _box_shape(box))
 
     def _quadrature_discretize(
         self,
         space: SpaceLike,
         init: Callable[..., jax.Array],
         order: int,
+        box: tuple[slice, ...],
     ) -> jax.Array:
         r"""
         Per-cell Gauss-Legendre quadrature on average factors.
@@ -1697,11 +1830,14 @@ class Grid:
             Function of the physical coordinates (name-matched).
         order : int
             The Gauss-Legendre point count per cell (``>= 2``).
+        box : tuple[slice, ...]
+            The global true-DOF index box to sample (one slice per
+            array axis; the cells of the box, not the whole space).
 
         Returns
         -------
         jax.Array
-            The true-shape per-cell averages.
+            The true-shape per-cell averages of ``box``.
         """
         ref_nodes, ref_weights = _gauss_legendre_unit(order)
         ndim = len(space.shape)
@@ -1718,6 +1854,7 @@ class Grid:
             else:
                 nodes = _node_vector(factor)[:, None]
                 weights = jnp.ones(1, dtype=dtype_real())
+            nodes = _boxed(nodes, box[axis])
             node_shape = [1] * (ndim + n_quad_axes)
             node_shape[axis] = nodes.shape[0]
             node_shape[ndim + q] = nodes.shape[1]
@@ -1728,7 +1865,7 @@ class Grid:
         values = jnp.asarray(init(**coords)) * weight
         reduced = jnp.sum(
             values, axis=tuple(range(ndim, ndim + n_quad_axes)))
-        return jnp.broadcast_to(reduced, space.shape)
+        return jnp.broadcast_to(reduced, _box_shape(box))
 
     def _cell_quadrature_fields(
         self,
@@ -2007,6 +2144,26 @@ def _halo_violations(demand: HaloSpec, frozen: HaloSpec) -> list[str]:
                 f"halo[{name!r}]: demanded {width} > frozen "
                 f"{frozen_width}")
     return problems
+
+
+def _boxed(vector: jax.Array, extent: slice) -> jax.Array:
+    """
+    Restrict per-axis data to one index range of a piece box.
+
+    Description
+    -----------
+    The whole-extent range returns ``vector`` itself, so the
+    single-piece (unblocked) sample runs exactly the whole-array
+    program.
+    """
+    if extent.start == 0 and extent.stop == vector.shape[0]:
+        return vector
+    return vector[extent]
+
+
+def _box_shape(box: tuple[slice, ...]) -> tuple[int, ...]:
+    """Return the true shape of a global true-DOF index box."""
+    return tuple(extent.stop - extent.start for extent in box)
 
 
 def _constant_broadcast(space: SpaceLike) -> bool:
