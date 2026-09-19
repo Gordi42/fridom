@@ -15,6 +15,7 @@ import pytest
 import fridom as fr
 import fridom.shallowwater2 as sw
 from fridom.model import term_predicates as terms
+from fridom.model.model import _chunk_body
 from fridom.spatial.decomposition.halo import HaloSpec
 from fridom.spatial.grid import Grid
 from fridom.spatial.immersed_domain import ImmersedDomain
@@ -206,13 +207,25 @@ def test_non_orthogonal_chart_parity_with_forced_width_two():
                         coriolis=None, advection=None,
                         time_stepper=_stepper())
 
+    # The two runs carry different halo widths, hence different padded
+    # shapes, hence two DIFFERENT XLA programs, and bitwise claims hold
+    # only between identically compiled paths (the nonhydro2 twin of
+    # this gate flaked by one ulp on some CI runner CPUs, 2026-09-19).
+    # The claim is about ARITHMETIC (no stencil reads a ghost the
+    # narrower halo lacks), so the step kernel runs op by op, where
+    # there is no fusion to differ.
+    widths = []
+
     def run():
         m = build()
         rng = np.random.default_rng(0)
         m.set_fields(**{c: 0.05 * rng.standard_normal(m.state[c].shape)
                         for c in ("u", "v", "p")})
-        m.run(steps=8)
-        return {c: np.asarray(m.state[c].data) for c in ("u", "v", "p")}
+        widths.append(dict(m.grid.decomposition.halo.widths))
+        with jax.disable_jit():
+            state = _chunk_body(m._artifacts.record, 8, m._carry,
+                                m._stepper).state
+        return {c: np.asarray(state[c].data) for c in ("u", "v", "p")}
 
     derived = run()
     cls = sw.Core
@@ -224,6 +237,9 @@ def test_non_orthogonal_chart_parity_with_forced_width_two():
         forced = run()
     finally:
         cls.extra_halo = orig
+    # the two runs really are the narrow and the wide halo
+    assert widths == [dict.fromkeys("xy", 1), dict.fromkeys("xy", 2)]
+    assert np.abs(derived["u"]).max() > 0.0
     md = max(float(np.max(np.abs(derived[c] - forced[c])))
              for c in ("u", "v", "p"))
     assert md == 0.0  # storage-frame bitwise identical
