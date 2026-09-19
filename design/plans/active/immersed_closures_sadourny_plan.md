@@ -312,3 +312,37 @@ mapped+immersed composition follow-up. Pinned by
 `test_chart_plus_immersed_is_a_taught_error` on the real bind path. (No
 pre-existing test relied on the silent behaviour — none built such a
 grid.)
+
+### 2026-09-19 — the biharmonic family on immersed grids
+
+`BiharmonicDiffusion` / `BiharmonicFriction` now set
+`_supports_immersed = True`; the bind-time reject is gone. No new
+operator: `_apply` already threaded the immersed descriptor through both
+`_harmonic` passes, only the capability gate kept it unreachable. The
+iterated operator is `-L(L(q))` with `L = (1/θ) div(α grad ·)`: the
+inner pass is sealed to `0` on dry cells, and the outer pass zeroes
+every flux across a closed face (`α = 0`), so no dry value is ever read
+with weight — free-slip / no-flux on both passes, the immersed analog of
+the walled Griffies & Hallberg treatment. `L` is self-adjoint in the
+`θ`-weighted inner product, so `-L L` is dissipative and the outer
+divergence telescopes. `extra_halo` is the existing two-cell
+declaration of the biharmonic family (chart precedent). `slip='no'`
+stays the §5 taught error. Motivation: an eddying global hydrostatic
+run (ETOPO staircase continents on the sphere) needs scale-selective
+friction, and harmonic was the only closure that assembled.
+
+Measured gates (CPU, `tests/model/closures/test_diffusion_immersed.py`,
+31 passed + 2 multi-device; forced-4: 33 passed):
+
+- A-G1: staircase vs walled, diffusion and friction (u, v, w):
+  `< 1e-13` relative to the tendency scale.
+- A-G2: all-wet vs unimmersed `< 1e-14` relative (the two-pass tendency
+  is O(10), so the harmonic gate's absolute 1e-15 is below one ULP
+  here; the harmonic gate itself is untouched).
+- A-G3: wet tracer content drift `<= 1e-13` over 15 steps on genuine
+  partials; wet tangential momentum tendency sums to `< 1e-13`
+  relative; `<q, -L L q>_θ < 0` (dissipative).
+- A-G4: both closures assemble on the real `nh.Model` bind path with a
+  finite tendency (replaces the taught-error pin); dry DOFs exactly 0.
+- A-G5: grad wrt `kappa` / `nu` matches central FD to rtol `1e-4`.
+- A-G6: forced-4 vs 1-device `<= 1e-13` after 6 steps.

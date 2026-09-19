@@ -118,10 +118,13 @@ ocean-model practice). ``slip='no'`` on a chart is a taught refusal
 (its wall row is a computational-measure weight); non-orthogonal charts
 are refused. On the identity chart every factor is exactly 1.0.
 
-**Immersed (cut-cell) grids** are supported by the **harmonic**
-mixing/friction closures only (``_supports_immersed``, CL-D1), in the
-IP-D4 fraction spelling: each interface stress flux is weighted by the
-open-area fraction :math:`\alpha_f` and the summed divergence is
+**Immersed (cut-cell) grids** are supported by the harmonic **and
+biharmonic** mixing/friction closures (``_supports_immersed``, CL-D1),
+in the IP-D4 fraction spelling (the biharmonic family iterates the same
+fraction-weighted pass, so its inner Laplacian is sealed to zero on dry
+cells and never crosses a closed face on the second pass): each
+interface stress flux is weighted by the open-area fraction
+:math:`\alpha_f` and the summed divergence is
 divided by the wet cell fraction :math:`\theta_c` (sealed). The
 min-rule :math:`\alpha_f = 0` across a wet/dry face zeroes the cut-face
 stress — **free-slip** at the immersed boundary (CL-D3, the mainstream
@@ -890,15 +893,16 @@ class _DiffusionClosure(ClosureBase):
         cells), so **one** halo cell per coordinate is the exact reach —
         matching the width the flat harmonic term traces, so an all-wet
         immersed grid stays bit-for-bit the unimmersed run (A-G2). The
-        biharmonic family never reaches here (it keeps the per-closure
-        immersed reject). The flat / walled / mapped path stays fully
-        halo-traced (``None``), bit-for-bit as before.
+        biharmonic family chains two such passes and declares **two**
+        cells, on an immersed grid as on a chart. The flat / walled /
+        mapped path stays fully halo-traced (``None``), bit-for-bit as
+        before.
         """
         if self._immersed is None and self._chart is None:
             return None
         # a chart multiplies grid.metric fields the tracer cannot follow
-        # either; the biharmonic family (chart-capable, never immersed)
-        # chains two passes and so reaches two cells
+        # either; the biharmonic family chains two passes and so reaches
+        # two cells (chart and immersed alike)
         reach = 2 if self._biharmonic else 1
         return HaloSpec(dict.fromkeys(self._halo_axes, reach))
 
@@ -948,9 +952,11 @@ class _DiffusionClosure(ClosureBase):
                 # sqrt split, guarded for reverse-mode AD at coeff=0
                 # (plain ** 0.5 keeps demoted Python scalars scalar; the
                 # guard adds the jnp.where only for concrete jnp values).
-                # Biharmonic keeps _supports_immersed = False, so
-                # immersed is None here (rejected at bind) — the pass
-                # stays the flat/walled chain.
+                # On an immersed grid both passes carry the fraction
+                # weighting: the inner Laplacian is sealed to 0 on dry
+                # cells and the second pass's fluxes across closed faces
+                # are zeroed (alpha = 0), so no dry value is ever read
+                # with weight — the iterated free-slip / no-flux operator.
                 kh = _biharmonic_root(kh)
                 kv = None if kv is None else _biharmonic_root(kv)
                 axes = self._axes(spec, kh, kv)
@@ -1066,6 +1072,7 @@ class BiharmonicDiffusion(_DiffusionClosure):
     _coeff_param = MIXING_KAPPA4
     _coeff_param_v = MIXING_KAPPA4_V
     _biharmonic = True
+    _supports_immersed = True
     _term_name = "mixing"
     _units = "m^4/s"
     _doc = "biharmonic mixing coefficient"
@@ -1206,6 +1213,7 @@ class BiharmonicFriction(_DiffusionClosure):
     _coeff_param = FRICTION_NU4
     _coeff_param_v = FRICTION_NU4_V
     _biharmonic = True
+    _supports_immersed = True
     _term_name = "friction"
     _units = "m^4/s"
     _doc = "biharmonic friction coefficient"

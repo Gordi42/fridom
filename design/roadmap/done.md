@@ -3624,3 +3624,17 @@ Diagnostics `b_total`, `density`, `potential_density`; reductions
 Record, decisions and gate numbers:
 [`../plans/active/hydrostatic_model_plan.md`](../plans/active/hydrostatic_model_plan.md)
 §8. Branch `feat/hydrostatic-temperature-salinity`.
+
+## Biharmonic mixing and friction on immersed grids (2026-09-19)
+
+`fr.model.closures.BiharmonicDiffusion` / `BiharmonicFriction` assemble
+on immersed (cut-cell / staircase) grids: the capability gate
+(`_supports_immersed`) is lifted, the operator is the already-threaded
+iteration of the fraction-weighted harmonic pass (inner Laplacian sealed
+on dry cells, closed faces carry no flux on either pass — free-slip /
+no-flux, dissipative, wet content conserved). Gates for both closures:
+staircase ≡ walled, all-wet ≡ unimmersed, conservation on genuine
+partials, dry DOFs exactly zero, autodiff vs central FD, forced-4.
+`slip='no'` and Smagorinsky keep their taught errors. Record:
+[`../plans/active/immersed_closures_sadourny_plan.md`](../plans/active/immersed_closures_sadourny_plan.md)
+(2026-09-19 entry). Branch `feat/immersed-biharmonic-closures`.
