@@ -3672,6 +3672,10 @@ every blocked geometry, zeros never requests the global shape, traced
 fallback), `test_grid.py` (per-shard coordinate blocks, device-count
 invariance, host data), `test_model.py`
 (`test_constructed_state_scales_with_the_local_shard`: per-device live
-bytes during and after `set_fields`). Remainder (immersed masks,
+bytes during and after `set_fields`),
+`test_tensor_multiprocess.py` (two real `jax.distributed` processes:
+every rank builds only its own block — of a different shape on the
+staggered walled axis — and the gathered fields equal the
+single-device ones bit for bit). Remainder (immersed masks,
 mapping fields, the commit transient): [`open.md`](open.md) §2h.
 Branch `fix/sharded-field-init`.
