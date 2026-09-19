@@ -663,6 +663,10 @@ class Core(fr.model.Module):
         nodal grid skips that step and leaves the core on ``CellAvg``
         beside a ``Center`` buoyancy — which fails deep inside a
         tendency as a bare space mismatch. Catch it here instead.
+        Only ``family=None`` declarations are held to this: a field
+        whose pattern pins its family is the per-field mixed-model
+        override (a passive ``CellAvg`` tracer advected beside the
+        nodal core) and is served as before the family existed.
 
         Parameters
         ----------
@@ -679,6 +683,12 @@ class Core(fr.model.Module):
         for record in table:
             space = getattr(record, "space", None)
             if space is None or record.name in ("u", "v", "w", "p_hyd"):
+                continue
+            if getattr(record.pattern, "family", None) is not None:
+                # an explicit per-field ``family=`` is the mixed-model
+                # override of SpacePattern (FV-D1b), e.g. a passive
+                # CellAvg tracer beside the nodal core — a choice, not
+                # a grid default that failed to reach the field
                 continue
             cells = [factor for factor in space.bare.factors
                      if not isinstance(factor, ConstantSpace)]

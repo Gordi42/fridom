@@ -179,7 +179,22 @@ class TensorDecomposition(Decomposition):
         self,
         device_ids: tuple[int, ...] | None,
     ) -> jax.sharding.Mesh:
-        """Build the (iteration-1: 1-D) ``jax.sharding.Mesh``."""
+        """
+        Build the (iteration-1: 1-D) ``jax.sharding.Mesh``.
+
+        Description
+        -----------
+        ``jax.make_mesh`` owns the device order (its topology-aware
+        assignment). It refuses one device set outright: a multi-node
+        GPU run, where every node is its own ``slice_index``
+        (``ValueError: jax.make_mesh does not support multi-slice
+        topologies``, jax 0.10.2). On exactly that refusal the 1-D mesh
+        is built directly over the selected devices in the order given
+        -- ``jax.devices()`` order is process order, so slab neighbours
+        stay node-local except across the node boundary
+        (:func:`_make_1d_mesh`). Every device set ``make_mesh`` accepts
+        keeps the ``make_mesh`` mesh.
+        """
         devices = jax.devices()
         if device_ids is None:
             selected = (devices[0],)
@@ -212,9 +227,7 @@ class TensorDecomposition(Decomposition):
             raise NotImplementedError(
                 "iteration 1 realizes a 1-D device mesh: all layouts "
                 f"must share one device axis, got {tuple(axis_names)}")
-        return jax.make_mesh(
-            (len(selected),), tuple(axis_names), devices=selected,
-            axis_types=(jax.sharding.AxisType.Auto,))
+        return _make_1d_mesh(selected, axis_names[0])
 
     # ================================================================
     #  Negotiated structure
@@ -1334,6 +1347,45 @@ _BOUNDARY_MEMBERSHIP: dict[NodeSet, tuple[bool, bool]] = {
 _OFFSET = 0.5   # boundary between ghost and first DOF (center-like)
 _VACANT = 1.0   # a lattice node sits on the boundary, ghost slot
 _MEMBER = 0.0   # the boundary node is a true DOF of the space
+
+
+def _make_1d_mesh(
+    devices: tuple[jax.Device, ...], axis_name: str,
+) -> jax.sharding.Mesh:
+    """
+    Build the 1-D ``Auto`` device mesh, multi-node GPU sets included.
+
+    Description
+    -----------
+    ``jax.make_mesh`` is the regular constructor. It refuses a device
+    set that spans several slices -- on a multi-node GPU run every
+    node is its own ``slice_index`` -- with ``ValueError: jax.make_mesh
+    does not support multi-slice topologies`` (jax 0.10.2). Exactly
+    that refusal falls back to the plain ``jax.sharding.Mesh`` over the
+    devices in the order given; any other failure propagates.
+
+    Parameters
+    ----------
+    devices : tuple[jax.Device, ...]
+        The selected devices, in mesh order.
+    axis_name : str
+        The name of the one device-mesh axis.
+
+    Returns
+    -------
+    jax.sharding.Mesh
+        The 1-D device mesh.
+    """
+    axis_types = (jax.sharding.AxisType.Auto,)
+    try:
+        return jax.make_mesh(
+            (len(devices),), (axis_name,), devices=devices,
+            axis_types=axis_types)
+    except ValueError as error:
+        if "multi-slice" not in str(error):
+            raise
+        return jax.sharding.Mesh(
+            np.array(devices), (axis_name,), axis_types=axis_types)
 
 
 def _take(arr: jax.Array, axis: int, index: slice) -> jax.Array:

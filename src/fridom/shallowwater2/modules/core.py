@@ -62,6 +62,12 @@ with the stage-time :math:`g(t)\,D(y,t)` (or :math:`\tilde D(y,t)`).
 Pair a spatially varying depth with a Coriolis module carrying
 ``metric_weight="csqr"`` (the thickness-weighted rotation); the
 ``sw.Model`` preset checks this via :attr:`Core.variable_depth`.
+A callable with **two** positional parameters is the static
+two-dimensional depth ``D(zonal, meridional)`` (real bathymetry): the
+``csqr`` field is then declared on the full
+``fr.spatial.Profile(zonal, meridional)`` centre space and every
+consumer lifts it onto its own staggering through ``.to`` exactly as
+it lifts the meridional profile.
 
 The rotation is **not** a core term: it is carried by the shared
 Coriolis module family, opt-in. The nonlinear Sadourny advection is a
@@ -129,6 +135,7 @@ from fridom.shallowwater2.chart import (
 from fridom.shallowwater2.diagnostics import DIAGNOSTICS
 from fridom.shallowwater2.modules.immersed_weighting import (
     mask_field,
+    require_chart_composable,
     scale_divergence,
     weight_flux,
 )
@@ -174,6 +181,55 @@ def _check_nonzero(name: str, value: object) -> None:
             "poisons the run far from here; pass a nonzero value")
 
 
+def _depth_axes(
+    depth: Callable,
+    coords: tuple[str, str],
+    meridional: str,
+    *,
+    explicit_meridional: bool,
+) -> tuple[str, ...]:
+    """Return the coordinates a static callable depth varies along.
+
+    Description
+    -----------
+    One required positional parameter is the meridional profile
+    ``D(y)`` (the long-standing form, any parameter name); two are the
+    two-dimensional depth ``D(zonal, meridional)``, called positionally
+    in ``coords`` order. A callable whose signature cannot be read, or
+    one that takes a variadic ``*args``, keeps the profile form.
+
+    Raises
+    ------
+    TypeError
+        On more than two required positional parameters, or a
+        two-parameter depth combined with an explicit ``meridional=``
+        (the 2-D form varies along both ``coords``).
+    """
+    try:
+        params = inspect.signature(depth).parameters.values()
+    except (TypeError, ValueError):  # pragma: no cover — C callables
+        return (meridional,)
+    positional = (inspect.Parameter.POSITIONAL_ONLY,
+                  inspect.Parameter.POSITIONAL_OR_KEYWORD)
+    required = [p for p in params
+                if p.kind in positional and p.default is p.empty]
+    if len(required) <= 1:
+        return (meridional,)
+    if len(required) > 2:  # noqa: PLR2004 — zonal + meridional
+        raise TypeError(
+            "a callable depth= is the meridional profile D(y) (one "
+            "parameter) or the two-dimensional depth D(zonal, "
+            "meridional) (two parameters, called positionally in "
+            f"coords order); got {len(required)} required "
+            "parameters")
+    if explicit_meridional:
+        raise TypeError(
+            "meridional= names the one coordinate a profile depth "
+            "D(y) varies along; a two-parameter depth D(zonal, "
+            "meridional) varies along both coords — drop meridional=")
+    return coords
+
+
 @partial(jaxify, dynamic=("gravity", "depth", "froude_number",
                           "_depth_law"))
 class Core(fr.model.Module):
@@ -201,9 +257,12 @@ class Core(fr.model.Module):
         The water depth :math:`D` [m] (dimensional; REQUIRED there)
         or the depth ratio :math:`\tilde D` (nondimensional;
         default 1.0). A float publishes ``shallowwater.depth``; a
-        callable ``D(y)`` is the static variable depth; a
-        ``ProfileFunction`` ``D(y,t)`` (TDF-D7) or an ``fr.Ramp``
-        marks ``csqr`` time-dependent (default: None).
+        one-parameter callable ``D(y)`` is the static meridional
+        depth profile, a two-parameter callable ``D(zonal,
+        meridional)`` the static two-dimensional depth (called
+        positionally in ``coords`` order); a ``ProfileFunction``
+        ``D(y,t)`` (TDF-D7) or an ``fr.Ramp`` marks ``csqr``
+        time-dependent (default: None).
     froude_number : float | fr.model.Ramp | None, optional
         The Froude number :math:`\mathrm{Fr}` (nondimensional
         variant only); published as ``shallowwater.froude`` and — as
@@ -216,7 +275,8 @@ class Core(fr.model.Module):
         chart (default: ``("x", "y")``).
     meridional : str | None, optional
         The meridional coordinate name a callable ``depth`` varies
-        along; None uses ``coords[1]`` (default: None).
+        along; None uses ``coords[1]``. Not combinable with a
+        two-parameter depth (default: None).
     """
 
     #: The vocabulary class this core supplies (D1.3 commitment 4).
@@ -298,6 +358,13 @@ class Core(fr.model.Module):
         self._coords: tuple[str, str] = coords
         self._meridional = (coords[1] if meridional is None
                             else meridional)
+        #: the coordinates a static callable depth varies along: the
+        #: meridional profile D(y), or the 2-D D(zonal, meridional)
+        self._depth_axes: tuple[str, ...] = (self._meridional,)
+        if self._depth_fn is not None:
+            self._depth_axes = _depth_axes(
+                self._depth_fn, coords, self._meridional,
+                explicit_meridional=meridional is not None)
         #: the constructor-fixed variant flag (host-side static)
         self._nondim: bool = froude_number is not None
         # whether the bound grid is chart-coupled; set by bind()
@@ -384,7 +451,7 @@ class Core(fr.model.Module):
                 time_dependent=True)
         else:
             csqr_decl = fr.model.FieldDeclaration(
-                "csqr", space=fr.spatial.Profile(self._meridional),
+                "csqr", space=fr.spatial.Profile(*self._depth_axes),
                 lifecycle=fr.model.Lifecycle.AUXILIARY,
                 default=self._csqr_profile_default,
                 long_name="Squared phase speed", units="m^2/s^2",
@@ -468,17 +535,18 @@ class Core(fr.model.Module):
         ``self._meridional`` (the ``BetaPlaneCoriolis._f_default``
         precedent). No pre-syncing (GAP-B).
         """
-        fn, mer = self._depth_fn, self._meridional
+        fn, axes = self._depth_fn, self._depth_axes
         gravity = (None if self._nondim
                    else resolve_at(self.gravity, 0.0))
 
         def init(**coords: object) -> object:
-            depth = fn(coords[mer])
+            depth = fn(*(coords[axis] for axis in axes))
             return depth if gravity is None else gravity * depth
 
         init.__signature__ = inspect.Signature(  # type: ignore[attr-defined]
             [inspect.Parameter(
-                mer, inspect.Parameter.POSITIONAL_OR_KEYWORD)])
+                axis, inspect.Parameter.POSITIONAL_OR_KEYWORD)
+             for axis in axes])
         return grid.create_field(space, init=init, name="csqr")
 
     def _csqr_law_default(
@@ -535,11 +603,9 @@ class Core(fr.model.Module):
             value = self._depth_law.sample(coords, time, space.shape)
         elif self._depth_fn is not None:
             coords = profile_coords(field.grid, space,
-                                    (self._meridional,))
+                                    self._depth_axes)
             value = jnp.broadcast_to(
-                jnp.asarray(
-                    self._depth_fn(coords[self._meridional])),
-                space.shape)
+                jnp.asarray(self._depth_fn(*coords)), space.shape)
         else:
             value = jnp.full(space.shape,
                              resolve_at(self.depth, time))
@@ -583,31 +649,19 @@ class Core(fr.model.Module):
             order (the metric-aware kinds match vector components
             to axes positionally, so the order is load-bearing).
         NotImplementedError
-            If the grid carries **both** an embedding chart and an
-            immersed domain: the chart wave/continuity path is
-            unmasked, so it would silently ignore the immersed mask
-            (silent wrong physics) — the same deferral the Sadourny
-            advection guard names. This fires regardless of the
-            ``advection`` setting, so even a linear model is refused.
+            If the grid carries an embedding chart **and** an immersed
+            domain that do not compose
+            (``immersed_weighting.require_chart_composable``): a
+            non-orthogonal chart, or genuine partial cells
+            (``order >= 2``). The full-cell staircase on an orthogonal
+            chart composes (module docstring).
         """
         grid = table.grid
-        self._immersed = getattr(grid, "immersed", None) is not None
+        immersed = getattr(grid, "immersed", None)
+        self._immersed = immersed is not None
         chart = grid.chart_coords
         self._charted = chart is not None
-        if chart is not None and self._immersed:
-            raise NotImplementedError(
-                "sw.Core does not support a grid carrying "
-                "BOTH an embedding chart and an immersed (cut-cell) "
-                "domain: the metric-aware chart wave/continuity "
-                "path is unmasked, so it would silently ignore the "
-                "immersed mask and let the geopotential flux cross "
-                "the wet-region boundary (silent wrong physics — the "
-                "fraction-weighted immersed path is flat-only). This "
-                "is refused for any sw2 model on such a grid, linear "
-                "or not. sw2 mapped+immersed is a recorded follow-up "
-                "of the mapped+immersed composition plan; until it "
-                "lands, drop the immersed domain or run on an "
-                "unmapped (flat) grid.")
+        require_chart_composable(grid, "sw.Core")
         if chart is not None:
             expected = tuple(
                 name for name in grid.names if name in set(chart))
@@ -756,20 +810,35 @@ class Core(fr.model.Module):
         raise_index = dispatch.resolve(
             "raise_index", gp[zonal].function_space.bare)
         raised = raise_index(gp)
+        flux_u, flux_v = csqr.to(u) * u, csqr.to(v) * v
+        immersed = getattr(u.grid, "immersed", None)
+        if immersed is not None:
+            # the masked sphere (module docstring): alpha weights the
+            # contravariant flux at the face, BEFORE the flux-form div
+            # multiplies it by sqrt_g (MI-D5 spelling)
+            flux_u = weight_flux(immersed, flux_u)
+            flux_v = weight_flux(immersed, flux_v)
         flux = VectorField({
-            zonal: (csqr.to(u) * u).with_variance(con),
-            meridional: (csqr.to(v) * v).with_variance(con)})
+            zonal: flux_u.with_variance(con),
+            meridional: flux_v.with_variance(con)})
         div = dispatch.resolve(
             "div", flux[zonal].function_space.bare)
         dp = -div(flux)
+        du = (-raised[zonal]).retag(u)
+        dv = (-raised[meridional]).retag(v)
+        if immersed is not None:
+            # theta scales the finished divergence (a dry cell stays
+            # exactly 0); no pressure gradient drives a closed face
+            dp = scale_divergence(immersed, dp)
+            du = mask_field(immersed, du)
+            dv = mask_field(immersed, dv)
         if self._nondim:
             dp = self._wave_factor(ctx) * dp
         # exit seam: rescale the contravariant momentum tendencies to
         # physical (dp is a scalar rate — no conversion)
         return {
-            "u": to_physical_tendency((-raised[zonal]).retag(u), zonal),
-            "v": to_physical_tendency(
-                (-raised[meridional]).retag(v), meridional),
+            "u": to_physical_tendency(du, zonal),
+            "v": to_physical_tendency(dv, meridional),
             "p": dp,
         }
 

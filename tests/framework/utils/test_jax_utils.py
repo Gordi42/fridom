@@ -33,8 +33,17 @@ def test_jaxjit():
     assert square(3.0) == 9.0
 
 
-def test_free_memory():
+def test_free_memory(monkeypatch):
     x = jnp.arange(10.0)
+    # free_memory deletes EVERY live buffer of the process — also the
+    # module-level jax arrays of test files this xdist worker runs
+    # later (they were imported at collection) and whatever fridom
+    # caches. Confine the sweep to this test's own array; it is still
+    # found through the real enumeration.
+    live_arrays = jax.live_arrays
+    monkeypatch.setattr(
+        jax, "live_arrays",
+        lambda: [arr for arr in live_arrays() if arr is x])
     fr.utils.free_memory()
     assert x.is_deleted()
     # jax still works after freeing the buffers

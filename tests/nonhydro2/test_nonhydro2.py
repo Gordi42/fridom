@@ -20,6 +20,7 @@ from fridom.model.eigen import (
 )
 from fridom.model.errors import AssemblyError
 from fridom.model.model import Model as FrModel
+from fridom.model.model import _chunk_body
 from fridom.model.modules.advection import CenteredAdvection
 from fridom.model.modules.coriolis import (
     BetaPlaneCoriolis,
@@ -1474,6 +1475,18 @@ def test_core_derives_width_one_walled():
 
 
 def test_derived_width_matches_forced_width_two_bitwise():
+    # The two runs carry different halo widths, hence different padded
+    # shapes, hence two DIFFERENT XLA programs — and bitwise claims
+    # hold only between identically compiled paths: compiled, the pair
+    # agreed to the last bit on some x86 CPUs and differed by one ulp
+    # (5.6e-17) on others, where XLA vectorizes / FMA-contracts the two
+    # shapes differently (CI flake 2026-09-19; on Levante width 1 vs 3
+    # shows 1.4e-17 compiled and exactly 0.0 under
+    # --xla_cpu_max_isa=AVX). The narrowing claim is about ARITHMETIC
+    # (no stencil reads a ghost the narrower halo lacks), so the step
+    # kernel is evaluated op by op, where there is no fusion to differ.
+    widths = []
+
     def run():
         model = nh.Model(
             grid=make_grid(16),
@@ -1485,8 +1498,11 @@ def test_derived_width_matches_forced_width_two_bitwise():
         rng = np.random.default_rng(0)
         model.set_fields(**{c: 0.05 * rng.standard_normal(model.state[c].shape)
                             for c in ("u", "v", "w", "b")})
-        model.run(steps=10)
-        return {c: np.asarray(model.state[c].data)
+        widths.append(dict(model.grid.decomposition.halo.widths))
+        with jax.disable_jit():
+            state = _chunk_body(model._artifacts.record, 10,
+                                model._carry, model._stepper).state
+        return {c: np.asarray(state[c].data)
                 for c in ("u", "v", "w", "b")}
 
     derived = run()
@@ -1498,6 +1514,9 @@ def test_derived_width_matches_forced_width_two_bitwise():
         forced = run()
     finally:
         Core.extra_halo = orig
+    # the two runs really are the narrow and the wide halo
+    assert widths == [dict.fromkeys("xyz", 1), dict.fromkeys("xyz", 2)]
+    assert np.abs(derived["u"]).max() > 0.0
     md = max(float(np.max(np.abs(derived[c] - forced[c])))
              for c in ("u", "v", "w", "b"))
     assert md == 0.0  # the narrowing is bit-transparent on the spectral path

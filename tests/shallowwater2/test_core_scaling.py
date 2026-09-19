@@ -112,17 +112,25 @@ def test_thickness_field_is_diagnostic_on_the_centre_space():
 def test_restart_reproduces_the_continuous_run(tmp_path):
     # the DIAGNOSTIC thickness never enters the restart contract as
     # a stale value: the first substage after load recomputes it, so
-    # snapshot -> load -> advance is bitwise the continuous run
+    # snapshot -> load -> advance is bitwise the continuous run. The
+    # chunk plan is pinned (chunk_size=2, every advance replays the
+    # same length-2 executable): bitwise claims hold between
+    # identically compiled paths (model spec, run()), and the default
+    # plan would compare the lengths [4, 2] against [2] + [4]
     grid = make_grid()
-    whole = make_model(grid, csqr=1.0, rossby_number=0.25, f0=0.5)
-    split = make_model(grid, csqr=1.0, rossby_number=0.25, f0=0.5)
+    whole = make_model(grid, csqr=1.0, rossby_number=0.25, f0=0.5,
+                       chunk_size=2)
+    split = make_model(grid, csqr=1.0, rossby_number=0.25, f0=0.5,
+                       chunk_size=2)
     fields = random_fields(whole)
     whole.set_fields(**fields)
     split.set_fields(**fields)
+    assert list(whole._chunk_plan(6)) == [2, 2, 2]
     whole.advance(6)
     split.advance(2)
     split.snapshot(tmp_path / "snap")
-    resumed = make_model(grid, csqr=1.0, rossby_number=0.25, f0=0.5)
+    resumed = make_model(grid, csqr=1.0, rossby_number=0.25, f0=0.5,
+                         chunk_size=2)
     resumed.load_snapshot(tmp_path / "snap")
     resumed.advance(4)
     for name in NAMES:

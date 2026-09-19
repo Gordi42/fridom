@@ -289,7 +289,13 @@ def test_buoyancy_tracer_pairs_and_binds_no_background():
 
 
 def test_buoyancy_tracer_matches_a_zero_constant_background():
-    # the two legal spellings of "no background" agree bit-for-bit
+    # the two legal spellings of "no background" agree bit-for-bit AS
+    # ARITHMETIC: the zero background only ever enters as an exact
+    # ``+ 0.0``. They are two different traces, though, and bitwise
+    # claims hold only between identically compiled paths: on x86 XLA
+    # contracts different mul/add pairs into FMAs in the two programs
+    # (one ulp; gone under --xla_cpu_max_isa=AVX). Evaluated op by op
+    # there is no fusion to differ, so the comparison stays exact.
     kwargs = {"smagorinsky_constant": 0.16,
               "background_viscosity": 1e-3,
               "background_diffusivity": 1e-3}
@@ -300,8 +306,9 @@ def test_buoyancy_tracer_matches_a_zero_constant_background():
               for name in ("u", "v", "w", "b")}
     tracer.set_fields(**fields)
     zero.set_fields(**fields)
-    td_t = tracer.tendency(tracer.state)
-    td_z = zero.tendency(zero.state)
+    with jax.disable_jit():
+        td_t = tracer.tendency(tracer.state)
+        td_z = zero.tendency(zero.state)
     for name in ("u", "v", "w", "b"):
         np.testing.assert_array_equal(data(td_t[name]), data(td_z[name]))
     assert np.abs(data(td_t["u"])).max() > 0.0

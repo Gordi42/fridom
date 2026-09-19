@@ -110,8 +110,8 @@ def sphere_model(route):
         core=sw.Core(froude_number=RO, depth=CSQR,
                      coords=("lon", "lat")),
         scaling=fr.scaling.GravityWave(),
-        coriolis=coriolis, modules_extra=extra,
-        time_stepper=stepper())
+        coriolis=coriolis, advection=sw.SadournyAdvection(),
+        modules_extra=extra, time_stepper=stepper())
 
 
 def channel_model(route):
@@ -278,6 +278,41 @@ def test_the_correction_leaves_the_linear_model_bitwise(builder):
     for name in NAMES:
         assert np.array_equal(np.asarray(dz_a[name].data),
                               np.asarray(dz_base[name].data))
+
+
+def test_the_correction_leaves_the_linear_chart_model_exact():
+    # the LINEAR chart model (no advection): here the correction is
+    # the only consumer of the thickness diagnostic, so the corrected
+    # and the uncorrected assembly are two different XLA programs and
+    # their compiled tendencies differ by a few ulp on FMA hardware
+    # (measured <= 7e-15; exactly 0.0 with --xla_cpu_max_isa=AVX).
+    # Bitwise claims hold between identically compiled paths only, so
+    # the "every other term is untouched" contract is pinned as
+    # arithmetic: op by op the two models agree to the last bit.
+    def linear_sphere(route):
+        extra = ()
+        if route == "A":
+            extra = (sw.modules.CoriolisEnergyCorrection(
+                coords=("lon", "lat")),)
+        return set_random(sw.Model(
+            grid=sphere_grid(),
+            core=sw.Core(froude_number=RO, depth=CSQR,
+                         coords=("lon", "lat")),
+            scaling=fr.scaling.GravityWave(),
+            coriolis=sw.modules.RotationCoriolis(
+                omega=(0.0, 0.0, OMEGA), coords=("lon", "lat"),
+                metric_weight="csqr"),
+            advection=None, modules_extra=extra,
+            time_stepper=stepper()))
+
+    model_a, model_base = linear_sphere("A"), linear_sphere("linear")
+    with jax.disable_jit():
+        dz_a = model_a.tendency(model_a.state, filter=NOT_CORRECTION)
+        dz_base = model_base.tendency(model_base.state)
+    for name in NAMES:
+        assert np.array_equal(np.asarray(dz_a[name].data),
+                              np.asarray(dz_base[name].data))
+        assert np.abs(np.asarray(dz_base[name].data)).max() > 0.0
 
 
 def test_the_correction_leaves_the_eigenmodes_bitwise():
@@ -513,6 +548,7 @@ def test_the_conserving_beta_plane_varies_with_y():
         scaling=fr.scaling.GravityWave(),
         coriolis=sw.modules.NonlinearBetaPlaneCoriolis(
             rossby_number=RO / F0, metric_ratio=0.5 / F0),
+        advection=sw.SadournyAdvection(),
         time_stepper=stepper())
     f = np.asarray(model.state["f_coriolis"].data).ravel()
     assert f.size > 1

@@ -56,6 +56,7 @@ model = sw.Model(
     core=sw.Core(froude_number=froude_number),
     scaling=scaling,
     coriolis=sw.modules.FPlaneCoriolis(rossby_number=rossby_number),
+    advection=sw.SadournyAdvection(),
     time_stepper=fr.model.time_steppers.AdamBashforth(dt, order=3),
     modules_extra=fr.model.closures.BiharmonicFriction(nu=hyperviscosity))
 

@@ -25,6 +25,12 @@ wall-tagged) space, so the multiply is a plain same-space product.
 Callers guard on ``grid.immersed is not None`` and never enter off an
 immersed grid, so these helpers stay a pure no-op on the unimmersed
 path (the parity guard).
+
+On a chart grid (the masked sphere) the same three idioms compose with
+the metric path for the full-cell staircase only;
+:func:`require_chart_composable` is the shared bind-time refusal of
+the combinations that do not compose (a non-orthogonal chart, genuine
+partial cells).
 """
 from __future__ import annotations
 
@@ -34,7 +40,83 @@ import jax.numpy as jnp
 
 if TYPE_CHECKING:  # pragma: no cover
     from fridom.spatial.fields.scalar_field import ScalarField
+    from fridom.spatial.grid import Grid
     from fridom.spatial.immersed_domain import ImmersedDomain
+
+
+#: the smallest quadrature order that yields genuine partial cells
+_PARTIAL_ORDER = 2
+
+
+def require_chart_composable(grid: Grid, owner: str) -> None:
+    r"""
+    Refuse the chart + immersed combinations that do not compose.
+
+    Description
+    -----------
+    The chart + immersed composition of the shallow-water physics
+    (the masked sphere) is deliberately narrow — an **orthogonal**
+    chart carrying a full-cell **staircase** mask:
+
+    - **Orthogonal chart.** The fraction/mask weights sit on the
+      direct face fluxes and the finished momentum tendencies. A
+      non-orthogonal chart couples the components through the
+      cross-metric hops of ``raise_index``; keeping those skew under a
+      mask needs the fraction *between* the hop pairs (the MI-D2
+      spelling of the mapped+immersed composition plan), which the
+      shallow-water terms do not carry.
+    - **Staircase.** The collocation ``ImmersedDomain``
+      (``order=None``) samples the indicator at the cell centres in
+      the chart coordinates; every fraction is an exact ``0`` or ``1``
+      and the metric weights cancel out of it. A quadrature order
+      ``>= 2`` averages the indicator per axis in the **chart
+      parameters**, not over the physical area
+      (:math:`\theta \ne \int\sqrt g\,\chi / \int\sqrt g`), so the
+      fractions would be inconsistent with the metric the operators
+      consume — the geometric-consistency (freestream) trap.
+
+    A no-op off a chart grid and off an immersed grid.
+
+    Parameters
+    ----------
+    grid : Grid
+        The grid the module binds to.
+    owner : str
+        The refusing module's name, for the message.
+
+    Raises
+    ------
+    NotImplementedError
+        If the grid carries an immersed domain together with a
+        non-orthogonal chart, or with genuine partial cells on a chart.
+    """
+    immersed = getattr(grid, "immersed", None)
+    if grid.chart_coords is None or immersed is None:
+        return
+    if not grid.mapping.orthogonal:
+        raise NotImplementedError(
+            f"{owner} supports an immersed domain on a chart grid "
+            "only when the chart is declared orthogonal "
+            "(CoordinateMapping(..., orthogonal=True), e.g. the "
+            "lat-lon sphere): on a non-orthogonal chart the "
+            "cross-metric terms couple the velocity components "
+            "through interpolation hops the mask does not reach, so "
+            "the masked wave operator would lose its skew-symmetry "
+            "(energy leaks at the wet-region boundary). Drop the "
+            "immersed domain, or use an orthogonal chart.")
+    order = immersed.order
+    if order is not None and order >= _PARTIAL_ORDER:
+        raise NotImplementedError(
+            f"{owner} supports an immersed domain on a chart grid "
+            "(e.g. a land mask on the lat-lon sphere) only as the "
+            "full-cell staircase, ImmersedDomain(..., order=None): "
+            f"order={order} asks for genuine partial cells, whose "
+            "per-axis quadrature averages the indicator in the chart "
+            "parameters rather than over the physical area, so the "
+            "fractions would be inconsistent with the metric (a "
+            "spurious pressure gradient in a resting ocean). Declare "
+            "the mask with order=None; area-weighted chart fractions "
+            "for shallowwater2 are a recorded follow-up.")
 
 
 def weight_flux(

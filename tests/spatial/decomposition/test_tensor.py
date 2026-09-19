@@ -101,6 +101,66 @@ def test_one_device_mesh_regardless_of_device_count(forced_devices):
     assert decomp.device_count == 1
 
 
+# ================================================================
+#  The multi-slice fallback of the device mesh
+# ================================================================
+_MULTI_SLICE = "jax.make_mesh does not support multi-slice topologies"
+
+
+def _refuse(message):
+    def make_mesh(*args, **kwargs):  # noqa: ARG001
+        raise ValueError(message)
+    return make_mesh
+
+
+@pytest.mark.multi_device
+def test_multi_slice_refusal_falls_back_to_the_plain_mesh(monkeypatch):
+    # a multi-node GPU run: every node is its own slice and
+    # jax.make_mesh refuses the device set. The 1-D mesh is then built
+    # directly over the selected devices IN THE ORDER GIVEN
+    ids = tuple(reversed(range(jax.device_count())))
+    monkeypatch.setattr(jax, "make_mesh", _refuse(_MULTI_SLICE))
+    mesh = IntervalMesh(8, (0.0, 1.0), periodic=True, name="x")
+    decomp = TensorDecomposition(
+        meshes=(mesh,), names=("x",), halo=HaloSpec({"x": 1}),
+        layouts=(Layout({"x": "devices"}),), device_ids=ids)
+    device_mesh = decomp.device_mesh
+    assert device_mesh.axis_names == ("devices",)
+    assert device_mesh.axis_types == (jax.sharding.AxisType.Auto,)
+    assert device_mesh.devices.shape == (len(ids),)
+    assert ([d.id for d in device_mesh.devices.ravel()]
+            == [jax.devices()[i].id for i in ids])
+    # and the decomposition built on it is a working one
+    true = jnp.arange(1.0, 9.0)
+    storage = decomp.sync(decomp.pad(true, mesh.center), mesh.center)
+    assert np.array_equal(
+        np.asarray(decomp.unpad(storage, mesh.center)), np.asarray(true))
+
+
+@pytest.mark.multi_device
+def test_the_fallback_mesh_equals_the_make_mesh_one(monkeypatch):
+    # on a device set make_mesh accepts, the fallback spelling is the
+    # same mesh: the fallback changes nothing but the refusal
+    ids = tuple(range(jax.device_count()))
+    kwargs = {"meshes": (IntervalMesh(8, (0.0, 1.0), name="x"),),
+              "names": ("x",), "halo": HaloSpec({"x": 1}),
+              "layouts": (Layout({"x": "devices"}),), "device_ids": ids}
+    regular = TensorDecomposition(**kwargs).device_mesh
+    monkeypatch.setattr(jax, "make_mesh", _refuse(_MULTI_SLICE))
+    assert TensorDecomposition(**kwargs).device_mesh == regular
+
+
+def test_any_other_make_mesh_failure_propagates(monkeypatch):
+    # only the multi-slice refusal is caught, on any device count
+    monkeypatch.setattr(jax, "make_mesh", _refuse("some other refusal"))
+    ids = tuple(range(jax.device_count()))
+    with pytest.raises(ValueError, match="some other refusal"):
+        TensorDecomposition(
+            meshes=(IntervalMesh(8, (0.0, 1.0), name="x"),),
+            names=("x",), halo=HaloSpec({"x": 1}),
+            layouts=(Layout({"x": "devices"}),), device_ids=ids)
+
+
 def test_layouts_sharing_a_device_axis_share_one_mesh_axis():
     # two pencils over the same device axis (the main/alt pattern)
     layouts = (Layout({"x": "px"}), Layout({"y": "px"}))
@@ -950,13 +1010,26 @@ def test_shard_writes_and_chunk_hint_reject_foreign_layout():
 # ================================================================
 #  patch_physical_ends: the co-array seam
 # ================================================================
+def _last_block_start(n_cells):
+    """Return the global index of the last block's first true cell.
+
+    The patch callbacks below read their block's FIRST true slot, so
+    the high physical end (which lives in the last block) sees cell 0
+    on one device and the last shard's first cell on several.
+    """
+    devices = jax.device_count()
+    return (devices - 1) * -(-n_cells // devices)
+
+
 def test_patch_physical_ends_passes_co_arrays_to_the_callback():
     # the geometry seam of the non-uniform (stretched-mesh) graded
     # rungs: extra input-frame storage arrays reach the callback as
     # trailing block arguments, so a rung's window indices address
     # BLOCK-LOCAL data (a closed-over array would stay global under
-    # ``shard_map``). Single device here; the sharded gate lives in
-    # tests/spatial/operators/test_weno_nonuniform.py.
+    # ``shard_map``). Runs on any device count: the high end reads the
+    # LAST block's first slot, which is exactly the block-local claim
+    # (the operator-level sharded gate lives in
+    # tests/spatial/operators/test_weno_nonuniform.py).
     mesh, decomp = _sharded(8, width=1)
     inner, cell_avg = mesh.inner, mesh.cell_avg
     out_arr = decomp.zeros(inner)
@@ -980,7 +1053,7 @@ def test_patch_physical_ends_passes_co_arrays_to_the_callback():
     assert seen == [(0, 1), (1, 1)]
     true = np.asarray(decomp.unpad(patched, inner))
     assert true[0] == 10.0        # the co-array's first true slot
-    assert true[-1] == 10.0
+    assert true[-1] == 10.0 * (_last_block_start(8) + 1)
 
 
 def test_patch_physical_ends_without_co_arrays_is_unchanged():
@@ -1001,4 +1074,4 @@ def test_patch_physical_ends_without_co_arrays_is_unchanged():
         out_arr, in_arr, inner, cell_avg, "x", patch)
     true = np.asarray(decomp.unpad(patched, inner))
     assert true[0] == 1.0
-    assert true[-1] == 1.0
+    assert true[-1] == 1.0 + _last_block_start(8)

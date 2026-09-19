@@ -70,12 +70,15 @@ def test_quadrature_real_part_is_the_real_packet(periodic):
 def test_quadrature_drives_a_harmonic_source(periodic):
     # the complex packet feeds a factor-free Source directly: the
     # tendency is A Re[Q e^{-i omega t}] = A * (phase-advanced packet).
+    # The cosine law is the explicit phase=0.0 (Harmonic defaults to the
+    # sine, phase=-pi/2).
     grid, em = periodic
     env, amp = _env(), 0.4
     omega, q = sw.wave_package(em, K, "wave+", envelope=env, phase=0.3,
                                quadrature=True)
     src = Source("packet", pattern=q,
-                 law=fr.model.Harmonic(amp, omega / (2.0 * np.pi)))
+                 law=fr.model.Harmonic(amp, omega / (2.0 * np.pi),
+                                       phase=0.0))
     model = make_model(grid, csqr=CSQR, f0=F0, advection=None,
                        modules_extra=(src,))
     for t in (0.11, 0.23):
