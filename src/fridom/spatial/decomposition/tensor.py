@@ -724,8 +724,10 @@ class TensorDecomposition(Decomposition):
             # staged out: the partitioner places the constant
             return jax.device_put(jnp.zeros(storage, dtype), sharding)
         block = jnp.zeros(sharding.shard_shape(storage), dtype)
+        # dtype= covers a process that addresses no shard at all (a
+        # grid on a device subset under a multi-process launch)
         return jax.make_array_from_callback(
-            storage, sharding, lambda _: block)
+            storage, sharding, lambda _: block, dtype=block.dtype)
 
     def assemble(
         self,
@@ -768,22 +770,8 @@ class TensorDecomposition(Decomposition):
         index_map = sharding.addressable_devices_indices_map(storage)
         blocks = []
         for device, index in index_map.items():
-            slices = []
-            widths = []
-            for (_name, n, factor, shards, width, block, _), box in zip(
-                    geometry, index, strict=True):
-                if shards == 1:
-                    slices.append(slice(0, n))
-                    widths.append((width, block - n - width))
-                    continue
-                shard = (box.start or 0) // block
-                bounds = self._block_bounds(
-                    n, shards, self._cells_per_shard(factor, shards))
-                start, stop = bounds[shard], bounds[shard + 1]
-                slices.append(slice(start, stop))
-                widths.append(
-                    (width, block - width - (stop - start)))
-            data = jnp.asarray(piece(tuple(slices)))
+            slices, widths = self._block_box(geometry, index)
+            data = jnp.asarray(piece(slices))
             if isinstance(data, jax.core.Tracer):
                 # the piece closes over traced values (e.g. a
                 # differentiated parameter outside jit)
@@ -792,13 +780,62 @@ class TensorDecomposition(Decomposition):
             expected = tuple(sl.stop - sl.start for sl in slices)
             if tuple(data.shape) != expected:
                 raise ValueError(
-                    f"assemble expects the piece of {tuple(slices)} "
+                    f"assemble expects the piece of {slices} "
                     f"at its true shape {expected}, got "
                     f"{tuple(data.shape)}")
             blocks.append(
                 jax.device_put(jnp.pad(data, widths), device))
+        if blocks:
+            dtype = blocks[0].dtype
+        else:
+            # this process addresses no shard (a grid on a device
+            # subset under a multi-process launch): it contributes no
+            # block, only the dtype, read off the first shard's piece
+            first = (slice(0, None),) * len(geometry)
+            dtype = jnp.asarray(
+                piece(self._block_box(geometry, first)[0])).dtype
         return jax.make_array_from_single_device_arrays(
-            storage, sharding, blocks)
+            storage, sharding, blocks, dtype=dtype)
+
+    def _block_box(
+        self,
+        geometry: tuple[tuple[str, int, object, int, int, int, int], ...],
+        index: tuple[slice, ...],
+    ) -> tuple[tuple[slice, ...], tuple[tuple[int, int], ...]]:
+        """
+        Locate one storage block in the true frame.
+
+        Parameters
+        ----------
+        geometry : tuple[tuple[str, int, object, int, int, int, int], ...]
+            The axis geometry records (``_geometry``).
+        index : tuple[slice, ...]
+            The block's index box in the global storage array (one
+            device's entry of ``addressable_devices_indices_map``).
+
+        Returns
+        -------
+        tuple[tuple[slice, ...], tuple[tuple[int, int], ...]]
+            The global true-DOF index box the block owns, and the
+            per-axis ``jnp.pad`` widths placing that piece in the
+            block (leading ghost width; the trailing side absorbs
+            ghosts, stagger padding and a short last shard).
+        """
+        slices = []
+        widths = []
+        for (_name, n, factor, shards, width, block, _), box in zip(
+                geometry, index, strict=True):
+            if shards == 1:
+                slices.append(slice(0, n))
+                widths.append((width, block - n - width))
+                continue
+            shard = (box.start or 0) // block
+            bounds = self._block_bounds(
+                n, shards, self._cells_per_shard(factor, shards))
+            start, stop = bounds[shard], bounds[shard + 1]
+            slices.append(slice(start, stop))
+            widths.append((width, block - width - (stop - start)))
+        return tuple(slices), tuple(widths)
 
     def pad(
         self,
