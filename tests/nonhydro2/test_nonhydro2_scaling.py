@@ -14,6 +14,7 @@ import pytest
 import fridom as fr
 import fridom.nonhydro2 as nh
 from fridom.model.energy import EnergyMetric
+from fridom.model.model import _chunk_body
 from fridom.model.time_steppers.adam_bashforth import AdamBashforth
 
 N = 8
@@ -169,6 +170,23 @@ def test_internal_wave_frame_self_normalizes():
 # ================================================================
 #  Today-parity: the Rotational spelling equals the dim twin
 # ================================================================
+def _advanced_op_by_op(model, steps):
+    """Advance ``steps`` with the pure step kernel evaluated op by op.
+
+    Bitwise claims hold only between identically compiled paths (model
+    spec, ``run()``): two DIFFERENT assemblies are two different XLA
+    programs, whose fusions contract different mul/add pairs into FMAs,
+    so their compiled runs agree to the last bit on some CPUs and
+    differ by one ulp on others (CI flake 2026-09-19; reproduced with
+    ``XLA_FLAGS=--xla_cpu_use_fusion_emitters=false``). A parity claim
+    between two assemblies is a claim about ARITHMETIC, so it is
+    checked where there is no fusion to differ.
+    """
+    with jax.disable_jit():
+        return _chunk_body(model._artifacts.record, steps,
+                           model._carry, model._stepper).state
+
+
 def test_rotational_parity_step_is_bitwise():
     # ro=1: eps = Ro = 1 aliased -> every live ratio is exactly 1.0,
     # so the nondim trace reproduces the dimensional one bitwise
@@ -177,11 +195,12 @@ def test_rotational_parity_step_is_bitwise():
     fields = random_fields(dim)
     dim.set_fields(**fields)
     rot.set_fields(**fields)
-    dim.advance(3)
-    rot.advance(3)
+    dim_state = _advanced_op_by_op(dim, 3)
+    rot_state = _advanced_op_by_op(rot, 3)
     for name in NAMES:
-        assert np.array_equal(np.asarray(dim.state[name].data),
-                              np.asarray(rot.state[name].data)), name
+        assert np.array_equal(np.asarray(dim_state[name].data),
+                              np.asarray(rot_state[name].data)), name
+    assert np.abs(np.asarray(dim_state["u"].data)).max() > 0.0
 
 
 def test_diagnostics_re_key_on_the_effective_numbers():
