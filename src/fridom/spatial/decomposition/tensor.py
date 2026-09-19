@@ -50,6 +50,7 @@ from fridom.spatial.bc import BC
 from fridom.spatial.decomposition.decomposition import (
     Decomposition,
 )
+from fridom.spatial.meshes.interval import IntervalMesh
 from fridom.spatial.spaces.average import CellAvg, FaceAvg
 from fridom.spatial.spaces.coefficient import CoefficientSpace
 from fridom.spatial.spaces.nodal import NodalSpace, NodeSet
@@ -1169,7 +1170,9 @@ class TensorDecomposition(Decomposition):
                 exchanged.append((axis, name, n, factor, width))
         for axis, name, n, factor, width in exchanged:
             arr = self._exchange_axis(
-                arr, axis, name, n, factor, width, layout)
+                arr, axis, name, n, factor, width, layout,
+                valid=None if valid is None else dict(valid.intervals).get(
+                    name, (0, 0)))
         if materialize:
             # forces the write chain to materialize (see above); free
             # at runtime — the writes are in place on the dead operand
@@ -1185,6 +1188,8 @@ class TensorDecomposition(Decomposition):
         factor: object,
         width: int,
         layout: Layout,
+        *,
+        valid: tuple[int, int] | None = None,
     ) -> jax.Array:
         """
         Halo exchange along one sharded axis (multi-device).
@@ -1206,6 +1211,11 @@ class TensorDecomposition(Decomposition):
         pspec = jax.sharding.PartitionSpec(*spec)
 
         def exchange(block: jax.Array) -> jax.Array:
+            if (valid is not None and any(valid) and width <= cells
+                    and isinstance(factor.mesh, IntervalMesh)
+                    and factor.mesh.periodic and n % shards == 0):
+                return _exchange_periodic_bands(
+                    block, axis, width, cells, axis_name, shards, valid)
             return _exchange_block(
                 block, axis, n, width, factor,
                 shards=shards, cells=cells, axis_name=axis_name)
@@ -2319,4 +2329,62 @@ def _exchange_block(
                 block, width + t, width, axis)
             block = _set(block, axis, width + t,
                          jnp.where(s == shards - 1, right_fill, keep))
+    return block
+
+
+def _exchange_periodic_bands(
+    block: jax.Array,
+    axis: int,
+    width: int,
+    cells: int,
+    axis_name: str,
+    shards: int,
+    valid: tuple[int, int],
+) -> jax.Array:
+    """
+    Repair only missing outer bands of a uniform periodic halo.
+
+    Description
+    -----------
+    A validity count measures consecutive layers outward from the true
+    interior. The innermost valid layers remain untouched; the missing
+    outer layers come from the corresponding neighbor interior offset.
+    A fully valid side sends no message. The caller guarantees periodic
+    uniform geometry and an equal true cell count on every shard.
+
+    Parameters
+    ----------
+    block : jax.Array
+        One halo-extended storage block.
+    axis : int
+        Storage axis of the periodic exchange.
+    width : int
+        Full halo width on either side.
+    cells : int
+        True cell count per shard.
+    axis_name : str
+        Device mesh axis binding the collective.
+    shards : int
+        Number of shards along the device axis.
+    valid : tuple[int, int]
+        Known-valid inner layers on the left and right.
+
+    Returns
+    -------
+    jax.Array
+        Storage block with both complete halos valid.
+    """
+    left, right = (min(width, count) for count in valid)
+    if missing_left := width - left:
+        send = jax.lax.slice_in_dim(
+            block, cells, cells + missing_left, axis=axis)
+        received = jax.lax.ppermute(
+            send, axis_name, [(i, (i + 1) % shards) for i in range(shards)])
+        block = _set(block, axis, 0, received)
+    if width - right:
+        send = jax.lax.slice_in_dim(
+            block, width + right, 2 * width, axis=axis)
+        received = jax.lax.ppermute(
+            send, axis_name, [(i, (i - 1) % shards) for i in range(shards)])
+        block = _set(block, axis, width + cells + right, received)
     return block
