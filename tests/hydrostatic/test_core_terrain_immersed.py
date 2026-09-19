@@ -17,6 +17,7 @@ import pytest
 
 import fridom.hydrostatic as hy
 from fridom.model.context import StepContext
+from fridom.model.model import _chunk_body
 from fridom.model.time_steppers.adam_bashforth import AdamBashforth
 from fridom.spatial.coordinate_mapping import CoordinateMapping
 from fridom.spatial.grid import Grid
@@ -145,6 +146,23 @@ def test_masked_contravariant_continuity_is_machine_zero(a):
 # ================================================================
 #  All-wet chart reproduces the pure terrain contravariant w (bitwise)
 # ================================================================
+def _advanced_op_by_op(model, steps):
+    """Advance ``steps`` with the pure step kernel evaluated op by op.
+
+    Bitwise claims hold only between identically compiled paths (model
+    spec, ``run()``): two DIFFERENT assemblies are two different XLA
+    programs, whose fusions contract different mul/add pairs into FMAs,
+    so their compiled runs agree to the last bit on some CPUs and
+    differ by one ulp on others (CI flake 2026-09-19; reproduced with
+    ``XLA_FLAGS=--xla_cpu_use_fusion_emitters=false``). A parity claim
+    between two assemblies is a claim about ARITHMETIC, so it is
+    checked where there is no fusion to differ.
+    """
+    with jax.disable_jit():
+        return _chunk_body(model._artifacts.record, steps,
+                           model._carry, model._stepper).state
+
+
 def test_all_wet_chart_matches_pure_terrain_bytewise():
     im = _model(_terrain_immersed_grid(init=_allwet, min_fraction=0.0),
                 dt=0.02)
@@ -154,10 +172,12 @@ def test_all_wet_chart_matches_pure_terrain_bytewise():
           for k in ("u", "v", "b")}
     im.set_fields(**ic)
     un.set_fields(**ic)
-    im.advance(1)
-    un.advance(1)
-    diff = np.abs(np.asarray(im.state["w"].data)
-                  - np.asarray(un.state["w"].data)).max()
+    # the masked and the unmasked step are two different programs, so
+    # the alpha == 1 identity is checked op by op
+    w_im = np.asarray(_advanced_op_by_op(im, 1)["w"].data)
+    w_un = np.asarray(_advanced_op_by_op(un, 1)["w"].data)
+    assert np.abs(w_un).max() > 0.0
+    diff = np.abs(w_im - w_un).max()
     assert diff == 0.0               # alpha == 1 -> byte-identical
 
 

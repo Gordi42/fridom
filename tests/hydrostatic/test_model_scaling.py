@@ -15,6 +15,7 @@ import pytest
 import fridom as fr
 import fridom.hydrostatic as hy
 from fridom.model.energy import EnergyMetric
+from fridom.model.model import _chunk_body
 from fridom.model.time_steppers.adam_bashforth import AdamBashforth
 
 DT = 2.0 ** -7
@@ -167,6 +168,23 @@ def test_mixed_variants_are_refused_at_assembly():
 # ================================================================
 #  Today-parity: the ExternalWave spelling equals the dim twin
 # ================================================================
+def _advanced_op_by_op(model, steps):
+    """Advance ``steps`` with the pure step kernel evaluated op by op.
+
+    Bitwise claims hold only between identically compiled paths (model
+    spec, ``run()``): two DIFFERENT assemblies are two different XLA
+    programs, whose fusions contract different mul/add pairs into FMAs,
+    so their compiled runs agree to the last bit on some CPUs and
+    differ by one ulp on others (CI flake 2026-09-19; reproduced with
+    ``XLA_FLAGS=--xla_cpu_use_fusion_emitters=false``). A parity claim
+    between two assemblies is a claim about ARITHMETIC, so it is
+    checked where there is no fusion to differ.
+    """
+    with jax.disable_jit():
+        return _chunk_body(model._artifacts.record, steps,
+                           model._carry, model._stepper).state
+
+
 @pytest.mark.parametrize(
     ("fs_cls", "fs_kwargs", "budget"),
     [pytest.param(hy.ExplicitFreeSurface, {}, 0.0, id="explicit"),
@@ -185,11 +203,19 @@ def test_external_wave_parity_across_the_variants(
     fields = random_fields(dim)
     dim.set_fields(**fields)
     ext.set_fields(**fields)
-    dim.advance(3)
-    ext.advance(3)
+    if budget == 0.0:
+        # the bitwise claim is between two different assemblies, so it
+        # is checked op by op (see _advanced_op_by_op)
+        dim_state = _advanced_op_by_op(dim, 3)
+        ext_state = _advanced_op_by_op(ext, 3)
+    else:
+        dim.advance(3)
+        ext.advance(3)
+        dim_state, ext_state = dim.state, ext.state
+    assert np.abs(np.asarray(dim_state["u"].data)).max() > 0.0
     for name in NAMES:
-        a = np.asarray(dim.state[name].data)
-        b = np.asarray(ext.state[name].data)
+        a = np.asarray(dim_state[name].data)
+        b = np.asarray(ext_state[name].data)
         if budget == 0.0:
             assert np.array_equal(a, b), name
         else:

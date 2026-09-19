@@ -15,6 +15,7 @@ import pytest
 
 import fridom as fr
 import fridom.shallowwater2 as sw
+from fridom.model.model import _chunk_body
 from fridom.model.stages import StageKind
 
 from .conftest import make_grid, make_model
@@ -70,6 +71,23 @@ def test_nondim_core_under_dimensional_default_is_taught():
             time_stepper=fr.model.time_steppers.AdamBashforth(DT))
 
 
+def _advanced_op_by_op(model, steps):
+    """Advance ``steps`` with the pure step kernel evaluated op by op.
+
+    Bitwise claims hold only between identically compiled paths (model
+    spec, ``run()``): two DIFFERENT assemblies are two different XLA
+    programs, whose fusions contract different mul/add pairs into FMAs,
+    so their compiled runs agree to the last bit on some CPUs and
+    differ by one ulp on others (CI flake 2026-09-19; reproduced with
+    ``XLA_FLAGS=--xla_cpu_use_fusion_emitters=false``). A parity claim
+    between two assemblies is a claim about ARITHMETIC, so it is
+    checked where there is no fusion to differ.
+    """
+    with jax.disable_jit():
+        return _chunk_body(model._artifacts.record, steps,
+                           model._carry, model._stepper).state
+
+
 def test_dim_equals_nondim_parity_run_bitwise():
     # the heart of the refactor: the GravityWave-scaled spelling's
     # live ratios self-normalize, so a matched dimensional run
@@ -81,11 +99,12 @@ def test_dim_equals_nondim_parity_run_bitwise():
     fields = random_fields(dim)
     dim.set_fields(**fields)
     nondim.set_fields(**fields)
-    dim.advance(STEPS)
-    nondim.advance(STEPS)
+    dim_state = _advanced_op_by_op(dim, STEPS)
+    nondim_state = _advanced_op_by_op(nondim, STEPS)
     for name in NAMES:
-        assert np.array_equal(np.asarray(dim.state[name].data),
-                              np.asarray(nondim.state[name].data))
+        assert np.array_equal(np.asarray(dim_state[name].data),
+                              np.asarray(nondim_state[name].data))
+    assert np.abs(np.asarray(dim_state["u"].data)).max() > 0.0
 
 
 # ================================================================

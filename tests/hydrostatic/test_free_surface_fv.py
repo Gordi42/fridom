@@ -22,12 +22,14 @@ and terrain (sigma) geometries. The gates:
 
 Self-contained builders (AGENTS oversized-module rule).
 """
+import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
 
 import fridom as fr
 import fridom.hydrostatic as hy
+from fridom.model.model import _chunk_body
 from fridom.model.time_steppers.adam_bashforth import AdamBashforth
 from fridom.spatial.coordinate_mapping import CoordinateMapping
 from fridom.spatial.spaces.average import AverageSpace, CellAvg
@@ -218,6 +220,23 @@ def test_split_subcycle_runs_on_fv(kind):
 # ================================================================
 #  Gate 2 (free-surface half): bitwise parity with the nodal family
 # ================================================================
+def _advanced_op_by_op(model, steps):
+    """Advance ``steps`` with the pure step kernel evaluated op by op.
+
+    Bitwise claims hold only between identically compiled paths (model
+    spec, ``run()``): two DIFFERENT assemblies are two different XLA
+    programs, whose fusions contract different mul/add pairs into FMAs,
+    so their compiled runs agree to the last bit on some CPUs and
+    differ by one ulp on others (CI flake 2026-09-19; reproduced with
+    ``XLA_FLAGS=--xla_cpu_use_fusion_emitters=false``). A parity claim
+    between two assemblies is a claim about ARITHMETIC, so it is
+    checked where there is no fusion to differ.
+    """
+    with jax.disable_jit():
+        return _chunk_body(model._artifacts.record, steps,
+                           model._carry, model._stepper).state
+
+
 @pytest.mark.parametrize("kind", ["flat", "walled", "terrain"])
 @pytest.mark.parametrize("variant", list(VARIANTS))
 def test_free_surface_run_is_bitwise_the_nodal_one(kind, variant):
@@ -229,13 +248,14 @@ def test_free_surface_run_is_bitwise_the_nodal_one(kind, variant):
     for family in ("fv", "nodal"):
         model = _seed(_model(kind, variant, family, n2=1.0, f0=0.5,
                              dt=1e-2))
-        model.advance(6)
-        assert not model.panicked
-        out[family] = {c: np.asarray(model.state[c].data)
+        state = _advanced_op_by_op(model, 6)
+        out[family] = {c: np.asarray(state[c].data)
                        for c in ("u", "v", "b", "ps")}
+        assert bool(np.all(np.isfinite(out[family]["u"])))
     for name, want in out["nodal"].items():
         np.testing.assert_array_equal(out["fv"][name], want,
                                       err_msg=f"{kind}/{variant}/{name}")
+    assert np.abs(out["nodal"]["u"]).max() > 0.0
 
 
 def test_split_derive_initial_fields_matches_the_nodal_transports():
