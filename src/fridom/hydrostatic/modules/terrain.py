@@ -93,7 +93,8 @@ def discover_column(
         ``CumulativeIntegral`` reduces).
     chart_ok : bool, optional
         Whether the caller carries the thin-shell chart arm
-        (``hy.Core``, ``hy.ExplicitFreeSurface``): a chart grid with no
+        (``hy.Core``, the explicit / split-explicit free surface): a
+        chart grid with no
         ``maps=`` column then returns ``None`` instead of the refusal
         (default: False).
 
@@ -125,13 +126,14 @@ def discover_column(
             "zp = z * H(x, y)); this grid carries an embedding chart= "
             f"on {mapping.chart_coords} (a curvilinear / spherical "
             "coordinate system). On a chart the hydrostatic model runs "
-            "the orthogonal thin-shell arm of hy.Core + "
-            "hy.ExplicitFreeSurface only (spherical-models plan S2): "
-            "this module (the implicit / split-explicit free surface, "
-            "the z* geometry) or a chart + maps= terrain composition "
-            "is not supported on a chart yet (plan S3 / section 6). "
-            "Use hy.ExplicitFreeSurface on the chart, or a maps= "
-            "terrain / flat / stretched-only grid")
+            "the orthogonal thin-shell arm of hy.Core with "
+            "hy.ExplicitFreeSurface or hy.SplitExplicitFreeSurface "
+            "(spherical-models plan S2): this module (the implicit "
+            "free surface, the z* geometry) or a chart + maps= terrain "
+            "composition is not supported on a chart yet (plan S3 / "
+            "section 6). Use the explicit or split-explicit free "
+            "surface on the chart, or a maps= terrain / flat / "
+            "stretched-only grid")
     entry = mapping.column_corrections.get(vertical)
     if entry is None or entry[1] != vertical:
         available = sorted(

@@ -1,12 +1,14 @@
 r"""hy.ExplicitFreeSurface on an embedding chart (plan S2).
 
 Prefix-mirrored shard of ``hy.modules.free_surface`` covering the
-orthogonal thin-shell chart arm of the explicit free surface: the
+orthogonal thin-shell chart arm of the explicit free surfaces: the
 area-weighted barotropic transport divergence closed by ``sqrt_g``
 (volume-conserving to rounding), its exact adjointness to the physical
 surface-pressure gradient under the ``sqrt_g`` measure, and the
-bind-time taught errors (the implicit / split-explicit variants stay
-refused on a chart until the chart Helmholtz of plan S3). Self-contained
+bind-time taught errors (the implicit variant stays refused on a chart
+until the chart Helmholtz of plan S3), and the **split-explicit**
+subcycle on the chart — an explicit 2-D pair that needs no elliptic
+operator (volume conservation, the identity-chart reduction). Self-contained
 builders (AGENTS oversized-module rule).
 """
 import numpy as np
@@ -88,16 +90,71 @@ def test_chart_gravity_pair_is_skew_adjoint_under_the_area_measure():
     assert abs(work + pairing) < 1e-12 * scale
 
 
-@pytest.mark.parametrize("variant", [
-    pytest.param(lambda: hy.ImplicitFreeSurface(horizontal=HOR),
-                 id="implicit"),
-    pytest.param(lambda: hy.SplitExplicitFreeSurface(
-        substeps=4, horizontal=HOR), id="split"),
-])
-def test_elliptic_variants_stay_refused_on_a_chart(variant):
+def test_implicit_variant_stays_refused_on_a_chart():
+    # the implicit barotropic solve needs the chart Helmholtz (plan S3)
     with pytest.raises(NotImplementedError,
                        match="curvilinear / spherical"):
-        _model(variant())
+        _model(hy.ImplicitFreeSurface(horizontal=HOR))
+
+
+# ================================================================
+#  The split-explicit subcycle on the chart (no elliptic operator)
+# ================================================================
+def _split(substeps=8):
+    return hy.SplitExplicitFreeSurface(substeps=substeps, horizontal=HOR)
+
+
+def test_split_explicit_binds_the_chart_with_a_two_cell_halo():
+    module = _model(_split()).module(hy.SplitExplicitFreeSurface)
+    assert module._chart == HOR
+    halo = module.extra_halo
+    assert halo == type(halo)(dict.fromkeys(HOR, 2))
+
+
+def test_split_explicit_subcycle_conserves_volume_on_the_sphere():
+    model = _model(_split())
+    _random(model, seed=4)
+    model.set_fields(ps=0.1 * np.asarray(model.state["ps"].data))
+    before = _weighted_sum(model.state["ps"])
+    scale = _weighted_sum(abs(model.state["ps"]))
+    model.advance(40)
+    assert not model.panicked
+    # measured 3e-17: the substep divergence is the area-weighted
+    # metric divergence, whose sqrt(g)-weighted sum telescopes
+    assert abs(_weighted_sum(model.state["ps"]) - before) < 1e-13 * scale
+
+
+def test_identity_chart_split_explicit_run_is_bitwise_flat():
+    def meshes():
+        return (IM(8, (0.0, 1.0), name="x"),
+                IM(8, (0.0, 1.0), periodic=False, name="y"),
+                IM(NZ, (-DEPTH, 0.0), periodic=False, name="z"))
+
+    def build(grid):
+        return hy.Model(
+            grid=grid, core=hy.Core(gravity=GRAVITY),
+            time_stepper=AdamBashforth(5e-3, order=3),
+            buoyancy=hy.ConstantStratification(n2=1.0),
+            free_surface=hy.SplitExplicitFreeSurface(substeps=8))
+
+    chart = build(fr.spatial.Grid(
+        meshes(), mapping=fr.spatial.CoordinateMapping(
+            chart={"X": lambda x, y: (x, y, 0.0 * x)},
+            orthogonal=True)))
+    flat = build(fr.spatial.Grid(meshes()))
+    rng = np.random.default_rng(12)
+    fields = {k: 0.1 * rng.standard_normal(flat.state[k].shape)
+              for k in ("u", "v", "b", "ps")}
+    chart.set_fields(**fields)
+    flat.set_fields(**fields)
+    chart.advance(20)
+    flat.advance(20)
+    # measured exactly equal; a few ULP is the honest jitted bound (two
+    # structurally different programs may fuse differently)
+    for name in ("u", "v", "b", "ps", "U", "V"):
+        assert np.allclose(np.asarray(chart.state[name].data),
+                           np.asarray(flat.state[name].data),
+                           rtol=1e-12, atol=1e-14)
 
 
 def test_horizontal_names_must_match_the_chart():

@@ -139,12 +139,13 @@ def Model(  # noqa: N802 — a factory that mirrors fr.model.Model's surface
         (``fr.spatial.spherical.Grid(..., vertical=<z mesh>)``) — or
         any orthogonal two-coordinate chart extruded along a flat
         vertical — is supported with ``hy.Core(horizontal=("lon",
-        "lat"))``, ``hy.ExplicitFreeSurface(horizontal=("lon",
-        "lat"))``, ``fr.model.modules.RotationCoriolis`` and
+        "lat"))``, ``hy.ExplicitFreeSurface`` or
+        ``hy.SplitExplicitFreeSurface`` (``horizontal=("lon",
+        "lat")``), ``fr.model.modules.RotationCoriolis`` and
         ``CenteredAdvection`` (spherical-models plan S0-S2); land and
         bathymetry ride an ``ImmersedDomain`` staircase as on a flat
-        grid. The implicit / split-explicit free surfaces and the
-        biased advection schemes are taught refusals on a chart.
+        grid. The implicit free surface and the biased advection
+        schemes are taught refusals on a chart.
     core : fr.model.Module
         The dynamical core, ``hy.Core``: the gravity-first physical
         constant lives here (``gravity=``, dimensional) — the

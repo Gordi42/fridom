@@ -119,7 +119,9 @@ from fridom.hydrostatic.units import (
 from fridom.model.chart_seams import (
     chart_gradient,
     edge_scale,
+    scale_factor,
     sealed_metric_divide,
+    sealed_metric_reciprocal,
     thin_shell_chart,
     volume_scale,
 )
@@ -261,11 +263,11 @@ class _FreeSurfaceBase(fr.model.Module):
         # 1/H path byte-identical.
         self._column: tuple[str, str] | None = None
         # the orthogonal thin-shell chart pair (spherical-models plan
-        # S2), or None off a chart grid (byte-identical paths). Only
-        # the explicit variant carries the chart arm
-        # (``_supports_chart``); the implicit / split-explicit variants
-        # keep the taught refusal until the chart barotropic Helmholtz
-        # lands (plan S3).
+        # S2), or None off a chart grid (byte-identical paths). The
+        # explicit and the split-explicit variants carry the chart arm
+        # (``_supports_chart``; neither needs an elliptic solve); the
+        # implicit variant keeps the taught refusal until the chart
+        # barotropic Helmholtz lands (plan S3).
         self._chart: tuple[str, str] | None = None
 
     #: whether the variant carries the thin-shell chart arm (S2)
@@ -1713,6 +1715,17 @@ class SplitExplicitFreeSurface(_FreeSurfaceBase):
       per-treatment tendency sums (EXPLICIT, plus IMPLICIT when the
       scheme populates it) — the raw first-order variant.
 
+    **Embedding charts** (the thin-shell sphere; spherical-models
+    plan): the subcycle is an explicit 2-D pair, so it runs on an
+    orthogonal two-coordinate chart with no elliptic operator — the
+    substep divergence becomes the area-weighted metric divergence
+    ``(1/sqrt_g)[d_1(h_2 H ub) + d_2(h_1 H vb)]`` and the force the
+    physical gradient ``d_i ps / h_i`` (static factors folded once,
+    outside the scan; ``fridom.model.chart_seams``). ``int sqrt_g ps``
+    is conserved to round-off; on the identity chart every factor is
+    exactly 1.0. The barotropic CFL is set by the smallest *physical*
+    cell (``a cos(lat_max) dlon`` on the sphere).
+
     Because a per-stage-projected barotropic subcycle has no production
     precedent, ``bind`` refuses a non-multistep outer driver (an RK /
     IMEX-RK stepper, whose ``supports_split_advance`` is ``False``) with
@@ -2001,8 +2014,15 @@ class SplitExplicitFreeSurface(_FreeSurfaceBase):
         precedent). Off a terrain grid it stays one cell —
         byte-identical.
         """
-        cells = 2 if self._column is not None else 1
+        cells = 2 if (self._column is not None
+                      or self._chart is not None) else 1
         return HaloSpec(dict.fromkeys(self._horizontal, cells))
+
+    #: the split-explicit variant carries the thin-shell chart arm: the
+    #: subcycle is an explicit 2-D shallow-water pair, so it needs no
+    #: chart elliptic operator — only the area-weighted transport
+    #: divergence and the physical pressure gradient inside the substep
+    _supports_chart = True
 
     @property
     def _advance_name(self) -> str:
@@ -2106,6 +2126,15 @@ class SplitExplicitFreeSurface(_FreeSurfaceBase):
         elif immersed:
             depth_u = self._transport_depth(state["u"], params)
             depth_v = self._transport_depth(state["v"], params)
+        elif self._chart is not None:
+            # an unmasked chart: the column depth is the uniform mesh
+            # extent, carried as a face field so the volume-exact
+            # variable-depth substep (which holds the chart weights)
+            # runs — H * (U / H) round-trips to rounding
+            depth_u = state["U"].with_data(jnp.full(
+                state["U"].shape, self._depth, dtype=dtype_real()))
+            depth_v = state["V"].with_data(jnp.full(
+                state["V"].shape, self._depth, dtype=dtype_real()))
         else:
             inv_h = self._inv_depth
             return (state["U"] * inv_h, state["V"] * inv_h,
@@ -2162,9 +2191,13 @@ class SplitExplicitFreeSurface(_FreeSurfaceBase):
         # conserved to round-off and there is no guarded-division
         # autodiff hazard in the substep path). A flat grid keeps the
         # scalar flat-column coefficient fast path, byte-identical.
-        variable = self._column is not None or self._immersed is not None
+        variable = (self._column is not None
+                    or self._immersed is not None
+                    or self._chart is not None)
         (ubar0, vbar0, depth_u, depth_v,
          fmask_u, fmask_v) = self._subcycle_faces(state, params)
+        flux_u, flux_v, inv_area, inv_hu, inv_hv = self._chart_factors(
+            ps0, ubar0, vbar0, depth_u, depth_v)
         dtau = 2.0 * dt / self._substeps
         weights = jnp.asarray(self._weights, dtype=dtype_real())
 
@@ -2177,8 +2210,10 @@ class SplitExplicitFreeSurface(_FreeSurfaceBase):
             # gravity; nondimensional: the mean form scaled by the
             # live (eps/Fr)^2 — no reference depth either way)
             if variable:
-                div_t = ((depth_u * ub_c).diff(zonal)
-                         + (depth_v * vb_c).diff(meridional))
+                div_t = ((flux_u * ub_c).diff(zonal)
+                         + (flux_v * vb_c).diff(meridional))
+                if inv_area is not None:
+                    div_t = div_t * inv_area
                 if nondim:
                     ps_n = ps_c - dtau * column_csqr * (
                         inv_depth * div_t)
@@ -2190,6 +2225,9 @@ class SplitExplicitFreeSurface(_FreeSurfaceBase):
             # backward: velocity from the NEW ps + the slow forcing
             grad_u = ps_n.diff(zonal).retag(ub_c)
             grad_v = ps_n.diff(meridional).retag(vb_c)
+            if inv_hu is not None:
+                grad_u = grad_u * inv_hu
+                grad_v = grad_v * inv_hv
             if fmask_u is not None:
                 grad_u = grad_u * fmask_u
                 grad_v = grad_v * fmask_v
@@ -2208,6 +2246,42 @@ class SplitExplicitFreeSurface(_FreeSurfaceBase):
         inv_h = self._inv_depth
         return {"ps": ps_avg, "U": ubar_avg / inv_h,
                 "V": vbar_avg / inv_h}
+
+    def _chart_factors(
+        self, ps0: object, ubar0: object, vbar0: object,
+        depth_u: object, depth_v: object,
+    ) -> tuple[object, object, object, object, object]:
+        r"""Return the static chart factors of the substep, folded once.
+
+        Description
+        -----------
+        On a thin-shell chart (spherical-models plan) the substep
+        divergence is the area-weighted metric divergence
+        ``(1/sqrt_g)[d_1(h_2 H ub) + d_2(h_1 H vb)]`` and the force the
+        physical gradient ``d_i ps / h_i``. The static factors are built
+        **outside** the scan: the transverse edge lengths folded into
+        the per-face depths (``flux_u``, ``flux_v``) and the sealed
+        metric reciprocals ``1/sqrt_g`` on the ``ps`` cell and ``1/h_i``
+        on the transport faces (exact-zero padding sealed). On the
+        identity chart every factor is exactly 1.0. Off a chart the
+        depths pass through and the reciprocals are ``None`` (no op is
+        traced — the byte-identical flat / terrain / immersed substep).
+
+        Returns
+        -------
+        tuple[object, object, object, object, object]
+            ``(flux_u, flux_v, inv_area, inv_hu, inv_hv)``.
+        """
+        chart = self._chart
+        if chart is None:
+            return depth_u, depth_v, None, None, None
+        zonal, meridional = self._horizontal
+        return (
+            depth_u * edge_scale(ubar0, zonal, chart),
+            depth_v * edge_scale(vbar0, meridional, chart),
+            sealed_metric_reciprocal(volume_scale(ps0)),
+            sealed_metric_reciprocal(scale_factor(ubar0, zonal)),
+            sealed_metric_reciprocal(scale_factor(vbar0, meridional)))
 
     def _slow_forcing(
         self, state: object, ctx: StepContext, dt: object,

@@ -26,6 +26,8 @@ code path. Gates (measured on CPU, float64):
   with the chart + immersed arm: a resting ``T(z)``, ``S(z)`` ocean
   over the staircase stays at rest to rounding and a stirred run keeps
   a uniform salinity uniform.
+- **Split-explicit free surface** around continents: ``ps`` volume
+  conserved to rounding (measured -1.8e-16), rest state to rounding.
 """
 import jax
 import jax.numpy as jnp
@@ -56,7 +58,8 @@ def world(lon, lat, z):
     return jnp.where(land | (z < -depth), 0.0, 1.0)
 
 
-def build(indicator, *, surface_flux=None, buoyancy=None):
+def build(indicator, *, surface_flux=None, buoyancy=None, split=0,
+          dt=2e-3):
     grid = fr.spatial.spherical.Grid(
         (32, 16), radius=1.0, lat_extent=(-LAT_MAX, LAT_MAX),
         vertical=IM(6, (-1.0, 0.0), periodic=False, name="z"),
@@ -64,10 +67,12 @@ def build(indicator, *, surface_flux=None, buoyancy=None):
                   else ImmersedDomain(indicator)))
     return hy.Model(
         grid=grid, core=hy.Core(gravity=2.0, horizontal=HOR),
-        time_stepper=AdamBashforth(2e-3, order=3),
+        time_stepper=AdamBashforth(dt, order=3),
         coriolis=fr.model.modules.RotationCoriolis((0.0, 0.0, 2.0)),
         buoyancy=hy.BuoyancyTracer() if buoyancy is None else buoyancy,
-        free_surface=hy.ExplicitFreeSurface(horizontal=HOR),
+        free_surface=(
+            hy.SplitExplicitFreeSurface(substeps=split, horizontal=HOR)
+            if split else hy.ExplicitFreeSurface(horizontal=HOR)),
         advection=CenteredAdvection(surface_flux=surface_flux))
 
 
@@ -197,3 +202,28 @@ def test_stirred_temperature_salinity_run_keeps_uniform_salinity():
     assert np.abs(wet - 35.0).max() < 1e-11
     temperature = np.asarray(model.state["T"].data)[theta > 0]
     assert np.isfinite(temperature).all()
+
+
+# ================================================================
+#  Split-explicit free surface around continents
+# ================================================================
+def test_split_explicit_conserves_volume_around_continents():
+    model = build(world, split=20, dt=1e-2)
+    seed(model, 1)
+    model.advance(1)
+    before = content(model.state["ps"])
+    scale = content(abs(model.state["ps"]))
+    model.advance(100)
+    assert not model.panicked
+    # measured -1.8e-16
+    assert abs(content(model.state["ps"]) - before) < 1e-13 * scale
+
+
+def test_split_explicit_rest_state_over_bathymetry():
+    model = build(world, split=20, dt=1e-2)
+    z = np.asarray(model.grid.evaluation_nodes(
+        model.state["b"].function_space, "z").data)
+    model.set_fields(b=np.exp(2 * z) * np.ones(model.state["b"].shape))
+    model.advance(50)
+    for name in ("u", "v", "w", "ps"):
+        assert np.abs(np.asarray(model.state[name].data)).max() < 1e-13

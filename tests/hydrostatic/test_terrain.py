@@ -115,13 +115,9 @@ def _sphere_grid():
         mapping=fr.spatial.charts.lonlat_sphere(1.0))
 
 
-@pytest.mark.parametrize("free_surface", [
-    pytest.param(hy.ImplicitFreeSurface, id="implicit"),
-    pytest.param(hy.SplitExplicitFreeSurface, id="split"),
-])
-def test_hy_model_on_a_sphere_refuses_the_elliptic_variants(free_surface):
-    # the chart arm is hy.Core + hy.ExplicitFreeSurface only (plan S2):
-    # the implicit / split-explicit barotropic solves need the chart
+def test_hy_model_on_a_sphere_refuses_the_implicit_free_surface():
+    # the chart arm is hy.Core + the explicit / split-explicit free
+    # surfaces (plan S2): the implicit barotropic solve needs the chart
     # Helmholtz (plan S3) and must fail at assembly with the taught
     # refusal, not somewhere in the run.
     hor = ("lon", "lat")
@@ -130,7 +126,7 @@ def test_hy_model_on_a_sphere_refuses_the_elliptic_variants(free_surface):
         hy.Model(
             grid=_sphere_grid(),
             core=hy.Core(gravity=1.0, horizontal=hor),
-            free_surface=free_surface(horizontal=hor),
+            free_surface=hy.ImplicitFreeSurface(horizontal=hor),
             time_stepper=fr.model.time_steppers.AdamBashforth(
                 1e-3, order=3))
 

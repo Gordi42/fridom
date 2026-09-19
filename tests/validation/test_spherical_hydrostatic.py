@@ -44,8 +44,13 @@ float64):
   DOF) and the sqrt(g)-weighted ``ps`` budget closes to rounding.
 - **Autodiff (S1-5 / S2-6)**: ``jax.grad`` through a short spherical
   run matches a central finite difference (rtol 1e-4).
-- **Fences (S1-7 / S2-7)**: upwind / WENO advection and the implicit /
-  split-explicit free surfaces stay taught refusals on a chart.
+- **Split-explicit free surface**: the barotropic subcycle is an
+  explicit 2-D pair, so it runs on the chart with no elliptic operator:
+  TC2 at ten times the explicit step reproduces the explicit run's
+  errors to half a percent (2.071e-3 / 5.08e-4), autodiff FD-matched,
+  forced-4 to rounding.
+- **Fences (S1-7 / S2-7)**: upwind / WENO advection and the implicit
+  free surface stay taught refusals on a chart.
 """
 import jax
 import jax.numpy as jnp
@@ -77,10 +82,17 @@ def sphere_grid(nlon, nlat, nz, depth=1.0, device_ids=None):
 
 
 def sphere_model(nlon=32, nlat=16, nz=2, *, dt=2e-3, buoyancy=False,
-                 advection=None, device_ids=None, extra=()):
-    """Assemble the spherical hydrostatic model (explicit surface)."""
+                 advection=None, device_ids=None, extra=(),
+                 split=0):
+    """Assemble the spherical hydrostatic model.
+
+    ``split=N`` swaps the explicit free surface for the split-explicit
+    one with ``N`` barotropic substeps.
+    """
     if advection is None:
         advection = CenteredAdvection()
+    surface = (hy.SplitExplicitFreeSurface(substeps=split, horizontal=HOR)
+               if split else hy.ExplicitFreeSurface(horizontal=HOR))
     return hy.Model(
         modules_extra=list(extra),
         grid=sphere_grid(nlon, nlat, nz, device_ids=device_ids),
@@ -88,7 +100,7 @@ def sphere_model(nlon=32, nlat=16, nz=2, *, dt=2e-3, buoyancy=False,
         time_stepper=AdamBashforth(dt, order=3),
         coriolis=RotationCoriolis((0.0, 0.0, OMEGA)),
         buoyancy=hy.BuoyancyTracer() if buoyancy else None,
-        free_surface=hy.ExplicitFreeSurface(horizontal=HOR),
+        free_surface=surface,
         advection=advection)
 
 
@@ -220,6 +232,64 @@ def test_tc2_matches_the_shallow_water_reference(tc2_pair):
     coarse, _ = tc2_pair
     for mine, theirs in zip(coarse, ref, strict=True):
         assert 0.5 * theirs < mine < 1.5 * theirs
+
+
+# ================================================================
+#  Split-explicit free surface on the sphere: ten times the step
+# ================================================================
+def test_split_explicit_holds_tc2_at_ten_times_the_step(tc2_pair):
+    # the barotropic subcycle (20 substeps) carries the external mode,
+    # so the baroclinic step is 10x the explicit-surface one; measured
+    # ps L2 2.071e-3 / 5.08e-4 — the explicit run's errors (2.076e-3 /
+    # 5.09e-4) to half a percent, same 2nd-order convergence
+    coarse = tc2_errors(sphere_model(32, 16, dt=2e-2, split=20), steps=40)
+    fine = tc2_errors(sphere_model(64, 32, dt=2e-2, split=20), steps=40)
+    for mine, ref in zip(coarse, tc2_pair[0], strict=True):
+        assert 0.8 * ref < mine < 1.2 * ref
+    for c, f in zip(coarse, fine, strict=True):
+        assert f < 0.3 * c
+
+
+def test_grad_through_a_split_explicit_spherical_run_matches_fd():
+    model = sphere_model(16, 8, 4, dt=1e-2, buoyancy=True, split=8)
+    lon, lat, z = (nodes(model, "b", c) for c in ("lon", "lat", "z"))
+    set_tc2(model)
+    model.set_fields(
+        b=1e-2 * np.cos(lat) ** 2 * np.sin(lon) * (1 + z))
+    run = model.propagator(wrt=(TIME_STEP,), steps=6)
+
+    def loss(dt):
+        state = run((dt,)).state
+        return sum(jnp.sum(state[name].data ** 2)
+                   for name in ("u", "v", "b", "ps"))
+
+    dt0 = jnp.asarray(1e-2)
+    grad = float(jax.grad(loss)(dt0))
+    assert np.isfinite(grad)
+    assert abs(grad) > 0.0
+    eps = 1e-6
+    fd = (float(loss(dt0 + eps)) - float(loss(dt0 - eps))) / (2 * eps)
+    assert grad == pytest.approx(fd, rel=1e-4)
+
+
+@pytest.mark.multi_device
+def test_split_explicit_spherical_run_is_device_count_invariant():
+    def run(device_ids):
+        model = sphere_model(32, 16, 4, dt=1e-2, buoyancy=True,
+                             split=8, device_ids=device_ids)
+        rng = np.random.default_rng(13)
+        model.set_fields(**{
+            k: 0.1 * rng.standard_normal(model.state[k].shape)
+            for k in ("u", "v", "b", "ps")})
+        model.advance(5)
+        return {name: np.asarray(model.state[name].data)
+                for name in ("u", "v", "b", "ps", "U", "V")}
+
+    many = run(None)
+    one = run((0,))
+    for name, value in one.items():
+        np.testing.assert_allclose(many[name], value,
+                                   rtol=0.0, atol=1e-11)
 
 
 # ================================================================

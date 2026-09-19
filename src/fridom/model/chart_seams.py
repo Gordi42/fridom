@@ -215,6 +215,27 @@ def sealed_metric_divide(
     return num * (1.0 / safe)
 
 
+def sealed_metric_reciprocal(den: ScalarField) -> ScalarField:
+    r"""Return ``1 / den`` with the metric denominator sealed.
+
+    Description
+    -----------
+    The reciprocal twin of :func:`sealed_metric_divide`: every
+    exact-zero entry of the metric (the never-valid padding) is replaced
+    by 1 before the reciprocal, so the result is finite everywhere and a
+    later multiply stays finite forward and reverse. Meant for a metric
+    factor that is applied many times (the split-explicit barotropic
+    subcycle multiplies ``1/sqrt_g`` and ``1/h_i`` every substep): the
+    reciprocal is formed once, outside the loop. On the identity chart
+    it is exactly 1.0.
+    """
+    guarded = jnp.where(den.storage == 0.0, 1.0, den.storage)
+    safe = ScalarField(
+        den.grid, den.function_space, guarded,
+        den.metadata, halo_valid=den.halo_valid)
+    return 1.0 / safe
+
+
 def to_contravariant(field: ScalarField, axis: str) -> ScalarField:
     r"""Return the contravariant component ``U_i / sqrt(g_ii)`` (entry).
 
