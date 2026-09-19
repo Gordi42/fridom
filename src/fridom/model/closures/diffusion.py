@@ -107,6 +107,17 @@ spacing, order 2), so:
   terrain grid ``nu_v``/``kappa_v`` (with e.g. ``vertical="sigma"``)
   acts along the **column coordinate**, not the physical vertical.
 
+**Embedding charts** (the lat-lon sphere, the torus; spherical-models
+plan) run the orthogonal thin-shell **Laplace-Beltrami** legs: along a
+chart axis the flux is the area-weighted physical gradient
+:math:`(h_j/h_i)\,k\,\partial_i q` and its difference is closed by the
+cell area :math:`\sqrt g` (``fridom.model.chart_seams``); the flat
+vertical leg is unchanged. Velocity components are diffused as scalars
+(the vector-Laplacian metric terms are neglected — common lat-lon
+ocean-model practice). ``slip='no'`` on a chart is a taught refusal
+(its wall row is a computational-measure weight); non-orthogonal charts
+are refused. On the identity chart every factor is exactly 1.0.
+
 **Immersed (cut-cell) grids** are supported by the **harmonic**
 mixing/friction closures only (``_supports_immersed``, CL-D1), in the
 IP-D4 fraction spelling: each interface stress flux is weighted by the
@@ -140,6 +151,13 @@ from typing import TYPE_CHECKING, ClassVar
 import jax.numpy as jnp
 
 from fridom.framework.utils import jaxify, modify_array
+from fridom.model.chart_seams import (
+    edge_scale,
+    scale_factor,
+    sealed_metric_divide,
+    thin_shell_chart,
+    volume_scale,
+)
 from fridom.model.closures.base import ClosureBase
 from fridom.model.errors import AssemblyError
 from fridom.model.parameters import (
@@ -518,11 +536,49 @@ def _wall_correction(q: ScalarField, k: object, axis: str) -> ScalarField:
     return q * weight * (-2.0 * k)
 
 
+def _chart_flux(
+    chart: tuple[str, str] | None, grad: ScalarField, axis: str,
+) -> ScalarField:
+    r"""Turn a chart-coordinate difference into the area-weighted flux.
+
+    Description
+    -----------
+    On an orthogonal thin-shell chart (scale factors :math:`h_i`,
+    :math:`\sqrt g = h_1 h_2`) the scalar Laplace-Beltrami operator is
+
+    .. math::
+        \nabla\cdot(k\nabla q) = \frac{1}{\sqrt g}\Bigl[
+            \partial_1\Bigl(\frac{h_2}{h_1} k\,\partial_1 q\Bigr)
+          + \partial_2\Bigl(\frac{h_1}{h_2} k\,\partial_2 q\Bigr)
+          \Bigr] + \partial_z(k_v\,\partial_z q) ,
+
+    so the computational difference along a chart axis is multiplied by
+    the transverse edge length and divided by its own scale factor (the
+    physical gradient, VJP-sealed), on the flux's own face space. Off a
+    chart, and along the flat vertical of a thin shell, the difference
+    is returned untouched (byte-identical paths).
+    """
+    if chart is None or axis not in chart:
+        return grad
+    return sealed_metric_divide(
+        grad * edge_scale(grad, axis, chart), scale_factor(grad, axis))
+
+
+def _chart_area(
+    chart: tuple[str, str] | None, div: ScalarField, axis: str,
+) -> ScalarField:
+    """Close a chart-axis flux difference by the cell area (sealed)."""
+    if chart is None or axis not in chart:
+        return div
+    return sealed_metric_divide(div, volume_scale(div))
+
+
 def _harmonic(
     q: ScalarField,
     axes: tuple[tuple[str, object, str], ...],
     no_slip: frozenset[str],
     immersed: object = None,
+    chart: tuple[str, str] | None = None,
 ) -> ScalarField:
     r"""One ``div(A grad q)`` pass with the per-axis wall treatment.
 
@@ -545,17 +601,28 @@ def _harmonic(
     retag on domain walls (the two act on different faces). Both are
     no-ops off an immersed grid, so the flat / walled / mapped chain is
     untouched.
+
+    On an orthogonal thin-shell **chart** (``chart`` not ``None``) the
+    chart-axis legs become the Laplace-Beltrami legs
+    (:func:`_chart_flux` / :func:`_chart_area`): the flux is the
+    area-weighted physical gradient and its difference is closed by the
+    cell area. A velocity component is diffused **as a scalar** (the
+    metric terms of the vector Laplacian are neglected — the common
+    lat-lon ocean-model practice). Off a chart both helpers are the
+    identity (no op traced).
     """
     res = None
     for axis, k, treatment in axes:
-        flux = _weight_flux(immersed, q.diff(axis) * k)
+        flux = _weight_flux(
+            immersed, _chart_flux(chart, q.diff(axis), axis) * k)
         if treatment == _PERIODIC:
-            contribution = flux.diff(axis)
+            contribution = _chart_area(chart, flux.diff(axis), axis)
         elif treatment == _WALL_NORMAL:
-            contribution = flux.diff(axis).retag(q)
+            contribution = _chart_area(
+                chart, flux.diff(axis), axis).retag(q)
         else:  # tangential / tracer: retag the interior flux
             flux = flux.retag(_dirichlet_face(flux, axis))
-            contribution = flux.diff(axis)
+            contribution = _chart_area(chart, flux.diff(axis), axis)
             # the correction is pointwise (zero halo reach); skip it on
             # the grid-less halo tracer, materialize it on the real grid
             if axis in no_slip and hasattr(q.grid, "create_field"):
@@ -639,6 +706,8 @@ class _DiffusionClosure(ClosureBase):
         # immersed (cut-cell) bookkeeping, captured at bind (None off
         # an immersed grid — the flat / walled / mapped path)
         self._immersed: object = None
+        # the orthogonal thin-shell chart pair (bind); None off a chart
+        self._chart: tuple[str, str] | None = None
         self._halo_axes: tuple[str, ...] = ()
 
     # ================================================================
@@ -722,6 +791,18 @@ class _DiffusionClosure(ClosureBase):
                 "immersed drag deferral). Use slip='free' on the "
                 "immersed grid, or drop the closure.")
         self._halo_axes = tuple(table.grid.names)
+        # an embedding chart: the orthogonal thin-shell Laplace-Beltrami
+        # legs (spherical-models plan). The no-slip wall correction is a
+        # computational-measure row (1/dn^2), metric-blind along a chart
+        # axis: refuse it rather than run it silently wrong.
+        self._chart = thin_shell_chart(table.grid, owner)
+        if self._chart is not None and self._requests_no_slip():
+            raise NotImplementedError(
+                f"{owner}: slip='no' (no-slip) is not supported on a "
+                "grid carrying an embedding chart: the wall-adjacent "
+                "correction -2 k q / dn^2 is built from computational "
+                "measures and carries no chart metric. Use slip='free' "
+                "on the chart")
         has_v = getattr(self, f"{cls._coeff_attr}_v")
         target_axes: list[
             tuple[str, tuple[tuple[str, bool, str], ...]]] = []
@@ -813,9 +894,13 @@ class _DiffusionClosure(ClosureBase):
         immersed reject). The flat / walled / mapped path stays fully
         halo-traced (``None``), bit-for-bit as before.
         """
-        if self._immersed is None:
+        if self._immersed is None and self._chart is None:
             return None
-        return HaloSpec(dict.fromkeys(self._halo_axes, 1))
+        # a chart multiplies grid.metric fields the tracer cannot follow
+        # either; the biharmonic family (chart-capable, never immersed)
+        # chains two passes and so reaches two cells
+        reach = 2 if self._biharmonic else 1
+        return HaloSpec(dict.fromkeys(self._halo_axes, reach))
 
     @staticmethod
     def _axes(
@@ -869,11 +954,14 @@ class _DiffusionClosure(ClosureBase):
                 kh = _biharmonic_root(kh)
                 kv = None if kv is None else _biharmonic_root(kv)
                 axes = self._axes(spec, kh, kv)
-                inner = _harmonic(q, axes, no_slip, immersed)
-                out[name] = -_harmonic(inner, axes, no_slip, immersed)
+                inner = _harmonic(q, axes, no_slip, immersed,
+                                  self._chart)
+                out[name] = -_harmonic(inner, axes, no_slip, immersed,
+                                       self._chart)
             else:
                 out[name] = _harmonic(
-                    q, self._axes(spec, kh, kv), no_slip, immersed)
+                    q, self._axes(spec, kh, kv), no_slip, immersed,
+                    self._chart)
         return out
 
 

@@ -156,28 +156,34 @@ def test_face_codomain_rejects_other_node_sets():
 
 
 # ================================================================
-#  Embedding charts are refused at bind (metric blindness)
+#  Embedding charts: biased schemes refused at bind (metric blindness)
 # ================================================================
-@pytest.mark.parametrize(
-    "cls", [CenteredAdvection, UpwindAdvection, WENOAdvection])
-def test_embedding_chart_is_a_taught_error(cls):
-    # The flux form is written in computational coordinates: the face
-    # reconstructions are uniform-offset rows and the divergence is a
-    # bare diff / flux_diff. grid.chart_coords is never read, so on a
-    # chart it would transport the stored (not contravariant)
-    # components with no sqrt(g) weight -- silently. Measured before
-    # the guard landed: on this sheared chart the CenteredAdvection
-    # tendency of u, v and w was BITWISE the flat-grid tendency.
-    grid = Grid((
+def _sheared_chart_grid():
+    return Grid((
         IntervalMesh(8, (0.0, L), name="x"),
         IntervalMesh(8, (0.0, L), name="y"),
         IntervalMesh(8, (0.0, L), name="z"),
     ), mapping=fr.spatial.CoordinateMapping(
         chart={"X": lambda x, y: (x + 0.4 * y, y, 0.0 * x)}))
+
+
+@pytest.mark.parametrize("cls", [UpwindAdvection, WENOAdvection])
+def test_embedding_chart_is_a_taught_error(cls):
+    # The flux form is written in computational coordinates: the face
+    # reconstructions are uniform-offset rows and the divergence is a
+    # bare diff / flux_diff. Left alone on a chart it would transport
+    # the stored (not contravariant) components with no sqrt(g) weight
+    # -- silently. Measured before the guard landed: on this sheared
+    # chart the CenteredAdvection tendency of u, v and w was BITWISE
+    # the flat-grid tendency. The biased schemes keep the refusal
+    # (spherical-models plan SP-D5 / SP-D8); the centered scheme is
+    # chart-capable on ORTHOGONAL thin-shell charts only (next test;
+    # the metric path itself: test_advection_chart.py).
+    grid = _sheared_chart_grid()
     assert grid.chart_coords == ("x", "y")
     # the guard itself, independent of every other module
     with pytest.raises(NotImplementedError, match="metric-blind"):
-        cls()._reject_chart(grid)
+        cls()._bind_chart(grid)
     # and through a real assembly. The advection module goes FIRST in
     # the module tuple on purpose: modules bind in tuple order, and the
     # model cores carry chart refusals of their own, so binding
@@ -187,10 +193,24 @@ def test_embedding_chart_is_a_taught_error(cls):
                 time_stepper=AdamBashforth(DT, order=3))
 
 
+def test_centered_refuses_a_non_orthogonal_chart():
+    # the sheared chart is NOT orthogonal: the centered scheme's
+    # thin-shell metric form does not cover it, so it stays a taught
+    # error (never the silent flat-grid tendency measured above)
+    grid = _sheared_chart_grid()
+    with pytest.raises(NotImplementedError, match="orthogonal"):
+        CenteredAdvection()._bind_chart(grid)
+    with pytest.raises(NotImplementedError, match="orthogonal"):
+        FrModel(grid=grid, modules=(CenteredAdvection(), Core()),
+                time_stepper=AdamBashforth(DT, order=3))
+
+
 def test_chart_guard_is_a_noop_on_a_chartless_grid():
     # the narrow half: a plain grid reports no chart and binds
     assert make_grid(8).chart_coords is None
-    assert CenteredAdvection()._reject_chart(make_grid(8)) is None
+    module = CenteredAdvection()
+    assert module._bind_chart(make_grid(8)) is None
+    assert module._chart is None
 
 
 # the left-biased Center -> Right window is [-order//2, +order//2],

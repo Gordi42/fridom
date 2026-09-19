@@ -19,6 +19,7 @@ from fridom.spatial.meshes.interval import IntervalMesh
 
 if TYPE_CHECKING:  # pragma: no cover
     from fridom.spatial.immersed_domain import ImmersedDomain
+    from fridom.spatial.meshes.mesh import Mesh
 
 _HALF_PI = math.pi / 2
 _TWO_PI = 2 * math.pi
@@ -50,7 +51,8 @@ class Grid(_Grid):
     Parameters
     ----------
     shape : tuple[int, int]
-        Cell counts ``(nlon, nlat)`` for longitude and latitude.
+        Cell counts ``(nlon, nlat)`` for longitude and latitude (the
+        vertical cell count rides the ``vertical=`` mesh).
     radius : float, optional
         The sphere radius :math:`a` (default: 1.0).
     lat_extent : tuple[float, float]
@@ -61,6 +63,16 @@ class Grid(_Grid):
         The longitude band ``(lon_min, lon_max)`` in radians. ``None``
         (the default) makes longitude periodic over ``(0, 2*pi)``;
         a value bounds longitude (closed zonal walls) — a sector.
+    vertical : Mesh | None, optional
+        A one-dimensional **vertical** mesh factor (e.g. a bounded
+        ``IntervalMesh(nz, (-H, 0), periodic=False, name="z")`` or a
+        stretched ``MappedIntervalMesh``) extruding the sphere to the
+        3-D thin-shell grid ``(lon, lat, <vertical>)`` of the
+        spherical 3-D models (spherical-models plan, S0 / SP-D2): the
+        chart still maps ``(lon, lat)`` only, so the metric is
+        independent of the vertical (the shallow-atmosphere
+        approximation, ``g_zz = 1``). ``None`` — the default — is the
+        2-D sphere (default: None).
     dispatch : object | None, optional
         Forwarded to :class:`fridom.spatial.Grid` (default: None).
     immersed : ImmersedDomain | None, optional
@@ -81,6 +93,7 @@ class Grid(_Grid):
         *,
         lat_extent: tuple[float, float],
         lon_extent: tuple[float, float] | None = None,
+        vertical: Mesh | None = None,
         dispatch: object | None = None,
         immersed: ImmersedDomain | None = None,
         device_ids: tuple[int, ...] | None = None,
@@ -102,7 +115,17 @@ class Grid(_Grid):
                                 name="lon")
         mlat = IntervalMesh(nlat, lat_extent, periodic=False,
                             name="lat")
+        if vertical is not None and (
+                set(vertical.names) & {"lon", "lat"}
+                or len(vertical.names) != 1):
+            raise ValueError(
+                "vertical= takes a one-dimensional mesh factor whose "
+                "coordinate is not 'lon' / 'lat' (e.g. IntervalMesh("
+                "nz, (-H, 0.0), periodic=False, name='z')), got "
+                f"coordinates {tuple(vertical.names)}")
+        factors = ((mlon, mlat) if vertical is None
+                   else (mlon, mlat, vertical))
         super().__init__(
-            (mlon, mlat), dispatch=dispatch,
+            factors, dispatch=dispatch,
             mapping=lonlat_sphere(radius), immersed=immersed,
             device_ids=device_ids)

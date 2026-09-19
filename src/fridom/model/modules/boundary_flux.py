@@ -174,16 +174,32 @@ def flux_declaration(
         default=default, long_name=long_name, units="n/a")
 
 
-def reject_chart_grid(grid: object, owner: str) -> None:
-    """Refuse a chart/mapped grid (iteration-1 scope, BF-D2 d)."""
+def reject_chart_grid(
+    grid: object, owner: str, coord: str | None = None,
+) -> None:
+    """Refuse a wall along a chart coordinate (iteration-1 scope, BF-D2 d).
+
+    Description
+    -----------
+    The wall weight ``1/Delta n`` is built from 1-D computational
+    measures, which is metric-blind along a **chart** coordinate (the
+    physical wall distance there is ``h_n Delta n``). Along a
+    coordinate the chart does **not** map — the flat vertical of a
+    thin-shell ``(lon, lat, z)`` sphere (spherical-models plan SP-D2:
+    ``g_zz = 1``, the cell area cancels between the wall face and the
+    cell volume) — the weight is exact, so a surface / bottom flux is
+    admitted there. ``coord=None`` keeps the unconditional refusal.
+    """
     chart = grid.chart_coords
-    if chart is not None:
+    if chart is not None and (coord is None or coord in chart):
         raise ValueError(
             f"{owner} computes the wall weight 1/Delta n from 1-D "
             "measures, but this grid carries an embedding chart on "
             f"{chart}: the metric-aware A_face/V_cell weight is "
             "designed-for but not implemented (iteration 1). Use a "
-            "flat Cartesian grid")
+            "flat Cartesian grid, or a wall along a coordinate the "
+            "chart does not map (the flat vertical of a thin-shell "
+            "sphere)")
 
 
 def check_walled_coord(grid: object, coord: str, owner: str) -> None:
@@ -465,7 +481,7 @@ class BoundaryFlux(Module):
         """Validate the coordinate, the field, and the BC (a)-(d)."""
         grid = table.grid
         owner = type(self).__name__
-        reject_chart_grid(grid, owner)                          # (d)
+        reject_chart_grid(grid, owner, self._coord)             # (d)
         check_walled_coord(grid, self._coord, owner)            # (a)
         check_tangential_flux(grid, self._coord, self._flux, owner)
         check_forced_field(

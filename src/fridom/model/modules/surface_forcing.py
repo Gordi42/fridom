@@ -240,7 +240,7 @@ class WindStress(Module):
     def bind(self, table: object) -> None:
         """Validate the wall, the stresses, and the forced velocities."""
         grid = table.grid
-        reject_chart_grid(grid, "WindStress")
+        reject_chart_grid(grid, "WindStress", self._coord)
         check_walled_coord(grid, self._coord, "WindStress")
         check_tangential_flux(grid, self._coord, self._tau_x, "WindStress")
         check_tangential_flux(grid, self._coord, self._tau_y, "WindStress")

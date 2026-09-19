@@ -67,6 +67,21 @@ flux ``J\omega``, so the stored ``w`` is nonzero at the bed over a
 slope; the flux ``J\omega`` (the FTC-exact, zero-at-the-terrain
 working quantity) is then the read-only ``State.chart["w"]``.
 
+**Embedding charts (spherical-models plan S2).** On an orthogonal
+two-coordinate chart extruded along a flat vertical — the thin-shell
+``(lon, lat, z)`` sphere of ``fr.spatial.spherical.Grid(...,
+vertical=)``, or the torus — the stored ``u`` / ``v`` stay the
+**physical** components along the chart coordinates (pass
+``horizontal=("lon", "lat")``), the continuity DIAGNOSE becomes the
+area-weighted metric divergence
+``(1/sqrt_g)[d_1(h_2 u) + d_2(h_1 v)]`` (``h_i = sqrt(g_ii)``), and the
+pressure gradient the physical gradient ``d_i p / h_i``
+(:mod:`fridom.model.chart_seams`). ``sqrt_g`` is independent of the
+vertical (shallow atmosphere), so both vertical integrals are the flat
+ones. On the identity chart every factor is exactly 1.0 and the arm
+reduces to the flat core bitwise. Chart + ``maps=`` terrain and the
+finite-volume family on a chart are taught refusals.
+
 The linear pressure-gradient term reads the **baroclinic** pressure
 ``p_hyd`` only:
 
@@ -138,6 +153,13 @@ from fridom.hydrostatic.units import (
     coordinate_factors,
     vertical_extent,
     vertical_velocity_factor,
+)
+from fridom.model.chart_seams import (
+    chart_gradient,
+    edge_scale,
+    sealed_metric_divide,
+    thin_shell_chart,
+    volume_scale,
 )
 from fridom.model.halo_demand import derive_extra_halo
 from fridom.model.modules.moving_geometry import mapping_params
@@ -535,6 +557,13 @@ class Core(fr.model.Module):
         # baroclinic pressure gradient adopts the slope-corrected
         # (constant-physical-height) horizontal derivative.
         self._column: tuple[str, str] | None = None
+        # captured at bind: the orthogonal thin-shell chart pair of a
+        # spherical (lon, lat, z) grid, or None off a chart grid (the
+        # byte-identical flat / terrain paths). On a chart the
+        # continuity is the area-weighted metric divergence and the
+        # pressure gradient the physical gradient d_i p / h_i
+        # (spherical-models plan S2).
+        self._chart: tuple[str, str] | None = None
         # the masked / terrain DIAGNOSE stages' derived halo substitute
         # (V-N2), computed at bind from the staggered rows they apply;
         # None off a mapped / immersed grid (the flat path stays traced).
@@ -582,12 +611,43 @@ class Core(fr.model.Module):
         self._coords = tuple(grid.names)
         self._has_buoyancy = "b" in table.names
         self._vertical_extent = vertical_extent(grid, self._vertical)
-        self._column = discover_column(grid, self._vertical)
+        self._column = discover_column(
+            grid, self._vertical, chart_ok=True)
+        self._chart = thin_shell_chart(grid, "hy.Core")
         self._resolved_family = resolve_model_family(self._family, grid)
+        self._require_chart_names()
         require_chart_immersed_order(grid, self._column)
         self._require_uniform_family(table)
         self._extra_halo = self._derive_extra_halo(table)
         self._pb_active = self._derive_pb_active(table)
+
+    def _require_chart_names(self) -> None:
+        """Refuse a chart whose coordinates are not ``horizontal=``.
+
+        Raises
+        ------
+        ValueError
+            If the chart pair differs from the core's ``horizontal``
+            names (the velocity components must be the chart's own
+            physical components).
+        NotImplementedError
+            For the finite-volume family on a chart (untested).
+        """
+        if self._chart is None:
+            return
+        if tuple(self._horizontal) != tuple(self._chart):
+            raise ValueError(
+                f"hy.Core(horizontal={self._horizontal!r}) does not "
+                f"match the grid's chart coordinates {self._chart!r}: "
+                "on a chart grid u / v are the physical components "
+                "along the chart's own coordinates — pass "
+                f"horizontal={self._chart!r} (to the core and the "
+                "free surface)")
+        if self._resolved_family == "fv":
+            raise NotImplementedError(
+                "hy.Core(family='fv') on an embedding chart is not "
+                "supported: the thin-shell chart arm is validated on "
+                "the nodal point-value C-grid only. Use family='nodal'")
 
     def _require_uniform_family(self, table: object) -> None:
         """Refuse a half-FV assembly with a taught error (stage F3).
@@ -704,7 +764,8 @@ class Core(fr.model.Module):
         sum is a reduction, reach 0), so its vertical stays 0. A registry
         override of the differences / interpolations moves these values.
         """
-        if self._immersed is None and self._column is None:
+        if (self._immersed is None and self._column is None
+                and self._chart is None):
             return None
         registry = table.grid.dispatch  # type: ignore[attr-defined]
         p_hyd = table["p_hyd"].space  # type: ignore[index]
@@ -1074,10 +1135,16 @@ class Core(fr.model.Module):
                                  params=params)
             fv = v * grid.metric(v.function_space.bare, jname,
                                  params=params)
+        elif self._chart is not None:
+            # thin-shell chart: the area-weighted transports h_j U_i
+            # (the transverse edge lengths on the u / v faces); the
+            # divergence is closed by the cell area below
+            fu = u * edge_scale(u, zonal, self._chart)
+            fv = v * edge_scale(v, meridional, self._chart)
         else:
             fu, fv = u, v
         if immersed is None:
-            div_h = fu.diff(zonal) + fv.diff(meridional)
+            div_h = self._chart_area(fu.diff(zonal) + fv.diff(meridional))
             flux = -cumint(div_h)
             if self._column is None:
                 return {"w": flux}  # flat: the flux is already physical w
@@ -1088,8 +1155,8 @@ class Core(fr.model.Module):
             return {"w": flux + slope.retag(flux)}
         alpha_x = immersed.fraction(u.function_space)
         alpha_y = immersed.fraction(v.function_space)
-        div_h = ((alpha_x * fu).diff(zonal)
-                 + (alpha_y * fv).diff(meridional))
+        div_h = self._chart_area(
+            (alpha_x * fu).diff(zonal) + (alpha_y * fv).diff(meridional))
         transport = -cumint(div_h)  # the barotropic transport alpha_z*Jomega
         if self._column is None:
             # flat immersed: the masked flux is already the physical w
@@ -1115,6 +1182,26 @@ class Core(fr.model.Module):
             self._vertical, params)
         w = jnp.where(wet, flux + slope.retag(transport).data, 0.0)
         return {"w": transport.with_data(w)}
+
+    def _chart_area(self, div_h: ScalarField) -> ScalarField:
+        r"""Close a chart transport divergence by the cell area.
+
+        Description
+        -----------
+        On a thin-shell chart the horizontal continuity is
+        :math:`(1/\sqrt g)[\partial_1(h_2 U_1) + \partial_2(h_1 U_2)]`:
+        the summed difference of the area-weighted transports divided
+        by the cell area :math:`\sqrt g` on its own (cell) space — the
+        VJP-sealed metric divide (exact-zero root in the never-valid
+        padding). Dividing **before** the running integral keeps the
+        fundamental theorem ``d_z w == -div_h`` machine-exact.
+        :math:`\sqrt g` does not depend on the vertical (shallow
+        atmosphere), so the vertical leg is the flat one. Off a chart
+        this is the identity (no op is traced — byte-identical).
+        """
+        if self._chart is None:
+            return div_h
+        return sealed_metric_divide(div_h, volume_scale(div_h))
 
     def _masked_w_faces(self, immersed: object, state: State) -> object:
         """Return ``alpha_z`` on the ``w`` faces (surface override).
@@ -1243,6 +1330,15 @@ class Core(fr.model.Module):
             }
         if self._pb_active:
             p_hyd = self._partial_bottom_pressure(p_hyd, state)
+        if self._chart is not None:
+            # thin-shell chart: the physical gradient d_i p / h_i on
+            # the velocity's own face (sealed metric divide); the
+            # identity chart divides by exactly 1.0 (bitwise the flat
+            # diff below)
+            return {
+                "u": (-chart_gradient(p_hyd, zonal)).retag(u),
+                "v": (-chart_gradient(p_hyd, meridional)).retag(v),
+            }
         return {
             "u": (-p_hyd.diff(zonal)).retag(u),
             "v": (-p_hyd.diff(meridional)).retag(v),

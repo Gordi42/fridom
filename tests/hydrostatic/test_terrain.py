@@ -95,23 +95,38 @@ def test_discover_column_rejects_an_embedding_chart():
         discover_column(grid, "u")
 
 
-def test_hy_model_on_a_sphere_refuses_at_assembly():
-    # the seam above reached through the PUBLIC surface: hy re-exports
-    # RotationCoriolis (a chart-coupled module), so a reader can
-    # reasonably try hy on a lat-lon sphere. It must fail at assembly
-    # with the taught refusal, not somewhere in the run.
-    lat = 1.4
+def test_discover_column_admits_a_chart_only_grid_under_chart_ok():
+    # the thin-shell chart arm (spherical-models plan S2): a chart with
+    # no maps= column reports "no terrain column" to the callers that
+    # carry the arm (hy.Core, hy.ExplicitFreeSurface)
     grid = fr.spatial.Grid(
+        (IM(8, (0.1, 0.9), periodic=False, name="u"),
+         IM(8, (0.1, 0.9), periodic=False, name="v")),
+        mapping=CoordinateMapping(
+            chart={"X": lambda u, v: (u, v, 0.0 * u)}, orthogonal=True))
+    assert discover_column(grid, "u", chart_ok=True) is None
+
+
+def _sphere_grid():
+    return fr.spatial.Grid(
         (IM(16, (0.0, 2 * jnp.pi), periodic=True, name="lon"),
-         IM(8, (-lat, lat), periodic=False, name="lat"),
+         IM(8, (-1.4, 1.4), periodic=False, name="lat"),
          IM(6, (-1.0, 0.0), periodic=False, name="z")),
         mapping=fr.spatial.charts.lonlat_sphere(1.0))
+
+
+def test_hy_model_on_a_sphere_refuses_the_implicit_free_surface():
+    # the chart arm is hy.Core + the explicit / split-explicit free
+    # surfaces (plan S2): the implicit barotropic solve needs the chart
+    # Helmholtz (plan S3) and must fail at assembly with the taught
+    # refusal, not somewhere in the run.
+    hor = ("lon", "lat")
     with pytest.raises(NotImplementedError,
                        match="curvilinear / spherical"):
         hy.Model(
-            grid=grid, core=hy.Core(gravity=1.0),
-            free_surface=hy.ExplicitFreeSurface(),
-            buoyancy=hy.ConstantStratification(n2=1.0),
+            grid=_sphere_grid(),
+            core=hy.Core(gravity=1.0, horizontal=hor),
+            free_surface=hy.ImplicitFreeSurface(horizontal=hor),
             time_stepper=fr.model.time_steppers.AdamBashforth(
                 1e-3, order=3))
 

@@ -26,6 +26,40 @@ chart-only), (3) metric-aware **momentum** advection (curvature terms),
 (4) the two 3-D cores' chart paths, and (5) the chart Laplace–Beltrami
 pressure solve.
 
+## Status (2026-09-19)
+
+S0, S1 and S2 landed on `feat/spherical-hydrostatic` in a **narrow
+form**: orthogonal two-coordinate thin-shell charts only, the centered
+scheme only, the explicit free surface only, the nodal family only —
+everything else a taught error. Deviation from the recommendations:
+SP-D6 took the recorded **fallback** (module-level composition through
+the shared `fridom.model.chart_seams` helpers — scale factors
+`h_i = sqrt(g_ii)`, transverse edge lengths, `sqrt_g`), not the
+spatial-operator generalization; S4's Laplace-Beltrami still needs the
+spatial-layer route. Two construction choices worth keeping: the
+advecting transports are area-weighted at each velocity's **native**
+face before they are interpolated (so the scheme applied to a constant
+is the interpolated continuity on every staggered control volume and
+the surface closure stays boundary-only), and a metric that lives on a
+reduced space (constant along the vertical) is divided in as
+`num * (1/den)` with the sealed reciprocal (the algebra's lift re-pads
+zeros, which undid the plain sealed divide — caught by the autodiff
+gate). The one-layer `sw2` cross-check runs on two z-uniform levels (a
+one-cell vertical axis is below the two-cell storage halo). Gate
+numbers: `design/roadmap/done.md`. The **split-explicit** free surface
+also runs on the chart (the non-elliptic half of S3): its barotropic
+subcycle is an explicit 2-D pair, so it needs no chart Helmholtz — only
+the area-weighted divergence and the physical gradient inside the
+substep (static factors folded once, outside the scan). Gate S2-7 is
+amended accordingly: only `ImplicitFreeSurface` still refuses charts.
+Open: S1-6/S2-6 were exercised under forced-4 host devices only (no
+multi-process run), biased schemes (SP-D5 follow-up), the implicit
+chart Helmholtz (the rest of S3), S4. Observed and not investigated: on
+a 2-degree global ocean with continents the split-explicit run is clean
+at `dt = 900 s` and goes locally unstable (Canadian Arctic Archipelago,
+next to the northern wall) after ~30 days at `dt = 1800 s`,
+independent of the substep count.
+
 ## 0. Context — what the scoping probe and this plan's probe established
 
 From the scoping record (all findings backed by executed CPU probes plus

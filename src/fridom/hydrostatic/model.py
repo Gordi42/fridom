@@ -133,9 +133,19 @@ def Model(  # noqa: N802 — a factory that mirrors fr.model.Model's surface
     Parameters
     ----------
     grid : Grid
-        The grid to assemble on: doubly-periodic horizontal, bounded
+        The grid to assemble on: periodic or walled horizontal, bounded
         vertical (the ``CumulativeIntegral`` needs a bounded z to seed
-        the running integral).
+        the running integral). A thin-shell **sphere**
+        (``fr.spatial.spherical.Grid(..., vertical=<z mesh>)``) — or
+        any orthogonal two-coordinate chart extruded along a flat
+        vertical — is supported with ``hy.Core(horizontal=("lon",
+        "lat"))``, ``hy.ExplicitFreeSurface`` or
+        ``hy.SplitExplicitFreeSurface`` (``horizontal=("lon",
+        "lat")``), ``fr.model.modules.RotationCoriolis`` and
+        ``CenteredAdvection`` (spherical-models plan S0-S2); land and
+        bathymetry ride an ``ImmersedDomain`` staircase as on a flat
+        grid. The implicit free surface and the biased advection
+        schemes are taught refusals on a chart.
     core : fr.model.Module
         The dynamical core, ``hy.Core``: the gravity-first physical
         constant lives here (``gravity=``, dimensional) — the

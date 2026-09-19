@@ -3523,6 +3523,42 @@ base `z`. Tests: `tests/spatial/test_coordinate_mapping_positions.py`,
 `test_grid_nodes.py`, `test_export_nodes.py`, the `b_total` gates on
 a sigma and a z* column in both packages, the field/mesh shards.
 
+## Spherical hydrostatic, phases S0-S2 in the narrow thin-shell form (2026-09-19)
+
+The minimal spherical hydrostatic of
+[`../plans/active/spherical_models_plan.md`](../plans/active/spherical_models_plan.md)
+(S0 -> S2, every owner call SP-D1..D9 taken as recommended except
+SP-D6, where the recorded **fallback** was used). S0:
+`fr.spatial.spherical.Grid(..., vertical=)` extrudes the sphere to the
+thin-shell `(lon, lat, z)` grid, `fr.spatial.charts.torus` (coordinates
+`tor` / `pol`), and the chart metric `dh_<u>_d<v>` (scale-factor
+derivatives by second-order autodiff). S1: `CenteredAdvection` on
+orthogonal two-coordinate charts — area-weighted transports formed at
+each velocity's native face before interpolation, one `1/sqrt_g`
+division, the curvature source from `dh_*`; biased schemes, the FV
+family, `background=` and non-orthogonal charts stay taught errors.
+S2: `hy.Core` chart continuity and physical pressure gradient,
+`hy.ExplicitFreeSurface` chart arm; implicit / split-explicit refuse
+charts (S3 open). Carried along: the harmonic / biharmonic closures run
+Laplace-Beltrami legs on a chart (they were silently metric-blind),
+surface fluxes are admitted along the flat vertical of a chart, and the
+seam helpers moved to `fridom.model.chart_seams` (SP-D7). Composition
+with the immersed staircase needed no new path (continents on the
+sphere). Gates measured: identity chart bitwise (unfused and jitted);
+TC2 2nd order and within 2 % of `sw2`; curvature-off does not converge;
+tracer / volume conservation to rounding; rest states on sphere, torus
+and over bathymetry to rounding; autodiff FD-matched (it caught a real
+defect: the algebra's lift of a z-constant metric re-pads zeros and
+undid the sealed divide); forced-4 to rounding. The split-explicit free
+surface runs on the chart too (an explicit 2-D subcycle, no elliptic
+operator): identity chart equal to the flat split run, TC2 at ten times
+the explicit step with the explicit run's errors, volume to rounding.
+Tests:
+`tests/validation/test_spherical_hydrostatic.py`,
+`test_spherical_hydrostatic_continents.py`,
+`tests/model/test_chart_seams.py`, the `_chart` shards of advection,
+diffusion, `hy` core and free surface.
+
 ## The masked sphere — sw2 chart + immersed staircase, 2-D depth (2026-09-19)
 
 The sw2 mapped+immersed taught error (the recorded tail of the

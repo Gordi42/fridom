@@ -214,10 +214,24 @@ def test_dirichlet_wall_is_rejected():
         BoundaryFlux("s", "z", "right").bind(table)
 
 
-def test_chart_grid_is_rejected():
+def test_wall_along_a_chart_coordinate_is_rejected():
+    # 1/Delta n is a computational measure: metric-blind along a chart
+    # coordinate (the physical wall distance is h_n Delta n)
     table = _Table(_ChartGrid(), {})
     with pytest.raises(ValueError, match="carries an embedding chart"):
-        BoundaryFlux("b", "z", "right").bind(table)
+        BoundaryFlux("b", "lat", "right").bind(table)
+
+
+def test_wall_along_the_flat_vertical_of_a_chart_is_admitted():
+    # the thin-shell sphere: the chart maps (lon, lat) only, the
+    # vertical wall weight 1/dz is exact — the chart guard must not
+    # fire (spherical-models plan SP-D2)
+    from fridom.model.modules.boundary_flux import (  # noqa: PLC0415
+        reject_chart_grid,
+    )
+    assert reject_chart_grid(_ChartGrid(), "BoundaryFlux", "z") is None
+    with pytest.raises(ValueError, match="carries an embedding chart"):
+        reject_chart_grid(_ChartGrid(), "BoundaryFlux")
 
 
 # ================================================================
