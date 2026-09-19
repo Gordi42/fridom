@@ -157,3 +157,33 @@ def test_flat_grid_binds_no_chart():
     # off a chart the advecting transport is the stored component
     state = model.state
     assert module._advecting(state, "u", "x") is state["u"]
+
+
+def test_curvature_needs_both_chart_velocities():
+    # a core that transports only one chart component has no partner
+    # to build the source from: no curvature (never a KeyError)
+    model = _model()
+    module = model.module(CenteredAdvection)
+    state = _smooth(model)
+    module._axis_velocity = (("lon", "u"), ("z", "w"))
+    assert module._curvature(state, "u") is None
+
+
+def test_finite_volume_components_on_a_chart_are_a_taught_error():
+    # the chart path is validated on the nodal family only; the guard
+    # is the advection module's own (the hydrostatic core refuses the
+    # FV family on a chart before it, so drive the guard directly)
+    model = _model()
+    module = model.module(CenteredAdvection)
+
+    class _Record:
+        space = fr.spatial.Collocated(family="fv").resolve(model.grid)
+
+    class _Table(dict):
+        pass
+
+    table = _Table(dict.fromkeys(module._advected, _Record()))
+    with pytest.raises(NotImplementedError, match="nodal"):
+        module._require_nodal_on_chart(table)
+    module._chart = None
+    assert module._require_nodal_on_chart(table) is None

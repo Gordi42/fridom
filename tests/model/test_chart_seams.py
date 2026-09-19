@@ -151,3 +151,16 @@ def test_sealed_divide_is_finite_forward_and_reverse_in_the_padding():
                        np.asarray(u.data) / np.asarray(area.data))
     grad = jax.grad(loss)(u.storage)
     assert bool(jnp.all(jnp.isfinite(grad)))
+
+
+def test_chart_on_top_of_a_mapped_column_is_refused():
+    # chart + terrain(sigma) is a later composition (plan section 6)
+    grid = fr.spatial.Grid(
+        (IM(4, (0.0, 1.0), name="x"), IM(4, (0.0, 1.0), name="y"),
+         IM(4, (-1.0, 0.0), periodic=False, name="z")),
+        mapping=fr.spatial.CoordinateMapping(
+            chart={"X": lambda x, y: (x, y, 0.0 * x)}, orthogonal=True,
+            maps={"zp": lambda z, H: z * H},
+            params={"H": lambda x, y: 1.0 + 0.1 * jnp.sin(x) + 0.0 * y}))
+    with pytest.raises(NotImplementedError, match="maps= column"):
+        thin_shell_chart(grid, "consumer")
