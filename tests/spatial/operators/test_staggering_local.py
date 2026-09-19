@@ -24,7 +24,8 @@ def _operand(nx, axis, *, periodic=True, single=False):
     layout = Layout({axis: "devices"}) if not single else Layout({})
     decomp = TensorDecomposition(
         meshes, ("x", "y"), HaloSpec({"x": 3, "y": 3}),
-        (layout,), device_ids=(0,) if single else None)
+        (layout,), device_ids=(0,) if single else tuple(
+            range(jax.device_count())))
     field = SimpleNamespace(grid=SimpleNamespace(decomposition=decomp),
                             function_space=space.with_layout(layout))
     return field, decomp, space, layout
