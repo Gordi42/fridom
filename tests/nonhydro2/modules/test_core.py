@@ -22,6 +22,7 @@ import pytest
 import fridom as fr
 import fridom.nonhydro2 as nh
 from fridom.model import term_predicates as terms
+from fridom.model.model import _chunk_body
 from fridom.model.time_steppers.adam_bashforth import AdamBashforth
 from fridom.nonhydro2.modules.core import _stretched_column
 from fridom.nonhydro2.params import ASPECT_RATIO
@@ -309,6 +310,23 @@ def _immersed_model(*, report, iterations=12):
     return model
 
 
+def _advanced_op_by_op(model, steps):
+    """Advance ``steps`` with the pure step kernel evaluated op by op.
+
+    Bitwise claims hold only between identically compiled paths (model
+    spec, ``run()``): two DIFFERENT assemblies are two different XLA
+    programs, whose fusions contract different mul/add pairs into FMAs,
+    so their compiled runs agree to the last bit on some CPUs and
+    differ by one ulp on others (CI flake 2026-09-19; reproduced with
+    ``XLA_FLAGS=--xla_cpu_use_fusion_emitters=false``). A parity claim
+    between two assemblies is a claim about ARITHMETIC, so it is
+    checked where there is no fusion to differ.
+    """
+    with jax.disable_jit():
+        return _chunk_body(model._artifacts.record, steps,
+                           model._carry, model._stepper).state
+
+
 def test_pressure_report_prints_the_achieved_iteration_count(capfd):
     """The A3 evidence seam: ``k`` against the budget, per solve.
 
@@ -337,9 +355,16 @@ def test_pressure_report_prints_the_achieved_iteration_count(capfd):
     quiet.advance(2)
     jax.effects_barrier()
     assert "PCG" not in capfd.readouterr().out
+    # the reporting solve and the silent one are two different programs
+    # (the callback sits inside the PCG loop), so "a side effect only"
+    # is checked op by op (see _advanced_op_by_op)
+    loud_state = _advanced_op_by_op(_immersed_model(report=True), 2)
+    quiet_state = _advanced_op_by_op(_immersed_model(report=False), 2)
+    jax.effects_barrier()
     for name in ("u", "v", "w", "b"):
-        assert np.array_equal(np.asarray(loud.state[name].data),
-                              np.asarray(quiet.state[name].data))
+        assert np.array_equal(np.asarray(loud_state[name].data),
+                              np.asarray(quiet_state[name].data))
+    assert np.abs(np.asarray(quiet_state["u"].data)).max() > 0.0
 
 
 def test_pressure_report_keeps_the_run_differentiable():
