@@ -369,7 +369,14 @@ next wall on a weak-scaling ladder; none is on the step path):
   staggered faces are derived by a neighbour combination
   (`_derive`), so a shard-local build needs pieces extended by one
   cell plus the physical-end rule. Route through
-  `decomposition.assemble` with an overlap.
+  `decomposition.assemble` with an overlap. Under a real
+  multi-process launch the memoized arrays are additionally
+  **replicated** (`_closeable`: a concrete array spanning
+  non-addressable devices cannot be closed over by the step jit), so
+  every (space, kind) entry is a *live* O(global grid) buffer per
+  device, not only a setup transient — the fix there is to feed the
+  geometry to the step as an argument (or rebuild it under the
+  trace) instead of closing over it.
 - **Mapping fields** (`CoordinateMapping.positions` / `metric` /
   column corrections, `coordinate_mapping.py` `store(...)` sites):
   sampled on global node arrays. Pointwise in the chart coordinates,
