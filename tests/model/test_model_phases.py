@@ -34,6 +34,7 @@ import fridom as fr
 import fridom.hydrostatic as hy
 import fridom.nonhydro2 as nh
 from fridom.model.errors import AssemblyError
+from fridom.model.model import _chunk_body
 from fridom.model.modules.moving_geometry import (
     MeshVelocityCorrection,
     MovingGeometry,
@@ -225,6 +226,23 @@ def test_the_staggered_run_differs_from_the_unphased_one():
     assert np.abs(phased["b"] - plain["b"]).max() < 1e-2
 
 
+def _advanced_op_by_op(model, steps):
+    """Advance ``steps`` with the pure step kernel evaluated op by op.
+
+    Bitwise claims hold only between identically compiled paths (model
+    spec, ``run()``): two DIFFERENT assemblies are two different XLA
+    programs, whose fusions contract different mul/add pairs into FMAs,
+    so their compiled runs agree to the last bit on some CPUs and
+    differ by one ulp on others (CI flake 2026-09-19; reproduced with
+    ``XLA_FLAGS=--xla_cpu_use_fusion_emitters=false``). A parity claim
+    between two assemblies is a claim about ARITHMETIC, so it is
+    checked where there is no fusion to differ.
+    """
+    with jax.disable_jit():
+        return _chunk_body(model._artifacts.record, steps,
+                           model._carry, model._stepper).state
+
+
 def test_a_decoupled_staggered_run_is_bitwise_the_unphased_one():
     # THE EXACTNESS CONDITION, stated: the tracer group's tendency
     # (n2 * w, with n2 = 0) is identically zero and no advection
@@ -234,11 +252,18 @@ def test_a_decoupled_staggered_run_is_bitwise_the_unphased_one():
     # every PROGNOSTIC field. (w and p_hyd are DIAGNOSTIC and are
     # re-diagnosed in phase 1 from the advanced u, v -- that
     # difference is the axis working as designed.)
-    plain = run(hy_model(None, n2=0.0, advection=False),
-                tracer=False)
-    phased = run(hy_model(STAGGERED, n2=0.0, advection=False),
-                 tracer=False)
+    # the phased and the unphased step are two different programs, so
+    # the exactness is checked op by op (see _advanced_op_by_op)
+    def run_op_by_op(model):
+        seed(model, tracer=False)
+        state = _advanced_op_by_op(model, STEPS)
+        return {name: np.asarray(state[name].data)
+                for name in prognostic(model)}
+
+    plain = run_op_by_op(hy_model(None, n2=0.0, advection=False))
+    phased = run_op_by_op(hy_model(STAGGERED, n2=0.0, advection=False))
     bitwise(plain, phased)
+    assert np.abs(plain["u"]).max() > 0.0
     assert np.abs(plain["b"]).max() == 0.0
 
 
