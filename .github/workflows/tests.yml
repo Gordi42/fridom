@@ -125,6 +125,8 @@ jobs:
           tests/spatial/operators/test_transform.py \
           tests/spatial/operators/test_spectral_solve.py \
           tests/spatial/operators/test_transfer.py \
+          tests/spatial/operators/test_staggering_local.py \
+          tests/hydrostatic/modules/test_barotropic_subcycle.py \
           tests/spatial/test_exchange_counts.py \
           tests/spatial/fields/test_halo_validity.py \
           tests/model/test_step_chunk.py \
