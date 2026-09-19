@@ -57,7 +57,10 @@ Oceananigans re-run.
 ## 2. Spherical 3-D models (3.7 — promoted, owner 2026-07-19)
 
 Pre-docs feature: **hydrostatic first, nonhydro after; sw2 is the
-metric reference.** Campaign; runs on the owner-approved plan
+metric reference.** Phases S0-S2 shipped in the narrow orthogonal
+thin-shell form (done.md, 2026-09-19); what remains: the SP-D6
+spatial-layer metric operators (the fallback composition was used),
+biased advection on charts (SP-D5), S3, S4. Campaign; runs on the owner-approved plan
 (`../plans/active/spherical_models_plan.md`, in flight above).
 Scoping evidence:
 [`../research/spherical_models_scoping.md`](../research/spherical_models_scoping.md).
