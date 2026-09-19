@@ -454,9 +454,10 @@ After docs (owner 2026-07-19): the **Veros and pyOM3 legs** (pyOM3
 source: `github.com/ceden/pyOM3`, verified reachable).
 `ThermalWindBackground` (shipped) unblocks an Eady leg. Full narrative
 of the shipped model + Oceananigans leg: [`done.md`](done.md) §3.1.
-Designed-fors (T/S + EOS) stay in
+The remaining designed-fors stay in
 [`../plans/active/hydrostatic_model_plan.md`](../plans/active/hydrostatic_model_plan.md)
-§7; z* shipped 2026-08-23 ([`done.md`](done.md)), the target-following
+§7; z* (2026-08-23) and T/S + EOS (2026-09-19) shipped
+([`done.md`](done.md)), the target-following
 (isopycnal / hybrid) stage is open in
 [`../plans/active/flow_following_coordinates_plan.md`](../plans/active/flow_following_coordinates_plan.md).
 

@@ -32,6 +32,7 @@ if TYPE_CHECKING:  # pragma: no cover
         SplitExplicitFreeSurface,
     )
     from .stratification import ConstantStratification
+    from .temperature_salinity import TemperatureSalinity
     from .thermal_wind import ThermalWindBackground
     from .zstar import ZStarGeometry, zstar_mapping
 
@@ -53,6 +54,7 @@ all_imports_by_origin = {
     f"{base}.core": ["Core"],
     f"{base}.buoyancy_tracer": ["BuoyancyTracer"],
     f"{base}.stratification": ["ConstantStratification"],
+    f"{base}.temperature_salinity": ["TemperatureSalinity"],
     f"{base}.free_surface": [
         "ExplicitFreeSurface", "ImplicitFreeSurface",
         "SplitExplicitFreeSurface"],
