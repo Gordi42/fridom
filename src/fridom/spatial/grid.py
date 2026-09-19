@@ -1013,7 +1013,7 @@ class Grid:
         space = field.function_space
         synced = self._decomposition.sync(
             field._data, space,  # noqa: SLF001 — storage seam
-            materialize=materialize)
+            materialize=materialize, valid=field.halo_valid)
         return ScalarField(
             self, space, synced, field.metadata,
             halo_valid=self._decomposition.halo.over(

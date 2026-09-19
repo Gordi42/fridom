@@ -389,6 +389,7 @@ class Decomposition(ABC):
         layout: Layout | None = None,
         fills: Mapping[str, jax.Array] | None = None,
         materialize: bool = False,
+        valid: HaloSpec | None = None,
     ) -> jax.Array:
         """
         Exchange halos; fill bounded edges.
@@ -420,6 +421,10 @@ class Decomposition(ABC):
             in-place ghost writes — O(halo) there — instead of the
             fuse-absorbable remap a stencil consumer wants
             (default: False).
+
+        valid : HaloSpec | None, optional
+            Known-valid halo layers of the input. A realization may
+            omit fills already covered by this claim (default: None).
 
         Returns
         -------
