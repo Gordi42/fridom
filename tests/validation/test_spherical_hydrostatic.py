@@ -23,6 +23,15 @@ float64):
   2nd-order convergence, and the same truncation-level drift as the
   vector-invariant ``sw2`` reference on the same grid (p L2 2.044e-3
   at 32x16; asserted within 50 %, measured within 2 %).
+- **Rossby-Haurwitz wave vs sw2**: a wave-4 Rossby-Haurwitz wave on a
+  deep layer (``g H = 50``, so the linear free surface and the
+  nonlinear shallow-water thickness differ at ``O(p'/gH)``) run in
+  both models: while the wave's ``v`` changes by 31 %, the flux-form
+  hydrostatic model and the vector-invariant ``sw2`` agree to 6.3e-3
+  (32x16) and 1.7e-3 (64x32) relative — two independent
+  discretizations of the metric terms converging onto each other at
+  2nd order (meridional advection and both curvature terms are O(1)
+  here, unlike in the zonal TC2 state).
 - **Curvature discriminator (S1-3)**: with the curvature source
   switched off the same state drifts at O(1) and does **not** converge
   (measured ps L2 9.8e-3 / 8.1e-3).
@@ -211,6 +220,82 @@ def test_tc2_matches_the_shallow_water_reference(tc2_pair):
     coarse, _ = tc2_pair
     for mine, theirs in zip(coarse, ref, strict=True):
         assert 0.5 * theirs < mine < 1.5 * theirs
+
+
+# ================================================================
+#  Rossby-Haurwitz wave: the hydrostatic column tracks sw2
+# ================================================================
+RH_W, RH_K, RH_R, RH_GH = 0.1, 0.1, 4, 50.0
+
+
+def _rh_u(lon, lat):
+    c, s = jnp.cos(lat), jnp.sin(lat)
+    return RH_W * c + RH_K * c ** (RH_R - 1) * (
+        RH_R * s ** 2 - c ** 2) * jnp.cos(RH_R * lon)
+
+
+def _rh_v(lon, lat):
+    return (-RH_K * RH_R * jnp.cos(lat) ** (RH_R - 1) * jnp.sin(lat)
+            * jnp.sin(RH_R * lon))
+
+
+def _rh_p(lon, lat):
+    r, c = RH_R, jnp.cos(lat)
+    a = (0.5 * RH_W * (2 * OMEGA + RH_W) * c ** 2
+         + 0.25 * RH_K ** 2 * c ** (2 * r) * (
+             (r + 1) * c ** 2 + (2 * r ** 2 - r - 2)
+             - 2 * r ** 2 / c ** 2))
+    b = (2 * (OMEGA + RH_W) * RH_K / ((r + 1) * (r + 2)) * c ** r
+         * ((r ** 2 + 2 * r + 2) - (r + 1) ** 2 * c ** 2))
+    cc = 0.25 * RH_K ** 2 * c ** (2 * r) * ((r + 1) * c ** 2 - (r + 2))
+    return a + b * jnp.cos(r * lon) + cc * jnp.cos(2 * r * lon)
+
+
+def _rh_pair(nlon, nlat, dt, steps):
+    """Run the wave in both models; return (v change, v mismatch)."""
+    stepper = AdamBashforth(dt, order=3)
+    hydro = hy.Model(
+        grid=sphere_grid(nlon, nlat, 2),
+        core=hy.Core(gravity=RH_GH, horizontal=HOR),
+        time_stepper=stepper,
+        coriolis=RotationCoriolis((0.0, 0.0, OMEGA)),
+        free_surface=hy.ExplicitFreeSurface(horizontal=HOR),
+        advection=CenteredAdvection())
+    hydro.set_fields(
+        u=lambda lon, lat, z: _rh_u(lon, lat) + 0.0 * z,
+        v=lambda lon, lat, z: _rh_v(lon, lat) + 0.0 * z, ps=_rh_p)
+    shallow = sw.Model(
+        advection=sw.SadournyAdvection(),
+        grid=fr.spatial.spherical.Grid(
+            (nlon, nlat), radius=1.0, lat_extent=(-LAT_MAX, LAT_MAX)),
+        core=sw.Core(gravity=1.0, depth=RH_GH, coords=HOR),
+        coriolis=sw.modules.RotationCoriolis(
+            omega=(0.0, 0.0, OMEGA), coords=HOR, metric_weight="csqr"),
+        time_stepper=AdamBashforth(dt, order=3))
+    shallow.set_fields(u=_rh_u, v=_rh_v, p=_rh_p)
+    v_start = np.asarray(shallow.state["v"].data).copy()
+    hydro.advance(steps)
+    shallow.advance(steps)
+    assert not hydro.panicked
+    assert not shallow.panicked
+    v_hy = np.asarray(hydro.state["v"].data)[..., 0]
+    v_sw = np.asarray(shallow.state["v"].data)
+
+    def norm(x):
+        return float(np.sqrt((x ** 2).mean()))
+
+    return (norm(v_sw - v_start) / norm(v_start),
+            norm(v_hy - v_sw) / norm(v_sw))
+
+
+def test_rossby_haurwitz_wave_tracks_the_shallow_water_reference():
+    # measured: the wave's v changes by 31 % over the run while the two
+    # models differ by 6.3e-3 (32x16) / 1.7e-3 (64x32)
+    change, coarse = _rh_pair(32, 16, 1e-3, 2000)
+    _, fine = _rh_pair(64, 32, 5e-4, 4000)
+    assert change > 0.2          # the comparison is not a still life
+    assert coarse < 1.5e-2
+    assert fine < 0.4 * coarse   # the two schemes converge together
 
 
 def test_curvature_source_is_load_bearing(monkeypatch, tc2_pair):
