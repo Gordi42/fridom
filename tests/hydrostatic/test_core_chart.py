@@ -77,7 +77,11 @@ def test_chart_pressure_gradient_is_the_physical_gradient():
     state = model.state
     p_hyd = core._diagnose_p_hyd(state, None)["p_hyd"]
     tend = core.pressure_gradient(state.replace(p_hyd=p_hyd), None)
-    assert np.abs(np.asarray(tend["u"].data)).max() == 0.0
+    # zonally uniform p_hyd: no zonal force. Exactly zero on one device;
+    # on several the vertical column sums round per shard, so the
+    # zonal difference is rounding-level (measured 1.1e-16), not 0.0
+    assert (np.abs(np.asarray(tend["u"].data)).max()
+            < 1e-13 * np.abs(np.asarray(tend["v"].data)).max())
     grid = model.grid
     space = tend["v"].function_space
     lat = np.asarray(grid.evaluation_nodes(space, "lat").data)
