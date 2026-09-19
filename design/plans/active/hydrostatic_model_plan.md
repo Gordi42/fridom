@@ -288,7 +288,8 @@ diagnostics (HY-D6).
 
 ## 7. Out of scope (designed-for, not precluded)
 
-T/S with a nonlinear EOS (buoyancy tracer first); topography /
+~~T/S with a nonlinear EOS (buoyancy tracer first)~~ — **shipped
+2026-09-19** (`hy.TemperatureSalinity` + `hy.eos`, §8 record); topography /
 immersed boundaries (variable-`csqr` solve route is specified, not
 built in it-1); ~~z* / ALE moving vertical coordinate~~ — **shipped
 2026-08-23** (`hy.ZStarGeometry`, [`flow_following_coordinates_plan.md`](flow_following_coordinates_plan.md)); the spherical
@@ -984,3 +985,89 @@ default elsewhere). See done.md, boundary trace machinery.]
 4 skipped; `ruff` clean; autodiff regression (grad through
 `_chunk_body`, default-on) FD-matched. Merge `8bd91dfe` (branch
 `fix/hydro-surface-advective-flux`, 5 commits).
+
+### T/S + equation of state — `hy.TemperatureSalinity` (2026-09-19, branch `feat/hydrostatic-temperature-salinity`)
+
+The §7 designed-for, built into the buoyancy slot of
+[`../../decisions/buoyancy_slot_and_core_default.md`](../../decisions/buoyancy_slot_and_core_default.md)
+with **no framework and no core change** — the slot did what the
+decision said it would.
+
+**Shape.** `hy.TemperatureSalinity(eos)` declares the tracers `T`
+[degC, conservative temperature] and `S` [g/kg, absolute salinity]
+(`TRACER + ADVECTED`: the advection scheme transports them and every
+`TRACER`-selecting closure mixes them, unwired) and re-declares `b` as a
+**DIAGNOSTIC** field without a role. A `DIAGNOSE` stage `diagnose_b`
+with `order=-1` fills it ahead of the core's order-0 `diagnose_p_hyd`,
+which integrates it unchanged. The equations of state are host-side
+immutable objects with pure `jax.numpy` methods (`fridom.hydrostatic.eos`,
+usable standalone): `LinearEOS` (tunable), `RoquetEOS` (the simplified
+second-order family of Roquet et al. 2015b, Table 3 sets by name as in
+Oceananigans) and `TEOS10EOS` (the 55-term polyTEOS10 of Roquet et al.
+2015a, the NEMO / Oceananigans expression).
+
+**Calls the plan left open, and what was taken.**
+
+- *Buoyancy as a diagnosed field, not a term.* The alternative — keep
+  `b` prognostic and advance it by `alpha dT/dt - beta dS/dt` — cannot
+  carry a nonlinear EOS. A diagnosed `b` costs one pointwise evaluation
+  per substage and leaves `hy.Core` byte-identical.
+- *The same-depth reference parcel.* `b = -g (rho(T, S, d) -
+  rho(T_ref, S_ref, d)) / rho0`: the anomaly is measured against a
+  reference parcel (10 degC, 35 g/kg) **at the same depth**, which
+  removes every pure-depth density (the 4.5 kg/m^3 per km of bulk
+  compressibility — NEMO's `r0(z)` split, done EOS-agnostically) while
+  keeping the thermobaric dependence of differences exact. On a sigma
+  grid this keeps compressibility out of the pressure-gradient error
+  (TEOS-10 rest-state residual = 1.04x the linear EOS one).
+- *Tunable coefficients are a closed vocabulary.* Provided parameters
+  must be class-level dynamic leaves of the providing **module**
+  (`dynamic_jax_attrs`), so an EOS object cannot publish arbitrary
+  leaves. The module carries two optional leaves, `eos.alpha` /
+  `eos.beta`, bound when the EOS lists them in `tunable`; only a
+  depth-independent EOS may (`LinearEOS` does). The polynomial fits are
+  constants of nature and stay static.
+- *Depth* is `z_surface - z_physical`: the plain vertical nodes on a
+  flat / stretched column (and under a purely horizontal chart — the
+  module never calls the raising `terrain.discover_column`), the mapped
+  column position at the state's geometry on a terrain / z* column.
+  `z_surface` defaults to the top of the vertical mesh axis.
+- *Raw-array stage.* The EOS runs on `.data` with a declared zero
+  `extra_halo` (the `MaskState` precedent) instead of ~110 dispatched
+  field products per evaluation; `b` is zeroed on dry cells of an
+  immersed grid (their `T = S = 0` would read as fresh water).
+- *Dimensional only* (`scaling_variant = "dimensional"` + a
+  `hydrostatic.gravity` reference): a nondimensional assembly is the
+  taught mixed-variant error. No `model.units` rows are contributed
+  (absent rows are the sanctioned spelling where no factor is derived).
+- *Reductions* `constant_salinity=` / `constant_temperature=` (the
+  Oceananigans spelling named by the decision record) drop one tracer.
+
+**Gates (numbers).** TEOS-10 published check values (Theta = 10, S_A =
+30, p = 1000 dbar): rho 1027.4514012 (1027.45140), r0 4.5976303508
+(4.59763035), r' 1022.8537708 (1022.85377), -d rho/d Theta
+0.17964628134 (0.179646281), d rho/d S_A 0.76555537079 (0.765555368).
+`RoquetEOS("second_order")` vs the NEMO S-EOS `a0` / `b0`: 0.4 % / 1.3 %;
+vs TEOS-10 inside the ocean funnel: max 0.069, rms 0.022 kg/m^3
+(linear: 1.63 / 0.43). `BuoyancyTracer` equivalence (linear EOS,
+constant S): every field within 1e-11 relative after 20 steps. Heat /
+salt content conserved to 1e-13 (closed-surface advection + implicit
+vertical mixing). Flat rest state: `b`, `p_hyd` bitwise uniform; the
+velocities sit on the core's own 1e-17 m/s rounding floor (which a
+resting `BuoyancyTracer` shows too). Sigma rest state (+-20 % seamount,
+300 m thermocline), spurious acceleration at n = 16 / 32 / 64: linear
+4.30e-6 / 1.13e-6 / 2.91e-7, TEOS-10 4.49e-6 / 1.34e-6 / 3.80e-7 m/s^2
+(orders 1.75-1.96; PGE / f = 4 cm/s -> 0.3 cm/s). Autodiff through
+`Model.propagator` w.r.t. `eos.alpha`, an initial `T` (TEOS-10) and an
+initial `S` on an immersed grid (dry `S = 0` under the TEOS-10 root of
+`S + 32`): finite, FD-matched to 1e-4. Forced-4-device invariance to
+1e-11 relative.
+
+**Not built.** A `hy.State` vocabulary entry for `T` / `S`; surface
+heat / freshwater flux wrappers with the oceanographic sign (use
+`BoundaryFlux("T", ...)` or a top-cell-masked `Relaxation`);
+convective adjustment; a prognostic-`b` consumer audit
+(`ThermalWindBackground` and `SurfaceBuoyancyFlux` advance `b` and are
+refused on this formulation by the lifecycle checks); N^2-consumers
+(energy metric, eigenmodes) refuse the model through the missing
+`stratification.*` provide, as they do a `BuoyancyTracer` one.
