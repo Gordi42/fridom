@@ -259,6 +259,50 @@ def test_zeros_is_storage_shaped_sharded_and_zero(space):
     assert bool(jnp.all(arr == 0))
 
 
+def test_zeros_honors_dtype(space):
+    decomp = make_decomp(halo=HaloSpec({"x": 1, "y": 0}))
+    assert decomp.zeros(space).dtype == jnp.zeros(()).dtype
+    arr = decomp.zeros(space, dtype=jnp.complex128)
+    assert arr.dtype == jnp.complex128
+    assert arr.shape == decomp.storage_shape(space)
+
+
+def test_zeros_is_traceable(space):
+    # staged out, zeros is the whole-extent constant (a tracer cannot
+    # be committed block by block)
+    decomp = make_decomp(halo=HaloSpec({"x": 1, "y": 0}))
+    arr = jax.jit(lambda: decomp.zeros(space, dtype=jnp.float32))()
+    assert arr.shape == decomp.storage_shape(space)
+    assert arr.dtype == jnp.float32
+    assert bool(jnp.all(arr == 0))
+
+
+def test_assemble_on_one_device_is_pad_of_the_whole_piece(space):
+    decomp = make_decomp(halo=HaloSpec({"x": 2, "y": 1}))
+    arr = jnp.arange(40.0).reshape(space.shape)
+    boxes = []
+
+    def piece(box):
+        boxes.append(box)
+        return arr[box]
+
+    stored = decomp.assemble(space, piece)
+    # unblocked geometry: exactly one whole-extent piece
+    assert boxes == [(slice(0, 8), slice(0, 5))]
+    assert stored.sharding == decomp.sharding(space)
+    assert np.array_equal(np.asarray(stored),
+                          np.asarray(decomp.pad(arr, space)))
+
+
+def test_assemble_is_traceable(space):
+    decomp = make_decomp(halo=HaloSpec({"x": 2, "y": 1}))
+    arr = jnp.arange(40.0).reshape(space.shape)
+    stored = jax.jit(
+        lambda a: decomp.assemble(space, lambda box: 2.0 * a[box]))(arr)
+    assert np.array_equal(np.asarray(stored),
+                          np.asarray(decomp.pad(2.0 * arr, space)))
+
+
 def test_pad_produces_storage_shape(space):
     decomp = make_decomp(halo=HaloSpec({"x": 2, "y": 1}))
     arr = jnp.arange(40.0).reshape(space.shape)

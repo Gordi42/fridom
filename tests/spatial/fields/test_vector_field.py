@@ -233,6 +233,32 @@ def test_set_accepts_a_scalar_fill(vec):
     assert (data == 2.5).all()
 
 
+def test_set_is_device_count_invariant():
+    # every re-home flavor (callable, scalar fill, host array, device
+    # array) is born sharded on a multi-device grid and must equal the
+    # one-device result bit for bit, walled staggered spaces included
+    def build(device_ids):
+        mx = IntervalMesh(16, (0.0, 1.0), periodic=False, name="x")
+        my = IntervalMesh(4, (0.0, 1.0), name="y")
+        grid = Grid((mx, my), device_ids=device_ids)
+        return VectorField({
+            "u": grid.create_field(mx.inner * my.center),
+            "o": grid.create_field(mx.outer * my.center)})
+
+    host = np.random.default_rng(0).standard_normal((15, 4))
+    for value in (lambda x, y: jnp.sin(3.0 * x) * jnp.cos(y), 2.5,
+                  host, host.astype(np.float32), jnp.asarray(host)):
+        many, one = (build(ids).set(u=value) for ids in (None, (0,)))
+        assert many["u"].dtype == one["u"].dtype
+        assert np.array_equal(np.asarray(many["u"].data),
+                              np.asarray(one["u"].data))
+    many, one = (
+        build(ids).set(o=lambda x, y: jnp.exp(x) + y)
+        for ids in (None, (0,)))
+    assert np.array_equal(np.asarray(many["o"].data),
+                          np.asarray(one["o"].data))
+
+
 def test_set_accepts_a_true_shape_array(vec, u):
     out = vec.set(u=np.full(u.shape, 3.0))
     assert (np.asarray(out["u"].data) == 3.0).all()

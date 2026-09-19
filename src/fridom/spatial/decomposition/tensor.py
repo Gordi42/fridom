@@ -57,16 +57,35 @@ from fridom.spatial.spaces.nodal import NodalSpace, NodeSet
 if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Callable, Mapping, Sequence
 
+    from jax.typing import DTypeLike
+
     from fridom.spatial.decomposition.decomposition import (
         SpaceLike,
     )
     from fridom.spatial.decomposition.halo import HaloSpec
-    from jax.typing import DTypeLike
-
     from fridom.spatial.decomposition.layout import Layout
     from fridom.spatial.spaces.function_space import (
         FunctionSpace,
     )
+
+
+def is_tracing() -> bool:
+    """
+    Whether array creation is currently staged out (``jit`` tracing).
+
+    Description
+    -----------
+    The born-sharded constructors (``zeros``, ``assemble``) commit
+    concrete blocks to devices, which only eager code can do; under a
+    ``jit`` trace even a constant is a tracer, and construction keeps
+    the whole-extent program the partitioner shards.
+
+    Returns
+    -------
+    bool
+        True iff a freshly created constant is a tracer.
+    """
+    return isinstance(jnp.zeros(()), jax.core.Tracer)
 
 
 class _ReblockPlan(NamedTuple):
@@ -693,14 +712,20 @@ class TensorDecomposition(Decomposition):
 
         Description
         -----------
-        Born sharded (``jnp.zeros(..., device=sharding)``): every
-        device allocates its own block, the global array is never
-        materialized on one device.
+        Born sharded: one zero block of the (uniform) shard shape is
+        committed to every addressable device, so the global array is
+        never materialized on one device and a process touches only
+        the shards it addresses.
         """
         layout = self._resolve_layout(space, layout)
-        return jnp.zeros(
-            self.storage_shape(space, layout), dtype,
-            device=self.sharding(space, layout))
+        storage = self.storage_shape(space, layout)
+        sharding = self.sharding(space, layout)
+        if is_tracing():
+            # staged out: the partitioner places the constant
+            return jax.device_put(jnp.zeros(storage, dtype), sharding)
+        block = jnp.zeros(sharding.shard_shape(storage), dtype)
+        return jax.make_array_from_callback(
+            storage, sharding, lambda _: block)
 
     def assemble(
         self,
@@ -726,12 +751,17 @@ class TensorDecomposition(Decomposition):
         it addresses. Pieces are built one at a time on the default
         device and released once committed, so the transient is one
         block, never the global array. An unblocked geometry is the
-        single whole-extent piece routed through ``pad``.
+        single whole-extent piece routed through ``pad``, and so is
+        every traced build (under ``jit``, or a piece that closes
+        over traced values): staged-out code has no eager transient,
+        the partitioner shards the whole-extent program, and the
+        traced program stays exactly the ``pad`` one.
         """
         layout = self._resolve_layout(space, layout)
         geometry = self._geometry(space, layout)
-        if all(shards == 1 for _, _, _, shards, *_ in geometry):
-            whole = tuple(slice(0, n) for _, n, *_ in geometry)
+        whole = tuple(slice(0, n) for _, n, *_ in geometry)
+        if is_tracing() or all(
+                shards == 1 for _, _, _, shards, *_ in geometry):
             return self.pad(jnp.asarray(piece(whole)), space, layout)
         sharding = self.sharding(space, layout)
         storage = tuple(total for *_, total in geometry)
@@ -754,6 +784,11 @@ class TensorDecomposition(Decomposition):
                 widths.append(
                     (width, block - width - (stop - start)))
             data = jnp.asarray(piece(tuple(slices)))
+            if isinstance(data, jax.core.Tracer):
+                # the piece closes over traced values (e.g. a
+                # differentiated parameter outside jit)
+                return self.pad(
+                    jnp.asarray(piece(whole)), space, layout)
             expected = tuple(sl.stop - sl.start for sl in slices)
             if tuple(data.shape) != expected:
                 raise ValueError(

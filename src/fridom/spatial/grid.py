@@ -42,6 +42,7 @@ from fridom.spatial.decomposition.halo import (
     HaloSpec,
     trace_halo,
 )
+from fridom.spatial.decomposition.tensor import is_tracing
 from fridom.spatial.errors import (
     GridFrozenError,
     GridMismatchError,
@@ -1131,73 +1132,59 @@ class Grid:
             return self._transform_discretize(
                 space, init, order, metadata)
         dtype = storage_dtype(space)
-        if data is None and init_coeff is None:
-            # born sharded: zeros allocate block by block, init= is
-            # sampled shard by shard -- no device holds the global
-            # true-shape array (setup memory scales with the shard)
-            stored = (
-                self._decomposition.zeros(space, dtype=dtype)
-                if init is None
-                else self._discretize_stored(space, init, order, dtype))
-            return ScalarField(self, space, stored, metadata)
-        if data is not None and not isinstance(data, jax.Array):
-            return ScalarField(
-                self, space, self._store_host_data(space, data),
-                metadata)
+        # born sharded: zeros allocate block by block, init= is
+        # sampled shard by shard, host data= uploads shard slices --
+        # no device holds the global true-shape array, so setup
+        # memory scales with the local shard
         if data is not None:
-            arr = jnp.asarray(data)
-            if tuple(arr.shape) != tuple(space.shape):
-                raise ValueError(
-                    f"data= expects the true shape {space.shape}, "
-                    f"got {tuple(arr.shape)}")
-            if (jnp.iscomplexobj(arr)
-                    and not jnp.issubdtype(dtype,
-                                           jnp.complexfloating)):
-                raise ValueError(
-                    "complex data cannot be demoted to the real "
-                    f"storage of {space!r}")
-            arr = hermitian_project(arr.astype(dtype), space)
-        else:
-            arr = hermitian_project(
+            stored = self._store_data(space, data)
+        elif init is not None:
+            stored = self._discretize_stored(space, init, order, dtype)
+        elif init_coeff is not None:
+            stored = store(self._decomposition, space, hermitian_project(
                 self._assign_coeff(space, init_coeff).astype(dtype),
-                space)
-        stored = store(self._decomposition, space, arr)
+                space))
+        elif is_tracing():
+            # staged out: the unchanged true-shape program
+            stored = store(self._decomposition, space,
+                           jnp.zeros(space.shape, dtype))
+        else:
+            stored = self._decomposition.zeros(space, dtype=dtype)
         return ScalarField(self, space, stored, metadata)
 
-    def _store_host_data(
+    def _store_data(
         self, space: SpaceLike, data: object,
     ) -> jax.Array:
         """
-        Route host (non-jax) true-shape ``data=`` into storage.
+        Route a true-shape ``data=`` companion into storage.
 
         Description
         -----------
-        Host data never becomes a global device array: each shard
-        uploads only its own slice (``decomposition.assemble``). The
-        validation, dtype coercion and Hermitian projection are the
-        ones of the device-array path; the projection is a no-op
-        unless the space carries a real-origin Fourier factor, whose
-        storage is device-local anyway, so those spaces keep the
-        whole-array route.
+        Validates the true shape, refuses a complex-to-real demotion,
+        coerces to the storage dtype and applies the Hermitian
+        projection. Host (non-jax) data never becomes a global device
+        array: each shard uploads only its own slice
+        (``decomposition.assemble``). Device arrays, and the spaces
+        the flat Hermitian projection acts on (their coefficient
+        storage is device-local anyway), keep the whole-array route.
         """
-        host = np.asarray(data)
+        arr = data if isinstance(data, jax.Array) else np.asarray(data)
         dtype = storage_dtype(space)
-        if tuple(host.shape) != tuple(space.shape):
+        if tuple(arr.shape) != tuple(space.shape):
             raise ValueError(
                 f"data= expects the true shape {space.shape}, "
-                f"got {tuple(host.shape)}")
-        if (np.iscomplexobj(host)
+                f"got {tuple(arr.shape)}")
+        if (jnp.iscomplexobj(arr)
                 and not jnp.issubdtype(dtype, jnp.complexfloating)):
             raise ValueError(
                 "complex data cannot be demoted to the real "
                 f"storage of {space!r}")
-        if flat_hermitian_applies(space):
+        if isinstance(arr, jax.Array) or flat_hermitian_applies(space):
             return store(
                 self._decomposition, space,
-                hermitian_project(
-                    jnp.asarray(host).astype(dtype), space))
+                hermitian_project(jnp.asarray(arr).astype(dtype), space))
         return self._decomposition.assemble(
-            space, lambda box: jnp.asarray(host[box]).astype(dtype))
+            space, lambda box: jnp.asarray(arr[box]).astype(dtype))
 
     @property
     def random(self) -> RandomFieldFactory:

@@ -694,11 +694,9 @@ def rehome_component(
             space,
             lambda box: jnp.full(
                 tuple(sl.stop - sl.start for sl in box), value)))
-    if isinstance(value, jax.Array):
-        array = value
-    else:
-        # host data: each shard uploads its own slice only
-        array = np.asarray(value)
+    # host data stays on the host: each shard uploads its own slice
+    array = (value if isinstance(value, jax.Array)
+             else np.asarray(value))
     if tuple(array.shape) != tuple(incumbent.shape):
         raise ValueError(
             f"{label}: expected the true shape "

@@ -10,6 +10,7 @@ and the comparisons prove bitwise device-count invariance through
 the ``shard_map`` + ``ppermute`` halo exchange. ``multi_device``
 marked tests additionally inspect the blocked storage itself.
 """
+import itertools
 import os
 import re
 from pathlib import Path
@@ -863,3 +864,113 @@ def test_non_divisible_grid_is_device_count_invariant():
         many.create_field().function_space, seed=0)
     r_one = one.random.normal(one.create_field().function_space, seed=0)
     assert bitwise(r_many.data, r_one.data)
+
+
+# ================================================================
+#  Born-sharded construction (zeros / assemble)
+# ================================================================
+def _sharded_spaces():
+    """Every blocked-axis geometry: (label, grid, laid-out space)."""
+    out = []
+    for label, cells, periodic, pick in (
+            ("uniform", 16, True, lambda m: m.center),
+            ("deficit", 16, False, lambda m: m.inner),
+            ("surplus", 16, False, lambda m: m.outer),
+            ("indivisible", 23, True, lambda m: m.center),
+            ("indivisible-surplus", 23, False, lambda m: m.outer)):
+        mx = IntervalMesh(cells, (0.0, 1.0), periodic=periodic, name="x")
+        my = IntervalMesh(6, (0.0, 2.0), periodic=False, name="y")
+        grid = Grid((mx, my))
+        out.append((label, grid,
+                    grid._laid_out(pick(mx) * my.center)))
+    return out
+
+
+@pytest.mark.multi_device
+def test_assemble_equals_pad_on_every_blocked_geometry():
+    # the born-sharded route must reproduce pad bit for bit (values AND
+    # sharding) on the shard-local plan geometries and on the global
+    # fallback (surplus) alike, from pieces that tile the true extent
+    for label, grid, space in _sharded_spaces():
+        decomp = grid.decomposition
+        assert dict(decomp.default_layout.device_axes) == {
+            "x": "devices"}, label
+        true = jnp.arange(
+            1.0, 1.0 + np.prod(space.shape)).reshape(space.shape)
+        boxes = []
+
+        def piece(box, true=true, boxes=boxes):
+            boxes.append(box)
+            return true[box]
+
+        stored = decomp.assemble(space, piece)
+        padded = decomp.pad(true, space)
+        assert stored.sharding == padded.sharding, label
+        assert stored.dtype == padded.dtype, label
+        assert bitwise(stored, padded), label
+        # one piece per device; the x ranges tile [0, n) in order and
+        # the unsharded y extent is always whole
+        assert len(boxes) == jax.device_count(), label
+        ranges = sorted((box[0].start, box[0].stop) for box in boxes)
+        assert ranges[0][0] == 0, label
+        assert ranges[-1][1] == space.shape[0], label
+        assert all(a[1] == b[0]
+                   for a, b in itertools.pairwise(ranges)), label
+        assert {(box[1].start, box[1].stop) for box in boxes} == {
+            (0, space.shape[1])}, label
+
+
+@pytest.mark.multi_device
+def test_assemble_rejects_a_piece_of_the_wrong_shape():
+    _, grid, space = _sharded_spaces()[0]
+    with pytest.raises(ValueError, match="at its true shape"):
+        grid.decomposition.assemble(
+            space, lambda _box: jnp.zeros(space.shape))
+
+
+@pytest.mark.multi_device
+def test_assemble_with_a_traced_piece_keeps_the_whole_extent_program():
+    # outside jit a piece can still close over a traced value (grad of
+    # a construction parameter): blocks of tracers cannot be committed
+    # to devices, so the build falls back to pad of the whole piece
+    _, grid, space = _sharded_spaces()[0]
+    decomp = grid.decomposition
+    weights = jnp.arange(
+        1.0, 1.0 + np.prod(space.shape)).reshape(space.shape)
+
+    def loss(scale):
+        stored = decomp.assemble(
+            space, lambda box: scale * weights[box])
+        return jnp.sum(stored ** 2)
+
+    grad = jax.grad(loss)(jnp.asarray(0.5))
+    assert np.isclose(float(grad), float(jnp.sum(weights ** 2)))
+    jitted = jax.jit(loss)(jnp.asarray(0.5))
+    assert np.isclose(float(jitted), 0.25 * float(jnp.sum(weights ** 2)))
+
+
+@pytest.mark.multi_device
+def test_zeros_never_allocates_the_global_storage(monkeypatch):
+    # born sharded: the only zero buffer ever requested is one block
+    _, grid, space = _sharded_spaces()[0]
+    decomp = grid.decomposition
+    storage = decomp.storage_shape(space)
+    requested = []
+    real_zeros = jnp.zeros
+
+    def spy(shape, *args, **kwargs):
+        requested.append(tuple(shape))
+        return real_zeros(shape, *args, **kwargs)
+
+    monkeypatch.setattr(jnp, "zeros", spy)
+    arr = decomp.zeros(space, dtype=jnp.float32)
+    monkeypatch.undo()
+    block = (storage[0] // jax.device_count(), storage[1])
+    assert storage not in requested
+    assert block in requested
+    assert arr.shape == storage
+    assert arr.dtype == jnp.float32
+    assert arr.sharding == decomp.sharding(space)
+    assert {shard.data.shape for shard in arr.addressable_shards} == {
+        block}
+    assert bitwise(arr, np.zeros(storage, dtype=np.float32))

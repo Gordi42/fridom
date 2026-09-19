@@ -80,6 +80,7 @@ from fridom.model.time_dependent import (
 from fridom.spatial.decomposition.halo import HaloSpec
 from fridom.spatial.fields.metadata import FieldMetadata
 from fridom.spatial.fields.scalar_field import ScalarField
+from fridom.spatial.fields.storage import flat_hermitian_applies
 from fridom.spatial.fields.vector_field import VectorField
 from fridom.spatial.operators.registry import check_override_key
 from fridom.spatial.space_patterns import (
@@ -1200,6 +1201,53 @@ def _default_form(default: Callable | float | None) -> str:
     return "coordinate"
 
 
+def _constant_field(
+    grid: Grid,
+    space: SpaceLike,
+    value: numbers.Number,
+    metadata: FieldMetadata,
+) -> ScalarField:
+    """
+    Materialize a constant-valued field, born sharded.
+
+    Description
+    -----------
+    A real fill on a space without the flat Hermitian projection is
+    built block by block (``decomposition.assemble``), so no device
+    holds the global ``jnp.full`` array; every other combination keeps
+    the ``create_field(data=...)`` route and its validation (complex
+    demotion, Hermitian projection).
+
+    Parameters
+    ----------
+    grid : Grid
+        The grid to materialize on.
+    space : SpaceLike
+        The declared space.
+    value : numbers.Number
+        The constant fill value.
+    metadata : FieldMetadata
+        The field annotation.
+
+    Returns
+    -------
+    ScalarField
+        The constant field (ghost slots zero, claimed invalid).
+    """
+    blank = grid.create_field(space, metadata=metadata)
+    laid = blank.function_space
+    if (not isinstance(value, numbers.Real)
+            or flat_hermitian_applies(laid)):
+        return grid.create_field(
+            space, data=jnp.full(laid.shape, value), metadata=metadata)
+    dtype = blank.dtype
+    return blank.with_storage(grid.decomposition.assemble(
+        laid,
+        lambda box: jnp.full(
+            tuple(extent.stop - extent.start for extent in box),
+            value).astype(dtype)))
+
+
 def _materialize_entry(
     entry: RematerializationEntry,
     module: object,
@@ -1238,9 +1286,7 @@ def _materialize_entry(
     if default is None:
         return grid.create_field(entry.space, metadata=metadata)
     if isinstance(default, numbers.Number):
-        data = jnp.full(entry.space.shape, default)
-        return grid.create_field(entry.space, data=data,
-                                 metadata=metadata)
+        return _constant_field(grid, entry.space, default, metadata)
     if _leads_with_self(default):
         field = default(module, grid, entry.space)
         if not isinstance(field, ScalarField):
