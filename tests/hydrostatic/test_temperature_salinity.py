@@ -21,6 +21,7 @@ import pytest
 import fridom as fr
 import fridom.hydrostatic as hy
 from fridom.hydrostatic.eos import EquationOfState
+from fridom.hydrostatic.modules.temperature_salinity import _column
 from fridom.hydrostatic.params import EOS_ALPHA, EOS_BETA
 from fridom.model.errors import AssemblyError
 from fridom.model.time_steppers.adam_bashforth import AdamBashforth
@@ -250,6 +251,28 @@ def test_terrain_column_reads_the_physical_depth():
     assert not model.panicked
 
 
+def test_horizontal_chart_reads_the_depth_from_the_vertical_nodes():
+    # a chart that couples only the horizontal coordinates carries no
+    # vertical column: the depth comes from the plain z nodes (and the
+    # raising terrain.discover_column is never consulted)
+    chart = fr.spatial.Grid(
+        (IM(4, (0.0, 1.0), periodic=True, name="x"),
+         IM(4, (0.0, 1.0), periodic=True, name="y"),
+         IM(4, (-DEPTH, 0.0), periodic=False, name="z")),
+        mapping=CoordinateMapping(
+            chart={"X": lambda x, y: (x + 0.4 * y, y, 0.0 * x)}))
+    assert _column(chart, "z") is None
+    assert _column(make_grid(), "z") is None
+    terrain = fr.spatial.Grid(
+        (IM(4, (0.0, 1.0), periodic=True, name="x"),
+         IM(4, (0.0, 1.0), periodic=True, name="y"),
+         IM(4, (-1.0, 0.0), periodic=False, name="z")),
+        mapping=CoordinateMapping(maps={"zp": lambda z, H: z * H},
+                                  params={"H": lambda x, y: 1.0 + 0 * x}))
+    assert _column(terrain, "z") == ("zp", "z")
+    assert _column(terrain, "x") is None
+
+
 # ================================================================
 #  Gate: the hy.BuoyancyTracer trajectory, to rounding
 # ================================================================
@@ -366,6 +389,20 @@ def test_vertical_mixing_targets_the_tracers_not_the_buoyancy():
     top = field(model, "T")[0, 0, -1]
     model.advance(10)
     assert field(model, "T")[0, 0, -1] < top   # the warm top cell cools
+
+
+def test_explicit_vertical_mixing_runs_under_adams_bashforth():
+    # the chart-grid route (no IMEX free surface there): an EXPLICIT
+    # VerticalMixing under AB3, stable for kb dt / dz^2 << 1/2
+    mixing = hy.VerticalMixing(kb=1.0e-2, treatment=fr.model.EXPLICIT)
+    model = make_model(hy.TemperatureSalinity(hy.RoquetEOS()),
+                       advection=CenteredAdvection(surface_flux=False),
+                       extra=(mixing,))
+    model.set_fields(T=temperature, S=salinity)
+    before = field(model, "S").sum()
+    model.advance(10)
+    assert not model.panicked
+    assert field(model, "S").sum() == pytest.approx(before, rel=1e-13)
 
 
 def test_surface_restoring_by_a_masked_relaxation():
