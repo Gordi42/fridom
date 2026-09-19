@@ -20,6 +20,7 @@ import numpy as np
 import pytest
 
 import fridom.nonhydro2 as nh
+from fridom.model.model import _chunk_body
 from fridom.model.modules.moving_geometry import (
     MeshVelocityCorrection,
     MovingGeometry,
@@ -147,6 +148,23 @@ def _advance_stepwise(model, steps):
         model.advance(1)
 
 
+def _advanced_op_by_op(model, steps):
+    """Advance ``steps`` with the pure step kernel evaluated op by op.
+
+    Bitwise claims hold only between identically compiled paths (model
+    spec, ``run()``): two DIFFERENT assemblies are two different XLA
+    programs, whose fusions contract different mul/add pairs into FMAs,
+    so their compiled runs agree to the last bit on some CPUs and
+    differ by one ulp on others (CI flake 2026-09-19; reproduced with
+    ``XLA_FLAGS=--xla_cpu_use_fusion_emitters=false``). A parity claim
+    between two assemblies is a claim about ARITHMETIC, so it is
+    checked where there is no fusion to differ.
+    """
+    with jax.disable_jit():
+        return _chunk_body(model._artifacts.record, steps,
+                           model._carry, model._stepper).state
+
+
 def test_frozen_motion_reproduces_the_static_run_bitwise():
     # the schedule freezes the static default (H_dot == 0 exactly
     # through the jvp), so the dynamic pipeline — MovingGeometry
@@ -162,13 +180,18 @@ def test_frozen_motion_reproduces_the_static_run_bitwise():
         MovingGeometry({"H": lambda x, t: depth(x) + 0.0 * t}),
         MeshVelocityCorrection())
     fields, _ = terrain_fields()
+    states = []
     for model in (static, without_ale, with_ale):
         model.set_fields(**fields)
-        _advance_stepwise(model, 20)
+        # op by op, not compiled: whether the two single-step programs
+        # "lower identically" is a property of the CPU they compile on
+        states.append(_advanced_op_by_op(model, 20))
+    static_state, without_ale_state, with_ale_state = states
+    assert float(jnp.abs(static_state["u"].data).max()) > 0.0
     for c in ("u", "v", "w", "b", "p"):
-        want = static.state[c].data
-        _reproduces_static(without_ale.state[c].data, want, c)
-        _reproduces_static(with_ale.state[c].data, want, c)
+        want = static_state[c].data
+        _reproduces_static(without_ale_state[c].data, want, c)
+        _reproduces_static(with_ale_state[c].data, want, c)
     # the chunked plan (one 16-step scan + a 4-step scan): the two
     # programs' scan bodies fuse differently, so this is a round-off
     # pin, not the bitwise one (see _reproduces_static)
