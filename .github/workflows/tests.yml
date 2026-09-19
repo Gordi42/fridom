@@ -10,7 +10,10 @@
 # each runner a fraction of the tests, restoring memory headroom, and
 # runs the shards in parallel, cutting wall-clock. The per-shard coverage
 # is combined in a final job that enforces the 95% gate and uploads the
-# merged report to Codecov.
+# merged report to Codecov. Every test job uploads its coverage data
+# even when its tests fail: a red shard that uploaded nothing used to
+# turn into a second, misleading failure of the coverage gate (77 %
+# from 5 of 12 artifacts, 2026-09-18).
 
 name: Tests
 
@@ -70,6 +73,7 @@ jobs:
           --junitxml=junit-${{ matrix.group }}.xml -o junit_family=legacy
 
     - name: Upload coverage data
+      if: ${{ !cancelled() }}
       uses: actions/upload-artifact@v4
       with:
         name: coverage-single-${{ matrix.group }}
@@ -134,6 +138,7 @@ jobs:
           --cov --cov-report= --cov-fail-under=0
 
     - name: Upload coverage data
+      if: ${{ !cancelled() }}
       uses: actions/upload-artifact@v4
       with:
         name: coverage-multi-general
@@ -171,6 +176,7 @@ jobs:
           -q --cov --cov-report= --cov-fail-under=0
 
     - name: Upload coverage data
+      if: ${{ !cancelled() }}
       uses: actions/upload-artifact@v4
       with:
         name: coverage-multi-parity
@@ -211,6 +217,7 @@ jobs:
           -q --cov --cov-report= --cov-fail-under=0
 
     - name: Upload coverage data
+      if: ${{ !cancelled() }}
       uses: actions/upload-artifact@v4
       with:
         name: coverage-multi-grad
