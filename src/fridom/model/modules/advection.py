@@ -4111,7 +4111,7 @@ class _FluxFormAdvection(fr.model.Module):
             return None
         other = (self._chart[1] if own == self._chart[0]
                  else self._chart[0])
-        partner = {axis: vname for axis, vname in self._axis_velocity}
+        partner = dict(self._axis_velocity)
         if other not in partner:
             return None
         q = state[qname]

@@ -64,15 +64,15 @@ def test_sphere_grid_forwards_the_declared_coordinate_units():
 # ================================================================
 def _torus_grid(major=2.0, minor=0.5):
     from fridom.spatial.charts import torus  # noqa: PLC0415
-    mu = IntervalMesh(16, (0.0, TWO_PI), name="u")
-    mv = IntervalMesh(12, (0.0, TWO_PI), name="v")
+    mu = IntervalMesh(16, (0.0, TWO_PI), name="tor")
+    mv = IntervalMesh(12, (0.0, TWO_PI), name="pol")
     return Grid((mu, mv), mapping=torus(major, minor))
 
 
 def test_torus_is_an_orthogonal_wall_free_chart():
     grid = _torus_grid()
     assert grid.mapping.orthogonal is True
-    assert grid.chart_coords == ("u", "v")
+    assert grid.chart_coords == ("tor", "pol")
     assert all(mesh.periodic for mesh in grid.factors)
 
 
@@ -81,14 +81,14 @@ def test_torus_metric_is_analytic_and_never_zero():
     grid = _torus_grid(major, minor)
     mu, mv = grid.factors
     space = (mu.center * mv.center).bare
-    v = np.asarray(grid.evaluation_nodes(space, "v").data)
+    v = np.asarray(grid.evaluation_nodes(space, "pol").data)
     ring = np.broadcast_to(major + minor * np.cos(v), space.shape)
     v = np.broadcast_to(v, space.shape)
     np.testing.assert_allclose(
-        np.asarray(grid.metric(space, "g_uu").data), ring ** 2,
+        np.asarray(grid.metric(space, "g_tortor").data), ring ** 2,
         rtol=1e-13)
     np.testing.assert_allclose(
-        np.asarray(grid.metric(space, "g_vv").data),
+        np.asarray(grid.metric(space, "g_polpol").data),
         minor ** 2 + 0.0 * ring,
         rtol=1e-13)
     sqrt_g = np.asarray(grid.metric(space, "sqrt_g").data)
@@ -96,7 +96,7 @@ def test_torus_metric_is_analytic_and_never_zero():
     assert sqrt_g.min() > 0.0
     # the one nonzero scale-factor derivative: d h_u / d v
     np.testing.assert_allclose(
-        np.asarray(grid.metric(space, "dh_u_dv").data),
+        np.asarray(grid.metric(space, "dh_tor_dpol").data),
         -minor * np.sin(v), atol=1e-13)
 
 

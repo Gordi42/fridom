@@ -189,7 +189,12 @@ def sealed_metric_divide(
     Replacing each **exact-zero** denominator by 1 before the quotient
     keeps the ratio finite forward and reverse; valid cells
     (``den != 0``) divide by the true metric and are bitwise unchanged.
-    The same double-``where`` seal as ``sadourny._sealed_divide``. It
+    The same double-``where`` seal as ``sadourny._sealed_divide``. When
+    the metric lives on a **reduced** space (the 3-D thin shell: the
+    metric is constant along the vertical) the quotient is formed as
+    ``num * (1 / den)`` with the sealed reciprocal, because the
+    algebra's lift of the denominator onto the numerator's space
+    re-pads it with zeros. It
     runs on real storage only — the seam sits inside the halo-trace
     exempt chart terms and the read-only ``state.chart`` view, never
     with storage-less operands.
@@ -198,7 +203,16 @@ def sealed_metric_divide(
     safe = ScalarField(
         den.grid, den.function_space, guarded,
         den.metadata, halo_valid=den.halo_valid)
-    return num / safe
+    if den.function_space.bare == num.function_space.bare:
+        return num / safe
+    # the metric lives on a reduced space (the thin-shell metric is
+    # constant along the vertical): the field algebra lifts it onto the
+    # numerator's space and RE-PADS the lifted operand with exact
+    # zeros, which would undo the seal (forward pad-inf, reverse NaN).
+    # Multiply by the sealed reciprocal instead — a zero re-pad of the
+    # reciprocal zeros the padding, finite forward and reverse. On the
+    # identity chart the reciprocal is exactly 1.0 (bitwise neutral).
+    return num * (1.0 / safe)
 
 
 def to_contravariant(field: ScalarField, axis: str) -> ScalarField:

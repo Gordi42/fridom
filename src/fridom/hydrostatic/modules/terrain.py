@@ -114,10 +114,10 @@ def discover_column(
         return None
     if mapping.chart_coords is not None:
         if chart_ok and not mapping.column_corrections:
-            # an embedding chart with no maps= column on top: the
-            # thin-shell spherical arm (spherical-models plan S2) — no
-            # terrain column; the caller adopts the chart itself
-            # (fridom.model.chart_seams.thin_shell_chart)
+            # an embedding chart with no terrain column on top is the
+            # thin-shell spherical arm (spherical-models plan S2); the
+            # caller adopts the chart itself through the shared
+            # chart-seam helpers
             return None
         raise NotImplementedError(
             "the hydrostatic terrain-following core supports analytic "

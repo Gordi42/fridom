@@ -68,9 +68,10 @@ def torus(major: float = 2.0, minor: float = 1.0) -> CoordinateMapping:
     Description
     -----------
     Returns a :class:`CoordinateMapping` whose embedding chart maps the
-    two **periodic** base coordinates ``u`` (toroidal angle) and ``v``
-    (poloidal angle) to the ambient Cartesian point on a torus of major
-    radius :math:`R` and minor radius :math:`r`,
+    two **periodic** base coordinates ``tor`` (toroidal angle
+    :math:`u`) and ``pol`` (poloidal angle :math:`v`) to the ambient
+    Cartesian point on a torus of major radius :math:`R` and minor
+    radius :math:`r`,
 
     .. math::
 
@@ -86,7 +87,8 @@ def torus(major: float = 2.0, minor: float = 1.0) -> CoordinateMapping:
     :math:`\sqrt g`, non-unit :math:`g_{ii}`, a nonzero scale-factor
     derivative) while isolating metric-term defects from the polar-cap
     wall closures of the lat-lon sphere. The base coordinates must be
-    named ``u`` and ``v``.
+    named ``tor`` and ``pol`` (not ``u`` / ``v``, which would collide
+    with the velocity component names of every model state).
 
     Parameters
     ----------
@@ -114,9 +116,9 @@ def torus(major: float = 2.0, minor: float = 1.0) -> CoordinateMapping:
             "sqrt_g = minor * (major + minor*cos(v)) must stay "
             "positive on the inner equator")
     return CoordinateMapping(
-        chart={"X": lambda u, v: (
-            (major + minor * jnp.cos(v)) * jnp.cos(u),
-            (major + minor * jnp.cos(v)) * jnp.sin(u),
-            minor * jnp.sin(v))},
+        chart={"X": lambda tor, pol: (
+            (major + minor * jnp.cos(pol)) * jnp.cos(tor),
+            (major + minor * jnp.cos(pol)) * jnp.sin(tor),
+            minor * jnp.sin(pol))},
         orthogonal=True,
-        coordinate_units={"u": "rad", "v": "rad"})
+        coordinate_units={"tor": "rad", "pol": "rad"})
