@@ -3569,3 +3569,22 @@ depth under a gravity ramp. Tests:
 `test_sadourny_chart_immersed.py`, the `require_chart_composable`
 cases in `test_immersed_weighting.py`; the two tests that pinned the
 old blanket refusal now pin the remaining ones.
+
+## Temperature, salinity and an equation of state for the hydrostatic model (2026-09-19)
+
+The hydrostatic plan's §7 designed-for. `hy.TemperatureSalinity(eos)`
+fills the buoyancy slot with prognostic `T` [degC] and `S` [g/kg] and a
+**diagnosed** `b = -g (rho(T, S, d) - rho(T_ref, S_ref, d)) / rho0`,
+written by a `DIAGNOSE` stage ordered ahead of the core's hydrostatic
+integral — no core, no framework change. `fridom.hydrostatic.eos` ships
+the swappable densities: `hy.LinearEOS` (live `eos.alpha` / `eos.beta`),
+`hy.RoquetEOS` (simplified second order, cabbeling + thermobaricity;
+Roquet et al. 2015b) and `hy.TEOS10EOS` (55-term polyTEOS10; Roquet et
+al. 2015a, published check values reproduced to the printed digits).
+The anomaly is taken against a reference parcel at the same depth, so
+the bulk compressibility never reaches a sigma pressure gradient.
+Diagnostics `b_total`, `density`, `potential_density`; reductions
+`constant_salinity=` / `constant_temperature=`; dimensional only.
+Record, decisions and gate numbers:
+[`../plans/active/hydrostatic_model_plan.md`](../plans/active/hydrostatic_model_plan.md)
+§8. Branch `feat/hydrostatic-temperature-salinity`.

@@ -6,7 +6,9 @@ Package-specific ``ParamName`` constants (D2.1): the gravitational
 acceleration ``hydrostatic.gravity`` (the physical constant,
 centralized on the core — ``hy.Core(gravity=...)``) and the external
 (free-surface) Froude number ``hydrostatic.froude`` (provided by a
-nondimensional free-surface module). Coriolis and stratification
+nondimensional free-surface module), and the tunable
+equation-of-state coefficients ``eos.alpha`` / ``eos.beta`` (provided
+by ``hy.TemperatureSalinity`` with a tunable EOS). Coriolis and stratification
 names are framework-canonical (``fr.params.CORIOLIS_F0`` /
 ``fr.params.STRATIFICATION_N2`` / ``fr.params.STRATIFICATION_FROUDE``)
 and are re-exported here for convenience.
@@ -49,6 +51,16 @@ SHEAR: Final[ParamName] = ParamName(
     hint="provided by the thermal-wind background, e.g. "
          "hy.ThermalWindBackground(shear=...)")
 
+EOS_ALPHA: Final[ParamName] = ParamName(
+    "eos.alpha", units="1/K",
+    hint="provided by hy.TemperatureSalinity with a tunable equation "
+         "of state, e.g. eos=hy.LinearEOS(alpha=...)")
+
+EOS_BETA: Final[ParamName] = ParamName(
+    "eos.beta", units="kg/g",
+    hint="provided by hy.TemperatureSalinity with a tunable equation "
+         "of state, e.g. eos=hy.LinearEOS(beta=...)")
+
 # ``scaling.nonlinearity`` is framework-canonical; re-exported so
 # recipes can spell hy.params.ROSSBY (it aliases the epsilon name).
 ROSSBY: Final[ParamName] = SCALING_NONLINEARITY
@@ -73,6 +85,8 @@ __all__ = [
     "CORIOLIS_BETA",
     "CORIOLIS_F0",
     "CORIOLIS_ROSSBY",
+    "EOS_ALPHA",
+    "EOS_BETA",
     "FROUDE",
     "GRAVITY",
     "ROSSBY",
