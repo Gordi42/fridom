@@ -59,7 +59,7 @@ def world(lon, lat, z):
 
 
 def build(indicator, *, surface_flux=None, buoyancy=None, split=0,
-          dt=2e-3):
+          dt=2e-3, modules_extra=()):
     grid = fr.spatial.spherical.Grid(
         (32, 16), radius=1.0, lat_extent=(-LAT_MAX, LAT_MAX),
         vertical=IM(6, (-1.0, 0.0), periodic=False, name="z"),
@@ -73,7 +73,8 @@ def build(indicator, *, surface_flux=None, buoyancy=None, split=0,
         free_surface=(
             hy.SplitExplicitFreeSurface(substeps=split, horizontal=HOR)
             if split else hy.ExplicitFreeSurface(horizontal=HOR)),
-        advection=CenteredAdvection(surface_flux=surface_flux))
+        advection=CenteredAdvection(surface_flux=surface_flux),
+        modules_extra=modules_extra)
 
 
 def seed(model, seed_value=0):
@@ -227,3 +228,40 @@ def test_split_explicit_rest_state_over_bathymetry():
     model.advance(50)
     for name in ("u", "v", "w", "ps"):
         assert np.abs(np.asarray(model.state[name].data)).max() < 1e-13
+
+
+# ================================================================
+#  Biharmonic closures around continents (chart + immersed staircase)
+# ================================================================
+def test_biharmonic_closures_around_continents():
+    # the scale-selective closures of an eddying global run: on the
+    # sphere WITH continents the iterated Laplace-Beltrami pass keeps
+    # dry DOFs dead, conserves the wet sqrt(g)-weighted tracer content
+    # and dissipates variance (closure tendency isolated by differencing
+    # against the closure-free model on the same state)
+    closures = [
+        fr.model.closures.BiharmonicDiffusion(kappa=2e-4, kappa_v=0.0),
+        fr.model.closures.BiharmonicFriction(nu=1e-4, nu_v=0.0)]
+    with_c = build(world, modules_extra=closures)
+    without = build(world)
+    seed(with_c, 3)
+    seed(without, 3)
+    full = with_c.tendency(with_c.state)
+    base = without.tendency(without.state)
+    immersed = with_c.grid.immersed
+    for name in ("u", "v", "b"):
+        field = with_c.state[name]
+        space = field.function_space
+        theta = np.asarray(immersed.fraction(space).data)
+        weight = theta * np.asarray(
+            with_c.grid.metric(space.bare, "sqrt_g").data)
+        # two grids: difference the raw arrays
+        closure = np.asarray(full[name].data) - np.asarray(base[name].data)
+        assert np.abs(closure).max() > 0.0
+        assert np.abs(closure[theta == 0.0]).max() == 0.0
+        rate = float((weight * np.asarray(field.data) * closure).sum())
+        assert rate < 0.0, name
+        if name == "b":
+            drift = float((weight * closure).sum())
+            scale = float((weight * np.abs(closure)).sum())
+            assert abs(drift) < 1e-13 * scale

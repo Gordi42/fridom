@@ -136,10 +136,11 @@ class ClosureBase(Module, ABC):
     """Per-closure immersed (cut-cell) capability (CL-D1). Defaults
     to ``False`` — the blanket reject is gone, but a closure opts in
     only when it carries the fraction-weighted immersed spelling.
-    Harmonic diffusion and friction set ``True`` (the IP-D4 pattern
-    is mechanical for a divergence-form operator); Smagorinsky, the
-    biharmonic family, VerticalMixing, and any no-slip immersed
-    request keep ``False`` and reject at bind with a taught error
+    The harmonic and biharmonic diffusion / friction closures set
+    ``True`` (the IP-D4 pattern is mechanical for a divergence-form
+    operator, and the biharmonic family iterates it); Smagorinsky and
+    any no-slip immersed request keep ``False`` and reject at bind
+    with a taught error
     naming the ``immersed_closures_sadourny_plan`` §5 deferral (see
     :meth:`_immersed_rejection`)."""
 
@@ -295,14 +296,14 @@ class ClosureBase(Module, ABC):
             f"{owner} does not support immersed (cut-cell) grids: its "
             "strain / stress / diffusive-flux stencils next to the "
             "immersed boundary would read across dry cells unmasked. "
-            "Only harmonic diffusion and friction carry the "
-            "fraction-weighted immersed spelling "
+            "Only the harmonic and biharmonic diffusion / friction "
+            "closures carry the fraction-weighted immersed spelling "
             "(immersed_closures_sadourny_plan, CL-D1/CL-D2); the "
             "deferral designs (Smagorinsky wet-only strain rates, "
             "VerticalMixing variable-dz column, no-slip side-drag) are "
-            "recorded in the plan §5. Use fr.model.closures.HarmonicDiffusion "
-            "/ HarmonicFriction, or drop the closure on an immersed "
-            "grid.")
+            "recorded in the plan §5. Use the fr.model.closures "
+            "Harmonic* / Biharmonic* Diffusion / Friction closures, or "
+            "drop the closure on an immersed grid.")
 
     # ================================================================
     #  Properties
