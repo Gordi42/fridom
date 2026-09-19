@@ -106,6 +106,10 @@ from fridom.hydrostatic.modules.barotropic_pressure import (
     _dirichlet_mid,
     _neumann_sibling,
 )
+from fridom.hydrostatic.modules.barotropic_subcycle import (
+    periodic_subcycle,
+    supports_blocking,
+)
 from fridom.hydrostatic.modules.terrain import (
     discover_column,
     jacobian_name,
@@ -2196,6 +2200,17 @@ class SplitExplicitFreeSurface(_FreeSurfaceBase):
                     or self._chart is not None)
         (ubar0, vbar0, depth_u, depth_v,
          fmask_u, fmask_v) = self._subcycle_faces(state, params)
+        # Preserve the established single-device, cross-geometry bitwise
+        # identity. Temporal blocking pays off when halos communicate.
+        if (not variable and ps0.grid.decomposition.device_count > 1
+                and supports_blocking(
+                ps0, ubar0, vbar0, self._horizontal)):
+            ps_avg, ubar_avg, vbar_avg = periodic_subcycle(
+                (ps0, ubar0, vbar0, g_u, g_v),
+                2.0 * dt / self._substeps, column_csqr,
+                self._weights, self._horizontal)
+            return {"ps": ps_avg, "U": ubar_avg / inv_depth,
+                    "V": vbar_avg / inv_depth}
         flux_u, flux_v, inv_area, inv_hu, inv_hv = self._chart_factors(
             ps0, ubar0, vbar0, depth_u, depth_v)
         dtau = 2.0 * dt / self._substeps

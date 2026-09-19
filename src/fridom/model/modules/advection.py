@@ -342,6 +342,7 @@ from fridom.spatial.fields.scalar_field import (
     _bc_siblings,  # the BC-sibling seam of retag/.to
 )
 from fridom.spatial.immersed_domain import Slip
+from fridom.spatial.meshes.interval import IntervalMesh
 from fridom.spatial.operators.base import (
     Operator,
     OperatorRequirements,
@@ -4200,11 +4201,10 @@ class _FluxFormAdvection(fr.model.Module):
           enforces), a staggered momentum component on an immersed grid
           (the momentum control volume's masked continuity is not
           divergence-free near a cut side wall), a staggered momentum
-          component under a **biased** scheme (its ``(order - 1)``-point
-          velocity interpolation relocates the surface ``w`` onto the
-          momentum column differently from the slice's two-point ``.to``,
-          so the slice's top-row ``A(1)`` would use the wrong surface
-          ``w``), and a forced closure on a grid carrying no ``Outer``
+          component under a **biased** scheme outside the proven
+          uniform periodic case (whose order-matched trace is supplied
+          by :meth:`UpwindAdvection._surface_velocity`), and a forced
+          closure on a grid carrying no ``Outer``
           seam at all (``div(v)`` is a genuine interior field).
         """
         seam = tuple(
@@ -4237,11 +4237,14 @@ class _FluxFormAdvection(fr.model.Module):
         moving column, for a staggered momentum component on an immersed
         grid (the masked momentum continuity is not divergence-free near
         a cut side wall), and for a staggered momentum component under a
-        biased scheme (its ``(order - 1)``-point velocity interpolation
+        biased scheme in this base implementation (its
+        ``(order - 1)``-point velocity interpolation
         does not match the slice's two-point ``.to``, so the slice's
         top-row ``A(1)`` would use the wrong surface ``w`` — a genuine
         constancy break at ``order > 3``). The false branches take the
         exact full-3D fallback — see :meth:`_surface_correction`.
+        The biased subclass admits uniform periodic boxes separately,
+        using an order-matched trace.
         """
         if self._column is not None:
             return False
@@ -4324,7 +4327,7 @@ class _FluxFormAdvection(fr.model.Module):
         # horizontal interpolation onto q's flux column (identity for a
         # collocated tracer, Center -> Right for a staggered component),
         # then relocate the Outer surface face onto q's Center cell row
-        w0 = w0.to(target).as_profile(axis).adopt(
+        w0 = self._surface_velocity(w0, target).as_profile(axis).adopt(
             axis, NodeSet.CENTER, Side.HIGH)
         num = w0
         if self._immersed is not None:
@@ -4333,6 +4336,12 @@ class _FluxFormAdvection(fr.model.Module):
         dz_top = q.grid.measure(q.function_space, axis).trace(
             axis, Side.HIGH)
         return _safe_ratio(num, dz_top)
+
+    def _surface_velocity(
+        self, velocity: ScalarField, target: object,
+    ) -> ScalarField:
+        """Relocate the surface trace with the centered face rule."""
+        return velocity.to(target)
 
     def _apply_correction(
         self,
@@ -4816,14 +4825,10 @@ class UpwindAdvection(_FluxFormAdvection):
     #: is entirely wet (`graded.apply_graded_mask`)
     _supports_immersed: ClassVar[bool] = True
 
-    #: the biased velocity face is an ``(order - 1)``-point centered
-    #: interpolation (:meth:`_velocity_face`), not the two-point ``.to``
-    #: the surface-flux slice's trace uses to relocate ``w`` onto a
-    #: staggered column, so the slice's top-row ``A(1)`` for a momentum
-    #: component would use the wrong surface ``w`` (exact only at
-    #: ``order == 3``, where ``order - 1 == 2``). Staggered momentum
-    #: therefore takes the exact full-3D correction (:meth:`_slice_valid`);
-    #: a cell-collocated tracer keeps the cheap slice (no relocation).
+    #: The base two-point surface relocation is not exact for biased
+    #: momentum. Our _slice_valid override admits the proven periodic
+    #: uniform case using _surface_velocity's order-matched trace;
+    #: other geometries keep the full-volume correction.
     _slice_relocation_exact: ClassVar[bool] = False
 
     #: the biased/upwind family (incl. WENO) wins with ``"embed"`` when
@@ -5044,6 +5049,33 @@ class UpwindAdvection(_FluxFormAdvection):
     # ------------------------------------------------------------
     #  The upwind face values
     # ------------------------------------------------------------
+    def _slice_valid(self, q: ScalarField) -> bool:
+        r"""Admit the order-matched surface trace on a periodic flat box.
+
+        Description
+        -----------
+        On uniform periodic transverse axes the symmetric velocity
+        interpolation commutes with the continuity difference. Thus the
+        full constant-field transport telescopes to the surface trace,
+        provided that trace uses the SAME interpolation as the flux.
+        Keep the full-volume fallback for lateral walls, mapped meshes,
+        charts and immersed momentum, where that identity is unproven.
+        """
+        if super()._slice_valid(q):
+            return True
+        return (self._column is None and self._immersed is None
+                and self._chart is None and len(self._walled) == 1
+                and all(isinstance(factor.mesh, IntervalMesh)
+                        for factor in q.function_space.bare.factors)
+                and not _is_face_factor(
+                    q.function_space.bare.factor(self._walled[0])))
+
+    def _surface_velocity(
+        self, velocity: ScalarField, target: object,
+    ) -> ScalarField:
+        """Use the same order-coupled interpolation as the volume flux."""
+        return self._velocity_face(velocity, target)
+
     def _velocity_face(
         self, v: ScalarField, flux_space: object,
     ) -> ScalarField:

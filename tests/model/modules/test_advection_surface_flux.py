@@ -411,11 +411,10 @@ def test_biased_advect_matches_full_form(make, cls):
         np.testing.assert_allclose(a, b, rtol=1e-13, atol=1e-13)
 
 
-def test_biased_momentum_routes_to_full_fallback():
-    # a staggered momentum component (u / v) under a biased scheme takes
-    # the exact full-3D fallback; the cell-collocated tracer (b) keeps the
-    # cheap slice. The centered scheme relocates with the same two-point
-    # ``.to``, so all its components stay on the slice.
+def test_biased_momentum_uses_order_matched_periodic_slice():
+    # The surface trace now uses the same velocity interpolation as the
+    # volume flux. On this periodic uniform box it is exact for momentum
+    # as well as for the cell-collocated tracer.
     for make, cls in (
             (lambda: UpwindAdvection(order=3, surface_flux=True),
              UpwindAdvection),
@@ -426,8 +425,8 @@ def test_biased_momentum_routes_to_full_fallback():
         model = _biased_model(make())
         module = _biased_module(model, cls)
         state = _diagnosed_state(model)
-        assert module._slice_valid(state["u"]) is False
-        assert module._slice_valid(state["v"]) is False
+        assert module._slice_valid(state["u"]) is True
+        assert module._slice_valid(state["v"]) is True
         assert module._slice_valid(state["b"]) is True
     cmodel = _biased_model(CenteredAdvection(surface_flux=True))
     cmod = _biased_module(cmodel, CenteredAdvection)
@@ -458,11 +457,11 @@ def test_biased_full_correction_preserves_constancy(make, cls):
             corr_full, a1_true, rtol=0, atol=1e-12 * scale)
 
 
-def test_biased_naive_slice_would_break_momentum_constancy():
-    # regression pinning the mechanism: the raw slice boundary term (the
-    # value the fallback now bypasses) differs from the true A(1) at the
+def test_biased_naive_slice_would_break_momentum_constancy(monkeypatch):
+    # regression pinning the mechanism: the naive slice boundary term
+    # differs from the true A(1) at the
     # top row for order-5 biased momentum, and matches it for buoyancy and
-    # for order 3. Guards the fallback against being dropped.
+    # for order 3. Guards against restoring the naive trace.
     for make, cls, broken in (
             (lambda: UpwindAdvection(order=3, surface_flux=True),
              UpwindAdvection, False),
@@ -476,7 +475,12 @@ def test_biased_naive_slice_would_break_momentum_constancy():
             q = state[qname]
             a1_true = np.asarray(
                 module._transport(state, _ones_on(q), params).data)
-            a1 = module._surface_boundary_term(q, state["w"], "z")
+            # Retain the regression against the WRONG two-point trace;
+            # the production trace uses the order-coupled face rule.
+            with monkeypatch.context() as patch:
+                patch.setattr(UpwindAdvection, "_surface_velocity",
+                              adv_mod._FluxFormAdvection._surface_velocity)
+                a1 = module._surface_boundary_term(q, state["w"], "z")
             naive = np.asarray(a1.embed("z").data)
             err = np.abs(naive - a1_true).max()
             if broken and staggered:
@@ -485,9 +489,27 @@ def test_biased_naive_slice_would_break_momentum_constancy():
                 assert err <= 1e-10
 
 
+@pytest.mark.parametrize("kind", ["stretched", "lateral_wall"])
+def test_biased_slice_keeps_unproven_geometries_on_full_form(kind):
+    xmesh = (MIM(8, (0.0, 1.0), _wavy, periodic=True, name="x")
+             if kind == "stretched" else
+             IM(8, (0.0, 1.0), periodic=False, name="x"))
+    grid = fr.spatial.Grid((
+        xmesh, IM(8, (0.0, 1.0), periodic=True, name="y"),
+        IM(8, (0.0, 1.0), periodic=False, name="z")))
+    model = hy.Model(
+        grid=grid, core=hy.Core(gravity=1.0),
+        time_stepper=AdamBashforth(1e-3, order=3),
+        free_surface=hy.ExplicitFreeSurface(),
+        advection=WENOAdvection(order=5))
+    module = _biased_module(model, WENOAdvection)
+    assert module._slice_valid(model.state["u"]) is False
+    assert module._slice_valid(model.state["v"]) is False
+
+
 def test_surface_flux_weno_grad_matches_fd():
     # differentiability policy: the routing change sends biased momentum
-    # through the full-3D correction; jax.grad through a short WENO5 run
+    # through the order-matched surface trace; jax.grad through a WENO5 run
     # with the surface closure on stays finite and FD-exact.
     grid = fr.spatial.Grid((
         IM(6, (0.0, 1.0), periodic=True, name="x"),
@@ -501,3 +523,25 @@ def test_surface_flux_weno_grad_matches_fd():
         free_surface=hy.ExplicitFreeSurface(),
         advection=WENOAdvection(order=5, surface_flux=True))
     _grad_matches_fd(model, seed_init=4, seed_dir=9)
+
+
+@pytest.mark.parametrize("order", [3, 5])
+def test_surface_trace_matches_full_volume_on_larger_grid(order):
+    mesh = fr.spatial.meshes.IntervalMesh
+    model = hy.Model(
+        grid=fr.spatial.Grid((
+            mesh(12, (0.0, 1.0), periodic=True, name="x"),
+            mesh(12, (0.0, 1.0), periodic=True, name="y"),
+            mesh(12, (0.0, 1.0), periodic=False, name="z"))),
+        core=hy.Core(gravity=1.0),
+        time_stepper=AdamBashforth(1e-3, order=3),
+        buoyancy=hy.ConstantStratification(n2=1.0),
+        free_surface=hy.ExplicitFreeSurface(),
+        advection=WENOAdvection(order=order))
+    module = _biased_module(model, WENOAdvection)
+    state = _diagnosed_state(model)
+    actual = module._advect(state, _Ctx)
+    expected = _pre_slice_advect(module, state)
+    for name in module._advected:
+        np.testing.assert_allclose(actual[name].data, expected[name].data,
+                                   rtol=1e-13, atol=1e-13)
