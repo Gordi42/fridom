@@ -1078,8 +1078,10 @@ instance. Content conserved to 1e-14; a three-cell inversion shrinks by
 bitwise untouched; autodiff through the `jnp.where` selection is finite
 and FD-matched away from neutral pairs (the scheme is inherently
 non-smooth *at* neutrality); forced-4 invariant across z-shard seams.
-Not taken: an `N^2`-dependent implicit diffusivity (needs a
-field-valued `kappa` in the shared `VerticalDiffusion` band builder).
+Not taken: an `N^2`-dependent implicit diffusivity — the shared
+`VerticalDiffusion` `kappa` seam does receive the state, but whether
+its band builder accepts a field-valued `kappa` was not investigated
+(shared closure code, out of this branch's scope).
 
 **Not built.** A `hy.State` vocabulary entry for `T` / `S`; surface
 heat / freshwater flux wrappers with the oceanographic sign (use
