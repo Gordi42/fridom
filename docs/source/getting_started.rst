@@ -1,78 +1,144 @@
 Getting Started
 ===============
 
-There are several ways to get started with FRIDOM:
+This page runs one complete model. The script below builds a rotating
+shallow-water model on a periodic square, raises the free surface over
+a patch in the middle, integrates for one inertial period, and plots
+what is left. The problem is the classical geostrophic adjustment.
 
-- **Explore Examples:** If you'd like to dive right in and experiment with different models, the :doc:`Gallery <auto_examples/index>` is a great place to start. It contains many complete examples that you can run directly.
-
-- **Learn the Basics:** If you prefer to understand the fundamentals of FRIDOM, you can go through the :doc:`Tutorials <tutorials/index>`. They will guide you step-by-step on how to work effectively with the framework.
-
-- **Dive into the Code:** The :doc:`API <fridom_api>` Documentation provides an overview of all classes and functions available in FRIDOM. However, as it may be overwhelming at first, we recommend starting with the Tutorials. Once you're more familiar with the framework, you can refer to the API documentation for details on specific classes or functions.
-
-Quick Example
--------------
-
-Here, we’ll walk through a simple example to show you how to run a model in FRIDOM. We'll initialize and simulate an unstable jet in the 2D Shallow Water model. Due to the instability, eddies will form. You can find an animation of this setup :doc:`here <auto_examples/shallowwater/barotropic_instability>`.
+The Script
+----------
 
 .. code-block:: python
-    :caption: Running the 2D Shallow Water Model
+   :caption: Geostrophic adjustment in the shallow-water model
 
-    import fridom.shallowwater as sw
+   import numpy as np
 
-    # Create the grid and model settings
-    grid = sw.grid.cartesian.Grid(shape=(256,256), domain_size=(1,1), periodic_bounds=(True, True))
-    mset = sw.ModelSettings(grid=grid, f0=1, csqr=1)
-    mset.time_stepper.dt = 0.7e-3
-    mset.setup()
+   import fridom as fr
+   import fridom.shallowwater2 as sw
 
-    # Create the initial condition
-    z = sw.initial_conditions.Jet(mset, width=0.1, wavenum=2, waveamp=0.05)
+   # A doubly periodic square basin, 2000 km on a side.
+   grid = fr.spatial.cartesian.Grid(
+       shape=(128, 128), extent=2000e3, periodic=True)
 
-    # Create the model and run it
-    model = sw.Model(mset)
-    model.z = z  # set the initial condition
-    model.run(runlen=2.5)
+   f0 = 1e-4                    # Coriolis parameter in 1/s
+   gravity = 9.81               # m/s^2
+   depth = 10.0                 # m, so gravity waves travel at 9.9 m/s
+   runlen = 2 * np.pi / f0      # one inertial period, about 17.5 hours
 
-    # Plot the final total energy (kinetic + potential)
-    model.z.etot.xr.plot(cmap="RdBu_r")
+   # the largest step below a gravity-wave Courant number of 0.2 that
+   # divides the run window
+   dt = fr.model.fit_dt(
+       runlen, 0.2 * grid.factor("x").dx / np.sqrt(gravity * depth))
 
-.. figure:: _static/tutorials/getting_started/shallow_water_example.png
-   :width: 60%
+   # A rotating shallow-water model, assembled from modules.
+   model = sw.Model(
+       grid=grid,
+       core=sw.Core(gravity=gravity, depth=depth),
+       coriolis=sw.modules.FPlaneCoriolis(f0=f0),
+       advection=sw.SadournyAdvection(),
+       time_stepper=fr.model.time_steppers.AdamBashforth(dt, order=3))
+
+   # Raise the free surface by one metre over a patch in the middle of the
+   # basin. The pressure of the shallow-water model is the gravitational
+   # acceleration times the surface displacement.
+   def bump(x, y):
+       radius_squared = (x - 1000e3) ** 2 + (y - 1000e3) ** 2
+       return gravity * np.exp(-radius_squared / (2 * 100e3 ** 2))
+
+   model.set_fields(p=bump)
+
+   # Integrate. The whole loop is compiled once into a single jax function.
+   model.run(runlen=runlen)
+
+   # Plot the relative vorticity of the adjusted state.
+   model.state.rel_vort.xr.plot(x="x", cmap="RdBu_r")
+
+The run takes 200 steps and a few seconds on a laptop, most of it
+compilation.
+
+.. figure:: _static/getting_started/geostrophic_adjustment.png
+   :width: 75%
    :align: center
 
-Even though this example uses the 2D Shallow Water model, most of the concepts can be applied to other models as well. The setup can be broken down into the following steps:
+   Relative vorticity after one inertial period. The raised patch has
+   settled into an anticyclone in geostrophic balance, the dark core in
+   the middle. The rings around it are the gravity waves that carried
+   off the part of the initial displacement that could not stay
+   balanced.
 
-1. **Import the Model:** Here, we import the 2D Shallow Water model from the fridom.shallowwater module.
-2. **Create a Grid:** Define the grid you wish to use. In this case, we create a Cartesian grid with 256x256 cells over an area of 1m x 1m, periodic in both directions.
-3. **Set Up Model Settings:** Create a model settings object and set the model parameters such as the Coriolis frequency ``f0`` and the wave speed ``csqr`` in this example. Each model has its own specific parameters, which can be found in the model's documentation.
-4. **Modify Model Modules or Add Custom Components:** For example, you can add an output writer, forcings, or adjust the time step (dt) of the time-stepping scheme, as we do in this example.
-5. **Finalize the Model Settings:** Use the setup() method on the model settings object to finalize your configuration.
-6. **Create an Initial Condition:** The initial condition can be one of the pre-implemented states (such as the jet in this example), or you can create your own. Detailed instructions for custom initial conditions can be found in the Tutorials.
-7. **Initialize and Run the Model:** Instantiate the model with the settings, set the initial condition, and run the simulation. In the example above, we run the model for 2.5 seconds.
+Step by Step
+------------
 
-In this example, we plot the total energy (kinetic + potential) of the model at the end of the run. To do so, we convert the total energy field into an xarray dataset and use the plot() method to visualize it.
+The Grid
+~~~~~~~~
 
-.. note::
-    You can run the above code snippet in a Jupyter notebook or in a Python script. If you are running it as a script, you may not see the plot. However you could for example save the plot using matplotlibs `savefig()` method.
+``fr.spatial.cartesian.Grid`` builds a uniform Cartesian grid from a
+shape, an extent, and the periodicity of each axis. A single number for
+the extent is broadcast to every axis, and so is a single boolean for
+the periodicity, so this grid is 2000 km wide and periodic in both
+directions. Each axis keeps its own one dimensional mesh, and
+``grid.factor("x")`` returns the one along x, whose ``dx`` is the cell
+width.
 
+The Model
+~~~~~~~~~
 
-Built-in Models:
+``sw.Model`` is a factory function. It takes the parts of the model as
+separate modules and returns an assembled ``fr.model.Model``. There is
+no settings object. Each physical parameter lives on the module that
+uses it, so the gravitational acceleration and the resting depth are
+arguments of the core (``sw.Core``) rather than of the model.
+
+Rotation and advection are opt-in. A model built without a
+``coriolis=`` argument has no Coriolis term at all, and one built
+without an ``advection=`` argument stays linear. Changing the physics
+means swapping a module.
+
+``fr.model.fit_dt`` picks the largest time step below a given bound
+that divides the run window. The bound here is a gravity-wave Courant
+number of 0.2, which keeps the fastest waves from crossing a grid cell
+in a single step.
+
+The Initial Condition
+~~~~~~~~~~~~~~~~~~~~~
+
+``model.set_fields`` writes initial conditions onto the prognostic
+fields. A value can be a function of the physical coordinates, as here,
+or an array, or an existing field. Prognostic fields that are not named
+in the call keep their initial value of zero, so the velocities ``u``
+and ``v`` start at rest.
+
+The shallow-water pressure ``p`` is the gravitational acceleration
+times the free-surface displacement, which is why a bump of one metre
+enters as ``gravity`` times a Gaussian.
+
+Running the Model
+~~~~~~~~~~~~~~~~~
+
+``model.run`` advances to a target given either as a number of
+``steps``, as a duration (``runlen``), or as an absolute ``end_time``.
+There is no Python time loop. FRIDOM lowers the whole integration into
+a single ``jax.jit`` over a chunked ``lax.scan``, compiles it once, and
+then runs the compiled function. The call returns a ``RunResult``,
+which reports the number of steps taken, the model time reached, the
+compile time, and the achieved step rate.
+
+Looking at the Result
+~~~~~~~~~~~~~~~~~~~~~
+
+``model.state`` holds the prognostic fields of the model together with
+the diagnostics derived from them, such as the relative vorticity used
+above. Every field has an ``.xr`` view that presents it as an
+``xarray.DataArray`` with named and labeled coordinates, so any xarray
+plot works on it. Plotting needs ``xarray`` and ``matplotlib``, which
+come with the ``dev`` extra.
+
+Where to Go Next
 ----------------
-At the current stage, FRIDOM provides the following built-in models:
 
-.. grid:: 1 2 2 1
-    :margin: 4 4 0 0
-    :gutter: 2
-
-    .. grid-item-card::  2D Shallow Water Model
-        :link: auto_api/fridom.shallowwater
-        :link-type: doc
-
-        A two dimensional rotating shallow water model.
-
-    .. grid-item-card::  3D Nonhydrostatic Model
-        :link: auto_api/fridom.nonhydro
-        :link-type: doc
-
-        A three dimensional nonhydrostatic model for simulating incompressible flow.
-
+The :doc:`Gallery <auto_examples/index>` holds complete experiments in
+every model. Each one is executed when this documentation is built, so
+the code on those pages is the code that ran. :doc:`Advanced Topics
+<advanced/index>` covers the machinery behind the models and the
+practical side of running them.

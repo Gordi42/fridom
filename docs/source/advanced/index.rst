@@ -2,14 +2,16 @@
 Advanced Topics
 ===============
 
-Self-contained chapters on the machinery behind FRIDOM's models, each
-one concept explained from first principles. Unlike the tutorials, they
-need not be read in order; each opens with its prerequisites.
+Self-contained chapters on the machinery behind FRIDOM's models and on
+running them. They need not be read in order. Each opens with its
+prerequisites.
 
 .. toctree::
    :hidden:
 
    adiabatic_ramping
+   platform_and_precision
+   benchmarking
 
 .. grid:: 1 2 2 2
    :margin: 4 4 0 0
@@ -22,3 +24,17 @@ need not be read in order; each opens with its prerequisites.
       Deforming a model between two operator configurations: the ramp
       legs, staggered protocols, the adiabatic projector, and the
       relative imbalance.
+
+   .. grid-item-card:: Platform and Precision
+      :link: platform_and_precision
+      :link-type: doc
+
+      Selecting the compute device and the floating point precision
+      through JAX.
+
+   .. grid-item-card:: Benchmarking
+      :link: benchmarking
+      :link-type: doc
+
+      Measuring wall times, compile times, and memory, and comparing
+      two runs.

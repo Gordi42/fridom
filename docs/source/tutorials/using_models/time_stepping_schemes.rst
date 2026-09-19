@@ -1,4 +1,0 @@
-Time-stepping schemes
-=====================
-
-TODO
