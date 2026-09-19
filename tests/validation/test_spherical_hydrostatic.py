@@ -60,19 +60,21 @@ HOR = ("lon", "lat")
 OMEGA, U0, GH0 = 2.0, 0.2, 2.0
 
 
-def sphere_grid(nlon, nlat, nz, depth=1.0):
+def sphere_grid(nlon, nlat, nz, depth=1.0, device_ids=None):
     return fr.spatial.spherical.Grid(
         (nlon, nlat), radius=1.0, lat_extent=(-LAT_MAX, LAT_MAX),
-        vertical=IM(nz, (-depth, 0.0), periodic=False, name="z"))
+        vertical=IM(nz, (-depth, 0.0), periodic=False, name="z"),
+        device_ids=device_ids)
 
 
 def sphere_model(nlon=32, nlat=16, nz=2, *, dt=2e-3, buoyancy=False,
-                 advection=None):
+                 advection=None, device_ids=None, extra=()):
     """Assemble the spherical hydrostatic model (explicit surface)."""
     if advection is None:
         advection = CenteredAdvection()
     return hy.Model(
-        grid=sphere_grid(nlon, nlat, nz),
+        modules_extra=list(extra),
+        grid=sphere_grid(nlon, nlat, nz, device_ids=device_ids),
         core=hy.Core(gravity=GH0, horizontal=HOR),
         time_stepper=AdamBashforth(dt, order=3),
         coriolis=RotationCoriolis((0.0, 0.0, OMEGA)),
@@ -340,6 +342,52 @@ def test_grad_through_a_spherical_run_matches_fd():
     eps = 2e-7
     fd = (float(loss(dt0 + eps)) - float(loss(dt0 - eps))) / (2 * eps)
     assert grad == pytest.approx(fd, rel=1e-4)
+
+
+# ================================================================
+#  Forced-4: device-count invariance (S1-6 / S2-6)
+# ================================================================
+@pytest.mark.multi_device
+def test_spherical_tendency_is_device_count_invariant():
+    # to rounding, not bitwise (the sw2 precedent): the metric-scaled
+    # stencil chains fuse / FMA-contract per shard shape
+    def run(device_ids):
+        model = sphere_model(32, 16, 4, buoyancy=True,
+                             device_ids=device_ids)
+        rng = np.random.default_rng(11)
+        model.set_fields(**{
+            k: 0.1 * rng.standard_normal(model.state[k].shape)
+            for k in ("u", "v", "b", "ps")})
+        dz = model.tendency(model.state)
+        return {name: np.asarray(dz[name].data)
+                for name in ("u", "v", "b", "ps")}
+
+    many = run(None)
+    one = run((0,))
+    for name in ("u", "v", "b", "ps"):
+        np.testing.assert_allclose(many[name], one[name],
+                                   rtol=0.0, atol=1e-12)
+
+
+# ================================================================
+#  Surface forcing on the flat vertical of the chart
+# ================================================================
+def test_wind_stress_drives_the_top_cell_on_the_sphere():
+    # the wall weight 1/dz along the unmapped vertical is metric-free
+    # (thin shell), so WindStress binds on the chart and accelerates
+    # exactly the top cell row at tau / dz
+    tau, nz = 3e-3, 4
+    model = sphere_model(
+        16, 8, nz, advection=None,
+        extra=[fr.model.modules.WindStress(
+            tau_x=lambda lon, lat: tau * jnp.cos(lat) + 0.0 * lon)])
+    du = model.tendency(model.state)["u"]
+    lat = np.asarray(model.grid.evaluation_nodes(
+        du.function_space, "lat").data)
+    got = np.asarray(du.data)
+    exact_top = tau * np.cos(lat[..., 0]) * nz + 0.0 * got[..., -1]
+    assert np.allclose(got[..., -1], exact_top, rtol=1e-12)
+    assert np.abs(got[..., :-1]).max() == 0.0
 
 
 # ================================================================
