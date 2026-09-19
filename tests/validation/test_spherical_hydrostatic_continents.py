@@ -21,6 +21,11 @@ code path. Gates (measured on CPU, float64):
   staircase stays at rest to rounding (measured max |u| 8e-17 after
   100 steps) — z-levels carry no pressure-gradient error.
 - **Dry DOFs stay dead** (exactly zero).
+- **Temperature + salinity + nonlinear EOS** (``hy.TemperatureSalinity``
+  with the Roquet EOS and the pairwise convective adjustment) composes
+  with the chart + immersed arm: a resting ``T(z)``, ``S(z)`` ocean
+  over the staircase stays at rest to rounding and a stirred run keeps
+  a uniform salinity uniform.
 """
 import jax
 import jax.numpy as jnp
@@ -51,7 +56,7 @@ def world(lon, lat, z):
     return jnp.where(land | (z < -depth), 0.0, 1.0)
 
 
-def build(indicator, *, surface_flux=None):
+def build(indicator, *, surface_flux=None, buoyancy=None):
     grid = fr.spatial.spherical.Grid(
         (32, 16), radius=1.0, lat_extent=(-LAT_MAX, LAT_MAX),
         vertical=IM(6, (-1.0, 0.0), periodic=False, name="z"),
@@ -61,7 +66,7 @@ def build(indicator, *, surface_flux=None):
         grid=grid, core=hy.Core(gravity=2.0, horizontal=HOR),
         time_stepper=AdamBashforth(2e-3, order=3),
         coriolis=fr.model.modules.RotationCoriolis((0.0, 0.0, 2.0)),
-        buoyancy=hy.BuoyancyTracer(),
+        buoyancy=hy.BuoyancyTracer() if buoyancy is None else buoyancy,
         free_surface=hy.ExplicitFreeSurface(horizontal=HOR),
         advection=CenteredAdvection(surface_flux=surface_flux))
 
@@ -154,3 +159,41 @@ def test_dry_dofs_stay_dead(name):
     dry = np.asarray(model.state[name].data)[theta == 0]
     assert dry.size > 0
     assert np.abs(dry).max() == 0.0
+
+
+# ================================================================
+#  Temperature + salinity + nonlinear EOS on the masked sphere
+# ================================================================
+def _ts_model():
+    return build(world, buoyancy=hy.TemperatureSalinity(
+        hy.RoquetEOS(), convective_adjustment=2))
+
+
+def test_resting_temperature_salinity_ocean_stays_at_rest():
+    model = _ts_model()
+    model.set_fields(
+        T=lambda lon, lat, z: 2.0 + 20.0 * jnp.exp(3 * z) + 0.0 * (lon + lat),
+        S=lambda lon, lat, z: 35.0 - 0.5 * jnp.exp(3 * z) + 0.0 * (lon + lat))
+    model.advance(100)
+    assert not model.panicked
+    for name in ("u", "v", "w", "ps"):
+        assert np.abs(np.asarray(model.state[name].data)).max() < 1e-13
+
+
+def test_stirred_temperature_salinity_run_keeps_uniform_salinity():
+    model = _ts_model()
+    rng = np.random.default_rng(9)
+    model.set_fields(
+        u=0.1 * rng.standard_normal(model.state["u"].shape),
+        v=0.1 * rng.standard_normal(model.state["v"].shape),
+        T=lambda lon, lat, z: (2.0 + 20.0 * jnp.exp(3 * z)
+                               * jnp.cos(lat) ** 2 + 0.0 * lon),
+        S=35.0 * np.ones(model.state["S"].shape))
+    model.advance(200)
+    assert not model.panicked
+    theta = np.asarray(model.grid.immersed.fraction(
+        model.state["S"].function_space).data)
+    wet = np.asarray(model.state["S"].data)[theta > 0]
+    assert np.abs(wet - 35.0).max() < 1e-11
+    temperature = np.asarray(model.state["T"].data)[theta > 0]
+    assert np.isfinite(temperature).all()
