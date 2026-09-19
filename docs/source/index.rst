@@ -28,8 +28,8 @@ studies, where the equations change from one experiment to the next.
    removed rather than left in place to mislead, and the pages that
    remain are being rebuilt. Until that is done, the :doc:`Gallery
    <auto_examples/index>` is the best entry point. Every example in it
-   is executed when this documentation is built, so it always matches
-   the code.
+   is executed when this documentation is built, so the code on those
+   pages is the code that produced the figures.
 
 Where to Go Next
 ----------------
@@ -60,5 +60,5 @@ Where to Go Next
       :link: auto_examples/index
       :link-type: doc
 
-      Complete experiments in both models, executed when the
+      Complete experiments in every model, executed when the
       documentation is built.

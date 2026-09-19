@@ -138,7 +138,7 @@ Where to Go Next
 ----------------
 
 The :doc:`Gallery <auto_examples/index>` holds complete experiments in
-both models. Each one is executed when this documentation is built, so
+every model. Each one is executed when this documentation is built, so
 the code on those pages is the code that ran. :doc:`Advanced Topics
 <advanced/index>` covers the machinery behind the models and the
 practical side of running them.
