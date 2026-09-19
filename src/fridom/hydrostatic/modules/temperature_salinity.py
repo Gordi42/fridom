@@ -43,6 +43,21 @@ assembly with the taught mixed-variant / missing-gravity error.
 (the Oceananigans spelling) replace one tracer by a constant: the
 field is not declared and the step carries one tracer fewer.
 
+**Convective adjustment.** A hydrostatic model cannot overturn a
+statically unstable column by itself (surface cooling, brine), and the
+vertical mixing closures carry a constant diffusivity.
+``convective_adjustment=n`` adds a ``CONSTRAINT`` stage that runs ``n``
+passes of the classic pairwise scheme (Cox 1984; the MOM / NEMO
+``npc`` ancestor): every pair of vertically adjacent wet cells whose
+upper parcel is denser than the lower one — both referenced to their
+common interface depth, so thermobaricity is honoured — is replaced by
+its thickness-weighted mean ``T`` and ``S``. Each pass sweeps the even
+and the odd pairs; heat and salt content are conserved to rounding.
+The scheme converges geometrically and never exactly (Rahmstorf 1993):
+an inversion spanning three cells shrinks by 1/4 per pass, a deep one
+homogenizes over a few steps. Off by default (``None``): the step then
+carries no such stage.
+
 **Depth.** ``d = z_surface - z`` with ``z`` the physical height of the
 cell: the vertical nodes on a flat or stretched column, the mapped
 column position (at the geometry the state carries) on a terrain /
@@ -67,8 +82,10 @@ from __future__ import annotations
 from functools import partial
 from typing import TYPE_CHECKING
 
+import jax.numpy as jnp
+
 import fridom as fr
-from fridom.framework.utils import jaxify
+from fridom.framework.utils import jaxify, modify_array
 from fridom.hydrostatic.eos import EquationOfState, LinearEOS
 from fridom.hydrostatic.params import EOS_ALPHA, EOS_BETA, GRAVITY
 from fridom.model.modules.moving_geometry import mapping_params
@@ -153,13 +170,18 @@ class TemperatureSalinity(fr.model.Module):
     surface : float | None, optional
         The physical height of the resting surface [m]; ``None`` is
         the upper bound of the vertical mesh axis (default: None).
+    convective_adjustment : int | None, optional
+        The number of pairwise convective-adjustment passes per
+        (sub)step; ``None`` installs no adjustment stage
+        (default: None).
 
     Raises
     ------
     TypeError
         If ``eos`` is not an ``EquationOfState``, both constants are
-        given (no tracer left), or a depth-dependent EOS declares
-        tunable coefficients.
+        given (no tracer left), a depth-dependent EOS declares
+        tunable coefficients, or ``convective_adjustment`` is not a
+        positive int (or None).
     """
 
     #: fr.scaling seam: T, S and an EOS are dimensional physics
@@ -174,6 +196,7 @@ class TemperatureSalinity(fr.model.Module):
         family: str | None = None,
         vertical: str = "z",
         surface: float | None = None,
+        convective_adjustment: int | None = None,
     ) -> None:
         """Store the EOS, the reductions and the tunable leaves."""
         if eos is None:
@@ -200,6 +223,16 @@ class TemperatureSalinity(fr.model.Module):
                 f"coefficients {sorted(tunable)}: the bound vocabulary "
                 f"is {sorted(_TUNABLE)}, and only a depth-independent "
                 "equation of state may be tunable")
+        if convective_adjustment is not None and (
+                isinstance(convective_adjustment, bool)
+                or not isinstance(convective_adjustment, int)
+                or convective_adjustment < 1):
+            raise TypeError(
+                "TemperatureSalinity convective_adjustment= takes the "
+                "number of pairwise adjustment passes per step (a "
+                "positive int, e.g. 3) or None for no adjustment, got "
+                f"{convective_adjustment!r}")
+        self._passes: int | None = convective_adjustment
         self._eos: EquationOfState = eos
         self._tunable: tuple[str, ...] = tuple(
             name for name in _TUNABLE if name in tunable)
@@ -345,11 +378,19 @@ class TemperatureSalinity(fr.model.Module):
         integral of every substage reads the buoyancy of that
         substage's ``T`` / ``S``.
         """
-        return (
+        stages = (
             fr.model.Stage(kind=fr.model.StageKind.DIAGNOSE,
                            fn="_diagnose_b", name="diagnose_b",
                            order=-1, writes=("b",)),
         )
+        if self._passes is not None:
+            # a pure correction (advances nothing), ahead of MaskState
+            stages += (
+                fr.model.Stage(kind=fr.model.StageKind.CONSTRAINT,
+                               fn="_convective_adjustment",
+                               name="convective_adjustment"),
+            )
+        return stages
 
     def _depth(self, state: VectorField, like: ScalarField) -> object:
         """Geopotential depth of ``like``'s nodes (array; 0 if unused)."""
@@ -409,6 +450,93 @@ class TemperatureSalinity(fr.model.Module):
         r"""``b = -g (rho(T, S, d) - rho(T_ref, S_ref, d)) / rho0``."""
         _, data = self._buoyancy(state, ctx.params)
         return {"b": state["b"].with_data(data)}
+
+    # ================================================================
+    #  The convective-adjustment CONSTRAINT stage
+    # ================================================================
+    def _convective_adjustment(self, state, ctx) -> dict:  # noqa: ANN001
+        r"""Mix statically unstable vertical neighbours (pairwise).
+
+        Description
+        -----------
+        ``self._passes`` sweeps over the even, then the odd vertical
+        cell pairs. A pair is unstable when the upper parcel is denser
+        than the lower one with both densities evaluated at the pair's
+        common interface depth; it is replaced by the mean weighted
+        with the wet cell thickness ``theta dz`` (the column Jacobian
+        of a terrain / z* column is the same for both cells and
+        cancels), so the column's heat and salt content are untouched.
+        Dry cells never pair. The selection is a ``jnp.where`` between
+        two finite branches — no masked singularity.
+        """
+        names = self.tracers
+        carrier = state[names[0]]
+        space = carrier.function_space
+        axis = tuple(space.names).index(self._vertical)
+        shape = carrier.data.shape
+        weight = carrier.grid.measure(space, self._vertical).data
+        wet = None
+        if self._immersed is not None:
+            theta = self._immersed.fraction(space).data
+            weight = weight * theta
+            wet = jnp.moveaxis(jnp.broadcast_to(theta > 0.0, shape),
+                               axis, -1)
+        weight = jnp.moveaxis(jnp.broadcast_to(weight, shape), axis, -1)
+        depth = jnp.moveaxis(
+            jnp.broadcast_to(self._depth(state, carrier), shape),
+            axis, -1)
+        coefficients = ({name: ctx.params[_TUNABLE[name]]
+                         for name in self._tunable} or None)
+        data = {name: jnp.moveaxis(state[name].data, axis, -1)
+                for name in names}
+        n = shape[axis]
+        for _ in range(self._passes):
+            for start in (0, 1):
+                low = slice(start, n - 1, 2)
+                up = slice(start + 1, n, 2)
+                data = self._mix_pairs(
+                    data, low, up, weight, depth, wet, coefficients)
+        return {name: state[name].with_data(
+                    jnp.moveaxis(data[name], -1, axis))
+                for name in names}
+
+    def _mix_pairs(
+        self,
+        data: dict[str, object],
+        low: slice,
+        up: slice,
+        weight: object,
+        depth: object,
+        wet: object,
+        coefficients: Mapping[str, object] | None,
+    ) -> dict[str, object]:
+        """Mix the unstable ``(low, up)`` cell pairs of one sweep."""
+        interface = 0.5 * (depth[..., low] + depth[..., up])
+
+        def density(cells: slice) -> object:
+            temperature = (data["T"][..., cells] if "T" in data
+                           else self._constant_temperature)
+            salinity = (data["S"][..., cells] if "S" in data
+                        else self._constant_salinity)
+            return self._eos.density_anomaly(
+                temperature, salinity, interface, coefficients)
+
+        unstable = density(up) > density(low)
+        w_low, w_up = weight[..., low], weight[..., up]
+        total = w_low + w_up
+        if wet is not None:
+            both = wet[..., low] & wet[..., up]
+            unstable = unstable & both
+            total = jnp.where(both, total, 1.0)
+        mixed = {}
+        for name, values in data.items():
+            v_low, v_up = values[..., low], values[..., up]
+            mean = (w_low * v_low + w_up * v_up) / total
+            lowered = modify_array(
+                values, (..., low), jnp.where(unstable, mean, v_low))
+            mixed[name] = modify_array(
+                lowered, (..., up), jnp.where(unstable, mean, v_up))
+        return mixed
 
     # ================================================================
     #  Bound diagnostics (model.diagnostics)

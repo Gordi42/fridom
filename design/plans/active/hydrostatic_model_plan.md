@@ -1063,10 +1063,28 @@ initial `S` on an immersed grid (dry `S = 0` under the TEOS-10 root of
 `S + 32`): finite, FD-matched to 1e-4. Forced-4-device invariance to
 1e-11 relative.
 
+**Convective adjustment** (`convective_adjustment=n`, off by default).
+A hydrostatic column cannot overturn and `VerticalMixing` carries a
+constant diffusivity, so a realistic (surface-cooled) run needs a
+static-instability sink. Taken: the classic pairwise scheme (Cox 1984)
+as a `CONSTRAINT` stage of the same module — `n` passes over the even
+and the odd vertical cell pairs, each unstable pair (densities compared
+at the common interface depth, so thermobaricity is honoured) replaced
+by its `theta dz`-weighted mean; dry cells never pair. It lives on the
+T/S module rather than in a separate closure because it needs the EOS
+and the tracer reductions, and a module cannot reference a sibling
+instance. Content conserved to 1e-14; a three-cell inversion shrinks by
+1/4 per pass (geometric, never exact — Rahmstorf 1993); a stable run is
+bitwise untouched; autodiff through the `jnp.where` selection is finite
+and FD-matched away from neutral pairs (the scheme is inherently
+non-smooth *at* neutrality); forced-4 invariant across z-shard seams.
+Not taken: an `N^2`-dependent implicit diffusivity (needs a
+field-valued `kappa` in the shared `VerticalDiffusion` band builder).
+
 **Not built.** A `hy.State` vocabulary entry for `T` / `S`; surface
 heat / freshwater flux wrappers with the oceanographic sign (use
 `BoundaryFlux("T", ...)` or a top-cell-masked `Relaxation`);
-convective adjustment; a prognostic-`b` consumer audit
+a prognostic-`b` consumer audit
 (`ThermalWindBackground` and `SurfaceBuoyancyFlux` advance `b` and are
 refused on this formulation by the lifecycle checks); N^2-consumers
 (energy metric, eigenmodes) refuse the model through the missing
