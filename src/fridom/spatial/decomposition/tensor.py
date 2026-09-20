@@ -15,7 +15,8 @@ GHOST-capable factor in the default layout, transpose pencils via
 Storage blocking (multi-device): a sharded ("blocked") axis stores
 ``n_shards`` uniform blocks of ``cells_per_shard + 2 * width`` slots
 on evenly partitioned periodic axes; other blocked axes reserve one
-additional stagger slot. Per-shard true data sits behind a leading ghost region, with the
+additional stagger slot. Per-shard true data sits behind a leading
+ghost region, with the
 trailing side absorbing ghosts plus the stagger padding that makes
 staggered pairs (n vs n + 1 DOFs) shard to one uniform storage shape
 (the sanctioned mitigation of ``04_decomposition.md`` section 5).

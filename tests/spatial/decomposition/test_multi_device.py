@@ -979,7 +979,8 @@ def test_zeros_never_allocates_the_global_storage(monkeypatch):
 
 
 @pytest.mark.multi_device
-@pytest.mark.parametrize("periodic,n", [(True, 16), (True, 17), (False, 16)])
+@pytest.mark.parametrize(("periodic", "n"),
+                         [(True, 16), (True, 17), (False, 16)])
 def test_only_uniform_periodic_blocks_omit_stagger_capacity(periodic, n):
     mesh = IntervalMesh(n, (0., 1.), periodic=periodic, name="x")
     grid = Grid((mesh,))
@@ -991,6 +992,7 @@ def test_only_uniform_periodic_blocks_omit_stagger_capacity(periodic, n):
     spaces = ((mesh.center, mesh.left, mesh.right) if periodic
               else (mesh.center, mesh.inner, mesh.outer))
     for space in spaces:
-        assert decomp.storage_shape(space) == (shards * (cells + extra + 2 * width),)
+        expected = (shards * (cells + extra + 2 * width),)
+        assert decomp.storage_shape(space) == expected
         values = jnp.arange(space.shape[0], dtype=jnp.float64)
         assert bitwise(decomp.unpad(decomp.pad(values, space), space), values)
