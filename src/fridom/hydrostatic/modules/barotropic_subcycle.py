@@ -74,21 +74,26 @@ def periodic_subcycle(
     -----------
     ``fields`` holds pressure, the two velocities and the two constant
     slow forcings. Across devices each block exchanges all five fields
-    in two packed messages. A halo twice the block length covers every
-    dependency of the sequential divergence/gradient stencil. Redundant
+    in two packed messages. One halo cell per complete substep covers
+    the sequential divergence/gradient stencil: pressure reaches left,
+    then x velocity reaches right, so their combined radius is one. Redundant
     work in that halo is discarded; only valid interiors are committed.
-    The block divides the substep count, so no extra physical steps run.
+    Exact-zero trailing weights are omitted because only the weighted
+    averages are returned. The supplied substep duration is unchanged.
+    The block divides the active count, so no extra physical steps run.
     One device uses the same stencil without halo exchanges or blocking.
     """
+    while len(weights) > 1 and weights[-1] == 0.0:
+        weights = weights[:-1]
     pressure, u, v, *_ = fields
     decomposition = pressure.grid.decomposition
     axis_name = dict(pressure.function_space.layout.device_axes).get(
         horizontal[0])
     shards = decomposition.device_count if axis_name else 1
     local_size = pressure.shape[0] // shards
-    block = max(k for k in range(1, min(15, local_size // 2, len(weights)) + 1)
+    block = max(k for k in range(1, min(local_size, len(weights)) + 1)
                 if len(weights) % k == 0)
-    width = 2 * block
+    width = block
     dx, dy = (uniform_spacing(pressure.function_space.bare.factor(axis))
               for axis in horizontal)
     values = jnp.stack([field.data for field in fields])

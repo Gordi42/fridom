@@ -1631,12 +1631,12 @@ def _ensure_valid(
     check of static Python attributes — zero runtime cost under jit.
     Validity is two-sided, so a spare low side does not pay for a short
     high side (an asymmetric stencil chain runs sync-free at the tight
-    negotiated width). A triggered sync fills every axis to the
-    negotiated widths, and the synced field is memoized in an external
-    identity-keyed cache (:data:`_SYNC_CACHE`) — never written back onto
+    negotiated width). A grid may repair only deficient requested axes,
+    preserving other validity claims. The synced field is memoized in an
+    external identity-keyed cache (:data:`_SYNC_CACHE`). It never mutates
     the operand, whose ``halo_valid`` is treedef-participating static
-    aux — so further consumers of the same field reuse it: n readers
-    pay one exchange.
+    aux. Further consumers of the same field reuse already repaired
+    axes rather than repeating their exchanges.
 
     Parameters
     ----------
@@ -1660,7 +1660,10 @@ def _ensure_valid(
             cached.halo_valid.covers(name, reach)
             for name, reach in required.items()):
         return cached
-    synced = _sync_node()(f)
+    source = f if cached is None else cached
+    repair = getattr(f.grid, "sync_required", None)
+    synced = (_sync_node()(source) if repair is None else
+              repair(source, required))
     if synced is not f:
         _memoize_sync(f, synced)
     return synced

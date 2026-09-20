@@ -13,8 +13,10 @@ GHOST-capable factor in the default layout, transpose pencils via
 ``layout_for``).
 
 Storage blocking (multi-device): a sharded ("blocked") axis stores
-``n_shards`` uniform blocks of ``cells_per_shard + 1 + 2 * width``
-slots — per-shard true data behind a leading ghost region, with the
+``n_shards`` uniform blocks of ``cells_per_shard + 2 * width`` slots
+on evenly partitioned periodic axes; other blocked axes reserve one
+additional stagger slot. Per-shard true data sits behind a leading
+ghost region, with the
 trailing side absorbing ghosts plus the stagger padding that makes
 staggered pairs (n vs n + 1 DOFs) shard to one uniform storage shape
 (the sanctioned mitigation of ``04_decomposition.md`` section 5).
@@ -467,9 +469,12 @@ class TensorDecomposition(Decomposition):
         if shards == 1:
             return 1, width, n + 2 * width, n + 2 * width
         cells = self._cells_per_shard(factor, shards)
-        # capacity cells + 1 covers the staggered n + 1 spaces so
-        # every space of the mesh shares one uniform block length
-        block = cells + 1 + 2 * width
+        # Periodic staggering never adds a DOF. Uniform periodic
+        # partitions can omit the otherwise reserved stagger slot;
+        # bounded and uneven partitions keep their established frame.
+        compact = (getattr(factor.mesh, "periodic", False)
+                   and n == factor.mesh.n_cells == shards * cells)
+        block = cells + (0 if compact else 1) + 2 * width
         return shards, width, block, shards * block
 
     def _local_reblock(
@@ -549,7 +554,7 @@ class TensorDecomposition(Decomposition):
         outer_slice: list[slice] = []
         blocked = False
         cell_padded = False
-        for axis, (name, n, _factor, shards, width, block,
+        for axis, (name, n, factor, shards, width, block,
                    _) in enumerate(geometry):
             if shards == 1:
                 # per-shard == global on an unblocked axis; the
@@ -559,7 +564,7 @@ class TensorDecomposition(Decomposition):
                 outer_pad.append((0, 0))
                 outer_slice.append(slice(0, n))
                 continue
-            cells = block - 1 - 2 * width
+            cells = self._cells_per_shard(factor, shards)
             # The shard_map runs on the padded-true frame
             # ``shards * cells`` (evenly split into ``cells``-chunks,
             # the last shard's surplus cells inert) and the plan wraps
@@ -1003,10 +1008,10 @@ class TensorDecomposition(Decomposition):
         """
         layout = self._resolve_layout(space, layout)
         shape = []
-        for _name, n, _factor, shards, width, block, _ in (
+        for _name, n, factor, shards, _width, _block, _ in (
                 self._geometry(space, layout)):
             shape.append(n if shards == 1
-                         else shards * (block - 1 - 2 * width))
+                         else shards * self._cells_per_shard(factor, shards))
         return tuple(shape)
 
     def unpad_even(
@@ -1114,6 +1119,7 @@ class TensorDecomposition(Decomposition):
         fills: Mapping[str, jax.Array] | None = None,
         materialize: bool = False,
         valid: HaloSpec | None = None,
+        axes: tuple[str, ...] | None = None,
     ) -> jax.Array:
         """
         Fill halos (see ``Decomposition.sync``).
@@ -1156,11 +1162,13 @@ class TensorDecomposition(Decomposition):
             raise NotImplementedError(
                 "inhomogeneous ghost fill is designed-for; "
                 "iteration 1 is homogeneous only")
+        if axes is not None and not set(axes).issubset(space.names):
+            raise ValueError("sync axes must belong to the field space")
         fill_axis = _write_axis if materialize else _fill_axis
         exchanged = []
         for axis, (name, n, factor, shards, width, _,
                    _) in enumerate(self._geometry(space, layout)):
-            if not width or (
+            if (axes is not None and name not in axes) or not width or (
                     self.device_count > 1 and valid is not None
                     and valid.covers(name, (width, width))):
                 continue

@@ -22,7 +22,8 @@ def _model(*, nx=32, wall=False, family="nodal"):
         grid=fr.spatial.Grid((
             mesh(nx, (0.0, 1.0), periodic=not wall, name="x"),
             mesh(12, (0.0, 1.0), periodic=True, name="y"),
-            mesh(4, (0.0, 1.0), periodic=False, name="z"))),
+            mesh(4, (0.0, 1.0), periodic=False, name="z")),
+            device_ids=tuple(device.id for device in jax.devices())),
         core=hy.Core(gravity=1.3, family=family),
         free_surface=hy.SplitExplicitFreeSurface(substeps=30),
         time_stepper=AdamBashforth(1e-4, order=2))
@@ -46,8 +47,8 @@ def _reference(fields, dtau, csqr, weights):
     return ap, au, av
 
 
-@pytest.mark.parametrize("substeps", [5, 16, 30])
-@pytest.mark.parametrize("nx", [32, 128])
+@pytest.mark.parametrize("substeps", [5, 16, 30, 31])
+@pytest.mark.parametrize("nx", [32, 84, 128])
 def test_blocked_matches_unblocked_random_fields(substeps, nx):
     model = _model(nx=nx)
     fields = _fields(model)
@@ -136,3 +137,38 @@ def test_other_and_inconsistent_layouts_fall_back():
     other = tuple(field.reshard(layout) for field in (p, u, v))
     assert not supports_blocking(p, other[1], v, ("x", "y"))
     assert not supports_blocking(*other, ("x", "y"))
+
+
+@pytest.mark.parametrize("weights", [(0.0,) * 5, (1.0,),
+                                    (0.1, 0.0, 0.3, 0.0, 0.0),
+                                    (0.0, 0.0, 0.0, 1.0),
+                                    tuple([1.0 / 32] * 32)])
+def test_full_width_and_zero_weight_patterns(weights):
+    fields = _fields(_model(nx=128))
+    assert fields[0].grid.decomposition.device_count == jax.device_count()
+    actual = jax.jit(lambda f: periodic_subcycle(
+        f, 1e-4, 1.3, weights, ("x", "y")))(fields)
+    expected = jax.jit(lambda f: _reference(f, 1e-4, 1.3, weights))(fields)
+    for got, want in zip(actual, expected, strict=True):
+        np.testing.assert_allclose(got.data, want.data, rtol=1e-12, atol=1e-12)
+
+
+def test_trimmed_kernel_vjp_matches_full_stencil():
+    fields = _fields(_model(nx=84))
+    weights = _sm2005_weights(30, 2, 4, 0.18927)
+    assert len(weights) == 30
+    assert weights[20] > 0
+    assert not any(weights[21:])
+
+    def loss(amplitude, kernel):
+        changed = (fields[0] * amplitude, *fields[1:])
+        result = kernel(changed, 1e-4, 1.3, weights)
+        return sum(jnp.mean(field.data**2) for field in result)
+
+    def blocked(f, dt, cs, w):
+        return periodic_subcycle(f, dt, cs, w, ("x", "y"))
+
+    actual = jax.jit(jax.grad(lambda a: loss(a, blocked)))(0.7)
+    expected = jax.jit(jax.grad(lambda a: loss(a, _reference)))(0.7)
+    assert np.isfinite(actual)
+    np.testing.assert_allclose(actual, expected, rtol=1e-12, atol=1e-12)

@@ -390,6 +390,7 @@ class Decomposition(ABC):
         fills: Mapping[str, jax.Array] | None = None,
         materialize: bool = False,
         valid: HaloSpec | None = None,
+        axes: tuple[str, ...] | None = None,
     ) -> jax.Array:
         """
         Exchange halos; fill bounded edges.
@@ -425,6 +426,10 @@ class Decomposition(ABC):
         valid : HaloSpec | None, optional
             Known-valid halo layers of the input. A realization may
             omit fills already covered by this claim (default: None).
+
+        axes : tuple[str, ...] | None, optional
+            Restrict repair to these axes; unselected storage is unchanged
+            (default: None, which repairs every axis).
 
         Returns
         -------
