@@ -26,9 +26,9 @@ def sync_log(monkeypatch):
     calls = []
     original = Grid.sync
 
-    def counting(self, field, boundary_data=None):
+    def counting(self, field, boundary_data=None, **kwargs):
         calls.append(field)
-        return original(self, field, boundary_data)
+        return original(self, field, boundary_data, **kwargs)
 
     monkeypatch.setattr(Grid, "sync", counting)
     return calls

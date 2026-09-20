@@ -1119,6 +1119,7 @@ class TensorDecomposition(Decomposition):
         fills: Mapping[str, jax.Array] | None = None,
         materialize: bool = False,
         valid: HaloSpec | None = None,
+        axes: tuple[str, ...] | None = None,
     ) -> jax.Array:
         """
         Fill halos (see ``Decomposition.sync``).
@@ -1161,11 +1162,13 @@ class TensorDecomposition(Decomposition):
             raise NotImplementedError(
                 "inhomogeneous ghost fill is designed-for; "
                 "iteration 1 is homogeneous only")
+        if axes is not None and not set(axes).issubset(space.names):
+            raise ValueError("sync axes must belong to the field space")
         fill_axis = _write_axis if materialize else _fill_axis
         exchanged = []
         for axis, (name, n, factor, shards, width, _,
                    _) in enumerate(self._geometry(space, layout)):
-            if not width or (
+            if (axes is not None and name not in axes) or not width or (
                     self.device_count > 1 and valid is not None
                     and valid.covers(name, (width, width))):
                 continue

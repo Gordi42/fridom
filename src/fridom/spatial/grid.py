@@ -984,6 +984,7 @@ class Grid:
         boundary_data: Mapping[str, ScalarField] | None = None,
         *,
         materialize: bool = False,
+        axes: tuple[str, ...] | None = None,
     ) -> ScalarField:
         """
         Fill the field's halos (wrap / BC fill / shard exchange).
@@ -1000,6 +1001,10 @@ class Grid:
             a materialization boundary (``Decomposition.sync``)
             (default: False).
 
+        axes : tuple[str, ...] | None, optional
+            Repair only these axes, preserving all other validity
+            claims. None repairs every axis (default: None).
+
         Returns
         -------
         ScalarField
@@ -1011,13 +1016,52 @@ class Grid:
                 "inhomogeneous ghost fill is designed-for; "
                 "iteration 1 is homogeneous only")
         space = field.function_space
+        if axes is not None and not set(axes).issubset(space.names):
+            raise ValueError("sync axes must belong to the field space")
+        options = {} if axes is None else {"axes": axes}
         synced = self._decomposition.sync(
             field._data, space,  # noqa: SLF001 — storage seam
-            materialize=materialize, valid=field.halo_valid)
+            materialize=materialize, valid=field.halo_valid, **options)
+        full = self._decomposition.halo.over(tuple(space.names))
+        valid = (full if axes is None else field.halo_valid.merge_max(
+            HaloSpec({name: reach for name, reach in full.intervals
+                      if name in axes})))
         return ScalarField(
             self, space, synced, field.metadata,
-            halo_valid=self._decomposition.halo.over(
-                tuple(space.names)))
+            halo_valid=valid)
+
+    def sync_required(
+        self, field: ScalarField, required: Mapping[str, tuple[int, int]],
+    ) -> ScalarField:
+        """Repair deficient consumer axes without discarding other claims.
+
+        Description
+        -----------
+        Completely invalid fields retain a full fill shared by all readers.
+        Partial fields on multiple devices repair only the requested axes;
+        the operator cache accumulates these views without mutating fields.
+        Single-device consumers retain the original full-fill lowering.
+
+        Parameters
+        ----------
+        field : ScalarField
+            The operand whose ghost validity the consumer requires.
+        required : Mapping[str, tuple[int, int]]
+            Per-axis lower and upper ghost depths read by the consumer.
+
+        Returns
+        -------
+        ScalarField
+            A repaired view with its original metadata and truthful
+            per-axis validity; the input field is never mutated.
+        """
+        any_valid = any(max(reach)
+                        for _, reach in field.halo_valid.intervals)
+        if self._decomposition.device_count == 1 or not any_valid:
+            return self.sync(field)
+        axes = tuple(name for name, reach in required.items()
+                     if not field.halo_valid.covers(name, reach))
+        return self.sync(field, axes=axes)
 
     # ================================================================
     #  Field factory
