@@ -725,7 +725,8 @@ def _keep_metadata(
     and must survive an op that the scalar rule cannot vouch for.
     Under the annotation-exempt aux rule this is no longer
     load-bearing for the treedef — it keeps component annotation
-    authoritative.
+    authoritative. The result's ghost-validity claim is retained:
+    changing annotation leaves its storage, space and grid untouched.
 
     Parameters
     ----------
@@ -744,4 +745,4 @@ def _keep_metadata(
     return type(result)(
         result.grid, result.function_space,
         result._data,  # noqa: SLF001 — plumbing-constructor seam
-        source.metadata)
+        source.metadata, halo_valid=result.halo_valid)

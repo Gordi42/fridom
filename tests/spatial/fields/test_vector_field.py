@@ -4,6 +4,7 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
+from fridom.spatial.decomposition.halo import HaloSpec
 from fridom.spatial.errors import (
     GridMismatchError,
     MissingComponentError,
@@ -395,6 +396,34 @@ def test_componentwise_ops_preserve_metadata(vec):
     assert stepped["u"].metadata.units == "m/s"
     assert (-vec)["v"].name == "v"
     assert (vec * 2.0)["u"].name == "u"
+
+
+@pytest.mark.parametrize("valid", [(0, 0), (1, 2), (3, 3)])
+def test_metadata_reattachment_preserves_result_halo_claims(valid):
+    mesh = IntervalMesh(32, (0., 1.), name="x")
+    grid = Grid((mesh,))
+    grid.negotiate(state_spaces=(mesh.center,), halo=HaloSpec({"x": 3}))
+    source = grid.create_field(mesh.center, name="original",
+                               init=lambda x: jnp.sin(7 * x))
+    full = grid.sync(source)
+    result = type(full)(grid, full.function_space, full.storage,
+                         full.metadata.cleared(),
+                         halo_valid=HaloSpec({"x": valid}))
+    vector = VectorField({"component": source})
+    for output in (vector.replace(component=result),
+                   vector.map(lambda _: result)):
+        assert output["component"].metadata is source.metadata
+        assert output["component"].halo_valid == result.halo_valid
+        np.testing.assert_array_equal(output["component"].storage,
+                                      result.storage)
+    # Arithmetic must keep the intersection computed by ScalarField,
+    # rather than the original component's larger claim or zero claims.
+    carried = VectorField({"component": full})
+    incoming = VectorField({"component": result})
+    for output in (carried.add(component=result), carried + incoming,
+                   carried * incoming):
+        assert output["component"].halo_valid == result.halo_valid
+        assert output["component"].metadata is full.metadata
 
 
 def test_tree_structure_is_scan_stable(vec):

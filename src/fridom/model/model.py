@@ -604,6 +604,40 @@ def _scrub_ghost_storage(tree: M) -> M:
     return jax.tree_util.tree_map(scrub, tree, is_leaf=_is_field)
 
 
+def _seal_state_ghosts(
+    state: VectorField, diagnostic: tuple[str, ...],
+) -> VectorField:
+    """
+    Seal carried fields, deferring diagnostic halo fills to their consumers.
+
+    Description
+    -----------
+    A diagnostic is recomputed by its producer before its next scheduled
+    consumer. Exchanging its final ghost values at every scan boundary
+    therefore adds communication that the following diagnosis discards.
+    Zero claims are always conservative, including when a diagnostic reads
+    an earlier value: ordinary operator consumption repairs any needed halo.
+    Both the scan input and output use this same fixed validity contract.
+    Other fields retain the existing materialized carry seal.
+
+    Parameters
+    ----------
+    state : VectorField
+        State entering or leaving a scan iteration.
+    diagnostic : tuple[str, ...]
+        Diagnostic component keys from the assembly field table.
+
+    Returns
+    -------
+    VectorField
+        State with consistent carry validity and unchanged true values.
+    """
+    return state.replace(**{
+        name: (_reset_ghost_claims(field) if name in diagnostic
+               else _seal_carry_ghosts(field))
+        for name, field in state.components.items()})
+
+
 # ================================================================
 #  The live per-step schedule view
 # ================================================================
@@ -711,6 +745,14 @@ def _chunk_body(
     the compiled ``advance`` path never sets it.
     """
     schedule = record.schedule
+    diagnostic = record.field_table.diagnostic
+
+    def seal_state(state: VectorField) -> VectorField:
+        """Keep the established single-device lowering unchanged."""
+        if record.grid.decomposition.device_count > 1:
+            return _seal_state_ghosts(state, diagnostic)
+        return _seal_carry_ghosts(state)
+
     run_diagnostics = bool(
         schedule.kind_entries(StageKind.DIAGNOSTIC))
 
@@ -726,14 +768,12 @@ def _chunk_body(
             ctx = bound.context(clock, dt=stepper.dt,
                                 stage_dt=stepper.dt)
             state = bound.diagnostics(state, ctx)
-        # ghost-claim discipline: the scan carry keeps ONE treedef
-        # (halo_valid is static aux). The state vector is SEALED —
-        # synced at the carry boundary, where its buffers materialize
-        # anyway — so next step's consumers read valid ghosts instead
-        # of re-filling at consumption; everything else (AB ring,
-        # module state) gets the plain claim reset as before.
+        # The scan keeps one halo-validity treedef. Carried fields are
+        # sealed where buffers materialize; distributed diagnostics defer
+        # repair until consumption, since their producer replaces them.
+        # The AB ring and module state retain the plain claim reset.
         return ModelState(
-            _seal_carry_ghosts(state),
+            seal_state(state),
             _reset_ghost_claims(carry.modules),
             _reset_ghost_claims(stepper_state),
             clock, carry.panic), None
@@ -752,10 +792,9 @@ def _chunk_body(
         one_step = jax.checkpoint(one_step)
         base_unroll = 1
     unroll = max(1, min(base_unroll, n))
-    # the scan init must carry the body's fixed-point treedef: state
-    # sealed to full validity, all other claims zeroed
+    # The scan input uses the body's fixed-point validity contract.
     init = ModelState(
-        _seal_carry_ghosts(model_state.state),
+        seal_state(model_state.state),
         _reset_ghost_claims(model_state.modules),
         _reset_ghost_claims(model_state.stepper_state),
         model_state.clock, model_state.panic)

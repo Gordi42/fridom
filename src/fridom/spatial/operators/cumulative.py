@@ -117,6 +117,7 @@ from typing import TYPE_CHECKING, ClassVar, final
 
 import jax.numpy as jnp
 
+from fridom.spatial.decomposition.tensor import TensorDecomposition
 from fridom.spatial.errors import SpaceMismatchError
 from fridom.spatial.fields.storage import store
 from fridom.spatial.operators.base import (
@@ -452,6 +453,12 @@ class CumulativeIntegral(SeparableOperator):
         """
         space = f.function_space
         bare = space.bare
+        decomposition = f.grid.decomposition
+        layout = space.layout or decomposition.default_layout
+        if (isinstance(decomposition, TensorDecomposition)
+                and decomposition.device_count > 1
+                and layout.is_local(axis) and self._jacobian is None):
+            return self._accumulate_storage(f, axis)
         weight = f.grid.measure(bare, name=axis)
         incr = f.data * weight.data
         factor = jacobian_factor(f, axis, self._jacobian,
@@ -468,6 +475,56 @@ class CumulativeIntegral(SeparableOperator):
             space.layout)
         stored = store(f.grid.decomposition, codomain, running)
         return type(f)(f.grid, codomain, stored, None)
+
+    def _accumulate_storage(self, f: FieldLike, axis: str) -> FieldLike:
+        """
+        Integrate local columns while retaining transverse ghost columns.
+
+        Description
+        -----------
+        An unweighted tensor-factor integral commutes with extension along
+        every other factor. Apply it to the existing transverse storage,
+        including the valid halo columns, instead of unpadding and storing
+        all axes. This avoids exchanging those columns again at the next
+        horizontal stencil. The integration axis itself is sliced to its
+        true interval, seeded normally, and padded with unclaimed zeros.
+
+        This path requires a local integration axis on a multi-device
+        tensor decomposition and no Jacobian weight. The ordinary path
+        continues to handle geometric weights and single-device execution.
+
+        Parameters
+        ----------
+        f : FieldLike
+            Operand whose integration axis is local.
+        axis : str
+            Coordinate to integrate.
+
+        Returns
+        -------
+        FieldLike
+            Integral with the operand's transverse halo validity.
+        """
+        space = f.function_space
+        decomposition = f.grid.decomposition
+        layout = space.layout or decomposition.default_layout
+        axis_index = space.bare.names.index(axis)
+        geometry = decomposition._geometry(space, layout)  # noqa: SLF001 — storage seam
+        _, length, _, _, width, _, _ = geometry[axis_index]
+        index = [slice(None)] * len(space.shape)
+        index[axis_index] = slice(width, width + length)
+        weight = f.grid.measure(space.bare, name=axis)
+        increments = f._data[tuple(index)] * weight.data  # noqa: SLF001 — storage seam
+        running = _running_integral(increments, axis_index, self._direction)
+        if self._target == "center":
+            running = _midpoint(running, axis_index)
+        codomain = resolve_codomain(self, space).with_layout(space.layout)
+        output_width = decomposition._geometry(  # noqa: SLF001 — storage seam
+            codomain, layout)[axis_index][4]
+        pads = [(0, 0)] * running.ndim
+        pads[axis_index] = (output_width, output_width)
+        return type(f)(f.grid, codomain, jnp.pad(running, pads), None,
+                       halo_valid=f.halo_valid.reset(axis))
 
 
 # ================================================================
