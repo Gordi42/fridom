@@ -288,7 +288,7 @@ def test_blocked_ghosts_match_the_single_device_fill():
         n = space.shape[0]
         width = grid_many.decomposition.halo["x"]
         cells = 16 // devices
-        block = cells + 1 + 2 * width
+        block = cells + (0 if periodic else 1) + 2 * width
         bounds = [min(s * cells, n) for s in range(devices)] + [n]
         for s in range(devices):
             lo, hi = bounds[s], bounds[s + 1]
@@ -798,6 +798,8 @@ def test_divisible_reblock_hlo_is_byte_for_byte_unchanged():
     # feature. Re-captured once since: the halo write moved from
     # arr.at[...] (a scatter) to dynamic_update_slice, so XLA's in-place
     # emitter can reach it (2026-07-14); the collectives were unchanged.
+    # Re-captured for compact periodic capacity (2026-09-20): block7
+    # becomes6, with the same collective offsets and true-data slices.
     if jax.device_count() != 4 or jax.default_backend() != "cpu":
         # the golden hard-codes the 4-device blocking (num_partitions,
         # shapes) AND is backend-specific text: it is captured on the
@@ -974,3 +976,21 @@ def test_zeros_never_allocates_the_global_storage(monkeypatch):
     assert {shard.data.shape for shard in arr.addressable_shards} == {
         block}
     assert bitwise(arr, np.zeros(storage, dtype=np.float32))
+
+
+@pytest.mark.multi_device
+@pytest.mark.parametrize("periodic,n", [(True, 16), (True, 17), (False, 16)])
+def test_only_uniform_periodic_blocks_omit_stagger_capacity(periodic, n):
+    mesh = IntervalMesh(n, (0., 1.), periodic=periodic, name="x")
+    grid = Grid((mesh,))
+    decomp = grid.decomposition
+    shards = jax.device_count()
+    cells = -(-n // shards)
+    width = decomp.halo["x"]
+    extra = 0 if periodic and n % shards == 0 else 1
+    spaces = ((mesh.center, mesh.left, mesh.right) if periodic
+              else (mesh.center, mesh.inner, mesh.outer))
+    for space in spaces:
+        assert decomp.storage_shape(space) == (shards * (cells + extra + 2 * width),)
+        values = jnp.arange(space.shape[0], dtype=jnp.float64)
+        assert bitwise(decomp.unpad(decomp.pad(values, space), space), values)

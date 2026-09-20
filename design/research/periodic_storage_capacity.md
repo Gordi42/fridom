@@ -1,0 +1,9 @@
+# Compact periodic tensor storage
+
+Uniform periodic partitions need no stagger surplus slot: every physical staggering has exactly the mesh cell count. The blocked frame can therefore use `cells + 2 * width` instead of `cells + 1 + 2 * width`. The guard requires a periodic mesh, the factor's true extent equal to its cell count, and exact division across shards. Bounded and uneven frames retain their former capacity. Unblocked, collapsed and coefficient axes are unchanged.
+
+Two consumers previously inferred cells by subtracting the surplus slot from the block length: local reblocking and padded-even shape. Both now query `_cells_per_shard`, making the capacity independent of physical cell ownership. Halo exchange, true-data ownership and partial-band exchange already obtain cells explicitly and need no changes. Communication payload and numerical methods are unchanged. At localNx32 with halo3 the frame shrinks39→38 (2.56%).
+
+Validation on Levante CPU:93 existing multi-device and partial-halo tests pass, plus3 new guard/roundtrip cases. The blocked-ghost comparison updates only its expected periodic frame size; all numerical assertions remain. Five CPU HLO goldens change only7→6 storage extents and trailingpad1_2→1_1; collective source/target pairs, offsets and true-data slices are unchanged. Independent20-step random oneCPU-be578 vsforced4 candidate comparisons pass for all55 arrays, including HYcentered/WENO, NHWENO, SWSadourny physical/diagnostic/auxiliary state and mapped/uneven stencil chains. Tolerances remain relative1e-10 and nearzero absolute1e-12.
+
+Paired64GPU performance/validation job27563964 compares the frozen candidate against frozenstage_v3, with100steps×5 and memory reporting. Performance results are maintained in the talk workspace notes/periodic_capacity. This source commit alone does not establish a speedup or authorize replacing benchmark figures.
