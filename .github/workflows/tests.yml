@@ -123,6 +123,7 @@ jobs:
           tests/spatial/operators/test_distributed_contract.py \
           tests/spatial/operators/test_cumulative.py \
           tests/spatial/operators/test_cumulative_storage.py \
+          tests/spatial/operators/test_base_selective_sync.py \
           tests/spatial/operators/test_transform.py \
           tests/spatial/operators/test_spectral_solve.py \
           tests/spatial/operators/test_transfer.py \
