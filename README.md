@@ -3,165 +3,32 @@
 [![codecov](https://codecov.io/github/Gordi42/fridom/graph/badge.svg?token=6LY1CFM6KU)](https://codecov.io/github/Gordi42/fridom)
 [![DOI](https://zenodo.org/badge/714260615.svg)](https://doi.org/10.5281/zenodo.14536978)
 
-[![](assets/logo/fridom.svg)](https://www.youtube.com/watch?v=Fotni4P2ZQs)
+![](assets/logo/fridom.svg)
 
 # Framework for Idealized Ocean Models (FRIDOM)
+I started FRIDOM as an ocean modeling framework. It has since turned into an experiment about how far coding agents can carry when the goal is a generalized numerical modeling framework, capable of running realistic global ocean simulations.
 
-FRIDOM is a Python framework for building idealized ocean and geophysical fluid
-models. You assemble a model from a grid and a handful of modules; the result is
-a tool for research and process studies.
+## Models are assembled from exchangeable parts
 
-## Why FRIDOM
+FRIDOM is not one model. Geometry, discretization, equations, time stepping,
+boundary conditions: each of them is a separate part, written for the general case,
+and a model is built by putting parts together like Lego bricks. A shallow-water
+model on a sphere and a non-hydrostatic model in a Cartesian box share most of
+their bricks and differ in a few. A new coordinate system or a new numerical scheme
+is one more brick.
 
-**One compiled run.** No Python time loop: FRIDOM lowers the whole integration
-into a single `jax.jit` over a chunked `lax.scan`, compiles it once, and runs it
-on CPU, GPU, or TPU.
+## The cost of AI: I no longer know my own code
 
-**No silent errors.**
+This project started in 2023 and I wrote every line of code myself for the first two and a half years and grew to about 30,000 lines. That version is still in this repository, on the `handwritten` branch. In July 2026 I handed the development over to coding agents. The code base exploded and many features were added. However, that came with a cost: I have no overview of the code base anymore. There are parts of it that work, that are tested, and whose details I do not understand. There are almost certainly features in here that I do not know exist.
 
-- *Operators never read past their data.* Fields track how deep their halo is
-  valid and operators track how far their stencil reaches, so FRIDOM exchanges
-  the halo it needs (once, shared across readers) instead of reading stale or
-  out-of-bounds cells. Bypassing this by dropping to raw arrays is rejected
-  unless declared.
-- *Inconsistent models don't build.* Assembly validates the model first and
-  refuses duplicate fields, unsatisfied references, or an implicit term under an
-  explicit stepper, naming the module at fault.
-- *Bad numbers stop the run.* Non-finite values halt the integration at the next
-  chunk boundary and report the first bad step.
+The hand-written version was mine in a way this one is not.
 
-**Composable modules.** No settings object; each parameter (Coriolis frequency,
-stratification, wave speed) lives in the module that uses it. Swap a module to
-change the physics.
+In order to keep track of what I understand, I only include what I have checked myself in the online documentation at [gordi42.github.io/fridom](https://gordi42.github.io/fridom/). Consequently, it describes only a small part of the framework. Much more is possible than what the docs show.
 
-**Function-space grid.** Fields live on function spaces; operators map between
-them and compose with `@`, where `laplacian` is literally `div @ grad`.
-Spectral, finite-difference, and finite-volume (WENO) schemes share one
-interface.
+## Credit belongs to the models this one learned from
 
-**Runs anywhere, analysis-ready output.** Multi-device decomposition uses native
-JAX sharding, no MPI. Initialise fields from `f(x, y)`, export any field to
-xarray with `field.xr`, and write output as a zarr store through TensorStore.
+FRIDOM owes its physics to [ps3d](https://github.com/ceden/ps3d) and [pyOM2](https://github.com/ceden/pyOM2), its function-space view to [Shenfun](https://github.com/spectralDNS/shenfun), much of its structure to [Oceananigans.jl](https://github.com/CliMA/Oceananigans.jl), and the idea of an ocean model in JAX to [Veros](https://github.com/team-ocean/veros). These are only the ones closest to this project. There are many more ocean models and fluid solvers out there, each of them carefully written and maintained by people who know every part of their code. Use one of those.
 
-## Example
-
-The snippet below builds a rotating shallow-water model, puts a bump on the free
-surface, integrates it for one inertial period, and plots the relative vorticity
-of the adjusted state.
-
-```python
-import numpy as np
-
-import fridom as fr
-import fridom.shallowwater2 as sw
-
-# A doubly periodic square basin, 2000 km on a side.
-grid = fr.spatial.cartesian.Grid(
-    shape=(128, 128), extent=2000e3, periodic=True)
-
-f0 = 1e-4                    # Coriolis parameter in 1/s
-gravity = 9.81               # m/s^2
-depth = 10.0                 # m, so gravity waves travel at 9.9 m/s
-runlen = 2 * np.pi / f0      # one inertial period, about 17.5 hours
-
-# the largest step below a gravity-wave Courant number of 0.2 that
-# divides the run window
-dt = fr.model.fit_dt(
-    runlen, 0.2 * grid.factor("x").dx / np.sqrt(gravity * depth))
-
-# Assemble a shallow-water model from composable modules.
-model = sw.Model(
-    grid=grid,
-    core=sw.Core(gravity=gravity, depth=depth),
-    coriolis=sw.modules.FPlaneCoriolis(f0=f0),
-    advection=sw.SadournyAdvection(),
-    time_stepper=fr.model.time_steppers.AdamBashforth(dt, order=3))
-
-# Raise the free surface by one metre over a patch in the middle of the
-# basin. The pressure of the shallow-water model is the gravitational
-# acceleration times the surface displacement.
-def bump(x, y):
-    radius_squared = (x - 1000e3) ** 2 + (y - 1000e3) ** 2
-    return gravity * np.exp(-radius_squared / (2 * 100e3 ** 2))
-
-model.set_fields(p=bump)
-
-# Integrate. The whole loop is compiled once into a single JAX function.
-model.run(runlen=runlen)
-
-# Read the relative vorticity as an xarray DataArray and plot it.
-model.state.rel_vort.xr.plot(x="x", cmap="RdBu_r")
-```
-
-> The core packages `fridom.spatial` (spatial discretization) and
-> `fridom.model` (model machinery) carry their final names. The rewritten
-> models still ship as `nonhydro2` and `shallowwater2` alongside the previous
-> versions; they take over the primary names once the port is finished.
-
-## Available models
-
-- **nonhydro**: a 3D non-hydrostatic Boussinesq model, adapted from
-  [ps3d](https://github.com/ceden/ps3d).
-- **shallowwater**: a 2D rotating shallow-water model.
-
-FRIDOM is under active
-development and the models are being rebuilt on the new core, so the API still
-moves between versions.
-
-## Installation
-
-FRIDOM needs Python 3.11 or newer. Clone the repository and install it in
-editable mode:
-
-```bash
-git clone https://github.com/Gordi42/FRIDOM
-cd FRIDOM
-pip install -e .            # CPU
-pip install -e '.[cuda]'    # NVIDIA GPU (CUDA 12)
-```
-
-The project is developed with [uv](https://docs.astral.sh/uv/), so `uv sync`
-(or `uv sync --extra dev`) reproduces the pinned environment. The plotting in
-the example above needs `xarray` and `matplotlib`, which come with the `dev`
-extra. The current code lives on the development branch, and the `fridom`
-release on PyPI predates this rewrite, so install from source for the version
-described here. See the
-[installation guide](https://gordi42.github.io/fridom/installation.html)
-for more.
-
-## Documentation
-
-The documentation and the example gallery live at
-[gordi42.github.io/fridom](https://gordi42.github.io/fridom/). The framework has
-been rewritten and the documentation is being rebuilt to match, so the gallery is
-currently the fullest account of the API. Every example in it is executed when
-the documentation is built.
-
-## Related work
-
-FRIDOM builds on ideas from several fluid- and ocean-modeling projects:
-
-- **[Oceananigans.jl](https://github.com/CliMA/Oceananigans.jl)**, a mature
-  Julia finite-volume ocean model spanning idealized to near-global setups, on
-  CPU and GPU.
-- **[Veros](https://github.com/team-ocean/veros)**, a pyOM2-derived
-  primitive-equation ocean model in Python with a JAX backend. It is FRIDOM's
-  closest JAX relative, though Veros is a fixed model where FRIDOM is a
-  framework for assembling them.
-- **[pyOM2](https://github.com/ceden/pyOM2)** and
-  **[ps3d](https://github.com/ceden/ps3d)**, the Fortran ocean and
-  pseudo-spectral flow solvers that FRIDOM's idealized experiments descend from.
-- **[Dedalus](https://github.com/DedalusProject/dedalus)**, a general spectral
-  PDE solver where you enter equations symbolically.
-- **[Shenfun](https://github.com/spectralDNS/shenfun)**, a spectral-Galerkin
-  framework that shares FRIDOM's view of fields on function spaces with
-  operators between them.
-- **[jax-cfd](https://github.com/google/jax-cfd)**, differentiable CFD in JAX,
-  the same accelerator-first substrate applied to generic flows.
-
-## Gallery
-
-https://github.com/Gordi42/FRIDOM/assets/118457787/66cca07d-5893-4c1b-af13-901dc78bdd6b
 
 ## How to cite
 
